@@ -1,5 +1,7 @@
 # Consenrich
 
+[![Tests](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml/badge.svg)](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml)
+
 *Consenrich is a sequential genome-wide state estimator for extraction of reproducible, spatially-resolved, epigenomic signals hidden in noisy multisample HTS data.*
 
 * **Input**:
