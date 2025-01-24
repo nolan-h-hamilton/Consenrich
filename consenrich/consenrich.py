@@ -1248,6 +1248,8 @@ def main():
                 args_dict = vars(args)
                 if 'config_file' in args_dict:
                     del args_dict['config_file']
+                if 'save_args' in args_dict:
+                    del args_dict['save_args']
                 json.dump(args_dict, f, indent=4)
         except Exception as e:
             logger.warning(f'Could not save arguments to file:\n{str(e)}\n')
