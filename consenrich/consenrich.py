@@ -1115,7 +1115,7 @@ def _parse_arguments(ID):
     :return: Namespace of parsed arguments.
     """
 
-    parser = argparse.ArgumentParser(description="Consenrich CLI parser")
+    parser = argparse.ArgumentParser(description="Consenrich CLI", formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=True, epilog="\nHomepage: https://github.com/nolan-h-hamilton/Consenrich\n")
     parser.add_argument(
         '-f', '--config_file',
         type=str,
