@@ -11,3 +11,5 @@ recursive-include consenrich/refdata/ mm39_blacklist.bed
 recursive-include consenrich/refdata/ dm6.sizes
 recursive-include consenrich/refdata/ dm6_sparse.bed
 recursive-include consenrich/refdata/ dm6_blacklist.bed
+recursive-include docs/ figure_1aa.png
+recursive-include docs/ ChIP_POL2RA_Demo.png
