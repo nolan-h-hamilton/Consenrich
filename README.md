@@ -8,15 +8,11 @@
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'treatment' sample (e.g., ChIP-seq)
 
-```math
-\underset{\textsf{Count Matrix from BAMs}}{\mathbf{Z} \in \mathbb{R}^{m \times n}}
-\;~~\overset{\textsf{Consenrich}}{\longrightarrow}\;~~  
-\underset{\textsf{Estimated signal and uncertainty sequences}}{\{\widehat{x}_i\}_{i=1}^{n},~~\{\widehat{\sigma}_i\}_{i=1}^{n}}
-```
-
 * **Output**: Real-valued 'consensus' epigenomic state estimates (BedGraph/BigWig) extracted from multiple HTS samples.
 
-## Example Use
+Consenrich can enhance traditional multi-sample analyses of HTS data such as consensus peak calling and enables confident spectral and enrichment-based analyses of high throughput functional genomics data (signal detection, wavelet analysis, etc.) See [Technical Features](#technical).
+
+## Example Command-Line Use
 
 * Run Consenrich on ten ATAC-seq samples in the current directory. Generate a BigWig signal track and inverse-variance-weighted residuals.
 
@@ -59,13 +55,13 @@
 
 Consenrich can be easily downloaded and installed from source:
 
-1. `git clone git@github.com:nolan-h-hamilton/Consenrich.git`
+1. `git clone https://github.com/nolan-h-hamilton/Consenrich.git`
 2. `cd Consenrich`
-3. `python setup.py sdist bdist_wheel`
+3. `python setup.py sdist bdist_wheel` or `pythom -m build`
 4. `python -m pip install .`
 5. Check installation: `consenrich --help`
 
-## Technical Features
+## Technical
 
 * Effectively models sample-and-region-varying noise to better integrate data across heterogeneous samples
 * Balances biologically-informed *a priori* predictions with observed HTS data to determine final estimates
