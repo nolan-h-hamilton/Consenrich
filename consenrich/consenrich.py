@@ -1115,7 +1115,7 @@ def _parse_arguments(ID):
     :return: Namespace of parsed arguments.
     """
 
-    parser = argparse.ArgumentParser(description="Consenrich CLI parser")
+    parser = argparse.ArgumentParser(description="Consenrich CLI", formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=True, epilog="\n\nHomepage: https://github.com/nolan-h-hamilton/Consenrich\n\n")
     parser.add_argument(
         '-f', '--config_file',
         type=str,
@@ -1184,8 +1184,7 @@ def _parse_arguments(ID):
     parser.add_argument('--ulim', '--state_upperlim', type=float, default=None, dest='state_upperlim',
                         help='Upper limit of state variable (default: max observed data).')
     parser.add_argument('--Qmat_offdiag', type=float, default=None)
-    parser.add_argument('--no_joseph', action='store_true', default=False)
-
+    parser.add_argument('--no_joseph', action='store_true', default=False, help='If set, do not use the Joseph form posterior covariance update.')
     parser.add_argument('--detrend_degree', type=int, default=None,
                         help='Degree for Savitzky-Golay-based detrend.')
     parser.add_argument('--detrend_percentile', type=int, default=None,
@@ -1241,6 +1240,10 @@ def main():
     ID = args.experiment_id
     logger.info(f'Consenrich Experiment {ID}')
 
+    if len(sys.argv) == 1:
+        logger.info('No arguments provided. Run `consenrich -h`.')
+        sys.exit(0)
+
     if args.save_args:
         try:
             with open(f'consenrich_{ID}_args.json', 'w') as f:
@@ -1248,6 +1251,8 @@ def main():
                 args_dict = vars(args)
                 if 'config_file' in args_dict:
                     del args_dict['config_file']
+                if 'save_args' in args_dict:
+                    del args_dict['save_args']
                 json.dump(args_dict, f, indent=4)
         except Exception as e:
             logger.warning(f'Could not save arguments to file:\n{str(e)}\n')
@@ -1274,7 +1279,7 @@ def main():
     # raise Exception is sparsebed is still missing
     # (i.e., not provided and generate_sparsebed failed)
     if not os.path.exists(args.sparsebed):
-        raise FileNotFoundError(f'Error: Sparsebed file {args.sparsebed} not found. A sparse bed file can be created by supplying an `--active_regions` BED.')
+        raise FileNotFoundError(f'Error: Sparsebed file {args.sparsebed} not found. A sparse bed file can be created by supplying an `--active_regions` BED. See `consenrich --help` for more information.')
 
     if os.path.exists(args.output_file):
         logger.warning(f'Output file {args.output_file} already exists. Overwriting...')
