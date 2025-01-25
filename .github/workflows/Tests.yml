@@ -48,6 +48,7 @@ jobs:
         python -m pip install deeptools
         python -m pip install pybigwig
         python -m pip install wheel
+        python -m pip install build
         python -m build 
         python -m pip install dist/consenrich-*.whl
 
