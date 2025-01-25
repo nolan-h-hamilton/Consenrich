@@ -30,7 +30,7 @@ import pysam
 from scipy import ndimage, signal, stats
 
 # module imports
-from .misc_util import *
+from consenrich.misc_util import *
 
 
 logging.basicConfig(level=logging.INFO,
