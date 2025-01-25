@@ -36,6 +36,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        python -m pip install wheel
         python -m pip install pylint
         python -m pip install pytest
         sudo apt-get install -y bedtools
@@ -47,10 +48,8 @@ jobs:
         python -m pip install pybedtools
         python -m pip install deeptools
         python -m pip install pybigwig
-        python -m pip install wheel
-        python -m pip install build
-        python -m build 
-        python -m pip install dist/consenrich-*.whl
+        python setup.py sdist bdist_wheel
+        python -m pip install .
 
     - name: run test_consenrich.py
       working-directory: ./tests

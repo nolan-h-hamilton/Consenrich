@@ -1,16 +1,20 @@
 # Consenrich
 
-[![Tests](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml/badge.svg)](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml)
+[![Tests](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml/badge.svg?event=workflow_dispatch)](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml)
 
 *Consenrich is a sequential genome-wide state estimator for extraction of reproducible, spatially-resolved, epigenomic signals hidden in noisy multisample HTS data.*
+
+---
 
 * **Input**:
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'treatment' sample (e.g., ChIP-seq)
 
-* **Output**: Real-valued 'consensus' epigenomic state estimates (BedGraph/BigWig) extracted from multiple HTS samples.
+* **Output**: Real-valued 'consensus' epigenomic state estimates (BedGraph/BigWig) and uncertainty metrics.
+  * As a robust, spatially informative representation of multiple samples' epigenomic profiles, Consenrich-extracted signal tracks can present additional insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., consensus peak calling, mixed-assay peak calling, etc.)
+  * Consenrich is also conducive to several SSP-based analyses, such as targeted detection of signal patterns associated with specific regulatory properties/states.
 
-Consenrich can enhance traditional multi-sample analyses of HTS data such as consensus peak calling and enables confident spectral and enrichment-based analyses of high throughput functional genomics data (signal detection, wavelet analysis, etc.) See [Technical Features](#technical).
+Several technical features of Consenrich are discussed [below](#technical-features).
 
 ## Example Command-Line Use
 
@@ -57,11 +61,11 @@ Consenrich can be easily downloaded and installed from source:
 
 1. `git clone https://github.com/nolan-h-hamilton/Consenrich.git`
 2. `cd Consenrich`
-3. `python setup.py sdist bdist_wheel` or `pythom -m build`
+3. `python setup.py sdist bdist_wheel`
 4. `python -m pip install .`
 5. Check installation: `consenrich --help`
 
-## Technical
+## Technical Features
 
 * Effectively models sample-and-region-varying noise to better integrate data across heterogeneous samples
 * Balances biologically-informed *a priori* predictions with observed HTS data to determine final estimates
