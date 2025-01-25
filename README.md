@@ -11,8 +11,8 @@
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'treatment' sample (e.g., ChIP-seq)
 
 * **Output**: Real-valued 'consensus' epigenomic state estimates (BedGraph/BigWig) and uncertainty metrics.
-  * As a robust, spatially informative representation of multiple samples' epigenomic profiles, Consenrich-extracted signal tracks can present additional insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., consensus peak calling, mixed-assay peak calling, etc.)
-  * Consenrich is also conducive to several SSP-based analyses, such as targeted detection of signal patterns associated with specific regulatory properties/states.
+  * As a robust, spatially informative representation of multiple samples' epigenomic profiles, Consenrich-extracted signal tracks can present additional insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., [consensus peak calling](docs/peaks_demo.png), mixed-assay peak calling, etc.)
+  * Consenrich also offers potential for various [spectral analyses](docs/filter_comparison.png), e.g., targeted detection of signal patterns associated with specific regulatory properties/states.
 
 Several technical features of Consenrich are discussed [below](#technical-features).
 

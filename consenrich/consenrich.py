@@ -1205,7 +1205,9 @@ def _parse_arguments(ID):
     parser.add_argument('--residuals', '--residual_bigwig', dest='residual_bigwig',
                         type=str, default=None,
                         help='Write bigWig of inverse-variance-weighted residual mean.')
-
+    parser.add_argument('-ares', '--abs_residuals', dest='abs_residuals', action='store_true', default=False, help='Record absolute value of ivw residuals. Only used if --residuals is set.')
+    parser.add_argument('--ratio_bigwig', type=str, default=None,
+                        help='Write bigWig of log2(squared_signal/squared_ivw) ratio.', dest='ratio_bigwig')
     parser.add_argument('-o', '--output_file', dest='output_file', default=f'consenrich_output_{ID}.tsv',
                         help='Output file for Consenrich results.')
     parser.add_argument('--save_matrix', action='store_true',
@@ -1386,10 +1388,14 @@ def main():
             logger.warning(f'Could not write Rtrace bigWig file {args.Rtrace_bigwig}:\n{str(e)}\n')
     if args.residual_bigwig is not None:
         try:
-            write_bigwig(args.output_file, args.sizes_file, chrom_list, args.residual_bigwig, stat='residuals_ivw')
+            write_bigwig(args.output_file, args.sizes_file, chrom_list, args.residual_bigwig, stat='residuals_ivw', abs_residuals=args.abs_residuals)
         except Exception as e:
             logger.warning(f'Could not write residual ivw est. bigWig file {args.residual_bigwig}:\n{str(e)}\n')
-
+    if args.ratio_bigwig is not None:
+        try:
+            write_bigwig(args.output_file, args.sizes_file, chrom_list, args.ratio_bigwig, stat='ratio')
+        except Exception as e:
+            logger.warning(f'Could not write ratio bigWig file {args.ratio_bigwig}:\n{str(e)}\n')
     return 0
 
 if __name__ == '__main__':
