@@ -1,4 +1,5 @@
 include *.md
+recursive-include consenrich/ *.py
 recursive-include consenrich/refdata/ hg38.sizes
 recursive-include consenrich/refdata/ hg38_sparse.bed
 recursive-include consenrich/refdata/ hg38_blacklist.bed
