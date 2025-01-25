@@ -48,8 +48,8 @@ jobs:
         python -m pip install deeptools
         python -m pip install pybigwig
         python -m pip install wheel
-        python setup.py sdist bdist_wheel
-        python -m pip install -e .
+        python -m build 
+        python -m pip install dist/consenrich-*.whl
 
     - name: run test_consenrich.py
       working-directory: ./tests
