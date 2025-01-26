@@ -1136,10 +1136,10 @@ def _parse_arguments(ID):
     parser.add_argument('--sparsebed', default=None, help='Path to sparsebed file.')
     parser.add_argument('--active_regions', default=None, help='Path to active regions file BED.')
     parser.add_argument('-g', '--genome', dest='genome', default=None, 
-                        help='If supplied, use pre-packaged files for the specified assembly.')
-    parser.add_argument('--step', type=int, default=50, help='Step size for intervals (default: 50).')
+                        help='Convenience option. If supplied, use pre-packaged files for the given assembly [hg38, mm10, mm39, dm6].')
+    parser.add_argument('--step', type=int, default=50, help='Step size for genomic intervals (default: 50bp).')
     parser.add_argument('--use_1x_norm', action='store_true', dest='norm_gwide', 
-                        help='If set, normalize counts to genome-wide read depth.')
+                        help='If set, normalize counts to genome-wide read depth. Else this is done on a per-chromosome basis.')
     parser.add_argument('--no_norm_counts', action='store_true', help='If set, skip normalizing counts')
     parser.add_argument('--paired_end', action='store_true', default=True)
     parser.add_argument('--single_end', action='store_false', dest='paired_end',
@@ -1215,7 +1215,7 @@ def _parse_arguments(ID):
     parser.add_argument('--experiment_id', default=ID,
                         help='Experiment ID for saving data files.')
     parser.add_argument('--save_args', action='store_true',
-                        help='Save arguments to a JSON file.')
+                        help='Save arguments to a JSON file. These can be used to reproduce the experiment via `consenrich -f <json_file>`.')
     args = parser.parse_args()
 
     if args.config_file is not None:

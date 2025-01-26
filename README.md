@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml/badge.svg?event=workflow_dispatch)](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml)
 
-*Consenrich is a sequential genome-wide state estimator for extraction of reproducible, spatially-resolved, epigenomic signals hidden in noisy multisample HTS data.*
+*[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a sequential genome-wide state estimator for extraction of reproducible, spatially-resolved, epigenomic signals hidden in noisy multisample HTS data.*
 
 ---
 
@@ -11,8 +11,12 @@
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'treatment' sample (e.g., ChIP-seq)
 
 * **Output**: Real-valued 'consensus' epigenomic state estimates (BedGraph/BigWig) and uncertainty metrics.
-  * As a robust, spatially informative representation of multiple samples' epigenomic profiles, Consenrich-extracted signal tracks can present additional insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., [consensus peak calling](docs/peaks_demo.png), mixed-assay peak calling, etc.)
-  * Consenrich also offers potential for various [spectral analyses](docs/filter_comparison.png), e.g., targeted detection of signal patterns associated with specific regulatory properties/states.
+
+---
+
+* Robust, spatially informative consensus signal track representing multiple samples' epigenomic profiles $\implies$ Consenrich-extracted signal tracks can present additional insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., [consensus peak calling](docs/peaks_demo.png))
+* Consenrich is robust to scaling differences and models each sample's data and respective noise $\implies$ extract consensus signal tracks across HTS samples from different, related assays (e.g., ATAC-seq + DNase-seq, ChIP-seq + CUT-N-RUN)
+* Consenrich can extract [spectral features](docs/filter_comparison.png) common to sample groups and is conducive to a wider range of signal processing-based analyses , e.g., targeted detection of structural/spatial patterns associated with specific regulatory properties/states.
 
 Several technical features of Consenrich are discussed [below](#technical-features).
 
@@ -64,6 +68,12 @@ Consenrich can be easily downloaded and installed from source:
 3. `python setup.py sdist bdist_wheel`
 4. `python -m pip install .`
 5. Check installation: `consenrich --help`
+
+Consenrich is also available via [PyPI/pip](https://pypi.org/project/consenrich/):
+
+* `pip install consenrich`
+
+If managing multiple Python environments, use `python -m pip install consenrich`. If lacking administrative privileges, running with flag `--user` may be necessary.
 
 ## Technical Features
 
