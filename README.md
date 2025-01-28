@@ -14,7 +14,7 @@
 
 ---
 
-* Robust, spatially informative consensus signal track representing multiple samples' epigenomic profiles $\implies$ Consenrich-extracted signal tracks can present additional insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., [consensus peak calling](docs/peaks_demo.png))
+* Robust, spatially informative consensus signal track representing multiple samples' epigenomic profiles $\implies$ Consenrich-extracted signal tracks can present additional insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., [consensus peak calling](docs/consensus_peaks.md))
 * Consenrich is robust to scaling differences and models each sample's data and respective noise $\implies$ extract consensus signal tracks across HTS samples from different, related assays (e.g., ATAC-seq + DNase-seq, ChIP-seq + CUT-N-RUN)
 * Consenrich can extract [spectral features](docs/filter_comparison.png) common to sample groups and is conducive to a wider range of signal processing-based analyses , e.g., targeted detection of structural/spatial patterns associated with specific regulatory properties/states.
 
