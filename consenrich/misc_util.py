@@ -16,7 +16,7 @@ import pybedtools as pbt
 import pysam
 
 from scipy import signal, ndimage, stats
-
+import time
 logging.basicConfig(level=logging.INFO,
                      format='%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s')
 logging.basicConfig(level=logging.WARNING,
@@ -231,3 +231,52 @@ def chrom_lexsort(chromosomes, sizes_file=None):
         sizes_dict = get_chromsizes_dict(sizes_file)
         chromosomes = [chrom for chrom in chromosomes if chrom in sizes_dict]
     return sorted(chromosomes, key=lambda x: (x.lower(), x[3:]))
+
+
+def check_sparse(vals: np.ndarray,
+                 eps_fod=.10, eps_med=1,
+                 max_original_mean: float=None,
+                 partitions: int=None) -> tuple:    
+    n = len(vals)
+    if max_original_mean is not None:
+        if np.mean(vals) > max_original_mean:
+            return False, -1
+    if partitions is not None:
+        partition_size = max(1, n // partitions)
+    else:
+        partition_size = max(1, n // 5)
+    dtr_mean = signal.detrend(vals, type='linear', bp=np.arange(0, n, partition_size))
+    dtr_sq = (dtr_mean**2)
+    if abs(np.median(np.ediff1d(dtr_mean)) <= eps_fod) and abs(np.median(dtr_mean)) <= eps_med :
+        return True, np.median(dtr_sq)
+    return False, -1.0
+
+def get_sparse(intervals: np.ndarray, vals: np.ndarray,
+               wlen_bp: int=1000, pdegree=3, min_len_bp=250):
+    step = get_step(intervals)
+    wlen = ((wlen_bp // step)//2)*2 + 1
+    min_len = max(1, min_len_bp // step)
+    lowpass_filtered_vals = signal.savgol_filter(vals, wlen, pdegree)
+    peaks, peak_properties = signal.find_peaks(lowpass_filtered_vals, height=np.percentile(lowpass_filtered_vals,50), distance=min_len, width=min_len)
+    sparse_intervals = []
+    noise_powers = []
+    for i in range(len(peaks)-1):
+        if abs(peak_properties['right_bases'][i] - peak_properties['left_bases'][i+1]) > min_len:
+            is_sparse, noise_power = check_sparse(vals[peak_properties['left_bases'][i]:peak_properties['right_bases'][i]], eps_fod=.10, eps_med=1, max_original_mean=None, partitions=5)
+            if is_sparse:
+                sparse_intervals.append(intervals[peak_properties['left_bases'][i]])
+                noise_powers.append(noise_power)
+    return sparse_intervals, noise_powers
+
+
+
+
+    
+
+    
+
+ 
+            
+            
+    
+    
