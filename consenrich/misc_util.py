@@ -70,7 +70,7 @@ def wrap_index(bam_file: str) -> bool:
 
     if not has_index:
         try:
-            logger.info(f'Could not find index file for {bam_file}...calling pysam.index()')
+            logger.info(f'Could not find index file for {bam_file}.calling pysam.index()')
             pysam.index(bam_file)
             has_index = True
         except Exception as ex:
@@ -87,7 +87,7 @@ def get_chromsizes_dict(sizes_file: str,
     :param sizes_file: Path to sizes file OR the name of a genome supported by  `pybedtools <https://daler.github.io/pybedtools/>`_
     :param exclude_regex: Regular expression to exclude chromosomes. Default excludes all non-standard chromosomes.
     :param exclude_chroms: List of chromosomes to exclude.
-    :return: Dictionary of chromosome sizes. Formatted as `{chromosome_name: size}`, e.g., `{'chr1': 248956422, 'chr2': 242193529, ...}`
+    :return: Dictionary of chromosome sizes. Formatted as `{chromosome_name: size}`, e.g., `{'chr1': 248956422, 'chr2': 242193529, .}`
 
     """
     genome_ = None
@@ -233,50 +233,70 @@ def chrom_lexsort(chromosomes, sizes_file=None):
     return sorted(chromosomes, key=lambda x: (x.lower(), x[3:]))
 
 
-def check_sparse(vals: np.ndarray,
-                 eps_fod=.10, eps_med=1,
-                 max_original_mean: float=None,
-                 partitions: int=None) -> tuple:    
+def check_psd(vals: np.ndarray, f_min:float = 0.01, threshold: float = 0.05) -> tuple:
+    r"""Check if a gap between peaks (see `get_sparse()`) qualifies for noise variance approximation.
+    
+     We've established these gaps are devoid of obvious signals and sufficiently large
+     ...by construction.
+     ...but we want to make sure that we can use the gap region to approximate
+     ...the noise variance (power) in a straightforward manner.
+
+     --First, estimate the power spectral density (PSD) in the gap by
+     ...detrending data and applying Welch's method.
+
+     --Second, subtract power over the frequency interval [0, f_min]: 
+     ...less likely that there is noise power at these frequencies
+
+     --Third, check if the average of relative maxima in the PSD over (f_min, 0.5] are close to the mean PSD.
+
+    """
     n = len(vals)
-    if max_original_mean is not None:
-        if np.mean(vals) > max_original_mean:
-            return False, -1
-    if partitions is not None:
-        partition_size = max(1, n // partitions)
-    else:
-        partition_size = max(1, n // 5)
-    dtr_mean = signal.detrend(vals, type='linear', bp=np.arange(0, n, partition_size))
-    dtr_sq = (dtr_mean**2)
-    if abs(np.median(np.ediff1d(dtr_mean)) <= eps_fod) and abs(np.median(dtr_mean)) <= eps_med :
-        return True, np.median(dtr_sq)
+    nperseg_ = max(2**np.ceil(np.log2(n/2)), 16)
+    noverlap_ = max(2**np.ceil(np.log2(nperseg_/2)), 8)
+    nfft = nperseg_
+    detrend_ = 'linear'
+    scaling_ = 'spectrum'
+    f, Pxx = signal.welch(vals, fs=1, window='hann', nperseg=nperseg_, noverlap=noverlap_, nfft=nfft, detrend=detrend_, scaling=scaling_)
+    f_trunc = np.array([i for i in range(len(Pxx)) if f[i] > f_min], dtype='int')
+    Pxx_trunc = Pxx[f_trunc]
+    
+    psd_peaks = signal.argrelmax(Pxx_trunc)[0]
+    if abs(np.max(Pxx_trunc[psd_peaks] - np.mean(Pxx_trunc[psd_peaks]))) < threshold  and len(psd_peaks) > 3:
+        return True, np.sum(Pxx_trunc) - np.sum(Pxx_trunc[psd_peaks])
     return False, -1.0
 
+
 def get_sparse(intervals: np.ndarray, vals: np.ndarray,
-               wlen_bp: int=1000, pdegree=3, min_len_bp=250):
+               wlen_bp: int=5000, pdegree=3, min_len_bp=500, f_min=0.01):
     step = get_step(intervals)
     wlen = ((wlen_bp // step)//2)*2 + 1
-    min_len = max(1, min_len_bp // step)
+    pdegree = pdegree if pdegree < wlen else wlen//2
+    min_len = max(50, min_len_bp // step)
+
+    # filter higher frequencies for peak calling using SG(wlen, pdegree)
+    #  --helps elucidate inflections in the data.
     lowpass_filtered_vals = signal.savgol_filter(vals, wlen, pdegree)
+    
+    # call peaks in the lowpass filtered data using basic nonparametric approach
     peaks, peak_properties = signal.find_peaks(lowpass_filtered_vals, height=np.percentile(lowpass_filtered_vals,50), distance=min_len, width=min_len)
+    
+    # Now we check the gaps *between* peaks to see if they satisfy criteria that makes them useful
+    # to approximate R_{i,jj}
     sparse_intervals = []
     noise_powers = []
     for i in range(len(peaks)-1):
-        if abs(peak_properties['right_bases'][i] - peak_properties['left_bases'][i+1]) > min_len:
-            is_sparse, noise_power = check_sparse(vals[peak_properties['left_bases'][i]:peak_properties['right_bases'][i]], eps_fod=.10, eps_med=1, max_original_mean=None, partitions=5)
+        is_sparse = False
+        # First, we discard any 'small' gaps between peaks as they won't be as useful
+        # .for computing the PSD (power spectral density) of the data.
+        if abs(peak_properties['right_bases'][i] - peak_properties['left_bases'][i+1]) > 2*min_len:
+            
+            # We've established the gap is large and devoid of obvious signals by construction.
+            # ...but we want to make sure that we can use the gap region to approximate
+            # ...the noise variance (power) in a straightforward manner.
+            
+            # See `check_psd()` for details.
+            is_sparse, noise_power = check_psd(vals[peak_properties['left_bases'][i]:peak_properties['right_bases'][i]], f_min=f_min)
             if is_sparse:
                 sparse_intervals.append(intervals[peak_properties['left_bases'][i]])
                 noise_powers.append(noise_power)
     return sparse_intervals, noise_powers
-
-
-
-
-    
-
-    
-
- 
-            
-            
-    
-    
