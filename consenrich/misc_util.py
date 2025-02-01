@@ -7,8 +7,10 @@ The `misc_util` module contains utility functions for Consenrich.
 """
 
 import logging
+import math
 import os
 import re
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -16,7 +18,7 @@ import pybedtools as pbt
 import pysam
 
 from scipy import signal, ndimage, stats
-
+import time
 logging.basicConfig(level=logging.INFO,
                      format='%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s')
 logging.basicConfig(level=logging.WARNING,
@@ -70,7 +72,7 @@ def wrap_index(bam_file: str) -> bool:
 
     if not has_index:
         try:
-            logger.info(f'Could not find index file for {bam_file}...calling pysam.index()')
+            logger.info(f'Could not find index file for {bam_file}.calling pysam.index()')
             pysam.index(bam_file)
             has_index = True
         except Exception as ex:
@@ -87,7 +89,7 @@ def get_chromsizes_dict(sizes_file: str,
     :param sizes_file: Path to sizes file OR the name of a genome supported by  `pybedtools <https://daler.github.io/pybedtools/>`_
     :param exclude_regex: Regular expression to exclude chromosomes. Default excludes all non-standard chromosomes.
     :param exclude_chroms: List of chromosomes to exclude.
-    :return: Dictionary of chromosome sizes. Formatted as `{chromosome_name: size}`, e.g., `{'chr1': 248956422, 'chr2': 242193529, ...}`
+    :return: Dictionary of chromosome sizes. Formatted as `{chromosome_name: size}`, e.g., `{'chr1': 248956422, 'chr2': 242193529, .}`
 
     """
     genome_ = None
@@ -231,3 +233,109 @@ def chrom_lexsort(chromosomes, sizes_file=None):
         sizes_dict = get_chromsizes_dict(sizes_file)
         chromosomes = [chrom for chrom in chromosomes if chrom in sizes_dict]
     return sorted(chromosomes, key=lambda x: (x.lower(), x[3:]))
+
+
+def acorr_fft_bp(x, dtr_wlen_bp=250, step=50,):
+    r"""Computes the autocorrelation function (ACF) via FFT convolution on a detrended `x`
+    """
+    n_x = len(x)
+    dtr_wlen = dtr_wlen_bp // step
+    if n_x // dtr_wlen < 5:
+        x = x - np.mean(x)
+    else:
+        # keeping degree fixed for now
+        x = (x - signal.savgol_filter(x,dtr_wlen, 2))
+    return signal.fftconvolve(x, x[::-1], mode='full')[len(x)-1:] / np.flip(n_x - np.arange(0,n_x))
+
+
+def check_acorr(x, acorr_threshold = 0.50, dtr_wlen_bp=250, step=50):
+    r"""Compares compares peaks in the autocorrelation function (ACF) to evaluate stationarity.
+
+    Retains regions where the great value occurs at :math:`ACF(\tau = 0)` and the second greatest value is less than `acorr_threshold` times the greatest value. The autocorrelation is computed efficiently via the FFT convolution 
+    method.
+
+    :param x: array of values covering a candidate sparse ('csparse') region
+    :param acorr_threshold: Thresholds the ratio of the autocorrelation function (ACF) peaks.
+    :param dtr_wlen_bp: Window length in base pairs for detrending prior to computing ACF via fftconvolve in `acorr_fft_bp()`.
+    :param step: Step size for intervals.
+    :return: A tuple (`bool`, `float`). True if `acorr_threshold` is satisfied, and value :math:`\frac{ACF(0}{\left(\max_{\tau = 1,2,\ldots} ACF(\tau)\right)}`
+    :rtype: tuple
+
+    :seealso: `acorr_fft_bp()`, `scipy.signal.fftconvolve()`, `get_csparse()`
+    """
+    aacorr_vec = acorr_fft_bp(x, dtr_wlen_bp=dtr_wlen_bp, step=step)
+    max_ = np.max(aacorr_vec)
+    second_max_ = np.max(np.abs(aacorr_vec[1:]))
+    return max_ == aacorr_vec[0] and second_max_ < acorr_threshold * max_, max_ / (second_max_ + 1e-4)
+
+
+def get_csparse(chromosome: str, intervals: np.ndarray, vals: np.ndarray,
+               aggr_percentile: int=75, wlen=51, pdegree=2,
+               min_peak_len=10, min_sparse_len=10, min_dist=50,
+               min_prom_prop: float=.05, min_peak_height_percentile: float=25,
+               bed: str=None, acorr_threshold: float=0.50) -> np.ndarray:
+    r"""Identify regions over which the local noise variance can be approximated quickly if Consenrich is run with `--no_sparsebed`.
+
+    First calls clear peaks in a crudely aggregated+low-pass filtered version of the chromosome count matrix. Then checks for approximate stationarity in the 'sparse' regions between peaks. Writes a bed file of the sparse regions.
+
+    :param chromosome: chromosome name.
+    :param intervals:  array of genomic intervals 
+    :param vals: np.ndarray of values monotonic with the number of sequence alignments at each interval.
+    :param aggr_percentile: Percentile to use for aggregating values across rows.
+    :param wlen: Window length for Savitzky-Golay filter.
+    :param pdegree: Polynomial degree for Savitzky-Golay filter.
+    :param min_peak_len: Minimum length of peaks.
+    :param min_sparse_len: Minimum length of sparse regions (between peaks) for further consideration.
+    :param min_dist: Minimum distance between peaks.
+    :param bed: Output bed file name.
+    :return: Path to BED file of qualifying sparse regions.
+
+    :seealso: `scipy.signal.savgol_filter()`, `scipy.signal.find_peaks()`, `check_acorr()`    
+    """
+
+    if bed is None:
+        bed = f'{chromosome}_csparse.bed'
+
+    step = get_step(intervals)
+    if wlen % 2 == 0:
+        logger.info(f'Window length must be odd. Adding 1 to {wlen}')
+        wlen += 1
+    wlen_bp = wlen * step
+    if wlen_bp < 100:
+        logger.info(f'Window length for filtering the aggregated data is less than 100bp. Consider increasing wlen.')
+
+    if len(vals) < wlen:
+        wlen = len(vals)//2
+        pdegree = max(min(pdegree, wlen//2),1)
+
+    agg_vals = None
+    if get_shape(vals)[0] > 1:
+        agg_vals = np.percentile(vals, aggr_percentile, axis=0)
+    else:
+        agg_vals = vals
+
+    # filter higher frequencies for peak calling using SG(wlen, pdegree)
+    lowpass_filtered_vals = signal.savgol_filter(agg_vals, wlen, pdegree)
+    
+    iqr_ = stats.iqr(lowpass_filtered_vals, rng=(1,99))
+    min_peak_prom = math.ceil(iqr_*min_prom_prop)
+    logger.info(f'Using prominence threshold: {min_peak_prom}')
+
+    # call peaks in the lowpass filtered data using a basic nonparametric approach
+    peaks, peak_properties = signal.find_peaks(lowpass_filtered_vals, prominence=min_peak_prom, width=min_peak_len)
+    prev_bound = 0
+    num_qualifying = 0
+    
+    if os.path.exists(bed):
+        os.remove(bed)
+    with open(bed,'w') as bed_out:
+        for i in range(len(peaks)-1):
+            sparse_bounds = (peak_properties['left_bases'][i], peak_properties['right_bases'][i])
+            if sparse_bounds[1] - sparse_bounds[0] >= min_sparse_len and sparse_bounds[0] > prev_bound + min_dist:
+                prev_bound = sparse_bounds[1]
+                idx_range = np.arange(sparse_bounds[0],sparse_bounds[1])
+                sufficient_, acorr_measure = check_acorr(agg_vals[idx_range], acorr_threshold)
+                if sufficient_:
+                    bed_out.write(f'{chromosome}\t{intervals[sparse_bounds[0]]}\t{intervals[sparse_bounds[1]]}\t{'_'.join([chromosome, str(intervals[sparse_bounds[0]]), str(intervals[sparse_bounds[1]])])}\t{acorr_measure}\n')
+                    num_qualifying += 1
+    return bed
