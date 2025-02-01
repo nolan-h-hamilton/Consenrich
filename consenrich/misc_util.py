@@ -7,8 +7,10 @@ The `misc_util` module contains utility functions for Consenrich.
 """
 
 import logging
+import math
 import os
 import re
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -233,70 +235,107 @@ def chrom_lexsort(chromosomes, sizes_file=None):
     return sorted(chromosomes, key=lambda x: (x.lower(), x[3:]))
 
 
-def check_psd(vals: np.ndarray, f_min:float = 0.01, threshold: float = 0.05) -> tuple:
-    r"""Check if a gap between peaks (see `get_sparse()`) qualifies for noise variance approximation.
-    
-     We've established these gaps are devoid of obvious signals and sufficiently large
-     ...by construction.
-     ...but we want to make sure that we can use the gap region to approximate
-     ...the noise variance (power) in a straightforward manner.
-
-     --First, estimate the power spectral density (PSD) in the gap by
-     ...detrending data and applying Welch's method.
-
-     --Second, subtract power over the frequency interval [0, f_min]: 
-     ...less likely that there is noise power at these frequencies
-
-     --Third, check if the average of relative maxima in the PSD over (f_min, 0.5] are close to the mean PSD.
-
+def acorr_fft_bp(x, dtr_wlen_bp=250, step=50,):
+    r"""Computes the autocorrelation function (ACF) via FFT convolution on a detrended `x`
     """
-    n = len(vals)
-    nperseg_ = max(2**np.ceil(np.log2(n/2)), 16)
-    noverlap_ = max(2**np.ceil(np.log2(nperseg_/2)), 8)
-    nfft = nperseg_
-    detrend_ = 'linear'
-    scaling_ = 'spectrum'
-    f, Pxx = signal.welch(vals, fs=1, window='hann', nperseg=nperseg_, noverlap=noverlap_, nfft=nfft, detrend=detrend_, scaling=scaling_)
-    f_trunc = np.array([i for i in range(len(Pxx)) if f[i] > f_min], dtype='int')
-    Pxx_trunc = Pxx[f_trunc]
-    
-    psd_peaks = signal.argrelmax(Pxx_trunc)[0]
-    if abs(np.max(Pxx_trunc[psd_peaks] - np.mean(Pxx_trunc[psd_peaks]))) < threshold  and len(psd_peaks) > 3:
-        return True, np.sum(Pxx_trunc) - np.sum(Pxx_trunc[psd_peaks])
-    return False, -1.0
+    n_x = len(x)
+    dtr_wlen = dtr_wlen_bp // step
+    if n_x // dtr_wlen < 5:
+        x = x - np.mean(x)
+    else:
+        # keeping degree fixed for now
+        x = (x - signal.savgol_filter(x,dtr_wlen, 2))
+    return signal.fftconvolve(x, x[::-1], mode='full')[len(x)-1:] / np.flip(n_x - np.arange(0,n_x))
 
 
-def get_sparse(intervals: np.ndarray, vals: np.ndarray,
-               wlen_bp: int=5000, pdegree=3, min_len_bp=500, f_min=0.01):
+def check_acorr(x, acorr_threshold = 0.50, dtr_wlen_bp=250, step=50):
+    r"""Compares compares peaks in the autocorrelation function (ACF) to evaluate stationarity.
+
+    Retains regions where the great value occurs at :math:`ACF(\tau = 0)` and the second greatest value is less than `acorr_threshold` times the greatest value. The autocorrelation is computed efficiently via the FFT convolution 
+    method.
+
+    :param x: array of values covering a candidate sparse ('csparse') region
+    :param acorr_threshold: Thresholds the ratio of the autocorrelation function (ACF) peaks.
+    :param dtr_wlen_bp: Window length in base pairs for detrending prior to computing ACF via fftconvolve in `acorr_fft_bp()`.
+    :param step: Step size for intervals.
+    :return: A tuple (`bool`, `float`). True if `acorr_threshold` is satisfied, and value :math:`\frac{ACF(0}{\left(\max_{\tau = 1,2,\ldots} ACF(\tau)\right)}`
+    :rtype: tuple
+
+    :seealso: `acorr_fft_bp()`, `scipy.signal.fftconvolve()`, `get_csparse()`
+    """
+    aacorr_vec = acorr_fft_bp(x, dtr_wlen_bp=dtr_wlen_bp, step=step)
+    max_ = np.max(aacorr_vec)
+    second_max_ = np.max(np.abs(aacorr_vec[1:]))
+    return max_ == aacorr_vec[0] and second_max_ < acorr_threshold * max_, max_ / (second_max_ + 1e-4)
+
+
+def get_csparse(chromosome: str, intervals: np.ndarray, vals: np.ndarray,
+               aggr_percentile: int=75, wlen=51, pdegree=2,
+               min_peak_len=10, min_sparse_len=10, min_dist=50,
+               min_prom_prop: float=.05, min_peak_height_percentile: float=25,
+               bed: str=None, acorr_threshold: float=0.50) -> np.ndarray:
+    r"""Identify regions over which the local noise variance can be approximated quickly if Consenrich is run with `--no_sparsebed`.
+
+    First calls clear peaks in a crudely aggregated+low-pass filtered version of the chromosome count matrix. Then checks for approximate stationarity in the 'sparse' regions between peaks. Writes a bed file of the sparse regions.
+
+    :param chromosome: chromosome name.
+    :param intervals:  array of genomic intervals 
+    :param vals: np.ndarray of values monotonic with the number of sequence alignments at each interval.
+    :param aggr_percentile: Percentile to use for aggregating values across rows.
+    :param wlen: Window length for Savitzky-Golay filter.
+    :param pdegree: Polynomial degree for Savitzky-Golay filter.
+    :param min_peak_len: Minimum length of peaks.
+    :param min_sparse_len: Minimum length of sparse regions (between peaks) for further consideration.
+    :param min_dist: Minimum distance between peaks.
+    :param bed: Output bed file name.
+    :return: Path to BED file of qualifying sparse regions.
+
+    :seealso: `scipy.signal.savgol_filter()`, `scipy.signal.find_peaks()`, `check_acorr()`    
+    """
+
+    if bed is None:
+        bed = f'{chromosome}_csparse.bed'
+
     step = get_step(intervals)
-    wlen = ((wlen_bp // step)//2)*2 + 1
-    pdegree = pdegree if pdegree < wlen else wlen//2
-    min_len = max(50, min_len_bp // step)
+    if wlen % 2 == 0:
+        logger.info(f'Window length must be odd. Adding 1 to {wlen}')
+        wlen += 1
+    wlen_bp = wlen * step
+    if wlen_bp < 100:
+        logger.info(f'Window length for filtering the aggregated data is less than 100bp. Consider increasing wlen.')
+
+    if len(vals) < wlen:
+        wlen = len(vals)//2
+        pdegree = max(min(pdegree, wlen//2),1)
+
+    agg_vals = None
+    if get_shape(vals)[0] > 1:
+        agg_vals = np.percentile(vals, aggr_percentile, axis=0)
+    else:
+        agg_vals = vals
 
     # filter higher frequencies for peak calling using SG(wlen, pdegree)
-    #  --helps elucidate inflections in the data.
-    lowpass_filtered_vals = signal.savgol_filter(vals, wlen, pdegree)
+    lowpass_filtered_vals = signal.savgol_filter(agg_vals, wlen, pdegree)
     
-    # call peaks in the lowpass filtered data using basic nonparametric approach
-    peaks, peak_properties = signal.find_peaks(lowpass_filtered_vals, height=np.percentile(lowpass_filtered_vals,50), distance=min_len, width=min_len)
+    iqr_ = stats.iqr(lowpass_filtered_vals, rng=(1,99))
+    min_peak_prom = math.ceil(iqr_*min_prom_prop)
+    logger.info(f'Using prominence threshold: {min_peak_prom}')
+
+    # call peaks in the lowpass filtered data using a basic nonparametric approach
+    peaks, peak_properties = signal.find_peaks(lowpass_filtered_vals, prominence=min_peak_prom, width=min_peak_len)
+    prev_bound = 0
+    num_qualifying = 0
     
-    # Now we check the gaps *between* peaks to see if they satisfy criteria that makes them useful
-    # to approximate R_{i,jj}
-    sparse_intervals = []
-    noise_powers = []
-    for i in range(len(peaks)-1):
-        is_sparse = False
-        # First, we discard any 'small' gaps between peaks as they won't be as useful
-        # .for computing the PSD (power spectral density) of the data.
-        if abs(peak_properties['right_bases'][i] - peak_properties['left_bases'][i+1]) > 2*min_len:
-            
-            # We've established the gap is large and devoid of obvious signals by construction.
-            # ...but we want to make sure that we can use the gap region to approximate
-            # ...the noise variance (power) in a straightforward manner.
-            
-            # See `check_psd()` for details.
-            is_sparse, noise_power = check_psd(vals[peak_properties['left_bases'][i]:peak_properties['right_bases'][i]], f_min=f_min)
-            if is_sparse:
-                sparse_intervals.append(intervals[peak_properties['left_bases'][i]])
-                noise_powers.append(noise_power)
-    return sparse_intervals, noise_powers
+    if os.path.exists(bed):
+        os.remove(bed)
+    with open(bed,'w') as bed_out:
+        for i in range(len(peaks)-1):
+            sparse_bounds = (peak_properties['left_bases'][i], peak_properties['right_bases'][i])
+            if sparse_bounds[1] - sparse_bounds[0] >= min_sparse_len and sparse_bounds[0] > prev_bound + min_dist:
+                prev_bound = sparse_bounds[1]
+                idx_range = np.arange(sparse_bounds[0],sparse_bounds[1])
+                sufficient_, acorr_measure = check_acorr(agg_vals[idx_range], acorr_threshold)
+                if sufficient_:
+                    bed_out.write(f'{chromosome}\t{intervals[sparse_bounds[0]]}\t{intervals[sparse_bounds[1]]}\t{'_'.join([chromosome, str(intervals[sparse_bounds[0]]), str(intervals[sparse_bounds[1]])])}\t{acorr_measure}\n')
+                    num_qualifying += 1
+    return bed

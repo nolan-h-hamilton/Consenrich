@@ -492,6 +492,7 @@ def get_munc_track_mp(chromosome: str,
                 munc_smooth_bp: int=500,
                 munc_local_weight: float=0.333,
                 munc_global_weight: float=0.667,
+                conservative_munc: bool=False,
                 n_processes: int=None) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
     Wrapper for parallelizing observation noise track computation across multiple samples' read data tracks.
@@ -501,7 +502,7 @@ def get_munc_track_mp(chromosome: str,
 
     num_rows = get_shape(chrom_matrix)[0]
     job_args = [
-        (chromosome, intervals, chrom_matrix[i], sparsemap, munc_min, munc_max, munc_smooth, munc_smooth_bp, munc_local_weight, munc_global_weight) for i in range(num_rows)]
+        (chromosome, intervals, chrom_matrix[i], sparsemap, munc_min, munc_max, munc_smooth, munc_smooth_bp, munc_local_weight, munc_global_weight, conservative_munc) for i in range(num_rows)]
 
     with mp.Pool(processes=n_processes) as pool:
         results = pool.starmap(munc_track, job_args)
@@ -544,6 +545,7 @@ def munc_track(chromosome: str,
             munc_smooth_bp: int=1000,
             munc_local_weight: float=0.333,
             munc_global_weight: float=0.667,
+            conservative_munc: bool=False
             ) -> tuple:
     """The function `munc_track` computes the observation noise track for a given chromosome and read track using nearby, 'sparse' genomic regions at each interval.
 
@@ -562,7 +564,12 @@ def munc_track(chromosome: str,
 
     step = get_step(intervals)
     n = match_lengths(intervals, vals)
-    vals_sq = vals ** 2
+    if conservative_munc:
+        break_len = max(2, n//100)
+        if break_len % 2 == 0:
+            break_len += 1
+        vals = vals - signal.savgol_filter(vals, break_len, 2)
+    vals_sq = np.square(vals)
 
     munc_track_ = np.zeros(n)
     prev = None
@@ -574,7 +581,10 @@ def munc_track(chromosome: str,
             continue
 
         val_idx = np.searchsorted(intervals, sparsemap[interval], side='right') - 1
-        munc_track_[i] = stats.trim_mean(vals_sq[val_idx], 0.005)
+        if conservative_munc:
+            munc_track_[i] = np.median(vals_sq[val_idx])
+        else:
+            munc_track_[i] = stats.trim_mean(vals_sq[val_idx], 0.005)
         prev = hashlib.md5(sparsemap[interval].tobytes()).hexdigest()
 
     munc_track_ = np.clip(munc_track_, munc_min, munc_max)
@@ -660,7 +670,17 @@ def get_chromosome_matrix(chromosome: str,
                         experiment_id: int=None,
                         control_files: list=None,
                         log_scale: bool=False,
-                        log_pc: int=1) -> tuple:
+                        log_pc: int=1,
+                        no_sparsebed=False,
+                        csparse_aggr_percentile=75,
+                        csparse_wlen=51,
+                        csparse_pdegree=3,
+                        csparse_min_peak_len=10,
+                        csparse_min_sparse_len=10,
+                        csparse_min_dist=50,
+                        csparse_max_features: int=5000,
+                        csparse_min_prom_prop: float=0.05):
+
     r"""The function `get_chromosome_matrix` computes the matrix of read counts (:math:`m \times n` for :math:`m` samples) for a given chromosome and list of paths to samples' sequence alignment files (BAM format).
 
     :param chromosome: Chromosome name.
@@ -759,8 +779,34 @@ def get_chromosome_matrix(chromosome: str,
     elif norm_gwide:
         for i in range(get_shape(chrom_matrix)[0]):
             chrom_matrix[i] = chrom_matrix[i]*estimate_gwide_scale(bam_files[i], sizes_file)
-    
+
+    munc_matrix = np.zeros((len(bam_files), len(intervals)))
+    conservative_munc = False
+    sparse_fname = None
+    if no_sparsebed:
+        sparse_fname = f'tmp_{chromosome}_sparse_{int(uuid.uuid4().hex[:5], base=16)}.bed'
+        get_csparse(chromosome, intervals, chrom_matrix,
+                                aggr_percentile=csparse_aggr_percentile,
+                                wlen=csparse_wlen, pdegree=csparse_pdegree,
+                                min_peak_len=csparse_min_peak_len,
+                                min_sparse_len=csparse_min_sparse_len,
+                                min_dist=csparse_min_dist, min_prom_prop=csparse_min_prom_prop,
+                                bed=sparse_fname)
+        conservative_munc = True
+        if pbt.BedTool(sparse_fname).count() > csparse_max_features:
+            sparsebed_selection = pbt.BedTool(sparse_fname).sort(chrThenScoreD=True)
+            try:
+                os.remove(sparse_fname)
+            except:
+                logger.warning(f"Could not remove temporary file: {sparse_fname}")
+            sparse_fname = pbt.BedTool(sparsebed_selection.head(csparse_max_features, as_string=True), from_string=True).sort().saveas(sparse_fname + '.head.bed')
+        sparsebed = sparse_fname 
     proximal_features = find_proximal_features(chromosome, intervals, sparsebed, k=munc_k)
+    if no_sparsebed and sparse_fname is not None and os.path.exists(sparse_fname):
+        try:
+            os.remove(sparse_fname)
+        except:
+            logger.warning(f"Could not remove temporary file: {sparse_fname}")
     logger.info(f'Computing observation noise tracks: {chromosome}...')
     par_results_munctrack = get_munc_track_mp(
         chromosome, 
@@ -772,9 +818,8 @@ def get_chromosome_matrix(chromosome: str,
         munc_smooth=munc_smooth, 
         munc_smooth_bp=munc_smooth_bp, 
         munc_local_weight=munc_local_weight, 
-        munc_global_weight=munc_global_weight)
-
-    munc_matrix = np.zeros((len(bam_files), len(intervals)))
+        munc_global_weight=munc_global_weight,
+        conservative_munc=conservative_munc)
     prev_match_arr = None
     for k, result in enumerate(par_results_munctrack):
         if k == 0:
@@ -854,7 +899,10 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
                    joseph=True, detrend_degree=None, detrend_percentile=None, detrend_window_bp=None,
                    detrend_lbound=None, detrend_ubound=None,
                    save_matrix=True, experiment_id=None,
-                   control_files=None, log_scale=False, log_pc=1.0):
+                   control_files=None, log_scale=False, log_pc=1.0,
+                   no_sparsebed=False, csparse_aggr_percentile=75, csparse_wlen=51,
+                   csparse_pdegree=3, csparse_min_peak_len=10, csparse_min_sparse_len=10,
+                   csparse_min_dist=50, csparse_max_features=5000, csparse_min_prom_prop=0.05):
     r"""Run Consenrich on an individual chromosome.
     
     :param chromosome: Chromosome to run Consenrich on.
@@ -908,7 +956,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
     logger.info(f'Running Consenrich on chromosome {chromosome} with {len(bam_files)} BAM files and {n_processes} processes')
 
     # First compute read tracks and observation noise tracks
-    intervals, chrom_matrix, munc_matrix, prev_match_arr = get_chromosome_matrix(chromosome, bam_files, sizes_file, sparsebed, step, norm_counts, norm_gwide, paired_end, exclude_flag, min_mapq, blacklist_file, threads, count_both, backshift, munc_min, munc_max, munc_smooth, munc_smooth_bp, munc_local_weight, munc_global_weight, munc_k, n_processes, detrend_degree, detrend_percentile, detrend_window_bp, detrend_lbound, detrend_ubound, save_matrix, experiment_id, control_files, log_scale, log_pc)
+    intervals, chrom_matrix, munc_matrix, prev_match_arr = get_chromosome_matrix(chromosome, bam_files, sizes_file, sparsebed, step, norm_counts, norm_gwide, paired_end, exclude_flag, min_mapq, blacklist_file, threads, count_both, backshift, munc_min, munc_max, munc_smooth, munc_smooth_bp, munc_local_weight, munc_global_weight, munc_k, n_processes, detrend_degree, detrend_percentile, detrend_window_bp, detrend_lbound, detrend_ubound, save_matrix, experiment_id, control_files, log_scale, log_pc, no_sparsebed, csparse_aggr_percentile, csparse_wlen, csparse_pdegree, csparse_min_peak_len, csparse_min_sparse_len, csparse_min_dist, csparse_max_features, csparse_min_prom_prop)
 
     if state_lowerlim is None:
         # if not set, use smallest value in data or 0
@@ -1214,6 +1262,23 @@ def _parse_arguments(ID):
                         help='Save count and noise covariance matrices to .npz for each chromosome.')
     parser.add_argument('--experiment_id', default=ID,
                         help='Experiment ID for saving data files.')
+
+    parser.add_argument('--no_sparsebed', action='store_true',
+                        help='If invoked, compute noise variances from inferred sparse regions specific to each sample based on post-detrend stationary or WSS regions.')
+    parser.add_argument('--csparse_aggr_percentile', type=float, default=75,
+                        help='Used to reduce data to 1d prior to the filter step in csparse if `--no_sparsebed` is invoked.')
+    parser.add_argument('--csparse_wlen', type=int, default=51,
+                        help='Window length (in units of `--step`) for the filter step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
+    parser.add_argument('--csparse_pdegree', type=int, default=3,
+                        help='Polynomial degree for the filter step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
+    parser.add_argument('--csparse_min_peak_len', type=int, default=10,
+                        help='Minimum length of peaks (in units of `--step`) in the filter step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
+    parser.add_argument('--csparse_min_sparse_len', type=int, default=10,
+                        help='Minimum length of sparse regions (in units of `--step`) in the filter step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
+    parser.add_argument('--csparse_min_dist', type=int, default=50,
+                        help='Minimum distance (in units of `--step`) between first-pass enriched regions in the filter/fp-peak step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
+    parser.add_argument('--csparse_max_features', type=int, default=5000)
+    parser.add_argument('--csparse_min_prom_prop', type=float, default=0.05, help='Minimum prominence threshold on first-pass peaks as a fraction of the dynamic range')
     parser.add_argument('--save_args', action='store_true',
                         help='Save arguments to a JSON file. These can be used to reproduce the experiment via `consenrich -f <json_file>`.')
     args = parser.parse_args()
@@ -1259,29 +1324,44 @@ def main():
         except Exception as e:
             logger.warning(f'Could not save arguments to file:\n{str(e)}\n')
 
+    if args.no_sparsebed:
+        args.sparsebed = None
+
     # Use default resources for a supported genome
     if args.genome is not None:
         if args.sizes_file is None:
             args.sizes_file = get_genome_resource(f'{args.genome.lower()}.sizes')
         if args.blacklist_file is None:
             args.blacklist_file = get_genome_resource(f'{args.genome.lower()}_blacklist.bed')
-        if args.sparsebed is None:
+        if args.sparsebed is None and not args.no_sparsebed:
             args.sparsebed = get_genome_resource(f'{args.genome.lower()}_sparse.bed')
 
     norm_counts = not args.no_norm_counts
     munc_smooth =  args.munc_smooth_bp is not None and args.munc_smooth_bp > (3*args.step)
     joseph_ = not args.no_joseph
 
-    # create BED of sparse segments if not provided
-    if args.sparsebed is None and args.active_regions is not None:
+    # create BED of sparse segments from the complement of --active_regions
+    if args.sparsebed is None and args.active_regions is not None and not args.no_sparsebed:
         sparsebed_fname=f'sparsebed_output_{args.experiment_id}.bed'
-        create_sparsebed(args.active_regions, args.sizes_file, args.blacklist_file, outfile=sparsebed_fname)
-        args.sparsebed = sparsebed_fname
-
-    # raise Exception is sparsebed is still missing
-    # (i.e., not provided and generate_sparsebed failed)
-    if not os.path.exists(args.sparsebed):
-        raise FileNotFoundError(f'Error: Sparsebed file {args.sparsebed} not found. A sparse bed file can be created by supplying an `--active_regions` BED. See `consenrich --help` for more information.')
+        try:
+            create_sparsebed(args.active_regions, args.sizes_file, args.blacklist_file, outfile=sparsebed_fname)
+            args.sparsebed = sparsebed_fname
+        except Exception as ex:
+            logger.info(f"Original exception:\n{ex}\n\n")
+            raise Exception(
+                f"Could not find/create sparsebed file {args.sparsebed}.\n"
+                "You can either run with `--no_sparsebed`, in which case "
+                "sparse regions are inferred as those satisfying both:\n"
+                "\t(i) occur in gaps between highly enriched regions "
+                "determined with a rough first pass, and\n"
+                "\t(ii) The input data over the given region can be detrended such "
+                "that they are approximately stationary. See "
+                "`consenrich.misc_utils.check_acorr()` for more details.\n"
+                "Alternatively, you can create a sparsebed file as the conservative "
+                "complement of previously annotated \"active\" regions (e.g., "
+                "`consenrich/refdata/hg38_sparse.bed`) or peak regions in "
+                "heterochromatin/nucleosome-targeted ChIP-seq/CUT-N_RUN experiments.\n"
+            )
 
     if os.path.exists(args.output_file):
         logger.warning(f'Output file {args.output_file} already exists. Overwriting...')
@@ -1346,7 +1426,16 @@ def main():
             experiment_id=args.experiment_id,
             log_scale=args.log_scale,
             log_pc=args.log_pc,
-            control_files=args.control_files
+            control_files=args.control_files,
+            no_sparsebed=args.no_sparsebed,
+            csparse_aggr_percentile=args.csparse_aggr_percentile,
+            csparse_wlen=args.csparse_wlen,
+            csparse_pdegree=args.csparse_pdegree,
+            csparse_min_peak_len=args.csparse_min_peak_len,
+            csparse_min_sparse_len=args.csparse_min_sparse_len,
+            csparse_min_dist=args.csparse_min_dist,
+            csparse_max_features=args.csparse_max_features,
+            csparse_min_prom_prop=args.csparse_min_prom_prop
         )
         with open(tmp_unsorted, 'a') as f:
             for i in range(len(intervals)):
