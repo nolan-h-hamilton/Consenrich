@@ -1,6 +1,7 @@
 # Consenrich
 
 [![Tests](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml/badge.svg?event=workflow_dispatch)](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml)
+![PyPI - Version](https://img.shields.io/pypi/v/consenrich?color=0%2C200%2C200)
 
 *[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a sequential genome-wide state estimator for extraction of reproducible, spatially-resolved, epigenomic signals hidden in noisy multisample HTS data.*
 
@@ -14,9 +15,9 @@
 
 ---
 
-* Robust, spatially informative consensus signal track representing multiple samples' epigenomic profiles $\implies$ Consenrich-extracted signal tracks can present additional insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., [consensus peak calling](docs/consensus_peaks.md))
-* Consenrich is robust to scaling differences and models each sample's data and respective noise $\implies$ extract consensus signal tracks across HTS samples from different, related assays (e.g., ATAC-seq + DNase-seq, ChIP-seq + CUT-N-RUN)
-* Consenrich can extract [spectral features](docs/filter_comparison.png) common to sample groups and is conducive to a wider range of signal processing-based analyses , e.g., targeted detection of structural/spatial patterns associated with specific regulatory properties/states.
+* Robust, spatially informative consensus signal tracks representing multiple samples' epigenomic profiles $\implies$ Greater insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., [consensus peak calling](docs/consensus_peaks.md))
+* Models trends and noise profiles for each sample with scale-invariance $\implies$ Enables estimation of target molecular states across data samples generated from multiple related assays, for example, ChIP-seq + CUT-N-RUN or [ATAC-seq + DNase-seq](docs/atac_dnase.png)
+* Preservation of [spectral content](docs/filter_comparison.png) $\implies$ Permits targeted detection of structural/spatial patterns associated with specific regulatory properties/states and additional metrics for comparison of HTS data between trait-groups
 
 Several technical features of Consenrich are discussed [below](#technical-features).
 

@@ -3,6 +3,9 @@ recursive-include consenrich/ *.py
 recursive-include consenrich/refdata/ hg38.sizes
 recursive-include consenrich/refdata/ hg38_sparse.bed
 recursive-include consenrich/refdata/ hg38_blacklist.bed
+recursive-include consenrich/refdata/ hg19.sizes
+recursive-include consenrich/refdata/ hg19_sparse.bed
+recursive-include consenrich/refdata/ hg19_blacklist.bed
 recursive-include consenrich/refdata/ mm10.sizes
 recursive-include consenrich/refdata/ mm10_sparse.bed
 recursive-include consenrich/refdata/ mm10_blacklist.bed

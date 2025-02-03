@@ -185,7 +185,7 @@ def write_bigwig(tsv_file, sizes_file, chrom_list, outfile_name, stat='signal', 
         raise ImportError('pyBigWig was not compiled with numpy support. Try reinstalling pyBigWig.')
     
     if stat.lower() not in ['signal', 'ptrace', 'rtrace', 'residuals_ivw', 'residuals', 'ratio']:
-        raise ValueError('stat must be either "signal", "ptrace", "rtrace", "residuals_ivw", "ratio".')
+        raise ValueError('stat should be either "signal", "ptrace", "rtrace", "residuals_ivw", "ratio"')
 
     if os.path.exists(outfile_name):
         logger.warning(f'Overwriting existing bigWig file: {outfile_name}')
@@ -219,7 +219,7 @@ def write_bigwig(tsv_file, sizes_file, chrom_list, outfile_name, stat='signal', 
         elif stat.lower() == 'ratio':
             sq_signal_values = (np.array(chrom_df['signal'], dtype='float')**2) + 1
             sq_res_values = (np.array(chrom_df['residual_ivw'], dtype='float')**2) + 1
-            ratio_vals = np.round(np.log2((sq_signal_values)/(sq_res_values)),3)
+            ratio_vals = np.round(np.log((sq_signal_values)/(sq_res_values)),3)
             pbw_out.addEntries(chroms, starts, ends=ends, values=ratio_vals)
     pbw_out.close()
     logger.info(f'Wrote bigWig file for {stat} to {outfile_name}')
