@@ -1,7 +1,7 @@
 # Consenrich
 
 [![Tests](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml/badge.svg?event=workflow_dispatch)](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml)
-![PyPI - Version](https://img.shields.io/pypi/v/consenrich?color=0%2C200%2C200)
+![PyPI - Version](https://img.shields.io/pypi/v/consenrich?logo=Python&logoColor=%23FFFFFF&color=%233776AB&link=https%3A%2F%2Fpypi.org%2Fproject%2Fconsenrich%2F)
 
 *[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a sequential genome-wide state estimator for extraction of reproducible, spatially-resolved, epigenomic signals hidden in noisy multisample HTS data.*
 
@@ -9,24 +9,25 @@
 
 * **Input**:
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
-  * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'treatment' sample (e.g., ChIP-seq)
+  * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'control' sample (e.g., ChIP-seq)
 
-* **Output**: Real-valued 'consensus' epigenomic state estimates (BedGraph/BigWig) and uncertainty metrics.
+* **Output**: Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
 
 ---
 
-* Robust, spatially informative consensus signal tracks representing multiple samples' epigenomic profiles $\implies$ Greater insight for a variety of conventional analyses aiming to construct encompassing regulatory characterizations of sample groups (e.g., [consensus peak calling](docs/consensus_peaks.md))
-* Models trends and noise profiles for each sample with scale-invariance $\implies$ Enables estimation of target molecular states across data samples generated from multiple related assays, for example, ChIP-seq + CUT-N-RUN or [ATAC-seq + DNase-seq](docs/atac_dnase.png)
-* Preservation of [spectral content](docs/filter_comparison.png) $\implies$ Permits targeted detection of structural/spatial patterns associated with specific regulatory properties/states and additional metrics for comparison of HTS data between trait-groups
+* Uncertainty-moderated signal tracks encompassing multiple samples' epigenomic profiles $\implies$ Convenient, insightful data representation for conventional analyses aiming to profile trait-specific regulatory landscapes (e.g., via [consensus peak calling](docs/consensus_peaks.md))
+* Models trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/atac_dnase.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
+* [Preservation of spectral content](docs/filter_comparison.png) $\implies$ Comparison and profiling of group-specific structural signatures discarded by traditional enrichment-focused measures for HTS data.
 
 Several technical features of Consenrich are discussed [below](#technical-features).
 
 ## Example Command-Line Use
 
-* Run Consenrich on ten ATAC-seq samples in the current directory. Generate a BigWig signal track and inverse-variance-weighted residuals.
+* Run Consenrich on ten heterogeneous ATAC-seq sample alignments in the current directory (`*.bam`).
+  * Generate BigWig signal track ('Consenrich Signal Track') and IVW residual estimates ('Consenrich IVW Residuals Track')
 
    ```bash
-   consenrich --bam_files *.bam -g hg38 -o hg38_test_output.tsv --signal_bigwig demo_signal.bw --residual_bigwig demo_ivw_residuals.bw
+   consenrich --bam_files *.bam -g hg38 --signal_bigwig demo_signal.bw --residuals_bigwig demo_residuals.bw
    ```
 
 ![fig1](docs/figure_1aa.png)

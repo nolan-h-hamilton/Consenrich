@@ -239,16 +239,14 @@ def acorr_fft_bp(x, dtr_wlen_bp=250, step=50,):
     r"""Computes the autocorrelation function (ACF) via FFT convolution on a detrended `x`
     """
     n_x = len(x)
-    dtr_wlen = dtr_wlen_bp // step
-    if n_x // dtr_wlen < 5:
-        x = x - np.mean(x)
-    else:
-        # keeping degree fixed for now
-        x = (x - signal.savgol_filter(x,dtr_wlen, 2))
-    return signal.fftconvolve(x, x[::-1], mode='full')[len(x)-1:] / np.flip(n_x - np.arange(0,n_x))
+    if step == 0:
+        raise ValueError('Step size must be greater than 0')
+    dtr_wlen,degree = dtr_wlen_degree(step=step, n=len(x))
+    x = x - signal.savgol_filter(x, dtr_wlen, degree)
+    return signal.fftconvolve(x, x[::-1], mode='full')[len(x)-1:] / np.flip(np.arange(1,n_x+1))
 
 
-def check_acorr(x, acorr_threshold = 0.50, dtr_wlen_bp=250, step=50):
+def check_acorr(x, acorr_threshold = 0.667, dtr_wlen_bp=250, step=50):
     r"""Compares compares peaks in the autocorrelation function (ACF) to evaluate stationarity.
 
     Retains regions where the great value occurs at :math:`ACF(\tau = 0)` and the second greatest value is less than `acorr_threshold` times the greatest value. The autocorrelation is computed efficiently via the FFT convolution 
@@ -266,14 +264,14 @@ def check_acorr(x, acorr_threshold = 0.50, dtr_wlen_bp=250, step=50):
     aacorr_vec = acorr_fft_bp(x, dtr_wlen_bp=dtr_wlen_bp, step=step)
     max_ = np.max(aacorr_vec)
     second_max_ = np.max(np.abs(aacorr_vec[1:]))
-    return max_ == aacorr_vec[0] and second_max_ < acorr_threshold * max_, max_ / (second_max_ + 1e-4)
+    return max_ == aacorr_vec[0] and second_max_*(1/acorr_threshold) < max_, max_ / (second_max_ + 1e-4)
 
 
 def get_csparse(chromosome: str, intervals: np.ndarray, vals: np.ndarray,
-               aggr_percentile: int=75, wlen=51, pdegree=2,
+               aggr_percentile: int=75, wlen=25, pdegree=3,
                min_peak_len=10, min_sparse_len=10, min_dist=50,
-               min_prom_prop: float=.05, min_peak_height_percentile: float=25,
-               bed: str=None, acorr_threshold: float=0.50) -> np.ndarray:
+               min_prom_prop: float=.05, bed: str=None,
+               acorr_threshold: float=0.667) -> np.ndarray:
     r"""Identify regions over which the local noise variance can be approximated quickly if Consenrich is run with `--no_sparsebed`.
 
     First calls clear peaks in a crudely aggregated+low-pass filtered version of the chromosome count matrix. Then checks for approximate stationarity in the 'sparse' regions between peaks. Writes a bed file of the sparse regions.
@@ -324,8 +322,7 @@ def get_csparse(chromosome: str, intervals: np.ndarray, vals: np.ndarray,
     # call peaks in the lowpass filtered data using a basic nonparametric approach
     peaks, peak_properties = signal.find_peaks(lowpass_filtered_vals, prominence=min_peak_prom, width=min_peak_len)
     prev_bound = 0
-    num_qualifying = 0
-    
+
     if os.path.exists(bed):
         os.remove(bed)
     with open(bed,'w') as bed_out:
@@ -337,5 +334,39 @@ def get_csparse(chromosome: str, intervals: np.ndarray, vals: np.ndarray,
                 sufficient_, acorr_measure = check_acorr(agg_vals[idx_range], acorr_threshold)
                 if sufficient_:
                     bed_out.write(f'{chromosome}\t{intervals[sparse_bounds[0]]}\t{intervals[sparse_bounds[1]]}\t{'_'.join([chromosome, str(intervals[sparse_bounds[0]]), str(intervals[sparse_bounds[1]])])}\t{acorr_measure}\n')
-                    num_qualifying += 1
     return bed
+
+
+def dtr_wlen_degree(step: int, n: int=None,
+            n_bp: int=None,
+            odd_window: bool=False):
+    if n is None and n_bp is None:
+        raise ValueError('Either n or n_bp must be specified')
+    if step is None:
+        raise ValueError('Step must be specified')
+
+    n_bp = n * step if n is not None else n_bp
+    n = n_bp // step if n_bp is not None else n
+
+    # ideally, this function won't be called for n < 5 or n > 1000
+    if n == 0:
+        raise ValueError('n must be greater than 0')
+    if n == 1:
+        return 1,0
+    if n < 3:
+        if odd_window:
+            return 1,0
+        else:
+            return n,0
+    if n <= 5:
+        return 3,0
+    if n <= 10:
+        return 5,0
+    if n <= 25:
+        return 7,1
+    if n <= 50:
+        return 11,2
+    if n <= 100:
+        return 21,2
+    return 25,2
+

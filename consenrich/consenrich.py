@@ -944,7 +944,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
                    save_matrix=True, experiment_id=None,
                    control_files=None, log_scale=False, log_pc=1.0,
                    no_sparsebed=False, csparse_aggr_percentile=75, csparse_wlen=51,
-                   csparse_pdegree=3, csparse_min_peak_len=10, csparse_min_sparse_len=10,
+                   csparse_pdegree=2, csparse_min_peak_len=10, csparse_min_sparse_len=10,
                    csparse_min_dist=50, csparse_max_features=5000, csparse_min_prom_prop=0.05,
                    ignore_blacklist=True):
     r"""Run Consenrich on an individual chromosome.
@@ -1319,9 +1319,9 @@ def _parse_arguments(ID):
                         help='If invoked, compute noise variances from inferred sparse regions specific to each sample based on post-detrend stationary or WSS regions.')
     parser.add_argument('--csparse_aggr_percentile', type=float, default=75,
                         help='Used to reduce data to 1d prior to the filter step in csparse if `--no_sparsebed` is invoked.')
-    parser.add_argument('--csparse_wlen', type=int, default=51,
+    parser.add_argument('--csparse_wlen', type=int, default=25,
                         help='Window length (in units of `--step`) for the filter step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
-    parser.add_argument('--csparse_pdegree', type=int, default=3,
+    parser.add_argument('--csparse_pdegree', type=int, default=2,
                         help='Polynomial degree for the filter step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
     parser.add_argument('--csparse_min_peak_len', type=int, default=10,
                         help='Minimum length of peaks (in units of `--step`) in the filter step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
