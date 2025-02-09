@@ -3,7 +3,7 @@
 [![Tests](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml/badge.svg?event=workflow_dispatch)](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml)
 ![PyPI - Version](https://img.shields.io/pypi/v/consenrich?logo=Python&logoColor=%23FFFFFF&color=%233776AB&link=https%3A%2F%2Fpypi.org%2Fproject%2Fconsenrich%2F)
 
-*[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a sequential genome-wide state estimator for extraction of reproducible, spatially-resolved, epigenomic signals hidden in noisy multisample HTS data.*
+[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a sequential genome-wide state estimator for extraction of reproducible, spatially-resolved, epigenomic signals hidden in noisy multisample HTS data. The [corresponding manuscript preprint](https://www.biorxiv.org/content/10.1101/2025.02.05.636702v1) is available on $$\text{bio}\textcolor{#960018}{R}\chi \text{iv}$$.
 
 ---
 
@@ -11,24 +11,30 @@
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'control' sample (e.g., ChIP-seq)
 
-* **Output**: Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
+* **Output**:
+
+  * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
 
 ---
 
-* Uncertainty-moderated signal tracks encompassing multiple samples' epigenomic profiles $\implies$ Convenient, insightful data representation for conventional analyses aiming to profile trait-specific regulatory landscapes (e.g., via [consensus peak calling](docs/consensus_peaks.md))
+**Features**
+
+* Uncertainty-moderated signal tracks encompassing multiple samples' epigenomic profiles $\implies$ Insightful data representation for conventional analyses aiming to profile trait-specific regulatory landscapes (e.g., via [consensus peak calling](docs/consensus_peaks.md))
+
+
 * Models trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/atac_dnase.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
+
+
 * [Preservation of spectral content](docs/filter_comparison.png) $\implies$ Comparison and profiling of group-specific structural signatures discarded by traditional enrichment-focused measures for HTS data.
 
-Several technical features of Consenrich are discussed [below](#technical-features).
-
-## Example Command-Line Use
+## Example Use
 
 * Run Consenrich on ten heterogeneous ATAC-seq sample alignments in the current directory (`*.bam`).
-  * Generate BigWig signal track ('Consenrich Signal Track') and IVW residual estimates ('Consenrich IVW Residuals Track')
+  
 
-   ```bash
-   consenrich --bam_files *.bam -g hg38 --signal_bigwig demo_signal.bw --residuals_bigwig demo_residuals.bw
-   ```
+  ```bash
+  consenrich --bam_files *.bam -g hg38 --signal_bigwig demo_signal.bw --residuals_bigwig demo_residuals.bw
+  ```
 
 ![fig1](docs/figure_1aa.png)
 
@@ -63,7 +69,15 @@ Several technical features of Consenrich are discussed [below](#technical-featur
 
 ## Download/Install
 
-Consenrich can be easily downloaded and installed from source:
+Consenrich is available via [PyPI/pip](https://pypi.org/project/consenrich/):
+
+* `pip install consenrich`
+
+If managing multiple Python environments, use `python -m pip install consenrich`. If lacking administrative privileges, running with flag `--user` may be necessary.
+
+---
+
+Consenrich can also be easily downloaded and installed from source:
 
 1. `git clone https://github.com/nolan-h-hamilton/Consenrich.git`
 2. `cd Consenrich`
@@ -71,15 +85,22 @@ Consenrich can be easily downloaded and installed from source:
 4. `python -m pip install .`
 5. Check installation: `consenrich --help`
 
-Consenrich is also available via [PyPI/pip](https://pypi.org/project/consenrich/):
+## Manuscript Preprint and Citation
 
-* `pip install consenrich`
 
-If managing multiple Python environments, use `python -m pip install consenrich`. If lacking administrative privileges, running with flag `--user` may be necessary.
+*Genome-Wide Uncertainty-Moderated Extraction of Signal Annotations from Multi-Sample Functional Genomics Data*\
+Nolan H Hamilton, Benjamin D McMichael, Michael I Love, Terrence S Furey; doi: `10.1101/2025.02.05.636702`
 
-## Technical Features
+---
 
-* Effectively models sample-and-region-varying noise to better integrate data across heterogeneous samples
-* Balances biologically-informed *a priori* predictions with observed HTS data to determine final estimates
-* Provides interpretable uncertainty quantification with respect to multiple model aspects
-* Runs efficiently in linear time with respect to genome size.
+**BibTeX**
+
+```bibtex
+@article {Hamilton2025
+	author = {Hamilton, Nolan H and McMichael, Benjamin D and Love, Michael I and Furey, Terrence S},
+	title = {Genome-Wide Uncertainty-Moderated Extraction of Signal Annotations from Multi-Sample Functional Genomics Data},
+	year = {2025},
+	doi = {10.1101/2025.02.05.636702},
+	url = {https://www.biorxiv.org/content/10.1101/2025.02.05.636702v1},
+}
+```
