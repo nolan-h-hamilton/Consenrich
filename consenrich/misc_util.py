@@ -333,7 +333,8 @@ def get_csparse(chromosome: str, intervals: np.ndarray, vals: np.ndarray,
                 idx_range = np.arange(sparse_bounds[0],sparse_bounds[1])
                 sufficient_, acorr_measure = check_acorr(agg_vals[idx_range], acorr_threshold)
                 if sufficient_:
-                    bed_out.write(f'{chromosome}\t{intervals[sparse_bounds[0]]}\t{intervals[sparse_bounds[1]]}\t{'_'.join([chromosome, str(intervals[sparse_bounds[0]]), str(intervals[sparse_bounds[1]])])}\t{acorr_measure}\n')
+                    bed_out.write(f"{chromosome}\t{intervals[sparse_bounds[0]]}\t{intervals[sparse_bounds[1]]}\t{'_'.join([chromosome, str(intervals[sparse_bounds[0]]), str(intervals[sparse_bounds[1]])])}\t{acorr_measure}\n")
+
     return bed
 
 
