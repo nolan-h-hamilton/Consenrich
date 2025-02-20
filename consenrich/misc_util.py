@@ -217,7 +217,7 @@ def write_bigwig(tsv_file, sizes_file, chrom_list, outfile_name, stat='signal', 
                 res_values = np.abs(res_values)
             pbw_out.addEntries(chroms, starts, ends=ends, values=res_values)
         elif stat.lower() == 'ratio':
-            sq_signal_values = (np.array(chrom_df['signal'], dtype='float')**2) + 1
+            sq_signal_values = (np.maximum(np.array(chrom_df['signal'], dtype='float'),0)**2) + 1
             sq_res_values = (np.array(chrom_df['residual_ivw'], dtype='float')**2) + 1
             ratio_vals = np.round(np.log((sq_signal_values)/(sq_res_values)),3)
             pbw_out.addEntries(chroms, starts, ends=ends, values=ratio_vals)
