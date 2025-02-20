@@ -13,4 +13,4 @@ We provide some casual examples below for ATAC-seq and ChIP-seq.
 
 ![ChIP-seq POL2RA Consensus Peaks](consensus_peaks_chip.png)
 
-When applying ROCCO--originally designed for ATAC-seq--to Consenrich-extracted ChIP-seq signals, users may find it useful to experiment with the `--disable_parsig` and `--budget` parameters of ROCCO to balance precision and recall. A specific ChIP-seq 'mode' of ROCCO is upcoming.
+When applying ROCCO--originally designed for ATAC-seq--to Consenrich-extracted ChIP-seq signals, users may find it useful to experiment with the `--disable_locratio`, `--disable_parsig`, and `--budget` arguments of ROCCO to balance precision and recall. A specific ChIP-seq 'mode' for ROCCO is upcoming.
