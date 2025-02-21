@@ -2,7 +2,7 @@ r"""
 Primary Module: `consenrich` Documentation
 ===============================================================
 
-The `consenrich` module contains the primary functions for Consenrich.
+The `consenrich` module contains the primary functions and a command line interface for Consenrich.
 
 """
 
@@ -255,7 +255,7 @@ def get_rlen_stats(chromosome: str, bam_file: str, sizes_file: str,
 
     # this case warrants special attention
     if read_lengths is None:
-        logger.warning(f"No reads found over {num_samples} random intervals...try increasing the number of samples or the interval length. Is your alignment single-end? Run with `paired_end=False`")
+        logger.warning(f"No mapped reads found over {num_samples} random intervals. If your data is single-end, run with `--single_end`")
 
     if delete_random_features:
         try:
@@ -804,7 +804,7 @@ def get_chromosome_matrix(chromosome: str,
                     # these need not be computed for every call to `get_chromosome_matrix`
                     # ...compute in main and pass as argument
                     track_sf = gwide_scales[i]
-                
+
                 chrom_matrix[i] = chrom_matrix[i]*track_sf
     munc_matrix = np.zeros((len(bam_files), len(intervals)))
     conservative_munc = False
@@ -862,7 +862,7 @@ def get_chromosome_matrix(chromosome: str,
         detrend_ubound = np.max(chrom_matrix) + 10e4
     if any ([detrend_degree is not None, detrend_percentile is not None, detrend_window_bp is not None]):
         for i in range(get_shape(chrom_matrix)[0]):
-            logger.info(f'Modeling Dynamic Background with Low-Pass Filter: track {i+1}/{len(bam_files)}:\n{chromosome}, degree={detrend_degree}, percentile={detrend_percentile}, window_bp={detrend_window_bp}\n')
+            logger.info(f'Modeling dynamic background with low-pass filter/limiter: track {i+1}/{len(bam_files)}:\n{chromosome}, degree={detrend_degree}, percentile={detrend_percentile}, window_bp={detrend_window_bp}\n')
             intervals, chrom_matrix[i] = detrend_track(intervals, chrom_matrix[i], degree=detrend_degree, percentile=detrend_percentile, window_bp=detrend_window_bp, lbound=detrend_lbound, ubound=detrend_ubound)
 
     if save_matrix:
@@ -1304,9 +1304,9 @@ def _parse_arguments(ID):
                         help='Write bigWig for trace of the observation noise covariance.')
     parser.add_argument('--residuals', '--residual_bigwig', dest='residual_bigwig',
                         type=str, default=None,
-                        help='Write bigWig of inverse-variance-weighted residual mean.')
+                        help='Write bigWig of inverse-variance-weighted residual estimates.')
     parser.add_argument('-ares', '--abs_residuals', dest='abs_residuals', action='store_true', default=False, help='Record absolute value of ivw residuals. Only used if --residuals is set.')
-    parser.add_argument('--ratio', '--ratio_bigwig', type=str, default=None,
+    parser.add_argument('--ratio', '--eratio', '--ratio_bigwig', type=str, default=None,
                     help='Write bigWig of log(squared_signal/squared_ivw) ratio.', dest='ratio_bigwig')
     parser.add_argument('-o', '--output_file', dest='output_file', default=f'consenrich_output_{ID}.tsv',
                         help='Output file for Consenrich results.')
