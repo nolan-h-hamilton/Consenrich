@@ -804,7 +804,7 @@ def get_chromosome_matrix(chromosome: str,
                     # these need not be computed for every call to `get_chromosome_matrix`
                     # ...compute in main and pass as argument
                     track_sf = gwide_scales[i]
-                
+
                 chrom_matrix[i] = chrom_matrix[i]*track_sf
     munc_matrix = np.zeros((len(bam_files), len(intervals)))
     conservative_munc = False

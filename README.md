@@ -87,7 +87,6 @@ Consenrich can also be easily downloaded and installed from source:
 
 ## Manuscript Preprint and Citation
 
-
 *Genome-Wide Uncertainty-Moderated Extraction of Signal Annotations from Multi-Sample Functional Genomics Data*\
 Nolan H Hamilton, Benjamin D McMichael, Michael I Love, Terrence S Furey; doi: `10.1101/2025.02.05.636702`
 
