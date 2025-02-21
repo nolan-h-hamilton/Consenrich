@@ -862,7 +862,7 @@ def get_chromosome_matrix(chromosome: str,
         detrend_ubound = np.max(chrom_matrix) + 10e4
     if any ([detrend_degree is not None, detrend_percentile is not None, detrend_window_bp is not None]):
         for i in range(get_shape(chrom_matrix)[0]):
-            logger.info(f'Modeling Dynamic Background with Low-Pass/Robust Filter: track {i+1}/{len(bam_files)}:\n{chromosome}, degree={detrend_degree}, percentile={detrend_percentile}, window_bp={detrend_window_bp}\n')
+            logger.info(f'Modeling dynamic background with low-pass filter/limiter: track {i+1}/{len(bam_files)}:\n{chromosome}, degree={detrend_degree}, percentile={detrend_percentile}, window_bp={detrend_window_bp}\n')
             intervals, chrom_matrix[i] = detrend_track(intervals, chrom_matrix[i], degree=detrend_degree, percentile=detrend_percentile, window_bp=detrend_window_bp, lbound=detrend_lbound, ubound=detrend_ubound)
 
     if save_matrix:
