@@ -13,4 +13,4 @@ We provide some casual examples below for ATAC-seq and ChIP-seq.
 
 ![ChIP-seq POL2RA Consensus Peaks](consensus_peaks_chip.png)
 
-Users wishing to apply ROCCO to Consenrich ChIP-seq results may find it worthwhile to tune ROCCO's `--budget` parameter and/or run with `--narrowPeak` to filter peaks based on $p$-values *post hoc*. A dedicated ChIP-seq/Cut&Run 'mode' for ROCCO is upcoming to mitigate dependence on fine-tuning or filtering results after the fact.
+Users wishing to apply ROCCO to Consenrich ChIP-seq results may find it worthwhile to tune ROCCO's `--budget` parameter and/or run with `--narrowPeak` to filter peaks based on $p$-values *post hoc*. A dedicated ChIP-seq/Cut&Run mode for ROCCO is upcoming to mitigate dependence on fine-tuning or filtering results after the fact.
