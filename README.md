@@ -12,60 +12,21 @@
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'control' sample (e.g., ChIP-seq)
 
 * **Output**:
-
   * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
 
 ---
 
 **Features**
 
-* Uncertainty-moderated signal tracks encompassing multiple samples' epigenomic profiles $\implies$ Insightful data representation for conventional analyses aiming to profile trait-specific regulatory landscapes (e.g., via [consensus peak calling](docs/consensus_peaks.md))
+* Consenrich explicitly models signal trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/dnase_atac_03032025.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
 
+* Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling trait-specific regulatory landscapes (e.g., via [consensus peak calling, differential analyses, etc.](docs/dnase_ad_03032025.png))
 
-* Models trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/atac_dnase.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
-
-
-* [Preservation of spectral content](docs/filter_comparison.png) $\implies$ Comparison and profiling of group-specific structural signatures discarded by traditional enrichment-focused measures for HTS data.
+* Consenrich [preserves legitimate spectral content](docs/filter_comparison.png) while attenuating noise $\implies$ Improved comparison and profiling of condition-specific structural signatures discarded by enrichment-focused measures for HTS data.
 
 ## Example Use
 
-* Run Consenrich on ten heterogeneous ATAC-seq sample alignments in the current directory (`*.bam`).
-  
-
-  ```bash
-  consenrich --bam_files *.bam -g hg38 --signal_bigwig demo_signal.bw --residuals_bigwig demo_residuals.bw
-  ```
-
-![fig1](docs/figure_1aa.png)
-
----
-
-* Use Consenrich for ChIP-seq enrichment analysis with treatment/control sample alignments (POL2RA, six donors' colon tissue samples). Generate separate BigWig output tracks for signal estimates and inverse-variance weighted residuals. Use fixed-width genomic intervals of 25bp:
-
-   ```bash
-  consenrich \
-    --bam_files \
-      ENCSR322JEO_POL2RA.bam \
-      ENCSR472VBD_POL2RA.bam \
-      ENCSR431EHE_POL2RA.bam \
-      ENCSR724FCJ_POL2RA.bam \
-      ENCSR974HQI_POL2RA.bam \
-      ENCSR132XRW_POL2RA.bam \
-    --control_files \
-      ENCSR322JEO_CTRL.bam \
-      ENCSR472VBD_CTRL.bam \
-      ENCSR431EHE_CTRL.bam \
-      ENCSR724FCJ_CTRL.bam \
-      ENCSR974HQI_CTRL.bam \
-      ENCSR132XRW_CTRL.bam \
-    -g hg38 --step 25 \
-    -o Consenrich_POL2RA.tsv \
-    --signal_bigwig Consenrich_POL2RA_CTRL_Signal.bw \
-    --residual_bigwig Consenrich_POL2RA_CTRL_IVW_Residuals.bw
-   ```
-
-**Output**
-![ChIPDemo](docs/ChIP_POL2RA_Demo.png)
+Refer to [**Examples**](Examples.md) for a variety of detailed usage instances.
 
 ## Download/Install
 
