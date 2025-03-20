@@ -478,42 +478,13 @@ DNASE_ENCFF916MAS.bam \
 | Maximum resident set size (kbytes)          | 22451344 |
 | Swaps                                       | 0        |
 
-## Running ROCCO
-
-``` bash
-rocco \
--i consenrich_dnase_atac_signal_v0.1.1.b0.bw \
--g hg38 \
---skip_chroms chrY \
---narrowPeak \
---bamlist_txt dnase_atac_bamfiles.txt \
---verbose \
--o rocco_consenrich_dnase_atac_signal_v1.6.1.bed \
---ecdf_samples 1000 \
---ecdf_proc 8 --threads 8
-```
-
-- `--bamlist_txt dnase_atac_bamfiles.txt` is necessary to obtain
-  narrowPeak-formatted output from ROCCO given BigWig input
-  - Its contents are the BAM files used as input to Consenrich:
-
-  ``` bash
-    ATAC_ENCFF709NIR_f64.bam
-    ATAC_ENCFF804KIW_f64.bam
-    DNASE_ENCFF916MAS.bam
-    DNASE_ENCFF933GFX.bam
-  ```
-
 ## IGV Snapshot
 
 <figure>
 <img src="docs/dnase_atac_03032025.png"
-alt="Joint Signal Extraction from DNase-seq and ATAC-seq data samples with Consenrich. Peaks are called on the Consenrich signal track using ROCCO. Numeric values under peaks are corresponding -log10(p)-values." />
+alt="Joint Signal Extraction from DNase-seq and ATAC-seq data samples with Consenrich" />
 <figcaption aria-hidden="true"><em>Joint Signal Extraction from
-DNase-seq and ATAC-seq data samples with Consenrich</em>. Peaks are
-called on the Consenrich signal track using ROCCO. Numeric values under
-peaks are corresponding <span
-class="math inline">−<em>l</em><em>o</em><em>g</em>10(<em>p</em>)</span>-values.</figcaption>
+DNase-seq and ATAC-seq data samples with Consenrich</em></figcaption>
 </figure>
 
 # Differential Analysis between Disease Conditions
