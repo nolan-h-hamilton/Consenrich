@@ -295,7 +295,7 @@ package,
 
 ## Running Consenrich with Control Inputs
 
-By default, Consenrich integrates control inputs by first scaling
+By default, Consenrich integrate control inputs by first scaling
 treatment/control data in each pair to each other
 ($\text{larger} \rightarrow \text{smaller}$), removing background
 modeled from the control input, and finally scaling all such
@@ -478,13 +478,42 @@ DNASE_ENCFF916MAS.bam \
 | Maximum resident set size (kbytes)          | 22451344 |
 | Swaps                                       | 0        |
 
+## Running ROCCO
+
+``` bash
+rocco \
+-i consenrich_dnase_atac_signal_v0.1.1.b0.bw \
+-g hg38 \
+--skip_chroms chrY \
+--narrowPeak \
+--bamlist_txt dnase_atac_bamfiles.txt \
+--verbose \
+-o rocco_consenrich_dnase_atac_signal_v1.6.1.bed \
+--ecdf_samples 1000 \
+--ecdf_proc 8 --threads 8
+```
+
+- `--bamlist_txt dnase_atac_bamfiles.txt` is necessary to obtain
+  narrowPeak-formatted output from ROCCO given BigWig input
+  - Its contents are the BAM files used as input to Consenrich:
+
+  ``` bash
+    ATAC_ENCFF709NIR_f64.bam
+    ATAC_ENCFF804KIW_f64.bam
+    DNASE_ENCFF916MAS.bam
+    DNASE_ENCFF933GFX.bam
+  ```
+
 ## IGV Snapshot
 
 <figure>
 <img src="docs/dnase_atac_03032025.png"
-alt="Joint Signal Extraction from DNase-seq and ATAC-seq data samples with Consenrich" />
+alt="Joint Signal Extraction from DNase-seq and ATAC-seq data samples with Consenrich. Peaks are called on the Consenrich signal track using ROCCO. Numeric values under peaks are corresponding -log10(p)-values." />
 <figcaption aria-hidden="true"><em>Joint Signal Extraction from
-DNase-seq and ATAC-seq data samples with Consenrich</em></figcaption>
+DNase-seq and ATAC-seq data samples with Consenrich</em>. Peaks are
+called on the Consenrich signal track using ROCCO. Numeric values under
+peaks are corresponding <span
+class="math inline">−<em>l</em><em>o</em><em>g</em>10(<em>p</em>)</span>-values.</figcaption>
 </figure>
 
 # Differential Analysis between Disease Conditions
@@ -631,9 +660,10 @@ to Consenrich:
     ENCFF669HSH.bam
     ENCFF647TPO.bam
 
-## Evaluating Candidate Regions for Differential Accessibility
+## Evaluating Candidate Peak Regions for Differential Accessibility
 
-After obtaining the candidate differential peak regions, we use
+After obtaining the candidate differential peak regions with Consenrich
+and ROCCO, we use
 [RUVseq](https://bioconductor.org/packages/release/bioc/html/RUVSeq.html)
 (Risso et al. 2014) and
 [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html)
@@ -651,7 +681,8 @@ but please refer to [docs/dnase_ad.pdf](docs/dnase_ad.pdf) for the full
 workflow and results.
 
 ``` r
-[...] # See dnase_ad.Rmd for full code
+[...] 
+# See docs/dnase_ad.pdf for full code
 
 # Design formula includes known covariates (age) and two RUV factors (LSVs)
 # use to model unknown, impertinent sources of variation.
@@ -666,16 +697,6 @@ dds_final <- DESeqDataSetFromMatrix(
   colData = coldata,
   design = design_formula
 )
-dds_final <- DESeq(dds_final)
-results <- results(dds_final)
-
-significant_results <- results[
-  complete.cases(results) &
-    ((results$padj < PADJ_THRESH &
-      all(abs(results$log2FoldChange))) > LFC_THRESH),
-]
-
-significant_regions <- rownames(significant_results)
 ```
 
 See track
@@ -705,30 +726,41 @@ ROCCO. Of these, <span class="math inline">1183</span> were found to be
 differentially accessible using RUVseq and DESeq2.</em></figcaption>
 </figure>
 
-### GREAT Analysis
+### GREAT: Enriched Gene Associations
 
 Supplying the differentially accessible regions to
 [GREAT](http://great.stanford.edu/public/html/) (McLean et al. 2010)
-(Tanigawa, Dyer, and Bejerano 2022,) yields the following genes as most
-significant according to their binomial model with a whole genome
-background:
-
-#### GREAT: Enriched Gene Associations
+(Tanigawa, Dyer, and Bejerano 2022,) yields `ARC` as the most
+significantly associated gene.
 
 | Gene | Binom Rank | Binom Raw P-Value | Binom FDR Q-Val | Binom Fold Enrichment | Binom Observed Region Hits |
 |:---|---:|---:|---:|---:|---:|
 | ARC | 1 | 4.058e-08 | 7.619e-04 | 56.81 | 5 |
-| KDM4B | 2 | 5.643e-07 | 5.298e-03 | 33.21 | 5 |
-| DDN | 3 | 5.966e-07 | 3.734e-03 | 195.2 | 3 |
-| NFIC | 4 | 4.173e-06 | 1.959e-02 | 39.13 | 4 |
-| SEC14L5 | 5 | 7.908e-06 | 2.970e-02 | 82.05 | 3 |
 
 `ARC` is particularly well-established as a driver of synaptic function:
 (Epstein and Finkbeiner 2018), (VanDongen 2025).
 
-#### GREAT: Enriched Biological Processes
+Several additional Alzheimer’s-relevant genes were found to be
+associated with the obtained set of differential regions, including
+`ADAMTS4`, `APOE`, `TOMM40`, `BIN1`, `LRP4`, etc. For visualization, see
+IGV snapshot for `BIN1` in the upcoming.
 
-The top biological process returned by GREAT was **`GO:2000311`**:
+<figure>
+<img src="docs/BIN1.png"
+alt="IGV snapshots including alignment input data, condition-specific Consenrich signal tracks, and Consenrich \rightarrow ROCCO peaks used to determine candidate differential regions for RUV + DESeq2 are included in the docs directory. In the snapshot above, we observe differential accessibility at the transcription start site of BIN1, a primary genetic risk factor for Alzheimer’s disease." />
+<figcaption aria-hidden="true">IGV snapshots including alignment input
+data, condition-specific Consenrich signal tracks, and Consenrich <span
+class="math inline">→</span> ROCCO peaks used to determine candidate
+differential regions for RUV + DESeq2 are included in the
+<code>docs</code> directory. <em>In the snapshot above, we observe
+differential accessibility at the transcription start site of BIN1, a
+primary genetic risk factor for Alzheimer’s disease</em>.</figcaption>
+</figure>
+
+### GREAT: Enriched Biological Processes
+
+The top enriched biological process returned by GREAT was
+[**`GO:2000311`**](https://www.ebi.ac.uk/QuickGO/term/GO:2000311):
 *regulation of AMPA receptor activity*. This process was determined to
 be significant by both the binomial and hypergeometric models employed
 by GREAT. From (Zhang et al. 2018),
@@ -739,18 +771,12 @@ by GREAT. From (Zhang et al. 2018),
 > one of the early pathological molecular alterations in Alzheimer’s
 > disease (AD)…”
 
-### DACs near ARC
-
-<figure>
-<img src="docs/dnase_ad_03032025.png"
-alt="Consenrich extracted signal and corresponding ROCCO peaks. Differentially acccessible regions are colored green. The m=10 inputs from both conditions AD (Alzheimer’s Disease) and No_AD (No Alzheimer’s Disease) near the TSS of ARC." />
-<figcaption aria-hidden="true"><em>Consenrich extracted signal and
-corresponding ROCCO peaks. Differentially acccessible regions are
-colored green.</em> The <span class="math inline"><em>m</em> = 10</span>
-inputs from both conditions <code>AD</code> (Alzheimer’s Disease) and
-<code>No_AD</code> (No Alzheimer’s Disease) near the TSS of
-ARC.</figcaption>
-</figure>
+Other significant AD-relevant processes enriched in the determined
+differentially accessible regions include
+[**`GO:0007611`**](https://www.ebi.ac.uk/QuickGO/term/GO:0007611):
+*learning or memory*,
+[**`GO:1901629`**](https://www.ebi.ac.uk/QuickGO/term/GO:1901629)
+*regulation of pre-synaptic membrane organization*.
 
 ### Sample clustering in PCA space
 
