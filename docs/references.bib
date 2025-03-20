@@ -1,0 +1,167 @@
+@article {hamilton2025,
+	author = {Hamilton, Nolan H and McMichael, Benjamin D and Love, Michael I and Furey, Terrence S},
+	title = {Genome-Wide Uncertainty-Moderated Extraction of Signal Annotations from Multi-Sample Functional Genomics Data},
+	elocation-id = {2025.02.05.636702},
+	year = {2025},
+	doi = {10.1101/2025.02.05.636702},
+	publisher = {Cold Spring Harbor Laboratory},
+	abstract = {Motivation Most genome-wide consensus profiles of regulatory features consist of discrete binary annotations, or {\textquotedblleft}peaks{\textquotedblright}, identified as enriched in functional genomics data targeting loci with a particular molecular phenotype, e.g., accessible chromatin or a transcription factor binding site. Despite the established practical utility of this paradigm, these annotations can limit the representation of quantitative signal data to rigid boundaries and mask informative spatial and structural features in signals. We reasoned that a more robust integration of numeric data from multiple samples could elucidate higher-resolution genome-wide profiles for improved molecular state characterizations. This integration poses several fundamental challenges due to dynamic, sample-specific noise patterns that vary in their effects across the genome and render straightforward data aggregation approaches vulnerable to signal dilution or distortion.Results We propose Consenrich, a genome-wide state-estimation scheme for extraction of consistent underlying signals given functional sequencing data from multiple samples. Consenrich addresses fundamental challenges inherent in this task by implementing a biologically-informed model for signal and variance propagation that treats nonstationary noise processes to yield a genome-wide signal track of positional estimates and measures of uncertainty. We demonstrate improved multi-sample signal estimation and noise attenuation of Consenrich on real, heterogeneous functional genomics data compared to least-squares smoothing filters and straightforward {\textquotedblleft}alignment merging{\textquotedblright} strategies. We highlight immediate practical appeal of this improved signal extraction performance for both traditional consensus peak calling tasks and address the potential for unique analyses not possible with simple binary peak calls.Availability and Implementation A software implementation of Consenrich accompanied by several practical usage examples and documentation is hosted at https://github.com/nolan-h-hamilton/Consenrich.Competing Interest StatementThe authors have declared no competing interest.},
+	journal = {bioRxiv}
+}
+
+@article{hamilton2023,
+    author = {Hamilton, Nolan H and Furey, Terrence S},
+    title = {ROCCO: a robust method for detection of open chromatin via convex optimization},
+    journal = {Bioinformatics},
+    volume = {39},
+    number = {12},
+    pages = {btad725},
+    year = {2023},
+    month = {11},
+    abstract = {Analysis of open chromatin regions across multiple samples from two or more distinct conditions can determine altered gene regulatory patterns associated with biological phenotypes and complex traits. The ATAC-seq assay allows for tractable genome-wide open chromatin profiling of large numbers of samples. Stable, broadly applicable genomic annotations of open chromatin regions are not available. Thus, most studies first identify open regions using peak calling methods for each sample independently. These are then heuristically combined to obtain a consensus peak set. Reconciling sample-specific peak results post hoc from larger cohorts is particularly challenging, and informative spatial features specific to open chromatin signals are not leveraged effectively.We propose a novel method, ROCCO, that determines consensus open chromatin regions across multiple samples simultaneously. ROCCO employs robust summary statistics and solves a constrained optimization problem formulated to account for both enrichment and spatial dependence of open chromatin signal data. We show this formulation admits attractive theoretical and conceptual properties as well as superior empirical performance compared to current methodology.Source code, documentation, and usage demos for ROCCO are available on GitHub at: https://github.com/nolan-h-hamilton/ROCCO. ROCCO can also be installed as a stand-alone binary utility using pip/PyPI.},
+    issn = {1367-4811},
+    doi = {10.1093/bioinformatics/btad725},
+}
+
+@article{yu2015,
+  title = {ChIPseeker: an R/Bioconductor package for ChIP peak annotation, comparison and visualization},
+  volume = {31},
+  ISSN = {1367-4803},
+  DOI = {10.1093/bioinformatics/btv145},
+  number = {14},
+  journal = {Bioinformatics},
+  publisher = {Oxford University Press (OUP)},
+  author = {Yu,  Guangchuang and Wang,  Li-Gen and He,  Qing-Yu},
+  year = {2015},
+  month = mar,
+  pages = {2382–2383}
+}
+
+@article{lun2014,
+    author = {Lun, Aaron T.L. and Smyth, Gordon K.},
+    title = {De novo detection of differentially bound regions for ChIP-seq data using peaks and windows: controlling error rates correctly},
+    journal = {Nucleic Acids Research},
+    volume = {42},
+    number = {11},
+    pages = {e95-e95},
+    year = {2014},
+    month = {05},
+    abstract = {A common aim in ChIP-seq experiments is to identify changes in protein binding patterns between conditions, i.e. differential binding. A number of peak- and window-based strategies have been developed to detect differential binding when the regions of interest are not known in advance. However, careful consideration of error control is needed when applying these methods. Peak-based approaches use the same data set to define peaks and to detect differential binding. Done improperly, this can result in loss of type I error control. For window-based methods, controlling the false discovery rate over all detected windows does not guarantee control across all detected regions. Misinterpreting the former as the latter can result in unexpected liberalness. Here, several solutions are presented to maintain error control for these de novo counting strategies. For peak-based methods, peak calling should be performed on pooled libraries prior to the statistical analysis. For window-based methods, a hybrid approach using Simes’ method is proposed to maintain control of the false discovery rate across regions. More generally, the relative advantages of peak- and window-based strategies are explored using a range of simulated and real data sets. Implementations of both strategies also compare favourably to existing programs for differential binding analyses.},
+    issn = {0305-1048},
+    doi = {10.1093/nar/gku351}
+}
+
+@article{love2014,
+  title = {Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2},
+  volume = {15},
+  ISSN = {1474-760X},
+  url = {http://dx.doi.org/10.1186/s13059-014-0550-8},
+  DOI = {10.1186/s13059-014-0550-8},
+  number = {12},
+  journal = {Genome Biology},
+  publisher = {Springer Science and Business Media LLC},
+  author = {Love,  Michael I and Huber,  Wolfgang and Anders,  Simon},
+  year = {2014},
+  month = dec 
+}
+
+@article{tanigawa2022,
+  title = {WhichTF is functionally important in your open chromatin data?},
+  volume = {18},
+  ISSN = {1553-7358},
+  DOI = {10.1371/journal.pcbi.1010378},
+  number = {8},
+  journal = {PLOS Computational Biology},
+  publisher = {Public Library of Science (PLoS)},
+  author = {Tanigawa,  Yosuke and Dyer,  Ethan S. and Bejerano,  Gill},
+  editor = {Ay,  Ferhat},
+  year = {2022},
+  month = aug,
+  pages = {e1010378}
+}
+
+@article{mclean2010,
+  title = {GREAT improves functional interpretation of cis-regulatory regions},
+  volume = {28},
+  ISSN = {1546-1696},
+  DOI = {10.1038/nbt.1630},
+  number = {5},
+  journal = {Nature Biotechnology},
+  publisher = {Springer Science and Business Media LLC},
+  author = {McLean,  Cory Y and Bristor,  Dave and Hiller,  Michael and Clarke,  Shoa L and Schaar,  Bruce T and Lowe,  Craig B and Wenger,  Aaron M and Bejerano,  Gill},
+  year = {2010},
+  month = may,
+  pages = {495–501}
+}
+
+
+@article{epstein2018,
+  title = {The Arc of cognition: Signaling cascades regulating Arc and implications for cognitive function and disease},
+  volume = {77},
+  ISSN = {1084-9521},
+  url = {http://dx.doi.org/10.1016/j.semcdb.2017.09.023},
+  DOI = {10.1016/j.semcdb.2017.09.023},
+  journal = {Seminars in Cell &amp; Developmental Biology},
+  publisher = {Elsevier BV},
+  author = {Epstein,  Irina and Finkbeiner,  Steven},
+  year = {2018},
+  month = may,
+  pages = {63–72}
+}
+
+@article {vandongen2025,
+	author = {VanDongen, Antonius M.},
+	title = {Arc: a therapeutic hub for Alzheimer{\textquoteright}s disease},
+	elocation-id = {2025.01.16.632170},
+	year = {2025},
+	doi = {10.1101/2025.01.16.632170},
+	publisher = {Cold Spring Harbor Laboratory},
+	abstract = {Alzheimer{\textquoteright}s disease (AD) is poised to reach epidemic levels as the world population ages. There is currently no treatment that halts this debilitating disease. Our recent finding that the memory gene Arc regulates the expression of many genes associated with the pathophysiology of AD sets the stage for a new therapeutic approach that is not structurally based on the amyloid hypothesis that has driven most research to date. Neuronal activity-dependent Arc expression is controlled by a chromatin-modification complex containing two enzymes: Tip60 and PHF8. Here, we show that small molecules targeting these proteins inhibit Arc expression. This finding sets the stage for a novel therapeutic approach to combat Alzheimer{\textquoteright}s disease. Targeting Arc opens a new frontier of {\textquotedblleft}multi-target{\textquotedblright} therapy designed to intervene in several aspects of the disease simultaneously. Because of Arc{\textquoteright}s role in controlling the expression of multiple genes and pathways implicated in AD, it could serve as a therapeutic hub.Competing Interest StatementThe authors have declared no competing interest.},
+	journal = {bioRxiv}
+}
+
+@article{zhang2018,
+  title = {Amyloid-β Induces AMPA Receptor Ubiquitination and Degradation in Primary Neurons and Human Brains of Alzheimer’s Disease},
+  volume = {62},
+  ISSN = {1875-8908},
+  url = {http://dx.doi.org/10.3233/JAD-170879},
+  DOI = {10.3233/jad-170879},
+  number = {4},
+  journal = {Journal of Alzheimer’s Disease},
+  publisher = {SAGE Publications},
+  author = {Zhang,  Yanmin and Guo,  Ouyang and Huo,  Yuda and Wang,  Guan and Man,  Heng-Ye},
+  editor = {Ma,  Tao},
+  year = {2018},
+  month = jan,
+  pages = {1789–1801}
+}
+
+@article{ritchie2015,
+  title = {limma powers differential expression analyses for RNA-sequencing and microarray studies},
+  volume = {43},
+  ISSN = {0305-1048},
+  url = {http://dx.doi.org/10.1093/nar/gkv007},
+  DOI = {10.1093/nar/gkv007},
+  number = {7},
+  journal = {Nucleic Acids Research},
+  publisher = {Oxford University Press (OUP)},
+  author = {Ritchie,  Matthew E. and Phipson,  Belinda and Wu,  Di and Hu,  Yifang and Law,  Charity W. and Shi,  Wei and Smyth,  Gordon K.},
+  year = {2015},
+  month = jan,
+  pages = {e47–e47}
+}
+
+@article{risso2014,
+  title = {Normalization of RNA-seq data using factor analysis of control genes or samples},
+  volume = {32},
+  ISSN = {1546-1696},
+  url = {http://dx.doi.org/10.1038/nbt.2931},
+  DOI = {10.1038/nbt.2931},
+  number = {9},
+  journal = {Nature Biotechnology},
+  publisher = {Springer Science and Business Media LLC},
+  author = {Risso,  Davide and Ngai,  John and Speed,  Terence P and Dudoit,  Sandrine},
+  year = {2014},
+  month = aug,
+  pages = {896–902}
+}
