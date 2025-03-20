@@ -295,7 +295,7 @@ package,
 
 ## Running Consenrich with Control Inputs
 
-By default, Consenrich integrate control inputs by first scaling
+By default, Consenrich integrates control inputs by first scaling
 treatment/control data in each pair to each other
 ($\text{larger} \rightarrow \text{smaller}$), removing background
 modeled from the control input, and finally scaling all such
