@@ -24,7 +24,7 @@
 
 * Consenrich [preserves legitimate spectral content](docs/filter_comparison.png) while attenuating noise $\implies$ Improved comparison and profiling of condition-specific structural signatures discarded by enrichment-focused measures for HTS data.
 
-## Example Use
+## Tutorials and Example Use
 
 Refer to [**Examples**](Examples.md) for a variety of detailed usage instances.
 
