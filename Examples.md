@@ -1,26 +1,51 @@
 Functional Genomic Analysis of Multi-Sample HTS Datasets with Consenrich
 ================
+Nolan H. Hamilton
+([`@nolan-h-hamilton`](https://github.com/nolan-h-hamilton))
+
 March 2025
 
-# Introduction
+------------------------------------------------------------------------
 
-This document provides several usage examples for
+This document includes several multi-sample analyses of HTS data using
 [Consenrich](https://github.com/nolan-h-hamilton/Consenrich) (Hamilton
-et al. 2025). Consenrich is a method for integrating multiple
-high-throughput sequencing (HTS) datasets (e.g., ATAC-seq, ChIP-seq) to
-extract a consensus signal track that represents consistent, underlying
-genomic signal while attenuating sample-and-region-specific noise and
-preserving informative spectral/spatial content at high resolution.
+et al. 2025).
 
-We demonstrate its application in [various
-scenarios](#table-of-contents), including multi-sample ATAC-seq and
-ChIP-seq analyses, joint analysis of data from different assays, and
-differential analysis between disease conditions.
+Consenrich is a method for integrating multiple high-throughput
+sequencing (HTS) datasets (e.g., ATAC-seq, ChIP-seq) to extract a
+consensus signal track that represents consistent, underlying genomic
+signal while attenuating sample-and-region-specific noise and preserving
+informative spectral/spatial content at high resolution.
 
-## Computing Environment
+We demonstrate its applications in multi-sample ATAC-seq and ChIP-seq
+analyses, joint analysis of data from related assays, and differential
+analysis between disease conditions.
+
+------------------------------------------------------------------------
+
+# Table of Contents
+
+- [Environment Details](#environment-details)
+- [**Genome-Wide Signal Estimation in Heterogeneous HTS Datasets**:
+  *Robust, Scalable Extraction of True States in Noisy ATAC-seq
+  Data*](#genome-wide-chromatin-state-estimation-in-heterogeneous-atac-seq-datasets)
+- [**Multi-Sample ChIP-Seq Analysis**: *Building Encompassing Profiles
+  of TF Binding Activity*](#multi-sample-chip-seq-tf-analysis)
+- [**Joint Analysis of HTS Signals from Related Assays**: *Fusion of
+  DNase-seq and ATAC-seq Data
+  samples*](#mixed-assay--multi-sample-analysis-dnase-seq--atac-seq)
+- [**Applications to Differential Analyses**: *Distinct Epigenomic
+  Features of Alzheimer’s Disease Recovered in
+  DNase-Seq*](#differential-analysis-between-disease-conditions)
+- [References](#references)
+
+# Environment Details
 
 The following is a summary of the computing environment used to generate
 the results in this document.
+
+Note, consumer-grade hardware is employed for all analyses in this
+presentation.
 
 ### Hardware
 
@@ -35,36 +60,41 @@ the results in this document.
 | Total Number of Cores | 16           |
 | Memory                | 48 GB        |
 
-- Note, Consenrich is generally flexible with respect to available
-  computing resources but systems with limited memory may experience
-  increased runtime due to swaps/disk IO.
+- Note, systems with limited memory ($<16\,\text{Gb}$) may experience
+  longer runtimes due to increased disk IO/swapping.
 
 ### Software
 
-- Note, other fairly recent versions of these dependencies will likely
-  work, but those listed here are exact and are included for
-  reproducibility.
+*Note*, most recent versions of the software listed will also work. The
+specific versions given in this section are exact for the sake of
+reproducibility.
 
 #### System Dependencies
-
-There are two system dependencies:
 
 | Package                                                | Version |
 |--------------------------------------------------------|---------|
 | [samtools](http://www.htslib.org/download/)            | 1.21    |
 | [bedtools](https://bedtools.readthedocs.io/en/latest/) | 2.31.1  |
 
-These can easily be installed with common package managers, e.g.,
-`<brew, apt, etc.> install samtools bedtools` or
-[BioConda](https://bioconda.github.io/).
+These popular software can be installed directly using common package
+managers, e.g., `<brew, apt, etc.> install samtools bedtools` or
+[Conda/BioConda](https://bioconda.github.io/). They are also easily
+built from source provided by the authors at the links given above.
 
 #### Python Environment
 
-- Python version: `Python 3.12.9`
+- Python version: `3.12.9`
 
-- PyPI packages
+- Running the following two lines should install all necessary Python
+  dependencies listed in the table below
 
-  - Can Install with `python -m pip install package==version --user`
+  - `python -m pip install consenrich`
+  - `python -m pip install rocco`
+
+due to the dependency structures of the packages.
+
+In total, eight standard packages are required to run the analyses in
+this document. These are listed below with their respective versions.
 
 | Package                                                      | Version   |
 |--------------------------------------------------------------|-----------|
@@ -79,12 +109,9 @@ These can easily be installed with common package managers, e.g.,
 | [rocco](https://github.com/nolan-h-hamilton/ROCCO)           | 1.6.1     |
 | [consenrich](https://github.com/nolan-h-hamilton/Consenrich) | 0.1.1b0   |
 
-Because of the dependency structure of Consenrich and ROCCO, it should
-suffice to run only two commands to obtain all necessary dependencies
-for the analyses in this document:
-
-- `python -m pip install consenrich`
-- `python -m pip install rocco`
+Version-specific packages can be installed using
+`python -m pip install <package>==<version>`. ROCCO is not required to
+run Consenrich but is used in this document for peak calling.
 
 ## Data Availability
 
@@ -92,22 +119,7 @@ Every dataset used in this document is publicly available and can be
 accessed from the [ENCODE](https://www.encodeproject.org/) project.
 Files are named according to their ENCODE accession numbers.
 
-# Table of Contents
-
-- [**Genome-Wide Chromatin State Estimation in Heterogeneous ATAC-seq
-  Datasets**](#genome-wide-chromatin-state-estimation-in-heterogeneous-atac-seq-datasets)
-- [**Multi-Sample ChIP-Seq (TF)
-  Analysis**](#multi-sample-chip-seq-tf-analysis)
-- [**Mixed-Assay + Multi-Sample Analysis (DNase-seq $\cup$
-  ATAC-seq)**](#mixed-assay--multi-sample-analysis-dnase-seq--atac-seq)
-- [**Differential Analysis between Disease
-  Conditions**](#differential-analysis-between-disease-conditions)
-
-See also [Appendix: ‘Noisy’ Data
-Generation](#appendix-noisy-data-generation) and
-[References](#references).
-
-# Genome-Wide Chromatin State Estimation in Heterogeneous ATAC-seq Datasets
+# Genome-Wide Signal Estimation in Heterogeneous HTS Datasets
 
 - The aim of these experiments is to demonstrate simultaneously robust
   and encompassing signal extraction from multi-sample noisy ATAC-seq
@@ -115,15 +127,15 @@ Generation](#appendix-noisy-data-generation) and
 
 - A set of heterogeneous, publicly available ATAC-seq alignments from
   human lymphoblastoid cell lines is used for evaluation, combined with
-  sets of intentionally noisy samples generated by merging a GM12878
-  ChIP-Seq control with subsamples of legitimate ATAC-seq data in
-  independent lymphoblastoid cell lines, ensuring low signal-to-noise
-  ratio.
+  sets of intentionally noisy samples generated with the procedure
+  discussed in the [Appendix](#appendix-noisy-data-generation).
 
   - These noisy alignments mimic low-quality samples and are used to
     validate Consenrich’s ability to extract common, ‘true’ signals
-    despite divergent, noisy data inputs. Ideally Consenrich’s output
-    should be nearly unaffected by the presence of these noisy samples.
+    despite heterogeneous, noisy data samples.
+  - Ideally, Consenrich’s output should be unaffected by the presence of
+    these noisy samples – a property that is evaluated in the results
+    below.
 
 ## Het10 Lymphoblastoid Dataset
 
@@ -272,31 +284,37 @@ samples.</figcaption>
 
 <figure>
 <img src="docs/het10_pearson.png"
-alt="Chromosome-specific Pearson correlation coefficients between Consenrich(Het10) and Consenrich(Het10 \cup Noisy&lt;5,10&gt;) signal tracks. High correlations (near 1.0 for most chromosomes) suggest that adding noisy samples has minimal effect on the consensus signal profile." />
-<figcaption aria-hidden="true">Chromosome-specific Pearson correlation
-coefficients between Consenrich(Het10) and Consenrich(Het10 <span
-class="math inline">∪</span> Noisy&lt;5,10&gt;) signal tracks. High
-correlations (near 1.0 for most chromosomes) suggest that adding noisy
-samples has minimal effect on the consensus signal profile.</figcaption>
+alt="Chromosome-specific Pearson correlation coefficients between Consenrich(Het10) and Consenrich(Het10 \cup Noisy&lt;5,10&gt;) signal tracks. High correlations (near 1.0 for most chromosomes) suggest that noisy samples have minimal effect on the consensus signal profile. Several pointwise data aggregration strategies are included for reference. At each genomic bin/interval, Pointwise Trimmed Mean (25%) ‘trims’ samples’ alignment counts lying in the lower and upper quartile before recording the mean of remaining values. Pointwise Median likewise operates in a pointwise manner, recording the median alignment counts across samples at each genomic interval." />
+<figcaption aria-hidden="true"><em>Chromosome-specific Pearson
+correlation coefficients between Consenrich(Het10) and Consenrich(Het10
+<span class="math inline">∪</span> Noisy&lt;5,10&gt;) signal
+tracks</em>. High correlations (near 1.0 for most chromosomes) suggest
+that noisy samples have minimal effect on the consensus signal profile.
+Several pointwise data aggregration strategies are included for
+reference. At each genomic bin/interval, <em>Pointwise Trimmed Mean
+(25%)</em> ‘trims’ samples’ alignment counts lying in the lower and
+upper quartile before recording the mean of remaining values.
+<em>Pointwise Median</em> likewise operates in a pointwise manner,
+recording the median alignment counts across samples at each genomic
+interval.</figcaption>
 </figure>
 
 ## IGV Snapshot
 
 <figure>
 <img src="docs/het10_03032025.png"
-alt="Consenrich signal track outputs (middle panel, blue) given the ‘Het10’, ‘Het10 \cup Noisy5’, and ‘Het10 \cup Noisy10’ datasets as input. The alignment coverage tracks provided by IGV are displayed below for reference. The depicted 50kb region overlaps LYL1, which is highly expressed in lymphoblasts. This visual comparison shows that Consenrich produces consistent signal estimates even as increasing numbers of noisy inputs are added" />
+alt="Consenrich signal track outputs (middle panel, blue) given the ‘Het10’, ‘Het10 \cup Noisy5’, and ‘Het10 \cup Noisy10’ datasets as input. The alignment coverage tracks computed by IGV are included for reference. LYL1 was chosen as it is highly expressed in lymphoblasts. This visual comparison shows that Consenrich produces consistent signal estimates even as increasing numbers of noisy inputs are added" />
 <figcaption aria-hidden="true">Consenrich signal track outputs (middle
 panel, blue) given the ‘Het10’, ‘Het10 <span
 class="math inline">∪</span> Noisy5’, and ‘Het10 <span
 class="math inline">∪</span> Noisy10’ datasets as input. The alignment
-coverage tracks provided by IGV are displayed below for reference. The
-depicted <span class="math inline">50</span>kb region overlaps LYL1,
-which is highly expressed in lymphoblasts. This visual comparison shows
-that Consenrich produces consistent signal estimates even as increasing
-numbers of noisy inputs are added</figcaption>
+coverage tracks computed by IGV are included for reference. LYL1 was
+chosen as it is highly expressed in lymphoblasts. This visual comparison
+shows that Consenrich produces consistent signal estimates even as
+increasing numbers of noisy inputs are added</figcaption>
 </figure>
 
-# Multi-Sample ChIP-Seq (TF) Analaysis
+# Multi-Sample ChIP-Seq Analysis
 
 The aim of these experiments is to evaluate Consenrich’s ability to
 extract common, relevant signals from multiple ChIP-seq experiments with
@@ -457,7 +475,7 @@ in the left column. The vast majority of peaks are annotated as
 promoters which is expected given the target of this ChIP-Seq analysis
 (POL2RA).*
 
-# Mixed-Assay + Multi-Sample Analysis (DNase-seq $\cup$ ATAC-seq)
+# Joint Analysis of HTS Signals from Related Assays
 
 We next evaluate Consenrich’s performance on a multi-sample, multi-assay
 dataset, combining ATAC-seq and DNase-seq experiments. We aim to extract
@@ -558,7 +576,7 @@ DNase-seq and ATAC-seq data samples with Consenrich</em>.</figcaption>
 peaks from the combined ATAC–DNase data. For brevity, we move on to a
 differential analysis example.)
 
-# Differential Analysis between Disease Conditions
+# Applications to Differential Analyses
 
 The following analysis uses ENCODE DNase-seq alignment input from
 Alzheimer’s Disease (AD) and non-AD patients to demonstrate Consenrich’s
@@ -584,9 +602,11 @@ ATAC-seq data and other assays.
 
 ## Using Consenrich in Differential Analysis Workflows
 
-Several upstream strategies can be employed to extract enriched signal
-regions in multi-sample HTS data for differential analysis. Here, we
-discuss two common approaches.
+Several upstream strategies can be employed to extract
+consensus-enriched signal regions in multi-sample HTS data for
+subsequent downstream differential analyses.
+
+We address two approaches below.
 
 ### Extract signal from all samples (AD and No_AD)
 
@@ -614,7 +634,8 @@ consenrich \
 ```
 
 (In our analysis, we proceeded with this combined approach for peak
-calling, as it more conservatively defines regions for later testing.)
+calling, as it more conservatively defines regions for later
+differential testing.)
 
 ### Runtime/Memory Stats
 
@@ -624,14 +645,12 @@ calling, as it more conservatively defines regions for later testing.)
 | Maximum resident set size (kbytes)          | 21385152 |
 | Swaps                                       | 0        |
 
-### (Optional) Extract condition-specific signals (One for each: AD, No_AD)
+### (Optional) Extract condition-specific signals/peaks (One for each: AD, No_AD) $\rightarrow$ Merge
 
-In this scenario, we would compute Consenrich signal tracks for each
-condition, call peaks on each independently, and then take the union of
-both peak sets to establish candidate regions for differential analysis.
 This approach is generally less conservative than the previous method
-but may be more appropriate in certain experimental settings, e.g., when
-the number and quality of samples in each condition is disparate.
+but may be necessary in certain experimental settings, e.g., if the
+condition groups are highly imbalanced in sample size and/or signal
+strength.
 
 - Alzheimer’s Disease (AD)
 
@@ -675,8 +694,10 @@ consenrich \
   Consenrich signal track output to identify candidate regions for
   differential analysis.
 
-- We later test these candidate regions for *differential
-  accessibility*.
+- We later test these candidate regions for *differential accessibility*
+  between the `AD` and `No_AD` conditions. This aspect of the workflow
+  is discussed in greater detail in
+  [docs/dnase_ad.pdf](dnase_ad/dnase_ad.pdf).
 
 ``` bash
 rocco \
@@ -705,16 +726,18 @@ to Consenrich:
     ENCFF669HSH.bam
     ENCFF647TPO.bam
 
-- Depending on users’ experimental priorities, for further validation of
-  consensus peaks beyond ROCCO’s optimality criterion, an explicit
-  filter on the `pValue` (Column 8) or `qValue` (Column 9) columns in
-  the output narrowPeak file can be applied:
+- If further validation of consensus peaks (in addition to ROCCO’s
+  optimality criterion) is desired, an explicit filter on the `pValue`
+  (Column 8) or `qValue` (Column 9) columns in the output narrowPeak
+  file can be applied:
 
   ``` bash
   cat rocco_consenrich_dnase_ad_signal_v1.6.1.narrowPeak | \
   awk '$8 > 2' > \
   rocco_consenrich_dnase_ad_signal_v1.6.1.p01.narrowPeak
   ```
+
+  - Per convention, the $p,q$ values are in $-\log_{10}$ scale.
 
 ## Evaluating Candidate Peak Regions for Differential Accessibility
 
@@ -772,26 +795,28 @@ enrichment fold-change ($\log_2\text{fc}$) and statistical significance
 
 <figure>
 <img src="docs/dnase_ad_DESeq_results_k2_volcano.png"
-alt="Regions with DESeq2 FDR-corrected p-values and \log_2\text{fc} are depicted in red. A total of 132,860 consensus accessible peaks were identified by Consenrich \rightarrow ROCCO. Of these, 1183 were found to be differentially accessible using RUVseq and DESeq2." />
+alt="Regions with DESeq2 FDR-corrected p-values and \log_2\text{fc} are depicted in red. A total of \mathbf{132{,}860} consensus accessible peaks were identified using Consenrich \rightarrow ROCCO. Of these, \mathbf{1183} were found to be differentially accessible using RUVseq and DESeq2." />
 <figcaption aria-hidden="true"><em>Regions with DESeq2 FDR-corrected
 <span class="math inline"><em>p</em></span>-values and <span
 class="math inline">log<sub>2</sub>fc</span> are depicted in red. A
-total of <span class="math inline">132, 860</span> consensus accessible
-peaks were identified by Consenrich <span class="math inline">→</span>
-ROCCO. Of these, <span class="math inline">1183</span> were found to be
+total of <span
+class="math inline"><strong>132</strong><strong>,</strong> <strong>860</strong></span>
+consensus accessible peaks were identified using Consenrich <span
+class="math inline">→</span> ROCCO. Of these, <span
+class="math inline"><strong>1183</strong></span> were found to be
 differentially accessible using RUVseq and DESeq2.</em></figcaption>
 </figure>
 
 ### GREAT: Enriched Gene Associations
 
-- Supplying the differentially accessible regions (DARs) to
+- Supplying the differentially accessible regions (DARs) in BED format,
   [GREAT](http://great.stanford.edu/public/html/) (McLean et al. 2010)
-  (Tanigawa, Dyer, and Bejerano 2022,) yields `ARC` as the most
+  (Tanigawa, Dyer, and Bejerano 2022,) returns ARC as the most
   significantly enriched gene-region association, with a binomial
   FDR-corrected $q$-value of $7.619 \times 10^{-4}$.
 
-- `ARC` is particularly well-established as a driver of synaptic
-  function (Epstein and Finkbeiner 2018).
+- ARC is particularly well-established as a driver of synaptic function
+  (Epstein and Finkbeiner 2018).
 
 - Recent studies suggest significant potential of `ARC` as a therapeutic
   target for Alzheimer’s Disease (VanDongen 2025).
@@ -802,8 +827,8 @@ differentially accessible using RUVseq and DESeq2.</em></figcaption>
 
   - Notably, several identified DARs directly overlap the transcription
     start sites of these genes (e.g., `ADAMTS4`, `BIN1`)
-  - See the IGV snapshots below for a visual representation of these
-    regions.
+  - See the IGV snapshots below for a visual representation of some of
+    these regions.
 
 <figure>
 <img src="docs/BIN1.png"
@@ -846,12 +871,9 @@ differentially accessible regions include
 
 ### Sample clustering in PCA space
 
-After establishing differential regions, we can visualize separation
-between samples in two-dimensional PC-space as a rough gauge of
-discriminative power of the regions.
-
-Despite fairly large within-group variation, we note that the samples
-are linearly separable in the first two principal components.
+We note that the samples are linearly separable with respect to disease
+status in the first two principal components of DARs’ count data,
+suggesting collective discriminative power.
 
 <figure>
 <img src="docs/dnase_ad_DESeq_results2_pca_dar_nTop1000.png"
@@ -863,32 +885,60 @@ regions</em> colored according to disease status</figcaption>
 
 # Appendix: ‘Noisy’ Data Generation
 
-1.  We merge a ChIP-Seq Control in lymphoblastoid cell line (GM12878)
-    $3$x with a subsample of ATAC-seq lymphoblastoid alignment
-    `ENCFF320DVY.bam` to force a low SNR but plausible noisy set of
-    aligned reads.
+1.  Merge the following into one alignment (`noisy.bam`) to incorporate
+    ‘real’ biological data and better capture plausible noise processes
+    while forcing low SNR. Only a small fraction of the aligned
+    sequences in ‘noisy.bam’ correspond to directly relevant ATAC-seq
+    data.
 
-    ``` bash
-    samtools merge -o noisy.bam \
-    ENCFF415JON.bam ENCFF415JON.bam ENCFF415JON.bam \
-    ENCFF320DVY.sub25.bam 
-    ```
+- ENCFF320DVY.sub25.sorted.bam
+  - Subsampled ATAC-seq alignment file from ENCODE in a lymphoblastoid
+    cell line
+- ENCFF295KVO.bam
+  - MCF-7 ChIP-seq control input from ENCODE
+- ENCFF415JON.bam
+  - GM12878 ChIP-seq control input from ENCODE
+- ENCFF492KJP.bam
+  - K562 ChIP-seq control input from ENCODE
 
-2.  Take random subsamples to generate independent ‘noisy’ samples
+``` bash
+samtools merge -@ 12 -o noisy.bam ENCFF320DVY.sub25.sorted.bam \
+ENCFF295KVO.bam ENCFF415JON.bam ENCFF492KJP.bam
+```
 
-    ``` bash
-    samtools view -b -s 100.25 noisy.sorted.bam > noisy1.bam
-    samtools view -b -s 2000.25 noisy.sorted.bam > noisy2.bam
-    samtools view -b -s 30000.25 noisy.sorted.bam > noisy3.bam
-    samtools view -b -s 400000.25 noisy.sorted.bam > noisy4.bam
-    samtools view -b -s 5000000.25 noisy.sorted.bam > noisy5.bam
+``` bash
+> du -h *.bam
+5.6G    ENCFF295KVO.bam
+1.0G    ENCFF320DVY.sub25.sorted.bam
+3.9G    ENCFF415JON.bam
+3.2G    ENCFF492KJP.bam
+ 12G    noisy.bam
+```
 
-    samtools view -b -s 600000.50 noisy.sorted.bam > noisy6.bam
-    samtools view -b -s 70000.50 noisy.sorted.bam > noisy7.bam
-    samtools view -b -s 8000.50 noisy.sorted.bam > noisy8.bam
-    samtools view -b -s 900.50 noisy.sorted.bam > noisy9.bam
-    samtools view -b -s 10.50 noisy.sorted.bam > noisy10.bam
-    ```
+2.  Randomly subsample from `noisy.bam` to generate distinct noisy
+    samples.
+
+- **Seeds 1-5**: 100, 2000, 30000, 400000, 5000000
+- **Seeds 6-10**: 60000, 5000, 400, 30, 1
+
+``` bash
+# CWD: ./noisy
+samtools view -@ 4 -b -s <seed>.25 noisy_source/noisy.bam | samtools sort -@ 4 > noisy<1...5>.bam
+samtools view -@ 4 -b -s <seed>.50 noisy_source/noisy.bam | samtools sort -@ 4 > noisy<6...10>.bam
+```
+
+``` bash
+3.7G    noisy1.bam
+3.7G    noisy2.bam
+3.7G    noisy3.bam
+3.7G    noisy4.bam
+3.7G    noisy5.bam
+6.7G    noisy6.bam
+6.7G    noisy7.bam
+6.7G    noisy8.bam
+6.7G    noisy9.bam
+6.7G    noisy10.bam
+```
 
 # References
 
