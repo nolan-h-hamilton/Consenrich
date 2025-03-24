@@ -22,7 +22,6 @@ analysis between disease conditions.
 
 # Table of Contents
 
-- [Environment Details](#environment-details)
 - [**Genome-Wide Signal Estimation in Heterogeneous HTS Datasets**:
   *Robust, Scalable Extraction of True States in Noisy ATAC-seq
   Data*](#genome-wide-chromatin-state-estimation-in-heterogeneous-atac-seq-datasets)
@@ -34,7 +33,6 @@ analysis between disease conditions.
 - [**Applications to Differential Analyses**: *Distinct Epigenomic
   Features of Alzheimer’s Disease Recovered in
   DNase-Seq*](#differential-analysis-between-disease-conditions)
-- [References](#references)
 
 # Environment Details
 
@@ -264,7 +262,7 @@ alignments, respectively.
 ## Results
 
 We compute per-chromosome estimates of the root mean square deviation
-(RMSD) and Pearson correlations between Consenrich signal estimates
+(RMSD) and Spearman correlations between Consenrich signal estimates
 given input datasets with multiple levels of heterogeneity and noise.
 
 1.  To establish a reference point, we first run Consenrich on the
@@ -273,11 +271,10 @@ given input datasets with multiple levels of heterogeneity and noise.
     Dataset](#het10-lymphoblastoid-dataset)). We refer to the
     corresponding signal track output as ‘Consenrich(Het10)’.
 
-2.  The ‘Consenrich(Het10’ $\cup$ ‘Noisy5)’ and ‘Consenrich(Het10’
-    $\cup$ ‘Noisy10)’ signal tracks are then obtained by running
-    Consenrich with $m=5$ and $m=10$ intentionally noisy samples
-    augmented to `Het10` (see
-    [Appendix](#appendix-noisy-data-generation)).
+2.  The ‘Consenrich(Het10 $\cup$ Noisy5)’ and ‘Consenrich(Het10 $\cup$
+    Noisy10)’ signal tracks are then obtained by running Consenrich with
+    $m=5$ and $m=10$ intentionally noisy samples augmented to `Het10`
+    (see [Appendix](#appendix-noisy-data-generation)).
 
 For benchmarking, we conduct the same analyses for **Pointwise Trimmed
 Mean (25%)**, which ‘trims’ samples’ alignment counts at each genomic
@@ -297,12 +294,12 @@ with Noisy10’ datasets. Results are included for Consenrich (first row)
 and two benchmark methods (second, third rows).</figcaption>
 </figure>
 
-### Pearson Correlation Coefficients
+### Spearman Correlation Coefficients
 
 <figure>
-<img src="docs/het10_pearson.png"
-alt="Chromosome-specific Pearson correlation coefficients between Consenrich(Het10) and Consenrich(Het10 \cup Noisy&lt;5,10&gt;) signal tracks. High correlations (near 1.0 for most chromosomes) suggest that noisy samples have minimal effect on the consensus signal profile. Several pointwise data aggregration strategies are included for reference." />
-<figcaption aria-hidden="true"><em>Chromosome-specific Pearson
+<img src="docs/het10_spearman.png"
+alt="Chromosome-specific Spearman correlation coefficients between Consenrich(Het10) and Consenrich(Het10 \cup Noisy&lt;5,10&gt;) signal tracks. High correlations (near 1.0 for most chromosomes) suggest that noisy samples have minimal effect on the consensus signal profile. Several pointwise data aggregration strategies are included for reference." />
+<figcaption aria-hidden="true"><em>Chromosome-specific Spearman
 correlation coefficients between Consenrich(Het10) and Consenrich(Het10
 <span class="math inline">∪</span> Noisy&lt;5,10&gt;) signal
 tracks</em>. High correlations (near 1.0 for most chromosomes) suggest
