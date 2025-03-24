@@ -14,27 +14,25 @@
 * **Output**:
   * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
 
+* Refer to [**Examples**](Examples.md) for a variety of detailed usage instances.
+
 ---
 
 **Features**
 
-* Consenrich explicitly models signal trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/dnase_atac_03032025.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
+* Consenrich explicitly models dynamic signal trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/atac_dnase.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
 
-* Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling trait-specific regulatory landscapes (e.g., via [consensus peak calling, differential analyses, etc.](docs/GRIN1.png))
+* Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling condition-specific regulatory landscapes (e.g., via [consensus peak calling, differential analyses, etc.](docs/GRIN1.png))
 
-* Consenrich [preserves legitimate spectral content](docs/filter_comparison.png) while attenuating noise $\implies$ Improved comparison and profiling of condition-specific structural signatures discarded by enrichment-focused measures for HTS data.
-
-## Tutorials and Example Use
-
-Refer to [**Examples**](Examples.md) for a variety of detailed usage instances.
+* Consenrich [preserves legitimate spectral content while attenuating noise](docs/filter_comparison.png) $\implies$ Improved comparison and profiling of condition-specific structural signatures discarded by enrichment-focused measures for HTS data.
 
 ## Download/Install
 
 Consenrich is available via [PyPI/pip](https://pypi.org/project/consenrich/):
 
-* `pip install consenrich`
+* `python -m pip install consenrich`
 
-If managing multiple Python environments, use `python -m pip install consenrich`. If lacking administrative privileges, running with flag `--user` may be necessary.
+If lacking administrative privileges, running with flag `--user` may be necessary.
 
 ---
 

@@ -7,18 +7,15 @@ March 2025
 
 ------------------------------------------------------------------------
 
-This document includes several multi-sample analyses of HTS data using
-[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) (Hamilton
-et al. 2025).
+[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a state
+estimation algorithm for integrating multiple high-throughput sequencing
+(HTS) datasets to extract a ‘consensus signal tracks’ that represent
+consistent, underlying genomic signal while attenuating
+sample-*and*-region-specific noise and preserving informative
+spectral/spatial content with high resolution (Hamilton et al. 2025).
 
-Consenrich is a method for integrating multiple high-throughput
-sequencing (HTS) datasets (e.g., ATAC-seq, ChIP-seq) to extract a
-consensus signal track that represents consistent, underlying genomic
-signal while attenuating sample-and-region-specific noise and preserving
-informative spectral/spatial content at high resolution.
-
-We demonstrate its applications in multi-sample ATAC-seq and ChIP-seq
-analyses, joint analysis of data from related assays, and differential
+We demonstrate its applications to multi-sample ATAC-seq and ChIP-seq
+datasets, joint analysis of data from related assays, and differential
 analysis between disease conditions.
 
 ------------------------------------------------------------------------
@@ -65,9 +62,9 @@ presentation.
 
 ### Software
 
-*Note*, most recent versions of the software listed will also work. The
-specific versions given in this section are exact for the sake of
-reproducibility.
+*Note*, recent versions of Python (3.9+) and the other listed software
+will likely work, too–The specific versions given in this section are
+exact for the sake of reproducibility.
 
 #### System Dependencies
 
@@ -86,15 +83,18 @@ built from source provided by the authors at the links given above.
 - Python version: `3.12.9`
 
 - Running the following two lines should install all necessary Python
-  dependencies listed in the table below
+  dependencies for the experiments in this document:
 
   - `python -m pip install consenrich`
   - `python -m pip install rocco`
 
-due to the dependency structures of the packages.
+Version-specific packages can be installed using
+`python -m pip install <package>==<version>`. ROCCO is not required to
+run Consenrich but is used for peak calling in the presented usage
+examples.
 
-In total, eight standard packages are required to run the analyses in
-this document. These are listed below with their respective versions.
+For debugging/reproducibility, exact versions of the Python packages
+used to produce results are given below:
 
 | Package                                                      | Version   |
 |--------------------------------------------------------------|-----------|
@@ -109,10 +109,6 @@ this document. These are listed below with their respective versions.
 | [rocco](https://github.com/nolan-h-hamilton/ROCCO)           | 1.6.1     |
 | [consenrich](https://github.com/nolan-h-hamilton/Consenrich) | 0.1.1b0   |
 
-Version-specific packages can be installed using
-`python -m pip install <package>==<version>`. ROCCO is not required to
-run Consenrich but is used in this document for peak calling.
-
 ## Data Availability
 
 Every dataset used in this document is publicly available and can be
@@ -121,9 +117,9 @@ Files are named according to their ENCODE accession numbers.
 
 # Genome-Wide Signal Estimation in Heterogeneous HTS Datasets
 
-- The aim of these experiments is to demonstrate simultaneously robust
-  and encompassing signal extraction from multi-sample noisy ATAC-seq
-  data.
+- The aim of these experiments is to demonstrate both robust and
+  encompassing signal identification and quantification from
+  multi-sample, noisy ATAC-seq data.
 
 - A set of heterogeneous, publicly available ATAC-seq alignments from
   human lymphoblastoid cell lines is used for evaluation, combined with
@@ -160,8 +156,8 @@ Files are named according to their ENCODE accession numbers.
 
 ### Het10 $\cup$ Noisy Datasets
 
-Details regarding the simulation of ‘noisy’ samples is discussed in the
-extra material at the end of this document. The ‘Het10 $\cup$ Noisy5’
+Details regarding the generation of ‘noisy’ samples is discussed in the
+[Appendix](#appendix-noisy-data-generation). The ‘Het10 $\cup$ Noisy5’
 and ‘Het10 $\cup$ Noisy10’ datasets are comprised of the above
 legitimate ATAC-seq BAM alignments and $m=5$ and $m=10$ noisy low-SNR
 alignments, respectively.
@@ -267,36 +263,52 @@ alignments, respectively.
 
 ## Results
 
-### Influence of Noisy Samples on Consenrich Signal Track Output
+We compute per-chromosome estimates of the root mean square deviation
+(RMSD) and Pearson correlations between Consenrich signal estimates
+given input datasets with multiple levels of heterogeneity and noise.
+
+1.  To establish a reference point, we first run Consenrich on the
+    `Het10` dataset containing 10 legitimate ATAC-seq alignments from
+    lymphoblastoid cell lines (see [Het10 Lymphoblastoid
+    Dataset](#het10-lymphoblastoid-dataset)). We refer to the
+    corresponding signal track output as ‘Consenrich(Het10)’.
+
+2.  The ‘Consenrich(Het10’ $\cup$ ‘Noisy5)’ and ‘Consenrich(Het10’
+    $\cup$ ‘Noisy10)’ signal tracks are then obtained by running
+    Consenrich with $m=5$ and $m=10$ intentionally noisy samples
+    augmented to `Het10` (see
+    [Appendix](#appendix-noisy-data-generation)).
+
+For benchmarking, we conduct the same analyses for **Pointwise Trimmed
+Mean (25%)**, which ‘trims’ samples’ alignment counts at each genomic
+interval below/above the lower and upper quartiles, respectively, before
+calculating the mean of remaining values in the IQR. **Pointwise
+Median** is likewise included as an additional robust, positional
+aggregate quantification approach for comparison.
+
+### Influence of Noisy Samples
 
 <figure>
 <img src="docs/het10_with_without_noisy.png"
-alt="Violin plots depicting the distribution of differences between Consenrich(Het10) and Consenrich(Het10 \cup Noisy&lt;5,10&gt;) signal track values (genome-wide). These plots indicate how much the Consenrich signal changes when noisy samples are included in the set of input samples." />
-<figcaption aria-hidden="true">Violin plots depicting the distribution
-of <em>differences</em> between Consenrich(Het10) and Consenrich(Het10
-<span class="math inline">∪</span> Noisy&lt;5,10&gt;) signal track
-values (genome-wide). These plots indicate how much the Consenrich
-signal changes when noisy samples are included in the set of input
-samples.</figcaption>
+alt="Chromosome-specific RMSD between signal estimates using the ‘Het10’ dataset and ‘Het10 with Noisy5’ and ‘Het10 with Noisy10’ datasets. Results are included for Consenrich (first row) and two benchmark methods (second, third rows)." />
+<figcaption aria-hidden="true">Chromosome-specific RMSD between signal
+estimates using the ‘Het10’ dataset and ‘Het10 with Noisy5’ and ‘Het10
+with Noisy10’ datasets. Results are included for Consenrich (first row)
+and two benchmark methods (second, third rows).</figcaption>
 </figure>
 
 ### Pearson Correlation Coefficients
 
 <figure>
 <img src="docs/het10_pearson.png"
-alt="Chromosome-specific Pearson correlation coefficients between Consenrich(Het10) and Consenrich(Het10 \cup Noisy&lt;5,10&gt;) signal tracks. High correlations (near 1.0 for most chromosomes) suggest that noisy samples have minimal effect on the consensus signal profile. Several pointwise data aggregration strategies are included for reference. At each genomic bin/interval, Pointwise Trimmed Mean (25%) ‘trims’ samples’ alignment counts lying in the lower and upper quartile before recording the mean of remaining values. Pointwise Median likewise operates in a pointwise manner, recording the median alignment counts across samples at each genomic interval." />
+alt="Chromosome-specific Pearson correlation coefficients between Consenrich(Het10) and Consenrich(Het10 \cup Noisy&lt;5,10&gt;) signal tracks. High correlations (near 1.0 for most chromosomes) suggest that noisy samples have minimal effect on the consensus signal profile. Several pointwise data aggregration strategies are included for reference." />
 <figcaption aria-hidden="true"><em>Chromosome-specific Pearson
 correlation coefficients between Consenrich(Het10) and Consenrich(Het10
 <span class="math inline">∪</span> Noisy&lt;5,10&gt;) signal
 tracks</em>. High correlations (near 1.0 for most chromosomes) suggest
 that noisy samples have minimal effect on the consensus signal profile.
 Several pointwise data aggregration strategies are included for
-reference. At each genomic bin/interval, <em>Pointwise Trimmed Mean
-(25%)</em> ‘trims’ samples’ alignment counts lying in the lower and
-upper quartile before recording the mean of remaining values.
-<em>Pointwise Median</em> likewise operates in a pointwise manner,
-recording the median alignment counts across samples at each genomic
-interval.</figcaption>
+reference.</figcaption>
 </figure>
 
 ## IGV Snapshot
@@ -572,10 +584,6 @@ alt="Joint Signal Extraction from DNase-seq and ATAC-seq data samples with Conse
 DNase-seq and ATAC-seq data samples with Consenrich</em>.</figcaption>
 </figure>
 
-(At this stage, one could proceed to annotate or analyze the consensus
-peaks from the combined ATAC–DNase data. For brevity, we move on to a
-differential analysis example.)
-
 # Applications to Differential Analyses
 
 The following analysis uses ENCODE DNase-seq alignment input from
@@ -583,7 +591,7 @@ Alzheimer’s Disease (AD) and non-AD patients to demonstrate Consenrich’s
 utility in differential analysis workflows.
 
 Note that the protocol applied here for DNase-seq is also applicable to
-ATAC-seq data and other assays.
+ATAC-seq data.
 
 ## Alzheimer’s Disease DNase-seq Dataset
 
@@ -606,16 +614,16 @@ Several upstream strategies can be employed to extract
 consensus-enriched signal regions in multi-sample HTS data for
 subsequent downstream differential analyses.
 
-We address two approaches below.
+Some discretion is involved in choosing the appropriate strategy, as the
+number of samples, their balance between condition groups, etc. can
+affect the optimal approach. We briefly discuss two options below.
 
 ### Extract signal from all samples (AD and No_AD)
 
-- *Pros*: Better preserves nominal type I error rates downstream (Lun
-  and Smyth 2014)
-
-- *Cons*: Potentially muted condition-specific signals. This issue can
-  become pronounced when the number of samples in each condition is
-  highly imbalanced.
+- In this demonstrative analysis, we opt to evaluate enrichment across
+  all sample regardless of condition. This is considered a conservative
+  approach to avoid ‘data snooping’ prior to testing for differential
+  accessibility.
 
 ``` bash
 consenrich \
@@ -633,10 +641,6 @@ consenrich \
   --save_args --skip_chroms chrY --threads 8 -p 8
 ```
 
-(In our analysis, we proceeded with this combined approach for peak
-calling, as it more conservatively defines regions for later
-differential testing.)
-
 ### Runtime/Memory Stats
 
 | Metric                                      | Value    |
@@ -647,10 +651,14 @@ differential testing.)
 
 ### (Optional) Extract condition-specific signals/peaks (One for each: AD, No_AD) $\rightarrow$ Merge
 
-This approach is generally less conservative than the previous method
-but may be necessary in certain experimental settings, e.g., if the
-condition groups are highly imbalanced in sample size and/or signal
-strength.
+- This approach may be useful if the number of samples in each condition
+  is imbalanced, or if the user wishes to apply different peak calling
+  thresholds to each condition. Be careful to consider potentially
+  inflated false discovery rates if applying this approach.
+
+  - Particularly for smaller datasets where condition-specific peaks may
+    arise from irrelevant technical or biological confounders in the
+    data, rather than a reproducible population-level phenomenon.
 
 - Alzheimer’s Disease (AD)
 
@@ -692,12 +700,11 @@ consenrich \
 
 - We use ROCCO to determine genomic regions that are enriched in the
   Consenrich signal track output to identify candidate regions for
-  differential analysis.
+  [differential
+  analysis](#evaluating-candidate-peak-regions-for-differential-accessibility).
 
-- We later test these candidate regions for *differential accessibility*
-  between the `AD` and `No_AD` conditions. This aspect of the workflow
-  is discussed in greater detail in
-  [docs/dnase_ad.pdf](dnase_ad/dnase_ad.pdf).
+- The R code used to perform the differential anlysis is available with
+  commentary in [docs/dnase_ad.pdf](dnase_ad/dnase_ad.pdf).
 
 ``` bash
 rocco \
@@ -737,7 +744,9 @@ to Consenrich:
   rocco_consenrich_dnase_ad_signal_v1.6.1.p01.narrowPeak
   ```
 
-  - Per convention, the $p,q$ values are in $-\log_{10}$ scale.
+  - Per convention, the $p,q$ values are in $-\log_{10}$ scale in the
+    narrowPeak file, e.g., a $p$-value of 0.01 would be scored as 2 in
+    the $8^{\text{th}}$ column.
 
 ## Evaluating Candidate Peak Regions for Differential Accessibility
 
@@ -977,15 +986,6 @@ Annotations from Multi-Sample Functional Genomics Data.” *bioRxiv*.
 Love, Michael I, Wolfgang Huber, and Simon Anders. 2014. “Moderated
 Estimation of Fold Change and Dispersion for RNA-Seq Data with DESeq2.”
 *Genome Biology* 15 (12). <https://doi.org/10.1186/s13059-014-0550-8>.
-
-</div>
-
-<div id="ref-lun2014" class="csl-entry">
-
-Lun, Aaron T. L., and Gordon K. Smyth. 2014. “De Novo Detection of
-Differentially Bound Regions for ChIP-Seq Data Using Peaks and Windows:
-Controlling Error Rates Correctly.” *Nucleic Acids Research* 42 (11):
-e95–95. <https://doi.org/10.1093/nar/gku351>.
 
 </div>
 
