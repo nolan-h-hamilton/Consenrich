@@ -1352,7 +1352,7 @@ def _parse_arguments(ID):
 
 
 def main():
-    ID = str(uuid.uuid4().int)[0:8]
+    ID = str(uuid.uuid4().int)[0:6]
     args = _parse_arguments(ID)
 
     logger.info(f'\nConsenrich Experiment: {ID}')
