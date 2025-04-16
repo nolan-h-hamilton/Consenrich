@@ -407,7 +407,6 @@ def get_readtrack(chromosome: str,
     :param min_mapq: Minimum mapping quality.
     :param blacklist_file: Path to blacklist file.
     :param threads: Number of threads to use for opening BAM file.
-    :param count_both: Whether to count both reads in a pair with a +1. If False, each read in the pair is counted as 0.5.
     :return: Tuple of intervals (`np.ndarray`) and the read track (`np.ndarray`).
 
     """
@@ -501,7 +500,7 @@ def get_munc_track_mp(chromosome: str,
                 intervals: np.ndarray,
                 chrom_matrix: np.ndarray,
                 sparsemap: dict,
-                munc_min: float=0.50,
+                munc_min: float=0.25,
                 munc_max: float=500,
                 munc_smooth: bool=True,
                 munc_smooth_bp: int=500,
@@ -554,7 +553,7 @@ def munc_track(chromosome: str,
             intervals: np.ndarray,
             vals: np.ndarray,
             sparsemap: dict,
-            munc_min: float=0.50,
+            munc_min: float=0.25,
             munc_max: float=500,
             munc_smooth: bool=True,
             munc_smooth_bp: int=1000,
@@ -670,7 +669,7 @@ def get_chromosome_matrix(chromosome: str,
                         threads: int=None,
                         count_both: bool=True,
                         backshift: int=None,
-                        munc_min: float=0.50,
+                        munc_min: float=0.25,
                         munc_max: float=500,
                         munc_smooth: bool=True,
                         munc_smooth_bp: int=500,
@@ -729,7 +728,7 @@ def get_chromosome_matrix(chromosome: str,
     :param detrend_lbound: Lower bound for detrended values.
     :param detrend_ubound: Upper bound for detrended values.
     :return: Tuple of intervals (`np.ndarray`), read matrix (`np.ndarray`), and observation noise matrix (`np.ndarray`).
-    
+
     :seealso: `get_readtrack()`, `get_munc_track()`, `find_proximal_features()`, `detrend_track()`
 
     """
@@ -741,7 +740,7 @@ def get_chromosome_matrix(chromosome: str,
 
     first_reads = []
     last_reads = []
-    
+
     for bam_file in bam_files:
         wrap_index(bam_file=bam_file)
         first_reads.append(get_first_read(chromosome, bam_file, sizes_file, exclude_flag=exclude_flag, min_mapq=min_mapq, step=step))
@@ -751,15 +750,15 @@ def get_chromosome_matrix(chromosome: str,
     stop = max(last_reads)
     intervals = np.arange(start, stop + step, step)
     par_results_readtrack = get_readtrack_mp(
-        bam_files, 
-        chromosome, 
+        bam_files,
+        chromosome,
         sizes_file,
         start=intervals[0],
         end=intervals[-1],
         step=step,
-        paired_end=paired_end, 
+        paired_end=paired_end,
         min_mapq=min_mapq,
-        threads=threads, 
+        threads=threads,
         n_processes=n_processes,
         count_both=count_both)
 
@@ -772,15 +771,15 @@ def get_chromosome_matrix(chromosome: str,
             raise ValueError("Number of control files must match number of treatment files.")
         logger.info(f'Computing treatment read tracks: {chromosome}...')
         par_controls_readtrack = get_readtrack_mp(
-            control_files, 
-            chromosome, 
+            control_files,
+            chromosome,
             sizes_file,
             start=intervals[0],
             end=intervals[-1],
             step=step,
-            paired_end=paired_end, 
+            paired_end=paired_end,
             min_mapq=min_mapq,
-            threads=threads, 
+            threads=threads,
             n_processes=n_processes,
             count_both=count_both)
         for i, result in enumerate(par_controls_readtrack):
@@ -827,7 +826,7 @@ def get_chromosome_matrix(chromosome: str,
             except:
                 logger.warning(f"Could not remove temporary file: {sparse_fname}")
             sparse_fname = pbt.BedTool(sparsebed_selection.head(csparse_max_features, as_string=True), from_string=True).sort().saveas(sparse_fname + '.head.bed')
-        sparsebed = sparse_fname 
+        sparsebed = sparse_fname
     proximal_features = find_proximal_features(chromosome, intervals, sparsebed, k=munc_k)
     if no_sparsebed and sparse_fname is not None and os.path.exists(sparse_fname):
         try:
@@ -836,15 +835,15 @@ def get_chromosome_matrix(chromosome: str,
             logger.warning(f"Could not remove temporary file: {sparse_fname}")
     logger.info(f'Computing observation noise tracks: {chromosome}...')
     par_results_munctrack = get_munc_track_mp(
-        chromosome, 
-        intervals, 
-        chrom_matrix, 
+        chromosome,
+        intervals,
+        chrom_matrix,
         proximal_features,
-        munc_min=munc_min, 
-        munc_max=munc_max, 
-        munc_smooth=munc_smooth, 
-        munc_smooth_bp=munc_smooth_bp, 
-        munc_local_weight=munc_local_weight, 
+        munc_min=munc_min,
+        munc_max=munc_max,
+        munc_smooth=munc_smooth,
+        munc_smooth_bp=munc_smooth_bp,
+        munc_local_weight=munc_local_weight,
         munc_global_weight=munc_global_weight,
         conservative_munc=conservative_munc)
     prev_match_arr = None
@@ -912,13 +911,13 @@ def backward_pass(xvec_forward, Pmat_forward, Qmat_forward, Fmat):
     :seealso: `run_consenrich`
 
     """
-    
+
     n = xvec_forward.shape[0]
     x_smooth = np.zeros_like(xvec_forward)
     P_smooth = np.zeros_like(Pmat_forward)
     x_smooth[-1] = xvec_forward[-1]
     P_smooth[-1] = Pmat_forward[-1]
-    
+
     for k in range(n - 2, -1, -1):
         if k % ((n-2)//10) == 0:
             logger.info(f'Processing interval {k+1}/{n}')
@@ -934,9 +933,9 @@ def backward_pass(xvec_forward, Pmat_forward, Qmat_forward, Fmat):
 def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
                    step=50, norm_counts=True, norm_gwide=False, gwide_scales=None, paired_end=True,
                    exclude_flag=3840, min_mapq=0, threads=None, count_both=True,
-                   backshift=None, munc_min=0.50, munc_max=500, munc_smooth=True,
+                   backshift=None, munc_min=0.25, munc_max=500, munc_smooth=True,
                    munc_smooth_bp=500, munc_local_weight=0.333, munc_global_weight=0.667,
-                   munc_k=25, munc_const=1.0, prunc_min=0.05, prunc_max=500.0,
+                   munc_k=25, munc_const=1.0, prunc_min=0.25, prunc_max=500.0,
                    n_processes=None, xvec=None, Pmat=None, Qmat=None, Fmat=None,
                    Hmat=None, Rmat=None, delta=1.0, Dstat_thresh=2.0, Dstat_scale=10.0,
                    Dstat_pc=2.0, state_lowerlim=None, state_upperlim=None, Qmat_offdiag=None,
@@ -947,7 +946,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
                    no_sparsebed=False, csparse_aggr_percentile=75, csparse_wlen=51,
                    csparse_pdegree=2, csparse_min_peak_len=10, csparse_min_sparse_len=10,
                    csparse_min_dist=50, csparse_max_features=5000, csparse_min_prom_prop=0.05,
-                   ignore_blacklist=True, save_gain=False):
+                   ignore_blacklist=True, save_gain=None):
     r"""Run Consenrich on an individual chromosome.
 
     :param chromosome: Chromosome to run Consenrich on.
@@ -961,18 +960,17 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
     :param exclude_flag: Exclude flag -- discard alignments with this flag. Default is 3840.
     :param min_mapq: Minimum mapping quality. Default is 0.
     :param threads: Number of threads to use. Default is half of CPU count.
-    :param count_both: `True` if counting both reads as +1. Otherwise count each as 0.50.
     :param backshift: Backshift when searching for the last read.
-    :param munc_min: Minimum observation noise allowed for a sample and region. Default is 0.50.
-    :param munc_max: Maximum observation noise allowed for a sample and region. Default is 500.
+    :param munc_min: Minimum observation noise var allowed for a sample and region. Default is 0.25.
+    :param munc_max: Maximum observation noise var allowed for a sample and region. Default is 500.
     :param munc_smooth: `True` if smoothing observation noise across intervals.
     :param munc_smooth_bp: Number of base pairs to smooth observation noise over.
     :param munc_local_weight: Weight of the 'local' component used to compute observation noise.
     :param munc_global_weight: Weight of the 'global' component used to compute observation noise.
     :param munc_k: Number of proximal features to consider when computing observation noise.
     :param munc_const: observation noise constant. Default is 1.0.
-    :param prunc_min: Minimum process noise allowed. Default is 0.05.
-    :param prunc_max: Maximum process noise allowed. Default is 500.0
+    :param prunc_min: Minimum process noise var allowed. Default is 0.25.
+    :param prunc_max: Maximum process noise var allowed. Default is 500.0
     :param n_processes: Number of parallel processes to use when counting reads, computing observation noise, etc.
     :param xvec: State vector. Only modify if wanting to alter the model itself.
     :param Pmat: Process noise covariance matrix. Only modify if wanting to alter the model itself.
@@ -990,7 +988,6 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
     :param detrend_percentile: Percentile for detrending. Mutually exclusive with `detrend_degree` (Savitzky-Golay)
     :param detrend_window_bp: Window size for detrending.
     :param save_matrix: Save count and munc matrices to .npz file
-    :param experiment_id: Experiment ID.
 
     """
     if n_processes is None or n_processes < 1:
@@ -1089,7 +1086,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
     Pmat_forward = np.zeros((n,2,2))
     Qmat_forward = np.zeros((n,2,2))
     gain = None
-    if save_gain:
+    if save_gain is not None:
         gain = np.zeros((n,m)) # currently, we only *record* the gain for the first state variable
     #residuals_ivw = np.zeros(n)
     ZmatT = chrom_matrix.T
@@ -1146,7 +1143,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
         #  Pmat` than the observation model (from `Hmat`) given `Rmat[j,j]` j=1,...,m,
         # then the jth residual will affect the state estimate less (more).
         Kmat = PHT@Emat_inv
-        if gain is not None or save_gain:
+        if gain is not None:
             gain[i] = Kmat[0,:] # only record the gain for the first state variable
         IKH = Imat - Kmat@Hmat # precompute
 
@@ -1185,7 +1182,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
     est_final[blacklisted_idx == 1] = state_lowerlim
     residuals_ivw_final = np.zeros(n)
     for i in range(n):
-        postsmooth_var = 1 / (munc_matrix[:,i] + Pmat_smooth[i,0,0]) # precompute
+        postsmooth_var = 1 / (munc_matrix[:,i] + Pmat_smooth[i,0,0])
         postsmooth_res = np.dot(chrom_matrix[:,i] -  Hmat@xvec_smooth[i], postsmooth_var)
         residuals_ivw_final[i] = postsmooth_res / np.sum(postsmooth_var)
     logger.info('Done.')
@@ -1259,7 +1256,7 @@ def _parse_arguments(ID):
                         help='Count both reads in a proper pair as +1 (default: True).')
     parser.add_argument('--backshift', type=int, default=None,
                         help='Backshift when searching for the last read in a given chromosome.')
-    parser.add_argument('--munc_min', type=float, default=0.50, help='Minimum observation noise.')
+    parser.add_argument('--munc_min', type=float, default=0.25, help='Minimum observation noise.')
     parser.add_argument('--munc_max', type=float, default=500.0, help='Maximum observation noise.')
     parser.add_argument('--munc_smooth_bp', type=int, default=None,
                         help='Smoothing window for observation noise in base pairs.')
@@ -1271,7 +1268,7 @@ def _parse_arguments(ID):
                         help='Number of proximal features for observation noise (default: 25).')
     parser.add_argument('--munc_const', type=float, default=1.0,
                         help='Use a constant observation noise--`munc_const*I` (default: 1.0).')
-    parser.add_argument('--prunc_min', type=float, default=0.05, help='Minimum process noise.')
+    parser.add_argument('--prunc_min', type=float, default=0.25, help='Minimum process noise.')
     parser.add_argument('--prunc_max', type=float, default=500.0, help='Maximum process noise.')
     parser.add_argument('--delta', type=float, default=1.0,
                         help='Distance to propagate state (default: 1.0).')
@@ -1299,11 +1296,11 @@ def _parse_arguments(ID):
     parser.add_argument('--detrend_ubound', type=float, default=None,
                         help='Upper bound for detrended values.')
 
-    parser.add_argument('--signal_bigwig', type=str, default=f'consenrich_signal_track_{ID}.bw',
+    parser.add_argument('--signal_bigwig', '--signal', type=str, dest='signal_bigwig', default=f'consenrich_signal_track_{ID}.bw',
                         help='Write bigWig for state estimates.')
     parser.add_argument('--residuals', '--residual_bigwig', dest='residual_bigwig',
-                        type=str, default=f'consenrich_scaled_residuals_{ID}.bw',
-                        help='Write bigWig of inverse-variance-weighted residual estimates.')
+                        type=str, default=f'consenrich_residuals_track_{ID}.bw',
+                        help='Write bigWig of residual estimates.')
     parser.add_argument('--square_residuals', action='store_true',
                         help='Write square of residuals in the `residuals_bigwig` track.')
     parser.add_argument('--ratio', '--eratio', '--eratio_bigwig', '--ratio_bigwig', type=str, default=f'consenrich_eratio_track_{ID}.bw',
@@ -1312,10 +1309,9 @@ def _parse_arguments(ID):
                         help='Output file for Consenrich results.')
     parser.add_argument('--save_matrix', action='store_true',
                         help='Save count and noise covariance matrices to .npz for each chromosome.')
-    parser.add_argument('--save_gain', action='store_true', dest='save_gain',
-                        help='Save sample-specific per-interval gains to a compressed tsv file for each chromosome.')
-    parser.add_argument('--experiment_id', '--name', default=ID,
-                        help='Experiment ID/name to suffix output data files.')
+    parser.add_argument('--save_gain', '--gain_log', default=None, type=str, dest='save_gain',
+                        help='Use a `tsv.gz` extension for the filename.')
+    parser.add_argument('--experiment_id', '--name', default=ID)
 
     parser.add_argument('--no_sparsebed', action='store_true',
                         help='If invoked, compute noise variances from inferred sparse regions specific to each sample based on post-detrend stationary or WSS regions.')
@@ -1356,13 +1352,13 @@ def _parse_arguments(ID):
 
 
 def main():
-    init_ID = str(int(uuid.uuid4().hex[:5], base=16))
-    args = _parse_arguments(init_ID)
-    ID = args.experiment_id
+    ID = str(uuid.uuid4().int)[0:8]
+    args = _parse_arguments(ID)
+
+    logger.info(f'\nConsenrich Experiment: {ID}')
     if len(sys.argv) == 1:
         logger.info('No arguments provided. Run `consenrich -h`.')
         sys.exit(0)
-    logger.info(f'Consenrich Experiment: {ID}')
     if args.signal_bigwig is not None:
         logger.info(f'Signal Track bigWig Output --> {args.signal_bigwig}')
     if args.residual_bigwig is not None:
@@ -1371,8 +1367,6 @@ def main():
         logger.info(f'eRatio Track bigWig Output --> {args.ratio_bigwig}')
     if args.output_file is not None:
         logger.info(f'TSV output --> {args.output_file}')
-    if args.save_gain:
-        logger.info(f'Gain matrix output(s) --> consenrich_gain_{chromosome}_{ID}.tsv.gz')
 
     if args.save_args:
         try:
@@ -1511,10 +1505,13 @@ def main():
             for i in range(len(intervals)):
                 f.write(f'{chromosome}\t{intervals[i]}\t{intervals[i]+args.step}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
 
-        if args.save_gain:
+        if args.save_gain is not None and gain is not None:
+            gain_chrfname = args.save_gain.replace('.gz', '')
+            gain_chrfname = gain_chrfname.replace('.tsv', '')
+            gain_chrfname = f'{gain_chrfname}_{chromosome}.tsv.gz'
             try:
-                with gzip.open(f'consenrich_gain_{chromosome}_{ID}.tsv.gz', 'wt', compresslevel=4) as f:
-                    np.savetxt(f, gain.T, delimiter='\t', comments='# m-by-n matrix of gains: samples-->rows, genomic positions-->columns', fmt='%.4f')
+                with gzip.open(gain_chrfname, 'wt', compresslevel=4) as f:
+                    np.savetxt(f, gain, delimiter='\t', comments='# n-by-m matrix of gains: samples-->columns, genomic positions-->rows', fmt='%.4f')
             except Exception as e:
                 logger.warning(f'Could not save gains for {chromosome}:\n{str(e)}\n')
     logger.info(f'Calling `bedtools sort -i {tmp_unsorted}`...')
