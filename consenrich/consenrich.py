@@ -946,9 +946,9 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
                    no_sparsebed=False, csparse_aggr_percentile=75, csparse_wlen=51,
                    csparse_pdegree=2, csparse_min_peak_len=10, csparse_min_sparse_len=10,
                    csparse_min_dist=50, csparse_max_features=5000, csparse_min_prom_prop=0.05,
-                   ignore_blacklist=True, save_gain=True):
+                   ignore_blacklist=True, save_gain=False):
     r"""Run Consenrich on an individual chromosome.
-    
+
     :param chromosome: Chromosome to run Consenrich on.
     :param bam_files: List of BAM files.
     :param sizes_file: Path to sizes file.
@@ -1145,14 +1145,14 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
         #  Pmat` than the observation model (from `Hmat`) given `Rmat[j,j]` j=1,...,m,
         # then the jth residual will affect the state estimate less (more).
         Kmat = PHT@Emat_inv
-        gain[i] = Kmat[0,:] # only record the gain for the first state variable
+        if gain is not None or save_gain:
+            gain[i] = Kmat[0,:] # only record the gain for the first state variable
         IKH = Imat - Kmat@Hmat # precompute
 
         # -- Now we compute the a posteriori estimates of the state and its uncertainty
         # -- The (default) covariance update is in Joseph form.
         #    This is a more flexible, numerically stable way to update the covariance matrix
         #    but is less intuitive and potentially less efficient than the more common KF form.
-
         xvec = xvec + Kmat@yvec
         if joseph:
             Pmat = (IKH)@Pmat@(IKH).T + Kmat@Rmat@Kmat.T
@@ -1215,7 +1215,7 @@ def _parse_arguments(ID):
     :param ID: Unique ID for the current run.
     :return: Namespace of parsed arguments.
     """
-
+    ID = str(ID)
     parser = argparse.ArgumentParser(description="Consenrich CLI", formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=True, epilog="\n\nHomepage: https://github.com/nolan-h-hamilton/Consenrich\n\n")
     parser.add_argument(
         '-f', '--config_file',
@@ -1313,8 +1313,8 @@ def _parse_arguments(ID):
                         help='Save count and noise covariance matrices to .npz for each chromosome.')
     parser.add_argument('--save_gain', action='store_true',
                         help='Save per-iteration gains to .npz for each chromosome.')
-    parser.add_argument('--experiment_id', default=ID,
-                        help='Experiment ID for saving data files.')
+    parser.add_argument('--experiment_id', '--name', default=ID,
+                        help='Experiment ID/name for saving data files.')
 
     parser.add_argument('--no_sparsebed', action='store_true',
                         help='If invoked, compute noise variances from inferred sparse regions specific to each sample based on post-detrend stationary or WSS regions.')
@@ -1358,8 +1358,15 @@ def main():
     init_ID = str(int(uuid.uuid4().hex[:5], base=16))
     args = _parse_arguments(init_ID)
     ID = args.experiment_id
-    logger.info(f'Consenrich Experiment {ID}')
-
+    logger.info(f'Consenrich Experiment: {ID}')
+    if args.signal_bigwig is not None:
+        logger.info(f'Signal Track bigWig Output --> {args.signal_bigwig}')
+    if args.residual_bigwig is not None:
+        logger.info(f'Residual Track bigWig Output --> {args.residual_bigwig}')
+    if args.ratio_bigwig is not None:
+        logger.info(f'eRatio Track bigWig Output --> {args.ratio_bigwig}')
+    if args.output_file is not None:
+        logger.info(f'TSV output --> {args.output_file}')
     if len(sys.argv) == 1:
         logger.info('No arguments provided. Run `consenrich -h`.')
         sys.exit(0)
@@ -1519,9 +1526,6 @@ def main():
     except:
         logger.warning(f'Could not remove temporary file {tmp_unsorted}')
 
-    logger.info(f'Wrote human-readable, tab-separated Consenrich results to {args.output_file}')
-
-    # write bigWig files if requested
     if args.signal_bigwig is not None:
         try:
             write_bigwig(args.output_file, args.sizes_file, chrom_list, args.signal_bigwig, stat='signal')
