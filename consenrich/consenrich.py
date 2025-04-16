@@ -1305,7 +1305,7 @@ def _parse_arguments(ID):
                         help='Write bigWig of inverse-variance-weighted residual estimates.')
     parser.add_argument('--square_residuals', action='store_true',
                         help='Write square of residuals in the `residuals_bigwig` track.')
-    parser.add_argument('--ratio', '--eratio', '--ratio_bigwig', type=str, default=f'consenrich_eratio_track_{ID}.bw',
+    parser.add_argument('--ratio', '--eratio', '--eratio_bigwig', '--ratio_bigwig', type=str, default=f'consenrich_eratio_track_{ID}.bw',
                     help='Write bigWig of log(squared_signal/squared_ivw) ratio.', dest='ratio_bigwig')
     parser.add_argument('-o', '--output_file', dest='output_file', default=f'consenrich_output_{ID}.tsv',
                         help='Output file for Consenrich results.')
@@ -1499,7 +1499,7 @@ def main():
         )
         with open(tmp_unsorted, 'a') as f:
             for i in range(len(intervals)):
-                f.write(f'{chromosome}\t{intervals[i]}\t{intervals[i]+args.step}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
+                f.write(f'{chromosome}\t{intervals[i]}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
         if args.save_gain:
             np.savez(f'consenrich_gain_{ID}_{chromosome}.npz', gain=gain, allow_pickle=False)
     logger.info(f'Calling `bedtools sort -i {tmp_unsorted}`...')
