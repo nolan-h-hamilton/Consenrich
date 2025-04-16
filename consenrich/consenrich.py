@@ -8,6 +8,7 @@ The `consenrich` module contains the primary functions and a command line interf
 
 # standard library imports
 import argparse
+import gzip
 import hashlib
 import json
 import logging
@@ -111,12 +112,12 @@ def create_sparsebed(active_bed: str, sizes_file: str,
     """
     sizes_df = get_chromsizes_dict(sizes_file=sizes_file)
     tmp_fname = f'tmp_gwide_sparse_{str(uuid.uuid4())[:5]}.bed'
-    
+
     sparse_bed_init = pbt.BedTool(active_bed).slop(b=int(2*min_gap), g=sizes_file).sort(g=sizes_file).complement(g=sizes_file).filter(lambda x: len(x) >= min_length).filter(lambda x: len(x) <= max_length).subtract(b=active_bed, A=True)
 
     if blacklist_file is not None:
         sparse_bed_init = sparse_bed_init.subtract(b=blacklist_file, A=True)
-        
+
     # save intermediate file for debugging
     sparse_bed_init.saveas(tmp_fname)
     if not os.path.exists(tmp_fname):
@@ -1306,15 +1307,15 @@ def _parse_arguments(ID):
     parser.add_argument('--square_residuals', action='store_true',
                         help='Write square of residuals in the `residuals_bigwig` track.')
     parser.add_argument('--ratio', '--eratio', '--eratio_bigwig', '--ratio_bigwig', type=str, default=f'consenrich_eratio_track_{ID}.bw',
-                    help='Write bigWig of log(squared_signal/squared_ivw) ratio.', dest='ratio_bigwig')
+                    help='Write bigWig signal track: log(squared_signal/squared_ivw).', dest='ratio_bigwig')
     parser.add_argument('-o', '--output_file', dest='output_file', default=f'consenrich_output_{ID}.tsv',
                         help='Output file for Consenrich results.')
     parser.add_argument('--save_matrix', action='store_true',
                         help='Save count and noise covariance matrices to .npz for each chromosome.')
-    parser.add_argument('--save_gain', action='store_true',
-                        help='Save per-iteration gains to .npz for each chromosome.')
+    parser.add_argument('--save_gain', action='store_true', dest='save_gain',
+                        help='Save sample-specific per-interval gains to a compressed tsv file for each chromosome.')
     parser.add_argument('--experiment_id', '--name', default=ID,
-                        help='Experiment ID/name for saving data files.')
+                        help='Experiment ID/name to suffix output data files.')
 
     parser.add_argument('--no_sparsebed', action='store_true',
                         help='If invoked, compute noise variances from inferred sparse regions specific to each sample based on post-detrend stationary or WSS regions.')
@@ -1358,6 +1359,9 @@ def main():
     init_ID = str(int(uuid.uuid4().hex[:5], base=16))
     args = _parse_arguments(init_ID)
     ID = args.experiment_id
+    if len(sys.argv) == 1:
+        logger.info('No arguments provided. Run `consenrich -h`.')
+        sys.exit(0)
     logger.info(f'Consenrich Experiment: {ID}')
     if args.signal_bigwig is not None:
         logger.info(f'Signal Track bigWig Output --> {args.signal_bigwig}')
@@ -1367,9 +1371,8 @@ def main():
         logger.info(f'eRatio Track bigWig Output --> {args.ratio_bigwig}')
     if args.output_file is not None:
         logger.info(f'TSV output --> {args.output_file}')
-    if len(sys.argv) == 1:
-        logger.info('No arguments provided. Run `consenrich -h`.')
-        sys.exit(0)
+    if args.save_gain:
+        logger.info(f'Gain matrix output(s) --> consenrich_gain_{chromosome}_{ID}.tsv.gz')
 
     if args.save_args:
         try:
@@ -1506,9 +1509,14 @@ def main():
         )
         with open(tmp_unsorted, 'a') as f:
             for i in range(len(intervals)):
-                f.write(f'{chromosome}\t{intervals[i]}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
+                f.write(f'{chromosome}\t{intervals[i]}\t{intervals[i]+args.step}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
+
         if args.save_gain:
-            np.savez(f'consenrich_gain_{ID}_{chromosome}.npz', gain=gain, allow_pickle=False)
+            try:
+                with gzip.open(f'consenrich_gain_{chromosome}_{ID}.tsv.gz', 'wt', compresslevel=4) as f:
+                    np.savetxt(f, gain.T, delimiter='\t', comments='# m-by-n matrix of gains: samples-->rows, genomic positions-->columns', fmt='%.4f')
+            except Exception as e:
+                logger.warning(f'Could not save gains for {chromosome}:\n{str(e)}\n')
     logger.info(f'Calling `bedtools sort -i {tmp_unsorted}`...')
     failed_sort = False
     try:
