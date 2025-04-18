@@ -1521,7 +1521,7 @@ def main():
         if os.path.exists(args.output_file):
             logger.info(f'Successfully sorted output in standard lexicographical order: {args.output_file}')
     except Exception as e:
-        logger.warning(f'Could not sort output in standard lexicographical...\ntry manually with `bedtools sort -i {tmp_unsorted}`\nException:\n{str(e)}\n')
+        logger.warning(f'Could not sort output in standard lexicographical order...\ntry manually with `bedtools sort -i {tmp_unsorted}`\nException:\n{str(e)}\n')
         failed_sort = True
     if failed_sort:
         shutil.copy(tmp_unsorted, args.output_file)
@@ -1538,12 +1538,13 @@ def main():
             logger.warning(f'Could not write signal bigWig file {args.signal_bigwig}:\n{str(e)}\n')
     if args.residual_bigwig is not None:
         try:
-            write_bigwig(args.output_file, args.sizes_file, chrom_list, args.residual_bigwig, stat='residuals_ivw', square_residuals=args.square_residuals)
+            write_bigwig(args.output_file, args.sizes_file, chrom_list, args.residual_bigwig, stat='residual', square_residuals=args.square_residuals)
+
         except Exception as e:
-            logger.warning(f'Could not write residual ivw est. bigWig file {args.residual_bigwig}:\n{str(e)}\n')
+            logger.warning(f'Could not write residual bigWig file {args.residual_bigwig}:\n{str(e)}\n')
     if args.ratio_bigwig is not None:
         try:
-            write_bigwig(args.output_file, args.sizes_file, chrom_list, args.ratio_bigwig, stat='ratio')
+            write_bigwig(args.output_file, args.sizes_file, chrom_list, args.ratio_bigwig, stat='eratio')
         except Exception as e:
             logger.warning(f'Could not write ratio bigWig file {args.ratio_bigwig}:\n{str(e)}\n')
 
