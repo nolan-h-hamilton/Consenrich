@@ -30,11 +30,15 @@ def test_consistency_atac(refsig='test_ref_sig.bw', refres='test_ref_res.bw', th
     bigwigcorr_cmd = ['bigWigCorrelate',  refsig, oname_sig, '-ignoreMissing', '-restrict=test_region_file.bb']
     proc = subprocess.run(bigwigcorr_cmd, check=True, stdout=subprocess.PIPE)
     proc.stdout = str(proc.stdout.decode('utf-8')).strip()
+    print(proc.stdout)
     assert float(proc.stdout) >= thresh, f'BigWigCorrelate correlation coefficient below {thresh}: {proc.stdout}'
+    assert not np.isnan(float(proc.stdout)), f'BigWigCorrelate correlation coefficient is NaN: {proc.stdout}'
 
     bigwigcorr_cmd_res = ['bigWigCorrelate',  refres, oname_res, '-ignoreMissing', '-restrict=test_region_file.bb']
     proc_res = subprocess.run(bigwigcorr_cmd_res, check=True, stdout=subprocess.PIPE)
     proc_res.stdout = str(proc_res.stdout.decode('utf-8')).strip()
+    print(proc_res.stdout)
+    assert not np.isnan(float(proc_res.stdout)), f'BigWigCorrelate correlation coefficient is NaN: {proc_res.stdout}'
     assert float(proc.stdout) >= thresh, f'BigWigCorrelate correlation coefficient below {thresh}: {proc.stdout}'
 
 @pytest.mark.consistency

@@ -54,4 +54,4 @@ jobs:
     - name: run test_consenrich.py
       working-directory: ./tests
       run: |
-        pytest -v -rPA -l test_consenrich.py
+        pytest -vv -s -rPA -l test_consenrich.py
