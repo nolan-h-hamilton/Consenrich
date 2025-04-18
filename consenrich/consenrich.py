@@ -1539,6 +1539,7 @@ def main():
     if args.residual_bigwig is not None:
         try:
             write_bigwig(args.output_file, args.sizes_file, chrom_list, args.residual_bigwig, stat='residual', square_residuals=args.square_residuals)
+
         except Exception as e:
             logger.warning(f'Could not write residual bigWig file {args.residual_bigwig}:\n{str(e)}\n')
     if args.ratio_bigwig is not None:
