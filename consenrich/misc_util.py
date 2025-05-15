@@ -382,3 +382,18 @@ def dtr_wlen_degree(step: int, n: int=None,
         return 21,2
     return 25,2
 
+
+def get_max_match(intervals, values, pattern=None):
+    if pattern is None:
+        pattern = np.bartlett(len(values))
+
+    sig_xcorr = signal.correlate(values, pattern, mode='same')
+    max_idx = np.argmax(sig_xcorr)
+    # note the assumption of symmetry here
+    center = len(pattern) // 2
+    start = max(0, max_idx - center)
+    end = min(len(sig_xcorr), max_idx + center)
+    matched_region = intervals[start:end]
+
+    return matched_region, sig_xcorr[start:end]
+
