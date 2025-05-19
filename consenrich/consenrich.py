@@ -8,6 +8,7 @@ The `consenrich` module contains the primary functions and a command line interf
 
 # standard library imports
 import argparse
+from ast import parse
 import gzip
 import hashlib
 import json
@@ -1329,6 +1330,9 @@ def _parse_arguments(ID):
                         help='Minimum distance (in units of `--step`) between first-pass enriched regions in the filter/fp-peak step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
     parser.add_argument('--csparse_max_features', type=int, default=5000)
     parser.add_argument('--csparse_min_prom_prop', type=float, default=0.05, help='Minimum prominence threshold on first-pass peaks as a fraction of the dynamic range')
+    parser.add_argument('--match_wavelet', type=str, default=None, help='Wavelet name, e.g., `db4` to use in matched filter')
+    parser.add_argument('--match_level', type=int, default=2, help='Wavelet decomposition level to use in matched filter')
+    parser.add_argument('--match_output_file', type=str, default=f'consenrich_match_output_{ID}.bed', help='Output file for pattern matching results')
     parser.add_argument('--save_args', action='store_true',
                         help='Save arguments to a JSON file. These can be used to reproduce the experiment via `consenrich -f <json_file>`.')
     args = parser.parse_args()
@@ -1504,6 +1508,11 @@ def main():
         with open(tmp_unsorted, 'a') as f:
             for i in range(len(intervals)):
                 f.write(f'{chromosome}\t{intervals[i]}\t{intervals[i]+args.step}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
+        if args.match_wavelet is not None:
+            match_res = match_dwt(intervals, est_final, wavelet=args.match_wavelet, level=args.match_level)
+            with open(args.match_output_file, 'a') as f:
+                for maxima_interval in match_res['maxima_intervals']:
+                    f.write(f'{chromosome}\t{maxima_interval}\t{maxima_interval+args.step}\n')
 
         if args.save_gain is not None and gain is not None:
             gain_chrfname = args.save_gain.replace('.gz', '')
@@ -1514,6 +1523,9 @@ def main():
                     np.savetxt(f, gain, delimiter='\t', comments='# n-by-m matrix of gains: samples-->columns, genomic positions-->rows', fmt='%.4f')
             except Exception as e:
                 logger.warning(f'Could not save gains for {chromosome}:\n{str(e)}\n')
+
+
+
     logger.info(f'Calling `bedtools sort -i {tmp_unsorted}`...')
     failed_sort = False
     try:

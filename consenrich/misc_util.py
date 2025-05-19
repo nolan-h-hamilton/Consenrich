@@ -8,14 +8,18 @@ The `misc_util` module contains utility functions for Consenrich.
 
 import logging
 import math
+from pprint import pprint
 import os
 import re
 import uuid
+from typing import Optional, Tuple, Union, Dict, Any, List, Callable
 
 import numpy as np
+from numpy._typing._array_like import NDArray
 import pandas as pd
 import pybedtools as pbt
 import pysam
+import pywt
 
 from scipy import signal, ndimage, stats
 import time
@@ -383,17 +387,42 @@ def dtr_wlen_degree(step: int, n: int=None,
     return 25,2
 
 
-def get_max_match(intervals, values, pattern=None):
-    if pattern is None:
-        pattern = np.bartlett(len(values))
+def match_dwt(
+    intervals: np.ndarray,
+    values: np.ndarray,
+    wavelet: str = "db2",
+    level: Optional[int] = None,
+    min_len: Optional[int] = None,
+    verbose: bool = True) -> Dict[str, Any]:
+    r"""Run a matched filter on (genomic interval, signal) pairs with a specified wavelet.
+    Also returns the indices of the relative maxima in the matched filter response.
 
-    sig_xcorr = signal.correlate(values, pattern, mode='same')
-    max_idx = np.argmax(sig_xcorr)
-    # note the assumption of symmetry here
-    center = len(pattern) // 2
-    start = max(0, max_idx - center)
-    end = min(len(sig_xcorr), max_idx + center)
-    matched_region = intervals[start:end]
+    :param intervals: Numpy array of genomic intervals.
+    :param values: Numpy array of values (Typically some function increasing with the number of sequence alignments at each interval).
+    :param wavelet: Wavelet to use for the matched filter. Default is "db2".
+    :param level: Level of the wavelet transform. Default is None.
+    :param min_len: Used for the `order` parameter in `scipy.signal.argrelmax()`. Defaults to 3*step (so units of base pairs)
+    """
+    step = get_step(intervals)
+    if level is None:
+        level = max(int(math.log(len(intervals) // 4, 2)), 2)
+    if min_len is None:
+        min_len = 3 * step
 
-    return matched_region, sig_xcorr[start:end]
+    wav = pywt.Wavelet(wavelet)
+    scaling_func, wavelet_func, x_ = wav.wavefun(level=level)
+    values_ = signal.fftconvolve(values, scaling_func[::-1], mode='same')
+    template_rev = wavelet_func[::-1]
+    filter_response = signal.fftconvolve(values_, template_rev, mode='same')
+    conv_indices = signal.argrelmax(filter_response, order=min_len//2)[0]
 
+    logger.info(f"relative maxima in matched filter response: {len(conv_indices)}")
+    ret_dict = {"intervals": intervals,
+        "values": values,
+        "template": template_rev,
+        "response": filter_response,
+        "maxima_idx": conv_indices,
+        "maxima_intervals": intervals[conv_indices]}
+    if verbose:
+        pprint(ret_dict)
+    return ret_dict
