@@ -48,6 +48,7 @@ jobs:
         python -m pip install pybedtools
         python -m pip install deeptools
         python -m pip install pybigwig
+        python -m pip install PyWavelets
         python setup.py sdist bdist_wheel
         python -m pip install .
 

@@ -8,6 +8,7 @@ The `consenrich` module contains the primary functions and a command line interf
 
 # standard library imports
 import argparse
+from ast import parse
 import gzip
 import hashlib
 import json
@@ -22,7 +23,7 @@ import uuid
 from datetime import datetime
 from typing import List, Tuple
 
-# third-party package imports
+
 import numpy as np
 import pandas as pd
 import pybedtools as pbt
@@ -1329,6 +1330,10 @@ def _parse_arguments(ID):
                         help='Minimum distance (in units of `--step`) between first-pass enriched regions in the filter/fp-peak step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
     parser.add_argument('--csparse_max_features', type=int, default=5000)
     parser.add_argument('--csparse_min_prom_prop', type=float, default=0.05, help='Minimum prominence threshold on first-pass peaks as a fraction of the dynamic range')
+    parser.add_argument('--match_wavelet', type=str, default=None, help='Wavelet name, e.g., `db4` to use for matched filter')
+    parser.add_argument('--match_level', type=int, default=1, help='Wavelet level to use for matched filter')
+    parser.add_argument('--match_minlen', type=int, default=11, help='minimum number of intervals centered around a match to be reported')
+    parser.add_argument('--match_output_file', type=str, default=f'consenrich_match_output_{ID}.bed', help='Output file for pattern matching results')
     parser.add_argument('--save_args', action='store_true',
                         help='Save arguments to a JSON file. These can be used to reproduce the experiment via `consenrich -f <json_file>`.')
     args = parser.parse_args()
@@ -1505,6 +1510,16 @@ def main():
             for i in range(len(intervals)):
                 f.write(f'{chromosome}\t{intervals[i]}\t{intervals[i]+args.step}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
 
+        if args.match_wavelet is not None:
+            logger.info(f'Running matched filter on chromosome {chromosome}: {args.match_wavelet}, level={args.match_level}, min_len={args.match_minlen}...')
+            match_res = match_dwt(intervals, est_final, wavelet=args.match_wavelet, level=args.match_level, min_len=args.match_minlen)
+            logger.info(f'...Done.')
+            match_peaks = match_res['maxima_intervals']
+            logger.info(f' matched {len(match_peaks)} relative maxima.')
+            with open(args.match_output_file, 'a') as f:
+                for i,_ in enumerate(match_peaks):
+                    f.write(f'{chromosome}\t{match_peaks[i]}\t{match_peaks[i]+args.step}\n')
+
         if args.save_gain is not None and gain is not None:
             gain_chrfname = args.save_gain.replace('.gz', '')
             gain_chrfname = gain_chrfname.replace('.tsv', '')
@@ -1514,6 +1529,9 @@ def main():
                     np.savetxt(f, gain, delimiter='\t', comments='# n-by-m matrix of gains: samples-->columns, genomic positions-->rows', fmt='%.4f')
             except Exception as e:
                 logger.warning(f'Could not save gains for {chromosome}:\n{str(e)}\n')
+
+
+
     logger.info(f'Calling `bedtools sort -i {tmp_unsorted}`...')
     failed_sort = False
     try:
