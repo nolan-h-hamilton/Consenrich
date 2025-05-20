@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="consenrich",
-    version="0.1.7b1",
+    version="0.1.8b0",
     description="Genome-wide extraction of reproducible continuous-valued signals hidden in noisy multisample functional genomics data",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
@@ -28,6 +28,8 @@ setup(
         "data fusion",
         "state estimator",
         "filter",
+        "pattern matching",
+        "bioinformatics",
     ],
     packages=find_packages(),
     include_package_data=True,
@@ -40,6 +42,7 @@ setup(
         "pybedtools",
         "deeptools",
         "pyBigWig",
+        "PyWavelets",
     ],
     extras_require={
         "dev": [
