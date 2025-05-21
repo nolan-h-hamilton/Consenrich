@@ -392,8 +392,12 @@ def match_dwt(
     values: np.ndarray,
     wavelet: str = "db2",
     level: Optional[int] = 1,
-    min_len: Optional[int] = 11,
-    min_val: Optional[float] = 1,
+    min_len: Optional[int] = None,
+    min_val: Optional[float] = None,
+    min_val_data: Optional[float] = None,
+    unit_template: Optional[bool] = True,
+    square_response: Optional[bool] = False,
+    logscale_data: Optional[bool] = False,
     verbose: bool = False) -> Dict[str, Any]:
     r"""Run a matched filter on (genomic interval, signal) pairs with a specified wavelet.
     Also returns the indices of the relative maxima in the matched filter response.
@@ -401,48 +405,74 @@ def match_dwt(
     :param intervals: Numpy array of genomic intervals.
     :param values: Numpy array of values (Typically some function increasing with the number of sequence alignments at each interval).
     :param wavelet: Wavelet to use for the matched filter. Default is "db2".
-    :param level: Level of the wavelet transform. Default is None.
-    :param min_len: Used for the `order` parameter in `scipy.signal.argrelmax()`.
+    :param level: Level of the wavelet transform. Default is 1.
+    :param min_len: Used for the `order` parameter in `scipy.signal.argrelmax()`. Number of adjacent points to use to compute relmax.
+    :param min_val: Minimum value to consider for relative maxima
+    :param unit_template: Whether to scale the wavelet template to unit norm. Default is True.
+    :param square_response: Whether to square the filter response. Default is True.
+    :return: A dictionary containing the following keys:
     """
+
     if len(intervals) != len(values):
-        raise ValueError(f"Length of intervals and values must be the same:\
-            \nFound {len(intervals)} intervals and {len(values)} values")
+        raise ValueError(f"Length of intervals and values must be the same: {len(intervals)}, {len(values)}")
+    if len(np.unique(np.diff(intervals))) > 1:
+        raise ValueError(f"Intervals are expected to be fixed in length: {np.unique(np.diff(intervals))}")
+    step = intervals[1] - intervals[0]
+
+    if logscale_data:
+        logger.info(f"log-scaling data")
+        values = np.log1p(values)
+        if min_val is not None:
+            logger.info(f"log-scaling `min_val`: {min_val} --> {np.log1p(min_val)}")
+            min_val = np.log1p(min_val)
+        if min_val_data is not None:
+            logger.info(f"log-scaling `min_val_data`: {min_val_data} --> {np.log1p(min_val_data)}")
+            min_val_data = np.log1p(min_val_data)
+
     skip_relmax = False
     if min_len is None:
-        min_len = 2*(len(intervals)//16) + 1
+        min_len = int(2*(np.log2(len(values) + 1)) + 1)
         if min_len < 3:
             logger.warning(f"Insufficient length to determine relative maxima in filter response...skipping relative maxima detection")
             skip_relmax = True
+        logger.info(f"Using min_len*step={min_len*step}bp region for relative maxima detection in filter response")
+    if min_val_data is None:
+        # note that this threshold only applies to a single interval
+        # see also: `min_val` which is used to threshold the filter response
+        min_val_data = np.percentile(values, 95)
 
     wav = pywt.Wavelet(wavelet)
+    scaling_func, wavelet_func, x = wav.wavefun(level=level)
+    template = wavelet_func[::-1].copy()
+    if unit_template:
+        template /= np.linalg.norm(template)
 
-    dec_lo, dec_hi = wav.dec_lo, wav.dec_hi
-    # todo: check if overlap-add is faster here for the convolution
-    values_   = signal.fftconvolve(values, dec_lo[::-1], mode='same')
-    filter_response = signal.fftconvolve(values_, dec_hi[::-1], mode='same')
+    filter_response = signal.fftconvolve(values, template, mode='same')
+    if square_response:
+        logger.info(f"Squaring filter response")
+        filter_response = filter_response**2
+    if min_val is None:
+        min_val = np.percentile(filter_response, 95)
 
-    # scaling_func, wavelet_func, x_ = wav.wavefun(level=level)
-    # values_ = signal.fftconvolve(values, scaling_func[::-1], mode='same')
-    # template_rev = wavelet_func[::-1]
-    # filter_response = signal.fftconvolve(values_, template_rev, mode='same')
     conv_indices = None
     ret_dict = None
     if not skip_relmax:
-        conv_indices = signal.argrelmax(filter_response, order=min_len)[0]
-        conv_indices = [idx for idx in conv_indices if values[idx] > min_val and filter_response[idx] > min_val]
+        relmax_indices = signal.argrelmax(filter_response, order=min_len)[0]
+        conv_indices = [idx for idx in relmax_indices if values[idx] > min_val_data and filter_response[idx] > min_val]
         logger.info(f"relative maxima in matched filter response: {len(conv_indices)}")
         ret_dict = {"intervals": intervals,
             "values": values,
             "response": filter_response,
             "maxima_idx": conv_indices,
-            "maxima_intervals": intervals[conv_indices]}
-
+            "maxima_intervals": intervals[conv_indices],
+            "maxima_values": filter_response[conv_indices]}
     else:
         ret_dict = {"intervals": intervals,
             "values": values,
             "response": filter_response,
             "maxima_idx": None,
-            "maxima_intervals": None}
+            "maxima_intervals": None,
+            "maxima_values": None}
     if verbose:
         pprint(ret_dict)
     return ret_dict

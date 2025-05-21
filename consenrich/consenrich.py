@@ -1332,7 +1332,11 @@ def _parse_arguments(ID):
     parser.add_argument('--csparse_min_prom_prop', type=float, default=0.05, help='Minimum prominence threshold on first-pass peaks as a fraction of the dynamic range')
     parser.add_argument('--match_wavelet', type=str, default=None, help='Wavelet name, e.g., `db4` to use for matched filter')
     parser.add_argument('--match_level', type=int, default=1, help='Wavelet level to use for matched filter')
-    parser.add_argument('--match_minlen', type=int, default=11, help='minimum number of intervals centered around a match to be reported')
+    parser.add_argument('--match_minlen', type=int, default=25, help='minimum number of intervals centered around a match to be reported')
+    parser.add_argument('--match_minval', type=float, default=None, help='minimum value in the filter response to be considered a relmax')
+    parser.add_argument('--match_minval_data', type=float, default=None, help='minimum value in the data to be considered a relmax')
+    parser.add_argument('--match_square_response', action='store_true', default=False, help='If set, square the filter response before finding relmaxes')
+    parser.add_argument('--match_logscale', action='store_true', default=False, help='If set, log-transform input to the matched filter')
     parser.add_argument('--match_output_file', type=str, default=f'consenrich_match_output_{ID}.bed', help='Output file for pattern matching results')
     parser.add_argument('--save_args', action='store_true',
                         help='Save arguments to a JSON file. These can be used to reproduce the experiment via `consenrich -f <json_file>`.')
@@ -1429,6 +1433,10 @@ def main():
     if os.path.exists(args.output_file):
         logger.warning(f'Output file {args.output_file} already exists. Overwriting...')
         os.remove(args.output_file)
+    if args.match_wavelet is not None and args.match_output_file is not None:
+        if os.path.exists(args.match_output_file):
+            logger.warning(f'Matched filter output file {args.match_output_file} already exists. Overwriting...')
+            os.remove(args.match_output_file)
 
     tmp_unsorted = f'consenrich_output_{ID}_tmp_unsorted.tsv'
     if os.path.exists(tmp_unsorted):
@@ -1512,13 +1520,19 @@ def main():
 
         if args.match_wavelet is not None:
             logger.info(f'Running matched filter on chromosome {chromosome}: {args.match_wavelet}, level={args.match_level}, min_len={args.match_minlen}...')
-            match_res = match_dwt(intervals, est_final, wavelet=args.match_wavelet, level=args.match_level, min_len=args.match_minlen)
+            match_res = match_dwt(intervals, est_final, wavelet=args.match_wavelet,
+                                   level=args.match_level, min_len=args.match_minlen, min_val=args.match_minval,
+                                   min_val_data=args.match_minval_data, square_response=args.match_square_response,
+                                   logscale_data=args.match_logscale)
             logger.info(f'...Done.')
             match_peaks = match_res['maxima_intervals']
-            logger.info(f' matched {len(match_peaks)} relative maxima.')
-            with open(args.match_output_file, 'a') as f:
-                for i,_ in enumerate(match_peaks):
-                    f.write(f'{chromosome}\t{match_peaks[i]}\t{match_peaks[i]+args.step}\n')
+            match_peaks_resp = match_res['maxima_values']
+
+            if match_peaks is not None and len(match_peaks) > 0:
+                logger.info(f'Writing {args.match_output_file}: matched {len(match_peaks)} relative maxima with median response: {np.median(match_peaks_resp):.4f}')
+                with open(args.match_output_file, 'a') as f:
+                        for i in range(len(match_peaks)):
+                            f.write(f'{chromosome}\t{match_peaks[i]}\t{match_peaks[i]+args.step}\t{np.round(match_peaks_resp[i],4)}\n')
 
         if args.save_gain is not None and gain is not None:
             gain_chrfname = args.save_gain.replace('.gz', '')
