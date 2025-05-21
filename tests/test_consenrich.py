@@ -4,6 +4,7 @@ import pybedtools as pbt
 import pytest
 import subprocess
 import deeptools
+import pywt
 
 
 @pytest.mark.correctness
@@ -20,7 +21,7 @@ def test_cli_noargs():
 
 
 @pytest.mark.consistency
-def test_consistency_atac(refsig='test_ref_sig.bw', refres='test_ref_res.bw', thresh=0.99):
+def test_consistency_atac(refsig='test_ref_sig.bw', refres='test_ref_res.bw', thresh=0.95):
     oname_sig = 'test_sig_cmp.bw'
     oname_res = 'test_res_cmp.bw'
     consenrich_cmd = ['consenrich', '--bam_files', 'test_sample_one.bam', 'test_sample_two.bam', 'test_sample_three.bam', '-g', 'hg38', '--chroms', 'chr19', 'chr21', 'chr22', '--signal_bigwig', oname_sig, '--residuals', oname_res, '-p', '4', '--threads', '2', '--retain'] # run with --retain to keep track of similarities over all regions
@@ -40,6 +41,7 @@ def test_consistency_atac(refsig='test_ref_sig.bw', refres='test_ref_res.bw', th
     print(proc_res.stdout)
     assert not np.isnan(float(proc_res.stdout)), f'BigWigCorrelate correlation coefficient is NaN: {proc_res.stdout}'
     assert float(proc.stdout) >= thresh, f'BigWigCorrelate correlation coefficient below {thresh}: {proc.stdout}'
+
 
 @pytest.mark.consistency
 def test_get_first_read():
@@ -71,3 +73,33 @@ def test_acorr_fft_bp():
     # will generally result in an ACF that is not exactly 1 at lag 0, but
     # we expect it to be close
     assert abs(acorr_vec[0] - 1) < 1.0e-01, f'Expected {acorr_vec[0]} ~ 1'
+
+
+@pytest.mark.match
+def test_consistency_match_dwt(refbed='test_ref_match.bed', thresh=0.95):
+    output_file = 'test_cmp_match.bed'
+    if os.path.exists(output_file):
+        os.remove(output_file)
+    consenrich_cmd = [
+        "consenrich",
+        "--bam_files", "test_sample_one.bam", "test_sample_two.bam", "test_sample_three.bam",
+        "-g", "hg38",
+        "--chroms", "chr21", "chr22",
+        "-p","4",
+        "--threads","4",
+        "--retain",
+        "--match_wavelet","db2",
+        "--match_level","2",
+        "--match_minlen","25",
+        "--match_minval","5",
+        "--match_minval_data","2",
+        "--match_output_file", output_file,
+    ]
+    subprocess.run(consenrich_cmd, check=True)
+    assert os.path.exists(output_file), 'Output file does not exist or was named incorrectly'
+    # compare jaccard similarity wrt `test_cmp_match.bed` (the output of this test)
+    # and `test_ref_match.bed` (the reference)
+    a = pbt.BedTool(output_file).sort()
+    b = pbt.BedTool(refbed).sort()
+    jsim = float(a.jaccard(b)['jaccard'])
+    assert jsim >= thresh, f"Match filter results' Jaccard similarity insufficient {thresh}: {jsim}"

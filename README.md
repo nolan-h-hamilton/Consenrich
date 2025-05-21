@@ -10,9 +10,11 @@
 * **Input**:
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'control' sample (e.g., ChIP-seq)
+  * (*Optional*): a template/wavelet pattern to match for genome-wide, e.g., `--match_wavelet db2`
 
 * **Output**:
   * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
+  * Matched wavelet patterns (BED file of center-intervals for each match region, e.g., [docs/matched.png](docs/matched.png) db2).
 
 * Refer to [**Examples**](Examples.md) for a variety of detailed usage instances.
 
@@ -24,7 +26,7 @@
 
 * Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling condition-specific regulatory landscapes (e.g., via [consensus peak calling, differential analyses, etc.](docs/GRIN1.png))
 
-* Consenrich [preserves legitimate spectral content while attenuating noise](docs/filter_comparison.png) $\implies$ Improved comparison and profiling of condition-specific structural signatures discarded by enrichment-focused measures for HTS data.
+* Consenrich [resolves legitimate spatial complexity and attenuates noise](docs/filter_comparison.png) $\implies$ Enables spectral and/or wavelet analyses for deeper profiling of signal trends, pattern-matching, or to subdivide broadly enriched regions.
 
 ## Download/Install
 
