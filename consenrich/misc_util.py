@@ -395,6 +395,7 @@ def match_dwt(
     min_len: Optional[int] = None,
     min_val: Optional[float] = None,
     min_val_data: Optional[float] = None,
+    max_matches: Optional[int] = 5000,
     unit_template: Optional[bool] = True,
     square_response: Optional[bool] = False,
     logscale_data: Optional[bool] = False,
@@ -430,49 +431,84 @@ def match_dwt(
             min_val_data = np.log1p(min_val_data)
 
     skip_relmax = False
-    if min_len is None:
-        min_len = int(2*(np.log2(len(values) + 1)) + 1)
-        if min_len < 3:
-            logger.warning(f"Insufficient length to determine relative maxima in filter response...skipping relative maxima detection")
-            skip_relmax = True
-        logger.info(f"Using min_len*step={min_len*step}bp region for relative maxima detection in filter response")
-    if min_val_data is None:
-        # note that this threshold only applies to a single interval
-        # see also: `min_val` which is used to threshold the filter response
-        min_val_data = np.percentile(values, 95)
-
     wav = pywt.Wavelet(wavelet)
     scaling_func, wavelet_func, x = wav.wavefun(level=level)
     template = wavelet_func[::-1].copy()
+    logger.info(f"Template length {len(template)}")
+
     if unit_template:
         template /= np.linalg.norm(template)
 
-    filter_response = signal.fftconvolve(values, template, mode='same')
+    filter_response: np.ndarray = signal.fftconvolve(values, template, mode='same')
     if square_response:
         logger.info(f"Squaring filter response")
         filter_response = filter_response**2
     if min_val is None:
-        min_val = np.percentile(filter_response, 95)
+        min_val = max([np.percentile(filter_response, 95.0), 1.0, round(np.log1p(len(template)))]) # type: ignore
+        logger.info(f"Minimum relmax value in filtered output: {min_val}")
+    if min_val_data is None:
+        min_val_data = max([np.percentile(values, 95.0), 1.0, round(np.log1p(len(template)))]) # type: ignore
+        logger.info(f"Minimum relmax value in data: {min_val_data}")
+    if min_len is None:
+        min_len = max(len(template)//2, 1)
+        logger.info(f"Using match_min_len={min_len}")
 
     conv_indices = None
     ret_dict = None
     if not skip_relmax:
         relmax_indices = signal.argrelmax(filter_response, order=min_len)[0]
         conv_indices = [idx for idx in relmax_indices if values[idx] > min_val_data and filter_response[idx] > min_val]
+        if max_matches is not None and len(conv_indices) > max_matches:
+            logger.info(f"Matches limited by 'max_matches' {max_matches}")
+            conv_indices = sorted(conv_indices, key=lambda idx: values[idx], reverse=True)[:max_matches]
+        if len(conv_indices) == 0:
+            logger.info(f"No relative maxima found in matched filter response with min_val={min_val} and min_val_data={min_val_data}")
+            skip_relmax = True
         logger.info(f"relative maxima in matched filter response: {len(conv_indices)}")
         ret_dict = {"intervals": intervals,
             "values": values,
             "response": filter_response,
+            "template": template,
             "maxima_idx": conv_indices,
             "maxima_intervals": intervals[conv_indices],
-            "maxima_values": filter_response[conv_indices]}
+            "maxima_values": filter_response[conv_indices],
+            "min_len": min_len,
+            "min_val": min_val,
+            "min_val_data": min_val_data,
+            "step": step}
     else:
         ret_dict = {"intervals": intervals,
             "values": values,
             "response": filter_response,
+            "template": template,
             "maxima_idx": None,
             "maxima_intervals": None,
-            "maxima_values": None}
+            "maxima_values": None,
+            "min_len": min_len,
+            "min_val": min_val,
+            "min_val_data": min_val_data,
+            "step": step}
     if verbose:
         pprint(ret_dict)
     return ret_dict
+
+
+def split_matches(bed_file: str,
+                  wavelet: str,
+                  level: int,
+                  outfile: Optional[str] = None) -> str:
+    pbt_matched = pbt.BedTool(bed_file).sort()
+    if outfile is None:
+        outfile = f'split_matches_{wavelet}_{level}.bed'
+    if os.path.exists(outfile):
+        logger.warning(f'Overwriting existing file {outfile}')
+        os.remove(outfile)
+    with open(outfile, 'w') as out_f:
+        for i, record in enumerate(pbt_matched):
+            name_ = record.name
+            if not name_.startswith(f'{wavelet}_{level}_'):
+                continue
+            out_f.write(f'{record.chrom}\t{record.start}\t{record.end}\t{name_}\t{record.score}\t.\n')
+    logger.info(f'Matches: wavelet/{wavelet} level/{level} written to {outfile}')
+    return outfile
+
