@@ -6,6 +6,7 @@ The `misc_util` module contains utility functions for Consenrich.
 
 """
 
+from calendar import c
 import logging
 import math
 from pprint import pprint
@@ -387,7 +388,7 @@ def dtr_wlen_degree(step: int, n: int=None,
     return 25,2
 
 
-def match_dwt(
+def match(
     intervals: np.ndarray,
     values: np.ndarray,
     wavelet: str = "db2",
@@ -400,17 +401,20 @@ def match_dwt(
     square_response: Optional[bool] = False,
     logscale_data: Optional[bool] = False,
     verbose: bool = False) -> Dict[str, Any]:
-    r"""Run a matched filter on (genomic interval, signal) pairs with a specified wavelet.
-    Also returns the indices of the relative maxima in the matched filter response.
+    r"""Match discrete wavelet-based templates on over genomic segments
 
     :param intervals: Numpy array of genomic intervals.
-    :param values: Numpy array of values (Typically some function increasing with the number of sequence alignments at each interval).
-    :param wavelet: Wavelet to use for the matched filter. Default is "db2".
-    :param level: Level of the wavelet transform. Default is 1.
-    :param min_len: Used for the `order` parameter in `scipy.signal.argrelmax()`. Number of adjacent points to use to compute relmax.
+    :param values: Numpy array of values (In the default use-case, this is the Consenrich signal track output)
+    :param wavelet: Wavelet-based template to match in `values` . Default is "db2".
+    :param level: See `pywt.Wavelet().wavefun()`. Default is 1.
+    :param min_len: Used for the `order` parameter in `scipy.signal.argrelmax()`. Number of surrounding points to consider for relative maxima. Default is None, which sets it to half the length of the wavelet template.
     :param min_val: Minimum value to consider for relative maxima
     :param unit_template: Whether to scale the wavelet template to unit norm. Default is True.
-    :param square_response: Whether to square the filter response. Default is True.
+    :param square_response: Whether to the template-`values` convolution before checking for relative maxima. Default is False.
+    :param logscale_data: Whether to log-scale the `values` and `min_val_data`. Default is False.
+    :param min_val_data: Minimum value in `values` to consider for relative maxima. Default is None, which sets it to the 95th percentile of `values`.
+    :param max_matches: Maximum number of matches to return for a single segment represented by `intervals, values`, e.g., a chromosome. Default is 5000.
+    :param verbose: Whether to print the output dictionary. Default is False.
     :return: A dictionary containing the following keys:
     """
 
@@ -439,39 +443,39 @@ def match_dwt(
     if unit_template:
         template /= np.linalg.norm(template)
 
-    filter_response: np.ndarray = signal.fftconvolve(values, template, mode='same')
+    conv_values: np.ndarray = signal.fftconvolve(values, template, mode='same')
     if square_response:
-        logger.info(f"Squaring filter response")
-        filter_response = filter_response**2
+        logger.info(f"Squaring template-signal convolution ")
+        conv_values = conv_values**2
     if min_val is None:
-        min_val = max([np.percentile(filter_response, 95.0), 1.0, round(np.log1p(len(template)))]) # type: ignore
-        logger.info(f"Minimum relmax value in filtered output: {min_val}")
+        min_val = max([np.percentile(conv_values, 95.0), 1.0, round(np.log1p(len(template)))]) # type: ignore
+        logger.info(f"Minimum relmax value in convolution output: {min_val}")
     if min_val_data is None:
         min_val_data = max([np.percentile(values, 95.0), 1.0, round(np.log1p(len(template)))]) # type: ignore
         logger.info(f"Minimum relmax value in data: {min_val_data}")
     if min_len is None:
-        min_len = max(len(template)//2, 1)
+        min_len = max(int((len(template)/2)), 5)
         logger.info(f"Using match_min_len={min_len}")
 
     conv_indices = None
     ret_dict = None
     if not skip_relmax:
-        relmax_indices = signal.argrelmax(filter_response, order=min_len)[0]
-        conv_indices = [idx for idx in relmax_indices if values[idx] > min_val_data and filter_response[idx] > min_val]
+        relmax_indices = signal.argrelmax(conv_values, order=min_len)[0]
+        conv_indices = [idx for idx in relmax_indices if values[idx] > min_val_data and conv_values[idx] > min_val]
         if max_matches is not None and len(conv_indices) > max_matches:
             logger.info(f"Matches limited by 'max_matches' {max_matches}")
             conv_indices = sorted(conv_indices, key=lambda idx: values[idx], reverse=True)[:max_matches]
         if len(conv_indices) == 0:
-            logger.info(f"No relative maxima found in matched filter response with min_val={min_val} and min_val_data={min_val_data}")
+            logger.info(f"No relative maxima found with min_val={min_val} and min_val_data={min_val_data}")
             skip_relmax = True
-        logger.info(f"relative maxima in matched filter response: {len(conv_indices)}")
+        logger.info(f"relative maxima in convolution with template: {len(conv_indices)}")
         ret_dict = {"intervals": intervals,
             "values": values,
-            "response": filter_response,
+            "convolution": conv_values,
             "template": template,
             "maxima_idx": conv_indices,
             "maxima_intervals": intervals[conv_indices],
-            "maxima_values": filter_response[conv_indices],
+            "maxima_values": conv_values[conv_indices],
             "min_len": min_len,
             "min_val": min_val,
             "min_val_data": min_val_data,
@@ -479,7 +483,7 @@ def match_dwt(
     else:
         ret_dict = {"intervals": intervals,
             "values": values,
-            "response": filter_response,
+            "convolution": conv_values,
             "template": template,
             "maxima_idx": None,
             "maxima_intervals": None,

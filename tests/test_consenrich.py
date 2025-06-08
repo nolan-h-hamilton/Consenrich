@@ -87,12 +87,8 @@ def test_consistency_match_dwt(refbed='test_ref_match.bed', thresh=0.95):
         "--chroms", "chr21", "chr22",
         "-p","4",
         "--threads","4",
-        "--retain",
-        "--match_wavelet","db2",
-        "--match_level","2",
-        "--match_minlen","25",
-        "--match_minval","5",
-        "--match_minval_data","2",
+        "--match_wavelet","db2,sym3,dmey",
+        "--match_level","1,2",
         "--match_output_file", output_file,
     ]
     subprocess.run(consenrich_cmd, check=True)

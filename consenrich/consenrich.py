@@ -22,7 +22,7 @@ import sys
 import uuid
 
 from datetime import datetime
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 
 import numpy as np
@@ -1330,14 +1330,16 @@ def _parse_arguments(ID):
                         help='Minimum distance (in units of `--step`) between first-pass enriched regions in the filter/fp-peak step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
     parser.add_argument('--csparse_max_features', type=int, default=5000)
     parser.add_argument('--csparse_min_prom_prop', type=float, default=0.05, help='Minimum prominence threshold on first-pass peaks as a fraction of the dynamic range')
-    parser.add_argument('--match_wavelet', type=str, default='db2,dmey', help='Comma-separated wavelet name(s), e.g., `db4,dmey` to use for matched filter')
-    parser.add_argument('--match_level', type=str, default='1', help='Comma-separated wavelet decomposition level(s) to use for matched filter, e.g., `1,2,3`')
+    parser.add_argument('--match_wavelet', type=str, default=None, help='Comma-separated wavelet name(s), e.g., `db2,dmey` to discretize and use as templates for matching')
+    parser.add_argument('--match_level', type=str, default='1', help='Comma-separated wavelet level(s) to use for matching routine, e.g., `1,2,3`')
     parser.add_argument('--match_minlen', type=int, default=None, help='minimum number of intervals centered around a match to be reported')
-    parser.add_argument('--match_minval', type=float, default=None, help='minimum value in the filter response to be considered a relmax')
+    parser.add_argument('--match_minval', type=float, default=None, help='minimum value in the convolution to be considered a relmax')
     parser.add_argument('--match_minval_data', type=float, default=None, help='minimum value in the data to be considered a relmax')
-    parser.add_argument('--match_square_response', action='store_true', default=False, help='If set, square the filter response before finding relmaxes')
-    parser.add_argument('--match_logscale', action='store_true', default=False, help='If set, log-transform input to the matched filter')
-    parser.add_argument('--match_output_file', type=str, default=f'consenrich_match_output_{ID}.bed', help='Output file for pattern matching results')
+    parser.add_argument('--match_square_response', '--match_square', dest='match_square_response', action='store_true', default=False, help='If set, square the convolution before searching for relmaxes')
+    parser.add_argument('--match_logscale', action='store_true', default=False, help='If set, log-transform data prior to matching routine')
+    parser.add_argument('--match_no_extension', action='store_true', default=False, help='If set, only report the center of each match (i.e., the exact interval where the relative max. occurs). Otherwise, each match gets extended +- `step*match_minlen`')
+    parser.add_argument('--match_no_split', action='store_true', default=False, help='If set, do not split the match output into separate files for each wavelet template/convolution.')
+    parser.add_argument('--match_output_file', type=str, default=None, help='Output BED(6) file for pattern matching results')
     parser.add_argument('--save_args', action='store_true',
                         help='Save arguments to a JSON file. These can be used to reproduce the experiment via `consenrich -f <json_file>`.')
     args = parser.parse_args()
@@ -1433,9 +1435,13 @@ def main():
     if os.path.exists(args.output_file):
         logger.warning(f'Output file {args.output_file} already exists. Overwriting...')
         os.remove(args.output_file)
-    if args.match_wavelet is not None and args.match_output_file is not None:
+
+    if args.match_wavelet is not None:
+        if args.match_output_file is None:
+            args.match_output_file = f'consenrich_match_output_{ID}.bed'
+        logger.info(f'Match output file --> {args.match_output_file}')
         if os.path.exists(args.match_output_file):
-            logger.warning(f'Matched filter output file {args.match_output_file} already exists. Overwriting...')
+            logger.warning(f'Match output file {args.match_output_file} already exists. Overwriting...')
             os.remove(args.match_output_file)
 
     tmp_unsorted = f'consenrich_output_{ID}_tmp_unsorted.tsv'
@@ -1519,7 +1525,7 @@ def main():
                 f.write(f'{chromosome}\t{intervals[i]}\t{intervals[i]+args.step}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
 
         if args.match_wavelet is not None:
-            logger.info(f'Running matched filter(s) on chromosome {chromosome}')
+            logger.info(f'Matching discretized wavelet-based templates to state estimates for chromosome {chromosome}...')
             for w_, wavelet_ in enumerate(args.match_wavelet.split(',')):
                 for l_, level_ in enumerate(args.match_level.split(',')):
                     wavelet_ = wavelet_.strip()
@@ -1528,7 +1534,7 @@ def main():
                     if w_ == 0 and l_ == 0:
                         logger.info(f'Using wavelet {wavelet_} at level {level_}...')
                     try:
-                        match_res = match_dwt(intervals, est_final, wavelet=wavelet_,
+                        match_res: Dict[str, Any] = match(intervals, est_final, wavelet=wavelet_,
                                             level=level_, min_len=args.match_minlen, min_val=args.match_minval,
                                             min_val_data=args.match_minval_data, square_response=args.match_square_response,
                                             logscale_data=args.match_logscale)
@@ -1536,13 +1542,17 @@ def main():
                         match_peaks = match_res['maxima_intervals']
                         match_peaks_resp = match_res['maxima_values']
                         min_len = match_res['min_len']
+                        extension: int = args.step
+                        if not args.match_no_extension:
+                            extension = int(args.step * min_len)
+
                         if match_peaks is not None and len(match_peaks) > 0:
-                            logger.info(f'Writing {args.match_output_file}: matched {len(match_peaks)} relative maxima with median response: {np.median(match_peaks_resp):.4f}')
+                            logger.info(f'Writing {args.match_output_file}: matched {len(match_peaks)} relative maxima with median template-convolution: {np.median(match_peaks_resp):.4f}')
                             with open(args.match_output_file, 'a') as f:
                                 for i in range(len(match_peaks)):
-                                    f.write(f'{chromosome}\t{match_peaks[i] - args.step*min_len}\t{match_peaks[i] + args.step*min_len}\t{wavelet_}_{level_}_{chromosome}_{i}\t{np.round(match_peaks_resp[i],3)}\t.\n')
+                                    f.write(f'{chromosome}\t{match_peaks[i] - extension}\t{match_peaks[i] + extension}\t{wavelet_}_{level_}_{chromosome}_{i}\t{np.round(match_peaks_resp[i],3)}\t.\n')
                     except Exception as e:
-                        logger.warning(f'Could not run matched filter on chromosome {chromosome} with wavelet {wavelet_}:\n{str(e)}\n')
+                        logger.warning(f'Could not run matching procedure on chromosome {chromosome} with discretized template {wavelet_}:\n{str(e)}\n')
                         continue
 
 
@@ -1573,12 +1583,13 @@ def main():
     except:
         logger.warning(f'Could not remove temporary file {tmp_unsorted}')
 
-    if args.match_output_file is not None and os.path.exists(args.match_output_file):
+    if args.match_wavelet is not None and args.match_output_file is not None and os.path.exists(args.match_output_file) and not args.match_no_split:
         for w_, wavelet_ in enumerate(args.match_wavelet.split(',')):
             for l_, level_ in enumerate(args.match_level.split(',')):
                 wavelet_ = wavelet_.strip()
                 level_ = int(level_.strip())
-                split_matches(args.match_output_file, wavelet_, level_)
+                split_fname = f'{wavelet_}_{level_}_{args.match_output_file}'
+                split_matches(bed_file=args.match_output_file, wavelet=wavelet_, level=level_, outfile=split_fname)
 
     if args.signal_bigwig is not None:
         try:
