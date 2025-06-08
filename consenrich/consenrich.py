@@ -13,6 +13,7 @@ import gzip
 import hashlib
 import json
 import logging
+from math import log
 import multiprocessing as mp
 import os
 import random
@@ -21,7 +22,7 @@ import sys
 import uuid
 
 from datetime import datetime
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 
 import numpy as np
@@ -50,7 +51,7 @@ def get_genome_resource(filename, dir_='refdata'):
 
 
 def create_sparsebed(active_bed: str, sizes_file: str,
-                     blacklist_file: str=None,
+                     blacklist_file: Optional[str]=None,
                      min_length: int=500,
                      max_length: int=5000,
                      num_windows: int=5,
@@ -424,7 +425,7 @@ def get_readtrack(chromosome: str,
 
     intervals = np.arange(start, end + step, step)
     with pysam.AlignmentFile(bam_file,'rb', threads=threads) as bam:
-        
+
         readtrack = np.zeros(len(intervals), dtype=float)
 
         for read in bam.fetch(chromosome, start, end, multiple_iterators=False):
@@ -530,8 +531,8 @@ def find_proximal_features(chromosome: str,
                            k: int=25) -> np.ndarray:
     r"""The function `find_proximal_features` identifies proximal genomic regions in `sparsebed` for each interval in a given chromosome.
     """
-    
-    step = get_step(intervals) 
+
+    step = get_step(intervals)
     bed_starts_df = pd.read_csv(sparsebed, sep='\t', header=None, usecols=[0,1], names=['chrom','start'],
                                 dtype={'chrom':str, 'start':int}, engine='c')
     bed_starts = np.array(bed_starts_df[bed_starts_df['chrom'] == chromosome].reset_index(drop=True)['start'], dtype=int)
@@ -619,7 +620,7 @@ def detrend_track(intervals: np.ndarray, vals: np.ndarray,
                   ubound: float=None) -> tuple:
     r"""The function `detrend_track` models background dynamically with a bounded low-pass filter (Savitzky-Golay or general-percentile) and removes it.
     
-    .. note:: 
+    .. note::
         If both `degree` and `percentile` are None, a median filter is applied.
 
     :param intervals: Numpy array of intervals.
@@ -1296,16 +1297,15 @@ def _parse_arguments(ID):
                         help='Lower bound for detrended values.')
     parser.add_argument('--detrend_ubound', type=float, default=None,
                         help='Upper bound for detrended values.')
-
     parser.add_argument('--signal_bigwig', '--signal', type=str, dest='signal_bigwig', default=f'consenrich_signal_track_{ID}.bw',
                         help='Write bigWig for state estimates.')
-    parser.add_argument('--residuals', '--residual_bigwig', dest='residual_bigwig',
+    parser.add_argument('--residuals', '--residual', '--residual_bigwig', '--residuals_bigwig', dest='residual_bigwig',
                         type=str, default=f'consenrich_residuals_track_{ID}.bw',
                         help='Write bigWig of residual estimates.')
+    parser.add_argument('--ratio', '--ratios', '--eratio', '--eratios', '--eratio_bigwig', '--eratios_bigwig', '--ratio_bigwig', '--eratios_bigwig', type=str, default=f'consenrich_eratio_track_{ID}.bw',
+                help='Write bigWig signal track: log(squared_signal/squared_ivw).', dest='ratio_bigwig')
     parser.add_argument('--square_residuals', action='store_true',
                         help='Write square of residuals in the `residuals_bigwig` track.')
-    parser.add_argument('--ratio', '--eratio', '--eratio_bigwig', '--ratio_bigwig', type=str, default=f'consenrich_eratio_track_{ID}.bw',
-                    help='Write bigWig signal track: log(squared_signal/squared_ivw).', dest='ratio_bigwig')
     parser.add_argument('-o', '--output_file', dest='output_file', default=f'consenrich_output_{ID}.tsv',
                         help='Output file for Consenrich results.')
     parser.add_argument('--save_matrix', action='store_true',
@@ -1330,14 +1330,16 @@ def _parse_arguments(ID):
                         help='Minimum distance (in units of `--step`) between first-pass enriched regions in the filter/fp-peak step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
     parser.add_argument('--csparse_max_features', type=int, default=5000)
     parser.add_argument('--csparse_min_prom_prop', type=float, default=0.05, help='Minimum prominence threshold on first-pass peaks as a fraction of the dynamic range')
-    parser.add_argument('--match_wavelet', type=str, default=None, help='Wavelet name, e.g., `db4` to use for matched filter')
-    parser.add_argument('--match_level', type=int, default=1, help='Wavelet level to use for matched filter')
-    parser.add_argument('--match_minlen', type=int, default=25, help='minimum number of intervals centered around a match to be reported')
-    parser.add_argument('--match_minval', type=float, default=None, help='minimum value in the filter response to be considered a relmax')
+    parser.add_argument('--match_wavelet', type=str, default=None, help='Comma-separated wavelet name(s), e.g., `db2,dmey` to discretize and use as templates for matching')
+    parser.add_argument('--match_level', type=str, default='1', help='Comma-separated wavelet level(s) to use for matching routine, e.g., `1,2,3`')
+    parser.add_argument('--match_minlen', type=int, default=None, help='minimum number of intervals centered around a match to be reported')
+    parser.add_argument('--match_minval', type=float, default=None, help='minimum value in the convolution to be considered a relmax')
     parser.add_argument('--match_minval_data', type=float, default=None, help='minimum value in the data to be considered a relmax')
-    parser.add_argument('--match_square_response', action='store_true', default=False, help='If set, square the filter response before finding relmaxes')
-    parser.add_argument('--match_logscale', action='store_true', default=False, help='If set, log-transform input to the matched filter')
-    parser.add_argument('--match_output_file', type=str, default=f'consenrich_match_output_{ID}.bed', help='Output file for pattern matching results')
+    parser.add_argument('--match_square_response', '--match_square', dest='match_square_response', action='store_true', default=False, help='If set, square the convolution before searching for relmaxes')
+    parser.add_argument('--match_logscale', action='store_true', default=False, help='If set, log-transform data prior to matching routine')
+    parser.add_argument('--match_no_extension', action='store_true', default=False, help='If set, only report the center of each match (i.e., the exact interval where the relative max. occurs). Otherwise, each match gets extended +- `step*match_minlen`')
+    parser.add_argument('--match_no_split', action='store_true', default=False, help='If set, do not split the match output into separate files for each wavelet template/convolution.')
+    parser.add_argument('--match_output_file', type=str, default=None, help='Output BED(6) file for pattern matching results')
     parser.add_argument('--save_args', action='store_true',
                         help='Save arguments to a JSON file. These can be used to reproduce the experiment via `consenrich -f <json_file>`.')
     args = parser.parse_args()
@@ -1433,9 +1435,13 @@ def main():
     if os.path.exists(args.output_file):
         logger.warning(f'Output file {args.output_file} already exists. Overwriting...')
         os.remove(args.output_file)
-    if args.match_wavelet is not None and args.match_output_file is not None:
+
+    if args.match_wavelet is not None:
+        if args.match_output_file is None:
+            args.match_output_file = f'consenrich_match_output_{ID}.bed'
+        logger.info(f'Match output file --> {args.match_output_file}')
         if os.path.exists(args.match_output_file):
-            logger.warning(f'Matched filter output file {args.match_output_file} already exists. Overwriting...')
+            logger.warning(f'Match output file {args.match_output_file} already exists. Overwriting...')
             os.remove(args.match_output_file)
 
     tmp_unsorted = f'consenrich_output_{ID}_tmp_unsorted.tsv'
@@ -1452,7 +1458,7 @@ def main():
         chrom_list.append(chromosome)
     chrom_list = chrom_lexsort(chrom_list, args.sizes_file)
     gwide_scales = None
-    if args.norm_gwide:
+    if args.norm_gwide and len(args.control_files) == 0:
         gwide_scales = [estimate_gwide_scale(bam_files[i], args.sizes_file) for i in range(len(bam_files))]
 
     for chromosome in chrom_list:
@@ -1519,20 +1525,36 @@ def main():
                 f.write(f'{chromosome}\t{intervals[i]}\t{intervals[i]+args.step}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
 
         if args.match_wavelet is not None:
-            logger.info(f'Running matched filter on chromosome {chromosome}: {args.match_wavelet}, level={args.match_level}, min_len={args.match_minlen}...')
-            match_res = match_dwt(intervals, est_final, wavelet=args.match_wavelet,
-                                   level=args.match_level, min_len=args.match_minlen, min_val=args.match_minval,
-                                   min_val_data=args.match_minval_data, square_response=args.match_square_response,
-                                   logscale_data=args.match_logscale)
-            logger.info(f'...Done.')
-            match_peaks = match_res['maxima_intervals']
-            match_peaks_resp = match_res['maxima_values']
+            logger.info(f'Matching discretized wavelet-based templates to state estimates for chromosome {chromosome}...')
+            for w_, wavelet_ in enumerate(args.match_wavelet.split(',')):
+                for l_, level_ in enumerate(args.match_level.split(',')):
+                    wavelet_ = wavelet_.strip()
+                    level_ = int(level_.strip())
+                    logger.info(f'Using wavelet {wavelet_} at level {level_}...')
+                    if w_ == 0 and l_ == 0:
+                        logger.info(f'Using wavelet {wavelet_} at level {level_}...')
+                    try:
+                        match_res: Dict[str, Any] = match(intervals, est_final, wavelet=wavelet_,
+                                            level=level_, min_len=args.match_minlen, min_val=args.match_minval,
+                                            min_val_data=args.match_minval_data, square_response=args.match_square_response,
+                                            logscale_data=args.match_logscale)
+                        logger.info(f'...Done.')
+                        match_peaks = match_res['maxima_intervals']
+                        match_peaks_resp = match_res['maxima_values']
+                        min_len = match_res['min_len']
+                        extension: int = args.step
+                        if not args.match_no_extension:
+                            extension = int(args.step * min_len)
 
-            if match_peaks is not None and len(match_peaks) > 0:
-                logger.info(f'Writing {args.match_output_file}: matched {len(match_peaks)} relative maxima with median response: {np.median(match_peaks_resp):.4f}')
-                with open(args.match_output_file, 'a') as f:
-                        for i in range(len(match_peaks)):
-                            f.write(f'{chromosome}\t{match_peaks[i]}\t{match_peaks[i]+args.step}\t{np.round(match_peaks_resp[i],4)}\n')
+                        if match_peaks is not None and len(match_peaks) > 0:
+                            logger.info(f'Writing {args.match_output_file}: matched {len(match_peaks)} relative maxima with median template-convolution: {np.median(match_peaks_resp):.4f}')
+                            with open(args.match_output_file, 'a') as f:
+                                for i in range(len(match_peaks)):
+                                    f.write(f'{chromosome}\t{match_peaks[i] - extension}\t{match_peaks[i] + extension}\t{wavelet_}_{level_}_{chromosome}_{i}\t{np.round(match_peaks_resp[i],3)}\t.\n')
+                    except Exception as e:
+                        logger.warning(f'Could not run matching procedure on chromosome {chromosome} with discretized template {wavelet_}:\n{str(e)}\n')
+                        continue
+
 
         if args.save_gain is not None and gain is not None:
             gain_chrfname = args.save_gain.replace('.gz', '')
@@ -1543,7 +1565,6 @@ def main():
                     np.savetxt(f, gain, delimiter='\t', comments='# n-by-m matrix of gains: samples-->columns, genomic positions-->rows', fmt='%.4f')
             except Exception as e:
                 logger.warning(f'Could not save gains for {chromosome}:\n{str(e)}\n')
-
 
 
     logger.info(f'Calling `bedtools sort -i {tmp_unsorted}`...')
@@ -1557,11 +1578,18 @@ def main():
         failed_sort = True
     if failed_sort:
         shutil.copy(tmp_unsorted, args.output_file)
-
     try:
         os.remove(tmp_unsorted)
     except:
         logger.warning(f'Could not remove temporary file {tmp_unsorted}')
+
+    if args.match_wavelet is not None and args.match_output_file is not None and os.path.exists(args.match_output_file) and not args.match_no_split:
+        for w_, wavelet_ in enumerate(args.match_wavelet.split(',')):
+            for l_, level_ in enumerate(args.match_level.split(',')):
+                wavelet_ = wavelet_.strip()
+                level_ = int(level_.strip())
+                split_fname = f'{wavelet_}_{level_}_{args.match_output_file}'
+                split_matches(bed_file=args.match_output_file, wavelet=wavelet_, level=level_, outfile=split_fname)
 
     if args.signal_bigwig is not None:
         try:
