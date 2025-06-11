@@ -14,11 +14,11 @@
 
 * **Output**:
   * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
-  * (*Optional*) Matched regions (BED-like file of relative maxima in the cross-correlation with wavelet-based template(s))
+  * (*Optional*) BED-like output of relative maxima in the cross-correlation with wavelet-based template(s)
 
 <p align="center">
   <img src="docs/matched.png" alt="Example output with --match_wavelet sym4 --step 25 --delta 0.50" width="600"/><br/>
-  <em>Example output: 10 ATAC-seq samples (lymphoblast) <code> -g hg38 --match_wavelet db2,db4,db8 --step 25 --delta 0.50</code></em>
+  <em>Example: Consenrich outputs given $m=10$ input ATAC-seq samples (lymphoblast) <code> -g hg38 --match_wavelet db2,db4,db8 --step 25 --delta 0.50</code></em>
 </p>
 
 ---
@@ -27,7 +27,7 @@
 
 * Consenrich explicitly models dynamic signal trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/atac_dnase.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
 
-* Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling condition-specific regulatory landscapes (e.g., via [consensus peak calling, differential analyses, etc.](docs/GRIN1.png))
+* Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling condition-specific regulatory landscapes (e.g., via [consensus peak calling, differential analyses, etc.](docs/ARC.png)).
 
 * Consenrich [resolves legitimate spatial complexity and attenuates noise](docs/filter_comparison.png) $\implies$ Enables efficient genome-wide pattern localization for deeper profiling of signal trends or to subdivide broadly enriched regions.
 
