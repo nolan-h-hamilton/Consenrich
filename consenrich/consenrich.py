@@ -646,7 +646,7 @@ def detrend_track(intervals: np.ndarray, vals: np.ndarray,
         filtered_vals = ndimage.percentile_filter(vals_, percentile, detrend_window_steps)
     if degree is None and percentile is None and window_bp is not None:
         detrend_window_steps = 2*(window_bp // (2*step)) + 1
-        filtered_vals = ndimage.median_filter(vals_, detrend_window_steps)
+        filtered_vals = ndimage.percentile_filter(vals_, 67, detrend_window_steps)
 
     detrended_vals = vals_ - filtered_vals
 
@@ -1238,7 +1238,7 @@ def _parse_arguments(ID):
     parser.add_argument('--active_regions', default=None, help='Path to active regions file BED.')
     parser.add_argument('-g', '--genome', dest='genome', default=None,
                         help='Convenience option. If supplied, use pre-packaged files for the given assembly [hg38, mm10, mm39, dm6].')
-    parser.add_argument('--step', type=int, default=50, help='Step size for genomic intervals (default: 50bp).')
+    parser.add_argument('--step', type=int, default=50, help='Step size for genomic intervals (default: 50bp). Consider --step 25 or smaller for higher resolution tracking.')
     parser.add_argument('--norm_gwide', '--use_1x_norm', action='store_true', dest='norm_gwide',
                         help='If set, normalize counts to genome-wide read depth. May have unexpected effects for analyses involving control samples.')
     parser.add_argument('--no_norm_counts', action='store_true', help='If set, skip normalizing counts')
@@ -1273,9 +1273,9 @@ def _parse_arguments(ID):
     parser.add_argument('--prunc_min', type=float, default=0.25, help='Minimum process noise.')
     parser.add_argument('--prunc_max', type=float, default=500.0, help='Maximum process noise.')
     parser.add_argument('--delta', type=float, default=1.0,
-                        help='Distance to propagate state (default: 1.0).')
+                        help='Distance to propagate state along the inferred trajectory at each interval (default: 1.0). Consider smaller values if decreasing step size, e.g. `--step 25 --delta 0.50`.')
     parser.add_argument('--Dstat_thresh', type=float, default=2.0,
-                        help='D-stat threshold for process noise update (default: 2.0).')
+                        help='D-stat threshold for process noise update (default: 2.0). Increasing this value will increase dependence on the process model and may result in oversmoothing at transients.')
     parser.add_argument('--Dstat_scale', type=float, default=10.0)
     parser.add_argument('--Dstat_pc', type=float, default=2.0)
     parser.add_argument('--log_scale', action='store_true', help='If set, log transform data.')
@@ -1289,8 +1289,8 @@ def _parse_arguments(ID):
     parser.add_argument('--no_joseph', action='store_true', default=False, help='If set, do not use the Joseph-form posterior covariance update.')
     parser.add_argument('--detrend_degree', type=int, default=None,
                         help='Degree for Savitzky-Golay-based detrend.')
-    parser.add_argument('--detrend_percentile', type=int, default=None,
-                        help='Percentile for sliding-percentile detrend.')
+    parser.add_argument('--detrend_percentile', type=int, default=67,
+                        help='Percentile for sliding-percentile detrend. Defaults to `67`. Use `--detrend_percentile 50` for a classic median filter. This argument is mutually exclusive with `--detrend_degree` which invokes a polynomial detrend')
     parser.add_argument('--detrend_window_bp', type=int, default=5000,
                         help='Window size (bp) for detrending (default: 5000).')
     parser.add_argument('--detrend_lbound', type=float, default=None,
@@ -1589,7 +1589,7 @@ def main():
                 wavelet_ = wavelet_.strip()
                 level_ = int(level_.strip())
                 split_fname = f'{wavelet_}_{level_}_{args.match_output_file}'
-                split_matches(bed_file=args.match_output_file, wavelet=wavelet_, level=level_, outfile=split_fname)
+                split_matches(bed_file=args.match_output_file, wavelet=wavelet_, level=level_, outfile=split_fname, narrowPeak=True)
 
     if args.signal_bigwig is not None:
         try:
