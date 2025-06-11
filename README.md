@@ -18,7 +18,7 @@
 
 <p align="center">
   <img src="docs/matched.png" alt="Example output with --match_wavelet sym4 --step 25 --delta 0.50" width="600"/><br/>
-  <em>Example: Consenrich outputs given $m=10$ input ATAC-seq samples (lymphoblast) <code> -g hg38 --match_wavelet db2,db4,db8 --step 25 --delta 0.50</code></em>
+  <em>Example: Consenrich outputs given 10 input ATAC-seq samples (lymphoblast) <code> -g hg38 --match_wavelet db2,db4,db8 --step 25 --delta 0.50</code></em>
 </p>
 
 ---
