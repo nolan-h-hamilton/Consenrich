@@ -10,15 +10,16 @@
 * **Input**:
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'control' sample (e.g., ChIP-seq)
-  * (*Optional*): wavelet-based template(s) to match for genome-wide pattern localization
+  * (*Optional*): wavelet-based template(s) to match for genome-wide pattern localization (`--match_wavelet ` `db<2,3,...>`, `sym<2,3,...>`, `haar`, `coif<1,2,...>`, `dmey`)
 
 * **Output**:
   * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
   * (*Optional*) BED-like output of relative maxima in the cross-correlation with wavelet-based template(s)
 
 <p align="center">
-  <img src="docs/matched.png" alt="Example output with --match_wavelet sym4 --step 25 --delta 0.50" width="600"/><br/>
-  <em>Example: Consenrich outputs given 10 input ATAC-seq samples (lymphoblast) <code> -g hg38 --match_wavelet db2,db4,db8 --step 25 --delta 0.50</code></em>
+  <img src="docs/matched.png" alt="Example output with --match_wavelet db2 --step 25 --delta 0.50" width="1000"/><br/>
+  <em>Example: Consenrich outputs given 10 input ATAC-seq samples (lymphoblastoid)
+  <code>consenrich --bam_files ENCFF*.bam -g hg38 --match_wavelet db2 --step 25 --delta 0.50</code></em>
 </p>
 
 ---
@@ -27,9 +28,9 @@
 
 * Consenrich explicitly models dynamic signal trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/atac_dnase.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
 
-* Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling condition-specific regulatory landscapes (e.g., via [consensus peak calling, differential analyses, etc.](docs/ARC.png)).
+* Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling condition-specific regulatory landscapes (e.g., [differential analyses](docs/ARC.png)).
 
-* Consenrich [resolves legitimate spatial complexity and attenuates noise](docs/filter_comparison.png) $\implies$ Enables efficient genome-wide pattern localization for deeper profiling of signal trends or to subdivide broadly enriched regions.
+* Consenrich [resolves legitimate higher-frequency spectral features while attenuating noise](docs/filter_comparison.png) $\implies$ Enables efficient genome-wide [pattern localization](docs/matched.png) for deeper profiling of signal trends or to subdivide broadly enriched regions.
 
 ## Download/Install
 
