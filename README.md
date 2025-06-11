@@ -10,13 +10,16 @@
 * **Input**:
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'control' sample (e.g., ChIP-seq)
-  * (*Optional*): wavelet-based template(s) to match for genome-wide pattern localization, e.g., `--match_wavelet db2,dmey`
+  * (*Optional*): wavelet-based template(s) to match for genome-wide pattern localization
 
 * **Output**:
   * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
-  * Matched regions (a BED file of relative maxima in the cross-correlation with template(s), e.g., [docs/matched.png](docs/matched.png)).
+  * (*Optional*) Matched regions (BED-like file of relative maxima in the cross-correlation with wavelet-based template(s))
 
-* Refer to [**Examples**](Examples.md) for a variety of detailed usage instances.
+<p align="center">
+  <img src="docs/matched.png" alt="Example output with --match_wavelet sym4 --step 25 --delta 0.50" width="600"/><br/>
+  <em>Example output: 10 ATAC-seq samples (lymphoblast) <code> -g hg38 --match_wavelet db2,db4,db8 --step 25 --delta 0.50</code></em>
+</p>
 
 ---
 

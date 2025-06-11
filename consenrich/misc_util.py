@@ -391,7 +391,7 @@ def dtr_wlen_degree(step: int, n: int=None,
 def match(
     intervals: np.ndarray,
     values: np.ndarray,
-    wavelet: str = "db2",
+    wavelet: str = "sym4",
     level: Optional[int] = 1,
     min_len: Optional[int] = None,
     min_val: Optional[float] = None,
@@ -500,19 +500,66 @@ def match(
 def split_matches(bed_file: str,
                   wavelet: str,
                   level: int,
-                  outfile: Optional[str] = None) -> str:
+                  outfile: Optional[str] = None,
+                  narrowPeak: Optional[bool] = True) -> str:
     pbt_matched = pbt.BedTool(bed_file).sort()
     if outfile is None:
         outfile = f'split_matches_{wavelet}_{level}.bed'
     if os.path.exists(outfile):
         logger.warning(f'Overwriting existing file {outfile}')
         os.remove(outfile)
+    outfile_cpy = outfile
     with open(outfile, 'w') as out_f:
         for i, record in enumerate(pbt_matched):
             name_ = record.name
             if not name_.startswith(f'{wavelet}_{level}_'):
                 continue
             out_f.write(f'{record.chrom}\t{record.start}\t{record.end}\t{name_}\t{record.score}\t.\n')
-    logger.info(f'Matches: wavelet/{wavelet} level/{level} written to {outfile}')
+    if narrowPeak:
+        try:
+            logger.info(f'Converting {outfile} to narrowPeak format')
+            outfile = to_narrowPeak(outfile, outfile.replace('.bed', '.narrowPeak'))
+            if not os.path.exists(outfile) or not outfile.endswith('.narrowPeak'):
+                raise FileNotFoundError(f'Could not convert {outfile} to narrowPeak format')
+            else:
+                if os.path.exists(outfile_cpy) and outfile_cpy != outfile:
+                    os.remove(outfile_cpy)  # remove the original BED file
+        except Exception as e:
+            logger.warning(f'Skipping narrowPeak conversion...\n{e}\n')
+            pass
+    logger.info(f'Writing matches: wavelet/{wavelet} level/{level}')
     return outfile
 
+
+def to_narrowPeak(input_path: str, output_path: str) -> str:
+    """assumes BED6 format from main() in consenrich.py"""
+
+    recs = []
+    min_, max_ = float('inf'), float('-inf')
+    line_fmt_check = True
+    with open(input_path) as infile:
+        for line in infile:
+            try:
+                chrom, start, end, name, score_str, strand = line.rstrip('\n').split('\t')[:6]
+            except ValueError as ve:
+                if line_fmt_check:
+                    logger.warning(f'Expected BED6 format: {line.rstrip()}\n{ve}\n')
+                    line_fmt_check = False
+                continue
+
+            score = float(score_str)
+            min_, max_ = min(min_, score), max(max_, score)
+            recs.append((chrom, int(start), int(end), name, score, strand))
+
+    with open(output_path, 'w') as outfile:
+        for chrom, start, end, name, score, strand in recs:
+            if max_ > min_:
+                frac_to_max = (score - min_) / (max_ - min_)
+                normed_score = int(round(250 + frac_to_max * 750))
+            else:
+                normed_score = 250
+            midpoint = np.round((start + end) / 2.0).astype(int)
+            peak = midpoint - start
+            strand = '.'
+            outfile.write(f'{chrom}\t{start}\t{end}\t{name}\t{normed_score}\t{strand}\t{score}\t-1\t-1\t{peak}\n')
+    return output_path
