@@ -30,7 +30,7 @@
 
 * Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling condition-specific regulatory landscapes (e.g., [differential analyses](docs/ARC.png)).
 
-* Consenrich [resolves legitimate higher-frequency spectral features while attenuating noise](docs/filter_comparison.png) $\implies$ Enables efficient genome-wide [pattern localization](docs/matched.png) for deeper profiling of signal trends or to subdivide broadly enriched regions.
+* Consenrich [resolves legitimate higher-frequency spectral features while attenuating noise](docs/filter_comparison.png) $\implies$ Enables efficient $O(n \log n)$ genome-wide [pattern localization](docs/matched.png) for deeper profiling of signal trends or to subdivide broadly enriched regions.
 
 ## Download/Install
 
