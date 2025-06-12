@@ -26,11 +26,11 @@
 
 **Features**
 
-* Consenrich explicitly models dynamic signal trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/atac_dnase.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
-
 * Consenrich yields uncertainty-moderated signal tracks that effectively encompass multiple samples' epigenomic profiles $\implies$ Insightful data representation for profiling condition-specific regulatory landscapes (e.g., [differential analyses](docs/ARC.png)).
 
-* Consenrich [resolves legitimate higher-frequency spectral features while attenuating noise](docs/filter_comparison.png) $\implies$ Enables efficient $O(n \log n)$ genome-wide [pattern localization](docs/matched.png) for deeper profiling of signal trends or to subdivide broadly enriched regions.
+* Consenrich [resolves legitimate spatial features in epigenomic signals while attenuating noise](docs/filter_comparison.png) $\implies$ Enables efficient $O(n \log n)$ genome-wide [multi-sample pattern localization](docs/matched.png) for deeper profiling of signal trends or to subdivide broadly enriched regions (peaks).
+
+* Consenrich explicitly models dynamic signal trends and noise profiles for each sample with scale-invariance $\implies$ [Multi-sample, multi-assay estimation of target molecular states](docs/atac_dnase.png) from related functional genomics assays, e.g., ChIP-seq + CUT-N-RUN, ATAC-seq + DNase-seq.
 
 ## Download/Install
 
