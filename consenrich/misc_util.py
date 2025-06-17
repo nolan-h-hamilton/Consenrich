@@ -287,7 +287,7 @@ def get_csparse(chromosome: str, intervals: np.ndarray, vals: np.ndarray,
                aggr_percentile: int=75, wlen=25, pdegree=3,
                min_peak_len=10, min_sparse_len=10, min_dist=50,
                min_prom_prop: float=.05, bed: str=None,
-               acorr_threshold: float=0.667) -> np.ndarray:
+               acorr_threshold: float=0.5) -> np.ndarray:
     r"""Identify regions over which the local noise variance can be approximated quickly if Consenrich is run with `--no_sparsebed`.
 
     First calls clear peaks in a crudely aggregated+low-pass filtered version of the chromosome count matrix. Then checks for approximate stationarity in the 'sparse' regions between peaks. Writes a bed file of the sparse regions.
@@ -304,7 +304,7 @@ def get_csparse(chromosome: str, intervals: np.ndarray, vals: np.ndarray,
     :param bed: Output bed file name.
     :return: Path to BED file of qualifying sparse regions.
 
-    :seealso: `scipy.signal.savgol_filter()`, `scipy.signal.find_peaks()`, `check_acorr()`    
+    :seealso: `scipy.signal.savgol_filter()`, `scipy.signal.find_peaks()`, `check_acorr()`
     """
 
     if bed is None:
