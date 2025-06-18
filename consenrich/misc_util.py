@@ -388,10 +388,58 @@ def dtr_wlen_degree(step: int, n: int=None,
     return 25,2
 
 
+def match_estimate_minval(values: NDArray[np.float64],
+                          template: NDArray[np.float64],
+                          pc: Optional[float] = 0.10,
+                          zthresh: Optional[float] = 3,
+                          detrend_lbound: Optional[float] = 0,
+                          use_log2: Optional[bool] = True,
+                          use_asinh: Optional[bool] = False,
+                          detrend_window_min: Optional[int] = 25,
+                          use_robust: Optional[bool] = False) -> float:
+    r"""Determine the threshold for relative maxima in the convolution of `values` with `template`.
+
+    """
+
+    if len(values) < 2*len(template) + 1 or len(values) < detrend_window_min:
+        raise ValueError(f'`values` must be of length at least max(detrend_window_min, 2*len(template)+1): {len(values)} < {max(detrend_window_min, 2*len(template)+1)}')
+
+    detrend_winsize = max(detrend_window_min, 2*len(template)+1)
+    tvalues = np.array(values, dtype=np.float64)
+    if use_log2:
+        tvalues = np.log2(tvalues + pc)
+    elif use_asinh:
+        tvalues = np.arcsinh(tvalues + pc)
+    detrended_values = tvalues - ndimage.median_filter(tvalues, size=detrend_winsize)
+    conv_values = np.zeros_like(detrended_values, dtype=np.float64)
+    try:
+        conv_values = signal.fftconvolve(detrended_values, template, mode='same')
+    except Exception as ex_:
+        raise ValueError(f"Error computing convolution:\n{ex_}\n")
+
+    positive_response = conv_values[conv_values > 0]
+    if len(positive_response) == 0:
+        raise ValueError(f"No positive values observed in convolution with given template")
+    ctendency_stat = None
+    disp_stat = None
+    try:
+        if not use_robust:
+            ctendency_stat = np.mean(positive_response)
+            disp_stat = np.std(positive_response)
+        else:
+            ctendency_stat = np.median(positive_response)
+            # ~approx std. for gaussian case~
+            disp_stat = np.median(np.abs(positive_response - ctendency_stat))*1.5
+    except Exception as ex_:
+        raise ValueError(f"Error computing stats of convolution:\n{ex_}\n")
+
+    return round(2**(ctendency_stat + zthresh*disp_stat),4)
+
+
 def match(
     intervals: np.ndarray,
     values: np.ndarray,
-    wavelet: str = "sym4",
+    wavelet: str = "db2",
     level: Optional[int] = 1,
     min_len: Optional[int] = None,
     min_val: Optional[float] = None,
@@ -400,7 +448,16 @@ def match(
     unit_template: Optional[bool] = True,
     square_response: Optional[bool] = False,
     logscale_data: Optional[bool] = False,
-    verbose: bool = False) -> Dict[str, Any]:
+    use_xcorr: Optional[bool] = False,
+    verbose: Optional[bool] = False,
+    pc: Optional[float] = 0.10, # for match_estimate_minval()
+    zthresh: Optional[float] = 3, # for match_estimate_minval()
+    detrend_lbound: Optional[float] = 0, # for match_estimate_minval()
+    use_log2: Optional[bool] = True, # for match_estimate_minval()
+    use_asinh: Optional[bool] = False, # for match_estimate_minval()
+    detrend_window_min: Optional[int] = 25, # for match_estimate_minval()
+    use_robust: Optional[bool] = False, # for match_estimate_minval()
+    ) -> Dict[str, Any]:
     r"""Match discrete wavelet-based templates on over genomic segments
 
     :param intervals: Numpy array of genomic intervals.
@@ -408,14 +465,12 @@ def match(
     :param wavelet: Wavelet-based template to match in `values` . Default is "db2".
     :param level: See `pywt.Wavelet().wavefun()`. Default is 1.
     :param min_len: Used for the `order` parameter in `scipy.signal.argrelmax()`. Number of surrounding points to consider for relative maxima. Default is None, which sets it to half the length of the wavelet template.
-    :param min_val: Minimum value to consider for relative maxima
+    :param min_val: Minimum value to consider for relative maxima -- default is to estimate it
     :param unit_template: Whether to scale the wavelet template to unit norm. Default is True.
     :param square_response: Whether to the template-`values` convolution before checking for relative maxima. Default is False.
-    :param logscale_data: Whether to log-scale the `values` and `min_val_data`. Default is False.
-    :param min_val_data: Minimum value in `values` to consider for relative maxima. Default is None, which sets it to the 95th percentile of `values`.
-    :param max_matches: Maximum number of matches to return for a single segment represented by `intervals, values`, e.g., a chromosome. Default is 5000.
+    :param max_matches: Limits the number of matches in a given genomic segment (chromosome). Default is 5000.
+    :param use_xcorr: Whether to use cross-correlation instead of convolution. Default is False.
     :param verbose: Whether to print the output dictionary. Default is False.
-    :return: A dictionary containing the following keys:
     """
 
     if len(intervals) != len(values):
@@ -424,39 +479,44 @@ def match(
         raise ValueError(f"Intervals are expected to be fixed in length: {np.unique(np.diff(intervals))}")
     step = intervals[1] - intervals[0]
 
-    if logscale_data:
-        logger.info(f"log-scaling data")
-        values = np.log1p(values)
-        if min_val is not None:
-            logger.info(f"log-scaling `min_val`: {min_val} --> {np.log1p(min_val)}")
-            min_val = np.log1p(min_val)
-        if min_val_data is not None:
-            logger.info(f"log-scaling `min_val_data`: {min_val_data} --> {np.log1p(min_val_data)}")
-            min_val_data = np.log1p(min_val_data)
-
     skip_relmax = False
     wav = pywt.Wavelet(wavelet)
+    # wavelet function at `level` is used to create template/`matching kernel`
     scaling_func, wavelet_func, x = wav.wavefun(level=level)
-    template = wavelet_func[::-1].copy()
-    logger.info(f"Template length {len(template)}")
-
+    template = wavelet_func.copy()
+    if use_xcorr:
+        template = template[::-1]
     if unit_template:
         template /= np.linalg.norm(template)
+    logger.info(f"Template length {len(template)}")
 
     conv_values: np.ndarray = signal.fftconvolve(values, template, mode='same')
     if square_response:
         logger.info(f"Squaring template-signal convolution ")
         conv_values = conv_values**2
-    if min_val is None:
-        min_val = max([np.percentile(conv_values, 95.0), 1.0, round(np.log1p(len(template)))]) # type: ignore
-        logger.info(f"Minimum relmax value in convolution output: {min_val}")
-    if min_val_data is None:
-        min_val_data = max([np.percentile(values, 95.0), 1.0, round(np.log1p(len(template)))]) # type: ignore
         logger.info(f"Minimum relmax value in data: {min_val_data}")
-    if min_len is None:
-        min_len = max(int((len(template)/2)), 5)
-        logger.info(f"Using match_min_len={min_len}")
 
+    if min_len is None:
+        # the larger of (i) the length of the template (in units of `step`) or
+        # (ii) the number of genomic intervals required to get 100bp
+        min_len = max(len(template), (100 // step) + 1)
+    if min_len % 2 == 0:
+        min_len += 1
+    logger.info(f"Using match_min_len={min_len}")
+
+    if min_val is None:
+        min_val = match_estimate_minval(values, template,
+          pc=pc, zthresh=zthresh, detrend_lbound=detrend_lbound,
+          use_log2=use_log2, use_asinh=use_asinh, detrend_window_min=detrend_window_min,
+          use_robust=use_robust)
+    logger.info(f"Minimum relmax value in convolution output: {min_val}")
+
+    # added in case matches are only interesting for `value` above a threshold
+    # defaults to 0.0, as below
+    if min_val_data is None:
+        min_val_data = 0.0
+
+    logger.info(f"Minimum relmax value in original `values`: {min_val}")
     conv_indices = None
     ret_dict = None
     if not skip_relmax:
@@ -464,7 +524,8 @@ def match(
         conv_indices = [idx for idx in relmax_indices if values[idx] > min_val_data and conv_values[idx] > min_val]
         if max_matches is not None and len(conv_indices) > max_matches:
             logger.info(f"Matches limited by 'max_matches' {max_matches}")
-            conv_indices = sorted(conv_indices, key=lambda idx: values[idx], reverse=True)[:max_matches]
+            # limit instead by the convolution/xcorr rather than `values`
+            conv_indices = sorted(conv_indices, key=lambda idx: conv_values[idx], reverse=True)[:max_matches]
         if len(conv_indices) == 0:
             logger.info(f"No relative maxima found with min_val={min_val} and min_val_data={min_val_data}")
             skip_relmax = True
@@ -563,3 +624,7 @@ def to_narrowPeak(input_path: str, output_path: str) -> str:
             strand = '.'
             outfile.write(f'{chrom}\t{start}\t{end}\t{name}\t{normed_score}\t{strand}\t{score}\t-1\t-1\t{peak}\n')
     return output_path
+
+
+
+
