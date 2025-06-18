@@ -1289,10 +1289,10 @@ def _parse_arguments(ID):
     parser.add_argument('--no_joseph', action='store_true', default=False, help='If set, do not use the Joseph-form posterior covariance update.')
     parser.add_argument('--detrend_degree', type=int, default=None,
                         help='Degree for Savitzky-Golay-based detrend.')
-    parser.add_argument('--detrend_percentile', type=int, default=67,
-                        help='Percentile for sliding-percentile detrend. Defaults to `67`. Use `--detrend_percentile 50` for a classic median filter. This argument is mutually exclusive with `--detrend_degree` which invokes a polynomial detrend')
-    parser.add_argument('--detrend_window_bp', type=int, default=5000,
-                        help='Window size (bp) for detrending (default: 5000).')
+    parser.add_argument('--detrend_percentile', type=int, default=75,
+                        help='Percentile for sliding-percentile detrend. Defaults to `75`. Use `--detrend_percentile 50` for a classic median filter. This argument is mutually exclusive with `--detrend_degree` which invokes a polynomial detrend')
+    parser.add_argument('--detrend_window_bp', type=int, default=10000,
+                        help='Window size (bp) for detrending (default: 10000).')
     parser.add_argument('--detrend_lbound', type=float, default=None,
                         help='Lower bound for detrended values.')
     parser.add_argument('--detrend_ubound', type=float, default=None,
