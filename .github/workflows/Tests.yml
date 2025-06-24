@@ -33,6 +33,7 @@ jobs:
         conda config --add channels conda-forge
         conda config --set channel_priority strict
         conda install -y bioconda::ucsc-bigwigcorrelate
+        conda install -y bioconda::ucsc-bigbedtobed
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip

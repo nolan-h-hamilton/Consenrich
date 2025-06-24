@@ -2,12 +2,12 @@ from setuptools import setup, find_packages
 
 setup(
     name="consenrich",
-    version="0.1.12b0",
+    version="0.1.12b2",
     description="Genome-wide extraction of reproducible continuous-valued signals hidden in noisy multisample functional genomics data",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    author="Nolan H. Hamilton, Benjamin D. McMichael, Michael I. Love, Terrence S. Furey",
-    author_email="nolan.hamilton@unc.edu, bdmcmi@ad.unc.edu, milove@email.unc.edu, tsfurey@email.unc.edu",
+    author="Nolan H. Hamilton, Yu-Chen E. Huang, Benjamin D. McMichael, Michael I. Love, Terrence S. Furey",
+    author_email="nolan.hamilton@unc.edu, yuchenh@email.unc.edu, bdmcmi@ad.unc.edu, milove@email.unc.edu, tsfurey@email.unc.edu",
     url="https://github.com/nolan-h-hamilton/Consenrich",
     python_requires=">=3.9",
     license="MIT",
