@@ -22,9 +22,9 @@ def test_cli_noargs():
 
 @pytest.mark.consistency
 def test_consistency_atac(refsig='test_ref_sig.bw', refres='test_ref_res.bw', thresh=0.95):
-    oname_sig = 'test_sig_cmp.bw'
-    oname_res = 'test_res_cmp.bw'
-    consenrich_cmd = ['consenrich', '--bam_files', 'test_sample_one.bam', 'test_sample_two.bam', 'test_sample_three.bam', '-g', 'hg38', '--chroms', 'chr19', 'chr21', 'chr22', '--signal_bigwig', oname_sig, '--residuals', oname_res, '-p', '4', '--threads', '2', '--retain', '--detrend_percentile', '50', '--detrend_window_bp', '5000'] # run with --retain to keep track of similarities over all regions
+    oname_sig = 'test_cmp_sig.bw'
+    oname_res = 'test_cmp_res.bw'
+    consenrich_cmd = ['consenrich', '--bam_files', 'test_sample_one.bam', 'test_sample_two.bam', 'test_sample_three.bam', '-g', 'hg38', '--chroms', 'chr19', 'chr21', 'chr22', '--signal_bigwig', oname_sig, '--residuals', oname_res, '-p', '4', '--threads', '2']
     subprocess.run(consenrich_cmd, check=True)
 
     # Note: these will fail if the UCSC bigWigCorrelate tool isn't installed
@@ -76,7 +76,7 @@ def test_acorr_fft_bp():
 
 
 @pytest.mark.match
-def test_consistency_match_dwt(refbed='test_ref_match.bed', thresh=0.95):
+def test_consistency_match_dwt(refbed='test_ref_match.bb', thresh=0.95):
     output_file = 'test_cmp_match.bed'
     if os.path.exists(output_file):
         os.remove(output_file)
@@ -93,9 +93,10 @@ def test_consistency_match_dwt(refbed='test_ref_match.bed', thresh=0.95):
     ]
     subprocess.run(consenrich_cmd, check=True)
     assert os.path.exists(output_file), 'Output file does not exist or was named incorrectly'
+    subprocess.run(['bigBedToBed', refbed, 'test_ref_match.bed'], check=True)
     # compare jaccard similarity wrt `test_cmp_match.bed` (the output of this test)
     # and `test_ref_match.bed` (the reference)
     a = pbt.BedTool(output_file).sort()
-    b = pbt.BedTool(refbed).sort()
+    b = pbt.BedTool(refbed.replace('.bb', '.bed')).sort()
     jsim = float(a.jaccard(b)['jaccard'])
     assert jsim >= thresh, f"Match filter results' Jaccard similarity insufficient {thresh}: {jsim}"

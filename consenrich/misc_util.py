@@ -6,7 +6,6 @@ The `misc_util` module contains utility functions for Consenrich.
 
 """
 
-from calendar import c
 import logging
 import math
 from pprint import pprint
@@ -388,17 +387,16 @@ def dtr_wlen_degree(step: int, n: int=None,
     return 25,2
 
 
-def match_estimate_minval(values: NDArray[np.float64],
-                          template: NDArray[np.float64],
+def match_threshold(values: np.ndarray,
+                          template: np.ndarray,
                           pc: Optional[float] = 0.10,
-                          zthresh: Optional[float] = 3,
+                          zthresh: Optional[float] = 3.0,
                           detrend_lbound: Optional[float] = 0,
                           use_log2: Optional[bool] = True,
                           use_asinh: Optional[bool] = False,
                           detrend_window_min: Optional[int] = 25,
                           use_robust: Optional[bool] = False) -> float:
     r"""Determine the threshold for relative maxima in the convolution of `values` with `template`.
-
     """
 
     if len(values) < 2*len(template) + 1 or len(values) < detrend_window_min:
@@ -409,7 +407,7 @@ def match_estimate_minval(values: NDArray[np.float64],
     if use_log2:
         tvalues = np.log2(tvalues + pc)
     elif use_asinh:
-        tvalues = np.arcsinh(tvalues + pc)
+        tvalues = np.arcsinh(tvalues)
     detrended_values = tvalues - ndimage.median_filter(tvalues, size=detrend_winsize)
     conv_values = np.zeros_like(detrended_values, dtype=np.float64)
     try:
@@ -428,11 +426,11 @@ def match_estimate_minval(values: NDArray[np.float64],
             disp_stat = np.std(positive_response)
         else:
             ctendency_stat = np.median(positive_response)
-            # ~approx std. for gaussian case~
             disp_stat = np.median(np.abs(positive_response - ctendency_stat))*1.5
     except Exception as ex_:
         raise ValueError(f"Error computing stats of convolution:\n{ex_}\n")
-
+    if use_asinh:
+        return round(np.sinh(ctendency_stat + zthresh*disp_stat),4)
     return round(2**(ctendency_stat + zthresh*disp_stat),4)
 
 
@@ -444,14 +442,14 @@ def match(
     min_len: Optional[int] = None,
     min_val: Optional[float] = None,
     min_val_data: Optional[float] = None,
-    max_matches: Optional[int] = 5000,
+    max_matches: Optional[int] = 10_000,
     unit_template: Optional[bool] = True,
     square_response: Optional[bool] = False,
     logscale_data: Optional[bool] = False,
     use_xcorr: Optional[bool] = False,
     verbose: Optional[bool] = False,
     pc: Optional[float] = 0.10, # for match_estimate_minval()
-    zthresh: Optional[float] = 3, # for match_estimate_minval()
+    zthresh: Optional[float] = 3.0, # for match_estimate_minval()
     detrend_lbound: Optional[float] = 0, # for match_estimate_minval()
     use_log2: Optional[bool] = True, # for match_estimate_minval()
     use_asinh: Optional[bool] = False, # for match_estimate_minval()
@@ -505,18 +503,15 @@ def match(
     logger.info(f"Using match_min_len={min_len}")
 
     if min_val is None:
-        min_val = match_estimate_minval(values, template,
+        min_val = match_threshold(values, template,
           pc=pc, zthresh=zthresh, detrend_lbound=detrend_lbound,
           use_log2=use_log2, use_asinh=use_asinh, detrend_window_min=detrend_window_min,
           use_robust=use_robust)
     logger.info(f"Minimum relmax value in convolution output: {min_val}")
 
-    # added in case matches are only interesting for `value` above a threshold
-    # defaults to 0.0, as below
     if min_val_data is None:
         min_val_data = 0.0
 
-    logger.info(f"Minimum relmax value in original `values`: {min_val}")
     conv_indices = None
     ret_dict = None
     if not skip_relmax:
@@ -626,5 +621,15 @@ def to_narrowPeak(input_path: str, output_path: str) -> str:
     return output_path
 
 
-
-
+def get_default_egsize(genome: str):
+    genome = genome.lower()
+    if  genome in ['hs', 'hg19', 'grch37', 'hg38', 'grch38']:
+        return 2.9e9 # NIH_NCI BTEP, ~MACS~, etc.
+    elif genome in ['mm', 'mm10', 'mm39','grcm37','grcm38']:
+        return 2.6e9 # NIH_NCI BTEP, ~MACS~, etc.
+    elif genome in ['dm', 'dm6', 'dm3']:
+        return 140e6 # ~MACS~, etc.
+    elif genome in ['ce', 'ce11', 'ce10']:
+        return 100e6 # ~MACS~, etc.
+    logger.warning(f'No default effective genome size for {genome} found. Returning -1.')
+    return -1
