@@ -387,11 +387,26 @@ def dtr_wlen_degree(step: int, n: int=None,
     return 25,2
 
 
+def match_threshold_perm(values, template,
+                     iters: int=1000, alpha=0.05,
+                     block: Optional[int] = None,
+                     perm_picker: Callable[[np.ndarray], float] = np.max):
+    if block is None:
+        block = min(50*len(template), len(values) // 3)
+    null_stats = []
+    bound = len(values) - block
+    for iter_ in range(iters):
+        start = np.random.randint(0, bound)
+        seg = values[start:start+block]
+        conv = signal.fftconvolve(seg, template, 'same')
+        null_stats.append(perm_picker(conv))
+    return np.quantile(null_stats, 1-alpha)
+
+
 def match_threshold(values: np.ndarray,
                           template: np.ndarray,
                           pc: Optional[float] = 0.10,
                           zthresh: Optional[float] = 3.0,
-                          detrend_lbound: Optional[float] = 0,
                           use_log2: Optional[bool] = True,
                           use_asinh: Optional[bool] = False,
                           detrend_window_min: Optional[int] = 25,
@@ -426,12 +441,14 @@ def match_threshold(values: np.ndarray,
             disp_stat = np.std(positive_response)
         else:
             ctendency_stat = np.median(positive_response)
-            disp_stat = np.median(np.abs(positive_response - ctendency_stat))*1.5
+            disp_stat = np.median(np.abs(positive_response - ctendency_stat))*1.48
     except Exception as ex_:
         raise ValueError(f"Error computing stats of convolution:\n{ex_}\n")
     if use_asinh:
         return round(np.sinh(ctendency_stat + zthresh*disp_stat),4)
-    return round(2**(ctendency_stat + zthresh*disp_stat),4)
+    if use_log2:
+        return round(2**(ctendency_stat + zthresh*disp_stat),4)
+    return round(ctendency_stat + zthresh*disp_stat, 4)
 
 
 def match(
@@ -450,11 +467,14 @@ def match(
     verbose: Optional[bool] = False,
     pc: Optional[float] = 0.10, # for match_estimate_minval()
     zthresh: Optional[float] = 3.0, # for match_estimate_minval()
-    detrend_lbound: Optional[float] = 0, # for match_estimate_minval()
     use_log2: Optional[bool] = True, # for match_estimate_minval()
     use_asinh: Optional[bool] = False, # for match_estimate_minval()
     detrend_window_min: Optional[int] = 25, # for match_estimate_minval()
     use_robust: Optional[bool] = False, # for match_estimate_minval()
+    use_perm: Optional[bool] = True, # whether to use permutation test for min_val
+    iters: Optional[int] = 1000, # for match_threshold_perm()
+    perm_picker: Optional[Callable[[np.ndarray], float]] = np.max, # for match_threshold_perm()
+    alpha: Optional[float] = 0.05, # for match_threshold_perm()
     ) -> Dict[str, Any]:
     r"""Match discrete wavelet-based templates on over genomic segments
 
@@ -503,10 +523,14 @@ def match(
     logger.info(f"Using match_min_len={min_len}")
 
     if min_val is None:
-        min_val = match_threshold(values, template,
-          pc=pc, zthresh=zthresh, detrend_lbound=detrend_lbound,
-          use_log2=use_log2, use_asinh=use_asinh, detrend_window_min=detrend_window_min,
-          use_robust=use_robust)
+        if not use_perm:
+            min_val = match_threshold(values, template,
+            pc=pc, zthresh=zthresh,
+            use_log2=use_log2, use_asinh=use_asinh, detrend_window_min=detrend_window_min,
+            use_robust=use_robust)
+        else:
+            min_val = match_threshold_perm(values, template,
+                iters=iters, alpha=alpha, perm_picker=perm_picker)
     logger.info(f"Minimum relmax value in convolution output: {min_val}")
 
     if min_val_data is None:
