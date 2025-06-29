@@ -8,6 +8,7 @@ The `misc_util` module contains utility functions for Consenrich.
 
 import logging
 import math
+from operator import le
 from pprint import pprint
 import os
 import re
@@ -390,13 +391,35 @@ def dtr_wlen_degree(step: int, n: int=None,
 def match_threshold_perm(values, template,
                      iters: int=1000, alpha=0.05,
                      block: Optional[int] = None,
-                     perm_picker: Callable[[np.ndarray], float] = np.max):
+                     perm_picker: Callable[[np.ndarray], float] = np.max,
+                     rseed: Optional[int] = None) -> float:
+    r"""Estimate the threshold for relative maxima in the convolution of `values` with `template` using a block-permutation strategy.
+
+    .. note::
+        The default `perm_picker` is `np.max`--meaning that for each drawn block/segment of `values`,
+          the maximum value of the response :math:`\max \{\mathcal{R}_{[b_i]}\}` with `template` contributes
+          to estimating the null distribution of the response. This might be too conservative. Can consider using `np.mean`, `np.median`, etc.
+
+    .. note::
+        We might also consider using variable-length blocks, sampling from
+          some discrete distribution with mean `block`.
+
+    """
     if block is None:
-        block = min(50*len(template), len(values) // 3)
+        block = min(50*len(template), len(values) - len(template) - 1)
+    if block < 2*len(template) +1:
+        raise ValueError(f'`block` must be at least `len(template)`: {block} < {len(template)}')
+    if len(values) < 2*len(template) + 1:
+        raise ValueError(f'`values` must be of length `2*len(template) + 1`: {len(values)} < {2*len(template) + 1}')
+    if len(values) < block + len(template) + 1:
+        raise ValueError(f'`values` must have length `block + len(template) + 1`: {len(values)} < {block + len(template) + 1}')
     null_stats = []
-    bound = len(values) - block
+
+    if rseed is not None:
+        np.random.seed(rseed)
+
     for iter_ in range(iters):
-        start = np.random.randint(0, bound)
+        start = np.random.randint(0, len(values) - block - len(template) - 1)
         seg = values[start:start+block]
         conv = signal.fftconvolve(seg, template, 'same')
         null_stats.append(perm_picker(conv))
