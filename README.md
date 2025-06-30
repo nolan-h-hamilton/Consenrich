@@ -13,13 +13,13 @@
   * (*Optional*): wavelet-based template(s) to match for genome-wide pattern matching (`--match_wavelet ` `db<2,3,...>`, `sym<2,3,...>`, `haar`, `coif<1,2,...>`, `dmey`)
 
 * **Output**:
-  * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics (BedGraph/BigWig)
-  * (*Optional*) BED-like output of relative maxima in the *response sequence* (convolution) with wavelet-based template(s)
+  * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics, e.g., bigWigs `Consenrich(Het10) Signal Estimates` and `Consenrich(Het10) VarScaled Residuals`
+  * `--match_<...>`: BED-like output(s) of localized signal patterns obtained with a genomics-oriented matched filtering variant, e.g., `ConsenrichMatchedResult(Het10, <template_name>)`
 
 <p align="center">
-  <img src="docs/matched.png" alt="Example output with --match_wavelet haar,db4" width="800"/><br/>
+  <img src="docs/matched.png" alt="Example output with --match_wavelet haar,db2,db4" width="800"/><br/>
   <em>Example: Consenrich outputs given 10 input ATAC-seq samples (lymphoblastoid)
-  <code>consenrich --bam_files ENCFF*.bam -g hg38 --match_wavelet haar,db4</code></em>
+  <code>consenrich --bam_files ENCFF*.bam -g hg38 --match_wavelet haar,db2,db4</code></em>
 </p>
 
 ---
