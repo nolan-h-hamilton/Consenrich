@@ -515,9 +515,11 @@ def get_readtrack_mp(
     """
 
     if n_processes is None or n_processes < 1:
-        n_processes = max(1, (mp.cpu_count()//2) - 1)
+        # if NOT specified, set as the smaller of: half of cores, 4
+        n_processes = min(max(1, (mp.cpu_count()//2) - 1), 4)
     if threads is None or threads < 1:
-        threads = max(1, (mp.cpu_count()//2) - 1)
+        # if NOT specified, set as the smaller of: half of cores, 4
+        threads = min(max(1, (mp.cpu_count()//2) - 1), 4)
 
     job_args = [
         (chromosome, bam, sizes_file, start, end, step, paired_end, min_mapq, threads, count_both)
@@ -547,7 +549,8 @@ def get_munc_track_mp(chromosome: str,
     Wrapper for parallelizing observation noise track computation across multiple samples' read data tracks.
     """
     if n_processes is None or n_processes < 1:
-        n_processes = max(1,(mp.cpu_count()//2) - 1)
+        # if NOT specified, set as the smaller of: half of cores, 4
+        n_processes = min(max(1, (mp.cpu_count()//2) - 1), 4)
 
     num_rows = get_shape(chrom_matrix)[0]
     job_args = [
@@ -770,9 +773,10 @@ def get_chromosome_matrix(chromosome: str,
     """
 
     if n_processes is None or n_processes < 1:
-        n_processes = max(1,(mp.cpu_count()//2) - 1)
+    # if NOT specified, set as the smaller of: half of cores, 4
+        n_processes = min(max(1,(mp.cpu_count()//2) - 1), 4)
     if threads is None or threads < 1:
-        threads = max(1,(mp.cpu_count()//2) - 1)
+        threads = min(max(1,(mp.cpu_count()//2) - 1), 4)
 
     first_reads = []
     last_reads = []
@@ -976,7 +980,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
                    Dstat_pc=2.0, state_lowerlim=None, state_upperlim=None, Qmat_offdiag=None,
                    joseph=True, detrend_degree=None, detrend_percentile=None, detrend_window_bp=None,
                    detrend_lbound=None, detrend_ubound=None,
-                   save_matrix=True, experiment_id=None,
+                   save_matrix=False, experiment_id=None,
                    control_files=None, log_scale=False, log_pc=1.0,
                    no_sparsebed=False, csparse_aggr_percentile=75, csparse_wlen=51,
                    csparse_pdegree=2, csparse_min_peak_len=10, csparse_min_sparse_len=10,
@@ -1026,9 +1030,9 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
 
     """
     if n_processes is None or n_processes < 1:
-        n_processes = max(1,(mp.cpu_count()//2) - 1)
+        n_processes = min(max(1,(mp.cpu_count()//2) - 1), 4)
     if threads is None or threads < 1:
-        threads = max(1,(mp.cpu_count()//2) - 1)
+        threads = min(max(1,(mp.cpu_count()//2) - 1), 4)
 
     logger.info(f'Running Consenrich on chromosome {chromosome} with {len(bam_files)} BAM files and {n_processes} processes')
 
@@ -1258,15 +1262,15 @@ def _parse_arguments(ID):
              'Note: command-line arguments override config file settings.'
     )
 
-    parser.add_argument('-t', '--bam_files', dest='bam_files', required=False, nargs='+',
+    parser.add_argument('-t', '--bam_files', '--bam-files', dest='bam_files', required=False, nargs='+',
                         help='Space-separated string of input BAM files.')
-    parser.add_argument('-c', '--control_files', dest='control_files', nargs='+', default=[],
+    parser.add_argument('-c', '--control_files', '--control-files', dest='control_files', nargs='+', default=[],
                         help='Space-separated string of control BAM files if applicable.')
-    parser.add_argument('--sizes_file', default=None, help='Path to the chromosome sizes file.')
+    parser.add_argument('--sizes_file', '--sizes-file', dest='sizes_file', default=None, help='Path to the chromosome sizes file.')
     parser.add_argument('--chroms', nargs='+', default=[],
                         help='If not empty, only process chromosomes in this list.')
     parser.add_argument('--skip_chroms', nargs='+', default=[], help='List of chromosomes to skip.')
-    parser.add_argument('--blacklist_file', default=None, help='Path to blacklist file.')
+    parser.add_argument('--blacklist_file', '--blacklist-file', dest='blacklist_file', default=None, help='Path to blacklist file.')
     parser.add_argument('--sparsebed', default=None, help='Path to sparsebed file.')
     parser.add_argument('--active_regions', default=None, help='Path to active regions file BED.')
     parser.add_argument('-g', '--genome', dest='genome', default=None,
@@ -1332,15 +1336,17 @@ def _parse_arguments(ID):
                         help='Upper bound for detrended values.')
     parser.add_argument('--signal_bigwig', '--signal', type=str, dest='signal_bigwig', default=f'consenrich_signal_track_{ID}.bw',
                         help='Write bigWig for state estimates.')
-    parser.add_argument('--residuals', '--residual', '--residual_bigwig', '--residuals_bigwig', dest='residual_bigwig',
-                        type=str, default=f'consenrich_residuals_track_{ID}.bw',
-                        help='Write bigWig of residual estimates.')
-    parser.add_argument('--ratio', '--ratios', '--eratio', '--eratios', '--eratio_bigwig', '--eratios_bigwig', '--ratio_bigwig', '--eratios_bigwig', type=str, default=f'consenrich_eratio_track_{ID}.bw',
-                help='Write bigWig signal track: log(squared_signal/squared_ivw).', dest='ratio_bigwig')
+    parser.add_argument('--residuals', '--residual', '--residual_bigwig', '--residuals_bigwig', dest='residual_bigwig', type=str, default=None,
+                        help='Write bigWig of variance-scaled residual estimates.')
+    parser.add_argument('--ratio', '--ratios', '--eratio', '--eratios', '--eratio_bigwig', '--eratios_bigwig', '--ratio_bigwig', '--eratios_bigwig',
+                        type=str, default=None,
+                        help='Write bigWig signal track: log(squared_signal/squared_ivw).', dest='ratio_bigwig')
     parser.add_argument('--square_residuals', action='store_true',
-                        help='Write square of residuals in the `residuals_bigwig` track.')
+                        help='Record the square of residuals.')
     parser.add_argument('-o', '--output_file', dest='output_file', default=f'consenrich_output_{ID}.tsv',
                         help='Output file for Consenrich results.')
+    parser.add_argument('--output_precision', '--output-precision', dest='output_precision', type=int, default=2,
+                        help='Precision for (tsv) output file (default: 2).')
     parser.add_argument('--save_matrix', action='store_true',
                         help='Save count and noise covariance matrices to .npz for each chromosome.')
     parser.add_argument('--save_gain', '--gain_log', default=None, type=str, dest='save_gain',
@@ -1363,18 +1369,21 @@ def _parse_arguments(ID):
                         help='Minimum distance (in units of `--step`) between first-pass enriched regions in the filter/fp-peak step prior to computing sample-wise sparse regions if `--no_sparsebed` is invoked.')
     parser.add_argument('--csparse_max_features', type=int, default=5000)
     parser.add_argument('--csparse_min_prom_prop', type=float, default=0.05, help='Minimum prominence threshold on first-pass peaks as a fraction of the dynamic range')
-    parser.add_argument('--match_wavelet', type=str, default=None, help='Comma-separated wavelet name(s), e.g., `db2,dmey` to discretize and use as templates for matching')
-    parser.add_argument('--match_level', type=str, default='1', help='Comma-separated wavelet level(s) to use for matching routine, e.g., `1,2,3`')
-    parser.add_argument('--match_minlen', type=int, default=None, help='minimum number of intervals centered around a match to be reported')
-    parser.add_argument('--match_minval', type=float, default=None, help='minimum value in the convolution to be considered a relmax')
-    parser.add_argument('--match_minval_data', type=float, default=None, help='minimum value in the data to be considered a relmax')
-    parser.add_argument('--match_square_response', '--match_square', dest='match_square_response', action='store_true', default=False, help='If set, square the convolution before searching for relmaxes')
-    parser.add_argument('--match_logscale', action='store_true', default=False, help='If set, log-transform data prior to matching routine')
-    parser.add_argument('--match_no_extension', action='store_true', default=False, help='If set, only report the center of each match (i.e., the exact interval where the relative max. occurs). Otherwise, each match gets extended +- `step*match_minlen`')
-    parser.add_argument('--match_no_split', action='store_true', default=False, help='If set, do not split the match output into separate files for each wavelet template/convolution.')
-    parser.add_argument('--match_output_file', type=str, default=None, help='Output BED(6) file for pattern matching results')
-    parser.add_argument('--save_args', action='store_true',
-                        help='Save arguments to a JSON file. These can be used to reproduce the experiment via `consenrich -f <json_file>`.')
+    parser.add_argument('--match_wavelet', '--match_wavelets', '--match-wavelet', '--match-wavelets', dest='match_wavelet', type=str, default=None, help='Comma-separated wavelet name(s), e.g., `db2,dmey`')
+    parser.add_argument('--match_level', '--match_levels', '--match-level', '--match-levels', dest='match_level', type=str, default='1', help='Comma-separated wavelet level(s) to use for matching routine, e.g., `1,2,3`')
+    parser.add_argument('--match_minlen', '--match-minlen', dest='match_minlen', type=int, default=None, help='minimum number of intervals centered around a match to be reported')
+    parser.add_argument('--match_minval', '--match-minval', dest='match_minval', type=float, default=None, help='minimum value in the convolution to be considered a relmax')
+    parser.add_argument('--match_logscale', '--match-logscale', dest='match_logscale', action='store_true', default=False, help='If set, log-scale signal estimate values before matching procedure')
+    parser.add_argument('--match_alpha', '--match-alpha', dest='match_alpha', type=float, default=0.05, help='Defines the quantile(null, 1-alpha) matching threshold (minval)  (default: 0.05).')
+    parser.add_argument('--match_block', '--match-block', dest='match_block', type=int, default=None, help='Block size using in block permutation scheme to build empirical null. Leave as `None` for a block size dependent on the template length')
+    parser.add_argument('--match_iter', '--match-iter', dest='match_iter', type=int, default=10_000, help='Number of iterations for the block permutation scheme to build empirical null (default: 10000)')
+    parser.add_argument('--match_nullstat', '--match-nullstat', dest='match_nullstat', type=str, default='max', help='Null statistic to use for matching. Default is `max`')
+    parser.add_argument('--match_rseed', '--match-rseed', dest='match_rseed', type=int, default=42, help='Random seed for block permutation (default: 42)')
+    parser.add_argument('--match_minval_data', '--match-minval-data', dest='match_minval_data', type=float, default=None, help='minimum value in the data to be considered a relmax')
+    parser.add_argument('--match_square_response', '--match-square', dest='match_square_response', action='store_true', default=False, help='If set, square the convolution before searching for relmaxes')
+    parser.add_argument('--match_output_file', '--match-output-file', dest='match_output_file', type=str, default=None, help='Output BED(6) file for pattern matching results')
+    parser.add_argument('--save_args', '--save-args', dest='save_args', action='store_true',
+                        help='Save arguments to a JSON file.')
     args = parser.parse_args()
 
     if args.config_file is not None:
@@ -1539,7 +1548,6 @@ def main():
             detrend_window_bp=args.detrend_window_bp,
             detrend_lbound=args.detrend_lbound,
             detrend_ubound=args.detrend_ubound,
-            save_matrix=args.save_matrix,
             experiment_id=args.experiment_id,
             log_scale=args.log_scale,
             log_pc=args.log_pc,
@@ -1557,37 +1565,42 @@ def main():
         )
         with open(tmp_unsorted, 'a') as f:
             for i in range(len(intervals)):
-                f.write(f'{chromosome}\t{intervals[i]}\t{intervals[i]+args.step}\t{round(est_final[i],3)}\t{round(residuals_ivw[i],3)}\n')
+                f.write(f'{chromosome}\t{intervals[i]}\t{round(est_final[i], args.output_precision)}\t{round(residuals_ivw[i], args.output_precision)}\n')
 
         if args.match_wavelet is not None:
-            logger.info(f'Matching discretized wavelet-based templates to state estimates for chromosome {chromosome}...')
+            logger.info(f'Matching wavelet-based templates to Consenrich signal estimate track: {chromosome}')
             for w_, wavelet_ in enumerate(args.match_wavelet.split(',')):
                 for l_, level_ in enumerate(args.match_level.split(',')):
                     wavelet_ = wavelet_.strip()
                     level_ = int(level_.strip())
-                    logger.info(f'Using wavelet {wavelet_} at level {level_}...')
-                    if w_ == 0 and l_ == 0:
+
+                    perm_picker_ = np.max
+                    if args.match_nullstat is not None and args.match_minval is not None:
+                        if args.match_nullstat.lower() not in ['max', 'mean', 'median']:
+                            logger.warning(f'Unsupported: {args.match_nullstat} for matching. Using `max`.')
+                        else:
+                            perm_picker_ = {'max': np.max, 'mean': np.mean, 'median': np.median}[args.match_nullstat.lower()]
+
+                    if w_ == 0 or l_ == 0:
                         logger.info(f'Using wavelet {wavelet_} at level {level_}...')
                     try:
                         match_res: Dict[str, Any] = match(intervals, est_final, wavelet=wavelet_,
                                             level=level_, min_len=args.match_minlen, min_val=args.match_minval,
                                             min_val_data=args.match_minval_data, square_response=args.match_square_response,
-                                            logscale_data=args.match_logscale)
+                                            alpha=args.match_alpha, block=args.match_block, iters=args.match_iter, perm_picker=perm_picker_,
+                                            rseed=args.match_rseed, logscale_data=args.match_logscale)
                         logger.info(f'...Done.')
                         match_peaks = match_res['maxima_intervals']
                         match_peaks_resp = match_res['maxima_values']
                         min_len = match_res['min_len']
-                        extension: int = args.step
-                        if not args.match_no_extension:
-                            extension = int(args.step * min_len)
-
+                        extension = int(args.step * min_len)
                         if match_peaks is not None and len(match_peaks) > 0:
                             logger.info(f'Writing {args.match_output_file}: matched {len(match_peaks)} relative maxima with median template-convolution: {np.median(match_peaks_resp):.4f}')
                             with open(args.match_output_file, 'a') as f:
                                 for i in range(len(match_peaks)):
                                     f.write(f'{chromosome}\t{match_peaks[i] - extension}\t{match_peaks[i] + extension}\t{wavelet_}_{level_}_{chromosome}_{i}\t{np.round(match_peaks_resp[i],3)}\t.\n')
                     except Exception as e:
-                        logger.warning(f'Could not run matching procedure on chromosome {chromosome} with discretized template {wavelet_}:\n{str(e)}\n')
+                        logger.warning(f'Could not run matching procedure for chromosome {chromosome} with template {wavelet_} and level {level_}:\n{str(e)}\n')
                         continue
 
 
@@ -1602,10 +1615,12 @@ def main():
                 logger.warning(f'Could not save gains for {chromosome}:\n{str(e)}\n')
 
 
-    logger.info(f'Calling `bedtools sort -i {tmp_unsorted}`...')
+    logger.info(f'Calling `sort: {tmp_unsorted}`...')
     failed_sort = False
     try:
-        pbt.BedTool(tmp_unsorted).sort().saveas(args.output_file)
+        # code is already posix-dependent, so switching to plain `sort`
+        nix_sortcmd = ["sort", "-k1,1", "-k2,2n", tmp_unsorted, "-o", args.output_file]
+        subprocess.run(nix_sortcmd, check=True)
         if os.path.exists(args.output_file):
             logger.info(f'Successfully sorted output in standard lexicographical order: {args.output_file}')
     except Exception as e:
@@ -1618,7 +1633,7 @@ def main():
     except:
         logger.warning(f'Could not remove temporary file {tmp_unsorted}')
 
-    if args.match_wavelet is not None and args.match_output_file is not None and os.path.exists(args.match_output_file) and not args.match_no_split:
+    if args.match_wavelet is not None and args.match_output_file is not None and os.path.exists(args.match_output_file):
         for w_, wavelet_ in enumerate(args.match_wavelet.split(',')):
             for l_, level_ in enumerate(args.match_level.split(',')):
                 wavelet_ = wavelet_.strip()
