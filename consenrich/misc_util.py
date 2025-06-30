@@ -8,9 +8,11 @@ The `misc_util` module contains utility functions for Consenrich.
 
 import logging
 import math
+from operator import le
 from pprint import pprint
 import os
 import re
+import subprocess
 import uuid
 from typing import Optional, Tuple, Union, Dict, Any, List, Callable
 
@@ -205,7 +207,7 @@ def write_bigwig(tsv_file, sizes_file, chrom_list, outfile_name,
 
     sizes_dict = get_chromsizes_dict(sizes_file)
     chrom_list = chrom_lexsort([str(x) for x in sizes_dict.keys() if x in chrom_list], sizes_file=sizes_file)
-    tsv_df = pd.read_csv(tsv_file, sep='\t', names=['chrom', 'start', 'end', 'signal', 'residual'])
+    tsv_df = pd.read_csv(tsv_file, sep='\t', names=['chrom', 'start', 'signal', 'residual'])
     tsv_df = tsv_df[tsv_df['chrom'].isin(chrom_list)]
 
     pbw_out = pbw.open(outfile_name, 'w')
@@ -215,7 +217,8 @@ def write_bigwig(tsv_file, sizes_file, chrom_list, outfile_name,
         chrom_df = tsv_df[tsv_df['chrom'] == chrom]
         chroms = np.array(chrom_df['chrom'], dtype='str')
         starts = np.array(chrom_df['start'], dtype='int')
-        ends = np.array(chrom_df['end'], dtype='int')
+        step = starts[1] - starts[0]
+        ends = np.array(starts + step, dtype='int')
 
         if stat.lower() == 'signal':
             sig_values = np.array(chrom_df['signal'], dtype='float')
@@ -387,89 +390,89 @@ def dtr_wlen_degree(step: int, n: int=None,
     return 25,2
 
 
-def match_threshold(values: np.ndarray,
-                          template: np.ndarray,
-                          pc: Optional[float] = 0.10,
-                          zthresh: Optional[float] = 3.0,
-                          detrend_lbound: Optional[float] = 0,
-                          use_log2: Optional[bool] = True,
-                          use_asinh: Optional[bool] = False,
-                          detrend_window_min: Optional[int] = 25,
-                          use_robust: Optional[bool] = False) -> float:
-    r"""Determine the threshold for relative maxima in the convolution of `values` with `template`.
+def match_threshold_perm(values, template,
+                     iters: int=10_000, alpha=0.05,
+                     block: Optional[int] = None,
+                     perm_picker: Callable[[np.ndarray], float] = np.max,
+                     rseed: Optional[int] = None,
+                     template_mult: int = 10,
+                     variable_blocks: bool = True) -> float:
+    r"""Compute a threshold for relative maxima in the convolution of `values` with `template` using a block-permutation strategy.
+    :param values: numpy array of values (typically some function increasing with the number of sequence alignments at each interval).
+    :param template: numpy array representing the template (e.g., wavefun())
+    :param iters: Number of randomly sampled blocks to approximate null distr.
+    :param alpha: defines quantile(null_stats, 1-alpha) which is returned as the threshold.
+    :param block: size (in units of genomic intervals/bins) of sampled genomic blocks
+    :param perm_picker: function to pick the statistic from the permuted blocks (default is `np.max`).
+    :param rseed: random seed
+
+    .. note::
+        Under `variable_blocks=True`, we still have block length `block` in expectation but allow variability
+          But the variance grows quickly (quadratic) with respect to block size, so set `iters` accordingly...
+          Note also: block size clipped within `2*len(template) + 1` and `len(values) - 2*len(template) + 1`
+    .. note::
+        The default `perm_picker` is `np.max`--meaning that for each drawn block/segment of `values`,
+          the maximum value of the response :math:`\max \{\mathcal{R}_{[b_i]}\}` with `template` contributes
+          to estimating the null distribution of the response. This is fast but might be too conservative.
+          Can consider using `np.mean`, `np.median`, etc.
+
     """
+    if len(values) < 2*len(template) + 2:
+        raise ValueError(f"Insufficient `len(values)`-- need at least `2*len(template) + 2`")
+    if block is None:
+        block = min(int(template_mult)*len(template) + 1, int(len(values) - 2*len(template) - 1))
 
-    if len(values) < 2*len(template) + 1 or len(values) < detrend_window_min:
-        raise ValueError(f'`values` must be of length at least max(detrend_window_min, 2*len(template)+1): {len(values)} < {max(detrend_window_min, 2*len(template)+1)}')
-
-    detrend_winsize = max(detrend_window_min, 2*len(template)+1)
-    tvalues = np.array(values, dtype=np.float64)
-    if use_log2:
-        tvalues = np.log2(tvalues + pc)
-    elif use_asinh:
-        tvalues = np.arcsinh(tvalues)
-    detrended_values = tvalues - ndimage.median_filter(tvalues, size=detrend_winsize)
-    conv_values = np.zeros_like(detrended_values, dtype=np.float64)
     try:
-        conv_values = signal.fftconvolve(detrended_values, template, mode='same')
-    except Exception as ex_:
-        raise ValueError(f"Error computing convolution:\n{ex_}\n")
+        perm_picker(np.array([1,2,3]))
+    except Exception as e:
+        logger.warning(f"Invalid `perm_picker` function...resorting to default np.max().")
+        perm_picker = np.max
 
-    positive_response = conv_values[conv_values > 0]
-    if len(positive_response) == 0:
-        raise ValueError(f"No positive values observed in convolution with given template")
-    ctendency_stat = None
-    disp_stat = None
-    try:
-        if not use_robust:
-            ctendency_stat = np.mean(positive_response)
-            disp_stat = np.std(positive_response)
-        else:
-            ctendency_stat = np.median(positive_response)
-            disp_stat = np.median(np.abs(positive_response - ctendency_stat))*1.5
-    except Exception as ex_:
-        raise ValueError(f"Error computing stats of convolution:\n{ex_}\n")
-    if use_asinh:
-        return round(np.sinh(ctendency_stat + zthresh*disp_stat),4)
-    return round(2**(ctendency_stat + zthresh*disp_stat),4)
+    if rseed is not None:
+        np.random.seed(rseed)
+    null_stats = []
+    block_sizes =  block * np.ones(iters, dtype=int)
+    if variable_blocks:
+        # consider adding an argument (Callable) for other distributions, e.g. poisson.
+        block_sizes = np.array(
+            np.clip(np.random.geometric(1/block, size=iters), 2*len(template) + 1, len(values) - (2*len(template) + 1)), dtype=int)
+
+    logger.info(f"\n\nBlock Permutation Routine: iters={iters}, "
+        f"template length={len(template)}, α={alpha}\n"
+        f"Variable block sizes={variable_blocks}, "
+        f"block size IQR=[{int(np.percentile(block_sizes, 25))}, "
+        f"{int(np.percentile(block_sizes, 75))}]\n"
+        f"Statistic: {perm_picker.__name__}")
+
+    for iter_ in range(iters):
+        block_size = block_sizes[iter_]
+        start = np.random.randint(0, len(values) - block_size - len(template) - 1)
+        seg = values[start:start+block_size]
+        conv = signal.fftconvolve(seg, template, 'same')
+        null_stats.append(perm_picker(conv))
+    return np.quantile(null_stats, 1-alpha)
 
 
 def match(
     intervals: np.ndarray,
     values: np.ndarray,
-    wavelet: str = "db2",
+    wavelet: str = "haar",
     level: Optional[int] = 1,
     min_len: Optional[int] = None,
     min_val: Optional[float] = None,
     min_val_data: Optional[float] = None,
-    max_matches: Optional[int] = 10_000,
+    max_matches: Optional[int] = 25_000,
     unit_template: Optional[bool] = True,
     square_response: Optional[bool] = False,
     logscale_data: Optional[bool] = False,
     use_xcorr: Optional[bool] = False,
     verbose: Optional[bool] = False,
-    pc: Optional[float] = 0.10, # for match_estimate_minval()
-    zthresh: Optional[float] = 3.0, # for match_estimate_minval()
-    detrend_lbound: Optional[float] = 0, # for match_estimate_minval()
-    use_log2: Optional[bool] = True, # for match_estimate_minval()
-    use_asinh: Optional[bool] = False, # for match_estimate_minval()
-    detrend_window_min: Optional[int] = 25, # for match_estimate_minval()
-    use_robust: Optional[bool] = False, # for match_estimate_minval()
+    iters: Optional[int] = 10_000,
+    perm_picker: Optional[Callable[[np.ndarray], float]] = np.max,
+    alpha: Optional[float] = 0.05,
+    block: Optional[int] = None,
+    rseed: Optional[int] = None,
     ) -> Dict[str, Any]:
-    r"""Match discrete wavelet-based templates on over genomic segments
-
-    :param intervals: Numpy array of genomic intervals.
-    :param values: Numpy array of values (In the default use-case, this is the Consenrich signal track output)
-    :param wavelet: Wavelet-based template to match in `values` . Default is "db2".
-    :param level: See `pywt.Wavelet().wavefun()`. Default is 1.
-    :param min_len: Used for the `order` parameter in `scipy.signal.argrelmax()`. Number of surrounding points to consider for relative maxima. Default is None, which sets it to half the length of the wavelet template.
-    :param min_val: Minimum value to consider for relative maxima -- default is to estimate it
-    :param unit_template: Whether to scale the wavelet template to unit norm. Default is True.
-    :param square_response: Whether to the template-`values` convolution before checking for relative maxima. Default is False.
-    :param max_matches: Limits the number of matches in a given genomic segment (chromosome). Default is 5000.
-    :param use_xcorr: Whether to use cross-correlation instead of convolution. Default is False.
-    :param verbose: Whether to print the output dictionary. Default is False.
-    """
 
     if len(intervals) != len(values):
         raise ValueError(f"Length of intervals and values must be the same: {len(intervals)}, {len(values)}")
@@ -488,6 +491,10 @@ def match(
         template /= np.linalg.norm(template)
     logger.info(f"Template length {len(template)}")
 
+    if  logscale_data:
+        logger.info(f"Using log-scaled data")
+        values = np.log1p(values)
+
     conv_values: np.ndarray = signal.fftconvolve(values, template, mode='same')
     if square_response:
         logger.info(f"Squaring template-signal convolution ")
@@ -496,22 +503,20 @@ def match(
 
     if min_len is None:
         # the larger of (i) the length of the template (in units of `step`) or
-        # (ii) the number of genomic intervals required to get 100bp
-        min_len = max(len(template), (100 // step) + 1)
+        # (ii) the number of genomic intervals required to get 250bp features
+        min_len = max(len(template), (250 // step) + 1)
     if min_len % 2 == 0:
         min_len += 1
     logger.info(f"Using match_min_len={min_len}")
-
     if min_val is None:
-        min_val = match_threshold(values, template,
-          pc=pc, zthresh=zthresh, detrend_lbound=detrend_lbound,
-          use_log2=use_log2, use_asinh=use_asinh, detrend_window_min=detrend_window_min,
-          use_robust=use_robust)
-    logger.info(f"Minimum relmax value in convolution output: {min_val}")
-
+        # unless user specifies their own cutoff, determine as the 1-alpha quantile
+        # of the null distribution for the template-input convolution (response)
+        # null distr. estimated via block permutation
+        min_val = match_threshold_perm(values, template,
+            iters=iters, alpha=alpha, perm_picker=perm_picker, block=block, rseed=rseed)
+    logger.info(f"Minimum relmax value in convolution output: {min_val:.4f}")
     if min_val_data is None:
         min_val_data = 0.0
-
     conv_indices = None
     ret_dict = None
     if not skip_relmax:
@@ -519,7 +524,6 @@ def match(
         conv_indices = [idx for idx in relmax_indices if values[idx] > min_val_data and conv_values[idx] > min_val]
         if max_matches is not None and len(conv_indices) > max_matches:
             logger.info(f"Matches limited by 'max_matches' {max_matches}")
-            # limit instead by the convolution/xcorr rather than `values`
             conv_indices = sorted(conv_indices, key=lambda idx: conv_values[idx], reverse=True)[:max_matches]
         if len(conv_indices) == 0:
             logger.info(f"No relative maxima found with min_val={min_val} and min_val_data={min_val_data}")
