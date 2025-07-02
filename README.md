@@ -3,9 +3,14 @@
 [![Tests](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml/badge.svg?event=workflow_dispatch)](https://github.com/nolan-h-hamilton/Consenrich/actions/workflows/Tests.yml)
 ![PyPI - Version](https://img.shields.io/pypi/v/consenrich?logo=Python&logoColor=%23FFFFFF&color=%233776AB&link=https%3A%2F%2Fpypi.org%2Fproject%2Fconsenrich%2F)
 
-[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a sequential genome-wide state estimator for extraction of epigenomic signals and pattern localization in noisy multisample HTS data.
+[Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a sequential state estimator for extraction of genome-wide epigenetic signals and uncertainty quantification inferred from multi-sample high-throughput functional genomics datasets.
 
----
+<p align="center">
+  <img src="docs/scheme.png" alt="Example output with --match_wavelet haar,db2,db4" width="800"/><br/>
+  <em> Consenrich sequentially estimates epigenomic states from multisample HTS data--ATAC-seq, ChIP-seq, etc. By modeling  both (i) local and global spatial dependencies and (ii) noise due to regional artifacts and individual samples, Consenrich yields a genome-wide track of 'consensus' signal estimates with variance propagation and elucidated spatial features.</em>
+</p>
+
+## Usage
 
 * **Input**:
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
@@ -13,12 +18,12 @@
   * (*Optional*): wavelet-based template(s) to match for genome-wide pattern matching (`--match_wavelet ` `db<2,3,...>`, `sym<2,3,...>`, `haar`, `coif<1,2,...>`, `dmey`)
 
 * **Output**:
-  * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics, e.g., bigWigs `Consenrich(Het10) Signal Estimates` and `Consenrich(Het10) VarScaled Residuals`
-  * `--match_<...>`: BED-like output(s) of localized signal patterns obtained with a genomics-oriented matched filtering variant, e.g., `ConsenrichMatchedResult(Het10, <template_name>)`
+  * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics
+  * (*Optional*): BED-like output(s) of localized enrichment patterns across multiple resolutions, obtained with a genomics-oriented matched filtering variant, e.g., `ConsenrichMatchedResult(Het10, <template_name>)`
 
 <p align="center">
   <img src="docs/matched.png" alt="Example output with --match_wavelet haar,db2,db4" width="800"/><br/>
-  <em>Example: Consenrich outputs given 10 input ATAC-seq samples (lymphoblastoid)
+  <em>Example: Consenrich-estimated signal tracks and uncertainty metrics given an input dataset consisting of $m=10$ ATAC-seq alignments of varying data quality (lymphoblastoid)
   <code>consenrich --bam_files ENCFF*.bam -g hg38 --match_wavelet haar,db2,db4</code></em>
 </p>
 
@@ -30,26 +35,20 @@ Consenrich is available via [PyPI/pip](https://pypi.org/project/consenrich/):
 
 * `python -m pip install consenrich`
 
-If lacking administrative privileges, running with flag `--user` may be necessary.
-
 ---
 
-Consenrich can also be easily downloaded and installed from source:
+Consenrich can also be cloned and built from source:
 
 1. `git clone https://github.com/nolan-h-hamilton/Consenrich.git`
 2. `cd Consenrich`
 3. `python setup.py sdist bdist_wheel`
 4. `python -m pip install .`
-5. Check installation: `consenrich --help`
+
+Check installation: `consenrich -h`
 
 ## Manuscript Preprint and Citation
 
-A [corresponding manuscript preprint is available on bioRxiv](https://www.biorxiv.org/content/10.1101/2025.02.05.636702v1).
-
-*Genome-Wide Uncertainty-Moderated Extraction of Signal Annotations from Multi-Sample Functional Genomics Data*\
-Nolan H Hamilton, Benjamin D McMichael, Michael I Love, Terrence S Furey; doi: `10.1101/2025.02.05.636702`
-
----
+A manuscript preprint is available on [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.02.05.636702v1). *A revised, up-to-date manuscript is forthcoming*.
 
 **BibTeX**
 
