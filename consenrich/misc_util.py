@@ -91,15 +91,15 @@ def get_chromsizes_dict(sizes_file: str,
                         exclude_regex: str=r'^chr[A-Za-z0-9]+$',
                         exclude_chroms: list=['chrM', 'chrEBV']) -> dict:
     r"""The function `get_chromsizes_dict` is a helper to get chromosome sizes file as a dictionary.
-    
+
     :param sizes_file: Path to sizes file OR the name of a genome supported by  `pybedtools <https://daler.github.io/pybedtools/>`_
     :param exclude_regex: Regular expression to exclude chromosomes. Default excludes all non-standard chromosomes.
     :param exclude_chroms: List of chromosomes to exclude.
     :return: Dictionary of chromosome sizes. Formatted as `{chromosome_name: size}`, e.g., `{'chr1': 248956422, 'chr2': 242193529, .}`
 
     """
-    genome_ = None
-    # if sizes_file is not a file, assume it is a genome name
+    genome_: Optional[str] = None
+    # if sizes_file is not a file, try it is a genome name
     if not os.path.exists(sizes_file):
         logger.info(f"Could not find file {sizes_file}, assuming it is a genome name and calling pybedtools.chromsizes()")
         genome_ = sizes_file
