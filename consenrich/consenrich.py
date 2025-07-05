@@ -6,7 +6,6 @@ The `consenrich` module contains the primary functions and a command line interf
 
 """
 
-# standard library imports
 import argparse
 from ast import parse
 import gzip
@@ -16,13 +15,11 @@ import logging
 from math import log
 import multiprocessing as mp
 import os
-import random
 import shutil
 import sys
 import uuid
-
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple
 
 
 import numpy as np
@@ -180,29 +177,50 @@ def check_read(read: pysam.AlignedSegment,
 def estimate_gwide_scale(bam_file: str, sizes_file: Optional[str] = None,
                                 effective_genome_size: Optional[float] = None,
                                 genome: Optional[str] = None,
-                                random_seed: int=42,
                                 min_hq_reads: int=100,
                                 threads: Optional[int] = None,
                                 min_mapq: int=10,
                                 max_tries=100000,
-                                exclude_for_norm: Optional[List[str]] = ['chrX', 'chrY', 'chrM', 'chrEBV']) -> float:
-    """The `estimate_gwide_scale` function estimates the scaling constant for alignment files such that read counts will be normalized to 1x coverage.
+                                exclude_for_norm: List[str] = ['chrX', 'chrY', 'chrM', 'chrEBV']) -> float:
+    r"""Norm read counts to the effective genome size by estimating a scale factor based on the median read length.
+    The returned scale factor determined as 'effective genome size' divided by 'read coverage'.
+    :param bam_file: path of BAM file.
+    :param sizes_file: path to chromosome sizes file
+    :param genome: Genome assembly name (e.g., 'hg38', 'mm10', etc.).
+       If provided, will use default effective genome size for that assembly. Related: `misc_util.get_default_egsize()`.
+    :param min_hq_reads: Minimum number of `high-quality reads` to estimate read length. Related: `min_mapq` and `max_tries`
+    :param threads: Number of threads for reading BAM
+    :param effective_genome_size: Effective genome size
+    :param min_mapq: Minimum mapping quality for reads to be considered high-quality.
+    :param max_tries: Maximum number of reads to try to estimate read length.
+    :param exclude_for_norm: List of chromosomes to exclude from normalization.
+    :return: Scale factor to normalize read counts to the effective genome size.
+    :rtype: float
     """
 
-    chroms_dict = get_chromsizes_dict(sizes_file=sizes_file)
+    if not os.path.exists(bam_file):
+        raise FileNotFoundError(f"BAM file not found: {bam_file}")
+
+    if sizes_file is None and genome is None and effective_genome_size is None:
+        raise ValueError("Supply a sizes file, genome assembly name, or effective genome size")
 
     if effective_genome_size is None:
         if genome is not None:
             effective_genome_size = get_default_egsize(genome=genome)
         if sizes_file is not None and os.path.exists(sizes_file):
+            chroms_dict = get_chromsizes_dict(sizes_file=sizes_file)
             effective_genome_size = sum([chroms_dict[chrom] for chrom in chroms_dict if chrom not in exclude_for_norm])
-        else:
-            raise ValueError("Supply an effective genome size, genome assembly name, or sizes file")
+        if sizes_file is not None and not os.path.exists(sizes_file):
+            # try it as a genome name
+            effective_genome_size = get_default_egsize(genome=sizes_file)
+
+    # after all that, if we still don't have an effective genome size, raise an error
+    if effective_genome_size is None:
+        raise ValueError("Need at least one of the following: a chromosome sizes file, genome assembly name, or effective genome size.")
 
     if threads is None or threads < 1:
         threads = max(1,(mp.cpu_count()//2)-1)
 
-    random.seed(random_seed)
     scale_factor = 1.0
     reads = []
     tries = 0
@@ -232,19 +250,27 @@ def estimate_gwide_scale(bam_file: str, sizes_file: Optional[str] = None,
     return scale_factor
 
 
-def scale_treatment_control(treatment_bamfile: str, control_bamfile: str, threads: int=None,
-    rdlen_treatment: int=None, rdlen_control: int=None) -> tuple:
-    r"""Per convention, paired treatment/control samples are scaled *to each other* first.
+def scale_treatment_control(treatment_bamfile: str, control_bamfile: str, threads: int=-1,
+    rdlen_treatment: Optional[int]=None, rdlen_control: Optional[int]=None) -> tuple:
+    r"""Scale 'treatment' and 'control' read counts to the same coverage (downward).
+    Determines the 'smaller' of the two in terms of coverage, scales the other to match it.
+    :param treatment_bamfile: Path to treatment BAM file.
+    :param control_bamfile: Path to control BAM file.
+    :param threads: Number of threads to use for reading BAM files.
+    :param rdlen_treatment: Read length for treatment BAM file (only specify if it differs from control).
+    :param rdlen_control: Read length for control BAM file (only specify if it differs from treatment).
+    :return: treatment scale factor, control scale factor
+    :rtype: Tuple(float, float)
     """
     if threads is None or threads < 1:
-        threads = max(1,mp.cpu_count()//2 - 1)
+        threads = min(max(1,mp.cpu_count()//2 - 1),4)
 
     logger.info(f"Scaling treatment/control read counts for {treatment_bamfile} and {control_bamfile}...")
 
-    # default: assume read lengths are the same between treatment and control.
+    # Assume read lengths are the same between treatment and control...
     treatment_cov = pysam.AlignmentFile(treatment_bamfile,'rb', threads=threads).mapped
     control_cov = pysam.AlignmentFile(control_bamfile, 'rb', threads=threads).mapped
-    # but also allow for user to specify differing read lengths to compute coverage
+    # BUT also allow for user to specify differing read lengths to compute coverage
     if rdlen_treatment is not None or rdlen_control is not None:
         treatment_cov = treatment_cov * rdlen_treatment if rdlen_treatment is not None else treatment_cov
         control_cov = control_cov * rdlen_control if rdlen_control is not None else control_cov
@@ -268,10 +294,10 @@ def get_readtrack(chromosome: str,
                 start: int=None,
                 end: int=None,
                 step: int=25,
-                paired_end: bool=True,
+                paired_end: bool = True,
                 min_mapq: float=0.0,
-                threads: int=-1,
-                count_both: bool=True) -> tuple:
+                threads: int = -1,
+                count_both: bool = True) -> Tuple[np.ndarray, np.ndarray]:
     r"""The `get_readtrack` function computes the 'read track' for a given chromosome and BAM file.
 
     Over intervals :math:`i=1,2,\ldots,n` the corresponding values in the length :math:`n` read track measures, loosely,
@@ -384,7 +410,7 @@ def get_munc_track_mp(chromosome: str,
                 munc_local_weight: float=0.333,
                 munc_global_weight: float=0.667,
                 conservative_munc: bool=False,
-                n_processes: int=None) -> List[Tuple[np.ndarray, np.ndarray]]:
+                n_processes: int = -1) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
     Wrapper for parallelizing observation noise track computation across multiple samples' read data tracks.
     """
@@ -405,7 +431,7 @@ def find_proximal_features(chromosome: str,
                            intervals: np.ndarray,
                            sparsebed: str,
                            k: int=25) -> np.ndarray:
-    r"""The function `find_proximal_features` identifies proximal genomic regions in `sparsebed` for each interval in a given chromosome.
+    r"""Identify the k nearest genomic regions in `sparsebed` for each interval.
     """
 
     step = get_step(intervals)
@@ -465,7 +491,7 @@ def munc_track(chromosome: str,
 
     munc_track_ = np.zeros(n)
     prev = None
-    prev_match_arr = np.zeros(n)
+    prev_match_arr = np.zeros(n, dtype=int)
     for i, interval in enumerate(intervals):
         if i > 0 and hashlib.md5(sparsemap[interval].tobytes()).hexdigest() == prev:
             munc_track_[i] = munc_track_[i-1]
@@ -491,14 +517,11 @@ def munc_track(chromosome: str,
 
 
 def detrend_track(intervals: np.ndarray, vals: np.ndarray,
-                  degree: int=None, percentile: int=None,
-                  window_bp: int=None,
-                  lbound: float=None,
-                  ubound: float=None) -> tuple:
+                  degree: Optional[int] = None, percentile: Optional[int] = None,
+                  window_bp: Optional[int] = None,
+                  lbound: Optional[float] = None,
+                  ubound: Optional[float] = None) -> tuple:
     r"""The function `detrend_track` models background dynamically with a bounded low-pass filter (Savitzky-Golay or general-percentile) and removes it.
-
-    .. note::
-        If both `degree` and `percentile` are None, a median filter is applied.
 
     :param intervals: Numpy array of intervals.
     :param vals: Numpy array of values.
@@ -513,19 +536,18 @@ def detrend_track(intervals: np.ndarray, vals: np.ndarray,
 
     step = get_step(intervals)
     n = match_lengths(intervals, vals)
-    vals_ = vals.copy()
-
+    filtered_vals = np.zeros(n, dtype=float)
     if degree is not None and window_bp is not None:
         detrend_window_steps = 2*(window_bp // (2*step)) + 1
-        filtered_vals = signal.savgol_filter(vals_, detrend_window_steps, degree)
+        filtered_vals = signal.savgol_filter(vals, detrend_window_steps, degree)
     elif percentile is not None and window_bp is not None:
         detrend_window_steps = 2*(window_bp // (2*step)) + 1
-        filtered_vals = ndimage.percentile_filter(vals_, percentile, detrend_window_steps)
+        filtered_vals = ndimage.percentile_filter(vals, percentile, detrend_window_steps)
     if degree is None and percentile is None and window_bp is not None:
         detrend_window_steps = 2*(window_bp // (2*step)) + 1
-        filtered_vals = ndimage.percentile_filter(vals_, 75, detrend_window_steps)
+        filtered_vals = ndimage.percentile_filter(vals, 75, detrend_window_steps)
 
-    detrended_vals = vals_ - filtered_vals
+    detrended_vals = vals - filtered_vals
 
     if lbound is not None and ubound is not None:
         detrended_vals = np.clip(detrended_vals, lbound, ubound)
@@ -539,12 +561,12 @@ def get_chromosome_matrix(chromosome: str,
                         sparsebed: str,
                         step: int=25,
                         norm_gwide: bool=True,
-                        gwide_scales: np.ndarray=None,
+                        scale_factors: np.ndarray=None,
                         paired_end: bool=True,
                         exclude_flag: int=3840,
                         min_mapq: int=0,
-                        blacklist_file: str=None,
-                        threads: int=None,
+                        blacklist_file: Optional[str] = None,
+                        threads: int = -1,
                         count_both: bool=True,
                         backshift: int=None,
                         munc_min: float=0.25,
@@ -554,10 +576,10 @@ def get_chromosome_matrix(chromosome: str,
                         munc_local_weight: float=0.333,
                         munc_global_weight: float=0.667,
                         munc_k: int=25,
-                        n_processes: int=None,
-                        detrend_degree: int=None,
-                        detrend_percentile: int=None,
-                        detrend_window_bp: int=None,
+                        n_processes: int = -1,
+                        detrend_degree: Optional[int]=None,
+                        detrend_percentile: Optional[int] = None,
+                        detrend_window_bp: Optional[int] = None,
                         detrend_lbound: float=None,
                         detrend_ubound: float=None,
                         save_matrix:  bool=False,
@@ -583,7 +605,7 @@ def get_chromosome_matrix(chromosome: str,
     :param sparsebed: Path to sparse BED file.
     :param step: Step size for intervals.
     :param norm_gwide: Whether to normalize counts w.r.t. whole genome.
-    :param gwide_scales: Numpy array of scaling factors for each BAM file.
+    :param scale_factors: Numpy array of scaling factors for each BAM file.
     :param paired_end: Whether alignments are paired-end.
     :param exclude_flag: SAM flag to exclude reads.
     :param min_mapq: Minimum mapping quality.
@@ -662,20 +684,22 @@ def get_chromosome_matrix(chromosome: str,
             count_both=count_both)
         for i, result in enumerate(par_controls_readtrack):
             treatment_scale_factor, control_scale_factor = scale_treatment_control(bam_files[i], control_files[i])
+            # given control inputs and no explicit scale_factors, default behavior is to
+            # scale treamtment/control to each other perform the correction, and then 
+            # scale back based on treatment coverage.
             rtrack = result[1]
             if log_scale:
                 chrom_matrix[i] = np.log(chrom_matrix[i]*treatment_scale_factor + log_pc) - np.log(rtrack*control_scale_factor + log_pc)
             else:
                 chrom_matrix[i] = (chrom_matrix[i]*treatment_scale_factor) - (rtrack*control_scale_factor)
 
-    if norm_gwide:
+    if norm_gwide or scale_factors is not None:
             for i in range(get_shape(chrom_matrix)[0]):
-                if gwide_scales is None or len(gwide_scales) != len(bam_files):
+                if scale_factors is None and norm_gwide:
+                    # ideally, we don't end up here and the scale factors are provided already
                     track_sf = estimate_gwide_scale(bam_files[i], sizes_file, threads=threads)
                 else:
-                    # these need not be computed for every call to `get_chromosome_matrix`
-                    # ...compute in main and pass as argument
-                    track_sf = gwide_scales[i]
+                    track_sf = scale_factors[i]
                 chrom_matrix[i] = chrom_matrix[i]*track_sf
 
     munc_matrix = np.zeros((len(bam_files), len(intervals)))
@@ -772,7 +796,7 @@ def mask_blacklisted(chromosome: str, intervals: np.ndarray, blacklist_file: str
 
 
 def backward_pass(xvec_forward, Pmat_forward, Qmat_forward, Fmat):
-    r"""The function `backward_pass` computes the backward pass of Consenrich
+    r"""The function `backward_pass` computes the backward pass of Consenrich (n,n-1,n-2,...)
 
     :param xvec_forward: A NumPy array of the forward-pass state vectors
     :param Pmat_forward: A NumPy array of the forward-pass process noise covariance matrices
@@ -803,7 +827,7 @@ def backward_pass(xvec_forward, Pmat_forward, Qmat_forward, Fmat):
 
 
 def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
-                   step=25, norm_gwide=True, gwide_scales=None, paired_end=True,
+                   step=25, norm_gwide=True, scale_factors=None, paired_end=True,
                    exclude_flag=3840, min_mapq=0, threads=None, count_both=True,
                    backshift=None, munc_min=0.25, munc_max=500, munc_smooth=True,
                    munc_smooth_bp=500, munc_local_weight=0.333, munc_global_weight=0.667,
@@ -869,7 +893,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
     logger.info(f'Running Consenrich on chromosome {chromosome} with {len(bam_files)} BAM files and {n_processes} processes')
 
     # First compute read tracks and observation noise tracks
-    intervals, chrom_matrix, munc_matrix, prev_match_arr = get_chromosome_matrix(chromosome, bam_files, sizes_file, sparsebed, step, norm_gwide, gwide_scales, paired_end, exclude_flag, min_mapq, blacklist_file, threads, count_both, backshift, munc_min, munc_max, munc_smooth, munc_smooth_bp, munc_local_weight, munc_global_weight, munc_k, n_processes, detrend_degree, detrend_percentile, detrend_window_bp, detrend_lbound, detrend_ubound, save_matrix, experiment_id, control_files, log_scale, log_pc, no_sparsebed, csparse_aggr_percentile, csparse_wlen, csparse_pdegree, csparse_min_peak_len, csparse_min_sparse_len, csparse_min_dist, csparse_max_features, csparse_min_prom_prop)
+    intervals, chrom_matrix, munc_matrix, prev_match_arr = get_chromosome_matrix(chromosome, bam_files, sizes_file, sparsebed, step, norm_gwide, scale_factors, paired_end, exclude_flag, min_mapq, blacklist_file, threads, count_both, backshift, munc_min, munc_max, munc_smooth, munc_smooth_bp, munc_local_weight, munc_global_weight, munc_k, n_processes, detrend_degree, detrend_percentile, detrend_window_bp, detrend_lbound, detrend_ubound, save_matrix, experiment_id, control_files, log_scale, log_pc, no_sparsebed, csparse_aggr_percentile, csparse_wlen, csparse_pdegree, csparse_min_peak_len, csparse_min_sparse_len, csparse_min_dist, csparse_max_features, csparse_min_prom_prop)
 
     if state_lowerlim is None:
         # if not set, use smallest value in data or 0
@@ -977,7 +1001,7 @@ def run_consenrich(chromosome, bam_files, sizes_file, blacklist_file, sparsebed,
             Rmat = np.diag(mmi_vec)
             Rinv = np.diag(mminv_vec)
             Rinv_trace = np.sum(mminv_vec)
-            Router_prod = np.outer(mminv_vec, mminv_vec)
+            Router_prod = np.linalg.outer(mminv_vec, mminv_vec)
 
         # -- Use `Fmat` recursively to compute a priori estimate of state at interval `i`
         # given the previous state estimate at interval `i-1`
@@ -1108,7 +1132,8 @@ def _parse_arguments(ID):
     parser.add_argument('-g', '--genome', dest='genome', default=None,
                         help='Convenience option. If supplied, use pre-packaged files for the given assembly [hg38, mm10, mm39, dm6].')
     parser.add_argument('--step', type=int, default=25, help='Step size for genomic intervals (default: 25bp). Consider larger values, e.g., 50 to reduce peak memory usage.')
-    parser.add_argument('--no_norm_counts', action='store_true', help='If set, skip normalizing counts')
+    parser.add_argument('--no_norm_counts', '--no-norm-counts', dest='no_norm_counts', action='store_true', help='If set, skip normalizing counts', default=False)
+    parser.add_argument('--scale_factors', '--scale-factors', dest='scale_factors', type=str, default=None, help='Comma-separated scale factors for each sample')
     parser.add_argument('--paired_end', action='store_true', default=True)
     parser.add_argument('--single_end', action='store_false', dest='paired_end',
                         help='Treat reads as single-end if invoked.')
@@ -1214,7 +1239,9 @@ def _parse_arguments(ID):
     parser.add_argument('--match_output_file', '--match-output-file', dest='match_output_file', type=str, default=None, help='Output BED(6) file for pattern matching results')
     parser.add_argument('--save_args', '--save-args', dest='save_args', action='store_true',
                         help='Save arguments to a JSON file.')
-    args = parser.parse_args()
+    args, unknown_args = parser.parse_known_args()
+    if len(unknown_args) > 0:
+        logger.warning(f'Ignoring unknown args:\n{unknown_args}\n.')
 
     if args.config_file is not None:
         logger.info(f'Loading config file: {args.config_file}...')
@@ -1275,13 +1302,12 @@ def main():
             args.blacklist_file = get_genome_resource(f'{args.genome.lower()}_blacklist.bed')
         if args.sparsebed is None and not args.no_sparsebed:
             args.sparsebed = get_genome_resource(f'{args.genome.lower()}_sparse.bed')
-
-    norm_gwide: bool = not args.no_norm_counts
     munc_smooth =  args.munc_smooth_bp is not None and args.munc_smooth_bp > (3*args.step)
     ignore_blacklist = not args.retain_blacklist_estimates
     joseph_ = not args.no_joseph
+
     if args.munc_min is None:
-        args.munc_min = 1.0/len(args.bam_files) + 1.0e-2
+        args.munc_min = (1.0/len(args.bam_files)) + 1.0e-2
 
     if args.sparsebed is None and args.active_regions is not None and not args.no_sparsebed:
         sparsebed_fname=f'sparsebed_output_{args.experiment_id}.bed'
@@ -1290,20 +1316,7 @@ def main():
             args.sparsebed = sparsebed_fname
         except Exception as ex:
             logger.info(f"Original exception:\n{ex}\n\n")
-            raise Exception(
-                f"Could not find/create sparsebed file {args.sparsebed}.\n"
-                "You can either run with `--no_sparsebed`, in which case "
-                "sparse regions are inferred as those satisfying both:\n"
-                "\t(i) occur in gaps between highly enriched regions "
-                "determined with a rough first pass, and\n"
-                "\t(ii) The input data over the given region can be detrended such "
-                "that they are approximately stationary. See "
-                "`consenrich.misc_utils.check_acorr()` for more details.\n"
-                "Alternatively, you can create a sparsebed file as the conservative "
-                "complement of previously annotated \"active\" regions (e.g., "
-                "`consenrich/refdata/hg38_sparse.bed`) or peak regions in "
-                "heterochromatin/nucleosome-targeted ChIP-seq/CUT-N_RUN experiments.\n"
-            )
+            raise Exception(f"Try running with `--no_sparsebed`")
 
     if os.path.exists(args.output_file):
         logger.warning(f'Output file {args.output_file} already exists. Overwriting...')
@@ -1330,11 +1343,23 @@ def main():
             continue
         chrom_list.append(chromosome)
     chrom_list = chrom_lexsort(chrom_list, args.sizes_file)
-    gwide_scales = None
-    if norm_gwide:
+
+    scale_factors: Optional[List[float]] = None
+    norm_gwide: bool = (not args.no_norm_counts) and (args.scale_factors is None)
+    if not norm_gwide and args.scale_factors is not None:
+        args.scale_factors = args.scale_factors.strip().replace(' ', '')
+        scale_factors = [float(x) for x in args.scale_factors.split(',')]
+        if len(scale_factors) != len(args.bam_files):
+            raise ValueError(f'Number of scale factors ({len(scale_factors)}) does not match number of BAM files ({len(args.bam_files)}).')
+    elif norm_gwide:
         logger.info('Computing scale factors...')
-        gwide_scales = [estimate_gwide_scale(bam_files[i], sizes_file=args.sizes_file, genome=args.genome) for i in range(len(bam_files))]
+        scale_factors = [estimate_gwide_scale(bam_files[i], sizes_file=args.sizes_file, genome=args.genome) for i in range(len(bam_files))]
         logger.info('Done.')
+    else:
+        scale_factors = [1.0] * len(bam_files)
+    scale_factors = np.array(scale_factors, dtype=float)
+    logger.info(f'Scale factors: {scale_factors}')
+
     for chromosome in chrom_list:
         logger.info(f'Processing chromosome {chromosome}...')
         intervals, est_final, residuals_ivw, gain = run_consenrich(
@@ -1345,7 +1370,7 @@ def main():
             sparsebed=args.sparsebed,
             step=args.step,
             norm_gwide=norm_gwide,
-            gwide_scales=gwide_scales,
+            scale_factors=scale_factors,
             paired_end=args.paired_end,
             exclude_flag=args.exclude_flag,
             min_mapq=args.min_mapq,

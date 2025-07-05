@@ -625,7 +625,7 @@ def to_narrowPeak(input_path: str, output_path: str) -> str:
     return output_path
 
 
-def get_default_egsize(genome: str):
+def get_default_egsize(genome: str) -> Optional[float]:
     genome = genome.lower()
     if  genome in ['hs', 'hg19', 'grch37', 'hg38', 'grch38']:
         return 2.9e9 # NIH_NCI BTEP, ~MACS~, etc.
@@ -635,5 +635,5 @@ def get_default_egsize(genome: str):
         return 140e6 # ~MACS~, etc.
     elif genome in ['ce', 'ce11', 'ce10']:
         return 100e6 # ~MACS~, etc.
-    logger.warning(f'No default effective genome size for {genome} found. Returning -1.')
-    return -1
+    logger.warning(f'No default effective genome size for {genome} found. Returning `None`.')
+    return None

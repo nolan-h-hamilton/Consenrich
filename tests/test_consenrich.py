@@ -41,6 +41,32 @@ def test_consistency_atac(refsig='test_ref_sig.bw', refres='test_ref_res.bw', th
     print(proc_res.stdout)
     assert not np.isnan(float(proc_res.stdout)), f'BigWigCorrelate correlation coefficient is NaN: {proc_res.stdout}'
     assert float(proc.stdout) >= thresh, f'BigWigCorrelate correlation coefficient below {thresh}: {proc.stdout}'
+    assert float(proc_res.stdout) >= thresh, f'BigWigCorrelate correlation coefficient below {thresh}: {proc_res.stdout}'
+
+
+@pytest.mark.scalefactors
+def test_consistency_atac_scalefactors(refsig='test_ref_sig.bw', refres='test_ref_res.bw', thresh=0.95):
+    oname_sig = 'test_sf_cmp_sig.bw'
+    oname_res = 'test_sf_cmp_res.bw'
+    consenrich_cmd = ['consenrich', '--bam_files', 'test_sample_one.bam', 'test_sample_two.bam', 'test_sample_three.bam', '-g', 'hg38', '--chroms', 'chr19', 'chr21', 'chr22', '--signal_bigwig', oname_sig, '--residuals', oname_res, '-p', '4', '--threads', '2', '--scale_factors', '79.1565,132.4456,56.7047']
+    subprocess.run(consenrich_cmd, check=True)
+
+    # Note: these will fail if the UCSC bigWigCorrelate tool isn't installed
+    bigwigcorr_cmd = ['bigWigCorrelate',  refsig, oname_sig, '-ignoreMissing', '-restrict=test_region_file.bb']
+    proc = subprocess.run(bigwigcorr_cmd, check=True, stdout=subprocess.PIPE)
+    proc.stdout = str(proc.stdout.decode('utf-8')).strip()
+    print(proc.stdout)
+    assert float(proc.stdout) >= thresh, f'BigWigCorrelate correlation coefficient below {thresh}: {proc.stdout}'
+    assert not np.isnan(float(proc.stdout)), f'BigWigCorrelate correlation coefficient is NaN: {proc.stdout}'
+
+    bigwigcorr_cmd_res = ['bigWigCorrelate',  refres, oname_res, '-ignoreMissing', '-restrict=test_region_file.bb']
+    proc_res = subprocess.run(bigwigcorr_cmd_res, check=True, stdout=subprocess.PIPE)
+    proc_res.stdout = str(proc_res.stdout.decode('utf-8')).strip()
+    print(proc_res.stdout)
+    assert not np.isnan(float(proc_res.stdout)), f'BigWigCorrelate correlation coefficient is NaN: {proc_res.stdout}'
+    assert float(proc.stdout) >= thresh, f'BigWigCorrelate correlation coefficient below {thresh}: {proc.stdout}'
+    assert float(proc_res.stdout) >= thresh, f'BigWigCorrelate correlation coefficient below {thresh}: {proc_res.stdout}'
+
 
 
 @pytest.mark.consistency
