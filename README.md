@@ -7,7 +7,7 @@
 
 <p align="center">
   <img src="docs/scheme.png" alt="Example output with --match_wavelet haar,db2,db4" width="800"/><br/>
-  <em> Consenrich sequentially estimates epigenomic states from multisample HTS data--ATAC-seq, ChIP-seq, etc. By modeling  both (i) local and global spatial dependencies and (ii) noise due to regional artifacts and individual samples, Consenrich yields a genome-wide track of 'consensus' signal estimates with variance propagation and elucidated spatial features.</em>
+  <em> Consenrich sequentially estimates epigenomic states from multisample DNA-enrichment assays--ATAC-seq, ChIP-seq, etc. By modeling  both (<b>i</b>) local and global spatial dependencies and (<b>ii</b>) noise due to regional artifacts and individual samples, Consenrich yields a genome-wide track of 'consensus' signal estimates with variance propagation and elucidated spatial features.</em>
 </p>
 
 ## Usage
@@ -15,7 +15,7 @@
 * **Input**:
   * $m \geq 1$ Sequence alignment files `-t/--bam_files` corresponding to each sample in a given HTS experiment
   * (*Optional*): $m_c = m$ control sample alignments, `-c/--control_files`, for each 'control' sample (e.g., ChIP-seq)
-  * (*Optional*): wavelet-based template(s) to match for genome-wide pattern matching (`--match_wavelet ` `db<2,3,...>`, `sym<2,3,...>`, `haar`, `coif<1,2,...>`, `dmey`)
+  * (*Optional*): approximated wavelet templates (cascade iterations) for pattern recognition (`--match_wavelet ` `db<2,3,...>`, `sym<2,3,...>`, `haar`, `coif<1,2,...>`, `dmey`)
 
 * **Output**:
   * Genome-wide 'consensus' epigenomic state estimates and uncertainty metrics
@@ -48,7 +48,7 @@ Check installation: `consenrich -h`
 
 ## Manuscript Preprint and Citation
 
-A manuscript preprint is available on [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.02.05.636702v1). *A revised, up-to-date manuscript is forthcoming*.
+A manuscript preprint is available on [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.02.05.636702v1). *Up-to-date version forthcoming.*
 
 **BibTeX**
 
