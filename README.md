@@ -1,15 +1,29 @@
-# Consenrich
+# Consenrich (`lean` branch)
 
-Consenrich is a sequential state estimator for extraction of genome-wide epigenetic signals and uncertainty quantification inferred from multi-sample high-throughput functional genomics datasets.
+---
+The `lean` branch introduces a substantial internal refactor that positions Consenrich for a long-term, stable, API.
+
+* Core methodological aspects are now self-contained, allowing users greater flexibility to separate preprocessing and primary analysis for contexts that may require unique normalization techniques, transformations of data, or other preprocessing steps.
+
+* Consistent, documented naming conventions for modules, functions, and arguments.
+
+* Performance upgrades — Several previous bottlenecks are now rewritten in Cython, and alignment-level processing is buffered to restrict and configure memory use.
+
+After `lean` is merged into `main`, some previous interfaces will become deprecated but remain accessible through older tagged versions of Consenrich. Note that `lean` does not introduce any fundamental methodological changes.
+
+---
+
+![Simplified Schematic of Consenrich.](docs/images/noise.png)
+
+See the [Documentation](https://nolan-h-hamilton.github.io/Consenrich/) for more details and usage examples.
 
 ---
 
 ## Installation
 
-1. `git clone https://github.com/nolan-h-hamilton/Consenrich.git`
+1. `git clone --single-branch --branch lean https://github.com/nolan-h-hamilton/Consenrich.git`
 2. `cd Consenrich`
-3. `python setup.py build_ext --inplace`
-4. `python -m pip install .`
+3. `python -m pip install build .`
 
 
 ## Manuscript Preprint and Citation
