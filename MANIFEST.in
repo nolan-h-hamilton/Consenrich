@@ -1,25 +1,3 @@
-include *.md
-recursive-include consenrich/ *.py
-recursive-include consenrich/refdata/ hg38.sizes
-recursive-include consenrich/refdata/ hg38_sparse.bed
-recursive-include consenrich/refdata/ hg38_blacklist.bed
-recursive-include consenrich/refdata/ hg19.sizes
-recursive-include consenrich/refdata/ hg19_sparse.bed
-recursive-include consenrich/refdata/ hg19_blacklist.bed
-recursive-include consenrich/refdata/ mm10.sizes
-recursive-include consenrich/refdata/ mm10_sparse.bed
-recursive-include consenrich/refdata/ mm10_blacklist.bed
-recursive-include consenrich/refdata/ mm39.sizes
-recursive-include consenrich/refdata/ mm39_sparse.bed
-recursive-include consenrich/refdata/ mm39_blacklist.bed
-recursive-include consenrich/refdata/ dm6.sizes
-recursive-include consenrich/refdata/ dm6_sparse.bed
-recursive-include consenrich/refdata/ dm6_blacklist.bed
-recursive-include consenrich/refdata/ ce11.sizes
-recursive-include consenrich/refdata/ ce11_sparse.bed
-recursive-include consenrich/refdata/ ce11_blacklist.bed
-recursive-include consenrich/refdata/ ce10.sizes
-recursive-include consenrich/refdata/ ce10_sparse.bed
-recursive-include consenrich/refdata/ ce10_blacklist.bed
-recursive-include docs/ figure_1aa.png
-recursive-include docs/ ChIP_POL2RA_Demo.png
+include README.md
+recursive-include src/consenrich *.pxd *.pyx *.c
+recursive-include src/consenrich/data *.bed *.sizes *.txt

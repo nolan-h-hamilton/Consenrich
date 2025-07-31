@@ -1,0 +1,56 @@
+name: Documentation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install cython>=3.0
+          pip install numpy>=2.3.0
+          pip install scipy>=1.16.0
+          pip install pandas>=2.3.0
+          pip install pysam>=0.23.3
+          pip install pybedtools>=0.11.2
+          pip install sphinx sphinx-press-theme myst-parser sphinx-autodoc-typehints sphinx-autobuild
+          python -m pip install build .
+          pip install -e .
+
+
+      - name: Build
+        run: make -C docs html
+
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build/html
+
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/lean'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

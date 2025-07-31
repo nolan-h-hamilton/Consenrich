@@ -1,0 +1,78 @@
+experimentName: consenrichExperiment
+
+
+# inputParams: see consenrich.core.inputParams for full details
+inputParams:
+  bamFiles: [] # List of strings. Filepaths of the input BAM files
+  bamFilesControl: [] # optional. A list of control input alignments. Can be length 0 (no controls) length 1 (all samples use the same control) or length equal to `inputParams.bamFiles` (one control per sample).
+
+
+#  genomeParams: see consenrich.core.genomeParams for full details
+genomeParams:
+  name: null # optional. for convenenience, some genome assemblies have built-in defaults (e.g., 'hg19', 'hg38', 'mm10', 'mm39', 'dm3', 'dm6', and so on)
+  chromSizesFile: null # if not using genome defaults (`genomeParams.name`), specify manually
+  blacklistFile: null # if not using genome defaults (`genomeParams.name`), specify manually
+  sparseBedFile: null # if not using genome defaults (`genomeParams.name`), specify manually if you are not using the ALV-exclusive method for approximation of noise levels
+  chromosomes: [] # List of strings. if left empty, all chromosomes except those in `genomeParams.excludeChroms` will be processed
+  excludeChroms: [] # List of strings. see `genomeParams.chromosomes`
+  excludeForNorm: [] # List of strings. chroms to ignore when computing coverage-based normalization/scale factors
+
+
+# countingParams: see consenrich.core.countingParams for full details
+countingParams:
+  stepSize: 25 # genomic interval length (bp), $L$ in paper
+  scaleDown: true # if true, in the case of treatment/control-paired input, always scale down the larger to match the smaller
+  numReads: 100 # number of reads to sample from each BAM when assigning read lengths
+  scaleFactors: null # allows manual specification of sample-specific scaling factors, e.g., [1.0, 0.5, 0.75, 1.25]
+  scaleFactorsControl: null # if using controls, allows manual specification of control-specific scaling factors, e.g., [1.0, 0.5, 0.75, 1.25] (if controls are used)
+
+
+# processParams: see consenrich.core.processParams for full details
+processParams:
+  deltaF: 0.5
+  minQ: 0.25
+  maxQ: 500.0
+  offDiagQ: 0.0
+  dStatAlpha: 3.0
+  dStatd: 10.0
+  dStatPC: 2.0
+
+
+# observationParams: see consenrich.core.observationParams for more details
+observationParams:
+  minR: null # minR defaults to 1/numSamples if left null
+  maxR: 500.0
+  useALV: false
+  useConstantNoiseLevel: false
+  noGlobal: false
+  numNearest: 25
+  localWeight: 0.333
+  globalWeight: 0.667
+  approximationWindowLengthBP: 10000
+  lowPassWindowLengthBP: 20000
+
+
+#  stateParams: see consenrich.core.stateParams for more details
+stateParams:
+  stateInit: 0.0
+  stateCovarInit: 100.0
+  boundState: true
+  stateLowerBound: 0.0
+  stateUpperBound: 10000.0
+
+
+#  samParams: see consenrich.core.samParams for more details
+samParams:
+  samThreads: 1
+  samFlagExclude: 3844
+  oneReadPerBin: 0
+  chunkSize: 1000000
+
+
+# detrendParams: see consenrich.core.detrendParams for more details
+detrendParams:
+  detrendWindowLengthBP: 10000
+  detrendTrackPercentile: 75.0
+  usePolyFilter: false
+  detrendSavitzkyGolayDegree: 2
+  useOrderStatFilter: true
