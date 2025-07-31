@@ -27,14 +27,15 @@ jobs:
             "pandas>=2.3.0" \
             "pysam>=0.23.3" \
             "pybedtools>=0.11.2" \
-            sphinx sphinx-press-theme myst-parser sphinx-autodoc-typehints sphinx-autobuild
+            sphinx sphinx-press-theme myst-parser \
+            sphinx-autodoc-typehints sphinx-autobuild
           pip install -e .
 
       - name: Build HTML
         run: make -C docs html
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
           path: docs/build/html
 
