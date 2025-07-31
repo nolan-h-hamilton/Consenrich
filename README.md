@@ -5,10 +5,13 @@
 
 [Consenrich](https://github.com/nolan-h-hamilton/Consenrich) is a sequential state estimator for extraction of genome-wide epigenetic signals and uncertainty quantification inferred from multi-sample high-throughput functional genomics datasets.
 
+**Updates** See [Branch:`lean`](https://github.com/nolan-h-hamilton/Consenrich/tree/lean) and respective [Documentation](https://nolan-h-hamilton.github.io/Consenrich/).
+
 <p align="center">
   <img src="docs/scheme.png" alt="Example output with --match_wavelet haar,db2,db4" width="800"/><br/>
   <em> Consenrich sequentially estimates epigenomic states from multisample DNA-enrichment assays--ATAC-seq, ChIP-seq, etc. By modeling  both (<b>i</b>) local and global spatial dependencies and (<b>ii</b>) noise due to regional artifacts and individual samples, Consenrich yields a genome-wide track of 'consensus' signal estimates with variance propagation and elucidated spatial features.</em>
 </p>
+
 
 ## Usage
 
