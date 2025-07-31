@@ -21,7 +21,12 @@ noisy multi-sample HTS datasets.
    :align: center
 
 
-Usage
+.. note::
+   This documentation corresponds to the repository branch `lean <https://github.com/nolan-h-hamilton/Consenrich/tree/lean>`_.
+   The `lean` branch introduces changes that position Consenrich for a long-term, stable, API but do not affect underlying methodology.
+
+
+Usage Examples
 --------------------------
 
 .. toctree::
@@ -57,9 +62,9 @@ A brief but nontrivial analysis using H3K27ac ChIP-seq data from ENCODE is carri
      - `ENCFF490MWV.bam <https://www.encodeproject.org/files/ENCFF490MWV/@@download/ENCFF490MWV.bam>`_
 
 
-**Download alignment files from ENCODE**
+*Download alignment files from ENCODE*
 
-Use the direct links in the above table or run the following shell script to obtain the input files for this demo
+Run the following shell script to obtain the input BAM files used in this demo
 (`curl` is also fine).
 
 .. code::
@@ -76,8 +81,12 @@ Use the direct links in the above table or run the following shell script to obt
        wget "$encodeFiles/$ctrl/@@download/$ctrl.bam"
    done
 
+   # ...and create the indexes
+   samtools index -M *.bam
 
-Now, with the needed alignment files available, you can copy and paste the following YAML into a file named `demoHistoneChIPSeq.yaml`. Feel free to adjust parameters or arguments.
+*Create a YAML configuration file*
+
+Now, with the needed alignment files downloaded and indexed, copy and paste the following YAML into a file named `demoHistoneChIPSeq.yaml`. Feel free to adjust parameters or arguments.
 
 For a quick trial (:math:`\approx` 1 minute), you can restrict analysis to chromosome 22 and still reproduce the results shown in the IGV browser snapshot below by specifying :code:`genomeParams.chromosomes: ['chr22']`.
 
@@ -103,23 +112,23 @@ With the config file saved, we can invoke the command-line interface to **run Co
 
    consenrich --config demoHistoneChIPSeq.yaml
 
+Output bedGraph/bigWig files will be saved to the current working directory, prefixed by :code:`consenrichOutput_<experimentName>`.
 
-We visualize results over a 25kb exemplar in the IGV browser.
+**IGV snapshot: demoHistoneChIPSeq**
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
    :alt: Output Consenrich Signal Estimates
    :width: 85%
    :align: center
 
-* The resulting Consenrich signal estimates are depicted in the top signal track (blue)
-* The next four signal tracks in red show the 'fold change over control' quantification bigWigs for each sample downloaded directly from ENCODE
-* The last eight tracks in black show the raw input used by Consenrich (sequence alignment coverage tracks for H3K27ac and control inputs).
+* The Consenrich-estimated signal track is displayed in the top row (blue) over a generic 25kb region of chromosome 22.
+* For reference, we also show ENCODE's `fold change over control` bigwig tracks for each sample (red) and the input treatment/control alignments (black).
 
-.. note::
-   Refer to the :code:`<process,observation,etc.>Params` classes in `consenrich.core` for complete documentation of available parameters and arguments.
-   `docs/experimentTemplate.yaml` also provides a template for the YAML configuration file if using the command-line interface.
-   Control samples are NOT required in general. For assays like ATAC-seq, where control samples are uncommon, just omit the line :code:`inputParams.bamFilesControl:`.
 
+
+Refer to the :code:`<process,observation,etc.>Params` classes in module `consenrich.core` for complete documentation of available parameters and arguments.
+Consenrich supports a variety of functional genomics assays including ATAC-seq, DNase-seq, CUT&RUN. Control samples are NOT required in general.
+Just omit the line :code:`inputParams.bamFilesControl:`.
 
 
 =========================
