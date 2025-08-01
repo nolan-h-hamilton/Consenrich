@@ -8,7 +8,7 @@ Consenrich
 =========================
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 2
    :caption: Contents
 
 Consenrich is an adaptive linear filter for genome-wide estimation of signals hidden in
@@ -20,20 +20,51 @@ noisy multi-sample HTS datasets.
    :width: 85%
    :align: center
 
-
 .. note::
    This documentation corresponds to the repository branch `lean <https://github.com/nolan-h-hamilton/Consenrich/tree/lean>`_.
    The `lean` branch introduces changes that position Consenrich for a long-term, stable, API but do not affect underlying methodology.
 
+Installation
+--------------------------
+.. toctree::
+   :maxdepth: 2
+   :caption: Installation
 
-Usage Examples
+
+If you prefer to use a virtual environment, see the YAML file :download:`consenrichEnv <../consenrichEnv.yaml>`.
+This can be used to create build an isolated setup with all required dependencies using
+`conda <https://docs.conda.io/en/latest/>`_ or `mamba <https://mamba.readthedocs.io/en/latest/>`_.
+
+
+Build from source and install the package using `pip`:
+
+   .. code-block:: bash
+
+      git clone --single-branch --branch lean \
+        https://github.com/nolan-h-hamilton/Consenrich.git
+
+      cd Consenrich
+
+      # <conda> env create -f docs/consenrichEnv.yaml
+      # <conda> activate consenrichEnv
+
+      python -m pip install build .
+
+Usage
 --------------------------
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: Usage
 
-A brief but nontrivial analysis using H3K27ac ChIP-seq data from ENCODE is carried out below. The input dataset consists of four donor's treatment and control epidermal samples.
+A brief but nontrivial analysis is carried out below for demonstration.
+
+Publicly available data from ENCODE (H3K27ac ChIP-seq data) is used in this analysis.
+
+Input Data
+~~~~~~~~~~~~~~
+
+The input dataset consists of four donors' treatment and control epidermal samples.
 
 .. list-table:: Input Data
    :header-rows: 1
@@ -62,12 +93,12 @@ A brief but nontrivial analysis using H3K27ac ChIP-seq data from ENCODE is carri
      - `ENCFF490MWV.bam <https://www.encodeproject.org/files/ENCFF490MWV/@@download/ENCFF490MWV.bam>`_
 
 
-*Download alignment files from ENCODE*
+**Downloading alignment files**
 
-Run the following shell script to obtain the input BAM files used in this demo
-(`curl` is also fine).
+Run the following shell script to obtain the input BAM files for this demo.
+You can also use `curl -O <URL>` in place of `wget <URL>`.
 
-.. code::
+.. code:: bash
 
    encodeFiles=https://www.encodeproject.org/files
 
@@ -84,9 +115,13 @@ Run the following shell script to obtain the input BAM files used in this demo
    # ...and create the indexes
    samtools index -M *.bam
 
-*Create a YAML configuration file*
+Using a YAML Configuration file
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Now, with the needed alignment files downloaded and indexed, copy and paste the following YAML into a file named `demoHistoneChIPSeq.yaml`. Feel free to adjust parameters or arguments.
+Now, with the needed alignment files downloaded and indexed, we can copy and paste the following YAML into a file named `demoHistoneChIPSeq.yaml`.
+Feel free to tinker with parameters (:code:`<process,observation,etc.>Params`), but we will use defaults in the demo.
+
+Note that Consenrich can be run programmatically using the API instead of a command-line interface (CLI) used below.
 
 For a quick trial (:math:`\approx` 1 minute), you can restrict analysis to chromosome 22 and still reproduce the results shown in the IGV browser snapshot below by specifying :code:`genomeParams.chromosomes: ['chr22']`.
 
@@ -105,7 +140,13 @@ For a quick trial (:math:`\approx` 1 minute), you can restrict analysis to chrom
    ENCFF898LKJ.bam,
    ENCFF490MWV.bam]
 
-With the config file saved, we can invoke the command-line interface to **run Consenrich**
+**Control inputs**. For assays like ATAC-seq, DNase-seq, or CUT&RUN, control samples are optional: simply omit :code:`inputParams.bamFilesControl`.
+
+
+Run Consenrich
+~~~~~~~~~~~~~~~~
+
+With the config file saved, we can invoke the command-line interface to run Consenrich:
 
 .. code-block::
    :name: Run Consenrich
@@ -125,10 +166,8 @@ Output bedGraph/bigWig files will be saved to the current working directory, pre
 * For reference, we also show ENCODE's `fold change over control` bigwig tracks for each sample (red) and the input treatment/control alignments (black).
 
 
-
 Refer to the :code:`<process,observation,etc.>Params` classes in module `consenrich.core` for complete documentation of available parameters and arguments.
-Consenrich supports a variety of functional genomics assays including ATAC-seq, DNase-seq, CUT&RUN. Control samples are NOT required in general.
-Just omit the line :code:`inputParams.bamFilesControl:`.
+Consenrich supports a variety of functional genomics assays including ATAC-seq, DNase-seq, CUT&RUN. 
 
 
 =========================
