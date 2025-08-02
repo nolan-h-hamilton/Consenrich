@@ -8,8 +8,9 @@ on:
         required: false
         default: 'warning'
       branches:
+        description: 'branches tested'
+        required: false
         default: 'lean'
-
 
 jobs:
   build:
@@ -20,11 +21,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
           cache: pip
 
       - name: Get samtools and bedtools
         run: |
+          sudo apt-get update
           sudo apt-get install -y samtools bedtools
 
       - name: Install dependencies
@@ -37,10 +39,10 @@ jobs:
             "pandas>=2.3.0" \
             "pysam>=0.23.3" \
             "pybedtools>=0.11.2" \
-            "pytest" \
+            "pytest"
           pip install -e .
 
-    - name: run test_core.py
-      working-directory: ./tests
-      run: |
-        pytest --disable-warnings -vv -s -rPA -l test_core.py
+      - name: Run test_core.py
+        working-directory: ./tests
+        run: |
+          pytest --disable-warnings -vv -s -rPA -l test_core.py
