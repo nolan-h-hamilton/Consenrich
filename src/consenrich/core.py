@@ -502,7 +502,10 @@ def runConsenrich(
         stateUpperBound: float,
         chunkSize: int,
         progressIter: int,
-        coefficientsH: Optional[npt.NDArray[np.float64]]=None) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        coefficientsH: Optional[npt.NDArray[np.float64]]=None,
+        residualCovarInversionFunc: Optional[Callable] = None,
+        adjustProcessNoiseFunc: Optional[Callable] = None,
+        ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
     Completes the forward and backward passes given data and approximated observation noise
     covariance matrices :math:`\mathbf{R}_{[1:n, (11:mm)]}`.
@@ -537,6 +540,15 @@ def runConsenrich(
     :type chunkSize: int
     :param progressIter: The number of iterations after which to log progress.
     :type progressIter: int
+    :param coefficientsH: Optional coefficients for the observation model matrix :math:`\mathbf{H}`.
+        If None, the coefficients are set to 1.0 for all samples.
+    :type coefficientsH: Optional[npt.NDArray[np.float64]]
+    :param residualCovarInversionFunc: Callable function to invert the observation covariance matrix :math:`\mathbf{E}_{[i]}`.
+        If None, defaults to :func:`cconsenrich.cinvertMatrixE`.
+    :type residualCovarInversionFunc: Optional[Callable]
+    :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
+        If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
+    :type adjustProcessNoiseFunc: Optional[Callable]
     :return: Tuple of three numpy arrays:
         - state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
         - state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
@@ -563,6 +575,11 @@ def runConsenrich(
     vectorY: np.ndarray = np.zeros(m, dtype=float)
     vectorH: np.ndarray = matrixH[:, 0]
 
+    if residualCovarInversionFunc is None:
+        residualCovarInversionFunc = cconsenrich.cinvertMatrixE
+    if adjustProcessNoiseFunc is None:
+        adjustProcessNoiseFunc = cconsenrich.updateProcessNoiseCovariance
+
     # ==========================
     # forward: 0,1,2,...,n-1
     # ==========================
@@ -586,10 +603,10 @@ def runConsenrich(
         vectorX = matrixF @ vectorX
         matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
         vectorY = vectorZ - (matrixH @ vectorX)
-        matrixEInverse = cconsenrich.cinvertMatrixE(matrixMunc[:, i], matrixP[0, 0])
-        dStat = np.median((vectorY**2) * np.diag(matrixEInverse))
 
-        matrixQ, inflatedQ = cconsenrich.updateProcessNoiseCovariance(
+        matrixEInverse = residualCovarInversionFunc(matrixMunc[:, i], float(matrixP[0, 0]))
+        dStat = np.median((vectorY**2) * np.diag(matrixEInverse))
+        matrixQ, inflatedQ = adjustProcessNoiseFunc(
             matrixQ,
             matrixQCopy,
             dStat,
@@ -598,9 +615,8 @@ def runConsenrich(
             dStatPC,
             inflatedQ,
             maxQ,
-            minQ
+            minQ,
         )
-
         matrixK = (matrixP @ matrixH.T) @ matrixEInverse
         IKH[0][0] = 1.0 - (matrixK[0,:] @ vectorH)
         IKH[1][0] = -matrixK[1,:] @ vectorH
@@ -610,6 +626,7 @@ def runConsenrich(
         stateForward[i] = vectorX
         stateCovarForward[i] = matrixP
         pNoiseForward[i] = matrixQ
+
         if i % chunkSize == 0 and i > 0:
             stateForward.flush()
             stateCovarForward.flush()
@@ -709,7 +726,7 @@ def getPrecisionWeightedResidual(postFitResiduals: npt.NDArray[np.float64], matr
     This is essentially an estimate of the residuals with respect to the observation noise covariance
     :math:`\mathbf{R}_{[:, (11:mm)]}`.
 
-    Applies an inverse-variance weighting (with respect to the measurement uncertainties) of the
+    Applies an inverse-variance weighting (with respect to the *observation noise levels*) of the
     post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` and returns a one-dimensional array of
     "precision-weighted residuals".
 
