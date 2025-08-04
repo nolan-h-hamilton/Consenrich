@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any, Union
 import shutil
 import subprocess
+import sys
 import numpy as np
 import pandas as pd
 import yaml
@@ -150,7 +151,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             minQ=config.get('processParams.minQ', 0.25),
             maxQ=config.get('processParams.maxQ', 500.0),
             offDiagQ=config.get('processParams.offDiagQ', 0.0),
-            dStatAlpha=config.get('processParams.dStatAlpha', 5.0),
+            dStatAlpha=config.get('processParams.dStatAlpha', 3.0),
             dStatd=config.get('processParams.dStatd', 10.0),
             dStatPC=config.get('processParams.dStatPC', 2.0)
         ),
@@ -197,15 +198,14 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
         "you can download the `bedGraphToBigWig` binary from https://hgdownload.soe.ucsc.edu/admin/exe/<operatingSystem, architecture>"
         "OR install via conda (conda install -c bioconda ucsc-bedgraphtobigwig).")
 
+    logger.info("Attempting to generate bigWig files from bedGraph format...")
     try:
         path_ = shutil.which('bedGraphToBigWig')
     except Exception as e:
-        logger.warning(warningMessage)
-        logger.warning("Skipping conversion to bigWig.")
+        logger.warning(f"\n{warningMessage}\n")
         return
-    if len(path_) == 0:
-        logger.warning(warningMessage)
-        logger.warning("Skipping conversion to bigWig.")
+    if path_ is None or len(path_) == 0:
+        logger.warning(f"\n{warningMessage}\n")
         return
     logger.info(f"Using bedGraphToBigWig from {path_}")
 
@@ -228,8 +228,18 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
 
 def main():
     parser = argparse.ArgumentParser(description="Consenrich CLI")
-    parser.add_argument('--config', type=str, dest='config', help='Path to a YAML config file')
+    parser.add_argument('--config', type=str, dest='config', help='Path to a YAML config file with parameters + arguments defined in `consenrich.core`')
     args = parser.parse_args()
+
+    if not args.config:
+        logger.info("No config file provided, run with `--config <path_to_config.yaml>`")
+        logger.info("See documentation: https://nolan-h-hamilton.github.io/Consenrich/")
+        sys.exit(0)
+
+    if not os.path.exists(args.config):
+        logger.info(f"Config file {args.config} does not exist.")
+        logger.info("See documentation: https://nolan-h-hamilton.github.io/Consenrich/")
+        sys.exit(0)
 
     config = readConfig(args.config)
     experimentName = config['experimentName']
@@ -391,7 +401,7 @@ def main():
                 header=False, index=False, mode="a", float_format="%.3f",
                 lineterminator="\n",
             )
-
+    logger.info("Finished. Output is in bedGraph format.")
     convertBedGraphToBigWig(experimentName, genomeArgs.chromSizesFile)
     logger.info("Done.")
 

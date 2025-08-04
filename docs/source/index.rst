@@ -12,7 +12,7 @@ Consenrich
    :caption: Contents
 
 Consenrich is an adaptive linear filter for genome-wide estimation of signals hidden in
-noisy multi-sample HTS datasets.
+noisy multi-sample HTS datasets. A corresponding manuscript preprint is available on `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_.
 
 
 .. image:: ../images/noise.png
@@ -21,53 +21,8 @@ noisy multi-sample HTS datasets.
    :align: center
 
 
-Installation
---------------------------
-.. toctree::
-   :maxdepth: 2
-   :caption: Installation
-
-Use `pip` + `PyPI`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Consenrich is available on PyPI and can be installed with pip.
-
-   .. code-block:: bash
-
-      python -m pip install consenrich
-
-This is the more convenient but potentially less flexible option.
-
-
-Build from source and install the package
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-To build from source, you will need `setuptools` and `wheel` installed:
-
-   .. code-block:: bash
-
-      python -m pip install setuptools wheel
-
-If you prefer to use a virtual environment, see the YAML file :download:`consenrichEnv <../consenrichEnv.yaml>`.
-This can be used to create an isolated setup with all required dependencies using
-`conda <https://docs.conda.io/en/latest/>`_ or `mamba <https://mamba.readthedocs.io/en/latest/>`_.
-
-
-Clone the repository:
-
-   .. code-block:: bash
-
-      git clone https://github.com/nolan-h-hamilton/Consenrich.git
-
-
-Build and install the package:
-
-   .. code-block:: bash
-
-      cd Consenrich
-      python -m build
-      python -m pip install .
-
+The `lean` branch this documentation refers to introduces a substantial internal refactor that positions Consenrich for a long-term, stable API. Underlying methodology and functionality remain unchanged.
+After `lean` is merged into `main`, some prior interfaces may become deprecated but remain available in tagged releases.
 
 
 Usage
@@ -185,6 +140,68 @@ Output bedGraph/bigWig files will be saved to the current working directory, pre
 
 Refer to the :code:`<process,observation,etc.>Params` classes in module `consenrich.core` for complete documentation of available parameters and arguments.
 Consenrich supports a variety of functional genomics assays including ATAC-seq, DNase-seq, CUT&RUN. 
+
+
+Installation
+--------------------------
+.. toctree::
+   :maxdepth: 2
+   :caption: Installation
+
+
+Build from source and install the package
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Building and installing from source is recommended to ensure compatibility across platforms and Python versions.
+
+To build from source, first ensure you have the necessary package development tools
+
+   .. code-block:: bash
+
+      python -m pip install setuptools wheel Cython build
+
+If you prefer to use a virtual environment, see the YAML file :download:`consenrichEnv <../consenrichEnv.yaml>`.
+This can be used to create an isolated setup with all required dependencies using
+`conda <https://docs.conda.io/en/latest/>`_ or `mamba <https://mamba.readthedocs.io/en/latest/>`_.
+
+
+Clone the repository:
+
+   .. code-block:: bash
+
+      git clone --single-branch --branch lean https://github.com/nolan-h-hamilton/Consenrich.git
+
+
+Build and install the package:
+
+   .. code-block:: bash
+
+      cd Consenrich
+      python -m build
+      python -m pip install .
+
+
+From PyPI
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Consenrich distributes multiple `wheels <https://peps.python.org/pep-0427/>`_ on PyPI for different Python versions and platforms. To install the latest version, run:
+
+   .. code-block:: bash
+
+      python -m pip install consenrich
+
+
+This is the more convenient but potentially less flexible option across platforms and Python versions.
+
+Previous versions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To install a specific version of Consenrich from PyPI, you can specify the version number in the pip install command, for example:
+
+   .. code-block:: bash
+
+      python -m pip install consenrich==0.1.13b1
+
 
 
 =========================
