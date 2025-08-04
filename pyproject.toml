@@ -14,12 +14,12 @@ version = "0.2.0b0"
 description = "Genome-wide estimation of signals hidden in noisy multi-sample functional genomics dataset"
 authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 dependencies = [
     "cython>=3.0",
-    "numpy>=2.2.0",
-    "scipy>=1.16.0",
+    "numpy>=2.1",
+    "scipy>=1.15",
     "pandas>=2.3.0",
     "pysam>=0.23.3",
     "pybedtools>=0.11.2",
@@ -45,7 +45,7 @@ include-package-data = true
 consenrich = "consenrich.consenrich:main"
 
 [tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-*"
+build = " cp311-* cp312-* cp313-*"
 skip  = "*-musllinux_*"
 
 
