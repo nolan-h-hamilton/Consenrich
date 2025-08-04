@@ -51,9 +51,8 @@ jobs:
         with:
           name: '**'
           path: dist
-
-      - name: publish
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@v1.4.0
         with:
-          skip-existing: true
+          username: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+          packages: dist/*

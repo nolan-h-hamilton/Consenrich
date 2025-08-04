@@ -14,11 +14,11 @@ version = "0.2.0b0"
 description = "Genome-wide estimation of signals hidden in noisy multi-sample functional genomics dataset"
 authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 
 dependencies = [
     "cython>=3.0",
-    "numpy>=2.3.0",
+    "numpy>=2.2.0",
     "scipy>=1.16.0",
     "pandas>=2.3.0",
     "pysam>=0.23.3",
