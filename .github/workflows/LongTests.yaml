@@ -93,10 +93,10 @@ jobs:
         run: |
           set -euo pipefail
           corr_state=$(bigWigCorrelate -ignoreMissing \
-                        atacTest_state.bw referenceOutput_atacTest_state.bw \
+                        atacTest_consenrich_state.bw referenceOutput_atacTest_consenrich_state.bw \
                         | awk '{print $NF}')
           corr_resid=$(bigWigCorrelate -ignoreMissing \
-                        atacTest_residuals.bw referenceOutput_atacTest_residuals.bw \
+                        atacTest_consenrich_residuals.bw referenceOutput_atacTest_consenrich_residuals.bw \
                         | awk '{print $NF}')
 
           echo "state.bw     correlation: $corr_state"
