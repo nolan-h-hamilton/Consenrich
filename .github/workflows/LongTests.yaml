@@ -1,13 +1,16 @@
 name: LongTests
 
 on:
-  push:
-    branches:
-      - lean
   workflow_dispatch:
-    branches:
-      - lean
-      - main
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: false
+        default: 'warning'
+      branches:
+        description: 'branches tested'
+        required: false
+        default: 'lean'
 
 jobs:
   build:
