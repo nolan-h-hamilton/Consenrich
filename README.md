@@ -1,18 +1,6 @@
 # Consenrich (`lean` branch)
 
----
-The `lean` branch introduces a substantial internal refactor that positions Consenrich for a long-term, stable, API.
-
-* Core methodological aspects are now self-contained, allowing users greater flexibility to separate preprocessing and primary analysis for contexts that may require unique normalization techniques, transformations of data, or other preprocessing steps.
-
-* Consistent, documented naming conventions for modules, functions, and arguments.
-
-* Performance upgrades — Several previous bottlenecks are now rewritten in Cython, and alignment-level processing is buffered to restrict and configure memory use.
-
-After `lean` is merged into `main`, some previous interfaces will become deprecated but remain accessible through older tagged versions of Consenrich. Note that `lean` does not introduce any fundamental methodological changes.
-
----
-
+is a sequential state estimator for extraction of genome-wide epigenetic signals from noisy, multi-sample high-throughput functional genomics datasets.
 ![Simplified Schematic of Consenrich.](docs/images/noise.png)
 
 See the [Documentation](https://nolan-h-hamilton.github.io/Consenrich/) for more details and usage examples.
