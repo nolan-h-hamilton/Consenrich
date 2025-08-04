@@ -95,24 +95,17 @@ jobs:
           THRESHOLD: "0.95"
         run: |
           set -euo pipefail
-
           corr_state=$(bigWigCorrelate -ignoreMissing \
-                        atacTest_state.bw \
-                        referenceOutput_atacTest_state.bw \
+                        atacTest_state.bw referenceOutput_atacTest_state.bw \
                         | awk '{print $NF}')
           corr_resid=$(bigWigCorrelate -ignoreMissing \
-                        atacTest_residuals.bw \
-                        referenceOutput_atacTest_residuals.bw \
+                        atacTest_residuals.bw referenceOutput_atacTest_residuals.bw \
                         | awk '{print $NF}')
 
-          echo "state.bw    correlation: $corr_state"
+          echo "state.bw     correlation: $corr_state"
           echo "residuals.bw correlation: $corr_resid"
 
-          # make them visible to the Python subprocess
           export corr_state corr_resid
-
-          python -c 'import os, sys;
-          thr=float(os.environ["THRESHOLD"]);
-          state=float(os.environ["corr_state"]);
-          resid=float(os.environ["corr_resid"]);
-          sys.exit(1 if state < thr or resid < thr else 0)'
+          python -c 'import os,sys; t=float(os.getenv("THRESHOLD")); \
+s=float(os.getenv("corr_state")); r=float(os.getenv("corr_resid")); \
+sys.exit(1 if s<t or r<t else 0)'
