@@ -1,0 +1,53 @@
+name: wheels
+
+on:
+  workflow_dispatch: # manujal trigger only
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cibuildwheel
+        uses: pypa/cibuildwheel@v3
+        with:
+          output-dir: dist
+        env:
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
+          CIBW_SKIP:  "*-musllinux_*"
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_ARCHS_MACOS: arm64
+
+
+      - if: matrix.os == 'ubuntu-latest'
+        name: Build source distribution
+        run: python -m pipx run build --sdist -o dist
+
+
+      - name: Upload wheels & sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: '**'
+          path: dist
+
+      - name: publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
