@@ -108,14 +108,11 @@ jobs:
           echo "state.bw    correlation: $corr_state"
           echo "residuals.bw correlation: $corr_resid"
 
-          python - <<'PY'
-import os, sys
-thr = float(os.environ['THRESHOLD'])
-vals = {
-    "state"    : float(os.environ['corr_state']),
-    "residual" : float(os.environ['corr_resid'])
-}
-bad = [k for k,v in vals.items() if float(v) < thr]
-if bad:
-    sys.exit(1)
-PY
+          # make them visible to the Python subprocess
+          export corr_state corr_resid
+
+          python -c 'import os, sys;
+thr=float(os.environ["THRESHOLD"]);
+state=float(os.environ["corr_state"]);
+resid=float(os.environ["corr_resid"]);
+sys.exit(1 if state < thr or resid < thr else 0)'
