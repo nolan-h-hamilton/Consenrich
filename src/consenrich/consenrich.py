@@ -3,8 +3,6 @@
 
 import argparse
 import glob
-import gzip
-import json
 import logging
 import pprint
 import os
@@ -15,6 +13,7 @@ import subprocess
 import sys
 import numpy as np
 import pandas as pd
+import pysam
 import yaml
 
 import consenrich.core as core
@@ -33,6 +32,56 @@ def _listOrEmpty(list_):
     if list_ is None:
         return []
     return list_
+
+
+def _getMinR(cfg, numBams: int) -> float:
+    try:
+        raw = cfg.get('observationParams', {}).get('minR', None)
+        return float(raw) if raw is not None else (1/numBams) + 1e-4
+    except (TypeError, ValueError):
+        raise ValueError("`observationParams.minR` must be a real number")
+
+
+def checkControlsPresent(inputArgs: core.inputParams) -> bool:
+    """Check if control BAM files are present in the input arguments.
+
+    :param inputArgs: core.inputParams object
+    :return: True if control BAM files are present, False otherwise.
+    """
+    return bool(inputArgs.bamFilesControl) and isinstance(inputArgs.bamFilesControl, list) and len(inputArgs.bamFilesControl) > 0
+
+
+def getReadLengths(inputArgs: core.inputParams, countingArgs: core.countingParams, samArgs: core.samParams) -> List[int]:
+    r"""Get read lengths for each BAM file in the input arguments.
+
+    :param inputArgs: core.inputParams object containing BAM file paths.
+    :param countingArgs: core.countingParams object containing number of reads.
+    :param samArgs: core.samParams object containing SAM thread and flag exclude parameters.
+    :return: List of read lengths for each BAM file.
+    """
+    if not inputArgs.bamFiles:
+        raise ValueError("No BAM files provided in the input arguments.")
+
+    if not isinstance(inputArgs.bamFiles, list) or len(inputArgs.bamFiles) == 0:
+        raise ValueError("bam files list is empty")
+
+    return [core.getReadLength(bamFile, countingArgs.numReads, 1000, samArgs.samThreads, samArgs.samFlagExclude)  for bamFile in inputArgs.bamFiles]
+
+
+def getEffectiveGenomeSizes(genomeArgs: core.genomeParams, readLengths: List[int]) -> List[int]:
+    r"""Get effective genome sizes for the given genome name and read lengths.
+    :param genomeArgs: core.genomeParams object
+    :param readLengths: List of read lengths for which to get effective genome sizes.
+    :return: List of effective genome sizes corresponding to the read lengths.
+    """
+    genomeName = genomeArgs.genomeName
+    if not genomeName or not isinstance(genomeName, str):
+        raise ValueError("Genome name must be a non-empty string.")
+
+    if not isinstance(readLengths, list) or len(readLengths) == 0:
+        raise ValueError("Read lengths must be a non-empty list. Try calling `getReadLengths` first.")
+    return [constants.getEffectiveGenomeSize(genomeName, readLength) for readLength in readLengths]
+
 
 def getInputArgs(config_path:str) -> core.inputParams:
     def _expandWildCards(bamList) -> List[str]:
@@ -58,6 +107,17 @@ def getInputArgs(config_path:str) -> core.inputParams:
         # If there are multiple bamFiles, but 1 control, control is applied for all treatment files
         logger.info(f"Only one control given: Using {bamFilesControl[0]} for all treatment files.")
         bamFilesControl = bamFilesControl * len(bamFiles)
+
+    if not bamFiles or not isinstance(bamFiles, list) or len(bamFiles) == 0:
+        raise ValueError("No BAM files found")
+
+    for i, bamFile in enumerate(bamFiles):
+        misc_util.checkBamFile(bamFile)
+
+    if bamFilesControl:
+        for i, bamFile in enumerate(bamFilesControl):
+            misc_util.checkBamFile(bamFile)
+
     return core.inputParams(
         bamFiles=bamFiles,
         bamFilesControl=bamFilesControl
@@ -140,7 +200,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     inputParams = getInputArgs(config_path)
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
-    minR_default = 1/len(inputParams.bamFiles) + 1.0e-4
+    minR_default = _getMinR(config, len(inputParams.bamFiles))
     return {
         'experimentName': config.get('experimentName', 'consenrichExperiment'),
         'genomeArgs': genomeParams,
@@ -229,6 +289,7 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
 def main():
     parser = argparse.ArgumentParser(description="Consenrich CLI")
     parser.add_argument('--config', type=str, dest='config', help='Path to a YAML config file with parameters + arguments defined in `consenrich.core`')
+    parser.add_argument('--verbose', action='store_true', help='If set, logs config')
     args = parser.parse_args()
 
     if not args.config:
@@ -260,9 +321,27 @@ def main():
     chromSizes = genomeArgs.chromSizesFile
     scaleDown = countingArgs.scaleDown
 
-    controlsPresent = inputArgs.bamFilesControl and isinstance(inputArgs.bamFilesControl, list) and len(inputArgs.bamFilesControl) > 0
-    readLengthsBamFiles = [core.getReadLength(bamFile, countingArgs.numReads, 1000, samArgs.samThreads, samArgs.samFlagExclude)  for bamFile in bamFiles]
-    effectiveGenomeSizes = [constants.getEffectiveGenomeSize(genomeArgs.genomeName, readLength) for readLength in readLengthsBamFiles]
+    if args.verbose:
+        try:
+            logger.info("Configuration:\n")
+            config_truncated = {k: v for k, v in config.items() if k not in ['inputArgs', 'genomeArgs', 'countingArgs']}
+            config_truncated['experimentName'] = experimentName
+            config_truncated['inputArgs'] = inputArgs
+            config_truncated['genomeArgs'] = genomeArgs
+            config_truncated['countingArgs'] = countingArgs
+            config_truncated['processArgs'] = processArgs
+            config_truncated['observationArgs'] = observationArgs
+            config_truncated['stateArgs'] = stateArgs
+            config_truncated['samArgs'] = samArgs
+            config_truncated['detrendArgs'] = detrendArgs
+            pprint.pprint(config_truncated, indent=4)
+        except Exception as e:
+            logger.warning(f"Failed to print parsed config:\n{e}\n")
+
+
+    controlsPresent = checkControlsPresent(inputArgs)
+    readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
+    effectiveGenomeSizes = getEffectiveGenomeSizes(genomeArgs, readLengthsBamFiles)
     scaleFactors = countingArgs.scaleFactors
     scaleFactorsControl = countingArgs.scaleFactorsControl
 

@@ -1,0 +1,121 @@
+name: LongTests
+
+on:
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: false
+        default: 'warning'
+      branches:
+        description: 'branches tested'
+        required: false
+        default: 'lean'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Get samtools and bedtools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y samtools bedtools
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install setuptools wheel Cython build
+          pip install \
+            "cython>=3.0" \
+            "numpy>=2.3.0" \
+            "scipy>=1.16.0" \
+            "pandas>=2.3.0" \
+            "pysam>=0.23.3" \
+            "pybedtools>=0.11.2" \
+            "pytest"
+          python -m build
+          pip install .
+
+      - name: Download ENCFF239RGZ.bam
+        working-directory: ./tests
+        run: |
+          curl -L --retry 10 --retry-delay 10 \
+               --continue-at - \
+               -o ENCFF239RGZ.bam \
+               https://www.encodeproject.org/files/ENCFF239RGZ/@@download/ENCFF239RGZ.bam
+      - name: Download ENCFF724QHH.bam
+        working-directory: ./tests
+        run: |
+          curl -L --retry 10 --retry-delay 10 \
+               --continue-at - \
+               -o ENCFF724QHH.bam \
+               https://www.encodeproject.org/files/ENCFF724QHH/@@download/ENCFF724QHH.bam
+      - name: Download ENCFF822BKT.bam
+        working-directory: ./tests
+        run: |
+          curl -L --retry 10 --retry-delay 10 \
+               --continue-at - \
+               -o ENCFF822BKT.bam \
+               https://www.encodeproject.org/files/ENCFF822BKT/@@download/ENCFF822BKT.bam
+      - name: Index BAM files
+        working-directory: ./tests
+        run: |
+          samtools index ENCFF239RGZ.bam
+          samtools index ENCFF724QHH.bam
+          samtools index ENCFF822BKT.bam
+      - name: Download bedGraphToBigWig
+        working-directory: ./tests
+        run: |
+          curl -L -o bedGraphToBigWig \
+               https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bedGraphToBigWig
+          chmod +x bedGraphToBigWig
+          sudo mv bedGraphToBigWig /usr/local/bin/
+      - name: Download bigWigCorrelate binary
+        working-directory: ./tests
+        run: |
+          curl -L -o bigWigCorrelate \
+               https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bigWigCorrelate
+          chmod +x bigWigCorrelate
+          sudo mv bigWigCorrelate /usr/local/bin/
+      - name: Run consenrich
+        working-directory: ./tests
+        run: |
+          consenrich --config atacTest.yml --verbose
+      - name: ensure consistency in output
+        working-directory: ./tests
+        env:
+          THRESHOLD: "0.95"
+        run: |
+          set -euo pipefail
+
+          corr_state=$(bigWigCorrelate -ignoreMissing \
+                        atacTest_state.bw \
+                        referenceOutput_atacTest_state.bw \
+                        | awk '{print $NF}')
+          corr_resid=$(bigWigCorrelate -ignoreMissing \
+                        atacTest_residuals.bw \
+                        referenceOutput_atacTest_residuals.bw \
+                        | awk '{print $NF}')
+
+          echo "state.bw    correlation: $corr_state"
+          echo "residuals.bw correlation: $corr_resid"
+
+          python - <<'PY'
+import os, sys
+thr = float(os.environ['THRESHOLD'])
+vals = {
+    "state"    : float(os.environ['corr_state']),
+    "residual" : float(os.environ['corr_resid'])
+}
+bad = [k for k,v in vals.items() if float(v) < thr]
+if bad:
+    sys.exit(1)
+PY

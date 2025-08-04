@@ -1,8 +1,16 @@
 name: wheels
 
 on:
-  push:
-  workflow_dispatch: # manujal trigger only
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: false
+        default: 'warning'
+      branches:
+        description: 'branches tested'
+        required: false
+        default: 'lean'
 
 jobs:
   build:

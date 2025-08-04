@@ -25,9 +25,33 @@ logger = logging.getLogger(__name__)
 
 
 def checkBamFile(bamFile: str) -> bool:
+    r"""Check that the bam file exists and is indexed
+
+    Assumes the bam file is sorted by coordinates
+    """
+    has_index = False
     if not os.path.exists(bamFile):
-        raise FileNotFoundError(f"BAM file {bamFile} does not exist.")
-    return True
+        raise FileNotFoundError(f'Could not find {bamFile}')
+    try:
+        bamfile = sam.AlignmentFile(bamFile, "rb")
+        has_index = bamfile.check_index()
+        bamfile.close()
+    except AttributeError as aex:
+        logger.info(f'Alignments must be in BAM format:\n{aex}')
+        raise
+    except ValueError as vex:
+        has_index = False
+        pass
+
+    if not has_index:
+        try:
+            logger.info(f'Could not find index file for {bamFile}. Calling pysam.index()')
+            sam.index(bamFile)
+            has_index = True
+        except Exception as ex:
+            logger.warning(f'Encountered the following exception\n{ex}\nCould not create index file for {bamFile}: is it sorted?')
+
+    return has_index
 
 
 def getChromSizesDict(sizes_file: str,
