@@ -44,8 +44,9 @@ include-package-data = true
 [project.scripts]
 consenrich = "consenrich.consenrich:main"
 
-[tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-*"
-skip = "*-musllinux_*"
-archs = { linux = "x86_64", macos = "arm64" }
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+
+[tool.cibuildwheel.macos]
+archs = ["arm64"]
 
