@@ -6,7 +6,7 @@ on:
       logLevel:
         description: 'Log level'
         required: false
-        default: 'warning'
+        default: 'info'
       branches:
         description: 'branches tested'
         required: false
