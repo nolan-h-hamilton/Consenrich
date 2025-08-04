@@ -112,7 +112,7 @@ jobs:
           export corr_state corr_resid
 
           python -c 'import os, sys;
-thr=float(os.environ["THRESHOLD"]);
-state=float(os.environ["corr_state"]);
-resid=float(os.environ["corr_resid"]);
-sys.exit(1 if state < thr or resid < thr else 0)'
+          thr=float(os.environ["THRESHOLD"]);
+          state=float(os.environ["corr_state"]);
+          resid=float(os.environ["corr_resid"]);
+          sys.exit(1 if state < thr or resid < thr else 0)'
