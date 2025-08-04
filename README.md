@@ -1,19 +1,12 @@
-# Consenrich (`lean` branch)
+# Consenrich
 
-is a sequential state estimator for extraction of genome-wide epigenetic signals from noisy, multi-sample high-throughput functional genomics datasets.
+Consenrich is a sequential state estimator for extraction of genome-wide epigenetic signals in noisy, multi-sample high-throughput functional genomics datasets.
+
 ![Simplified Schematic of Consenrich.](docs/images/noise.png)
 
 See the [Documentation](https://nolan-h-hamilton.github.io/Consenrich/) for more details and usage examples.
 
 ---
-
-## Installation
-
-1. `git clone --single-branch --branch lean https://github.com/nolan-h-hamilton/Consenrich.git`
-2. `cd Consenrich`
-3. `python -m pip install build .`
-
-See the [Documentation](https://nolan-h-hamilton.github.io/Consenrich/) for further details.
 
 ## Manuscript Preprint and Citation
 
@@ -31,3 +24,18 @@ A manuscript preprint is available on [bioRxiv](https://www.biorxiv.org/content/
 	journal = {bioRxiv}
 }
 ```
+
+## Installation
+
+The following steps should be most platform-independent and flexible, but you can also install from PyPI with `pip install consenrich`.
+
+Note, if you don't have package management tools installed, you can first run
+
+```bash
+python -m pip install setuptools wheel Cython build
+```
+
+1. `git clone https://github.com/nolan-h-hamilton/Consenrich.git`
+2. `cd Consenrich`
+3. `python -m build`
+4. `python -m pip install .`
