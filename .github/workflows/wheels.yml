@@ -1,6 +1,9 @@
 name: wheels
 
 on:
+  push:
+    branches:
+      - lean
   workflow_dispatch: # manujal trigger only
 
 jobs:
