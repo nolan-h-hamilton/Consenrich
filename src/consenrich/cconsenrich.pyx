@@ -201,8 +201,8 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(cnp.float64_t[:] muncMat
 
     :param muncMatrixIter: The diagonal elements of the covariance matrix at a given genomic interval.
     :type muncMatrixIter: cnp.ndarray[cnp.float64_t, ndim=1]
-    :param priorCovarianceOO: The a priori state variance :math:`\mathbf{P}_{[i,00]}`.
-    :type priorCovarianceOO: double
+    :param priorCovarianceOO: The a priori 'primary' state variance :math:`P_{[i|i-1,11]}`.
+    :type priorCovarianceOO: cnp.float64_t
     :return: The inverted covariance matrix.
     :rtype: cnp.ndarray[cnp.float64_t, ndim=2]
     """
@@ -271,56 +271,56 @@ cpdef cgetPrecisionWeightedResidual(cnp.ndarray[cnp.float64_t, ndim=2] postFitRe
     return precisionWeightedResidual
 
 
-cpdef tuple updateProcessNoiseCovariance(
-    cnp.ndarray[cnp.float64_t, ndim=2] matrixQ,
-    cnp.ndarray[cnp.float64_t, ndim=2] matrixQCopy,
-    double dStat,
-    double dStatAlpha,
-    double dStatd,
-    double dStatPC,
-    bint   inflatedQ,
-    double maxQ,
-    double minQ):
-    r"""Update the process noise covariance matrix in one call.
+cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float64_t, ndim=2] matrixQ,
+        cnp.ndarray[cnp.float64_t, ndim=2] matrixQCopy,
+        double dStat,
+        double dStatAlpha,
+        double dStatd,
+        double dStatPC,
+        bint inflatedQ,
+        double maxQ,
+        double minQ):
+    r"""Adjust process noise covariance matrix :math:`\mathbf{Q}_{[i]}`
 
-    :param matrixQ: The process noise covariance matrix to update.
-    :type matrixQ: cnp.ndarray[cnp.float64_t, ndim=2]
-    :param dStat: See :class:`consenrich.core.processParams`
-    :type dStat: double
-    :param dStatAlpha: See :class:`consenrich.core.processParams`
-    :type dStatAlpha: double
-    :param dStatd: See :class:`consenrich.core.processParams`
-    :type dStatd: double
-    :param dStatPC:  See :class:`consenrich.core.processParams`
-    :type dStatPC: double
-    :param inflatedQ: A flag indicating whether the process noise has been inflated.
-    :type inflatedQ: bint
-    :param maxQ: See :class:`consenrich.core.processParams`
-    :type maxQ: double
-    :param minQ: See :class:`consenrich.core.processParams`
-    :type minQ: double
-    :return: A tuple containing the updated process noise covariance matrix and a flag indicating whether it was inflated.
-    :rtype: tuple(cnp.ndarray[cnp.float64_t, ndim=2], bint)
+    :param matrixQ: Current process noise covariance
+    :param matrixQCopy: A copy of the initial original covariance matrix :math:`\mathbf{Q}_{[.]}`
+    :param inflatedQ: Flag indicating if the process noise covariance is inflated
+    :return: Updated process noise covariance matrix and inflated flag
+    :rtype: tuple
     """
 
-    cdef double scaleQ
+    cdef double scaleQ, fac
     if dStat > dStatAlpha:
         scaleQ = sqrt(dStatd * fabs(dStat - dStatAlpha) + dStatPC)
         if matrixQ[0, 0] * scaleQ <= maxQ:
-            matrixQ *= scaleQ
+            matrixQ[0, 0] *= scaleQ
+            matrixQ[0, 1] *= scaleQ
+            matrixQ[1, 0] *= scaleQ
+            matrixQ[1, 1] *= scaleQ
         else:
-            matrixQ[:] = matrixQCopy
-            matrixQ *= scaleQ
+            fac = maxQ / matrixQCopy[0, 0]
+            matrixQ[0, 0] = maxQ
+            matrixQ[0, 1] = matrixQCopy[0, 1] * fac
+            matrixQ[1, 0] = matrixQCopy[1, 0] * fac
+            matrixQ[1, 1] = maxQ
         inflatedQ = True
 
-    if dStat < dStatAlpha and inflatedQ:
+    elif dStat < dStatAlpha and inflatedQ:
         scaleQ = sqrt(dStatd * fabs(dStat - dStatAlpha) + dStatPC)
         if matrixQ[0, 0] / scaleQ >= minQ:
-            matrixQ /= scaleQ
+            matrixQ[0, 0] /= scaleQ
+            matrixQ[0, 1] /= scaleQ
+            matrixQ[1, 0] /= scaleQ
+            matrixQ[1, 1] /= scaleQ
         else:
+            # we've hit the minimum, no longer 'inflated'
+            fac = minQ / matrixQCopy[0, 0]
+            matrixQ[0, 0] = minQ
+            matrixQ[0, 1] = matrixQCopy[0, 1] * fac
+            matrixQ[1, 0] = matrixQCopy[1, 0] * fac
+            matrixQ[1, 1] = minQ
             inflatedQ = False
-            matrixQ[:] = matrixQCopy
-
     return np.asarray(matrixQ), inflatedQ
+
 
 
