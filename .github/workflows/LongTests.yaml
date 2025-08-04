@@ -103,5 +103,4 @@ jobs:
           echo "residuals.bw correlation: $corr_resid"
 
           export corr_state corr_resid
-          # beautiful!
           python -c 'import os,sys; t=float(os.getenv("THRESHOLD")); s=float(os.getenv("corr_state")); r=float(os.getenv("corr_resid")); sys.exit(1 if s<t or r<t else 0)'
