@@ -20,9 +20,6 @@ noisy multi-sample HTS datasets.
    :width: 85%
    :align: center
 
-.. note::
-   This documentation corresponds to the repository branch `lean <https://github.com/nolan-h-hamilton/Consenrich/tree/lean>`_.
-   The `lean` branch introduces changes that position Consenrich for a long-term, stable, API but do not affect underlying methodology.
 
 Installation
 --------------------------
@@ -30,25 +27,48 @@ Installation
    :maxdepth: 2
    :caption: Installation
 
+Use `pip` + `PyPI`
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-If you prefer to use a virtual environment, see the YAML file :download:`consenrichEnv <../consenrichEnv.yaml>`.
-This can be used to create build an isolated setup with all required dependencies using
-`conda <https://docs.conda.io/en/latest/>`_ or `mamba <https://mamba.readthedocs.io/en/latest/>`_.
-
-
-Build from source and install the package using `pip`:
+Consenrich is available on PyPI and can be installed with pip.
 
    .. code-block:: bash
 
-      git clone --single-branch --branch lean \
-        https://github.com/nolan-h-hamilton/Consenrich.git
+      python -m pip install consenrich
+
+This is the more convenient but potentially less flexible option.
+
+
+Build from source and install the package
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To build from source, you will need `setuptools` and `wheel` installed:
+
+   .. code-block:: bash
+
+      python -m pip install setuptools wheel
+
+If you prefer to use a virtual environment, see the YAML file :download:`consenrichEnv <../consenrichEnv.yaml>`.
+This can be used to create an isolated setup with all required dependencies using
+`conda <https://docs.conda.io/en/latest/>`_ or `mamba <https://mamba.readthedocs.io/en/latest/>`_.
+
+
+Clone the repository:
+
+   .. code-block:: bash
+
+      git clone https://github.com/nolan-h-hamilton/Consenrich.git
+
+
+Build and install the package:
+
+   .. code-block:: bash
 
       cd Consenrich
+      python -m build
+      python -m pip install .
 
-      # <conda> env create -f docs/consenrichEnv.yaml
-      # <conda> activate consenrichEnv
 
-      python -m pip install build .
 
 Usage
 --------------------------
@@ -102,17 +122,14 @@ You can also use `curl -O <URL>` in place of `wget <URL>`.
 
    encodeFiles=https://www.encodeproject.org/files
 
-   # H3K27ac bam files
    for file in ENCFF793ZHL ENCFF647VPO ENCFF809VKT ENCFF295EFL; do
        wget "$encodeFiles/$file/@@download/$file.bam"
    done
 
-   # ...control bam files
    for ctrl in ENCFF444WVG ENCFF619NYP ENCFF898LKJ ENCFF490MWV; do
        wget "$encodeFiles/$ctrl/@@download/$ctrl.bam"
    done
 
-   # ...and create the indexes
    samtools index -M *.bam
 
 Using a YAML Configuration file
