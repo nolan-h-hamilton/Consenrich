@@ -25,7 +25,7 @@ extensions = [
 
 setup(
     name="consenrich",
-    version="0.2.0b1",
+    version="0.2.0b2",
     packages=find_packages(where="src"),
     include_package_data=True,
     package_dir={"": "src"},

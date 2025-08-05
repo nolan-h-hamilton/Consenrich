@@ -29,9 +29,8 @@ jobs:
         env:
           CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_SKIP:  "*-musllinux_*"
-          CIBW_ARCHS_LINUX: x86_64
-          CIBW_ARCHS_MACOS: arm64
-
+          CIBW_ARCHS_LINUX: x86_64 aarch64
+          CIBW_ARCHS_MACOS: arm64 x86_64
 
       - if: matrix.os == 'ubuntu-latest'
         name: Build source distribution
