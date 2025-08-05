@@ -1,9 +1,6 @@
 name: wheels
 
 on:
-  push:
-    branches:
-      - lean
   workflow_dispatch:
     inputs:
       logLevel:

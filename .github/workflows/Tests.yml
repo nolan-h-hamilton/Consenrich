@@ -1,6 +1,9 @@
 name: Tests
 
 on:
+  push:
+    branches:
+      - lean
   workflow_dispatch:
     inputs:
       logLevel:
