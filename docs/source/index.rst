@@ -13,16 +13,12 @@ Consenrich
 
 Consenrich is an adaptive linear filter for genome-wide estimation of signals hidden in
 noisy multi-sample HTS datasets. A corresponding manuscript preprint is available on `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_.
-
+Consenrich supports a variety of functional genomics assays including ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, etc.
 
 .. image:: ../images/noise.png
    :alt: Simplified schematic of Consenrich
    :width: 85%
    :align: center
-
-
-The `lean` branch this documentation refers to introduces a substantial internal refactor that positions Consenrich for a long-term, stable API. Underlying methodology and functionality remain unchanged.
-After `lean` is merged into `main`, some prior interfaces may become deprecated but remain available in tagged releases.
 
 
 Usage
@@ -138,8 +134,9 @@ Output bedGraph/bigWig files will be saved to the current working directory, pre
 * For reference, we also show ENCODE's `fold change over control` bigwig tracks for each sample (red) and the input treatment/control alignments (black).
 
 
-Refer to the :code:`<process,observation,etc.>Params` classes in module `consenrich.core` for complete documentation of available parameters and arguments.
-Consenrich supports a variety of functional genomics assays including ATAC-seq, DNase-seq, CUT&RUN. 
+.. note::
+   Refer to the :code:`<process,observation,etc.>Params` classes in module `consenrich.core` for complete documentation configuration options.
+   
 
 
 Installation
@@ -148,8 +145,20 @@ Installation
    :maxdepth: 2
    :caption: Installation
 
+From PyPI
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Build from source and install the package
+Consenrich distributes multiple `wheels <https://peps.python.org/pep-0427/>`_ on PyPI for different Python versions and platforms. To install the latest version, run:
+
+   .. code-block:: bash
+
+      python -m pip install consenrich
+
+
+This is a more convenient but potentially less flexible option across platforms and Python versions. See below to build from source.
+
+
+Build from source
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Building and installing from source is recommended to ensure compatibility across platforms and Python versions.
@@ -169,7 +178,7 @@ Clone the repository:
 
    .. code-block:: bash
 
-      git clone --single-branch --branch lean https://github.com/nolan-h-hamilton/Consenrich.git
+      git clone https://github.com/nolan-h-hamilton/Consenrich.git
 
 
 Build and install the package:
@@ -181,18 +190,6 @@ Build and install the package:
       python -m pip install .
 
 
-From PyPI
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Consenrich distributes multiple `wheels <https://peps.python.org/pep-0427/>`_ on PyPI for different Python versions and platforms. To install the latest version, run:
-
-   .. code-block:: bash
-
-      python -m pip install consenrich
-
-
-This is the more convenient but potentially less flexible option across platforms and Python versions.
-
 Previous versions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -201,7 +198,6 @@ To install a specific version of Consenrich from PyPI, you can specify the versi
    .. code-block:: bash
 
       python -m pip install consenrich==0.1.13b1
-
 
 
 =========================
@@ -220,8 +216,7 @@ Core API: `consenrich.core`
    :maxdepth: 1
    :caption: core
 
-.. note::
-   This section contains key components of Consenrich subject to versioning.
+The core module implements the main aspects of Consenrich.
 
 .. autoclass:: consenrich.core.processParams
 
@@ -238,6 +233,8 @@ Core API: `consenrich.core`
 .. autoclass:: consenrich.core.countingParams
 
 .. autoclass:: consenrich.core.samParams
+
+.. autoclass:: consenrich.core.matchingParams
 
 .. autofunction:: consenrich.core.getChromRanges
 
@@ -321,3 +318,5 @@ Several functions are implemented in Cython for efficiency in the main loop and 
 .. autofunction:: consenrich.cconsenrich.cinvertMatrixE
 
 .. autofunction:: consenrich.cconsenrich.updateProcessNoiseCovariance
+
+.. autofunction:: consenrich.cconsenrich.csampleBlockStats

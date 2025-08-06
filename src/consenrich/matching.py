@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-r"""Module implementing pattern recognition routine to identify genomic regions showing *enrichment* and *non-random structure* evidenced in multiple HTS data samples. Experimental.
+r"""Module implementing pattern recognition routine to identify genomic regions showing *enrichment* and *non-random structure* evidenced in multiple HTS data samples.
+Applies an experimental matched filtering approach with cascade-approximated wavelet templates to identify regions of interest in a genome-wide signal track (e.g., Consenrich-estimated signal).
 """
 
 import logging
