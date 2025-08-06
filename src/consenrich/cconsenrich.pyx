@@ -5,7 +5,7 @@ r"""Cython module for Consenrich core functions.
 This module contains Cython implementations of core functions used in Consenrich.
 """
 
-from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t
+from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t, int64_t
 from libc.math cimport sqrt, fabs
 import numpy as np
 cimport numpy as cnp
@@ -135,64 +135,101 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     uint32_t readLength,
     uint8_t oneReadPerBin,
     uint16_t samThreads,
-    uint16_t samFlagExclude):
-    r"""Count reads in a BAM file for a given chromosome and range, returning a numpy array of counts.
+    uint16_t samFlagExclude,
+    str offsetStr):
+    r"""Count reads in a BAM file for a given chromosome"""
 
-    See :func:`consenrich.core.readBamSegments` for the multi-sample python wrapper
-
-    :param bamFile: See :class:`consenrich.core.inputParams`.
-    :type bamFile: str
-    :param chromosome: Chromosome name.
-    :type chromosome: str
-    :param start: Start position of the range in base pairs.
-    :type start: uint32_t
-    :param end: End position of the range in base pairs.
-    :type end: uint32_t
-    :param stepSize: Size of the bins to count reads in.
-    :type stepSize: uint32_t
-    :param readLength: Length of the reads. If greater than stepSize, counts reads
-        in bins defined by read start and end positions. See :func:`consenrich.core.getReadLength`.
-    :type readLength: uint32_t
-    :param oneReadPerBin: See :class:`consenrich.core.samParams`.
-    :type oneReadPerBin: uint8_t
-    :param samThreads: See :class:`consenrich.core.samParams`.
-    :type samThreads: uint16_t
-    :param samFlagExclude: See :class:`consenrich.core.samParams`.
-    :type samFlagExclude: uint16_t
-    :return: A numpy array of counts for each bin in the specified range.
-    :rtype: cnp.ndarray[cnp.uint32_t, ndim=1]
-    """
-    cdef Py_ssize_t n = ((end - start) // stepSize) + 1
-    cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(n, dtype=np.uint32)
+    cdef Py_ssize_t nBins = ((end - start + stepSize) // stepSize)
+    cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(nBins, dtype=np.uint32)
     cdef cnp.uint32_t[::1] values = values_np
-
     cdef AlignmentFile aln = AlignmentFile(bamFile, 'rb', threads=samThreads)
     cdef AlignedSegment read
-    cdef uint32_t readStart, readEnd, readMid, readIndex, readIndex0, readIndex1
-    cdef Py_ssize_t i
+    cdef int64_t start64 = start
+    cdef int64_t step64 = stepSize
+    cdef Py_ssize_t i, index0, index1, midIndex
+    cdef Py_ssize_t lastIndex = nBins - 1
+    cdef int64_t fwdLeft = 0
+    cdef int64_t fwdRight = 0
+    cdef int64_t revLeft = 0
+    cdef int64_t revRight = 0
 
-    if oneReadPerBin == 0 and readLength > stepSize:
-        for read in aln.fetch(chromosome, start, end):
-            if (<uint16_t>read.flag & samFlagExclude) != 0:
-                continue
-            readStart = <uint32_t>read.reference_start
-            readEnd = <uint32_t>read.reference_end
-            readIndex0 = (readStart - start) // stepSize
-            readIndex1 = (readEnd - start) // stepSize
-            for i in range(readIndex0, readIndex1 + 1):
-                if 0 <= i < n:
-                    values[i] += 1
-    else:
-        for read in aln.fetch(chromosome, start, end):
-            if (<uint16_t>read.flag & samFlagExclude) != 0:
-                continue
-            readStart = <uint32_t>read.reference_start
-            readEnd = <uint32_t>read.reference_end
-            readMid = (readStart + readEnd) >> 1
-            readIndex = (readMid - start) // stepSize
-            if 0 <= readIndex < n:
-                values[readIndex] += 1
-    aln.close()
+    cdef object parts = [p.strip() for p in offsetStr.split(',') if p.strip()]
+    if len(parts) == 2 or len(parts) == 0:
+        fwdLeft = revLeft = <int64_t> int(parts[0])
+        fwdRight = revRight = <int64_t> int(parts[1])
+    elif len(parts) == 4:
+        fwdLeft  = <int64_t> int(parts[0])
+        fwdRight = <int64_t> int(parts[1])
+        revLeft  = <int64_t> int(parts[2])
+        revRight = <int64_t> int(parts[3])
+
+    cdef uint16_t flag
+    cdef bint isReverse
+    cdef int64_t rs, re
+    cdef int64_t adjStart, adjEnd, midPoint
+    cdef int64_t offsetStart, offsetEnd
+
+    try:
+        if oneReadPerBin == 0 and readLength > stepSize:
+            for read in aln.fetch(chromosome, start, end):
+                flag = <uint16_t> read.flag
+                if (flag & samFlagExclude) != 0:
+                    continue
+
+                isReverse = (flag & 16) != 0
+                rs = <int64_t> read.reference_start
+                re = <int64_t> read.reference_end
+
+                if not isReverse:
+                    adjStart = rs + fwdLeft
+                    adjEnd   = re + fwdRight
+                else:
+                    adjStart = rs + revRight
+                    adjEnd   = re - revLeft
+
+                if adjStart > adjEnd:
+                    continue
+
+                offsetStart = adjStart - start64
+                offsetEnd   = adjEnd - start64
+
+                index0 = <Py_ssize_t> (offsetStart // step64)
+                index1 = <Py_ssize_t> (offsetEnd   // step64)
+
+                if index0 < 0:
+                    index0 = 0
+                if index1 > lastIndex:
+                    index1 = lastIndex
+
+                if index0 <= index1:
+                    for i in range(index0, index1 + 1):
+                        values[i] += 1
+        else:
+            for read in aln.fetch(chromosome, start, end):
+                flag = <uint16_t> read.flag
+                if (flag & samFlagExclude) != 0:
+                    continue
+
+                isReverse = (flag & 16) != 0
+                rs = <int64_t> read.reference_start
+                re = <int64_t> read.reference_end
+
+                if not isReverse:
+                    adjStart = rs + fwdLeft
+                    adjEnd   = re + fwdRight
+                else:
+                    adjStart = rs + revRight
+                    adjEnd   = re - revLeft
+
+                if adjStart > adjEnd:
+                    continue
+
+                midPoint = (adjStart + adjEnd) >> 1
+                midIndex = <Py_ssize_t> ((midPoint - start64) // step64)
+                if 0 <= midIndex < nBins:
+                    values[midIndex] += 1
+    finally:
+        aln.close()
 
     return values
 
