@@ -1,3 +1,54 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = [
+    "setuptools>=74.1",
+    "wheel",
+    "cython>=3.0",
+    "numpy>=2.1.0",
+    "pysam>=0.23.3",
+]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "consenrich"
+version = "0.3.0b1"
+description = "Genome-wide estimation of signals hidden in noisy multi-sample HTS datasets"
+authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "cython>=3.0",
+    "numpy>=2.1",
+    "scipy>=1.15",
+    "pandas>=2.3.0",
+    "pysam>=0.23.3",
+    "pybedtools>=0.11.2",
+    "PyYAML>=6.0.2",
+    "PyWavelets>=1.9.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "mypy", "ruff", "build", "twine"]
+docs = [
+    "sphinx>=7.3",
+    "sphinx-press-theme",
+    "furo",
+    "myst-parser>=2.0",
+    "sphinx-autodoc-typehints>=2.1",
+    "sphinx-autobuild>=2025.2",
+    "sphinx-copybutton>=0.5.0",
+    "sphinxcontrib-bibtex>=2.4.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[project.scripts]
+consenrich = "consenrich.consenrich:main"
+
+[tool.cibuildwheel]
+build = " cp311-* cp312-* cp313-*"
+skip  = "*-musllinux_*"
+
+

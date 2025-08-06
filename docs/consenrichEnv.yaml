@@ -1,0 +1,20 @@
+name: consenrichEnv
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - c-compiler
+  - python>=3.11
+  - pip
+  - setuptools
+  - wheel
+  - cython>=3.0
+  - numpy>=2.3.0
+  - scipy>=1.16.0
+  - pandas>=2.3.0
+  - samtools>=1.20
+  - bedtools>=2.30.0
+  - pysam>=0.23.3
+  - pybedtools>=0.11.2
+  - ucsc-bedgraphtobigwig
