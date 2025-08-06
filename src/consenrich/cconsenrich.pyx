@@ -347,7 +347,8 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
                         int randSeed):
     r"""Sample contiguous blocks in the response sequence, record maxima, and repeat.
 
-    Used to determine empirical significance thresholds for matching.
+    Used to determine significance threshold in the response sequence. See :func:`consenrich.matching.matchWavelet`
+
     :param values: The response sequence to sample from.
     :type values: cnp.ndarray[cnp.float64_t, ndim=1]
     :param expectedBlockSize: The expected size (geometric) of the blocks to sample.
