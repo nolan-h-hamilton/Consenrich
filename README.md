@@ -7,13 +7,11 @@ Consenrich supports a variety of functional genomics assays including ATAC-seq, 
 
 ![Simplified Schematic of Consenrich.](docs/images/noise.png)
 
-See [Documentation](https://nolan-h-hamilton.github.io/Consenrich/) for usage examples, installation details, configuration options, and API reference.
+See [**Documentation**](https://nolan-h-hamilton.github.io/Consenrich/) for usage examples, installation details, configuration options, and API reference.
 
 ---
 
 ## Manuscript Preprint and Citation
-
-A manuscript preprint is available on [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2).
 
 **BibTeX Citation**
 
