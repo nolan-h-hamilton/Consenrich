@@ -176,6 +176,7 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
         excludeChroms=excludeChroms,
         excludeForNorm=excludeForNorm)
 
+
 def getCountingArgs(config_path: str) -> core.countingParams:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
@@ -198,7 +199,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         scaleDown=scaleDown,
         scaleFactors=scaleFactors,
         scaleFactorsControl=scaleFactorsControl,
-        numReads=numReads
+        numReads=numReads,
     )
 
 def readConfig(config_path: str) -> Dict[str, Any]:
@@ -247,7 +248,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             samThreads=config.get('samParams.samThreads', 1),
             samFlagExclude=config.get('samParams.samFlagExclude', 3844),
             oneReadPerBin=config.get('samParams.oneReadPerBin', 0),
-            chunkSize=config.get('samParams.chunkSize', 1000000)
+            chunkSize=config.get('samParams.chunkSize', 1000000),
+            offsetStr=config.get('samParams.offsetStr', "0,0")
         ),
         'detrendArgs': core.detrendParams(
             detrendWindowLengthBP=config.get('detrendParams.detrendWindowLengthBP', 10000),
@@ -408,7 +410,7 @@ def main():
                 pairMatrix: np.ndarray = core.readBamSegments(
                     [bamA, bamB], chromosome, chromosomeStart, chromosomeEnd, stepSize,
                     [readLengthsBamFiles[j_], readLengthsControlBamFiles[j_]], [treatScaleFactors[j_], controlScaleFactors[j_]],
-                    samArgs.oneReadPerBin, samArgs.samThreads, samArgs.samFlagExclude
+                    samArgs.oneReadPerBin, samArgs.samThreads, samArgs.samFlagExclude, offsetStr=samArgs.offsetStr,
                 )
                 chromMat[j_, :] = scaleFactors[j_]*(pairMatrix[0, :] - pairMatrix[1, :])
                 j_ += 1
@@ -423,7 +425,8 @@ def main():
                 scaleFactors,
                 samArgs.oneReadPerBin,
                 samArgs.samThreads,
-                samArgs.samFlagExclude
+                samArgs.samFlagExclude,
+                offsetStr=samArgs.offsetStr,
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:

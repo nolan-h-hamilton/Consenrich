@@ -141,14 +141,17 @@ class samParams(NamedTuple):
     :type oneReadPerBin: int
     :param chunkSize: maximum number of intervals' data to hold in memory before flushing to disk.
     :type chunkSize: int
+    :param offsetStr: Two or four comma-separated integers. With two, NOT strand-specific. With four, first 2 ints correspond to forward strand (start, end), last 2 to reverse strand (start, end).
+    :type offsetStr: str, optional
 
     .. note::
-        For an overview of SAM flags see https://broadinstitute.github.io/picard/explain-flags.html
+        For an overview of SAM flags, see https://broadinstitute.github.io/picard/explain-flags.html
     """
     samThreads: int
     samFlagExclude: int
     oneReadPerBin: int
     chunkSize: int
+    offsetStr: Optional[str] = "0,0"
 
 
 class detrendParams(NamedTuple):
@@ -360,7 +363,8 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
             scaleFactors: List[float],
             oneReadPerBin: int,
             samThreads: int,
-            samFlagExclude: int) -> npt.NDArray[np.float64]:
+            samFlagExclude: int,
+            offsetStr: Optional[str] = "0,0") -> npt.NDArray[np.float64]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
     See :func:`cconsenrich.creadBamSegment` for the underlying implementation in Cython.
@@ -379,14 +383,21 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
     :type scaleFactors: List[float]
     :param stepSize: See :class:`countingParams`.
     :type stepSize: int
+    :param oneReadPerBin: See :class:`samParams`.
+    :type oneReadPerBin: int
+    :param offsetStr: see :class:`samParams`.
+    :type offsetStr: str
     """
 
+    offsetStr = str(offsetStr).replace(' ', '')
+    if offsetStr == "":
+        offsetStr = "0,0"
     counts: np.ndarray = np.empty((len(bamFiles), (end - start) // stepSize + 1), dtype=np.float64)
     for j in range(len(bamFiles)):
         logger.info(f"Reading {chromosome}: {bamFiles[j]}")
         counts[j,:] = scaleFactors[j]  * np.array(cconsenrich.creadBamSegment(bamFiles[j],
                             chromosome, start, end, stepSize, readLengths[j],
-                            oneReadPerBin, samThreads, samFlagExclude), dtype=np.float64)
+                            oneReadPerBin, samThreads, samFlagExclude, offsetStr), dtype=np.float64)
     return counts
 
 
