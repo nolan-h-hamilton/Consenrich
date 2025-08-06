@@ -176,7 +176,6 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
         excludeChroms=excludeChroms,
         excludeForNorm=excludeForNorm)
 
-
 def getCountingArgs(config_path: str) -> core.countingParams:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
@@ -426,8 +425,7 @@ def main():
                 samArgs.oneReadPerBin,
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
-                offsetStr=samArgs.offsetStr,
-            )
+                offsetStr=samArgs.offsetStr,)
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
             logger.info(f"Building sparse mapping for {chromosome}...")

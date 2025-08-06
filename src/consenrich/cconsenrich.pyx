@@ -126,7 +126,6 @@ cpdef uint32_t cgetReadLength(str bamFile, uint32_t minReads, uint32_t samThread
 
     return <uint32_t>np.median(readLengths[:observedReads])
 
-
 cpdef cnp.uint32_t[:] creadBamSegment(
     str bamFile,
     str chromosome,
