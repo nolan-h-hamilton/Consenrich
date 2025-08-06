@@ -187,6 +187,7 @@ class inputParams(NamedTuple):
     bamFiles: List[str]
     bamFilesControl: Optional[List[str]]
 
+
 class genomeParams(NamedTuple):
     genomeName: str
     chromSizesFile: str
@@ -195,6 +196,7 @@ class genomeParams(NamedTuple):
     chromosomes: List[str]
     excludeChroms: List[str]
     excludeForNorm: List[str]
+
 
 class countingParams(NamedTuple):
     r"""Parameters related to counting reads in genomic intervals.
@@ -216,6 +218,29 @@ class countingParams(NamedTuple):
     scaleFactors: Optional[List[float]]
     scaleFactorsControl: Optional[List[float]]
     numReads: int
+
+
+class matchingParams(NamedTuple):
+    r"""Parameters related the *experimental* wavelet-based matched filter for pattern recognition.
+
+    :param templateNames: The names of the templates to match against.
+    :type templateNames: List[str]
+    :param cascadeLevels: Templates are currently derived from cascade-approximated wavelets at `level=cascadeLevel`.
+    :type cascadeLevels: List[int]
+    :param iters: Number of iterations to use for sampling block maxima while building the empirical null
+    :type iters: int
+    :param alpha: Significance level for the empirical null distribution.
+    :type alpha: float
+    :param minMatchLength: Minimum length around response maxima to qualify matches.
+    :type minMatchLength: int
+    """
+    templateNames: List[str]
+    cascadeLevels: List[int]
+    iters: int
+    alpha: float
+    minMatchLengthBP: Optional[int]
+    maxNumMatches: Optional[int]
+    minSignalAtMaxima: Optional[float]
 
 
 def getChromRanges(

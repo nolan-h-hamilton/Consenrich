@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
+# cython: boundscheck=False, wraparound=False, cdivision=True, language_level=3
 r"""Cython module for Consenrich core functions.
 
 This module contains Cython implementations of core functions used in Consenrich.
 """
-# cython: boundscheck=False, wraparound=False, cdivision=True
 
 from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t
 from libc.math cimport sqrt, fabs
@@ -12,6 +12,7 @@ cimport numpy as cnp
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 cimport cython
 
+cnp.import_array()
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
     r"""Adjusts a value to the nearest multiple of stepSize, optionally pushing it forward.
@@ -323,4 +324,60 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float64_t, ndim=2] matr
     return np.asarray(matrixQ), inflatedQ
 
 
+cdef void _blockMax(double[::1] valuesView,
+                    Py_ssize_t[::1] blockStartIndices,
+                    Py_ssize_t[::1] blockSizes,
+                    double[::1] outputView) noexcept:
+    cdef Py_ssize_t iterIndex, elementIndex, startIndex, blockLength
+    cdef double currentMax, currentValue
+    for iterIndex in range(outputView.shape[0]):
+        startIndex = blockStartIndices[iterIndex]
+        blockLength = blockSizes[iterIndex] # note, length of blocks affects upcoming loop
+        currentMax = valuesView[startIndex]
+        for elementIndex in range(1, blockLength):
+            currentValue = valuesView[startIndex + elementIndex]
+            if currentValue > currentMax:
+                currentMax = currentValue
+        outputView[iterIndex] = currentMax
 
+
+cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
+                        int expectedBlockSize,
+                        int iters,
+                        int randSeed):
+    r"""Sample contiguous blocks in the response sequence, record maxima, and repeat.
+
+    Used to determine empirical significance thresholds for matching.
+    :param values: The response sequence to sample from.
+    :type values: cnp.ndarray[cnp.float64_t, ndim=1]
+    :param expectedBlockSize: The expected size (geometric) of the blocks to sample.
+    :type expectedBlockSize: int
+    :param iters: The number of blocks to sample.
+    :type iters: int
+    :param randSeed: Random seed for reproducibility.
+    :type randSeed: int
+    :return: An array of sampled block maxima.
+    :rtype: cnp.ndarray[cnp.float64_t, ndim=1]
+    """
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArr = np.ascontiguousarray(values, dtype=np.float64)
+    cdef double[::1] valuesView = valuesArr
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] sizesArr
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] startsArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(iters, dtype=np.float64)
+    cdef Py_ssize_t maxBlockLength, maxSize, n
+    cdef double maxBlockScale = 10.0
+    n = valuesView.shape[0]
+    np.random.seed(randSeed)
+    sizesArr = np.random.geometric(1.0 / expectedBlockSize, size=iters).astype(np.intp, copy=False)
+    maxSize = <int>(maxBlockScale * expectedBlockSize)
+    np.clip(sizesArr, 1, maxSize if maxSize < n else n, out=sizesArr)
+    maxBlockLength = sizesArr.max() # Py_ssize_t <-- intp ok.
+    # by construction, shouldn't exceed the length of the response seq.
+    # +1 to check case randint(0,0)
+    startsArr = np.random.randint(0, int(n - maxBlockLength + 1), size=iters, dtype=np.intp)
+
+    cdef Py_ssize_t[::1] blockStartIndices = startsArr
+    cdef Py_ssize_t[::1] blockSizes = sizesArr
+    cdef double[::1] outputView = out
+    _blockMax(valuesView, blockStartIndices, blockSizes, outputView)
+    return out

@@ -3,6 +3,7 @@ name: Documentation
 on:
   push:
     branches:
+      - main
       - lean
   workflow_dispatch:
     inputs:
@@ -13,7 +14,7 @@ on:
       branches:
         description: 'branches tested'
         required: false
-        default: 'lean'
+        default: 'main'
 
 jobs:
   build:
@@ -37,7 +38,8 @@ jobs:
             "pandas>=2.3.0" \
             "pysam>=0.23.3" \
             "pybedtools>=0.11.2" \
-            sphinx sphinx-press-theme myst-parser \
+            "PyWavelets>=1.9.0" \
+            sphinx furo sphinx-press-theme myst-parser \
             sphinx-autodoc-typehints sphinx-autobuild
           pip install -e .
 

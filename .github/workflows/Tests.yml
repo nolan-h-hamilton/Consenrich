@@ -3,6 +3,7 @@ name: Tests
 on:
   push:
     branches:
+      - main
       - lean
   workflow_dispatch:
     inputs:
@@ -42,6 +43,7 @@ jobs:
             "pandas>=2.3.0" \
             "pysam>=0.23.3" \
             "pybedtools>=0.11.2" \
+            "PyWavelets>=1.9.0" \
             "pytest"
           pip install -e .
 

@@ -20,6 +20,7 @@ import consenrich.core as core
 import consenrich.misc_util as misc_util
 import consenrich.constants as constants
 import consenrich.detrorm as detrorm
+import consenrich.matching as matching
 
 
 logging.basicConfig(level=logging.INFO,
@@ -27,6 +28,7 @@ logging.basicConfig(level=logging.INFO,
 logging.basicConfig(level=logging.WARNING,
                     format='%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 def _listOrEmpty(list_):
     if list_ is None:
@@ -66,6 +68,12 @@ def getReadLengths(inputArgs: core.inputParams, countingArgs: core.countingParam
         raise ValueError("bam files list is empty")
 
     return [core.getReadLength(bamFile, countingArgs.numReads, 1000, samArgs.samThreads, samArgs.samFlagExclude)  for bamFile in inputArgs.bamFiles]
+
+
+def checkMatchingEnabled(matchingArgs: core.matchingParams) -> bool:
+    matchingEnabled = (matchingArgs.templateNames is not None) and isinstance(matchingArgs.templateNames, list) and len(matchingArgs.templateNames) > 0
+    matchingEnabled = matchingEnabled and (matchingArgs.cascadeLevels is not None) and isinstance(matchingArgs.cascadeLevels, list) and len(matchingArgs.cascadeLevels) > 0
+    return matchingEnabled
 
 
 def getEffectiveGenomeSizes(genomeArgs: core.genomeParams, readLengths: List[int]) -> List[int]:
@@ -247,7 +255,15 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             usePolyFilter=config.get('detrendParams.usePolyFilter', False),
             detrendSavitzkyGolayDegree=config.get('detrendParams.detrendSavitzkyGolayDegree', 2),
             useOrderStatFilter=config.get('detrendParams.useOrderStatFilter', True)
-        )
+        ),
+        'matchingArgs': core.matchingParams(
+            templateNames=config.get('matchingParams.templateNames', []),
+            cascadeLevels=config.get('matchingParams.cascadeLevels', []),
+            iters=config.get('matchingParams.iters', 10_000),
+            alpha=config.get('matchingParams.alpha', 0.01),
+            minMatchLengthBP=config.get('matchingParams.minMatchLengthBP', None),
+            maxNumMatches=config.get('matchingParams.maxNumMatches', 100_000),
+            minSignalAtMaxima=config.get('matchingParams.minSignalAtMaxima', None))
     }
 
 def convertBedGraphToBigWig(experimentName, chromSizesFile):
@@ -312,6 +328,7 @@ def main():
     stateArgs = config['stateArgs']
     samArgs = config['samArgs']
     detrendArgs = config['detrendArgs']
+    matchingArgs = config['matchingArgs']
     bamFiles = inputArgs.bamFiles
     bamFilesControl = inputArgs.bamFilesControl
     numSamples = len(bamFiles)
@@ -342,6 +359,7 @@ def main():
     controlsPresent = checkControlsPresent(inputArgs)
     readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
     effectiveGenomeSizes = getEffectiveGenomeSizes(genomeArgs, readLengthsBamFiles)
+    matchingEnabled = checkMatchingEnabled(matchingArgs)
     scaleFactors = countingArgs.scaleFactors
     scaleFactorsControl = countingArgs.scaleFactorsControl
 
@@ -470,7 +488,7 @@ def main():
             "Res": y_})
         if c_ == 0 and len(chromosomes) > 1:
             for file_ in os.listdir('.'):
-                if file_.startswith(f"consenrichOutput_{experimentName}") and file_.endswith('.bedGraph'):
+                if file_.startswith(f"consenrichOutput_{experimentName}") and (file_.endswith('.bedGraph') or file_.endswith('.narrowPeak')):
                     os.remove(file_)
 
         for col, suffix in [("State", "state"),
@@ -480,7 +498,29 @@ def main():
                 header=False, index=False, mode="a", float_format="%.3f",
                 lineterminator="\n",
             )
-    logger.info("Finished. Output is in bedGraph format.")
+        try:
+            if matchingEnabled:
+                matchingDF = matching.matchWavelet(
+                    chromosome,
+                    intervals,
+                    x_,
+                    matchingArgs.templateNames,
+                    matchingArgs.cascadeLevels,
+                    matchingArgs.iters,
+                    matchingArgs.alpha,
+                    matchingArgs.minMatchLengthBP,
+                    matchingArgs.maxNumMatches,
+                    matchingArgs.minSignalAtMaxima,
+                )
+                if not matchingDF.empty:
+                    matchingDF.to_csv(
+                        f"consenrichOutput_{experimentName}_matches.narrowPeak",
+                        sep="\t", header=False, index=False, mode="a",
+                        float_format="%.3f", lineterminator="\n")
+        except Exception as e:
+            logger.warning(f"Matching routine unsuccessful for {chromosome}...skipping")
+            continue
+    logger.info("Finished: output in human-readable format")
     convertBedGraphToBigWig(experimentName, genomeArgs.chromSizesFile)
     logger.info("Done.")
 

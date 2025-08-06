@@ -10,7 +10,7 @@ on:
       branches:
         description: 'branches tested'
         required: false
-        default: 'lean'
+        default: 'main'
 
 jobs:
   build:

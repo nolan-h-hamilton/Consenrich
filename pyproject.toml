@@ -10,8 +10,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "consenrich"
-version = "0.2.0b2"
-description = "Genome-wide estimation of signals hidden in noisy multi-sample functional genomics dataset"
+version = "0.3.0b1"
+description = "Genome-wide estimation of signals hidden in noisy multi-sample HTS datasets"
 authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,7 @@ dependencies = [
     "pysam>=0.23.3",
     "pybedtools>=0.11.2",
     "PyYAML>=6.0.2",
+    "PyWavelets>=1.9.0"
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,7 @@ dev = ["pytest", "mypy", "ruff", "build", "twine"]
 docs = [
     "sphinx>=7.3",
     "sphinx-press-theme",
+    "furo",
     "myst-parser>=2.0",
     "sphinx-autodoc-typehints>=2.1",
     "sphinx-autobuild>=2025.2",
