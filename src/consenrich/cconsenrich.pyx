@@ -138,7 +138,7 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     uint16_t samThreads,
     uint16_t samFlagExclude,
     str offsetStr):
-    r"""Count reads in a BAM file for a given chromosome and range, returning a numpy array of counts."""
+    r"""Count reads in a BAM file for a given chromosome"""
 
     cdef Py_ssize_t nBins = ((end - start + stepSize) // stepSize)
     cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(nBins, dtype=np.uint32)
