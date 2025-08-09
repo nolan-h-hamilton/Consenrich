@@ -224,15 +224,15 @@ class countingParams(NamedTuple):
 
 
 class matchingParams(NamedTuple):
-    r"""Parameters related the *experimental* wavelet-based matched filter for pattern recognition.
+    r"""Parameters related the (experimental) pattern matching routine.
 
-    :param templateNames: The names of the templates to match against.
+    :param templateNames: List of wavelet template names to use for matching, e.g. `[haar, db2, coif4]`
     :type templateNames: List[str]
-    :param cascadeLevels: Templates are currently derived from cascade-approximated wavelets at `level=cascadeLevel`.
+    :param cascadeLevels: List of 'levels' (cascade) used for each template name, e.g., `[1, 1, 1]`
     :type cascadeLevels: List[int]
-    :param iters: Number of iterations to use for sampling block maxima while building the empirical null
+    :param iters: Number of random blocks to sample while building the empirical distribution.
     :type iters: int
-    :param alpha: Significance level for the empirical null distribution.
+    :param alpha: Significance level for thresholding the response sequence.
     :type alpha: float
     :param minMatchLength: Minimum length around response maxima to qualify matches.
     :type minMatchLength: int

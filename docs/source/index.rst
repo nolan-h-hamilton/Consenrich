@@ -316,7 +316,7 @@ Genomic resources and constants: `consenrich.constants`
 
 .. autofunction:: consenrich.constants.resolveGenomeName
 
-(Experimental) matching: `consenrich.matching`
+Matching: `consenrich.matching`
 -----------------------------------------------------------
 .. toctree::
    :maxdepth: 1

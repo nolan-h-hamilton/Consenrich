@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""Module implementing spatial feature recognition (localization) in Consenrich-estimated genomic signals. Applies a simple matched-filtering approach using discrete wavelet-based templates and resampling strategy to determine significance.
+r"""Module implementing spatial feature recognition (localization) in Consenrich-estimated genomic signals.
 """
 
 import logging
@@ -33,24 +33,32 @@ def matchWavelet(chromosome: str,
     minSignalAtMaxima: Optional[float] = None,
     randSeed: int = 42
     ) -> pd.DataFrame:
-    r"""(Experimental) Identify genomic regions showing **enrichment** and **relevant, non-random structure** reinforced in multiple samples.
+    r"""(Experimental) Detect genomic regions with **signal enrichment** and **relevant, non-random structure** reinforced in multiple samples.
 
-    :param chromosome: Chromosome name (e.g., 'chr1').
+    Employs a matched filtering-based approach on the sequence of Consenrich signal estimates using wavelet-based templates approximated using the cascade algorithm.
+
+    At a given genomic interval :math:`i \in \{1, \ldots, n\}`, a 'match' with the given template occurs if:
+
+    - The filter response sequence (the convolution of the signal with a time-reversed template) is a local maximum within a window defined by the template (:math:`\psi`) length.
+
+    - The maximum exceeds a significance cutoff determined by the :math:`1 - \alpha` quantile of an approximated null distribution (See :func:`cconsenrich.csampleBlockStats`).
+
+    :param chromosome: Chromosome name
     :type chromosome: str
-    :param intervals: Index set of genomic intervals (e.g., [0, 50, 100, ...] nucleotides).
+    :param intervals: Index set of genomic intervals (e.g., [0, 25, 50, ...] nucleotides).
     :type intervals: npt.NDArray[np.float64]
     :param values: Multi-sample signal estimates, e.g., from Consenrich.
     :type values: npt.NDArray[np.float64]
-    :param templateNames: List of wavelet template names to use for matching.
+    :param templateNames: List of wavelet template names to use for matching, e.g. `[haar, db2, coif4]`
     :type templateNames: List[str]
-    :param cascadeLevels: List of 'levels' 
+    :param cascadeLevels: List of cascade 'levels' used for each template, e.g., `[1, 1, 1]` for `[haar, db2, coif4]`
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample while building the empirical distribution.
     :type iters: int
     :param alpha: Significance level for thresholding the response sequence.
     :type alpha: float
 
-    :seealso: :func:`cconsenrich.csampleBlockStats`, :class:`consenrich.core.matchingParams`
+    :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`
     """
     randSeed_: int = int(randSeed)
     intervalLengthBP = intervals[1] - intervals[0]
@@ -71,7 +79,7 @@ def matchWavelet(chromosome: str,
         wav = pw.Wavelet(templateName)
         scalingFunc, waveletFunc, x = wav.wavefun(level=cascadeLevel)
         template = np.array(waveletFunc, dtype=np.float64)/np.linalg.norm(waveletFunc)
-        responseSequence: npt.NDArray[np.float64] = signal.fftconvolve(values, template, mode='same')
+        responseSequence: npt.NDArray[np.float64] = signal.fftconvolve(values, template[::-1], mode='same')
 
         if minMatchLengthBP is None:
             minMatchLengthBP = len(template)*intervalLengthBP*2
