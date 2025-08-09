@@ -384,7 +384,7 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
                         int randSeed):
     r"""Sample contiguous blocks in the response sequence, record maxima, and repeat.
 
-    Used to determine significance threshold in the response sequence. See :func:`consenrich.matching.matchWavelet`
+    Used to build an empirical null distribution and determine significance of response outputs. See :func:`consenrich.matching.matchWavelet`
 
     :param values: The response sequence to sample from.
     :type values: cnp.ndarray[cnp.float64_t, ndim=1]
@@ -418,4 +418,39 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
     cdef Py_ssize_t[::1] blockSizes = sizesArr
     cdef double[::1] outputView = out
     _blockMax(valuesView, blockStartIndices, blockSizes, outputView)
+    return out
+
+
+def cSparseAvg(double[::1] trackALV, dict sparseMap):
+    r"""Fast access and average of `numNearest` sparse elements.
+
+    See :func:`consenrich.core.getMuncTrack`
+
+    :param trackALV: See :func:`consenrich.core.getAverageLocalVarianceTrack`
+    :type trackALV: double[::1]
+    :param sparseMap: See :func:`consenrich.core.getSparseMap`
+    :type sparseMap: dict[int, np.ndarray]
+    :return: array of mena('nearest local variances') same length as `trackALV`
+    :rtype: cnp.ndarray[cnp.float64_t, ndim=1]
+    """
+    cdef Py_ssize_t n = <Py_ssize_t>trackALV.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
+    cdef Py_ssize_t i, j, m
+    cdef double sumNearestVariances = 0.0
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] idxs
+    cdef cnp.intp_t[::1] idx_view
+    for i in range(n):
+        idxs = <cnp.ndarray[cnp.intp_t, ndim=1]> sparseMap[i] # FFR: to avoid the cast, create sparseMap as dict[intp, np.ndarray[intp]]
+        idx_view = idxs
+        m = idx_view.shape[0] # FFR: maybe enforce strict `m == numNearest` in future releases to avoid extra overhead
+        if m == 0:
+            # this case probably warrants an exception or np.nan
+            out[i] = 0.0
+            continue
+        sumNearestVariances = 0.0
+        with nogil:
+            for j in range(m):
+                sumNearestVariances += trackALV[idx_view[j]]
+        out[i] = sumNearestVariances/m
+
     return out

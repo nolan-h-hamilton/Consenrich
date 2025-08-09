@@ -843,7 +843,7 @@ def getMuncTrack(chromosome: str,
         return np.clip(globalNoise * np.ones_like(rowValues), minR, maxR)
 
     if sparseMap is not None:
-        trackALV = np.array([np.mean(trackALV[sparseMap[i]]) for i in range(len(intervals))], dtype=np.float64)
+        trackALV = cconsenrich.cSparseAvg(trackALV, sparseMap)
 
     return np.clip(trackALV*localWeight + np.mean(trackALV)*globalWeight,
                    minR, maxR)
@@ -878,11 +878,27 @@ def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: st
         adjustFeatureBounds,
         stepSize=stepSize
     )
-    centeredStarts: np.ndarray = np.array(
-        sorted([f.start for f in centeredFeatures if f.start in intervals]),
-        dtype=np.int64
+
+    start0: int = int(intervals[0])
+    last:   int = int(intervals[-1])
+    chromFeatures: bed.BedTool = (
+        bed.BedTool(sparseBedFile)
+        .sort().merge().filter(
+            lambda b: (
+                b.chrom == chromosome
+                and b.start > start0
+                and b.end   < last
+                and (b.end - b.start) >= stepSize
+            )
+        )
     )
-    return centeredStarts
+    centeredFeatures: bed.BedTool = chromFeatures.each(adjustFeatureBounds, stepSize=stepSize)
+    centeredStarts = []
+    for f in centeredFeatures:
+        s = int(f.start)
+        if start0 <= s <= last and (s - start0) % stepSize == 0:
+            centeredStarts.append(s)
+    return np.asarray(centeredStarts, dtype=np.int64)
 
 
 def adjustFeatureBounds(feature: bed.Interval, stepSize: int) -> bed.Interval:

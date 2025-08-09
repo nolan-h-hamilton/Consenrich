@@ -11,14 +11,22 @@ Consenrich
    :maxdepth: 2
    :caption: Contents
 
-Consenrich is an adaptive linear filter for genome-wide estimation of signals hidden in
-noisy multi-sample HTS datasets. A corresponding manuscript preprint is available on `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_.
-Consenrich supports a variety of functional genomics assays including ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, etc.
+`Consenrich <https://github.com/nolan-h-hamilton/Consenrich>`_ estimates genome-wide regulatory signals 'hidden' in *noisy, multi-sample HTS datasets*.
 
 .. image:: ../images/noise.png
    :alt: Simplified schematic of Consenrich
    :width: 85%
    :align: center
+
+Methodologically, Consenrich employs a state-space representation of quantitative genomic signals across discrete genomic intervals.
+
+Critical but often-overlooked aspects are treated explicitly. Namely, Consenrich models
+
+#. *Sample-specific* and *region-specific* noise across the genome, addressing both technical and biological sources that corrupt sequencing data.
+#.  Signal and variance propagation to account for spatial dependencies in genome-wide sequencing data.
+
+A corresponding manuscript preprint is available on `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_.
+
 
 
 Usage
@@ -135,8 +143,14 @@ Output bedGraph/bigWig files will be saved to the current working directory, pre
 
 
 .. note::
+
    Refer to the :code:`<process,observation,etc.>Params` classes in module `consenrich.core` for complete documentation configuration options.
-   
+
+Key components of Consenrich are implemented in this repository to  permit flexible customization and extension: *the command-line
+interface is primarily intended as a convenience wrapper around the core API*.
+
+Some users may find it beneficial to run Consenrich programmatically (e.g., Jupyter notebooks, Python scripts), e.g., to apply specific preprocessing steps or other customizations.
+The API is designed to be flexible and can be easily integrated into existing workflows. See API documentation for more details.
 
 
 Installation
@@ -148,20 +162,19 @@ Installation
 From PyPI
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Consenrich distributes multiple `wheels <https://peps.python.org/pep-0427/>`_ on PyPI for different Python versions and platforms. To install the latest version, run:
+Multiple binary `wheels <https://peps.python.org/pep-0427/>`_ are distributed via `PyPI <https://pypi.org/project/consenrich/#files>`_ to accomodate different operating systems, python versions, and architectures.
+To install the latest version, run:
 
    .. code-block:: bash
 
-      python -m pip install consenrich
+      python -m pip install consenrich --upgrade
 
 
-This is a more convenient but potentially less flexible option across platforms and Python versions. See below to build from source.
+If a wheel for your platform is not available, see below to build from source. Please feel free to open an issue on the `GitHub repository <https://github.com/nolan-h-hamilton/Consenrich/issues>`_ if you encounter any problems.
 
 
 Build from source
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Building and installing from source is recommended to ensure compatibility across platforms and Python versions.
 
 To build from source, first ensure you have the necessary package development tools
 
@@ -320,3 +333,5 @@ Several functions are implemented in Cython for efficiency in the main loop and 
 .. autofunction:: consenrich.cconsenrich.updateProcessNoiseCovariance
 
 .. autofunction:: consenrich.cconsenrich.csampleBlockStats
+
+.. autofunction:: consenrich.cconsenrich.cSparseAvg

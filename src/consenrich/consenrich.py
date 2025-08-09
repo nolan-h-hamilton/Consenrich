@@ -38,10 +38,12 @@ def _listOrEmpty(list_):
 
 def _getMinR(cfg, numBams: int) -> float:
     try:
-        raw = cfg.get('observationParams', {}).get('minR', None)
+        raw = cfg.get('observationParams.minR', None)
         return float(raw) if raw is not None else (1/numBams) + 1e-4
-    except (TypeError, ValueError):
-        raise ValueError("`observationParams.minR` must be a real number")
+    except (TypeError, ValueError, KeyError):
+        fallBackMinR: float = 1.0e-2
+        logger.warning(f"Invalid or missing 'observationParams.minR' in config. Using `{fallBackMinR}`.")
+        return fallBackMinR
 
 
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
