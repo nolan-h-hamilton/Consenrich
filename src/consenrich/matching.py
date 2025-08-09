@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-r"""Module implementing pattern recognition routine to identify genomic regions showing *enrichment* and *non-random structure* evidenced in multiple HTS data samples.
-Applies an experimental matched filtering approach with cascade-approximated wavelet templates to identify regions of interest in a genome-wide signal track (e.g., Consenrich-estimated signal).
+r"""Module implementing spatial feature recognition (localization) in Consenrich-estimated genomic signals. Applies a simple matched-filtering approach using discrete wavelet-based templates and resampling strategy to determine significance.
 """
 
 import logging
-import os
 from typing import List, Optional
 
 import pandas as pd
@@ -35,7 +33,7 @@ def matchWavelet(chromosome: str,
     minSignalAtMaxima: Optional[float] = None,
     randSeed: int = 42
     ) -> pd.DataFrame:
-    r"""Identify genomic regions showing **enrichment** and **non-random structure** as realized in multiple samples.
+    r"""(Experimental) Identify genomic regions showing **enrichment** and **relevant, non-random structure** reinforced in multiple samples.
 
     :param chromosome: Chromosome name (e.g., 'chr1').
     :type chromosome: str
@@ -45,14 +43,14 @@ def matchWavelet(chromosome: str,
     :type values: npt.NDArray[np.float64]
     :param templateNames: List of wavelet template names to use for matching.
     :type templateNames: List[str]
-    :param cascadeLevels: List of cascade levels for each wavelet template.
+    :param cascadeLevels: List of 'levels' 
     :type cascadeLevels: List[int]
-    :param iters: Number of random blocks to sample while building the empirical distribution of block maxima.
+    :param iters: Number of random blocks to sample while building the empirical distribution.
     :type iters: int
     :param alpha: Significance level for thresholding the response sequence.
     :type alpha: float
 
-    :seealso: :func:`cconsenrich.csampleBlockStats`, :class:`core.matchingParams`
+    :seealso: :func:`cconsenrich.csampleBlockStats`, :class:`consenrich.core.matchingParams`
     """
     randSeed_: int = int(randSeed)
     intervalLengthBP = intervals[1] - intervals[0]

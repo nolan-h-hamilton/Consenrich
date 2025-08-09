@@ -18,15 +18,14 @@ Consenrich
    :width: 85%
    :align: center
 
-Methodologically, Consenrich employs a state-space representation of quantitative genomic signals across discrete genomic intervals.
+Methodologically, Consenrich employs a state-space representation to estimate relevant signals at successive, discrete intervals.
 
 Critical but often-overlooked aspects are treated explicitly. Namely, Consenrich models
 
 #. *Sample-specific* and *region-specific* noise across the genome, addressing both technical and biological sources that corrupt sequencing data.
 #.  Signal and variance propagation to account for spatial dependencies in genome-wide sequencing data.
 
-A corresponding manuscript preprint is available on `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_.
-
+A preprint is available on `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_.
 
 
 Usage
@@ -317,6 +316,13 @@ Genomic resources and constants: `consenrich.constants`
 
 .. autofunction:: consenrich.constants.resolveGenomeName
 
+(Experimental) matching: `consenrich.matching`
+-----------------------------------------------------------
+.. toctree::
+   :maxdepth: 1
+   :caption: matching
+
+.. autofunction:: consenrich.matching.matchWavelet
 
 Cython functions: `consenrich.cconsenrich`
 -------------------------------------------
@@ -324,7 +330,7 @@ Cython functions: `consenrich.cconsenrich`
    :maxdepth: 1
    :caption: cconsenrich
 
-Several functions are implemented in Cython for efficiency in the main loop and during matrix construction.
+Several components are implemented with strong typing/manual memory management in Cython for efficiency.
 
 .. autofunction:: consenrich.cconsenrich.creadBamSegment
 
