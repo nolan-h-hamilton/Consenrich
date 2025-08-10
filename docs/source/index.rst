@@ -8,7 +8,7 @@ Consenrich
 =========================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Contents
 
 `Consenrich <https://github.com/nolan-h-hamilton/Consenrich>`_ estimates genome-wide regulatory signals 'hidden' in *noisy, multi-sample HTS datasets*.
@@ -18,15 +18,14 @@ Consenrich
    :width: 85%
    :align: center
 
-Methodologically, Consenrich employs a state-space representation to estimate relevant signals at successive, discrete intervals.
-
-Critical but often-overlooked aspects are treated explicitly. Namely, Consenrich models
+Consenrich explicitly models critical but often-overlooked aspects in genomic signal quantification:
 
 #. *Sample-specific* and *region-specific* noise across the genome, addressing both technical and biological sources that corrupt sequencing data.
 #.  Signal and variance propagation to account for spatial dependencies in genome-wide sequencing data.
 
-A preprint is available on `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_.
+These refinements grant immediate practical appeal to a wide array of downstream tasks requiring quantitative, uncertainty-calibrated analysis of shared regulatory signals.
 
+A manuscript preprint is available on `bioRxiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_.
 
 Usage
 --------------------------
@@ -35,14 +34,12 @@ Usage
    :maxdepth: 2
    :caption: Usage
 
-A brief but nontrivial analysis is carried out below for demonstration.
-
-Publicly available data from ENCODE (H3K27ac ChIP-seq data) is used in this analysis.
+A brief but nontrivial analysis using H3K27ac ChIP-seq data is carried out below for demonstration.
 
 Input Data
 ~~~~~~~~~~~~~~
 
-The input dataset consists of four donors' treatment and control epidermal samples.
+The input dataset consists of four donors' treatment and control epidermal samples from ENCODE.
 
 .. list-table:: Input Data
    :header-rows: 1
@@ -217,7 +214,7 @@ API Reference
 =========================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Modules
 
 
@@ -322,7 +319,62 @@ Matching: `consenrich.matching`
    :maxdepth: 1
    :caption: matching
 
+(*Experimental*). Detect genomic regions showing both **enrichment** and **non-random structure** in multiple samples.
+
+We detect 'structured enrichment' in the cross-correlation between the Consenrich signal and a downsampled discrete wavelet template (unit-norm'd)
+Local maxima of the 'response' are tested for significance (non-parametric) using an empirical, approximated null distribution to control false positives.
+
+Verifying enrichment *and* structure offers two interesting benefits:
+
+#. Targeted detection of biologically relevant features which may exhibit distinct spatial patterns in a given assay, e.g., `Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_
+#. Improved confidence that the matched, peak-like regions are *not* due to stochastic noise which is characteristically *unstructured*.
+
+- Denote the sequence of Consenrich signal estimates,
+
+.. math::
+
+   \widetilde{\mathbf{x}} = \{\widetilde{x}_{[i]}\}_{i=1}^{i=n}
+
+- Define a *template* for matching as,
+
+.. math::
+
+   \boldsymbol{\xi} = \{\xi_{[t]}\}_{t=1}^{t=T}
+
+which we define using downsampled discrete wavelet functions (`Cascade algorithm <https://en.wikipedia.org/wiki/Cascade_algorithm>`_). These provide a flexible, multi-resolution representation allowing for effective matching at different scales. Note that the template is unit-normalized in the default implementation.
+
+- Define the *response sequence* as the convolution of the signal estimates with the (reversed) template:
+
+.. math::
+
+   \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \ast \boldsymbol{\xi}^{\textsf{rev}}
+
+
+At genomic interval :math:`i \in \{1, \ldots, n\}`, a 'match' is declared if the following hold:
+
+- :math:`\mathcal{R}_{[i]}` is a relative maximum within a window defined by the template length :math:`T`.
+- :math:`\mathcal{R}_{[i]}` exceeds a significance cutoff determined by the :math:`1 - \alpha` quantile of an approximated null distribution (See :func:`cconsenrich.csampleBlockStats`).
+- *Optional*: The *signal* value at the response-maximum is above `minSignalAtMaxima`.
+
+Pattern matching can be introduced in the Usage Demo by adding the following to the YAML config file:
+
+.. code-block:: yaml
+    :name: demoMatchingParameters
+
+    matchingParams.templateNames: [db2]
+    matchingParams.cascadeLevels: [1]
+    matchingParams.iters: 25_000
+    matchingParams.alpha: 0.01
+
+In the IGV browser image below, matches are displayed as blue BED features (peak-like) above the Consenrich signal track. Note, this is the same dataset as in *Usage*.
+
+.. image:: ../images/matchingDemo.png
+   :alt: Localization in multi-sample H3K27ac ChIP-seq data
+   :width: 85%
+   :align: center
+
 .. autofunction:: consenrich.matching.matchWavelet
+
 
 Cython functions: `consenrich.cconsenrich`
 -------------------------------------------

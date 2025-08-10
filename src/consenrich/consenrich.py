@@ -261,11 +261,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         'matchingArgs': core.matchingParams(
             templateNames=config.get('matchingParams.templateNames', []),
-            cascadeLevels=config.get('matchingParams.cascadeLevels', []),
-            iters=config.get('matchingParams.iters', 10_000),
+            cascadeLevels=config.get('matchingParams.cascadeLevels', [1]),
+            iters=config.get('matchingParams.iters', 25_000),
             alpha=config.get('matchingParams.alpha', 0.01),
             minMatchLengthBP=config.get('matchingParams.minMatchLengthBP', None),
-            maxNumMatches=config.get('matchingParams.maxNumMatches', 100_000),
+            maxNumMatches=config.get('matchingParams.maxNumMatches', 25_000),
             minSignalAtMaxima=config.get('matchingParams.minSignalAtMaxima', None))
     }
 

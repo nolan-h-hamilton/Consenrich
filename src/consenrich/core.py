@@ -119,7 +119,7 @@ class stateParams(NamedTuple):
 
     :param stateInit: Initial (primary) state estimate at the first genomic interval: :math:`x_{[1]}`
     :type stateInit: float
-    :param stateCovarInit: Initial state covariance (covariance) scale. The state uncertainty :math:`\mathbf{P_{[1]}}` is a multiple of :math:`\mathbf{I}_2`
+    :param stateCovarInit: Initial state covariance (covariance) scale. Note, the *initial* state uncertainty :math:`\mathbf{P}_{[1]}` is a multiple of the identity matrix :math:`\mathbf{I}`
     :type stateCovarInit: float
     :param: boundState: If True, the primary state estimate for :math:`x_{[i]}` is constrained within `stateLowerBound` and `stateUpperBound`.
     """
@@ -224,19 +224,11 @@ class countingParams(NamedTuple):
 
 
 class matchingParams(NamedTuple):
-    r"""Parameters related the (experimental) pattern matching routine.
+    r"""Parameters related to the (experimental) pattern matching routine packaged with this software.
 
-    :param templateNames: List of wavelet template names to use for matching, e.g. `[haar, db2, coif4]`
-    :type templateNames: List[str]
-    :param cascadeLevels: List of 'levels' (cascade) used for each template name, e.g., `[1, 1, 1]`
-    :type cascadeLevels: List[int]
-    :param iters: Number of random blocks to sample while building the empirical distribution.
-    :type iters: int
-    :param alpha: Significance level for thresholding the response sequence.
-    :type alpha: float
-    :param minMatchLength: Minimum length around response maxima to qualify matches.
-    :type minMatchLength: int
+    See :func:`consenrich.matching.matchWavelet` and :func:`cconsenrich.csampleBlockStats` for implementation.
     """
+
     templateNames: List[str]
     cascadeLevels: List[int]
     iters: int
