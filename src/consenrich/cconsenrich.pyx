@@ -249,7 +249,7 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     return values
 
 
-cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(muncMatrixIter, priorCovarianceOO):
+cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixIter, cnp.float32_t priorCovarianceOO):
     r"""Invert the residual covariance matrix during the forward pass.
 
     :param muncMatrixIter: The diagonal elements of the covariance matrix at a given genomic interval.
@@ -262,14 +262,14 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(muncMatrixIter, priorCov
 
     cdef int m = muncMatrixIter.size
     # we have to invert a P.D. covariance (diagonal) and rank-one (1*priorCovariance) matrix
-    cdef cnp.ndarray[cnp.float64_t, ndim=2] inverse = np.empty((m, m), dtype=np.float64)
+    cdef cnp.ndarray[cnp.float32_t, ndim=2] inverse = np.empty((m, m), dtype=np.float32)
     # note, not actually an m-dim matrix, just the diagonal elements taken as input
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] muncMatrixInverse = np.empty(m, dtype=np.float64)
-    cdef double sqrtPrior = sqrt(priorCovarianceOO)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] uVec = np.empty(m, dtype=np.float64)
-    cdef double divisor = 1.0
-    cdef double scale
-    cdef double uVecI
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixInverse = np.empty(m, dtype=np.float32)
+    cdef float sqrtPrior = sqrt(priorCovarianceOO)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] uVec = np.empty(m, dtype=np.float32)
+    cdef float divisor = 1.0
+    cdef float scale
+    cdef float uVecI
     cdef Py_ssize_t i, j
     for i in range(m):
         # two birds: build up the trace while taking the reciprocals
@@ -287,7 +287,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(muncMatrixIter, priorCov
         for j in range(i + 1, m):
             inverse[i, j] = -scale * (uVecI*uVec[j])
             inverse[j, i] = inverse[i, j]
-    return inverse
+    return inverse.astype(np.float64, copy=False)
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetStateCovarTrace(stateCovarMatrices):

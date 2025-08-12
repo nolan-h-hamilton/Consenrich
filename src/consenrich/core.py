@@ -940,7 +940,7 @@ def getSparseMap(chromosome: str,
     :rtype: dict[int, np.ndarray]
 
     """
-    numNearest = numNearest
+    numNearest = numNearest//2
     sparseStarts = sparseIntersection(chromosome, intervals, sparseBedFile)
     idxSparseInIntervals = np.searchsorted(intervals, sparseStarts, side="left")
     centers = np.searchsorted(sparseStarts, intervals, side="left")
@@ -949,7 +949,5 @@ def getSparseMap(chromosome: str,
         left  = max(0, center - numNearest)
         right = min(len(sparseStarts), center + numNearest)
         candidates = np.arange(left, right)
-        dists = np.abs(sparseStarts[candidates] - interval)
-        take = np.argpartition(dists, numNearest)[:numNearest]
-        sparseMap[i] = idxSparseInIntervals[candidates[take]]
+        sparseMap[i] = idxSparseInIntervals[candidates]
     return sparseMap

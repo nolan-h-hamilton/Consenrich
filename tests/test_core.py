@@ -74,8 +74,8 @@ def testResidualCovarianceInversion():
     priorCovarianceOO= 0.1
     residCovar = np.diag(muncMatrixIter) + (np.ones((m,m))*priorCovarianceOO)
 
-    invertedMatrix = cconsenrich.cinvertMatrixE(muncMatrixIter,
-    priorCovarianceOO)
+    invertedMatrix = cconsenrich.cinvertMatrixE(muncMatrixIter.astype(np.float32),
+    np.float32(priorCovarianceOO))
     np.testing.assert_allclose(invertedMatrix@residCovar, np.eye(m),
     atol=1e-8)
 
