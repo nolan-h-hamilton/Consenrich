@@ -287,22 +287,24 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
         logger.warning(f"\n{warningMessage}\n")
         return
     logger.info(f"Using bedGraphToBigWig from {path_}")
-
     for suffix in suffixes:
         bedgraph = f'consenrichOutput_{experimentName}_{suffix}.bedGraph'
         if not os.path.exists(bedgraph):
-            logger.warning(f"bedGraph file {bedgraph} does not exist. Skipping sorting + bigWig conversion.")
+            logger.warning(f"bedGraph file {bedgraph} does not exist. Skipping bigWig conversion.")
             continue
         if not os.path.exists(chromSizesFile):
-            logger.warning(f"{chromSizesFile} does not exist. Skipping sorting + bigWig conversion.")
+            logger.warning(f"{chromSizesFile} does not exist. Skipping bigWig conversion.")
+            return
+        bigwig = f"{experimentName}_consenrich_{suffix}.bw"
+        logger.info(f'Start: {bedgraph} --> {bigwig}...')
+        try:
+            subprocess.run(
+                [path_, bedgraph, chromSizesFile, bigwig], check=True)
+        except Exception as e:
+            logger.warning(f"Failed to convert {bedgraph} to {bigwig}:\n{e}\n")
             continue
-        sorted_bedgraph = bedgraph.replace('.bedGraph', '_sorted.bedGraph')
-        bigwig = f'{experimentName}_consenrich_{suffix}.bw'
-        subprocess.run(['sort', '-k1,1', '-k2,2n', bedgraph, '-o', sorted_bedgraph], check=True)
-        subprocess.run([path_, sorted_bedgraph, chromSizesFile, bigwig], check=True)
         if os.path.exists(bigwig) and os.path.getsize(bigwig) > 100:
-            os.remove(sorted_bedgraph)
-            logger.info(f"Converted {bedgraph} to {bigwig}.")
+            logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
 
 
 def main():
@@ -404,7 +406,7 @@ def main():
         chromosomeEnd = max(0, (chromosomeEnd - (chromosomeEnd % stepSize)))
         intervals = np.arange(chromosomeStart, chromosomeEnd + stepSize, stepSize)
 
-        chromMat: np.ndarray = np.empty((numSamples, len(intervals)), dtype=np.float64)
+        chromMat: np.ndarray = np.empty((numSamples, len(intervals)), dtype=np.float32)
         if controlsPresent:
             j_: int = 0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
@@ -433,7 +435,7 @@ def main():
             logger.info(f"Building sparse mapping for {chromosome}...")
             sparseMap = core.getSparseMap(chromosome, intervals, numNearest, genomeArgs.sparseBedFile)
 
-        muncMat = np.empty_like(chromMat, dtype=np.float64)
+        muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
             logger.info(f"Muncing {j+1}/{numSamples} for {chromosome}...")
             muncMat[j, :] = core.getMuncTrack(

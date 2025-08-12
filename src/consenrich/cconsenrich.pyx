@@ -49,7 +49,7 @@ cpdef uint64_t cgetFirstChromRead(str bamFile, str chromosome, uint64_t chromLen
 
     cdef AlignmentFile aln = AlignmentFile(bamFile, 'rb', threads=samThreads)
     cdef AlignedSegment read
-    for read in aln.fetch(contig=chromosome, start=0, stop=chromLength):
+    for read in aln.fetch(contig=chromosome, start=0, end=chromLength):
         if not (read.flag & samFlagExclude):
             aln.close()
             return read.reference_start
@@ -249,15 +249,15 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     return values
 
 
-cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixIter, cnp.float32_t priorCovarianceOO):
+cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixIter, cnp.float32_t priorCovarianceOO):
     r"""Invert the residual covariance matrix during the forward pass.
 
     :param muncMatrixIter: The diagonal elements of the covariance matrix at a given genomic interval.
-    :type muncMatrixIter: cnp.ndarray[cnp.float64_t, ndim=1]
+    :type muncMatrixIter: cnp.ndarray[cnp.float32_t, ndim=1]
     :param priorCovarianceOO: The a priori 'primary' state variance :math:`P_{[i|i-1,11]}`.
-    :type priorCovarianceOO: cnp.float64_t
+    :type priorCovarianceOO: cnp.float32_t
     :return: The inverted covariance matrix.
-    :rtype: cnp.ndarray[cnp.float64_t, ndim=2]
+    :rtype: cnp.ndarray[cnp.float32_t, ndim=2]
     """
 
     cdef int m = muncMatrixIter.size
@@ -287,7 +287,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(cnp.ndarray[cnp.float32_
         for j in range(i + 1, m):
             inverse[i, j] = -scale * (uVecI*uVec[j])
             inverse[j, i] = inverse[i, j]
-    return inverse.astype(np.float64, copy=False)
+    return inverse
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetStateCovarTrace(stateCovarMatrices):
@@ -325,15 +325,15 @@ cpdef cgetPrecisionWeightedResidual(postFitResiduals,
     return precisionWeightedResidual
 
 
-cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float64_t, ndim=2] matrixQ,
-        cnp.ndarray[cnp.float64_t, ndim=2] matrixQCopy,
-        double dStat,
-        double dStatAlpha,
-        double dStatd,
-        double dStatPC,
+cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matrixQ,
+        cnp.ndarray[cnp.float32_t, ndim=2] matrixQCopy,
+        float dStat,
+        float dStatAlpha,
+        float dStatd,
+        float dStatPC,
         bint inflatedQ,
-        double maxQ,
-        double minQ):
+        float maxQ,
+        float minQ):
     r"""Adjust process noise covariance matrix :math:`\mathbf{Q}_{[i]}`
 
     :param matrixQ: Current process noise covariance
@@ -343,7 +343,7 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float64_t, ndim=2] matr
     :rtype: tuple
     """
 
-    cdef double scaleQ, fac
+    cdef float scaleQ, fac
     if dStat > dStatAlpha:
         scaleQ = sqrt(dStatd * fabs(dStat-dStatAlpha) + dStatPC)
         if matrixQ[0, 0] * scaleQ <= maxQ:
@@ -374,7 +374,7 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float64_t, ndim=2] matr
             matrixQ[1, 0] = matrixQCopy[1, 0] * fac
             matrixQ[1, 1] = minQ
             inflatedQ = False
-    return np.asarray(matrixQ), inflatedQ
+    return matrixQ, inflatedQ
 
 
 cdef void _blockMax(double[::1] valuesView,
@@ -437,7 +437,7 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
     return out
 
 
-def cSparseAvg(float[::1] trackALV, dict sparseMap):
+def cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
     r"""Fast access and average of `numNearest` sparse elements.
 
     See :func:`consenrich.core.getMuncTrack`
