@@ -313,8 +313,8 @@ Genomic resources and constants: `consenrich.constants`
 
 .. autofunction:: consenrich.constants.resolveGenomeName
 
-Matching: `consenrich.matching`
------------------------------------------------------------
+Detecting *structured enrichment* with `consenrich.matching`
+-----------------------------------------------------------------------
 .. toctree::
    :maxdepth: 1
    :caption: matching
@@ -362,7 +362,7 @@ Pattern matching can be introduced in the Usage Demo by adding the following to 
     :name: demoMatchingParameters
 
     matchingParams.templateNames: [db2]
-    matchingParams.cascadeLevels: [1]
+    matchingParams.cascadeLevels: [2]
     matchingParams.iters: 25_000
     matchingParams.alpha: 0.01
 
@@ -372,6 +372,18 @@ In the IGV browser image below, matches are displayed as blue BED features (peak
    :alt: Localization in multi-sample H3K27ac ChIP-seq data
    :width: 85%
    :align: center
+
+.. note::
+
+   Rather than applying the *structured enrichment* matching technique, more traditional (consensus) peak calling on Consenrich signal track output can be performed using any peak caller that accepts bedGraph and/or bigWig input, e.g., `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_,
+
+   ``rocco -i <ConsenrichOutput.bw> -g <genomeName> [...]``
+
+   Other peak callers accepting bedGraph or bigWig input may be plausible downstream companions to Consenrich, too (e.g., `MACS bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_)
+
+   - To penalize uncertainty during peak calling, users may consider incorporating Consenrich signals' uncertainty metrics into the peak calling process.
+
+     - For instance, consider scaling the state estimates, :func:`consenrich.core.getPrimaryState`, with inverse weights from absolute values of :func:`consenrich.core.getPrecisionWeightedResidual` and/or :func:`consenrich.core.getStateCovarTrace`. If not using the API, the output bigWig files (state, residuals) can be operated on using `deeptools bigWigCompare <https://deeptools.readthedocs.io/en/latest/content/tools/bigwigCompare.html>`_
 
 .. autofunction:: consenrich.matching.matchWavelet
 

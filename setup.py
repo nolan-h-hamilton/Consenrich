@@ -20,12 +20,18 @@ extensions = [
         sources=["src/consenrich/cconsenrich.pyx"],
         include_dirs=get_includes(),
         libraries=pysam.get_libraries(),
+        extra_compile_args=[
+            "-O3",
+            "-fno-trapping-math",
+            "-fno-math-errno",
+            "-mtune=generic",
+        ],
     )
 ]
 
 setup(
     name="consenrich",
-    version="0.4.0b2",
+    version="0.4.0b3",
     packages=find_packages(where="src"),
     include_package_data=True,
     package_dir={"": "src"},

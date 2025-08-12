@@ -74,8 +74,8 @@ def testResidualCovarianceInversion():
     priorCovarianceOO= 0.1
     residCovar = np.diag(muncMatrixIter) + (np.ones((m,m))*priorCovarianceOO)
 
-    invertedMatrix = cconsenrich.cinvertMatrixE(muncMatrixIter,
-    priorCovarianceOO)
+    invertedMatrix = cconsenrich.cinvertMatrixE(muncMatrixIter.astype(np.float32),
+    np.float32(priorCovarianceOO))
     np.testing.assert_allclose(invertedMatrix@residCovar, np.eye(m),
     atol=1e-8)
 
@@ -93,11 +93,11 @@ def testProcessNoiseAdjustment():
     dStatPC = 1.0
     inflatedQ = False
 
-    matrixQ = np.array([[minQ, offDiag], [offDiag, minQ]])
+    matrixQ = np.array([[minQ, offDiag], [offDiag, minQ]], dtype=np.float32)
     matrixQCopy = matrixQ.copy()
-    vectorY = (np.random.normal(0, 15, size=m))
-    dStat = np.mean(vectorY**2)
-    dStatDiff = np.sqrt(np.abs(dStat - dStatAlpha)*dStatd + dStatPC)
+    vectorY = (np.random.normal(0, 15, size=m)).astype(np.float32)
+    dStat = np.mean(vectorY**2).astype(np.float32)
+    dStatDiff = np.float32(np.sqrt(np.abs(dStat - dStatAlpha)*dStatd + dStatPC))
 
     matrixQ, inflatedQ = cconsenrich.updateProcessNoiseCovariance(matrixQ,
     matrixQCopy,
