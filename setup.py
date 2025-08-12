@@ -24,7 +24,7 @@ extensions = [
             "-O3",
             "-fno-trapping-math",
             "-fno-math-errno",
-            "-march=native",
+            "-mtune=generic",
         ],
     )
 ]

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# cython: boundscheck=False, wraparound=False, cdivision=True, language_level=3, nonecheck=False
+# cython: boundscheck=False, wraparound=False, cdivision=True, nonecheck=False, initializedcheck=False
 r"""Cython module for Consenrich core functions.
 
 This module contains Cython implementations of core functions used in Consenrich.
