@@ -238,6 +238,12 @@ class matchingParams(NamedTuple):
     minSignalAtMaxima: Optional[float]
 
 
+def _numIntervals(start: int, end: int, step: int) -> int:
+    # helper for consistency
+    length = max(0, end - start)
+    return (length + step) // step
+
+
 def getChromRanges(
     bamFile: str,
     chromosome: str,
@@ -356,7 +362,7 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
             oneReadPerBin: int,
             samThreads: int,
             samFlagExclude: int,
-            offsetStr: Optional[str] = "0,0") -> npt.NDArray[np.float64]:
+            offsetStr: Optional[str] = "0,0") -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
     See :func:`cconsenrich.creadBamSegment` for the underlying implementation in Cython.
@@ -381,15 +387,32 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
     :type offsetStr: str
     """
 
-    offsetStr = str(offsetStr).replace(' ', '')
-    if offsetStr == "":
-        offsetStr = "0,0"
-    counts: np.ndarray = np.empty((len(bamFiles), (end - start) // stepSize + 1), dtype=np.float64)
-    for j in range(len(bamFiles)):
-        logger.info(f"Reading {chromosome}: {bamFiles[j]}")
-        counts[j,:] = scaleFactors[j]  * np.array(cconsenrich.creadBamSegment(bamFiles[j],
-                            chromosome, start, end, stepSize, readLengths[j],
-                            oneReadPerBin, samThreads, samFlagExclude, offsetStr), dtype=np.float64)
+    if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
+        raise ValueError(
+            "readLengths and scaleFactors must match bamFiles length"
+        )
+
+    offsetStr = (str(offsetStr) or "0,0").replace(" ", "")
+    numIntervals = _numIntervals(start, end, stepSize)
+
+    counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
+    for j, bam in enumerate(bamFiles):
+        logger.info(f"Reading {chromosome}: {bam}")
+        arr = cconsenrich.creadBamSegment(
+            bam,
+            chromosome,
+            start,
+            end,
+            stepSize,
+            readLengths[j],
+            oneReadPerBin,
+            samThreads,
+            samFlagExclude,
+            offsetStr,
+        )
+        counts[j, :] = arr
+        counts[j, :] *= np.float32(scaleFactors[j])
+
     return counts
 
 
@@ -398,7 +421,7 @@ def getAverageLocalVarianceTrack(values: np.ndarray,
                                   approximationWindowLengthBP: int,
                                   lowPassWindowLengthBP: int,
                                   minR: float,
-                                  maxR: float) -> npt.NDArray[np.float64]:
+                                  maxR: float) -> npt.NDArray[np.float32]:
     r"""Approximate local noise levels in a segment using an ALV approach.
 
     First, computes a segment-length simple moving average of `values` with a
@@ -429,17 +452,14 @@ def getAverageLocalVarianceTrack(values: np.ndarray,
     if len(values)< 3:
         constVar = np.var(values)
         if constVar < minR:
-            return np.full_like(values, minR)
-        return np.full_like(values, constVar)
-
-    # symmetric, box
-    window_: npt.NDArray[np.float64] = np.ones(windowLength) / windowLength
+            return np.full_like(values, minR, dtype=np.float32)
+        return np.full_like(values, constVar, dtype=np.float32)
 
     # first get a simple moving average of the values
-    localMeanTrack: npt.NDArray[np.float64] = signal.fftconvolve(values, window_, 'same')
+    localMeanTrack: npt.NDArray[np.float64] = ndimage.uniform_filter(values, size=windowLength, mode='nearest')
 
     #  ~ E[X_i^2] - E[X_i]^2 ~
-    localVarTrack: npt.NDArray[np.float64] = signal.fftconvolve(values**2, window_, 'same')\
+    localVarTrack: npt.NDArray[np.float64] = ndimage.uniform_filter(values**2, size=windowLength, mode='nearest')\
         - localMeanTrack**2
 
     # safe-guard: difference of convolutions returns negative values.
@@ -454,7 +474,7 @@ def getAverageLocalVarianceTrack(values: np.ndarray,
 
     noiseLevel: npt.NDArray[np.float64] = ndimage.median_filter(localVarTrack, size=lpassWindowLength)
 
-    return np.clip(noiseLevel, minR, maxR)
+    return np.clip(noiseLevel, minR, maxR).astype(np.float32)
 
 
 def constructMatrixF(deltaF: float) -> npt.NDArray[np.float64]:
@@ -514,8 +534,8 @@ def constructMatrixH(m: int, coefficients: Optional[np.ndarray] = None) -> npt.N
 
 
 def runConsenrich(
-        matrixData: npt.NDArray[np.float64],
-        matrixMunc: npt.NDArray[np.float64],
+        matrixData: np.ndarray,
+        matrixMunc: np.ndarray,
         deltaF: float,
         minQ: float,
         maxQ: float,
@@ -533,7 +553,7 @@ def runConsenrich(
         coefficientsH: Optional[npt.NDArray[np.float64]]=None,
         residualCovarInversionFunc: Optional[Callable] = None,
         adjustProcessNoiseFunc: Optional[Callable] = None,
-        ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.float32]]:
     r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
     Completes the forward and backward passes given data and approximated observation noise
     covariance matrices :math:`\mathbf{R}_{[1:n, (11:mm)]}`.
@@ -585,6 +605,8 @@ def runConsenrich(
 
     :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
     """
+    matrixData = matrixData.astype(np.float32)
+    matrixMunc = matrixMunc.astype(np.float32)
     m: int = 1 if matrixData.ndim == 1 else matrixData.shape[0]
     n: int = 1 if matrixData.ndim == 1 else matrixData.shape[1]
     scaleQ: float = 1.0
@@ -612,15 +634,15 @@ def runConsenrich(
     # forward: 0,1,2,...,n-1
     # ==========================
     stateForward = np.memmap(
-        NamedTemporaryFile(delete=True), dtype=np.float64,
+        NamedTemporaryFile(delete=True), dtype=np.float32,
         mode='w+',
         shape=(n,2))
     stateCovarForward = np.memmap(
-        NamedTemporaryFile(delete=True), dtype=np.float64,
+        NamedTemporaryFile(delete=True), dtype=np.float32,
         mode='w+',
         shape=(n, 2, 2))
     pNoiseForward = np.memmap(
-        NamedTemporaryFile(delete=True), dtype=np.float64,
+        NamedTemporaryFile(delete=True), dtype=np.float32,
         mode='w+',
         shape=(n, 2, 2))
 
@@ -632,7 +654,7 @@ def runConsenrich(
         matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
         vectorY = vectorZ - (matrixH @ vectorX)
 
-        matrixEInverse = residualCovarInversionFunc(matrixMunc[:, i], float(matrixP[0, 0]))
+        matrixEInverse = residualCovarInversionFunc(matrixMunc[:, i], np.float32(matrixP[0, 0]))
         dStat = np.median((vectorY**2) * np.diag(matrixEInverse))
         matrixQ, inflatedQ = adjustProcessNoiseFunc(
             matrixQ,
@@ -648,12 +670,13 @@ def runConsenrich(
         matrixK = (matrixP @ matrixH.T) @ matrixEInverse
         IKH[0][0] = 1.0 - (matrixK[0,:] @ vectorH)
         IKH[1][0] = -matrixK[1,:] @ vectorH
+        IKH[1][1] = 1.0
 
         vectorX = vectorX + (matrixK @ vectorY)
         matrixP = (IKH) @ matrixP @ (IKH).T + (matrixK * matrixMunc[:, i]) @ matrixK.T
-        stateForward[i] = vectorX
-        stateCovarForward[i] = matrixP
-        pNoiseForward[i] = matrixQ
+        stateForward[i] = vectorX.astype(np.float32)
+        stateCovarForward[i] = matrixP.astype(np.float32)
+        pNoiseForward[i] = matrixQ.astype(np.float32)
 
         if i % chunkSize == 0 and i > 0:
             stateForward.flush()
@@ -663,35 +686,35 @@ def runConsenrich(
     stateForward.flush()
     stateCovarForward.flush()
     pNoiseForward.flush()
-    stateForwardArr = stateForward[:]
-    stateCovarForwardArr = stateCovarForward[:]
-    pNoiseForwardArr = pNoiseForward[:]
+    stateForwardArr = stateForward
+    stateCovarForwardArr = stateCovarForward
+    pNoiseForwardArr = pNoiseForward
 
     # ==========================
     # backward: n,n-1,n-2,...,0
     # ==========================
     stateSmoothed = np.memmap(
         NamedTemporaryFile(delete=True),
-        dtype=np.float64,
+        dtype=np.float32,
         mode="w+",
         shape=(n, 2)
         )
     stateCovarSmoothed = np.memmap(
         NamedTemporaryFile(delete=True),
-        dtype=np.float64,
+        dtype=np.float32,
         mode="w+",
         shape=(n, 2, 2)
     )
     postFitResiduals = np.memmap(
         NamedTemporaryFile(delete=True),
-        dtype=np.float64,
+        dtype=np.float32,
         mode="w+",
         shape=(n,m)
     )
 
-    stateSmoothed[-1] = stateForwardArr[-1]
-    stateCovarSmoothed[-1] = stateCovarForwardArr[-1]
-    postFitResiduals[-1] = matrixData[:, -1] - (matrixH @ stateSmoothed[-1])
+    stateSmoothed[-1] = np.float32(stateForwardArr[-1])
+    stateCovarSmoothed[-1] = np.float32(stateCovarForwardArr[-1])
+    postFitResiduals[-1] = np.float32(matrixData[:, -1] - (matrixH @ stateSmoothed[-1]))
 
     for k in range(n - 2, -1, -1):
         if k % progressIter == 0:
@@ -702,13 +725,11 @@ def runConsenrich(
         backwardInitialCovariance = matrixF @ forwardCovariancePosterior @ matrixF.T + pNoiseForwardArr[k + 1]
 
         smootherGain = np.linalg.solve(backwardInitialCovariance.T, (forwardCovariancePosterior @ matrixF.T).T).T
-        stateSmoothed[k] = (forwardStatePosterior
-        + smootherGain @ (stateSmoothed[k + 1] - backwardInitialState))
+        stateSmoothed[k] = (forwardStatePosterior + smootherGain @ (stateSmoothed[k + 1] - backwardInitialState)).astype(np.float32)
 
         stateCovarSmoothed[k] = (forwardCovariancePosterior
-                                + smootherGain @ (stateCovarSmoothed[k + 1] - backwardInitialCovariance) @ smootherGain.T)
-
-        postFitResiduals[k] = matrixData[:, k] - matrixH @ stateSmoothed[k]
+                                + smootherGain @ (stateCovarSmoothed[k + 1] - backwardInitialCovariance) @ smootherGain.T).astype(np.float32)
+        postFitResiduals[k] = np.float32(matrixData[:, k] - matrixH @ stateSmoothed[k])
 
         if k % chunkSize == 0 and k > 0:
             stateSmoothed.flush()
@@ -719,11 +740,9 @@ def runConsenrich(
     stateCovarSmoothed.flush()
     postFitResiduals.flush()
     if boundState:
-        stateSmoothed[:,0] = np.clip(stateSmoothed[:,0], stateLowerBound, stateUpperBound)
-    stateSmoothedArr = stateSmoothed[:]
-    stateCovarSmoothedArr = stateCovarSmoothed[:]
-    postFitResidualsArr = postFitResiduals[:]
-    return stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr
+        stateSmoothed[:,0] = np.clip(stateSmoothed[:,0], stateLowerBound, stateUpperBound).astype(np.float32)
+
+    return stateSmoothed[:], stateCovarSmoothed[:], postFitResiduals[:]
 
 
 def getPrimaryState(stateVectors: npt.NDArray[np.float64], roundPrecision: int = 3) -> npt.NDArray[np.float64]:
@@ -785,7 +804,7 @@ def getMuncTrack(chromosome: str,
         approximationWindowLengthBP: int,
         lowPassWindowLengthBP: int,
         returnCenter: bool,
-        sparseMap: Optional[dict[int, int]] = None) -> npt.NDArray[np.float64]:
+        sparseMap: Optional[dict[int, int]] = None) -> npt.NDArray[np.float32]:
     r"""Get observation noise variance :math:`R_{[:,jj]}` for the sample :math:`j`.
 
     :param chromosome: Tracks are approximated for this chromosome.
@@ -819,26 +838,25 @@ def getMuncTrack(chromosome: str,
     :rtype: npt.NDArray[np.float64]
 
     """
-    trackALV: npt.NDArray[np.float64] = getAverageLocalVarianceTrack(rowValues,
+    trackALV  = getAverageLocalVarianceTrack(rowValues,
                                       stepSize,
                                       approximationWindowLengthBP,
                                       lowPassWindowLengthBP,
                                       minR,
-                                      maxR
-                                    )
+                                      maxR).astype(np.float32)
 
-    globalNoise: float = np.mean(trackALV)
+    globalNoise: float = np.float32(np.mean(trackALV))
     if noGlobal or globalWeight == 0 or useALV:
-        return np.clip(trackALV, minR, maxR)
+        return np.clip(trackALV, minR, maxR).astype(np.float32)
 
     if useConstantNoiseLevel or localWeight == 0 and sparseMap is None:
-        return np.clip(globalNoise * np.ones_like(rowValues), minR, maxR)
+        return np.clip(globalNoise * np.ones_like(rowValues), minR, maxR).astype(np.float32)
 
     if sparseMap is not None:
         trackALV = cconsenrich.cSparseAvg(trackALV, sparseMap)
 
     return np.clip(trackALV*localWeight + np.mean(trackALV)*globalWeight,
-                   minR, maxR)
+                   minR, maxR).astype(np.float32)
 
 
 def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: str) -> npt.NDArray[np.int64]:
@@ -932,6 +950,6 @@ def getSparseMap(chromosome: str,
         right = min(len(sparseStarts), center + numNearest)
         candidates = np.arange(left, right)
         dists = np.abs(sparseStarts[candidates] - interval)
-        take = np.argsort(dists)[:numNearest]
+        take = np.argpartition(dists, numNearest)[:numNearest]
         sparseMap[i] = idxSparseInIntervals[candidates[take]]
     return sparseMap

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# cython: boundscheck=False, wraparound=False, cdivision=True, language_level=3
+# cython: boundscheck=False, wraparound=False, cdivision=True, language_level=3, nonecheck=False
 r"""Cython module for Consenrich core functions.
 
 This module contains Cython implementations of core functions used in Consenrich.
@@ -27,7 +27,7 @@ cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
     :return: The adjusted value.
     :rtype: int
     """
-    return max(0, (value - (value % stepSize))) + pushForward*stepSize
+    return max(0, (value-(value % stepSize))) + pushForward*stepSize
 
 
 cpdef uint64_t cgetFirstChromRead(str bamFile, str chromosome, uint64_t chromLength, uint32_t samThreads, int samFlagExclude):
@@ -123,8 +123,15 @@ cpdef uint32_t cgetReadLength(str bamFile, uint32_t minReads, uint32_t samThread
     aln.close()
     if observedReads < minReads:
         return 0
-
     return <uint32_t>np.median(readLengths[:observedReads])
+
+
+cdef inline Py_ssize_t floordiv64(int64_t a, int64_t b) nogil:
+    if a >= 0:
+        return <Py_ssize_t>(a // b)
+    else:
+        return <Py_ssize_t>(- ((-a + b - 1) // b))
+
 
 cpdef cnp.uint32_t[:] creadBamSegment(
     str bamFile,
@@ -137,31 +144,34 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     uint16_t samThreads,
     uint16_t samFlagExclude,
     str offsetStr):
-    r"""Count reads in a BAM file for a given chromosome"""
 
-    cdef Py_ssize_t nBins = ((end - start + stepSize) // stepSize)
-    cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(nBins, dtype=np.uint32)
-    cdef cnp.uint32_t[::1] values = values_np
+    cdef Py_ssize_t numIntervals = ((<int64_t>end - <int64_t>start) + <int64_t>stepSize) // <int64_t>stepSize
+    if numIntervals <= 0:
+        return np.zeros(0, dtype=np.uint32)
+
+    # for range add
+    cdef cnp.ndarray[cnp.int64_t, ndim=1] diff_np = np.zeros(numIntervals + 1, dtype=np.int64)
+    cdef cnp.int64_t[::1] diff = diff_np
     cdef AlignmentFile aln = AlignmentFile(bamFile, 'rb', threads=samThreads)
     cdef AlignedSegment read
     cdef int64_t start64 = start
-    cdef int64_t step64 = stepSize
+    cdef int64_t step64  = stepSize
     cdef Py_ssize_t i, index0, index1, midIndex
-    cdef Py_ssize_t lastIndex = nBins - 1
+    cdef Py_ssize_t lastIndex = numIntervals - 1
     cdef int64_t fwdLeft = 0
     cdef int64_t fwdRight = 0
     cdef int64_t revLeft = 0
     cdef int64_t revRight = 0
 
     cdef object parts = [p.strip() for p in offsetStr.split(',') if p.strip()]
-    if len(parts) == 2 or len(parts) == 0:
-        fwdLeft = revLeft = <int64_t> int(parts[0])
-        fwdRight = revRight = <int64_t> int(parts[1])
+    if len(parts) == 0 or len(parts) == 2:
+        fwdLeft = revLeft = <int64_t>int(parts[0]) if parts else 0
+        fwdRight = revRight = <int64_t>int(parts[1]) if parts else 0
     elif len(parts) == 4:
-        fwdLeft  = <int64_t> int(parts[0])
-        fwdRight = <int64_t> int(parts[1])
-        revLeft  = <int64_t> int(parts[2])
-        revRight = <int64_t> int(parts[3])
+        fwdLeft  = <int64_t>int(parts[0])
+        fwdRight = <int64_t>int(parts[1])
+        revLeft  = <int64_t>int(parts[2])
+        revRight = <int64_t>int(parts[3])
 
     cdef uint16_t flag
     cdef bint isReverse
@@ -172,69 +182,74 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     try:
         if oneReadPerBin == 0 and readLength > stepSize:
             for read in aln.fetch(chromosome, start, end):
-                flag = <uint16_t> read.flag
+                flag = <uint16_t>read.flag
                 if (flag & samFlagExclude) != 0:
                     continue
-
                 isReverse = (flag & 16) != 0
-                rs = <int64_t> read.reference_start
-                re = <int64_t> read.reference_end
+                rs = <int64_t>read.reference_start
+                re = <int64_t>read.reference_end
 
                 if not isReverse:
-                    adjStart = rs + fwdLeft
-                    adjEnd   = re + fwdRight
+                    adjStart = rs+fwdLeft
+                    adjEnd   = re+fwdRight
                 else:
-                    adjStart = rs + revRight
-                    adjEnd   = re - revLeft
-
+                    adjStart = rs+revRight
+                    adjEnd= re- revLeft
                 if adjStart > adjEnd:
+                    # something's wrong...
                     continue
-
-                offsetStart = adjStart - start64
-                offsetEnd   = adjEnd - start64
-
-                index0 = <Py_ssize_t> (offsetStart // step64)
-                index1 = <Py_ssize_t> (offsetEnd   // step64)
-
+                offsetStart = adjStart-start64
+                offsetEnd   = adjEnd-start64
+                index0 = floordiv64(offsetStart, step64)
+                index1 = floordiv64(offsetEnd, step64)
                 if index0 < 0:
                     index0 = 0
                 if index1 > lastIndex:
                     index1 = lastIndex
-
                 if index0 <= index1:
-                    for i in range(index0, index1 + 1):
-                        values[i] += 1
+                    diff[index0] += 1
+                    if index1+1 <= lastIndex:
+                        diff[index1+1] -= 1
         else:
             for read in aln.fetch(chromosome, start, end):
-                flag = <uint16_t> read.flag
+                flag = <uint16_t>read.flag
                 if (flag & samFlagExclude) != 0:
                     continue
-
                 isReverse = (flag & 16) != 0
-                rs = <int64_t> read.reference_start
-                re = <int64_t> read.reference_end
-
+                rs = <int64_t>read.reference_start
+                re = <int64_t>read.reference_end
                 if not isReverse:
-                    adjStart = rs + fwdLeft
-                    adjEnd   = re + fwdRight
+                    adjStart = rs+fwdLeft
+                    adjEnd = re+fwdRight
                 else:
-                    adjStart = rs + revRight
-                    adjEnd   = re - revLeft
-
+                    adjStart = rs+revRight
+                    adjEnd = re-revLeft
                 if adjStart > adjEnd:
                     continue
-
-                midPoint = (adjStart + adjEnd) >> 1
-                midIndex = <Py_ssize_t> ((midPoint - start64) // step64)
-                if 0 <= midIndex < nBins:
-                    values[midIndex] += 1
+                midPoint = (adjStart+adjEnd) >> 1
+                midIndex = floordiv64(midPoint-start64, step64)
+                if 0 <= midIndex <= lastIndex:
+                    diff[midIndex] += 1
+                    if midIndex+1 <= lastIndex:
+                        # handle edge case due to half-open intervals, floor division
+                        diff[midIndex+1] -= 1
     finally:
         aln.close()
 
+
+    cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.empty(numIntervals, dtype=np.uint32)
+    cdef cnp.uint32_t[::1] values = values_np
+    cdef int64_t acc = 0
+    with nogil:
+        for i in range(numIntervals):
+            acc += diff[i]
+            if acc < 0:
+                acc = 0
+            values[i] = <uint32_t>acc
     return values
 
 
-cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(cnp.float64_t[:] muncMatrixIter, double priorCovarianceOO):
+cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(muncMatrixIter, priorCovarianceOO):
     r"""Invert the residual covariance matrix during the forward pass.
 
     :param muncMatrixIter: The diagonal elements of the covariance matrix at a given genomic interval.
@@ -268,44 +283,45 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=2] cinvertMatrixE(cnp.float64_t[:] muncMat
     scale = 1.0 / divisor
     for i in range(m):
         uVecI = uVec[i]
-        inverse[i, i] = muncMatrixInverse[i] - (scale*uVecI*uVecI)
+        inverse[i, i] = muncMatrixInverse[i]-(scale*uVecI*uVecI)
         for j in range(i + 1, m):
-            inverse[i, j] = -scale * uVecI * uVec[j]
+            inverse[i, j] = -scale * (uVecI*uVec[j])
             inverse[j, i] = inverse[i, j]
     return inverse
 
 
-cpdef cnp.ndarray[cnp.float64_t, ndim=1] cgetStateCovarTrace(cnp.ndarray[cnp.float64_t, ndim=3] stateCovarMatrices):
-    cdef int n = stateCovarMatrices.shape[0]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] trace = np.empty(n, dtype=np.float64)
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetStateCovarTrace(stateCovarMatrices):
+    cdef Py_ssize_t n = stateCovarMatrices.shape[0]
+    cdef Py_ssize_t i
+    trace = np.empty(n, dtype=np.float32)
     for i in range(n):
-        trace[i] = stateCovarMatrices[i, 0, 0] + stateCovarMatrices[i, 1, 1]
+        trace[i] = np.float32(stateCovarMatrices[i, 0, 0] + stateCovarMatrices[i, 1, 1])
     return trace
 
 
-cpdef cgetPrecisionWeightedResidual(cnp.ndarray[cnp.float64_t, ndim=2] postFitResiduals,
-                                    cnp.ndarray[cnp.float64_t, ndim=2] matrixMunc):
+cpdef cgetPrecisionWeightedResidual(postFitResiduals,
+                                    matrixMunc):
 
-    cdef int n = postFitResiduals.shape[0]
-    cdef int m = postFitResiduals.shape[1]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] precisionWeightedResidual = np.empty(n, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] weightsIter = np.empty(m, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] residualsIter = np.empty(m, dtype=np.float64)
-    cdef double sumWeights = 0.0
-    cdef double sumResiduals = 0.0
-    cdef int i, j
+    cdef Py_ssize_t n = postFitResiduals.shape[0]
+    cdef Py_ssize_t m = postFitResiduals.shape[1]
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] precisionWeightedResidual = np.empty(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] weightsIter = np.empty(m, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] residualsIter = np.empty(m, dtype=np.float32)
+    cdef float sumWeights = 0.0
+    cdef float sumResiduals = 0.0
+    cdef Py_ssize_t i, j
     for i in range(n):
         sumWeights = 0.0
         sumResiduals = 0.0
         for j in range(m):
-            weightsIter[j] = 1.0 / matrixMunc[j, i]
-            residualsIter[j] = postFitResiduals[i, j]
+            weightsIter[j] = np.float32(1.0 / matrixMunc[j, i])
+            residualsIter[j] = np.float32(postFitResiduals[i, j])
             sumWeights += weightsIter[j]
             sumResiduals += residualsIter[j] * weightsIter[j]
         if sumWeights > 0.0:
-            precisionWeightedResidual[i] = sumResiduals / sumWeights
+            precisionWeightedResidual[i] = np.float32(sumResiduals / sumWeights)
         else:
-            precisionWeightedResidual[i] = 0.00
+            precisionWeightedResidual[i] = np.float32(0.00)
     return precisionWeightedResidual
 
 
@@ -329,7 +345,7 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float64_t, ndim=2] matr
 
     cdef double scaleQ, fac
     if dStat > dStatAlpha:
-        scaleQ = sqrt(dStatd * fabs(dStat - dStatAlpha) + dStatPC)
+        scaleQ = sqrt(dStatd * fabs(dStat-dStatAlpha) + dStatPC)
         if matrixQ[0, 0] * scaleQ <= maxQ:
             matrixQ[0, 0] *= scaleQ
             matrixQ[0, 1] *= scaleQ
@@ -344,7 +360,7 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float64_t, ndim=2] matr
         inflatedQ = True
 
     elif dStat < dStatAlpha and inflatedQ:
-        scaleQ = sqrt(dStatd * fabs(dStat - dStatAlpha) + dStatPC)
+        scaleQ = sqrt(dStatd * fabs(dStat-dStatAlpha) + dStatPC)
         if matrixQ[0, 0] / scaleQ >= minQ:
             matrixQ[0, 0] /= scaleQ
             matrixQ[0, 1] /= scaleQ
@@ -412,7 +428,7 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
     maxBlockLength = sizesArr.max() # Py_ssize_t <-- intp ok.
     # by construction, shouldn't exceed the length of the response seq.
     # +1 to check case randint(0,0)
-    startsArr = np.random.randint(0, int(n - maxBlockLength + 1), size=iters, dtype=np.intp)
+    startsArr = np.random.randint(0, int(n-maxBlockLength + 1), size=iters, dtype=np.intp)
 
     cdef Py_ssize_t[::1] blockStartIndices = startsArr
     cdef Py_ssize_t[::1] blockSizes = sizesArr
@@ -421,22 +437,22 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
     return out
 
 
-def cSparseAvg(double[::1] trackALV, dict sparseMap):
+def cSparseAvg(float[::1] trackALV, dict sparseMap):
     r"""Fast access and average of `numNearest` sparse elements.
 
     See :func:`consenrich.core.getMuncTrack`
 
     :param trackALV: See :func:`consenrich.core.getAverageLocalVarianceTrack`
-    :type trackALV: double[::1]
+    :type trackALV: float[::1]
     :param sparseMap: See :func:`consenrich.core.getSparseMap`
     :type sparseMap: dict[int, np.ndarray]
     :return: array of mena('nearest local variances') same length as `trackALV`
-    :rtype: cnp.ndarray[cnp.float64_t, ndim=1]
+    :rtype: cnp.ndarray[cnp.float32_t, ndim=1]
     """
     cdef Py_ssize_t n = <Py_ssize_t>trackALV.shape[0]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
     cdef Py_ssize_t i, j, m
-    cdef double sumNearestVariances = 0.0
+    cdef float sumNearestVariances = 0.0
     cdef cnp.ndarray[cnp.intp_t, ndim=1] idxs
     cdef cnp.intp_t[::1] idx_view
     for i in range(n):
