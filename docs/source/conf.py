@@ -8,6 +8,7 @@
 import sys
 from pathlib import Path
 
+
 sys.path.insert(0, str(Path('..', 'src').resolve()))
 project = 'consenrich'
 copyright = '2025, Nolan H. Hamilton'
@@ -27,10 +28,6 @@ autodoc_typehints = "description"
 templates_path = ['_templates']
 exclude_patterns = []
 
-
-
-# -- Options for HTML output -------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
-
-html_theme = 'press'
-html_static_path = ['_static']
+html_theme = "furo"
+html_logo = None
+html_favicon = None

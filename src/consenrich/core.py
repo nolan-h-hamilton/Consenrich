@@ -100,6 +100,8 @@ class observationParams(NamedTuple):
     :type useALV: bool
     :param useConstantNoiseLevel: Whether to use a constant noise level in the observation model.
     :type useConstantNoiseLevel: bool
+    :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean').
+    :type lowPassFilterType: Optional[str]
     """
     minR: float
     maxR: float
@@ -111,6 +113,7 @@ class observationParams(NamedTuple):
     globalWeight: float
     approximationWindowLengthBP: int
     lowPassWindowLengthBP: int
+    lowPassFilterType: Optional[str]
     returnCenter: bool
 
 
@@ -146,11 +149,11 @@ class samParams(NamedTuple):
     :type oneReadPerBin: int
     :param chunkSize: maximum number of intervals' data to hold in memory before flushing to disk.
     :type chunkSize: int
-    :param offsetStr: Two or four comma-separated integers. With two, NOT strand-specific. With four, first 2 ints correspond to forward strand (start, end), last 2 to reverse strand (start, end).
-    :type offsetStr: str, optional
 
-    .. note::
+    .. tip::
+
         For an overview of SAM flags, see https://broadinstitute.github.io/picard/explain-flags.html
+
     """
     samThreads: int
     samFlagExclude: int
@@ -220,12 +223,15 @@ class countingParams(NamedTuple):
     :type scaleFactorsControl: List[float], optional
     :param numReads: Number of reads to sample.
     :type numReads: int
+    :param applyAsinh: Whether to apply arsinh (:math:`\textsf{sinh}^{-1}`) transformation to count matrix (after scaling)
+    :type applyAsinh: bool, optional
     """
     stepSize: int
     scaleDown: Optional[bool]
     scaleFactors: Optional[List[float]]
     scaleFactorsControl: Optional[List[float]]
     numReads: int
+    applyAsinh: Optional[bool]
 
 
 class matchingParams(NamedTuple):
@@ -324,6 +330,7 @@ def getReadLength(bamFile: str,
                 samFlagExclude: int
                 ) -> int:
     r"""Infer read length from mapped reads in a BAM file.
+
     Samples at least `numReads` reads passing criteria given by `samFlagExclude`
     and returns the median read length.
 
@@ -367,7 +374,8 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
             oneReadPerBin: int,
             samThreads: int,
             samFlagExclude: int,
-            offsetStr: Optional[str] = "0,0") -> npt.NDArray[np.float32]:
+            offsetStr: Optional[str] = "0,0",
+            applyAsinh: Optional[bool] = False) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
     See :func:`cconsenrich.creadBamSegment` for the underlying implementation in Cython.
@@ -388,8 +396,10 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
     :type stepSize: int
     :param oneReadPerBin: See :class:`samParams`.
     :type oneReadPerBin: int
-    :param offsetStr: see :class:`samParams`.
-    :type offsetStr: str
+    :param samThreads: See :class:`samParams`.
+    :type samThreads: int
+    :param samFlagExclude: See :class:`samParams`.
+    :type samFlagExclude: int
     """
 
     if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
@@ -417,7 +427,8 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
         )
         counts[j, :] = arr
         counts[j, :] *= np.float32(scaleFactors[j])
-
+        if applyAsinh:
+            counts[j, :] = np.arcsinh(counts[j, :])
     return counts
 
 
@@ -426,7 +437,8 @@ def getAverageLocalVarianceTrack(values: np.ndarray,
                                   approximationWindowLengthBP: int,
                                   lowPassWindowLengthBP: int,
                                   minR: float,
-                                  maxR: float) -> npt.NDArray[np.float32]:
+                                  maxR: float,
+                                  lowPassFilterType: Optional[str] = 'median') -> npt.NDArray[np.float32]:
     r"""Approximate local noise levels in a segment using an ALV approach.
 
     First, computes a segment-length simple moving average of `values` with a
@@ -448,7 +460,8 @@ def getAverageLocalVarianceTrack(values: np.ndarray,
     :type approximationWindowLengthBP: int
     :param lowPassWindowLengthBP: The length of the low-pass filter window in base pairs (BP).
     :type lowPassWindowLengthBP: int
-
+    :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean').
+    :type lowPassFilterType: Optional[str]
     :seealso: :class:`observationParams`
     """
     values = np.asarray(values, dtype=np.float32)
@@ -478,7 +491,11 @@ def getAverageLocalVarianceTrack(values: np.ndarray,
     if lpassWindowLength % 2 == 0:
         lpassWindowLength += 1
 
-    noiseLevel: npt.NDArray[np.float32] = ndimage.median_filter(localVarTrack, size=lpassWindowLength)
+    noiseLevel: npt.NDArray[np.float32] = np.zeros_like(localVarTrack, dtype=np.float32)
+    if lowPassFilterType is None or (isinstance(lowPassFilterType, str) and lowPassFilterType.lower() == 'median'):
+        noiseLevel = ndimage.median_filter(localVarTrack, size=lpassWindowLength)
+    elif isinstance(lowPassFilterType, str) and lowPassFilterType.lower() == 'mean':
+        noiseLevel = ndimage.uniform_filter(localVarTrack, size=lpassWindowLength)
 
     return np.clip(noiseLevel, minR, maxR).astype(np.float32)
 
@@ -777,15 +794,13 @@ def getStateCovarTrace(stateCovarMatrices: np.ndarray, roundPrecision: int = 3) 
     return np.round(cconsenrich.cgetStateCovarTrace(stateCovarMatrices.astype(np.float32)), decimals=roundPrecision).astype(np.float32)
 
 
-def getPrecisionWeightedResidual(postFitResiduals: np.ndarray, matrixMunc: np.ndarray, roundPrecision: int = 3) -> npt.NDArray[np.float32]:
+def getPrecisionWeightedResidual(postFitResiduals: np.ndarray, matrixMunc: np.ndarray,
+    roundPrecision: int = 3, stateCovarSmoothed: Optional[np.ndarray] = None) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional precision-weighted array residuals after running Consenrich.
-
-    This is essentially an estimate of the residuals with respect to the observation noise covariance
-    :math:`\mathbf{R}_{[:, (11:mm)]}`.
 
     Applies an inverse-variance weighting (with respect to the *observation noise levels*) of the
     post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` and returns a one-dimensional array of
-    "precision-weighted residuals".
+    "precision-weighted residuals". The state covariance can also be incorporated given `stateCovarSmoothed`.
 
     :param postFitResiduals: Post-fit residuals from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray
@@ -797,6 +812,12 @@ def getPrecisionWeightedResidual(postFitResiduals: np.ndarray, matrixMunc: np.nd
     :return: A one-dimensional array of "precision-weighted residuals"
     :rtype: npt.NDArray[np.float32]
     """
+
+    if stateCovarSmoothed is not None and len(stateCovarSmoothed) == len(postFitResiduals):
+        for i in range(len(postFitResiduals)):
+            # adds the 'primary' state uncertainty to observation noise covariance :math:`\mathbf{R}_{[i,:]}`
+            # primary state uncertainty (0,0) :math:`\mathbf{P}_{[i]} \in \mathbb{R}^{2 \times 2}`
+            matrixMunc[:,i] += stateCovarSmoothed[i, 0, 0]
     return np.round(cconsenrich.cgetPrecisionWeightedResidual(postFitResiduals.astype(np.float32),
         matrixMunc.astype(np.float32)), decimals=roundPrecision).astype(np.float32)
 
@@ -815,7 +836,8 @@ def getMuncTrack(chromosome: str,
         approximationWindowLengthBP: int,
         lowPassWindowLengthBP: int,
         returnCenter: bool,
-        sparseMap: Optional[dict[int, int]] = None) -> npt.NDArray[np.float32]:
+        sparseMap: Optional[dict[int, int]] = None,
+        lowPassFilterType: Optional[str] = 'median') -> npt.NDArray[np.float32]:
     r"""Get observation noise variance :math:`R_{[:,jj]}` for the sample :math:`j`.
 
     :param chromosome: Tracks are approximated for this chromosome.
@@ -845,6 +867,8 @@ def getMuncTrack(chromosome: str,
     :type lowPassWindowLengthBP: int
     :param sparseMap: Optional mapping (dictionary) of interval indices to the nearest sparse regions. See :func:`getSparseMap`.
     :type sparseMap: Optional[dict[int, int]]
+    :param lowPassFilterType: The type of low-pass filter to use in average local variance track (e.g., 'median', 'mean').
+    :type lowPassFilterType: Optional[str]
     :return: A one-dimensional numpy array of the observation noise track for the sample :math:`j`.
     :rtype: npt.NDArray[np.float32]
 
@@ -854,7 +878,8 @@ def getMuncTrack(chromosome: str,
                                       approximationWindowLengthBP,
                                       lowPassWindowLengthBP,
                                       minR,
-                                      maxR).astype(np.float32)
+                                      maxR,
+                                      lowPassFilterType).astype(np.float32)
 
     globalNoise: float = np.float32(np.mean(trackALV))
     if noGlobal or globalWeight == 0 or useALV:

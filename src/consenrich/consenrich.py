@@ -178,6 +178,7 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
         excludeChroms=excludeChroms,
         excludeForNorm=excludeForNorm)
 
+
 def getCountingArgs(config_path: str) -> core.countingParams:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
@@ -186,6 +187,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     scaleFactors = config.get('countingParams.scaleFactors', None)
     numReads = config.get('countingParams.numReads', 100)
     scaleFactorsControl = config.get('countingParams.scaleFactorsControl', None)
+    applyAsinh = config.get('countingParams.applyAsinh', False)
     if scaleFactors is not None and not isinstance(scaleFactors, list):
         raise ValueError("`scaleFactors` should be a list of floats.")
     if scaleFactorsControl is not None and not isinstance(scaleFactorsControl, list):
@@ -201,7 +203,8 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         scaleFactors=scaleFactors,
         scaleFactorsControl=scaleFactorsControl,
         numReads=numReads,
-    )
+        applyAsinh=applyAsinh)
+
 
 def readConfig(config_path: str) -> Dict[str, Any]:
     with open(config_path, 'r') as f:
@@ -236,6 +239,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             globalWeight=config.get('observationParams.globalWeight', 0.667),
             approximationWindowLengthBP=config.get('observationParams.approximationWindowLengthBP', 10000),
             lowPassWindowLengthBP=config.get('observationParams.lowPassWindowLengthBP', 20000),
+            lowPassFilterType=config.get('observationParams.lowPassFilterType', 'median'),
             returnCenter=config.get('observationParams.returnCenter', True)
         ),
         'stateArgs': core.stateParams(
@@ -414,6 +418,7 @@ def main():
                     [bamA, bamB], chromosome, chromosomeStart, chromosomeEnd, stepSize,
                     [readLengthsBamFiles[j_], readLengthsControlBamFiles[j_]], [treatScaleFactors[j_], controlScaleFactors[j_]],
                     samArgs.oneReadPerBin, samArgs.samThreads, samArgs.samFlagExclude, offsetStr=samArgs.offsetStr,
+                    applyAsinh=countingArgs.applyAsinh
                 )
                 chromMat[j_, :] = scaleFactors[j_]*(pairMatrix[0, :] - pairMatrix[1, :])
                 j_ += 1
@@ -429,7 +434,8 @@ def main():
                 samArgs.oneReadPerBin,
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
-                offsetStr=samArgs.offsetStr,)
+                offsetStr=samArgs.offsetStr,
+                applyAsinh=countingArgs.applyAsinh)
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
             logger.info(f"Building sparse mapping for {chromosome}...")
@@ -481,7 +487,7 @@ def main():
         stateArgs.stateUpperBound,
         samArgs.chunkSize,
         progressIter=50_000)
-        logger.info(f"Done.")
+        logger.info("Done.")
 
 
         x_ = core.getPrimaryState(x)
