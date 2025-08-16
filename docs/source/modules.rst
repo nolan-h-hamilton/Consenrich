@@ -81,43 +81,58 @@ The core module implements the main aspects of Consenrich.
 .. _match:
 
 ``consenrich.matching``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. toctree::
     :maxdepth: 2
     :caption: ``matching``
     :name: matching
 
-(*Experimental*). Detect genomic regions showing both **enrichment** and **non-random structure** in multiple samples.
 
-We detect *structured enrichment* using the cross-covariance between the Consenrich signal and downsampled, coarse representations of discrete wavelet functions (Cascade algorithm iterations).
 
-Local maxima in the cross-covariance ('response') are identified and then tested for significance using an empirical null distribution.
+(*Experimental*). Detect genomic regions showing both **enrichment** and **non-random structure**.
 
-Verifying enrichment *and* a prescribed level of structure offers two interesting benefits:
 
-#. Targeted detection of biologically relevant features which may exhibit distinct spatial patterns in a given assay, e.g., `Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_
-#. Improved confidence that the matched, peak-like regions are *not* due to stochastic noise which is characteristically *unstructured*.
-
-- Denote the sequence of Consenrich signal estimates,
+For a sequence of genomic intervals (fixed in size :math:`L\text{bp}`),
 
 .. math::
 
-   \widetilde{\mathbf{x}} = \{\widetilde{x}_{[i]}\}_{i=1}^{i=n},
+  i \mapsto \{(i-1)\cdot L + 1, \ldots, i\cdot L\}.
 
-- and denote a *template* for matching as,
+
+denote an estimated 'consensus' signal track over :math:`i=1 \ldots n` derived from multi-sample HTS data:
+
+.. math::
+
+  \{\widetilde{x}_{[i]}\}_{i=1}^{i=n}
+
+For instance, this could be the sequence of Consenrich signal estimates for a given dataset.
+
+
+**Our aim is to determine a set of peak-like genomic regions over which :math:`\widetilde{x}_{[:]}` exhibits**:
+
+#. *Enrichment* (large relative amplitude)
+#. *Non-random structure* (polynomial or oscillatory trends)
+
+Verifying genomic regions satisfy this dual criteria ('structured enrichment') provides several appealing features compared to traditional enrichment-based peak calling:
+
+* Improved confidence that the identified genomic regions are not due to stochastic noise--which is characteristically unstructured.
+* Targeted detection of biologically relevant signal patterns in a given assay, e.g., `Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_
+
+
+To detect regions of structured enrichment, we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_ with
+*templates* derived from discrete samplings of wavelet functions:
 
 .. math::
 
   \boldsymbol{\xi} = \{\xi_{[t]}\}_{t=1}^{t=T},
 
-which we construct using downsampled discrete wavelet functions (`Cascade algorithm <https://en.wikipedia.org/wiki/Cascade_algorithm>`_). These provide a flexible, multi-resolution representation allowing for effective matching at different scales. Note that the template is unit-normalized in the default implementation.
 
-- Define the *response sequence* as the convolution of the signal estimates with the (reversed) template:
+We define the *response sequence* as the cross-correlation
 
 .. math::
 
-  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \ast \boldsymbol{\xi}^{\textsf{rev}}
+  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi}^{\textsf{rev}} \in \mathbb{R}^{n}
 
 At genomic interval :math:`i \in \{1, \ldots, n\}`, a 'match' is declared if the following hold:
 
@@ -125,28 +140,20 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a 'match' is declared if the
 - :math:`\mathcal{R}_{[i]}` exceeds a significance cutoff determined by the :math:`1 - \alpha` quantile of an approximated null distribution (See :func:`cconsenrich.csampleBlockStats`).
 - *Optional*: The *signal* value at the response-maximum is above ``minSignalAtMaxima``.
 
-This structured enrichment detection can be introduced in the Minimal Usage example by adding the following to the YAML config file:
+.. seealso::
 
-.. code-block:: yaml
-  :name: demoMatchingParameters
-
-  matchingParams.templateNames: [db2]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.iters: 25_000
-  matchingParams.alpha: 0.01
+  Sections :ref:`minimal` and/or :ref:`additional-examples` which include browser shots demonstrating qualitative behavior of this feature.
 
 .. autofunction:: consenrich.matching.matchWavelet
 
-  See :ref:`additional-examples` for example use in ATAC-seq.
+.. .. admonition:: note
+  :: Consensus Peak Calling
 
-
-.. note:: Consensus Peak Calling
-
-    Traditional (consensus) peak calling on Consenrich signal track output can be performed using, e.g., `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_,
+    Traditional enrichment-based peak calling on Consenrich signal track output can be performed using, e.g., `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_,
 
      ``rocco -i <ConsenrichOutput.bw> -g <genomeName> [...]``
 
-     Other peak callers accepting bedGraph or bigWig input may be plausible downstream companions to Consenrich, too (e.g., `MACS bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_)
+    Other peak callers accepting bedGraph or bigWig input may be plausible downstream companions to Consenrich, too (e.g., `MACS bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_)
 
 
 Cython functions: ``consenrich.cconsenrich``

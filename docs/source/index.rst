@@ -35,5 +35,7 @@ These refinements grant immediate practical appeal to a wide array of downstream
      - `bioRχiv <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_
    * - Source Code
      - `GitHub <https://github.com/nolan-h-hamilton/Consenrich>`_
+   * - Documentation + Tutorials
+     - `(This page) <https://nolan-h-hamilton.github.io/Consenrich/>`_
 
 

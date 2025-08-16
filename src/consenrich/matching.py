@@ -38,18 +38,17 @@ def matchWavelet(
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
 ) -> pd.DataFrame:
-    r"""Match downsampled wavelet functions in the sequence of Consenrich estimates
+    r"""Match discrete samplings of wavelet functions in the sequence of Consenrich estimates
+
+    See :ref:`matching`. The `db2` template at cascade level 2 is a good starting point for detecting subpeaks within broadly enriched genomic regions.
 
     :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
     :type values: npt.NDArray[np.float64]
     :param templateNames: List of discrete wavelet template names to use for matching, e.g.
-        `[db1, db2, db4]`. Daubechies' wavelets (``db<numVanishingMoments>``) possess several properties that
-        are attractive for **detecting subpeaks within broadly enriched genomic regions**--perhaps the clearest
-        use-case for this methodology. Symlets, coiflets, and other orthogonal wavelet families with compact support
-        are also viable options.
+        `[db1, db2, db4, coif8]`.
     :type templateNames: List[str]
-    :param cascadeLevels: List of cascade iterations ('levels') used to approximte
-        the discrete wavelets, e.g., `[1]` for `[db2]` to use a level-one Daubechies-template in the convolution.
+    :param cascadeLevels: List of cascade iterations ('levels') used to approximate
+        the wavelets.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.

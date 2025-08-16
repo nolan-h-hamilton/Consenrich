@@ -1,27 +1,27 @@
-Usage
-----------------
+Quickstart + Usage
+----------------------
 
 .. toctree::
    :maxdepth: 1
-   :caption: Usage
+   :caption: Quickstart + Usage
    :name: Usage
 
+After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
 
-Minimal Example
-~~~~~~~~~~~~~~~~~~~~~~~~
+Getting Started: Minimal Example
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. toctree::
     :maxdepth: 2
-    :caption: Minimal Example
+    :caption: Getting Started
     :name: minimal
 
-A brief analysis using H3K27ac ChIP-seq data is carried out here. See :ref:`additional-examples` which will be regularly updated
-to include a breadth of assays and downstream analyses.
+Here, a brief analysis using H3K27ac ChIP-seq data is carried out for demonstration.
 
 Input Data
-~~~~~~~~~~~
+"""""""""""""""""""""
 
-The input data in this example consists of four donors' treatment and control epidermal samples from ENCODE.
+The input data in this example consists of four donors' treatment and control samples (epidermal tissue) from ENCODE.
 
 .. list-table:: Input Data
   :header-rows: 1
@@ -50,10 +50,11 @@ The input data in this example consists of four donors' treatment and control ep
 
 
 Download Alignment Files from ENCODE
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+"""""""""""""""""""""""""""""""""""""""
 
-Run the following shell script to obtain the input BAM files for this demo.
-You can also use ``curl -O <URL>`` in place of ``wget <URL>``.
+Copy+paste the following to your terminal to download and index the BAM files for this demo.
+
+You can also use ``curl -O <URL>`` in place of ``wget <URL>`` if the latter is not available on your system.
 
 .. code-block:: bash
 
@@ -71,17 +72,14 @@ You can also use ``curl -O <URL>`` in place of ``wget <URL>``.
 
 
 Using a YAML Configuration file
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+"""""""""""""""""""""""""""""""""""""
 
-.. hint::
+.. tip::
 
    Refer to the ``<process,observation,etc.>Params`` classes in module in the :ref:`API` for complete documentation of configuration options.
 
 
-Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``. For a quick trial (:math:`\approx` 1 minute),
-you can restrict analysis to a single chromosome. To reproduce the results shown in the IGV browser snapshot below add ``genomeParams.chromosomes: ['chr22']`` to
-the configuration file.
-
+Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``. For a quick trial run (:math:`\approx` 1 minute), you can restrict analysis to a single chromosome: To reproduce the results shown in the IGV browser snapshot below add ``genomeParams.chromosomes: ['chr22']`` to the configuration file.
 
 .. code-block:: yaml
   :name: demoHistoneChIPSeq.yaml
@@ -106,7 +104,7 @@ the configuration file.
 
 
 Run Consenrich
-~~~~~~~~~~~~~~
+"""""""""""""""""""""
 
 Invoke the command-line interface to run Consenrich:
 
@@ -129,7 +127,9 @@ Input alignments (Black) and ENCODE ``fold change over control`` bigWigs for eac
 
 * Consenrich precision-weighted residual track: `demoHistoneChIPSeq_consenrich_residuals.bw`
 
-* Consenrich 'Matched' regions of structured enrichment (:ref:`matching`): `consenrichOutput_demoHistoneChIPSeq_matches.narrowPeak`
+* Consenrich 'Matched' regions showing 'structured enrichment': `consenrichOutput_demoHistoneChIPSeq_matches.narrowPeak`
+
+  * See :ref:`matching`.
 
 
 .. note::
@@ -137,6 +137,8 @@ Input alignments (Black) and ENCODE ``fold change over control`` bigWigs for eac
   Some users may find it beneficial to run Consenrich programmatically (via Jupyter notebooks, Python scripts), as the :ref:`API` enables
   greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
 
+
+Further analyses are available in :ref:`additional-examples`. This section of the documentation will be regularly updated to include a breadth of assays, downstream analyses, and runtime benchmarks.
 
 
 .. _additional-examples:
@@ -154,7 +156,7 @@ Additional Examples and Computational Benchmarking
 
 
 Environment
-~~~~~~~~~~~~
+"""""""""""""""""
 
 - MacBook MX313LL/A (arm64)
 - Python 3.12.9
@@ -225,21 +227,27 @@ Run with the following YAML config file, saved as `atac20Benchmark.yaml`
 
 After running, the following files will be generated in the current working directory:
 
-- consenrichOutput_atac20Benchmark_matches.narrowPeak: matching results given :math:`\alpha=0.05, \boldsymbol{\xi}: \mathsf{db2}_{\textsf{2}}`.  See :func:`consenrich.matching.matchWavelet`.
+* Consenrich signal estimate track: atac20Benchmark_consenrich_state.bw
 
-- atac20Benchmark_consenrich_state.bw: Estimated signal track (:func:`consenrich.core.getPrimaryState`) in bigWig format.
+* Consenrich precision-weighted residual track: atac20Benchmark_consenrich_residuals.bw
 
-- atac20Benchmark_consenrich_residuals.bw: Precision-weighted residual track (:func:`consenrich.core.getPrecisionWeightedResidual`) in bigWig format. Here, 'precision' is calculated with respect to the (inverse) observation noise covariance.
+* Consenrich 'Matched' regions showing 'structured enrichment': consenrichOutput_atac20Benchmark_matches.narrowPeak
+
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib.png
     :alt: IGV Browser Snapshot
     :width: 900px
     :align: left
 
-We track memory using `memory-profiler <https://pypi.org/project/memory-profiler/>`_
+Memory is tracked with `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory use over time and frequency of function calls (marked as notches).
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkMemoryPlot.png
     :alt: Time vs. Memory Usage (`memory-profiler`)
     :width: 900px
     :align: center
+
+
+.. tip::
+
+  Memory cost can be reduced by decreasing `samParams.chunkSize` in the configuration file. Smaller chunk sizes may affect runtime due to overhead from more frequent file I/O, however.
 
