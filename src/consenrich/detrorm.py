@@ -11,23 +11,28 @@ import pysam as sam
 
 from scipy import signal, ndimage
 
-logging.basicConfig(level=logging.INFO,
-                     format='%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s')
-logging.basicConfig(level=logging.WARNING,
-                    format='%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
+)
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 from .misc_util import getChromSizesDict
 from .constants import EFFECTIVE_GENOME_SIZES
 
 
-
-def getScaleFactor1x(bamFile: str,
+def getScaleFactor1x(
+    bamFile: str,
     effectiveGenomeSize: int,
     readLength: int,
     excludeChroms: List[str],
     chromSizesFile: str,
-    samThreads: int) -> float:
+    samThreads: int,
+) -> float:
     r"""Generic normalization factor based on effective genome size and number of mapped reads in non-excluded chromosomes.
 
     :param bamFile: See :class:`consenrich.core.inputParams`.
@@ -47,23 +52,25 @@ def getScaleFactor1x(bamFile: str,
     """
     if excludeChroms is not None:
         if chromSizesFile is None:
-            raise ValueError("`excludeChroms` is provided...so must be `chromSizesFile`.")
+            raise ValueError(
+                "`excludeChroms` is provided...so must be `chromSizesFile`."
+            )
         chromSizes: dict = getChromSizesDict(chromSizesFile)
         for chrom in excludeChroms:
             if chrom not in chromSizes:
                 continue
             effectiveGenomeSize -= chromSizes[chrom]
     totalMappedReads: int = -1
-    with sam.AlignmentFile(bamFile, 'rb', threads=samThreads) as aln:
+    with sam.AlignmentFile(bamFile, "rb", threads=samThreads) as aln:
         totalMappedReads = aln.mapped
         if excludeChroms is not None:
             idxStats = aln.get_index_statistics()
             for element in idxStats:
-                if  element.contig in excludeChroms:
+                if element.contig in excludeChroms:
                     totalMappedReads -= element.mapped
     if totalMappedReads <= 0 or effectiveGenomeSize <= 0:
         raise ValueError(f"Negative EGS after removing excluded chromosomes")
-    return round(effectiveGenomeSize / (totalMappedReads * readLength),4)
+    return round(effectiveGenomeSize / (totalMappedReads * readLength), 4)
 
 
 def getScaleFactorPerMillion(bamFile: str, excludeChroms: List[str]) -> float:
@@ -79,7 +86,7 @@ def getScaleFactorPerMillion(bamFile: str, excludeChroms: List[str]) -> float:
     if not os.path.exists(bamFile):
         raise FileNotFoundError(f"BAM file {bamFile} does not exist.")
     totalMappedReads: int = 0
-    with sam.AlignmentFile(bamFile, 'rb') as aln:
+    with sam.AlignmentFile(bamFile, "rb") as aln:
         totalMappedReads = aln.mapped
         if excludeChroms is not None:
             idxStats = aln.get_index_statistics()
@@ -87,21 +94,25 @@ def getScaleFactorPerMillion(bamFile: str, excludeChroms: List[str]) -> float:
                 if element.contig in excludeChroms:
                     totalMappedReads -= element.mapped
     if totalMappedReads <= 0:
-        raise ValueError(f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}.")
-    scalePM = round(1_000_000/totalMappedReads, 4)
+        raise ValueError(
+            f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}."
+        )
+    scalePM = round(1_000_000 / totalMappedReads, 4)
     return scalePM
 
 
-def getPairScaleFactors(bamFileA: str,
-                bamFileB: str,
-                effectiveGenomeSizeA: int,
-                effectiveGenomeSizeB: int,
-                readLengthA: int,
-                readLengthB: int,
-                excludeChroms: List[str],
-                chromSizesFile: str,
-                samThreads: int,
-                scaleDown: bool = True) -> Tuple[float, float]:
+def getPairScaleFactors(
+    bamFileA: str,
+    bamFileB: str,
+    effectiveGenomeSizeA: int,
+    effectiveGenomeSizeB: int,
+    readLengthA: int,
+    readLengthB: int,
+    excludeChroms: List[str],
+    chromSizesFile: str,
+    samThreads: int,
+    scaleDown: bool = True,
+) -> Tuple[float, float]:
     r"""Get scaling constants that normalize two alignment files to each other (e.g. ChIP-seq treatment and control) with respect to sequence coverage.
 
     :param bamFileA: Path to the first BAM file.
@@ -125,9 +136,25 @@ def getPairScaleFactors(bamFileA: str,
     :return: A tuple containing the scale factors for the first and second BAM files.
     :rtype: Tuple[float, float]
     """
-    scaleFactorA = getScaleFactor1x(bamFileA, effectiveGenomeSizeA, readLengthA, excludeChroms, chromSizesFile, samThreads)
-    scaleFactorB = getScaleFactor1x(bamFileB, effectiveGenomeSizeB, readLengthB, excludeChroms, chromSizesFile, samThreads)
-    logger.info(f"Initial scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}")
+    scaleFactorA = getScaleFactor1x(
+        bamFileA,
+        effectiveGenomeSizeA,
+        readLengthA,
+        excludeChroms,
+        chromSizesFile,
+        samThreads,
+    )
+    scaleFactorB = getScaleFactor1x(
+        bamFileB,
+        effectiveGenomeSizeB,
+        readLengthB,
+        excludeChroms,
+        chromSizesFile,
+        samThreads,
+    )
+    logger.info(
+        f"Initial scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
+    )
     if not scaleDown:
         return scaleFactorA, scaleFactorB
     coverageA = 1 / scaleFactorA
@@ -138,7 +165,9 @@ def getPairScaleFactors(bamFileA: str,
     else:
         scaleFactorA *= coverageB / coverageA
         scaleFactorB = 1.0
-    logger.info(f"Final scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}")
+    logger.info(
+        f"Final scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
+    )
     return scaleFactorA, scaleFactorB
 
 
@@ -149,8 +178,8 @@ def detrendTrack(
     useOrderStatFilter: bool,
     usePolyFilter: bool,
     detrendTrackPercentile: float,
-    detrendSavitzkyGolayDegree: int
-    ) -> np.ndarray:
+    detrendSavitzkyGolayDegree: int,
+) -> np.ndarray:
     r"""Detrend tracks using either an order statistic filter or a polynomial filter.
 
     :param values: Values to detrend.
@@ -182,14 +211,19 @@ def detrendTrack(
         raise ValueError("values length must be greater than windowLength.")
 
     if useOrderStatFilter and usePolyFilter:
-        logger.warning("Both order statistic and polynomial filters are specified. Using order statistic filter.")
+        logger.warning(
+            "Both order statistic and polynomial filters are specified. Using order statistic filter."
+        )
         bothSpecified = True
 
     if useOrderStatFilter or bothSpecified:
-        return values - ndimage.percentile_filter(values, detrendTrackPercentile, size=size)
+        return values - ndimage.percentile_filter(
+            values, detrendTrackPercentile, size=size
+        )
     elif usePolyFilter:
-        return values - signal.savgol_filter(values, detrendWindowLengthBP, detrendSavitzkyGolayDegree)
+        return values - signal.savgol_filter(
+            values, detrendWindowLengthBP, detrendSavitzkyGolayDegree
+        )
 
     logger.warning("No technique specified: using a simple moving average")
-    return values - ndimage.uniform_filter1d(values, size=size, mode='nearest')
-
+    return values - ndimage.uniform_filter1d(values, size=size, mode="nearest")
