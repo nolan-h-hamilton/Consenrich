@@ -407,9 +407,8 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
             "readLengths and scaleFactors must match bamFiles length"
         )
 
-    offsetStr = (str(offsetStr) or "0,0").replace(" ", "")
-    numIntervals = _numIntervals(start, end, stepSize)
-
+    offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
+    numIntervals = cconsenrich.getNumIntervals(start, end, stepSize)
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
     for j, bam in enumerate(bamFiles):
         logger.info(f"Reading {chromosome}: {bam}")
@@ -423,7 +422,8 @@ def readBamSegments(bamFiles:List[str], chromosome: str, start: int,
             oneReadPerBin,
             samThreads,
             samFlagExclude,
-            offsetStr,
+            int(offsetStr[0]), # 
+            int(offsetStr[1]),
         )
         counts[j, :] = arr
         counts[j, :] *= np.float32(scaleFactors[j])

@@ -408,9 +408,9 @@ def main():
         chromosomeStart, chromosomeEnd = core.getChromRangesJoint(bamFiles, chromosome, chromSizesDict[chromosome], samArgs.samThreads, samArgs.samFlagExclude)
         chromosomeStart = max(0, (chromosomeStart - (chromosomeStart % stepSize)))
         chromosomeEnd = max(0, (chromosomeEnd - (chromosomeEnd % stepSize)))
-        intervals = np.arange(chromosomeStart, chromosomeEnd + stepSize, stepSize)
-
-        chromMat: np.ndarray = np.empty((numSamples, len(intervals)), dtype=np.float32)
+        numIntervals = (((chromosomeEnd - chromosomeStart) + stepSize) - 1) // stepSize
+        intervals = np.arange(chromosomeStart, chromosomeEnd, stepSize)
+        chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
         if controlsPresent:
             j_: int = 0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
@@ -459,7 +459,8 @@ def main():
                 observationArgs.approximationWindowLengthBP,
                 observationArgs.lowPassWindowLengthBP,
                 observationArgs.returnCenter,
-                sparseMap=sparseMap
+                sparseMap=sparseMap,
+                lowPassFilterType=observationArgs.lowPassFilterType,
             )
             chromMat[j, :] = detrorm.detrendTrack(
                 chromMat[j, :],

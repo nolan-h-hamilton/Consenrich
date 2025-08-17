@@ -47,8 +47,8 @@ def matchWavelet(
     :param templateNames: List of discrete wavelet template names to use for matching, e.g.
         `[db1, db2, db4, coif8]`.
     :type templateNames: List[str]
-    :param cascadeLevels: List of cascade iterations ('levels') used to approximate
-        the wavelets.
+    :param cascadeLevels: List of cascade levels used to discretely sample
+        the given wavelet function.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
