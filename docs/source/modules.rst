@@ -93,46 +93,48 @@ The core module implements the main aspects of Consenrich.
 (*Experimental*). Detect genomic regions showing both **enrichment** and **non-random structure**.
 
 
-For a sequence of genomic intervals (fixed in size :math:`L\text{bp}`),
+- Take a set of successive genomic intervals :math:`i=1,2,\ldots,n`, each spanning :math:`L` base pairs.
+
+- Define a 'consensus' signal track over the genomic intervals, estimated from multiple independent samples' high-throughput functional genomics sequencing data:
 
 .. math::
 
-  i \mapsto \{(i-1)\cdot L + 1, \ldots, i\cdot L\}.
+  \widetilde{\mathbf{x}} = \{\widetilde{x}_{[i]}\}_{i=1}^{i=n}.
 
+Note, we use the sequence of Consenrich signal estimates to define :math:`\widetilde{\mathbf{x}}`.
 
-for :math:`i=1,2,\ldots`, denote an estimated 'consensus' signal track derived from multi-sample HTS data:
-
-.. math::
-
-  \{\widetilde{x}_{[i]}\}_{i=1}^{i=n}
-
-For instance, this could be the sequence of Consenrich signal estimates for a given dataset.
-
-
-**Our aim is to determine a set of peak-like genomic regions over which** :math:`\widetilde{x}_{[:]}` **exhibits**:
+**Aim**: Determine a set of peak-like genomic regions where the consensus signal track :math:`\widetilde{\mathbf{x}}` exhibits both:
 
 #. *Enrichment* (large relative amplitude)
 #. *Non-random structure* (polynomial or oscillatory trends)
 
-Verifying genomic regions satisfy this dual criteria ('structured enrichment') provides several appealing features compared to traditional enrichment-based peak calling:
+**Why**: Prioritizing genomic regions that are both enriched and show a prescribed level of structure is appealing for several reasons. Namely,
 
-* Improved confidence that the identified genomic regions are not due to stochastic noise--which is characteristically unstructured.
-* Targeted detection of biologically relevant signal patterns in a given assay, e.g., `Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_
+* Improved confidence that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
+* Targeted detection of biologically relevant signal patterns in a given assay (`Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
 
+In the case of Consenrich, that :math:`\widetilde{\mathbf{x}}` is reinforced by multiple samples and accounts for multiple sources of uncertainty is particularly advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features. We need not rely exclusively on least-squares fits to noisy data in small sample sizes.
 
-To detect regions of structured enrichment, we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_ with
+Further, we can utilize an encompassing discrete wavelet-based representation of structure that computes results nearly instantaneously and can be easily tuned to target generic, peak-like patterns or more complex structures.
+
+Algorithm Overview
+""""""""""""""""""""""
+
+To detect regions of 'structured enrichment', we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_, with
 *templates* derived from discrete samplings of wavelet functions:
 
 .. math::
 
-  \boldsymbol{\xi} = \{\xi_{[t]}\}_{t=1}^{t=T},
+  \boldsymbol{\xi} = \{\xi_{[t]}\}_{t=1}^{t=T}.
 
 
 We define the *response sequence* as the cross-correlation
 
 .. math::
 
-  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi} \in \mathbb{R}^{n}
+  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi}
+
+Intuitively, where :math:`\mathcal{R}_{[i]}` is large, there is greater evidence that the signal :math:`\widetilde{\mathbf{x}}` is enriched and exhibits structure similar to the template :math:`\boldsymbol{\xi}`.
 
 At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the following are true:
 
@@ -144,9 +146,9 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the
 
   Sections :ref:`minimal` and/or :ref:`additional-examples` which include browser shots demonstrating qualitative behavior of this feature.
 
-  .. tip::
+.. tip::
 
-    Consider beginning with a Daubechies wavelet-based template with two vanishing moments `matchingParams.templateNames: [db2]` and `matchingParams.cascadeLevels: [2]`. For many settings, will provide a good balance between spatial/frequency resolution.
+  Consider beginning with a Daubechies wavelet-based template with two vanishing moments `matchingParams.templateNames: [db2]` and `matchingParams.cascadeLevels: [2]`. For many settings, will provide a good balance between spatial/frequency resolution.
 
 
 .. autofunction:: consenrich.matching.matchWavelet
