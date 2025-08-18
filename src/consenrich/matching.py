@@ -47,8 +47,8 @@ def matchWavelet(
     :param templateNames: List of discrete wavelet template names to use for matching, e.g.
         `[db1, db2, db4, coif8]`.
     :type templateNames: List[str]
-    :param cascadeLevels: List of cascade iterations ('levels') used to approximate
-        the wavelets.
+    :param cascadeLevels: List of cascade levels used to discretely sample
+        the given wavelet function.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
@@ -111,27 +111,38 @@ def matchWavelet(
             wav = pw.Wavelet(templateName)
             scalingFunc, waveletFunc, x = wav.wavefun(level=cascadeLevel)
             template = np.array(waveletFunc, dtype=np.float64) / np.linalg.norm(
-                waveletFunc)
-            logger.info(f"Matching: wavelet template: {templateName}, cascade level: {cascadeLevel}, template length: {len(template)}")
+                waveletFunc
+            )
+            logger.info(
+                f"Matching: wavelet template: {templateName}, cascade level: {cascadeLevel}, template length: {len(template)}"
+            )
 
-            responseSequence: npt.NDArray[np.float64] = signal.fftconvolve(values, template[::-1], mode="same")
+            responseSequence: npt.NDArray[np.float64] = signal.fftconvolve(
+                values, template[::-1], mode="same"
+            )
 
             minMatchLengthBP = minMatchLengthBPCopy
             if minMatchLengthBP is None:
                 minMatchLengthBP = len(template) * intervalLengthBP
             # Ensure minMatchLengthBP is a multiple of intervalLengthBP
             if minMatchLengthBP % intervalLengthBP != 0:
-                minMatchLengthBP += intervalLengthBP - (minMatchLengthBP % intervalLengthBP)
+                minMatchLengthBP += intervalLengthBP - (
+                    minMatchLengthBP % intervalLengthBP
+                )
             relativeMaximaWindow = int(minMatchLengthBP / intervalLengthBP)
             relativeMaximaWindow = max(relativeMaximaWindow, 1)
 
             logger.info(
                 f"\nSampling {iters} block maxima for template {templateName} at cascade level {cascadeLevel} with relative maxima window size {relativeMaximaWindow}."
             )
-            blockMaxima = cconsenrich.csampleBlockStats(responseSequence, relativeMaximaWindow, iters, randSeed_)
+            blockMaxima = cconsenrich.csampleBlockStats(
+                responseSequence, relativeMaximaWindow, iters, randSeed_
+            )
             responseThreshold = np.quantile(blockMaxima, 1 - alpha)
             ecdfBlockMaximaSF = stats.ecdf(blockMaxima).sf
-            logger.info(f"Done. Sampled {len(blockMaxima)} blocks --> 1-alpha quantile: {responseThreshold:.4f}.\n")
+            logger.info(
+                f"Done. Sampled {len(blockMaxima)} blocks --> 1-alpha quantile: {responseThreshold:.4f}.\n"
+            )
 
             signalThreshold: float = 0.0
             if minSignalAtMaxima is None:
@@ -143,63 +154,94 @@ def matchWavelet(
                 responseSequence, order=relativeMaximaWindow
             )[0]
 
-            relativeMaximaIndices = relativeMaximaIndices[(responseSequence[relativeMaximaIndices] > responseThreshold)
-                & (values[relativeMaximaIndices] > signalThreshold)]
+            relativeMaximaIndices = relativeMaximaIndices[
+                (responseSequence[relativeMaximaIndices] > responseThreshold)
+                & (values[relativeMaximaIndices] > signalThreshold)
+            ]
 
             if maxNumMatches is not None:
                 if len(relativeMaximaIndices) > maxNumMatches:
                     # take the greatest maxNumMatches
-                    relativeMaximaIndices = relativeMaximaIndices[np.argsort(responseSequence[relativeMaximaIndices])[-maxNumMatches:]]
+                    relativeMaximaIndices = relativeMaximaIndices[
+                        np.argsort(responseSequence[relativeMaximaIndices])[
+                            -maxNumMatches:
+                        ]
+                    ]
 
             if len(relativeMaximaIndices) == 0:
-                logger.warning(f"no matches were detected using for template {templateName} at cascade level {cascadeLevel}.")
+                logger.warning(
+                    f"no matches were detected using for template {templateName} at cascade level {cascadeLevel}."
+                )
                 continue
 
             # Get the start, end, and point-source indices of matches
-            startsIdx = np.maximum(relativeMaximaIndices - relativeMaximaWindow, 0)
-            endsIdx = np.minimum(len(values) - 1, relativeMaximaIndices + relativeMaximaWindow)
+            startsIdx = np.maximum(
+                relativeMaximaIndices - relativeMaximaWindow, 0
+            )
+            endsIdx = np.minimum(
+                len(values) - 1, relativeMaximaIndices + relativeMaximaWindow
+            )
             pointSourcesIdx = []
             for start_, end_ in zip(startsIdx, endsIdx):
-                pointSourcesIdx.append(np.argmax(values[start_:end_+1]) + start_)
+                pointSourcesIdx.append(
+                    np.argmax(values[start_ : end_ + 1]) + start_
+                )
             pointSourcesIdx = np.array(pointSourcesIdx)
             starts = intervals[startsIdx]
             ends = intervals[endsIdx]
-            pointSources = (intervals[pointSourcesIdx]) + max(1, intervalLengthBP // 2)
+            pointSources = (intervals[pointSourcesIdx]) + max(
+                1, intervalLengthBP // 2
+            )
             if recenterAtPointSource:  # recenter at point source (signal maximum) rather than maximum in response
                 starts = pointSources - (
                     relativeMaximaWindow * intervalLengthBP
                 )
                 ends = pointSources + (relativeMaximaWindow * intervalLengthBP)
-            pointSources = (intervals[pointSourcesIdx] - starts) + max(1, intervalLengthBP // 2)
+            pointSources = (intervals[pointSourcesIdx] - starts) + max(
+                1, intervalLengthBP // 2
+            )
 
             # Calculate ucsc browser scores
             sqScores = (1 + responseSequence[relativeMaximaIndices]) ** 2
             minResponse = np.min(sqScores)
             maxResponse = np.max(sqScores)
             rangeResponse = max(maxResponse - minResponse, 1.0)
-            scores = (250 + 750*(sqScores - minResponse)/rangeResponse).astype(int)
+            scores = (
+                250 + 750 * (sqScores - minResponse) / rangeResponse
+            ).astype(int)
 
             names = [
                 f"{templateName}_{cascadeLevel}_{i}"
-                for i in relativeMaximaIndices]
+                for i in relativeMaximaIndices
+            ]
             strands = ["." for _ in range(len(scores))]
             # Note, p-values are in -log10 per convention (narrowPeak)
-            pValues = -np.log10(np.clip(ecdfBlockMaximaSF.evaluate(
-                        responseSequence[relativeMaximaIndices]), 1e-10, 1.0))
+            pValues = -np.log10(
+                np.clip(
+                    ecdfBlockMaximaSF.evaluate(
+                        responseSequence[relativeMaximaIndices]
+                    ),
+                    1e-10,
+                    1.0,
+                )
+            )
 
             qValues = np.array(np.ones_like(pValues) * -1.0)  # leave out (-1)
 
-            tempDF = pd.DataFrame({"chromosome": [chromosome] * len(relativeMaximaIndices),
-                "start": starts.astype(int),
-                "end": ends.astype(int),
-                "name": names,
-                "score": scores,
-                "strand": strands,
-                "signal": responseSequence[relativeMaximaIndices],
-                "pValue": pValues,
-                "qValue": qValues,
-                "pointSource": pointSources.astype(int)
-                })
+            tempDF = pd.DataFrame(
+                {
+                    "chromosome": [chromosome] * len(relativeMaximaIndices),
+                    "start": starts.astype(int),
+                    "end": ends.astype(int),
+                    "name": names,
+                    "score": scores,
+                    "strand": strands,
+                    "signal": responseSequence[relativeMaximaIndices],
+                    "pValue": pValues,
+                    "qValue": qValues,
+                    "pointSource": pointSources.astype(int),
+                }
+            )
 
             if matchDF.empty:
                 matchDF = tempDF

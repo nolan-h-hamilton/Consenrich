@@ -72,7 +72,7 @@ The core module implements the main aspects of Consenrich.
 
 .. important::
 
-    This module is provided for *convenience*. If a genome is not listed here, users can still specify resources manually.
+    This module is provided for *convenience*. If a genome is not listed here, users can still specify resources (e.g., sizes file, blacklist) manually.
 
 .. autofunction:: consenrich.constants.getEffectiveGenomeSize
 .. autofunction:: consenrich.constants.getGenomeResourceFile
@@ -100,7 +100,7 @@ For a sequence of genomic intervals (fixed in size :math:`L\text{bp}`),
   i \mapsto \{(i-1)\cdot L + 1, \ldots, i\cdot L\}.
 
 
-denote an estimated 'consensus' signal track over :math:`i=1 \ldots n` derived from multi-sample HTS data:
+for :math:`i=1,2,\ldots`, denote an estimated 'consensus' signal track derived from multi-sample HTS data:
 
 .. math::
 
@@ -109,7 +109,7 @@ denote an estimated 'consensus' signal track over :math:`i=1 \ldots n` derived f
 For instance, this could be the sequence of Consenrich signal estimates for a given dataset.
 
 
-**Our aim is to determine a set of peak-like genomic regions over which :math:`\widetilde{x}_{[:]}` exhibits**:
+**Our aim is to determine a set of peak-like genomic regions over which** :math:`\widetilde{x}_{[:]}` **exhibits**:
 
 #. *Enrichment* (large relative amplitude)
 #. *Non-random structure* (polynomial or oscillatory trends)
@@ -132,9 +132,9 @@ We define the *response sequence* as the cross-correlation
 
 .. math::
 
-  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi}^{\textsf{rev}} \in \mathbb{R}^{n}
+  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi} \in \mathbb{R}^{n}
 
-At genomic interval :math:`i \in \{1, \ldots, n\}`, a 'match' is declared if the following hold:
+At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the following are true:
 
 - :math:`\mathcal{R}_{[i]}` is a relative maximum within a window defined by the template length :math:`T`.
 - :math:`\mathcal{R}_{[i]}` exceeds a significance cutoff determined by the :math:`1 - \alpha` quantile of an approximated null distribution (See :func:`cconsenrich.csampleBlockStats`).
@@ -143,6 +143,11 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a 'match' is declared if the
 .. seealso::
 
   Sections :ref:`minimal` and/or :ref:`additional-examples` which include browser shots demonstrating qualitative behavior of this feature.
+
+  .. tip::
+
+    Consider beginning with a Daubechies wavelet-based template with two vanishing moments `matchingParams.templateNames: [db2]` and `matchingParams.cascadeLevels: [2]`. For many settings, will provide a good balance between spatial/frequency resolution.
+
 
 .. autofunction:: consenrich.matching.matchWavelet
 

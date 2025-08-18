@@ -14,6 +14,12 @@ cimport cython
 
 cnp.import_array()
 
+cpdef int64_t getNumIntervals(int64_t start, int64_t end, int64_t stepSize):
+    r"""Calculate the number of fixed-length genomic intervals between `start` and `end`.
+    """
+    return (end - start + stepSize - 1) // stepSize
+
+
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
     r"""Adjusts a value to the nearest multiple of stepSize, optionally pushing it forward.
 
@@ -143,109 +149,76 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     uint8_t oneReadPerBin,
     uint16_t samThreads,
     uint16_t samFlagExclude,
-    str offsetStr):
+    int64_t shiftForwardStrand53 = 0,
+    int64_t shiftReverseStrand53 = 0):
+    r"""Count reads in a BAM file for a given chromosome"""
 
-    cdef Py_ssize_t numIntervals = ((<int64_t>end - <int64_t>start) + <int64_t>stepSize) // <int64_t>stepSize
-    if numIntervals <= 0:
-        return np.zeros(0, dtype=np.uint32)
+    cdef Py_ssize_t numIntervals = <Py_ssize_t>getNumIntervals(<int64_t>start, <int64_t>end, <int64_t>stepSize)
 
-    # for range add
-    cdef cnp.ndarray[cnp.int64_t, ndim=1] diff_np = np.zeros(numIntervals + 1, dtype=np.int64)
-    cdef cnp.int64_t[::1] diff = diff_np
+    cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.uint32)
+    cdef cnp.uint32_t[::1] values = values_np
     cdef AlignmentFile aln = AlignmentFile(bamFile, 'rb', threads=samThreads)
     cdef AlignedSegment read
     cdef int64_t start64 = start
-    cdef int64_t step64  = stepSize
-    cdef Py_ssize_t i, index0, index1, midIndex
+    cdef int64_t step64 = stepSize
+    cdef Py_ssize_t i, index0, index1
     cdef Py_ssize_t lastIndex = numIntervals - 1
-    cdef int64_t fwdLeft = 0
-    cdef int64_t fwdRight = 0
-    cdef int64_t revLeft = 0
-    cdef int64_t revRight = 0
-
-    cdef object parts = [p.strip() for p in offsetStr.split(',') if p.strip()]
-    if len(parts) == 0 or len(parts) == 2:
-        fwdLeft = revLeft = <int64_t>int(parts[0]) if parts else 0
-        fwdRight = revRight = <int64_t>int(parts[1]) if parts else 0
-    elif len(parts) == 4:
-        fwdLeft  = <int64_t>int(parts[0])
-        fwdRight = <int64_t>int(parts[1])
-        revLeft  = <int64_t>int(parts[2])
-        revRight = <int64_t>int(parts[3])
-
-    cdef uint16_t flag
-    cdef bint isReverse
-    cdef int64_t rs, re
-    cdef int64_t adjStart, adjEnd, midPoint
-    cdef int64_t offsetStart, offsetEnd
+    cdef bint readIsForward
+    cdef int64_t readStart, readEnd
 
     try:
         if oneReadPerBin == 0 and readLength > stepSize:
             for read in aln.fetch(chromosome, start, end):
-                flag = <uint16_t>read.flag
+                flag = <uint16_t> read.flag
                 if (flag & samFlagExclude) != 0:
                     continue
-                isReverse = (flag & 16) != 0
-                rs = <int64_t>read.reference_start
-                re = <int64_t>read.reference_end
+                readIsForward = (flag & 16) == 0
+                readStart = <int64_t> read.reference_start
+                readEnd = <int64_t> read.reference_end
 
-                if not isReverse:
-                    adjStart = rs+fwdLeft
-                    adjEnd   = re+fwdRight
+                if readIsForward:
+                    adjStart = readStart + shiftForwardStrand53
+                    adjEnd   = readEnd + shiftForwardStrand53
                 else:
-                    adjStart = rs+revRight
-                    adjEnd= re- revLeft
-                if adjStart > adjEnd:
-                    # something's wrong...
+                    adjStart = readStart - shiftReverseStrand53
+                    adjEnd   = readEnd - shiftReverseStrand53
+                index0 = floordiv64(adjStart - start64, step64)
+                index1 = floordiv64((adjEnd - 1) - start64, step64)
+                if index1 < 0 or index0 > lastIndex:
                     continue
-                offsetStart = adjStart-start64
-                offsetEnd   = adjEnd-start64
-                index0 = floordiv64(offsetStart, step64)
-                index1 = floordiv64(offsetEnd, step64)
                 if index0 < 0:
                     index0 = 0
                 if index1 > lastIndex:
                     index1 = lastIndex
-                if index0 <= index1:
-                    diff[index0] += 1
-                    if index1+1 <= lastIndex:
-                        diff[index1+1] -= 1
+                for i in range(index0, index1 + 1):
+                    values[i] += 1
         else:
             for read in aln.fetch(chromosome, start, end):
-                flag = <uint16_t>read.flag
+                flag = <uint16_t> read.flag
                 if (flag & samFlagExclude) != 0:
                     continue
-                isReverse = (flag & 16) != 0
-                rs = <int64_t>read.reference_start
-                re = <int64_t>read.reference_end
-                if not isReverse:
-                    adjStart = rs+fwdLeft
-                    adjEnd = re+fwdRight
+                readIsForward = (flag & 16) == 0
+                readStart = <int64_t> read.reference_start
+                readEnd = <int64_t> read.reference_end
+
+                if readIsForward:
+                    adjStart = readStart + shiftForwardStrand53
+                    adjEnd   = readEnd + shiftForwardStrand53
                 else:
-                    adjStart = rs+revRight
-                    adjEnd = re-revLeft
-                if adjStart > adjEnd:
+                    adjStart = readStart - shiftReverseStrand53
+                    adjEnd   = readEnd - shiftReverseStrand53
+                index0 = floordiv64(adjStart - start64, step64)
+                index1 = floordiv64(adjEnd - start64, step64)
+                if index1 < 0 or index0 > lastIndex:
                     continue
-                midPoint = (adjStart+adjEnd) >> 1
-                midIndex = floordiv64(midPoint-start64, step64)
+                # get center index after shift 
+                mid = adjStart + ((adjEnd - adjStart) // 2)
+                midIndex = floordiv64(mid - start64, step64)
                 if 0 <= midIndex <= lastIndex:
-                    diff[midIndex] += 1
-                    if midIndex+1 <= lastIndex:
-                        # handle edge case due to half-open intervals, floor division
-                        diff[midIndex+1] -= 1
+                    values[midIndex] += 1
     finally:
         aln.close()
 
-
-    cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.empty(numIntervals, dtype=np.uint32)
-    cdef cnp.uint32_t[::1] values = values_np
-    cdef int64_t acc = 0
-    with nogil:
-        for i in range(numIntervals):
-            acc += diff[i]
-            if acc < 0:
-                acc = 0
-            values[i] = <uint32_t>acc
     return values
 
 
@@ -400,7 +373,10 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
                         int randSeed):
     r"""Sample contiguous blocks in the response sequence, record maxima, and repeat.
 
-    Used to build an empirical null distribution and determine significance of response outputs. See :func:`consenrich.matching.matchWavelet`
+    Used to build an empirical null distribution and determine significance of response outputs.
+    Blocks are drawn randomly from the response sequence. The size of blocks is drawn from a
+    geometric distribution (memoryless), maintaining equality in expectation but introducing
+    variability for a more robust sampling.
 
     :param values: The response sequence to sample from.
     :type values: cnp.ndarray[cnp.float64_t, ndim=1]
@@ -412,6 +388,7 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
     :type randSeed: int
     :return: An array of sampled block maxima.
     :rtype: cnp.ndarray[cnp.float64_t, ndim=1]
+    :seealso: :func:`consenrich.matching.matchWavelet`
     """
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArr = np.ascontiguousarray(values, dtype=np.float64)
     cdef double[::1] valuesView = valuesArr
