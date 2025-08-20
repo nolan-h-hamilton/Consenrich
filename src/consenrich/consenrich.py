@@ -357,7 +357,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             minMatchLengthBP=config.get(
                 "matchingParams.minMatchLengthBP", None
             ),
-            maxNumMatches=config.get("matchingParams.maxNumMatches", 25_000),
+            maxNumMatches=config.get("matchingParams.maxNumMatches", 100_000),
             minSignalAtMaxima=config.get(
                 "matchingParams.minSignalAtMaxima", None
             ),
