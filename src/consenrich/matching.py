@@ -142,9 +142,7 @@ def matchWavelet(
             blockMaxima = cconsenrich.csampleBlockStats(
                 responseSequence, relativeMaximaWindow, iters, randSeed_
             )
-            logger.info(
-                f"Done. Sample Mean, Std. Block Length: {np.mean(blockMaxima):.3f}, {np.std(blockMaxima):.3f}"
-            )
+            logger.info("Done.")
 
             responseThreshold = np.quantile(blockMaxima, 1 - alpha)
             ecdfBlockMaximaSF = stats.ecdf(blockMaxima).sf
