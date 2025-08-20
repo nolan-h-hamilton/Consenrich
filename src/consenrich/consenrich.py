@@ -404,7 +404,7 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
                 [path_, bedgraph, chromSizesFile, bigwig], check=True
             )
         except Exception as e:
-            logger.warning(f"Failed to convert {bedgraph} to {bigwig}:\n{e}\n")
+            logger.warning(f"bedGraph-->bigWig conversion with\n\n\t`bedGraphToBigWig {bedgraph} {chromSizesFile} {bigwig}`\nraised: \n{e}\n\n")
             continue
         if os.path.exists(bigwig) and os.path.getsize(bigwig) > 100:
             logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
@@ -688,9 +688,11 @@ def main():
                 if file_.startswith(f"consenrichOutput_{experimentName}") and (
                     file_.endswith(".bedGraph") or file_.endswith(".narrowPeak")
                 ):
+                    logger.warning(f"Overwriting: {file_}")
                     os.remove(file_)
 
         for col, suffix in [("State", "state"), ("Res", "residuals")]:
+            logger.info(f"{chromosome}: writing/appending to: consenrichOutput_{experimentName}_{suffix}.bedGraph")
             df[["Chromosome", "Start", "End", col]].to_csv(
                 f"consenrichOutput_{experimentName}_{suffix}.bedGraph",
                 sep="\t",
@@ -726,7 +728,7 @@ def main():
                     )
         except Exception as e:
             logger.warning(
-                f"Matching routine unsuccessful for {chromosome}...skipping"
+                f"Matching routine unsuccessful for {chromosome}...SKIPPING:\n{e}\n\n"
             )
             continue
     logger.info("Finished: output in human-readable format")
