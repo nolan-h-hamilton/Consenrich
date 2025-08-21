@@ -127,19 +127,37 @@ Input alignments (Black) and ENCODE ``fold change over control`` bigWigs for eac
 
 * Consenrich precision-weighted residual track: `demoHistoneChIPSeq_consenrich_residuals.bw`
 
-* Consenrich 'Matched' regions showing 'structured enrichment': `consenrichOutput_demoHistoneChIPSeq_matches.narrowPeak`
-
-  * See :ref:`matching`.
-
+* Consenrich 'Matched' regions showing 'structured enrichment' (:ref:`matching`): `consenrichOutput_demoHistoneChIPSeq_matches.narrowPeak`
 
 .. note::
   The command-line interface is a convenience wrapper that may not expose all available objects or more niche features.
   Some users may find it beneficial to run Consenrich programmatically (via Jupyter notebooks, Python scripts), as the :ref:`API` enables
   greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
 
-
 Further analyses are available in :ref:`additional-examples`. This section of the documentation will be regularly updated to include a breadth of assays, downstream analyses, and runtime benchmarks.
 
+
+Consenrich+ROCCO
+"""""""""""""""""""""
+
+Consenrich can markedly improve conventional consensus peak calling (See 'Results' in the `manuscript preprint <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_).
+
+`ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ allows Consenrich bigWig files as input and is particularly well-suited to leverage the sharpened signal tracks for improved peak calling.
+
+In the example above, to call peaks using the `Consenrich+ROCCO` protocol,
+
+.. code-block:: console
+
+	python -m pip install rocco --upgrade
+	rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38
+
+See `ROCCO Homepage <https://github.com/nolan-h-hamilton/ROCCO>`_ for installation details, documentation, examples, and other resources.
+
+.. note::
+
+	Other peak callers that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. To date, only ROCCO has been tested for this purpose, though.
+
+	Depending on the signal target and goals of analysis, the :ref:`matching` algorithm available with Consenrich may be ideal for identifying peak-like regions exhibiting 'structured' patterns of enrichment across multiple samples.
 
 .. _additional-examples:
 
