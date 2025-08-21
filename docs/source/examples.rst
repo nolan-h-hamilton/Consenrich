@@ -134,8 +134,6 @@ Input alignments (Black) and ENCODE ``fold change over control`` bigWigs for eac
   Some users may find it beneficial to run Consenrich programmatically (via Jupyter notebooks, Python scripts), as the :ref:`API` enables
   greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
 
-Further analyses are available in :ref:`additional-examples`. This section of the documentation will be regularly updated to include a breadth of assays, downstream analyses, and runtime benchmarks.
-
 
 Consenrich+ROCCO
 """""""""""""""""""""
@@ -158,6 +156,10 @@ See `ROCCO Homepage <https://github.com/nolan-h-hamilton/ROCCO>`_ for installati
 	Other peak callers that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. To date, only ROCCO has been tested for this purpose, though.
 
 	Depending on the signal target and goals of analysis, the :ref:`matching` algorithm available with Consenrich may be ideal for identifying peak-like regions exhibiting 'structured' patterns of enrichment across multiple samples.
+
+
+Further analyses are available in :ref:`additional-examples`. This section of the documentation will be regularly updated to include a breadth of assays, downstream analyses, and runtime benchmarks.
+
 
 .. _additional-examples:
 
