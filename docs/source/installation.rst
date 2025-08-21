@@ -16,6 +16,17 @@ Multiple binaries are distributed via `PyPI <https://pypi.org/project/consenrich
 
   python -m pip install consenrich --upgrade
 
+
+Previous Versions
+""""""""""""""""""""""""""
+
+To install a specific version of Consenrich from PyPI, e.g., ``0.1.13b1``:
+
+.. code-block:: bash
+
+  python -m pip install consenrich==0.1.13b1
+
+
 If a binary is not available for your platform, see below to build from source.
 
 
@@ -25,22 +36,20 @@ From Source
 To build from source, you will need a C compiler (e.g., `gcc` or `clang`) to build the Cython extensions.
 
 
+First, clone the repository:
 
 .. code-block:: console
 
   git clone https://github.com/nolan-h-hamilton/Consenrich.git
+
+
+Set the working directory and install:
+
+.. code-block:: console
+
   cd Consenrich
   python -m pip install .
 
-
-Previous Versions
-~~~~~~~~~~~~~~~~~~~~~
-
-To install a specific version of Consenrich from PyPI, you can specify the version number in the pip install command, for example:
-
-.. code-block:: bash
-
-  python -m pip install consenrich==0.1.13b1
 
 
 Conda

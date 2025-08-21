@@ -79,7 +79,7 @@ Using a YAML Configuration file
    Refer to the ``<process,observation,etc.>Params`` classes in module in the :ref:`API` for complete documentation of configuration options.
 
 
-Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``. For a quick trial run (:math:`\approx` 1 minute), you can restrict analysis to a single chromosome: To reproduce the results shown in the IGV browser snapshot below add ``genomeParams.chromosomes: ['chr22']`` to the configuration file.
+Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``. For a quick trial run (:math:`\approx` 1 minute), you can restrict analysis to a subset of chromosomes: To reproduce the results shown in the IGV browser snapshot below add ``genomeParams.chromosomes: [chr21, chr22]`` to the configuration file.
 
 .. code-block:: yaml
   :name: demoHistoneChIPSeq.yaml
@@ -100,7 +100,10 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   matchingParams.iters: 25_000
   matchingParams.alpha: 0.01
 
-.. important:: To accommodate ATAC-seq, DNase-seq, CUT&RUN, etc. **Control inputs are optional**. Omit ``inputParams.bamFilesControl`` as needed.
+.. admonition:: Control Inputs
+  :class: tip
+
+  Omit ``inputParams.bamFilesControl`` for ATAC-seq, DNase-seq, Cut&Run, and other assays where no control is available or applicable.
 
 
 Run Consenrich
@@ -113,70 +116,70 @@ Invoke the command-line interface to run Consenrich:
 
   consenrich --config demoHistoneChIPSeq.yaml --verbose
 
-
-**IGV snapshot: demoHistoneChIPSeq**
-
-.. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
-  :alt: Output Consenrich Signal Estimates
-    :width: 85%
-    :align: center
-
-Input alignments (Black) and ENCODE ``fold change over control`` bigWigs for each sample (Red) are displayed for reference.
-
-* Consenrich signal estimate track: `demoHistoneChIPSeq_consenrich_state.bw`
-
-* Consenrich precision-weighted residual track: `demoHistoneChIPSeq_consenrich_residuals.bw`
-
-* Consenrich 'Matched' regions showing 'structured enrichment' (:ref:`matching`): `consenrichOutput_demoHistoneChIPSeq_matches.narrowPeak`
-
 .. note::
   The command-line interface is a convenience wrapper that may not expose all available objects or more niche features.
   Some users may find it beneficial to run Consenrich programmatically (via Jupyter notebooks, Python scripts), as the :ref:`API` enables
   greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
 
 
-Consenrich+ROCCO
-"""""""""""""""""""""
+Visualizing Results
+""""""""""""""""""""""""""
 
-Consenrich can markedly improve conventional consensus peak calling (See 'Results' in the `manuscript preprint <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_).
+We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
 
-`ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ allows Consenrich bigWig files as input and is particularly well-suited to leverage the sharpened signal tracks for improved peak calling.
-
-In the example above, to call peaks using the `Consenrich+ROCCO` protocol,
-
-.. code-block:: console
-
-	python -m pip install rocco --upgrade
-	rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38
-
-See `ROCCO Homepage <https://github.com/nolan-h-hamilton/ROCCO>`_ for installation details, documentation, examples, and other resources.
-
-.. note::
-
-	Other peak callers that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. To date, only ROCCO has been tested for this purpose, though.
-
-	Depending on the signal target and goals of analysis, the :ref:`matching` algorithm available with Consenrich may be ideal for identifying peak-like regions exhibiting 'structured' patterns of enrichment across multiple samples.
+.. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
+  :alt: Output Consenrich Signal Estimates
+    :width: 800px
+    :align: left
 
 
-Further analyses are available in :ref:`additional-examples`. This section of the documentation will be regularly updated to include a breadth of assays, downstream analyses, and runtime benchmarks.
+Input alignments (Black) and ENCODE ``fold change over control`` bigWig files for each sample (Red) are displayed for reference.
 
+* Consenrich signal estimate track: ``demoHistoneChIPSeq_consenrich_state.bw``
+
+* Consenrich precision-weighted residual track: ``demoHistoneChIPSeq_consenrich_residuals.bw``
+
+* Consenrich 'Matched' regions showing a structured enrichment pattern: ``consenrichOutput_demoHistoneChIPSeq_matches.narrowPeak``
+
+
+.. admonition:: `Consenrich+ROCCO`: Consensus Peak Calling
+  :class: tip
+
+  Consenrich can markedly improve conventional consensus peak calling (See 'Results' in the `manuscript preprint <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_).
+
+  `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ accepts Consenrich bigWig files as input and is particularly well-suited to leverage the sharpened signal tracks. In the example above, to call peaks using the `Consenrich+ROCCO` protocol,
+
+  .. code-block:: console
+
+	  python -m pip install rocco --upgrade
+	  rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38
+
+
+  Alternative peak calling methods that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. Only ROCCO has been evaluated for this task to date.
+
+  Depending on the signal target and goals of analysis, the :ref:`matching` algorithm available with Consenrich can also be used to complement existing peak calling methods---e.g., detecting 'structured' enrichment patterns across multiple samples or identifying subpeaks within broad regions of interest.
+
+Further analyses are available in :ref:`additional-examples`.
 
 .. _additional-examples:
 
-Additional Examples and Computational Benchmarking
+Additional Examples and Benchmarking
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. toctree::
    :maxdepth: 2
    :caption: Additional Examples and Computational Benchmarking
 
-- **ATAC-seq**
-- **Samples:** :math:`m=20` lymphoblast cell lines (ENCODE)
-- Between 25-100 million mapped reads per sample
 
+This section of the documentation will be regularly updated to include a breadth of assays, downstream analyses, and runtime benchmarks.
+
+ATAC-seq
+""""""""""""""""
+
+- Input data: :math:`m=20` ATAC-seq BAM files derived from lymphoblastoid cell lines (ENCODE)
 
 Environment
-"""""""""""""""""
+''''''''''''''
 
 - MacBook MX313LL/A (arm64)
 - Python 3.12.9
@@ -201,7 +204,7 @@ Names and versions of packages that are relevant to computational performance. T
        - 0.4.2b0
 
 
-Run with the following YAML config file, saved as `atac20Benchmark.yaml`
+Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs, e.g., `*.bam`, are allowed, but each BAM file is listed here explicitly for reproducibility.
 
 .. code-block:: yaml
 
@@ -209,7 +212,7 @@ Run with the following YAML config file, saved as `atac20Benchmark.yaml`
   genomeParams.name: hg38
   genomeParams.excludeForNorm: ['chrX', 'chrY']
   genomeParams.excludeChroms: ['chrX','chrY']
-  inputParams.bamFiles: [ENCFF326QXM.bam, # globs are allowed, too, e.g., '*.bam'
+  inputParams.bamFiles: [ENCFF326QXM.bam,
     ENCFF497QOS.bam,
     ENCFF919PWF.bam,
     ENCFF447ZRG.bam,
@@ -230,45 +233,66 @@ Run with the following YAML config file, saved as `atac20Benchmark.yaml`
     ENCFF130DND.bam,
     ENCFF948HNW.bam
   ]
-  processParams.minQ: 0.05 # bound minimum process noise variance
-  observationParams.minR: 0.05 # bound minimum observation noise variance
+  processParams.minQ: 0.05 # lower bounds minimum process noise variance
+  observationParams.minR: 0.05 # lower bounds minimum observation noise variance
   countingParams.stepSize: 25
-  matchingParams.templateNames: [db2] # detect 'structured enrichment', db2-based template
+  matchingParams.templateNames: [db2] # structured enrichment patterns w/ db2
   matchingParams.cascadeLevels: [2]
-	matchingParams.alpha: 0.01
-  samParams.samThreads: 1 # single-threaded BAM I/O
-  samParams.chunkSize: 1000000 # 25,000,000bp chunks
+  matchingParams.alpha: 0.01
+  samParams.samThreads: 1
+  samParams.chunkSize: 1000000
 
 
-**Run Consenrich**
+Run Consenrich
+''''''''''''''''''''
 
 .. code-block:: console
 
   consenrich --config atac20Benchmark.yaml --verbose
 
+
 After running, the following files will be generated in the current working directory:
 
-* Consenrich signal estimate track: `atac20Benchmark_consenrich_state.bw`
+* Consenrich signal estimate track: ``atac20Benchmark_consenrich_state.bw``
 
-* Consenrich precision-weighted residual track: `atac20Benchmark_consenrich_residuals.bw`
+* Consenrich precision-weighted residual track: ``atac20Benchmark_consenrich_residuals.bw``
 
-* Consenrich regions showing 'structured enrichment' (:ref:`matching`): `consenrichOutput_atac20Benchmark_matches.narrowPeak`
+* Detected peak-like regions (:ref:`matching`): ``consenrichOutput_atac20Benchmark_matches.narrowPeak``
 
+
+Visualizing Results
+''''''''''''''''''''''''''''
+
+- Output tracks and features are visualized above in a **100kb** region around the transcription start site of `NOTCH1`.
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib.png
     :alt: IGV Browser Snapshot
-    :width: 900px
+    :width: 800px
     :align: left
 
-Output tracks and features are visualized around at the transcription start site of `NOTCH1` in the IGV browser snapshot above. The bigWig files `atac20Benchmark_consenrich_state.bw` and `atac20Benchmark_consenrich_residuals.bw` are overlaid (blue/red) for comparison. Regions showing structured enrichment (db2) are positioned above the Consenrich signal.
 
-**Computation**
 
-Memory is tracked with `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches in the plot. Note that the repeated sampling of memory introduces some overhead affecting runtime.
+The bigWig files `atac20Benchmark_consenrich_state.bw` and `atac20Benchmark_consenrich_residuals.bw` are overlaid (blue/red) for comparison.
+
+Regions showing a structured enrichment pattern (`db2, level=2`) are positioned above the Consenrich signal as BED features in narrowPeak format.
+
+- Focused view over a **25kb** subregion:
+
+.. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib25KB.png
+    :alt: IGV Browser Snapshot (25kb)
+    :width: 800px
+    :align: left
+
+Runtime and Memory Profiling
+''''''''''''''''''''''''''''''''''
+
+Memory was profiled using the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches.
+
+Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkMemoryPlot.png
     :alt: Time vs. Memory Usage (`memory-profiler`)
-    :width: 900px
+    :width: 800px
     :align: center
 
 
