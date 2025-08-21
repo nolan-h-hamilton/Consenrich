@@ -178,7 +178,7 @@ Names and versions of packages that are relevant to computational performance. T
      * - ``scipy``
        - 1.16.1
      * - ``consenrich``
-       - 0.4.1b0
+       - 0.4.2b0
 
 
 Run with the following YAML config file, saved as `atac20Benchmark.yaml`
@@ -215,6 +215,7 @@ Run with the following YAML config file, saved as `atac20Benchmark.yaml`
   countingParams.stepSize: 25
   matchingParams.templateNames: [db2] # detect 'structured enrichment', db2-based template
   matchingParams.cascadeLevels: [2]
+	matchingParams.alpha: 0.01
   samParams.samThreads: 1 # single-threaded BAM I/O
   samParams.chunkSize: 1000000 # 25,000,000bp chunks
 
@@ -227,11 +228,11 @@ Run with the following YAML config file, saved as `atac20Benchmark.yaml`
 
 After running, the following files will be generated in the current working directory:
 
-* Consenrich signal estimate track: atac20Benchmark_consenrich_state.bw
+* Consenrich signal estimate track: `atac20Benchmark_consenrich_state.bw`
 
-* Consenrich precision-weighted residual track: atac20Benchmark_consenrich_residuals.bw
+* Consenrich precision-weighted residual track: `atac20Benchmark_consenrich_residuals.bw`
 
-* Consenrich 'Matched' regions showing 'structured enrichment': consenrichOutput_atac20Benchmark_matches.narrowPeak
+* Consenrich regions showing 'structured enrichment' (:ref:`matching`): `consenrichOutput_atac20Benchmark_matches.narrowPeak`
 
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib.png
@@ -239,7 +240,11 @@ After running, the following files will be generated in the current working dire
     :width: 900px
     :align: left
 
-Memory is tracked with `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory use over time and frequency of function calls (marked as notches).
+Output tracks and features are visualized around at the transcription start site of `NOTCH1` in the IGV browser snapshot above. The bigWig files `atac20Benchmark_consenrich_state.bw` and `atac20Benchmark_consenrich_residuals.bw` are overlaid (blue/red) for comparison. Regions showing structured enrichment (db2) are positioned above the Consenrich signal.
+
+**Computation**
+
+Memory is tracked with `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches in the plot. Note that the repeated sampling of memory introduces some overhead affecting runtime.
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkMemoryPlot.png
     :alt: Time vs. Memory Usage (`memory-profiler`)

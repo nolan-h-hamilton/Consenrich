@@ -10,24 +10,27 @@ Installation
 From PyPI
 ~~~~~~~~~~
 
-Multiple binary `wheels <https://peps.python.org/pep-0427/>`_ are distributed via `PyPI <https://pypi.org/project/consenrich/#files>`_ to accommodate different operating systems, Python versions, and architectures. To install the latest version, run:
+Multiple binaries are distributed via `PyPI <https://pypi.org/project/consenrich/#files>`_ to accommodate different operating systems, Python versions, and architectures. To install the latest version, run:
 
 .. code-block:: bash
 
   python -m pip install consenrich --upgrade
 
-If a wheel for your platform is not available, see below to build from source. Please open an issue on the `GitHub repository <https://github.com/nolan-h-hamilton/Consenrich/issues>`_ if encountering any problems.
+If a binary is not available for your platform, see below to build from source.
 
 
 From Source
 ~~~~~~~~~~~~~~
 
-To build from source, you will need a C compiler (e.g., `gcc` or `clang`) and the `build <https://pypi.org/project/build/>`_ packaging library.
+To build from source, you will need a C compiler (e.g., `gcc` or `clang`) to build the Cython extensions.
 
-- Clone the repository: ``git clone https://github.com/nolan-h-hamilton/Consenrich.git``
-- Set working directory to ``/path/to/Consenrich``
-- Build the package: ``python -m build``
-- Install the package: ``python -m pip install .``
+
+
+.. code-block:: console
+
+  git clone https://github.com/nolan-h-hamilton/Consenrich.git
+  cd Consenrich
+  python -m pip install .
 
 
 Previous Versions

@@ -38,9 +38,9 @@ def matchWavelet(
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
 ) -> pd.DataFrame:
-    r"""Match discrete samplings of wavelet functions in the sequence of Consenrich estimates
+    r"""Match discrete wavelet-based templates in the sequence of Consenrich estimates
 
-    See :ref:`matching`. The `db2` template at cascade level 2 is a good starting point for detecting subpeaks within broadly enriched genomic regions.
+    See :ref:`matching`.
 
     :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
     :type values: npt.NDArray[np.float64]
