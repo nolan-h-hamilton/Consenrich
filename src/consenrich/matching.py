@@ -33,14 +33,14 @@ def matchWavelet(
     iters: int,
     alpha: float,
     minMatchLengthBP: Optional[int],
-    maxNumMatches: Optional[int] = 10_000,
+    maxNumMatches: Optional[int] = 100_000,
     minSignalAtMaxima: Optional[float] = None,
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
 ) -> pd.DataFrame:
-    r"""Match discrete samplings of wavelet functions in the sequence of Consenrich estimates
+    r"""Match discrete wavelet-based templates in the sequence of Consenrich estimates
 
-    See :ref:`matching`. The `db2` template at cascade level 2 is a good starting point for detecting subpeaks within broadly enriched genomic regions.
+    See :ref:`matching`.
 
     :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
     :type values: npt.NDArray[np.float64]
@@ -129,20 +129,23 @@ def matchWavelet(
                 minMatchLengthBP += intervalLengthBP - (
                     minMatchLengthBP % intervalLengthBP
                 )
-            relativeMaximaWindow = int(minMatchLengthBP / intervalLengthBP)
+
+            # reduce overlaps
+            relativeMaximaWindow = int(
+                ((minMatchLengthBP / intervalLengthBP) / 2) + 1
+            )
             relativeMaximaWindow = max(relativeMaximaWindow, 1)
 
             logger.info(
-                f"\nSampling {iters} block maxima for template {templateName} at cascade level {cascadeLevel} with relative maxima window size {relativeMaximaWindow}."
+                f"\nSampling {iters} block maxima for template {templateName} at cascade level {cascadeLevel} with (expected) relative maxima window size {relativeMaximaWindow}."
             )
             blockMaxima = cconsenrich.csampleBlockStats(
                 responseSequence, relativeMaximaWindow, iters, randSeed_
             )
+            logger.info("Done.")
+
             responseThreshold = np.quantile(blockMaxima, 1 - alpha)
             ecdfBlockMaximaSF = stats.ecdf(blockMaxima).sf
-            logger.info(
-                f"Done. Sampled {len(blockMaxima)} blocks --> 1-alpha quantile: {responseThreshold:.4f}.\n"
-            )
 
             signalThreshold: float = 0.0
             if minSignalAtMaxima is None:
@@ -161,9 +164,9 @@ def matchWavelet(
 
             if maxNumMatches is not None:
                 if len(relativeMaximaIndices) > maxNumMatches:
-                    # take the greatest maxNumMatches
+                    # take the greatest maxNumMatches (by 'signal')
                     relativeMaximaIndices = relativeMaximaIndices[
-                        np.argsort(responseSequence[relativeMaximaIndices])[
+                        np.argsort(values[relativeMaximaIndices])[
                             -maxNumMatches:
                         ]
                     ]

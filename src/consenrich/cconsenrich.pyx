@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
-# cython: boundscheck=False, wraparound=False, cdivision=True, nonecheck=False, initializedcheck=False
+# cython: boundscheck=False, wraparound=False, cdivision=True, nonecheck=False, initializedcheck=False, language_level=3
 r"""Cython module for Consenrich core functions.
 
 This module contains Cython implementations of core functions used in Consenrich.
 """
 
-from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t, int64_t
-from libc.math cimport sqrt, fabs
+from libc.math cimport fabs, sqrt
+from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
+
 import numpy as np
-cimport numpy as cnp
-from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
+
 cimport cython
+cimport numpy as cnp
+from pysam.libcalignmentfile cimport AlignedSegment, AlignmentFile
 
 cnp.import_array()
 
