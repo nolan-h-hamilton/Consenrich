@@ -152,7 +152,8 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     uint16_t samThreads,
     uint16_t samFlagExclude,
     int64_t shiftForwardStrand53 = 0,
-    int64_t shiftReverseStrand53 = 0):
+    int64_t shiftReverseStrand53 = 0,
+    int64_t extendBP = 0):
     r"""Count reads in a BAM file for a given chromosome"""
 
     cdef Py_ssize_t numIntervals = <Py_ssize_t>getNumIntervals(<int64_t>start, <int64_t>end, <int64_t>stepSize)
@@ -167,57 +168,55 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     cdef Py_ssize_t lastIndex = numIntervals - 1
     cdef bint readIsForward
     cdef int64_t readStart, readEnd
+    cdef int64_t adjStart, adjEnd, fivePrime, mid, midIndex
+    cdef uint16_t flag
+
 
     try:
-        if oneReadPerBin == 0 and readLength > stepSize:
-            for read in aln.fetch(chromosome, start, end):
-                flag = <uint16_t> read.flag
-                if (flag & samFlagExclude) != 0:
-                    continue
-                readIsForward = (flag & 16) == 0
-                readStart = <int64_t> read.reference_start
-                readEnd = <int64_t> read.reference_end
+        for read in aln.fetch(chromosome, start, end):
+            flag = <uint16_t> read.flag
+            if (flag & samFlagExclude) != 0:
+                continue
 
+            readIsForward = (flag & 16) == 0
+            readStart = <int64_t>read.reference_start
+            readEnd   = <int64_t>read.reference_end
+            if extendBP > 0:
+                # extend from shifted 5' *cut*
+                if readIsForward:
+                    fivePrime = readStart + shiftForwardStrand53
+                    adjStart = fivePrime
+                    adjEnd = fivePrime + extendBP
+                else:
+                    fivePrime = (readEnd - 1) - shiftReverseStrand53
+                    adjStart = fivePrime - extendBP + 1
+                    adjEnd = fivePrime + 1
+            else:
+                # count mapped reads after shift
                 if readIsForward:
                     adjStart = readStart + shiftForwardStrand53
-                    adjEnd   = readEnd + shiftForwardStrand53
+                    adjEnd = readEnd + shiftForwardStrand53
                 else:
                     adjStart = readStart - shiftReverseStrand53
-                    adjEnd   = readEnd - shiftReverseStrand53
-                index0 = floordiv64(adjStart - start64, step64)
-                index1 = floordiv64((adjEnd - 1) - start64, step64)
-                if index1 < 0 or index0 > lastIndex:
-                    continue
-                if index0 < 0:
-                    index0 = 0
-                if index1 > lastIndex:
-                    index1 = lastIndex
-                for i in range(index0, index1 + 1):
-                    values[i] += 1
-        else:
-            for read in aln.fetch(chromosome, start, end):
-                flag = <uint16_t> read.flag
-                if (flag & samFlagExclude) != 0:
-                    continue
-                readIsForward = (flag & 16) == 0
-                readStart = <int64_t> read.reference_start
-                readEnd = <int64_t> read.reference_end
+                    adjEnd = readEnd - shiftReverseStrand53
+            if adjEnd - adjStart < 1:
+                continue
 
-                if readIsForward:
-                    adjStart = readStart + shiftForwardStrand53
-                    adjEnd   = readEnd + shiftForwardStrand53
-                else:
-                    adjStart = readStart - shiftReverseStrand53
-                    adjEnd   = readEnd - shiftReverseStrand53
-                index0 = floordiv64(adjStart - start64, step64)
-                index1 = floordiv64(adjEnd - start64, step64)
-                if index1 < 0 or index0 > lastIndex:
-                    continue
-                # get center index after shift 
+            index0 = floordiv64(adjStart - start64, step64)
+            index1 = floordiv64((adjEnd - 1) - start64, step64)
+
+            if oneReadPerBin != 0 or index0 == index1:
                 mid = adjStart + ((adjEnd - adjStart) // 2)
                 midIndex = floordiv64(mid - start64, step64)
                 if 0 <= midIndex <= lastIndex:
                     values[midIndex] += 1
+            else:
+                if index1 < 0 or index0 > lastIndex:
+                    continue
+                if index0 < 0: index0 = 0
+                if index1 > lastIndex: index1 = lastIndex
+                for k in range(index0, index1 + 1):
+                    values[k] += 1
     finally:
         aln.close()
 

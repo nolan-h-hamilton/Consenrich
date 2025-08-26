@@ -95,10 +95,13 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   ENCFF619NYP.bam,
   ENCFF898LKJ.bam,
   ENCFF490MWV.bam]
-  matchingParams.templateNames: [db2]
+  # optional: detect structured enrichment patterns
+  matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [2]
   matchingParams.iters: 25_000
   matchingParams.alpha: 0.01
+  matchingParams.merge: true
+  matchingParams.mergeGapBP: 25
 
 .. admonition:: Control Inputs
   :class: tip
@@ -122,24 +125,27 @@ Invoke the command-line interface to run Consenrich:
   greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
 
 
-Visualizing Results
-""""""""""""""""""""""""""
+Output Files and Formats
+"""""""""""""""""""""""""""""""""
 
-We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
+Consenrich generates the following output files:
 
-.. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
-  :alt: Output Consenrich Signal Estimates
-    :width: 800px
-    :align: left
+* *Signal estimate track* (`bigWig <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_state.bw``
+
+  * This track contains the primary estimated signal :math:`\widetilde{x}_{[i]},~i=1,\ldots,n`, derived from the input BAM files.
+  * See :func:`consenrich.core.getPrimaryState`
+
+* *Precision-weighted residual track* (`bigWig <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_residuals.bw``
+
+  * These values reflect deviance from the primary state estimates after accounting for varying data quality. Uncertainty in the process model can also be accounted for.
+  * See :func:`consenrich.core.getPrecisionWeightedResidual`
 
 
-Input alignments (Black) and ENCODE ``fold change over control`` bigWig files for each sample (Red) are displayed for reference.
+* If the matching algorithm is invoked, then Consenrich will search for structured enrichment patterns, peaks, etc. in the signal estimate track and record results in `BED/narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ format:
 
-* Consenrich signal estimate track: ``demoHistoneChIPSeq_consenrich_state.bw``
-
-* Consenrich precision-weighted residual track: ``demoHistoneChIPSeq_consenrich_residuals.bw``
-
-* Consenrich 'Matched' regions showing a structured enrichment pattern: ``consenrichOutput_demoHistoneChIPSeq_matches.narrowPeak``
+  * ``consenrichOutput_<experimentName>_matches.narrowPeak``: All matched regions, potentially overlapping.
+  * ``consenrichOutput_<experimentName>_matches.mergedMatches.narrowPeak``: Merged matched regions, where the overlapping feature with the strongest signal determines the new pointSource/Summit.
+  * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
 
 .. admonition:: `Consenrich+ROCCO`: Consensus Peak Calling
@@ -152,12 +158,27 @@ Input alignments (Black) and ENCODE ``fold change over control`` bigWig files fo
   .. code-block:: console
 
 	  python -m pip install rocco --upgrade
-	  rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38
+	  rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38 -o consenrichRocco_demoHistoneChIPSeq.bed
+
+  * The :ref:`matching` algorithm available with Consenrich may be effective as a complement or substitute for existing peak calling methods---e.g., detecting 'structured' enrichment patterns across multiple samples or identifying subpeaks within broad regions of interest.
+
+  * Alternative peak calling methods that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. Only ROCCO has been evaluated for this task to date.
 
 
-  Alternative peak calling methods that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. Only ROCCO has been evaluated for this task to date.
 
-  Depending on the signal target and goals of analysis, the :ref:`matching` algorithm available with Consenrich can also be used to complement existing peak calling methods---e.g., detecting 'structured' enrichment patterns across multiple samples or identifying subpeaks within broad regions of interest.
+Visualizing Results
+""""""""""""""""""""""""""
+
+We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
+
+.. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
+  :alt: Output Consenrich Signal Estimates
+    :width: 800px
+    :align: left
+
+
+Input alignments (Black) and ENCODE ``fold change over control`` bigWig files for each sample (Dark red) are displayed for reference.
+
 
 Further analyses are available in :ref:`additional-examples`.
 
@@ -201,7 +222,7 @@ Names and versions of packages that are relevant to computational performance. T
      * - ``scipy``
        - 1.16.1
      * - ``consenrich``
-       - 0.4.2b0
+       - 0.4.3b0
 
 
 Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs, e.g., `*.bam`, are allowed, but each BAM file is listed here explicitly for reproducibility.
@@ -251,15 +272,6 @@ Run Consenrich
   consenrich --config atac20Benchmark.yaml --verbose
 
 
-After running, the following files will be generated in the current working directory:
-
-* Consenrich signal estimate track: ``atac20Benchmark_consenrich_state.bw``
-
-* Consenrich precision-weighted residual track: ``atac20Benchmark_consenrich_residuals.bw``
-
-* Detected peak-like regions (:ref:`matching`): ``consenrichOutput_atac20Benchmark_matches.narrowPeak``
-
-
 Visualizing Results
 ''''''''''''''''''''''''''''
 
@@ -271,9 +283,6 @@ Visualizing Results
     :align: left
 
 
-
-The bigWig files `atac20Benchmark_consenrich_state.bw` and `atac20Benchmark_consenrich_residuals.bw` are overlaid (blue/red) for comparison.
-
 Regions showing a structured enrichment pattern (`db2, level=2`) are positioned above the Consenrich signal as BED features in narrowPeak format.
 
 - Focused view over a **25kb** subregion:
@@ -282,6 +291,7 @@ Regions showing a structured enrichment pattern (`db2, level=2`) are positioned 
     :alt: IGV Browser Snapshot (25kb)
     :width: 800px
     :align: left
+
 
 Runtime and Memory Profiling
 ''''''''''''''''''''''''''''''''''
@@ -300,3 +310,63 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
 
   Memory cost can be reduced by decreasing `samParams.chunkSize` in the configuration file. Smaller chunk sizes may affect runtime due to overhead from more frequent file I/O, however.
 
+
+Extra: Evaluating Structured Peaks
+''''''''''''''''''''''''''''''''''''''''''''
+
+We compare the structured peaks detected using :func:`consenrich.matching.matchWavelet` with previously identified candidate regulatory elements (ENCODE cCREs).
+
+Consenrich-detected structured peaks that share a :math:`50\%` *reciprocal* overlap with an ENCODE cCRE are counted. Note that the cCREs are a general reference and are not specific to our lymphoblastoid input dataset, `atac20`.
+
+.. code-block:: console
+
+  bedtools intersect -a consenrichOutput_atac20Benchmark_matches.narrowPeak \
+    -b ENCODE3_cCREs.bed \
+    -f 0.50 -r -u  \
+    | wc -l
+    85072
+
+
++--------------------------------------------------+------------------------+
+| Features                                         | Count                  |
++==================================================+========================+
+| Consenrich-detected structured peaks             | **108,760**            |
++--------------------------------------------------+------------------------+
+| Distinct cCRE overlaps (`-f 0.50 -r -u` )        | **85,072**             |
++--------------------------------------------------+------------------------+
+| Fraction overlapping (%)                         | **78.2%**              |
++--------------------------------------------------+------------------------+
+
+Many regions detected by Consenrich share the required `50\%` reciprocal overlap with an ENCODE cCRE.
+
+**Are the regions absent from ENCODE cCREs 'false positives'?**
+
+Using `bedtools subtract -A`, we can identify regions completely disjoint from ENCODE cCREs that were detected by Consenrich:
+
+.. code-block:: console
+
+  % bedtools subtract \
+    -a consenrichOutput_atac20Benchmark_matches.narrowPeak \
+    -b ENCODE3_cCREs.bed -A  > excluded.bed
+
+  % wc -l excluded.bed
+    14455 excluded.bed
+
+
+By running a functional enrichment analysis on the regions in `excluded.bed`, we can begin to evaluate whether the Consenrich-detected regions absent from ENCODE cCREs are 'false positives' or potentially meaningful for lymphoblasts.
+
+See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ R packages to perform GO enrichment analysis on `excluded.bed`.
+
+Several of the most enriched GO terms associated with `excluded.bed` are related to lymphoblast function:
+
++--------------+-------------------------------------------+-----------+
+| Identifier   | Description                               | q-value   |
++==============+===========================================+===========+
+| `GO:0042113` | B cell activation                         | 0.0010770 |
++--------------+-------------------------------------------+-----------+
+| `GO:0070661` | leukocyte proliferation                   | 0.0021346 |
++--------------+-------------------------------------------+-----------+
+| `GO:0070663` | regulation of leukocyte proliferation     | 0.0030143 |
++--------------+-------------------------------------------+-----------+
+
+suggesting that the regions absent from ENCODE cCREs may play an important role.

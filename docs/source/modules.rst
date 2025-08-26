@@ -146,22 +146,30 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the
 
   Sections :ref:`minimal` and/or :ref:`additional-examples` which include browser shots demonstrating qualitative behavior of this feature.
 
-.. tip::
+.. admonition:: Some guidance on matching for structured peak detection
+  :class: tip
 
-  Consider beginning with a Daubechies wavelet-based template with two vanishing moments `matchingParams.templateNames: [db2]` and `matchingParams.cascadeLevels: [2]`. For many settings, will provide a good balance between spatial/frequency resolution.
+  * To increase the number/size of detected structured peaks, consider setting `matchingParams.merge: true` and
+
+    * Using multiple wavelet-based templates, e.g. `matchingParams.templateNames: [haar, db2]`
+    * Increasing `matchingParams.alpha`
+
+  * To emphasize generic peak/summit like features, a reasonable starting point is:
+
+  .. code-block:: yaml
+
+    matchingParams.templateNames: [haar, db2]
+    matchingParams.cascadeLevels: [2]
+    matchingParams.alpha: 0.05
+    matchingParams.merge: true
+    matchingParams.mergeGapBP: 25
+
+  * For 'longer' features with higher-order polynomial structure, wavelets with greater support lengths/vanishing moments (e.g., `db4, db8`) should be favored.
 
 
 .. autofunction:: consenrich.matching.matchWavelet
 
-.. .. admonition:: note
-  :: Consensus Peak Calling
-
-    Traditional enrichment-based peak calling on Consenrich signal track output can be performed using, e.g., `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_,
-
-     ``rocco -i <ConsenrichOutput.bw> -g <genomeName> [...]``
-
-    Other peak callers accepting bedGraph or bigWig input may be plausible downstream companions to Consenrich, too (e.g., `MACS bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_)
-
+.. autofunction:: consenrich.matching.mergeMatches
 
 Cython functions: ``consenrich.cconsenrich``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -156,6 +156,8 @@ class samParams(NamedTuple):
     :type oneReadPerBin: int
     :param chunkSize: maximum number of intervals' data to hold in memory before flushing to disk.
     :type chunkSize: int
+    :param offsetStr: A string of two comma-separated integers -- first for the 5' shift on forward strand, second for the 5' shift on reverse strand.
+    :type offsetStr: str
 
     .. tip::
 
@@ -168,6 +170,7 @@ class samParams(NamedTuple):
     oneReadPerBin: int
     chunkSize: int
     offsetStr: Optional[str] = "0,0"
+    extendBP: Optional[int] = 0
 
 
 class detrendParams(NamedTuple):
@@ -248,7 +251,16 @@ class countingParams(NamedTuple):
 class matchingParams(NamedTuple):
     r"""Parameters related to the (experimental) pattern matching routine packaged with this software.
 
-    See :func:`consenrich.matching.matchWavelet` and :func:`cconsenrich.csampleBlockStats` for implementation.
+    :param templateNames: A list of mother wavelets used as the basis for matching, e.g., `[haar, coif1, db2]`
+    :type templateNames: List[str]
+    :param cascadeLevels: Number of cascade algorithm iterations used to discretely sample the given wavelet.
+    :type cascadeLevels: List[int]
+    :param iters: Number of random blocks in the cross correlation sequence to sample when building the null. Expected block length is equal to template length.
+    :type iters: int
+    :param merge: Whether to merge overlapping matches within `mergeGapBP` base pairs. A separate narrowPeak file will be created for the merged matches -- the original is preserved too.
+    :type merge: bool
+
+    See :func:`consenrich.matching.matchWavelet` for implementation.
     """
 
     templateNames: List[str]
@@ -258,6 +270,8 @@ class matchingParams(NamedTuple):
     minMatchLengthBP: Optional[int]
     maxNumMatches: Optional[int]
     minSignalAtMaxima: Optional[float]
+    merge: bool = False
+    mergeGapBP: int = 25
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:
@@ -414,6 +428,7 @@ def readBamSegments(
     samFlagExclude: int,
     offsetStr: Optional[str] = "0,0",
     applyAsinh: Optional[bool] = False,
+    extendBP: int = 0,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -439,6 +454,12 @@ def readBamSegments(
     :type samThreads: int
     :param samFlagExclude: See :class:`samParams`.
     :type samFlagExclude: int
+    :param shiftForwardStrand53: See :class:`samParams`.
+    :type shiftForwardStrand53: int
+    :param shiftReverseStrand53: See :class:`samParams`.
+    :type shiftReverseStrand53: int
+    :param extendBP: See :class:`samParams`.
+    :type extendBP: int
     """
 
     if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
@@ -461,8 +482,9 @@ def readBamSegments(
             oneReadPerBin,
             samThreads,
             samFlagExclude,
-            int(offsetStr[0]),  #
+            int(offsetStr[0]),
             int(offsetStr[1]),
+            extendBP
         )
         counts[j, :] = arr
         counts[j, :] *= np.float32(scaleFactors[j])
@@ -907,7 +929,7 @@ def getPrecisionWeightedResidual(
 
     Applies an inverse-variance weighting (with respect to the *observation noise levels*) of the
     post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` and returns a one-dimensional array of
-    "precision-weighted residuals". The state covariance can also be incorporated given `stateCovarSmoothed`.
+    "precision-weighted residuals". The state-level uncertainty can also be incorporated given `stateCovarSmoothed`.
 
     :param postFitResiduals: Post-fit residuals from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray

@@ -333,6 +333,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             oneReadPerBin=config.get("samParams.oneReadPerBin", 0),
             chunkSize=config.get("samParams.chunkSize", 1000000),
             offsetStr=config.get("samParams.offsetStr", "0,0"),
+            extendBP=config.get("samParams.extendBP", 0),
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=config.get(
@@ -361,6 +362,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             minSignalAtMaxima=config.get(
                 "matchingParams.minSignalAtMaxima", None
             ),
+            merge=config.get("matchingParams.merge", False),
+            mergeGapBP=config.get("matchingParams.mergeGapBP", 25),
         ),
     }
 
@@ -404,7 +407,9 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
                 [path_, bedgraph, chromSizesFile, bigwig], check=True
             )
         except Exception as e:
-            logger.warning(f"bedGraph-->bigWig conversion with\n\n\t`bedGraphToBigWig {bedgraph} {chromSizesFile} {bigwig}`\nraised: \n{e}\n\n")
+            logger.warning(
+                f"bedGraph-->bigWig conversion with\n\n\t`bedGraphToBigWig {bedgraph} {chromSizesFile} {bigwig}`\nraised: \n{e}\n\n"
+            )
             continue
         if os.path.exists(bigwig) and os.path.getsize(bigwig) > 100:
             logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
@@ -692,7 +697,9 @@ def main():
                     os.remove(file_)
 
         for col, suffix in [("State", "state"), ("Res", "residuals")]:
-            logger.info(f"{chromosome}: writing/appending to: consenrichOutput_{experimentName}_{suffix}.bedGraph")
+            logger.info(
+                f"{chromosome}: writing/appending to: consenrichOutput_{experimentName}_{suffix}.bedGraph"
+            )
             df[["Chromosome", "Start", "End", col]].to_csv(
                 f"consenrichOutput_{experimentName}_{suffix}.bedGraph",
                 sep="\t",
@@ -733,6 +740,18 @@ def main():
             continue
     logger.info("Finished: output in human-readable format")
     convertBedGraphToBigWig(experimentName, genomeArgs.chromSizesFile)
+    if matchingEnabled and matchingArgs.merge:
+        try:
+
+            matching.mergeMatches(
+                f"consenrichOutput_{experimentName}_matches.narrowPeak",
+                mergeGapBP=matchingArgs.mergeGapBP,
+            )
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to merge matches for {chromosome}...SKIPPING:\n{e}\n\n"
+            )
     logger.info("Done.")
 
 

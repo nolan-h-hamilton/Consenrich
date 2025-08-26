@@ -2,6 +2,8 @@
 r"""Module implementing spatial feature recognition (localization) in Consenrich-estimated genomic signals."""
 
 import logging
+import os
+from pybedtools import BedTool
 from typing import List, Optional
 
 import pandas as pd
@@ -45,7 +47,7 @@ def matchWavelet(
     :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
     :type values: npt.NDArray[np.float64]
     :param templateNames: List of discrete wavelet template names to use for matching, e.g.
-        `[db1, db2, db4, coif8]`.
+        `[haar, db2, db4, coif1]`.
     :type templateNames: List[str]
     :param cascadeLevels: List of cascade levels used to discretely sample
         the given wavelet function.
@@ -258,3 +260,100 @@ def matchWavelet(
     matchDF.sort_values(by=["chromosome", "start", "end"], inplace=True)
     matchDF.reset_index(drop=True, inplace=True)
     return matchDF
+
+
+def mergeMatches(filePath: str, mergeGapBP: int = 25):
+    r"""Merge overlapping or nearby structured peaks (matches) in a narrowPeak file.
+
+    Where an overlap occurs within `mergeGapBP` base pairs, the feature with the greatest signal defines the new summit/pointSource
+
+    :param filePath: narrowPeak file containing matches detected with :func:`consenrich.matching.matchWavelet`
+    :type filePath: str
+    :param mergeGapBP: Maximum gap size (in base pairs) to consider for merging
+    :type mergeGapBP: int
+
+    :seealso: :class:`consenrich.core.matchingParams`
+    """
+    if not os.path.isfile(filePath):
+        logger.warning(f"Couldn't access {filePath}...skipping merge")
+        return None
+    bed = None
+    try:
+        bed = BedTool(filePath)
+    except Exception as ex:
+        logger.warning(f"Couldn't create BedTool for {filePath}:\n{ex}\n\nskipping merge...")
+        return None
+    if bed is None:
+        logger.warning(
+            f"Couldn't create BedTool for {filePath}...skipping merge"
+        )
+        return None
+
+    bed = bed.sort()
+    clustered = bed.cluster(d=mergeGapBP)
+    groups = {}
+    for f in clustered:
+        fields = f.fields
+        chrom = fields[0]
+        start = int(fields[1])
+        end = int(fields[2])
+        score = float(fields[4])
+        signal = float(fields[6])
+        pval = float(fields[7])
+        qval = float(fields[8])
+        peak = int(fields[9])
+        clId = fields[-1]
+        if clId not in groups:
+            groups[clId] = {
+                "chrom": chrom,
+                "sMin": start,
+                "eMax": end,
+                "scSum": 0.0,
+                "sigSum": 0.0,
+                "pSum": 0.0,
+                "qSum": 0.0,
+                "n": 0,
+                "maxS": float("-inf"),
+                "peakAbs": -1,
+            }
+        g = groups[clId]
+        if start < g["sMin"]:
+            g["sMin"] = start
+        if end > g["eMax"]:
+            g["eMax"] = end
+        g["scSum"] += score
+        g["sigSum"] += signal
+        g["pSum"] += pval
+        g["qSum"] += qval
+        g["n"] += 1
+        # scan for largest signal, FFR: consider using the p-val in the future
+        if signal > g["maxS"]:
+            g["maxS"] = signal
+            g["peakAbs"] = start + peak if peak >= 0 else -1
+    items = []
+    for clId, g in groups.items():
+        items.append((g["chrom"], g["sMin"], g["eMax"], g))
+    items.sort(key=lambda x: (str(x[0]), x[1], x[2]))
+    outPath = f"{filePath.replace('.narrowPeak', '')}.mergedMatches.narrowPeak"
+    lines = []
+    i = 0
+    for chrom, sMin, eMax, g in items:
+        i += 1
+        avgScore = g["scSum"] / g["n"]
+        if avgScore < 0:
+            avgScore = 0
+        if avgScore > 1000:
+            avgScore = 1000
+        scoreInt = int(round(avgScore))
+        sigAvg = g["sigSum"] / g["n"]
+        pAvg = g["pSum"] / g["n"]
+        qAvg = g["qSum"] / g["n"]
+        pointSource = g["peakAbs"] - sMin if g["peakAbs"] >= 0 else -1
+        name = f"mergedPeak{i}"
+        lines.append(
+            f"{chrom}\t{int(sMin)}\t{int(eMax)}\t{name}\t{scoreInt}\t.\t{sigAvg:.3f}\t{pAvg:.3f}\t{qAvg:.3f}\t{int(pointSource)}"
+        )
+    with open(outPath, "w") as outF:
+        outF.write("\n".join(lines) + ("\n" if lines else ""))
+    logger.info(f"Merged matches written to {outPath}")
+    return outPath
