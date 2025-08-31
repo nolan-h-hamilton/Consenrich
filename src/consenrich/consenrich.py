@@ -334,6 +334,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             chunkSize=config.get("samParams.chunkSize", 1000000),
             offsetStr=config.get("samParams.offsetStr", "0,0"),
             extendBP=config.get("samParams.extendBP", 0),
+            maxInsertSize=config.get("samParams.maxInsertSize", 1000),
+            pairedEndMode=config.get("samParams.pairedEndMode", 0),
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=config.get(
@@ -596,6 +598,9 @@ def main():
                     samArgs.samThreads,
                     samArgs.samFlagExclude,
                     offsetStr=samArgs.offsetStr,
+                    extendBP=samArgs.extendBP,
+                    maxInsertSize=samArgs.maxInsertSize,
+                    pairedEndMode=samArgs.pairedEndMode,
                     applyAsinh=countingArgs.applyAsinh,
                 )
                 chromMat[j_, :] = scaleFactors[j_] * (
@@ -615,6 +620,9 @@ def main():
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
                 offsetStr=samArgs.offsetStr,
+                extendBP=samArgs.extendBP,
+                maxInsertSize=samArgs.maxInsertSize,
+                pairedEndMode=samArgs.pairedEndMode,
                 applyAsinh=countingArgs.applyAsinh,
             )
         sparseMap = None

@@ -29,28 +29,17 @@ logger = logging.getLogger(__name__)
 
 class processParams(NamedTuple):
     r"""Parameters related to the process model of Consenrich.
+
     The process model governs the signal and variance propagation
     through the state transition :math:`\mathbf{F} \in \mathbb{R}^{2 \times 2}`
     and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
     matrices.
 
-
-    :param deltaF: Propagation length. Informally, how far forward/backward to project the estimate and covariance
-        at the previous genomic interval to obtain the initial prediction of the state and covariance at
-        the current genomic interval :math:`i`: :math:`x_{[i|i-1]}` and covariance :math:`\mathbf{P}_{[i|i-1]}`.
-    :type deltaF: float
-    :param minQ: Minimum process noise variance (diagonal in :math:`\mathbf{Q}_{[i]}`)
-        for each state variable.
+    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals.
+    :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
+        for each state variable. Adjust relative to data quality (more reliable data --> lower minQ).
     :type minQ: float
-    :param maxQ: Maximum process noise variance (diagonal in :math:`\mathbf{Q}_{[i]}`)
-        for each state variable.
-    :type maxQ: float
-    :param offDiagQ: Initial off-diagonal noise covariance between states.
-    :type offDiagQ: float
-    :param dStatAlpha: Innovation-based model mismatch threshold :math:`\alpha_D`.
-        If we observe :math:`D_{[i]} > \alpha_D`, we consider the process model
-        to be unreliable and therefore scale-up the process noise covariance to
-        favor the observation model (the data) instead.
+    :param dStatAlpha: Threshold on the deviation between the data and estimated signal -- used to determine whether the process noise is scaled up.
     :type dStatAlpha: float
     :param dStatd: Constant :math:`d` in the scaling expression :math:`\sqrt{d|D_{[i]} - \alpha_D| + c}`
         that is used to up/down-scale the process noise covariance in the event of a model mismatch.
@@ -77,22 +66,18 @@ class observationParams(NamedTuple):
     :math:`\mathbf{H} \in \mathbb{R}^{m \times 2}` maps from the state dimension (2)
     to the dimension of measurements/data (:math:`m`).
 
-    :param minR: The minimum observation noise variance for each sample
+    :param minR: The minimum observation noise level for each sample
         :math:`j=1\ldots m` in the observation noise covariance
         matrix :math:`\mathbf{R}_{[i, (11:mm)]}`.
     :type minR: float
-    :param maxR: The maximum observation noise variance for each sample
-        :math:`j=1\ldots m` in the observation noise covariance
-        matrix :math:`\mathbf{R}_{[i, (11:mm)]}`.
-    :type maxR: float
     :param numNearest: The number of nearest nearby sparse features to use for local
-        variance calculation.
+        variance calculation. Ignored if `useALV` is True.
     :type numNearest: int
-    :param localWeight: The weight for the local variance in the observation model.
+    :param localWeight: The coefficient for the local noise level (based on the local surrounding window / `numNearest` features) used in the weighted sum measuring sample-specific noise level at the current interval.
     :type localWeight: float
-    :param globalWeight: The weight for the global noise level in the observation model.
+    :param globalWeight: The coefficient for the global noise level (based on all genomic intervals :math:`i=1\ldots n`) used in the weighted sum measuring sample-specific noise level at the current interval.
     :type globalWeight: float
-    :param approximationWindowLengthBP: The length of the approximation window in base pairs (BP)
+    :param approximationWindowLengthBP: The length of the local approximation window in base pairs (BP)
         for the local variance calculation.
     :type approximationWindowLengthBP: int
     :param sparseBedFile: The path to a BED file of 'sparse' regions for the local variance calculation.
@@ -126,7 +111,7 @@ class observationParams(NamedTuple):
 class stateParams(NamedTuple):
     r"""Parameters related to state and uncertainty bounds and initialization.
 
-    :param stateInit: Initial (primary) state estimate at the first genomic interval: :math:`x_{[1]}`
+    :param stateInit: Initial value of the 'primary' state/signal at the first genomic interval: :math:`x_{[1]}`
     :type stateInit: float
     :param stateCovarInit: Initial state covariance (covariance) scale. Note, the *initial* state uncertainty :math:`\mathbf{P}_{[1]}` is a multiple of the identity matrix :math:`\mathbf{I}`
     :type stateCovarInit: float
@@ -158,6 +143,12 @@ class samParams(NamedTuple):
     :type chunkSize: int
     :param offsetStr: A string of two comma-separated integers -- first for the 5' shift on forward strand, second for the 5' shift on reverse strand.
     :type offsetStr: str
+    :param extendBP: Adjust reads to build fragments of length `extendBP` beginning from the 5' end, after shifting per `offsetStr`.
+    :type extendBP: int
+    :param maxInsertSize: Maximum frag length/insert for paired-end reads.
+    :type maxInsertSize: int
+    :param pairedEndMode: If > 0, only proper pairs are counted subject to `maxInsertSize`.
+    :type pairedEndMode: int
 
     .. tip::
 
@@ -171,14 +162,16 @@ class samParams(NamedTuple):
     chunkSize: int
     offsetStr: Optional[str] = "0,0"
     extendBP: Optional[int] = 0
+    maxInsertSize: Optional[int] = 1000
+    pairedEndMode: Optional[int] = 0
 
 
 class detrendParams(NamedTuple):
     r"""Parameters related detrending and background-removal
 
-    :param useOrderStatFilter: Whether to use order statistics for filtering the read density data.
+    :param useOrderStatFilter: Whether to use a local/moving order statistic (percentile filter) to model and remove trends in the read density data.
     :type useOrderStatFilter: bool
-    :param usePolyFilter: Whether to use polynomial fitting for filtering the read density data.
+    :param usePolyFilter: Whether to use a low-degree polynomial fit to model and remove trends in the read density data.
     :type usePolyFilter: bool
     :param detrendSavitzkyGolayDegree: The polynomial degree of the Savitzky-Golay filter to use for detrending
     :type detrendSavitzkyGolayDegree: int
@@ -213,6 +206,21 @@ class inputParams(NamedTuple):
 
 
 class genomeParams(NamedTuple):
+    r"""Specify assembly-specific resources, parameters.
+
+    :param genomeName: If supplied, default resources for the assembly (sizes file, blacklist, and 'sparse' regions) in `src/consenrich/data` are used.
+      ``ce10, ce11, dm6, hg19, hg38, mm10, mm39`` have default resources available.
+    :type genomeName: str
+    :param chromSizesFile: A two-column TSV-like file with chromosome names and sizes (in base pairs).
+    :type chromSizesFile: str
+    :param blacklistFile: A BED file with regions to exclude.
+    :type blacklistFile: str, optional
+    :param sparseBedFile: A BED file with sparse regions used to estimate noise levels -- ignored if `observationParams.useALV` is True.
+    :type sparseBedFile: str, optional
+    :param chromosomes: A list of chromosome names to analyze. If None, all chromosomes in `chromSizesFile` are used.
+    :type chromosomes: List[str]
+    """
+
     genomeName: str
     chromSizesFile: str
     blacklistFile: Optional[str]
@@ -236,8 +244,6 @@ class countingParams(NamedTuple):
     :type scaleFactorsControl: List[float], optional
     :param numReads: Number of reads to sample.
     :type numReads: int
-    :param applyAsinh: Whether to apply arsinh (:math:`\textsf{sinh}^{-1}`) transformation to count matrix (after scaling)
-    :type applyAsinh: bool, optional
     """
 
     stepSize: int
@@ -429,6 +435,8 @@ def readBamSegments(
     offsetStr: Optional[str] = "0,0",
     applyAsinh: Optional[bool] = False,
     extendBP: int = 0,
+    maxInsertSize: Optional[int] = 1000,
+    pairedEndMode: Optional[int] = 0,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -454,12 +462,14 @@ def readBamSegments(
     :type samThreads: int
     :param samFlagExclude: See :class:`samParams`.
     :type samFlagExclude: int
-    :param shiftForwardStrand53: See :class:`samParams`.
-    :type shiftForwardStrand53: int
-    :param shiftReverseStrand53: See :class:`samParams`.
-    :type shiftReverseStrand53: int
+    :param offsetStr: See :class:`samParams`.
+    :type offsetStr: str
     :param extendBP: See :class:`samParams`.
     :type extendBP: int
+    :param maxInsertSize: See :class:`samParams`.
+    :type maxInsertSize: int
+    :param pairedEndMode: See :class:`samParams`.
+    :type pairedEndMode: int
     """
 
     if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
@@ -484,7 +494,9 @@ def readBamSegments(
             samFlagExclude,
             int(offsetStr[0]),
             int(offsetStr[1]),
-            extendBP
+            extendBP,
+            maxInsertSize,
+            pairedEndMode,
         )
         counts[j, :] = arr
         counts[j, :] *= np.float32(scaleFactors[j])
