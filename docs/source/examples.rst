@@ -9,14 +9,14 @@ Quickstart + Usage
 After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
 
 Getting Started: Minimal Example
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. toctree::
     :maxdepth: 2
     :caption: Getting Started
     :name: minimal
 
-Here, a brief analysis using H3K27ac ChIP-seq data is carried out for demonstration.
+Here, a brief analysis using H3K27ac (narrow mark) ChIP-seq data is carried out for demonstration.
 
 Input Data
 """""""""""""""""""""
@@ -381,12 +381,8 @@ Several of the most enriched GO terms associated with `excluded.bed` are related
 ChIP-seq (Broad Histone Mark): `H3K36me3`
 """""""""""""""""""""""""""""""""""""""""""""
 
-- Input data: Five mucosal tissue donors, each with treatment/control alignment files from ENCODE.
-
-  - :math:`m=5` H3K36me3
-  - :math:`m=5` control
-
-- Single-end reads
+- Five mucosal tissue donors, each with H3K36me3/control alignment files from ENCODE.
+- Single-end, mixed-length reads (36, 76)
 
 
 
@@ -465,12 +461,28 @@ Visualizing Results
 - Output tracks and features are visualized above in a **100kb** region around `IRF8`.
 
 .. image:: ../benchmarks/H3K36me3/images/H3K36me3IRF8.png
-    :alt: IGV Browser Snapshot
+    :alt: H3K36me3 IRF8
     :width: 800px
     :align: left
 
 - For reference, the `ENCSR585FIP <https://www.encodeproject.org/experiments/ENCSR585FIP/>`_ H3K36me3 ChIP-seq signal track from ENCODE is included (Black line plot in top panel).
-- Input alignment files are visualized w.r.t coverage (black, bottom two panels).
+- Input alignment coverage tracks (treatment, control) for each sample are shown in the bottom two panels, respectively.
+
+H3K36me3 Enrichment at Internal Exons
+'''''''''''''''''''''''''''''''''''''''''
+
+* For a biologically-motivated, qualitative validation, we evaluate results over `PRRC1` in light of `Figure 3A in (Andersson et al., 2009) <https://genome.cshlp.org/content/19/10/1732>`_: *H3K36me3 signal is overrepresented at internal exons with respect to succeeding introns.*
+
+*Note*, in the following, signal tracks in the top panel are on log-scale.
+
+.. image:: ../benchmarks/H3K36me3/images/H3K36me3PRRC1.png
+    :alt: H3K36me3 Intron-Exon
+    :width: 800px
+    :align: left
+
+* Over the 50kb locus, the strongest peak-like structures in the H3K36me3 Consenrich-estimated signal track overlap internal, `GENCODE-annotated <https://www.gencodegenes.org/human/release_47.html>`_ exons followed by abrupt depletion.
+
+* Similar to the above-referenced Figure 3A, we observe  (i) depletion of H3K36me3 at the canonical TSS (See H3K4me3 peak), and  (ii) an enrichment near the 3' end of PRRC1.
 
 Runtime and Memory Profiling
 ''''''''''''''''''''''''''''''''''
