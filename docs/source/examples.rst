@@ -86,22 +86,24 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 
   experimentName: demoHistoneChIPSeq
   genomeParams.name: hg38
+  genomeParams.chromosomes: [chr21, chr22] # remove this line to run genome-wide
   genomeParams.excludeForNorm: [chrX, chrY]
+
   inputParams.bamFiles: [ENCFF793ZHL.bam,
   ENCFF647VPO.bam,
   ENCFF809VKT.bam,
   ENCFF295EFL.bam]
+
   inputParams.bamFilesControl: [ENCFF444WVG.bam,
   ENCFF619NYP.bam,
   ENCFF898LKJ.bam,
   ENCFF490MWV.bam]
-  # optional: detect structured enrichment patterns
+
+  # Optional: call 'structured peaks'
   matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.iters: 25_000
   matchingParams.alpha: 0.01
   matchingParams.merge: true
-  matchingParams.mergeGapBP: 25
+
 
 .. admonition:: Control Inputs
   :class: tip
@@ -231,8 +233,8 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
   experimentName: atac20Benchmark
   genomeParams.name: hg38
-  genomeParams.excludeForNorm: ['chrX', 'chrY']
   genomeParams.excludeChroms: ['chrX','chrY']
+  genomeParams.excludeForNorm: ['chrX', 'chrY']
   inputParams.bamFiles: [ENCFF326QXM.bam,
     ENCFF497QOS.bam,
     ENCFF919PWF.bam,
@@ -254,14 +256,20 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
     ENCFF130DND.bam,
     ENCFF948HNW.bam
   ]
-  processParams.minQ: 0.05 # lower bounds minimum process noise variance
-  observationParams.minR: 0.05 # lower bounds minimum observation noise variance
-  countingParams.stepSize: 25
-  matchingParams.templateNames: [db2] # structured enrichment patterns w/ db2
+  processParams.minQ: 0.05 # clip process noise level above this value
+  observationParams.minR: 0.05 # clip sample noise levels above this value
+
+  # Optional: call 'structured peaks'
+  matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [2]
+  matchingParams.merge: true
   matchingParams.alpha: 0.01
-  samParams.samThreads: 1
-  samParams.chunkSize: 1000000
+
+  # Optional: control memory usage
+  samParams.samThreads: 1 # default value
+  samParams.chunkSize: 1000000 # default value
+
+
 
 
 Run Consenrich
@@ -339,7 +347,7 @@ Consenrich-detected structured peaks that share a :math:`50\%` *reciprocal* over
 
 Many regions detected by Consenrich share the required `50\%` reciprocal overlap with an ENCODE cCRE.
 
-**Are the regions absent from ENCODE cCREs 'false positives'?**
+**Are the regions absent from ENCODE cCREs false positives?**
 
 Using `bedtools subtract -A`, we can identify regions completely disjoint from ENCODE cCREs that were detected by Consenrich:
 
@@ -357,7 +365,7 @@ By running a functional enrichment analysis on the regions in `excluded.bed`, we
 
 See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ R packages to perform GO enrichment analysis on `excluded.bed`.
 
-Several of the most enriched GO terms associated with `excluded.bed` are related to lymphoblast function:
+Several of the most enriched GO terms associated with `excluded.bed` are related to lymphoblast function, indicating the potential biological relevance of these regions:
 
 +--------------+-------------------------------------------+-----------+
 | Identifier   | Description                               | q-value   |
@@ -369,4 +377,110 @@ Several of the most enriched GO terms associated with `excluded.bed` are related
 | `GO:0070663` | regulation of leukocyte proliferation     | 0.0030143 |
 +--------------+-------------------------------------------+-----------+
 
-suggesting that the regions absent from ENCODE cCREs may play an important role.
+
+ChIP-seq (Broad Histone Mark): `H3K36me3`
+"""""""""""""""""""""""""""""""""""""""""""""
+
+- Input data: Five mucosal tissue donors, each with treatment/control alignment files from ENCODE.
+
+  - :math:`m=5` H3K36me3
+  - :math:`m=5` control
+
+- Single-end reads
+
+
+
+Environment
+''''''''''''''
+
+- MacBook MX313LL/A (arm64)
+- Python 3.12.9
+- `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
+- `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
+
+Names and versions of packages that are relevant to computational performance. These specific versions are *not required* but are included for reproducibility.
+
+.. list-table::
+     :header-rows: 1
+     :widths: 40 60
+
+     * - Package
+       - Version
+     * - ``cython``
+       - 3.1.2
+     * - ``numpy``
+       - 2.3.2
+     * - ``scipy``
+       - 1.16.1
+     * - ``consenrich``
+       - 0.4.3b1
+
+For single-end ChIP-seq analyses targeting broad histone marks -- consider extending reads to an estimated fragment length using :class:`consenrich.core.samParams` `extendBP`. For this dataset, we use the estimates provided by ENCODE. Several methods are available to estimate SE fragment lengths based on maximum cross-correlation between *strand-specific* read coverage tracks, including `phantompeakqualtools <https://www.encodeproject.org/software/phantompeakqualtools/>`_. `MACS predictd <https://github.com/macs3-project/MACS>`_ applies a similar approach.
+
+We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
+
+.. code-block:: yaml
+
+  experimentName: H3K36me3Experiment
+  genomeParams.name: hg38
+  genomeParams.excludeChroms: ['chrX','chrY']
+  genomeParams.excludeForNorm: ['chrX','chrY']
+
+  inputParams.bamFiles: [ENCFF978XNV.bam,
+   ENCFF064FYS.bam,
+   ENCFF948RWW.bam,
+   ENCFF553DUQ.bam,
+   ENCFF686CAN.bam
+  ]
+
+  inputParams.bamFilesControl: [ENCFF212KOM.bam,
+   ENCFF556KHR.bam,
+   ENCFF165GHU.bam,
+   ENCFF552XYB.bam,
+   ENCFF141HNE.bam
+  ]
+
+  # Per-sample estimated fragment lengths
+  samParams.extendBP: [220, 230, 145, 145, 160]
+
+  # Optional: detect 'structured peaks'
+  matchingParams.templateNames: [haar, db2]
+  matchingParams.cascadeLevels: [2]
+  matchingParams.merge: true
+  matchingParams.mergeGapBP: 100 # broader target --> increase overlap radius
+  matchingParams.iters: 25_000
+  matchingParams.alpha: 0.05
+
+Run Consenrich
+''''''''''''''''''''
+
+.. code-block:: console
+
+  consenrich --config H3K36me3Experiment.yaml --verbose
+
+
+Visualizing Results
+''''''''''''''''''''''''''''
+
+- Output tracks and features are visualized above in a **100kb** region around `IRF8`.
+
+.. image:: ../benchmarks/H3K36me3/images/H3K36me3IRF8.png
+    :alt: IGV Browser Snapshot
+    :width: 800px
+    :align: left
+
+- For reference, the `ENCSR585FIP <https://www.encodeproject.org/experiments/ENCSR585FIP/>`_ H3K36me3 ChIP-seq signal track from ENCODE is included (Black line plot in top panel).
+- Input alignment files are visualized w.r.t coverage (black, bottom two panels).
+
+Runtime and Memory Profiling
+''''''''''''''''''''''''''''''''''
+
+Memory was profiled using the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches.
+
+Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
+
+.. image:: ../benchmarks/H3K36me3/images/H3K36me3ExperimentMemoryPlot.png
+    :alt: Time vs. Memory Usage (`memory-profiler`)
+    :width: 800px
+    :align: center
+

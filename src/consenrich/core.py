@@ -7,7 +7,6 @@ Consenrich core functions and classes.
 import logging
 from tempfile import NamedTemporaryFile
 from typing import Callable, List, Optional, Tuple, DefaultDict, Any, NamedTuple
-from collections import defaultdict
 
 import numpy as np
 import numpy.typing as npt
@@ -25,6 +24,42 @@ logging.basicConfig(
     format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def resolveExtendBP(extendBP, bamFiles: List[str]) -> List[int]:
+    numFiles = len(bamFiles)
+
+    if isinstance(extendBP, str):
+        stringValue = extendBP.replace(" ", "")
+        try:
+            extendBP = (
+                [int(x) for x in stringValue.split(",")] if stringValue else []
+            )
+        except ValueError:
+            raise ValueError(
+                "`extendBP` string must be comma-separated values (castable to integers)"
+            )
+    if extendBP is None:
+        return [0] * numFiles
+    elif isinstance(extendBP, list):
+        valuesList = [int(x) for x in extendBP]
+        valuesLen = len(valuesList)
+        if valuesLen == 0:
+            return [0] * numFiles
+        if valuesLen == 1:
+            return [valuesList[0]] * numFiles
+        if valuesLen == numFiles:
+            return valuesList
+        raise ValueError(
+            f"extendBP length {valuesLen} does not match number of bamFiles {numFiles}; "
+            f"provide 0, 1, or {numFiles} values."
+        )
+    elif isinstance(extendBP, int) or isinstance(extendBP, float):
+        return [int(extendBP)] * numFiles
+    raise TypeError(
+        f"Invalid extendBP type: {type(extendBP).__name__}. "
+        "Expecting a single number (broadcast), a list of numbers matching `bamFiles`."
+    )
 
 
 class processParams(NamedTuple):
@@ -143,8 +178,9 @@ class samParams(NamedTuple):
     :type chunkSize: int
     :param offsetStr: A string of two comma-separated integers -- first for the 5' shift on forward strand, second for the 5' shift on reverse strand.
     :type offsetStr: str
-    :param extendBP: Adjust reads to build fragments of length `extendBP` beginning from the 5' end, after shifting per `offsetStr`.
-    :type extendBP: int
+    :param extendBP: A list of integers specifying the number of base pairs to extend reads for each BAM file after shifting per `offsetStr`.
+        If all BAM files share the same expected frag. length, can supply a single numeric value to be broadcasted. Ignored for PE reads.
+    :type extendBP: List[int]
     :param maxInsertSize: Maximum frag length/insert for paired-end reads.
     :type maxInsertSize: int
     :param pairedEndMode: If > 0, only proper pairs are counted subject to `maxInsertSize`.
@@ -161,7 +197,7 @@ class samParams(NamedTuple):
     oneReadPerBin: int
     chunkSize: int
     offsetStr: Optional[str] = "0,0"
-    extendBP: Optional[int] = 0
+    extendBP: Optional[List[int]] = []
     maxInsertSize: Optional[int] = 1000
     pairedEndMode: Optional[int] = 0
 
@@ -244,6 +280,13 @@ class countingParams(NamedTuple):
     :type scaleFactorsControl: List[float], optional
     :param numReads: Number of reads to sample.
     :type numReads: int
+    :param applyAsinh: If true, :math:`\textsf{arsinh}(x)` applied to counts :math:`x` (log-like for large values and linear near the origin)
+    :type applyAsinh: bool, optional
+    :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x`
+    :type applyLog: bool, optional
+    :param rescaleToTreatmentCoverage: If control samples are supplied: after adjusting w.r.t the control input (subtracting/scaling),
+        the remaining 'control-corrected' counts are scaled using the original 1x-genome factor for the treatment.
+    :type rescaleToTreatmentCoverage: bool, optional
     """
 
     stepSize: int
@@ -252,7 +295,8 @@ class countingParams(NamedTuple):
     scaleFactorsControl: Optional[List[float]]
     numReads: int
     applyAsinh: Optional[bool]
-
+    applyLog: Optional[bool]
+    rescaleToTreatmentCoverage: Optional[bool] = False
 
 class matchingParams(NamedTuple):
     r"""Parameters related to the (experimental) pattern matching routine packaged with this software.
@@ -434,7 +478,8 @@ def readBamSegments(
     samFlagExclude: int,
     offsetStr: Optional[str] = "0,0",
     applyAsinh: Optional[bool] = False,
-    extendBP: int = 0,
+    applyLog: Optional[bool] = False,
+    extendBP: List[int] = [],
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
 ) -> npt.NDArray[np.float32]:
@@ -472,11 +517,15 @@ def readBamSegments(
     :type pairedEndMode: int
     """
 
+    if len(bamFiles) == 0:
+        raise ValueError("bamFiles list is empty")
+
     if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
         raise ValueError(
             "readLengths and scaleFactors must match bamFiles length"
         )
 
+    extendBP = resolveExtendBP(extendBP, bamFiles)
     offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
     numIntervals = cconsenrich.getNumIntervals(start, end, stepSize)
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
@@ -494,7 +543,7 @@ def readBamSegments(
             samFlagExclude,
             int(offsetStr[0]),
             int(offsetStr[1]),
-            extendBP,
+            extendBP[j],
             maxInsertSize,
             pairedEndMode,
         )
@@ -502,6 +551,8 @@ def readBamSegments(
         counts[j, :] *= np.float32(scaleFactors[j])
         if applyAsinh:
             counts[j, :] = np.arcsinh(counts[j, :])
+        elif applyLog:
+            counts[j, :] = np.log1p(counts[j, :])
     return counts
 
 
@@ -686,9 +737,9 @@ def runConsenrich(
       possibly preprocessed. Two-dimensional array of shape :math:`m \times n` where :math:`m`
       is the number of samples/tracks and :math:`n` the number of genomic intervals.
     :type matrixData: np.ndarray
-    :param matrixMunc: Uncertainty estimates for the read density data, e.g. local variance.
+    :param matrixMunc: Uncertainty estimates for the read coverage data.
         Two-dimensional array of shape :math:`m \times n` where :math:`m` is the number of samples/tracks
-        and :math:`n` the number of genomic intervals. :seealso: :func:`getAverageLocalVarianceTrack`, :func:`getMuncTrack`.
+        and :math:`n` the number of genomic intervals. See :func:`getMuncTrack`.
     :type matrixMunc: np.ndarray
     :param deltaF: See :class:`processParams`.
     :type deltaF: float
@@ -939,17 +990,18 @@ def getPrecisionWeightedResidual(
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional precision-weighted array residuals after running Consenrich.
 
-    Applies an inverse-variance weighting (with respect to the *observation noise levels*) of the
-    post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` and returns a one-dimensional array of
-    "precision-weighted residuals". The state-level uncertainty can also be incorporated given `stateCovarSmoothed`.
+    Applies an inverse-variance weighting  of the post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` and
+    returns a one-dimensional array of "precision-weighted residuals". The state-level uncertainty can also be
+    incorporated given `stateCovarSmoothed`.
 
-    :param postFitResiduals: Post-fit residuals from :func:`runConsenrich`.
+    :param postFitResiduals: Post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray
-    :param matrixMunc: an :math:`m \times n` numpy array where each column stores the diagonal entries
-        of the observation noise covariance matrix :math:`\mathbf{R}_{[:, (11:mm)]}` for each sample :math:`j=1,2,\ldots,m`
-        and each genomic interval :math:`i=1,2,\ldots,n`.
+    :param matrixMunc: An :math:`m \times n` sample-by-interval matrix -- At genomic intervals :math:`i = 1,2,\ldots,n`, the respective length-:math:`m` column is :math:`\mathbf{R}_{[i,11:mm]}`.
+        That is, the observation noise levels for each sample :math:`j=1,2,\ldots,m` at interval :math:`i`. To keep memory usage minimal `matrixMunc` is not returned in full or computed in
+        in :func:`runConsenrich`. If using Consenrich programmatically, run :func:`consenrich.core.getMuncTrack` for each sample's count data (rows in the matrix output of :func:`readBamSegments`).
     :type matrixMunc: np.ndarray
-
+    :param stateCovarSmoothed: Smoothed state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}` from :func:`runConsenrich`.
+    :type stateCovarSmoothed: Optional[np.ndarray]
     :return: A one-dimensional array of "precision-weighted residuals"
     :rtype: npt.NDArray[np.float32]
     """

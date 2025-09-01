@@ -16,7 +16,7 @@ API Reference
     :caption: ``core``
     :name: core
 
-The core module implements the main aspects of Consenrich.
+The core module implements the main aspects of Consenrich and defines key parameter classes.
 
 .. autoclass:: consenrich.core.processParams
 .. autoclass:: consenrich.core.observationParams
@@ -51,10 +51,6 @@ The core module implements the main aspects of Consenrich.
     :maxdepth: 2
     :caption: ``detrorm``
     :name: detrorm
-
-.. note::
-
-    See :class:`consenrich.core.detrendParams` for relevant parameters.
 
 .. autofunction:: consenrich.detrorm.getScaleFactor1x
 .. autofunction:: consenrich.detrorm.getScaleFactorPerMillion
@@ -179,13 +175,11 @@ Cython functions: ``consenrich.cconsenrich``
     :caption: ``cconsenrich``
     :name: cconsenrich
 
-Several components are implemented with strong typing/manual memory management in Cython for efficiency.
+Several computationally burdensome tasks are written in `Cython <https://cython.org/>`_ with strong typing, manual memory management and without invoking the overhead of Python's `Global Interpreter Lock (GIL) <https://wiki.python.org/moin/GlobalInterpreterLock>`_.
 
 .. autofunction:: consenrich.cconsenrich.creadBamSegment
 .. autofunction:: consenrich.cconsenrich.cinvertMatrixE
 .. autofunction:: consenrich.cconsenrich.updateProcessNoiseCovariance
 .. autofunction:: consenrich.cconsenrich.csampleBlockStats
 .. autofunction:: consenrich.cconsenrich.cSparseAvg
-
-
 
