@@ -1,26 +1,18 @@
 # -*- coding: utf-8 -*-
-# cython: boundscheck=False, wraparound=False, cdivision=True, nonecheck=False, initializedcheck=False, language_level=3
+# cython: boundscheck=False, wraparound=False, cdivision=True, nonecheck=False, initializedcheck=False, infer_types=True, language_level=3
 r"""Cython module for Consenrich core functions.
 
 This module contains Cython implementations of core functions used in Consenrich.
 """
 
-from libc.math cimport fabs, sqrt
+from libc.math cimport fabs, sqrt, abs
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
-
-import numpy as np
-
-cimport cython
-cimport numpy as cnp
 from pysam.libcalignmentfile cimport AlignedSegment, AlignmentFile
+from cpython.array cimport array
+import numpy as np
+cimport numpy as cnp
 
 cnp.import_array()
-
-cpdef int64_t getNumIntervals(int64_t start, int64_t end, int64_t stepSize):
-    r"""Calculate the number of fixed-length genomic intervals between `start` and `end`.
-    """
-    return (end - start + stepSize - 1) // stepSize
-
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
     r"""Adjusts a value to the nearest multiple of stepSize, optionally pushing it forward.
@@ -141,86 +133,143 @@ cdef inline Py_ssize_t floordiv64(int64_t a, int64_t b) nogil:
         return <Py_ssize_t>(- ((-a + b - 1) // b))
 
 
+cpdef inline int64_t getNumIntervals(int64_t start, int64_t end, int64_t step):
+    cdef int64_t span = end - start
+    if span <= 0:
+        return 0
+    return (span + step - 1) // step
+
+
 cpdef cnp.uint32_t[:] creadBamSegment(
     str bamFile,
     str chromosome,
     uint32_t start,
     uint32_t end,
     uint32_t stepSize,
-    uint32_t readLength,
+    int64_t readLength,
     uint8_t oneReadPerBin,
     uint16_t samThreads,
     uint16_t samFlagExclude,
     int64_t shiftForwardStrand53 = 0,
     int64_t shiftReverseStrand53 = 0,
-    int64_t extendBP = 0):
+    int64_t extendBP = 0,
+    int64_t maxInsertSize=1000,
+    int64_t pairedEndMode=0):
     r"""Count reads in a BAM file for a given chromosome"""
 
     cdef Py_ssize_t numIntervals = <Py_ssize_t>getNumIntervals(<int64_t>start, <int64_t>end, <int64_t>stepSize)
 
     cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.uint32)
     cdef cnp.uint32_t[::1] values = values_np
+
+    if numIntervals <= 0:
+        return values
+
     cdef AlignmentFile aln = AlignmentFile(bamFile, 'rb', threads=samThreads)
     cdef AlignedSegment read
     cdef int64_t start64 = start
+    cdef int64_t end64 = end
     cdef int64_t step64 = stepSize
     cdef Py_ssize_t i, index0, index1
     cdef Py_ssize_t lastIndex = numIntervals - 1
     cdef bint readIsForward
     cdef int64_t readStart, readEnd
-    cdef int64_t adjStart, adjEnd, fivePrime, mid, midIndex
+    cdef int64_t adjStart, adjEnd, fivePrime, mid, midIndex, tlen, atlen
     cdef uint16_t flag
 
-
     try:
-        for read in aln.fetch(chromosome, start, end):
-            flag = <uint16_t> read.flag
-            if (flag & samFlagExclude) != 0:
-                continue
-
-            readIsForward = (flag & 16) == 0
-            readStart = <int64_t>read.reference_start
-            readEnd   = <int64_t>read.reference_end
-            if extendBP > 0:
-                # extend from shifted 5' *cut*
-                if readIsForward:
-                    fivePrime = readStart + shiftForwardStrand53
-                    adjStart = fivePrime
-                    adjEnd = fivePrime + extendBP
-                else:
-                    fivePrime = (readEnd - 1) - shiftReverseStrand53
-                    adjStart = fivePrime - extendBP + 1
-                    adjEnd = fivePrime + 1
-            else:
-                # count mapped reads after shift
-                if readIsForward:
-                    adjStart = readStart + shiftForwardStrand53
-                    adjEnd = readEnd + shiftForwardStrand53
-                else:
-                    adjStart = readStart - shiftReverseStrand53
-                    adjEnd = readEnd - shiftReverseStrand53
-            if adjEnd - adjStart < 1:
-                continue
-
-            index0 = floordiv64(adjStart - start64, step64)
-            index1 = floordiv64((adjEnd - 1) - start64, step64)
-
-            if oneReadPerBin != 0 or index0 == index1:
-                mid = adjStart + ((adjEnd - adjStart) // 2)
-                midIndex = floordiv64(mid - start64, step64)
-                if 0 <= midIndex <= lastIndex:
-                    values[midIndex] += 1
-            else:
-                if index1 < 0 or index0 > lastIndex:
+        with aln:
+            for read in aln.fetch(chromosome, start64, end64):
+                flag = <uint16_t>read.flag
+                if (flag & samFlagExclude) != 0:
                     continue
-                if index0 < 0: index0 = 0
-                if index1 > lastIndex: index1 = lastIndex
-                for k in range(index0, index1 + 1):
-                    values[k] += 1
+                if flag & 4:
+                    continue
+
+                readIsForward = (flag & 16) == 0
+                readStart = <int64_t>read.reference_start
+                readEnd   = <int64_t>read.reference_end
+
+                if (flag & 2) and pairedEndMode > 0:
+                    # use first in pair + fragment
+                    if flag & 128:
+                        continue
+                    if (flag & 8) or read.next_reference_id != read.reference_id:
+                        continue
+                    tlen = <int64_t>read.template_length
+                    atlen = tlen if tlen >= 0 else -tlen
+                    if atlen == 0 or atlen > maxInsertSize:
+                        continue
+                    if tlen >= 0:
+                        adjStart = readStart
+                        adjEnd   = readStart + atlen
+                    else:
+                        adjEnd   = readEnd
+                        adjStart = adjEnd - atlen
+                    if shiftForwardStrand53 != 0 or shiftReverseStrand53 != 0:
+                        if readIsForward:
+                            adjStart += shiftForwardStrand53
+                            adjEnd   += shiftForwardStrand53
+                        else:
+                            adjStart -= shiftReverseStrand53
+                            adjEnd   -= shiftReverseStrand53
+                else:
+                    # SE
+                    if readIsForward:
+                        fivePrime = readStart + shiftForwardStrand53
+                    else:
+                        fivePrime = (readEnd - 1) - shiftReverseStrand53
+
+                    if extendBP > 0:
+                        # from the cut 5' --> 3'
+                        if readIsForward:
+                            adjStart = fivePrime
+                            adjEnd   = fivePrime + extendBP
+                        else:
+                            adjEnd   = fivePrime + 1
+                            adjStart = adjEnd - extendBP
+                    elif shiftForwardStrand53 != 0 or shiftReverseStrand53 != 0:
+                        if readIsForward:
+                            adjStart = readStart + shiftForwardStrand53
+                            adjEnd   = readEnd   + shiftForwardStrand53
+                        else:
+                            adjStart = readStart - shiftReverseStrand53
+                            adjEnd   = readEnd   - shiftReverseStrand53
+                    else:
+                        adjStart = readStart
+                        adjEnd   = readEnd
+
+                if adjEnd <= start64 or adjStart >= end64:
+                    continue
+                if adjStart < start64:
+                    adjStart = start64
+                if adjEnd > end64:
+                    adjEnd = end64
+
+                if oneReadPerBin:
+                    # +1 at midpoint of frag.
+                    mid = (adjStart + adjEnd) // 2
+                    midIndex = <Py_ssize_t>((mid - start64) // step64)
+                    if 0 <= midIndex <= lastIndex:
+                        values[midIndex] += <uint32_t>1
+                else:
+                    # +1 every interval intersecting frag
+                    index0 = <Py_ssize_t>((adjStart - start64) // step64)
+                    index1 = <Py_ssize_t>(((adjEnd - 1) - start64) // step64)
+                    if index0 < 0:
+                        index0 = <Py_ssize_t>0
+                    if index1 > lastIndex:
+                        index1 = lastIndex
+                    if index0 > lastIndex or index1 < 0 or index0 > index1:
+                        continue
+                    for b_ in range(index0, index1 + 1):
+                        values[b_] += <uint32_t>1
+
     finally:
         aln.close()
 
     return values
+
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixIter, cnp.float32_t priorCovarianceOO):

@@ -249,6 +249,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     numReads = config.get("countingParams.numReads", 100)
     scaleFactorsControl = config.get("countingParams.scaleFactorsControl", None)
     applyAsinh = config.get("countingParams.applyAsinh", False)
+    applyLog = config.get("countingParams.applyLog", False)
+    if applyAsinh and applyLog:
+        applyAsinh = True
+        applyLog = False
+        logger.warning("Both `applyAsinh` and `applyLog` are set. Overriding `applyLog` to False.")
+    rescaleToTreatmentCoverage = config.get("countingParams.rescaleToTreatmentCoverage", True)
     if scaleFactors is not None and not isinstance(scaleFactors, list):
         raise ValueError("`scaleFactors` should be a list of floats.")
     if scaleFactorsControl is not None and not isinstance(
@@ -273,6 +279,8 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         scaleFactorsControl=scaleFactorsControl,
         numReads=numReads,
         applyAsinh=applyAsinh,
+        applyLog=applyLog,
+        rescaleToTreatmentCoverage=rescaleToTreatmentCoverage,
     )
 
 
@@ -333,7 +341,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             oneReadPerBin=config.get("samParams.oneReadPerBin", 0),
             chunkSize=config.get("samParams.chunkSize", 1000000),
             offsetStr=config.get("samParams.offsetStr", "0,0"),
-            extendBP=config.get("samParams.extendBP", 0),
+            extendBP=config.get("samParams.extendBP", []),
+            maxInsertSize=config.get("samParams.maxInsertSize", 1000),
+            pairedEndMode=config.get("samParams.pairedEndMode", 0),
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=config.get(
@@ -463,7 +473,8 @@ def main():
     excludeForNorm = genomeArgs.excludeForNorm
     chromSizes = genomeArgs.chromSizesFile
     scaleDown = countingArgs.scaleDown
-
+    extendBP_ = core.resolveExtendBP(samArgs.extendBP, bamFiles)
+    initialTreatmentScaleFactors = []
     if args.verbose:
         try:
             logger.info("Configuration:\n")
@@ -486,11 +497,15 @@ def main():
             logger.warning(f"Failed to print parsed config:\n{e}\n")
 
     controlsPresent = checkControlsPresent(inputArgs)
+    if args.verbose:
+        logger.info(f"controlsPresent: {controlsPresent}")
     readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
     effectiveGenomeSizes = getEffectiveGenomeSizes(
         genomeArgs, readLengthsBamFiles
     )
     matchingEnabled = checkMatchingEnabled(matchingArgs)
+    if args.verbose:
+        logger.info(f"matchingEnabled: {matchingEnabled}")
     scaleFactors = countingArgs.scaleFactors
     scaleFactorsControl = countingArgs.scaleFactorsControl
 
@@ -514,6 +529,23 @@ def main():
                 )
                 for readLength in readLengthsControlBamFiles
             ]
+            try:
+                initialTreatmentScaleFactors = [
+                    detrorm.getScaleFactor1x(
+                        bamFile,
+                        effectiveGenomeSize,
+                        readLength,
+                        genomeArgs.excludeChroms,
+                        genomeArgs.chromSizesFile,
+                        samArgs.samThreads,
+                    )
+                    for bamFile, effectiveGenomeSize, readLength in zip(
+                        bamFiles, effectiveGenomeSizes, readLengthsBamFiles
+                    )
+                ]
+            except Exception as e:
+                initialTreatmentScaleFactors = [1.0] * len(bamFiles)
+
             pairScalingFactors = [
                 detrorm.getPairScaleFactors(
                     bamFileA,
@@ -543,7 +575,7 @@ def main():
         treatScaleFactors = scaleFactors
         controlScaleFactors = scaleFactorsControl
 
-    if scaleFactors is None:
+    if scaleFactors is None and not controlsPresent:
         scaleFactors = [
             detrorm.getScaleFactor1x(
                 bamFile,
@@ -583,7 +615,9 @@ def main():
         )
         if controlsPresent:
             j_: int = 0
+            finalSF = 1.0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
+                logger.info(f"Counting (trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
                 pairMatrix: np.ndarray = core.readBamSegments(
                     [bamA, bamB],
                     chromosome,
@@ -596,10 +630,16 @@ def main():
                     samArgs.samThreads,
                     samArgs.samFlagExclude,
                     offsetStr=samArgs.offsetStr,
+                    extendBP=extendBP_[j_],
+                    maxInsertSize=samArgs.maxInsertSize,
+                    pairedEndMode=samArgs.pairedEndMode,
                     applyAsinh=countingArgs.applyAsinh,
+                    applyLog=countingArgs.applyLog,
                 )
-                chromMat[j_, :] = scaleFactors[j_] * (
-                    pairMatrix[0, :] - pairMatrix[1, :]
+                if countingArgs.rescaleToTreatmentCoverage:
+                    finalSF = max(1.0, initialTreatmentScaleFactors[j_])
+                chromMat[j_, :] = (
+                    finalSF * (pairMatrix[0, :] - pairMatrix[1, :])
                 )
                 j_ += 1
         else:
@@ -615,7 +655,11 @@ def main():
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
                 offsetStr=samArgs.offsetStr,
+                extendBP=samArgs.extendBP,
+                maxInsertSize=samArgs.maxInsertSize,
+                pairedEndMode=samArgs.pairedEndMode,
                 applyAsinh=countingArgs.applyAsinh,
+                applyLog=countingArgs.applyLog,
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
@@ -750,7 +794,7 @@ def main():
 
         except Exception as e:
             logger.warning(
-                f"Failed to merge matches for {chromosome}...SKIPPING:\n{e}\n\n"
+                f"Failed to merge matches...SKIPPING:\n{e}\n\n"
             )
     logger.info("Done.")
 
