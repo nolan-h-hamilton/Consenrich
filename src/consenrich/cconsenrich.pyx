@@ -464,7 +464,7 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
     return out
 
 
-def cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
+cpdef cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
     r"""Fast access and average of `numNearest` sparse elements.
 
     See :func:`consenrich.core.getMuncTrack`
