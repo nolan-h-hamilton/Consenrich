@@ -185,6 +185,11 @@ class samParams(NamedTuple):
     :type maxInsertSize: int
     :param pairedEndMode: If > 0, only proper pairs are counted subject to `maxInsertSize`.
     :type pairedEndMode: int
+    :param inferFragmentLength: Intended for single-end data: if > 0, the maximum correlation lag
+       (avg.) between *strand-specific* read tracks is taken as the fragment length estimate and used to
+       extend reads from 5'. Ignored if `pairedEndMode > 0` or `extendBP` set. Recommended for broad marks in singele-end
+       data.
+    :type inferFragmentLength: int
 
     .. tip::
 
@@ -200,6 +205,7 @@ class samParams(NamedTuple):
     extendBP: Optional[List[int]] = []
     maxInsertSize: Optional[int] = 1000
     pairedEndMode: Optional[int] = 0
+    inferFragmentLength: Optional[int] = 0
 
 
 class detrendParams(NamedTuple):
@@ -284,9 +290,6 @@ class countingParams(NamedTuple):
     :type applyAsinh: bool, optional
     :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x`
     :type applyLog: bool, optional
-    :param rescaleToTreatmentCoverage: If control samples are supplied: after adjusting w.r.t the control input (subtracting/scaling),
-        the remaining 'control-corrected' counts are scaled using the original 1x-genome factor for the treatment.
-    :type rescaleToTreatmentCoverage: bool, optional
     """
 
     stepSize: int
@@ -297,6 +300,7 @@ class countingParams(NamedTuple):
     applyAsinh: Optional[bool]
     applyLog: Optional[bool]
     rescaleToTreatmentCoverage: Optional[bool] = False
+
 
 class matchingParams(NamedTuple):
     r"""Parameters related to the (experimental) pattern matching routine packaged with this software.
@@ -482,6 +486,7 @@ def readBamSegments(
     extendBP: List[int] = [],
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
+    inferFragmentLength: Optional[int] = 0,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -515,6 +520,8 @@ def readBamSegments(
     :type maxInsertSize: int
     :param pairedEndMode: See :class:`samParams`.
     :type pairedEndMode: int
+    :param inferFragmentLength: See :class:`samParams`.
+    :type inferFragmentLength: int
     """
 
     if len(bamFiles) == 0:
@@ -546,6 +553,7 @@ def readBamSegments(
             extendBP[j],
             maxInsertSize,
             pairedEndMode,
+            inferFragmentLength,
         )
         counts[j, :] = arr
         counts[j, :] *= np.float32(scaleFactors[j])

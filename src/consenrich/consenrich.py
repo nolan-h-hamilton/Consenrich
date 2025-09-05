@@ -344,6 +344,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             extendBP=config.get("samParams.extendBP", []),
             maxInsertSize=config.get("samParams.maxInsertSize", 1000),
             pairedEndMode=config.get("samParams.pairedEndMode", 0),
+            inferFragmentLength=config.get("samParams.inferFragmentLength", 0)
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=config.get(
@@ -633,6 +634,7 @@ def main():
                     extendBP=extendBP_[j_],
                     maxInsertSize=samArgs.maxInsertSize,
                     pairedEndMode=samArgs.pairedEndMode,
+                    inferFragmentLength=samArgs.inferFragmentLength,
                     applyAsinh=countingArgs.applyAsinh,
                     applyLog=countingArgs.applyLog,
                 )
@@ -658,6 +660,7 @@ def main():
                 extendBP=samArgs.extendBP,
                 maxInsertSize=samArgs.maxInsertSize,
                 pairedEndMode=samArgs.pairedEndMode,
+                inferFragmentLength=samArgs.inferFragmentLength,
                 applyAsinh=countingArgs.applyAsinh,
                 applyLog=countingArgs.applyLog,
             )

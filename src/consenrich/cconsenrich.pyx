@@ -5,10 +5,10 @@ r"""Cython module for Consenrich core functions.
 This module contains Cython implementations of core functions used in Consenrich.
 """
 
-from libc.math cimport fabs, sqrt, abs
+from libc.math cimport abs, fabs, sqrt
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
-from pysam.libcalignmentfile cimport AlignedSegment, AlignmentFile
 from cpython.array cimport array
+from pysam.libcalignmentfile cimport AlignedSegment, AlignmentFile
 import numpy as np
 cimport numpy as cnp
 
@@ -154,7 +154,8 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     int64_t shiftReverseStrand53 = 0,
     int64_t extendBP = 0,
     int64_t maxInsertSize=1000,
-    int64_t pairedEndMode=0):
+    int64_t pairedEndMode=0,
+    int64_t inferFragmentLength=0):
     r"""Count reads in a BAM file for a given chromosome"""
 
     cdef Py_ssize_t numIntervals = <Py_ssize_t>getNumIntervals(<int64_t>start, <int64_t>end, <int64_t>stepSize)
@@ -176,7 +177,16 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     cdef int64_t readStart, readEnd
     cdef int64_t adjStart, adjEnd, fivePrime, mid, midIndex, tlen, atlen
     cdef uint16_t flag
-
+    if inferFragmentLength > 0 and pairedEndMode == 0 and extendBP == 0:
+        extendBP = cgetFragmentLength(bamFile,
+         chromosome,
+         <int64_t>start,
+         <int64_t>end,
+         samThreads = samThreads,
+         samFlagExclude=samFlagExclude,
+         maxInsertSize=maxInsertSize,
+         minInsertSize=<int64_t>readLength, # xcorr peak > rlen ~~> fraglen
+         )
     try:
         with aln:
             for read in aln.fetch(chromosome, start64, end64):
@@ -497,3 +507,142 @@ cpdef cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
         out[i] = sumNearestVariances/m
 
     return out
+
+
+cpdef int64_t cgetFragmentLength(str bamFile,
+                                 str chromosome,
+                                 int64_t start,
+                                 int64_t end,
+                                 uint16_t samThreads=1,
+                                 uint16_t samFlagExclude=3844,
+                                 int64_t maxInsertSize=1000,
+                                 int64_t minInsertSize=20,
+                                 int64_t iters=50,
+                                 int64_t blockSize=10_000,
+                                 int64_t fallBack=147,
+                                 int64_t randSeed=42):
+    r"""Estimate the fragment length from the maximum (average) correlation lag between forward and reverse strand reads.
+    """
+    cdef int64_t regionLen = (end - start)
+    cdef int64_t lMin = minInsertSize
+    cdef int64_t lMax = maxInsertSize
+    cdef int64_t pos = 0
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd = np.zeros(blockSize, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rev = np.zeros(blockSize, dtype=np.float64)
+    cdef int64_t itersInitial = iters
+
+    if regionLen <= 0:
+        return fallBack
+    if blockSize <= 0 or lMin <= 0 or lMax <= 0 or lMin > lMax:
+        return fallBack
+    if blockSize <= lMin:
+        return fallBack
+    if end - start <= blockSize:
+        iters = 1
+
+    cdef int64_t maxBlockStart = (end - blockSize - 1)
+    if maxBlockStart <= start:
+        return fallBack
+
+    cdef list candidates = []
+    np.random.seed(randSeed)
+    cdef cnp.ndarray[cnp.int64_t, ndim=1] startsArr = np.random.randint(
+        low=start,
+        high=maxBlockStart,
+        size=iters,
+        dtype=np.int64)
+
+    cdef AlignmentFile bamFileObj
+    try:
+        bamFileObj = AlignmentFile(bamFile, "rb", threads=<int>samThreads)
+    except Exception:
+        return fallBack
+
+    cdef int64_t k, blkStart, blkEnd = 0
+    cdef int64_t i, N, l, nTies, med = 0
+    cdef float xCorrBest, cSum = -1.0
+    cdef list ties = []
+    for k in range(iters):
+        blkStart = startsArr[k]
+        blkEnd = blkStart + blockSize
+        cSum = 0.0
+        fwd.fill(0.0)
+        rev.fill(0.0)
+        pos = 0
+        try:
+            for col in bamFileObj.pileup(chromosome,
+                                         blkStart,
+                                         blkEnd,
+                                         truncate=True,
+                                         stepper="all",
+                                         max_depth=1000000):
+                pos = <int64_t>col.reference_pos
+                if pos < blkStart or pos >= blkEnd:
+                    continue
+                i = pos - blkStart
+                for pup in col.pileups:
+                    readSeg = pup.alignment
+                    if (readSeg.flag & <int>samFlagExclude) != 0:
+                        continue
+                    if (readSeg.flag & 16) != 0:
+                        rev[i] += 1
+                    else:
+                        fwd[i] += 1
+        except Exception:
+            continue
+        if fwd.sum() == 0 or rev.sum() == 0:
+            continue
+
+        xCorrBest = -1.0
+        ties = []
+
+        for l in range(lMin, lMax + 1):
+            N = blockSize - l
+            if N <= 0:
+                break
+            cSum = 0
+            for i in range(N):
+                cSum += fwd[i] * rev[i + l]
+
+            if cSum > xCorrBest:
+                xCorrBest = cSum
+                ties = [l]
+            elif cSum == xCorrBest:
+                ties.append(l)
+
+        if xCorrBest <= 0 or len(ties) == 0:
+            candidates.append(fallBack)
+        else:
+            nTies = len(ties)
+            if nTies & 1:
+                med = ties[nTies // 2]
+            else:
+                med = ties[(nTies // 2) - 1]
+            if med < fallBack:
+                med = fallBack
+            candidates.append(med)
+
+    try:
+        bamFileObj.close()
+    except Exception:
+        pass
+
+    if not candidates:
+        return fallBack
+
+    candidates.sort()
+    cdef Py_ssize_t n = len(candidates)
+    cdef int64_t overall
+    if n & 1:
+        overall = <int64_t>candidates[n // 2]
+    else:
+        overall = <int64_t>candidates[(n // 2) - 1]
+
+    if overall < fallBack:
+        overall = fallBack
+    if overall < minInsertSize:
+        overall = minInsertSize
+    if overall > maxInsertSize:
+        overall = maxInsertSize
+
+    return overall
