@@ -79,6 +79,7 @@ jobs:
           samtools index ENCFF239RGZ.bam
           samtools index ENCFF724QHH.bam
           samtools index ENCFF822BKT.bam
+          samtools index ENCFF978XNV.bam
       - name: Download bedGraphToBigWig
         working-directory: ./tests
         run: |
