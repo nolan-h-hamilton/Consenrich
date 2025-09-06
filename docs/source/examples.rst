@@ -574,7 +574,7 @@ As in `Andersson et al. <https://genome.cshlp.org/content/19/10/1732>`_,
 
   * Consistent with Andersson et al., this does not appear to reflect a progressive increase in H3K36me3 toward the 3' end of the gene body -- Rather, the 3' end is exon-rich, hence the density of peaks. 
 
-  * Notably, Andersson et al. later remark: *"...there are H3K36me3 peaks outside internal exons. Sometimes they colocalized with expressed sequence tags (ESTs) (data not shown) and could therefore coincide with uncharacterized exons, or with uncharacterized new sense or anti-sense transcripts. Additionally, it cannot be ruled out that H3K36me3 may have a different function at intronic sequences."* and this is consistent with the observations from our analysis in mucosal tissue samples.
+  * Notably, Andersson et al. later remark: *"...there are H3K36me3 peaks outside internal exons. Sometimes they colocalized with expressed sequence tags (ESTs) (data not shown) and could therefore coincide with uncharacterized exons, or with uncharacterized new sense or anti-sense transcripts. Additionally, it cannot be ruled out that H3K36me3 may have a different function at intronic sequences"*, and this appears consistent with our observations here in colonic mucosal tissue.
 
 
 
