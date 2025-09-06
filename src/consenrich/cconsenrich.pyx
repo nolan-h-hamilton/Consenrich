@@ -517,25 +517,36 @@ cpdef int64_t cgetFragmentLength(str bamFile,
                                  uint16_t samFlagExclude=3844,
                                  int64_t maxInsertSize=1000,
                                  int64_t minInsertSize=20,
-                                 int64_t iters=50,
-                                 int64_t blockSize=10_000,
+                                 int64_t iters=250,
+                                 int64_t blockSize=5000,
                                  int64_t fallBack=147,
-                                 int64_t randSeed=42):
+                                 int64_t randSeed=42,
+                                 int64_t smoothBP=10):
     r"""Estimate the fragment length from the maximum (average) correlation lag between forward and reverse strand reads.
     """
+    np.random.seed(randSeed)
     cdef int64_t regionLen = (end - start)
-    cdef int64_t lMin = minInsertSize
-    cdef int64_t lMax = maxInsertSize
+    cdef int64_t lagMin = minInsertSize
+    cdef int64_t lagMax = maxInsertSize
     cdef int64_t pos = 0
     cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd = np.zeros(blockSize, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rev = np.zeros(blockSize, dtype=np.float64)
-    cdef int64_t itersInitial = iters
+    cdef int64_t k, blkStart, blkEnd = 0
+    cdef int64_t i, N, l, nTies, med = 0
+    cdef float xCorrBest, cSum = -1.0
+    cdef list ties = []
+    # arbitrary -- can consider sqrt or any func. pos & increasing & negative second derivative
+    cdef int64_t coverageThreshold = np.log1p(<double>blockSize)
+    if smoothBP % 2 == 0:
+        smoothBP += 1
+    smoothBP = min(smoothBP, blockSize)
+    cdef cnp.ndarray[cnp.float64_t] smoothVec = np.ones(smoothBP, dtype=np.float64) * (1.0 / smoothBP)
 
     if regionLen <= 0:
         return fallBack
-    if blockSize <= 0 or lMin <= 0 or lMax <= 0 or lMin > lMax:
+    if blockSize <= 0 or lagMin <= 0 or lagMax <= 0 or lagMin > lagMax:
         return fallBack
-    if blockSize <= lMin:
+    if blockSize <= lagMin:
         return fallBack
     if end - start <= blockSize:
         iters = 1
@@ -545,23 +556,19 @@ cpdef int64_t cgetFragmentLength(str bamFile,
         return fallBack
 
     cdef list candidates = []
-    np.random.seed(randSeed)
     cdef cnp.ndarray[cnp.int64_t, ndim=1] startsArr = np.random.randint(
         low=start,
         high=maxBlockStart,
         size=iters,
         dtype=np.int64)
 
-    cdef AlignmentFile bamFileObj
+    cdef AlignmentFile aln
     try:
-        bamFileObj = AlignmentFile(bamFile, "rb", threads=<int>samThreads)
+        aln = AlignmentFile(bamFile, "rb", threads=<int>samThreads)
     except Exception:
         return fallBack
 
-    cdef int64_t k, blkStart, blkEnd = 0
-    cdef int64_t i, N, l, nTies, med = 0
-    cdef float xCorrBest, cSum = -1.0
-    cdef list ties = []
+
     for k in range(iters):
         blkStart = startsArr[k]
         blkEnd = blkStart + blockSize
@@ -570,12 +577,12 @@ cpdef int64_t cgetFragmentLength(str bamFile,
         rev.fill(0.0)
         pos = 0
         try:
-            for col in bamFileObj.pileup(chromosome,
+            for col in aln.pileup(chromosome,
                                          blkStart,
                                          blkEnd,
                                          truncate=True,
                                          stepper="all",
-                                         max_depth=1000000):
+                                         max_depth=10000):
                 pos = <int64_t>col.reference_pos
                 if pos < blkStart or pos >= blkEnd:
                     continue
@@ -590,13 +597,15 @@ cpdef int64_t cgetFragmentLength(str bamFile,
                         fwd[i] += 1
         except Exception:
             continue
-        if fwd.sum() == 0 or rev.sum() == 0:
-            continue
 
+        if fwd.sum() < coverageThreshold or rev.sum() < coverageThreshold:
+            continue
+        fwd = np.convolve(fwd, smoothVec, mode='same')
+        rev = np.convolve(rev, smoothVec, mode='same')
         xCorrBest = -1.0
         ties = []
 
-        for l in range(lMin, lMax + 1):
+        for l in range(lagMin, lagMax + 1):
             N = blockSize - l
             if N <= 0:
                 break
@@ -614,7 +623,7 @@ cpdef int64_t cgetFragmentLength(str bamFile,
             candidates.append(fallBack)
         else:
             nTies = len(ties)
-            if nTies & 1:
+            if nTies % 2 == 1:
                 med = ties[nTies // 2]
             else:
                 med = ties[(nTies // 2) - 1]
@@ -623,7 +632,7 @@ cpdef int64_t cgetFragmentLength(str bamFile,
             candidates.append(med)
 
     try:
-        bamFileObj.close()
+        aln.close()
     except Exception:
         pass
 
@@ -631,9 +640,9 @@ cpdef int64_t cgetFragmentLength(str bamFile,
         return fallBack
 
     candidates.sort()
-    cdef Py_ssize_t n = len(candidates)
+    cdef Py_ssize_t n = <Py_ssize_t>len(candidates)
     cdef int64_t overall
-    if n & 1:
+    if n % 2 == 1:
         overall = <int64_t>candidates[n // 2]
     else:
         overall = <int64_t>candidates[(n // 2) - 1]
