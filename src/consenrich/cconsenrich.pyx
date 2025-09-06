@@ -133,13 +133,6 @@ cdef inline Py_ssize_t floordiv64(int64_t a, int64_t b) nogil:
         return <Py_ssize_t>(- ((-a + b - 1) // b))
 
 
-cpdef inline int64_t getNumIntervals(int64_t start, int64_t end, int64_t step):
-    cdef int64_t span = end - start
-    if span <= 0:
-        return 0
-    return (span + step - 1) // step
-
-
 cpdef cnp.uint32_t[:] creadBamSegment(
     str bamFile,
     str chromosome,
@@ -158,7 +151,7 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     int64_t inferFragmentLength=0):
     r"""Count reads in a BAM file for a given chromosome"""
 
-    cdef Py_ssize_t numIntervals = <Py_ssize_t>getNumIntervals(<int64_t>start, <int64_t>end, <int64_t>stepSize)
+    cdef Py_ssize_t numIntervals = <Py_ssize_t>(((end - start) + stepSize - 1) // stepSize)
 
     cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.uint32)
     cdef cnp.uint32_t[::1] values = values_np
@@ -191,16 +184,16 @@ cpdef cnp.uint32_t[:] creadBamSegment(
         with aln:
             for read in aln.fetch(chromosome, start64, end64):
                 flag = <uint16_t>read.flag
-                if (flag & samFlagExclude) != 0:
-                    continue
-                if flag & 4:
+                if flag & samFlagExclude:
                     continue
 
                 readIsForward = (flag & 16) == 0
                 readStart = <int64_t>read.reference_start
                 readEnd   = <int64_t>read.reference_end
 
-                if (flag & 2) and pairedEndMode > 0:
+                if pairedEndMode > 0:
+                    if flag & 1 == 0: # not a properly paired read
+                        continue
                     # use first in pair + fragment
                     if flag & 128:
                         continue
@@ -515,14 +508,15 @@ cpdef int64_t cgetFragmentLength(str bamFile,
                                  int64_t end,
                                  uint16_t samThreads=1,
                                  uint16_t samFlagExclude=3844,
-                                 int64_t maxInsertSize=1000,
-                                 int64_t minInsertSize=20,
+                                 int64_t maxInsertSize=2500,
+                                 int64_t minInsertSize=25,
                                  int64_t iters=250,
                                  int64_t blockSize=5000,
                                  int64_t fallBack=147,
                                  int64_t randSeed=42,
                                  int64_t smoothBP=10):
-    r"""Estimate the fragment length from the maximum (average) correlation lag between forward and reverse strand reads.
+
+    r"""Estimate the fragment length from the maximum correlation lag between forward and reverse strand reads.
     """
     np.random.seed(randSeed)
     cdef int64_t regionLen = (end - start)

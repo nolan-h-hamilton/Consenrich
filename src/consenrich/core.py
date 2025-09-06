@@ -534,7 +534,7 @@ def readBamSegments(
 
     extendBP = resolveExtendBP(extendBP, bamFiles)
     offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
-    numIntervals = cconsenrich.getNumIntervals(start, end, stepSize)
+    numIntervals = ((end - start) + stepSize - 1) // stepSize
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
     for j, bam in enumerate(bamFiles):
         logger.info(f"Reading {chromosome}: {bam}")
@@ -555,6 +555,7 @@ def readBamSegments(
             pairedEndMode,
             inferFragmentLength,
         )
+        # FFR: use ufuncs?
         counts[j, :] = arr
         counts[j, :] *= np.float32(scaleFactors[j])
         if applyAsinh:
