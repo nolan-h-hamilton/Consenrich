@@ -253,8 +253,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     if applyAsinh and applyLog:
         applyAsinh = True
         applyLog = False
-        logger.warning("Both `applyAsinh` and `applyLog` are set. Overriding `applyLog` to False.")
-    rescaleToTreatmentCoverage = config.get("countingParams.rescaleToTreatmentCoverage", True)
+        logger.warning(
+            "Both `applyAsinh` and `applyLog` are set. Overriding `applyLog` to False."
+        )
+    rescaleToTreatmentCoverage = config.get(
+        "countingParams.rescaleToTreatmentCoverage", True
+    )
     if scaleFactors is not None and not isinstance(scaleFactors, list):
         raise ValueError("`scaleFactors` should be a list of floats.")
     if scaleFactorsControl is not None and not isinstance(
@@ -344,7 +348,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             extendBP=config.get("samParams.extendBP", []),
             maxInsertSize=config.get("samParams.maxInsertSize", 1000),
             pairedEndMode=config.get("samParams.pairedEndMode", 0),
-            inferFragmentLength=config.get("samParams.inferFragmentLength", 0)
+            inferFragmentLength=config.get("samParams.inferFragmentLength", 0),
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=config.get(
@@ -618,7 +622,9 @@ def main():
             j_: int = 0
             finalSF = 1.0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
-                logger.info(f"Counting (trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
+                logger.info(
+                    f"Counting (trt,ctrl) for {chromosome}: ({bamA}, {bamB})"
+                )
                 pairMatrix: np.ndarray = core.readBamSegments(
                     [bamA, bamB],
                     chromosome,
@@ -640,8 +646,8 @@ def main():
                 )
                 if countingArgs.rescaleToTreatmentCoverage:
                     finalSF = max(1.0, initialTreatmentScaleFactors[j_])
-                chromMat[j_, :] = (
-                    finalSF * (pairMatrix[0, :] - pairMatrix[1, :])
+                chromMat[j_, :] = finalSF * (
+                    pairMatrix[0, :] - pairMatrix[1, :]
                 )
                 j_ += 1
         else:
@@ -789,16 +795,13 @@ def main():
     convertBedGraphToBigWig(experimentName, genomeArgs.chromSizesFile)
     if matchingEnabled and matchingArgs.merge:
         try:
-
             matching.mergeMatches(
                 f"consenrichOutput_{experimentName}_matches.narrowPeak",
                 mergeGapBP=matchingArgs.mergeGapBP,
             )
 
         except Exception as e:
-            logger.warning(
-                f"Failed to merge matches...SKIPPING:\n{e}\n\n"
-            )
+            logger.warning(f"Failed to merge matches...SKIPPING:\n{e}\n\n")
     logger.info("Done.")
 
 

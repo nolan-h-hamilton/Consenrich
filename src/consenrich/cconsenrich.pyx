@@ -5,11 +5,13 @@ r"""Cython module for Consenrich core functions.
 This module contains Cython implementations of core functions used in Consenrich.
 """
 
-from libc.math cimport abs, fabs, sqrt
+import numpy as np
+import pysam
+
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
+from libc.math cimport fabs, sqrt
 from cpython.array cimport array
 from pysam.libcalignmentfile cimport AlignedSegment, AlignmentFile
-import numpy as np
 cimport numpy as cnp
 
 cnp.import_array()
