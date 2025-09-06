@@ -121,7 +121,11 @@ Invoke the command-line interface to run Consenrich:
 
   consenrich --config demoHistoneChIPSeq.yaml --verbose
 
-.. note::
+
+.. admonition:: Guidance: Command-line vs. Programmatic Usage
+  :class: tip
+  :collapsible: closed
+
   The command-line interface is a convenience wrapper that may not expose all available objects or more niche features.
   Some users may find it beneficial to run Consenrich programmatically (via Jupyter notebooks, Python scripts), as the :ref:`API` enables
   greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
@@ -150,12 +154,16 @@ Consenrich generates the following output files:
   * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
 
-.. admonition:: `Consenrich+ROCCO`: Consensus Peak Calling
+.. admonition:: Guidance: `Consenrich+ROCCO`: Consensus Peak Calling
   :class: tip
+  :collapsible: closed
 
   Consenrich can markedly improve conventional consensus peak calling (See 'Results' in the `manuscript preprint <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_).
 
-  `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ accepts Consenrich bigWig files as input and is particularly well-suited to leverage the sharpened signal tracks. In the example above, to call peaks using the `Consenrich+ROCCO` protocol,
+  `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is particularly well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling.
+
+
+  In the example above, to call peaks using the `Consenrich+ROCCO` protocol,
 
   .. code-block:: console
 
@@ -182,7 +190,7 @@ We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
 Input alignments (Black) and ENCODE ``fold change over control`` bigWig files for each sample (Dark red) are displayed for reference.
 
 
-Further analyses are available in :ref:`additional-examples`.
+Further analyses and practical guidance are available in :ref:`additional-examples`.
 
 .. _additional-examples:
 
@@ -224,10 +232,44 @@ Names and versions of packages that are relevant to computational performance. T
      * - ``scipy``
        - 1.16.1
      * - ``consenrich``
-       - 0.4.3b0
+       - 0.4.4b0
 
+
+Configuration
+''''''''''''''''''''''''''''
 
 Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs, e.g., `*.bam`, are allowed, but each BAM file is listed here explicitly for reproducibility.
+
+.. admonition:: Guidance: Tuning Memory Usage vs. Runtime
+  :class: tip
+  :collapsible: closed
+
+  Consenrich is generally memory-efficient and can be run on large datasets using only consumer grade hardware (See :ref:`runtimeAndMemoryProfilingAtac20`). Memory cost can be reduced by decreasing `samParams.chunkSize` in the configuration file. Smaller chunk sizes may affect runtime due to overhead from more frequent file I/O, however.
+  Note that the values in ``atac20Benchmark.yaml`` are defaults but are listed here explicitly.
+
+
+.. admonition:: Guidance: Balancing Confidence in the Modeled Process vs. Data
+  :class: tip
+  :collapsible: closed
+
+  Default values should suffice for many cases given the adaptive noise models utilized by Consenrich, but some informal guidance is offered in case one source is consistently more/less reliable than the other.
+
+  - Increasing ``processParams.minQ``:
+
+    .. math::
+
+      \textsf{Consenrich attributes more uncertainty to propagated predictions } \rightarrow \textsf{ data favored in estimation}
+
+    - This induces *less* smoothing (propagation of information across genomic positions).
+
+  - Increasing ``observationParams.minR``:
+
+    .. math::
+
+      \textsf{Consenrich attributes more uncertainty to the data } \rightarrow \textsf{ propagated predictions favored in estimation}
+
+    - This induces *more* smoothing (signal/variance propogation across genomic positions) to compensate for uncertainty in the data.
+
 
 .. code-block:: yaml
 
@@ -256,20 +298,20 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
     ENCFF130DND.bam,
     ENCFF948HNW.bam
   ]
+
+  # Guidance: Balancing Confidence in the Modeled Process vs. Data
   processParams.minQ: 0.05 # clip process noise level above this value
   observationParams.minR: 0.05 # clip sample noise levels above this value
+
+  # Guidance: Tuning Memory Usage vs. Runtime
+  samParams.samThreads: 1 # default value
+  samParams.chunkSize: 1000000 # default value
 
   # Optional: call 'structured peaks'
   matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [2]
   matchingParams.merge: true
   matchingParams.alpha: 0.01
-
-  # Optional: control memory usage
-  samParams.samThreads: 1 # default value
-  samParams.chunkSize: 1000000 # default value
-
-
 
 
 Run Consenrich
@@ -301,6 +343,8 @@ Regions showing a structured enrichment pattern (`db2, level=2`) are positioned 
     :align: left
 
 
+.. _runtimeAndMemoryProfilingAtac20:
+
 Runtime and Memory Profiling
 ''''''''''''''''''''''''''''''''''
 
@@ -314,12 +358,7 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
     :align: center
 
 
-.. tip::
-
-  Memory cost can be reduced by decreasing `samParams.chunkSize` in the configuration file. Smaller chunk sizes may affect runtime due to overhead from more frequent file I/O, however.
-
-
-Extra: Evaluating Structured Peaks
+Evaluating Structured Peak Results
 ''''''''''''''''''''''''''''''''''''''''''''
 
 We compare the structured peaks detected using :func:`consenrich.matching.matchWavelet` with previously identified candidate regulatory elements (ENCODE cCREs).
@@ -378,12 +417,13 @@ Several of the most enriched GO terms associated with `excluded.bed` are related
 +--------------+-------------------------------------------+-----------+
 
 
-ChIP-seq (Broad Histone Mark): `H3K36me3`
+ChIP-seq: Broad Histone Marks
 """""""""""""""""""""""""""""""""""""""""""""
+
+Having provided a minimal example in the context of narrow marks (H3K27ac) in the demo, we now offer an example for broad histone marks (H3K36me3).
 
 - Five mucosal tissue donors, each with H3K36me3/control alignment files from ENCODE.
 - Single-end, mixed-length reads (36, 76)
-
 
 
 Environment
@@ -393,6 +433,7 @@ Environment
 - Python 3.12.9
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
+- `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ 1.6.3
 
 Names and versions of packages that are relevant to computational performance. These specific versions are *not required* but are included for reproducibility.
 
@@ -409,11 +450,33 @@ Names and versions of packages that are relevant to computational performance. T
      * - ``scipy``
        - 1.16.1
      * - ``consenrich``
-       - 0.4.3b1
+       - 0.4.4b0
+     * - ``rocco``
+       - 1.6.3
 
-For single-end ChIP-seq analyses targeting broad histone marks -- consider extending reads to an estimated fragment length using :class:`consenrich.core.samParams` `extendBP`. For this dataset, we use the estimates provided by ENCODE. Several methods are available to estimate SE fragment lengths based on maximum cross-correlation between *strand-specific* read coverage tracks, including `phantompeakqualtools <https://www.encodeproject.org/software/phantompeakqualtools/>`_. `MACS predictd <https://github.com/macs3-project/MACS>`_ applies a similar approach.
+
+Configuration
+''''''''''''''''''''''''''''
 
 We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
+
+.. admonition:: Guidance: Broad Marks + Single-End Data
+  :class: tip
+  :collapsible: closed
+
+  If using single-end reads and targeting broad marks, consider extending all reads to their full (estimated) fragment length
+
+  This is invoked via ``samParams.inferFragmentLength: 1`` as in the YAML configuration below.
+
+  Roughly, we obtain the estimated fragment length by solving the following for lags :math:`k` in strand-specific coverage tracks :math:`f(i), r(i)`,
+
+  .. math::
+
+    \text{argmax}_{_{\textsf{minInsertSize} \leq k \leq \textsf{maxInsertSize}}} \sum_{i} f(i) \cdot r(i+k)
+
+  External tools, e.g., `macs3 predictd <https://macs3-project.github.io/MACS/docs/predictd.html>`_ apply a similar
+  approach. Fragment length estimates for each sample can then be assigned using ``samParams.extendBP``. For example, ``samParams.extendBP: [220, 230, 145, 145, 160]``
+
 
 .. code-block:: yaml
 
@@ -423,66 +486,97 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
   genomeParams.excludeForNorm: ['chrX','chrY']
 
   inputParams.bamFiles: [ENCFF978XNV.bam,
-   ENCFF064FYS.bam,
-   ENCFF948RWW.bam,
-   ENCFF553DUQ.bam,
-   ENCFF686CAN.bam
+    ENCFF064FYS.bam,
+    ENCFF948RWW.bam,
+    ENCFF553DUQ.bam,
+    ENCFF686CAN.bam
   ]
 
   inputParams.bamFilesControl: [ENCFF212KOM.bam,
-   ENCFF556KHR.bam,
-   ENCFF165GHU.bam,
-   ENCFF552XYB.bam,
-   ENCFF141HNE.bam
+    ENCFF556KHR.bam,
+    ENCFF165GHU.bam,
+    ENCFF552XYB.bam,
+    ENCFF141HNE.bam
   ]
 
-  # Per-sample estimated fragment lengths
-  samParams.extendBP: [220, 230, 145, 145, 160]
+  # Guidance: Broad Marks + Single-End Data
+  samParams.inferFragmentLength: 1
 
-  # Optional: detect 'structured peaks'
-  matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.merge: true
-  matchingParams.mergeGapBP: 100 # broader target --> increase overlap radius
-  matchingParams.iters: 25_000
-  matchingParams.alpha: 0.05
 
-Run Consenrich
-''''''''''''''''''''
+Run Consenrich and ROCCO
+''''''''''''''''''''''''''''
+
+.. admonition:: (Broad) Consensus Peak Calling with Consenrich+ROCCO
+  :class: tip
+  :collapsible: closed
+
+  * In this example, we use `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ for consensus peak calling after running Consenrich
+
+    * Incorporating ROCCO adds some computational burden (1-2 hours in this case) but is robust for calling targets that manifest as both broad and narrow.
+
+    * It is possible to attain roughly equal performance for broad marks with the more efficient :func:`consenrich.matching.matchWavelet` algorithm packaged with Consenrich, but this may require tuning to achieve satisfactory results (see below)
+
+  * Alternatively, you can add the following to the YAML file to utilize the matching algorithm within Consenrich for broad marks.
+
+    .. code-block:: yaml
+      :name: H3K36me3Experiment.yaml (additional lines)
+
+      # Note: `matchingParams.minMatchLengthBP` for broad marks
+      #   Rather than the default template-length-based minimum peak/match size,
+      #   consider forcing a minimum size that is consistent biologically with
+      #   the target. e.g., if we are targeting exons via H3K36me3, 150bp may be a
+      #   reasonable minimum size.
+      matchingParams.minMatchLengthBP: 150
+      matchingParams.mergeGapBP: 300
+      matchingParams.merge: true
+      matchingParams.templateNames: [haar, db2]
+      matchingParams.cascadeLevels: [2]
+
 
 .. code-block:: console
 
   consenrich --config H3K36me3Experiment.yaml --verbose
+  python -m pip install rocco --upgrade
+  rocco -i H3K36me3Experiment_consenrich_state.bw -g hg38 -o consenrichRoccoH3K36me3.bed
 
 
 Visualizing Results
 ''''''''''''''''''''''''''''
-
-- Output tracks and features are visualized above in a **100kb** region around `IRF8`.
 
 .. image:: ../benchmarks/H3K36me3/images/H3K36me3IRF8.png
     :alt: H3K36me3 IRF8
     :width: 800px
     :align: left
 
-- For reference, the `ENCSR585FIP <https://www.encodeproject.org/experiments/ENCSR585FIP/>`_ H3K36me3 ChIP-seq signal track from ENCODE is included (Black line plot in top panel).
+- For reference, the `ENCSR585FIP <https://www.encodeproject.org/experiments/ENCSR585FIP/>`_ H3K36me3 ChIP-seq signal track from ENCODE is included in the top panel (Dark red).
 - Input alignment coverage tracks (treatment, control) for each sample are shown in the bottom two panels, respectively.
 
 H3K36me3 Enrichment at Internal Exons
 '''''''''''''''''''''''''''''''''''''''''
 
-* For a biologically-motivated, qualitative validation, we evaluate results over `PRRC1` in light of `Figure 3A in (Andersson et al., 2009) <https://genome.cshlp.org/content/19/10/1732>`_: *H3K36me3 signal is overrepresented at internal exons with respect to succeeding introns.*
+* For a qualitative, biologically-motivated validation, we evaluate results over `PRRC1` in light of `Figure 3A in (Andersson et al., 2009) <https://genome.cshlp.org/content/19/10/1732>`_: *H3K36me3 signal is overrepresented at internal exons with respect to succeeding introns.*
 
-*Note*, in the following, signal tracks in the top panel are on log-scale.
+  * Note that we are using colonic mucosal tissue samples, whereas Andersson et al. used CD4+ T cells. Nonetheless, PRRC1 is consistently expressed in colonic mucosa, and we can expect at least a loose concordance in H3K36me3 enrichment patterns.
+
+In the following, signal tracks in the top panel are on log-scale to facilitate visual comparison across varying dynamic ranges.
 
 .. image:: ../benchmarks/H3K36me3/images/H3K36me3PRRC1.png
     :alt: H3K36me3 Intron-Exon
     :width: 800px
     :align: left
 
-* Over the 50kb locus, the strongest peak-like structures in the H3K36me3 Consenrich-estimated signal track overlap internal, `GENCODE-annotated <https://www.gencodegenes.org/human/release_47.html>`_ exons followed by abrupt depletion.
+As in `Andersson et al. <https://genome.cshlp.org/content/19/10/1732>`_,
 
-* Similar to the above-referenced Figure 3A, we observe  (i) depletion of H3K36me3 at the canonical TSS (See H3K4me3 peak), and  (ii) an enrichment near the 3' end of PRRC1.
+* Near the 5' end of `PRRC1`, we observe a strong, transient H3K4me3 peak followed by a marked increase in Consenrich-estimated H3K36me3 signal
+* Within `PRRC1`, the strongest H3K36me3 Consenrich-estimated signals overlap exons >1, `GENCODE-annotated <https://www.gencodegenes.org/human/release_47.html>`_ followed by abrupt depletions
+
+* Toward the 3' end of `PRRC1`, we observe a density of peak regions in the Consenrich H3K36me3 signal.
+
+  * Consistent with Andersson et al., this does not appear to reflect a progressive increase in H3K36me3 toward the 3' end of the gene body -- Rather, the 3' end is exon-rich, hence the density of peaks. 
+
+  * Notably, Andersson et al. later remark: *"...there are H3K36me3 peaks outside internal exons. Sometimes they colocalized with expressed sequence tags (ESTs) (data not shown) and could therefore coincide with uncharacterized exons, or with uncharacterized new sense or anti-sense transcripts. Additionally, it cannot be ruled out that H3K36me3 may have a different function at intronic sequences"*, and this appears consistent with our observations here in colonic mucosal tissue.
+
+
 
 Runtime and Memory Profiling
 ''''''''''''''''''''''''''''''''''

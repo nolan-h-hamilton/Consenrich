@@ -66,12 +66,20 @@ jobs:
                --continue-at - \
                -o ENCFF822BKT.bam \
                https://www.encodeproject.org/files/ENCFF822BKT/@@download/ENCFF822BKT.bam
+      - name: Download ENCFF978XNV.bam
+        working-directory: ./tests
+        run: |
+          curl -L --retry 10 --retry-delay 10 \
+               --continue-at - \
+               -o ENCFF978XNV.bam \
+               https://www.encodeproject.org/files/ENCFF978XNV/@@download/ENCFF978XNV.bam
       - name: Index BAM files
         working-directory: ./tests
         run: |
           samtools index ENCFF239RGZ.bam
           samtools index ENCFF724QHH.bam
           samtools index ENCFF822BKT.bam
+          samtools index ENCFF978XNV.bam
       - name: Download bedGraphToBigWig
         working-directory: ./tests
         run: |
@@ -108,3 +116,11 @@ jobs:
 
           export corr_state corr_resid
           python -c 'import os,sys; t=float(os.getenv("THRESHOLD")); s=float(os.getenv("corr_state")); r=float(os.getenv("corr_resid")); sys.exit(1 if s<t or r<t else 0)'
+      - name: Check xcorr fragment estimate
+        working-directory: ./tests
+        env:
+          THRESHOLD: "25"
+          EXPECTED: "220"
+        run: |
+          set -euo pipefail
+          python -c "import os,sys,consenrich; t=float(os.getenv('THRESHOLD')); ex=float(os.getenv('EXPECTED')); fragLen=float(consenrich.cconsenrich.cgetFragmentLength('ENCFF978XNV.bam', 'chr1', int(1000000), int(10000000))); sys.exit(1 if abs(ex - fragLen) > t else 0)"

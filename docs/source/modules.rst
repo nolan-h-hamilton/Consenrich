@@ -111,7 +111,7 @@ Note, we use the sequence of Consenrich signal estimates to define :math:`\widet
 
 In the case of Consenrich, that :math:`\widetilde{\mathbf{x}}` is reinforced by multiple samples and accounts for multiple sources of uncertainty is particularly advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features. We need not rely exclusively on least-squares fits to noisy data in small sample sizes.
 
-Further, we can utilize an encompassing discrete wavelet-based representation of structure that computes results nearly instantaneously and can be easily tuned to target generic, peak-like patterns or more complex structures.
+Further, we can utilize an encompassing discrete wavelet-based representation of structure that computes *genome-wide results on the scale of seconds* and can be easily tuned to target generic, peak-like patterns or more complex structures.
 
 Algorithm Overview
 """"""""""""""""""""""

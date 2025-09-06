@@ -1,7 +1,7 @@
 name: consenrichEnv
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
   - defaults
 dependencies:
   - c-compiler
@@ -20,4 +20,7 @@ dependencies:
   - ucsc-bedgraphtobigwig
   - PyYAML>=6.0.2
   - PyWavelets>=1.9.0
+
+  - pip:
+      - consenrich
 

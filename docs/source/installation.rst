@@ -55,24 +55,23 @@ Set the working directory and install:
 Conda
 ~~~~~~~~~~~~~~~~~~~~~~
 
-You can create a `conda <https://docs.conda.io/en/latest/>`_, `mamba <https://mamba.readthedocs.io/en/latest/>`_ virtual environment to isolate your Consenrich installation and ensure all dependencies are met.
+You can easily create a `conda <https://docs.conda.io/en/latest/>`_, `mamba <https://mamba.readthedocs.io/en/latest/>`_ virtual environment to isolate your Consenrich installation and ensure all dependencies are met.
 
-Save the following to `environment.yaml` and run ``conda env create -f environment.yaml`` to create an environment `consenrichEnv`:
+Save the following to `environment.yaml`
 
 .. code-block:: yaml
 
   name: consenrichEnv
   channels:
-    - bioconda
     - conda-forge
+    - bioconda
     - defaults
   dependencies:
-    - c-compiler # defaults to a compatible C compiler for your platform
+    - c-compiler
     - python>=3.11
     - pip
     - setuptools
     - wheel
-    - build
     - cython>=3.0
     - numpy>=2.3.0
     - scipy>=1.16.0
@@ -85,4 +84,15 @@ Save the following to `environment.yaml` and run ``conda env create -f environme
     - PyYAML>=6.0.2
     - PyWavelets>=1.9.0
 
-After activating the environment, install using pip/PyPI or building from source as described above.
+    - pip:
+        - consenrich
+
+Then, run the following to create and activate the environment, named ``consenrichEnv``:
+
+.. code-block:: console
+
+  conda config --set channel_priority strict
+  conda create -n consenrichEnv -f environment.yaml
+  conda activate consenrichEnv
+
+If using `mamba <https://mamba.readthedocs.io/en/latest/>`_, or `micromamba <https://micromamba.readthedocs.io/en/latest/>`_, replace ``conda`` with ``mamba`` or ``micromamba``.

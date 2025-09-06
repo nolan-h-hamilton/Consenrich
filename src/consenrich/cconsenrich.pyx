@@ -5,11 +5,13 @@ r"""Cython module for Consenrich core functions.
 This module contains Cython implementations of core functions used in Consenrich.
 """
 
-from libc.math cimport fabs, sqrt, abs
-from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
-from pysam.libcalignmentfile cimport AlignedSegment, AlignmentFile
-from cpython.array cimport array
 import numpy as np
+import pysam
+
+from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
+from libc.math cimport fabs, sqrt
+from cpython.array cimport array
+from pysam.libcalignmentfile cimport AlignedSegment, AlignmentFile
 cimport numpy as cnp
 
 cnp.import_array()
@@ -133,13 +135,6 @@ cdef inline Py_ssize_t floordiv64(int64_t a, int64_t b) nogil:
         return <Py_ssize_t>(- ((-a + b - 1) // b))
 
 
-cpdef inline int64_t getNumIntervals(int64_t start, int64_t end, int64_t step):
-    cdef int64_t span = end - start
-    if span <= 0:
-        return 0
-    return (span + step - 1) // step
-
-
 cpdef cnp.uint32_t[:] creadBamSegment(
     str bamFile,
     str chromosome,
@@ -154,10 +149,11 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     int64_t shiftReverseStrand53 = 0,
     int64_t extendBP = 0,
     int64_t maxInsertSize=1000,
-    int64_t pairedEndMode=0):
+    int64_t pairedEndMode=0,
+    int64_t inferFragmentLength=0):
     r"""Count reads in a BAM file for a given chromosome"""
 
-    cdef Py_ssize_t numIntervals = <Py_ssize_t>getNumIntervals(<int64_t>start, <int64_t>end, <int64_t>stepSize)
+    cdef Py_ssize_t numIntervals = <Py_ssize_t>(((end - start) + stepSize - 1) // stepSize)
 
     cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.uint32)
     cdef cnp.uint32_t[::1] values = values_np
@@ -176,21 +172,30 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     cdef int64_t readStart, readEnd
     cdef int64_t adjStart, adjEnd, fivePrime, mid, midIndex, tlen, atlen
     cdef uint16_t flag
-
+    if inferFragmentLength > 0 and pairedEndMode == 0 and extendBP == 0:
+        extendBP = cgetFragmentLength(bamFile,
+         chromosome,
+         <int64_t>start,
+         <int64_t>end,
+         samThreads = samThreads,
+         samFlagExclude=samFlagExclude,
+         maxInsertSize=maxInsertSize,
+         minInsertSize=<int64_t>readLength, # xcorr peak > rlen ~~> fraglen
+         )
     try:
         with aln:
             for read in aln.fetch(chromosome, start64, end64):
                 flag = <uint16_t>read.flag
-                if (flag & samFlagExclude) != 0:
-                    continue
-                if flag & 4:
+                if flag & samFlagExclude:
                     continue
 
                 readIsForward = (flag & 16) == 0
                 readStart = <int64_t>read.reference_start
                 readEnd   = <int64_t>read.reference_end
 
-                if (flag & 2) and pairedEndMode > 0:
+                if pairedEndMode > 0:
+                    if flag & 1 == 0: # not a properly paired read
+                        continue
                     # use first in pair + fragment
                     if flag & 128:
                         continue
@@ -464,7 +469,7 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
     return out
 
 
-def cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
+cpdef cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
     r"""Fast access and average of `numNearest` sparse elements.
 
     See :func:`consenrich.core.getMuncTrack`
@@ -497,3 +502,152 @@ def cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
         out[i] = sumNearestVariances/m
 
     return out
+
+
+cpdef int64_t cgetFragmentLength(str bamFile,
+                                 str chromosome,
+                                 int64_t start,
+                                 int64_t end,
+                                 uint16_t samThreads=1,
+                                 uint16_t samFlagExclude=3844,
+                                 int64_t maxInsertSize=2500,
+                                 int64_t minInsertSize=25,
+                                 int64_t iters=250,
+                                 int64_t blockSize=5000,
+                                 int64_t fallBack=147,
+                                 int64_t randSeed=42,
+                                 int64_t smoothBP=10):
+
+    r"""Estimate the fragment length from the maximum correlation lag between forward and reverse strand reads.
+    """
+    np.random.seed(randSeed)
+    cdef int64_t regionLen = (end - start)
+    cdef int64_t lagMin = minInsertSize
+    cdef int64_t lagMax = maxInsertSize
+    cdef int64_t pos = 0
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd = np.zeros(blockSize, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rev = np.zeros(blockSize, dtype=np.float64)
+    cdef int64_t k, blkStart, blkEnd = 0
+    cdef int64_t i, N, l, nTies, med = 0
+    cdef float xCorrBest, cSum = -1.0
+    cdef list ties = []
+    # arbitrary -- can consider sqrt or any func. pos & increasing & negative second derivative
+    cdef int64_t coverageThreshold = np.log1p(<double>blockSize)
+    if smoothBP % 2 == 0:
+        smoothBP += 1
+    smoothBP = min(smoothBP, blockSize)
+    cdef cnp.ndarray[cnp.float64_t] smoothVec = np.ones(smoothBP, dtype=np.float64) * (1.0 / smoothBP)
+
+    if regionLen <= 0:
+        return fallBack
+    if blockSize <= 0 or lagMin <= 0 or lagMax <= 0 or lagMin > lagMax:
+        return fallBack
+    if blockSize <= lagMin:
+        return fallBack
+    if end - start <= blockSize:
+        iters = 1
+
+    cdef int64_t maxBlockStart = (end - blockSize - 1)
+    if maxBlockStart <= start:
+        return fallBack
+
+    cdef list candidates = []
+    cdef cnp.ndarray[cnp.int64_t, ndim=1] startsArr = np.random.randint(
+        low=start,
+        high=maxBlockStart,
+        size=iters,
+        dtype=np.int64)
+
+    cdef AlignmentFile aln
+    try:
+        aln = AlignmentFile(bamFile, "rb", threads=<int>samThreads)
+    except Exception:
+        return fallBack
+
+
+    for k in range(iters):
+        blkStart = startsArr[k]
+        blkEnd = blkStart + blockSize
+        cSum = 0.0
+        fwd.fill(0.0)
+        rev.fill(0.0)
+        pos = 0
+        try:
+            for col in aln.pileup(chromosome,
+                                         blkStart,
+                                         blkEnd,
+                                         truncate=True,
+                                         stepper="all",
+                                         max_depth=10000):
+                pos = <int64_t>col.reference_pos
+                if pos < blkStart or pos >= blkEnd:
+                    continue
+                i = pos - blkStart
+                for pup in col.pileups:
+                    readSeg = pup.alignment
+                    if (readSeg.flag & <int>samFlagExclude) != 0:
+                        continue
+                    if (readSeg.flag & 16) != 0:
+                        rev[i] += 1
+                    else:
+                        fwd[i] += 1
+        except Exception:
+            continue
+
+        if fwd.sum() < coverageThreshold or rev.sum() < coverageThreshold:
+            continue
+        fwd = np.convolve(fwd, smoothVec, mode='same')
+        rev = np.convolve(rev, smoothVec, mode='same')
+        xCorrBest = -1.0
+        ties = []
+
+        for l in range(lagMin, lagMax + 1):
+            N = blockSize - l
+            if N <= 0:
+                break
+            cSum = 0
+            for i in range(N):
+                cSum += fwd[i] * rev[i + l]
+
+            if cSum > xCorrBest:
+                xCorrBest = cSum
+                ties = [l]
+            elif cSum == xCorrBest:
+                ties.append(l)
+
+        if xCorrBest <= 0 or len(ties) == 0:
+            candidates.append(fallBack)
+        else:
+            nTies = len(ties)
+            if nTies % 2 == 1:
+                med = ties[nTies // 2]
+            else:
+                med = ties[(nTies // 2) - 1]
+            if med < fallBack:
+                med = fallBack
+            candidates.append(med)
+
+    try:
+        aln.close()
+    except Exception:
+        pass
+
+    if not candidates:
+        return fallBack
+
+    candidates.sort()
+    cdef Py_ssize_t n = <Py_ssize_t>len(candidates)
+    cdef int64_t overall
+    if n % 2 == 1:
+        overall = <int64_t>candidates[n // 2]
+    else:
+        overall = <int64_t>candidates[(n // 2) - 1]
+
+    if overall < fallBack:
+        overall = fallBack
+    if overall < minInsertSize:
+        overall = minInsertSize
+    if overall > maxInsertSize:
+        overall = maxInsertSize
+
+    return overall
