@@ -417,8 +417,10 @@ Several of the most enriched GO terms associated with `excluded.bed` are related
 +--------------+-------------------------------------------+-----------+
 
 
-ChIP-seq (Broad Histone Mark): `H3K36me3`
+ChIP-seq: Broad Histone Marks
 """""""""""""""""""""""""""""""""""""""""""""
+
+Having provided a minimal example in the context of narrow marks (H3K27ac) in the demo, we now offer an example for broad histone marks (H3K36me3).
 
 - Five mucosal tissue donors, each with H3K36me3/control alignment files from ENCODE.
 - Single-end, mixed-length reads (36, 76)
