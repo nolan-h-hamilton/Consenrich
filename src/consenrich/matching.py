@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""Module implementing spatial feature recognition (localization) in Consenrich-estimated genomic signals."""
+r"""Module implementing (experimental) 'structured peak detection' features using wavelet-based templates."""
 
 import logging
 import os
@@ -39,18 +39,15 @@ def matchWavelet(
     minSignalAtMaxima: Optional[float] = None,
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
+    useScalingFunction: bool = False,
 ) -> pd.DataFrame:
     r"""Match discrete wavelet-based templates in the sequence of Consenrich estimates
 
-    See :ref:`matching`.
-
     :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
     :type values: npt.NDArray[np.float64]
-    :param templateNames: List of discrete wavelet template names to use for matching, e.g.
-        `[haar, db2, db4, coif1]`.
+    :param templateNames: A list of wavelet bases used for matching, e.g., `[haar, db2, sym4]`
     :type templateNames: List[str]
-    :param cascadeLevels: List of cascade levels used to discretely sample
-        the given wavelet function.
+    :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating the scaling/wavelet functions.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
@@ -65,8 +62,10 @@ def matchWavelet(
     :param minSignalAtMaxima: Minimum *signal* value (not response value) at the maxima to qualify matches.
         If None, the mean of the signal is used. Set to zero to disable this criterion.
     :type minSignalAtMaxima: float
+    :param useScalingFunction: If True, use (only) the scaling function to build the matching template. Low-pass: may be preferable for calling broader features.
+    :type useScalingFunction: bool
 
-    :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`
+    :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     """
 
     if len(intervals) < 5:
@@ -115,8 +114,14 @@ def matchWavelet(
             template = np.array(waveletFunc, dtype=np.float64) / np.linalg.norm(
                 waveletFunc
             )
+
+            if useScalingFunction:
+                template = np.array(
+                    scalingFunc, dtype=np.float64
+                ) / np.linalg.norm(scalingFunc)
+
             logger.info(
-                f"Matching: wavelet template: {templateName}, cascade level: {cascadeLevel}, template length: {len(template)}"
+                f"Matching: template: {templateName}, cascade level: {cascadeLevel}, template length: {len(template)}, scaling: {useScalingFunction}, wavelet: {not useScalingFunction}"
             )
 
             responseSequence: npt.NDArray[np.float64] = signal.fftconvolve(
@@ -132,7 +137,6 @@ def matchWavelet(
                     minMatchLengthBP % intervalLengthBP
                 )
 
-            # reduce overlaps
             relativeMaximaWindow = int(
                 ((minMatchLengthBP / intervalLengthBP) / 2) + 1
             )
@@ -141,17 +145,26 @@ def matchWavelet(
             logger.info(
                 f"\nSampling {iters} block maxima for template {templateName} at cascade level {cascadeLevel} with (expected) relative maxima window size {relativeMaximaWindow}."
             )
+
+            # FFR: remove outliers, samples from blacklisted regions, from null draws
             blockMaxima = cconsenrich.csampleBlockStats(
                 responseSequence, relativeMaximaWindow, iters, randSeed_
             )
-            logger.info("Done.")
 
-            responseThreshold = np.quantile(blockMaxima, 1 - alpha)
             ecdfBlockMaximaSF = stats.ecdf(blockMaxima).sf
+            responseThreshold = float(1e6)
+            signalThreshold = float(1e6)
+            try:
+            # try with continuous func. of p
+                responseThreshold = np.quantile(
+                blockMaxima, 1 - alpha, method="interpolated_inverted_cdf")
+            except Exception as ex:
+                responseThreshold = np.quantile(blockMaxima, 1 - alpha)
+                logger.warning(f"Exception due to quantile estimate with 'interpolated_inverted_cdf':{ex}\nUsing linear/default instead....")
 
-            signalThreshold: float = 0.0
+
             if minSignalAtMaxima is None:
-                signalThreshold = max(0, np.mean(values))
+                signalThreshold = np.mean(values)
             elif minSignalAtMaxima == 0:
                 signalThreshold = -np.inf
 

@@ -379,6 +379,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             ),
             merge=config.get("matchingParams.merge", False),
             mergeGapBP=config.get("matchingParams.mergeGapBP", 25),
+            useScalingFunction=config.get("matchingParams.useScalingFunction", False),
         ),
     }
 
@@ -775,6 +776,7 @@ def main():
                     matchingArgs.minMatchLengthBP,
                     matchingArgs.maxNumMatches,
                     matchingArgs.minSignalAtMaxima,
+                    useScalingFunction=matchingArgs.useScalingFunction,
                 )
                 if not matchingDF.empty:
                     matchingDF.to_csv(

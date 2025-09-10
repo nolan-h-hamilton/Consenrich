@@ -305,14 +305,16 @@ class countingParams(NamedTuple):
 class matchingParams(NamedTuple):
     r"""Parameters related to the (experimental) pattern matching routine packaged with this software.
 
-    :param templateNames: A list of mother wavelets used as the basis for matching, e.g., `[haar, coif1, db2]`
+    :param templateNames: A list of wavelet bases used for matching, e.g., `[haar, db2, sym4]`
     :type templateNames: List[str]
-    :param cascadeLevels: Number of cascade algorithm iterations used to discretely sample the given wavelet.
+    :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating the scaling/wavelet functions.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks in the cross correlation sequence to sample when building the null. Expected block length is equal to template length.
     :type iters: int
     :param merge: Whether to merge overlapping matches within `mergeGapBP` base pairs. A separate narrowPeak file will be created for the merged matches -- the original is preserved too.
     :type merge: bool
+    :param useScalingFunction: If True, use (only) the scaling function to build the matching template. Low-pass: may be preferable for calling broader features.
+    :type useScalingFunction: bool
 
     See :func:`consenrich.matching.matchWavelet` for implementation.
     """
@@ -326,6 +328,7 @@ class matchingParams(NamedTuple):
     minSignalAtMaxima: Optional[float]
     merge: bool = False
     mergeGapBP: int = 25
+    useScalingFunction: bool = False
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:
