@@ -158,7 +158,7 @@ Consenrich generates the following output files:
   :class: tip
   :collapsible: closed
 
-  Consenrich can markedly improve conventional consensus peak calling (See 'Results' in the `manuscript preprint <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_).
+  Consenrich can markedly improve conventional consensus peak calling and between-group differential analyses (e.g., *Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease* in the `manuscript preprint <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_)
 
   `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is particularly well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling.
 
@@ -176,7 +176,7 @@ Consenrich generates the following output files:
 
 
 
-Visualizing Results
+Results
 """"""""""""""""""""""""""
 
 We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
@@ -231,8 +231,6 @@ Names and versions of packages that are relevant to computational performance. T
        - 2.3.2
      * - ``scipy``
        - 1.16.1
-     * - ``consenrich``
-       - 0.4.4b0
 
 
 Configuration
@@ -248,7 +246,7 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
   Note that the values in ``atac20Benchmark.yaml`` are defaults but are listed here explicitly.
 
 
-.. admonition:: Guidance: Balancing Confidence in the Modeled Process vs. Data
+.. admonition:: Guidance: Balancing Confidence in Noisy Data versus *a priori* Predictions
   :class: tip
   :collapsible: closed
 
@@ -260,7 +258,7 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
       \textsf{Consenrich attributes more uncertainty to propagated predictions } \rightarrow \textsf{ data favored in estimation}
 
-    - This induces *less* smoothing (propagation of information across genomic positions).
+    - In other words, *restrict influence of the a priori model of signal/variance propagation across genomic positions to accommodate confidence in the data*
 
   - Increasing ``observationParams.minR``:
 
@@ -268,7 +266,7 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
       \textsf{Consenrich attributes more uncertainty to the data } \rightarrow \textsf{ propagated predictions favored in estimation}
 
-    - This induces *more* smoothing (signal/variance propogation across genomic positions) to compensate for uncertainty in the data.
+    - In other words, *restrict reliance on data to accommodate confidence in the a priori model of signal/variance propagation across positions*
 
 
 .. code-block:: yaml
@@ -322,7 +320,7 @@ Run Consenrich
   consenrich --config atac20Benchmark.yaml --verbose
 
 
-Visualizing Results
+Results
 ''''''''''''''''''''''''''''
 
 - Output tracks and features are visualized above in a **100kb** region around the transcription start site of `NOTCH1`.
@@ -341,21 +339,6 @@ Regions showing a structured enrichment pattern (`db2, level=2`) are positioned 
     :alt: IGV Browser Snapshot (25kb)
     :width: 800px
     :align: left
-
-
-.. _runtimeAndMemoryProfilingAtac20:
-
-Runtime and Memory Profiling
-''''''''''''''''''''''''''''''''''
-
-Memory was profiled using the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches.
-
-Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
-
-.. image:: ../benchmarks/atac20/images/atac20BenchmarkMemoryPlot.png
-    :alt: Time vs. Memory Usage (`memory-profiler`)
-    :width: 800px
-    :align: center
 
 
 Evaluating Structured Peak Results
@@ -417,6 +400,21 @@ Several of the most enriched GO terms associated with `excluded.bed` are related
 +--------------+-------------------------------------------+-----------+
 
 
+.. _runtimeAndMemoryProfilingAtac20:
+
+Runtime and Memory Profiling
+''''''''''''''''''''''''''''''''''
+
+Memory was profiled using the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches.
+
+Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
+
+.. image:: ../benchmarks/atac20/images/atac20BenchmarkMemoryPlot.png
+    :alt: Time vs. Memory Usage (`memory-profiler`)
+    :width: 800px
+    :align: center
+
+
 ChIP-seq: Broad Histone Marks
 """""""""""""""""""""""""""""""""""""""""""""
 
@@ -449,8 +447,6 @@ Names and versions of packages that are relevant to computational performance. T
        - 2.3.2
      * - ``scipy``
        - 1.16.1
-     * - ``consenrich``
-       - 0.4.4b0
      * - ``rocco``
        - 1.6.3
 
@@ -460,11 +456,11 @@ Configuration
 
 We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
 
-.. admonition:: Guidance: Broad Marks + Single-End Data
+.. admonition:: Guidance: Single-End Data
   :class: tip
   :collapsible: closed
 
-  If using single-end reads and targeting broad marks, consider extending all reads to their full (estimated) fragment length
+  If using single-end reads, consider extending all reads to their full (estimated) fragment length, particularly for broad marks.
 
   This is invoked via ``samParams.inferFragmentLength: 1`` as in the YAML configuration below.
 
@@ -499,14 +495,14 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
     ENCFF141HNE.bam
   ]
 
-  # Guidance: Broad Marks + Single-End Data
+  # Guidance: Single-End Data
   samParams.inferFragmentLength: 1
 
 
 Run Consenrich and ROCCO
 ''''''''''''''''''''''''''''
 
-.. admonition:: (Broad) Consensus Peak Calling with Consenrich+ROCCO
+.. admonition:: Broad Peak Calling with Consenrich+ROCCO
   :class: tip
   :collapsible: closed
 
@@ -514,23 +510,20 @@ Run Consenrich and ROCCO
 
     * Incorporating ROCCO adds some computational burden (1-2 hours in this case) but is robust for calling targets that manifest as both broad and narrow.
 
-    * It is possible to attain roughly equal performance for broad marks with the more efficient :func:`consenrich.matching.matchWavelet` algorithm packaged with Consenrich, but this may require tuning to achieve satisfactory results (see below)
+    * In some contexts, the built-in, comparably efficient :func:`consenrich.matching.matchWavelet` algorithm packaged with Consenrich may be equally effective (see below).
 
-  * Alternatively, you can add the following to the YAML file to utilize the matching algorithm within Consenrich for broad marks.
+  * Alternatively, utilize the matching algorithm packaged with Consenrich. The following configuration is tuned for broad marks:
 
     .. code-block:: yaml
       :name: H3K36me3Experiment.yaml (additional lines)
 
-      # Note: `matchingParams.minMatchLengthBP` for broad marks
-      #   Rather than the default template-length-based minimum peak/match size,
-      #   consider forcing a minimum size that is consistent biologically with
-      #   the target. e.g., if we are targeting exons via H3K36me3, 150bp may be a
-      #   reasonable minimum size.
-      matchingParams.minMatchLengthBP: 150
-      matchingParams.mergeGapBP: 300
       matchingParams.merge: true
-      matchingParams.templateNames: [haar, db2]
+      matchingParams.mergeGapBP: 500
+      matchingParams.minMatchLengthBP: 250
+      matchingParams.templateNames: [haar, sym4]
       matchingParams.cascadeLevels: [2]
+      # Target lower frequencies when calling broad marks:
+      matchingParams.useScalingFunction: true
 
 
 .. code-block:: console
@@ -540,7 +533,7 @@ Run Consenrich and ROCCO
   rocco -i H3K36me3Experiment_consenrich_state.bw -g hg38 -o consenrichRoccoH3K36me3.bed
 
 
-Visualizing Results
+Results
 ''''''''''''''''''''''''''''
 
 .. image:: ../benchmarks/H3K36me3/images/H3K36me3IRF8.png
@@ -572,9 +565,133 @@ As in `Andersson et al. <https://genome.cshlp.org/content/19/10/1732>`_,
 
 * Toward the 3' end of `PRRC1`, we observe a density of peak regions in the Consenrich H3K36me3 signal.
 
-  * Consistent with Andersson et al., this does not appear to reflect a progressive increase in H3K36me3 toward the 3' end of the gene body -- Rather, the 3' end is exon-rich, hence the density of peaks. 
+  * This does not appear to reflect a progressive increase in H3K36me3 toward the 3' end of the gene body -- Rather, the 3' end is exon-rich, hence the density of peaks.
 
-  * Notably, Andersson et al. later remark: *"...there are H3K36me3 peaks outside internal exons. Sometimes they colocalized with expressed sequence tags (ESTs) (data not shown) and could therefore coincide with uncharacterized exons, or with uncharacterized new sense or anti-sense transcripts. Additionally, it cannot be ruled out that H3K36me3 may have a different function at intronic sequences"*, and this appears consistent with our observations here in colonic mucosal tissue.
+* The authors remark: *"...there are H3K36me3 peaks outside internal exons. Sometimes they colocalized with expressed sequence tags (ESTs) (data not shown) and could therefore coincide with uncharacterized exons, or with uncharacterized new sense or anti-sense transcripts. Additionally, it cannot be ruled out that H3K36me3 may have a different function at intronic sequences"*, and this appears consistent with our observations here in colonic mucosal tissue.
+
+
+
+Runtime and Memory Profiling
+''''''''''''''''''''''''''''''''''
+
+Memory use was profiled with the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for RSS over time. Function calls are marked as notches.
+
+Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
+
+.. image:: ../benchmarks/H3K36me3/images/H3K36me3ExperimentMemoryPlot.png
+    :alt: Time vs. Memory Usage (`memory-profiler`)
+    :width: 800px
+    :align: center
+
+
+CUT&RUN: H3K27me3
+""""""""""""""""""""
+
+- Input data: :math:`m=5` H3K27me3 CUT&RUN samples -- `4D Nucleome K562 <https://data.4dnucleome.org/experiment-set-replicates/4DNESTTCK612/>`_
+- Paired-end, 25bp reads
+
+
+Environment
+''''''''''''''
+
+- MacBook MX313LL/A (arm64)
+- Python 3.12.9
+- `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
+- `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
+
+Names and versions of packages that are relevant to computational performance. These specific versions are *not required* but are included for reproducibility.
+
+.. list-table::
+     :header-rows: 1
+     :widths: 40 60
+
+     * - Package
+       - Version
+     * - ``cython``
+       - 3.1.2
+     * - ``numpy``
+       - 2.3.2
+     * - ``scipy``
+       - 1.16.1
+
+
+Configuration
+''''''''''''''''''''''''''''
+
+.. admonition:: Guidance: Noise level approximation for heterochromatic or repressive targets
+  :class: tip
+  :collapsible: closed
+
+  For histone modifications such as H3K9me3 (heterochromatin), H3K27me3 (polycomb repression), and MNase-seq (nucleosome occupancy), consider setting ``observationParams.useALV: true``
+
+  This may prove consequential for high-resolution estimation and peak calling if detrending alone is insufficient to prevent the respective signals being attributed to noise.
+
+
+We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
+
+.. code-block:: yaml
+
+  experimentName: CnRH3K27me3Experiment
+  genomeParams.name: hg38
+  genomeParams.excludeChroms: ['chrX','chrY']
+  genomeParams.excludeForNorm: ['chrX','chrY']
+
+  inputParams.bamFiles: [4DNFIBDJW6IC.sorted.bam,
+   4DNFIRWKCRVO.sorted.bam,
+   4DNFIIQQUZS8.sorted.bam,
+   4DNFI6LU95TE.sorted.bam,
+   4DNFI2TMFKW2.sorted.bam
+  ]
+
+  samParams.pairedEndMode: 1
+  observationParams.useALV: true
+
+  matchingParams.merge: true
+  matchingParams.mergeGapBP: 500
+  matchingParams.minMatchLengthBP: 250
+  matchingParams.templateNames: [haar, sym4]
+  matchingParams.cascadeLevels: [2]
+  matchingParams.useScalingFunction: true
+
+
+Run Consenrich
+''''''''''''''''''''
+
+.. code-block:: console
+
+  consenrich --config CnR_H3K27me3.yaml --verbose
+
+
+Results
+''''''''''''''''''''''''''''
+
+In H3K27me3-enriched domains, we observe patterns consistent with `Cai et al. (2021) <https://pubmed.ncbi.nlm.nih.gov/33514712/>`_, where putative silencer elements are often marked by H3K27me3.
+
+.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3.png
+    :alt: IGV Browser Snapshot H3K27me3
+    :width: 700px
+    :align: left
+
+
+Likewise, we rarely observe large H3K27me3 estimates and H3K27ac signal (ENCODE `ENCFF381NDD <https://www.encodeproject.org/files/ENCFF381NDD/>`_) at the same loci. We evaluate this pattern quantitatively across all putative silencer elements in `Cai2021_Silencers.bed`:
+
+.. code-block:: console
+
+  multiBigWigSummary BED-file --BED Cai2021_Silencers.bed \
+   -b CnRH3K27me3Experiment_consenrich_state.bw ENCFF381NDD.bigWig \
+   -o results.npz
+
+  plotCorrelation -in results.npz \
+   -p scatterplot --corMethod spearman \
+   --removeOutliers --skipZeros --plotFile CnRH3K27me3Scatter.png \
+   --plotTitle "Consenrich CnR Experiment: H3K27me3 _|_ H3K27ac" \
+   --labels Consenrich_27me3 Ref_27ac
+
+
+.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3Scatter.png
+    :alt: H3K27me3 Scatter
+    :width: 500px
+    :align: center
 
 
 
@@ -585,8 +702,8 @@ Memory was profiled using the package `memory-profiler <https://pypi.org/project
 
 Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
 
-.. image:: ../benchmarks/H3K36me3/images/H3K36me3ExperimentMemoryPlot.png
-    :alt: Time vs. Memory Usage (`memory-profiler`)
+.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3MemoryPlot.png
+    :alt: Time vs. Memory Usage H3K27me3 (`memory-profiler`)
     :width: 800px
     :align: center
 
