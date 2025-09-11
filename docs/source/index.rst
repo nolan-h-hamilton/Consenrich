@@ -2,7 +2,7 @@ Consenrich Homepage
 ===========================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
    :caption: Contents
    :name: Consenrich Homepage
    :hidden:
@@ -11,26 +11,20 @@ Consenrich Homepage
    examples
    modules
 
-Consenrich is a fast, adaptive, and explainable algorithm for estimating quantitative genome-wide signals hidden in noisy multi-sample HTS data.
+Consenrich is an adaptive linear state estimator that yields genome-wide, uncertainty-calibrated signals from noisy multi-sample HTS data.
 
 .. image:: ../images/noise.png
   :alt: Simplified schematic of Consenrich
   :width: 85%
   :align: center
 
-Special consideration is given to critical but often-overlooked aspects in genome-wide signal and uncertainty quantification, including:
+Special emphasis is placed on computational efficiency, model interpretability, and practical utility for downstream tasks that require well-resolved genome-wide signal estimates and uncertainty quantification across samples, such as:
 
-- *Sample-specific and region-specific noise* across the genome, addressing both technical and biological sources that corrupt sequencing data.
-- *Dependencies between proximal loci* for spatially consistent, recursive propagation of signals and uncertainty genome-wide.
-
-These refinements grant immediate practical appeal to a wide array of downstream tasks such as differential analyses, MPRA design, and so on.
-
-This documentation includes installation instructions, a variety of usage examples, and an API reference for the software implementation of Consenrich.
-
-
+* Consensus detection of open chromatin regions, TF footprints, nucleosome occupancy, histone modification
+* Candidate selection and boundary refinement for differential analyses, fine-mapping, reporter assays, etc.
 
 .. list-table::
-   :widths: 30 50
+   :widths: 40 50
    :header-rows: 1
 
    * - Resource
@@ -42,6 +36,6 @@ This documentation includes installation instructions, a variety of usage exampl
    * - Documentation, Examples, etc.
      - `(This site) <https://nolan-h-hamilton.github.io/Consenrich/>`_
    * - Contact
-     - Nolan <dοt> Hamilton <aτ> unc [dοt] <eḏu>
+     - Nolan [`dοt`] Hamilton <at> unc [`dοt`] <eḏu>
 
 

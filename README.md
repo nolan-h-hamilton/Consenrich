@@ -1,13 +1,19 @@
 # Consenrich
 
-Consenrich is an adaptive linear filter for genome-wide estimation of signals hidden in
-noisy multi-sample HTS datasets. Consenrich supports a variety of functional genomics assays including ATAC-seq, DNase-seq, ChIP-seq, CUT&RUN, etc.
+Consenrich is an adaptive linear state estimator that yields genome-wide, uncertainty-calibrated signal tracks from noisy multi-sample HTS data.
 
-![Simplified Schematic of Consenrich.](docs/images/noise.png)
+<p align="center">
+  <img src="docs/images/noise.png" alt="Simplified Schematic of Consenrich." width="600">
+</p>
+
+
+Special emphasis is placed on computational efficiency, model interpretability, and practical utility for downstream tasks that require well-resolved genome-wide signal estimates and uncertainty quantification across samples, such as:
+
+* Consensus detection of open chromatin regions, TF footprints, nucleosome occupancy, histone modification
+* Candidate selection and boundary refinement for differential analyses, fine-mapping, reporter assays, etc.
 
 [**See the Documentation**](https://nolan-h-hamilton.github.io/Consenrich/) for usage examples, installation details, configuration options, and an API reference.
 
----
 
 ## Manuscript Preprint and Citation
 
