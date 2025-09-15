@@ -377,9 +377,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             minSignalAtMaxima=config.get(
                 "matchingParams.minSignalAtMaxima", None
             ),
-            merge=config.get("matchingParams.merge", False),
-            mergeGapBP=config.get("matchingParams.mergeGapBP", 25),
-            useScalingFunction=config.get("matchingParams.useScalingFunction", False),
+            merge=config.get("matchingParams.merge", True),
+            mergeGapBP=config.get("matchingParams.mergeGapBP", 50),
+            useScalingFunction=config.get(
+                "matchingParams.useScalingFunction", False
+            ),
         ),
     }
 
@@ -516,25 +518,27 @@ def main():
     scaleFactorsControl = countingArgs.scaleFactorsControl
 
     if controlsPresent:
-        treatScaleFactors = []
-        controlScaleFactors = []
-        if scaleFactors is None or scaleFactorsControl is None:
-            readLengthsControlBamFiles = [
-                core.getReadLength(
-                    bamFile,
-                    countingArgs.numReads,
-                    1000,
-                    samArgs.samThreads,
-                    samArgs.samFlagExclude,
-                )
-                for bamFile in bamFilesControl
-            ]
-            effectiveGenomeSizesControl = [
-                constants.getEffectiveGenomeSize(
-                    genomeArgs.genomeName, readLength
-                )
-                for readLength in readLengthsControlBamFiles
-            ]
+        readLengthsControlBamFiles = [
+            core.getReadLength(
+                bamFile,
+                countingArgs.numReads,
+                1000,
+                samArgs.samThreads,
+                samArgs.samFlagExclude,
+            )
+            for bamFile in bamFilesControl
+        ]
+        effectiveGenomeSizesControl = [
+            constants.getEffectiveGenomeSize(genomeArgs.genomeName, readLength)
+            for readLength in readLengthsControlBamFiles
+        ]
+
+        if scaleFactors is not None and scaleFactorsControl is not None:
+            treatScaleFactors = scaleFactors
+            controlScaleFactors = scaleFactorsControl
+            # still make sure this is accessible
+            initialTreatmentScaleFactors = [1.0] * len(bamFiles)
+        else:
             try:
                 initialTreatmentScaleFactors = [
                     detrorm.getScaleFactor1x(
@@ -549,7 +553,7 @@ def main():
                         bamFiles, effectiveGenomeSizes, readLengthsBamFiles
                     )
                 ]
-            except Exception as e:
+            except Exception:
                 initialTreatmentScaleFactors = [1.0] * len(bamFiles)
 
             pairScalingFactors = [
@@ -574,9 +578,13 @@ def main():
                     readLengthsControlBamFiles,
                 )
             ]
+
+            treatScaleFactors = []
+            controlScaleFactors = []
             for scaleFactorA, scaleFactorB in pairScalingFactors:
                 treatScaleFactors.append(scaleFactorA)
                 controlScaleFactors.append(scaleFactorB)
+
     else:
         treatScaleFactors = scaleFactors
         controlScaleFactors = scaleFactorsControl
