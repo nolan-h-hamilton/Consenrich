@@ -123,3 +123,21 @@ def testProcessNoiseAdjustment():
 
     assert inflatedQ is True
     np.testing.assert_allclose(matrixQ, maxQ * np.eye(2), rtol=0.01)
+
+
+@pytest.mark.correctness
+def testbedMask(tmp_path):
+    bedPath = tmp_path / "testTmp.bed"
+    bedPath.write_text("chr1\t50\t2000\nchr1\t3000\t5000\nchr1\t10000\t20000\n"
+    )
+    intervals = np.arange(500, 10_000, 25)
+    mask = core.getBedMask('chr1', bedPath, intervals)
+
+    # first test: mask and intervals equal length
+    assert len(mask) == len(intervals)
+
+    for i, interval_ in enumerate(intervals):
+        if 50 <= interval_ < 2000 or 3000 <= interval_ < 5000:
+            assert mask[i] == 1
+        else:
+            assert mask[i] == 0

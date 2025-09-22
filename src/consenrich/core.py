@@ -5,6 +5,7 @@ Consenrich core functions and classes.
 """
 
 import logging
+import os
 from tempfile import NamedTemporaryFile
 from typing import Callable, List, Optional, Tuple, DefaultDict, Any, NamedTuple
 
@@ -1216,3 +1217,43 @@ def getSparseMap(
         take = np.argsort(dists)[:numNearest]
         sparseMap[i] = idxSparseInIntervals[candidates[take]]
     return sparseMap
+
+
+def getBedMask(
+    chromosome: str,
+    bedFile: str,
+    intervals: np.ndarray,
+) -> npt.NDArray[np.bool_]:
+    r"""Return a 1/0 mask for intervals overlapping a sorted and merged BED file.
+
+    This function is a wrapper for :func:`cconsenrich.cbedMask`.
+
+    :param chromosome: The chromosome name.
+    :type chromosome: str
+    :param intervals: chromosome-specific, sorted, non-overlapping start positions of genomic intervals.
+      Each interval is assumed `stepSize`.
+    :type intervals: np.ndarray
+    :param bedFile: Path to a sorted and merged BED file
+    :type bedFile: str
+    :return: An `intervals`-length mask s.t. True indicates the interval overlaps a feature in the BED file.
+    :rtype: npt.NDArray[np.bool_]
+    """
+    if not os.path.exists(bedFile):
+        raise ValueError(f"Could not find {bedFile}")
+    if len(intervals) < 2:
+        raise ValueError("intervals must contain at least two positions")
+    bedFile_ = str(bedFile)
+
+    # (possibly redundant) creation of uint32 version
+    # + quick check for constant steps
+    intervals_ = np.asarray(intervals, dtype=np.uint32)
+    if (intervals_[1] - intervals_[0]) != (intervals_[-1] - intervals_[-2]):
+        raise ValueError("Intervals are not fixed in size")
+
+    stepSize_: int = intervals[1] - intervals[0]
+    return cconsenrich.cbedMask(
+        chromosome,
+        bedFile_,
+        intervals_,
+        stepSize_,
+    ).astype(np.bool_)

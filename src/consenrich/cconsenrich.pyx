@@ -651,3 +651,92 @@ cpdef int64_t cgetFragmentLength(str bamFile,
         overall = maxInsertSize
 
     return overall
+
+cdef Py_ssize_t upperBound(const uint32_t* a, Py_ssize_t n, uint32_t x) nogil:
+    cdef Py_ssize_t low = 0
+    cdef Py_ssize_t high = n
+    cdef Py_ssize_t midpt
+    while low < high:
+        midpt = low + ((high - low) >> 1)
+        if a[midpt] <= x:
+            low = midpt + 1
+        else:
+            high = midpt
+    return low
+
+
+cdef int maskMembershipBinary(const uint32_t* pos, Py_ssize_t npos, const uint32_t* ms, const uint32_t* me, Py_ssize_t n, uint8_t* outMask) nogil:
+    cdef Py_ssize_t i = 0
+    cdef Py_ssize_t k
+    cdef uint32_t p
+    while i < npos:
+        p = pos[i]
+        k = upperBound(ms, n, p) - 1
+        if k >= 0 and p < me[k]:
+            outMask[i] = <uint8_t>1
+        else:
+            outMask[i] = <uint8_t>0
+        i += 1
+    return 0
+
+
+cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
+    str chromosome,
+    str bedFile,
+    cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
+    int stepSize
+    ):
+    r"""Return a 1/0 mask for intervals overlapping a sorted and merged BED file.
+
+    :param chromosome: Chromosome name.
+    :type chromosome: str
+    :param bedFile: Path to a sorted and merged BED file.
+    :type bedFile: str
+    :param intervals: Array of sorted, non-overlapping start positions of genomic intervals.
+      Each interval is assumed `stepSize`.
+    :type intervals: cnp.ndarray[cnp.uint32_t, ndim=1]
+    :param stepSize: Step size between genomic positions in `intervals`.
+    :type stepSize: int32_t
+    :return: A mask s.t. `1` indicates the corresponding interval overlaps a BED region.
+    :rtype: cnp.ndarray[cnp.uint8_t, ndim=1]
+
+    """
+    cdef list startsList = []
+    cdef list endsList = []
+    cdef object f = open(bedFile, "r")
+    cdef str line
+    cdef list cols
+    try:
+        for line in f:
+            line = line.strip()
+            if not line or line[0] == '#':
+                continue
+            cols = line.split('\t')
+            if not cols or len(cols) < 3:
+                continue
+            if cols[0] != chromosome:
+                continue
+            startsList.append(int(cols[1]))
+            endsList.append(int(cols[2]))
+    finally:
+        f.close()
+    cdef Py_ssize_t npos = intervals.size
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] mask = np.zeros(npos, dtype=np.uint8)
+    if not startsList:
+        return mask
+    cdef cnp.ndarray[cnp.uint32_t, ndim=1] starts = np.asarray(startsList, dtype=np.uint32)
+    cdef cnp.ndarray[cnp.uint32_t, ndim=1] ends = np.asarray(endsList, dtype=np.uint32)
+    cdef cnp.uint32_t[:] startsView = starts
+    cdef cnp.uint32_t[:] endsView = ends
+    cdef cnp.uint32_t[:] posView = intervals
+    cdef cnp.uint8_t[:] outView = mask
+    # for nogil
+    cdef uint32_t* msPtr = &startsView[0] if starts.size > 0 else <uint32_t*>NULL
+    cdef uint32_t* mePtr = &endsView[0] if ends.size > 0 else <uint32_t*>NULL
+    cdef uint32_t* posPtr = &posView[0] if npos > 0 else <uint32_t*>NULL
+    cdef uint8_t* outPtr = &outView[0] if npos > 0 else <uint8_t*>NULL
+    cdef Py_ssize_t n = starts.size
+    with nogil:
+        if npos > 0 and n > 0:
+            maskMembershipBinary(posPtr, npos, msPtr, mePtr, n, outPtr)
+    return mask
