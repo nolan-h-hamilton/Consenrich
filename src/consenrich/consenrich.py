@@ -296,6 +296,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
     minR_default = _getMinR(config, len(inputParams.bamFiles))
+    matchingExcludeRegionsBedFile_default: Optional[str] = (
+        genomeParams.blacklistFile
+    )
     return {
         "experimentName": config.get("experimentName", "consenrichExperiment"),
         "genomeArgs": genomeParams,
@@ -381,6 +384,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             mergeGapBP=config.get("matchingParams.mergeGapBP", 50),
             useScalingFunction=config.get(
                 "matchingParams.useScalingFunction", False
+            ),
+            excludeRegionsBedFile=config.get(
+                "matchingParams.excludeRegionsBedFile",
+                matchingExcludeRegionsBedFile_default,
             ),
         ),
     }
@@ -785,6 +792,7 @@ def main():
                     matchingArgs.maxNumMatches,
                     matchingArgs.minSignalAtMaxima,
                     useScalingFunction=matchingArgs.useScalingFunction,
+                    excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
                 )
                 if not matchingDF.empty:
                     matchingDF.to_csv(
