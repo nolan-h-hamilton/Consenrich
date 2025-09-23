@@ -309,6 +309,7 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
   # Optional: call 'structured peaks'
   matchingParams.templateNames: [haar, db2]
+  matchingParams.alpha: 0.05 # default value, reduce for stricter calls
 
 
 Run Consenrich
@@ -322,7 +323,7 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-- Output tracks and features are visualized above in a **100kb** region around the transcription start site of `NOTCH1`.
+- Output tracks and features are visualized above in a **100kb** region overlapping Gencode v47 `NOTCH1`.
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib.png
     :alt: IGV Browser Snapshot
@@ -330,7 +331,7 @@ Results
     :align: left
 
 
-Structured peak calls are positioned above the Consenrich signal as BED features in narrowPeak format.
+Structured peak calls are positioned above the Consenrich signal as BED features.
 
 - Focused view over a **25kb** subregion:
 
@@ -343,30 +344,50 @@ Structured peak calls are positioned above the Consenrich signal as BED features
 Evaluating Structured Peak Results
 ''''''''''''''''''''''''''''''''''''''''''''
 
-We compare the structured peaks detected using :func:`consenrich.matching.matchWavelet` with previously identified candidate regulatory elements (ENCODE cCREs).
+We compare the structured peaks from :func:`consenrich.matching.matchWavelet` against previously identified candidate regulatory elements (ENCODE cCREs).
 
-Consenrich-detected structured peaks that share a :math:`50\%` *reciprocal* overlap with an ENCODE cCRE are counted. Note that the cCREs are a general reference and are not specific to our lymphoblastoid input dataset, `atac20`.
+Consenrich-detected structured peaks that share a :math:`25\%` *reciprocal* overlap with an ENCODE cCRE are counted. Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset, `atac20`, and a perfect concordance is not expected.
 
 .. code-block:: console
 
-  bedtools intersect -a consenrichOutput_atac20Benchmark_matches.narrowPeak \
+  bedtools intersect -a consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
     -b ENCODE3_cCREs.bed \
-    -f 0.50 -r -u  \
+    -f 0.25 -r -u \
     | wc -l
-    85072
 
+    # 152208
 
 +--------------------------------------------------+------------------------+
 | Features                                         | Count                  |
 +==================================================+========================+
-| Consenrich-detected structured peaks             | **108,760**            |
+| Consenrich-detected structured peaks             | **250,602**            |
 +--------------------------------------------------+------------------------+
-| Distinct cCRE overlaps (`-f 0.50 -r -u` )        | **85,072**             |
+| Distinct cCRE overlaps (`-f 0.25 -r -u` )        | **152,208**            |
 +--------------------------------------------------+------------------------+
-| Fraction overlapping (%)                         | **78.2%**              |
+| Fraction overlapping (%)                         | **60.7%**              |
 +--------------------------------------------------+------------------------+
 
-Many regions detected by Consenrich share the required `50\%` reciprocal overlap with an ENCODE cCRE.
+
+If we desire a smaller but more confident set peaks, we can decrease ``matchingParams.alpha`` in the configuration file (e.g., ``matchingParams.alpha: 0.05 --> matchingParams.alpha: 0.01``)
+or filter the output narrowPeak file based on the :math:`-log_{10}(p)` value in column 8:
+
+.. code-block:: console
+
+  # How many regions are detected at alpha = 0.01, -log10(p) >= 2.0?
+  cat consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak | awk '$8 >= 2.0'| wc -l
+
+    # 74264
+
+  # Of these, how many share 25% reciprocal overlap with ENCODE cCREs?
+  cat consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak | awk '$8 >= 2.0'| bedtools intersect -a stdin \
+    -b ENCODE3_cCREs.bed \
+    -f 0.25 -r -u \
+    | wc -l
+
+    # 64573
+
+and this brings the fraction of Consenrich-detected structured peaks overlapping ENCODE cCREs to **86.9%**.
+
 
 **Are the regions absent from ENCODE cCREs false positives?**
 
@@ -374,29 +395,32 @@ Using `bedtools subtract -A`, we can identify regions completely disjoint from E
 
 .. code-block:: console
 
-  % bedtools subtract \
+  bedtools subtract \
     -a consenrichOutput_atac20Benchmark_matches.narrowPeak \
     -b ENCODE3_cCREs.bed -A  > excluded.bed
 
-  % wc -l excluded.bed
-    14455 excluded.bed
+  wc -l excluded.bed
+
+  # 94345
 
 
-By running a functional enrichment analysis on the regions in `excluded.bed`, we can begin to evaluate whether the Consenrich-detected regions absent from ENCODE cCREs are 'false positives' or potentially meaningful for lymphoblasts.
+By running a functional enrichment analysis on the regions in `excluded.bed`, we can begin to evaluate whether the Consenrich-detected regions absent from ENCODE cCREs are 'false positives' or potentially relevant to lymphoblast biology.
 
-See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ R packages to perform GO enrichment analysis on `excluded.bed`.
+See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker::annotatePeak <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler::enrichGO <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ to perform a peak-to-gene, GO-based enrichment analysis on regions in `excluded.bed`.
 
-Several of the most enriched GO terms associated with `excluded.bed` are related to lymphoblast function, indicating the potential biological relevance of these regions:
+Several enriched GO terms indicated in `excluded.bed` directly involve lymphoblast/immune related processes, making it difficult to dismiss regions in `excluded.bed`.
 
-+--------------+-------------------------------------------+-----------+
-| Identifier   | Description                               | q-value   |
-+==============+===========================================+===========+
-| `GO:0042113` | B cell activation                         | 0.0010770 |
-+--------------+-------------------------------------------+-----------+
-| `GO:0070661` | leukocyte proliferation                   | 0.0021346 |
-+--------------+-------------------------------------------+-----------+
-| `GO:0070663` | regulation of leukocyte proliferation     | 0.0030143 |
-+--------------+-------------------------------------------+-----------+
+For example, we find particularly strong enrichments for the following relevant processes:
+
++--------------+---------------------------------------------------+-----------+
+| Identifier   | Description                                       | q-value   |
++==============+===================================================+===========+
+| GO:0002520   | Immune system development                         | 0.0003334 |
++--------------+---------------------------------------------------+-----------+
+| GO:0002263   | Cell activation involved in immune response       | 0.0068310 |
++--------------+---------------------------------------------------+-----------+
+| GO:0002285   | Lymphocyte activation involved in immune response | 0.0119944 |
++--------------+---------------------------------------------------+-----------+
 
 
 .. _runtimeAndMemoryProfilingAtac20:
