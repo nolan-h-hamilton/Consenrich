@@ -36,7 +36,7 @@ def matchWavelet(
     minSignalAtMaxima: Optional[float] = None,
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
-    useScalingFunction: bool = False,
+    useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
 ) -> pd.DataFrame:
     r"""Match discrete wavelet-based templates in the sequence of Consenrich estimates
@@ -51,18 +51,19 @@ def matchWavelet(
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
     :type iters: int
-    :param alpha: Significance threshold on detected matches. Specifically, the
-        :math:`1 - \alpha` interpolated quantile of the empirical null distribution.
+    :param alpha: Primary significance threshold on detected matches. Specifically, the
+        :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
+        distribution is built from cross-correlation values over randomly sampled blocks.
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches
         (...in addition to the other criteria.)
     :type minMatchLengthBP: int
-    :param minSignalAtMaxima: Minimum *signal* value (not response value) at the maxima to qualify matches.
-        If None, the mean of the signal is used. Set to zero to disable this criterion.
+    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`.
+        If None, the median non-zero signal estimate (log-scale) is used.
     :type minSignalAtMaxima: float
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
-       Preferable for calling broader features.
+      If False, use (only) the wavelet function.
     :type useScalingFunction: bool
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]
@@ -94,7 +95,7 @@ def matchWavelet(
     matchDF = pd.DataFrame(columns=cols)
     minMatchLengthBPCopy: Optional[int] = minMatchLengthBP
     cascadeLevels = sorted(list(set(cascadeLevels)))
-
+    asinhValues = np.asinh(values)
     for l_, cascadeLevel in enumerate(cascadeLevels):
         for t_, templateName in enumerate(templateNames):
             try:
@@ -177,7 +178,7 @@ def matchWavelet(
             )
 
             responseThreshold = float(1e6)
-            signalThreshold = float(1e6)
+            arsinhSignalThreshold = float(1e6)
             try:
                 responseThreshold = np.quantile(
                     blockMaxima, 1 - alpha, method="interpolated_inverted_cdf"
@@ -191,7 +192,9 @@ def matchWavelet(
 
 
             if minSignalAtMaxima is None:
-                signalThreshold = np.median(values[values > 0])
+                arsinhSignalThreshold = np.median(asinhValues[asinhValues > 0])
+            else:
+                arsinhSignalThreshold = float(np.asinh(minSignalAtMaxima))
 
             relativeMaximaIndices = signal.argrelmax(
                 responseSequence, order=relativeMaximaWindow
@@ -199,14 +202,14 @@ def matchWavelet(
 
             relativeMaximaIndices = relativeMaximaIndices[
                 (responseSequence[relativeMaximaIndices] > responseThreshold)
-                & (values[relativeMaximaIndices] > signalThreshold)
+                & (asinhValues[relativeMaximaIndices] > arsinhSignalThreshold)
             ]
 
             if maxNumMatches is not None:
                 if len(relativeMaximaIndices) > maxNumMatches:
                     # take the greatest maxNumMatches (by 'signal')
                     relativeMaximaIndices = relativeMaximaIndices[
-                        np.argsort(values[relativeMaximaIndices])[
+                        np.argsort(asinhValues[relativeMaximaIndices])[
                             -maxNumMatches:
                         ]
                     ]
@@ -218,9 +221,9 @@ def matchWavelet(
             )
 
             logger.info(
-                f"\n\tDetected {len(relativeMaximaIndices)} matches for using {templateName} at cascade level {cascadeLevel}.\n"
-                f"\tResponse threshold: {responseThreshold:.3f}, signal threshold: {signalThreshold:.3f}\n"
-                f"\tKS test statistic: {testKS:.3f}, p-value: {pKS:.3f}\n"
+                f"\n\tDetected {len(relativeMaximaIndices)} matches (alpha={alpha}, useScalingFunction={useScalingFunction}): {templateName}: level={cascadeLevel}.\n"
+                f"\tResponse threshold: {responseThreshold:.3f}, arsinhSignalThreshold: {arsinhSignalThreshold:.3f}\n"
+                f"\t KS_Statistic[pVals, uniformCDF]: {testKS:.5f}\n"
             )
 
             if len(relativeMaximaIndices) == 0:
@@ -314,7 +317,7 @@ def matchWavelet(
     return matchDF
 
 
-def mergeMatches(filePath: str, mergeGapBP: int = 25):
+def mergeMatches(filePath: str, mergeGapBP: int = 50):
     r"""Merge overlapping or nearby structured peaks (matches) in a narrowPeak file.
 
     Where an overlap occurs within `mergeGapBP` base pairs, the feature with the greatest signal defines the new summit/pointSource

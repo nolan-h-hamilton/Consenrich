@@ -370,9 +370,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         "matchingArgs": core.matchingParams(
             templateNames=config.get("matchingParams.templateNames", []),
-            cascadeLevels=config.get("matchingParams.cascadeLevels", [1]),
+            cascadeLevels=config.get("matchingParams.cascadeLevels", [2]),
             iters=config.get("matchingParams.iters", 25_000),
-            alpha=config.get("matchingParams.alpha", 0.01),
+            alpha=config.get("matchingParams.alpha", 0.05),
             minMatchLengthBP=config.get(
                 "matchingParams.minMatchLengthBP", None
             ),
@@ -383,7 +383,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             merge=config.get("matchingParams.merge", True),
             mergeGapBP=config.get("matchingParams.mergeGapBP", 50),
             useScalingFunction=config.get(
-                "matchingParams.useScalingFunction", False
+                "matchingParams.useScalingFunction", True
             ),
             excludeRegionsBedFile=config.get(
                 "matchingParams.excludeRegionsBedFile",

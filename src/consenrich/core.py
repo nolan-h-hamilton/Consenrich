@@ -312,14 +312,19 @@ class matchingParams(NamedTuple):
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks in the cross correlation sequence to sample when building the null. Expected block length is equal to template length.
     :type iters: int
-    :param alpha: Significance threshold on detected matches. Specifically, the
-        :math:`1 - \alpha` interpolated quantile of the empirical null distribution.
+    :param alpha: Primary significance threshold on detected matches. Specifically, the
+        :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
+        distribution is built from cross-correlation values over randomly sampled blocks.
     :type alpha: float
+    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`.
+        If None, the median non-zero signal estimate (log-scale) is used.
+    :type minSignalAtMaxima: float
     :param merge: Whether to merge overlapping matches within `mergeGapBP` base pairs. A separate narrowPeak file will be created for the merged matches -- the original is preserved too.
     :type merge: bool
     :param mergeGapBP: If `merge` is True, this value sets the maximum bp-gap allowed between distinct matches (merged otherwise)
     :type mergeGapBP: int
-    :param useScalingFunction: If True, use (only) the scaling function to build the matching template. Low-pass: may be preferable for calling broader features.
+    :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
+      If False, use (only) the wavelet function.
     :type useScalingFunction: bool
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
 
@@ -335,7 +340,7 @@ class matchingParams(NamedTuple):
     minSignalAtMaxima: Optional[float]
     merge: bool = False
     mergeGapBP: int = 25
-    useScalingFunction: bool = False
+    useScalingFunction: bool = True
     excludeRegionsBedFile: Optional[str] = None
 
 
