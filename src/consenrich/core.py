@@ -5,6 +5,7 @@ Consenrich core functions and classes.
 """
 
 import logging
+import os
 from tempfile import NamedTemporaryFile
 from typing import Callable, List, Optional, Tuple, DefaultDict, Any, NamedTuple
 
@@ -311,10 +312,21 @@ class matchingParams(NamedTuple):
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks in the cross correlation sequence to sample when building the null. Expected block length is equal to template length.
     :type iters: int
+    :param alpha: Primary significance threshold on detected matches. Specifically, the
+        :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
+        distribution is built from cross-correlation values over randomly sampled blocks.
+    :type alpha: float
+    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`.
+        If None, the median non-zero signal estimate (log-scale) is used.
+    :type minSignalAtMaxima: float
     :param merge: Whether to merge overlapping matches within `mergeGapBP` base pairs. A separate narrowPeak file will be created for the merged matches -- the original is preserved too.
     :type merge: bool
-    :param useScalingFunction: If True, use (only) the scaling function to build the matching template. Low-pass: may be preferable for calling broader features.
+    :param mergeGapBP: If `merge` is True, this value sets the maximum bp-gap allowed between distinct matches (merged otherwise)
+    :type mergeGapBP: int
+    :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
+      If False, use (only) the wavelet function.
     :type useScalingFunction: bool
+    :param excludeRegionsBedFile: A BED file with regions to exclude from matching
 
     See :func:`consenrich.matching.matchWavelet` for implementation.
     """
@@ -328,7 +340,8 @@ class matchingParams(NamedTuple):
     minSignalAtMaxima: Optional[float]
     merge: bool = False
     mergeGapBP: int = 25
-    useScalingFunction: bool = False
+    useScalingFunction: bool = True
+    excludeRegionsBedFile: Optional[str] = None
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:
@@ -792,11 +805,11 @@ def runConsenrich(
 
     :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
     """
-    matrixData = matrixData.astype(np.float32)
-    matrixMunc = matrixMunc.astype(np.float32)
+    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
+    matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
     m: int = 1 if matrixData.ndim == 1 else matrixData.shape[0]
     n: int = 1 if matrixData.ndim == 1 else matrixData.shape[1]
-    scaleQ: float = np.float32(1.0)
+    #scaleQ: float = np.float32(1.0)
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
     IKH: np.ndarray = np.zeros(shape=(2, 2), dtype=np.float32)
@@ -812,7 +825,8 @@ def runConsenrich(
     matrixK: np.ndarray = np.zeros((2, m), dtype=np.float32)
     vectorX: np.ndarray = np.array([stateInit, 0.0], dtype=np.float32)
     vectorY: np.ndarray = np.zeros(m, dtype=np.float32)
-    vectorH: np.ndarray = matrixH[:, 0]
+    #vectorH: np.ndarray = matrixH[:, 0]
+    matrixI2: np.ndarray = np.eye(2, dtype=np.float32)
 
     if residualCovarInversionFunc is None:
         residualCovarInversionFunc = cconsenrich.cinvertMatrixE
@@ -840,7 +854,7 @@ def runConsenrich(
         mode="w+",
         shape=(n, 2, 2),
     )
-
+    progressIter = max(1, progressIter)
     for i in range(n):
         if i % progressIter == 0:
             logger.info(f"Forward pass interval: {i + 1}/{n}")
@@ -852,7 +866,8 @@ def runConsenrich(
         matrixEInverse = residualCovarInversionFunc(
             matrixMunc[:, i], np.float32(matrixP[0, 0])
         )
-        dStat = np.median((vectorY**2) * np.diag(matrixEInverse))
+        Einv_diag = np.diag(matrixEInverse)
+        dStat = np.median((vectorY**2) * Einv_diag)
         matrixQ, inflatedQ = adjustProcessNoiseFunc(
             matrixQ,
             matrixQCopy,
@@ -865,9 +880,10 @@ def runConsenrich(
             minQ,
         )
         matrixK = (matrixP @ matrixH.T) @ matrixEInverse
-        IKH[0][0] = 1.0 - (matrixK[0, :] @ vectorH)
-        IKH[1][0] = -matrixK[1, :] @ vectorH
-        IKH[1][1] = 1.0
+        IKH = matrixI2 - (matrixK @ matrixH)
+        #IKH[0][0] = 1.0 - (matrixK[0, :] @ vectorH)
+        #IKH[1][0] = -matrixK[1, :] @ vectorH
+        #IKH[1][1] = 1.0
 
         vectorX = vectorX + (matrixK @ vectorY)
         matrixP = (IKH) @ matrixP @ (IKH).T + (
@@ -973,9 +989,9 @@ def getPrimaryState(
     :return: A one-dimensional numpy array of the primary state estimates.
     :rtype: npt.NDArray[np.float32]
     """
-    return np.round(stateVectors[:, 0], decimals=roundPrecision).astype(
-        np.float32
-    )
+    out_ = np.ascontiguousarray(stateVectors[:,0], dtype=np.float32)
+    np.round(out_, decimals=roundPrecision, out=out_)
+    return out_
 
 
 def getStateCovarTrace(
@@ -988,10 +1004,12 @@ def getStateCovarTrace(
     :return: A one-dimensional numpy array of the traces of the state covariance matrices.
     :rtype: npt.NDArray[np.float32]
     """
-    return np.round(
-        cconsenrich.cgetStateCovarTrace(stateCovarMatrices.astype(np.float32)),
-        decimals=roundPrecision,
-    ).astype(np.float32)
+    stateCovarMatrices = np.ascontiguousarray(
+        stateCovarMatrices, dtype=np.float32
+    )
+    out_ = cconsenrich.cgetStateCovarTrace(stateCovarMatrices)
+    np.round(out_, decimals=roundPrecision, out=out_)
+    return out_
 
 
 def getPrecisionWeightedResidual(
@@ -1018,19 +1036,41 @@ def getPrecisionWeightedResidual(
     :rtype: npt.NDArray[np.float32]
     """
 
-    if stateCovarSmoothed is not None and len(stateCovarSmoothed) == len(
-        postFitResiduals
+    n, m = postFitResiduals.shape
+    if matrixMunc.shape != (m, n):
+        raise ValueError(
+            f"matrixMunc should be (m,n)=({m}, {n}): observed {matrixMunc.shape}"
+        )
+    if stateCovarSmoothed is not None and (
+        stateCovarSmoothed.ndim < 3 or len(stateCovarSmoothed) != n
     ):
-        for i in range(len(postFitResiduals)):
-            # adds the 'primary' state uncertainty to observation noise covariance :math:`\mathbf{R}_{[i,:]}`
-            # primary state uncertainty (0,0) :math:`\mathbf{P}_{[i]} \in \mathbb{R}^{2 \times 2}`
-            matrixMunc[:, i] += stateCovarSmoothed[i, 0, 0]
-    return np.round(
-        cconsenrich.cgetPrecisionWeightedResidual(
-            postFitResiduals.astype(np.float32), matrixMunc.astype(np.float32)
-        ),
-        decimals=roundPrecision,
-    ).astype(np.float32)
+        raise ValueError(
+            "stateCovarSmoothed must be shape (n) x (2,2) (if provided)"
+        )
+
+    postFitResiduals_CContig = np.ascontiguousarray(
+        postFitResiduals, dtype=np.float32
+    )
+
+    needsCopy = (
+        (stateCovarSmoothed is not None) and len(stateCovarSmoothed) == n) or (not matrixMunc.flags.writeable)
+
+    matrixMunc_CContig = np.array(
+        matrixMunc, dtype=np.float32, order="C", copy=needsCopy
+    )
+
+    if needsCopy:
+        # adds the 'primary' state uncertainty to observation noise covariance :math:`\mathbf{R}_{[i,:]}`
+        # primary state uncertainty (0,0) :math:`\mathbf{P}_{[i]} \in \mathbb{R}^{2 \times 2}`
+        stateCovarArr00 = np.asarray(stateCovarSmoothed[:, 0, 0], dtype=np.float32)
+        matrixMunc_CContig += stateCovarArr00
+
+    np.maximum(matrixMunc_CContig, np.float32(1e-8), out=matrixMunc_CContig)
+    out = cconsenrich.cgetPrecisionWeightedResidual(
+        postFitResiduals_CContig, matrixMunc_CContig
+    )
+    np.round(out, decimals=roundPrecision, out=out)
+    return out
 
 
 def getMuncTrack(
@@ -1216,3 +1256,43 @@ def getSparseMap(
         take = np.argsort(dists)[:numNearest]
         sparseMap[i] = idxSparseInIntervals[candidates[take]]
     return sparseMap
+
+
+def getBedMask(
+    chromosome: str,
+    bedFile: str,
+    intervals: np.ndarray,
+) -> npt.NDArray[np.bool_]:
+    r"""Return a 1/0 mask for intervals overlapping a sorted and merged BED file.
+
+    This function is a wrapper for :func:`cconsenrich.cbedMask`.
+
+    :param chromosome: The chromosome name.
+    :type chromosome: str
+    :param intervals: chromosome-specific, sorted, non-overlapping start positions of genomic intervals.
+      Each interval is assumed `stepSize`.
+    :type intervals: np.ndarray
+    :param bedFile: Path to a sorted and merged BED file
+    :type bedFile: str
+    :return: An `intervals`-length mask s.t. True indicates the interval overlaps a feature in the BED file.
+    :rtype: npt.NDArray[np.bool_]
+    """
+    if not os.path.exists(bedFile):
+        raise ValueError(f"Could not find {bedFile}")
+    if len(intervals) < 2:
+        raise ValueError("intervals must contain at least two positions")
+    bedFile_ = str(bedFile)
+
+    # (possibly redundant) creation of uint32 version
+    # + quick check for constant steps
+    intervals_ = np.asarray(intervals, dtype=np.uint32)
+    if (intervals_[1] - intervals_[0]) != (intervals_[-1] - intervals_[-2]):
+        raise ValueError("Intervals are not fixed in size")
+
+    stepSize_: int = intervals[1] - intervals[0]
+    return cconsenrich.cbedMask(
+        chromosome,
+        bedFile_,
+        intervals_,
+        stepSize_,
+    ).astype(np.bool_)

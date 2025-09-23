@@ -14,13 +14,10 @@ import numpy.typing as npt
 from scipy import signal, stats
 
 from . import cconsenrich
+from . import core as core
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
-logging.basicConfig(
-    level=logging.WARNING,
     format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -39,7 +36,8 @@ def matchWavelet(
     minSignalAtMaxima: Optional[float] = None,
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
-    useScalingFunction: bool = False,
+    useScalingFunction: bool = True,
+    excludeRegionsBedFile: Optional[str] = None,
 ) -> pd.DataFrame:
     r"""Match discrete wavelet-based templates in the sequence of Consenrich estimates
 
@@ -47,23 +45,28 @@ def matchWavelet(
     :type values: npt.NDArray[np.float64]
     :param templateNames: A list of wavelet bases used for matching, e.g., `[haar, db2, sym4]`
     :type templateNames: List[str]
-    :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating the scaling/wavelet functions.
+    :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating
+      the scaling/wavelet functions.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
     :type iters: int
-    :param alpha: Significance threshold on detected matches. Specifically, the
-        :math:`1 - \alpha` quantile of the empirical null distribution.
+    :param alpha: Primary significance threshold on detected matches. Specifically, the
+        :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
+        distribution is built from cross-correlation values over randomly sampled blocks.
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches
         (...in addition to the other criteria.)
     :type minMatchLengthBP: int
-    :param minSignalAtMaxima: Minimum *signal* value (not response value) at the maxima to qualify matches.
-        If None, the mean of the signal is used. Set to zero to disable this criterion.
+    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`.
+        If None, the median non-zero signal estimate (log-scale) is used.
     :type minSignalAtMaxima: float
-    :param useScalingFunction: If True, use (only) the scaling function to build the matching template. Low-pass: may be preferable for calling broader features.
+    :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
+      If False, use (only) the wavelet function.
     :type useScalingFunction: bool
+    :param excludeRegionsBedFile: A BED file with regions to exclude from matching
+    :type excludeRegionsBedFile: Optional[str]
 
     :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     """
@@ -92,19 +95,19 @@ def matchWavelet(
     matchDF = pd.DataFrame(columns=cols)
     minMatchLengthBPCopy: Optional[int] = minMatchLengthBP
     cascadeLevels = sorted(list(set(cascadeLevels)))
-
+    asinhValues = np.asinh(values)
     for l_, cascadeLevel in enumerate(cascadeLevels):
         for t_, templateName in enumerate(templateNames):
             try:
                 templateName = str(templateName)
                 cascadeLevel = int(cascadeLevel)
             except ValueError:
-                logger.warning(
+                logger.info(
                     f"Skipping invalid templateName or cascadeLevel: {templateName}, {cascadeLevel}"
                 )
                 continue
             if templateName not in pw.wavelist(kind="discrete"):
-                logger.warning(
+                logger.info(
                     f"\nSkipping unknown wavelet template: {templateName}\nAvailable templates: {pw.wavelist(kind='discrete')}"
                 )
                 continue
@@ -142,31 +145,56 @@ def matchWavelet(
             )
             relativeMaximaWindow = max(relativeMaximaWindow, 1)
 
+            excludeMask = np.zeros(len(intervals), dtype=np.uint8)
+            if excludeRegionsBedFile is not None:
+                excludeMask = core.getBedMask(
+                    chromosome,
+                    excludeRegionsBedFile,
+                    intervals,
+                )
+
             logger.info(
-                f"\nSampling {iters} block maxima for template {templateName} at cascade level {cascadeLevel} with (expected) relative maxima window size {relativeMaximaWindow}."
+                f"\nSampling {iters} block maxima for template {templateName} at cascade level {cascadeLevel} with (expected) relative maxima window size {relativeMaximaWindow}.\n"
+            )
+            blockMaxima = np.array(
+                cconsenrich.csampleBlockStats(
+                    intervals.astype(np.uint32),
+                    responseSequence,
+                    relativeMaximaWindow,
+                    iters,
+                    randSeed_,
+                    excludeMask.astype(np.uint8),
+                ),
+                dtype=float,
+            )
+            blockMaxima = blockMaxima[
+                (blockMaxima > max(0,np.quantile(blockMaxima, 0.005)))
+                & (blockMaxima < np.quantile(blockMaxima, 0.995))
+            ]
+
+            ecdfBlockMaximaSF = (
+                stats.ecdf(blockMaxima)
+                .sf
             )
 
-            # FFR: remove outliers, samples from blacklisted regions, from null draws
-            blockMaxima = cconsenrich.csampleBlockStats(
-                responseSequence, relativeMaximaWindow, iters, randSeed_
-            )
-
-            ecdfBlockMaximaSF = stats.ecdf(blockMaxima).sf
             responseThreshold = float(1e6)
-            signalThreshold = float(1e6)
+            arsinhSignalThreshold = float(1e6)
             try:
-            # try with continuous func. of p
                 responseThreshold = np.quantile(
-                blockMaxima, 1 - alpha, method="interpolated_inverted_cdf")
+                    blockMaxima, 1 - alpha, method="interpolated_inverted_cdf"
+                )
             except Exception as ex:
+                logger.info(
+                    f"Exception due to quantile estimate with 'interpolated_inverted_cdf':{ex}\n"
+                    f"Using default instead...."
+                )
                 responseThreshold = np.quantile(blockMaxima, 1 - alpha)
-                logger.warning(f"Exception due to quantile estimate with 'interpolated_inverted_cdf':{ex}\nUsing linear/default instead....")
 
 
             if minSignalAtMaxima is None:
-                signalThreshold = np.mean(values)
-            elif minSignalAtMaxima == 0:
-                signalThreshold = -np.inf
+                arsinhSignalThreshold = np.median(asinhValues[asinhValues > 0])
+            else:
+                arsinhSignalThreshold = float(np.asinh(minSignalAtMaxima))
 
             relativeMaximaIndices = signal.argrelmax(
                 responseSequence, order=relativeMaximaWindow
@@ -174,31 +202,45 @@ def matchWavelet(
 
             relativeMaximaIndices = relativeMaximaIndices[
                 (responseSequence[relativeMaximaIndices] > responseThreshold)
-                & (values[relativeMaximaIndices] > signalThreshold)
+                & (asinhValues[relativeMaximaIndices] > arsinhSignalThreshold)
             ]
 
             if maxNumMatches is not None:
                 if len(relativeMaximaIndices) > maxNumMatches:
                     # take the greatest maxNumMatches (by 'signal')
                     relativeMaximaIndices = relativeMaximaIndices[
-                        np.argsort(values[relativeMaximaIndices])[
+                        np.argsort(asinhValues[relativeMaximaIndices])[
                             -maxNumMatches:
                         ]
                     ]
 
+            testKS, pKS = stats.kstest(
+                ecdfBlockMaximaSF.evaluate(blockMaxima),
+                stats.uniform.cdf,
+                alternative="two-sided",
+            )
+
+            logger.info(
+                f"\n\tDetected {len(relativeMaximaIndices)} matches (alpha={alpha}, useScalingFunction={useScalingFunction}): {templateName}: level={cascadeLevel}.\n"
+                f"\tResponse threshold: {responseThreshold:.3f}, arsinhSignalThreshold: {arsinhSignalThreshold:.3f}\n"
+                f"\t KS_Statistic[pVals, uniformCDF]: {testKS:.5f}\n"
+            )
+
             if len(relativeMaximaIndices) == 0:
-                logger.warning(
-                    f"no matches were detected using for template {templateName} at cascade level {cascadeLevel}."
+                logger.info(
+                    f"no matches were detected using for template {templateName} at cascade level {cascadeLevel}...skipping narrowPeak output"
                 )
                 continue
 
-            # Get the start, end, and point-source indices of matches
+            # starts
             startsIdx = np.maximum(
                 relativeMaximaIndices - relativeMaximaWindow, 0
             )
+            # ends
             endsIdx = np.minimum(
                 len(values) - 1, relativeMaximaIndices + relativeMaximaWindow
             )
+            # point source
             pointSourcesIdx = []
             for start_, end_ in zip(startsIdx, endsIdx):
                 pointSourcesIdx.append(
@@ -210,7 +252,7 @@ def matchWavelet(
             pointSources = (intervals[pointSourcesIdx]) + max(
                 1, intervalLengthBP // 2
             )
-            if recenterAtPointSource:  # recenter at point source (signal maximum) rather than maximum in response
+            if recenterAtPointSource:  # recenter at point source (signal maximum)
                 starts = pointSources - (
                     relativeMaximaWindow * intervalLengthBP
                 )
@@ -218,8 +260,7 @@ def matchWavelet(
             pointSources = (intervals[pointSourcesIdx] - starts) + max(
                 1, intervalLengthBP // 2
             )
-
-            # Calculate ucsc browser scores
+            # (ucsc browser) score [0,1000]
             sqScores = (1 + responseSequence[relativeMaximaIndices]) ** 2
             minResponse = np.min(sqScores)
             maxResponse = np.max(sqScores)
@@ -227,13 +268,14 @@ def matchWavelet(
             scores = (
                 250 + 750 * (sqScores - minResponse) / rangeResponse
             ).astype(int)
-
+            # feature name
             names = [
                 f"{templateName}_{cascadeLevel}_{i}"
                 for i in relativeMaximaIndices
             ]
+            # strand
             strands = ["." for _ in range(len(scores))]
-            # Note, p-values are in -log10 per convention (narrowPeak)
+            # p-values in -log10 scale per convention
             pValues = -np.log10(
                 np.clip(
                     ecdfBlockMaximaSF.evaluate(
@@ -243,8 +285,8 @@ def matchWavelet(
                     1.0,
                 )
             )
-
-            qValues = np.array(np.ones_like(pValues) * -1.0)  # leave out (-1)
+            # q-values (ignored)
+            qValues = np.array(np.ones_like(pValues) * -1.0)
 
             tempDF = pd.DataFrame(
                 {
@@ -268,14 +310,14 @@ def matchWavelet(
             randSeed_ += 1
 
     if matchDF.empty:
-        logger.warning("No matches detected, returning empty DataFrame.")
+        logger.info("No matches detected, returning empty DataFrame.")
         return matchDF
     matchDF.sort_values(by=["chromosome", "start", "end"], inplace=True)
     matchDF.reset_index(drop=True, inplace=True)
     return matchDF
 
 
-def mergeMatches(filePath: str, mergeGapBP: int = 25):
+def mergeMatches(filePath: str, mergeGapBP: int = 50):
     r"""Merge overlapping or nearby structured peaks (matches) in a narrowPeak file.
 
     Where an overlap occurs within `mergeGapBP` base pairs, the feature with the greatest signal defines the new summit/pointSource
@@ -288,16 +330,18 @@ def mergeMatches(filePath: str, mergeGapBP: int = 25):
     :seealso: :class:`consenrich.core.matchingParams`
     """
     if not os.path.isfile(filePath):
-        logger.warning(f"Couldn't access {filePath}...skipping merge")
+        logger.info(f"Couldn't access {filePath}...skipping merge")
         return None
     bed = None
     try:
         bed = BedTool(filePath)
     except Exception as ex:
-        logger.warning(f"Couldn't create BedTool for {filePath}:\n{ex}\n\nskipping merge...")
+        logger.info(
+            f"Couldn't create BedTool for {filePath}:\n{ex}\n\nskipping merge..."
+        )
         return None
     if bed is None:
-        logger.warning(
+        logger.info(
             f"Couldn't create BedTool for {filePath}...skipping merge"
         )
         return None

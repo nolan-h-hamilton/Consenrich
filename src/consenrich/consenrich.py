@@ -296,6 +296,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
     minR_default = _getMinR(config, len(inputParams.bamFiles))
+    matchingExcludeRegionsBedFile_default: Optional[str] = (
+        genomeParams.blacklistFile
+    )
     return {
         "experimentName": config.get("experimentName", "consenrichExperiment"),
         "genomeArgs": genomeParams,
@@ -367,9 +370,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         "matchingArgs": core.matchingParams(
             templateNames=config.get("matchingParams.templateNames", []),
-            cascadeLevels=config.get("matchingParams.cascadeLevels", [1]),
+            cascadeLevels=config.get("matchingParams.cascadeLevels", [2]),
             iters=config.get("matchingParams.iters", 25_000),
-            alpha=config.get("matchingParams.alpha", 0.01),
+            alpha=config.get("matchingParams.alpha", 0.05),
             minMatchLengthBP=config.get(
                 "matchingParams.minMatchLengthBP", None
             ),
@@ -380,7 +383,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             merge=config.get("matchingParams.merge", True),
             mergeGapBP=config.get("matchingParams.mergeGapBP", 50),
             useScalingFunction=config.get(
-                "matchingParams.useScalingFunction", False
+                "matchingParams.useScalingFunction", True
+            ),
+            excludeRegionsBedFile=config.get(
+                "matchingParams.excludeRegionsBedFile",
+                matchingExcludeRegionsBedFile_default,
             ),
         ),
     }
@@ -785,6 +792,7 @@ def main():
                     matchingArgs.maxNumMatches,
                     matchingArgs.minSignalAtMaxima,
                     useScalingFunction=matchingArgs.useScalingFunction,
+                    excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
                 )
                 if not matchingDF.empty:
                     matchingDF.to_csv(

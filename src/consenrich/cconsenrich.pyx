@@ -7,9 +7,8 @@ This module contains Cython implementations of core functions used in Consenrich
 
 import numpy as np
 import pysam
-
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
-from libc.math cimport fabs, sqrt
+from libc.math cimport  sqrt, fabs
 from cpython.array cimport array
 from pysam.libcalignmentfile cimport AlignedSegment, AlignmentFile
 cimport numpy as cnp
@@ -23,8 +22,7 @@ cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
     :type value: int
     :param stepSize: The step size to adjust to.
     :type stepSize: int
-    :param pushForward: If non-zero, pushes the value forward by stepSize if it is
-        not already a multiple of stepSize.
+    :param pushForward: If non-zero, pushes the value forward by stepSize
     :type pushForward: int
     :return: The adjusted value.
     :rtype: int
@@ -194,7 +192,7 @@ cpdef cnp.uint32_t[:] creadBamSegment(
                 readEnd   = <int64_t>read.reference_end
 
                 if pairedEndMode > 0:
-                    if flag & 1 == 0: # not a properly paired read
+                    if flag & 1 == 0: # not a paired read
                         continue
                     # use first in pair + fragment
                     if flag & 128:
@@ -318,39 +316,42 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(cnp.ndarray[cnp.float32_
     return inverse
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetStateCovarTrace(stateCovarMatrices):
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetStateCovarTrace(
+    cnp.float32_t[:, :, ::1] stateCovarMatrices
+):
     cdef Py_ssize_t n = stateCovarMatrices.shape[0]
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] trace = np.empty(n, dtype=np.float32)
+    cdef cnp.float32_t[::1] traceView = trace
     cdef Py_ssize_t i
-    trace = np.empty(n, dtype=np.float32)
     for i in range(n):
-        trace[i] = np.float32(stateCovarMatrices[i, 0, 0] + stateCovarMatrices[i, 1, 1])
+        traceView[i] = stateCovarMatrices[i, 0, 0] + stateCovarMatrices[i, 1, 1]
+
     return trace
 
 
-cpdef cgetPrecisionWeightedResidual(postFitResiduals,
-                                    matrixMunc):
-
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetPrecisionWeightedResidual(
+    cnp.float32_t[:, ::1] postFitResiduals,
+    cnp.float32_t[:, ::1] matrixMunc,
+):
     cdef Py_ssize_t n = postFitResiduals.shape[0]
     cdef Py_ssize_t m = postFitResiduals.shape[1]
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] precisionWeightedResidual = np.empty(n, dtype=np.float32)
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] weightsIter = np.empty(m, dtype=np.float32)
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] residualsIter = np.empty(m, dtype=np.float32)
-    cdef float sumWeights = 0.0
-    cdef float sumResiduals = 0.0
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
+    cdef cnp.float32_t[::1] outv = out
     cdef Py_ssize_t i, j
+    cdef float wsum, rwsum, w
+    cdef float eps = 1e-12  # guard for zeros
+
     for i in range(n):
-        sumWeights = 0.0
-        sumResiduals = 0.0
+        wsum = 0.0
+        rwsum = 0.0
         for j in range(m):
-            weightsIter[j] = np.float32(1.0 / matrixMunc[j, i])
-            residualsIter[j] = np.float32(postFitResiduals[i, j])
-            sumWeights += weightsIter[j]
-            sumResiduals += residualsIter[j] * weightsIter[j]
-        if sumWeights > 0.0:
-            precisionWeightedResidual[i] = np.float32(sumResiduals / sumWeights)
-        else:
-            precisionWeightedResidual[i] = np.float32(0.00)
-    return precisionWeightedResidual
+            w = 1.0 / (<float>matrixMunc[j, i] + eps)   # weightsIter[j]
+            rwsum += (<float>postFitResiduals[i, j]) * w  # residualsIter[j] * w
+            wsum  += w
+        outv[i] = <cnp.float32_t>(rwsum / wsum) if wsum > 0.0 else <cnp.float32_t>0.0
+
+    return out
+
 
 
 cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matrixQ,
@@ -422,16 +423,18 @@ cdef void _blockMax(double[::1] valuesView,
         outputView[iterIndex] = currentMax
 
 
-cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
+cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
+                        cnp.ndarray[cnp.float64_t, ndim=1] values,
                         int expectedBlockSize,
                         int iters,
-                        int randSeed):
-    r"""Sample contiguous blocks in the response sequence, record maxima, and repeat.
+                        int randSeed,
+                        cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask):
+    r"""Sample contiguous blocks in the response sequence (xcorr), record maxima, and repeat.
 
     Used to build an empirical null distribution and determine significance of response outputs.
-    Blocks are drawn randomly from the response sequence. The size of blocks is drawn from a
-    geometric distribution (memoryless), maintaining equality in expectation but introducing
-    variability for a more robust sampling.
+    The size of blocks is drawn from a truncated geometric distribution, preserving rough equality
+    in expectation but allowing for variability to account for the sampling across different phases
+    in the response sequence.
 
     :param values: The response sequence to sample from.
     :type values: cnp.ndarray[cnp.float64_t, ndim=1]
@@ -445,27 +448,42 @@ cpdef csampleBlockStats(cnp.ndarray[cnp.float64_t, ndim=1] values,
     :rtype: cnp.ndarray[cnp.float64_t, ndim=1]
     :seealso: :func:`consenrich.matching.matchWavelet`
     """
+    np.random.seed(randSeed)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArr = np.ascontiguousarray(values, dtype=np.float64)
     cdef double[::1] valuesView = valuesArr
     cdef cnp.ndarray[cnp.intp_t, ndim=1] sizesArr
     cdef cnp.ndarray[cnp.intp_t, ndim=1] startsArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(iters, dtype=np.float64)
-    cdef Py_ssize_t maxBlockLength, maxSize, n
-    cdef double maxBlockScale = 10.0
-    n = valuesView.shape[0]
-    np.random.seed(randSeed)
-    sizesArr = np.random.geometric(1.0 / expectedBlockSize, size=iters).astype(np.intp, copy=False)
-    maxSize = <int>(maxBlockScale * expectedBlockSize)
-    np.clip(sizesArr, 1, maxSize if maxSize < n else n, out=sizesArr)
-    maxBlockLength = sizesArr.max() # Py_ssize_t <-- intp ok.
-    # by construction, shouldn't exceed the length of the response seq.
-    # +1 to check case randint(0,0)
-    startsArr = np.random.randint(0, int(n-maxBlockLength + 1), size=iters, dtype=np.intp)
+    cdef Py_ssize_t maxBlockLength, maxSize, minSize
+    cdef Py_ssize_t n = <Py_ssize_t>intervals.size
+    cdef double maxBlockScale = <double>3.0
+    cdef double minBlockScale = <double> (1.0 / 3.0)
 
-    cdef Py_ssize_t[::1] blockStartIndices = startsArr
-    cdef Py_ssize_t[::1] blockSizes = sizesArr
-    cdef double[::1] outputView = out
-    _blockMax(valuesView, blockStartIndices, blockSizes, outputView)
+    minSize = <Py_ssize_t> max(3, expectedBlockSize * minBlockScale)
+    maxSize = <Py_ssize_t> min(maxBlockScale * expectedBlockSize, n)
+    sizesArr = np.random.geometric(1.0 / expectedBlockSize, size=iters).astype(np.intp, copy=False)
+    np.clip(sizesArr, minSize, maxSize, out=sizesArr)
+    maxBlockLength = sizesArr.max()
+    cdef list support = []
+    cdef cnp.intp_t i_ = 0
+    while i_ < n-maxBlockLength:
+        if excludeIdxMask[i_:i_ + maxBlockLength].any():
+            i_ = i_ + maxBlockLength + 1
+            continue
+        support.append(i_)
+        i_ = i_ + 1
+
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] samples = np.random.choice(
+        support,
+        size=iters,
+        replace=True,
+        p=None
+        ).astype(np.intp)
+
+    cdef Py_ssize_t[::1] startsView = samples
+    cdef Py_ssize_t[::1] sizesView = sizesArr
+    cdef double[::1] outView = out
+    _blockMax(valuesView, startsView, sizesView, outView)
     return out
 
 
@@ -532,11 +550,11 @@ cpdef int64_t cgetFragmentLength(str bamFile,
     cdef float xCorrBest, cSum = -1.0
     cdef list ties = []
     # arbitrary -- can consider sqrt or any func. pos & increasing & negative second derivative
-    cdef int64_t coverageThreshold = np.log1p(<double>blockSize)
+    cdef double coverageThreshold = np.log1p(<double>blockSize)
     if smoothBP % 2 == 0:
         smoothBP += 1
     smoothBP = min(smoothBP, blockSize)
-    cdef cnp.ndarray[cnp.float64_t] smoothVec = np.ones(smoothBP, dtype=np.float64) * (1.0 / smoothBP)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] smoothVec = np.ones(smoothBP, dtype=np.float64) * (1.0 / smoothBP)
 
     if regionLen <= 0:
         return fallBack
@@ -578,7 +596,7 @@ cpdef int64_t cgetFragmentLength(str bamFile,
                                          blkEnd,
                                          truncate=True,
                                          stepper="all",
-                                         max_depth=10000):
+                                         max_depth=10_000):
                 pos = <int64_t>col.reference_pos
                 if pos < blkStart or pos >= blkEnd:
                     continue
@@ -651,3 +669,93 @@ cpdef int64_t cgetFragmentLength(str bamFile,
         overall = maxInsertSize
 
     return overall
+
+
+cdef Py_ssize_t upperBound(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:
+    cdef Py_ssize_t low = 0
+    cdef Py_ssize_t high = n
+    cdef Py_ssize_t midpt
+    while low < high:
+        midpt = low + ((high - low) >> 1)
+        if array_[midpt] <= x:
+            low = midpt + 1
+        else:
+            high = midpt
+    return low
+
+
+cdef int maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, const uint32_t* mStarts, const uint32_t* mEnds, Py_ssize_t n, uint8_t* outMask) nogil:
+    cdef Py_ssize_t i = 0
+    cdef Py_ssize_t k
+    cdef uint32_t p
+    while i < numIntervals:
+        p = pos[i]
+        k = upperBound(mStarts, n, p) - 1
+        if k >= 0 and p < mEnds[k]:
+            outMask[i] = <uint8_t>1
+        else:
+            outMask[i] = <uint8_t>0
+        i += 1
+    return 0
+
+
+cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
+    str chromosome,
+    str bedFile,
+    cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
+    int stepSize
+    ):
+    r"""Return a 1/0 mask for intervals overlapping a sorted and merged BED file.
+
+    :param chromosome: Chromosome name.
+    :type chromosome: str
+    :param bedFile: Path to a sorted and merged BED file.
+    :type bedFile: str
+    :param intervals: Array of sorted, non-overlapping start positions of genomic intervals.
+      Each interval is assumed `stepSize`.
+    :type intervals: cnp.ndarray[cnp.uint32_t, ndim=1]
+    :param stepSize: Step size between genomic positions in `intervals`.
+    :type stepSize: int32_t
+    :return: A mask s.t. `1` indicates the corresponding interval overlaps a BED region.
+    :rtype: cnp.ndarray[cnp.uint8_t, ndim=1]
+
+    """
+    cdef list startsList = []
+    cdef list endsList = []
+    cdef object f = open(bedFile, "r")
+    cdef str line
+    cdef list cols
+    try:
+        for line in f:
+            line = line.strip()
+            if not line or line[0] == '#':
+                continue
+            cols = line.split('\t')
+            if not cols or len(cols) < 3:
+                continue
+            if cols[0] != chromosome:
+                continue
+            startsList.append(int(cols[1]))
+            endsList.append(int(cols[2]))
+    finally:
+        f.close()
+    cdef Py_ssize_t numIntervals = intervals.size
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] mask = np.zeros(numIntervals, dtype=np.uint8)
+    if not startsList:
+        return mask
+    cdef cnp.ndarray[cnp.uint32_t, ndim=1] starts = np.asarray(startsList, dtype=np.uint32)
+    cdef cnp.ndarray[cnp.uint32_t, ndim=1] ends = np.asarray(endsList, dtype=np.uint32)
+    cdef cnp.uint32_t[:] startsView = starts
+    cdef cnp.uint32_t[:] endsView = ends
+    cdef cnp.uint32_t[:] posView = intervals
+    cdef cnp.uint8_t[:] outView = mask
+    # for nogil
+    cdef uint32_t* svPtr = &startsView[0] if starts.size > 0 else <uint32_t*>NULL
+    cdef uint32_t* evPtr = &endsView[0] if ends.size > 0 else <uint32_t*>NULL
+    cdef uint32_t* posPtr = &posView[0] if numIntervals > 0 else <uint32_t*>NULL
+    cdef uint8_t* outPtr = &outView[0] if numIntervals > 0 else <uint8_t*>NULL
+    cdef Py_ssize_t n = starts.size
+    with nogil:
+        if numIntervals > 0 and n > 0:
+            maskMembership(posPtr, numIntervals, svPtr, evPtr, n, outPtr)
+    return mask
