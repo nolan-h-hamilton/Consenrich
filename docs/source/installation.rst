@@ -10,7 +10,7 @@ Installation
 From PyPI
 ~~~~~~~~~~
 
-Multiple binaries are distributed via `PyPI <https://pypi.org/project/consenrich/#files>`_ to accommodate different operating systems, Python versions, and architectures.
+Multiple binaries are distributed via `PyPI <https://pypi.org/project/consenrich/#files>`_ to accommodate different operating systems, Python versions (`3.10 - 3.13`), and architectures.
 
 To install the latest version, run:
 
@@ -45,7 +45,7 @@ For instance, save the following contents to a file named ``environment.yaml``:
     - defaults
   dependencies:
     - c-compiler
-    - python>=3.11
+    - python
     - pip
     - setuptools
     - wheel
@@ -78,7 +78,19 @@ If using `mamba <https://mamba.readthedocs.io/en/latest/>`_, or `micromamba <htt
 From Source
 ~~~~~~~~~~~~~~
 
-To build from source, you will need a C compiler (e.g., `gcc` or `clang`) to build the Cython extensions.
+.. admonition:: Guidance: C Compiler
+  :class: tip
+  :collapsible: closed
+
+  To build from source, you will need a C compiler (e.g., `gcc` or `clang`) to build the Cython extensions.
+
+  *It's likely that a C compiler is already available on your system (run``gcc --version`` or ``clang --version`` in a terminal)*.
+
+  If not, try one of the following:
+
+  - macOS: ``xcode-select --install``
+  - Ubuntu/Debian Linux: ``sudo apt install build-essential``
+  - For Fedora Linux: ``sudo dnf groupinstall "Development Tools"``
 
 
 First, clone the repository:

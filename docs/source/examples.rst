@@ -8,6 +8,8 @@ Quickstart + Usage
 
 After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
 
+.. _getting-started:
+
 Getting Started: Minimal Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -101,8 +103,7 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 
   # Optional: call 'structured peaks'
   matchingParams.templateNames: [haar, db2]
-  matchingParams.alpha: 0.01
-  matchingParams.merge: true
+
 
 
 .. admonition:: Control Inputs
@@ -143,11 +144,11 @@ Consenrich generates the following output files:
 
 * *Precision-weighted residual track* (`bigWig <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_residuals.bw``
 
-  * These values reflect deviance from the primary state estimates after accounting for varying data quality. Uncertainty in the process model can also be accounted for.
+  * These values reflect deviance from the primary state estimates after accounting for varying data quality.
   * See :func:`consenrich.core.getPrecisionWeightedResidual`
 
 
-* If the matching algorithm is invoked, then Consenrich will search for structured enrichment patterns, peaks, etc. in the signal estimate track and record results in `BED/narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ format:
+* If the matching algorithm is invoked to detect 'structured peaks', then Consenrich will also produce `BED/narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ output:
 
   * ``consenrichOutput_<experimentName>_matches.narrowPeak``: All matched regions, potentially overlapping.
   * ``consenrichOutput_<experimentName>_matches.mergedMatches.narrowPeak``: Merged matched regions, where the overlapping feature with the strongest signal determines the new pointSource/Summit.
@@ -187,7 +188,7 @@ We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
     :align: left
 
 
-Input alignments (Black) and ENCODE ``fold change over control`` bigWig files for each sample (Dark red) are displayed for reference.
+The input alignment coverage tracks (Black) and ``fold change over control`` bigWig files for each sample (Dark red) are displayed for reference with ENCODE's default signal quantification protocol.
 
 
 Further analyses and practical guidance are available in :ref:`additional-examples`.
@@ -236,7 +237,7 @@ Names and versions of packages that are relevant to computational performance. T
 Configuration
 ''''''''''''''''''''''''''''
 
-Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs, e.g., `*.bam`, are allowed, but each BAM file is listed here explicitly for reproducibility.
+Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed here explicitly to show their ENCODE accessions.
 
 .. admonition:: Guidance: Tuning Memory Usage vs. Runtime
   :class: tip
@@ -246,11 +247,9 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
   Note that the values in ``atac20Benchmark.yaml`` are defaults but are listed here explicitly.
 
 
-.. admonition:: Guidance: Balancing Confidence in Noisy Data versus *a priori* Predictions
+.. admonition:: Guidance: Balancing Confidence in Noisy Data versus *a priori* Model Predictions
   :class: tip
   :collapsible: closed
-
-  Default values should suffice for many cases given the adaptive noise models utilized by Consenrich, but some informal guidance is offered in case one source is consistently more/less reliable than the other.
 
   - Increasing ``processParams.minQ``:
 
@@ -268,6 +267,8 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
     - In other words, *restrict reliance on data to accommodate confidence in the a priori model of signal/variance propagation across positions*
 
+  Note that default values should suffice for many cases given the adaptive noise models, but these parameters may be tuned in cases where the process model or the observation model is consistently more/less reliable than the other.
+
 
 .. code-block:: yaml
 
@@ -275,7 +276,8 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
   genomeParams.name: hg38
   genomeParams.excludeChroms: ['chrX','chrY']
   genomeParams.excludeForNorm: ['chrX', 'chrY']
-  inputParams.bamFiles: [ENCFF326QXM.bam,
+  inputParams.bamFiles: [
+    ENCFF326QXM.bam,
     ENCFF497QOS.bam,
     ENCFF919PWF.bam,
     ENCFF447ZRG.bam,
@@ -307,9 +309,6 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
   # Optional: call 'structured peaks'
   matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.merge: true
-  matchingParams.alpha: 0.01
 
 
 Run Consenrich
@@ -331,7 +330,7 @@ Results
     :align: left
 
 
-Regions showing a structured enrichment pattern (`db2, level=2`) are positioned above the Consenrich signal as BED features in narrowPeak format.
+Structured peak calls are positioned above the Consenrich signal as BED features in narrowPeak format.
 
 - Focused view over a **25kb** subregion:
 
@@ -419,10 +418,12 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
 ChIP-seq: Broad Histone Marks
 """""""""""""""""""""""""""""""""""""""""""""
 
-Having provided a minimal example in the context of narrow marks (H3K27ac) in the demo, we now offer an example for broad histone marks (H3K36me3).
+Histone modification signals are often categorized as 'narrow' or 'broad'. The first example in :ref:`getting-started` used *H3K27ac* which is generally considered a narrow mark associated with active enhancer/promoter regions.
 
-- Five mucosal tissue donors, each with H3K36me3/control alignment files from ENCODE.
-- Single-end, mixed-length reads (36, 76)
+In this example, we analyze a broader mark (H3K36me3) using low-quality ChIP-seq data.
+
+- Five mucosal tissue biosamples from individual donors
+- Single-end, mixed-length reads (:math:`36~\textsf{nt}`, :math:`76~\textsf{nt}`)
 
 
 Environment
@@ -457,13 +458,13 @@ Configuration
 
 We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
 
-.. admonition:: Guidance: Single-End Data
+.. admonition:: Guidance: Low Coverage, Single-End Data
   :class: tip
   :collapsible: closed
 
-  If using single-end reads, consider extending all reads to their full (estimated) fragment length, particularly for broad marks.
+  For single-end analyses, consider extending all reads to their full (estimated) fragment length. This may be particularly beneficial when targeting broader marks with low-coverage data.
 
-  This is invoked via ``samParams.inferFragmentLength: 1`` as in the YAML configuration below.
+  Fragment length approximation can be invoked by setting ``samParams.inferFragmentLength: 1`` in the YAML configuration.
 
   Roughly, we obtain the estimated fragment length by solving the following for lags :math:`k` in strand-specific coverage tracks :math:`f(i), r(i)`,
 
@@ -472,7 +473,8 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
     \text{argmax}_{_{\textsf{minInsertSize} \leq k \leq \textsf{maxInsertSize}}} \sum_{i} f(i) \cdot r(i+k)
 
   External tools, e.g., `macs3 predictd <https://macs3-project.github.io/MACS/docs/predictd.html>`_ apply a similar
-  approach. Fragment length estimates for each sample can then be assigned using ``samParams.extendBP``. For example, ``samParams.extendBP: [220, 230, 145, 145, 160]``
+  approach. If manually specifying fragment length estimates for each sample use
+  ``samParams.extendBP``. For example, ``samParams.extendBP: [220, 230, 145, 145, 160]``
 
 
 .. code-block:: yaml
@@ -496,7 +498,7 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
     ENCFF141HNE.bam
   ]
 
-  # Guidance: Single-End Data
+  # Guidance: Low coverage, single-end data
   samParams.inferFragmentLength: 1
 
 
@@ -522,9 +524,6 @@ Run Consenrich and ROCCO
       matchingParams.mergeGapBP: 500
       matchingParams.minMatchLengthBP: 250
       matchingParams.templateNames: [haar, sym4]
-      matchingParams.cascadeLevels: [2]
-      # Target lower frequencies when calling broad marks:
-      matchingParams.useScalingFunction: true
 
 
 .. code-block:: console
@@ -620,9 +619,9 @@ Configuration
   :class: tip
   :collapsible: closed
 
-  For histone modifications such as H3K9me3 (heterochromatin), H3K27me3 (polycomb repression), and MNase-seq (nucleosome occupancy), consider setting ``observationParams.useALV: true``
+  When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true``
 
-  This may prove consequential for high-resolution estimation and peak calling if detrending alone is insufficient to prevent the respective signals being attributed to noise.
+  This may prove consequential for higher-resolution estimation and peak calling to prevent real signal being attributed to noise (assuming the detrending protocol alone is insufficient).
 
 
 We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
@@ -648,8 +647,6 @@ We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
   matchingParams.mergeGapBP: 500
   matchingParams.minMatchLengthBP: 250
   matchingParams.templateNames: [haar, sym4]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.useScalingFunction: true
 
 
 Run Consenrich
@@ -671,11 +668,13 @@ In H3K27me3-enriched domains, we observe patterns consistent with `Cai et al. (2
     :align: left
 
 
-Likewise, we rarely observe large H3K27me3 estimates and H3K27ac signal (ENCODE `ENCFF381NDD <https://www.encodeproject.org/files/ENCFF381NDD/>`_) at the same loci. We evaluate this pattern quantitatively across all putative silencer elements in `Cai2021_Silencers.bed`:
+Likewise, we rarely observe large H3K27me3 and H3K27ac signals coincide. As a qualitative reference in the IGV browser snapshot, we include the K562/H3K27ac 'fold change over control' track from ENCODE `ENCFF381NDD <https://www.encodeproject.org/files/ENCFF381NDD/>`_.
+
+To assess the relationship between these two modifications quantitatively, we compute their Spearman correlation at the ENCODE4 silencer cCREs due to `Cai et al. (2021) <https://pubmed.ncbi.nlm.nih.gov/33514712/>`_. This silencer annotation, `Cai-Fullwood-2021.Silencer-cCREs.bed`, is available from SCREEN: `Human --> cCREs by class --> Silencer Sets (.tar.gz)  <https://screen.wenglab.org/downloads>`_. 
 
 .. code-block:: console
 
-  multiBigWigSummary BED-file --BED Cai2021_Silencers.bed \
+  multiBigWigSummary BED-file --BED Cai-Fullwood-2021.Silencer-cCREs.bed \
    -b CnRH3K27me3Experiment_consenrich_state.bw ENCFF381NDD.bigWig \
    -o results.npz
 
