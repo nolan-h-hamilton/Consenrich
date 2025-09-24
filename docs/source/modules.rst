@@ -43,6 +43,7 @@ The core module implements the main aspects of Consenrich and defines key parame
 .. autofunction:: consenrich.core.sparseIntersection
 .. autofunction:: consenrich.core.adjustFeatureBounds
 .. autofunction:: consenrich.core.getSparseMap
+.. autofunction:: consenrich.core.getBedMask
 
 ``consenrich.detrorm``
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -145,7 +146,7 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the
 .. admonition:: Some guidance on matching for structured peak detection
   :class: tip
 
-  * To increase the number/size of detected structured peaks, consider setting `matchingParams.merge: true` and
+  * To increase the number/size of detected structured peaks, consider setting `matchingParams.merge: true` AND
 
     * Using multiple wavelet-based templates, e.g. `matchingParams.templateNames: [haar, db2]`
     * Increasing `matchingParams.alpha`
@@ -157,10 +158,8 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the
     matchingParams.templateNames: [haar, db2]
     matchingParams.cascadeLevels: [2]
     matchingParams.alpha: 0.05
-    matchingParams.merge: true
-    matchingParams.mergeGapBP: 25
 
-  * For 'longer' features with higher-order polynomial structure, wavelets with greater support lengths/vanishing moments (e.g., `db4, db8`) should be favored.
+  * For 'longer' features with higher-order polynomial structure, wavelets with greater support lengths/vanishing moments (e.g., `sym4, db4, db8`) should be favored.
 
 
 .. autofunction:: consenrich.matching.matchWavelet
@@ -175,11 +174,14 @@ Cython functions: ``consenrich.cconsenrich``
     :caption: ``cconsenrich``
     :name: cconsenrich
 
-Several computationally burdensome tasks are written in `Cython <https://cython.org/>`_ with strong typing, manual memory management and without invoking the overhead of Python's `Global Interpreter Lock (GIL) <https://wiki.python.org/moin/GlobalInterpreterLock>`_.
+Several computationally burdensome tasks are written in `Cython <https://cython.org/>`_ for improved efficiency.
 
 .. autofunction:: consenrich.cconsenrich.creadBamSegment
 .. autofunction:: consenrich.cconsenrich.cinvertMatrixE
 .. autofunction:: consenrich.cconsenrich.updateProcessNoiseCovariance
 .. autofunction:: consenrich.cconsenrich.csampleBlockStats
 .. autofunction:: consenrich.cconsenrich.cSparseAvg
+.. autofunction:: consenrich.cconsenrich.cgetFragmentLength
+.. autofunction:: consenrich.cconsenrich.cbedMask
+
 

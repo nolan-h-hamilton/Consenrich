@@ -27,16 +27,19 @@ ego = enrichGO(
   keyType  = "ENTREZID",
   ont = "BP",
   pAdjustMethod = "BH",
-  pvalueCutoff  = 0.01,
+  pvalueCutoff  = 0.05,
   qvalueCutoff  = 0.05,
   readable = TRUE)
 
-# merges redundant terms at semantic similarity 0.70
+# merges redundant terms at semantic similarity
 ego_simp <- simplify(
   ego,
-  cutoff= 0.70,
-  by = "FoldEnrichment",
+  cutoff= 0.90,
+  by = "p.adjust",
   select_fun = min,
   measure="Wang")
 
-kable(head(as.data.frame(ego_simp), 50), caption = "GO Enrichment Results")
+
+write.csv(ego_simp@result, file="atac20_enrichGO_results.csv")
+
+

@@ -8,6 +8,8 @@ Quickstart + Usage
 
 After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
 
+.. _getting-started:
+
 Getting Started: Minimal Example
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -101,8 +103,6 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 
   # Optional: call 'structured peaks'
   matchingParams.templateNames: [haar, db2]
-  matchingParams.alpha: 0.01
-  matchingParams.merge: true
 
 
 .. admonition:: Control Inputs
@@ -114,12 +114,12 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 Run Consenrich
 """""""""""""""""""""
 
-Invoke the command-line interface to run Consenrich:
+Run Consenrich at the command line
 
 .. code-block:: bash
   :name: Run Consenrich
 
-  consenrich --config demoHistoneChIPSeq.yaml --verbose
+  % consenrich --config demoHistoneChIPSeq.yaml --verbose
 
 
 .. admonition:: Guidance: Command-line vs. Programmatic Usage
@@ -143,11 +143,11 @@ Consenrich generates the following output files:
 
 * *Precision-weighted residual track* (`bigWig <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_residuals.bw``
 
-  * These values reflect deviance from the primary state estimates after accounting for varying data quality. Uncertainty in the process model can also be accounted for.
+  * These values reflect deviance from the primary state estimates after accounting for varying data quality.
   * See :func:`consenrich.core.getPrecisionWeightedResidual`
 
 
-* If the matching algorithm is invoked, then Consenrich will search for structured enrichment patterns, peaks, etc. in the signal estimate track and record results in `BED/narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ format:
+* If the matching algorithm is invoked to detect 'structured peaks', then Consenrich will also produce `BED/narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ output:
 
   * ``consenrichOutput_<experimentName>_matches.narrowPeak``: All matched regions, potentially overlapping.
   * ``consenrichOutput_<experimentName>_matches.mergedMatches.narrowPeak``: Merged matched regions, where the overlapping feature with the strongest signal determines the new pointSource/Summit.
@@ -170,7 +170,7 @@ Consenrich generates the following output files:
 	  python -m pip install rocco --upgrade
 	  rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38 -o consenrichRocco_demoHistoneChIPSeq.bed
 
-  * The :ref:`matching` algorithm available with Consenrich may be effective as a complement or substitute for existing peak calling methods---e.g., detecting 'structured' enrichment patterns across multiple samples or identifying subpeaks within broad regions of interest.
+  * The experimental :ref:`matching` algorithm available with Consenrich may be effective as a complement or substitute for existing peak calling methods---e.g., detecting 'structured' enrichment patterns across multiple samples or identifying subpeaks within broad regions of interest.
 
   * Alternative peak calling methods that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. Only ROCCO has been evaluated for this task to date.
 
@@ -187,7 +187,7 @@ We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
     :align: left
 
 
-Input alignments (Black) and ENCODE ``fold change over control`` bigWig files for each sample (Dark red) are displayed for reference.
+The input alignment coverage tracks (Black) and ``fold change over control`` bigWig files for each sample (Dark red) are displayed for reference with ENCODE's default signal quantification protocol.
 
 
 Further analyses and practical guidance are available in :ref:`additional-examples`.
@@ -236,7 +236,7 @@ Names and versions of packages that are relevant to computational performance. T
 Configuration
 ''''''''''''''''''''''''''''
 
-Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs, e.g., `*.bam`, are allowed, but each BAM file is listed here explicitly for reproducibility.
+Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed here explicitly to show their ENCODE accessions.
 
 .. admonition:: Guidance: Tuning Memory Usage vs. Runtime
   :class: tip
@@ -246,11 +246,9 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
   Note that the values in ``atac20Benchmark.yaml`` are defaults but are listed here explicitly.
 
 
-.. admonition:: Guidance: Balancing Confidence in Noisy Data versus *a priori* Predictions
+.. admonition:: Guidance: Balancing Confidence in Noisy Data versus *a priori* Model Predictions
   :class: tip
   :collapsible: closed
-
-  Default values should suffice for many cases given the adaptive noise models utilized by Consenrich, but some informal guidance is offered in case one source is consistently more/less reliable than the other.
 
   - Increasing ``processParams.minQ``:
 
@@ -268,6 +266,8 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
     - In other words, *restrict reliance on data to accommodate confidence in the a priori model of signal/variance propagation across positions*
 
+  Note that default values should suffice for many cases given the adaptive noise models, but these parameters may be tuned in cases where the process model or the observation model is consistently more/less reliable than the other.
+
 
 .. code-block:: yaml
 
@@ -275,7 +275,8 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
   genomeParams.name: hg38
   genomeParams.excludeChroms: ['chrX','chrY']
   genomeParams.excludeForNorm: ['chrX', 'chrY']
-  inputParams.bamFiles: [ENCFF326QXM.bam,
+  inputParams.bamFiles: [
+    ENCFF326QXM.bam,
     ENCFF497QOS.bam,
     ENCFF919PWF.bam,
     ENCFF447ZRG.bam,
@@ -307,9 +308,7 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
   # Optional: call 'structured peaks'
   matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.merge: true
-  matchingParams.alpha: 0.01
+  matchingParams.alpha: 0.05 # default value, reduce for stricter calls
 
 
 Run Consenrich
@@ -317,13 +316,13 @@ Run Consenrich
 
 .. code-block:: console
 
-  consenrich --config atac20Benchmark.yaml --verbose
+  % consenrich --config atac20Benchmark.yaml --verbose
 
 
 Results
 ''''''''''''''''''''''''''''
 
-- Output tracks and features are visualized above in a **100kb** region around the transcription start site of `NOTCH1`.
+- Output tracks and features are visualized above in a **100kb** region overlapping Gencode v47 `NOTCH1`.
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib.png
     :alt: IGV Browser Snapshot
@@ -331,7 +330,7 @@ Results
     :align: left
 
 
-Regions showing a structured enrichment pattern (`db2, level=2`) are positioned above the Consenrich signal as BED features in narrowPeak format.
+Structured peak calls are positioned above the Consenrich signal as BED features.
 
 - Focused view over a **25kb** subregion:
 
@@ -344,32 +343,54 @@ Regions showing a structured enrichment pattern (`db2, level=2`) are positioned 
 Evaluating Structured Peak Results
 ''''''''''''''''''''''''''''''''''''''''''''
 
-We compare the structured peaks detected using :func:`consenrich.matching.matchWavelet` with previously identified candidate regulatory elements (ENCODE cCREs).
+We compare the structured peaks from :func:`consenrich.matching.matchWavelet` against previously identified candidate regulatory elements (ENCODE cCREs).
 
-Consenrich-detected structured peaks that share a :math:`50\%` *reciprocal* overlap with an ENCODE cCRE are counted. Note that the cCREs are a general reference and are not specific to our lymphoblastoid input dataset, `atac20`.
+Consenrich-detected structured peaks that share a :math:`25\%` *reciprocal* overlap with an ENCODE cCRE are counted. Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset, `atac20`, and a perfect concordance is not expected.
 
 .. code-block:: console
 
-  bedtools intersect -a consenrichOutput_atac20Benchmark_matches.narrowPeak \
+  % bedtools intersect -a consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
     -b ENCODE3_cCREs.bed \
-    -f 0.50 -r -u  \
-    | wc -l
-    85072
+    -f 0.25 -r -u \
+    | wc -l # 152208 regions
 
 
 +--------------------------------------------------+------------------------+
 | Features                                         | Count                  |
 +==================================================+========================+
-| Consenrich-detected structured peaks             | **108,760**            |
+| Consenrich-detected structured peaks             | **250,602**            |
 +--------------------------------------------------+------------------------+
-| Distinct cCRE overlaps (`-f 0.50 -r -u` )        | **85,072**             |
+| Distinct cCRE overlaps (`-f 0.25 -r -u` )        | **152,208**            |
 +--------------------------------------------------+------------------------+
-| Fraction overlapping (%)                         | **78.2%**              |
+| Percent overlapping                              | **60.7%**              |
 +--------------------------------------------------+------------------------+
 
-Many regions detected by Consenrich share the required `50\%` reciprocal overlap with an ENCODE cCRE.
 
-**Are the regions absent from ENCODE cCREs false positives?**
+.. admonition:: Guidance: Significance Thresholds
+  :class: tip
+  :collapsible: closed
+
+  The default significance thresholds may be too lenient (or strict) depending on the application. For example, in the above, a smaller, confident peak set could be desirable.
+
+  - We can decrease ``matchingParams.alpha`` in the configuration file (e.g., ``matchingParams.alpha: 0.05 --> matchingParams.alpha: 0.01``)
+    or filter the output narrowPeak file based on the :math:`-\log_{10}(p)` value in column 8:
+
+    .. code-block:: console
+
+      % awk '$8 >= 2.0' consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
+          > atac20FilteredAlpha01.narrowPeak # 74264 regions
+
+      % bedtools intersect -a atac20FilteredAlpha01.narrowPeak \
+            -b ENCODE3_cCREs.bed \
+            -f 0.25 -r -u \
+        > cCREOverlap_atac20FilteredAlpha01.narrowPeak # 64573 regions
+
+  and this brings the percent of Consenrich peaks sharing a :math:`25\%` *reciprocal* overlap with the ENCODE cCREs to **86.9%** at the cost of fewer total detections.
+
+  - We can also introduce a secondary cutoff, ``matchingParams.minSignalAtMaxima``, that requires a minimum *signal value* occur at the pointSource/Summit of each detected region.
+
+
+**Evaluating Relevance of Consenrich-exclusive Peak Regions**
 
 Using `bedtools subtract -A`, we can identify regions completely disjoint from ENCODE cCREs that were detected by Consenrich:
 
@@ -379,25 +400,21 @@ Using `bedtools subtract -A`, we can identify regions completely disjoint from E
     -a consenrichOutput_atac20Benchmark_matches.narrowPeak \
     -b ENCODE3_cCREs.bed -A  > excluded.bed
 
-  % wc -l excluded.bed
-    14455 excluded.bed
+By running a functional enrichment analysis on the regions :math:`94345` regions in `excluded.bed`, we can begin to evaluate whether the Consenrich-detected regions that are absent from the ENCODE cCREs are 'false positives' or are potentially relevant to the :math:`m=20` input lymphoblastoid samples.
 
+See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker::annotatePeak <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler::enrichGO <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ to perform a peak-to-gene, GO-based enrichment analysis on regions in `excluded.bed`.
 
-By running a functional enrichment analysis on the regions in `excluded.bed`, we can begin to evaluate whether the Consenrich-detected regions absent from ENCODE cCREs are 'false positives' or potentially meaningful for lymphoblasts.
+Several GO terms indicated in `excluded.bed` directly involve lymphoblast/immune related processes. For example, we find particularly strong enrichments for the following relevant processes:
 
-See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ R packages to perform GO enrichment analysis on `excluded.bed`.
-
-Several of the most enriched GO terms associated with `excluded.bed` are related to lymphoblast function, indicating the potential biological relevance of these regions:
-
-+--------------+-------------------------------------------+-----------+
-| Identifier   | Description                               | q-value   |
-+==============+===========================================+===========+
-| `GO:0042113` | B cell activation                         | 0.0010770 |
-+--------------+-------------------------------------------+-----------+
-| `GO:0070661` | leukocyte proliferation                   | 0.0021346 |
-+--------------+-------------------------------------------+-----------+
-| `GO:0070663` | regulation of leukocyte proliferation     | 0.0030143 |
-+--------------+-------------------------------------------+-----------+
++--------------+---------------------------------------------------+-----------+
+| Identifier   | Description                                       | q-value   |
++==============+===================================================+===========+
+| GO:0002520   | Immune system development                         | 0.0003334 |
++--------------+---------------------------------------------------+-----------+
+| GO:0002263   | Cell activation involved in immune response       | 0.0068310 |
++--------------+---------------------------------------------------+-----------+
+| GO:0002285   | Lymphocyte activation involved in immune response | 0.0119944 |
++--------------+---------------------------------------------------+-----------+
 
 
 .. _runtimeAndMemoryProfilingAtac20:
@@ -457,24 +474,6 @@ Configuration
 
 We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
 
-.. admonition:: Guidance: Single-End Data
-  :class: tip
-  :collapsible: closed
-
-  If using single-end reads, consider extending all reads to their full (estimated) fragment length, particularly for broad marks.
-
-  This is invoked via ``samParams.inferFragmentLength: 1`` as in the YAML configuration below.
-
-  Roughly, we obtain the estimated fragment length by solving the following for lags :math:`k` in strand-specific coverage tracks :math:`f(i), r(i)`,
-
-  .. math::
-
-    \text{argmax}_{_{\textsf{minInsertSize} \leq k \leq \textsf{maxInsertSize}}} \sum_{i} f(i) \cdot r(i+k)
-
-  External tools, e.g., `macs3 predictd <https://macs3-project.github.io/MACS/docs/predictd.html>`_ apply a similar
-  approach. Fragment length estimates for each sample can then be assigned using ``samParams.extendBP``. For example, ``samParams.extendBP: [220, 230, 145, 145, 160]``
-
-
 .. code-block:: yaml
 
   experimentName: H3K36me3Experiment
@@ -483,10 +482,10 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
   genomeParams.excludeForNorm: ['chrX','chrY']
 
   inputParams.bamFiles: [ENCFF978XNV.bam,
-    ENCFF064FYS.bam,
-    ENCFF948RWW.bam,
-    ENCFF553DUQ.bam,
-    ENCFF686CAN.bam
+    ENCFF064FYS.bam, # ENCODE flag: 'Insufficient read depth'
+    ENCFF948RWW.bam, # ENCODE flag: 'Insufficient read depth, Low read length'
+    ENCFF553DUQ.bam, # ENCODE flag: 'Insufficient read depth, Low read length'
+    ENCFF686CAN.bam, # ENCODE flag: 'Insufficient read depth, Low read length'
   ]
 
   inputParams.bamFilesControl: [ENCFF212KOM.bam,
@@ -496,7 +495,7 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
     ENCFF141HNE.bam
   ]
 
-  # Guidance: Single-End Data
+  # Recommended for single-end data, broad marks, low coverage, etc.
   samParams.inferFragmentLength: 1
 
 
@@ -513,18 +512,17 @@ Run Consenrich and ROCCO
 
     * In some contexts, the built-in, comparably efficient :func:`consenrich.matching.matchWavelet` algorithm packaged with Consenrich may be equally effective (see below).
 
-  * Alternatively, utilize the matching algorithm packaged with Consenrich. The following configuration is tuned for broad marks:
+  * Alternatively, utilize the matching algorithm packaged with Consenrich. Some tuning may be required depending on number of samples, data quality, and mark.
 
     .. code-block:: yaml
       :name: H3K36me3Experiment.yaml (additional lines)
 
-      matchingParams.merge: true
-      matchingParams.mergeGapBP: 500
-      matchingParams.minMatchLengthBP: 250
-      matchingParams.templateNames: [haar, sym4]
-      matchingParams.cascadeLevels: [2]
-      # Target lower frequencies when calling broad marks:
-      matchingParams.useScalingFunction: true
+      # broad marks: consider increasing minMatchLengthBP, mergeGapBP
+      # ... and using a longer, symmetric template (e.g., sym4)
+      matchingParams.alpha: 0.1
+      matchingParams.mergeGapBP: 125
+      matchingParams.minMatchLengthBP: 500
+      matchingParams.templateNames: [sym4]
 
 
 .. code-block:: console
@@ -568,6 +566,7 @@ As in `Andersson et al. <https://genome.cshlp.org/content/19/10/1732>`_,
 
   * This does not appear to reflect a progressive increase in H3K36me3 toward the 3' end of the gene body -- Rather, the 3' end is exon-rich, hence the density of peaks.
 
+
 Runtime and Memory Profiling
 ''''''''''''''''''''''''''''''''''
 
@@ -586,7 +585,7 @@ CUT&RUN: H3K27me3
 """"""""""""""""""""
 
 - Input data: :math:`m=5` H3K27me3 CUT&RUN samples -- `4D Nucleome K562 <https://data.4dnucleome.org/experiment-set-replicates/4DNESTTCK612/>`_
-- Paired-end, 25bp reads
+- Paired-end, **25bp** reads
 
 
 Environment
@@ -620,9 +619,9 @@ Configuration
   :class: tip
   :collapsible: closed
 
-  For histone modifications such as H3K9me3 (heterochromatin), H3K27me3 (polycomb repression), and MNase-seq (nucleosome occupancy), consider setting ``observationParams.useALV: true``
+  When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true``
 
-  This may prove consequential for high-resolution estimation and peak calling if detrending alone is insufficient to prevent the respective signals being attributed to noise.
+  This prevents real signal being from being attributed to noise and may be consequential for higher-resolution analyses.
 
 
 We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
@@ -640,17 +639,16 @@ We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
    4DNFI6LU95TE.sorted.bam,
    4DNFI2TMFKW2.sorted.bam
   ]
-
   samParams.pairedEndMode: 1
+
+  # Guidance: Noise level approximation for heterochromatic or repressive targets
   observationParams.useALV: true
 
-  matchingParams.merge: true
-  matchingParams.mergeGapBP: 500
-  matchingParams.minMatchLengthBP: 250
-  matchingParams.templateNames: [haar, sym4]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.useScalingFunction: true
-
+  # Broad marks
+  matchingParams.alpha: 0.01
+  matchingParams.mergeGapBP: 125
+  matchingParams.minMatchLengthBP: 500
+  matchingParams.templateNames: [sym4]
 
 Run Consenrich
 ''''''''''''''''''''
@@ -663,7 +661,8 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-In H3K27me3-enriched domains, we observe patterns consistent with `Cai et al. (2021) <https://pubmed.ncbi.nlm.nih.gov/33514712/>`_, where putative silencer elements are often marked by H3K27me3.
+
+- In H3K27me3-enriched domains, we observe patterns consistent with `Cai et al. (2021) <https://pubmed.ncbi.nlm.nih.gov/33514712/>`_, where putative silencer elements are often marked by H3K27me3.
 
 .. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3.png
     :alt: IGV Browser Snapshot H3K27me3
@@ -671,15 +670,21 @@ In H3K27me3-enriched domains, we observe patterns consistent with `Cai et al. (2
     :align: left
 
 
-Likewise, we rarely observe large H3K27me3 estimates and H3K27ac signal (ENCODE `ENCFF381NDD <https://www.encodeproject.org/files/ENCFF381NDD/>`_) at the same loci. We evaluate this pattern quantitatively across all putative silencer elements in `Cai2021_Silencers.bed`:
+- Strong H3K27me3 and H3K27ac signals rarely coincide. As a qualitative reference in the IGV browser snapshot above, we include the K562/H3K27ac 'fold change over control' track from ENCODE `ENCFF381NDD <https://www.encodeproject.org/files/ENCFF381NDD/>`_.
+
+To further assess the relationship between these two modifications quantitatively, we compute their genome-wide Spearman correlation over ENCODE4 silencer cCREs.
+
+`Cai-Fullwood-2021.Silencer-cCREs.bed` is available from SCREEN: `Human --> cCREs by class --> Silencer Sets (.tar.gz)  <https://screen.wenglab.org/downloads>`_.
 
 .. code-block:: console
 
-  multiBigWigSummary BED-file --BED Cai2021_Silencers.bed \
+  % bedtools sort -i Cai-Fullwood-2021.Silencer-cCREs.bed | cut -f 1-3 > Cai2021_Silencers.bed
+
+  % multiBigWigSummary BED-file --BED Cai2021_Silencers.bed \
    -b CnRH3K27me3Experiment_consenrich_state.bw ENCFF381NDD.bigWig \
    -o results.npz
 
-  plotCorrelation -in results.npz \
+  % plotCorrelation -in results.npz \
    -p scatterplot --corMethod spearman \
    --removeOutliers --skipZeros --plotFile CnRH3K27me3Scatter.png \
    --plotTitle "Consenrich CnR Experiment: H3K27me3 _|_ H3K27ac" \
@@ -690,7 +695,6 @@ Likewise, we rarely observe large H3K27me3 estimates and H3K27ac signal (ENCODE 
     :alt: H3K27me3 Scatter
     :width: 500px
     :align: center
-
 
 
 Runtime and Memory Profiling
