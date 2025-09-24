@@ -116,7 +116,7 @@ Run Consenrich
 
 Run Consenrich at the command line
 
-.. code-block:: bash
+.. code-block:: console
   :name: Run Consenrich
 
   % consenrich --config demoHistoneChIPSeq.yaml --verbose
@@ -167,8 +167,8 @@ Consenrich generates the following output files:
 
   .. code-block:: console
 
-	  python -m pip install rocco --upgrade
-	  rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38 -o consenrichRocco_demoHistoneChIPSeq.bed
+	  % python -m pip install rocco --upgrade
+	  % rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38 -o consenrichRocco_demoHistoneChIPSeq.bed
 
   * The experimental :ref:`matching` algorithm available with Consenrich may be effective as a complement or substitute for existing peak calling methods---e.g., detecting 'structured' enrichment patterns across multiple samples or identifying subpeaks within broad regions of interest.
 
@@ -256,7 +256,7 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
       \textsf{Consenrich attributes more uncertainty to propagated predictions } \rightarrow \textsf{ data favored in estimation}
 
-    - In other words, *restrict influence of the a priori model of signal/variance propagation across genomic positions to accommodate confidence in the data*
+    - In other words, *restrict influence of the a priori model for signal/variance propagation across genomic positions to accommodate greater confidence in the data*
 
   - Increasing ``observationParams.minR``:
 
@@ -264,7 +264,7 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
       \textsf{Consenrich attributes more uncertainty to the data } \rightarrow \textsf{ propagated predictions favored in estimation}
 
-    - In other words, *restrict reliance on data to accommodate confidence in the a priori model of signal/variance propagation across positions*
+    - In other words, *restrict reliance on data to accommodate greater confidence in the a priori model for signal/variance propagation*
 
   Note that default values should suffice for many cases given the adaptive noise models, but these parameters may be tuned in cases where the process model or the observation model is consistently more/less reliable than the other.
 
@@ -400,11 +400,11 @@ Using `bedtools subtract -A`, we can identify regions completely disjoint from E
     -a consenrichOutput_atac20Benchmark_matches.narrowPeak \
     -b ENCODE3_cCREs.bed -A  > excluded.bed
 
-By running a functional enrichment analysis on the regions :math:`94345` regions in `excluded.bed`, we can begin to evaluate whether the Consenrich-detected regions that are absent from the ENCODE cCREs are 'false positives' or are potentially relevant to the :math:`m=20` input lymphoblastoid samples.
+By running a functional enrichment analysis on the regions :math:`94345` regions in `excluded.bed`, we can begin to evaluate whether the Consenrich-detected regions that are absent from the ENCODE cCREs are outright false positives or potentially relevant to the :math:`m=20` input lymphoblastoid samples.
 
-See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker::annotatePeak <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler::enrichGO <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ to perform a peak-to-gene, GO-based enrichment analysis on regions in `excluded.bed`.
+- See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker::annotatePeak <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler::enrichGO <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ to perform a peak-to-gene, GO-based enrichment analysis on regions in `excluded.bed`.
 
-Several GO terms indicated in `excluded.bed` directly involve lymphoblast/immune related processes. For example, we find particularly strong enrichments for the following relevant processes:
+Several key GO terms are indicated in `excluded.bed` that directly involve lymphoblast/immune related processes. For example, we find particularly strong enrichments for the following relevant processes:
 
 +--------------+---------------------------------------------------+-----------+
 | Identifier   | Description                                       | q-value   |
@@ -519,7 +519,7 @@ Run Consenrich and ROCCO
 
       # broad marks: consider increasing minMatchLengthBP, mergeGapBP
       # ... and using a longer, symmetric template (e.g., sym4)
-      matchingParams.alpha: 0.1
+      matchingParams.alpha: 0.01
       matchingParams.mergeGapBP: 125
       matchingParams.minMatchLengthBP: 500
       matchingParams.templateNames: [sym4]
@@ -527,9 +527,9 @@ Run Consenrich and ROCCO
 
 .. code-block:: console
 
-  consenrich --config H3K36me3Experiment.yaml --verbose
-  python -m pip install rocco --upgrade
-  rocco -i H3K36me3Experiment_consenrich_state.bw -g hg38 -o consenrichRoccoH3K36me3.bed
+  % consenrich --config H3K36me3Experiment.yaml --verbose
+  % python -m pip install rocco --upgrade
+  % rocco -i H3K36me3Experiment_consenrich_state.bw -g hg38 -o consenrichRoccoH3K36me3.bed
 
 
 Results
@@ -655,7 +655,7 @@ Run Consenrich
 
 .. code-block:: console
 
-  consenrich --config CnR_H3K27me3.yaml --verbose
+  % consenrich --config CnR_H3K27me3.yaml --verbose
 
 
 Results
