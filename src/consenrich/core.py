@@ -122,7 +122,8 @@ class observationParams(NamedTuple):
         covariance :math:`\mathbf{R}_{[:, (11:mm)]}`.
     :type noGlobal: bool
     :param useALV: Whether to use average local variance (ALV) to approximate observation noise
-        covariances per-sample, per-interval.
+        covariances per-sample, per-interval. Recommended for estimating signals associated with
+        repressive/heterochromatic elements.
     :type useALV: bool
     :param useConstantNoiseLevel: Whether to use a constant noise level in the observation model.
     :type useConstantNoiseLevel: bool
@@ -188,8 +189,8 @@ class samParams(NamedTuple):
     :type pairedEndMode: int
     :param inferFragmentLength: Intended for single-end data: if > 0, the maximum correlation lag
        (avg.) between *strand-specific* read tracks is taken as the fragment length estimate and used to
-       extend reads from 5'. Ignored if `pairedEndMode > 0` or `extendBP` set. Recommended for broad marks in singele-end
-       data.
+       extend reads from 5'. Ignored if `pairedEndMode > 0` or `extendBP` set. This parameter is particularly
+       important when targeting broader marks (e.g., ChIP-seq H3K27me3).
     :type inferFragmentLength: int
 
     .. tip::
@@ -218,9 +219,11 @@ class detrendParams(NamedTuple):
     :type usePolyFilter: bool
     :param detrendSavitzkyGolayDegree: The polynomial degree of the Savitzky-Golay filter to use for detrending
     :type detrendSavitzkyGolayDegree: int
-    :param detrendTrackPercentile: The percentile to use for detrending the read density data.
+    :param detrendTrackPercentile: The percentile to use for the local/moving order-statistic filter.
+      Decrease for broad marks + sparse data if `useOrderStatFilter` is True.
     :type detrendTrackPercentile: float
-    :param detrendWindowLengthBP: The length of the window in base pairs for detrending the read density data.
+    :param detrendWindowLengthBP: The length of the window in base pairs for detrending.
+      Increase for broader marks + sparse data.
     :type detrendWindowLengthBP: int
     """
 
@@ -276,7 +279,7 @@ class genomeParams(NamedTuple):
 class countingParams(NamedTuple):
     r"""Parameters related to counting reads in genomic intervals.
 
-    :param stepSize: Step size for the genomic intervals.
+    :param stepSize: Step size (bp) for the genomic intervals (AKA bin size, interval length, width, etc.)
     :type stepSize: int
     :param scaleDown: If using paired treatment and control BAM files, whether to
         scale down the larger of the two before computing the difference/ratio
@@ -317,7 +320,7 @@ class matchingParams(NamedTuple):
         distribution is built from cross-correlation values over randomly sampled blocks.
     :type alpha: float
     :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`.
-        If None, the median non-zero signal estimate (log-scale) is used.
+        If None, the median non-zero signal estimate is used.
     :type minSignalAtMaxima: float
     :param merge: Whether to merge overlapping matches within `mergeGapBP` base pairs. A separate narrowPeak file will be created for the merged matches -- the original is preserved too.
     :type merge: bool
@@ -326,7 +329,7 @@ class matchingParams(NamedTuple):
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
       If False, use (only) the wavelet function.
     :type useScalingFunction: bool
-    :param excludeRegionsBedFile: A BED file with regions to exclude from matching
+    :param excludeRegionsBedFile: A BED file with regions to exclude while building the empirical null distribution.
 
     See :func:`consenrich.matching.matchWavelet` for implementation.
     """
@@ -809,7 +812,6 @@ def runConsenrich(
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
     m: int = 1 if matrixData.ndim == 1 else matrixData.shape[0]
     n: int = 1 if matrixData.ndim == 1 else matrixData.shape[1]
-    #scaleQ: float = np.float32(1.0)
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
     IKH: np.ndarray = np.zeros(shape=(2, 2), dtype=np.float32)
@@ -825,7 +827,6 @@ def runConsenrich(
     matrixK: np.ndarray = np.zeros((2, m), dtype=np.float32)
     vectorX: np.ndarray = np.array([stateInit, 0.0], dtype=np.float32)
     vectorY: np.ndarray = np.zeros(m, dtype=np.float32)
-    #vectorH: np.ndarray = matrixH[:, 0]
     matrixI2: np.ndarray = np.eye(2, dtype=np.float32)
 
     if residualCovarInversionFunc is None:
@@ -881,9 +882,6 @@ def runConsenrich(
         )
         matrixK = (matrixP @ matrixH.T) @ matrixEInverse
         IKH = matrixI2 - (matrixK @ matrixH)
-        #IKH[0][0] = 1.0 - (matrixK[0, :] @ vectorH)
-        #IKH[1][0] = -matrixK[1, :] @ vectorH
-        #IKH[1][1] = 1.0
 
         vectorX = vectorX + (matrixK @ vectorY)
         matrixP = (IKH) @ matrixP @ (IKH).T + (
@@ -1262,7 +1260,7 @@ def getBedMask(
     chromosome: str,
     bedFile: str,
     intervals: np.ndarray,
-) -> npt.NDArray[np.bool_]:
+) -> np.ndarray:
     r"""Return a 1/0 mask for intervals overlapping a sorted and merged BED file.
 
     This function is a wrapper for :func:`cconsenrich.cbedMask`.
@@ -1275,7 +1273,7 @@ def getBedMask(
     :param bedFile: Path to a sorted and merged BED file
     :type bedFile: str
     :return: An `intervals`-length mask s.t. True indicates the interval overlaps a feature in the BED file.
-    :rtype: npt.NDArray[np.bool_]
+    :rtype: np.ndarray
     """
     if not os.path.exists(bedFile):
         raise ValueError(f"Could not find {bedFile}")

@@ -222,7 +222,7 @@ def matchWavelet(
 
             logger.info(
                 f"\n\tDetected {len(relativeMaximaIndices)} matches (alpha={alpha}, useScalingFunction={useScalingFunction}): {templateName}: level={cascadeLevel}.\n"
-                f"\tResponse threshold: {responseThreshold:.3f}, arsinhSignalThreshold: {arsinhSignalThreshold:.3f}\n"
+                f"\tResponse threshold: {responseThreshold:.3f}, Signal Threshold: {arsinhSignalThreshold:.3f}\n"
                 f"\t KS_Statistic[pVals, uniformCDF]: {testKS:.5f}\n"
             )
 

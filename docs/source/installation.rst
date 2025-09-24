@@ -16,7 +16,7 @@ To install the latest version, run:
 
 .. code-block:: bash
 
-  python -m pip install consenrich --upgrade
+  % python -m pip install consenrich --upgrade
 
 If a binary is not available for your platform or you wish to optimize compiler flags for your hardware, consider building from source.
 
@@ -27,7 +27,7 @@ To install a specific version of Consenrich from PyPI, e.g., ``0.1.13b1``:
 
 .. code-block:: bash
 
-  python -m pip install consenrich==0.1.13b1
+  % python -m pip install consenrich==0.1.13b1
 
 Conda
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -68,9 +68,9 @@ Then, run the following to create and activate the environment, named ``consenri
 
 .. code-block:: console
 
-  conda config --set channel_priority strict
-  conda create -n consenrichEnv -f environment.yaml
-  conda activate consenrichEnv
+  % conda config --set channel_priority strict
+  % conda create -n consenrichEnv -f environment.yaml
+  % conda activate consenrichEnv
 
 If using `mamba <https://mamba.readthedocs.io/en/latest/>`_, or `micromamba <https://micromamba.readthedocs.io/en/latest/>`_, replace ``conda`` with ``mamba`` or ``micromamba``.
 
@@ -97,13 +97,14 @@ First, clone the repository:
 
 .. code-block:: console
 
-  git clone https://github.com/nolan-h-hamilton/Consenrich.git
+  % git clone https://github.com/nolan-h-hamilton/Consenrich.git
 
 
 Set the working directory and install:
 
 .. code-block:: console
 
-  cd Consenrich
-  python -m pip install .
+  % cd Consenrich
+  % python -m pip install .
+
 
