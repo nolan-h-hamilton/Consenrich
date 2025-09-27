@@ -671,7 +671,8 @@ cpdef int64_t cgetFragmentLength(str bamFile,
     return overall
 
 
-cdef Py_ssize_t upperBound(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:
+cdef inline Py_ssize_t getInsertion(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:
+    # helper: binary search to find insertion point into sorted `arrray_`
     cdef Py_ssize_t low = 0
     cdef Py_ssize_t high = n
     cdef Py_ssize_t midpt
@@ -690,7 +691,7 @@ cdef int maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, const uint
     cdef uint32_t p
     while i < numIntervals:
         p = pos[i]
-        k = upperBound(mStarts, n, p) - 1
+        k = getInsertion(mStarts, n, p) - 1
         if k >= 0 and p < mEnds[k]:
             outMask[i] = <uint8_t>1
         else:
