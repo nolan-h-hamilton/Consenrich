@@ -109,6 +109,7 @@ Note, we use the sequence of Consenrich signal estimates to define :math:`\widet
 
 * Improved confidence that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
 * Targeted detection of biologically relevant signal patterns in a given assay (`Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
+* Speed: runs in seconds on a genome-wide scale.
 
 In the case of Consenrich, that :math:`\widetilde{\mathbf{x}}` is reinforced by multiple samples and accounts for multiple sources of uncertainty is particularly advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features. We need not rely exclusively on least-squares fits to noisy data in small sample sizes.
 
