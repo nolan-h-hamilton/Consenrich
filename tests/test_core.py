@@ -128,10 +128,9 @@ def testProcessNoiseAdjustment():
 @pytest.mark.correctness
 def testbedMask(tmp_path):
     bedPath = tmp_path / "testTmp.bed"
-    bedPath.write_text("chr1\t50\t2000\nchr1\t3000\t5000\nchr1\t10000\t20000\n"
-    )
+    bedPath.write_text("chr1\t50\t2000\nchr1\t3000\t5000\nchr1\t10000\t20000\n")
     intervals = np.arange(500, 10_000, 25)
-    mask = core.getBedMask('chr1', bedPath, intervals)
+    mask = core.getBedMask("chr1", bedPath, intervals)
 
     # first test: mask and intervals equal length
     assert len(mask) == len(intervals)
@@ -149,7 +148,7 @@ def testgetPrecisionWeightedResidualWithCovar():
     n, m = 5, 3
     postFitResiduals = np.random.randn(n, m).astype(np.float32)
     matrixMunc = (np.random.rand(m, n).astype(np.float32) * 2.0) + 0.5
-    add_vec = (np.random.rand(n).astype(np.float32) * 0.5)
+    add_vec = np.random.rand(n).astype(np.float32) * 0.5
     stateCovarSmoothed = np.zeros((n, 2, 2), dtype=np.float32)
     stateCovarSmoothed[:, 0, 0] = add_vec
     totalUnc = matrixMunc + add_vec
@@ -159,20 +158,48 @@ def testgetPrecisionWeightedResidualWithCovar():
         postFitResiduals=postFitResiduals,
         matrixMunc=matrixMunc,
         roundPrecision=6,
-        stateCovarSmoothed=stateCovarSmoothed)
-    np.testing.assert_allclose(out, expected.astype(np.float32), rtol=1e-6, atol=1e-6)
+        stateCovarSmoothed=stateCovarSmoothed,
+    )
+    np.testing.assert_allclose(
+        out, expected.astype(np.float32), rtol=1e-6, atol=1e-6
+    )
 
 
 @pytest.mark.correctness
 def testgetPrimaryStateF64():
-    xVec = np.array([
-            [1.2349,  0.0],
-            [-2.5551, 0.0],
-            [10.4446, 0.0],
-            [-0.5001, 0.0]],
+    xVec = np.array(
+        [[1.2349, 0.0], [-2.5551, 0.0], [10.4446, 0.0], [-0.5001, 0.0]],
         dtype=np.float64,
     )
     stateVectors = xVec[:, :]
     out = core.getPrimaryState(stateVectors, roundPrecision=3)
     np.testing.assert_array_equal(out.dtype, np.float32)
-    np.testing.assert_allclose(out, np.array([1.235, -2.555, 10.445, -0.500], dtype=np.float32), rtol=0, atol=0)
+    np.testing.assert_allclose(
+        out,
+        np.array([1.235, -2.555, 10.445, -0.500], dtype=np.float32),
+        rtol=0,
+        atol=0,
+    )
+
+
+@pytest.mark.correctness
+def testFragLen(threshold: float = 25, expected: float = 220):
+    fragLens = []
+    for i in range(50):
+        fragLen = float(
+            cconsenrich.cgetFragmentLength(
+                "smallTest.bam",
+                "chr6",
+                32_000_000,
+                35_000_000,
+                randSeed=i,
+            )
+        )
+        fragLens.append(fragLen)
+    fragLens.sort()
+
+    assert stats.iqr(fragLens) < 2*threshold
+    assert (
+        abs(np.median(fragLens) - expected)
+        < threshold
+    )

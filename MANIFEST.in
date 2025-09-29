@@ -1,3 +1,4 @@
 include README.md
-recursive-include src/consenrich *.pxd *.pyx *.c
-recursive-include src/consenrich/data *.bed *.sizes *.txt
+recursive-include src/consenrich *.pyx *.c
+recursive-include src/consenrich/data *.bed *.sizes
+

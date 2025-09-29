@@ -109,6 +109,7 @@ Note, we use the sequence of Consenrich signal estimates to define :math:`\widet
 
 * Improved confidence that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
 * Targeted detection of biologically relevant signal patterns in a given assay (`Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
+* Speed: runs in seconds on a genome-wide scale.
 
 In the case of Consenrich, that :math:`\widetilde{\mathbf{x}}` is reinforced by multiple samples and accounts for multiple sources of uncertainty is particularly advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features. We need not rely exclusively on least-squares fits to noisy data in small sample sizes.
 
@@ -143,23 +144,60 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the
 
   Sections :ref:`minimal` and/or :ref:`additional-examples` which include browser shots demonstrating qualitative behavior of this feature.
 
-.. admonition:: Some guidance on matching for structured peak detection
-  :class: tip
 
-  * To increase the number/size of detected structured peaks, consider setting `matchingParams.merge: true` AND
+In the following browser snapshot, we sweep several key matching parameters.
 
-    * Using multiple wavelet-based templates, e.g. `matchingParams.templateNames: [haar, db2]`
-    * Increasing `matchingParams.alpha`
+As opposed to the configs in :ref:`additional-examples`, here, we set ``matchingParams.merge: false`` to clearly illustrate contrasting results. Note that the matching routine requires only seconds of runtime, and it is straightforward to run multiple configurations and compare results for a given use-case.
 
-  * To emphasize generic peak/summit like features, a reasonable starting point is:
+.. image:: ../images/structuredPeaks.png
+  :alt: Structured Peaks
+  :width: 85%
+  :align: center
+  :name: structuredPeaks
 
-  .. code-block:: yaml
+- ``matchingParams.templateNames``
+  - Narrow, condensed features :math:`\rightarrow` short wavelet-based templates (e.g., ``haar``, ``db2``).
+  - Broader features :math:`\rightarrow` longer, symmetric wavelet-based templates (e.g., ``sym4``).
+  - Oscillatory features :math:`\rightarrow` longer, higher-order wavelets (e.g., ``db8``, ``dmey``).
 
-    matchingParams.templateNames: [haar, db2]
-    matchingParams.cascadeLevels: [2]
-    matchingParams.alpha: 0.05
+- ``matchingParams.alpha`` (Significance Threshold)
+  - Signifcance is measured relative to an approximated null distribution of response values.
+  - Tunes precision vs. recall -- the stringency of match detection.
+  - Smaller values :math:`\rightarrow` fewer but higher-confidence matches; larger values :math:`\rightarrow` more but lower-confidence matches.
 
-  * For 'longer' features with higher-order polynomial structure, wavelets with greater support lengths/vanishing moments (e.g., `sym4, db4, db8`) should be favored.
+- ``matchingParams.minMatchLengthBP`` (Feature Width Threshold)
+  - Enforces a minimum feature width (base pairs)
+  - Increase to prevent matches with features that are more narrow than the underlying pattern of interest.
+
+- ``matchingParams.minSignalAtMaxima`` (Signal Threshold)
+  - Enforces a minimum Consenrich *signal estimate* over the detected maxima.
+  - If ``None``, defaults to the median of nonzero signal values.
+
+
+**Suggested Defaults**
+
+These are not exhaustive but may provide a reasonable starting point for common use cases. See also :ref:`additional-examples` for practical demonstrations.
+
+- Narrow peak calls:
+
+.. code-block:: yaml
+
+  matchingParams.templateNames: [haar, db2]
+  matchingParams.cascadeLevels: [2]
+  matchingParams.alpha: 0.05
+  matchingParams.minMatchLengthBP: 250
+  matchingParams.mergeGapBP: 50
+
+- Broad peak calls:
+
+.. code-block:: yaml
+
+  matchingParams.templateNames: [sym4]
+  matchingParams.cascadeLevels: [2]
+  matchingParams.alpha: 0.01
+  matchingParams.minMatchLengthBP: 500
+  matchingParams.mergeGapBP: 125
+
 
 
 .. autofunction:: consenrich.matching.matchWavelet
