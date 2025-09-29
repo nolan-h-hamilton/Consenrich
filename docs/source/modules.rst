@@ -156,20 +156,24 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
   :name: structuredPeaks
 
 - ``matchingParams.templateNames``
+
   - Narrow, condensed features :math:`\rightarrow` short wavelet-based templates (e.g., ``haar``, ``db2``).
   - Broader features :math:`\rightarrow` longer, symmetric wavelet-based templates (e.g., ``sym4``).
   - Oscillatory features :math:`\rightarrow` longer, higher-order wavelets (e.g., ``db8``, ``dmey``).
 
 - ``matchingParams.alpha`` (Significance Threshold)
+
   - Signifcance is measured relative to an approximated null distribution of response values.
   - Tunes precision vs. recall -- the stringency of match detection.
   - Smaller values :math:`\rightarrow` fewer but higher-confidence matches; larger values :math:`\rightarrow` more but lower-confidence matches.
 
 - ``matchingParams.minMatchLengthBP`` (Feature Width Threshold)
+
   - Enforces a minimum feature width (base pairs)
   - Increase to prevent matches with features that are more narrow than the underlying pattern of interest.
 
 - ``matchingParams.minSignalAtMaxima`` (Signal Threshold)
+
   - Enforces a minimum Consenrich *signal estimate* over the detected maxima.
   - If ``None``, defaults to the median of nonzero signal values.
 
