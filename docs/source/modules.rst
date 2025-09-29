@@ -147,7 +147,7 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the
 
 In the following browser snapshot, we sweep several key matching parameters.
 
-As opposed to the configs in :ref:`additional-examples`, here, we set ``matchingParams.merge: false`` to clearly illustrate contrasting results. Note that the matching routine requires only seconds of runtime, and it is straightforward to run multiple configurations and compare results.
+As opposed to the configs in :ref:`additional-examples`, here, we set ``matchingParams.merge: false`` to clearly illustrate contrasting results. Note that the matching routine requires only seconds of runtime, and it is straightforward to run multiple configurations and compare results for a given use-case.
 
 .. image:: ../images/structuredPeaks.png
   :alt: Structured Peaks
