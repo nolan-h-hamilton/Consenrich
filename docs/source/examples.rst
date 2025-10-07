@@ -101,7 +101,7 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   ENCFF898LKJ.bam,
   ENCFF490MWV.bam]
 
-  # Optional: call 'structured peaks'
+  # Optional: call 'structured peaks' via `consenrich.matching`
   matchingParams.templateNames: [haar, db2]
 
 
@@ -136,21 +136,20 @@ Output Files and Formats
 
 Consenrich generates the following output files:
 
-* *Signal estimate track* (`bigWig <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_state.bw``
+* **Signal estimate track** (`bigWig format <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_state.bw``
 
-  * This track contains the primary estimated signal :math:`\widetilde{x}_{[i]},~i=1,\ldots,n`, derived from the input BAM files.
+  * This track records the genome-wide Consenrich estimates for the primary signal of interest :math:`\widetilde{x}_{[i]},~i=1,\ldots,n`, derived from input alignment/count data
   * See :func:`consenrich.core.getPrimaryState`
 
-* *Precision-weighted residual track* (`bigWig <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_residuals.bw``
+* **Weighted residual track** (`bigWig format <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_residuals.bw``
 
-  * These values reflect deviance from the primary state estimates after accounting for varying data quality.
+  * This track records the uncertainty-scaled differences between the Consenrich estimates and the observed sample data at each interval
   * See :func:`consenrich.core.getPrecisionWeightedResidual`
 
 
-* If the matching algorithm is invoked to detect 'structured peaks', then Consenrich will also produce `BED/narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ output:
+* (Optional) **Structured Peak Calls** (`narrowPeak format <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_): ``<experimentName>_matches.mergedMatches.narrowPeak``
 
-  * ``consenrichOutput_<experimentName>_matches.narrowPeak``: All matched regions, potentially overlapping.
-  * ``consenrichOutput_<experimentName>_matches.mergedMatches.narrowPeak``: Merged matched regions, where the overlapping feature with the strongest signal determines the new pointSource/Summit.
+  * Enriched signal regions exhibiting a regular structure. Generated if the :ref:`matching` algorithm is invoked.
   * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
 
@@ -250,30 +249,30 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
   :class: tip
   :collapsible: closed
 
+  Note that default values should generally suffice given the adaptive process and observation models, but base-level uncertainty for each can be tuned if one source is deemed consistently more reliable than the other.
+
   - Increasing ``processParams.minQ``:
 
     .. math::
 
-      \textsf{Consenrich attributes more uncertainty to propagated predictions } \rightarrow \textsf{ data favored in estimation}
+      \textsf{Consenrich attributes more base-level uncertainty to propagated predictions } \rightarrow \textsf{ data favored in estimation}
 
-    - In other words, *restrict influence of the a priori model for signal/variance propagation across genomic positions to accommodate greater confidence in the data*
+    - In other words, *restrict influence of the a priori model for signal/variance propagation greater confidence in the data*
 
   - Increasing ``observationParams.minR``:
 
     .. math::
 
-      \textsf{Consenrich attributes more uncertainty to the data } \rightarrow \textsf{ propagated predictions favored in estimation}
+      \textsf{Consenrich attributes more base-level uncertainty to the data } \rightarrow \textsf{ propagated predictions favored in estimation}
 
     - In other words, *restrict reliance on data to accommodate greater confidence in the a priori model for signal/variance propagation*
-
-  Note that default values should suffice for many cases given the adaptive noise models, but these parameters may be tuned in cases where the process model or the observation model is consistently more/less reliable than the other.
 
 
 .. code-block:: yaml
 
   experimentName: atac20Benchmark
   genomeParams.name: hg38
-  genomeParams.excludeChroms: ['chrX','chrY']
+  genomeParams.excludeChroms: ['chrY']
   genomeParams.excludeForNorm: ['chrX', 'chrY']
   inputParams.bamFiles: [
     ENCFF326QXM.bam,
@@ -298,17 +297,13 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
     ENCFF948HNW.bam
   ]
 
-  # Guidance: Balancing Confidence in the Modeled Process vs. Data
-  processParams.minQ: 0.05 # clip process noise level above this value
-  observationParams.minR: 0.05 # clip sample noise levels above this value
+  # Guidance: 'Balancing Confidence in the Modeled Process vs. Data'
+  processParams.minQ: 0.05
+  observationParams.minR: 0.05
 
-  # Guidance: Tuning Memory Usage vs. Runtime
-  samParams.samThreads: 1 # default value
-  samParams.chunkSize: 1000000 # default value
-
-  # Optional: call 'structured peaks'
+  # Optional: call 'structured peaks' via `consenrich.matching`
   matchingParams.templateNames: [haar, db2]
-  matchingParams.alpha: 0.05 # default value, reduce for stricter calls
+  matchingParams.alpha: 0.05 # default value --> can reduce for stricter calls
 
 
 Run Consenrich
@@ -343,34 +338,40 @@ Structured peak calls are positioned above the Consenrich signal as BED features
 Evaluating Structured Peak Results
 ''''''''''''''''''''''''''''''''''''''''''''
 
-We compare the structured peaks from :func:`consenrich.matching.matchWavelet` against previously identified candidate regulatory elements (ENCODE cCREs).
+We compare the structured peaks from :func:`consenrich.matching.matchWavelet` against previously identified candidate regulatory elements (`ENCODE4 GRCh38/hg38 cCREs <https://screen.wenglab.org/downloads>`_).
 
-Consenrich-detected structured peaks that share a :math:`25\%` *reciprocal* overlap with an ENCODE cCRE are counted. Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset, `atac20`, and a perfect concordance is not expected.
+We count both:
+
+- The total number of Consenrich-detected structured peaks
+- The unique Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE
+
+Note that the cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and a perfect concordance is not expected.
 
 .. code-block:: console
 
-  % bedtools intersect -a consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
-    -b ENCODE3_cCREs.bed \
+  % bedtools intersect \
+    -a consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
+    -b GRCh38-cCREs.bed \
     -f 0.25 -r -u \
-    | wc -l # 152208 regions
+    | wc -l
 
 
 +--------------------------------------------------+------------------------+
 | Features                                         | Count                  |
 +==================================================+========================+
-| Consenrich-detected structured peaks             | **250,602**            |
+| Consenrich-detected structured peaks             | **261,004**            |
 +--------------------------------------------------+------------------------+
-| Distinct cCRE overlaps (`-f 0.25 -r -u` )        | **152,208**            |
+| Distinct cCRE overlaps (`-f 0.25 -r -u` )        | **220,517**            |
 +--------------------------------------------------+------------------------+
-| Percent overlapping                              | **60.7%**              |
+| Percent overlapping                              | **84.5%**              |
 +--------------------------------------------------+------------------------+
 
 
-.. admonition:: Guidance: Significance Thresholds
+.. admonition:: Guidance: Significance Thresholds for Structured Peak Calling
   :class: tip
   :collapsible: closed
 
-  The default significance thresholds may be too lenient (or strict) depending on the application. For example, in the above, a smaller, confident peak set could be desirable.
+  The default significance thresholds may be too lenient (strict) depending on the application. For example, in the above, a smaller, confident peak set could be desirable.
 
   - We can decrease ``matchingParams.alpha`` in the configuration file (e.g., ``matchingParams.alpha: 0.05 --> matchingParams.alpha: 0.01``)
     or filter the output narrowPeak file based on the :math:`-\log_{10}(p)` value in column 8:
@@ -378,43 +379,18 @@ Consenrich-detected structured peaks that share a :math:`25\%` *reciprocal* over
     .. code-block:: console
 
       % awk '$8 >= 2.0' consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
-          > atac20FilteredAlpha01.narrowPeak # 74264 regions
+          > atac20FilteredAlpha01.narrowPeak # 78,411 regions
 
       % bedtools intersect -a atac20FilteredAlpha01.narrowPeak \
-            -b ENCODE3_cCREs.bed \
+            -b GRCh38-cCREs.bed \
             -f 0.25 -r -u \
-        > cCREOverlap_atac20FilteredAlpha01.narrowPeak # 64573 regions
+        > cCREOverlap_atac20FilteredAlpha01.narrowPeak # 76,783 regions
 
-  and this brings the percent of Consenrich peaks sharing a :math:`25\%` *reciprocal* overlap with the ENCODE cCREs to **86.9%** at the cost of fewer total detections.
+  and this brings the percent of Consenrich peaks sharing a :math:`25\%` *reciprocal* overlap with the ENCODE cCREs to **97.9%** at the cost of fewer total detections.
 
   - We can also introduce a secondary cutoff, ``matchingParams.minSignalAtMaxima``, that requires a minimum *signal value* occur at the pointSource/Summit of each detected region.
 
-
-**Evaluating Relevance of Consenrich-exclusive Peak Regions**
-
-Using `bedtools subtract -A`, we can identify regions completely disjoint from ENCODE cCREs that were detected by Consenrich:
-
-.. code-block:: console
-
-  % bedtools subtract \
-    -a consenrichOutput_atac20Benchmark_matches.narrowPeak \
-    -b ENCODE3_cCREs.bed -A  > excluded.bed
-
-By running a functional enrichment analysis on the regions :math:`94345` regions in `excluded.bed`, we can begin to evaluate whether the Consenrich-detected regions that are absent from the ENCODE cCREs are outright false positives or potentially relevant to the :math:`m=20` input lymphoblastoid samples.
-
-- See ``docs/matchingEnrichmentAnalysis.R``, where we make use of `ChIPseeker::annotatePeak <https://bioconductor.org/packages/release/bioc/html/ChIPseeker.html>`_ and `clusterProfiler::enrichGO <https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html>`_ to perform a peak-to-gene, GO-based enrichment analysis on regions in `excluded.bed`.
-
-Several key GO terms are indicated in `excluded.bed` that directly involve lymphoblast/immune related processes. For example, we find particularly strong enrichments for the following relevant processes:
-
-+--------------+---------------------------------------------------+-----------+
-| Identifier   | Description                                       | q-value   |
-+==============+===================================================+===========+
-| GO:0002520   | Immune system development                         | 0.0003334 |
-+--------------+---------------------------------------------------+-----------+
-| GO:0002263   | Cell activation involved in immune response       | 0.0068310 |
-+--------------+---------------------------------------------------+-----------+
-| GO:0002285   | Lymphocyte activation involved in immune response | 0.0119944 |
-+--------------+---------------------------------------------------+-----------+
+    - If left unspecified, the median nonzero signal estimate across the genome is used as the default. The cutoff is applied after stabilizing values with an arsinh transform (i.e., :math:`\sinh^{-1}(x)`). 
 
 
 .. _runtimeAndMemoryProfilingAtac20:
@@ -478,7 +454,7 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
 
   experimentName: H3K36me3Experiment
   genomeParams.name: hg38
-  genomeParams.excludeChroms: ['chrX','chrY']
+  genomeParams.excludeChroms: ['chrY']
   genomeParams.excludeForNorm: ['chrX','chrY']
 
   inputParams.bamFiles: [ENCFF978XNV.bam,
@@ -630,7 +606,7 @@ We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
 
   experimentName: CnRH3K27me3Experiment
   genomeParams.name: hg38
-  genomeParams.excludeChroms: ['chrX','chrY']
+  genomeParams.excludeChroms: ['chrY']
   genomeParams.excludeForNorm: ['chrX','chrY']
 
   inputParams.bamFiles: [4DNFIBDJW6IC.sorted.bam,
@@ -641,7 +617,7 @@ We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
   ]
   samParams.pairedEndMode: 1
 
-  # Guidance: Noise level approximation for heterochromatic or repressive targets
+  # Guidance: 'Noise level approximation for heterochromatic/repressive targets'
   observationParams.useALV: true
 
   # Broad marks
@@ -672,7 +648,7 @@ Results
 
 - Strong H3K27me3 and H3K27ac signals rarely coincide. As a qualitative reference in the IGV browser snapshot above, we include the K562/H3K27ac 'fold change over control' track from ENCODE `ENCFF381NDD <https://www.encodeproject.org/files/ENCFF381NDD/>`_.
 
-To further assess the relationship between these two modifications quantitatively, we compute their genome-wide Spearman correlation over ENCODE4 silencer cCREs.
+To further assess the relationship between these two modifications quantitatively, we compute their genome-wide Spearman correlations using deeptools' `multiBigWigSummary <https://deeptools.readthedocs.io/en/develop/content/tools/multiBigwigSummary.html>`_ and `plotCorrelation <https://deeptools.readthedocs.io/en/develop/content/tools/plotCorrelation.html>`_ commands.
 
 `Cai-Fullwood-2021.Silencer-cCREs.bed` is available from SCREEN: `Human --> cCREs by class --> Silencer Sets (.tar.gz)  <https://screen.wenglab.org/downloads>`_.
 

@@ -107,9 +107,9 @@ Note, we use the sequence of Consenrich signal estimates to define :math:`\widet
 
 **Why**: Prioritizing genomic regions that are both enriched and show a prescribed level of structure is appealing for several reasons. Namely,
 
-* Improved confidence that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
-* Targeted detection of biologically relevant signal patterns in a given assay (`Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
-* Speed: runs in seconds on a genome-wide scale.
+* **Improved confidence** that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
+* **Targeted detection** of biologically relevant signal patterns in a given assay (`Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
+* **Speed**: runs in seconds on a genome-wide scale.
 
 In the case of Consenrich, that :math:`\widetilde{\mathbf{x}}` is reinforced by multiple samples and accounts for multiple sources of uncertainty is particularly advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features. We need not rely exclusively on least-squares fits to noisy data in small sample sizes.
 
@@ -119,7 +119,7 @@ Algorithm Overview
 """"""""""""""""""""""
 
 To detect regions of 'structured enrichment', we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_, with
-*templates* derived from discrete samplings of wavelet functions:
+*templates* derived from discrete samplings of scaling/wavelet functions:
 
 .. math::
 
@@ -175,7 +175,7 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
 - ``matchingParams.minSignalAtMaxima`` (Signal Threshold)
 
   - Enforces a minimum Consenrich *signal estimate* over the detected maxima.
-  - If ``None``, defaults to the median of nonzero signal values.
+  - If ``None``, defaults to the median of nonzero signal values. This threshold is applied after stabilizing values with an arsinh transform (i.e., :math:`\sinh^{-1}(x)`).
 
 
 **Suggested Defaults**

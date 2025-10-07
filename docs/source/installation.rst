@@ -14,7 +14,7 @@ Multiple binaries are distributed via `PyPI <https://pypi.org/project/consenrich
 
 To install the latest version, run:
 
-.. code-block:: bash
+.. code-block:: console
 
   % python -m pip install consenrich --upgrade
 
@@ -25,7 +25,7 @@ Previous Versions
 
 To install a specific version of Consenrich from PyPI, e.g., ``0.1.13b1``:
 
-.. code-block:: bash
+.. code-block:: console
 
   % python -m pip install consenrich==0.1.13b1
 
