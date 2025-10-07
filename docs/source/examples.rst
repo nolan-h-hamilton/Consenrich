@@ -138,7 +138,7 @@ Consenrich generates the following output files:
 
 * **Signal estimate track** (`bigWig format <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_state.bw``
 
-  * This track records the genome-wide Consenrich estimates for the primary signal of interest :math:`\widetilde{x}_{[i]},~i=1,\ldots,n`, derived from input alignment/count data
+  * This track records the genome-wide Consenrich estimates for the primary signal of interest :math:`\widetilde{x}_{[i]},~i=1,\ldots,n`, derived from input samples' alignment/count data
   * See :func:`consenrich.core.getPrimaryState`
 
 * **Weighted residual track** (`bigWig format <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_residuals.bw``
@@ -157,12 +157,12 @@ Consenrich generates the following output files:
   :class: tip
   :collapsible: closed
 
-  Consenrich can markedly improve conventional consensus peak calling and between-group differential analyses (e.g., *Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease* in the `manuscript preprint <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_)
+  Consenrich can markedly improve conventional consensus peak calling and between-group differential analyses (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
 
   `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is particularly well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling.
 
 
-  In the example above, to call peaks using the `Consenrich+ROCCO` protocol,
+  In the example above, to call peaks using the `Consenrich+ROCCO` protocol, run:
 
   .. code-block:: console
 
@@ -412,11 +412,10 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
 ChIP-seq: Broad Histone Marks
 """""""""""""""""""""""""""""""""""""""""""""
 
-Having provided a minimal example in the context of narrow marks (H3K27ac) in the demo, we now offer an example for broad histone marks (H3K36me3).
-
 - Five mucosal tissue donors, each with H3K36me3/control alignment files from ENCODE.
 - Single-end, mixed-length reads (36, 76)
 
+These samples vary in quality, with 4/5 flagged by ENCODE for low read length and/or insufficient depth, making for a challenging but viable multi-sample analysis setting.
 
 Environment
 ''''''''''''''
@@ -474,59 +473,28 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
   # Recommended for single-end data, broad marks, low coverage, etc.
   samParams.inferFragmentLength: 1
 
+  # Broad marks + sparse data:
+  # consider a larger, more symmetric template and merging window
+  matchingParams.minMatchLengthBP: 500
+  matchingParams.mergeGapBP: 250
+  matchingParams.templateNames: [sym4]
+  matchingParams.alpha: 0.01
 
-Run Consenrich and ROCCO
+
+Run Consenrich
 ''''''''''''''''''''''''''''
-
-.. admonition:: Broad Peak Calling with Consenrich+ROCCO
-  :class: tip
-  :collapsible: closed
-
-  * In this example, we use `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ for consensus peak calling after running Consenrich
-
-    * Incorporating ROCCO adds some computational burden (1-2 hours in this case) but is robust for calling targets that manifest as both broad and narrow.
-
-    * In some contexts, the built-in, comparably efficient :func:`consenrich.matching.matchWavelet` algorithm packaged with Consenrich may be equally effective (see below).
-
-  * Alternatively, utilize the matching algorithm packaged with Consenrich. Some tuning may be required depending on number of samples, data quality, and mark.
-
-    .. code-block:: yaml
-      :name: H3K36me3Experiment.yaml (additional lines)
-
-      # broad marks: consider increasing minMatchLengthBP, mergeGapBP
-      # ... and using a longer, symmetric template (e.g., sym4)
-      matchingParams.alpha: 0.01
-      matchingParams.mergeGapBP: 125
-      matchingParams.minMatchLengthBP: 500
-      matchingParams.templateNames: [sym4]
-
 
 .. code-block:: console
 
   % consenrich --config H3K36me3Experiment.yaml --verbose
-  % python -m pip install rocco --upgrade
-  % rocco -i H3K36me3Experiment_consenrich_state.bw -g hg38 -o consenrichRoccoH3K36me3.bed
 
 
 Results
 ''''''''''''''''''''''''''''
 
-.. image:: ../benchmarks/H3K36me3/images/H3K36me3IRF8.png
-    :alt: H3K36me3 IRF8
-    :width: 800px
-    :align: left
+For a qualitative, biologically-motivated check, we evaluate results over `PRRC1` in light of `Figure 3A in (Andersson et al., 2009) <https://genome.cshlp.org/content/19/10/1732>`_: *H3K36me3 signal is overrepresented at internal exons with respect to succeeding introns.*
 
-- For reference, the `ENCSR585FIP <https://www.encodeproject.org/experiments/ENCSR585FIP/>`_ H3K36me3 ChIP-seq signal track from ENCODE is included in the top panel (Dark red).
-- Input alignment coverage tracks (treatment, control) for each sample are shown in the bottom two panels, respectively.
-
-H3K36me3 Enrichment at Internal Exons
-'''''''''''''''''''''''''''''''''''''''''
-
-* For a qualitative, biologically-motivated validation, we evaluate results over `PRRC1` in light of `Figure 3A in (Andersson et al., 2009) <https://genome.cshlp.org/content/19/10/1732>`_: *H3K36me3 signal is overrepresented at internal exons with respect to succeeding introns.*
-
-  * Note that we are using colonic mucosal tissue samples, whereas Andersson et al. used CD4+ T cells. Nonetheless, PRRC1 is consistently expressed in colonic mucosa, and we can expect at least a loose concordance in H3K36me3 enrichment patterns.
-
-In the following, signal tracks in the top panel are on log-scale to facilitate visual comparison across varying dynamic ranges.
+* Note that we are using colonic mucosal tissue samples, whereas Andersson et al. used CD4+ T cells. Nonetheless, PRRC1 is consistently expressed in colonic mucosa, and we can expect at least a loose concordance in H3K36me3 enrichment patterns.
 
 .. image:: ../benchmarks/H3K36me3/images/H3K36me3PRRC1.png
     :alt: H3K36me3 Intron-Exon
@@ -535,13 +503,8 @@ In the following, signal tracks in the top panel are on log-scale to facilitate 
 
 As in `Andersson et al. <https://genome.cshlp.org/content/19/10/1732>`_,
 
-* Near the 5' end of `PRRC1`, we observe a strong, transient H3K4me3 peak followed by a marked increase in Consenrich-estimated H3K36me3 signal
-* Within `PRRC1`, the strongest H3K36me3 Consenrich-estimated signals overlap exons >1, `GENCODE-annotated <https://www.gencodegenes.org/human/release_47.html>`_ followed by abrupt depletions
-
-* Toward the 3' end of `PRRC1`, we observe a density of peak regions in the Consenrich H3K36me3 signal.
-
-  * This does not appear to reflect a progressive increase in H3K36me3 toward the 3' end of the gene body -- Rather, the 3' end is exon-rich, hence the density of peaks.
-
+* Near the transcription start site of `PRRC1`, we observe a strong, transient H3K27ac peak followed by a broad increase in Consenrich-estimated H3K36me3 signal
+* Within `PRRC1`, the strongest H3K36me3 Consenrich-estimated signals appear at exons >1, `GENCODE-annotated <https://www.gencodegenes.org/human/release_47.html>`_ followed by abrupt depletions
 
 Runtime and Memory Profiling
 ''''''''''''''''''''''''''''''''''
