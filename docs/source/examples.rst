@@ -136,20 +136,20 @@ Output Files and Formats
 
 Consenrich generates the following output files:
 
-* **Signal estimate track** (`bigWig format <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_state.bw``
+* **Signal estimate track**: ``<experimentName>_consenrich_state.bw``
 
   * This track records the genome-wide Consenrich estimates for the primary signal of interest :math:`\widetilde{x}_{[i]},~i=1,\ldots,n`, derived from input samples' alignment/count data
   * See :func:`consenrich.core.getPrimaryState`
 
-* **Weighted residual track** (`bigWig format <https://genome.ucsc.edu/goldenPath/help/bedgraph.html>`_): ``<experimentName>_consenrich_residuals.bw``
+* **Precision-weighted residual track**: ``<experimentName>_consenrich_residuals.bw``
 
   * This track records the uncertainty-scaled differences between the Consenrich estimates and the observed sample data at each interval
   * See :func:`consenrich.core.getPrecisionWeightedResidual`
 
 
-* (Optional) **Structured Peak Calls** (`narrowPeak format <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_): ``<experimentName>_matches.mergedMatches.narrowPeak``
+* **Structured peak calls** (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
 
-  * Enriched signal regions exhibiting a regular structure. Generated if the :ref:`matching` algorithm is invoked.
+  * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
   * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
 
@@ -235,14 +235,15 @@ Names and versions of packages that are relevant to computational performance. T
 Configuration
 ''''''''''''''''''''''''''''
 
-Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed here explicitly to show their ENCODE accessions.
+Run with the following YAML config file `atac20Benchmark.yaml`.
+
+Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed explicitly in the config to show their ENCODE accessions for reference.
 
 .. admonition:: Guidance: Tuning Memory Usage vs. Runtime
   :class: tip
   :collapsible: closed
 
   Consenrich is generally memory-efficient and can be run on large datasets using only consumer grade hardware (See :ref:`runtimeAndMemoryProfilingAtac20`). Memory cost can be reduced by decreasing `samParams.chunkSize` in the configuration file. Smaller chunk sizes may affect runtime due to overhead from more frequent file I/O, however.
-  Note that the values in ``atac20Benchmark.yaml`` are defaults but are listed here explicitly.
 
 
 .. admonition:: Guidance: Balancing Confidence in Noisy Data versus *a priori* Model Predictions
@@ -251,19 +252,21 @@ Run with the following YAML config file `atac20Benchmark.yaml`. Note that globs,
 
   Note that default values should generally suffice given the adaptive process and observation models, but base-level uncertainty for each can be tuned if one source is deemed consistently more reliable than the other.
 
+  An informal summary of these parameters' effects is as follows:
+
   - Increasing ``processParams.minQ``:
 
     .. math::
 
-      \textsf{Consenrich attributes more base-level uncertainty to propagated predictions } \rightarrow \textsf{ data favored in estimation}
+      \textsf{Greater base-level uncertainty assigned to propagated predictions } \rightarrow \textsf{ data favored in estimation}
 
-    - In other words, *restrict influence of the a priori model for signal/variance propagation greater confidence in the data*
+    - In other words, *restrict influence of the a priori model for signal/variance propagation to accommodate greater confidence in the data*
 
   - Increasing ``observationParams.minR``:
 
     .. math::
 
-      \textsf{Consenrich attributes more base-level uncertainty to the data } \rightarrow \textsf{ propagated predictions favored in estimation}
+      \textsf{Greater base-level uncertainty assigned to data } \rightarrow \textsf{ propagated predictions favored in estimation}
 
     - In other words, *restrict reliance on data to accommodate greater confidence in the a priori model for signal/variance propagation*
 
@@ -475,9 +478,9 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
 
   # Broad marks + sparse data:
   # consider a larger, more symmetric template and merging window
+  matchingParams.templateNames: [sym4]
   matchingParams.minMatchLengthBP: 500
   matchingParams.mergeGapBP: 250
-  matchingParams.templateNames: [sym4]
   matchingParams.alpha: 0.01
 
 
@@ -583,11 +586,11 @@ We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
   # Guidance: 'Noise level approximation for heterochromatic/repressive targets'
   observationParams.useALV: true
 
-  # Broad marks
-  matchingParams.alpha: 0.01
-  matchingParams.mergeGapBP: 125
-  matchingParams.minMatchLengthBP: 500
+  # Broad marks + sparse data
   matchingParams.templateNames: [sym4]
+  matchingParams.minMatchLengthBP: 500
+  matchingParams.mergeGapBP: 250
+  matchingParams.alpha: 0.01
 
 Run Consenrich
 ''''''''''''''''''''
