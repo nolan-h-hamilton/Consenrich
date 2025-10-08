@@ -126,7 +126,7 @@ To detect regions of 'structured enrichment', we run an approach akin to `matche
   \boldsymbol{\xi} = \{\xi_{[t]}\}_{t=1}^{t=T}.
 
 
-We define the *response sequence* as the cross-correlation
+We define the *response sequence* as the cross-correlation,
 
 .. math::
 
@@ -147,7 +147,7 @@ At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the
 
 In the following browser snapshot, we sweep several key matching parameters.
 
-As opposed to the configs in :ref:`additional-examples`, here, we set ``matchingParams.merge: false`` to clearly illustrate contrasting results. Note that the matching routine requires only seconds of runtime, and it is straightforward to run multiple configurations and compare results for a given use-case.
+As opposed to the configs in :ref:`additional-examples`, here, we set ``matchingParams.merge: false`` to clearly illustrate contrasting results.
 
 .. image:: ../images/structuredPeaks.png
   :alt: Structured Peaks
@@ -165,7 +165,7 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
 
   - Signifcance is measured relative to an approximated null distribution of response values.
   - Tunes precision vs. recall -- the stringency of match detection.
-  - Smaller values :math:`\rightarrow` fewer but higher-confidence matches; larger values :math:`\rightarrow` more but lower-confidence matches.
+  - Smaller values :math:`\rightarrow` fewer but higher-confidence matches; larger values :math:`\rightarrow` more lower-confidence matches.
 
 - ``matchingParams.minMatchLengthBP`` (Feature Width Threshold)
 
@@ -180,27 +180,27 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
 
 **Suggested Defaults**
 
-These are not exhaustive but may provide a reasonable starting point for common use cases. See also :ref:`additional-examples` for practical demonstrations.
+These defaults are not encompassing but provide a reasonable starting point for common use cases.
+
+There's `no free lunch <https://doi.org/10.1109/4235.585893>`_, and users with specific preferences can consider adjusting the parameters discussed above. Fortunately, the matching algorithm runs quickly, and it is convenient to test multiple configurations and compare results when tuning for a particular use-case.
 
 - Narrow peak calls:
 
 .. code-block:: yaml
 
   matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.alpha: 0.05
   matchingParams.minMatchLengthBP: 250
   matchingParams.mergeGapBP: 50
+  matchingParams.alpha: 0.05
 
 - Broad peak calls:
 
 .. code-block:: yaml
 
   matchingParams.templateNames: [sym4]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.alpha: 0.01
   matchingParams.minMatchLengthBP: 500
-  matchingParams.mergeGapBP: 125
+  matchingParams.mergeGapBP: 250
+  matchingParams.alpha: 0.01
 
 
 
