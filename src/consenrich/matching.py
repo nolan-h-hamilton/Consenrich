@@ -23,6 +23,141 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def matchExistingBedGraph(
+    bedGraphFile: str,
+    templateName: str,
+    cascadeLevel: int,
+    alpha: float = 0.05,
+    minMatchLengthBP: Optional[int] = 250,
+    iters: int = 25_000,
+    minSignalAtMaxima: Optional[float | str] = "q:0.75",
+    maxNumMatches: Optional[int] = 100_000,
+    recenterAtPointSource: bool = True,
+    useScalingFunction: bool = True,
+    excludeRegionsBedFile: Optional[str] = None,
+    mergeGapBP: int = 50,
+    merge: bool = True,
+    weights: Optional[npt.NDArray[np.float64]] = None,
+) -> str:
+    r"""Match discrete templates in a bedGraph file of Consenrich estimates
+
+    This function is a simple wrapper. See :func:`consenrich.matching.matchWavelet` for details on parameters.
+
+    :param bedGraphFile: A bedGraph file with 'consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
+    :type bedGraphFile: str
+
+    :seealso: :func:`consenrich.matching.matchWavelet`, :class:`consenrich.core.matchingParams`, :ref:`matching`
+    """
+    if not os.path.isfile(bedGraphFile):
+        raise FileNotFoundError(f"Couldn't access {bedGraphFile}")
+
+    cols = ["chromosome", "start", "end", "value"]
+    bedGraphDF = pd.read_csv(
+        bedGraphFile,
+        sep="\t",
+        header=None,
+        names=cols,
+        dtype={
+            "chromosome": str,
+            "start": np.uint32,
+            "end": np.uint32,
+            "value": np.float64,
+        },
+    )
+
+    outPaths: List[str] = []
+    outPathsMerged: List[str] = []
+    outPathAll: Optional[str] = None
+    outPathMergedAll: Optional[str] = None
+
+    for chrom_ in sorted(bedGraphDF["chromosome"].unique()):
+        df_ = bedGraphDF[bedGraphDF["chromosome"] == chrom_]
+        if len(df_) < 5:
+            logger.info(f"Skipping {chrom_}: fewer than 5 rows.")
+            continue
+
+        try:
+            df__ = matchWavelet(
+                chrom_,
+                df_["start"].to_numpy(),
+                df_["value"].to_numpy(),
+                [templateName],
+                [cascadeLevel],
+                iters,
+                alpha,
+                minMatchLengthBP,
+                maxNumMatches,
+                recenterAtPointSource=recenterAtPointSource,
+                useScalingFunction=useScalingFunction,
+                excludeRegionsBedFile=excludeRegionsBedFile,
+                weights=weights,
+                minSignalAtMaxima=minSignalAtMaxima,
+            )
+        except Exception as ex:
+            logger.info(f"Skipping {chrom_} due to error in matchWavelet: {ex}")
+            continue
+
+        if df__.empty:
+            logger.info(f"No matches detected on {chrom_}.")
+            continue
+
+        perChromOut = bedGraphFile.replace(
+            ".bedGraph",
+            f".{chrom_}.matched.{templateName}_lvl{cascadeLevel}.narrowPeak",
+        )
+        df__.to_csv(perChromOut, sep="\t", index=False, header=False)
+        logger.info(f"Matches written to {perChromOut}")
+        outPaths.append(perChromOut)
+
+        if merge:
+            mergedPath = mergeMatches(perChromOut, mergeGapBP=mergeGapBP)
+            if mergedPath is not None:
+                logger.info(f"Merged matches written to {mergedPath}")
+                outPathsMerged.append(mergedPath)
+
+    if len(outPaths) == 0 and len(outPathsMerged) == 0:
+        raise ValueError("No matches were detected.")
+
+    if len(outPaths) > 0:
+        outPathAll = (
+            f"{bedGraphFile.replace('.bedGraph', '')}"
+            f".allChroms.matched.{templateName}_lvl{cascadeLevel}.narrowPeak"
+        )
+        with open(outPathAll, "w") as outF:
+            for path_ in outPaths:
+                if os.path.isfile(path_):
+                    with open(path_, "r") as inF:
+                        for line in inF:
+                            outF.write(line)
+        logger.info(f"All unmerged matches written to {outPathAll}")
+
+    if merge and len(outPathsMerged) > 0:
+        outPathMergedAll = (
+            f"{bedGraphFile.replace('.bedGraph', '')}"
+            f".allChroms.matched.{templateName}_lvl{cascadeLevel}.mergedMatches.narrowPeak"
+        )
+        with open(outPathMergedAll, "w") as outF:
+            for path in outPathsMerged:
+                if os.path.isfile(path):
+                    with open(path, "r") as inF:
+                        for line in inF:
+                            outF.write(line)
+        logger.info(f"All merged matches written to {outPathMergedAll}")
+
+    for path_ in outPaths + outPathsMerged:
+        try:
+            if os.path.isfile(path_):
+                os.remove(path_)
+        except Exception:
+            pass
+
+    if merge and outPathMergedAll:
+        return outPathMergedAll
+    if outPathAll:
+        return outPathAll
+    logger.warning("No matches were detected")
+
+
 def matchWavelet(
     chromosome: str,
     intervals: npt.NDArray[int],
