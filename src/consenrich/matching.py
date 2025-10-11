@@ -38,18 +38,30 @@ def matchExistingBedGraph(
     mergeGapBP: int = 50,
     merge: bool = True,
     weights: Optional[npt.NDArray[np.float64]] = None,
-) -> str:
+) -> Optional[str]:
     r"""Match discrete templates in a bedGraph file of Consenrich estimates
 
     This function is a simple wrapper. See :func:`consenrich.matching.matchWavelet` for details on parameters.
 
-    :param bedGraphFile: A bedGraph file with 'consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
+    :param bedGraphFile: A bedGraph file with 'consensus' signal estimates derived from multiple samples, e.g., from Consenrich. The suffix '.bedGraph' is required.
     :type bedGraphFile: str
 
     :seealso: :func:`consenrich.matching.matchWavelet`, :class:`consenrich.core.matchingParams`, :ref:`matching`
     """
     if not os.path.isfile(bedGraphFile):
         raise FileNotFoundError(f"Couldn't access {bedGraphFile}")
+    if not bedGraphFile.endswith(".bedGraph"):
+        raise ValueError(
+            f"Please use a suffix '.bedGraph' for `bedGraphFile`, got: {bedGraphFile}"
+        )
+
+    allowedTemplates = [
+        x for x in pw.wavelist(kind="discrete") if "bio" not in x
+    ]
+    if templateName not in allowedTemplates:
+        raise ValueError(
+            f"Unknown wavelet template: {templateName}\nAvailable templates: {allowedTemplates}"
+        )
 
     cols = ["chromosome", "start", "end", "value"]
     bedGraphDF = pd.read_csv(
@@ -155,7 +167,8 @@ def matchExistingBedGraph(
         return outPathMergedAll
     if outPathAll:
         return outPathAll
-    logger.warning("No matches were detected")
+    logger.warning("No matches were detected...returning `None`")
+    return None
 
 
 def matchWavelet(
@@ -165,8 +178,8 @@ def matchWavelet(
     templateNames: List[str],
     cascadeLevels: List[int],
     iters: int,
-    alpha: float,
-    minMatchLengthBP: Optional[int],
+    alpha: float = 0.05,
+    minMatchLengthBP: Optional[int] = 250,
     maxNumMatches: Optional[int] = 100_000,
     minSignalAtMaxima: Optional[float | str] = "q:0.75",
     randSeed: int = 42,
@@ -177,48 +190,43 @@ def matchWavelet(
 ) -> pd.DataFrame:
     r"""Detect structured peaks by cross-correlating Consenrich tracks with wavelet- or scaling-function templates.
 
-        **Key Parameters**
+    See :ref:`matching` for an overview of the approach.
 
-        - ``alpha`` defines the (:math:`1 - \alpha`)-quantile threshold of the block-maxima null on the response sequence.
-        - ``minSignalAtMaxima`` can be an absolute value (float) or string ``"q:<quantileValue>"`` to require the asinh-transformed signal at response-maxima to exceed the given quantile of non-zero values (default ``q:0.75``).
-        - ``minMatchLengthBP`` (Optional) a window size within which relative maxima in the response sequence must be greater than others to qualify as matches.
+    :param chromosome: Chromosome name for the input intervals and values.
+    :type chromosome: str
+    :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
+    :type values: npt.NDArray[np.float64]
+    :param templateNames: A list of str values -- wavelet bases used for matching, e.g., `[haar, db2, sym4]`
+    :type templateNames: List[str]
+    :param cascadeLevels: A list of int values -- the number of cascade iterations used for approximating
+        the scaling/wavelet functions.
+    :type cascadeLevels: List[int]
+    :param iters: Number of random blocks to sample in the response sequence while building
+        an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
+    :type iters: int
+    :param alpha: Primary significance threshold on detected matches. Specifically, the
+        :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
+        distribution is built from cross-correlation values over randomly sampled blocks.
+    :type alpha: float
+    :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
+        the signal-template convolution must be greater in value than others to qualify as matches.
+        *Set to a negative value to disable this filter*.
+    :type minMatchLengthBP: int
+    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
+        at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
+        If a `float` value is provided, the minimum signal value must be greater than this (absolute) value. *Set to a
+        negative value to disable the threshold*.
+        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
+        threshold is then set to the corresponding quantile of the non-zero signal estimates.
+        Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
+    :type minSignalAtMaxima: Optional[str | float]
+    :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
+        If False, use (only) the wavelet function.
+    :type useScalingFunction: bool
+    :param excludeRegionsBedFile: A BED file with regions to exclude from matching
+    :type excludeRegionsBedFile: Optional[str]
 
-        See :ref:`matching` for an overview of the approach.
-
-        :param chromosome: Chromosome name for the input intervals and values.
-        :type chromosome: str
-        :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
-        :type values: npt.NDArray[np.float64]
-        :param templateNames: A list of wavelet bases used for matching, e.g., `[haar, db2, sym4]`
-        :type templateNames: List[str]
-        :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating
-            the scaling/wavelet functions.
-        :type cascadeLevels: List[int]
-        :param iters: Number of random blocks to sample in the response sequence while building
-            an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
-        :type iters: int
-        :param alpha: Primary significance threshold on detected matches. Specifically, the
-            :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
-            distribution is built from cross-correlation values over randomly sampled blocks.
-        :type alpha: float
-        :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
-            the signal-template convolution must be greater in value than others to qualify as matches
-            (...in addition to the other criteria.)
-        :type minMatchLengthBP: int
-        :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
-            at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
-            If a `float` value is provided, the minimum signal value must be greater than this (absolute) value.
-            If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
-            threshold is then set to the corresponding quantile of the non-zero signal estimates.
-            Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
-        :type minSignalAtMaxima: Optional[str | float]
-        :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
-            If False, use (only) the wavelet function.
-        :type useScalingFunction: bool
-        :param excludeRegionsBedFile: A BED file with regions to exclude from matching
-        :type excludeRegionsBedFile: Optional[str]
-
-        :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
+    :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     """
 
     if len(intervals) < 5:
@@ -227,6 +235,8 @@ def matchWavelet(
         raise ValueError("`values` must have the same length as `intervals`")
     intervalLengthBP = intervals[1] - intervals[0]
     if not np.all(np.abs(np.diff(intervals)) == intervalLengthBP):
+        # FFR: don't change this exception message without updating tests
+        # --'spaced' is matched in tests
         raise ValueError("`intervals` must be evenly spaced.")
 
     randSeed_: int = int(randSeed)
@@ -287,7 +297,7 @@ def matchWavelet(
             )
 
             minMatchLengthBP = minMatchLengthBPCopy
-            if minMatchLengthBP is None:
+            if minMatchLengthBP is None or minMatchLengthBP < 1:
                 minMatchLengthBP = len(template) * intervalLengthBP
             if minMatchLengthBP % intervalLengthBP != 0:
                 minMatchLengthBP += intervalLengthBP - (
@@ -332,13 +342,26 @@ def matchWavelet(
 
             responseThreshold = float(1e6)
             arsinhSignalThreshold = float(1e6)
+            try:
+                # we use 'interpolated_inverted_cdf' in a few spots
+                # --- making sure it's supported here, at its first use
+                responseThreshold = np.quantile(
+                    blockMaxima, 1 - alpha, method="interpolated_inverted_cdf"
+                )
+            except (TypeError, ValueError, KeyError) as err_:
+                logger.warning(
+                    f"\nError computing response threshold  with alpha={alpha}:\n{err_}\n"
+                    f"\nIs `blockMaxima` empty?"
+                    f"\nIs NumPy older than 1.22.0 (~May 2022~)?"
+                    f"\nIs `alpha` in (0,1)?\n"
+                )
+                raise
 
-            responseThreshold = np.quantile(
-                blockMaxima, 1 - alpha, method="interpolated_inverted_cdf"
-            )
-
-            if minSignalAtMaxima is None:
-                arsinhSignalThreshold = -np.inf
+            if minSignalAtMaxima is None or (
+                isinstance(minSignalAtMaxima, (float, int))
+                and minSignalAtMaxima < 0.0
+            ):
+                arsinhSignalThreshold = -float(1e6)
             elif isinstance(minSignalAtMaxima, str):
                 if minSignalAtMaxima.startswith("q:"):
                     qVal = float(minSignalAtMaxima.split("q:")[-1])
@@ -403,8 +426,8 @@ def matchWavelet(
             logger.info(
                 f"\n\tDetected {len(relativeMaximaIndices)} matches (alpha={alpha}, useScalingFunction={useScalingFunction}): {templateName}: level={cascadeLevel}.\n"
                 f"\tResponse threshold: {responseThreshold:.3f}, Signal Threshold: {arsinhSignalThreshold:.3f}\n"
-                f"\t KS_Statistic[pVals, uniformCDF]: {testKS:.5f}\n"
-                f"\n\n{textNullCDF(ecdfSFCheckVals)}\n"
+                f"\t~KS_Statistic~ [ePVals, uniformCDF]: {testKS:.4f}\n"
+                f"\n\n{textNullCDF(ecdfSFCheckVals)}\n\n" # lil text-plot histogram of approx. null CDF
             )
 
             # starts
