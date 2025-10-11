@@ -87,7 +87,7 @@ The core module implements the main aspects of Consenrich and defines key parame
 
 
 
-(*Experimental*). Detect genomic regions showing both **enrichment** and **non-random structure**.
+(*Experimental*). Detect genomic regions showing both **enrichment** and **non-random structure**
 
 
 - Take a set of successive genomic intervals :math:`i=1,2,\ldots,n`, each spanning :math:`L` base pairs.
@@ -100,7 +100,7 @@ The core module implements the main aspects of Consenrich and defines key parame
 
 Note, we use the sequence of Consenrich signal estimates to define :math:`\widetilde{\mathbf{x}}`.
 
-**Aim**: Determine a set of peak-like genomic regions where the consensus signal track :math:`\widetilde{\mathbf{x}}` exhibits both:
+**Aim**: Determine a set of 'structured' peak-like genomic regions where the consensus signal track :math:`\widetilde{\mathbf{x}}` exhibits both:
 
 #. *Enrichment* (large relative amplitude)
 #. *Non-random structure* (polynomial or oscillatory trends)
@@ -113,28 +113,28 @@ Note, we use the sequence of Consenrich signal estimates to define :math:`\widet
 
 In the case of Consenrich, that :math:`\widetilde{\mathbf{x}}` is reinforced by multiple samples and accounts for multiple sources of uncertainty is particularly advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features. We need not rely exclusively on least-squares fits to noisy data in small sample sizes.
 
-Further, we can utilize an encompassing discrete wavelet-based representation of structure that computes *genome-wide results on the scale of seconds* and can be easily tuned to target generic, peak-like patterns or more complex structures.
-
 Algorithm Overview
 """"""""""""""""""""""
 
-To detect regions of 'structured enrichment', we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_, with
-*templates* derived from discrete samplings of scaling/wavelet functions:
+To detect structured peaks, we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_, with
+*templates* derived from discrete wavelets.
 
 .. math::
 
   \boldsymbol{\xi} = \{\xi_{[t]}\}_{t=1}^{t=T}.
 
 
-We define the *response sequence* as the cross-correlation,
+Define the **response sequence** as the cross-correlation between the consensus signal :math:`\widetilde{\mathbf{x}}` and the template :math:`\boldsymbol{\xi}`:
 
 .. math::
 
   \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi}
 
-Intuitively, where :math:`\mathcal{R}_{[i]}` is large, there is greater evidence that the signal :math:`\widetilde{\mathbf{x}}` is enriched and exhibits structure similar to the template :math:`\boldsymbol{\xi}`.
+(Equivalently, this is the convolution of :math:`\widetilde{\mathbf{x}}` with the time-reversed template :math:`\boldsymbol{\xi}'`, where :math:`\xi'_{[t]} = \xi_{[T-t+1]}`.)
 
-At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* is declared if the following are true:
+Where :math:`\mathcal{R}_{[i]}` is large, there is greater evidence that the signal :math:`\widetilde{\mathbf{x}}` is enriched and exhibits structure similar to the template :math:`\boldsymbol{\xi}`.
+
+At genomic interval :math:`i \in \{1, \ldots, n\}`, a *match* or *structured peak* is declared if the following are true:
 
 - :math:`\mathcal{R}_{[i]}` is a relative maximum within a window defined by the template length :math:`T`.
 - :math:`\mathcal{R}_{[i]}` exceeds a significance cutoff determined by the :math:`1 - \alpha` quantile of an approximated null distribution (See :func:`cconsenrich.csampleBlockStats`).
@@ -157,7 +157,7 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
 
 - ``matchingParams.templateNames``
 
-  - Narrow, condensed features :math:`\rightarrow` short wavelet-based templates (e.g., ``haar``, ``db2``).
+  - Narrow, condensed features :math:`\rightarrow` shorter wavelet-based templates (e.g., ``haar``, ``db2``).
   - Broader features :math:`\rightarrow` longer, symmetric wavelet-based templates (e.g., ``sym4``).
   - Oscillatory features :math:`\rightarrow` longer, higher-order wavelets (e.g., ``db8``, ``dmey``).
 
@@ -170,7 +170,7 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
 - ``matchingParams.minMatchLengthBP`` (Feature Width Threshold)
 
   - Enforces a minimum feature width (base pairs)
-  - Increase to prevent matches with features that are more narrow than the underlying pattern of interest.
+  - Increase this parameter to reduce matches with features that are narrower than the underlying pattern of interest.
 
 - ``matchingParams.minSignalAtMaxima`` (Signal Threshold)
 
@@ -178,13 +178,9 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
   - If ``None``, defaults to the median of nonzero signal values. This threshold is applied after stabilizing values with an arsinh transform (i.e., :math:`\sinh^{-1}(x)`).
 
 
-**Suggested Defaults**
+**Generic Defaults**
 
 These defaults are not encompassing but provide a reasonable starting point for common use cases.
-
-There's `no free lunch <https://doi.org/10.1109/4235.585893>`_, and users with specific preferences can consider adjusting the parameters discussed above. Fortunately, the matching algorithm runs quickly, and it is convenient to test multiple configurations and compare results when tuning for a particular use-case.
-
-- Narrow peak calls:
 
 .. code-block:: yaml
 
@@ -193,15 +189,17 @@ There's `no free lunch <https://doi.org/10.1109/4235.585893>`_, and users with s
   matchingParams.mergeGapBP: 50
   matchingParams.alpha: 0.05
 
-- Broad peak calls:
 
-.. code-block:: yaml
+The matching algorithm can be run directly at the command-line on existing bedGraph files generated by Consenrich, e.g.,
 
-  matchingParams.templateNames: [sym4]
-  matchingParams.minMatchLengthBP: 500
-  matchingParams.mergeGapBP: 250
-  matchingParams.alpha: 0.01
+.. code-block:: console
 
+  consenrich --match-bedGraph consenrichOutput_demoHistoneChIPSeq_state.bedGraph\
+  --match-alpha 0.01\
+  --match-template sym4\
+  --match-level 2
+
+See `consenrich -h` for more details.
 
 
 .. autofunction:: consenrich.matching.matchWavelet

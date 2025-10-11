@@ -319,8 +319,13 @@ class matchingParams(NamedTuple):
         :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
         distribution is built from cross-correlation values over randomly sampled blocks.
     :type alpha: float
-    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`.
-        If None, the median non-zero signal estimate is used.
+    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
+        at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
+        If a `float` value is provided, the minimum signal value must be greater than this (absolute) value.
+        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
+        threshold is then set to the corresponding quantile of the non-zero signal estimates.
+        Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
+    :type minSignalAtMaxima: Optional[str | float]
     :type minSignalAtMaxima: float
     :param merge: Whether to merge overlapping matches within `mergeGapBP` base pairs. A separate narrowPeak file will be created for the merged matches -- the original is preserved too.
     :type merge: bool
@@ -340,7 +345,7 @@ class matchingParams(NamedTuple):
     alpha: float
     minMatchLengthBP: Optional[int]
     maxNumMatches: Optional[int]
-    minSignalAtMaxima: Optional[float]
+    minSignalAtMaxima: Optional[str | float] = "q:0.75"
     merge: bool = False
     mergeGapBP: int = 25
     useScalingFunction: bool = True
