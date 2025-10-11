@@ -307,36 +307,41 @@ class countingParams(NamedTuple):
 
 
 class matchingParams(NamedTuple):
-    r"""Parameters related to the (experimental) pattern matching routine packaged with this software.
+    r"""Parameters related to the matching algorithm packaged with this software.
 
-    :param templateNames: A list of wavelet bases used for matching, e.g., `[haar, db2, sym4]`
+    See :ref:`matching` for details.
+
+    :param templateNames: A list of str values -- wavelet bases used for matching, e.g., `[haar, db2, sym4]`
     :type templateNames: List[str]
-    :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating the scaling/wavelet functions.
+    :param cascadeLevels: A list of int values -- the number of cascade iterations used for approximating
+        the scaling/wavelet functions.
     :type cascadeLevels: List[int]
-    :param iters: Number of random blocks in the cross correlation sequence to sample when building the null. Expected block length is equal to template length.
+    :param iters: Number of random blocks to sample in the response sequence while building
+        an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
     :type iters: int
     :param alpha: Primary significance threshold on detected matches. Specifically, the
         :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
         distribution is built from cross-correlation values over randomly sampled blocks.
     :type alpha: float
+    :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
+        the signal-template convolution must be greater in value than others to qualify as matches.
+        *Set to a negative value to disable this filter*.
+    :type minMatchLengthBP: int
     :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
         at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
-        If a `float` value is provided, the minimum signal value must be greater than this (absolute) value.
+        If a `float` value is provided, the minimum signal value must be greater than this (absolute) value. *Set to a
+        negative value to disable the threshold*.
         If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
         threshold is then set to the corresponding quantile of the non-zero signal estimates.
         Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
     :type minSignalAtMaxima: Optional[str | float]
-    :type minSignalAtMaxima: float
-    :param merge: Whether to merge overlapping matches within `mergeGapBP` base pairs. A separate narrowPeak file will be created for the merged matches -- the original is preserved too.
-    :type merge: bool
-    :param mergeGapBP: If `merge` is True, this value sets the maximum bp-gap allowed between distinct matches (merged otherwise)
-    :type mergeGapBP: int
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
-      If False, use (only) the wavelet function.
+        If False, use (only) the wavelet function.
     :type useScalingFunction: bool
-    :param excludeRegionsBedFile: A BED file with regions to exclude while building the empirical null distribution.
+    :param excludeRegionsBedFile: A BED file with regions to exclude from matching
+    :type excludeRegionsBedFile: Optional[str]
 
-    See :func:`consenrich.matching.matchWavelet` for implementation.
+    :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     """
 
     templateNames: List[str]
@@ -1104,6 +1109,9 @@ def getMuncTrack(
     ``useConstantNoiseLevel`` is True, a constant track set to the global mean is used.
     When a ``sparseMap`` is provided, local values are aggregated over nearby 'sparse'
     regions before mixing with the global component.
+
+    For heterochromatic or repressive marks (H3K9me3, H3K27me3, MNase-seq, etc.), consider setting
+    `useALV=True` to prevent inflated sample-level noise estimates.
 
     :param chromosome: Tracks are approximated for this chromosome.
     :type chromosome: str
