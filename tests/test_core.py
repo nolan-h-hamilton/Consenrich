@@ -1,9 +1,22 @@
+# -*- coding: utf-8 -*-
+
+# the name of this file is unfortunately misleading --
+# 'core' as in 'central' or 'basic', not the literal
+# `consenrich.core` module
+
+import os
+import tempfile
+from pathlib import Path
+
+import pandas as pd
 import pytest
 import numpy as np
 import scipy.stats as stats
+import scipy.signal as spySig # renamed to avoid conflict with any `signal` variables
 
 import consenrich.core as core
 import consenrich.cconsenrich as cconsenrich
+import consenrich.matching as matching
 
 
 @pytest.mark.correctness
@@ -198,8 +211,72 @@ def testFragLen(threshold: float = 25, expected: float = 220):
         fragLens.append(fragLen)
     fragLens.sort()
 
-    assert stats.iqr(fragLens) < 2*threshold
-    assert (
-        abs(np.median(fragLens) - expected)
-        < threshold
-    )
+    assert stats.iqr(fragLens) < 2 * threshold
+    assert abs(np.median(fragLens) - expected) < threshold
+
+
+@pytest.mark.matching
+def testmatchWaveletUnevenIntervals():
+    np.random.seed(42)
+    intervals = np.random.randint(0, 1000, size=100, dtype=int)
+    intervals = np.unique(intervals)
+    intervals.sort()
+    values = np.random.poisson(lam=5, size=len(intervals)).astype(float)
+    with pytest.raises(ValueError, match="spaced"):
+        matching.matchWavelet(
+            chromosome="chr1",
+            intervals=intervals,
+            values=values,
+            templateNames=["haar"],
+            cascadeLevels=[1],
+            iters=1000,
+        )
+
+
+@pytest.mark.matching
+def testMatchExistingBedGraph():
+
+    np.random.seed(42)
+    with tempfile.TemporaryDirectory() as tempFolder:
+        bedGraphPath = Path(tempFolder) / "toyFile.bedGraph"
+        fakeVals = []
+        for i in range(1000):
+            if (i % 100) <= 10:
+                # add in about ~10~ peak-like regions
+                fakeVals.append(max(np.random.poisson(lam=10), 5))
+            else:
+                # add in background poisson(1) for BG
+                fakeVals.append(np.random.poisson(lam=1))
+
+        fakeVals = np.array(fakeVals).astype(float)
+        dataFrame = pd.DataFrame(
+            {
+                "chromosome": ["chr2"] * 1000,
+                "start": list(range(0, 10_000, 10)),
+                "end": list(range(10, 10_010, 10)),
+                "value": spySig.fftconvolve(
+                    fakeVals,
+                    np.ones(5) / 5, # smooth out over ~50bp~
+                    mode="same",
+                ),
+            }
+        )
+        dataFrame.to_csv(bedGraphPath, sep="\t", header=False, index=False)
+        outputPath = matching.matchExistingBedGraph(
+            bedGraphFile=str(bedGraphPath),
+            templateName="haar",
+            cascadeLevel=2,
+            alpha=0.10,
+            merge=False,
+            minSignalAtMaxima=-1,
+            minMatchLengthBP=50,
+        )
+        assert outputPath is not None
+        assert os.path.isfile(outputPath)
+        with open(outputPath, "r") as fileHandle:
+            lineStrings = fileHandle.readlines()
+
+        # Not really the point of this test but
+        # makes sure we're somewhat calibrated
+        assert len(lineStrings) <= 20 # more than 20 might indicate high FPR
+        assert len(lineStrings) >= 5  # fewer than 5 might indicate low power
