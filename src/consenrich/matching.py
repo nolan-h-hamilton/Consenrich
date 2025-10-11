@@ -33,11 +33,12 @@ def matchWavelet(
     alpha: float,
     minMatchLengthBP: Optional[int],
     maxNumMatches: Optional[int] = 100_000,
-    minSignalAtMaxima: Optional[float] = None,
+    minSignalAtMaxima: Optional[float | str] = "q:0.75",
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
+    weights: Optional[npt.NDArray[np.float64]] = None,
 ) -> pd.DataFrame:
     r"""Match discrete wavelet-based templates in the sequence of Consenrich estimates
 
@@ -59,9 +60,13 @@ def matchWavelet(
         the signal-template convolution must be greater in value than others to qualify as matches
         (...in addition to the other criteria.)
     :type minMatchLengthBP: int
-    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`.
-        If None, the median non-zero signal estimate (log-scale) is used.
-    :type minSignalAtMaxima: float
+    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
+        at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
+        If a `float` value is provided, the minimum signal value must be greater than this (absolute) value.
+        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
+        threshold is then set to the corresponding quantile of the non-zero signal estimates.
+        Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
+    :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
       If False, use (only) the wavelet function.
     :type useScalingFunction: bool
@@ -95,7 +100,12 @@ def matchWavelet(
     matchDF = pd.DataFrame(columns=cols)
     minMatchLengthBPCopy: Optional[int] = minMatchLengthBP
     cascadeLevels = sorted(list(set(cascadeLevels)))
-    asinhValues = np.asinh(values)
+    if weights is not None and len(weights) == len(values):
+        values = values * weights
+    asinhValues = np.asinh(values, dtype=np.float32)
+    asinhNonZeroValues = asinhValues[asinhValues > 0]
+    iters = max(iters, 1000)
+    defQuantile: float = 0.75
     for l_, cascadeLevel in enumerate(cascadeLevels):
         for t_, templateName in enumerate(templateNames):
             try:
@@ -134,7 +144,6 @@ def matchWavelet(
             minMatchLengthBP = minMatchLengthBPCopy
             if minMatchLengthBP is None:
                 minMatchLengthBP = len(template) * intervalLengthBP
-            # Ensure minMatchLengthBP is a multiple of intervalLengthBP
             if minMatchLengthBP % intervalLengthBP != 0:
                 minMatchLengthBP += intervalLengthBP - (
                     minMatchLengthBP % intervalLengthBP
@@ -161,40 +170,57 @@ def matchWavelet(
                     intervals.astype(np.uint32),
                     responseSequence,
                     relativeMaximaWindow,
-                    iters,
+                    iters * 2,
                     randSeed_,
                     excludeMask.astype(np.uint8),
                 ),
                 dtype=float,
             )
+            blockMaximaCheck = blockMaxima.copy()[iters:]
+            blockMaxima = blockMaxima[:iters]
             blockMaxima = blockMaxima[
-                (blockMaxima > max(0,np.quantile(blockMaxima, 0.005)))
+                (blockMaxima > np.quantile(blockMaxima, 0.005))
                 & (blockMaxima < np.quantile(blockMaxima, 0.995))
             ]
 
-            ecdfBlockMaximaSF = (
-                stats.ecdf(blockMaxima)
-                .sf
-            )
+            ecdfBlockMaximaSF = stats.ecdf(blockMaxima).sf
 
             responseThreshold = float(1e6)
             arsinhSignalThreshold = float(1e6)
-            try:
-                responseThreshold = np.quantile(
-                    blockMaxima, 1 - alpha, method="interpolated_inverted_cdf"
-                )
-            except Exception as ex:
-                logger.info(
-                    f"Exception due to quantile estimate with 'interpolated_inverted_cdf':{ex}\n"
-                    f"Using default instead...."
-                )
-                responseThreshold = np.quantile(blockMaxima, 1 - alpha)
 
+            responseThreshold = np.quantile(
+                blockMaxima, 1 - alpha, method="interpolated_inverted_cdf"
+            )
 
             if minSignalAtMaxima is None:
-                arsinhSignalThreshold = np.median(asinhValues[asinhValues > 0])
-            else:
-                arsinhSignalThreshold = float(np.asinh(minSignalAtMaxima))
+                arsinhSignalThreshold = -np.inf
+            elif isinstance(minSignalAtMaxima, str):
+                if minSignalAtMaxima.startswith("q:"):
+                    qVal = float(minSignalAtMaxima.split("q:")[-1])
+                    if qVal < 0 or qVal > 1:
+                        raise ValueError(f"Quantile {qVal} is out of range")
+                    arsinhSignalThreshold = float(
+                        np.quantile(
+                            asinhNonZeroValues,
+                            qVal,
+                            method="interpolated_inverted_cdf",
+                        )
+                    )
+
+                else:
+                    logger.info(
+                        f"Unrecognized string format for minSignalAtMaxima: {minSignalAtMaxima}\n"
+                        f"Using default instead...."
+                    )
+                    arsinhSignalThreshold = float(
+                        np.quantile(
+                            asinhNonZeroValues,
+                            defQuantile,
+                            method="interpolated_inverted_cdf",
+                        )
+                    )
+            elif isinstance(minSignalAtMaxima, (float, int)):
+                arsinhSignalThreshold = np.asinh(float(minSignalAtMaxima))
 
             relativeMaximaIndices = signal.argrelmax(
                 responseSequence, order=relativeMaximaWindow
@@ -205,6 +231,12 @@ def matchWavelet(
                 & (asinhValues[relativeMaximaIndices] > arsinhSignalThreshold)
             ]
 
+            if len(relativeMaximaIndices) == 0:
+                logger.info(
+                    f"no matches were detected using for template {templateName} at cascade level {cascadeLevel}...skipping matching"
+                )
+                continue
+
             if maxNumMatches is not None:
                 if len(relativeMaximaIndices) > maxNumMatches:
                     # take the greatest maxNumMatches (by 'signal')
@@ -214,8 +246,11 @@ def matchWavelet(
                         ]
                     ]
 
-            testKS, pKS = stats.kstest(
-                ecdfBlockMaximaSF.evaluate(blockMaxima),
+            ecdfSFCheckVals: npt.NDArray[np.float64] = (
+                ecdfBlockMaximaSF.evaluate(blockMaximaCheck)
+            )
+            testKS, _ = stats.kstest(
+                ecdfSFCheckVals,
                 stats.uniform.cdf,
                 alternative="two-sided",
             )
@@ -224,13 +259,8 @@ def matchWavelet(
                 f"\n\tDetected {len(relativeMaximaIndices)} matches (alpha={alpha}, useScalingFunction={useScalingFunction}): {templateName}: level={cascadeLevel}.\n"
                 f"\tResponse threshold: {responseThreshold:.3f}, Signal Threshold: {arsinhSignalThreshold:.3f}\n"
                 f"\t KS_Statistic[pVals, uniformCDF]: {testKS:.5f}\n"
+                f"\n\n{textNullCDF(ecdfSFCheckVals)}\n"
             )
-
-            if len(relativeMaximaIndices) == 0:
-                logger.info(
-                    f"no matches were detected using for template {templateName} at cascade level {cascadeLevel}...skipping narrowPeak output"
-                )
-                continue
 
             # starts
             startsIdx = np.maximum(
@@ -252,7 +282,9 @@ def matchWavelet(
             pointSources = (intervals[pointSourcesIdx]) + max(
                 1, intervalLengthBP // 2
             )
-            if recenterAtPointSource:  # recenter at point source (signal maximum)
+            if (
+                recenterAtPointSource
+            ):  # recenter at point source (signal maximum)
                 starts = pointSources - (
                     relativeMaximaWindow * intervalLengthBP
                 )
@@ -341,9 +373,7 @@ def mergeMatches(filePath: str, mergeGapBP: int = 50):
         )
         return None
     if bed is None:
-        logger.info(
-            f"Couldn't create BedTool for {filePath}...skipping merge"
-        )
+        logger.info(f"Couldn't create BedTool for {filePath}...skipping merge")
         return None
 
     bed = bed.sort()
@@ -414,3 +444,58 @@ def mergeMatches(filePath: str, mergeGapBP: int = 50):
         outF.write("\n".join(lines) + ("\n" if lines else ""))
     logger.info(f"Merged matches written to {outPath}")
     return outPath
+
+
+def textNullCDF(
+    nullBlockMaximaSFVals: npt.NDArray[np.float64],
+    binCount: int = 20,
+    barWidth: int = 50,
+    barChar="\u25a2",
+    normalize: bool = False,
+) -> str:
+    r"""Plot a histogram of the distribution 1 - ECDF(nullBlockMaxima)
+
+    Called by :func:`consenrich.matching.matchWavelet`. Ideally resembles
+    a uniform(0,1) distribution.
+
+    :seealso: :func:`consenrich.matching.matchWavelet`, :ref:`cconsenrich.csampleBlockStats`
+    """
+    valueLower, valueUpper = (
+        min(nullBlockMaximaSFVals),
+        max(nullBlockMaximaSFVals),
+    )
+    binCount = max(1, int(binCount))
+    binStep = (valueUpper - valueLower) / binCount
+    binEdges = [
+        valueLower + indexValue * binStep for indexValue in range(binCount)
+    ]
+    binEdges.append(valueUpper)
+    binCounts = [0] * binCount
+    for numericValue in nullBlockMaximaSFVals:
+        binIndex = int((numericValue - valueLower) / binStep)
+        if binIndex == binCount:
+            binIndex -= 1
+        binCounts[binIndex] += 1
+    valueSeries = (
+        [countValue / len(nullBlockMaximaSFVals) for countValue in binCounts]
+        if normalize
+        else binCounts[:]
+    )
+    valueMaximum = max(valueSeries) if valueSeries else 0
+    widthScale = (barWidth / valueMaximum) if valueMaximum > 0 else 0
+    edgeFormat = f"{{:.{2}f}}"
+    rangeLabels = [
+        f"[{edgeFormat.format(binEdges[indexValue])},{edgeFormat.format(binEdges[indexValue + 1])})"
+        for indexValue in range(binCount)
+    ]
+    labelWidth = max(len(textValue) for textValue in rangeLabels)
+    lines = ['Histogram: "1 - ECDF(nullBlockMaxima)"']
+    for rangeLabel, seriesValue, countValue in zip(
+        rangeLabels, valueSeries, binCounts
+    ):
+        barString = barChar * int(round(seriesValue * widthScale))
+        trailingText = f"({countValue}/{len(nullBlockMaximaSFVals)})\t\t"
+        lines.append(
+            f"{rangeLabel.rjust(labelWidth)} | {barString}{trailingText.ljust(10)}"
+        )
+    return "\n".join(lines)
