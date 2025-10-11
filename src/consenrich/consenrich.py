@@ -451,13 +451,13 @@ def main():
         type=str,
         dest="matchBedGraph",
         help="Path to a bedGraph file of Consenrich estimates to match templates against.\
-            If provided, *only* the matching algorithm is run. Config file is still required to specify matchingParams",
+            If provided, *only* the matching algorithm is run (no other processing).",
     )
     parser.add_argument(
         "--match-template",
         type=str,
         default="haar",
-        choices=pywt.wavelist(kind="discrete"),
+        choices=[x for x in pywt.wavelist(kind="discrete") if 'bio' not in x],
         dest="matchTemplate",
     )
     parser.add_argument("--match-level", type=int, default=2, dest="matchLevel")

@@ -175,14 +175,25 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
 ) -> pd.DataFrame:
-    r"""Match discrete wavelet-based templates in the sequence of Consenrich estimates
+    r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function templates.
 
+        Convolve the per-interval signal with normalized wavelet/scaling templates (**response sequence**),
+        identifies significant local maxima using an empirical null built from block maxima,
+        and returns narrowPeak-like features per match.
+
+    **Significance**
+
+    - ``alpha`` defines the (:math:`1 - \alpha`)-quantile threshold of the block-maxima null on the response sequence.
+    - ``minSignalAtMaxima`` can be an absolute value (float) or string ``"q:<quantileValue>"`` to require the asinh-transformed signal at response-maxima to exceed the given quantile of non-zero values (default ``q:0.75``).
+
+    :param chromosome: Chromosome name for the input intervals and values.
+    :type chromosome: str
     :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
     :type values: npt.NDArray[np.float64]
     :param templateNames: A list of wavelet bases used for matching, e.g., `[haar, db2, sym4]`
     :type templateNames: List[str]
     :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating
-      the scaling/wavelet functions.
+        the scaling/wavelet functions.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
@@ -203,7 +214,7 @@ def matchWavelet(
         Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
     :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
-      If False, use (only) the wavelet function.
+        If False, use (only) the wavelet function.
     :type useScalingFunction: bool
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]

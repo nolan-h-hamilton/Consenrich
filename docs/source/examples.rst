@@ -139,11 +139,13 @@ Consenrich generates the following output files:
 * **Signal estimate track**: ``<experimentName>_consenrich_state.bw``
 
   * This track records the genome-wide Consenrich estimates for the primary signal of interest :math:`\widetilde{x}_{[i]},~i=1,\ldots,n`, derived from input samples' alignment/count data
+  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
   * See :func:`consenrich.core.getPrimaryState`
 
 * **Precision-weighted residual track**: ``<experimentName>_consenrich_residuals.bw``
 
   * This track records the uncertainty-scaled differences between the Consenrich estimates and the observed sample data at each interval
+  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
   * See :func:`consenrich.core.getPrecisionWeightedResidual`
 
 
@@ -173,8 +175,6 @@ Consenrich generates the following output files:
 
   * Alternative peak calling methods that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. Only ROCCO has been evaluated for this task to date.
 
-
-
 Results
 """"""""""""""""""""""""""
 
@@ -186,10 +186,8 @@ We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
     :align: left
 
 
-The input alignment coverage tracks (Black) and ``fold change over control`` bigWig files for each sample (Dark red) are displayed for reference with ENCODE's default signal quantification protocol.
+The treatment and control alignment coverage tracks are shown in black. Additionally, ENCODE's default signal quantification tracks for histone ChIP-seq---the ``fold change over control`` bigWig files---are displayed for each sample in red.
 
-
-Further analyses and practical guidance are available in :ref:`additional-examples`.
 
 .. _additional-examples:
 
@@ -374,26 +372,20 @@ Note that the cCREs are not specific to our lymphoblastoid input dataset (`atac2
   :class: tip
   :collapsible: closed
 
-  The default significance thresholds may be too lenient (strict) depending on the application. For example, in the above, a smaller, confident peak set could be desirable.
+  The default significance thresholds may be too lenient (strict) depending on the application. For example, in the `atac20` example, a smaller more confident peak set could be desirable.
 
-  - We can decrease ``matchingParams.alpha`` in the configuration file (e.g., ``matchingParams.alpha: 0.05 --> matchingParams.alpha: 0.01``)
-    or filter the output narrowPeak file based on the :math:`-\log_{10}(p)` value in column 8:
+  - Decreasing ``matchingParams.alpha`` (e.g., :math:`\alpha = 0.05 \longrightarrow \alpha = 0.01`) and counting overlaps again,
 
     .. code-block:: console
-
-      % awk '$8 >= 2.0' consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
-          > atac20FilteredAlpha01.narrowPeak # 78,411 regions
 
       % bedtools intersect -a atac20FilteredAlpha01.narrowPeak \
             -b GRCh38-cCREs.bed \
             -f 0.25 -r -u \
-        > cCREOverlap_atac20FilteredAlpha01.narrowPeak # 76,783 regions
+        > cCREOverlap_atac20FilteredAlpha01.narrowPeak # (76,783 / 78,411) regions
 
-  and this brings the percent of Consenrich peaks sharing a :math:`25\%` *reciprocal* overlap with the ENCODE cCREs to **97.9%** at the cost of fewer total detections.
+  brings the percent of `atac20` Consenrich matches that share a :math:`25\%` *reciprocal* overlap with the ENCODE cCREs to **97.9%** --- at the cost of fewer total detections.
 
-  - We can also introduce a secondary cutoff, ``matchingParams.minSignalAtMaxima``, that requires a minimum *signal value* occur at the pointSource/Summit of each detected region.
-
-    - If left unspecified, the median nonzero signal estimate across the genome is used as the default. The cutoff is applied after stabilizing values with an arsinh transform (i.e., :math:`\sinh^{-1}(x)`). 
+  Note, we can also increase the secondary, *signal-level* cutoff, ``matchingParams.minSignalAtMaxima``, that controls the minimum allowed :math:`\widetilde{x}_{[\cdot]}` at each candidate match.
 
 
 .. _runtimeAndMemoryProfilingAtac20:

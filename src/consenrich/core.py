@@ -598,29 +598,31 @@ def getAverageLocalVarianceTrack(
     maxR: float,
     lowPassFilterType: Optional[str] = "median",
 ) -> npt.NDArray[np.float32]:
-    r"""Approximate local noise levels in a segment using an ALV approach.
+    r"""Approximate a positional/local noise level track for a single sample's read-density-based values.
 
-    First, computes a segment-length simple moving average of `values` with a
-    bp-length window `approximationWindowLengthBP`.
+    First computes a moving average of ``values`` using a bp-length window
+    ``approximationWindowLengthBP`` and a moving average of ``values**2`` over the
+    same window. Their difference is used to approximate the local variance. A low-pass filter
+    (median or mean) with window ``lowPassWindowLengthBP`` then smooths the variance track.
+    Finally, the track is clipped to ``[minR, maxR]`` to yield the local noise level track.
 
-    Second, computes a segment-length simple moving average of squared `values`.
-
-    Between these two averages, the difference between the latter and the square of the former
-    approximates the local variance of the segment. These local variances
-    are then combined with a median filter of length `lowPassWindowLengthBP`.
-
-    :param values: An array of read-density-based values (typically from a single row in a sample-by-interval matrix)
+    :param values: 1D array of read-density-based values for a single sample.
     :type values: np.ndarray
-    :param stepSize: See :class:`countingParams`.
+    :param stepSize: Bin size (bp).
     :type stepSize: int
-    :param observationParams: See :class:`observationParams`
-    :type observationParams: observationParams
-    :param approximationWindowLengthBP: The length of the approximation window in base pairs (BP).
+    :param approximationWindowLengthBP: Window (bp) for local mean and second-moment. See :class:`observationParams`.
     :type approximationWindowLengthBP: int
-    :param lowPassWindowLengthBP: The length of the low-pass filter window in base pairs (BP).
+    :param lowPassWindowLengthBP: Window (bp) for the low-pass filter on the variance track. See :class:`observationParams`.
     :type lowPassWindowLengthBP: int
-    :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean').
+    :param minR: Lower clip for the returned noise level. See :class:`observationParams`.
+    :type minR: float
+    :param maxR: Upper clip for the returned noise level. See :class:`observationParams`.
+    :type maxR: float
+    :param lowPassFilterType: ``"median"`` (default) or ``"mean"``. Type of low-pass filter to use for smoothing the local variance track. See :class:`observationParams`.
     :type lowPassFilterType: Optional[str]
+    :return: Local noise level per interval.
+    :rtype: npt.NDArray[np.float32]
+
     :seealso: :class:`observationParams`
     """
     values = np.asarray(values, dtype=np.float32)
@@ -812,6 +814,7 @@ def runConsenrich(
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
 
     :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
+    :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
     """
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
@@ -1095,6 +1098,12 @@ def getMuncTrack(
     lowPassFilterType: Optional[str] = "median",
 ) -> npt.NDArray[np.float32]:
     r"""Get observation noise variance :math:`R_{[:,jj]}` for the sample :math:`j`.
+
+    Combines a local ALV estimate (see :func:`getAverageLocalVarianceTrack`) with an
+    optional global component. If ``useALV`` is True, *only* the ALV is used. If
+    ``useConstantNoiseLevel`` is True, a constant track set to the global mean is used.
+    When a ``sparseMap`` is provided, local values are aggregated over nearby 'sparse'
+    regions before mixing with the global component.
 
     :param chromosome: Tracks are approximated for this chromosome.
     :type chromosome: str
