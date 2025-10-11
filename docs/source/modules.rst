@@ -90,9 +90,9 @@ The core module implements the main aspects of Consenrich and defines key parame
 (Experimental) Detect genomic regions showing both **enrichment** and **non-random structure**
 
 
-- Take a set of successive genomic intervals :math:`i=1,2,\ldots,n`, each spanning :math:`L` base pairs,
+- Take a set of genomic intervals :math:`i=1,2,\ldots,n`, each spanning :math:`L` base pairs,
 
-- and a 'consensus' signal track over the genomic intervals, estimated from multiple independent samples' high-throughput functional genomics sequencing data:
+- and a 'consensus' signal track defined over the genomic intervals, estimated from multiple independent samples' high-throughput functional genomics sequencing data:
 
 .. math::
 
@@ -103,15 +103,15 @@ In this documentation, we assume :math:`\widetilde{\mathbf{x}}` is the Consenric
 **Aim**: Determine a set of 'structured' peak-like genomic regions where the consensus signal track :math:`\widetilde{\mathbf{x}}` exhibits both:
 
 #. *Enrichment* (large relative amplitude)
-#. *Non-random structure* (polynomial or oscillatory trends)
+#. *Non-random structure* (polynomial, oscillatory, etc.)
 
 **Why**: Prioritizing genomic regions that are both enriched and show a prescribed level of structure is appealing for several reasons. Namely,
 
 * **Improved confidence** that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
-* **Targeted detection** of biologically relevant signal patterns in a given assay (`Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
-* **Speed**: runs in seconds on a genome-wide scale.
+* **Targeted detection** of biologically relevant signal patterns in a given assay (e.g., see related works analyzing peak-shape `Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
+* **Speed**: Runs genome-wide in seconds/minutes using an efficient Fast Fourier Transform (FFT)-based implementation.
 
-In the case of Consenrich, that :math:`\widetilde{\mathbf{x}}` is reinforced by multiple samples and accounts for multiple sources of uncertainty is particularly advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features.
+In the case of Consenrich, that the primary signal estimates in :math:`\{\widetilde{x}_{[i]}\}^{n}` are reinforced by multiple samples and account for relevant sources of uncertainty is particularly advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features.
 
 Algorithm Overview
 """"""""""""""""""""""
@@ -132,12 +132,27 @@ Define the **response sequence** as the cross-correlation between the consensus 
 
 (Equivalently, the convolution of :math:`\widetilde{\mathbf{x}}` with the time-reversed template :math:`\boldsymbol{\xi}'`, where :math:`\xi'_{[t]} = \xi_{[T-t+1]}`.)
 
-Where :math:`\mathcal{R}_{[i]}` is large, there is greater evidence that the signal :math:`\widetilde{\mathbf{x}}` is enriched and exhibits structure similar to the template :math:`\boldsymbol{\xi}`.
+Where :math:`\mathcal{R}_{[i]}` is large, there is greater evidence that the signal :math:`\widetilde{\mathbf{x}}` is enriched and exhibits structure that is agreeable to the template :math:`\boldsymbol{\xi}`.
 
-**Significance**
+**Detection Thresholds**
 
-- ``matchingParams.alpha`` defines the (:math:`1 - \alpha`)-quantile threshold of the block-maxima null on the response sequence.
-- ``matchingParams.minSignalAtMaxima`` can be an absolute value (float) or string ``"q:<quantileValue>"`` to require the asinh-transformed signal at response-maxima to exceed the given quantile of non-zero values (default ``q:0.75``).
+``matchingParams.alpha``
+  defines the (:math:`1 - \alpha`)-quantile threshold of the block-maxima null on the response sequence, i.e., the cross-correlation between the Consenrich track and template (default ``0.05``).
+
+  - This null is constructed by sampling blocks in the response sequence and recording the maximum value within each block.
+  - The size of each sampled block is drawn from a (truncated) geometric distribution with an expected value equal to the template length/minimum feature size
+
+``matchingParams.minSignalAtMaxima`` (Optional)
+  Can be an absolute value (float) or string ``"q:<quantileValue>"`` to require the value at response-maxima to exceed the given quantile of non-zero values (default ``q:0.75``).
+
+  - This threshold is applied after tempering the dynamic range with an arsinh transform (i.e., :math:`\sinh^{-1}(x)`).
+  - By default, the upper quartile of non-zero values is used: `q:0.75`
+  - *To disable*: set to a negative numeric value.
+
+``matchingParams.minMatchLengthBP``: (Optional)
+  Minimum feature length in bp to qualify as a match (default ``250``).
+
+  - *To disable*: set to a negative numeric value.
 
 .. seealso::
 
@@ -153,32 +168,10 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
   :align: center
   :name: structuredPeaks
 
-- ``matchingParams.templateNames``
-
-  - Narrow, condensed features :math:`\rightarrow` shorter wavelet-based templates (e.g., ``haar``, ``db2``).
-  - Broader features :math:`\rightarrow` longer, symmetric wavelet-based templates (e.g., ``sym4``).
-  - Oscillatory features :math:`\rightarrow` longer, higher-order wavelets (e.g., ``db8``, ``dmey``).
-
-- ``matchingParams.alpha`` (Significance Threshold)
-
-  - Signifcance is measured relative to an approximated null distribution of response values.
-  - Tunes precision vs. recall -- the stringency of match detection.
-  - Smaller values :math:`\rightarrow` fewer but higher-confidence matches; larger values :math:`\rightarrow` more lower-confidence matches.
-
-- ``matchingParams.minMatchLengthBP`` (Feature Width Threshold)
-
-  - Enforces a minimum feature width (base pairs)
-  - Increase this parameter to reduce matches with features that are narrower than the underlying pattern of interest.
-
-- ``matchingParams.minSignalAtMaxima`` (Signal Threshold)
-
-  - Enforces a minimum Consenrich *signal estimate* over the detected maxima.
-  - If `None`, defaults to the median of nonzero signal values. This threshold is applied after tempering the dynamic range with an arsinh transform (i.e., :math:`\sinh^{-1}(x)`).
-
+---
 
 **Generic Defaults**
 
-These defaults are not encompassing but provide a reasonable starting point for common use cases.
 
 .. code-block:: yaml
 
@@ -188,6 +181,18 @@ These defaults are not encompassing but provide a reasonable starting point for 
   matchingParams.mergeGapBP: 50
   matchingParams.alpha: 0.05
 
+
+The matching config above is not encompassing but should provide a strong starting point for standard use cases.
+
+Some basic guidelines:
+
+- For broad marks, consider larger more-symmetric templates and/or `cascadeLevels`` (e.g., `sym4`) and a larger minimum feature length (e.g., ``500``)
+
+- For sharp marks, consider smaller templates and/or lower `cascadeLevels` (e.g., `haar`, `db2`) and a smaller minimum feature length (e.g., ``150``)
+
+See :ref:`additional-examples` for more specific guidance.
+
+---
 
 **Command-Line Usage**
 
