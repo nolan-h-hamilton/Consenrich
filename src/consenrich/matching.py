@@ -175,51 +175,50 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
 ) -> pd.DataFrame:
-    r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function templates.
+    r"""Detect structured peaks by cross-correlating Consenrich tracks with wavelet- or scaling-function templates.
 
-        Convolve the per-interval signal with normalized wavelet/scaling templates (**response sequence**),
-        identifies significant local maxima using an empirical null built from block maxima,
-        and returns narrowPeak-like features per match.
+        **Key Parameters**
 
-    **Significance**
+        - ``alpha`` defines the (:math:`1 - \alpha`)-quantile threshold of the block-maxima null on the response sequence.
+        - ``minSignalAtMaxima`` can be an absolute value (float) or string ``"q:<quantileValue>"`` to require the asinh-transformed signal at response-maxima to exceed the given quantile of non-zero values (default ``q:0.75``).
+        - ``minMatchLengthBP`` (Optional) a window size within which relative maxima in the response sequence must be greater than others to qualify as matches.
 
-    - ``alpha`` defines the (:math:`1 - \alpha`)-quantile threshold of the block-maxima null on the response sequence.
-    - ``minSignalAtMaxima`` can be an absolute value (float) or string ``"q:<quantileValue>"`` to require the asinh-transformed signal at response-maxima to exceed the given quantile of non-zero values (default ``q:0.75``).
+        See :ref:`matching` for an overview of the approach.
 
-    :param chromosome: Chromosome name for the input intervals and values.
-    :type chromosome: str
-    :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
-    :type values: npt.NDArray[np.float64]
-    :param templateNames: A list of wavelet bases used for matching, e.g., `[haar, db2, sym4]`
-    :type templateNames: List[str]
-    :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating
-        the scaling/wavelet functions.
-    :type cascadeLevels: List[int]
-    :param iters: Number of random blocks to sample in the response sequence while building
-        an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
-    :type iters: int
-    :param alpha: Primary significance threshold on detected matches. Specifically, the
-        :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
-        distribution is built from cross-correlation values over randomly sampled blocks.
-    :type alpha: float
-    :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
-        the signal-template convolution must be greater in value than others to qualify as matches
-        (...in addition to the other criteria.)
-    :type minMatchLengthBP: int
-    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
-        at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
-        If a `float` value is provided, the minimum signal value must be greater than this (absolute) value.
-        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
-        threshold is then set to the corresponding quantile of the non-zero signal estimates.
-        Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
-    :type minSignalAtMaxima: Optional[str | float]
-    :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
-        If False, use (only) the wavelet function.
-    :type useScalingFunction: bool
-    :param excludeRegionsBedFile: A BED file with regions to exclude from matching
-    :type excludeRegionsBedFile: Optional[str]
+        :param chromosome: Chromosome name for the input intervals and values.
+        :type chromosome: str
+        :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
+        :type values: npt.NDArray[np.float64]
+        :param templateNames: A list of wavelet bases used for matching, e.g., `[haar, db2, sym4]`
+        :type templateNames: List[str]
+        :param cascadeLevels: A list of values -- the number of cascade iterations used for approximating
+            the scaling/wavelet functions.
+        :type cascadeLevels: List[int]
+        :param iters: Number of random blocks to sample in the response sequence while building
+            an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
+        :type iters: int
+        :param alpha: Primary significance threshold on detected matches. Specifically, the
+            :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
+            distribution is built from cross-correlation values over randomly sampled blocks.
+        :type alpha: float
+        :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
+            the signal-template convolution must be greater in value than others to qualify as matches
+            (...in addition to the other criteria.)
+        :type minMatchLengthBP: int
+        :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
+            at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
+            If a `float` value is provided, the minimum signal value must be greater than this (absolute) value.
+            If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
+            threshold is then set to the corresponding quantile of the non-zero signal estimates.
+            Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
+        :type minSignalAtMaxima: Optional[str | float]
+        :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
+            If False, use (only) the wavelet function.
+        :type useScalingFunction: bool
+        :param excludeRegionsBedFile: A BED file with regions to exclude from matching
+        :type excludeRegionsBedFile: Optional[str]
 
-    :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
+        :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     """
 
     if len(intervals) < 5:

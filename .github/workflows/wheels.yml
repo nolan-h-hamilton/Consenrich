@@ -34,7 +34,6 @@ jobs:
             cibw_archs_macos: arm64
 
           # x86 mac (gh removing support for macos-13)
-          # https://github.com/actions/runner-images/issues/13046#issue-3435017739
           - name: macos-x86_64
             runs-on: macos-15-intel
             cibw_archs_macos: x86_64
