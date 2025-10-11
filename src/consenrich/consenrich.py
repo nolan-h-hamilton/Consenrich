@@ -14,6 +14,7 @@ import sys
 import numpy as np
 import pandas as pd
 import pysam
+import pywt
 import yaml
 
 import consenrich.core as core
@@ -27,10 +28,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
 )
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
+
 logger = logging.getLogger(__name__)
 
 
@@ -373,12 +371,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             cascadeLevels=config.get("matchingParams.cascadeLevels", [2]),
             iters=config.get("matchingParams.iters", 25_000),
             alpha=config.get("matchingParams.alpha", 0.05),
-            minMatchLengthBP=config.get(
-                "matchingParams.minMatchLengthBP", 250
-            ),
+            minMatchLengthBP=config.get("matchingParams.minMatchLengthBP", 250),
             maxNumMatches=config.get("matchingParams.maxNumMatches", 100_000),
             minSignalAtMaxima=config.get(
-                "matchingParams.minSignalAtMaxima", None
+                "matchingParams.minSignalAtMaxima", "q:0.75"
             ),
             merge=config.get("matchingParams.merge", True),
             mergeGapBP=config.get("matchingParams.mergeGapBP", 50),
@@ -448,10 +444,75 @@ def main():
         dest="config",
         help="Path to a YAML config file with parameters + arguments defined in `consenrich.core`",
     )
+
+    # --- Matching-specific command-line arguments ---
+    parser.add_argument(
+        "--match-bedGraph",
+        type=str,
+        dest="matchBedGraph",
+        help="Path to a bedGraph file of Consenrich estimates to match templates against.\
+            If provided, *only* the matching algorithm is run. Config file is still required to specify matchingParams",
+    )
+    parser.add_argument(
+        "--match-template",
+        type=str,
+        default="haar",
+        choices=pywt.wavelist(kind="discrete"),
+        dest="matchTemplate",
+    )
+    parser.add_argument("--match-level", type=int, default=2, dest="matchLevel")
+    parser.add_argument("--match-alpha", type=float, default=0.05, dest="matchAlpha")
+    parser.add_argument("--match-min-length", type=int, default=250, dest="matchMinMatchLengthBP")
+    parser.add_argument("--match-iters", type=int, default=25000, dest="matchIters")
+    parser.add_argument("--match-min-signal", type=str, default="q:0.75", dest="matchMinSignalAtMaxima")
+    parser.add_argument("--match-max-matches", type=int, default=100000, dest="matchMaxNumMatches")
+    parser.add_argument("--match-no-merge", action="store_true", dest="matchNoMerge")
+    parser.add_argument("--match-merge-gap", type=int, default=50, dest="matchMergeGapBP")
+    parser.add_argument("--match-use-wavelet", action="store_true", dest="matchUseWavelet")
+    parser.add_argument(
+        "--match-exclude-bed",
+        type=str,
+        default=None,
+        dest="matchExcludeBed"
+    )
     parser.add_argument(
         "--verbose", action="store_true", help="If set, logs config"
     )
     args = parser.parse_args()
+
+    if args.matchBedGraph:
+        if not os.path.exists(args.matchBedGraph):
+            raise FileNotFoundError(
+                f"bedGraph file {args.matchBedGraph} couldn't be found."
+            )
+        logger.info(
+            f"Running matching algorithm using bedGraph file {args.matchBedGraph}..."
+        )
+
+        outName = matching.matchExistingBedGraph(
+            args.matchBedGraph,
+            args.matchTemplate,
+            args.matchLevel,
+            alpha=args.matchAlpha,
+            minMatchLengthBP=args.matchMinMatchLengthBP,
+            iters=args.matchIters,
+            minSignalAtMaxima=args.matchMinSignalAtMaxima,
+            maxNumMatches=args.matchMaxNumMatches,
+            useScalingFunction=(not args.matchUseWavelet),
+            merge=(not args.matchNoMerge),
+            mergeGapBP=args.matchMergeGapBP,
+            excludeRegionsBedFile=args.matchExcludeBed,
+        )
+        logger.info(f"Finished matching. Written to {outName}")
+        sys.exit(0)
+
+    if args.matchBedGraph:
+        # this shouldn't happen, but just in case -- matching on previous bedGraph means no other processing
+        logger.info(
+            "If `--match-bedgraph <path_to_bedgraph>` is provided, only the matching algorithm is run."
+        )
+        sys.exit(0)
+
 
     if not args.config:
         logger.info(
@@ -460,14 +521,14 @@ def main():
         logger.info(
             "See documentation: https://nolan-h-hamilton.github.io/Consenrich/"
         )
-        sys.exit(0)
+        sys.exit(1)
 
     if not os.path.exists(args.config):
         logger.info(f"Config file {args.config} does not exist.")
         logger.info(
             "See documentation: https://nolan-h-hamilton.github.io/Consenrich/"
         )
-        sys.exit(0)
+        sys.exit(1)
 
     config = readConfig(args.config)
     experimentName = config["experimentName"]
