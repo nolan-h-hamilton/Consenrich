@@ -469,6 +469,7 @@ def main():
     parser.add_argument("--match-no-merge", action="store_true", dest="matchNoMerge")
     parser.add_argument("--match-merge-gap", type=int, default=50, dest="matchMergeGapBP")
     parser.add_argument("--match-use-wavelet", action="store_true", dest="matchUseWavelet")
+    parser.add_argument("--match-seed", type=int, default=42, dest="matchRandSeed")
     parser.add_argument(
         "--match-exclude-bed",
         type=str,
@@ -502,6 +503,7 @@ def main():
             merge=(not args.matchNoMerge),
             mergeGapBP=args.matchMergeGapBP,
             excludeRegionsBedFile=args.matchExcludeBed,
+            randSeed=args.matchRandSeed,
         )
         logger.info(f"Finished matching. Written to {outName}")
         sys.exit(0)

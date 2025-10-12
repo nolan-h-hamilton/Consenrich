@@ -23,6 +23,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def castableToFloat(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, str):
+        if value.lower().replace(' ', '') in ["nan", "inf", "-inf", "infinity", "-infinity", "", " "]:
+            return False
+
+    try:
+        float(value)
+        if np.isfinite(float(value)):
+            return True
+    except Exception:
+        return False
+    return False
+
+
 def matchExistingBedGraph(
     bedGraphFile: str,
     templateName: str,
@@ -38,6 +56,7 @@ def matchExistingBedGraph(
     mergeGapBP: int = 50,
     merge: bool = True,
     weights: Optional[npt.NDArray[np.float64]] = None,
+    randSeed: int = 42,
 ) -> Optional[str]:
     r"""Match discrete templates in a bedGraph file of Consenrich estimates
 
@@ -104,6 +123,7 @@ def matchExistingBedGraph(
                 excludeRegionsBedFile=excludeRegionsBedFile,
                 weights=weights,
                 minSignalAtMaxima=minSignalAtMaxima,
+                randSeed=randSeed,
             )
         except Exception as ex:
             logger.info(f"Skipping {chrom_} due to error in matchWavelet: {ex}")
@@ -357,13 +377,14 @@ def matchWavelet(
                 )
                 raise
 
-            if minSignalAtMaxima is None or (
-                isinstance(minSignalAtMaxima, (float, int))
-                and minSignalAtMaxima < 0.0
-            ):
+            # parse minSignalAtMaxima, set arsinhSignalThreshold
+            if minSignalAtMaxima is None:
+                # -----we got a `None`-----
                 arsinhSignalThreshold = -float(1e6)
             elif isinstance(minSignalAtMaxima, str):
+                # -----we got a str-----
                 if minSignalAtMaxima.startswith("q:"):
+                    # case: expected 'q:quantileValue' format
                     qVal = float(minSignalAtMaxima.split("q:")[-1])
                     if qVal < 0 or qVal > 1:
                         raise ValueError(f"Quantile {qVal} is out of range")
@@ -375,10 +396,20 @@ def matchWavelet(
                         )
                     )
 
+                elif castableToFloat(minSignalAtMaxima):
+                    # case: numeric in str form (possible due to CLI)
+                    if float(minSignalAtMaxima) < 0.0:
+                        # effectively disables threshold
+                        arsinhSignalThreshold = -float(1e6)
+                    else:
+                        # use supplied value
+                        arsinhSignalThreshold = np.asinh(
+                            float(minSignalAtMaxima)
+                        )
                 else:
+                    # case: not in known format, not castable to a float, use defaults
                     logger.info(
-                        f"Unrecognized string format for minSignalAtMaxima: {minSignalAtMaxima}\n"
-                        f"Using default instead...."
+                        f"Couldn't parse `minSignalAtMaxima` value: {minSignalAtMaxima}, using default"
                     )
                     arsinhSignalThreshold = float(
                         np.quantile(
@@ -387,8 +418,18 @@ def matchWavelet(
                             method="interpolated_inverted_cdf",
                         )
                     )
+                # -----
+
             elif isinstance(minSignalAtMaxima, (float, int)):
-                arsinhSignalThreshold = np.asinh(float(minSignalAtMaxima))
+                # -----we got an int or float-----
+                if float(minSignalAtMaxima) < 0.0:
+                    # effectively disables threshold
+                    arsinhSignalThreshold = -float(1e6)
+                else:
+                    # use supplied value
+                    arsinhSignalThreshold = np.asinh(float(minSignalAtMaxima))
+                # -----
+
 
             relativeMaximaIndices = signal.argrelmax(
                 responseSequence, order=relativeMaximaWindow
@@ -425,9 +466,9 @@ def matchWavelet(
 
             logger.info(
                 f"\n\tDetected {len(relativeMaximaIndices)} matches (alpha={alpha}, useScalingFunction={useScalingFunction}): {templateName}: level={cascadeLevel}.\n"
-                f"\tResponse threshold: {responseThreshold:.3f}, Signal Threshold: {arsinhSignalThreshold:.3f}\n"
+                f"\tResponse threshold: {responseThreshold:.3f}, arsinh(Signal Threshold): {arsinhSignalThreshold:.3f}\n"
                 f"\t~KS_Statistic~ [ePVals, uniformCDF]: {testKS:.4f}\n"
-                f"\n\n{textNullCDF(ecdfSFCheckVals)}\n\n" # lil text-plot histogram of approx. null CDF
+                f"\n\n{textNullCDF(ecdfSFCheckVals)}\n\n"  # lil text-plot histogram of approx. null CDF
             )
 
             # starts
