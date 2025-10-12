@@ -18,62 +18,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # build 3.11-3.13 wheels separately from 3.14
+          # linux x86
           - name: linux-x86_64
             runs-on: ubuntu-24.04
             cibw_archs_linux: x86_64
-            cibw_build: "cp311-* cp312-* cp313-*"
-            experimental: false
 
+          # linux aarch64
           - name: linux-aarch64
             runs-on: ubuntu-24.04-arm
             cibw_archs_linux: aarch64
-            cibw_build: "cp311-* cp312-* cp313-*"
-            experimental: false
 
+          # arm64 mac
           - name: macos-arm64
             runs-on: macos-15
             cibw_archs_macos: arm64
-            cibw_build: "cp311-* cp312-* cp313-*"
-            experimental: false
 
+          # x86 mac (gh removing support for macos-13)
           - name: macos-x86_64
             runs-on: macos-15-intel
             cibw_archs_macos: x86_64
-            cibw_build: "cp311-* cp312-* cp313-*"
-            experimental: false
-
-          # for now: try but don't fail for python 3.14 
-          - name: try-py314-linux-x86_64
-            runs-on: ubuntu-24.04
-            cibw_archs_linux: x86_64
-            cibw_build: "cp314-*"
-            experimental: true
-            allow_empty: "1"
-
-          - name: try-py314-linux-aarch64
-            runs-on: ubuntu-24.04-arm
-            cibw_archs_linux: aarch64
-            cibw_build: "cp314-*"
-            experimental: true
-            allow_empty: "1"
-
-          - name: try-py314-macos-arm64
-            runs-on: macos-15
-            cibw_archs_macos: arm64
-            cibw_build: "cp314-*"
-            experimental: true
-            allow_empty: "1"
-
-          - name: try-py314-macos-x86_64
-            runs-on: macos-15-intel
-            cibw_archs_macos: x86_64
-            cibw_build: "cp314-*"
-            experimental: true
-            allow_empty: "1"
 
     runs-on: ${{ matrix.runs-on }}
-    continue-on-error: ${{ matrix.experimental }}
 
     steps:
       - uses: actions/checkout@v4
@@ -83,11 +48,10 @@ jobs:
         with:
           output-dir: dist
         env:
-          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_*"
           CIBW_ARCHS_LINUX: ${{ matrix.cibw_archs_linux }}
           CIBW_ARCHS_MACOS: ${{ matrix.cibw_archs_macos }}
-          CIBW_ALLOW_EMPTY: ${{ matrix.allow_empty }}
 
       - if: matrix.name == 'linux-x86_64'
         name: Build source distribution
@@ -100,4 +64,20 @@ jobs:
         with:
           name: dist-${{ matrix.name }}
           path: dist/*
-          if-no-files-found: ignore
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish to PyPI (OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          skip-existing: true
