@@ -351,9 +351,11 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
       | wc -l
 
 
-* We also evaluate hit-rates compared to a null baseline: '*After controlling for feature size and chromosome placement, how many cCRE-hits could we expect by random selection?*'
+* We also evaluate overlaps compared to a null baseline:
 
-  We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_ in :math:`N=100` independent trials
+  |    *After controlling for feature size and chromosome placement, how many cCRE-hits could we expect by random selection?*
+
+  We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_,
 
   .. code-block:: console
 
@@ -364,26 +366,26 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
       | bedtools intersect -a stdin -b GRCh38-cCREs.bed -f 0.25 -r -u \
       | wc -l
 
-  and aggregate results to estimate the empirical distribution of cCRE-hits.
-
-* Consenrich vs. Baseline: :math:`2.9\times \textsf{FC}, p \approx 0.009`
-
-  +--------------------------------------------------+-------------------------------+
-  | Feature                                          | Value                         |
-  +==================================================+===============================+
-  | Consenrich: Total structured peaks (α=0.05)      | 261,004                       |
-  +--------------------------------------------------+-------------------------------+
-  | Consenrich: Distinct cCRE overlaps*              | 220,517                       |
-  +--------------------------------------------------+-------------------------------+
-  | Consenrich: Percent overlapping                  | 84.5%                         |
-  +--------------------------------------------------+-------------------------------+
-  | Random (``shuffle``): Distinct cCRE overlaps*    | μ=77,990.7 / σ=221.3          |
-  +--------------------------------------------------+-------------------------------+
-  | Random (``shuffle``): Percent overlapping        | 29.9%                         |
-  +--------------------------------------------------+-------------------------------+
+  and aggregate results for `N=100` independent trials to build an empirical distribution for cCRE-hits under our null model.
 
 
-  :math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
+*We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits* (:math:`p \approx 0.009`):
+
++------------------------------------------------------------------------------------------+----------------------------------------------+
+| Feature                                                                                  | Value                                        |
++==========================================================================================+==============================================+
+| Consenrich: Total structured peaks (α=0.05)                                              | 261,004                                      |
++------------------------------------------------------------------------------------------+----------------------------------------------+
+| Consenrich: Distinct cCRE overlaps*                                                      | 220,517                                      |
++------------------------------------------------------------------------------------------+----------------------------------------------+
+| Consenrich: Percent overlapping                                                          | 84.5%                                        |
++------------------------------------------------------------------------------------------+----------------------------------------------+
+| Random (``shuffle``): Distinct cCRE overlaps*                                            | :math:`\hat{\mu}=77990.7,\hat{\sigma}=221.3` |
++------------------------------------------------------------------------------------------+----------------------------------------------+
+| Random (``shuffle``): Percent overlapping                                                | 29.9%                                        |
++------------------------------------------------------------------------------------------+----------------------------------------------+
+
+:math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
 
 .. admonition:: Guidance: Significance Thresholds for Structured Peak Calling
   :class: tip
