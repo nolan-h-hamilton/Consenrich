@@ -389,9 +389,11 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
   :class: tip
   :collapsible: closed
 
-  The default significance thresholds may be too lenient (strict) depending on the application. For example, in the `atac20` example, a smaller more confident peak set could be desirable.
+  The default significance thresholds may be too lenient (or strict) depending on the application (:func:`consenrich.matching.matchWavelet`).
 
-  - Decreasing ``matchingParams.alpha`` (e.g., :math:`\alpha = 0.05 \longrightarrow \alpha = 0.01`) and counting overlaps again,
+  For example, in the `atac20` example, a smaller more confident peak set could be desirable.
+
+  - Decreasing ``alpha`` (e.g., :math:`\alpha = 0.05 \longrightarrow \alpha = 0.01`) and counting overlaps again,
 
     .. code-block:: console
 
@@ -400,9 +402,10 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
             -f 0.25 -r -u \
         > cCREOverlap_atac20FilteredAlpha01.narrowPeak # (76,783 / 78,411) regions
 
-  brings the percent of `atac20` Consenrich matches that share a :math:`25\%` *reciprocal* overlap with the ENCODE cCREs to **97.9%** --- at the cost of fewer total detections.
+    brings the percent of `atac20` Consenrich matches that share a :math:`25\%` *reciprocal* overlap with the ENCODE cCREs to **97.9%** --- at the cost of fewer total detections.
 
-  Note, we can also increase the secondary, *signal-level* cutoff, ``matchingParams.minSignalAtMaxima``, that controls the minimum allowed :math:`\widetilde{x}_{[\cdot]}` at each candidate match.
+  * Note, we can also increase the secondary, *signal-level* cutoff, ``minSignalAtMaxima``, which controls the minimum allowed :math:`\widetilde{x}_{[\cdot]}` at each candidate match.
+
 
 
 .. _runtimeAndMemoryProfilingAtac20:
