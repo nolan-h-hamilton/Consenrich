@@ -114,14 +114,6 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 Run Consenrich
 """""""""""""""""""""
 
-Run Consenrich at the command line
-
-.. code-block:: console
-  :name: Run Consenrich
-
-  % consenrich --config demoHistoneChIPSeq.yaml --verbose
-
-
 .. admonition:: Guidance: Command-line vs. Programmatic Usage
   :class: tip
   :collapsible: closed
@@ -129,6 +121,12 @@ Run Consenrich at the command line
   The command-line interface is a convenience wrapper that may not expose all available objects or more niche features.
   Some users may find it beneficial to run Consenrich programmatically (via Jupyter notebooks, Python scripts), as the :ref:`API` enables
   greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
+
+
+.. code-block:: console
+  :name: Run Consenrich
+
+  % consenrich --config demoHistoneChIPSeq.yaml --verbose
 
 
 Output Files and Formats
@@ -204,7 +202,8 @@ This section of the documentation will be regularly updated to include a breadth
 ATAC-seq
 """"""""""""""""
 
-- Input data: :math:`m=20` ATAC-seq BAM files derived from lymphoblastoid cell lines (ENCODE)
+- Input data (`atac20`): :math:`m=20` ATAC-seq BAM files derived from lymphoblastoid cell lines (ENCODE)
+- Varying data quality (e.g., `Extremely low read depth <https://www.encodeproject.org/data-standards/audits/#extremely_low_read_depth>`_)
 
 Environment
 ''''''''''''''
@@ -233,7 +232,7 @@ Names and versions of packages that are relevant to computational performance. T
 Configuration
 ''''''''''''''''''''''''''''
 
-Run with the following YAML config file `atac20Benchmark.yaml`.
+Run with the following YAML config file `atac20Benchmark.yaml`. Note that several parameters are listed and/or adjusted for demonstration purposes.
 
 Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed explicitly in the config to show their ENCODE accessions for reference.
 
@@ -298,14 +297,10 @@ Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed e
     ENCFF948HNW.bam
   ]
 
-  # Guidance: 'Balancing Confidence in the Modeled Process vs. Data'
-  processParams.minQ: 0.05
-  observationParams.minR: 0.05
-
-  # Optional: call 'structured peaks' via `consenrich.matching`
+  processParams.minQ: 0.05 # (default 0.25)
   matchingParams.templateNames: [haar, db2]
-  matchingParams.alpha: 0.05 # default value --> can reduce for stricter calls
-
+  matchingParams.minSignalAtMaxima: 'q:0.50' # (default 'q:0.75')
+  matchingParams.alpha: 0.05 # (default 0.05)
 
 Run Consenrich
 ''''''''''''''''''''
@@ -336,37 +331,59 @@ Structured peak calls are positioned above the Consenrich signal as BED features
     :align: left
 
 
-Evaluating Structured Peak Results
-''''''''''''''''''''''''''''''''''''''''''''
+**Evaluating Structured Peak Results: cCRE Overlaps**
 
-We compare the structured peaks from :func:`consenrich.matching.matchWavelet` against previously identified candidate regulatory elements (`ENCODE4 GRCh38/hg38 cCREs <https://screen.wenglab.org/downloads>`_).
+We measure overlap between the Consenrich-detected regions and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
 
-We count both:
+Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and a perfect concordance is not expected.
 
-- The total number of Consenrich-detected structured peaks
-- The unique Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE
+* We first count:
 
-Note that the cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and a perfect concordance is not expected.
+  - The total number of Consenrich-detected structured peaks
+  - The number of unique Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE
 
-.. code-block:: console
+  .. code-block:: console
 
-  % bedtools intersect \
-    -a consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
-    -b GRCh38-cCREs.bed \
-    -f 0.25 -r -u \
-    | wc -l
+    % bedtools intersect \
+      -a consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
+      -b GRCh38-cCREs.bed \
+      -f 0.25 -r -u \
+      | wc -l
 
 
-+--------------------------------------------------+------------------------+
-| Features                                         | Count                  |
-+==================================================+========================+
-| Consenrich-detected structured peaks             | **261,004**            |
-+--------------------------------------------------+------------------------+
-| Distinct cCRE overlaps (`-f 0.25 -r -u` )        | **220,517**            |
-+--------------------------------------------------+------------------------+
-| Percent overlapping                              | **84.5%**              |
-+--------------------------------------------------+------------------------+
+* We also evaluate hit-rates compared to a null baseline: '*After controlling for feature size and chromosome placement, how many cCRE-hits could we expect by random selection?*'
 
+  We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_ in :math:`N=100` independent trials
+
+  .. code-block:: console
+
+    % bedtools shuffle \
+      -i consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
+      -g hg38.sizes \
+      -chrom \
+      | bedtools intersect -a stdin -b GRCh38-cCREs.bed -f 0.25 -r -u \
+      | wc -l
+
+  and aggregate results to estimate the empirical distribution of cCRE-hits.
+
+* Consenrich vs. Baseline: :math:`2.9\times \textsf{FC}, p \approx 0.009`
+
+  +--------------------------------------------------+-------------------------------+
+  | Feature                                          | Value                         |
+  +==================================================+===============================+
+  | Consenrich: Total structured peaks (α=0.05)      | 261,004                       |
+  +--------------------------------------------------+-------------------------------+
+  | Consenrich: Distinct cCRE overlaps*              | 220,517                       |
+  +--------------------------------------------------+-------------------------------+
+  | Consenrich: Percent overlapping                  | 84.5%                         |
+  +--------------------------------------------------+-------------------------------+
+  | Random (``shuffle``): Distinct cCRE overlaps*    | μ=77,990.7 / σ=221.3          |
+  +--------------------------------------------------+-------------------------------+
+  | Random (``shuffle``): Percent overlapping        | 29.9%                         |
+  +--------------------------------------------------+-------------------------------+
+
+
+  :math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
 
 .. admonition:: Guidance: Significance Thresholds for Structured Peak Calling
   :class: tip
