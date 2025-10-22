@@ -80,6 +80,10 @@ class processParams(NamedTuple):
     :param dStatPC: Constant :math:`c` in the scaling expression :math:`\sqrt{d|D_{[i]} - \alpha_D| + c}`
         that is used to up/down-scale the process noise covariance in the event of a model mismatch.
     :type dStatPC: float
+    :param scaleResidualsByP11: If `True`, the primary state variances :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
+        If `False`, only the per-sample observation noise levels are used to reduce computational overhead.
+    :type scaleResidualsByP11: Optional[bool]
+
     """
 
     deltaF: float
@@ -89,6 +93,7 @@ class processParams(NamedTuple):
     dStatAlpha: float
     dStatd: float
     dStatPC: float
+    scaleResidualsByP11: Optional[bool] = False
 
 
 class observationParams(NamedTuple):
