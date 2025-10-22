@@ -310,6 +310,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             dStatAlpha=config.get("processParams.dStatAlpha", 3.0),
             dStatd=config.get("processParams.dStatd", 10.0),
             dStatPC=config.get("processParams.dStatPC", 2.0),
+            scaleResidualsByP11=config.get(
+                "processParams.scaleResidualsByP11", False
+            ),
         ),
         "observationArgs": core.observationParams(
             minR=minR_default,
@@ -457,24 +460,48 @@ def main():
         "--match-template",
         type=str,
         default="haar",
-        choices=[x for x in pywt.wavelist(kind="discrete") if 'bio' not in x],
+        choices=[x for x in pywt.wavelist(kind="discrete") if "bio" not in x],
         dest="matchTemplate",
     )
     parser.add_argument("--match-level", type=int, default=2, dest="matchLevel")
-    parser.add_argument("--match-alpha", type=float, default=0.05, dest="matchAlpha")
-    parser.add_argument("--match-min-length", type=int, default=250, dest="matchMinMatchLengthBP")
-    parser.add_argument("--match-iters", type=int, default=25000, dest="matchIters")
-    parser.add_argument("--match-min-signal", type=str, default="q:0.75", dest="matchMinSignalAtMaxima")
-    parser.add_argument("--match-max-matches", type=int, default=100000, dest="matchMaxNumMatches")
-    parser.add_argument("--match-no-merge", action="store_true", dest="matchNoMerge")
-    parser.add_argument("--match-merge-gap", type=int, default=50, dest="matchMergeGapBP")
-    parser.add_argument("--match-use-wavelet", action="store_true", dest="matchUseWavelet")
-    parser.add_argument("--match-seed", type=int, default=42, dest="matchRandSeed")
     parser.add_argument(
-        "--match-exclude-bed",
+        "--match-alpha", type=float, default=0.05, dest="matchAlpha"
+    )
+    parser.add_argument(
+        "--match-min-length",
+        type=int,
+        default=250,
+        dest="matchMinMatchLengthBP",
+    )
+    parser.add_argument(
+        "--match-iters", type=int, default=25000, dest="matchIters"
+    )
+    parser.add_argument(
+        "--match-min-signal",
         type=str,
-        default=None,
-        dest="matchExcludeBed"
+        default="q:0.75",
+        dest="matchMinSignalAtMaxima",
+    )
+    parser.add_argument(
+        "--match-max-matches",
+        type=int,
+        default=100000,
+        dest="matchMaxNumMatches",
+    )
+    parser.add_argument(
+        "--match-no-merge", action="store_true", dest="matchNoMerge"
+    )
+    parser.add_argument(
+        "--match-merge-gap", type=int, default=50, dest="matchMergeGapBP"
+    )
+    parser.add_argument(
+        "--match-use-wavelet", action="store_true", dest="matchUseWavelet"
+    )
+    parser.add_argument(
+        "--match-seed", type=int, default=42, dest="matchRandSeed"
+    )
+    parser.add_argument(
+        "--match-exclude-bed", type=str, default=None, dest="matchExcludeBed"
     )
     parser.add_argument(
         "--verbose", action="store_true", help="If set, logs config"
@@ -514,7 +541,6 @@ def main():
             "If `--match-bedgraph <path_to_bedgraph>` is provided, only the matching algorithm is run."
         )
         sys.exit(0)
-
 
     if not args.config:
         logger.info(
@@ -809,7 +835,14 @@ def main():
         logger.info("Done.")
 
         x_ = core.getPrimaryState(x)
-        y_ = core.getPrecisionWeightedResidual(y, muncMat)
+        y_ = core.getPrecisionWeightedResidual(
+            y,
+            muncMat,
+            stateCovarSmoothed=P
+            if processArgs.scaleResidualsByP11 is not None
+            and processArgs.scaleResidualsByP11
+            else None,
+        )
 
         df = pd.DataFrame(
             {
