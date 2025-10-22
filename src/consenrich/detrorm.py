@@ -214,26 +214,17 @@ def detrendTrack(
 
     if useOrderStatFilter and usePolyFilter:
         logger.warning(
-            "Both order statistic and polynomial filters are specified..."
+            "Both order statistic and polynomial filters specified...using order statistic filter."
         )
         bothSpecified = True
 
     if useOrderStatFilter or bothSpecified:
-        logger.info(
-            f"Using order statistic filter with size, percentile: {size}, {detrendTrackPercentile}"
-        )
         return values - ndimage.percentile_filter(
             values, detrendTrackPercentile, size=size
         )
     elif usePolyFilter:
-        logger.info(
-            f"Using Savitzky-Golay filter with size, degree: {size}, {detrendSavitzkyGolayDegree}"
-        )
         return values - signal.savgol_filter(
             values, size, detrendSavitzkyGolayDegree
         )
 
-    logger.warning(
-        f"No technique specified: using a simple moving average with size {size}."
-    )
     return values - ndimage.uniform_filter1d(values, size=size, mode="nearest")
