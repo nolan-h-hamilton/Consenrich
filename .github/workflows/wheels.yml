@@ -53,6 +53,16 @@ jobs:
           CIBW_ARCHS_LINUX: ${{ matrix.cibw_archs_linux }}
           CIBW_ARCHS_MACOS: ${{ matrix.cibw_archs_macos }}
 
+          CIBW_BEFORE_ALL_LINUX: >
+            bash -lc '
+              (yum -y install || dnf -y install || microdnf -y install) bzip2-devel xz-devel zlib-devel libcurl-devel ||
+              (yum -y install || dnf -y install || microdnf -y install) bzip2-devel xz-devel zlib-devel curl-devel
+            '
+
+          # Ensure xz (liblzma) on macOS; bz2/zlib headers are provided by the SDK
+          CIBW_BEFORE_ALL_MACOS: >
+            brew update && brew install xz || true
+
       - if: matrix.name == 'linux-x86_64'
         name: Build source distribution
         run: |
