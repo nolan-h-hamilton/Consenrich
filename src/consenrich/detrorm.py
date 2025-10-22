@@ -69,7 +69,9 @@ def getScaleFactor1x(
                 if element.contig in excludeChroms:
                     totalMappedReads -= element.mapped
     if totalMappedReads <= 0 or effectiveGenomeSize <= 0:
-        raise ValueError(f"Negative EGS after removing excluded chromosomes")
+        raise ValueError(
+            f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}."
+        )
     return round(effectiveGenomeSize / (totalMappedReads * readLength), 4)
 
 
@@ -212,18 +214,26 @@ def detrendTrack(
 
     if useOrderStatFilter and usePolyFilter:
         logger.warning(
-            "Both order statistic and polynomial filters are specified. Using order statistic filter."
+            "Both order statistic and polynomial filters are specified..."
         )
         bothSpecified = True
 
     if useOrderStatFilter or bothSpecified:
+        logger.info(
+            f"Using order statistic filter with size, percentile: {size}, {detrendTrackPercentile}"
+        )
         return values - ndimage.percentile_filter(
             values, detrendTrackPercentile, size=size
         )
     elif usePolyFilter:
+        logger.info(
+            f"Using Savitzky-Golay filter with size, degree: {size}, {detrendSavitzkyGolayDegree}"
+        )
         return values - signal.savgol_filter(
-            values, detrendWindowLengthBP, detrendSavitzkyGolayDegree
+            values, size, detrendSavitzkyGolayDegree
         )
 
-    logger.warning("No technique specified: using a simple moving average")
+    logger.warning(
+        f"No technique specified: using a simple moving average with size {size}."
+    )
     return values - ndimage.uniform_filter1d(values, size=size, mode="nearest")
