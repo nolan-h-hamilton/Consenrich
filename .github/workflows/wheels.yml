@@ -33,7 +33,7 @@ jobs:
             runs-on: macos-15
             cibw_archs_macos: arm64
 
-          # x86 mac (gh removing support for macos-13)
+          # x86 mac
           - name: macos-x86_64
             runs-on: macos-15-intel
             cibw_archs_macos: x86_64
@@ -53,13 +53,20 @@ jobs:
           CIBW_ARCHS_LINUX: ${{ matrix.cibw_archs_linux }}
           CIBW_ARCHS_MACOS: ${{ matrix.cibw_archs_macos }}
 
-          CIBW_BEFORE_ALL_LINUX: >
-            bash -lc '
-              (yum -y install || dnf -y install || microdnf -y install) bzip2-devel xz-devel zlib-devel libcurl-devel ||
-              (yum -y install || dnf -y install || microdnf -y install) bzip2-devel xz-devel zlib-devel curl-devel
+          CIBW_BEFORE_ALL_LINUX: |
+            bash -eux -c '
+              if command -v yum >/dev/null 2>&1; then
+                yum -y install bzip2-devel xz-devel zlib-devel libcurl-devel
+              elif command -v dnf >/dev/null 2>&1; then
+                dnf -y install bzip2-devel xz-devel zlib-devel libcurl-devel
+              elif command -v microdnf >/dev/null 2>&1; then
+                microdnf -y install bzip2-devel xz-devel zlib-devel libcurl-devel
+              else
+                echo "No supported package manager found" >&2
+                exit 1
+              fi
             '
 
-          # Ensure xz (liblzma) on macOS; bz2/zlib headers are provided by the SDK
           CIBW_BEFORE_ALL_MACOS: >
             brew update && brew install xz || true
 
