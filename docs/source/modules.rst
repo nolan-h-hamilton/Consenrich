@@ -145,8 +145,8 @@ Where :math:`\mathcal{R}_{[i]}` is large, there is greater evidence that the sig
 ``matchingParams.minSignalAtMaxima`` (Optional)
   Can be an absolute value (float) or string ``"q:<quantileValue>"`` to require the value at response-maxima to exceed the given quantile of non-zero values (default ``q:0.75``).
 
-  - This threshold is applied after tempering the dynamic range with an arsinh transform (i.e., :math:`\sinh^{-1}(x)`).
-  - By default, the upper quartile of non-zero values is used: `q:0.75`
+  - This threshold is applied after tempering the dynamic range (i.e., :math:`\sinh^{-1}(x)`).
+  - By default, the 90th percentile of non-zero values is used: `q:0.90`
   - *To disable*: set to a negative numeric value.
 
 ``matchingParams.minMatchLengthBP``: (Optional)
@@ -172,38 +172,38 @@ As opposed to the configs in :ref:`additional-examples`, here, we set ``matching
 
 **Generic Defaults**
 
+These are the default matching parameters used in Consenrich unless otherwise specified by the user.
 
 .. code-block:: yaml
 
   matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [2]
   matchingParams.minMatchLengthBP: 250
-  matchingParams.mergeGapBP: 50
+  matchingParams.mergeGapBP: 125 # if not specified, (0.5 * minMatchLengthBP)
   matchingParams.alpha: 0.05
+  matchingParams.minSignalAtMaxima: 'q:0.90'
 
 
 The matching config above is not encompassing but should provide a strong starting point for standard use cases.
 
 Some basic guidelines:
 
-- For broad marks, consider larger more-symmetric templates and/or `cascadeLevels`` (e.g., `sym4`) and a larger minimum feature length (e.g., ``500``)
+- For broad marks, longer in BP, symmetric or near-symmetric templates and/or greater `cascadeLevels`` (e.g., `haar`, level `3` or `sym4`, level `1`)
 
-- For sharp marks, consider smaller templates and/or lower `cascadeLevels` (e.g., `haar`, `db2`) and a smaller minimum feature length (e.g., ``150``)
-
-See :ref:`additional-examples` for more specific guidance.
+- For sharp marks, shorter in BP, and/or lower `cascadeLevels` (e.g., `haar`, `db2`).
 
 ---
 
 **Command-Line Usage**
 
-The matching algorithm can be run directly at the command-line on existing Consenrich-generated bedGraph files. For instance, in the ChIP-seq experiment from :ref:`getting-started`,
+The matching algorithm can be run directly at the command-line on existing Consenrich-generated bedGraph files. For example:
 
 .. code-block:: console
 
   % consenrich \
-    --match-bedGraph consenrichOutput_demoHistoneChIPSeq_state.bedGraph \
-    --match-template db3 \
-    --match-level 2 \
+    --match-bedGraph consenrichOutput_<experimentName>_state.bedGraph \
+    --match-template haar \
+    --match-level 3 \
     --match-alpha 0.01
 
 This avoids a full run of Consenrich and requires minimal runtime: See `consenrich -h` for more details.
