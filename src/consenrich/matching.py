@@ -48,12 +48,12 @@ def matchExistingBedGraph(
     alpha: float = 0.05,
     minMatchLengthBP: Optional[int] = 250,
     iters: int = 25_000,
-    minSignalAtMaxima: Optional[float | str] = "q:0.75",
+    minSignalAtMaxima: Optional[float | str] = "q:0.90",
     maxNumMatches: Optional[int] = 100_000,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
-    mergeGapBP: int = 50,
+    mergeGapBP: Optional[int] = None,
     merge: bool = True,
     weights: Optional[npt.NDArray[np.float64]] = None,
     randSeed: int = 42,
@@ -73,6 +73,9 @@ def matchExistingBedGraph(
         raise ValueError(
             f"Please use a suffix '.bedGraph' for `bedGraphFile`, got: {bedGraphFile}"
         )
+
+    if mergeGapBP is None:
+        mergeGapBP = (minMatchLengthBP // 2) + 1 if minMatchLengthBP is not None else 75
 
     allowedTemplates = [
         x for x in pw.wavelist(kind="discrete") if "bio" not in x
@@ -201,7 +204,7 @@ def matchWavelet(
     alpha: float = 0.05,
     minMatchLengthBP: Optional[int] = 250,
     maxNumMatches: Optional[int] = 100_000,
-    minSignalAtMaxima: Optional[float | str] = "q:0.75",
+    minSignalAtMaxima: Optional[float | str] = "q:0.90",
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
@@ -209,8 +212,6 @@ def matchWavelet(
     weights: Optional[npt.NDArray[np.float64]] = None,
 ) -> pd.DataFrame:
     r"""Detect structured peaks by cross-correlating Consenrich tracks with wavelet- or scaling-function templates.
-
-    See :ref:`matching` for an overview of the approach.
 
     :param chromosome: Chromosome name for the input intervals and values.
     :type chromosome: str
@@ -230,15 +231,14 @@ def matchWavelet(
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches.
-        *Set to a negative value to disable this filter*.
     :type minMatchLengthBP: int
     :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
         at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
         If a `float` value is provided, the minimum signal value must be greater than this (absolute) value. *Set to a
         negative value to disable the threshold*.
-        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
+        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The
         threshold is then set to the corresponding quantile of the non-zero signal estimates.
-        Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
+        Defaults to str value 'q:0.90' --- the 90th percentile of signal values.
     :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
         If False, use (only) the wavelet function.
@@ -280,7 +280,7 @@ def matchWavelet(
     asinhValues = np.asinh(values, dtype=np.float32)
     asinhNonZeroValues = asinhValues[asinhValues > 0]
     iters = max(iters, 1000)
-    defQuantile: float = 0.75
+    defQuantile: float = 0.90
     for l_, cascadeLevel in enumerate(cascadeLevels):
         for t_, templateName in enumerate(templateNames):
             try:

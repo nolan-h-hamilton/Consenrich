@@ -39,11 +39,11 @@ def _listOrEmpty(list_):
 
 
 def _getMinR(cfg, numBams: int) -> float:
+    fallBackMinR: float = 1.0
     try:
         raw = cfg.get("observationParams.minR", None)
-        return float(raw) if raw is not None else (1 / numBams) + 1e-4
+        return float(raw) if raw is not None else fallBackMinR
     except (TypeError, ValueError, KeyError):
-        fallBackMinR: float = 1.0e-2
         logger.warning(
             f"Invalid or missing 'observationParams.minR' in config. Using `{fallBackMinR}`."
         )
@@ -294,6 +294,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
     minR_default = _getMinR(config, len(inputParams.bamFiles))
+    minQ_default = (minR_default / (2.0 * len(inputParams.bamFiles))) + 1e-2
     matchingExcludeRegionsBedFile_default: Optional[str] = (
         genomeParams.blacklistFile
     )
@@ -304,14 +305,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "countingArgs": countingParams,
         "processArgs": core.processParams(
             deltaF=config.get("processParams.deltaF", 0.5),
-            minQ=config.get("processParams.minQ", 0.25),
+            minQ=config.get("processParams.minQ", minQ_default),
             maxQ=config.get("processParams.maxQ", 500.0),
             offDiagQ=config.get("processParams.offDiagQ", 0.0),
             dStatAlpha=config.get("processParams.dStatAlpha", 3.0),
-            dStatd=config.get("processParams.dStatd", 10.0),
-            dStatPC=config.get("processParams.dStatPC", 2.0),
+            dStatd=config.get("processParams.dStatd", 1.0),
+            dStatPC=config.get("processParams.dStatPC", 1.0),
             scaleResidualsByP11=config.get(
-                "processParams.scaleResidualsByP11", False
+                "processParams.scaleResidualsByP11", True
             ),
         ),
         "observationArgs": core.observationParams(
@@ -377,10 +378,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             minMatchLengthBP=config.get("matchingParams.minMatchLengthBP", 250),
             maxNumMatches=config.get("matchingParams.maxNumMatches", 100_000),
             minSignalAtMaxima=config.get(
-                "matchingParams.minSignalAtMaxima", "q:0.75"
+                "matchingParams.minSignalAtMaxima", "q:0.90"
             ),
             merge=config.get("matchingParams.merge", True),
-            mergeGapBP=config.get("matchingParams.mergeGapBP", 50),
+            mergeGapBP=config.get("matchingParams.mergeGapBP", None),
             useScalingFunction=config.get(
                 "matchingParams.useScalingFunction", True
             ),
@@ -492,7 +493,7 @@ def main():
         "--match-no-merge", action="store_true", dest="matchNoMerge"
     )
     parser.add_argument(
-        "--match-merge-gap", type=int, default=50, dest="matchMergeGapBP"
+        "--match-merge-gap", type=int, default=None, dest="matchMergeGapBP"
     )
     parser.add_argument(
         "--match-use-wavelet", action="store_true", dest="matchUseWavelet"
