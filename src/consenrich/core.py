@@ -334,7 +334,6 @@ class matchingParams(NamedTuple):
         negative value to disable the threshold*.
         If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The
         threshold is then set to the corresponding quantile of the non-zero signal estimates.
-        Defaults to str value 'q:0.90' --- the 90th percentile of signal values.
     :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
         If False, use (only) the wavelet function.
@@ -350,13 +349,13 @@ class matchingParams(NamedTuple):
     cascadeLevels: List[int]
     iters: int
     alpha: float
+    useScalingFunction: Optional[bool]
     minMatchLengthBP: Optional[int]
     maxNumMatches: Optional[int]
-    minSignalAtMaxima: Optional[str | float] = "q:0.90"
-    merge: bool = False
+    minSignalAtMaxima: Optional[str | float]
+    merge: Optional[bool]
     mergeGapBP: Optional[int]
-    useScalingFunction: bool = True
-    excludeRegionsBedFile: Optional[str] = None
+    excludeRegionsBedFile: Optional[str]
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:

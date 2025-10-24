@@ -294,7 +294,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
     minR_default = _getMinR(config, len(inputParams.bamFiles))
-    minQ_default = (minR_default / (2.0 * len(inputParams.bamFiles))) + 1e-2
+    minQ_default = (minR_default / (len(inputParams.bamFiles))) + 0.10 # protect condition number
     matchingExcludeRegionsBedFile_default: Optional[str] = (
         genomeParams.blacklistFile
     )
@@ -480,7 +480,7 @@ def main():
     parser.add_argument(
         "--match-min-signal",
         type=str,
-        default="q:0.75",
+        default="q:0.90",
         dest="matchMinSignalAtMaxima",
     )
     parser.add_argument(
