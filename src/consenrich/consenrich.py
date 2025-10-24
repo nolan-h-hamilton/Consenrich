@@ -309,10 +309,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             maxQ=config.get("processParams.maxQ", 500.0),
             offDiagQ=config.get("processParams.offDiagQ", 0.0),
             dStatAlpha=config.get("processParams.dStatAlpha", 3.0),
-            dStatd=config.get("processParams.dStatd", 1.0),
+            dStatd=config.get("processParams.dStatd", 10.0),
             dStatPC=config.get("processParams.dStatPC", 1.0),
             scaleResidualsByP11=config.get(
-                "processParams.scaleResidualsByP11", True
+                "processParams.scaleResidualsByP11", False
             ),
         ),
         "observationArgs": core.observationParams(
