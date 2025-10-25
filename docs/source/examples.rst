@@ -40,27 +40,6 @@ Consenrich Input/Output Overview
     * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
 
-.. admonition:: Guidance: `Consenrich+ROCCO` for Consensus Peak Calling + Downstream Differential Analyses
-  :class: tip
-  :collapsible: closed
-
-  Consenrich can markedly improve between-group differential analyses that depend on a good set of initial 'candidate' consensus peaks (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
-
-  `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is particularly well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling.
-
-  For example, to run the `Consenrich+ROCCO` protocol used in the manuscript,
-
-  .. code-block:: console
-
-	  % python -m pip install rocco --upgrade
-	  % rocco -i <experimentName>_consenrich_state.bw -g hg38 -o consenrichRocco_<experimentName>.bed
-
-  The total-variation-penalized + budget-constrained optimization performed by ROCCO in selecting consensus peak regions is helpful to prevent excessive multiple comparisons downstream and enforce biological plausibility.
-
-  * Other peak calling methods, including the :ref:`matching` algorithm packaged with Consenrich, that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) may also be viable, but only Consenrich+ROCCO has been extensively benchmarked to date.
-
-
-
 .. _getting-started:
 
 Getting Started: Minimal Example
@@ -435,10 +414,15 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
     ENCFF141HNE.bam
   ]
 
-  # Single-end data + broad marks + low coverage:
+  # Recommended for single-end data
   samParams.inferFragmentLength: 1
 
   matchingParams.templateNames: [haar, db2]
+
+
+* Note, for broader marks, consider using a symmetric or near-symmetric template and/or a greater cascade level (e.g., `templateNames: [haar, sym4]`, `cascadeLevels: [2,3]``) to better capture extended enrichment patterns.
+
+  * Increasing `mergeGapBP` can also be beneficial to avoid over-segmentation of broad domains.
 
 
 Run Consenrich
@@ -476,136 +460,6 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
 
 .. image:: ../benchmarks/H3K36me3/images/H3K36me3ExperimentMemoryPlot.png
     :alt: Time vs. Memory Usage (`memory-profiler`)
-    :width: 800px
-    :align: center
-
-----
-
-CUT&RUN: H3K27me3
-""""""""""""""""""""
-
-- Input data: :math:`m=5` H3K27me3 CUT&RUN samples -- `4D Nucleome K562 <https://data.4dnucleome.org/experiment-set-replicates/4DNESTTCK612/>`_
-- Paired-end, **25bp** reads
-
-
-Environment
-''''''''''''''
-
-- MacBook MX313LL/A (arm64)
-- Python 3.12.9
-- `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
-- `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
-
-Names and versions of packages that are relevant to computational performance. These specific versions are *not required* but are included for reproducibility.
-
-.. list-table::
-     :header-rows: 1
-     :widths: 40 60
-
-     * - Package
-       - Version
-     * - ``cython``
-       - 3.1.4
-     * - ``numpy``
-       - 2.3.3
-     * - ``scipy``
-       - 1.16.2
-
-
-Configuration
-''''''''''''''''''''''''''''
-
-.. admonition:: Guidance: Noise level approximation for heterochromatic or repressive targets
-  :class: tip
-  :collapsible: closed
-
-  When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true``
-
-  This prevents real signal being from being attributed to noise and may be consequential for higher-resolution analyses.
-
-
-We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
-
-.. code-block:: yaml
-
-  experimentName: CnRH3K27me3Experiment
-  genomeParams.name: hg38
-  genomeParams.excludeChroms: ['chrY']
-  genomeParams.excludeForNorm: ['chrX','chrY']
-
-  inputParams.bamFiles: [4DNFIBDJW6IC.sorted.bam,
-   4DNFIRWKCRVO.sorted.bam,
-   4DNFIIQQUZS8.sorted.bam,
-   4DNFI6LU95TE.sorted.bam,
-   4DNFI2TMFKW2.sorted.bam
-  ]
-  samParams.pairedEndMode: 1
-
-  # Guidance: 'Noise level approximation for heterochromatic/repressive targets'
-  observationParams.useALV: true
-
-  # Broad marks + sparse data
-  matchingParams.templateNames: [sym4]
-  matchingParams.minMatchLengthBP: 500
-  matchingParams.mergeGapBP: 250
-  matchingParams.alpha: 0.01
-
-Run Consenrich
-''''''''''''''''''''
-
-.. code-block:: console
-
-  % consenrich --config CnR_H3K27me3.yaml --verbose
-
-
-Results
-''''''''''''''''''''''''''''
-
-
-- In H3K27me3-enriched domains, we observe patterns consistent with `Cai et al. (2021) <https://pubmed.ncbi.nlm.nih.gov/33514712/>`_, where putative silencer elements are often marked by H3K27me3.
-
-.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3.png
-    :alt: IGV Browser Snapshot H3K27me3
-    :width: 700px
-    :align: left
-
-
-- Strong H3K27me3 and H3K27ac signals rarely coincide. As a qualitative reference in the IGV browser snapshot above, we include the K562/H3K27ac 'fold change over control' track from ENCODE `ENCFF381NDD <https://www.encodeproject.org/files/ENCFF381NDD/>`_.
-
-To further assess the relationship between these two modifications quantitatively, we compute their genome-wide Spearman correlations using deeptools' `multiBigWigSummary <https://deeptools.readthedocs.io/en/develop/content/tools/multiBigwigSummary.html>`_ and `plotCorrelation <https://deeptools.readthedocs.io/en/develop/content/tools/plotCorrelation.html>`_ commands.
-
-`Cai-Fullwood-2021.Silencer-cCREs.bed` is available from SCREEN: `Human --> cCREs by class --> Silencer Sets (.tar.gz)  <https://screen.wenglab.org/downloads>`_.
-
-.. code-block:: console
-
-  % bedtools sort -i Cai-Fullwood-2021.Silencer-cCREs.bed | cut -f 1-3 > Cai2021_Silencers.bed
-
-  % multiBigWigSummary BED-file --BED Cai2021_Silencers.bed \
-   -b CnRH3K27me3Experiment_consenrich_state.bw ENCFF381NDD.bigWig \
-   -o results.npz
-
-  % plotCorrelation -in results.npz \
-   -p scatterplot --corMethod spearman \
-   --removeOutliers --skipZeros --plotFile CnRH3K27me3Scatter.png \
-   --plotTitle "Consenrich CnR Experiment: H3K27me3 _|_ H3K27ac" \
-   --labels Consenrich_27me3 Ref_27ac
-
-
-.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3Scatter.png
-    :alt: H3K27me3 Scatter
-    :width: 500px
-    :align: center
-
-
-Runtime and Memory Profiling
-''''''''''''''''''''''''''''''''''
-
-Memory was profiled using the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches.
-
-Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
-
-.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3MemoryPlot.png
-    :alt: Time vs. Memory Usage H3K27me3 (`memory-profiler`)
     :width: 800px
     :align: center
 
