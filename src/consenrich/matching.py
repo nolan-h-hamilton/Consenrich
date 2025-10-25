@@ -48,7 +48,7 @@ def matchExistingBedGraph(
     alpha: float = 0.05,
     minMatchLengthBP: Optional[int] = 250,
     iters: int = 25_000,
-    minSignalAtMaxima: Optional[float | str] = "q:0.90",
+    minSignalAtMaxima: Optional[float | str] = "q:0.75",
     maxNumMatches: Optional[int] = 100_000,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
@@ -204,7 +204,7 @@ def matchWavelet(
     alpha: float = 0.05,
     minMatchLengthBP: Optional[int] = 250,
     maxNumMatches: Optional[int] = 100_000,
-    minSignalAtMaxima: Optional[float | str] = "q:0.90",
+    minSignalAtMaxima: Optional[float | str] = "q:0.75",
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
@@ -236,9 +236,9 @@ def matchWavelet(
         at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
         If a `float` value is provided, the minimum signal value must be greater than this (absolute) value. *Set to a
         negative value to disable the threshold*.
-        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The
+        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
         threshold is then set to the corresponding quantile of the non-zero signal estimates.
-        Defaults to str value 'q:0.90' --- the 90th percentile of signal values.
+        Defaults to str value 'q:0.75' --- the 90th percentile of signal values.
     :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
         If False, use (only) the wavelet function.
@@ -280,7 +280,7 @@ def matchWavelet(
     asinhValues = np.asinh(values, dtype=np.float32)
     asinhNonZeroValues = asinhValues[asinhValues > 0]
     iters = max(iters, 1000)
-    defQuantile: float = 0.90
+    defQuantile: float = 0.75
     for l_, cascadeLevel in enumerate(cascadeLevels):
         for t_, templateName in enumerate(templateNames):
             try:

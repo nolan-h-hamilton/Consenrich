@@ -335,8 +335,6 @@ We find a substantial overlap between Consenrich-detected regions and cCREs, wit
 
 :math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
 
-Note that the default matching parameters are used in this experiment (``alpha=0.05, minSignalAtMaxima: 'q:0.90'``). For some ATAC-seq/DNase-seq analyses, these may be conservative. Users may consider relaxing these thresholds (e.g., ``minSignalAtMaxima: 'q:0.50'``) to detect additional regulatory candidates.
-
 
 .. _runtimeAndMemoryProfilingAtac20:
 

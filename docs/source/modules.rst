@@ -158,7 +158,7 @@ Where :math:`\mathcal{R}_{[i]}` is large, there is greater evidence that the sig
   Can be an absolute value (float) or string ``"q:<quantileValue>"`` to require the value at response-maxima to exceed the given quantile of non-zero values (default ``q:0.75``).
 
   - This threshold is applied after tempering the dynamic range (i.e., :math:`\sinh^{-1}(x)`).
-  - By default, the 90th percentile of non-zero values is used: `q:0.90`
+  - By default, the 75th percentile of non-zero values is used: `q:0.75`
   - *To disable*: set to a negative numeric value.
 
 * ``matchingParams.minMatchLengthBP``: (Optional)
@@ -169,13 +169,14 @@ Where :math:`\mathcal{R}_{[i]}` is large, there is greater evidence that the sig
 
 **Generic Defaults**
 
+Assuming ``matchingParams.templateNames`` is specified, the following defaults are used, unless overridden by the user:
+
 .. code-block:: yaml
 
-  matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [2]
   matchingParams.minMatchLengthBP: 250
   matchingParams.alpha: 0.05
-  matchingParams.minSignalAtMaxima: 'q:0.90'
+  matchingParams.minSignalAtMaxima: 'q:0.75'
   matchingParams.merge: true
 
 These defaults are not encompassing but should provide a strong starting point for many use cases.
@@ -261,12 +262,13 @@ Several miscellaneous tips for using Consenrich effectively are provided here.
   This will generate structured peak calls using the Haar wavelet template at level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
 
 
-.. admonition:: Fragment Length Estimation and Counting
+.. admonition:: Counting Reads Starts
   :class: tip
   :collapsible: closed
 
-  * ``samParams.pairedEndMode: 1`` invokes fragment-based counting for paired-end data.
-  * ``samParams.inferFragmentLength: 1`` invokes fragment estimation (for counting) based on maximal lagged cross-correlation between plus/minus strand read counts.
+  To count 5' ends exclusively, set ``samParams.pairedEndMode: 0`` and ``samParams.inferFragmentLength: 0``.
+
+  Otherwise, for single-end data, the fragment length will be automatically inferred from the data, and for paired-end data, the fragment length will be determined from the aligned insert size.
 
 
 .. admonition:: Noise level approximation for heterochromatic or repressive targets

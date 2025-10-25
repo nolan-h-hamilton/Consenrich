@@ -62,7 +62,7 @@ def checkBamFile(bamFile: str) -> bool:
     return has_index
 
 
-def bamsArePairedEnd(bamFiles: List[str], maxReads: int = 10_000) -> List[bool]:
+def bamsArePairedEnd(bamFiles: List[str], maxReads: int = 1_000) -> List[bool]:
     """
     Take a list of BAM files, return a list (bool) indicating whether
     each BAM contains paired-end reads (True) or only single-end reads (False).

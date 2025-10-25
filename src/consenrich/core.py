@@ -251,6 +251,7 @@ class inputParams(NamedTuple):
 
     bamFiles: List[str]
     bamFilesControl: Optional[List[str]]
+    pairedEnd: Optional[bool]
 
 
 class genomeParams(NamedTuple):

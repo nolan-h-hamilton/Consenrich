@@ -10,7 +10,7 @@ Consenrich is an adaptive linear state estimator that yields genome-wide, uncert
 Special emphasis is placed on computational efficiency, model interpretability, and practical utility for downstream tasks that require well-resolved genome-wide signal estimates and uncertainty quantification across samples, such as:
 
 * Consensus detection of open chromatin regions, TF footprints, nucleosome occupancy, histone modification
-* Candidate selection and boundary refinement for differential analyses, fine-mapping, reporter assays, etc.
+* Candidate prioritization for differential analyses, functional validation, integrative modeling, etc.
 
 [**See the Documentation**](https://nolan-h-hamilton.github.io/Consenrich/) for usage examples, installation details, configuration options, and an API reference.
 
