@@ -194,6 +194,8 @@ class samParams(NamedTuple):
        extend reads from 5'. Ignored if `pairedEndMode > 0` or `extendBP` set. This parameter is particularly
        important when targeting broader marks (e.g., ChIP-seq H3K27me3).
     :type inferFragmentLength: int
+    :param countEndsOnly: If True, only the 5' ends of reads are counted. Overrides `inferFragmentLength` and `pairedEndMode`.
+    :type countEndsOnly: Optional[bool]
 
     .. tip::
 
@@ -210,6 +212,7 @@ class samParams(NamedTuple):
     maxInsertSize: Optional[int] = 1000
     pairedEndMode: Optional[int] = 0
     inferFragmentLength: Optional[int] = 0
+    countEndsOnly: Optional[bool] = False
 
 
 class detrendParams(NamedTuple):
@@ -251,6 +254,7 @@ class inputParams(NamedTuple):
 
     bamFiles: List[str]
     bamFilesControl: Optional[List[str]]
+    pairedEnd: Optional[bool]
 
 
 class genomeParams(NamedTuple):
@@ -309,9 +313,9 @@ class countingParams(NamedTuple):
 
 
 class matchingParams(NamedTuple):
-    r"""Parameters related to the matching algorithm packaged with this software.
+    r"""Parameters related to the matching algorithm.
 
-    See :ref:`matching` for details.
+    See :ref:`matching` for an overview of the approach.
 
     :param templateNames: A list of str values -- wavelet bases used for matching, e.g., `[haar, db2, sym4]`
     :type templateNames: List[str]
@@ -327,15 +331,13 @@ class matchingParams(NamedTuple):
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches.
-        *Set to a negative value to disable this filter*.
     :type minMatchLengthBP: int
-    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
+    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Requires the *signal value*
         at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
         If a `float` value is provided, the minimum signal value must be greater than this (absolute) value. *Set to a
         negative value to disable the threshold*.
-        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
+        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The
         threshold is then set to the corresponding quantile of the non-zero signal estimates.
-        Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
     :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
         If False, use (only) the wavelet function.
@@ -343,20 +345,21 @@ class matchingParams(NamedTuple):
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]
 
-    :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
+    :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
+
     """
 
     templateNames: List[str]
     cascadeLevels: List[int]
     iters: int
     alpha: float
+    useScalingFunction: Optional[bool]
     minMatchLengthBP: Optional[int]
     maxNumMatches: Optional[int]
-    minSignalAtMaxima: Optional[str | float] = "q:0.75"
-    merge: bool = False
-    mergeGapBP: int = 25
-    useScalingFunction: bool = True
-    excludeRegionsBedFile: Optional[str] = None
+    minSignalAtMaxima: Optional[str | float]
+    merge: Optional[bool]
+    mergeGapBP: Optional[int]
+    excludeRegionsBedFile: Optional[str]
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:
@@ -518,6 +521,7 @@ def readBamSegments(
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
     inferFragmentLength: Optional[int] = 0,
+    countEndsOnly: Optional[bool] = False,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -553,6 +557,9 @@ def readBamSegments(
     :type pairedEndMode: int
     :param inferFragmentLength: See :class:`samParams`.
     :type inferFragmentLength: int
+    :param countEndsOnly: If True, only the 5' ends of reads are counted. This overrides `inferFragmentLength` and `pairedEndMode`.
+    :type countEndsOnly: Optional[bool]
+
     """
 
     if len(bamFiles) == 0:
@@ -567,6 +574,12 @@ def readBamSegments(
     offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
     numIntervals = ((end - start) + stepSize - 1) // stepSize
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
+
+    if isinstance(countEndsOnly, bool) and countEndsOnly:
+        # note: setting this option ignores inferFragmentLength, pairedEndMode
+        inferFragmentLength = 0
+        pairedEndMode = 0
+
     for j, bam in enumerate(bamFiles):
         logger.info(f"Reading {chromosome}: {bam}")
         arr = cconsenrich.creadBamSegment(

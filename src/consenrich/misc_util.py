@@ -62,6 +62,35 @@ def checkBamFile(bamFile: str) -> bool:
     return has_index
 
 
+def bamsArePairedEnd(bamFiles: List[str], maxReads: int = 1_000) -> List[bool]:
+    """
+    Take a list of BAM files, return a list (bool) indicating whether
+    each BAM contains paired-end reads (True) or only single-end reads (False).
+
+    :param bamFiles: List of paths to BAM files
+    :type bamFiles: List[str]
+    :param maxReads: Maximum number of reads to check in each BAM file
+    :type maxReads: int
+    :return: List of booleans corresponding to each BAM file
+    :rtype: List[bool]
+    """
+
+    results = []
+    for path in bamFiles:
+        paired = False
+        seen = 0
+        with sam.AlignmentFile(path, "rb") as bam:
+            for rec in bam.fetch(until_eof=True):
+                if rec.is_paired:
+                    paired = True
+                    break
+                seen += 1
+                if maxReads is not None and seen >= maxReads:
+                    break
+        results.append(paired)
+    return results
+
+
 def getChromSizesDict(
     sizes_file: str,
     excludeRegex: str = r"^chr[A-Za-z0-9]+$",

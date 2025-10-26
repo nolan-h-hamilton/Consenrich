@@ -39,11 +39,11 @@ def _listOrEmpty(list_):
 
 
 def _getMinR(cfg, numBams: int) -> float:
+    fallBackMinR: float = 1.0
     try:
         raw = cfg.get("observationParams.minR", None)
-        return float(raw) if raw is not None else (1 / numBams) + 1e-4
+        return float(raw) if raw is not None else fallBackMinR
     except (TypeError, ValueError, KeyError):
-        fallBackMinR: float = 1.0e-2
         logger.warning(
             f"Invalid or missing 'observationParams.minR' in config. Using `{fallBackMinR}`."
         )
@@ -174,7 +174,21 @@ def getInputArgs(config_path: str) -> core.inputParams:
         for i, bamFile in enumerate(bamFilesControl):
             misc_util.checkBamFile(bamFile)
 
-    return core.inputParams(bamFiles=bamFiles, bamFilesControl=bamFilesControl)
+    # if we've made it here, we can check pairedEnd
+    pairedEndList = misc_util.bamsArePairedEnd(bamFiles)
+    _isPairedEnd: Optional[bool] = config.get("inputParams.pairedEnd", None)
+    if _isPairedEnd is None:
+        # only set auto if not provided in config
+        _isPairedEnd = all(pairedEndList)
+        if _isPairedEnd:
+            logger.info(
+                "Paired-end BAM files detected"
+            )
+        else:
+            logger.info(
+                "One or more single-end BAM files detected"
+            )
+    return core.inputParams(bamFiles=bamFiles, bamFilesControl=bamFilesControl, pairedEnd=_isPairedEnd)
 
 
 def getGenomeArgs(config_path: str) -> core.genomeParams:
@@ -294,6 +308,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
     minR_default = _getMinR(config, len(inputParams.bamFiles))
+    minQ_default = (minR_default / (len(inputParams.bamFiles))) + 0.10 # protect condition number
     matchingExcludeRegionsBedFile_default: Optional[str] = (
         genomeParams.blacklistFile
     )
@@ -304,12 +319,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "countingArgs": countingParams,
         "processArgs": core.processParams(
             deltaF=config.get("processParams.deltaF", 0.5),
-            minQ=config.get("processParams.minQ", 0.25),
+            minQ=config.get("processParams.minQ", minQ_default),
             maxQ=config.get("processParams.maxQ", 500.0),
             offDiagQ=config.get("processParams.offDiagQ", 0.0),
             dStatAlpha=config.get("processParams.dStatAlpha", 3.0),
             dStatd=config.get("processParams.dStatd", 10.0),
-            dStatPC=config.get("processParams.dStatPC", 2.0),
+            dStatPC=config.get("processParams.dStatPC", 1.0),
             scaleResidualsByP11=config.get(
                 "processParams.scaleResidualsByP11", False
             ),
@@ -351,8 +366,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             offsetStr=config.get("samParams.offsetStr", "0,0"),
             extendBP=config.get("samParams.extendBP", []),
             maxInsertSize=config.get("samParams.maxInsertSize", 1000),
-            pairedEndMode=config.get("samParams.pairedEndMode", 0),
-            inferFragmentLength=config.get("samParams.inferFragmentLength", 0),
+            pairedEndMode=config.get("samParams.pairedEndMode", 1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) > 0 else 0),
+            inferFragmentLength=config.get("samParams.inferFragmentLength", 1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) == 0 else 0),
+            countEndsOnly=config.get("samParams.countEndsOnly", False),
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=config.get(
@@ -380,7 +396,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 "matchingParams.minSignalAtMaxima", "q:0.75"
             ),
             merge=config.get("matchingParams.merge", True),
-            mergeGapBP=config.get("matchingParams.mergeGapBP", 50),
+            mergeGapBP=config.get("matchingParams.mergeGapBP", None),
             useScalingFunction=config.get(
                 "matchingParams.useScalingFunction", True
             ),
@@ -492,7 +508,7 @@ def main():
         "--match-no-merge", action="store_true", dest="matchNoMerge"
     )
     parser.add_argument(
-        "--match-merge-gap", type=int, default=50, dest="matchMergeGapBP"
+        "--match-merge-gap", type=int, default=None, dest="matchMergeGapBP"
     )
     parser.add_argument(
         "--match-use-wavelet", action="store_true", dest="matchUseWavelet"
@@ -748,6 +764,7 @@ def main():
                     inferFragmentLength=samArgs.inferFragmentLength,
                     applyAsinh=countingArgs.applyAsinh,
                     applyLog=countingArgs.applyLog,
+                    countEndsOnly=samArgs.countEndsOnly
                 )
                 if countingArgs.rescaleToTreatmentCoverage:
                     finalSF = max(1.0, initialTreatmentScaleFactors[j_])
@@ -768,12 +785,13 @@ def main():
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
                 offsetStr=samArgs.offsetStr,
-                extendBP=samArgs.extendBP,
+                extendBP=extendBP_,
                 maxInsertSize=samArgs.maxInsertSize,
                 pairedEndMode=samArgs.pairedEndMode,
                 inferFragmentLength=samArgs.inferFragmentLength,
                 applyAsinh=countingArgs.applyAsinh,
                 applyLog=countingArgs.applyLog,
+                countEndsOnly=samArgs.countEndsOnly
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:

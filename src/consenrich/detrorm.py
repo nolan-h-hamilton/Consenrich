@@ -39,7 +39,7 @@ def getScaleFactor1x(
     :type bamFile: str
     :param effectiveGenomeSize: Effective genome size in base pairs. See :func:`consenrich.constants.getEffectiveGenomeSize`.
     :type effectiveGenomeSize: int
-    :param readLength: Read length (base pairs). See :func:`consenrich.core.getReadLength`.
+    :param readLength: read length or fragment length
     :type readLength: int
     :param excludeChroms: List of chromosomes to exclude from the analysis.
     :type excludeChroms: List[str]
@@ -125,9 +125,9 @@ def getPairScaleFactors(
     :type effectiveGenomeSizeA: int
     :param effectiveGenomeSizeB: Effective genome size for the second BAM file.
     :type effectiveGenomeSizeB: int
-    :param readLengthA: Read length for the first BAM file.
+    :param readLengthA: read length or fragment length for the first BAM file.
     :type readLengthA: int
-    :param readLengthB: Read length for the second BAM file.
+    :param readLengthB: read length or fragment length for the second BAM file.
     :type readLengthB: int
     :param excludeChroms: List of chromosomes to exclude from the analysis.
     :type excludeChroms: List[str]
@@ -167,9 +167,18 @@ def getPairScaleFactors(
     else:
         scaleFactorA *= coverageB / coverageA
         scaleFactorB = 1.0
+
     logger.info(
         f"Final scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
     )
+
+    ratio = max(scaleFactorA, scaleFactorB) / min(scaleFactorA, scaleFactorB)
+    if ratio > 5.0:
+        logger.warning(
+            f"Scale factors differ > 5x....\n"
+            f"\n\tAre effective genome sizes {effectiveGenomeSizeA} and {effectiveGenomeSizeB} correct?"
+            f"\n\tAre read/fragment lengths {readLengthA},{readLengthB} correct?"
+        )
     return scaleFactorA, scaleFactorB
 
 

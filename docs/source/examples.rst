@@ -8,6 +8,34 @@ Quickstart + Usage
 
 After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
 
+**File Formats**
+
+* Input
+
+  * Per-sample sequence alignment files (BAM format)
+
+    * *Optional*: Control/input alignment files (e.g., ChIP-seq)
+
+  * Note, if using Consenrich programmatically, users can provide preprocessed sample-by-interval count matrices directly instead of BAM files (see :func:`consenrich.core.runConsenrich`)
+
+* Output
+
+  * *Signal estimate track*: ``<experimentName>_consenrich_state.bw``
+
+    * This track records genome-wide Consenrich estimates for the targeted signal of interest
+    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
+
+  * *Precision-weighted residual track*: ``<experimentName>_consenrich_residuals.bw``
+
+    * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
+    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
+
+  * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
+
+    * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
+    * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
+
+
 .. _getting-started:
 
 Getting Started: Minimal Example
@@ -128,63 +156,19 @@ Run Consenrich
 
   % consenrich --config demoHistoneChIPSeq.yaml --verbose
 
-
-Output Files and Formats
-"""""""""""""""""""""""""""""""""
-
-Consenrich generates the following output files:
-
-* **Signal estimate track**: ``<experimentName>_consenrich_state.bw``
-
-  * This track records the genome-wide Consenrich estimates for the primary signal of interest :math:`\widetilde{x}_{[i]},~i=1,\ldots,n`, derived from input samples' alignment/count data
-  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
-  * See :func:`consenrich.core.getPrimaryState`
-
-* **Precision-weighted residual track**: ``<experimentName>_consenrich_residuals.bw``
-
-  * This track records the uncertainty-scaled differences between the Consenrich estimates and the observed sample data at each interval
-  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
-  * See :func:`consenrich.core.getPrecisionWeightedResidual`
-
-
-* **Structured peak calls** (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
-
-  * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
-  * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
-
-
-.. admonition:: Guidance: `Consenrich+ROCCO`: Consensus Peak Calling
-  :class: tip
-  :collapsible: closed
-
-  Consenrich can markedly improve conventional consensus peak calling and between-group differential analyses (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
-
-  `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is particularly well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling.
-
-
-  In the example above, to call peaks using the `Consenrich+ROCCO` protocol, run:
-
-  .. code-block:: console
-
-	  % python -m pip install rocco --upgrade
-	  % rocco -i demoHistoneChIPSeq_consenrich_state.bw -g hg38 -o consenrichRocco_demoHistoneChIPSeq.bed
-
-  * The experimental :ref:`matching` algorithm available with Consenrich may be effective as a complement or substitute for existing peak calling methods---e.g., detecting 'structured' enrichment patterns across multiple samples or identifying subpeaks within broad regions of interest.
-
-  * Alternative peak calling methods that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) should be capable of utilizing Consenrich signal tracks. Only ROCCO has been evaluated for this task to date.
-
 Results
 """"""""""""""""""""""""""
 
-We display results at a **50kb** enhancer-rich region overlapping `MYH9`.
+* We display Consenrich results (blue) over an enhancer-rich region within `MYH9`
+
+
+* For reference, ENCODE peaks for the same `Experiments` and donor samples are included (black):
+  * `Histone ChIP-seq (unreplicated) <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ (MACS2 calls,  partition concordance)
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
   :alt: Output Consenrich Signal Estimates
-    :width: 800px
+    :width: 700px
     :align: left
-
-
-The treatment and control alignment coverage tracks are shown in black. Additionally, ENCODE's default signal quantification tracks for histone ChIP-seq---the ``fold change over control`` bigWig files---are displayed for each sample in red.
 
 
 .. _additional-examples:
@@ -209,8 +193,9 @@ Environment
 ''''''''''''''
 
 - MacBook MX313LL/A (arm64)
-- Python 3.12.9
-- `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
+- Python `3.12.9`
+- Consenrich `v0.7.0b1`
+- `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
 Names and versions of packages that are relevant to computational performance. These specific versions are *not required* but are included for reproducibility.
@@ -222,11 +207,11 @@ Names and versions of packages that are relevant to computational performance. T
      * - Package
        - Version
      * - ``cython``
-       - 3.1.2
+       - 3.1.4
      * - ``numpy``
-       - 2.3.2
+       - 2.3.3
      * - ``scipy``
-       - 1.16.1
+       - 1.16.2
 
 
 Configuration
@@ -235,37 +220,6 @@ Configuration
 Run with the following YAML config file `atac20Benchmark.yaml`. Note that several parameters are listed and/or adjusted for demonstration purposes.
 
 Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed explicitly in the config to show their ENCODE accessions for reference.
-
-.. admonition:: Guidance: Tuning Memory Usage vs. Runtime
-  :class: tip
-  :collapsible: closed
-
-  Consenrich is generally memory-efficient and can be run on large datasets using only consumer grade hardware (See :ref:`runtimeAndMemoryProfilingAtac20`). Memory cost can be reduced by decreasing `samParams.chunkSize` in the configuration file. Smaller chunk sizes may affect runtime due to overhead from more frequent file I/O, however.
-
-
-.. admonition:: Guidance: Balancing Confidence in Noisy Data versus *a priori* Model Predictions
-  :class: tip
-  :collapsible: closed
-
-  Note that default values should generally suffice given the adaptive process and observation models, but base-level uncertainty for each can be tuned if one source is deemed consistently more reliable than the other.
-
-  An informal summary of these parameters' effects is as follows:
-
-  - Increasing ``processParams.minQ``:
-
-    .. math::
-
-      \textsf{Greater base-level uncertainty assigned to propagated predictions } \rightarrow \textsf{ data favored in estimation}
-
-    - In other words, *restrict influence of the a priori model for signal/variance propagation to accommodate greater confidence in the data*
-
-  - Increasing ``observationParams.minR``:
-
-    .. math::
-
-      \textsf{Greater base-level uncertainty assigned to data } \rightarrow \textsf{ propagated predictions favored in estimation}
-
-    - In other words, *restrict reliance on data to accommodate greater confidence in the a priori model for signal/variance propagation*
 
 
 .. code-block:: yaml
@@ -297,10 +251,8 @@ Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed e
     ENCFF948HNW.bam
   ]
 
-  processParams.minQ: 0.05 # (default 0.25)
   matchingParams.templateNames: [haar, db2]
-  matchingParams.minSignalAtMaxima: 'q:0.50' # (default 'q:0.75')
-  matchingParams.alpha: 0.05 # (default 0.05)
+
 
 Run Consenrich
 ''''''''''''''''''''
@@ -313,29 +265,21 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-- Output tracks and features are visualized above in a **100kb** region overlapping Gencode v47 `NOTCH1`.
+Consenrich outputs are visualized over `KRAS`
 
-.. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib.png
-    :alt: IGV Browser Snapshot
-    :width: 800px
-    :align: left
-
-
-Structured peak calls are positioned above the Consenrich signal as BED features.
-
-- Focused view over a **25kb** subregion:
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib25KB.png
     :alt: IGV Browser Snapshot (25kb)
     :width: 800px
     :align: left
 
+(*Todo: switch to UCSC genome browser*)
 
 **Evaluating Structured Peak Results: cCRE Overlaps**
 
 We measure overlap between the Consenrich-detected regions and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
 
-Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and a perfect concordance is not expected.
+Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and strict concordance is not expected.
 
 * We first count:
 
@@ -353,7 +297,7 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
 
 * We also evaluate overlaps compared to a null baseline:
 
-  |    *After controlling for feature size and chromosome placement, how many cCRE-hits could we expect by random selection?*
+  |    *Controlling for feature size and chromosome placement, how many cCRE-hits could we expect by randomly selecting the same number of peaks?*
 
   We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_,
 
@@ -366,48 +310,26 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
       | bedtools intersect -a stdin -b GRCh38-cCREs.bed -f 0.25 -r -u \
       | wc -l
 
-  and aggregate results for `N=100` independent trials to build an empirical distribution for cCRE-hits under our null model.
+  and aggregate results for `N=250` independent trials to build an empirical distribution for cCRE-hits under our null model.
 
 
-*We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits* (:math:`p \approx 0.009`):
+We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (3 :math:`\times` fold-change, :math:`\hat{p} \approx 0.0039`):
 
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Feature                                                                                  | Value                                        |
 +==========================================================================================+==============================================+
-| Consenrich: Total structured peaks (α=0.05)                                              | 261,004                                      |
+| Consenrich: Total structured peaks (α=0.05)                                              | 192,274                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Distinct cCRE overlaps*                                                      | 220,517                                      |
+| Consenrich: Distinct cCRE overlaps*                                                      | 169,459                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Percent overlapping                                                          | 84.5%                                        |
+| Consenrich: Percent overlapping                                                          | 88.1%                                        |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Distinct cCRE overlaps*                                            | :math:`\hat{\mu}=77990.7,\hat{\sigma}=221.3` |
+| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 57,087.8,  σ ≈ 197.5                     |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Percent overlapping                                                | 29.9%                                        |
+| Random (``shuffle``): Percent overlapping                                                | ≈ 29.6%                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 
 :math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
-
-.. admonition:: Guidance: Significance Thresholds for Structured Peak Calling
-  :class: tip
-  :collapsible: closed
-
-  The default significance thresholds may be too lenient (or strict) depending on the application (:func:`consenrich.matching.matchWavelet`).
-
-  For example, in the `atac20` example, a smaller more confident peak set could be desirable.
-
-  - Decreasing ``alpha`` (e.g., :math:`\alpha = 0.05 \longrightarrow \alpha = 0.01`) and counting overlaps again,
-
-    .. code-block:: console
-
-      % bedtools intersect -a atac20FilteredAlpha01.narrowPeak \
-            -b GRCh38-cCREs.bed \
-            -f 0.25 -r -u \
-        > cCREOverlap_atac20FilteredAlpha01.narrowPeak # (76,783 / 78,411) regions
-
-    brings the percent of `atac20` Consenrich matches that share a :math:`25\%` *reciprocal* overlap with the ENCODE cCREs to **97.9%** --- at the cost of fewer total detections.
-
-  * Note, we can also increase the secondary, *signal-level* cutoff, ``minSignalAtMaxima``, which controls the minimum allowed :math:`\widetilde{x}_{[\cdot]}` at each candidate match.
-
 
 
 .. _runtimeAndMemoryProfilingAtac20:
@@ -439,6 +361,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python 3.12.9
+- Consenrich v0.7.0b1
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 - `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ 1.6.3
@@ -452,13 +375,11 @@ Names and versions of packages that are relevant to computational performance. T
      * - Package
        - Version
      * - ``cython``
-       - 3.1.2
+       - 3.1.4
      * - ``numpy``
-       - 2.3.2
+       - 2.3.3
      * - ``scipy``
-       - 1.16.1
-     * - ``rocco``
-       - 1.6.3
+       - 1.16.2
 
 
 Configuration
@@ -487,15 +408,12 @@ We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
     ENCFF141HNE.bam
   ]
 
-  # Recommended for single-end data, broad marks, low coverage, etc.
-  samParams.inferFragmentLength: 1
+  matchingParams.templateNames: [haar, db2]
 
-  # Broad marks + sparse data:
-  # consider a larger, more symmetric template and merging window
-  matchingParams.templateNames: [sym4]
-  matchingParams.minMatchLengthBP: 500
-  matchingParams.mergeGapBP: 250
-  matchingParams.alpha: 0.01
+
+* Note, for broader marks, consider using a symmetric or near-symmetric template and/or a greater cascade level (e.g., `templateNames: [haar, sym4]`, `cascadeLevels: [2,3]``) to better capture extended enrichment patterns.
+
+  * Increasing `mergeGapBP` can also be beneficial to avoid over-segmentation of broad domains.
 
 
 Run Consenrich
@@ -511,17 +429,18 @@ Results
 
 For a qualitative, biologically-motivated check, we evaluate results over `PRRC1` in light of `Figure 3A in (Andersson et al., 2009) <https://genome.cshlp.org/content/19/10/1732>`_: *H3K36me3 signal is overrepresented at internal exons with respect to succeeding introns.*
 
-* Note that we are using colonic mucosal tissue samples, whereas Andersson et al. used CD4+ T cells. Nonetheless, PRRC1 is consistently expressed in colonic mucosa, and we can expect at least a loose concordance in H3K36me3 enrichment patterns.
+* Note that we are using colonic mucosal tissue samples, whereas Andersson et al. used CD4+ T cells. Nonetheless, PRRC1 is consistently expressed in colonic mucosa, and we can expect a loose concordance in H3K36me3 enrichment patterns.
 
 .. image:: ../benchmarks/H3K36me3/images/H3K36me3PRRC1.png
     :alt: H3K36me3 Intron-Exon
     :width: 800px
     :align: left
 
-As in `Andersson et al. <https://genome.cshlp.org/content/19/10/1732>`_,
+(*Todo: switch to UCSC genome browser*)
 
-* Near the transcription start site of `PRRC1`, we observe a strong, transient H3K27ac peak followed by a broad increase in Consenrich-estimated H3K36me3 signal
-* Within `PRRC1`, the strongest H3K36me3 Consenrich-estimated signals appear at exons >1, `GENCODE-annotated <https://www.gencodegenes.org/human/release_47.html>`_ followed by abrupt depletions
+* Near the transcription start site of `PRRC1`, we observe a transient H3K4me3 peak followed by a broad increase in H3K36me3 signal
+* Within `PRRC1`, the strongest H3K36me3 Consenrich-estimated signals appear at `GENCODE-annotated <https://www.gencodegenes.org/human/release_47.html>`_ exons > 1 followed by abrupt depletion.
+
 
 Runtime and Memory Profiling
 ''''''''''''''''''''''''''''''''''
@@ -535,133 +454,53 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
     :width: 800px
     :align: center
 
-----
 
-CUT&RUN: H3K27me3
-""""""""""""""""""""
+.. _tips:
 
-- Input data: :math:`m=5` H3K27me3 CUT&RUN samples -- `4D Nucleome K562 <https://data.4dnucleome.org/experiment-set-replicates/4DNESTTCK612/>`_
-- Paired-end, **25bp** reads
+Miscellaneous Guidance
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-
-Environment
-''''''''''''''
-
-- MacBook MX313LL/A (arm64)
-- Python 3.12.9
-- `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
-- `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
-
-Names and versions of packages that are relevant to computational performance. These specific versions are *not required* but are included for reproducibility.
-
-.. list-table::
-     :header-rows: 1
-     :widths: 40 60
-
-     * - Package
-       - Version
-     * - ``cython``
-       - 3.1.2
-     * - ``numpy``
-       - 2.3.2
-     * - ``scipy``
-       - 1.16.1
-
-
-Configuration
-''''''''''''''''''''''''''''
-
-.. admonition:: Guidance: Noise level approximation for heterochromatic or repressive targets
+.. admonition:: Consensus Peak Calling + Downstream Differential Analyses
   :class: tip
   :collapsible: closed
 
-  When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true``
+  Consenrich can markedly improve between-group differential analyses that depend on a good set of initial 'candidate' consensus peaks (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
 
-  This prevents real signal being from being attributed to noise and may be consequential for higher-resolution analyses.
+  `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is particularly well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling.
 
+  For example, to run the `Consenrich+ROCCO` protocol used in the manuscript,
 
-We save the following YAML configuration as ``CnR_H3K27me3.yaml``.
+  .. code-block:: console
 
-.. code-block:: yaml
+	  % python -m pip install rocco --upgrade
+	  % rocco -i <experimentName>_consenrich_state.bw -g hg38 -o consenrichRocco_<experimentName>.bed
 
-  experimentName: CnRH3K27me3Experiment
-  genomeParams.name: hg38
-  genomeParams.excludeChroms: ['chrY']
-  genomeParams.excludeForNorm: ['chrX','chrY']
+  The total-variation-penalized + budget-constrained optimization performed by ROCCO in selecting consensus peak regions is helpful to prevent excessive multiple comparisons downstream and enforce biological plausibility.
 
-  inputParams.bamFiles: [4DNFIBDJW6IC.sorted.bam,
-   4DNFIRWKCRVO.sorted.bam,
-   4DNFIIQQUZS8.sorted.bam,
-   4DNFI6LU95TE.sorted.bam,
-   4DNFI2TMFKW2.sorted.bam
-  ]
-  samParams.pairedEndMode: 1
-
-  # Guidance: 'Noise level approximation for heterochromatic/repressive targets'
-  observationParams.useALV: true
-
-  # Broad marks + sparse data
-  matchingParams.templateNames: [sym4]
-  matchingParams.minMatchLengthBP: 500
-  matchingParams.mergeGapBP: 250
-  matchingParams.alpha: 0.01
-
-Run Consenrich
-''''''''''''''''''''
-
-.. code-block:: console
-
-  % consenrich --config CnR_H3K27me3.yaml --verbose
+  * Other peak calling methods, including the :ref:`matching` algorithm packaged with Consenrich, that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) may also be viable, but only Consenrich+ROCCO has been extensively benchmarked to date.
 
 
-Results
-''''''''''''''''''''''''''''
+.. admonition:: Command Line - Matching Algorithm
+  :class: tip
+  :collapsible: closed
+
+  To avoid a full run/rerun of Consenrich when calling structured peaks, the matching algorithm can be run directly at the command-line on existing Consenrich-generated bedGraph files. For example:
+
+  .. code-block:: console
+
+    % consenrich \
+      --match-bedGraph consenrichOutput_<experimentName>_state.bedGraph \
+      --match-template haar \
+      --match-level 3 \
+      --match-alpha 0.01
+
+  This will generate structured peak calls using the Haar wavelet template at level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
 
 
-- In H3K27me3-enriched domains, we observe patterns consistent with `Cai et al. (2021) <https://pubmed.ncbi.nlm.nih.gov/33514712/>`_, where putative silencer elements are often marked by H3K27me3.
+.. admonition:: Noise level approximation for heterochromatic or repressive targets
+  :class: tip
+  :collapsible: closed
 
-.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3.png
-    :alt: IGV Browser Snapshot H3K27me3
-    :width: 700px
-    :align: left
-
-
-- Strong H3K27me3 and H3K27ac signals rarely coincide. As a qualitative reference in the IGV browser snapshot above, we include the K562/H3K27ac 'fold change over control' track from ENCODE `ENCFF381NDD <https://www.encodeproject.org/files/ENCFF381NDD/>`_.
-
-To further assess the relationship between these two modifications quantitatively, we compute their genome-wide Spearman correlations using deeptools' `multiBigWigSummary <https://deeptools.readthedocs.io/en/develop/content/tools/multiBigwigSummary.html>`_ and `plotCorrelation <https://deeptools.readthedocs.io/en/develop/content/tools/plotCorrelation.html>`_ commands.
-
-`Cai-Fullwood-2021.Silencer-cCREs.bed` is available from SCREEN: `Human --> cCREs by class --> Silencer Sets (.tar.gz)  <https://screen.wenglab.org/downloads>`_.
-
-.. code-block:: console
-
-  % bedtools sort -i Cai-Fullwood-2021.Silencer-cCREs.bed | cut -f 1-3 > Cai2021_Silencers.bed
-
-  % multiBigWigSummary BED-file --BED Cai2021_Silencers.bed \
-   -b CnRH3K27me3Experiment_consenrich_state.bw ENCFF381NDD.bigWig \
-   -o results.npz
-
-  % plotCorrelation -in results.npz \
-   -p scatterplot --corMethod spearman \
-   --removeOutliers --skipZeros --plotFile CnRH3K27me3Scatter.png \
-   --plotTitle "Consenrich CnR Experiment: H3K27me3 _|_ H3K27ac" \
-   --labels Consenrich_27me3 Ref_27ac
-
-
-.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3Scatter.png
-    :alt: H3K27me3 Scatter
-    :width: 500px
-    :align: center
-
-
-Runtime and Memory Profiling
-''''''''''''''''''''''''''''''''''
-
-Memory was profiled using the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches.
-
-Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
-
-.. image:: ../benchmarks/CnRH3K27me3/CnRH3K27me3MemoryPlot.png
-    :alt: Time vs. Memory Usage H3K27me3 (`memory-profiler`)
-    :width: 800px
-    :align: center
+  When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true`` in the YAML configuration file.
+  This prevents real signal being from being attributed to noise and may be consequential for higher-resolution analyses. See :class:`consenrich.observations.observationParams` for more details.
 

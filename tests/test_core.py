@@ -17,7 +17,7 @@ import scipy.signal as spySig # renamed to avoid conflict with any `signal` vari
 import consenrich.core as core
 import consenrich.cconsenrich as cconsenrich
 import consenrich.matching as matching
-
+import consenrich.misc_util as misc_util
 
 @pytest.mark.correctness
 def testConstantGetAverageLocalVarianceTrack(constantValue=10):
@@ -213,6 +213,28 @@ def testFragLen(threshold: float = 25, expected: float = 220):
 
     assert stats.iqr(fragLens) < 2 * threshold
     assert abs(np.median(fragLens) - expected) < threshold
+
+
+@pytest.mark.correctness
+def testSingleEndDetection():
+    # case: single-end BAM
+    bamFiles = ["smallTest.bam"]
+    pairedEndStatus = misc_util.bamsArePairedEnd(bamFiles, maxReads=1_000)
+    assert isinstance(pairedEndStatus, list)
+    assert len(pairedEndStatus) == 1
+    assert isinstance(pairedEndStatus[0], bool)
+    assert pairedEndStatus[0] is False
+
+
+@pytest.mark.correctness
+def testPairedEndDetection():
+    # case: paired-end BAM
+    bamFiles = ["smallTest2.bam"]
+    pairedEndStatus = misc_util.bamsArePairedEnd(bamFiles, maxReads=1_000)
+    assert isinstance(pairedEndStatus, list)
+    assert len(pairedEndStatus) == 1
+    assert isinstance(pairedEndStatus[0], bool)
+    assert pairedEndStatus[0] is True
 
 
 @pytest.mark.matching

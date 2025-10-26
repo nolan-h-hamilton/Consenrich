@@ -53,7 +53,7 @@ def matchExistingBedGraph(
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
-    mergeGapBP: int = 50,
+    mergeGapBP: Optional[int] = None,
     merge: bool = True,
     weights: Optional[npt.NDArray[np.float64]] = None,
     randSeed: int = 42,
@@ -73,6 +73,9 @@ def matchExistingBedGraph(
         raise ValueError(
             f"Please use a suffix '.bedGraph' for `bedGraphFile`, got: {bedGraphFile}"
         )
+
+    if mergeGapBP is None:
+        mergeGapBP = (minMatchLengthBP // 2) + 1 if minMatchLengthBP is not None else 75
 
     allowedTemplates = [
         x for x in pw.wavelist(kind="discrete") if "bio" not in x
@@ -210,8 +213,6 @@ def matchWavelet(
 ) -> pd.DataFrame:
     r"""Detect structured peaks by cross-correlating Consenrich tracks with wavelet- or scaling-function templates.
 
-    See :ref:`matching` for an overview of the approach.
-
     :param chromosome: Chromosome name for the input intervals and values.
     :type chromosome: str
     :param values: 'Consensus' signal estimates derived from multiple samples, e.g., from Consenrich.
@@ -230,7 +231,6 @@ def matchWavelet(
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches.
-        *Set to a negative value to disable this filter*.
     :type minMatchLengthBP: int
     :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Require the *signal value*
         at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
@@ -238,7 +238,7 @@ def matchWavelet(
         negative value to disable the threshold*.
         If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.75'. The
         threshold is then set to the corresponding quantile of the non-zero signal estimates.
-        Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
+        Defaults to str value 'q:0.75' --- the 90th percentile of signal values.
     :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
         If False, use (only) the wavelet function.

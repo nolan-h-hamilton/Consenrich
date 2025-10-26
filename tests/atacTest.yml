@@ -27,6 +27,7 @@ stateParams.stateUpperBound: 10000.0
 samParams.samThreads: 1
 samParams.samFlagExclude: 3844
 samParams.oneReadPerBin: 0
+samParams.countEndsOnly: true
 samParams.chunkSize: 1000000
 detrendParams.detrendWindowLengthBP: 10000
 detrendParams.useOrderStatFilter: true
