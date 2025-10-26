@@ -262,15 +262,6 @@ Several miscellaneous tips for using Consenrich effectively are provided here.
   This will generate structured peak calls using the Haar wavelet template at level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
 
 
-.. admonition:: Counting Reads Starts
-  :class: tip
-  :collapsible: closed
-
-  To count 5' ends exclusively, set ``samParams.pairedEndMode: 0`` and ``samParams.inferFragmentLength: 0``.
-
-  Otherwise, for single-end data, the fragment length will be automatically inferred from the data, and for paired-end data, the fragment length will be determined from the aligned insert size.
-
-
 .. admonition:: Noise level approximation for heterochromatic or repressive targets
   :class: tip
   :collapsible: closed

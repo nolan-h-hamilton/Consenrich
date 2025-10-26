@@ -368,6 +368,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             maxInsertSize=config.get("samParams.maxInsertSize", 1000),
             pairedEndMode=config.get("samParams.pairedEndMode", 1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) > 0 else 0),
             inferFragmentLength=config.get("samParams.inferFragmentLength", 1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) == 0 else 0),
+            countEndsOnly=config.get("samParams.countEndsOnly", False),
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=config.get(
@@ -763,6 +764,7 @@ def main():
                     inferFragmentLength=samArgs.inferFragmentLength,
                     applyAsinh=countingArgs.applyAsinh,
                     applyLog=countingArgs.applyLog,
+                    countEndsOnly=samArgs.countEndsOnly
                 )
                 if countingArgs.rescaleToTreatmentCoverage:
                     finalSF = max(1.0, initialTreatmentScaleFactors[j_])
@@ -789,6 +791,7 @@ def main():
                 inferFragmentLength=samArgs.inferFragmentLength,
                 applyAsinh=countingArgs.applyAsinh,
                 applyLog=countingArgs.applyLog,
+                countEndsOnly=samArgs.countEndsOnly
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:

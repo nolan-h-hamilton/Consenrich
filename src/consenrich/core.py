@@ -194,6 +194,8 @@ class samParams(NamedTuple):
        extend reads from 5'. Ignored if `pairedEndMode > 0` or `extendBP` set. This parameter is particularly
        important when targeting broader marks (e.g., ChIP-seq H3K27me3).
     :type inferFragmentLength: int
+    :param countEndsOnly: If True, only the 5' ends of reads are counted. Overrides `inferFragmentLength` and `pairedEndMode`.
+    :type countEndsOnly: Optional[bool]
 
     .. tip::
 
@@ -210,6 +212,7 @@ class samParams(NamedTuple):
     maxInsertSize: Optional[int] = 1000
     pairedEndMode: Optional[int] = 0
     inferFragmentLength: Optional[int] = 0
+    countEndsOnly: Optional[bool] = False
 
 
 class detrendParams(NamedTuple):
@@ -518,6 +521,7 @@ def readBamSegments(
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
     inferFragmentLength: Optional[int] = 0,
+    countEndsOnly: Optional[bool] = False,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -553,6 +557,9 @@ def readBamSegments(
     :type pairedEndMode: int
     :param inferFragmentLength: See :class:`samParams`.
     :type inferFragmentLength: int
+    :param countEndsOnly: If True, only the 5' ends of reads are counted. This overrides `inferFragmentLength` and `pairedEndMode`.
+    :type countEndsOnly: Optional[bool]
+
     """
 
     if len(bamFiles) == 0:
@@ -567,6 +574,12 @@ def readBamSegments(
     offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
     numIntervals = ((end - start) + stepSize - 1) // stepSize
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
+
+    if isinstance(countEndsOnly, bool) and countEndsOnly:
+        # note: setting this option ignores inferFragmentLength, pairedEndMode
+        inferFragmentLength = 0
+        pairedEndMode = 0
+
     for j, bam in enumerate(bamFiles):
         logger.info(f"Reading {chromosome}: {bam}")
         arr = cconsenrich.creadBamSegment(
