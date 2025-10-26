@@ -173,24 +173,14 @@ Assuming ``matchingParams.templateNames`` is specified, the following defaults a
 
 .. code-block:: yaml
 
+  matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [2]
   matchingParams.minMatchLengthBP: 250
   matchingParams.alpha: 0.05
   matchingParams.minSignalAtMaxima: 'q:0.75'
   matchingParams.merge: true
 
-These defaults are not encompassing but should provide a strong starting point for many use cases.
-
-
-In the following browser snapshot, we sweep several key matching parameters.
-
-Here, we set ``matchingParams.merge: false`` to clearly illustrate contrasting results.
-
-.. image:: ../images/structuredPeaks.png
-  :alt: Structured Peaks
-  :width: 85%
-  :align: center
-  :name: structuredPeaks
+These defaults are not encompassing but should provide a strong starting point for many use cases. See :ref:`additional-examples` for practical examples.
 
 ---
 
@@ -216,56 +206,3 @@ Several computationally burdensome tasks are written in `Cython <https://cython.
 .. autofunction:: consenrich.cconsenrich.cSparseAvg
 .. autofunction:: consenrich.cconsenrich.cgetFragmentLength
 .. autofunction:: consenrich.cconsenrich.cbedMask
-
-
-.. _tips:
-
-Tips
-~~~~~~~~~~~~~~
-
-Several miscellaneous tips for using Consenrich effectively are provided here.
-
-.. admonition:: Consensus Peak Calling + Downstream Differential Analyses
-  :class: tip
-  :collapsible: closed
-
-  Consenrich can markedly improve between-group differential analyses that depend on a good set of initial 'candidate' consensus peaks (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
-
-  `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is particularly well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling.
-
-  For example, to run the `Consenrich+ROCCO` protocol used in the manuscript,
-
-  .. code-block:: console
-
-	  % python -m pip install rocco --upgrade
-	  % rocco -i <experimentName>_consenrich_state.bw -g hg38 -o consenrichRocco_<experimentName>.bed
-
-  The total-variation-penalized + budget-constrained optimization performed by ROCCO in selecting consensus peak regions is helpful to prevent excessive multiple comparisons downstream and enforce biological plausibility.
-
-  * Other peak calling methods, including the :ref:`matching` algorithm packaged with Consenrich, that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) may also be viable, but only Consenrich+ROCCO has been extensively benchmarked to date.
-
-
-.. admonition:: Command Line - Matching Algorithm
-  :class: tip
-  :collapsible: closed
-
-  To avoid a full run/rerun of Consenrich when calling structured peaks, the matching algorithm can be run directly at the command-line on existing Consenrich-generated bedGraph files. For example:
-
-  .. code-block:: console
-
-    % consenrich \
-      --match-bedGraph consenrichOutput_<experimentName>_state.bedGraph \
-      --match-template haar \
-      --match-level 3 \
-      --match-alpha 0.01
-
-  This will generate structured peak calls using the Haar wavelet template at level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
-
-
-.. admonition:: Noise level approximation for heterochromatic or repressive targets
-  :class: tip
-  :collapsible: closed
-
-  When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true`` in the YAML configuration file.
-  This prevents real signal being from being attributed to noise and may be consequential for higher-resolution analyses. See :class:`consenrich.observations.observationParams` for more details.
-
