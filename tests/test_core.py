@@ -216,7 +216,7 @@ def testFragLen(threshold: float = 25, expected: float = 220):
 
 
 @pytest.mark.correctness
-def testPairedEndDetectionI():
+def testSingleEndDetection():
     # case: single-end BAM
     bamFiles = ["smallTest.bam"]
     pairedEndStatus = misc_util.bamsArePairedEnd(bamFiles, maxReads=1_000)
@@ -224,6 +224,17 @@ def testPairedEndDetectionI():
     assert len(pairedEndStatus) == 1
     assert isinstance(pairedEndStatus[0], bool)
     assert pairedEndStatus[0] is False
+
+
+@pytest.mark.correctness
+def testPairedEndDetection():
+    # case: paired-end BAM
+    bamFiles = ["smallTest2.bam"]
+    pairedEndStatus = misc_util.bamsArePairedEnd(bamFiles, maxReads=1_000)
+    assert isinstance(pairedEndStatus, list)
+    assert len(pairedEndStatus) == 1
+    assert isinstance(pairedEndStatus[0], bool)
+    assert pairedEndStatus[0] is True
 
 
 @pytest.mark.matching
