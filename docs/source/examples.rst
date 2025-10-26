@@ -167,7 +167,7 @@ Results
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
   :alt: Output Consenrich Signal Estimates
-    :width: 800px
+    :width: 700px
     :align: left
 
 
