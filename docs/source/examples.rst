@@ -313,7 +313,7 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
   and aggregate results for `N=250` independent trials to build an empirical distribution for cCRE-hits under our null model.
 
 
-We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (3:math:`\times` fold-change, :math:`\hat{p} \approx 0.0039`):
+We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (3 :math:`\times` fold-change, :math:`\hat{p} \approx 0.0039`):
 
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Feature                                                                                  | Value                                        |
@@ -324,7 +324,7 @@ We find a substantial overlap between Consenrich-detected regions and cCREs, wit
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Consenrich: Percent overlapping                                                          | 88.1%                                        |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 57,087.8, σ ≈ 197.5`                     |
+| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 57,087.8,  σ ≈ 197.5                     |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Random (``shuffle``): Percent overlapping                                                | ≈ 29.6%                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
