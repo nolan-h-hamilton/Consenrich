@@ -8,32 +8,29 @@ Quickstart + Usage
 
 After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
 
-Input/Output
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**File Formats**
 
-* **Input**
+* Input
 
   * Per-sample sequence alignment files (BAM format)
 
-    * Optional: Control/input alignment files (e.g., for ChIP-seq)
+    * *Optional*: Control/input alignment files (e.g., ChIP-seq)
 
   * Note, if using Consenrich programmatically, users can provide preprocessed sample-by-interval count matrices directly instead of BAM files (see :func:`consenrich.core.runConsenrich`)
 
----
+* Output
 
-* **Output**
-
-  * **Signal estimate track**: ``<experimentName>_consenrich_state.bw``
+  * *Signal estimate track*: ``<experimentName>_consenrich_state.bw``
 
     * This track records genome-wide Consenrich estimates for the targeted signal of interest
     * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
 
-  * **Precision-weighted residual track**: ``<experimentName>_consenrich_residuals.bw``
+  * *Precision-weighted residual track*: ``<experimentName>_consenrich_residuals.bw``
 
-    * This track records the differences between (**a**) the Consenrich estimates and (**b**) the observed sample data at each interval -- *after* accounting for regional + sample-specific uncertainty.
+    * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
     * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
 
-  * **Structured peak calls** (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
+  * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
 
     * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
     * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
@@ -162,15 +159,16 @@ Run Consenrich
 Results
 """"""""""""""""""""""""""
 
-We display Consenrich results (blue) over an enhancer-rich region within `MYH9`.
+* We display Consenrich results (blue) over an enhancer-rich region within `MYH9`
+
+
+* For reference, ENCODE peaks for the same `Experiments` and donor samples are included (black):
+  * `Histone ChIP-seq (unreplicated) <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ (MACS2 calls,  partition concordance)
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
   :alt: Output Consenrich Signal Estimates
     :width: 800px
     :align: left
-
-
-* For reference, ENCODE's pseudoreplicated MACS/IDR peaks for each `Experiment` are included.
 
 
 .. _additional-examples:
@@ -267,8 +265,7 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-
-- Consenrich outputs are visualized over `KRAS` (*Todo: switch to UCSC genome browser*)
+Consenrich outputs are visualized over `KRAS`
 
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib25KB.png
@@ -276,6 +273,7 @@ Results
     :width: 800px
     :align: left
 
+(*Todo: switch to UCSC genome browser*)
 
 **Evaluating Structured Peak Results: cCRE Overlaps**
 
@@ -322,7 +320,7 @@ We find a substantial overlap between Consenrich-detected regions and cCREs, wit
 +==========================================================================================+==============================================+
 | Consenrich: Total structured peaks (α=0.05)                                              | 192,274                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Distinct cCRE overlaps*                                                      | **169,459**                                  |
+| Consenrich: Distinct cCRE overlaps*                                                      | 169,459                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Consenrich: Percent overlapping                                                          | 88.1%                                        |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
@@ -459,7 +457,7 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
 
 .. _tips:
 
-Miscellaneous Usage Tips
+Miscellaneous Guidance
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. admonition:: Consensus Peak Calling + Downstream Differential Analyses
