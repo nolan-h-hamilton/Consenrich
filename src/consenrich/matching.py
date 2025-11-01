@@ -575,7 +575,7 @@ def matchWavelet(
 
 def mergeMatches(
     filePath: str,
-    mergeGapBP: int = 75,
+    mergeGapBP: Optional[int],
 ) -> Optional[str]:
     r"""Merge overlapping or nearby structured peaks ('matches') in a narrowPeak file.
 
@@ -587,11 +587,14 @@ def mergeMatches(
 
     :param filePath: narrowPeak file containing matches detected with :func:`consenrich.matching.matchWavelet`
     :type filePath: str
-    :param mergeGapBP: Maximum gap size (in base pairs) to consider for merging
-    :type mergeGapBP: int
+    :param mergeGapBP: Maximum gap size (in base pairs) to consider for merging. Defaults to 75 bp if `None` or less than 1.
+    :type mergeGapBP: Optional[int]
 
     :seealso: :class:`consenrich.core.matchingParams`
     """
+
+    if mergeGapBP is None or mergeGapBP < 1:
+        mergeGapBP = 75
 
     MAX_NEGLOGP = 10.0
     MIN_NEGLOGP = 1.0e-10
@@ -669,10 +672,13 @@ def mergeMatches(
             else:
                 g["pTail"] += 10 ** (pLog10 - g["pMax"])
 
-        if math.isinf(qLog10) or qLog10 >= MAX_NEGLOGP or qLog10 <= MIN_NEGLOGP:
+        if (
+            math.isinf(qLog10)
+            or qLog10 >= MAX_NEGLOGP
+            or qLog10 <= MIN_NEGLOGP
+        ):
             g["qHasInf"] = True
         else:
-
             if qLog10 < g["qMin"]:
                 if qLog10 < MIN_NEGLOGP:
                     g["qMin"] = MIN_NEGLOGP
@@ -749,7 +755,8 @@ def mergeMatches(
 
         pointSource = (
             g["peakAbs"] - sMin
-            if g["peakAbs"] >= 0 else (eMax - sMin) // 2
+            if g["peakAbs"] >= 0
+            else (eMax - sMin) // 2
         )
 
         qMinLog10 = g["qMin"]
@@ -758,14 +765,15 @@ def mergeMatches(
             qMinLog10 = MIN_NEGLOGP
         if math.isfinite(qMaxLog10) and qMaxLog10 > MAX_NEGLOGP:
             qMaxLog10 = MAX_NEGLOGP
-        elif (not math.isfinite(qMaxLog10) or not math.isfinite(qMinLog10)) or (
-            qMaxLog10 < MIN_NEGLOGP
-        ):
+        elif (
+            not math.isfinite(qMaxLog10)
+            or not math.isfinite(qMinLog10)
+        ) or (qMaxLog10 < MIN_NEGLOGP):
             qMinLog10 = 0.0
             qMaxLog10 = 0.0
 
         # informative+parsable name
-        # e.g., regex: ^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\.\d{3})$
+        # e.g., regex: ^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\_\d{3})$
         name = f"consenrichPeak|i={i}|gap={mergeGapBP}bp|ct={g['n']}|qRange={qMinLog10:.3f}_{qMaxLog10:.3f}"
         lines.append(
             f"{chrom}\t{int(sMin)}\t{int(eMax)}\t{name}\t{scoreInt}\t.\t{sigAvg:.3f}\t{pHMLog10:.3f}\t{qHMLog10:.3f}\t{int(pointSource)}"
@@ -775,4 +783,3 @@ def mergeMatches(
         outF.write("\n".join(lines) + ("\n" if lines else ""))
     logger.info(f"Merged matches written to {outPath}")
     return outPath
-
