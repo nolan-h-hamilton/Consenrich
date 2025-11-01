@@ -326,16 +326,16 @@ class matchingParams(NamedTuple):
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
     :type iters: int
     :param alpha: Primary significance threshold on detected matches. Specifically, the
-        :math:`1 - \alpha` quantile of an empirical null distribution. The empirical null
-        distribution is built from cross-correlation values over randomly sampled blocks.
+        minimum corr. empirical p-value approximated from randomly sampled blocks in the
+        response sequence.
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches.
     :type minMatchLengthBP: int
     :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Requires the *signal value*
-        at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale.
-        If a `float` value is provided, the minimum signal value must be greater than this (absolute) value. *Set to a
-        negative value to disable the threshold*.
+        at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale
+        to temper genome-wide dynamic range. If a `float` value is provided, the minimum signal value must be greater
+        than this (absolute) value. *Set to a negative value to disable the threshold*.
         If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The
         threshold is then set to the corresponding quantile of the non-zero signal estimates.
     :type minSignalAtMaxima: Optional[str | float]
