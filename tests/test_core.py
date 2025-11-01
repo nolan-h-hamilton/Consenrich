@@ -4,7 +4,9 @@
 # 'core' as in 'central' or 'basic', not the literal
 # `consenrich.core` module
 
+import math
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -265,7 +267,7 @@ def testMatchExistingBedGraph():
         for i in range(1000):
             if (i % 100) <= 10:
                 # add in about ~10~ peak-like regions
-                fakeVals.append(max(np.random.poisson(lam=10), 5))
+                fakeVals.append(max(np.random.poisson(lam=5), 1))
             else:
                 # add in background poisson(1) for BG
                 fakeVals.append(np.random.poisson(lam=1))
@@ -278,7 +280,7 @@ def testMatchExistingBedGraph():
                 "end": list(range(10, 10_010, 10)),
                 "value": spySig.fftconvolve(
                     fakeVals,
-                    np.ones(5) / 5, # smooth out over ~50bp~
+                    np.ones(10) / 10, # smooth out over ~100bp~
                     mode="same",
                 ),
             }
@@ -287,7 +289,7 @@ def testMatchExistingBedGraph():
         outputPath = matching.matchExistingBedGraph(
             bedGraphFile=str(bedGraphPath),
             templateName="haar",
-            cascadeLevel=2,
+            cascadeLevel=5,
             alpha=0.10,
             merge=False,
             minSignalAtMaxima=-1,
@@ -302,3 +304,43 @@ def testMatchExistingBedGraph():
         # makes sure we're somewhat calibrated
         assert len(lineStrings) <= 20 # more than 20 might indicate high FPR
         assert len(lineStrings) >= 5  # fewer than 5 might indicate low power
+
+
+@pytest.mark.matching
+def testMergeMatches():
+    TEST_FILE = "unmerged.test.narrowPeak"
+
+    outFile = matching.mergeMatches(TEST_FILE, mergeGapBP=75)
+    assert outFile and os.path.isfile(outFile), "No output 'merged' file found"
+
+    name_re = re.compile(
+        r"^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\.\d{3})$"
+    )
+    with open(outFile) as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    assert len(lines) > 0, "no merged features"
+
+    idx = 0
+    for line in lines:
+        idx += 1
+        line_ = line.strip()
+        fields = line_.split("\t")
+        assert len(fields) == 10, f"Line {idx}: fewer than 10 narrowPeak fields"
+        chrom, start_, end_, name, score, strand, sigAvg, pHM, qHM, point = fields[:10]
+        record_ = name_re.match(name)
+        assert record_, f"Could not parse feature name: {name}"
+
+        gap = int(record_["gap"])
+        ct = int(record_["ct"])
+        assert gap == 75, "parsed mergeGapBP in feature name does not match expected"
+        assert ct >= 1, "parsed count of merged peaks should be at least 1"
+
+        qMinLog10 = float(record_["qmin"])
+        qMaxLog10 = float(record_["qmax"])
+        qMin = np.round(10 ** (- float(qMaxLog10)),3)
+        qMax = np.round(10 ** (- float(qMinLog10)),3)
+
+        qHarmonicMean = np.round(10 ** (- float(qHM)),3)
+        assert qHarmonicMean >= qMin, f"harmonic mean of q-values should be greater/equal to minimum q-value: {line_}"
+        assert qHarmonicMean <= qMax, f"harmonic mean of q-values should be less/equal to maximum q-value: {line_}"
