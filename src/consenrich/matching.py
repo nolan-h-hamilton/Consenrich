@@ -3,6 +3,7 @@ r"""Module implementing (experimental) 'structured peak detection' features usin
 
 import logging
 import os
+import math
 from pybedtools import BedTool
 from typing import List, Optional
 
@@ -21,6 +22,10 @@ logging.basicConfig(
     format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def scalarClip(value: float, low: float, high: float) -> float:
+    return low if value < low else high if value > high else value
 
 
 def castableToFloat(value) -> bool:
@@ -465,9 +470,13 @@ def matchWavelet(
                         ]
                     ]
                 pEmp = np.clip(
-                    ecdfSf.evaluate(response[candidateIdx]), 1.0e-10, 1.0
+                    ecdfSf.evaluate(response[candidateIdx]),
+                    1.0e-10,
+                    1.0,
                 )
-                startsIdx = np.maximum(candidateIdx - relWindowBins, 0)
+                startsIdx = np.maximum(
+                    candidateIdx - relWindowBins, 0
+                )
                 endsIdx = np.minimum(
                     len(values) - 1, candidateIdx + relWindowBins
                 )
@@ -564,10 +573,17 @@ def matchWavelet(
     return df
 
 
-def mergeMatches(filePath: str, mergeGapBP: int = 75):
-    r"""Merge overlapping or nearby structured peaks (matches) in a narrowPeak file.
+def mergeMatches(
+    filePath: str,
+    mergeGapBP: int = 75,
+) -> Optional[str]:
+    r"""Merge overlapping or nearby structured peaks ('matches') in a narrowPeak file.
 
-    Where an overlap occurs within `mergeGapBP` base pairs, the feature with the greatest signal defines the new summit/pointSource
+    The harmonic mean of p-values and q-values is computed for each merged region within `mergeGapBP` base pairs.
+    The fourth column (name) of each merged peak contains information about the number of features that were merged
+    and the range of q-values among them.
+
+    Expects a full `narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ file as input (i.e., with all 10 standard columns).
 
     :param filePath: narrowPeak file containing matches detected with :func:`consenrich.matching.matchWavelet`
     :type filePath: str
@@ -576,19 +592,23 @@ def mergeMatches(filePath: str, mergeGapBP: int = 75):
 
     :seealso: :class:`consenrich.core.matchingParams`
     """
+
+    MAX_NEGLOGP = 10.0
+    MIN_NEGLOGP = 1.0e-10
+
     if not os.path.isfile(filePath):
-        logger.info(f"Couldn't access {filePath}...skipping merge")
+        logger.warning(f"Couldn't access {filePath}...skipping merge")
         return None
     bed = None
     try:
         bed = BedTool(filePath)
     except Exception as ex:
-        logger.info(
+        logger.warning(
             f"Couldn't create BedTool for {filePath}:\n{ex}\n\nskipping merge..."
         )
         return None
     if bed is None:
-        logger.info(
+        logger.warning(
             f"Couldn't create BedTool for {filePath}...skipping merge"
         )
         return None
@@ -603,41 +623,83 @@ def mergeMatches(filePath: str, mergeGapBP: int = 75):
         end = int(fields[2])
         score = float(fields[4])
         signal = float(fields[6])
-        pval = float(fields[7])
-        qval = float(fields[8])
+        pLog10 = float(fields[7])
+        qLog10 = float(fields[8])
         peak = int(fields[9])
-        clId = fields[-1]
-        if clId not in groups:
-            groups[clId] = {
+        clusterID = fields[-1]
+        if clusterID not in groups:
+            groups[clusterID] = {
                 "chrom": chrom,
                 "sMin": start,
                 "eMax": end,
                 "scSum": 0.0,
                 "sigSum": 0.0,
-                "pSum": 0.0,
-                "qSum": 0.0,
                 "n": 0,
                 "maxS": float("-inf"),
                 "peakAbs": -1,
+                "pMax": float("-inf"),
+                "pTail": 0.0,
+                "pHasInf": False,
+                "qMax": float("-inf"),
+                "qMin": float("inf"),
+                "qTail": 0.0,
+                "qHasInf": False,
             }
-        g = groups[clId]
+        g = groups[clusterID]
         if start < g["sMin"]:
             g["sMin"] = start
         if end > g["eMax"]:
             g["eMax"] = end
         g["scSum"] += score
         g["sigSum"] += signal
-        g["pSum"] += pval
-        g["qSum"] += qval
         g["n"] += 1
-        # scan for largest signal, FFR: consider using the p-val in the future
+
+        if math.isinf(pLog10) or pLog10 >= MAX_NEGLOGP:
+            g["pHasInf"] = True
+        else:
+            if pLog10 > g["pMax"]:
+                if g["pMax"] == float("-inf"):
+                    g["pTail"] = 1.0
+                else:
+                    g["pTail"] = (
+                        g["pTail"] * (10 ** (g["pMax"] - pLog10))
+                        + 1.0
+                    )
+                g["pMax"] = pLog10
+            else:
+                g["pTail"] += 10 ** (pLog10 - g["pMax"])
+
+        if math.isinf(qLog10) or qLog10 >= MAX_NEGLOGP or qLog10 <= MIN_NEGLOGP:
+            g["qHasInf"] = True
+        else:
+
+            if qLog10 < g["qMin"]:
+                if qLog10 < MIN_NEGLOGP:
+                    g["qMin"] = MIN_NEGLOGP
+                else:
+                    g["qMin"] = qLog10
+
+            if qLog10 > g["qMax"]:
+                if g["qMax"] == float("-inf"):
+                    g["qTail"] = 1.0
+                else:
+                    g["qTail"] = (
+                        g["qTail"] * (10 ** (g["qMax"] - qLog10))
+                        + 1.0
+                    )
+                g["qMax"] = qLog10
+            else:
+                g["qTail"] += 10 ** (qLog10 - g["qMax"])
+
         if signal > g["maxS"]:
             g["maxS"] = signal
             g["peakAbs"] = start + peak if peak >= 0 else -1
+
     items = []
-    for clId, g in groups.items():
+    for clusterID, g in groups.items():
         items.append((g["chrom"], g["sMin"], g["eMax"], g))
     items.sort(key=lambda x: (str(x[0]), x[1], x[2]))
+
     outPath = f"{filePath.replace('.narrowPeak', '')}.mergedMatches.narrowPeak"
     lines = []
     i = 0
@@ -650,75 +712,67 @@ def mergeMatches(filePath: str, mergeGapBP: int = 75):
             avgScore = 1000
         scoreInt = int(round(avgScore))
         sigAvg = g["sigSum"] / g["n"]
-        pAvg = g["pSum"] / g["n"]
-        qAvg = g["qSum"] / g["n"]
-        pointSource = g["peakAbs"] - sMin if g["peakAbs"] >= 0 else -1
-        name = f"consenrichStructuredPeak{i}"
-        lines.append(
-            f"{chrom}\t{int(sMin)}\t{int(eMax)}\t{name}\t{scoreInt}\t.\t{sigAvg:.3f}\t{pAvg:.3f}\t{qAvg:.3f}\t{int(pointSource)}"
+
+        if g["pHasInf"]:
+            pHMLog10 = MAX_NEGLOGP
+        else:
+            if (
+                g["pMax"] == float("-inf")
+                or not (g["pTail"] > 0.0)
+                or math.isnan(g["pTail"])
+            ):
+                pHMLog10 = MIN_NEGLOGP
+            else:
+                pHMLog10 = -math.log10(g["n"]) + (
+                    g["pMax"] + math.log10(g["pTail"])
+                )
+                pHMLog10 = max(
+                    MIN_NEGLOGP, min(pHMLog10, MAX_NEGLOGP)
+                )
+
+        if g["qHasInf"]:
+            qHMLog10 = MAX_NEGLOGP
+        else:
+            if (
+                g["qMax"] == float("-inf")
+                or not (g["qTail"] > 0.0)
+                or math.isnan(g["qTail"])
+            ):
+                qHMLog10 = MIN_NEGLOGP
+            else:
+                qHMLog10 = -math.log10(g["n"]) + (
+                    g["qMax"] + math.log10(g["qTail"])
+                )
+                qHMLog10 = max(
+                    MIN_NEGLOGP, min(qHMLog10, MAX_NEGLOGP)
+                )
+
+        pointSource = (
+            g["peakAbs"] - sMin
+            if g["peakAbs"] >= 0 else (eMax - sMin) // 2
         )
+
+        qMinLog10 = g["qMin"]
+        qMaxLog10 = g["qMax"]
+        if math.isfinite(qMinLog10) and qMinLog10 < MIN_NEGLOGP:
+            qMinLog10 = MIN_NEGLOGP
+        if math.isfinite(qMaxLog10) and qMaxLog10 > MAX_NEGLOGP:
+            qMaxLog10 = MAX_NEGLOGP
+        elif (not math.isfinite(qMaxLog10) or not math.isfinite(qMinLog10)) or (
+            qMaxLog10 < MIN_NEGLOGP
+        ):
+            qMinLog10 = 0.0
+            qMaxLog10 = 0.0
+
+        # informative+parsable name
+        # e.g., regex: ^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\.\d{3})$
+        name = f"consenrichPeak|i={i}|gap={mergeGapBP}bp|ct={g['n']}|qRange={qMinLog10:.3f}_{qMaxLog10:.3f}"
+        lines.append(
+            f"{chrom}\t{int(sMin)}\t{int(eMax)}\t{name}\t{scoreInt}\t.\t{sigAvg:.3f}\t{pHMLog10:.3f}\t{qHMLog10:.3f}\t{int(pointSource)}"
+        )
+
     with open(outPath, "w") as outF:
         outF.write("\n".join(lines) + ("\n" if lines else ""))
     logger.info(f"Merged matches written to {outPath}")
     return outPath
 
-
-def textNullCDF(
-    nullBlockMaximaSFVals: npt.NDArray[np.float64],
-    binCount: int = 20,
-    barWidth: int = 50,
-    barChar="\u25a2",
-    normalize: bool = False,
-) -> str:
-    r"""Plot a histogram of the distribution 1 - ECDF(nullBlockMaxima)
-
-    Called by :func:`consenrich.matching.matchWavelet`. Ideally resembles
-    a uniform(0,1) distribution.
-
-    :seealso: :func:`consenrich.matching.matchWavelet`, :ref:`cconsenrich.csampleBlockStats`
-    """
-    valueLower, valueUpper = (
-        min(nullBlockMaximaSFVals),
-        max(nullBlockMaximaSFVals),
-    )
-    binCount = max(1, int(binCount))
-    binStep = (valueUpper - valueLower) / binCount
-    binEdges = [
-        valueLower + indexValue * binStep
-        for indexValue in range(binCount)
-    ]
-    binEdges.append(valueUpper)
-    binCounts = [0] * binCount
-    for numericValue in nullBlockMaximaSFVals:
-        binIndex = int((numericValue - valueLower) / binStep)
-        if binIndex == binCount:
-            binIndex -= 1
-        binCounts[binIndex] += 1
-    valueSeries = (
-        [
-            countValue / len(nullBlockMaximaSFVals)
-            for countValue in binCounts
-        ]
-        if normalize
-        else binCounts[:]
-    )
-    valueMaximum = max(valueSeries) if valueSeries else 0
-    widthScale = (barWidth / valueMaximum) if valueMaximum > 0 else 0
-    edgeFormat = f"{{:.{2}f}}"
-    rangeLabels = [
-        f"[{edgeFormat.format(binEdges[indexValue])},{edgeFormat.format(binEdges[indexValue + 1])})"
-        for indexValue in range(binCount)
-    ]
-    labelWidth = max(len(textValue) for textValue in rangeLabels)
-    lines = ['Histogram: "1 - ECDF(nullBlockMaxima)"']
-    for rangeLabel, seriesValue, countValue in zip(
-        rangeLabels, valueSeries, binCounts
-    ):
-        barString = barChar * int(round(seriesValue * widthScale))
-        trailingText = (
-            f"({countValue}/{len(nullBlockMaximaSFVals)})\t\t"
-        )
-        lines.append(
-            f"{rangeLabel.rjust(labelWidth)} | {barString}{trailingText.ljust(10)}"
-        )
-    return "\n".join(lines)
