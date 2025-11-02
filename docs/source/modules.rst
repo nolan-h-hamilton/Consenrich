@@ -90,25 +90,23 @@ The core module implements the main aspects of Consenrich and defines key parame
 (Experimental) Detect genomic regions showing both **enrichment** and **non-random structure**
 
 
-- Take a set of genomic intervals :math:`i=1,2,\ldots,n`, each spanning :math:`L` base pairs,
-
-- and a 'consensus' signal track defined over the genomic intervals, estimated from multiple independent samples' high-throughput functional genomics sequencing data:
+Denote a 'consensus' signal track defined over fixed-length genomic intervals, estimated from multiple samples' functional genomics HTS data as
 
 .. math::
 
   \widetilde{\mathbf{x}} = \{\widetilde{x}_{[i]}\}_{i=1}^{i=n}.
 
-In this documentation, we assume :math:`\widetilde{\mathbf{x}}` is the Consenrich 'primary state estimate'.
+In this documentation, we assume :math:`\widetilde{\mathbf{x}}` is the Consenrich 'primary state estimate' track.
 
 **Aim**: Determine a set of 'structured' peak-like genomic regions where the consensus signal track :math:`\widetilde{\mathbf{x}}` exhibits both:
 
 #. *Enrichment* (large relative amplitude)
-#. *Non-random structure* (polynomial, oscillatory, etc.)
+#. *Non-random structure* defined by a robust template (polynomial, oscillatory, etc.)
 
 **Why**: Prioritizing genomic regions that are both enriched and show a prescribed level of structure is appealing for several reasons. Namely,
 
-* **Improved confidence** that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
 * **Targeted detection** of biologically relevant signal patterns in a given assay (e.g., see related works analyzing peak-shape `Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
+* **Improved confidence** that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
 * **Speed**: Runs genome-wide in seconds/minutes using efficient Fast Fourier Transform (FFT)-based calculations.
 
 In the case of Consenrich, that the primary signal estimates in :math:`\{\widetilde{x}_{[i]}\}^{n}` are reinforced by multiple samples and account for relevant sources of uncertainty is advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features.
@@ -138,34 +136,31 @@ Explicitly,
 
 We refer to :math:`\mathcal{R}` over :math:`i=1 \ldots n` as the *response sequence*.
 
-The response is greatest where :math:`\widetilde{x}` is large and exhibits a structure similar to the template :math:`\boldsymbol{\xi}`.
+This response is greatest at genomic intervals where :math:`\widetilde{x}_{[i]}` is large and exhibits a structure/shape similar to the template :math:`\boldsymbol{\xi}`.
 
-
-**Detection Policy**
-
-* To detect significant hits, we first construct an empirical null distribution of blockwise maxima in the response sequence :math:`\mathcal{R}`
+* To detect significant hits, we first construct an empirical null distribution of blockwise maxima in the response sequence, :math:`\mathcal{R}`
 
   * That is, we randomly sample :math:`B` distinct blocks of genomic intervals and record each :math:`\max(\mathcal{R}_{[b_1]}, \ldots, \mathcal{R}_{[b_K]})`. Default :math:`B = 25000`.
-  * The size of each sampled block (:math:`K`) is drawn from a (truncated) geometric distribution with a mean equal to the template length :math:`T` (or a user-specified minimum feature size).
+  * The size of each sampled block (:math:`K`) is drawn from a (truncated) geometric distribution with a mean equal to the desired feature size or template length, :math:`T`.
 
-.. note:: Alternating Sampling Scheme
+* Relative maxima in the response sequence, i.e., :math:`i^*` such that :math:`\mathcal{R}_{[i^* - 1 \,:\, i^* - T/2]}\, \leq \, \mathcal{R}_{[i^*]} \, \geq \, \mathcal{R}_{[i^* + 1 \,:\, i^* + T/2]}` are identified as candidate matches.
 
-  To avoid overlaps/leakage, note that the empirical null distributions are built from held-out genomic intervals (i.e., those *not* being tested for matches).
+* Each of the candidates is then assigned a :math:`p`-value based on the empirical null distribution of blockwise maxima. Those satisfying :math:`p_{\textsf{adj}} < \alpha` are deemed significant. Default :math:`\alpha = 0.05`.
+
+  * Additional criteria can be applied: e.g., require the *signal values* at candidate peaks, :math:`\widetilde{x}_{[i^*]}`, to exceed a cutoff (`matchingParams.minSignalAtMaxima`), and/or require the *length* of the matched feature to exceed a minimum size (`matchingParams.minMatchLengthBP`).
+  * Overlapping/adjacent matches can be merged. By default, significant hits within :math:`0.50 \times T` intervals are merged. This can be adjusted via `matchingParams.mergeGapBP`.
+
+.. note:: **Alternating Sampling Scheme**
+
+  To avoid overlaps/leakage when testing significance, note that the mentioned empirical null distributions are built from held-out genomic intervals (i.e., those *not* being tested for matches).
 
   Specifically, we first build empirical null distributions on the first :math:`M < n` genomic intervals in a given chromosome. We then detect peaks on the remaining :math:`n - M` intervals.
   A second empirical null is then built on the previously tested `n - M` intervals, and peaks are detected on the first :math:`M` intervals. This alternating procedure continues until all intervals have been tested.
 
-* Relative maxima in the response sequence, where at interval :math:`i^*` we observe: :math:`\mathcal{R}_{[i^* - 1 : i^* - T/2]} < \mathcal{R}_{[i^*]} > \mathcal{R}_{[i^* + 1 : i^* + T/2]}` are identified as candidate matches.
-* Each of the candidates is then assigned a :math:`p`-value based on the empirical null distribution of blockwise maxima. Those satisfying :math:`p_{\textsf{adj}} < \alpha` are deemed significant. Default :math:`\alpha = 0.05`.
-
-  * Additional criteria can be applied: *signal value* :math:`\widetilde{x}_{[i^*]}` to exceed a given value, or requiring detected features to exceed a minimum length.
-  * Overlapping/adjacent matches can be merged (By default, peaks within :math:`0.50 \times T` intervals of one another are merged, where :math:`T` is the template length).
-  * Multiple templates and cascade levels can be used to capture features of varying shapes and sizes simultaneously.
-
 
 **Thresholds**
 
-* ``matchingParams.alpha``: Significance cutoff for detection (default ``0.05``).
+* ``matchingParams.alpha``: Significance cutoff (default ``0.05``). Peaks with adjusted empirical :math:`p`-values below this threshold are considered significant.
 
 
 * ``matchingParams.minSignalAtMaxima`` (Optional)
@@ -174,14 +169,12 @@ The response is greatest where :math:`\widetilde{x}` is large and exhibits a str
   - *To disable*: set to a negative numeric value.
 
 * ``matchingParams.minMatchLengthBP``: (Optional)
-  Minimum feature length in bp to qualify as a match (default ``250``).
-
-  - *If set to a negative value, the minimum feature length is implicitly defined by one-half of the template length.*
+  Minimum feature length in base pairs (default ``250``).
 
 
 **Generic Defaults**
 
-The following defaults are not encompassing but should provide a strong starting point for many use cases. For broad marks, consider setting ``matchingParams.mergeGapBP`` to a large value.
+The following defaults should provide a strong starting point for many use cases. For broad marks, consider setting ``matchingParams.mergeGapBP`` to a large value and/or using a long, near-symmetric template (e.g., ``sym4``).
 
 .. code-block:: yaml
 
@@ -192,7 +185,9 @@ The following defaults are not encompassing but should provide a strong starting
   matchingParams.minSignalAtMaxima: 'q:0.75'
   matchingParams.merge: true
 
-If unspecified, `matchingParams.mergeGapBP` is set to half of `matchingParams.minMatchLengthBP`. If `matchingParams.minMatchLengthBP` is negative, `matchingParams.mergeGapBP` defaults to one-half of the *template* length in base pairs.
+If unspecified, `matchingParams.mergeGapBP` is set to half of `matchingParams.minMatchLengthBP`.
+
+**Note**, the matching algorithm can be run at the command-line on *existing* bedGraph files from previous Consenrich runs: ``consenrich --match-bedGraph <filePath> --match-template <templateName> --match-level <cascadeLevel> ...```
 
 ---
 

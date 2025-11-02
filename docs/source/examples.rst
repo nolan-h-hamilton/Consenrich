@@ -364,7 +364,6 @@ Environment
 - Consenrich v0.7.0b1
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
-- `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ 1.6.3
 
 Names and versions of packages that are relevant to computational performance. These specific versions are *not required* but are included for reproducibility.
 
@@ -462,7 +461,7 @@ Miscellaneous Guidance
 
 .. admonition:: Consensus Peak Calling + Downstream Differential Analyses
   :class: tip
-  :collapsible: closed
+  :collapsible: open
 
   Consenrich can markedly improve between-group differential analyses that depend on a good set of initial 'candidate' consensus peaks (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
 
@@ -482,7 +481,7 @@ Miscellaneous Guidance
 
 .. admonition:: Command Line - Matching Algorithm
   :class: tip
-  :collapsible: closed
+  :collapsible: open
 
   To avoid a full run/rerun of Consenrich when calling structured peaks, the matching algorithm can be run directly at the command-line on existing Consenrich-generated bedGraph files. For example:
 
@@ -499,7 +498,7 @@ Miscellaneous Guidance
 
 .. admonition:: Noise level approximation for heterochromatic or repressive targets
   :class: tip
-  :collapsible: closed
+  :collapsible: open
 
   When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true`` in the YAML configuration file.
   This prevents real signal being from being attributed to noise and may be consequential for higher-resolution analyses. See :class:`consenrich.observations.observationParams` for more details.

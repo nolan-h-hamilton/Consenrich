@@ -583,14 +583,14 @@ def mergeMatches(
     The fourth column (name) of each merged peak contains information about the number of features that were merged
     and the range of q-values among them.
 
-    Expects a full `narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ file as input (i.e., with all 10 standard columns).
+    Expects a `narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ file as input (all numeric columns, '.' for strand if unknown).
 
     :param filePath: narrowPeak file containing matches detected with :func:`consenrich.matching.matchWavelet`
     :type filePath: str
     :param mergeGapBP: Maximum gap size (in base pairs) to consider for merging. Defaults to 75 bp if `None` or less than 1.
     :type mergeGapBP: Optional[int]
 
-    :seealso: :class:`consenrich.core.matchingParams`
+    :seealso: :ref:`matching`, :class:`consenrich.core.matchingParams`
     """
 
     if mergeGapBP is None or mergeGapBP < 1:
