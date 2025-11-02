@@ -194,7 +194,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python `3.12.9`
-- Consenrich `v0.7.0b1`
+- Consenrich `v0.7.1b1`
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -265,7 +265,7 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-Consenrich outputs are visualized over `KRAS`
+Consenrich outputs are visualized over a 50kb genomic region overlapping the transcription start site of `KRAS`.
 
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib25KB.png
@@ -273,18 +273,15 @@ Consenrich outputs are visualized over `KRAS`
     :width: 800px
     :align: left
 
-(*Todo: switch to UCSC genome browser*)
-
 **Evaluating Structured Peak Results: cCRE Overlaps**
 
 We measure overlap between the Consenrich-detected regions and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
-
-Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and strict concordance is not expected.
+Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and strict concordance is not expected. Nonetheless, given the breadth of cell types and tissues surveyed in ENCODE, a substantial overlap between Consenrich-detected structured peaks and cCREs is desirable.
 
 * We first count:
 
-  - The total number of Consenrich-detected structured peaks
-  - The number of unique Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE
+  - The total number of Consenrich-detected structured peaks (184,449)
+  - The number of *unique* Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE (163,511)
 
   .. code-block:: console
 
@@ -297,7 +294,7 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
 
 * We also evaluate overlaps compared to a null baseline:
 
-  |    *Controlling for feature size and chromosome placement, how many cCRE-hits could we expect by randomly selecting the same number of peaks?*
+  |    *Controlling for feature size and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 183,449 peaks?*
 
   We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_,
 
@@ -318,15 +315,15 @@ We find a substantial overlap between Consenrich-detected regions and cCREs, wit
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Feature                                                                                  | Value                                        |
 +==========================================================================================+==============================================+
-| Consenrich: Total structured peaks (α=0.05)                                              | 192,274                                      |
+| Consenrich: Total structured peaks (α=0.05)                                              | 183,449                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Distinct cCRE overlaps*                                                      | 169,459                                      |
+| Consenrich: Distinct cCRE overlaps*                                                      | 163,511                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Percent overlapping                                                          | 88.1%                                        |
+| Consenrich: Percent overlapping                                                          | **89.1%**                                    |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 57,087.8,  σ ≈ 197.5                     |
+| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 54,806.6,  σ ≈ 190.6                     |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Percent overlapping                                                | ≈ 29.6%                                      |
+| Random (``shuffle``): Percent overlapping                                                | ≈ 29.8%                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 
 :math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
@@ -351,8 +348,12 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
 ChIP-seq: Broad Histone Marks
 """""""""""""""""""""""""""""""""""""""""""""
 
-- Five mucosal tissue donors, each with H3K36me3/control alignment files from ENCODE.
-- Single-end, mixed-length reads (36, 76)
+In this example, we look for *dual-marked H3K36me3/H3K9me3 enrichments*
+
+As input data, we use per-mark ChIP-seq samples from the `ENTEx Project: Four Reference Epigenomes <http://entex.encodeproject.org/>`_.
+
+- Input data (`entexFourH3K36me3`): :math:`m=4` H3K36me3 ChIP-seq BAM files + matched controls from colonic mucosal tissue of four donors (ENCODE)
+
 
 These samples vary in quality, with 4/5 flagged by ENCODE for low read length and/or insufficient depth, making for a challenging but viable multi-sample analysis setting.
 
@@ -361,7 +362,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python 3.12.9
-- Consenrich v0.7.0b1
+- Consenrich v0.7.1b1
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -384,74 +385,91 @@ Names and versions of packages that are relevant to computational performance. T
 Configuration
 ''''''''''''''''''''''''''''
 
-We save the following YAML configuration as ``H3K36me3Experiment.yaml``.
-
-.. code-block:: yaml
-
-  experimentName: H3K36me3Experiment
-  genomeParams.name: hg38
-  genomeParams.excludeChroms: ['chrY']
-  genomeParams.excludeForNorm: ['chrX','chrY']
-
-  inputParams.bamFiles: [ENCFF978XNV.bam,
-    ENCFF064FYS.bam, # ENCODE flag: 'Insufficient read depth'
-    ENCFF948RWW.bam, # ENCODE flag: 'Insufficient read depth, Low read length'
-    ENCFF553DUQ.bam, # ENCODE flag: 'Insufficient read depth, Low read length'
-    ENCFF686CAN.bam, # ENCODE flag: 'Insufficient read depth, Low read length'
-  ]
-
-  inputParams.bamFilesControl: [ENCFF212KOM.bam,
-    ENCFF556KHR.bam,
-    ENCFF165GHU.bam,
-    ENCFF552XYB.bam,
-    ENCFF141HNE.bam
-  ]
-
-  matchingParams.templateNames: [haar, db2]
+We run Consenrich separately for H3K36me3 and H3K9me3.
 
 
-* Note, for broader marks, consider using a symmetric or near-symmetric template and/or a greater cascade level (e.g., `templateNames: [haar, sym4]`, `cascadeLevels: [2,3]``) to better capture extended enrichment patterns.
+* ``entexFourH3K36me3.yaml``.
 
-  * Increasing `mergeGapBP` can also be beneficial to avoid over-segmentation of broad domains.
+  .. code-block:: yaml
+
+    experimentName: entexFourH3K36me3
+    genomeParams.name: hg38
+    genomeParams.excludeChroms: [chrY]
+    genomeParams.excludeForNorm: [chrX, chrY]
+
+    inputParams.bamFiles: [ENCFF441SHP.bam,
+     ENCFF450ORQ.bam,
+     ENCFF903UTS.bam,
+     ENCFF790HIV.bam
+     ]
+
+    inputParams.bamFilesControl: [ENCFF794QJK.bam,
+     ENCFF831MFQ.bam,
+     ENCFF660HBS.bam,
+     ENCFF430OFG.bam
+    ]
+
+    matchingParams.templateNames: [haar, db2]
+    matchingParams.cascadeLevels: [3] # broad marks: longer matching template
+    matchingParams.mergeGapBP: 250    # broad marks: larger merging window 
+
+
+* ``entexFourH3K9me3.yaml``.
+
+  .. code-block:: yaml
+
+    experimentName: entexFourH3K9me3
+    genomeParams.name: hg38
+    genomeParams.excludeChroms: [chrY]
+    genomeParams.excludeForNorm: [chrX, chrY]
+
+    inputParams.bamFiles: [ENCFF887THR.bam,
+      ENCFF894WAK.bam,
+      ENCFF337ZUU.bam,
+      ENCFF775OLD.bam
+    ]
+
+    inputParams.bamFilesControl: [ENCFF794QJK.bam,
+     ENCFF831MFQ.bam,
+     ENCFF660HBS.bam,
+     ENCFF430OFG.bam
+    ]
+
+    observationParams.useALV: true # recommended for repressive marks
+    matchingParams.templateNames: [haar, db2]
+    matchingParams.cascadeLevels: [3]
+    matchingParams.mergeGapBP: 250
+
 
 
 Run Consenrich
 ''''''''''''''''''''''''''''
 
+Significant matches/peaks for each mark are intersected to identify dual-marked regions.
+
 .. code-block:: console
 
-  % consenrich --config H3K36me3Experiment.yaml --verbose
+  % consenrich --config entexFourH3K36me3.yaml --verbose
+  % consenrich --config entexFourH3K9me3.yaml --verbose
+  % bedtools intersect \
+      -a consenrichOutput_entexFourH3K36me3_matches.mergedMatches.narrowPeak \
+      -b consenrichOutput_entexFourH3K9me3_matches.mergedMatches.narrowPeak \
+      -f 0.25 -r -u -sortout | cut -f 1-3 > Consenrich_StructuredPeaks_H3K9me3_AND_H3K36me3.bed
 
 
 Results
 ''''''''''''''''''''''''''''
 
-For a qualitative, biologically-motivated check, we evaluate results over `PRRC1` in light of `Figure 3A in (Andersson et al., 2009) <https://genome.cshlp.org/content/19/10/1732>`_: *H3K36me3 signal is overrepresented at internal exons with respect to succeeding introns.*
+Consistent with `previous studies <https://pmc.ncbi.nlm.nih.gov/search/?term=dual+H3K9me3+H3K36me3+%22zinc+finger%22&sort=relevance>`_, we observe a notable density of H3K9me3/H3K36me3 intersections in ZNF gene clusters.
 
-* Note that we are using colonic mucosal tissue samples, whereas Andersson et al. used CD4+ T cells. Nonetheless, PRRC1 is consistently expressed in colonic mucosa, and we can expect a loose concordance in H3K36me3 enrichment patterns.
+Each sample's alignment coverage tracks, and the corresponding Consenrich-generated outputs, are visualized over `ZNF615` below in the UCSC Genome Browser (20 kb).
 
-.. image:: ../benchmarks/H3K36me3/images/H3K36me3PRRC1.png
+.. image:: ../benchmarks/H3K36me3/images/Consenrich_ENTexFour_DualMark.png
     :alt: H3K36me3 Intron-Exon
     :width: 800px
     :align: left
 
-(*Todo: switch to UCSC genome browser*)
-
-* Near the transcription start site of `PRRC1`, we observe a transient H3K4me3 peak followed by a broad increase in H3K36me3 signal
-* Within `PRRC1`, the strongest H3K36me3 Consenrich-estimated signals appear at `GENCODE-annotated <https://www.gencodegenes.org/human/release_47.html>`_ exons > 1 followed by abrupt depletion.
-
-
-Runtime and Memory Profiling
-''''''''''''''''''''''''''''''''''
-
-Memory use was profiled with the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for RSS over time. Function calls are marked as notches.
-
-Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
-
-.. image:: ../benchmarks/H3K36me3/images/H3K36me3ExperimentMemoryPlot.png
-    :alt: Time vs. Memory Usage (`memory-profiler`)
-    :width: 800px
-    :align: center
+Peaks detected using `ENCODE's histone ChIP-seq pipeline <https://www.encodeproject.org/pipelines/ENCPL841HGV/>` for each experiment/mark are also displayed, prefixed by ``REF``. Experiment and/or file accessions for each resource are labelled.
 
 
 .. _tips:
