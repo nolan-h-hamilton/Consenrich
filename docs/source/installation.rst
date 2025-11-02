@@ -10,7 +10,7 @@ Installation
 From PyPI
 ~~~~~~~~~~
 
-Multiple binaries are distributed via `PyPI <https://pypi.org/project/consenrich/#files>`_ to accommodate different operating systems, Python versions (`3.10 - 3.13`), and architectures.
+Multiple binaries are distributed via `PyPI <https://pypi.org/project/consenrich/#files>`_ to accommodate different operating systems, Python versions (`3.11 - 3.14`), and architectures.
 
 To install the latest version, run:
 

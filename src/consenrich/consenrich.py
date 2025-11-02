@@ -76,9 +76,14 @@ def getReadLengths(
     :return: List of read lengths for each BAM file.
     """
     if not inputArgs.bamFiles:
-        raise ValueError("No BAM files provided in the input arguments.")
+        raise ValueError(
+            "No BAM files provided in the input arguments."
+        )
 
-    if not isinstance(inputArgs.bamFiles, list) or len(inputArgs.bamFiles) == 0:
+    if (
+        not isinstance(inputArgs.bamFiles, list)
+        or len(inputArgs.bamFiles) == 0
+    ):
         raise ValueError("bam files list is empty")
 
     return [
@@ -148,7 +153,9 @@ def getInputArgs(config_path: str) -> core.inputParams:
     bamFiles = _expandWildCards(bamFilesRaw)
     bamFilesControl = _expandWildCards(bamFilesControlRaw)
     if len(bamFiles) == 0:
-        raise ValueError("No BAM files provided in the configuration.")
+        raise ValueError(
+            "No BAM files provided in the configuration."
+        )
     if (
         len(bamFilesControl) > 0
         and len(bamFilesControl) != len(bamFiles)
@@ -164,7 +171,11 @@ def getInputArgs(config_path: str) -> core.inputParams:
         )
         bamFilesControl = bamFilesControl * len(bamFiles)
 
-    if not bamFiles or not isinstance(bamFiles, list) or len(bamFiles) == 0:
+    if (
+        not bamFiles
+        or not isinstance(bamFiles, list)
+        or len(bamFiles) == 0
+    ):
         raise ValueError("No BAM files found")
 
     for i, bamFile in enumerate(bamFiles):
@@ -176,19 +187,21 @@ def getInputArgs(config_path: str) -> core.inputParams:
 
     # if we've made it here, we can check pairedEnd
     pairedEndList = misc_util.bamsArePairedEnd(bamFiles)
-    _isPairedEnd: Optional[bool] = config.get("inputParams.pairedEnd", None)
+    _isPairedEnd: Optional[bool] = config.get(
+        "inputParams.pairedEnd", None
+    )
     if _isPairedEnd is None:
         # only set auto if not provided in config
         _isPairedEnd = all(pairedEndList)
         if _isPairedEnd:
-            logger.info(
-                "Paired-end BAM files detected"
-            )
+            logger.info("Paired-end BAM files detected")
         else:
-            logger.info(
-                "One or more single-end BAM files detected"
-            )
-    return core.inputParams(bamFiles=bamFiles, bamFilesControl=bamFilesControl, pairedEnd=_isPairedEnd)
+            logger.info("One or more single-end BAM files detected")
+    return core.inputParams(
+        bamFiles=bamFiles,
+        bamFilesControl=bamFilesControl,
+        pairedEnd=_isPairedEnd,
+    )
 
 
 def getGenomeArgs(config_path: str) -> core.genomeParams:
@@ -200,12 +213,22 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
     blacklistFile: Optional[str] = None
     sparseBedFile: Optional[str] = None
     chromosomes: Optional[List[str]] = None
-    excludeChroms: List[str] = config.get("genomeParams.excludeChroms", [])
-    excludeForNorm: List[str] = config.get("genomeParams.excludeForNorm", [])
+    excludeChroms: List[str] = config.get(
+        "genomeParams.excludeChroms", []
+    )
+    excludeForNorm: List[str] = config.get(
+        "genomeParams.excludeForNorm", []
+    )
     if genome:
-        chromSizesFile = constants.getGenomeResourceFile(genome, "sizes")
-        blacklistFile = constants.getGenomeResourceFile(genome, "blacklist")
-        sparseBedFile = constants.getGenomeResourceFile(genome, "sparse")
+        chromSizesFile = constants.getGenomeResourceFile(
+            genome, "sizes"
+        )
+        blacklistFile = constants.getGenomeResourceFile(
+            genome, "blacklist"
+        )
+        sparseBedFile = constants.getGenomeResourceFile(
+            genome, "sparse"
+        )
     if config.get("genomeParams.chromSizesFile", None):
         chromSizesFile = config["genomeParams.chromSizesFile"]
     if config.get("genomeParams.blacklistFile", None):
@@ -232,10 +255,14 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
             raise ValueError(
                 "No chromosomes provided in the configuration and no chromosome sizes file specified."
             )
-    chromosomes = [chrom.strip() for chrom in chromosomes if chrom.strip()]
+    chromosomes = [
+        chrom.strip() for chrom in chromosomes if chrom.strip()
+    ]
     if excludeChroms:
         chromosomes = [
-            chrom for chrom in chromosomes if chrom not in excludeChroms
+            chrom
+            for chrom in chromosomes
+            if chrom not in excludeChroms
         ]
     if not chromosomes:
         raise ValueError(
@@ -259,7 +286,9 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     scaleDown = config.get("countingParams.scaleDown", True)
     scaleFactors = config.get("countingParams.scaleFactors", None)
     numReads = config.get("countingParams.numReads", 100)
-    scaleFactorsControl = config.get("countingParams.scaleFactorsControl", None)
+    scaleFactorsControl = config.get(
+        "countingParams.scaleFactorsControl", None
+    )
     applyAsinh = config.get("countingParams.applyAsinh", False)
     applyLog = config.get("countingParams.applyLog", False)
     if applyAsinh and applyLog:
@@ -271,19 +300,25 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     rescaleToTreatmentCoverage = config.get(
         "countingParams.rescaleToTreatmentCoverage", True
     )
-    if scaleFactors is not None and not isinstance(scaleFactors, list):
+    if scaleFactors is not None and not isinstance(
+        scaleFactors, list
+    ):
         raise ValueError("`scaleFactors` should be a list of floats.")
     if scaleFactorsControl is not None and not isinstance(
         scaleFactorsControl, list
     ):
-        raise ValueError("`scaleFactorsControl` should be a list of floats.")
+        raise ValueError(
+            "`scaleFactorsControl` should be a list of floats."
+        )
     if (
         scaleFactors is not None
         and scaleFactorsControl is not None
         and len(scaleFactors) != len(scaleFactorsControl)
     ):
         if len(scaleFactorsControl) == 1:
-            scaleFactorsControl = scaleFactorsControl * len(scaleFactors)
+            scaleFactorsControl = scaleFactorsControl * len(
+                scaleFactors
+            )
         else:
             raise ValueError(
                 "control and treatment scale factors: must be equal length or 1 control"
@@ -308,12 +343,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
     minR_default = _getMinR(config, len(inputParams.bamFiles))
-    minQ_default = (minR_default / (len(inputParams.bamFiles))) + 0.10 # protect condition number
+    minQ_default = (
+        minR_default / (len(inputParams.bamFiles))
+    ) + 0.10  # protect condition number
     matchingExcludeRegionsBedFile_default: Optional[str] = (
         genomeParams.blacklistFile
     )
     return {
-        "experimentName": config.get("experimentName", "consenrichExperiment"),
+        "experimentName": config.get(
+            "experimentName", "consenrichExperiment"
+        ),
         "genomeArgs": genomeParams,
         "inputArgs": inputParams,
         "countingArgs": countingParams,
@@ -338,8 +377,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             ),
             noGlobal=config.get("observationParams.noGlobal", False),
             numNearest=config.get("observationParams.numNearest", 25),
-            localWeight=config.get("observationParams.localWeight", 0.333),
-            globalWeight=config.get("observationParams.globalWeight", 0.667),
+            localWeight=config.get(
+                "observationParams.localWeight", 0.333
+            ),
+            globalWeight=config.get(
+                "observationParams.globalWeight", 0.667
+            ),
             approximationWindowLengthBP=config.get(
                 "observationParams.approximationWindowLengthBP", 10000
             ),
@@ -349,26 +392,50 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             lowPassFilterType=config.get(
                 "observationParams.lowPassFilterType", "median"
             ),
-            returnCenter=config.get("observationParams.returnCenter", True),
+            returnCenter=config.get(
+                "observationParams.returnCenter", True
+            ),
         ),
         "stateArgs": core.stateParams(
             stateInit=config.get("stateParams.stateInit", 0.0),
-            stateCovarInit=config.get("stateParams.stateCovarInit", 100.0),
+            stateCovarInit=config.get(
+                "stateParams.stateCovarInit", 100.0
+            ),
             boundState=config.get("stateParams.boundState", True),
-            stateLowerBound=config.get("stateParams.stateLowerBound", 0.0),
-            stateUpperBound=config.get("stateParams.stateUpperBound", 10000.0),
+            stateLowerBound=config.get(
+                "stateParams.stateLowerBound", 0.0
+            ),
+            stateUpperBound=config.get(
+                "stateParams.stateUpperBound", 10000.0
+            ),
         ),
         "samArgs": core.samParams(
             samThreads=config.get("samParams.samThreads", 1),
-            samFlagExclude=config.get("samParams.samFlagExclude", 3844),
+            samFlagExclude=config.get(
+                "samParams.samFlagExclude", 3844
+            ),
             oneReadPerBin=config.get("samParams.oneReadPerBin", 0),
             chunkSize=config.get("samParams.chunkSize", 1000000),
             offsetStr=config.get("samParams.offsetStr", "0,0"),
             extendBP=config.get("samParams.extendBP", []),
             maxInsertSize=config.get("samParams.maxInsertSize", 1000),
-            pairedEndMode=config.get("samParams.pairedEndMode", 1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) > 0 else 0),
-            inferFragmentLength=config.get("samParams.inferFragmentLength", 1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) == 0 else 0),
-            countEndsOnly=config.get("samParams.countEndsOnly", False),
+            pairedEndMode=config.get(
+                "samParams.pairedEndMode",
+                1
+                if inputParams.pairedEnd is not None
+                and int(inputParams.pairedEnd) > 0
+                else 0,
+            ),
+            inferFragmentLength=config.get(
+                "samParams.inferFragmentLength",
+                1
+                if inputParams.pairedEnd is not None
+                and int(inputParams.pairedEnd) == 0
+                else 0,
+            ),
+            countEndsOnly=config.get(
+                "samParams.countEndsOnly", False
+            ),
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=config.get(
@@ -377,7 +444,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             detrendTrackPercentile=config.get(
                 "detrendParams.detrendTrackPercentile", 75.0
             ),
-            usePolyFilter=config.get("detrendParams.usePolyFilter", False),
+            usePolyFilter=config.get(
+                "detrendParams.usePolyFilter", False
+            ),
             detrendSavitzkyGolayDegree=config.get(
                 "detrendParams.detrendSavitzkyGolayDegree", 2
             ),
@@ -386,12 +455,20 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             ),
         ),
         "matchingArgs": core.matchingParams(
-            templateNames=config.get("matchingParams.templateNames", []),
-            cascadeLevels=config.get("matchingParams.cascadeLevels", [2]),
+            templateNames=config.get(
+                "matchingParams.templateNames", []
+            ),
+            cascadeLevels=config.get(
+                "matchingParams.cascadeLevels", [2]
+            ),
             iters=config.get("matchingParams.iters", 25_000),
             alpha=config.get("matchingParams.alpha", 0.05),
-            minMatchLengthBP=config.get("matchingParams.minMatchLengthBP", 250),
-            maxNumMatches=config.get("matchingParams.maxNumMatches", 100_000),
+            minMatchLengthBP=config.get(
+                "matchingParams.minMatchLengthBP", 250
+            ),
+            maxNumMatches=config.get(
+                "matchingParams.maxNumMatches", 100_000
+            ),
             minSignalAtMaxima=config.get(
                 "matchingParams.minSignalAtMaxima", "q:0.75"
             ),
@@ -418,7 +495,9 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
         "OR install via conda (conda install -c bioconda ucsc-bedgraphtobigwig)."
     )
 
-    logger.info("Attempting to generate bigWig files from bedGraph format...")
+    logger.info(
+        "Attempting to generate bigWig files from bedGraph format..."
+    )
     try:
         path_ = shutil.which("bedGraphToBigWig")
     except Exception as e:
@@ -429,7 +508,9 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
         return
     logger.info(f"Using bedGraphToBigWig from {path_}")
     for suffix in suffixes:
-        bedgraph = f"consenrichOutput_{experimentName}_{suffix}.bedGraph"
+        bedgraph = (
+            f"consenrichOutput_{experimentName}_{suffix}.bedGraph"
+        )
         if not os.path.exists(bedgraph):
             logger.warning(
                 f"bedGraph file {bedgraph} does not exist. Skipping bigWig conversion."
@@ -452,7 +533,9 @@ def convertBedGraphToBigWig(experimentName, chromSizesFile):
             )
             continue
         if os.path.exists(bigwig) and os.path.getsize(bigwig) > 100:
-            logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
+            logger.info(
+                f"Finished: converted {bedgraph} to {bigwig}."
+            )
 
 
 def main():
@@ -476,10 +559,16 @@ def main():
         "--match-template",
         type=str,
         default="haar",
-        choices=[x for x in pywt.wavelist(kind="discrete") if "bio" not in x],
+        choices=[
+            x
+            for x in pywt.wavelist(kind="discrete")
+            if "bio" not in x
+        ],
         dest="matchTemplate",
     )
-    parser.add_argument("--match-level", type=int, default=2, dest="matchLevel")
+    parser.add_argument(
+        "--match-level", type=int, default=2, dest="matchLevel"
+    )
     parser.add_argument(
         "--match-alpha", type=float, default=0.05, dest="matchAlpha"
     )
@@ -508,16 +597,24 @@ def main():
         "--match-no-merge", action="store_true", dest="matchNoMerge"
     )
     parser.add_argument(
-        "--match-merge-gap", type=int, default=None, dest="matchMergeGapBP"
+        "--match-merge-gap",
+        type=int,
+        default=None,
+        dest="matchMergeGapBP",
     )
     parser.add_argument(
-        "--match-use-wavelet", action="store_true", dest="matchUseWavelet"
+        "--match-use-wavelet",
+        action="store_true",
+        dest="matchUseWavelet",
     )
     parser.add_argument(
         "--match-seed", type=int, default=42, dest="matchRandSeed"
     )
     parser.add_argument(
-        "--match-exclude-bed", type=str, default=None, dest="matchExcludeBed"
+        "--match-exclude-bed",
+        type=str,
+        default=None,
+        dest="matchExcludeBed",
     )
     parser.add_argument(
         "--verbose", action="store_true", help="If set, logs config"
@@ -601,7 +698,8 @@ def main():
             config_truncated = {
                 k: v
                 for k, v in config.items()
-                if k not in ["inputArgs", "genomeArgs", "countingArgs"]
+                if k
+                not in ["inputArgs", "genomeArgs", "countingArgs"]
             }
             config_truncated["experimentName"] = experimentName
             config_truncated["inputArgs"] = inputArgs
@@ -619,7 +717,9 @@ def main():
     controlsPresent = checkControlsPresent(inputArgs)
     if args.verbose:
         logger.info(f"controlsPresent: {controlsPresent}")
-    readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
+    readLengthsBamFiles = getReadLengths(
+        inputArgs, countingArgs, samArgs
+    )
     effectiveGenomeSizes = getEffectiveGenomeSizes(
         genomeArgs, readLengthsBamFiles
     )
@@ -641,11 +741,16 @@ def main():
             for bamFile in bamFilesControl
         ]
         effectiveGenomeSizesControl = [
-            constants.getEffectiveGenomeSize(genomeArgs.genomeName, readLength)
+            constants.getEffectiveGenomeSize(
+                genomeArgs.genomeName, readLength
+            )
             for readLength in readLengthsControlBamFiles
         ]
 
-        if scaleFactors is not None and scaleFactorsControl is not None:
+        if (
+            scaleFactors is not None
+            and scaleFactorsControl is not None
+        ):
             treatScaleFactors = scaleFactors
             controlScaleFactors = scaleFactorsControl
             # still make sure this is accessible
@@ -662,7 +767,9 @@ def main():
                         samArgs.samThreads,
                     )
                     for bamFile, effectiveGenomeSize, readLength in zip(
-                        bamFiles, effectiveGenomeSizes, readLengthsBamFiles
+                        bamFiles,
+                        effectiveGenomeSizes,
+                        readLengthsBamFiles,
                     )
                 ]
             except Exception:
@@ -716,7 +823,8 @@ def main():
             )
         ]
     chromSizesDict = misc_util.getChromSizesDict(
-        genomeArgs.chromSizesFile, excludeChroms=genomeArgs.excludeChroms
+        genomeArgs.chromSizesFile,
+        excludeChroms=genomeArgs.excludeChroms,
     )
     chromosomes = genomeArgs.chromosomes
 
@@ -731,11 +839,15 @@ def main():
         chromosomeStart = max(
             0, (chromosomeStart - (chromosomeStart % stepSize))
         )
-        chromosomeEnd = max(0, (chromosomeEnd - (chromosomeEnd % stepSize)))
+        chromosomeEnd = max(
+            0, (chromosomeEnd - (chromosomeEnd % stepSize))
+        )
         numIntervals = (
             ((chromosomeEnd - chromosomeStart) + stepSize) - 1
         ) // stepSize
-        intervals = np.arange(chromosomeStart, chromosomeEnd, stepSize)
+        intervals = np.arange(
+            chromosomeStart, chromosomeEnd, stepSize
+        )
         chromMat: np.ndarray = np.empty(
             (numSamples, numIntervals), dtype=np.float32
         )
@@ -752,7 +864,10 @@ def main():
                     chromosomeStart,
                     chromosomeEnd,
                     stepSize,
-                    [readLengthsBamFiles[j_], readLengthsControlBamFiles[j_]],
+                    [
+                        readLengthsBamFiles[j_],
+                        readLengthsControlBamFiles[j_],
+                    ],
                     [treatScaleFactors[j_], controlScaleFactors[j_]],
                     samArgs.oneReadPerBin,
                     samArgs.samThreads,
@@ -764,10 +879,12 @@ def main():
                     inferFragmentLength=samArgs.inferFragmentLength,
                     applyAsinh=countingArgs.applyAsinh,
                     applyLog=countingArgs.applyLog,
-                    countEndsOnly=samArgs.countEndsOnly
+                    countEndsOnly=samArgs.countEndsOnly,
                 )
                 if countingArgs.rescaleToTreatmentCoverage:
-                    finalSF = max(1.0, initialTreatmentScaleFactors[j_])
+                    finalSF = max(
+                        1.0, initialTreatmentScaleFactors[j_]
+                    )
                 chromMat[j_, :] = finalSF * (
                     pairMatrix[0, :] - pairMatrix[1, :]
                 )
@@ -791,18 +908,25 @@ def main():
                 inferFragmentLength=samArgs.inferFragmentLength,
                 applyAsinh=countingArgs.applyAsinh,
                 applyLog=countingArgs.applyLog,
-                countEndsOnly=samArgs.countEndsOnly
+                countEndsOnly=samArgs.countEndsOnly,
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
-            logger.info(f"Building sparse mapping for {chromosome}...")
+            logger.info(
+                f"Building sparse mapping for {chromosome}..."
+            )
             sparseMap = core.getSparseMap(
-                chromosome, intervals, numNearest, genomeArgs.sparseBedFile
+                chromosome,
+                intervals,
+                numNearest,
+                genomeArgs.sparseBedFile,
             )
 
         muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
-            logger.info(f"Muncing {j + 1}/{numSamples} for {chromosome}...")
+            logger.info(
+                f"Muncing {j + 1}/{numSamples} for {chromosome}..."
+            )
             muncMat[j, :] = core.getMuncTrack(
                 chromosome,
                 intervals,
@@ -873,8 +997,11 @@ def main():
         )
         if c_ == 0 and len(chromosomes) > 1:
             for file_ in os.listdir("."):
-                if file_.startswith(f"consenrichOutput_{experimentName}") and (
-                    file_.endswith(".bedGraph") or file_.endswith(".narrowPeak")
+                if file_.startswith(
+                    f"consenrichOutput_{experimentName}"
+                ) and (
+                    file_.endswith(".bedGraph")
+                    or file_.endswith(".narrowPeak")
                 ):
                     logger.warning(f"Overwriting: {file_}")
                     os.remove(file_)
@@ -927,13 +1054,22 @@ def main():
     convertBedGraphToBigWig(experimentName, genomeArgs.chromSizesFile)
     if matchingEnabled and matchingArgs.merge:
         try:
+            mergeGapBP_ = matchingArgs.mergeGapBP
+            if mergeGapBP_ is None:
+                mergeGapBP_ = (
+                    int(matchingArgs.minMatchLengthBP/2) + 1
+                    if matchingArgs.minMatchLengthBP is not None
+                    else 75
+                )
             matching.mergeMatches(
                 f"consenrichOutput_{experimentName}_matches.narrowPeak",
-                mergeGapBP=matchingArgs.mergeGapBP,
+                mergeGapBP=mergeGapBP_,
             )
 
         except Exception as e:
-            logger.warning(f"Failed to merge matches...SKIPPING:\n{e}\n\n")
+            logger.warning(
+                f"Failed to merge matches...SKIPPING:\n{e}\n\n"
+            )
     logger.info("Done.")
 
 
