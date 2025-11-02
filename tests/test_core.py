@@ -302,8 +302,9 @@ def testMatchExistingBedGraph():
 
         # Not really the point of this test but
         # makes sure we're somewhat calibrated
-        assert len(lineStrings) <= 20 # more than 20 might indicate high FPR
-        assert len(lineStrings) >= 5  # fewer than 5 might indicate low power
+        # Updated 15,3 to account for now-default BH correction
+        assert len(lineStrings) <= 15 # more than 20 might indicate high FPR
+        assert len(lineStrings) >= 3  # fewer than 5 might indicate low power
 
 
 @pytest.mark.matching
