@@ -280,7 +280,7 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
 
 * We first count:
 
-  - The total number of Consenrich-detected structured peaks (184,449)
+  - The total number of Consenrich-detected structured peaks (183,449)
   - The number of *unique* Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE (163,511)
 
   .. code-block:: console
