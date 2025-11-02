@@ -187,7 +187,18 @@ The following defaults should provide a strong starting point for many use cases
 
 If unspecified, `matchingParams.mergeGapBP` is set to half of `matchingParams.minMatchLengthBP`.
 
-**Note**, the matching algorithm can be run at the command-line on *existing* bedGraph files from previous Consenrich runs: ``consenrich --match-bedGraph <filePath> --match-template <templateName> --match-level <cascadeLevel> ...```
+**Note**, the matching algorithm can be run at the command-line on *existing* bedGraph files from previous Consenrich runs.
+This avoids re-running Consenrich end-to-end when only matching/peak-calling is desired. For instance,
+
+.. code-block:: console
+
+  % consenrich \
+    --match-bedGraph consenrichOutput_<experimentName>_state.bedGraph \
+    --match-template haar \
+    --match-level 3 \
+    --match-alpha 0.01
+
+This will return structured peaks detected using a Haar template/level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
 
 ---
 

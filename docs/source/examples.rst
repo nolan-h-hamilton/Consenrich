@@ -8,32 +8,7 @@ Quickstart + Usage
 
 After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
 
-**File Formats**
-
-* Input
-
-  * Per-sample sequence alignment files (BAM format)
-
-    * *Optional*: Control/input alignment files (e.g., ChIP-seq)
-
-  * Note, if using Consenrich programmatically, users can provide preprocessed sample-by-interval count matrices directly instead of BAM files (see :func:`consenrich.core.runConsenrich`)
-
-* Output
-
-  * *Signal estimate track*: ``<experimentName>_consenrich_state.bw``
-
-    * This track records genome-wide Consenrich estimates for the targeted signal of interest
-    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
-
-  * *Precision-weighted residual track*: ``<experimentName>_consenrich_residuals.bw``
-
-    * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
-    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
-
-  * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
-
-    * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
-    * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
+We provide several usage examples below. See also :ref:`files` and :ref:`tips` for more information.
 
 
 .. _getting-started:
@@ -46,7 +21,7 @@ Getting Started: Minimal Example
     :caption: Getting Started
     :name: minimal
 
-Here, a brief analysis using H3K27ac (narrow mark) ChIP-seq data is carried out for demonstration.
+A brief analysis using H3K27ac (narrow mark) ChIP-seq data is carried out for demonstration.
 
 Input Data
 """""""""""""""""""""
@@ -89,15 +64,12 @@ You can also use ``curl -O <URL>`` in place of ``wget <URL>`` if the latter is n
 .. code-block:: bash
 
   encodeFiles=https://www.encodeproject.org/files
-
   for file in ENCFF793ZHL ENCFF647VPO ENCFF809VKT ENCFF295EFL; do
       wget "$encodeFiles/$file/@@download/$file.bam"
   done
-
   for ctrl in ENCFF444WVG ENCFF619NYP ENCFF898LKJ ENCFF490MWV; do
       wget "$encodeFiles/$ctrl/@@download/$ctrl.bam"
   done
-
   samtools index -M *.bam
 
 
@@ -109,14 +81,14 @@ Using a YAML Configuration file
    Refer to the ``<process,observation,etc.>Params`` classes in module in the :ref:`API` for complete documentation of configuration options.
 
 
-Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``. For a quick trial run (:math:`\approx` 1 minute), you can restrict analysis to a subset of chromosomes: To reproduce the results shown in the IGV browser snapshot below add ``genomeParams.chromosomes: [chr21, chr22]`` to the configuration file.
+Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``. For a quick trial run (:math:`\approx` 1 minute), you can restrict analysis to a subset of chromosomes: To reproduce the results shown in the browser snapshot, add ``genomeParams.chromosomes: [chr21, chr22]`` to the configuration file.
 
 .. code-block:: yaml
   :name: demoHistoneChIPSeq.yaml
 
   experimentName: demoHistoneChIPSeq
   genomeParams.name: hg38
-  genomeParams.chromosomes: [chr21, chr22] # remove this line to run genome-wide
+  genomeParams.chromosomes: [chr21, chr22] # remove to run genome-wide
   genomeParams.excludeForNorm: [chrX, chrY]
 
   inputParams.bamFiles: [ENCFF793ZHL.bam,
@@ -147,7 +119,7 @@ Run Consenrich
   :collapsible: closed
 
   The command-line interface is a convenience wrapper that may not expose all available objects or more niche features.
-  Some users may find it beneficial to run Consenrich programmatically (via Jupyter notebooks, Python scripts), as the :ref:`API` enables
+  Some users may find it beneficial to run Consenrich programmatically (e.g., in a Jupyter notebook, Python script), as the :ref:`API` enables
   greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
 
 
@@ -265,7 +237,7 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-Consenrich outputs are visualized over a 50kb genomic region overlapping the transcription start site of `KRAS`.
+Consenrich outputs are visualized over a 50kb genomic region centered around `LYL1`.
 
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib25KB.png
@@ -276,6 +248,8 @@ Consenrich outputs are visualized over a 50kb genomic region overlapping the tra
 **Evaluating Structured Peak Results: cCRE Overlaps**
 
 We measure overlap between the Consenrich-detected regions and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
+
+
 Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and strict concordance is not expected. Nonetheless, given the breadth of cell types and tissues surveyed in ENCODE, a substantial overlap between Consenrich-detected structured peaks and cCREs is desirable.
 
 * We first count:
@@ -294,7 +268,7 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
 
 * We also evaluate overlaps compared to a null baseline:
 
-  |    *Controlling for feature size and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 183,449 peaks?*
+  |    *Controlling for feature size and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 183,449 regions?*
 
   We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_,
 
@@ -323,7 +297,7 @@ We find a substantial overlap between Consenrich-detected regions and cCREs, wit
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 54,806.6,  σ ≈ 190.6                     |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Percent overlapping                                                | ≈ 29.8%                                      |
+| Random (``shuffle``): Percent overlapping                                                | ≈ **29.8%**                                  |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 
 :math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
@@ -352,10 +326,8 @@ In this example, we look for *dual-marked H3K36me3/H3K9me3 enrichments*
 
 As input data, we use per-mark ChIP-seq samples from the `ENTEx Project: Four Reference Epigenomes <http://entex.encodeproject.org/>`_.
 
-- Input data (`entexFourH3K36me3`): :math:`m=4` H3K36me3 ChIP-seq BAM files + matched controls from colonic mucosal tissue of four donors (ENCODE)
-
-
-These samples vary in quality, with 4/5 flagged by ENCODE for low read length and/or insufficient depth, making for a challenging but viable multi-sample analysis setting.
+- H3K36me3: :math:`m=4` H3K36me3 ChIP-seq BAM files + matched controls from lung tissue of four donors (single-end)
+- H3K9me3: :math:`m=4` H3K9me3 ChIP-seq BAM files + matched controls from lung tissue of four donors (single-end)
 
 Environment
 ''''''''''''''
@@ -435,7 +407,7 @@ We run Consenrich separately for H3K36me3 and H3K9me3.
      ENCFF430OFG.bam
     ]
 
-    observationParams.useALV: true # recommended for repressive marks
+    observationParams.useALV: true # recommended for heterochromatic marks
     matchingParams.templateNames: [haar, db2]
     matchingParams.cascadeLevels: [3]
     matchingParams.mergeGapBP: 250
@@ -469,7 +441,39 @@ Each sample's alignment coverage tracks, and the corresponding Consenrich-genera
     :width: 800px
     :align: left
 
-Peaks detected using `ENCODE's histone ChIP-seq pipeline <https://www.encodeproject.org/pipelines/ENCPL841HGV/>` for each experiment/mark are also displayed, prefixed by ``REF``. Experiment and/or file accessions for each resource are labelled.
+Peaks detected using `ENCODE's histone ChIP-seq pipeline <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ for each experiment/mark are also displayed, prefixed by ``REF``. Experiment and/or file accessions for each resource are labelled.
+
+
+.. _files:
+
+File Formats
+~~~~~~~~~~~~~~~~~~~~~~
+
+* Input
+
+  * Per-sample sequence alignment files (BAM format)
+
+    * *Optional*: Control/input alignment files (e.g., ChIP-seq)
+
+  * Note, if using Consenrich programmatically, users can provide preprocessed sample-by-interval count matrices directly instead of BAM files (see :func:`consenrich.core.runConsenrich`)
+
+* Output
+
+  * *Signal estimate track*: ``<experimentName>_consenrich_state.bw``
+
+    * This track records genome-wide Consenrich estimates for the targeted signal of interest
+    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
+
+  * *Precision-weighted residual track*: ``<experimentName>_consenrich_residuals.bw``
+
+    * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
+    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
+
+  * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
+
+    * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
+    * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
+
 
 
 .. _tips:
@@ -477,47 +481,46 @@ Peaks detected using `ENCODE's histone ChIP-seq pipeline <https://www.encodeproj
 Miscellaneous Guidance
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. admonition:: Consensus Peak Calling + Downstream Differential Analyses
-  :class: tip
-  :collapsible: open
+Consensus Peak Calling + Downstream Differential Analyses
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-  Consenrich can markedly improve between-group differential analyses that depend on a good set of initial 'candidate' consensus peaks (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
+Consenrich can improve between-group differential analyses that depend on a good set of initial 'candidate' consensus peaks (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
 
-  `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is particularly well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling.
+`ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling, particularly for open chromatin assays (e.g., ATAC-seq, DNase-seq).
 
-  For example, to run the `Consenrich+ROCCO` protocol used in the manuscript,
+For example, to run the `Consenrich+ROCCO` protocol used in the manuscript,
 
-  .. code-block:: console
+.. code-block:: console
 
-	  % python -m pip install rocco --upgrade
-	  % rocco -i <experimentName>_consenrich_state.bw -g hg38 -o consenrichRocco_<experimentName>.bed
+ % python -m pip install rocco --upgrade
+ % rocco -i <experimentName>_consenrich_state.bw \
+    -g hg38 -o consenrichRocco_<experimentName>.bed \
+    <...>
 
-  The total-variation-penalized + budget-constrained optimization performed by ROCCO in selecting consensus peak regions is helpful to prevent excessive multiple comparisons downstream and enforce biological plausibility.
-
-  * Other peak calling methods, including the :ref:`matching` algorithm packaged with Consenrich, that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) may also be viable, but only Consenrich+ROCCO has been extensively benchmarked to date.
-
-
-.. admonition:: Command Line - Matching Algorithm
-  :class: tip
-  :collapsible: open
-
-  To avoid a full run/rerun of Consenrich when calling structured peaks, the matching algorithm can be run directly at the command-line on existing Consenrich-generated bedGraph files. For example:
-
-  .. code-block:: console
-
-    % consenrich \
-      --match-bedGraph consenrichOutput_<experimentName>_state.bedGraph \
-      --match-template haar \
-      --match-level 3 \
-      --match-alpha 0.01
-
-  This will generate structured peak calls using the Haar wavelet template at level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
+The budgeted/total-variation-regularized optimization procedure performed by ROCCO to select consensus peak regions prevents excessive multiple comparisons downstream and enforces biological plausibility. Other peak calling methods---including the :ref:`matching` algorithm packaged with Consenrich---that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) may also prove viable, but only Consenrich+ROCCO has been extensively benchmarked for differential analyses to date.
 
 
-.. admonition:: Noise level approximation for heterochromatic or repressive targets
-  :class: tip
-  :collapsible: open
+Matching Algorithm: Command-line Usage
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-  When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true`` in the YAML configuration file.
-  This prevents real signal being from being attributed to noise and may be consequential for higher-resolution analyses. See :class:`consenrich.observations.observationParams` for more details.
+To avoid a full run/rerun of Consenrich when calling structured peaks, the matching algorithm can be run directly at the command-line on existing Consenrich-generated bedGraph files. For example:
+
+.. code-block:: console
+
+  % consenrich \
+    --match-bedGraph consenrichOutput_<experimentName>_state.bedGraph \
+    --match-template haar \
+    --match-level 3 \
+    --match-alpha 0.01
+
+This calls structured peaks with a Haar template/level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
+
+For more details on the matching algorithm in general, see :ref:`matching` and :func:`consenrich.matching.matchWavelet` for more details.
+
+
+Heterochromatic or Repressive targets
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true`` in the YAML configuration file.
+This mitigates the risk of real signal being attributed to noise and may be consequential for higher-resolution analyses. See :class:`consenrich.core.observationParams` for more details.
 
