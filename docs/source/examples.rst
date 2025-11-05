@@ -103,7 +103,9 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 
   # Optional: call 'structured peaks' via `consenrich.matching`
   matchingParams.templateNames: [haar, db2]
-
+  matchingParams.cascadeLevels: [3, 3]
+  matchingParams.minMatchLengthBP: -1
+  matchingParams.mergeGapBP: 250
 
 
 .. admonition:: Control Inputs
@@ -225,6 +227,7 @@ Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed e
   ]
 
   matchingParams.templateNames: [haar, db2]
+  matchingParams.cascadeLevels: [2, 2]
 
 
 Run Consenrich
@@ -384,8 +387,8 @@ We run Consenrich separately for H3K36me3 and H3K9me3.
     ]
 
     matchingParams.templateNames: [haar, db2]
-    matchingParams.cascadeLevels: [3] # yields a longer matching template
-    matchingParams.mergeGapBP: 250    # larger merging window 
+    matchingParams.cascadeLevels: [3, 3]
+    matchingParams.mergeGapBP: 250
 
 
 * ``entexFourH3K9me3.yaml``.
@@ -411,7 +414,7 @@ We run Consenrich separately for H3K36me3 and H3K9me3.
 
     observationParams.useALV: true # recommended for heterochromatic marks
     matchingParams.templateNames: [haar, db2]
-    matchingParams.cascadeLevels: [3]
+    matchingParams.cascadeLevels: [3, 3]
     matchingParams.mergeGapBP: 250
 
 
@@ -429,10 +432,9 @@ We run Consenrich separately for H3K36me3 and H3K9me3.
     # Default is 25, increase to emphasize lower-detail, broader trends
     countingParams.stepSize: 50
 
-    # `sym<N>`: 'Least asymmetric', order N
-    matchingParams.templateNames: [haar, sym4]
+    matchingParams.templateNames: [haar]
     matchingParams.cascadeLevels: [3]
-    matchingParams.minMatchLengthBP: 500
+    matchingParams.minMatchLengthBP: -1 # compute as avg. non-zero contig.
     matchingParams.mergeGapBP: 500
 
 
