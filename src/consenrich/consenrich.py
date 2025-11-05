@@ -362,17 +362,21 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         and len(inputParams.bamFilesControl) > 0
     ):
         detrendWindowLengthBP_ = config.get(
-            "detrendParams.detrendWindowLengthBP", 25_000,
+            "detrendParams.detrendWindowLengthBP",
+            25_000,
         )
         detrendSavitzkyGolayDegree_ = config.get(
-            "detrendParams.detrendSavitzkyGolayDegree", 1,
+            "detrendParams.detrendSavitzkyGolayDegree",
+            1,
         )
     else:
         detrendWindowLengthBP_ = config.get(
-            "detrendParams.detrendWindowLengthBP", 10_000,
+            "detrendParams.detrendWindowLengthBP",
+            10_000,
         )
         detrendSavitzkyGolayDegree_ = config.get(
-            "detrendParams.detrendSavitzkyGolayDegree", 2,
+            "detrendParams.detrendSavitzkyGolayDegree",
+            2,
         )
 
     return {
@@ -404,35 +408,44 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             noGlobal=config.get("observationParams.noGlobal", False),
             numNearest=config.get("observationParams.numNearest", 25),
             localWeight=config.get(
-                "observationParams.localWeight", 0.333,
+                "observationParams.localWeight",
+                0.333,
             ),
             globalWeight=config.get(
-                "observationParams.globalWeight", 0.667,
+                "observationParams.globalWeight",
+                0.667,
             ),
             approximationWindowLengthBP=config.get(
-                "observationParams.approximationWindowLengthBP", 10000,
+                "observationParams.approximationWindowLengthBP",
+                10000,
             ),
             lowPassWindowLengthBP=config.get(
-                "observationParams.lowPassWindowLengthBP", 20000,
+                "observationParams.lowPassWindowLengthBP",
+                20000,
             ),
             lowPassFilterType=config.get(
-                "observationParams.lowPassFilterType", "median",
+                "observationParams.lowPassFilterType",
+                "median",
             ),
             returnCenter=config.get(
-                "observationParams.returnCenter", True,
+                "observationParams.returnCenter",
+                True,
             ),
         ),
         "stateArgs": core.stateParams(
             stateInit=config.get("stateParams.stateInit", 0.0),
             stateCovarInit=config.get(
-                "stateParams.stateCovarInit", 100.0,
+                "stateParams.stateCovarInit",
+                100.0,
             ),
             boundState=config.get("stateParams.boundState", True),
             stateLowerBound=config.get(
-                "stateParams.stateLowerBound", 0.0,
+                "stateParams.stateLowerBound",
+                0.0,
             ),
             stateUpperBound=config.get(
-                "stateParams.stateUpperBound", 10000.0,
+                "stateParams.stateUpperBound",
+                10000.0,
             ),
         ),
         "samArgs": core.samParams(
@@ -460,30 +473,37 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 else 0,
             ),
             countEndsOnly=config.get(
-                "samParams.countEndsOnly", False,
+                "samParams.countEndsOnly",
+                False,
             ),
         ),
         "detrendArgs": core.detrendParams(
             detrendWindowLengthBP=detrendWindowLengthBP_,
             detrendTrackPercentile=config.get(
-                "detrendParams.detrendTrackPercentile", 75,
+                "detrendParams.detrendTrackPercentile",
+                75,
             ),
             usePolyFilter=config.get(
-                "detrendParams.usePolyFilter", False,
+                "detrendParams.usePolyFilter",
+                False,
             ),
             detrendSavitzkyGolayDegree=config.get(
-                "detrendParams.detrendSavitzkyGolayDegree", detrendSavitzkyGolayDegree_,
+                "detrendParams.detrendSavitzkyGolayDegree",
+                detrendSavitzkyGolayDegree_,
             ),
             useOrderStatFilter=config.get(
-                "detrendParams.useOrderStatFilter", True,
+                "detrendParams.useOrderStatFilter",
+                True,
             ),
         ),
         "matchingArgs": core.matchingParams(
             templateNames=config.get(
-                "matchingParams.templateNames", [],
+                "matchingParams.templateNames",
+                [],
             ),
             cascadeLevels=config.get(
-                "matchingParams.cascadeLevels", [],
+                "matchingParams.cascadeLevels",
+                [],
             ),
             iters=config.get("matchingParams.iters", 25_000),
             alpha=config.get("matchingParams.alpha", 0.05),
@@ -716,6 +736,9 @@ def main():
     scaleDown = countingArgs.scaleDown
     extendBP_ = core.resolveExtendBP(samArgs.extendBP, bamFiles)
     initialTreatmentScaleFactors = []
+    minMatchLengthBP_: Optional[int] = matchingArgs.minMatchLengthBP
+    mergeGapBP_: Optional[int] = matchingArgs.mergeGapBP
+
     if args.verbose:
         try:
             logger.info("Configuration:\n")
@@ -1045,6 +1068,18 @@ def main():
             )
         try:
             if matchingEnabled:
+                if (
+                    minMatchLengthBP_ is None
+                    or minMatchLengthBP_ <= 0
+                ):
+                    minMatchLengthBP_ = (
+                        matching.autoMinLengthIntervals(x_)
+                        * (intervals[1] - intervals[0])
+                    )
+
+                if mergeGapBP_ is None:
+                    mergeGapBP_ = int(minMatchLengthBP_ / 2) + 1
+
                 matchingDF = matching.matchWavelet(
                     chromosome,
                     intervals,
@@ -1053,7 +1088,7 @@ def main():
                     matchingArgs.cascadeLevels,
                     matchingArgs.iters,
                     matchingArgs.alpha,
-                    matchingArgs.minMatchLengthBP,
+                    minMatchLengthBP_,
                     matchingArgs.maxNumMatches,
                     matchingArgs.minSignalAtMaxima,
                     useScalingFunction=matchingArgs.useScalingFunction,
@@ -1079,10 +1114,11 @@ def main():
     if matchingEnabled and matchingArgs.merge:
         try:
             mergeGapBP_ = matchingArgs.mergeGapBP
-            if mergeGapBP_ is None:
+            if mergeGapBP_ is None or mergeGapBP_ <= 0:
                 mergeGapBP_ = (
-                    int(matchingArgs.minMatchLengthBP / 2) + 1
-                    if matchingArgs.minMatchLengthBP is not None
+                    int(minMatchLengthBP_ / 2) + 1
+                    if minMatchLengthBP_ is not None
+                    and minMatchLengthBP_ >= 0
                     else 75
                 )
             matching.mergeMatches(

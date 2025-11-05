@@ -148,7 +148,7 @@ This response is greatest at genomic intervals where :math:`\widetilde{x}_{[i]}`
 * Each of the candidates is then assigned a :math:`p`-value based on the empirical null distribution of blockwise maxima. Those satisfying :math:`p_{\textsf{adj}} < \alpha` are deemed significant. Default :math:`\alpha = 0.05`.
 
   * Additional criteria can be applied: e.g., require the *signal values* at candidate peaks, :math:`\widetilde{x}_{[i^*]}`, to exceed a cutoff (`matchingParams.minSignalAtMaxima`), and/or require the *length* of the matched feature to exceed a minimum size (`matchingParams.minMatchLengthBP`).
-  * Overlapping/adjacent matches can be merged. By default, significant hits within :math:`0.50 \times T` intervals are merged. This can be adjusted via `matchingParams.mergeGapBP`.
+  * Overlapping/adjacent matches can be merged.
 
 .. note:: **Alternating Sampling Scheme**
 
@@ -174,13 +174,13 @@ This response is greatest at genomic intervals where :math:`\widetilde{x}_{[i]}`
 
 **Generic Defaults**
 
-The following defaults should provide a strong starting point for many use cases. For broad marks, consider setting ``matchingParams.mergeGapBP`` to a large value and/or using a long, near-symmetric template (e.g., ``sym4``).
+The following defaults should provide a strong starting point for many use cases. For broad marks, consider setting ``matchingParams.mergeGapBP`` and/or ``countingParams.stepSize`` to larger values to prioritize larger-scale trends.
 
 .. code-block:: yaml
 
   matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2]
-  matchingParams.minMatchLengthBP: 250
+  matchingParams.cascadeLevels: [2, 2]
+  matchingParams.minMatchLengthBP: 250 # set as `-1` for 'auto', data-driven selection
   matchingParams.alpha: 0.05
   matchingParams.minSignalAtMaxima: 'q:0.75'
   matchingParams.merge: true

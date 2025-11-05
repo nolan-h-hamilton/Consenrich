@@ -24,6 +24,45 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def autoMinLengthIntervals(
+    values: np.ndarray, initLen: int = 3
+) -> int:
+    r"""Determines a minimum matching length (in interval units) based on the input signal values.
+
+    Returns the mean length of non-zero contiguous segments in a log-scaled/centered version of `values`
+
+    :param values: A 1D array of signal-like values.
+    :type values: np.ndarray
+    :param initLen: Initial minimum length (in intervals). Defaults to 3.
+    :type initLen: int
+    :return: Estimated minimum matching length (in intervals)
+    :rtype: int
+
+    """
+    trValues = np.asinh(values) - signal.medfilt(
+        np.asinh(values),
+        kernel_size=
+            max(
+                (2 * initLen) + 1,
+                2 * (int(len(values) * 0.005)) + 1,
+            )
+    )
+    nz = trValues[trValues > 0]
+    if len(nz) == 0:
+        return initLen
+    thr = np.quantile(nz, 0.90, method="interpolated_inverted_cdf")
+    mask = nz >= thr
+    if not np.any(mask):
+        return initLen
+    idx = np.flatnonzero(np.diff(np.r_[False, mask, False]))
+    runs = idx.reshape(-1, 2)
+    widths = runs[:, 1] - runs[:, 0]
+    widths = widths[widths >= initLen]
+    if len(widths) == 0:
+        return initLen
+    return int(np.mean(widths))
+
+
 def scalarClip(value: float, low: float, high: float) -> float:
     return low if value < low else high if value > high else value
 
@@ -124,7 +163,7 @@ def matchExistingBedGraph(
     for chrom_ in sorted(bedGraphDF["chromosome"].unique()):
         df_ = bedGraphDF[bedGraphDF["chromosome"] == chrom_]
         if len(df_) < 5:
-            logger.info(f"Skipping {chrom_}: fewer than 5 rows.")
+            logger.info(f"Skipping {chrom_}: less than 5 intervals.")
             continue
 
         try:
@@ -234,17 +273,18 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
 ) -> pd.DataFrame:
-    r"""Detect structured peaks by cross-correlating Consenrich tracks with wavelet- or scaling-function templates.
+    r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
     :param chromosome: Chromosome name for the input intervals and values.
     :type chromosome: str
     :param values: A 1D array of signal-like values. In this documentation, we refer to values derived from Consenrich,
         but other continuous-valued tracks at evenly spaced genomic intervals may be suitable, too.
     :type values: npt.NDArray[np.float64]
-    :param templateNames: A list of str values -- wavelet bases used for matching, e.g., `[haar, db2, sym4]`
+    :param templateNames: A list of str values -- each entry references a mother wavelet (or its corresponding scaling function). e.g., `[haar, db2]`
     :type templateNames: List[str]
-    :param cascadeLevels: A list of int values -- the number of cascade iterations used for approximating
-        the scaling/wavelet functions.
+    :param cascadeLevels: Number of cascade iterations used to approximate each template (wavelet or scaling function).
+        Must have the same length as `templateNames`, with each entry aligned to the
+        corresponding template. e.g., given templateNames `[haar, db2]`, then `[2,2]` would use 2 cascade levels for both templates.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
@@ -255,7 +295,9 @@ def matchWavelet(
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches.
-    :type minMatchLengthBP: int
+        If set to a value less than 1, the minimum length is determined via :func:`consenrich.matching.autoMinLengthIntervals`.
+        If set to `None`, defaults to 250 bp.
+    :type minMatchLengthBP: Optional[int]
     :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Requires the *signal value*
         at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale
         to temper genome-wide dynamic range. If a `float` value is provided, the minimum signal value must be greater
@@ -274,19 +316,47 @@ def matchWavelet(
     :return: A pandas DataFrame with detected matches
     :rtype: pd.DataFrame
     """
+
+    rng = np.random.default_rng(int(randSeed))
     if len(intervals) < 5:
         raise ValueError("`intervals` must be at least length 5")
+
     if len(values) != len(intervals):
         raise ValueError(
             "`values` must have the same length as `intervals`"
         )
+
+    if len(templateNames) != len(cascadeLevels):
+        raise ValueError(
+            "\n\t`templateNames` and `cascadeLevels` must have the same length."
+            "\n\tSet products are not supported, i.e., each template needs an explicitly defined cascade level."
+            "\t\ne.g., for `templateNames = [haar, db2]`, use `cascadeLevels = [2, 2]`, not `[2]`.\n"
+        )
+
     intervalLengthBp = intervals[1] - intervals[0]
+
+    if minMatchLengthBP is not None and minMatchLengthBP < 1:
+        minMatchLengthBP = (
+            autoMinLengthIntervals(values) * int(intervalLengthBp)
+        )
+    elif minMatchLengthBP is None:
+        minMatchLengthBP = 250
+
+    logger.info(
+        f"\n\tUsing minMatchLengthBP: {minMatchLengthBP}"
+    )
+
     if not np.all(np.abs(np.diff(intervals)) == intervalLengthBp):
         raise ValueError("`intervals` must be evenly spaced.")
-    rng = np.random.default_rng(int(randSeed))
-    cascadeLevels = sorted(list(set(cascadeLevels)))
-    if weights is not None and len(weights) == len(values):
-        values = values * weights
+    
+    if weights is not None:
+        if len(weights) != len(values):
+            logger.warning(
+                f"`weights` length {len(weights)} does not match `values` length {len(values)}. Ignoring..."
+            )
+        else:
+            values = values * weights
+    
     asinhValues = np.asinh(values, dtype=np.float32)
     asinhNonZeroValues = asinhValues[asinhValues > 0]
     iters = max(int(iters), 1000)
@@ -383,147 +453,142 @@ def matchWavelet(
         high = np.quantile(vals, 0.999)
         return vals[(vals > low) & (vals < high)]
 
-    for cascadeLevel in cascadeLevels:
-        for templateName in templateNames:
-            if templateName not in pw.wavelist(kind="discrete"):
-                logger.warning(
-                    f"Skipping unknown wavelet template: {templateName}"
-                )
-                continue
+    for templateName, cascadeLevel in zip(
+        templateNames, cascadeLevels
+    ):
+        if templateName not in pw.wavelist(kind="discrete"):
+            logger.warning(
+                f"Skipping unknown wavelet template: {templateName}"
+            )
+            continue
 
-            wav = pw.Wavelet(str(templateName))
-            scalingFunc, waveletFunc, _ = wav.wavefun(
-                level=int(cascadeLevel)
-            )
-            template = np.array(
-                scalingFunc if useScalingFunction else waveletFunc,
-                dtype=np.float64,
-            )
-            template /= np.linalg.norm(template)
+        wav = pw.Wavelet(str(templateName))
+        scalingFunc, waveletFunc, _ = wav.wavefun(
+            level=int(cascadeLevel)
+        )
+        template = np.array(
+            scalingFunc if useScalingFunction else waveletFunc,
+            dtype=np.float64,
+        )
+        template /= np.linalg.norm(template)
 
-            logger.info(
-                f"\n\tMatching template: {templateName}"
-                f"\n\tcascade level: {cascadeLevel}"
-                f"\n\ttemplate length: {len(template)}"
-            )
+        logger.info(
+            f"\n\tMatching template: {templateName}"
+            f"\n\tcascade level: {cascadeLevel}"
+            f"\n\ttemplate length: {len(template)}"
+        )
 
-            # efficient FFT-based cross-correlation
-            # (OA may be better for smaller templates, TODO add a check)
-            response = signal.fftconvolve(
-                values, template[::-1], mode="same"
+        # efficient FFT-based cross-correlation
+        # (OA may be better for smaller templates, TODO add a check)
+        response = signal.fftconvolve(
+            values, template[::-1], mode="same"
+        )
+        thisMinMatchBp = minMatchLengthBP
+        if thisMinMatchBp is None or thisMinMatchBp < 1:
+            thisMinMatchBp = len(template) * intervalLengthBp
+        if thisMinMatchBp % intervalLengthBp != 0:
+            thisMinMatchBp += intervalLengthBp - (
+                thisMinMatchBp % intervalLengthBp
             )
-            thisMinMatchBp = minMatchLengthBP
-            if thisMinMatchBp is None or thisMinMatchBp < 1:
-                thisMinMatchBp = len(template) * intervalLengthBp
-            if thisMinMatchBp % intervalLengthBp != 0:
-                thisMinMatchBp += intervalLengthBp - (
-                    thisMinMatchBp % intervalLengthBp
-                )
-            relWindowBins = int(
-                ((thisMinMatchBp / intervalLengthBp) / 2) + 1
+        relWindowBins = int(
+            ((thisMinMatchBp / intervalLengthBp) / 2) + 1
+        )
+        relWindowBins = max(relWindowBins, 1)
+        asinhThreshold = parseMinSignalThreshold(minSignalAtMaxima)
+        for nullMask, testMask, tag in [
+            (halfLeftMask, halfRightMask, "R"),
+            (halfRightMask, halfLeftMask, "L"),
+        ]:
+            blockMaxima = sampleBlockMaxima(
+                response,
+                nullMask,
+                relWindowBins,
+                nsamp=max(iters, 1000),
+                seed=rng.integers(1, 10_000),
             )
-            relWindowBins = max(relWindowBins, 1)
-            asinhThreshold = parseMinSignalThreshold(
-                minSignalAtMaxima
-            )
-            for nullMask, testMask, tag in [
-                (halfLeftMask, halfRightMask, "R"),
-                (halfRightMask, halfLeftMask, "L"),
-            ]:
+            if len(blockMaxima) < 25:
+                pooledMask = ~excludeMaskGlobal.astype(bool)
                 blockMaxima = sampleBlockMaxima(
                     response,
-                    nullMask,
+                    pooledMask,
                     relWindowBins,
                     nsamp=max(iters, 1000),
                     seed=rng.integers(1, 10_000),
                 )
-                if len(blockMaxima) < 25:
-                    pooledMask = ~excludeMaskGlobal.astype(bool)
-                    blockMaxima = sampleBlockMaxima(
-                        response,
-                        pooledMask,
-                        relWindowBins,
-                        nsamp=max(iters, 1000),
-                        seed=rng.integers(1, 10_000),
-                    )
-                ecdfSf = stats.ecdf(blockMaxima).sf
-                candidateIdx = relativeMaxima(response, relWindowBins)
+            ecdfSf = stats.ecdf(blockMaxima).sf
+            candidateIdx = relativeMaxima(response, relWindowBins)
 
-                candidateMask = (
-                    (candidateIdx >= relWindowBins)
-                    & (candidateIdx < len(response) - relWindowBins)
-                    & (testMask[candidateIdx])
-                    & (excludeMaskGlobal[candidateIdx] == 0)
-                    & (asinhValues[candidateIdx] > asinhThreshold)
-                )
+            candidateMask = (
+                (candidateIdx >= relWindowBins)
+                & (candidateIdx < len(response) - relWindowBins)
+                & (testMask[candidateIdx])
+                & (excludeMaskGlobal[candidateIdx] == 0)
+                & (asinhValues[candidateIdx] > asinhThreshold)
+            )
 
-                candidateIdx = candidateIdx[candidateMask]
-                if len(candidateIdx) == 0:
-                    continue
-                if (
-                    maxNumMatches is not None
-                    and len(candidateIdx) > maxNumMatches
-                ):
-                    candidateIdx = candidateIdx[
-                        np.argsort(asinhValues[candidateIdx])[
-                            -maxNumMatches:
-                        ]
+            candidateIdx = candidateIdx[candidateMask]
+            if len(candidateIdx) == 0:
+                continue
+            if (
+                maxNumMatches is not None
+                and len(candidateIdx) > maxNumMatches
+            ):
+                candidateIdx = candidateIdx[
+                    np.argsort(asinhValues[candidateIdx])[
+                        -maxNumMatches:
                     ]
-                pEmp = np.clip(
-                    ecdfSf.evaluate(response[candidateIdx]),
-                    1.0e-10,
-                    1.0,
+                ]
+            pEmp = np.clip(
+                ecdfSf.evaluate(response[candidateIdx]),
+                1.0e-10,
+                1.0,
+            )
+            startsIdx = np.maximum(candidateIdx - relWindowBins, 0)
+            endsIdx = np.minimum(
+                len(values) - 1, candidateIdx + relWindowBins
+            )
+            pointSourcesIdx = []
+            for s, e in zip(startsIdx, endsIdx):
+                pointSourcesIdx.append(
+                    np.argmax(values[s : e + 1]) + s
                 )
-                startsIdx = np.maximum(
-                    candidateIdx - relWindowBins, 0
+            pointSourcesIdx = np.array(pointSourcesIdx)
+            starts = intervals[startsIdx]
+            ends = intervals[endsIdx]
+            pointSourcesAbs = (intervals[pointSourcesIdx]) + max(
+                1, intervalLengthBp // 2
+            )
+            if recenterAtPointSource:
+                starts = pointSourcesAbs - (
+                    relWindowBins * intervalLengthBp
                 )
-                endsIdx = np.minimum(
-                    len(values) - 1, candidateIdx + relWindowBins
+                ends = pointSourcesAbs + (
+                    relWindowBins * intervalLengthBp
                 )
-                pointSourcesIdx = []
-                for s, e in zip(startsIdx, endsIdx):
-                    pointSourcesIdx.append(
-                        np.argmax(values[s : e + 1]) + s
-                    )
-                pointSourcesIdx = np.array(pointSourcesIdx)
-                starts = intervals[startsIdx]
-                ends = intervals[endsIdx]
-                pointSourcesAbs = (intervals[pointSourcesIdx]) + max(
-                    1, intervalLengthBp // 2
+            pointSourcesRel = (
+                intervals[pointSourcesIdx] - starts
+            ) + max(1, intervalLengthBp // 2)
+            sqScores = (1 + response[candidateIdx]) ** 2
+            minR, maxR = (
+                float(np.min(sqScores)),
+                float(np.max(sqScores)),
+            )
+            rangeR = max(maxR - minR, 1.0)
+            scores = (250 + 750 * (sqScores - minR) / rangeR).astype(int)
+            for i, idxVal in enumerate(candidateIdx):
+                allRows.append(
+                    {
+                        "chromosome": chromosome,
+                        "start": int(starts[i]),
+                        "end": int(ends[i]),
+                        "name": f"{templateName}_{cascadeLevel}_{idxVal}_{tag}",
+                        "score": int(scores[i]),
+                        "strand": ".",
+                        "signal": float(response[idxVal]),
+                        "p_raw": float(pEmp[i]),
+                        "pointSource": int(pointSourcesRel[i]),
+                    }
                 )
-                if recenterAtPointSource:
-                    starts = pointSourcesAbs - (
-                        relWindowBins * intervalLengthBp
-                    )
-                    ends = pointSourcesAbs + (
-                        relWindowBins * intervalLengthBp
-                    )
-                pointSourcesRel = (
-                    intervals[pointSourcesIdx] - starts
-                ) + max(1, intervalLengthBp // 2)
-                sqScores = (1 + response[candidateIdx]) ** 2
-                minR, maxR = (
-                    float(np.min(sqScores)),
-                    float(np.max(sqScores)),
-                )
-                rangeR = max(maxR - minR, 1.0)
-                scores = (
-                    250 + 750 * (sqScores - minR) / rangeR
-                ).astype(int)
-                for i, idxVal in enumerate(candidateIdx):
-                    allRows.append(
-                        {
-                            "chromosome": chromosome,
-                            "start": int(starts[i]),
-                            "end": int(ends[i]),
-                            "name": f"{templateName}_{cascadeLevel}_{idxVal}_{tag}",
-                            "score": int(scores[i]),
-                            "strand": ".",
-                            "signal": float(response[idxVal]),
-                            "p_raw": float(pEmp[i]),
-                            "pointSource": int(pointSourcesRel[i]),
-                        }
-                    )
 
     if not allRows:
         logger.warning(
