@@ -103,6 +103,9 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 
   # Optional: call 'structured peaks' via `consenrich.matching`
   matchingParams.templateNames: [haar, db2]
+  matchingParams.cascadeLevels: [3, 3]
+  matchingParams.minMatchLengthBP: -1
+  matchingParams.mergeGapBP: 250
 
 
 .. admonition:: Control Inputs
@@ -131,7 +134,7 @@ Run Consenrich
 Results
 """"""""""""""""""""""""""
 
-* We display Consenrich results (blue) over an enhancer-rich region within `MYH9`
+* We display Consenrich results (blue) at ``APOL2 <--| |--> APOL1``
 
 
 * For reference, ENCODE peaks for the same `Experiments` and donor samples are included (black):
@@ -224,6 +227,7 @@ Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed e
   ]
 
   matchingParams.templateNames: [haar, db2]
+  matchingParams.cascadeLevels: [2, 2]
 
 
 Run Consenrich
@@ -329,8 +333,9 @@ As input data, we use per-mark ChIP-seq samples from the `ENTEx Project: Four Re
 - H3K36me3: :math:`m=4` H3K36me3 ChIP-seq BAM files + matched controls from lung tissue of four donors (single-end)
 - H3K9me3: :math:`m=4` H3K9me3 ChIP-seq BAM files + matched controls from lung tissue of four donors (single-end)
 
+
 Environment
-''''''''''''''
+''''''''''''''''
 
 - MacBook MX313LL/A (arm64)
 - Python 3.12.9
@@ -382,8 +387,8 @@ We run Consenrich separately for H3K36me3 and H3K9me3.
     ]
 
     matchingParams.templateNames: [haar, db2]
-    matchingParams.cascadeLevels: [3] # broad marks: longer matching template
-    matchingParams.mergeGapBP: 250    # broad marks: larger merging window 
+    matchingParams.cascadeLevels: [3, 3]
+    matchingParams.mergeGapBP: 250
 
 
 * ``entexFourH3K9me3.yaml``.
@@ -409,9 +414,28 @@ We run Consenrich separately for H3K36me3 and H3K9me3.
 
     observationParams.useALV: true # recommended for heterochromatic marks
     matchingParams.templateNames: [haar, db2]
-    matchingParams.cascadeLevels: [3]
+    matchingParams.cascadeLevels: [3, 3]
     matchingParams.mergeGapBP: 250
 
+
+
+.. admonition:: Parameter Adjustments for Broad Marks
+  :class: tip
+  :collapsible: closed
+
+  If higher-detail/narrow features are not desirable, several options can be adjusted to emphasize broader trends in the data.
+
+  This may be relevant for certain histone modifications and other settings where signal:background ratios are comparably low.
+
+  .. code-block:: yaml
+
+    # Default is 25, increase to emphasize lower-detail, broader trends
+    countingParams.stepSize: 50
+
+    matchingParams.templateNames: [haar]
+    matchingParams.cascadeLevels: [3]
+    matchingParams.minMatchLengthBP: -1 # compute as avg. non-zero contig.
+    matchingParams.mergeGapBP: 500
 
 
 Run Consenrich

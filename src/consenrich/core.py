@@ -317,10 +317,11 @@ class matchingParams(NamedTuple):
 
     See :ref:`matching` for an overview of the approach.
 
-    :param templateNames: A list of str values -- wavelet bases used for matching, e.g., `[haar, db2, sym4]`
+    :param templateNames: A list of str values -- each entry references a mother wavelet (or its corresponding scaling function). e.g., `[haar, db2]`
     :type templateNames: List[str]
-    :param cascadeLevels: A list of int values -- the number of cascade iterations used for approximating
-        the scaling/wavelet functions.
+    :param cascadeLevels: Number of cascade iterations used to approximate each template (wavelet or scaling function).
+        Must have the same length as `templateNames`, with each entry aligned to the
+        corresponding template. e.g., given templateNames `[haar, db2]`, then `[2,2]` would use 2 cascade levels for both templates.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
@@ -331,7 +332,8 @@ class matchingParams(NamedTuple):
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches.
-    :type minMatchLengthBP: int
+        If set to a value less than 1, the minimum length is determined via :func:`consenrich.matching.autoMinLengthIntervals`.
+        If set to `None`, defaults to 250 bp.
     :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Requires the *signal value*
         at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale
         to temper genome-wide dynamic range. If a `float` value is provided, the minimum signal value must be greater

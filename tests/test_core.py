@@ -21,6 +21,7 @@ import consenrich.cconsenrich as cconsenrich
 import consenrich.matching as matching
 import consenrich.misc_util as misc_util
 
+
 @pytest.mark.correctness
 def testConstantGetAverageLocalVarianceTrack(constantValue=10):
     # case: `values` is constant --> noise level should be zero, but due to clipping, `minR`
@@ -345,3 +346,35 @@ def testMergeMatches():
         qHarmonicMean = np.round(10 ** (- float(qHM)),3)
         assert qHarmonicMean >= qMin, f"harmonic mean of q-values should be greater/equal to minimum q-value: {line_}"
         assert qHarmonicMean <= qMax, f"harmonic mean of q-values should be less/equal to maximum q-value: {line_}"
+
+
+@pytest.mark.matching
+def testMergeMatchesReduction():
+
+    TEST_FILE = "unmerged.test.narrowPeak"
+
+    with open(TEST_FILE) as f:
+        linesInit = [line.strip() for line in f if line.strip()]
+    numInit = len(linesInit)
+
+    outFile = matching.mergeMatches(TEST_FILE, mergeGapBP=75)
+
+    assert outFile and os.path.isfile(outFile), (
+        "No output file can be found after call to `mergeMatches`"
+    )
+
+    name_re = re.compile(
+        r"^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\.\d{3})$"
+    )
+    with open(outFile) as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    assert len(lines) > 0, "no remaining features after merge"
+
+    assert len(lines) > 25, (
+        f"Unexpected: too few features remaining after merge {len(lines)},{numInit}"
+    )
+
+    assert len(lines) < 75, (
+        f"Unexpected: too many features remaining after merge {len(lines)},{numInit}"
+    )
