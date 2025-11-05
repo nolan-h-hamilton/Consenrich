@@ -134,7 +134,7 @@ Run Consenrich
 Results
 """"""""""""""""""""""""""
 
-* We display Consenrich results (blue) over an enhancer-rich region within `MYH9`
+* We display Consenrich results (blue) at ``APOL2 <--| |--> APOL1``
 
 
 * For reference, ENCODE peaks for the same `Experiments` and donor samples are included (black):
