@@ -30,11 +30,16 @@ def autoMinLengthCandidates(
     quantiles: tuple = (0.50, 0.75, 0.90),  # typical, longer, high-end
     weight_by_intensity: bool = True,       # this favors better runs
 ) -> List[int]:
-    #same transformation
-    tr = np.asinh(values)
-    ksize = max((2 * initLen) + 1, 2 * (int(len(values) * 0.005)) + 1)
-    trValues = tr - signal.medfilt(tr, kernel_size=ksize)
+    #same transformation, but only compute once and take a true median
+    tr = np.asanyarray(values, dtype = np.float64)
+    tr = np.asinh(tr)
+    ks_target = max(2*int(initLen) + 1, 2*int(len(tr)*0.005) + 1)
+    ks_odd = ks_target | 1
+    ks_max = len(tr) if (len(tr) % 2 == 1) else (len(tr) - 1)
+    ksize = min(ks_odd, ks_max) if len(tr) >= 3 else 3
 
+    trValues = tr - signal.medfilt(tr, kernel_size=ksize)
+   
     #only ones that pass threshold
     nz = trValues[trValues > 0]
     if len(nz) == 0:
@@ -60,7 +65,8 @@ def autoMinLengthCandidates(
 
     #weight again to favor clearer and stronger signals from each run
     if weight_by_intensity:
-        wts = np.array([float(trValues[s:e].mean()) for s, e in runs])
+        means = np.array([float(trValues[s:e].mean()) for s, e in runs])
+        wts = widths * means  # area weighting
     else:
         wts = np.ones_like(widths, dtype=float)
 
