@@ -104,6 +104,10 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   # Optional: call 'structured peaks' via `consenrich.matching`
   matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [3, 3]
+
+  # `minMatchLengthBP: -1` -->
+  # ...Compute from the data as the avg. length
+  #... of positive-valued segments (standardized)
   matchingParams.minMatchLengthBP: -1
   matchingParams.mergeGapBP: 250
 
@@ -169,7 +173,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python `3.12.9`
-- Consenrich `v0.7.1b1`
+- Consenrich `v0.7.1b2`
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -326,50 +330,22 @@ Note that the repeated sampling of memory every 0.1 seconds during profiling int
 ChIP-seq: Broad Histone Marks
 """""""""""""""""""""""""""""""""""""""""""""
 
-In this example, we look for *dual-marked H3K36me3/H3K9me3 enrichments*
+In this demo, we use :math:`m=6` H3K36me3 ChIP-seq samples from separate donors' lung tissues.
 
-As input data, we use per-mark ChIP-seq samples from the `ENTEx Project: Four Reference Epigenomes <http://entex.encodeproject.org/>`_.
-
-- H3K36me3: :math:`m=4` H3K36me3 ChIP-seq BAM files + matched controls from lung tissue of four donors (single-end)
-- H3K9me3: :math:`m=4` H3K9me3 ChIP-seq BAM files + matched controls from lung tissue of four donors (single-end)
-
-
-Environment
-''''''''''''''''
-
-- MacBook MX313LL/A (arm64)
-- Python 3.12.9
-- Consenrich v0.7.1b1
-- `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.21
-- `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
-
-Names and versions of packages that are relevant to computational performance. These specific versions are *not required* but are included for reproducibility.
-
-.. list-table::
-     :header-rows: 1
-     :widths: 40 60
-
-     * - Package
-       - Version
-     * - ``cython``
-       - 3.1.4
-     * - ``numpy``
-       - 2.3.3
-     * - ``scipy``
-       - 1.16.2
+Twelve total alignment files (single-end, treatment/control input pairs) are used. See the YAML below for `ENCFF<fileID>` accessions.
 
 
 Configuration
 ''''''''''''''''''''''''''''
 
-We run Consenrich separately for H3K36me3 and H3K9me3.
 
+A very straightforward approach to suppress higher frequencies/spatial details that may be impertinent for analysis of broad marks is to increase :class:`consenrich.core.countingParams``.stepSize` (default: 25 bp) to a larger value (e.g., 100 bp).
 
-* ``entexFourH3K36me3.yaml``.
+* ``experimentH3K36me3.yaml``.
 
   .. code-block:: yaml
 
-    experimentName: entexFourH3K36me3
+    experimentName: experimentH3K36me3
     genomeParams.name: hg38
     genomeParams.excludeChroms: [chrY]
     genomeParams.excludeForNorm: [chrX, chrY]
@@ -377,95 +353,65 @@ We run Consenrich separately for H3K36me3 and H3K9me3.
     inputParams.bamFiles: [ENCFF441SHP.bam,
      ENCFF450ORQ.bam,
      ENCFF903UTS.bam,
-     ENCFF790HIV.bam
+     ENCFF790HIV.bam,
+     ENCFF591YNK.bam,
+     ENCFF870AMP.bam
      ]
 
     inputParams.bamFilesControl: [ENCFF794QJK.bam,
      ENCFF831MFQ.bam,
      ENCFF660HBS.bam,
-     ENCFF430OFG.bam
+     ENCFF430OFG.bam,
+     ENCFF347ENG.bam,
+     ENCFF648HNK.bam
     ]
+
+    countingParams.stepSize: 100 # Default is 25 bp
 
     matchingParams.templateNames: [haar, db2]
     matchingParams.cascadeLevels: [3, 3]
-    matchingParams.mergeGapBP: 250
-
-
-* ``entexFourH3K9me3.yaml``.
-
-  .. code-block:: yaml
-
-    experimentName: entexFourH3K9me3
-    genomeParams.name: hg38
-    genomeParams.excludeChroms: [chrY]
-    genomeParams.excludeForNorm: [chrX, chrY]
-
-    inputParams.bamFiles: [ENCFF887THR.bam,
-      ENCFF894WAK.bam,
-      ENCFF337ZUU.bam,
-      ENCFF775OLD.bam
-    ]
-
-    inputParams.bamFilesControl: [ENCFF794QJK.bam,
-     ENCFF831MFQ.bam,
-     ENCFF660HBS.bam,
-     ENCFF430OFG.bam
-    ]
-
-    observationParams.useALV: true # recommended for heterochromatic marks
-    matchingParams.templateNames: [haar, db2]
-    matchingParams.cascadeLevels: [3, 3]
-    matchingParams.mergeGapBP: 250
-
-
-
-.. admonition:: Parameter Adjustments for Broad Marks
-  :class: tip
-  :collapsible: closed
-
-  If higher-detail/narrow features are not desirable, several options can be adjusted to emphasize broader trends in the data.
-
-  This may be relevant for certain histone modifications and other settings where signal:background ratios are comparably low.
-
-  .. code-block:: yaml
-
-    # Default is 25, increase to emphasize lower-detail, broader trends
-    countingParams.stepSize: 50
-
-    matchingParams.templateNames: [haar]
-    matchingParams.cascadeLevels: [3]
-    matchingParams.minMatchLengthBP: -1 # compute as avg. non-zero contig.
-    matchingParams.mergeGapBP: 500
+    matchingParams.minMatchLengthBP: -1
 
 
 Run Consenrich
 ''''''''''''''''''''''''''''
 
-Significant matches/peaks for each mark are intersected to identify dual-marked regions.
-
 .. code-block:: console
 
-  % consenrich --config entexFourH3K36me3.yaml --verbose
-  % consenrich --config entexFourH3K9me3.yaml --verbose
-  % bedtools intersect \
-      -a consenrichOutput_entexFourH3K36me3_matches.mergedMatches.narrowPeak \
-      -b consenrichOutput_entexFourH3K9me3_matches.mergedMatches.narrowPeak \
-      -f 0.25 -r -u -sortout | cut -f 1-3 > Consenrich_StructuredPeaks_H3K9me3_AND_H3K36me3.bed
+  % consenrich --config experimentH3K36me3.yaml --verbose
 
 
 Results
 ''''''''''''''''''''''''''''
 
-Consistent with `previous studies <https://pmc.ncbi.nlm.nih.gov/search/?term=dual+H3K9me3+H3K36me3+%22zinc+finger%22&sort=relevance>`_, we observe a notable density of H3K9me3/H3K36me3 intersections in ZNF gene clusters.
-
-Each sample's alignment coverage tracks, and the corresponding Consenrich-generated outputs, are visualized over `ZNF615` below in the UCSC Genome Browser (20 kb).
+Signal estimates, weighted residuals, and structured peaks (via :ref:`matching`) over a **150kb region** spanning `LINC01176`, `NOD1`, `GGCT`:
 
 .. image:: ../benchmarks/H3K36me3/images/Consenrich_ENTexFour_DualMark.png
     :alt: H3K36me3 Intron-Exon
     :width: 800px
     :align: left
 
-Peaks detected using `ENCODE's histone ChIP-seq pipeline <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ for each experiment/mark are also displayed, prefixed by ``REF``. Experiment and/or file accessions for each resource are labelled.
+
+**Genome-Wide Exonic Enrichment**
+
+We evaluate signal intensities and peak density at exonic regions given H3K36me3's association with actively transcribed gene bodies.
+
+Using the set of Consenrich peaks, we apply `bedtools shuffle` to permute their genomic locations while preserving chromosome assignment and feature lengths to build a null distribution. (This is effectively the same procedure as in the previous `ATAC-seq` example.)
+
+
+- Peaks: Exon Overlaps (bp)
+
+  - *Shuffle*: mean exonic overlap (:math:`N=250` iterations): μ ≈ 1,134,214, σ ≈ 25,008.34
+  - *Consenrich*: observed exonic overlap: **7,510,079**
+
+    - *Fold-enrichment*: :math:`7.14`, :math:`\hat{p} \approx 0.0039`
+
+- Relative Signals: All Consenrich Peaks vs. Consenrich Peaks :math:`\cap` Exons
+
+  - Median signal at peak-exon overlaps: **9.554**
+  - Median signal at peaks elsewhere: **5.950**
+
+    - :math:`\Delta \textsf{MedianSignal} \approx 3.6, \hat{p} \approx 0.001`
 
 
 .. _files:
@@ -510,7 +456,7 @@ Consensus Peak Calling + Downstream Differential Analyses
 
 Consenrich can improve between-group differential analyses that depend on a good set of initial 'candidate' consensus peaks (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
 
-`ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is well-suited to leverage high-resolution signal estimates while balancing regularity in a manner that is useful for simultaneous broad/narrow peak calling, particularly for open chromatin assays (e.g., ATAC-seq, DNase-seq).
+`ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is well-suited to leverage high-resolution open chromatin signal estimates while balancing regularity for simultaneous broad/narrow peak calling.
 
 For example, to run the `Consenrich+ROCCO` protocol used in the manuscript,
 
@@ -519,9 +465,9 @@ For example, to run the `Consenrich+ROCCO` protocol used in the manuscript,
  % python -m pip install rocco --upgrade
  % rocco -i <experimentName>_consenrich_state.bw \
     -g hg38 -o consenrichRocco_<experimentName>.bed \
-    <...>
+    # <...>
 
-The budgeted/total-variation-regularized optimization procedure performed by ROCCO to select consensus peak regions prevents excessive multiple comparisons downstream and enforces biological plausibility. Other peak calling methods---including the :ref:`matching` algorithm packaged with Consenrich---that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) may also prove viable, but only Consenrich+ROCCO has been extensively benchmarked for differential analyses to date.
+The budgeted/total-variation-regularized optimization procedure performed by ROCCO to select consensus peak regions prevents excessive multiple comparisons downstream and enforces biological plausibility. Other peak calling methods---including the :ref:`matching` algorithm packaged with Consenrich---that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) may also prove viable, but only Consenrich+ROCCO has been extensively benchmarked for differential accessibility analyses to date.
 
 
 Matching Algorithm: Command-line Usage
