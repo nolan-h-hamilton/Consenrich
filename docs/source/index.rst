@@ -11,7 +11,7 @@ Consenrich Homepage
    examples
    modules
 
-Consenrich is an adaptive linear state estimator that yields genome-wide, uncertainty-calibrated signal tracks from noisy multi-sample HTS data.
+Consenrich is an adaptive linear state estimator that yields genome-wide, uncertainty-calibrated signal tracks from noisy multi-sample cohorts' epigenetic HTS data.
 
 .. image:: ../images/noise.png
   :alt: Simplified schematic of Consenrich
