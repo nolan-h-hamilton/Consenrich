@@ -141,6 +141,11 @@ def matchExistingBedGraph(
     merge: bool = True,
     weights: Optional[npt.NDArray[np.float64]] = None,
     randSeed: int = 42,
+    # new params
+    adaptive_scale: bool = False,            
+    scales_bp: Optional[List[int]] = None,   
+    scale_step_bp: int = 10000,              
+    refine_neighbors: bool = True,           
 ) -> Optional[str]:
     r"""Match discrete templates in a bedGraph file of Consenrich estimates
 
@@ -215,6 +220,11 @@ def matchExistingBedGraph(
                 weights=weights,
                 minSignalAtMaxima=minSignalAtMaxima,
                 randSeed=randSeed,
+                #new 
+                adaptive_scale=adaptive_scale,          
+                scales_bp=scales_bp,                    
+                scale_step_bp=scale_step_bp,            
+                refine_neighbors=refine_neighbors,      
             )
         except Exception as ex:
             logger.info(
@@ -287,6 +297,93 @@ def matchExistingBedGraph(
     logger.warning("No matches were detected...returning `None`")
     return None
 
+# here is another thought that can automate the whole thing
+def _make_template_at_bins(base_template: np.ndarray, target_bins: int) -> np.ndarray:
+    #Resample a base template to target length in bins and L2 normalize.
+    tb = int(max(3, target_bins))
+    if tb == len(base_template):
+        t = base_template.astype(np.float64, copy=True)
+    else:
+        t = signal.resample(base_template, tb).astype(np.float64, copy=False)
+    nrm = np.linalg.norm(t)
+    if not np.isfinite(nrm) or nrm <= 0:
+        return np.zeros(tb, dtype=np.float64)
+    return t / nrm
+
+def _response_at(values: np.ndarray, center_idx: int, tmpl_rev: np.ndarray) -> float:
+    L = len(tmpl_rev)
+    half = L // 2
+    s = max(0, center_idx - half)
+    e = min(len(values), center_idx + half + 1)
+    w = values[s:e].astype(np.float64, copy=False)
+    if len(w) < L:
+        pad_left = max(0, half - (center_idx - s))
+        pad_right = max(0, (center_idx + half + 1) - e)
+        w = np.pad(w, (pad_left, pad_right), mode="constant", constant_values=0.0)
+    return float(np.dot(w, tmpl_rev))
+
+def _build_scale_map_sparse(values: np.ndarray,
+                            interval_bp: int,
+                            base_template: np.ndarray,
+                            scales_bp: List[int],
+                            step_bp: int) -> np.ndarray:
+    n = len(values)
+    step_bins = max(1, int(round(step_bp / interval_bp)))
+    centers = np.arange(step_bins // 2, n, step_bins, dtype=int)
+    if len(centers) == 0:
+        return np.zeros(n, dtype=np.int32)
+
+    is_center = np.zeros(n, dtype=np.bool_)
+    is_center[centers] = True
+
+    tmpl_per_scale = []
+    for sbp in scales_bp:
+        Lb = int(max(3, round(sbp / interval_bp)))
+        if Lb % 2 == 0:
+            Lb += 1
+        tmpl_per_scale.append(_make_template_at_bins(base_template, Lb))
+
+    energy = np.zeros((len(scales_bp), len(centers)), dtype=np.float64)
+    for k, tmpl in enumerate(tmpl_per_scale):
+        half = len(tmpl) // 2
+        for j, c in enumerate(centers):
+            s = max(0, c - half)
+            e = min(n, c + half + 1)
+            w = values[s:e]
+            if len(w) < len(tmpl):
+                pad_left = max(0, half - (c - s))
+                pad_right = max(0, (c + half + 1) - e)
+                w = np.pad(w, (pad_left, pad_right), mode="constant", constant_values=0.0)
+            r = float(np.dot(w, tmpl[::-1]))
+            energy[k, j] = r * r
+
+    winner_idx = np.argmax(energy, axis=0)
+
+    scale_map = np.zeros(n, dtype=np.int32)
+    scale_map[centers] = winner_idx
+
+    last = -1
+    for i in range(n):
+        if is_center[i]:
+            last = scale_map[i]
+        elif last >= 0:
+            scale_map[i] = last
+
+    last = -1
+    for i in range(n - 1, -1, -1):
+        if is_center[i]:
+            last = scale_map[i]
+        elif last >= 0 and scale_map[i] == 0:
+            scale_map[i] = last
+
+    if n >= 5:
+        scale_map = signal.medfilt(scale_map, kernel_size=5).astype(np.int32)
+    return scale_map
+                                
+
+
+
+
 
 def matchWavelet(
     chromosome: str,
@@ -304,6 +401,11 @@ def matchWavelet(
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
+    # NEW!!
+    adaptive_scale: bool = False,            
+    scales_bp: Optional[List[int]] = None,   
+    scale_step_bp: int = 10000,              
+    refine_neighbors: bool = True,           
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -343,6 +445,10 @@ def matchWavelet(
     :type useScalingFunction: bool
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]
+    :param adaptive_scale: choose a template length per candidate using a sparse scale map
+    :param scales_bp: list of candidate template spans in base pairs
+    :param scale_step_bp: step in base pairs for sparse scale map centers
+    :param refine_neighbors: also test adjacent scales and keep the best
 
     :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     :return: A pandas DataFrame with detected matches
@@ -378,7 +484,7 @@ def matchWavelet(
 
     if not np.all(np.abs(np.diff(intervals)) == intervalLengthBp):
         raise ValueError("`intervals` must be evenly spaced.")
-    
+        
     if weights is not None:
         if len(weights) != len(values):
             logger.warning(
@@ -509,18 +615,49 @@ def matchWavelet(
             f"\n\ttemplate length: {len(template)}"
         )
 
-        # efficient FFT-based cross-correlation
-        # (OA may be better for smaller templates, TODO add a check)
-        response = signal.fftconvolve(
-            values, template[::-1], mode="same"
-        )
-        # iterate over each candidate min window (in bp)
+        # base template is the normalized template above
+        base_template = template
+        interval_bp = int(intervalLengthBp)
+
+        if adaptive_scale:
+            local_scales_bp = list(scales_bp) if scales_bp is not None else None
+            if not local_scales_bp:
+                local_scales_bp = [120, 180, 240, 320, 480]
+            local_scales_bp = sorted({int(max(3, s)) for s in local_scales_bp})
+
+            tmpl_per_scale = []
+            tmpl_per_scale_rev = []
+            for sbp in local_scales_bp:
+                Lb = int(max(3, round(sbp / interval_bp)))
+                if Lb % 2 == 0:
+                    Lb += 1
+                t = _make_template_at_bins(base_template, Lb)
+                tmpl_per_scale.append(t)
+                tmpl_per_scale_rev.append(t[::-1])
+
+            scale_map = _build_scale_map_sparse(
+                values=values,
+                interval_bp=interval_bp,
+                base_template=base_template,
+                scales_bp=local_scales_bp,
+                step_bp=int(scale_step_bp),
+            )
+            logger.info(f"\n\tAdaptive scale enabled with scales_bp={local_scales_bp}")
+        else:
+            tmpl_per_scale = None
+            scale_map = None
+
+        
+        # seed response with the base template for candidate discovery
+        response = signal.fftconvolve(values, base_template[::-1], mode="same")
+
         for thisMinMatchBp in cand_bp:
             if thisMinMatchBp is None or thisMinMatchBp < 1:
-                thisMinMatchBp = len(template) * intervalLengthBp
-            if thisMinMatchBp % intervalLengthBp != 0:
-                thisMinMatchBp += intervalLengthBp - (thisMinMatchBp % intervalLengthBp)
-            relWindowBins = int(((thisMinMatchBp / intervalLengthBp) / 2) + 1)
+                thisMinMatchBp = len(base_template) * interval_bp
+            if thisMinMatchBp % interval_bp != 0:
+                thisMinMatchBp += interval_bp - (thisMinMatchBp % interval_bp)
+
+            relWindowBins = int(((thisMinMatchBp / interval_bp) / 2) + 1)
             relWindowBins = max(relWindowBins, 1)
             asinhThreshold = parseMinSignalThreshold(minSignalAtMaxima)
 
@@ -544,6 +681,8 @@ def matchWavelet(
                         nsamp=max(iters, 1000),
                         seed=rng.integers(1, 10_000),
                     )
+                if len(blockMaxima) == 0:
+                    continue
 
                 ecdfSf = stats.ecdf(blockMaxima).sf
                 candidateIdx = relativeMaxima(response, relWindowBins)
@@ -552,10 +691,9 @@ def matchWavelet(
                     (candidateIdx >= relWindowBins)
                     & (candidateIdx < len(response) - relWindowBins)
                     & (testMask[candidateIdx])
-                    & (excludeMaskGlobal[candidateIdx] == 0)
+                    & ((excludeRegionsBedFile is None) | (excludeMaskGlobal[candidateIdx] == 0))
                     & (asinhValues[candidateIdx] > asinhThreshold)
                 )
-
                 candidateIdx = candidateIdx[candidateMask]
                 if len(candidateIdx) == 0:
                     continue
@@ -564,10 +702,45 @@ def matchWavelet(
                     candidateIdx = candidateIdx[
                         np.argsort(asinhValues[candidateIdx])[-maxNumMatches:]
                     ]
-                pEmp = np.clip(ecdfSf(response[candidateIdx]), 1.0e-10, 1.0)
 
-                startsIdx = np.maximum(candidateIdx - relWindowBins, 0)
-                endsIdx = np.minimum(len(values) - 1, candidateIdx + relWindowBins)
+                if adaptive_scale:
+                    refined_resp = np.empty(len(candidateIdx), dtype=np.float64)
+                    refined_halfbins = np.empty(len(candidateIdx), dtype=np.int32)
+
+                    for i, idxVal in enumerate(candidateIdx):
+                        k = int(scale_map[idxVal])
+                        if tmpl_per_scale is None:
+                            k = 0
+                        else:
+                            k = int(np.clip(k, 0, len(tmpl_per_scale) - 1))
+                        tmpl_k_rev = tmpl_per_scale_rev[k]
+                        refined_resp[i] = _response_at(values, idxVal, tmpl_k_rev)
+                        refined_halfbins[i] = len(tmpl_per_scale[k]) // 2
+
+                    if refine_neighbors and tmpl_per_scale is not None and len(tmpl_per_scale) > 1:
+                        for i, idxVal in enumerate(candidateIdx):
+                            k = int(scale_map[idxVal])
+                            k = int(np.clip(k, 0, len(tmpl_per_scale) - 1))
+                            best_r = refined_resp[i]
+                            best_k = k
+                            for kk in (k - 1, k + 1):
+                                if 0 <= kk < len(tmpl_per_scale):
+                                    r_kk = _response_at(values, idxVal, tmpl_per_scale_rev[kk])
+                                    if r_kk > best_r:
+                                        best_r = r_kk
+                                        best_k = kk
+                            refined_resp[i] = best_r
+                            refined_halfbins[i] = len(tmpl_per_scale[best_k]) // 2
+
+                    pEmp = np.clip(ecdfSf(refined_resp), 1.0e-10, 1.0)
+                    startsIdx = np.maximum(candidateIdx - refined_halfbins, 0)
+                    endsIdx = np.minimum(len(values) - 1, candidateIdx + refined_halfbins)
+                    use_resp = refined_resp
+                else:
+                    pEmp = np.clip(ecdfSf(response[candidateIdx]), 1.0e-10, 1.0)
+                    startsIdx = np.maximum(candidateIdx - relWindowBins, 0)
+                    endsIdx = np.minimum(len(values) - 1, candidateIdx + relWindowBins)
+                    use_resp = response[candidateIdx]
 
                 pointSourcesIdx = []
                 for s, e in zip(startsIdx, endsIdx):
@@ -576,31 +749,44 @@ def matchWavelet(
 
                 starts = intervals[startsIdx]
                 ends = intervals[endsIdx]
-                pointSourcesAbs = (intervals[pointSourcesIdx]) + max(1, intervalLengthBp // 2)
+                pointSourcesAbs = intervals[pointSourcesIdx] + max(1, interval_bp // 2)
 
                 if recenterAtPointSource:
-                    starts = pointSourcesAbs - (relWindowBins * intervalLengthBp)
-                    ends = pointSourcesAbs + (relWindowBins * intervalLengthBp)
+                    if adaptive_scale:
+                        halfbins = endsIdx - candidateIdx
+                    else:
+                        halfbins = np.full(len(candidateIdx), relWindowBins, dtype=int)
+                    starts = pointSourcesAbs - (halfbins * interval_bp)
+                    ends = pointSourcesAbs + (halfbins * interval_bp)
+                left_bound = int(intervals[0])
+                right_bound = int(intervals[-1] + interval_bp)
+                starts = np.clip(starts, left_bound, right_bound - interval_bp)
+                ends = np.clip(ends, left_bound + interval_bp, right_bound)
 
-                pointSourcesRel = (intervals[pointSourcesIdx] - starts) + max(1, intervalLengthBp // 2)
+                pointSourcesRel = (intervals[pointSourcesIdx] - starts) + max(1, interval_bp // 2)
 
-                sqScores = (1 + response[candidateIdx]) ** 2
+                sqScores = (1.0 + use_resp) ** 2
                 minR, maxR = float(np.min(sqScores)), float(np.max(sqScores))
                 rangeR = max(maxR - minR, 1.0)
                 scores = (250 + 750 * (sqScores - minR) / rangeR).astype(int)
 
                 for i, idxVal in enumerate(candidateIdx):
+                    # optionally include chosen span in name when adaptive to aid QC
+                    if adaptive_scale:
+                        chosen_bp = int(ends[i] - starts[i])
+                        name_field = f"{templateName}_{cascadeLevel}_{idxVal}_{tag}|sbp={chosen_bp}"
+                    else:
+                        name_field = f"{templateName}_{cascadeLevel}_{idxVal}_{tag}"
+
                     allRows.append(
                         {
                             "chromosome": chromosome,
                             "start": int(starts[i]),
                             "end": int(ends[i]),
-                            # optional: include window for debugging
-                            # "name": f"{templateName}_{cascadeLevel}_{idxVal}_{tag}_w{thisMinMatchBp}",
-                            "name": f"{templateName}_{cascadeLevel}_{idxVal}_{tag}",
+                            "name": name_field,
                             "score": int(scores[i]),
                             "strand": ".",
-                            "signal": float(response[idxVal]),
+                            "signal": float(use_resp[i]),
                             "p_raw": float(pEmp[i]),
                             "pointSource": int(pointSourcesRel[i]),
                         }
