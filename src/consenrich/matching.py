@@ -30,6 +30,20 @@ def autoMinLengthCandidates(
     quantiles: tuple = (0.50, 0.75, 0.90),  # typical, longer, high-end
     weight_by_intensity: bool = True,       # this favors better runs
 ) -> List[int]:
+    """
+    Infer candidate minimum run lengths from a signal.
+
+    The method applies asinh transform, subtracts a median filter, keeps positive residuals,
+    thresholds at a high quantile, groups contiguous runs, and returns run-length candidates
+    weighted by area if requested.
+
+    :param values: One dimensional array of signal values at uniform genomic bins.
+    :param initLen: Hard lower bound on minimum run length in bins.
+    :param quantiles: Cumulative weight cut points used to pick representative run lengths.
+    :param weight_by_intensity: If true, weight each run by width times mean residual.
+    :return: Sorted unique list of run length candidates in bins.
+    """
+    
     #same transformation, but only compute once and take a true median
     tr = np.asanyarray(values, dtype = np.float64)
     tr = np.asinh(tr)
@@ -91,15 +105,37 @@ def autoMinLengthCandidates(
     
 
 def autoMinLengthIntervals(values: np.ndarray, initLen: int = 3) -> int:
-    """Backward-compatible wrapper: pick the first candidate."""
+    """
+    Backward compatible wrapper over :func:`autoMinLengthCandidates` that returns only the first candidate.
+
+    :param values: Signal values at uniform bins.
+    :param initLen: Lower bound on the run length in bins.
+    :return: A single run length in bins.
+    """
     return int(autoMinLengthCandidates(values, initLen=initLen)[0])
 
 
 def scalarClip(value: float, low: float, high: float) -> float:
+    """
+    Clip a scalar to the closed interval [low, high].
+
+    :param value: Input value.
+    :param low: Lower bound.
+    :param high: Upper bound.
+    :return: Clipped value.
+    """
     return low if value < low else high if value > high else value
 
 
 def castableToFloat(value) -> bool:
+    """
+    Return True if value can be safely cast to a finite float, False otherwise.
+
+    Strings like nan inf and empty are treated as non castable.
+
+    :param value: Object to test.
+    :return: Boolean.
+    """
     if value is None:
         return False
     if isinstance(value, bool):
@@ -142,19 +178,60 @@ def matchExistingBedGraph(
     weights: Optional[npt.NDArray[np.float64]] = None,
     randSeed: int = 42,
     # new params
-    adaptive_scale: bool = False,            
-    scales_bp: Optional[List[int]] = None,   
-    scale_step_bp: int = 10000,              
-    refine_neighbors: bool = True,           
+    adaptiveScale: bool = False,            
+    scalesBp: Optional[List[int]] = None,   
+    scaleStepBp: int = 10000,              
+    refineNeighbors: bool = True,           
 ) -> Optional[str]:
-    r"""Match discrete templates in a bedGraph file of Consenrich estimates
+    r"""
+    Run wavelet matching on a bedGraph file and write outputs.
 
-    This function is a simple wrapper. See :func:`consenrich.matching.matchWavelet` for details on parameters.
+    This is a convenience wrapper around :func:`consenrich.matching.matchWavelet`.
+    It processes each chromosome block in the input bedGraph and writes
+    per chromosome narrowPeak files, optionally merges nearby matches,
+    then writes a single concatenated output.
 
-    :param bedGraphFile: A bedGraph file with 'consensus' signal estimates derived from multiple samples, e.g., from Consenrich. The suffix '.bedGraph' is required.
+    :param bedGraphFile: Path to a four column bedGraph with chromosome start end value.
     :type bedGraphFile: str
-
-    :seealso: :func:`consenrich.matching.matchWavelet`, :class:`consenrich.core.matchingParams`, :ref:`matching`
+    :param templateName: Discrete wavelet name available in PyWavelets wavelist kind discrete.
+    :type templateName: str
+    :param cascadeLevel: Cascade level used to build the template.
+    :type cascadeLevel: int
+    :param alpha: FDR threshold used to filter detected matches.
+    :type alpha: float
+    :param minMatchLengthBP: Minimum span in base pairs for local maxima competition.
+        If None uses 250. If less than 1 triggers automatic selection in bins, then converted to base pairs.
+    :type minMatchLengthBP: Optional[int]
+    :param iters: Number of blocks to draw when estimating the empirical tail.
+    :type iters: int
+    :param minSignalAtMaxima: Absolute value or a string of the form q:quantile for the asinh signal threshold.
+    :type minSignalAtMaxima: Optional[str or float]
+    :param maxNumMatches: Upper bound on the number of candidates retained per pass.
+    :type maxNumMatches: Optional[int]
+    :param recenterAtPointSource: If true recenters each interval on the local point source before writing.
+    :type recenterAtPointSource: bool
+    :param useScalingFunction: If true builds the template from the scaling function else from the wavelet.
+    :type useScalingFunction: bool
+    :param excludeRegionsBedFile: Optional BED file whose regions are masked during matching.
+    :type excludeRegionsBedFile: Optional[str]
+    :param mergeGapBP: Gap in base pairs for merging overlapping or nearby matches. Defaults to half the minimum span.
+    :type mergeGapBP: Optional[int]
+    :param merge: If true merges matches within mergeGapBP and returns the merged file.
+    :type merge: bool
+    :param weights: Optional per bin weights aligned to values.
+    :type weights: Optional[numpy.ndarray]
+    :param randSeed: Random seed for reproducibility.
+    :type randSeed: int
+    :param adaptiveScale: Enable adaptive span selection per candidate using a sparse scale map.
+    :type adaptiveScale: bool
+    :param scalesBp: Candidate template spans in base pairs used in adaptive mode. Defaults to 120 180 240 320 480 if not provided.
+    :type scalesBp: Optional[List[int]]
+    :param scaleStepBp: Step in base pairs between evaluation centers when building the sparse scale map.
+    :type scaleStepBp: int
+    :param refineNeighbors: If true also tries adjacent scales and keeps the better response.
+    :type refineNeighbors: bool
+    :return: Path to the final output narrowPeak file. Returns the merged file if merge is true otherwise the unmerged concatenated file. Returns None if nothing was detected.
+    :rtype: Optional[str]
     """
     if not os.path.isfile(bedGraphFile):
         raise FileNotFoundError(f"Couldn't access {bedGraphFile}")
@@ -221,10 +298,10 @@ def matchExistingBedGraph(
                 minSignalAtMaxima=minSignalAtMaxima,
                 randSeed=randSeed,
                 #new 
-                adaptive_scale=adaptive_scale,          
-                scales_bp=scales_bp,                    
-                scale_step_bp=scale_step_bp,            
-                refine_neighbors=refine_neighbors,      
+                adaptiveScale=adaptiveScale,          
+                scalesBp=scalesBp,                    
+                scaleStepBp=scaleStepBp,            
+                refineNeighbors=refineNeighbors,      
             )
         except Exception as ex:
             logger.info(
@@ -298,7 +375,14 @@ def matchExistingBedGraph(
     return None
 
 # here is another thought that can automate the whole thing
-def _make_template_at_bins(base_template: np.ndarray, target_bins: int) -> np.ndarray:
+def makeTemplateAtBins(base_template: np.ndarray, target_bins: int) -> np.ndarray:
+    """
+    Resample a base template to the target length in bins and L2 normalize it.
+
+    :param base_template: Unit norm 1D template at arbitrary length.
+    :param target_bins: Desired odd length in bins, minimum of three.
+    :return: Resampled and normalized template.
+    """
     #Resample a base template to target length in bins and L2 normalize.
     tb = int(max(3, target_bins))
     if tb == len(base_template):
@@ -310,7 +394,15 @@ def _make_template_at_bins(base_template: np.ndarray, target_bins: int) -> np.nd
         return np.zeros(tb, dtype=np.float64)
     return t / nrm
 
-def _response_at(values: np.ndarray, center_idx: int, tmpl_rev: np.ndarray) -> float:
+def responseAt(values: np.ndarray, center_idx: int, tmpl_rev: np.ndarray) -> float:
+    """
+    Compute dot product response of a reversed template centered at a given index with zero padding at edges.
+
+    :param values: Signal values.
+    :param center_idx: Center index in values.
+    :param tmpl_rev: Reversed template vector.
+    :return: Dot product response as float.
+    """
     L = len(tmpl_rev)
     half = L // 2
     s = max(0, center_idx - half)
@@ -322,11 +414,25 @@ def _response_at(values: np.ndarray, center_idx: int, tmpl_rev: np.ndarray) -> f
         w = np.pad(w, (pad_left, pad_right), mode="constant", constant_values=0.0)
     return float(np.dot(w, tmpl_rev))
 
-def _build_scale_map_sparse(values: np.ndarray,
+def buildScaleMapSparse(values: np.ndarray,
                             interval_bp: int,
                             base_template: np.ndarray,
-                            scales_bp: List[int],
+                            scalesBp: List[int],
                             step_bp: int) -> np.ndarray:
+    """
+    Build a sparse map of locally best template spans.
+
+    Evaluate reversed template dot products at regularly spaced centers for each candidate span,
+    select the winning span per center, then fill gaps by forward and backward propagation and
+    optional median filtering.
+
+    :param values: Signal values array.
+    :param interval_bp: Bin size in base pairs.
+    :param base_template: Unit-norm base template at arbitrary length.
+    :param scalesBp: Candidate spans in base pairs.
+    :param step_bp: Step in base pairs between sampled centers.
+    :return: Integer index per bin selecting the winning span.
+    """
     n = len(values)
     step_bins = max(1, int(round(step_bp / interval_bp)))
     centers = np.arange(step_bins // 2, n, step_bins, dtype=int)
@@ -337,13 +443,13 @@ def _build_scale_map_sparse(values: np.ndarray,
     is_center[centers] = True
 
     tmpl_per_scale = []
-    for sbp in scales_bp:
+    for sbp in scalesBp:
         Lb = int(max(3, round(sbp / interval_bp)))
         if Lb % 2 == 0:
             Lb += 1
-        tmpl_per_scale.append(_make_template_at_bins(base_template, Lb))
+        tmpl_per_scale.append(makeTemplateAtBins(base_template, Lb))
 
-    energy = np.zeros((len(scales_bp), len(centers)), dtype=np.float64)
+    energy = np.zeros((len(scalesBp), len(centers)), dtype=np.float64)
     for k, tmpl in enumerate(tmpl_per_scale):
         half = len(tmpl) // 2
         for j, c in enumerate(centers):
@@ -402,10 +508,10 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     # NEW!!
-    adaptive_scale: bool = False,            
-    scales_bp: Optional[List[int]] = None,   
-    scale_step_bp: int = 10000,              
-    refine_neighbors: bool = True,           
+    adaptiveScale: bool = False,            
+    scalesBp: Optional[List[int]] = None,   
+    scaleStepBp: int = 10000,              
+    refineNeighbors: bool = True,           
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -445,10 +551,14 @@ def matchWavelet(
     :type useScalingFunction: bool
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]
-    :param adaptive_scale: choose a template length per candidate using a sparse scale map
-    :param scales_bp: list of candidate template spans in base pairs
-    :param scale_step_bp: step in base pairs for sparse scale map centers
-    :param refine_neighbors: also test adjacent scales and keep the best
+    :param adaptiveScale: choose a template length per candidate using a sparse scale map
+    :type adaptiveScale: bool
+    :param scalesBp: list of candidate template spans in base pairs
+    :type scalesBp: Optional[List[int]]
+    :param scaleStepBp: step in base pairs for sparse scale map centers
+    :type scaleStepBp: int
+    :param refineNeighbors: also test adjacent scales and keep the best
+    :type refineNeighbors: bool
 
     :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     :return: A pandas DataFrame with detected matches
@@ -619,30 +729,30 @@ def matchWavelet(
         base_template = template
         interval_bp = int(intervalLengthBp)
 
-        if adaptive_scale:
-            local_scales_bp = list(scales_bp) if scales_bp is not None else None
-            if not local_scales_bp:
-                local_scales_bp = [120, 180, 240, 320, 480]
-            local_scales_bp = sorted({int(max(3, s)) for s in local_scales_bp})
+        if adaptiveScale:
+            local_scalesBp = list(scalesBp) if scalesBp is not None else None
+            if not local_scalesBp:
+                local_scalesBp = [120, 180, 240, 320, 480]
+            local_scalesBp = sorted({int(max(3, s)) for s in local_scalesBp})
 
             tmpl_per_scale = []
             tmpl_per_scale_rev = []
-            for sbp in local_scales_bp:
+            for sbp in local_scalesBp:
                 Lb = int(max(3, round(sbp / interval_bp)))
                 if Lb % 2 == 0:
                     Lb += 1
-                t = _make_template_at_bins(base_template, Lb)
+                t = makeTemplateAtBins(base_template, Lb)
                 tmpl_per_scale.append(t)
                 tmpl_per_scale_rev.append(t[::-1])
 
-            scale_map = _build_scale_map_sparse(
+            scale_map = buildScaleMapSparse(
                 values=values,
                 interval_bp=interval_bp,
                 base_template=base_template,
-                scales_bp=local_scales_bp,
-                step_bp=int(scale_step_bp),
+                scalesBp=local_scalesBp,
+                step_bp=int(scaleStepBp),
             )
-            logger.info(f"\n\tAdaptive scale enabled with scales_bp={local_scales_bp}")
+            logger.info(f"\n\tAdaptive scale enabled with scalesBp={local_scalesBp}")
         else:
             tmpl_per_scale = None
             scale_map = None
@@ -703,7 +813,7 @@ def matchWavelet(
                         np.argsort(asinhValues[candidateIdx])[-maxNumMatches:]
                     ]
 
-                if adaptive_scale:
+                if adaptiveScale:
                     refined_resp = np.empty(len(candidateIdx), dtype=np.float64)
                     refined_halfbins = np.empty(len(candidateIdx), dtype=np.int32)
 
@@ -714,10 +824,10 @@ def matchWavelet(
                         else:
                             k = int(np.clip(k, 0, len(tmpl_per_scale) - 1))
                         tmpl_k_rev = tmpl_per_scale_rev[k]
-                        refined_resp[i] = _response_at(values, idxVal, tmpl_k_rev)
+                        refined_resp[i] = responseAt(values, idxVal, tmpl_k_rev)
                         refined_halfbins[i] = len(tmpl_per_scale[k]) // 2
 
-                    if refine_neighbors and tmpl_per_scale is not None and len(tmpl_per_scale) > 1:
+                    if refineNeighbors and tmpl_per_scale is not None and len(tmpl_per_scale) > 1:
                         for i, idxVal in enumerate(candidateIdx):
                             k = int(scale_map[idxVal])
                             k = int(np.clip(k, 0, len(tmpl_per_scale) - 1))
@@ -725,7 +835,7 @@ def matchWavelet(
                             best_k = k
                             for kk in (k - 1, k + 1):
                                 if 0 <= kk < len(tmpl_per_scale):
-                                    r_kk = _response_at(values, idxVal, tmpl_per_scale_rev[kk])
+                                    r_kk = responseAt(values, idxVal, tmpl_per_scale_rev[kk])
                                     if r_kk > best_r:
                                         best_r = r_kk
                                         best_k = kk
@@ -752,7 +862,7 @@ def matchWavelet(
                 pointSourcesAbs = intervals[pointSourcesIdx] + max(1, interval_bp // 2)
 
                 if recenterAtPointSource:
-                    if adaptive_scale:
+                    if adaptiveScale:
                         halfbins = endsIdx - candidateIdx
                     else:
                         halfbins = np.full(len(candidateIdx), relWindowBins, dtype=int)
@@ -772,7 +882,7 @@ def matchWavelet(
 
                 for i, idxVal in enumerate(candidateIdx):
                     # optionally include chosen span in name when adaptive to aid QC
-                    if adaptive_scale:
+                    if adaptiveScale:
                         chosen_bp = int(ends[i] - starts[i])
                         name_field = f"{templateName}_{cascadeLevel}_{idxVal}_{tag}|sbp={chosen_bp}"
                     else:
