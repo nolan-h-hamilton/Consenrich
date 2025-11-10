@@ -346,9 +346,14 @@ class matchingParams(NamedTuple):
     :type useScalingFunction: bool
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]
-
+    :param penalizeBy: Specify a positional metric to scale/weight signal values by when matching.
+      For example, 'absResiduals' divides signal values by :math:`|\widetilde{y}_i|` at each
+      position :math:`i`, thereby down-weighting positions where the signal estimate deviates from
+      the data after accounting for observation noise. 'stateUncertainty' divides signal values by
+      the square root of the primary state variance :math:`\sqrt{\wildetilde{P}_{i,(11)}}` at each position :math:`i`,
+      thereby down-weighting positions where the posterior state uncertainty is high.
+    :type penalizeBy: Optional[str]
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
-
     """
 
     templateNames: List[str]
@@ -362,6 +367,8 @@ class matchingParams(NamedTuple):
     merge: Optional[bool]
     mergeGapBP: Optional[int]
     excludeRegionsBedFile: Optional[str]
+    penalizeBy: Optional[str]
+    randSeed: Optional[int] = 42
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:

@@ -525,6 +525,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 "matchingParams.excludeRegionsBedFile",
                 matchingExcludeRegionsBedFile_default,
             ),
+            randSeed=config.get("matchingParams.randSeed", 42),
+            penalizeBy=config.get("matchingParams.penalizeBy", None),
         ),
     }
 
@@ -1032,6 +1034,30 @@ def main():
             and processArgs.scaleResidualsByP11
             else None,
         )
+        weights_: Optional[np.ndarray] = None
+        if matchingArgs.penalizeBy is not None:
+            if matchingArgs.penalizeBy == "absResiduals":
+                try:
+                    weights_ = np.abs(y_)
+                except Exception as e:
+                    logger.warning(
+                        f"Error computing weights for 'absResiduals': {e}. No weights applied for matching."
+                    )
+                    weights_ = None
+            elif matchingArgs.penalizeBy == "stateUncertainty":
+                try:
+                    weights_ = np.sqrt(P[:, 0, 0])
+                except Exception as e:
+                    logger.warning(
+                        f"Error computing weights for 'stateUncertainty': {e}. No weights applied for matching."
+                    )
+                    weights_ = None
+            else:
+                logger.warning(
+                    f"Unrecognized `matchingParams.penalizeBy`: {matchingArgs.penalizeBy}. No weights applied."
+                )
+                weights_ = None
+
 
         df = pd.DataFrame(
             {
@@ -1093,6 +1119,8 @@ def main():
                     matchingArgs.minSignalAtMaxima,
                     useScalingFunction=matchingArgs.useScalingFunction,
                     excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
+                    randSeed=matchingArgs.randSeed,
+                    weights=weights_,
                 )
                 if not matchingDF.empty:
                     matchingDF.to_csv(
