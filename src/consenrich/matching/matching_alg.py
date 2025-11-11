@@ -14,10 +14,6 @@ from pybedtools import BedTool
 
 from .adapters import bed_mask_adapter, sample_block_stats_adapter
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 # this is a new helper that returns candidate min lengths
