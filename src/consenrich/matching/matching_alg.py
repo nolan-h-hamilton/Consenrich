@@ -16,12 +16,17 @@ from .adapters import bed_mask_adapter, sample_block_stats_adapter
 
 logger = logging.getLogger(__name__)
 
+
 # this is a new helper that returns candidate min lengths
 def autoMinLengthCandidates(
     values: np.ndarray,
     initLen: int = 3,
-    quantiles: tuple = (0.50, 0.75, 0.90),  # typical, longer, high-end
-    weight_by_intensity: bool = True,       # this favors better runs
+    quantiles: tuple = (
+        0.50,
+        0.75,
+        0.90,
+    ),  # typical, longer, high-end
+    weight_by_intensity: bool = True,  # this favors better runs
 ) -> List[int]:
     """
     Infer candidate minimum run lengths from a signal.
@@ -36,48 +41,52 @@ def autoMinLengthCandidates(
     :param weight_by_intensity: If true, weight each run by width times mean residual.
     :return: Sorted unique list of run length candidates in bins.
     """
-    
-    #same transformation, but only compute once and take a true median
-    tr = np.asanyarray(values, dtype = np.float64)
+
+    # same transformation, but only compute once and take a true median
+    tr = np.asanyarray(values, dtype=np.float64)
     tr = np.asinh(tr)
-    ks_target = max(2*int(initLen) + 1, 2*int(len(tr)*0.005) + 1)
+    ks_target = max(
+        2 * int(initLen) + 1, 2 * int(len(tr) * 0.005) + 1
+    )
     ks_odd = ks_target | 1
     ks_max = len(tr) if (len(tr) % 2 == 1) else (len(tr) - 1)
     ksize = min(ks_odd, ks_max) if len(tr) >= 3 else 3
 
     trValues = tr - signal.medfilt(tr, kernel_size=ksize)
-   
-    #only ones that pass threshold
+
+    # only ones that pass threshold
     nz = trValues[trValues > 0]
     if len(nz) == 0:
         return [int(initLen)]
 
-    #high quantile to keep super strong ones
+    # high quantile to keep super strong ones
     thr = np.quantile(nz, 0.90, method="interpolated_inverted_cdf")
     mask = trValues >= thr
     if not np.any(mask):
         return [int(initLen)]
 
-    #checker
+    # checker
     idx = np.flatnonzero(np.diff(np.r_[False, mask, False]))
     runs = idx.reshape(-1, 2)
     widths = runs[:, 1] - runs[:, 0]
 
-    #remove super short runs
+    # remove super short runs
     keep = widths >= int(initLen)
     if not np.any(keep):
         return [int(initLen)]
     runs = runs[keep]
     widths = widths[keep]
 
-    #weight again to favor clearer and stronger signals from each run
+    # weight again to favor clearer and stronger signals from each run
     if weight_by_intensity:
-        means = np.array([float(trValues[s:e].mean()) for s, e in runs])
+        means = np.array(
+            [float(trValues[s:e].mean()) for s, e in runs]
+        )
         wts = widths * means  # area weighting
     else:
         wts = np.ones_like(widths, dtype=float)
 
-    #get cands
+    # get cands
     out: List[int] = []
     order = np.argsort(widths)
     w = wts[order]
@@ -88,16 +97,22 @@ def autoMinLengthCandidates(
         cw = cw / cw[-1]
         for q in quantiles:
             qf = float(q)
-            j = int(np.searchsorted(cw, np.clip(qf, 0.0, 1.0), side="left"))
+            j = int(
+                np.searchsorted(
+                    cw, np.clip(qf, 0.0, 1.0), side="left"
+                )
+            )
             j = int(np.clip(j, 0, len(widths) - 1))
             out.append(int(widths[order][j]))
 
-    #make sure it is minimum, unique and sorted in an ascending manner
+    # make sure it is minimum, unique and sorted in an ascending manner
     out = sorted({int(x) for x in out if int(x) >= int(initLen)})
     return out or [int(initLen)]
-    
 
-def autoMinLengthIntervals(values: np.ndarray, initLen: int = 3) -> int:
+
+def autoMinLengthIntervals(
+    values: np.ndarray, initLen: int = 3
+) -> int:
     """
     Backward compatible wrapper over :func:`autoMinLengthCandidates` that returns only the first candidate.
 
@@ -171,10 +186,10 @@ def matchExistingBedGraph(
     weights: Optional[npt.NDArray[np.float64]] = None,
     randSeed: int = 42,
     # new params
-    adaptiveScale: bool = False,            
-    scalesBp: Optional[List[int]] = None,   
-    scaleStepBp: int = 10000,              
-    refineNeighbors: bool = True,           
+    adaptiveScale: bool = False,
+    scalesBp: Optional[List[int]] = None,
+    scaleStepBp: int = 10000,
+    refineNeighbors: bool = True,
 ) -> Optional[str]:
     r"""
     Run wavelet matching on a bedGraph file and write outputs.
@@ -290,11 +305,10 @@ def matchExistingBedGraph(
                 weights=weights,
                 minSignalAtMaxima=minSignalAtMaxima,
                 randSeed=randSeed,
-                #new 
-                adaptiveScale=adaptiveScale,          
-                scalesBp=scalesBp,                    
-                scaleStepBp=scaleStepBp,            
-                refineNeighbors=refineNeighbors,      
+                adaptiveScale=adaptiveScale,
+                scalesBp=scalesBp,
+                scaleStepBp=scaleStepBp,
+                refineNeighbors=refineNeighbors,
             )
         except Exception as ex:
             logger.info(
@@ -367,8 +381,11 @@ def matchExistingBedGraph(
     logger.warning("No matches were detected...returning `None`")
     return None
 
+
 # here is another thought that can automate the whole thing
-def makeTemplateAtBins(base_template: np.ndarray, target_bins: int) -> np.ndarray:
+def makeTemplateAtBins(
+    base_template: np.ndarray, target_bins: int
+) -> np.ndarray:
     """
     Resample a base template to the target length in bins and L2 normalize it.
 
@@ -376,18 +393,23 @@ def makeTemplateAtBins(base_template: np.ndarray, target_bins: int) -> np.ndarra
     :param target_bins: Desired odd length in bins, minimum of three.
     :return: Resampled and normalized template.
     """
-    #Resample a base template to target length in bins and L2 normalize.
+    # Resample a base template to target length in bins and L2 normalize.
     tb = int(max(3, target_bins))
     if tb == len(base_template):
         t = base_template.astype(np.float64, copy=True)
     else:
-        t = signal.resample(base_template, tb).astype(np.float64, copy=False)
+        t = signal.resample(base_template, tb).astype(
+            np.float64, copy=False
+        )
     nrm = np.linalg.norm(t)
     if not np.isfinite(nrm) or nrm <= 0:
         return np.zeros(tb, dtype=np.float64)
     return t / nrm
 
-def responseAt(values: np.ndarray, center_idx: int, tmpl_rev: np.ndarray) -> float:
+
+def responseAt(
+    values: np.ndarray, center_idx: int, tmpl_rev: np.ndarray
+) -> float:
     """
     Compute dot product response of a reversed template centered at a given index with zero padding at edges.
 
@@ -404,14 +426,22 @@ def responseAt(values: np.ndarray, center_idx: int, tmpl_rev: np.ndarray) -> flo
     if len(w) < L:
         pad_left = max(0, half - (center_idx - s))
         pad_right = max(0, (center_idx + half + 1) - e)
-        w = np.pad(w, (pad_left, pad_right), mode="constant", constant_values=0.0)
+        w = np.pad(
+            w,
+            (pad_left, pad_right),
+            mode="constant",
+            constant_values=0.0,
+        )
     return float(np.dot(w, tmpl_rev))
 
-def buildScaleMapSparse(values: np.ndarray,
-                            interval_bp: int,
-                            base_template: np.ndarray,
-                            scalesBp: List[int],
-                            step_bp: int) -> np.ndarray:
+
+def buildScaleMapSparse(
+    values: np.ndarray,
+    interval_bp: int,
+    base_template: np.ndarray,
+    scalesBp: List[int],
+    step_bp: int,
+) -> np.ndarray:
     """
     Build a sparse map of locally best template spans.
 
@@ -452,7 +482,12 @@ def buildScaleMapSparse(values: np.ndarray,
             if len(w) < len(tmpl):
                 pad_left = max(0, half - (c - s))
                 pad_right = max(0, (c + half + 1) - e)
-                w = np.pad(w, (pad_left, pad_right), mode="constant", constant_values=0.0)
+                w = np.pad(
+                    w,
+                    (pad_left, pad_right),
+                    mode="constant",
+                    constant_values=0.0,
+                )
             r = float(np.dot(w, tmpl[::-1]))
             energy[k, j] = r * r
 
@@ -476,9 +511,11 @@ def buildScaleMapSparse(values: np.ndarray,
             scale_map[i] = last
 
     if n >= 5:
-        scale_map = signal.medfilt(scale_map, kernel_size=5).astype(np.int32)
+        scale_map = signal.medfilt(scale_map, kernel_size=5).astype(
+            np.int32
+        )
     return scale_map
-                                
+
 
 def matchWavelet(
     chromosome: str,
@@ -496,14 +533,12 @@ def matchWavelet(
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
-    # NEW!!
-    adaptiveScale: bool = False,            
-    scalesBp: Optional[List[int]] = None,   
-    scaleStepBp: int = 10000,              
+    adaptiveScale: bool = False,
+    scalesBp: Optional[List[int]] = None,
+    scaleStepBp: int = 10000,
     refineNeighbors: bool = True,
-    # NEWEST!!
-    get_bed_mask = bed_mask_adapter,
-    sample_block_stats = sample_block_stats_adapter,
+    get_bed_mask=bed_mask_adapter,
+    sample_block_stats=sample_block_stats_adapter,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -574,7 +609,7 @@ def matchWavelet(
         )
 
     intervalLengthBp = intervals[1] - intervals[0]
-    #new code
+    # new code
     if minMatchLengthBP is not None and minMatchLengthBP < 1:
         cand_bins = autoMinLengthCandidates(values, initLen=3)
         cand_bp = [int(b * intervalLengthBp) for b in cand_bins]
@@ -586,7 +621,7 @@ def matchWavelet(
 
     if not np.all(np.abs(np.diff(intervals)) == intervalLengthBp):
         raise ValueError("`intervals` must be evenly spaced.")
-        
+
     if weights is not None:
         if len(weights) != len(values):
             logger.warning(
@@ -594,7 +629,7 @@ def matchWavelet(
             )
         else:
             values = values * weights
-    
+
     asinhValues = np.asanyarray(values, dtype=np.float32)
     asinhValues = np.asinh(asinhValues)
     asinhNonZeroValues = asinhValues[asinhValues > 0]
@@ -607,9 +642,9 @@ def matchWavelet(
     halfRightMask = ~halfLeftMask
     excludeMaskGlobal = np.zeros(len(intervals), dtype=np.uint8)
     if excludeRegionsBedFile is not None:
-      excludeMaskGlobal = get_bed_mask(chromosome,
-                                     excludeRegionsBedFile,
-                                     intervals).astype(np.uint8)
+        excludeMaskGlobal = get_bed_mask(
+            chromosome, excludeRegionsBedFile, intervals
+        ).astype(np.uint8)
     allRows = []
 
     def bhFdr(p: np.ndarray) -> np.ndarray:
@@ -676,15 +711,15 @@ def matchWavelet(
         exMask = excludeMaskGlobal.astype(np.uint8).copy()
         exMask |= (~halfMask).astype(np.uint8)
         vals = np.array(
-          sample_block_stats(
-            intervals.astype(np.uint32),
-            resp.astype(np.float32, copy=False),
-            int(relWindowBins),
-            int(nsamp),
-            int(seed),
-            exMask.astype(np.uint8),
-          ),
-          dtype=float,
+            sample_block_stats(
+                intervals.astype(np.uint32),
+                resp,
+                int(relWindowBins),
+                int(nsamp),
+                int(seed),
+                exMask.astype(np.uint8),
+            ),
+            dtype=float,
         )
         if len(vals) == 0:
             return vals
@@ -722,10 +757,14 @@ def matchWavelet(
         interval_bp = int(intervalLengthBp)
 
         if adaptiveScale:
-            local_scalesBp = list(scalesBp) if scalesBp is not None else None
+            local_scalesBp = (
+                list(scalesBp) if scalesBp is not None else None
+            )
             if not local_scalesBp:
                 local_scalesBp = [120, 180, 240, 320, 480]
-            local_scalesBp = sorted({int(max(3, s)) for s in local_scalesBp})
+            local_scalesBp = sorted(
+                {int(max(3, s)) for s in local_scalesBp}
+            )
 
             tmpl_per_scale = []
             tmpl_per_scale_rev = []
@@ -744,24 +783,33 @@ def matchWavelet(
                 scalesBp=local_scalesBp,
                 step_bp=int(scaleStepBp),
             )
-            logger.info(f"\n\tAdaptive scale enabled with scalesBp={local_scalesBp}")
+            logger.info(
+                f"\n\tAdaptive scale enabled with scalesBp={local_scalesBp}"
+            )
         else:
             tmpl_per_scale = None
             scale_map = None
 
-        
         # seed response with the base template for candidate discovery
-        response = signal.fftconvolve(values, base_template[::-1], mode="same")
+        response = signal.fftconvolve(
+            values, base_template[::-1], mode="same"
+        )
 
         for thisMinMatchBp in cand_bp:
             if thisMinMatchBp is None or thisMinMatchBp < 1:
                 thisMinMatchBp = len(base_template) * interval_bp
             if thisMinMatchBp % interval_bp != 0:
-                thisMinMatchBp += interval_bp - (thisMinMatchBp % interval_bp)
+                thisMinMatchBp += interval_bp - (
+                    thisMinMatchBp % interval_bp
+                )
 
-            relWindowBins = int(((thisMinMatchBp / interval_bp) / 2) + 1)
+            relWindowBins = int(
+                ((thisMinMatchBp / interval_bp) / 2) + 1
+            )
             relWindowBins = max(relWindowBins, 1)
-            asinhThreshold = parseMinSignalThreshold(minSignalAtMaxima)
+            asinhThreshold = parseMinSignalThreshold(
+                minSignalAtMaxima
+            )
 
             for nullMask, testMask, tag in [
                 (halfLeftMask, halfRightMask, "R"),
@@ -793,84 +841,149 @@ def matchWavelet(
                     (candidateIdx >= relWindowBins)
                     & (candidateIdx < len(response) - relWindowBins)
                     & (testMask[candidateIdx])
-                    & ((excludeRegionsBedFile is None) | (excludeMaskGlobal[candidateIdx] == 0))
+                    & (
+                        (excludeRegionsBedFile is None)
+                        | (excludeMaskGlobal[candidateIdx] == 0)
+                    )
                     & (asinhValues[candidateIdx] > asinhThreshold)
                 )
                 candidateIdx = candidateIdx[candidateMask]
                 if len(candidateIdx) == 0:
                     continue
 
-                if (maxNumMatches is not None) and (len(candidateIdx) > maxNumMatches):
+                if (maxNumMatches is not None) and (
+                    len(candidateIdx) > maxNumMatches
+                ):
                     candidateIdx = candidateIdx[
-                        np.argsort(asinhValues[candidateIdx])[-maxNumMatches:]
+                        np.argsort(asinhValues[candidateIdx])[
+                            -maxNumMatches:
+                        ]
                     ]
 
                 if adaptiveScale:
-                    refined_resp = np.empty(len(candidateIdx), dtype=np.float64)
-                    refined_halfbins = np.empty(len(candidateIdx), dtype=np.int32)
+                    refined_resp = np.empty(
+                        len(candidateIdx), dtype=np.float64
+                    )
+                    refined_halfbins = np.empty(
+                        len(candidateIdx), dtype=np.int32
+                    )
 
                     for i, idxVal in enumerate(candidateIdx):
                         k = int(scale_map[idxVal])
                         if tmpl_per_scale is None:
                             k = 0
                         else:
-                            k = int(np.clip(k, 0, len(tmpl_per_scale) - 1))
+                            k = int(
+                                np.clip(k, 0, len(tmpl_per_scale) - 1)
+                            )
                         tmpl_k_rev = tmpl_per_scale_rev[k]
-                        refined_resp[i] = responseAt(values, idxVal, tmpl_k_rev)
-                        refined_halfbins[i] = len(tmpl_per_scale[k]) // 2
+                        refined_resp[i] = responseAt(
+                            values, idxVal, tmpl_k_rev
+                        )
+                        refined_halfbins[i] = (
+                            len(tmpl_per_scale[k]) // 2
+                        )
 
-                    if refineNeighbors and tmpl_per_scale is not None and len(tmpl_per_scale) > 1:
+                    if (
+                        refineNeighbors
+                        and tmpl_per_scale is not None
+                        and len(tmpl_per_scale) > 1
+                    ):
                         for i, idxVal in enumerate(candidateIdx):
                             k = int(scale_map[idxVal])
-                            k = int(np.clip(k, 0, len(tmpl_per_scale) - 1))
+                            k = int(
+                                np.clip(k, 0, len(tmpl_per_scale) - 1)
+                            )
                             best_r = refined_resp[i]
                             best_k = k
                             for kk in (k - 1, k + 1):
                                 if 0 <= kk < len(tmpl_per_scale):
-                                    r_kk = responseAt(values, idxVal, tmpl_per_scale_rev[kk])
+                                    r_kk = responseAt(
+                                        values,
+                                        idxVal,
+                                        tmpl_per_scale_rev[kk],
+                                    )
                                     if r_kk > best_r:
                                         best_r = r_kk
                                         best_k = kk
                             refined_resp[i] = best_r
-                            refined_halfbins[i] = len(tmpl_per_scale[best_k]) // 2
+                            refined_halfbins[i] = (
+                                len(tmpl_per_scale[best_k]) // 2
+                            )
 
-                    pEmp = np.clip(ecdfSf(refined_resp), 1.0e-10, 1.0)
-                    startsIdx = np.maximum(candidateIdx - refined_halfbins, 0)
-                    endsIdx = np.minimum(len(values) - 1, candidateIdx + refined_halfbins)
+                    pEmp = np.clip(
+                        ecdfSf.evaluate(refined_resp), 1.0e-10, 1.0
+                    )
+                    startsIdx = np.maximum(
+                        candidateIdx - refined_halfbins, 0
+                    )
+                    endsIdx = np.minimum(
+                        len(values) - 1,
+                        candidateIdx + refined_halfbins,
+                    )
                     use_resp = refined_resp
                 else:
-                    pEmp = np.clip(ecdfSf(response[candidateIdx]), 1.0e-10, 1.0)
-                    startsIdx = np.maximum(candidateIdx - relWindowBins, 0)
-                    endsIdx = np.minimum(len(values) - 1, candidateIdx + relWindowBins)
+                    pEmp = np.clip(
+                        ecdfSf.evaluate(response[candidateIdx]),
+                        1.0e-10,
+                        1.0,
+                    )
+                    startsIdx = np.maximum(
+                        candidateIdx - relWindowBins, 0
+                    )
+                    endsIdx = np.minimum(
+                        len(values) - 1, candidateIdx + relWindowBins
+                    )
                     use_resp = response[candidateIdx]
 
                 pointSourcesIdx = []
                 for s, e in zip(startsIdx, endsIdx):
-                    pointSourcesIdx.append(np.argmax(values[s : e + 1]) + s)
+                    pointSourcesIdx.append(
+                        np.argmax(values[s : e + 1]) + s
+                    )
                 pointSourcesIdx = np.array(pointSourcesIdx)
 
                 starts = intervals[startsIdx]
                 ends = intervals[endsIdx]
-                pointSourcesAbs = intervals[pointSourcesIdx] + max(1, interval_bp // 2)
+                pointSourcesAbs = intervals[pointSourcesIdx] + max(
+                    1, interval_bp // 2
+                )
 
                 if recenterAtPointSource:
                     if adaptiveScale:
                         halfbins = endsIdx - candidateIdx
                     else:
-                        halfbins = np.full(len(candidateIdx), relWindowBins, dtype=int)
-                    starts = pointSourcesAbs - (halfbins * interval_bp)
+                        halfbins = np.full(
+                            len(candidateIdx),
+                            relWindowBins,
+                            dtype=int,
+                        )
+                    starts = pointSourcesAbs - (
+                        halfbins * interval_bp
+                    )
                     ends = pointSourcesAbs + (halfbins * interval_bp)
                 left_bound = int(intervals[0])
                 right_bound = int(intervals[-1] + interval_bp)
-                starts = np.clip(starts, left_bound, right_bound - interval_bp)
-                ends = np.clip(ends, left_bound + interval_bp, right_bound)
+                starts = np.clip(
+                    starts, left_bound, right_bound - interval_bp
+                )
+                ends = np.clip(
+                    ends, left_bound + interval_bp, right_bound
+                )
 
-                pointSourcesRel = (intervals[pointSourcesIdx] - starts) + max(1, interval_bp // 2)
+                pointSourcesRel = (
+                    intervals[pointSourcesIdx] - starts
+                ) + max(1, interval_bp // 2)
 
                 sqScores = (1.0 + use_resp) ** 2
-                minR, maxR = float(np.min(sqScores)), float(np.max(sqScores))
+                minR, maxR = (
+                    float(np.min(sqScores)),
+                    float(np.max(sqScores)),
+                )
                 rangeR = max(maxR - minR, 1.0)
-                scores = (250 + 750 * (sqScores - minR) / rangeR).astype(int)
+                scores = (
+                    250 + 750 * (sqScores - minR) / rangeR
+                ).astype(int)
 
                 for i, idxVal in enumerate(candidateIdx):
                     # optionally include chosen span in name when adaptive to aid QC
@@ -894,16 +1007,28 @@ def matchWavelet(
                         }
                     )
     if not allRows:
-        logger.warning("No matches detected, returning empty DataFrame.")
+        logger.warning(
+            "No matches detected, returning empty DataFrame."
+        )
         return pd.DataFrame(
             columns=[
-                "chromosome", "start", "end", "name", "score", "strand",
-                "signal", "pValue", "qValue", "pointSource",
+                "chromosome",
+                "start",
+                "end",
+                "name",
+                "score",
+                "strand",
+                "signal",
+                "pValue",
+                "qValue",
+                "pointSource",
             ]
         )
     df = pd.DataFrame(allRows)
     # Deduplicate events possibly found by multiple window candidates
-    df.drop_duplicates(subset=["chromosome", "start", "end", "name"], inplace=True)
+    df.drop_duplicates(
+        subset=["chromosome", "start", "end", "name"], inplace=True
+    )
     qVals = bhFdr(df["p_raw"].values.astype(float))
     df["pValue"] = -np.log10(
         np.clip(df["p_raw"].values, 1.0e-10, 1.0)

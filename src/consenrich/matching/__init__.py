@@ -1,4 +1,4 @@
-from .matching_alg import matchWavelet, matchExistingBedGraph, mergeMatches
+from .matching_alg import matchWavelet, matchExistingBedGraph, mergeMatches, autoMinLengthIntervals
 from .adapters import bed_mask_adapter, sample_block_stats_adapter
 
 __all__ = [
@@ -7,4 +7,5 @@ __all__ = [
     "mergeMatches",
     "bed_mask_adapter",
     "sample_block_stats_adapter",
+    "autoMinLengthIntervals",
 ]
