@@ -7,6 +7,7 @@ import logging
 import pprint
 import os
 from pathlib import Path
+from collections.abc import Mapping
 from typing import List, Optional, Tuple, Dict, Any, Union
 import shutil
 import subprocess
@@ -32,22 +33,67 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _loadConfig(
+    configSource: Union[str, Path, Mapping[str, Any]],
+) -> Dict[str, Any]:
+    r"""Load a YAML config from a path or accept an already-parsed mapping.
+
+    If given a dict-like object, just return it.If given a path, try to load as YAML --> dict
+    If given a path, try to load as YAML --> dict
+
+    """
+    if isinstance(configSource, Mapping):
+        configData = configSource
+    elif isinstance(configSource, (str, Path)):
+        with open(configSource, "r") as fileHandle:
+            configData = yaml.safe_load(fileHandle) or {}
+    else:
+        raise TypeError("`config` must be a path or a mapping/dict.")
+
+    if not isinstance(configData, Mapping):
+        raise TypeError("Top-level YAML must be a mapping/object.")
+    return configData
+
+
+def _cfgGet(
+    configMap: Mapping[str, Any],
+    dottedKey: str,
+    defaultVal: Any = None,
+) -> Any:
+    r"""Support both dotted keys and yaml/dict-style nested access for configs."""
+
+    # e.g., inputParams.bamFiles
+    if dottedKey in configMap:
+        return configMap[dottedKey]
+
+    # e.g.,
+    # inputParams:
+    #   bamFiles: [...]
+    currentVal: Any = configMap
+    for keyPart in dottedKey.split("."):
+        if isinstance(currentVal, Mapping) and keyPart in currentVal:
+            currentVal = currentVal[keyPart]
+        else:
+            return defaultVal
+    return currentVal
+
+
 def _listOrEmpty(list_):
     if list_ is None:
         return []
     return list_
 
 
-def _getMinR(cfg, numBams: int) -> float:
-    fallBackMinR: float = 1.0
+def _getMinR(configMap, numBams: int) -> float:
+    fallbackMinR: float = 1.0
     try:
-        raw = cfg.get("observationParams.minR", None)
-        return float(raw) if raw is not None else fallBackMinR
+        rawVal = _cfgGet(configMap, "observationParams.minR", None)
+        return float(rawVal) if rawVal is not None else fallbackMinR
     except (TypeError, ValueError, KeyError):
         logger.warning(
-            f"Invalid or missing 'observationParams.minR' in config. Using `{fallBackMinR}`."
+            f"Invalid or missing 'observationParams.minR' in config. Using `{fallbackMinR}`."
         )
-        return fallBackMinR
+        return fallbackMinR
 
 
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
@@ -136,26 +182,33 @@ def getEffectiveGenomeSizes(
 
 
 def getInputArgs(config_path: str) -> core.inputParams:
-    def _expandWildCards(bamList) -> List[str]:
-        expanded = []
-        for entry in bamList:
-            if "*" in entry or "?" in entry or "[" in entry:
-                matched = glob.glob(entry)
-                expanded.extend(matched)
-            else:
-                expanded.append(entry)
-        return expanded
+    configData = _loadConfig(config_path)
 
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    bamFilesRaw = config.get("inputParams.bamFiles", [])
-    bamFilesControlRaw = config.get("inputParams.bamFilesControl", [])
-    bamFiles = _expandWildCards(bamFilesRaw)
-    bamFilesControl = _expandWildCards(bamFilesControlRaw)
+    def expandWildCards(bamList: List[str]) -> List[str]:
+        expandedList: List[str] = []
+        for bamEntry in bamList:
+            if "*" in bamEntry or "?" in bamEntry or "[" in bamEntry:
+                matchedList = glob.glob(bamEntry)
+                expandedList.extend(matchedList)
+            else:
+                expandedList.append(bamEntry)
+        return expandedList
+
+    bamFilesRaw = (
+        _cfgGet(configData, "inputParams.bamFiles", []) or []
+    )
+    bamFilesControlRaw = (
+        _cfgGet(configData, "inputParams.bamFilesControl", []) or []
+    )
+
+    bamFiles = expandWildCards(bamFilesRaw)
+    bamFilesControl = expandWildCards(bamFilesControlRaw)
+
     if len(bamFiles) == 0:
         raise ValueError(
             "No BAM files provided in the configuration."
         )
+
     if (
         len(bamFilesControl) > 0
         and len(bamFilesControl) != len(bamFiles)
@@ -164,370 +217,455 @@ def getInputArgs(config_path: str) -> core.inputParams:
         raise ValueError(
             "Number of control BAM files must be 0, 1, or the same as number of treatment files"
         )
+
     if len(bamFilesControl) == 1:
-        # If there are multiple bamFiles, but 1 control, control is applied for all treatment files
         logger.info(
             f"Only one control given: Using {bamFilesControl[0]} for all treatment files."
         )
         bamFilesControl = bamFilesControl * len(bamFiles)
 
-    if (
-        not bamFiles
-        or not isinstance(bamFiles, list)
-        or len(bamFiles) == 0
-    ):
+    if not bamFiles or not isinstance(bamFiles, list):
         raise ValueError("No BAM files found")
 
-    for i, bamFile in enumerate(bamFiles):
+    for bamFile in bamFiles:
         misc_util.checkBamFile(bamFile)
 
     if bamFilesControl:
-        for i, bamFile in enumerate(bamFilesControl):
+        for bamFile in bamFilesControl:
             misc_util.checkBamFile(bamFile)
 
-    # if we've made it here, we can check pairedEnd
     pairedEndList = misc_util.bamsArePairedEnd(bamFiles)
-    _isPairedEnd: Optional[bool] = config.get(
-        "inputParams.pairedEnd", None
+    pairedEndConfig: Optional[bool] = _cfgGet(
+        configData, "inputParams.pairedEnd", None
     )
-    if _isPairedEnd is None:
-        # only set auto if not provided in config
-        _isPairedEnd = all(pairedEndList)
-        if _isPairedEnd:
+    if pairedEndConfig is None:
+        pairedEndConfig = all(pairedEndList)
+        if pairedEndConfig:
             logger.info("Paired-end BAM files detected")
         else:
             logger.info("One or more single-end BAM files detected")
+
     return core.inputParams(
         bamFiles=bamFiles,
         bamFilesControl=bamFilesControl,
-        pairedEnd=_isPairedEnd,
+        pairedEnd=pairedEndConfig,
     )
 
 
 def getGenomeArgs(config_path: str) -> core.genomeParams:
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    genomeName = config.get("genomeParams.name", None)
-    genome = constants.resolveGenomeName(genomeName)
+    configData = _loadConfig(config_path)
+
+    genomeName = _cfgGet(configData, "genomeParams.name", None)
+    genomeLabel = constants.resolveGenomeName(genomeName)
+
     chromSizesFile: Optional[str] = None
     blacklistFile: Optional[str] = None
     sparseBedFile: Optional[str] = None
-    chromosomes: Optional[List[str]] = None
-    excludeChroms: List[str] = config.get(
-        "genomeParams.excludeChroms", []
+    chromosomesList: Optional[List[str]] = None
+
+    excludeChromsList: List[str] = (
+        _cfgGet(configData, "genomeParams.excludeChroms", []) or []
     )
-    excludeForNorm: List[str] = config.get(
-        "genomeParams.excludeForNorm", []
+    excludeForNormList: List[str] = (
+        _cfgGet(configData, "genomeParams.excludeForNorm", []) or []
     )
-    if genome:
+
+    if genomeLabel:
         chromSizesFile = constants.getGenomeResourceFile(
-            genome, "sizes"
+            genomeLabel, "sizes"
         )
         blacklistFile = constants.getGenomeResourceFile(
-            genome, "blacklist"
+            genomeLabel, "blacklist"
         )
         sparseBedFile = constants.getGenomeResourceFile(
-            genome, "sparse"
+            genomeLabel, "sparse"
         )
-    if config.get("genomeParams.chromSizesFile", None):
-        chromSizesFile = config["genomeParams.chromSizesFile"]
-    if config.get("genomeParams.blacklistFile", None):
-        blacklistFile = config["genomeParams.blacklistFile"]
-    if config.get("genomeParams.sparseBedFile", None):
-        sparseBedFile = config["genomeParams.sparseBedFile"]
+
+    chromSizesOverride = _cfgGet(
+        configData, "genomeParams.chromSizesFile", None
+    )
+    if chromSizesOverride:
+        chromSizesFile = chromSizesOverride
+
+    blacklistOverride = _cfgGet(
+        configData, "genomeParams.blacklistFile", None
+    )
+    if blacklistOverride:
+        blacklistFile = blacklistOverride
+
+    sparseOverride = _cfgGet(
+        configData, "genomeParams.sparseBedFile", None
+    )
+    if sparseOverride:
+        sparseBedFile = sparseOverride
+
     if not chromSizesFile or not os.path.exists(chromSizesFile):
         raise FileNotFoundError(
             f"Chromosome sizes file {chromSizesFile} does not exist."
         )
-    if config.get("genomeParams.chromosomes", None):
-        chromosomes = config["genomeParams.chromosomes"]
+
+    chromosomesConfig = _cfgGet(
+        configData, "genomeParams.chromosomes", None
+    )
+    if chromosomesConfig is not None:
+        chromosomesList = chromosomesConfig
     else:
         if chromSizesFile:
-            chromosomes = list(
-                pd.read_csv(
-                    chromSizesFile,
-                    sep="\t",
-                    header=None,
-                    names=["chrom", "size"],
-                )["chrom"]
+            chromosomesFrame = pd.read_csv(
+                chromSizesFile,
+                sep="\t",
+                header=None,
+                names=["chrom", "size"],
             )
+            chromosomesList = list(chromosomesFrame["chrom"])
         else:
             raise ValueError(
                 "No chromosomes provided in the configuration and no chromosome sizes file specified."
             )
-    chromosomes = [
-        chrom.strip() for chrom in chromosomes if chrom.strip()
+
+    chromosomesList = [
+        chromName.strip()
+        for chromName in chromosomesList
+        if chromName and chromName.strip()
     ]
-    if excludeChroms:
-        chromosomes = [
-            chrom
-            for chrom in chromosomes
-            if chrom not in excludeChroms
+    if excludeChromsList:
+        chromosomesList = [
+            chromName
+            for chromName in chromosomesList
+            if chromName not in excludeChromsList
         ]
-    if not chromosomes:
+    if not chromosomesList:
         raise ValueError(
             "No valid chromosomes found after excluding specified chromosomes."
         )
+
     return core.genomeParams(
-        genomeName=genome,
+        genomeName=genomeLabel,
         chromSizesFile=chromSizesFile,
         blacklistFile=blacklistFile,
         sparseBedFile=sparseBedFile,
-        chromosomes=chromosomes,
-        excludeChroms=excludeChroms,
-        excludeForNorm=excludeForNorm,
+        chromosomes=chromosomesList,
+        excludeChroms=excludeChromsList,
+        excludeForNorm=excludeForNormList,
     )
 
 
 def getCountingArgs(config_path: str) -> core.countingParams:
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    stepSize = config.get("countingParams.stepSize", 25)
-    scaleDown = config.get("countingParams.scaleDown", True)
-    scaleFactors = config.get("countingParams.scaleFactors", None)
-    numReads = config.get("countingParams.numReads", 100)
-    scaleFactorsControl = config.get(
-        "countingParams.scaleFactorsControl", None
+    configData = _loadConfig(config_path)
+
+    stepSize = _cfgGet(configData, "countingParams.stepSize", 25)
+    scaleDownFlag = _cfgGet(
+        configData, "countingParams.scaleDown", True
     )
-    applyAsinh = config.get("countingParams.applyAsinh", False)
-    applyLog = config.get("countingParams.applyLog", False)
-    if applyAsinh and applyLog:
-        applyAsinh = True
-        applyLog = False
+    scaleFactorList = _cfgGet(
+        configData, "countingParams.scaleFactors", None
+    )
+    numReads = _cfgGet(configData, "countingParams.numReads", 100)
+    scaleFactorsControlList = _cfgGet(
+        configData, "countingParams.scaleFactorsControl", None
+    )
+    applyAsinhFlag = _cfgGet(
+        configData, "countingParams.applyAsinh", False
+    )
+    applyLogFlag = _cfgGet(
+        configData, "countingParams.applyLog", False
+    )
+
+    if applyAsinhFlag and applyLogFlag:
+        applyAsinhFlag = True
+        applyLogFlag = False
         logger.warning(
             "Both `applyAsinh` and `applyLog` are set. Overriding `applyLog` to False."
         )
-    rescaleToTreatmentCoverage = config.get(
-        "countingParams.rescaleToTreatmentCoverage", True
+
+    rescaleToTreatmentCoverageFlag = _cfgGet(
+        configData,
+        "countingParams.rescaleToTreatmentCoverage",
+        True,
     )
-    if scaleFactors is not None and not isinstance(
-        scaleFactors, list
+
+    if scaleFactorList is not None and not isinstance(
+        scaleFactorList, list
     ):
         raise ValueError("`scaleFactors` should be a list of floats.")
-    if scaleFactorsControl is not None and not isinstance(
-        scaleFactorsControl, list
+
+    if scaleFactorsControlList is not None and not isinstance(
+        scaleFactorsControlList, list
     ):
         raise ValueError(
             "`scaleFactorsControl` should be a list of floats."
         )
+
     if (
-        scaleFactors is not None
-        and scaleFactorsControl is not None
-        and len(scaleFactors) != len(scaleFactorsControl)
+        scaleFactorList is not None
+        and scaleFactorsControlList is not None
+        and len(scaleFactorList) != len(scaleFactorsControlList)
     ):
-        if len(scaleFactorsControl) == 1:
-            scaleFactorsControl = scaleFactorsControl * len(
-                scaleFactors
+        if len(scaleFactorsControlList) == 1:
+            scaleFactorsControlList = scaleFactorsControlList * len(
+                scaleFactorList
             )
         else:
             raise ValueError(
                 "control and treatment scale factors: must be equal length or 1 control"
             )
+
     return core.countingParams(
         stepSize=stepSize,
-        scaleDown=scaleDown,
-        scaleFactors=scaleFactors,
-        scaleFactorsControl=scaleFactorsControl,
+        scaleDown=scaleDownFlag,
+        scaleFactors=scaleFactorList,
+        scaleFactorsControl=scaleFactorsControlList,
         numReads=numReads,
-        applyAsinh=applyAsinh,
-        applyLog=applyLog,
-        rescaleToTreatmentCoverage=rescaleToTreatmentCoverage,
+        applyAsinh=applyAsinhFlag,
+        applyLog=applyLogFlag,
+        rescaleToTreatmentCoverage=rescaleToTreatmentCoverageFlag,
     )
 
 
 def readConfig(config_path: str) -> Dict[str, Any]:
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
+    r"""Read and parse the configuration file for Consenrich.
+
+    :param config_path: Path to the YAML configuration file.
+    :return: Dictionary containing all parsed configuration parameters.
+    """
+    configData = _loadConfig(config_path)
 
     inputParams = getInputArgs(config_path)
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
-    minR_default = _getMinR(config, len(inputParams.bamFiles))
-    minQ_default = (
-        minR_default / (len(inputParams.bamFiles))
-    ) + 0.10  # protect condition number
 
-    matchingExcludeRegionsBedFile_default: Optional[str] = (
+    minRDefault = _getMinR(configData, len(inputParams.bamFiles))
+    minQDefault = (
+        minRDefault / len(inputParams.bamFiles)
+    ) + 0.10  # conditioning
+
+    matchingExcludeRegionsFileDefault: Optional[str] = (
         genomeParams.blacklistFile
     )
-
-    # apply less aggressive *default* detrending/background removal
-    # ...IF input controls are present. In either case, respect
-    # ...user-specified params
-    detrendWindowLengthBP_: int = -1
-    detrendSavitzkyGolayDegree_: int = -1
 
     if (
         inputParams.bamFilesControl is not None
         and len(inputParams.bamFilesControl) > 0
     ):
-        detrendWindowLengthBP_ = config.get(
+        detrendWindowLengthBp = _cfgGet(
+            configData,
             "detrendParams.detrendWindowLengthBP",
             25_000,
         )
-        detrendSavitzkyGolayDegree_ = config.get(
+        detrendSavitzkyGolayDegree = _cfgGet(
+            configData,
             "detrendParams.detrendSavitzkyGolayDegree",
             1,
         )
     else:
-        detrendWindowLengthBP_ = config.get(
+        detrendWindowLengthBp = _cfgGet(
+            configData,
             "detrendParams.detrendWindowLengthBP",
             10_000,
         )
-        detrendSavitzkyGolayDegree_ = config.get(
+        detrendSavitzkyGolayDegree = _cfgGet(
+            configData,
             "detrendParams.detrendSavitzkyGolayDegree",
             2,
         )
 
-    return {
-        "experimentName": config.get(
-            "experimentName", "consenrichExperiment"
+    experimentName = _cfgGet(
+        configData, "experimentName", "consenrichExperiment"
+    )
+
+    processArgs = core.processParams(
+        deltaF=_cfgGet(configData, "processParams.deltaF", 0.5),
+        minQ=_cfgGet(configData, "processParams.minQ", minQDefault),
+        maxQ=_cfgGet(configData, "processParams.maxQ", 500.0),
+        offDiagQ=_cfgGet(configData, "processParams.offDiagQ", 0.0),
+        dStatAlpha=_cfgGet(
+            configData, "processParams.dStatAlpha", 3.0
         ),
+        dStatd=_cfgGet(configData, "processParams.dStatd", 10.0),
+        dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
+        scaleResidualsByP11=_cfgGet(
+            configData,
+            "processParams.scaleResidualsByP11",
+            False,
+        ),
+    )
+
+    observationArgs = core.observationParams(
+        minR=minRDefault,
+        maxR=_cfgGet(configData, "observationParams.maxR", 500.0),
+        useALV=_cfgGet(configData, "observationParams.useALV", False),
+        useConstantNoiseLevel=_cfgGet(
+            configData,
+            "observationParams.useConstantNoiseLevel",
+            False,
+        ),
+        noGlobal=_cfgGet(
+            configData, "observationParams.noGlobal", False
+        ),
+        numNearest=_cfgGet(
+            configData, "observationParams.numNearest", 25
+        ),
+        localWeight=_cfgGet(
+            configData, "observationParams.localWeight", 0.333
+        ),
+        globalWeight=_cfgGet(
+            configData, "observationParams.globalWeight", 0.667
+        ),
+        approximationWindowLengthBP=_cfgGet(
+            configData,
+            "observationParams.approximationWindowLengthBP",
+            10_000,
+        ),
+        lowPassWindowLengthBP=_cfgGet(
+            configData,
+            "observationParams.lowPassWindowLengthBP",
+            20_000,
+        ),
+        lowPassFilterType=_cfgGet(
+            configData,
+            "observationParams.lowPassFilterType",
+            "median",
+        ),
+        returnCenter=_cfgGet(
+            configData, "observationParams.returnCenter", True
+        ),
+    )
+
+    stateArgs = core.stateParams(
+        stateInit=_cfgGet(configData, "stateParams.stateInit", 0.0),
+        stateCovarInit=_cfgGet(
+            configData, "stateParams.stateCovarInit", 100.0
+        ),
+        boundState=_cfgGet(
+            configData, "stateParams.boundState", True
+        ),
+        stateLowerBound=_cfgGet(
+            configData, "stateParams.stateLowerBound", 0.0
+        ),
+        stateUpperBound=_cfgGet(
+            configData, "stateParams.stateUpperBound", 10000.0
+        ),
+    )
+
+    samThreads = _cfgGet(configData, "samParams.samThreads", 1)
+    samFlagExclude = _cfgGet(
+        configData, "samParams.samFlagExclude", 3844
+    )
+    oneReadPerBin = _cfgGet(configData, "samParams.oneReadPerBin", 0)
+    chunkSize = _cfgGet(configData, "samParams.chunkSize", 1_000_000)
+    offsetStr = _cfgGet(configData, "samParams.offsetStr", "0,0")
+    extendBpList = _cfgGet(configData, "samParams.extendBP", [])
+    maxInsertSize = _cfgGet(
+        configData, "samParams.maxInsertSize", 1000
+    )
+
+    pairedEndDefault = (
+        1
+        if inputParams.pairedEnd is not None
+        and int(inputParams.pairedEnd) > 0
+        else 0
+    )
+    inferFragmentDefault = (
+        1
+        if inputParams.pairedEnd is not None
+        and int(inputParams.pairedEnd) == 0
+        else 0
+    )
+
+    samArgs = core.samParams(
+        samThreads=samThreads,
+        samFlagExclude=samFlagExclude,
+        oneReadPerBin=oneReadPerBin,
+        chunkSize=chunkSize,
+        offsetStr=offsetStr,
+        extendBP=extendBpList,
+        maxInsertSize=maxInsertSize,
+        pairedEndMode=_cfgGet(
+            configData,
+            "samParams.pairedEndMode",
+            pairedEndDefault,
+        ),
+        inferFragmentLength=_cfgGet(
+            configData,
+            "samParams.inferFragmentLength",
+            inferFragmentDefault,
+        ),
+        countEndsOnly=_cfgGet(
+            configData, "samParams.countEndsOnly", False
+        ),
+    )
+
+    detrendArgs = core.detrendParams(
+        detrendWindowLengthBP=detrendWindowLengthBp,
+        detrendTrackPercentile=_cfgGet(
+            configData,
+            "detrendParams.detrendTrackPercentile",
+            75,
+        ),
+        usePolyFilter=_cfgGet(
+            configData, "detrendParams.usePolyFilter", False
+        ),
+        detrendSavitzkyGolayDegree=detrendSavitzkyGolayDegree,
+        useOrderStatFilter=_cfgGet(
+            configData, "detrendParams.useOrderStatFilter", True
+        ),
+    )
+
+    matchingArgs = core.matchingParams(
+        templateNames=_cfgGet(
+            configData, "matchingParams.templateNames", []
+        ),
+        cascadeLevels=_cfgGet(
+            configData, "matchingParams.cascadeLevels", []
+        ),
+        iters=_cfgGet(configData, "matchingParams.iters", 25_000),
+        alpha=_cfgGet(configData, "matchingParams.alpha", 0.05),
+        minMatchLengthBP=_cfgGet(
+            configData,
+            "matchingParams.minMatchLengthBP",
+            250,
+        ),
+        maxNumMatches=_cfgGet(
+            configData,
+            "matchingParams.maxNumMatches",
+            100_000,
+        ),
+        minSignalAtMaxima=_cfgGet(
+            configData,
+            "matchingParams.minSignalAtMaxima",
+            "q:0.75",
+        ),
+        merge=_cfgGet(configData, "matchingParams.merge", True),
+        mergeGapBP=_cfgGet(
+            configData, "matchingParams.mergeGapBP", None
+        ),
+        useScalingFunction=_cfgGet(
+            configData,
+            "matchingParams.useScalingFunction",
+            True,
+        ),
+        excludeRegionsBedFile=_cfgGet(
+            configData,
+            "matchingParams.excludeRegionsBedFile",
+            matchingExcludeRegionsFileDefault,
+        ),
+        randSeed=_cfgGet(configData, "matchingParams.randSeed", 42),
+        penalizeBy=_cfgGet(
+            configData, "matchingParams.penalizeBy", None
+        ),
+    )
+
+    return {
+        "experimentName": experimentName,
         "genomeArgs": genomeParams,
         "inputArgs": inputParams,
         "countingArgs": countingParams,
-        "processArgs": core.processParams(
-            deltaF=config.get("processParams.deltaF", 0.5),
-            minQ=config.get("processParams.minQ", minQ_default),
-            maxQ=config.get("processParams.maxQ", 500.0),
-            offDiagQ=config.get("processParams.offDiagQ", 0.0),
-            dStatAlpha=config.get("processParams.dStatAlpha", 3.0),
-            dStatd=config.get("processParams.dStatd", 10.0),
-            dStatPC=config.get("processParams.dStatPC", 1.0),
-            scaleResidualsByP11=config.get(
-                "processParams.scaleResidualsByP11", False
-            ),
-        ),
-        "observationArgs": core.observationParams(
-            minR=minR_default,
-            maxR=config.get("observationParams.maxR", 500.0),
-            useALV=config.get("observationParams.useALV", False),
-            useConstantNoiseLevel=config.get(
-                "observationParams.useConstantNoiseLevel", False
-            ),
-            noGlobal=config.get("observationParams.noGlobal", False),
-            numNearest=config.get("observationParams.numNearest", 25),
-            localWeight=config.get(
-                "observationParams.localWeight",
-                0.333,
-            ),
-            globalWeight=config.get(
-                "observationParams.globalWeight",
-                0.667,
-            ),
-            approximationWindowLengthBP=config.get(
-                "observationParams.approximationWindowLengthBP",
-                10000,
-            ),
-            lowPassWindowLengthBP=config.get(
-                "observationParams.lowPassWindowLengthBP",
-                20000,
-            ),
-            lowPassFilterType=config.get(
-                "observationParams.lowPassFilterType",
-                "median",
-            ),
-            returnCenter=config.get(
-                "observationParams.returnCenter",
-                True,
-            ),
-        ),
-        "stateArgs": core.stateParams(
-            stateInit=config.get("stateParams.stateInit", 0.0),
-            stateCovarInit=config.get(
-                "stateParams.stateCovarInit",
-                100.0,
-            ),
-            boundState=config.get("stateParams.boundState", True),
-            stateLowerBound=config.get(
-                "stateParams.stateLowerBound",
-                0.0,
-            ),
-            stateUpperBound=config.get(
-                "stateParams.stateUpperBound",
-                10000.0,
-            ),
-        ),
-        "samArgs": core.samParams(
-            samThreads=config.get("samParams.samThreads", 1),
-            samFlagExclude=config.get(
-                "samParams.samFlagExclude", 3844
-            ),
-            oneReadPerBin=config.get("samParams.oneReadPerBin", 0),
-            chunkSize=config.get("samParams.chunkSize", 1000000),
-            offsetStr=config.get("samParams.offsetStr", "0,0"),
-            extendBP=config.get("samParams.extendBP", []),
-            maxInsertSize=config.get("samParams.maxInsertSize", 1000),
-            pairedEndMode=config.get(
-                "samParams.pairedEndMode",
-                1
-                if inputParams.pairedEnd is not None
-                and int(inputParams.pairedEnd) > 0
-                else 0,
-            ),
-            inferFragmentLength=config.get(
-                "samParams.inferFragmentLength",
-                1
-                if inputParams.pairedEnd is not None
-                and int(inputParams.pairedEnd) == 0
-                else 0,
-            ),
-            countEndsOnly=config.get(
-                "samParams.countEndsOnly",
-                False,
-            ),
-        ),
-        "detrendArgs": core.detrendParams(
-            detrendWindowLengthBP=detrendWindowLengthBP_,
-            detrendTrackPercentile=config.get(
-                "detrendParams.detrendTrackPercentile",
-                75,
-            ),
-            usePolyFilter=config.get(
-                "detrendParams.usePolyFilter",
-                False,
-            ),
-            detrendSavitzkyGolayDegree=config.get(
-                "detrendParams.detrendSavitzkyGolayDegree",
-                detrendSavitzkyGolayDegree_,
-            ),
-            useOrderStatFilter=config.get(
-                "detrendParams.useOrderStatFilter",
-                True,
-            ),
-        ),
-        "matchingArgs": core.matchingParams(
-            templateNames=config.get(
-                "matchingParams.templateNames",
-                [],
-            ),
-            cascadeLevels=config.get(
-                "matchingParams.cascadeLevels",
-                [],
-            ),
-            iters=config.get("matchingParams.iters", 25_000),
-            alpha=config.get("matchingParams.alpha", 0.05),
-            minMatchLengthBP=config.get(
-                "matchingParams.minMatchLengthBP", 250
-            ),
-            maxNumMatches=config.get(
-                "matchingParams.maxNumMatches", 100_000
-            ),
-            minSignalAtMaxima=config.get(
-                "matchingParams.minSignalAtMaxima", "q:0.75"
-            ),
-            merge=config.get("matchingParams.merge", True),
-            mergeGapBP=config.get("matchingParams.mergeGapBP", None),
-            useScalingFunction=config.get(
-                "matchingParams.useScalingFunction", True
-            ),
-            excludeRegionsBedFile=config.get(
-                "matchingParams.excludeRegionsBedFile",
-                matchingExcludeRegionsBedFile_default,
-            ),
-            randSeed=config.get("matchingParams.randSeed", 42),
-            penalizeBy=config.get("matchingParams.penalizeBy", None),
-        ),
+        "processArgs": processArgs,
+        "observationArgs": observationArgs,
+        "stateArgs": stateArgs,
+        "samArgs": samArgs,
+        "detrendArgs": detrendArgs,
+        "matchingArgs": matchingArgs,
     }
 
 
@@ -1057,7 +1195,6 @@ def main():
                     f"Unrecognized `matchingParams.penalizeBy`: {matchingArgs.penalizeBy}. No weights applied."
                 )
                 weights_ = None
-
 
         df = pd.DataFrame(
             {
