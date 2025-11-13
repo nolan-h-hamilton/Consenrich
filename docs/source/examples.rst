@@ -338,9 +338,6 @@ Twelve total alignment files (single-end, treatment/control input pairs) are use
 Configuration
 ''''''''''''''''''''''''''''
 
-
-A very straightforward approach to suppress higher frequencies/spatial details that may be impertinent for analysis of broad marks is to increase :class:`consenrich.core.countingParams``.stepSize` (default: 25 bp) to a larger value (e.g., 100 bp).
-
 * ``experimentH3K36me3.yaml``.
 
   .. code-block:: yaml
@@ -366,7 +363,9 @@ A very straightforward approach to suppress higher frequencies/spatial details t
      ENCFF648HNK.bam
     ]
 
-    countingParams.stepSize: 100 # Default is 25 bp
+    # Increased from default (25 bp) given H3K36me3's classification
+    # as a broad histone mark associated with gene bodies
+    countingParams.stepSize: 100
 
     matchingParams.templateNames: [haar, db2]
     matchingParams.cascadeLevels: [3, 3]
@@ -488,9 +487,14 @@ This calls structured peaks with a Haar template/level 3 and significance thresh
 For more details on the matching algorithm in general, see :ref:`matching` and :func:`consenrich.matching.matchWavelet` for more details.
 
 
-Heterochromatic or Repressive targets
+Broad, Heterochromatic and/or Repressive targets
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+* When targeting large domain-level features, consider increasing `countingParams.stepSize` and/or `detrendParams.detrendWindowLengthBP` from their defaults (25 bp, 10000 bp respectively) to prioritize larger-scale trends.
 
-When targeting signals associated with *heterochromatin/repression* (e.g., H3K9me3 ChIP-seq/CUT&RUN, H3K27me3 ChIP-seq/CUT&RUN, MNase-seq), consider setting ``observationParams.useALV: true`` in the YAML configuration file.
-This mitigates the risk of real signal being attributed to noise and may be consequential for higher-resolution analyses. See :class:`consenrich.core.observationParams` for more details.
+  * For instance, polycomb-repressed domains (H3K27me3) and constitutive heterochromatin (H3K9me3): 
+
+  - `countingParams.stepSize: 100`
+  - `detrendParams.detrendWindowLengthBP: 25000`
+
+* When targeting signals associated with *heterochromatin/repression*, consider setting ``observationParams.useALV: true`` in the YAML configuration file to avoid conflating signal with noise.
 

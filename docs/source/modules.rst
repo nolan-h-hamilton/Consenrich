@@ -96,7 +96,7 @@ Denote a 'consensus' signal track defined over fixed-length genomic intervals, e
 
   \widetilde{\mathbf{x}} = \{\widetilde{x}_{[i]}\}_{i=1}^{i=n}.
 
-In this documentation, we assume :math:`\widetilde{\mathbf{x}}` is the Consenrich 'primary state estimate' track.
+In this documentation, we assume :math:`\widetilde{\mathbf{x}}` is the Consenrich 'primary state estimate' track. (To match on an uncertainty-penalized version of the primary signal, invoke `matchingParams.penalizeBy`)
 
 **Aim**: Determine a set of 'structured' peak-like genomic regions where the consensus signal track :math:`\widetilde{\mathbf{x}}` exhibits both:
 
@@ -180,7 +180,7 @@ The following defaults should provide a strong starting point for many use cases
 
   matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [2, 2]
-  matchingParams.minMatchLengthBP: 250 # set as `-1` for 'auto', data-driven selection
+  matchingParams.minMatchLengthBP: -1 # set as `-1` for 'auto', data-driven selection
   matchingParams.alpha: 0.05
   matchingParams.minSignalAtMaxima: 'q:0.75'
   matchingParams.merge: true
