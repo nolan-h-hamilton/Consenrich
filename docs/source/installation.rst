@@ -78,6 +78,9 @@ If using `mamba <https://mamba.readthedocs.io/en/latest/>`_, or `micromamba <htt
 From Source
 ~~~~~~~~~~~~~~
 
+**Note**, some features require `samtools <http://www.htslib.org/download/>`_ and `bedtools <https://bedtools.readthedocs.io/en/latest/content/installation.html>`_ to be installed and available in your ``$PATH``.
+
+
 .. admonition:: Guidance: C Compiler
   :class: tip
   :collapsible: closed
