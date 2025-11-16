@@ -436,6 +436,7 @@ File Formats
   * *Precision-weighted residual track*: ``<experimentName>_consenrich_residuals.bw``
 
     * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
+    * These values may be interpreted as a measure of model mismatch: If large (in magnitude), the estimated signal and uncertainty explain less of the observed deviation from the data. In contrast, where small, the model explains more of the observed deviation from the data.
     * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
 
   * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
@@ -443,7 +444,7 @@ File Formats
     * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
     * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
-
+See also :class:`outputParams` in the :ref:`API`.
 
 .. _tips:
 
@@ -457,7 +458,7 @@ Consenrich can improve between-group differential analyses that depend on a good
 
 `ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is well-suited to leverage high-resolution open chromatin signal estimates while balancing regularity for simultaneous broad/narrow peak calling.
 
-For example, to run the `Consenrich+ROCCO` protocol used in the manuscript,
+For example, to run the `Consenrich+ROCCO` protocol as it is used in the manuscript,
 
 .. code-block:: console
 

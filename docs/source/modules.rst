@@ -23,6 +23,7 @@ The core module implements the main aspects of Consenrich and defines key parame
 .. autoclass:: consenrich.core.stateParams
 .. autoclass:: consenrich.core.detrendParams
 .. autoclass:: consenrich.core.inputParams
+.. autoclass:: consenrich.core.outputParams
 .. autoclass:: consenrich.core.genomeParams
 .. autoclass:: consenrich.core.countingParams
 .. autoclass:: consenrich.core.samParams

@@ -128,18 +128,16 @@ class observationParams(NamedTuple):
     :param approximationWindowLengthBP: The length of the local approximation window in base pairs (BP)
         for the local variance calculation.
     :type approximationWindowLengthBP: int
-    :param sparseBedFile: The path to a BED file of 'sparse' regions for the local variance calculation.
+    :param sparseBedFile: The path to a BED file of 'sparse' regions for the local variance calculation. For genomes with default resources in `src/consenrich/data`, this may be left as `None`,
+      and a default annotation devoid of active regulatory elements will be used. Users can instead supply a custom BED file or set `observationParams.useALV` to `True` to avoid predefined annotations.
     :type sparseBedFile: str, optional
     :param noGlobal: If True, only the 'local' variances are used to approximate observation noise
         covariance :math:`\mathbf{R}_{[:, (11:mm)]}`.
     :type noGlobal: bool
-    :param useALV: Whether to use average local variance (ALV) to approximate observation noise
-        covariances per-sample, per-interval. Recommended for estimating signals associated with
-        repressive/heterochromatic elements.
+    :param useALV: Whether to use average local variance (ALV) heuristic exclusively to approximate observation noise
+        covariances per-sample, per-interval. Note that unrestricted ALV (i.e., without masking previously annotated high-signal regions) is comparatively vulnerable to inflated noise estimates in large enriched genomic domains.
     :type useALV: bool
-    :param useConstantNoiseLevel: Whether to use a constant noise level in the observation model.
-    :type useConstantNoiseLevel: bool
-    :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean').
+    :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
     :type lowPassFilterType: Optional[str]
     """
 
@@ -162,9 +160,9 @@ class stateParams(NamedTuple):
 
     :param stateInit: Initial value of the 'primary' state/signal at the first genomic interval: :math:`x_{[1]}`
     :type stateInit: float
-    :param stateCovarInit: Initial state covariance (covariance) scale. Note, the *initial* state uncertainty :math:`\mathbf{P}_{[1]}` is a multiple of the identity matrix :math:`\mathbf{I}`
+    :param stateCovarInit: Initial state covariance (covariance) scale. Note, the *initial* state uncertainty :math:`\mathbf{P}_{[1]}` is a multiple of the identity matrix :math:`\mathbf{I}`. Final results are typically insensitive to this parameter, since the filter effectively 'forgets' its initialization after processing a moderate number of intervals and backward smoothing.
     :type stateCovarInit: float
-    :param boundState: If True, the primary state estimate for :math:`x_{[i]}` is constrained within `stateLowerBound` and `stateUpperBound`.
+    :param boundState: If True, the primary state estimate for :math:`x_{[i]}` is reported within `stateLowerBound` and `stateUpperBound`. Note that the internal filtering is unaffected by this setting and the bounds are only applied to the final state estimates for convenience.
     :type boundState: bool
     :param stateLowerBound: Lower bound for the state estimate.
     :type stateLowerBound: float
@@ -277,7 +275,8 @@ class genomeParams(NamedTuple):
     :type chromSizesFile: str
     :param blacklistFile: A BED file with regions to exclude.
     :type blacklistFile: str, optional
-    :param sparseBedFile: A BED file with sparse regions used to estimate noise levels -- ignored if `observationParams.useALV` is True.
+    :param sparseBedFile: A BED file with 'sparse regions' used to estimate noise levels -- ignored if `observationParams.useALV` is True. 'Sparse regions' broadly refers to genomic intervals devoid of the targeted signal, based on prior annotations.
+      Users may supply a custom BED file and/or set `observationParams.useALV` to `True` to avoid relying on predefined annotations.
     :type sparseBedFile: str, optional
     :param chromosomes: A list of chromosome names to analyze. If None, all chromosomes in `chromSizesFile` are used.
     :type chromosomes: List[str]
@@ -360,13 +359,14 @@ class matchingParams(NamedTuple):
       For example, 'absResiduals' divides signal values by :math:`|\widetilde{y}_i|` at each
       position :math:`i`, thereby down-weighting positions where the signal estimate deviates from
       the data after accounting for observation noise. 'stateUncertainty' divides signal values by
-      the square root of the primary state variance :math:`\sqrt{\wildetilde{P}_{i,(11)}}` at each position :math:`i`,
-      thereby down-weighting positions where the posterior state uncertainty is high.
+      the square root of the primary state variance :math:`\sqrt{\widetilde{P}_{i,(11)}}` at each position :math:`i`,
+      thereby down-weighting positions where the posterior state uncertainty is high. 'muncTrace' divides signal values by
+      the square root of the average observation noise trace :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` at each position :math:`i`,
     :type penalizeBy: Optional[str]
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
-    :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
+    :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
     """
 
     templateNames: List[str]
@@ -383,6 +383,30 @@ class matchingParams(NamedTuple):
     penalizeBy: Optional[str]
     randSeed: Optional[int] = 42
     eps: Optional[float] = 1.0e-2
+
+
+class outputParams(NamedTuple):
+    r"""Parameters related to output files.
+
+    :param convertToBigWig: If True, output bedGraph files are converted to bigWig format.
+    :type convertToBigWig: bool
+    :param roundDigits: Number of decimal places to round output values (bedGraph)
+    :type roundDigits: int
+    :param writeResiduals: If True, write to a separate bedGraph the mean of precision-weighted residuals at each interval. These may be interpreted as
+        a measure of model mismatch. Where these quantities are large (+-) the estimated signal and uncertainty do not explain the observed deviation from the data.
+    :type writeResiduals: bool
+    :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' observation noise level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
+    :type writeMuncTrace: bool
+    :param writeStateStd: If True, write to a separate bedGraph estimated standard deviation of the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, at each interval. Note that an absolute Gaussian interpretation of this metric depends on sample size, arguments in :class:`processParams` and :class:`observationParams`, etc.
+        In any case, this metric may be interpreted as a relative measure of uncertainty in the state estimate at each interval.
+    :type writeStateStd: bool
+    """
+
+    convertToBigWig: bool
+    roundDigits: int
+    writeResiduals: bool
+    writeMuncTrace: bool
+    writeStateStd: bool
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:
@@ -645,9 +669,9 @@ def getAverageLocalVarianceTrack(
     maxR: float,
     lowPassFilterType: Optional[str] = "median",
 ) -> npt.NDArray[np.float32]:
-    r"""Approximate a positional/local noise level track for a single sample's read-density-based values.
+    r"""Generate positional noise-level tracks with first and second moments approximated from local windows
 
-    First computes a moving average of ``values`` using a bp-length window
+    First, computes a moving average of ``values`` using a bp-length window
     ``approximationWindowLengthBP`` and a moving average of ``values**2`` over the
     same window. Their difference is used to approximate the local variance. A low-pass filter
     (median or mean) with window ``lowPassWindowLengthBP`` then smooths the variance track.
@@ -820,6 +844,11 @@ def runConsenrich(
     r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
     Completes the forward and backward passes given data and approximated observation noise
     covariance matrices :math:`\mathbf{R}_{[1:n, (11:mm)]}`.
+
+    This is the primary function implementing the core Consenrich algorithm. Users requiring specialized
+    preprocessing may prefer to call this function programmatically on their own preprocessed data rather
+    than using the command-line interface.
+
 
     :param matrixData: Read density data for a single chromosome or general contiguous segment,
       possibly preprocessed. Two-dimensional array of shape :math:`m \times n` where :math:`m`
