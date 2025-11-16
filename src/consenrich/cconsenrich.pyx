@@ -16,6 +16,7 @@ import pysam
 cimport numpy as cnp
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
+from libc.float cimport DBL_EPSILON
 
 cnp.import_array()
 
@@ -413,18 +414,41 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
 cdef void _blockMax(double[::1] valuesView,
                     Py_ssize_t[::1] blockStartIndices,
                     Py_ssize_t[::1] blockSizes,
-                    double[::1] outputView) noexcept:
+                    double[::1] outputView,
+                    double eps = 0.0) noexcept:
     cdef Py_ssize_t iterIndex, elementIndex, startIndex, blockLength
     cdef double currentMax, currentValue
+    cdef Py_ssize_t firstIdx, lastIdx, centerIdx
+
     for iterIndex in range(outputView.shape[0]):
         startIndex = blockStartIndices[iterIndex]
-        blockLength = blockSizes[iterIndex] # note, length of blocks affects upcoming loop
+        blockLength = blockSizes[iterIndex]
+
         currentMax = valuesView[startIndex]
         for elementIndex in range(1, blockLength):
             currentValue = valuesView[startIndex + elementIndex]
             if currentValue > currentMax:
                 currentMax = currentValue
-        outputView[iterIndex] = currentMax
+
+        firstIdx = -1
+        lastIdx = -1
+        if eps > 0.0:
+            # only run if eps tol is non-zero
+            for elementIndex in range(blockLength):
+                currentValue = valuesView[startIndex + elementIndex]
+                # NOTE: this is intended to mirror the +- eps tol
+                if currentValue >= currentMax - eps:
+                    if firstIdx == -1:
+                        firstIdx = elementIndex
+                    lastIdx = elementIndex
+
+        if firstIdx == -1:
+            # case: we didn't find a tie or eps == 0
+            outputView[iterIndex] = currentMax
+        else:
+            # case: there's a tie for eps > 0, pick center
+            centerIdx = (firstIdx + lastIdx) // 2
+            outputView[iterIndex] = valuesView[startIndex + centerIdx]
 
 
 cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
@@ -432,7 +456,8 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                         int expectedBlockSize,
                         int iters,
                         int randSeed,
-                        cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask):
+                        cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
+                        double eps = 0.0):
     r"""Sample contiguous blocks in the response sequence (xCorr), record maxima, and repeat.
 
     Used to build an empirical null distribution and determine significance of response outputs.
@@ -487,7 +512,7 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     cdef Py_ssize_t[::1] startsView = samples
     cdef Py_ssize_t[::1] sizesView = sizesArr
     cdef double[::1] outView = out
-    _blockMax(valuesView, startsView, sizesView, outView)
+    _blockMax(valuesView, startsView, sizesView, outView, eps)
     return out
 
 
