@@ -251,6 +251,38 @@ def getInputArgs(config_path: str) -> core.inputParams:
         pairedEnd=pairedEndConfig,
     )
 
+def getOutputArgs(config_path: str) -> core.outputParams:
+
+    configData = _loadConfig(config_path)
+
+    convertToBigWig_ = _cfgGet(
+        configData, "outputParams.convertToBigWig", True if shutil.which("bedGraphToBigWig") else False
+    )
+
+    roundDigits_ = _cfgGet(
+        configData, "outputParams.roundDigits", 3
+    )
+
+    writeResiduals_ = _cfgGet(
+        configData, "outputParams.writeResiduals", True
+    )
+
+    writeMuncTrace: bool = _cfgGet(
+        configData, "outputParams.writeMuncTrace", False
+    )
+
+    writeStateStd: bool = _cfgGet(
+        configData, "outputParams.writeStateStd", False
+    )
+
+    return core.outputParams(
+        convertToBigWig=convertToBigWig_,
+        roundDigits=roundDigits_,
+        writeResiduals=writeResiduals_,
+        writeMuncTrace=writeMuncTrace,
+        writeStateStd=writeStateStd,
+    )
+
 
 def getGenomeArgs(config_path: str) -> core.genomeParams:
     configData = _loadConfig(config_path)
@@ -431,6 +463,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     configData = _loadConfig(config_path)
 
     inputParams = getInputArgs(config_path)
+    outputParams = getOutputArgs(config_path)
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
 
@@ -653,15 +686,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         penalizeBy=_cfgGet(
             configData, "matchingParams.penalizeBy", None
         ),
-        eps=_cfgGet(
-            configData, "matchingParams.eps", 1.0e-2
-        ),
+        eps=_cfgGet(configData, "matchingParams.eps", 1.0e-2),
     )
 
     return {
         "experimentName": experimentName,
         "genomeArgs": genomeParams,
         "inputArgs": inputParams,
+        "outputArgs": outputParams,
         "countingArgs": countingParams,
         "processArgs": processArgs,
         "observationArgs": observationArgs,
@@ -672,8 +704,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     }
 
 
-def convertBedGraphToBigWig(experimentName, chromSizesFile):
-    suffixes = ["state", "residuals"]
+def convertBedGraphToBigWig(experimentName, chromSizesFile,
+ suffixes: Optional[List[str]] = None):
+
+    if suffixes is None:
+        # at least look for `state` bedGraph
+        suffixes = ["state"]
     path_ = ""
     warningMessage = (
         "Could not find UCSC bedGraphToBigWig binary utility."
@@ -740,7 +776,8 @@ def main():
         type=str,
         dest="matchBedGraph",
         help="Path to a bedGraph file of Consenrich estimates to match templates against.\
-            If provided, *only* the matching algorithm is run (no other processing).",
+            If provided, *only* the matching algorithm is run (no other processing). Note that \
+            some features in `consenrich.matching` may not be supported through this CLI interface.",
     )
     parser.add_argument(
         "--match-template",
@@ -862,6 +899,7 @@ def main():
     experimentName = config["experimentName"]
     genomeArgs = config["genomeArgs"]
     inputArgs = config["inputArgs"]
+    outputArgs = config["outputArgs"]
     countingArgs = config["countingArgs"]
     processArgs = config["processArgs"]
     observationArgs = config["observationArgs"]
@@ -893,6 +931,7 @@ def main():
             }
             config_truncated["experimentName"] = experimentName
             config_truncated["inputArgs"] = inputArgs
+            config_truncated["outputArgs"] = outputArgs
             config_truncated["genomeArgs"] = genomeArgs
             config_truncated["countingArgs"] = countingArgs
             config_truncated["processArgs"] = processArgs
@@ -900,7 +939,7 @@ def main():
             config_truncated["stateArgs"] = stateArgs
             config_truncated["samArgs"] = samArgs
             config_truncated["detrendArgs"] = detrendArgs
-            pprint.pprint(config_truncated, indent=4)
+            pprint.pprint(config_truncated, indent=8)
         except Exception as e:
             logger.warning(f"Failed to print parsed config:\n{e}\n")
 
@@ -1175,6 +1214,7 @@ def main():
             and processArgs.scaleResidualsByP11
             else None,
         )
+
         weights_: Optional[np.ndarray] = None
         if matchingArgs.penalizeBy is not None:
             if matchingArgs.penalizeBy == "absResiduals":
@@ -1185,12 +1225,23 @@ def main():
                         f"Error computing weights for 'absResiduals': {e}. No weights applied for matching."
                     )
                     weights_ = None
-            elif matchingArgs.penalizeBy == "stateUncertainty":
+            elif matchingArgs.penalizeBy == "stateUncertainty" or matchingArgs.penalizeBy == "stateStdDev":
                 try:
                     weights_ = np.sqrt(P[:, 0, 0])
                 except Exception as e:
                     logger.warning(
                         f"Error computing weights for 'stateUncertainty': {e}. No weights applied for matching."
+                    )
+                    weights_ = None
+            elif matchingArgs.penalizeBy == "muncTrace":
+                try:
+                    weights_ = np.sqrt(
+                        np.trace(muncMat, axis1=0, axis2=1)
+                        / numSamples
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Error computing weights for 'muncTrace': {e}. No weights applied for matching."
                     )
                     weights_ = None
             else:
@@ -1205,9 +1256,31 @@ def main():
                 "Start": intervals,
                 "End": intervals + stepSize,
                 "State": x_,
-                "Res": y_,
             }
         )
+
+        if outputArgs.writeResiduals:
+            df["Res"] = y_.astype(np.float32) # FFR: cast necessary?
+        if outputArgs.writeMuncTrace:
+            df["Munc"] = np.sqrt(np.trace(muncMat, axis1=0, axis2=1) / numSamples).astype(np.float32)
+        if outputArgs.writeStateStd:
+            df["StateStd"] = np.sqrt(P[:, 0, 0]).astype(np.float32)
+        cols_ = ["Chromosome", "Start", "End", "State"]
+        if outputArgs.writeResiduals:
+            cols_.append("Res")
+        if outputArgs.writeMuncTrace:
+            cols_.append("Munc")
+        if outputArgs.writeStateStd:
+            cols_.append("StateStd")
+        df = df[cols_]
+        suffixes = ['state']
+        if outputArgs.writeResiduals:
+            suffixes.append('residuals')
+        if outputArgs.writeMuncTrace:
+            suffixes.append('muncTraces')
+        if outputArgs.writeStateStd:
+            suffixes.append('stdDevs')
+
         if c_ == 0 and len(chromosomes) > 1:
             for file_ in os.listdir("."):
                 if file_.startswith(
@@ -1219,7 +1292,7 @@ def main():
                     logger.warning(f"Overwriting: {file_}")
                     os.remove(file_)
 
-        for col, suffix in [("State", "state"), ("Res", "residuals")]:
+        for col, suffix in zip(cols_[3:], suffixes):
             logger.info(
                 f"{chromosome}: writing/appending to: consenrichOutput_{experimentName}_{suffix}.bedGraph"
             )
@@ -1269,7 +1342,7 @@ def main():
                         header=False,
                         index=False,
                         mode="a",
-                        float_format="%.3f",
+                        float_format=f"%.{outputArgs.roundDigits}f",
                         lineterminator="\n",
                     )
         except Exception as e:
@@ -1278,7 +1351,10 @@ def main():
             )
             continue
     logger.info("Finished: output in human-readable format")
-    convertBedGraphToBigWig(experimentName, genomeArgs.chromSizesFile)
+
+    if outputArgs.convertToBigWig:
+        convertBedGraphToBigWig(experimentName, genomeArgs.chromSizesFile, suffixes=suffixes)
+
     if matchingEnabled and matchingArgs.merge:
         try:
             mergeGapBP_ = matchingArgs.mergeGapBP

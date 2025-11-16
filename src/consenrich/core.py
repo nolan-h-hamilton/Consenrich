@@ -7,7 +7,15 @@ Consenrich core functions and classes.
 import logging
 import os
 from tempfile import NamedTemporaryFile
-from typing import Callable, List, Optional, Tuple, DefaultDict, Any, NamedTuple
+from typing import (
+    Callable,
+    List,
+    Optional,
+    Tuple,
+    DefaultDict,
+    Any,
+    NamedTuple,
+)
 
 import numpy as np
 import numpy.typing as npt
@@ -31,7 +39,9 @@ def resolveExtendBP(extendBP, bamFiles: List[str]) -> List[int]:
         stringValue = extendBP.replace(" ", "")
         try:
             extendBP = (
-                [int(x) for x in stringValue.split(",")] if stringValue else []
+                [int(x) for x in stringValue.split(",")]
+                if stringValue
+                else []
             )
         except ValueError:
             raise ValueError(
@@ -118,18 +128,16 @@ class observationParams(NamedTuple):
     :param approximationWindowLengthBP: The length of the local approximation window in base pairs (BP)
         for the local variance calculation.
     :type approximationWindowLengthBP: int
-    :param sparseBedFile: The path to a BED file of 'sparse' regions for the local variance calculation.
+    :param sparseBedFile: The path to a BED file of 'sparse' regions for the local variance calculation. For genomes with default resources in `src/consenrich/data`, this may be left as `None`,
+      and a default annotation devoid of active regulatory elements will be used. Users can instead supply a custom BED file or set `observationParams.useALV` to `True` to avoid predefined annotations.
     :type sparseBedFile: str, optional
     :param noGlobal: If True, only the 'local' variances are used to approximate observation noise
         covariance :math:`\mathbf{R}_{[:, (11:mm)]}`.
     :type noGlobal: bool
-    :param useALV: Whether to use average local variance (ALV) to approximate observation noise
-        covariances per-sample, per-interval. Recommended for estimating signals associated with
-        repressive/heterochromatic elements.
+    :param useALV: Whether to use average local variance (ALV) heuristic exclusively to approximate observation noise
+        covariances per-sample, per-interval. Note that unrestricted ALV (i.e., without masking previously annotated high-signal regions) is comparatively vulnerable to inflated noise estimates in large enriched genomic domains.
     :type useALV: bool
-    :param useConstantNoiseLevel: Whether to use a constant noise level in the observation model.
-    :type useConstantNoiseLevel: bool
-    :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean').
+    :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
     :type lowPassFilterType: Optional[str]
     """
 
@@ -152,9 +160,9 @@ class stateParams(NamedTuple):
 
     :param stateInit: Initial value of the 'primary' state/signal at the first genomic interval: :math:`x_{[1]}`
     :type stateInit: float
-    :param stateCovarInit: Initial state covariance (covariance) scale. Note, the *initial* state uncertainty :math:`\mathbf{P}_{[1]}` is a multiple of the identity matrix :math:`\mathbf{I}`
+    :param stateCovarInit: Initial state covariance (covariance) scale. Note, the *initial* state uncertainty :math:`\mathbf{P}_{[1]}` is a multiple of the identity matrix :math:`\mathbf{I}`. Final results are typically insensitive to this parameter, since the filter effectively 'forgets' its initialization after processing a moderate number of intervals and backward smoothing.
     :type stateCovarInit: float
-    :param boundState: If True, the primary state estimate for :math:`x_{[i]}` is constrained within `stateLowerBound` and `stateUpperBound`.
+    :param boundState: If True, the primary state estimate for :math:`x_{[i]}` is reported within `stateLowerBound` and `stateUpperBound`. Note that the internal filtering is unaffected by this setting and the bounds are only applied to the final state estimates for convenience.
     :type boundState: bool
     :param stateLowerBound: Lower bound for the state estimate.
     :type stateLowerBound: float
@@ -267,7 +275,8 @@ class genomeParams(NamedTuple):
     :type chromSizesFile: str
     :param blacklistFile: A BED file with regions to exclude.
     :type blacklistFile: str, optional
-    :param sparseBedFile: A BED file with sparse regions used to estimate noise levels -- ignored if `observationParams.useALV` is True.
+    :param sparseBedFile: A BED file with 'sparse regions' used to estimate noise levels -- ignored if `observationParams.useALV` is True. 'Sparse regions' broadly refers to genomic intervals devoid of the targeted signal, based on prior annotations.
+      Users may supply a custom BED file and/or set `observationParams.useALV` to `True` to avoid relying on predefined annotations.
     :type sparseBedFile: str, optional
     :param chromosomes: A list of chromosome names to analyze. If None, all chromosomes in `chromSizesFile` are used.
     :type chromosomes: List[str]
@@ -350,13 +359,14 @@ class matchingParams(NamedTuple):
       For example, 'absResiduals' divides signal values by :math:`|\widetilde{y}_i|` at each
       position :math:`i`, thereby down-weighting positions where the signal estimate deviates from
       the data after accounting for observation noise. 'stateUncertainty' divides signal values by
-      the square root of the primary state variance :math:`\sqrt{\wildetilde{P}_{i,(11)}}` at each position :math:`i`,
-      thereby down-weighting positions where the posterior state uncertainty is high.
+      the square root of the primary state variance :math:`\sqrt{\widetilde{P}_{i,(11)}}` at each position :math:`i`,
+      thereby down-weighting positions where the posterior state uncertainty is high. 'muncTrace' divides signal values by
+      the square root of the average observation noise trace :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` at each position :math:`i`,
     :type penalizeBy: Optional[str]
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
-    :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
+    :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
     """
 
     templateNames: List[str]
@@ -373,6 +383,30 @@ class matchingParams(NamedTuple):
     penalizeBy: Optional[str]
     randSeed: Optional[int] = 42
     eps: Optional[float] = 1.0e-2
+
+
+class outputParams(NamedTuple):
+    r"""Parameters related to output files.
+
+    :param convertToBigWig: If True, output bedGraph files are converted to bigWig format.
+    :type convertToBigWig: bool
+    :param roundDigits: Number of decimal places to round output values (bedGraph)
+    :type roundDigits: int
+    :param writeResiduals: If True, write to a separate bedGraph the mean of precision-weighted residuals at each interval. These may be interpreted as
+        a measure of model mismatch. Where these quantities are large (+-) the estimated signal and uncertainty do not explain the observed deviation from the data.
+    :type writeResiduals: bool
+    :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' observation noise level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
+    :type writeMuncTrace: bool
+    :param writeStateStd: If True, write to a separate bedGraph estimated standard deviation of the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, at each interval. Note that an absolute Gaussian interpretation of this metric depends on sample size, arguments in :class:`processParams` and :class:`observationParams`, etc.
+        In any case, this metric may be interpreted as a relative measure of uncertainty in the state estimate at each interval.
+    :type writeStateStd: bool
+    """
+
+    convertToBigWig: bool
+    roundDigits: int
+    writeResiduals: bool
+    writeMuncTrace: bool
+    writeStateStd: bool
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:
@@ -578,13 +612,17 @@ def readBamSegments(
     if len(bamFiles) == 0:
         raise ValueError("bamFiles list is empty")
 
-    if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
+    if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(
+        bamFiles
+    ):
         raise ValueError(
             "readLengths and scaleFactors must match bamFiles length"
         )
 
     extendBP = resolveExtendBP(extendBP, bamFiles)
-    offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
+    offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(
+        ","
+    )
     numIntervals = ((end - start) + stepSize - 1) // stepSize
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
 
@@ -631,9 +669,9 @@ def getAverageLocalVarianceTrack(
     maxR: float,
     lowPassFilterType: Optional[str] = "median",
 ) -> npt.NDArray[np.float32]:
-    r"""Approximate a positional/local noise level track for a single sample's read-density-based values.
+    r"""Generate positional noise-level tracks with first and second moments approximated from local windows
 
-    First computes a moving average of ``values`` using a bp-length window
+    First, computes a moving average of ``values`` using a bp-length window
     ``approximationWindowLengthBP`` and a moving average of ``values**2`` over the
     same window. Their difference is used to approximate the local variance. A low-pass filter
     (median or mean) with window ``lowPassWindowLengthBP`` then smooths the variance track.
@@ -675,7 +713,9 @@ def getAverageLocalVarianceTrack(
 
     #  ~ E[X_i^2] - E[X_i]^2 ~
     localVarTrack: npt.NDArray[np.float32] = (
-        ndimage.uniform_filter(values**2, size=windowLength, mode="nearest")
+        ndimage.uniform_filter(
+            values**2, size=windowLength, mode="nearest"
+        )
         - localMeanTrack**2
     )
 
@@ -741,7 +781,9 @@ def constructMatrixQ(
     """
     minDiagQ = np.float32(minDiagQ)
     offDiagQ = np.float32(offDiagQ)
-    initMatrixQ: npt.NDArray[np.float32] = np.zeros((2, 2), dtype=np.float32)
+    initMatrixQ: npt.NDArray[np.float32] = np.zeros(
+        (2, 2), dtype=np.float32
+    )
     initMatrixQ[0, 0] = minDiagQ
     initMatrixQ[1, 1] = minDiagQ
     initMatrixQ[0, 1] = offDiagQ
@@ -795,11 +837,18 @@ def runConsenrich(
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
 ) -> Tuple[
-    npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.float32]
+    npt.NDArray[np.float32],
+    npt.NDArray[np.float32],
+    npt.NDArray[np.float32],
 ]:
     r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
     Completes the forward and backward passes given data and approximated observation noise
     covariance matrices :math:`\mathbf{R}_{[1:n, (11:mm)]}`.
+
+    This is the primary function implementing the core Consenrich algorithm. Users requiring specialized
+    preprocessing may prefer to call this function programmatically on their own preprocessed data rather
+    than using the command-line interface.
+
 
     :param matrixData: Read density data for a single chromosome or general contiguous segment,
       possibly preprocessed. Two-dimensional array of shape :math:`m \times n` where :math:`m`
@@ -856,7 +905,9 @@ def runConsenrich(
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
     IKH: np.ndarray = np.zeros(shape=(2, 2), dtype=np.float32)
-    matrixEInverse: np.ndarray = np.zeros(shape=(m, m), dtype=np.float32)
+    matrixEInverse: np.ndarray = np.zeros(
+        shape=(m, m), dtype=np.float32
+    )
 
     matrixF: np.ndarray = constructMatrixF(deltaF)
     matrixQ: np.ndarray = constructMatrixQ(minQ, offDiagQ=offDiagQ)
@@ -864,7 +915,9 @@ def runConsenrich(
     matrixP: np.ndarray = np.eye(2, dtype=np.float32) * np.float32(
         stateCovarInit
     )
-    matrixH: np.ndarray = constructMatrixH(m, coefficients=coefficientsH)
+    matrixH: np.ndarray = constructMatrixH(
+        m, coefficients=coefficientsH
+    )
     matrixK: np.ndarray = np.zeros((2, m), dtype=np.float32)
     vectorX: np.ndarray = np.array([stateInit, 0.0], dtype=np.float32)
     vectorY: np.ndarray = np.zeros(m, dtype=np.float32)
@@ -873,7 +926,9 @@ def runConsenrich(
     if residualCovarInversionFunc is None:
         residualCovarInversionFunc = cconsenrich.cinvertMatrixE
     if adjustProcessNoiseFunc is None:
-        adjustProcessNoiseFunc = cconsenrich.updateProcessNoiseCovariance
+        adjustProcessNoiseFunc = (
+            cconsenrich.updateProcessNoiseCovariance
+        )
 
     # ==========================
     # forward: 0,1,2,...,n-1
@@ -989,7 +1044,8 @@ def runConsenrich(
         ).T
         stateSmoothed[k] = (
             forwardStatePosterior
-            + smootherGain @ (stateSmoothed[k + 1] - backwardInitialState)
+            + smootherGain
+            @ (stateSmoothed[k + 1] - backwardInitialState)
         ).astype(np.float32)
 
         stateCovarSmoothed[k] = (
@@ -1015,7 +1071,11 @@ def runConsenrich(
             stateSmoothed[:, 0], stateLowerBound, stateUpperBound
         ).astype(np.float32)
 
-    return stateSmoothed[:], stateCovarSmoothed[:], postFitResiduals[:]
+    return (
+        stateSmoothed[:],
+        stateCovarSmoothed[:],
+        postFitResiduals[:],
+    )
 
 
 def getPrimaryState(
@@ -1028,7 +1088,7 @@ def getPrimaryState(
     :return: A one-dimensional numpy array of the primary state estimates.
     :rtype: npt.NDArray[np.float32]
     """
-    out_ = np.ascontiguousarray(stateVectors[:,0], dtype=np.float32)
+    out_ = np.ascontiguousarray(stateVectors[:, 0], dtype=np.float32)
     np.round(out_, decimals=roundPrecision, out=out_)
     return out_
 
@@ -1092,7 +1152,9 @@ def getPrecisionWeightedResidual(
     )
 
     needsCopy = (
-        (stateCovarSmoothed is not None) and len(stateCovarSmoothed) == n) or (not matrixMunc.flags.writeable)
+        (stateCovarSmoothed is not None)
+        and len(stateCovarSmoothed) == n
+    ) or (not matrixMunc.flags.writeable)
 
     matrixMunc_CContig = np.array(
         matrixMunc, dtype=np.float32, order="C", copy=needsCopy
@@ -1101,10 +1163,14 @@ def getPrecisionWeightedResidual(
     if needsCopy:
         # adds the 'primary' state uncertainty to observation noise covariance :math:`\mathbf{R}_{[i,:]}`
         # primary state uncertainty (0,0) :math:`\mathbf{P}_{[i]} \in \mathbb{R}^{2 \times 2}`
-        stateCovarArr00 = np.asarray(stateCovarSmoothed[:, 0, 0], dtype=np.float32)
+        stateCovarArr00 = np.asarray(
+            stateCovarSmoothed[:, 0, 0], dtype=np.float32
+        )
         matrixMunc_CContig += stateCovarArr00
 
-    np.maximum(matrixMunc_CContig, np.float32(1e-8), out=matrixMunc_CContig)
+    np.maximum(
+        matrixMunc_CContig, np.float32(1e-8), out=matrixMunc_CContig
+    )
     out = cconsenrich.cgetPrecisionWeightedResidual(
         postFitResiduals_CContig, matrixMunc_CContig
     )
@@ -1188,7 +1254,11 @@ def getMuncTrack(
     if noGlobal or globalWeight == 0 or useALV:
         return np.clip(trackALV, minR, maxR).astype(np.float32)
 
-    if useConstantNoiseLevel or localWeight == 0 and sparseMap is None:
+    if (
+        useConstantNoiseLevel
+        or localWeight == 0
+        and sparseMap is None
+    ):
         return np.clip(
             globalNoise * np.ones_like(rowValues), minR, maxR
         ).astype(np.float32)
@@ -1197,7 +1267,9 @@ def getMuncTrack(
         trackALV = cconsenrich.cSparseAvg(trackALV, sparseMap)
 
     return np.clip(
-        trackALV * localWeight + np.mean(trackALV) * globalWeight, minR, maxR
+        trackALV * localWeight + np.mean(trackALV) * globalWeight,
+        minR,
+        maxR,
     ).astype(np.float32)
 
 
@@ -1262,7 +1334,9 @@ def sparseIntersection(
     return np.asarray(centeredStarts, dtype=np.int64)
 
 
-def adjustFeatureBounds(feature: bed.Interval, stepSize: int) -> bed.Interval:
+def adjustFeatureBounds(
+    feature: bed.Interval, stepSize: int
+) -> bed.Interval:
     r"""Adjust the start and end positions of a BED feature to be centered around a step."""
     feature.start = cconsenrich.stepAdjustment(
         (feature.start + feature.end) // 2, stepSize
@@ -1292,8 +1366,12 @@ def getSparseMap(
 
     """
     numNearest = numNearest
-    sparseStarts = sparseIntersection(chromosome, intervals, sparseBedFile)
-    idxSparseInIntervals = np.searchsorted(intervals, sparseStarts, side="left")
+    sparseStarts = sparseIntersection(
+        chromosome, intervals, sparseBedFile
+    )
+    idxSparseInIntervals = np.searchsorted(
+        intervals, sparseStarts, side="left"
+    )
     centers = np.searchsorted(sparseStarts, intervals, side="left")
     sparseMap: dict = {}
     for i, (interval, center) in enumerate(zip(intervals, centers)):
@@ -1328,13 +1406,17 @@ def getBedMask(
     if not os.path.exists(bedFile):
         raise ValueError(f"Could not find {bedFile}")
     if len(intervals) < 2:
-        raise ValueError("intervals must contain at least two positions")
+        raise ValueError(
+            "intervals must contain at least two positions"
+        )
     bedFile_ = str(bedFile)
 
     # (possibly redundant) creation of uint32 version
     # + quick check for constant steps
     intervals_ = np.asarray(intervals, dtype=np.uint32)
-    if (intervals_[1] - intervals_[0]) != (intervals_[-1] - intervals_[-2]):
+    if (intervals_[1] - intervals_[0]) != (
+        intervals_[-1] - intervals_[-2]
+    ):
         raise ValueError("Intervals are not fixed in size")
 
     stepSize_: int = intervals[1] - intervals[0]
