@@ -653,9 +653,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         penalizeBy=_cfgGet(
             configData, "matchingParams.penalizeBy", None
         ),
-        eps=_cfgGet(
-            configData, "matchingParams.eps", 1.0e-2
-        ),
+        eps=_cfgGet(configData, "matchingParams.eps", 1.0e-2),
     )
 
     return {

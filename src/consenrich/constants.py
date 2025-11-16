@@ -142,7 +142,9 @@ def getEffectiveGenomeSize(genome: str, readLength: int) -> int:
     raise ValueError(f"Defaults not available for {genome}")
 
 
-def getGenomeResourceFile(genome: str, fileType: str, dir_: str = "data"):
+def getGenomeResourceFile(
+    genome: str, fileType: str, dir_: str = "data"
+):
     r"""Get the path to a genome resource file.
 
     :param genome: the genome assembly. See :func:`consenrich.constants.resolveGenomeName` and :class:`consenrich.core.genomeParams`.
@@ -164,5 +166,7 @@ def getGenomeResourceFile(genome: str, fileType: str, dir_: str = "data"):
         os.path.dirname(__file__), os.path.join(dir_, fileName)
     )
     if not os.path.exists(filePath):
-        raise FileNotFoundError(f"Resource file {filePath} does not exist.")
+        raise FileNotFoundError(
+            f"Resource file {filePath} does not exist."
+        )
     return filePath

@@ -7,7 +7,15 @@ Consenrich core functions and classes.
 import logging
 import os
 from tempfile import NamedTemporaryFile
-from typing import Callable, List, Optional, Tuple, DefaultDict, Any, NamedTuple
+from typing import (
+    Callable,
+    List,
+    Optional,
+    Tuple,
+    DefaultDict,
+    Any,
+    NamedTuple,
+)
 
 import numpy as np
 import numpy.typing as npt
@@ -31,7 +39,9 @@ def resolveExtendBP(extendBP, bamFiles: List[str]) -> List[int]:
         stringValue = extendBP.replace(" ", "")
         try:
             extendBP = (
-                [int(x) for x in stringValue.split(",")] if stringValue else []
+                [int(x) for x in stringValue.split(",")]
+                if stringValue
+                else []
             )
         except ValueError:
             raise ValueError(
@@ -578,13 +588,17 @@ def readBamSegments(
     if len(bamFiles) == 0:
         raise ValueError("bamFiles list is empty")
 
-    if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
+    if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(
+        bamFiles
+    ):
         raise ValueError(
             "readLengths and scaleFactors must match bamFiles length"
         )
 
     extendBP = resolveExtendBP(extendBP, bamFiles)
-    offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
+    offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(
+        ","
+    )
     numIntervals = ((end - start) + stepSize - 1) // stepSize
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
 
@@ -675,7 +689,9 @@ def getAverageLocalVarianceTrack(
 
     #  ~ E[X_i^2] - E[X_i]^2 ~
     localVarTrack: npt.NDArray[np.float32] = (
-        ndimage.uniform_filter(values**2, size=windowLength, mode="nearest")
+        ndimage.uniform_filter(
+            values**2, size=windowLength, mode="nearest"
+        )
         - localMeanTrack**2
     )
 
@@ -741,7 +757,9 @@ def constructMatrixQ(
     """
     minDiagQ = np.float32(minDiagQ)
     offDiagQ = np.float32(offDiagQ)
-    initMatrixQ: npt.NDArray[np.float32] = np.zeros((2, 2), dtype=np.float32)
+    initMatrixQ: npt.NDArray[np.float32] = np.zeros(
+        (2, 2), dtype=np.float32
+    )
     initMatrixQ[0, 0] = minDiagQ
     initMatrixQ[1, 1] = minDiagQ
     initMatrixQ[0, 1] = offDiagQ
@@ -795,7 +813,9 @@ def runConsenrich(
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
 ) -> Tuple[
-    npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.float32]
+    npt.NDArray[np.float32],
+    npt.NDArray[np.float32],
+    npt.NDArray[np.float32],
 ]:
     r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
     Completes the forward and backward passes given data and approximated observation noise
@@ -856,7 +876,9 @@ def runConsenrich(
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
     IKH: np.ndarray = np.zeros(shape=(2, 2), dtype=np.float32)
-    matrixEInverse: np.ndarray = np.zeros(shape=(m, m), dtype=np.float32)
+    matrixEInverse: np.ndarray = np.zeros(
+        shape=(m, m), dtype=np.float32
+    )
 
     matrixF: np.ndarray = constructMatrixF(deltaF)
     matrixQ: np.ndarray = constructMatrixQ(minQ, offDiagQ=offDiagQ)
@@ -864,7 +886,9 @@ def runConsenrich(
     matrixP: np.ndarray = np.eye(2, dtype=np.float32) * np.float32(
         stateCovarInit
     )
-    matrixH: np.ndarray = constructMatrixH(m, coefficients=coefficientsH)
+    matrixH: np.ndarray = constructMatrixH(
+        m, coefficients=coefficientsH
+    )
     matrixK: np.ndarray = np.zeros((2, m), dtype=np.float32)
     vectorX: np.ndarray = np.array([stateInit, 0.0], dtype=np.float32)
     vectorY: np.ndarray = np.zeros(m, dtype=np.float32)
@@ -873,7 +897,9 @@ def runConsenrich(
     if residualCovarInversionFunc is None:
         residualCovarInversionFunc = cconsenrich.cinvertMatrixE
     if adjustProcessNoiseFunc is None:
-        adjustProcessNoiseFunc = cconsenrich.updateProcessNoiseCovariance
+        adjustProcessNoiseFunc = (
+            cconsenrich.updateProcessNoiseCovariance
+        )
 
     # ==========================
     # forward: 0,1,2,...,n-1
@@ -989,7 +1015,8 @@ def runConsenrich(
         ).T
         stateSmoothed[k] = (
             forwardStatePosterior
-            + smootherGain @ (stateSmoothed[k + 1] - backwardInitialState)
+            + smootherGain
+            @ (stateSmoothed[k + 1] - backwardInitialState)
         ).astype(np.float32)
 
         stateCovarSmoothed[k] = (
@@ -1015,7 +1042,11 @@ def runConsenrich(
             stateSmoothed[:, 0], stateLowerBound, stateUpperBound
         ).astype(np.float32)
 
-    return stateSmoothed[:], stateCovarSmoothed[:], postFitResiduals[:]
+    return (
+        stateSmoothed[:],
+        stateCovarSmoothed[:],
+        postFitResiduals[:],
+    )
 
 
 def getPrimaryState(
@@ -1028,7 +1059,7 @@ def getPrimaryState(
     :return: A one-dimensional numpy array of the primary state estimates.
     :rtype: npt.NDArray[np.float32]
     """
-    out_ = np.ascontiguousarray(stateVectors[:,0], dtype=np.float32)
+    out_ = np.ascontiguousarray(stateVectors[:, 0], dtype=np.float32)
     np.round(out_, decimals=roundPrecision, out=out_)
     return out_
 
@@ -1092,7 +1123,9 @@ def getPrecisionWeightedResidual(
     )
 
     needsCopy = (
-        (stateCovarSmoothed is not None) and len(stateCovarSmoothed) == n) or (not matrixMunc.flags.writeable)
+        (stateCovarSmoothed is not None)
+        and len(stateCovarSmoothed) == n
+    ) or (not matrixMunc.flags.writeable)
 
     matrixMunc_CContig = np.array(
         matrixMunc, dtype=np.float32, order="C", copy=needsCopy
@@ -1101,10 +1134,14 @@ def getPrecisionWeightedResidual(
     if needsCopy:
         # adds the 'primary' state uncertainty to observation noise covariance :math:`\mathbf{R}_{[i,:]}`
         # primary state uncertainty (0,0) :math:`\mathbf{P}_{[i]} \in \mathbb{R}^{2 \times 2}`
-        stateCovarArr00 = np.asarray(stateCovarSmoothed[:, 0, 0], dtype=np.float32)
+        stateCovarArr00 = np.asarray(
+            stateCovarSmoothed[:, 0, 0], dtype=np.float32
+        )
         matrixMunc_CContig += stateCovarArr00
 
-    np.maximum(matrixMunc_CContig, np.float32(1e-8), out=matrixMunc_CContig)
+    np.maximum(
+        matrixMunc_CContig, np.float32(1e-8), out=matrixMunc_CContig
+    )
     out = cconsenrich.cgetPrecisionWeightedResidual(
         postFitResiduals_CContig, matrixMunc_CContig
     )
@@ -1188,7 +1225,11 @@ def getMuncTrack(
     if noGlobal or globalWeight == 0 or useALV:
         return np.clip(trackALV, minR, maxR).astype(np.float32)
 
-    if useConstantNoiseLevel or localWeight == 0 and sparseMap is None:
+    if (
+        useConstantNoiseLevel
+        or localWeight == 0
+        and sparseMap is None
+    ):
         return np.clip(
             globalNoise * np.ones_like(rowValues), minR, maxR
         ).astype(np.float32)
@@ -1197,7 +1238,9 @@ def getMuncTrack(
         trackALV = cconsenrich.cSparseAvg(trackALV, sparseMap)
 
     return np.clip(
-        trackALV * localWeight + np.mean(trackALV) * globalWeight, minR, maxR
+        trackALV * localWeight + np.mean(trackALV) * globalWeight,
+        minR,
+        maxR,
     ).astype(np.float32)
 
 
@@ -1262,7 +1305,9 @@ def sparseIntersection(
     return np.asarray(centeredStarts, dtype=np.int64)
 
 
-def adjustFeatureBounds(feature: bed.Interval, stepSize: int) -> bed.Interval:
+def adjustFeatureBounds(
+    feature: bed.Interval, stepSize: int
+) -> bed.Interval:
     r"""Adjust the start and end positions of a BED feature to be centered around a step."""
     feature.start = cconsenrich.stepAdjustment(
         (feature.start + feature.end) // 2, stepSize
@@ -1292,8 +1337,12 @@ def getSparseMap(
 
     """
     numNearest = numNearest
-    sparseStarts = sparseIntersection(chromosome, intervals, sparseBedFile)
-    idxSparseInIntervals = np.searchsorted(intervals, sparseStarts, side="left")
+    sparseStarts = sparseIntersection(
+        chromosome, intervals, sparseBedFile
+    )
+    idxSparseInIntervals = np.searchsorted(
+        intervals, sparseStarts, side="left"
+    )
     centers = np.searchsorted(sparseStarts, intervals, side="left")
     sparseMap: dict = {}
     for i, (interval, center) in enumerate(zip(intervals, centers)):
@@ -1328,13 +1377,17 @@ def getBedMask(
     if not os.path.exists(bedFile):
         raise ValueError(f"Could not find {bedFile}")
     if len(intervals) < 2:
-        raise ValueError("intervals must contain at least two positions")
+        raise ValueError(
+            "intervals must contain at least two positions"
+        )
     bedFile_ = str(bedFile)
 
     # (possibly redundant) creation of uint32 version
     # + quick check for constant steps
     intervals_ = np.asarray(intervals, dtype=np.uint32)
-    if (intervals_[1] - intervals_[0]) != (intervals_[-1] - intervals_[-2]):
+    if (intervals_[1] - intervals_[0]) != (
+        intervals_[-1] - intervals_[-2]
+    ):
         raise ValueError("Intervals are not fixed in size")
 
     stepSize_: int = intervals[1] - intervals[0]

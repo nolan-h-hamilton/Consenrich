@@ -72,10 +72,14 @@ def getScaleFactor1x(
         raise ValueError(
             f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}."
         )
-    return round(effectiveGenomeSize / (totalMappedReads * readLength), 4)
+    return round(
+        effectiveGenomeSize / (totalMappedReads * readLength), 4
+    )
 
 
-def getScaleFactorPerMillion(bamFile: str, excludeChroms: List[str]) -> float:
+def getScaleFactorPerMillion(
+    bamFile: str, excludeChroms: List[str]
+) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
     :param bamFile: See :class:`consenrich.core.inputParams`.
@@ -172,7 +176,9 @@ def getPairScaleFactors(
         f"Final scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
     )
 
-    ratio = max(scaleFactorA, scaleFactorB) / min(scaleFactorA, scaleFactorB)
+    ratio = max(scaleFactorA, scaleFactorB) / min(
+        scaleFactorA, scaleFactorB
+    )
     if ratio > 5.0:
         logger.warning(
             f"Scale factors differ > 5x....\n"
@@ -219,7 +225,9 @@ def detrendTrack(
     if size < 3:
         raise ValueError("Required: windowLengthBP > 3*stepSize.")
     if len(values) < size:
-        raise ValueError("values length must be greater than windowLength.")
+        raise ValueError(
+            "values length must be greater than windowLength."
+        )
 
     if useOrderStatFilter and usePolyFilter:
         logger.warning(
@@ -236,4 +244,6 @@ def detrendTrack(
             values, size, detrendSavitzkyGolayDegree
         )
 
-    return values - ndimage.uniform_filter1d(values, size=size, mode="nearest")
+    return values - ndimage.uniform_filter1d(
+        values, size=size, mode="nearest"
+    )
