@@ -41,11 +41,10 @@ def autoMinLengthIntervals(
     """
     trValues = np.asinh(values) - signal.medfilt(
         np.asinh(values),
-        kernel_size=
-            max(
-                (2 * initLen) + 1,
-                2 * (int(len(values) * 0.005)) + 1,
-            )
+        kernel_size=max(
+            (2 * initLen) + 1,
+            2 * (int(len(values) * 0.005)) + 1,
+        ),
     )
     nz = trValues[trValues > 0]
     if len(nz) == 0:
@@ -272,6 +271,7 @@ def matchWavelet(
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
+    eps: float = 1.0e-2,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -311,7 +311,13 @@ def matchWavelet(
     :type useScalingFunction: bool
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]
-
+    :param recenterAtPointSource: If True, recenter detected matches at the point source (max value)
+    :type recenterAtPointSource: bool
+    :param weights: Optional weights to apply to `values` prior to matching. Must have the same length as `values`.
+    :type weights: Optional[npt.NDArray[np.float64]]
+    :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
+        inequalities when identifying discrete relative maxima.
+    :type eps: float
     :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     :return: A pandas DataFrame with detected matches
     :rtype: pd.DataFrame
@@ -336,19 +342,17 @@ def matchWavelet(
     intervalLengthBp = intervals[1] - intervals[0]
 
     if minMatchLengthBP is not None and minMatchLengthBP < 1:
-        minMatchLengthBP = (
-            autoMinLengthIntervals(values) * int(intervalLengthBp)
+        minMatchLengthBP = autoMinLengthIntervals(values) * int(
+            intervalLengthBp
         )
     elif minMatchLengthBP is None:
         minMatchLengthBP = 250
 
-    logger.info(
-        f"\n\tUsing minMatchLengthBP: {minMatchLengthBP}"
-    )
+    logger.info(f"\n\tUsing minMatchLengthBP: {minMatchLengthBP}")
 
     if not np.all(np.abs(np.diff(intervals)) == intervalLengthBp):
         raise ValueError("`intervals` must be evenly spaced.")
-    
+
     if weights is not None:
         if len(weights) != len(values):
             logger.warning(
@@ -356,9 +360,10 @@ def matchWavelet(
             )
         else:
             values = values * weights
-    
+
     asinhValues = np.asinh(values, dtype=np.float32)
     asinhNonZeroValues = asinhValues[asinhValues > 0]
+
     iters = max(int(iters), 1000)
     defQuantile = 0.75
     chromMin = int(intervals[0])
@@ -423,9 +428,47 @@ def matchWavelet(
         )
 
     def relativeMaxima(
-        resp: np.ndarray, orderBins: int
+        resp: np.ndarray, orderBins: int, eps: float = None
     ) -> np.ndarray:
-        return signal.argrelmax(resp, order=max(int(orderBins), 1))[0]
+        order_: int = max(int(orderBins), 1)
+        if eps is None:
+            eps = np.finfo(resp.dtype).eps * 10
+
+        def ge_with_tol(a, b):
+            return a > (b - eps)
+
+        # get initial set using loosened criterion
+        idx = signal.argrelextrema(
+            resp, comparator=ge_with_tol, order=order_
+        )[0]
+        if idx.size == 0:
+            return idx
+
+        if eps > 0.0:
+            groups = []
+            start, prev = idx[0], idx[0]
+            for x in idx[1:]:
+                # case: still contiguous
+                if x == prev + 1:
+                    prev = x
+                else:
+                    # case: a gap --> break off from previous group
+                    groups.append((start, prev))
+                    start = x
+                    prev = x
+            groups.append((start, prev))
+
+            centers: list[int] = []
+            for s, e in groups:
+                if s == e:
+                    centers.append(s)
+                else:
+                    # for each `group` of tied indices, picks the center
+                    centers.append((s + e) // 2)
+
+            return np.asarray(centers, dtype=np.intp)
+
+        return idx
 
     def sampleBlockMaxima(
         resp: np.ndarray,
@@ -433,6 +476,7 @@ def matchWavelet(
         relWindowBins: int,
         nsamp: int,
         seed: int,
+        eps: float,
     ):
         exMask = excludeMaskGlobal.astype(np.uint8).copy()
         exMask |= (~halfMask).astype(np.uint8)
@@ -444,6 +488,7 @@ def matchWavelet(
                 int(nsamp),
                 int(seed),
                 exMask.astype(np.uint8),
+                np.float64(eps if eps is not None else 0.0),
             ),
             dtype=float,
         )
@@ -505,6 +550,7 @@ def matchWavelet(
                 relWindowBins,
                 nsamp=max(iters, 1000),
                 seed=rng.integers(1, 10_000),
+                eps=eps,
             )
             if len(blockMaxima) < 25:
                 pooledMask = ~excludeMaskGlobal.astype(bool)
@@ -514,9 +560,12 @@ def matchWavelet(
                     relWindowBins,
                     nsamp=max(iters, 1000),
                     seed=rng.integers(1, 10_000),
+                    eps=eps,
                 )
             ecdfSf = stats.ecdf(blockMaxima).sf
-            candidateIdx = relativeMaxima(response, relWindowBins)
+            candidateIdx = relativeMaxima(
+                response, relWindowBins, eps=eps
+            )
 
             candidateMask = (
                 (candidateIdx >= relWindowBins)
@@ -574,7 +623,9 @@ def matchWavelet(
                 float(np.max(sqScores)),
             )
             rangeR = max(maxR - minR, 1.0)
-            scores = (250 + 750 * (sqScores - minR) / rangeR).astype(int)
+            scores = (250 + 750 * (sqScores - minR) / rangeR).astype(
+                int
+            )
             for i, idxVal in enumerate(candidateIdx):
                 allRows.append(
                     {

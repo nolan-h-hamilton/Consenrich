@@ -353,6 +353,9 @@ class matchingParams(NamedTuple):
       the square root of the primary state variance :math:`\sqrt{\wildetilde{P}_{i,(11)}}` at each position :math:`i`,
       thereby down-weighting positions where the posterior state uncertainty is high.
     :type penalizeBy: Optional[str]
+    :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
+        inequalities when identifying discrete relative maxima.
+    :type eps: float
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     """
 
@@ -369,6 +372,7 @@ class matchingParams(NamedTuple):
     excludeRegionsBedFile: Optional[str]
     penalizeBy: Optional[str]
     randSeed: Optional[int] = 42
+    eps: Optional[float] = 1.0e-2
 
 
 def _numIntervals(start: int, end: int, step: int) -> int:
