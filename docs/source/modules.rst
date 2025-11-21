@@ -104,11 +104,11 @@ In this documentation, we assume :math:`\widetilde{\mathbf{x}}` is the Consenric
 #. *Enrichment* (large relative amplitude)
 #. *Non-random structure* defined by a robust template (polynomial, oscillatory, etc.)
 
-**Why**: Prioritizing genomic regions that are both enriched and show a prescribed level of structure is appealing for several reasons. Namely,
+**Why**: Prioritizing genomic regions that are both enriched and agree with a prescribed structure is appealing for several reasons. Namely,
 
 * **Targeted detection** of biologically relevant signal patterns in a given assay (e.g., see related works analyzing peak-shape `Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
 * **Improved confidence** that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
-* **Speed**: Runs genome-wide in seconds/minutes using efficient Fast Fourier Transform (FFT)-based calculations.
+* **Speed**: Runs in seconds/minutes using efficient numerical methods to compute large chromosome-scale convolutions (fast fourier transform (FFT)-based, overlap-add (OA), etc.)
 
 In the case of Consenrich, that the primary signal estimates in :math:`\{\widetilde{x}_{[i]}\}^{n}` are reinforced by multiple samples and account for relevant sources of uncertainty is advantageous--it provides a more reliable basis for evaluating legitimate structure and identifying high-resolution features.
 
@@ -116,7 +116,7 @@ Algorithm Overview
 """"""""""""""""""""""
 
 To detect structured peaks, we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_, with
-*templates* derived from discrete wavelet/scaling functions.
+*templates* derived from approximated discrete `wavelets <https://pywavelets.readthedocs.io/en/latest/ref/wavelets.html>`_ or their scaling functions.
 
 .. math::
 
@@ -127,36 +127,31 @@ Denote the cross-correlation between the consensus signal :math:`\widetilde{\mat
 
 .. math::
 
-  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi}.
-
-Explicitly,
+  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi},
 
 .. math::
 
   \mathcal{R}_{[i]} = \sum_{t=1}^{t=T} \widetilde{x}_{[i+t-1]} \cdot \xi_{[t]}.
 
-We refer to :math:`\mathcal{R}` over :math:`i=1 \ldots n` as the *response sequence*.
+We refer to :math:`\mathcal{R}` over :math:`i=1 \ldots n` as the *response sequence*. The response is large in genomic regions where :math:`\widetilde{x}_{[i]}` is high in amplitude and correlated  with the (unit-normed) template :math:`\boldsymbol{\xi}`.
 
-This response is greatest at genomic intervals where :math:`\widetilde{x}_{[i]}` is large and exhibits a structure/shape similar to the template :math:`\boldsymbol{\xi}`.
+To detect significant hits,
 
-* To detect significant hits, we first construct an empirical null distribution of blockwise maxima in the response sequence, :math:`\mathcal{R}`
-
-  * That is, we randomly sample :math:`B` distinct blocks of genomic intervals and record each :math:`\max(\mathcal{R}_{[b_1]}, \ldots, \mathcal{R}_{[b_K]})`. Default :math:`B = 25000`.
-  * The size of each sampled block (:math:`K`) is drawn from a (truncated) geometric distribution with a mean equal to the desired feature size or template length, :math:`T`.
+* We first construct an empirical distribution of randomly-sampled blockwise maxima values in the response sequence, :math:`\mathcal{R}` That is, we sample :math:`B` distinct blocks of genomic intervals and record each :math:`\max(\mathcal{R}_{[b_1]}, \ldots, \mathcal{R}_{[b_K]})`. Default :math:`B = 25000`. Note, the size of each sampled block (:math:`K`) is drawn from a (truncated) geometric distribution with a mean equal to the desired feature size or template length, :math:`T`.
 
 * Relative maxima in the response sequence, i.e., :math:`i^*` such that :math:`\mathcal{R}_{[i^* - 1 \,:\, i^* - T/2]}\, \leq \, \mathcal{R}_{[i^*]} \, \geq \, \mathcal{R}_{[i^* + 1 \,:\, i^* + T/2]}` are identified as candidate matches.
 
-* Each of the candidates is then assigned a :math:`p`-value based on the empirical null distribution of blockwise maxima. Those satisfying :math:`p_{\textsf{adj}} < \alpha` are deemed significant. Default :math:`\alpha = 0.05`.
+* Each of the candidates is then assigned an empirical :math:`p`-value based on its (interpolated) quantile in the empirical null distribution. Those satisfying :math:`p_{\textsf{adj}} < \alpha` are deemed significant. Default :math:`\alpha = 0.05`.
 
   * Additional criteria can be applied: e.g., require the *signal values* at candidate peaks, :math:`\widetilde{x}_{[i^*]}`, to exceed a cutoff (`matchingParams.minSignalAtMaxima`), and/or require the *length* of the matched feature to exceed a minimum size (`matchingParams.minMatchLengthBP`).
   * Overlapping/adjacent matches can be merged.
 
 .. note:: **Alternating Sampling Scheme**
 
-  To avoid overlaps/leakage when testing significance, note that the mentioned empirical null distributions are built from held-out genomic intervals (i.e., those *not* being tested for matches).
+  The empirical distributions are built from held-out genomic intervals (i.e., those *not* being tested for matches).
 
-  Specifically, we first build empirical null distributions on the first :math:`M < n` genomic intervals in a given chromosome. We then detect peaks on the remaining :math:`n - M` intervals.
-  A second empirical null is then built on the previously tested `n - M` intervals, and peaks are detected on the first :math:`M` intervals. This alternating procedure continues until all intervals have been tested.
+  Specifically, we first sample blocks from the first :math:`M < n` genomic intervals in a given chromosome. We then detect peaks on the remaining :math:`n - M` intervals.
+  A second empirical null is then built on the previously tested `n - M` intervals, and peaks are detected on the first :math:`M` intervals.
 
 
 **Thresholds**
@@ -170,7 +165,7 @@ This response is greatest at genomic intervals where :math:`\widetilde{x}_{[i]}`
   - *To disable*: set to a negative numeric value.
 
 * ``matchingParams.minMatchLengthBP``: (Optional)
-  Minimum feature length in base pairs (default ``250``).
+  Minimum feature length in base pairs (Default ``250``. Use `-1` for 'auto', data-driven selection).
 
 
 **Generic Defaults**
@@ -181,12 +176,11 @@ The following defaults should provide a strong starting point for many use cases
 
   matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [2, 2]
-  matchingParams.minMatchLengthBP: -1 # set as `-1` for 'auto', data-driven selection
+  matchingParams.minMatchLengthBP: -1 # auto-select based on data
+  matchingParams.mergeGapBP: -1 # half of `minMatchLengthBP`
   matchingParams.alpha: 0.05
   matchingParams.minSignalAtMaxima: 'q:0.75'
-  matchingParams.merge: true
 
-If unspecified, `matchingParams.mergeGapBP` is set to half of `matchingParams.minMatchLengthBP`.
 
 **Note**, the matching algorithm can be run at the command-line on *existing* bedGraph files from previous Consenrich runs.
 This avoids re-running Consenrich end-to-end when only matching/peak-calling is desired. For instance,

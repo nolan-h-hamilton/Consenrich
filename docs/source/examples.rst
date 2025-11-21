@@ -104,12 +104,8 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   # Optional: call 'structured peaks' via `consenrich.matching`
   matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [3, 3]
-
-  # `minMatchLengthBP: -1` -->
-  # ...Compute from the data as the avg. length
-  #... of positive-valued segments (standardized)
   matchingParams.minMatchLengthBP: -1
-  matchingParams.mergeGapBP: 250
+  matchingParams.mergeGapBP: -1
 
 
 .. admonition:: Control Inputs
@@ -400,17 +396,16 @@ Using the set of Consenrich peaks, we apply `bedtools shuffle` to permute their 
 
 - Peaks: Exon Overlaps (bp)
 
-  - *Shuffle*: mean exonic overlap (:math:`N=250` iterations): μ ≈ 1,134,214, σ ≈ 25,008.34
+  - *Shuffled (Null)*: mean exonic overlap (:math:`N=250` iterations): μ ≈ 1,134,214, σ ≈ 25,008.34
   - *Consenrich*: observed exonic overlap: **7,510,079**
 
     - *Fold-enrichment*: :math:`7.14`, :math:`\hat{p} \approx 0.0039`
 
 - Relative Signals: All Consenrich Peaks vs. Consenrich Peaks :math:`\cap` Exons
 
-  - Median signal at peak-exon overlaps: **9.554**
-  - Median signal at peaks elsewhere: **5.950**
+  - Median signal at peaks that overlap exons: **9.554**
+  - Median signal at all peaks: **5.950**
 
-    - :math:`\Delta \textsf{MedianSignal} \approx 3.6, \hat{p} \approx 0.001`
 
 
 .. _files:
