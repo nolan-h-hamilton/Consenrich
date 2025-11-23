@@ -275,10 +275,15 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         configData, "outputParams.writeStateStd", False
     )
 
+    writeRawResiduals: bool = _cfgGet(
+        configData, "outputParams.writeRawResiduals", False
+    )
+
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeResiduals=writeResiduals_,
+        writeRawResiduals=writeRawResiduals,
         writeMuncTrace=writeMuncTrace,
         writeStateStd=writeStateStd,
     )
@@ -413,7 +418,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     rescaleToTreatmentCoverageFlag = _cfgGet(
         configData,
         "countingParams.rescaleToTreatmentCoverage",
-        True,
+        False,
     )
 
     if scaleFactorList is not None and not isinstance(
@@ -512,14 +517,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         maxQ=_cfgGet(configData, "processParams.maxQ", 500.0),
         offDiagQ=_cfgGet(configData, "processParams.offDiagQ", 0.0),
         dStatAlpha=_cfgGet(
-            configData, "processParams.dStatAlpha", 3.0
+            configData, "processParams.dStatAlpha", 2.0
         ),
-        dStatd=_cfgGet(configData, "processParams.dStatd", 10.0),
+        dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
         scaleResidualsByP11=_cfgGet(
             configData,
             "processParams.scaleResidualsByP11",
-            False,
+            True,
         ),
     )
 
@@ -1082,7 +1087,6 @@ def main():
         )
         if controlsPresent:
             j_: int = 0
-            finalSF = 1.0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
                 logger.info(
                     f"Counting (trt,ctrl) for {chromosome}: ({bamA}, {bamB})"
@@ -1110,11 +1114,8 @@ def main():
                     applyLog=countingArgs.applyLog,
                     countEndsOnly=samArgs.countEndsOnly,
                 )
-                if countingArgs.rescaleToTreatmentCoverage:
-                    finalSF = max(
-                        1.0, initialTreatmentScaleFactors[j_]
-                    )
-                chromMat[j_, :] = finalSF * (
+
+                chromMat[j_, :] = (
                     pairMatrix[0, :] - pairMatrix[1, :]
                 )
                 j_ += 1
@@ -1236,8 +1237,7 @@ def main():
             elif matchingArgs.penalizeBy == "muncTrace":
                 try:
                     weights_ = np.sqrt(
-                        np.trace(muncMat, axis1=0, axis2=1)
-                        / numSamples
+                        np.mean(muncMat.astype(np.float64), axis=0)
                     )
                 except Exception as e:
                     logger.warning(
@@ -1261,8 +1261,13 @@ def main():
 
         if outputArgs.writeResiduals:
             df["Res"] = y_.astype(np.float32) # FFR: cast necessary?
+        if outputArgs.writeRawResiduals:
+            df["RawRes"] = np.mean(y, axis=1).astype(np.float32)
         if outputArgs.writeMuncTrace:
-            df["Munc"] = np.sqrt(np.trace(muncMat, axis1=0, axis2=1) / numSamples).astype(np.float32)
+            munc_std = np.sqrt(
+                np.mean(muncMat.astype(np.float64), axis=0)
+            ).astype(np.float32)
+            df["Munc"] = munc_std
         if outputArgs.writeStateStd:
             df["StateStd"] = np.sqrt(P[:, 0, 0]).astype(np.float32)
         cols_ = ["Chromosome", "Start", "End", "State"]
@@ -1272,6 +1277,8 @@ def main():
             cols_.append("Munc")
         if outputArgs.writeStateStd:
             cols_.append("StateStd")
+        if outputArgs.writeRawResiduals:
+            cols_.append("RawRes")
         df = df[cols_]
         suffixes = ['state']
         if outputArgs.writeResiduals:
@@ -1280,6 +1287,8 @@ def main():
             suffixes.append('muncTraces')
         if outputArgs.writeStateStd:
             suffixes.append('stdDevs')
+        if outputArgs.writeRawResiduals:
+            suffixes.append('rawResiduals')
 
         if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):

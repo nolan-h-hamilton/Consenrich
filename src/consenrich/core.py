@@ -90,8 +90,8 @@ class processParams(NamedTuple):
     :param dStatPC: Constant :math:`c` in the scaling expression :math:`\sqrt{d|D_{[i]} - \alpha_D| + c}`
         that is used to up/down-scale the process noise covariance in the event of a model mismatch.
     :type dStatPC: float
-    :param scaleResidualsByP11: If `True`, the primary state variances :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
-        If `False`, only the per-sample observation noise levels are used to reduce computational overhead.
+    :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
+        If `False`, only the per-sample observation noise levels are used in the precision-weighting. Note that this does not affect `raw` residuals output (See :class:`outputParams`).
     :type scaleResidualsByP11: Optional[bool]
 
     """
@@ -103,7 +103,7 @@ class processParams(NamedTuple):
     dStatAlpha: float
     dStatd: float
     dStatPC: float
-    scaleResidualsByP11: Optional[bool] = False
+    scaleResidualsByP11: Optional[bool] = True
 
 
 class observationParams(NamedTuple):
@@ -305,9 +305,9 @@ class countingParams(NamedTuple):
     :type scaleFactorsControl: List[float], optional
     :param numReads: Number of reads to sample.
     :type numReads: int
-    :param applyAsinh: If true, :math:`\textsf{arsinh}(x)` applied to counts :math:`x` (log-like for large values and linear near the origin)
+    :param applyAsinh: If true, :math:`\textsf{arsinh}(x)` applied to counts :math:`x` for each supplied BAM file (log-like for large values and linear near the origin)
     :type applyAsinh: bool, optional
-    :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x`
+    :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x` for each supplied BAM file.
     :type applyLog: bool, optional
     """
 
@@ -318,7 +318,7 @@ class countingParams(NamedTuple):
     numReads: int
     applyAsinh: Optional[bool]
     applyLog: Optional[bool]
-    rescaleToTreatmentCoverage: Optional[bool] = False
+    rescaleToTreatmentCoverage: Optional[bool] = False # deprecated
 
 
 class matchingParams(NamedTuple):
@@ -336,7 +336,7 @@ class matchingParams(NamedTuple):
         an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
     :type iters: int
     :param alpha: Primary significance threshold on detected matches. Specifically, the
-        minimum corr. empirical p-value approximated from randomly sampled blocks in the
+        minimum corrected empirical p-value approximated from randomly sampled blocks in the
         response sequence.
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
@@ -395,9 +395,11 @@ class outputParams(NamedTuple):
     :param writeResiduals: If True, write to a separate bedGraph the mean of precision-weighted residuals at each interval. These may be interpreted as
         a measure of model mismatch. Where these quantities are large (+-) the estimated signal and uncertainty do not explain the observed deviation from the data.
     :type writeResiduals: bool
+    :param writeRawResiduals: If True, write to a separate bedGraph the pointwise avg. of post-fit residuals at each interval. These values are not 'precision-weighted'.
+    :type writeRawResiduals: bool
     :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' observation noise level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
     :type writeMuncTrace: bool
-    :param writeStateStd: If True, write to a separate bedGraph estimated standard deviation of the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, at each interval. Note that an absolute Gaussian interpretation of this metric depends on sample size, arguments in :class:`processParams` and :class:`observationParams`, etc.
+    :param writeStateStd: If True, write to a separate bedGraph estimated 'standard deviation' of the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, at each interval. Note that an absolute Gaussian interpretation of this metric depends on sample size, arguments in :class:`processParams` and :class:`observationParams`, etc.
         In any case, this metric may be interpreted as a relative measure of uncertainty in the state estimate at each interval.
     :type writeStateStd: bool
     """
@@ -405,6 +407,7 @@ class outputParams(NamedTuple):
     convertToBigWig: bool
     roundDigits: int
     writeResiduals: bool
+    writeRawResiduals: bool
     writeMuncTrace: bool
     writeStateStd: bool
 
@@ -904,11 +907,12 @@ def runConsenrich(
     n: int = 1 if matrixData.ndim == 1 else matrixData.shape[1]
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
+    countAdjustments: int = 0
+
     IKH: np.ndarray = np.zeros(shape=(2, 2), dtype=np.float32)
     matrixEInverse: np.ndarray = np.zeros(
         shape=(m, m), dtype=np.float32
     )
-
     matrixF: np.ndarray = constructMatrixF(deltaF)
     matrixQ: np.ndarray = constructMatrixQ(minQ, offDiagQ=offDiagQ)
     matrixQCopy: np.ndarray = matrixQ.copy()
@@ -959,12 +963,12 @@ def runConsenrich(
         vectorX = matrixF @ vectorX
         matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
         vectorY = vectorZ - (matrixH @ vectorX)
-
         matrixEInverse = residualCovarInversionFunc(
             matrixMunc[:, i], np.float32(matrixP[0, 0])
         )
         Einv_diag = np.diag(matrixEInverse)
         dStat = np.median((vectorY**2) * Einv_diag)
+        countAdjustments = countAdjustments + int(dStat > dStatAlpha)
         matrixQ, inflatedQ = adjustProcessNoiseFunc(
             matrixQ,
             matrixQCopy,
@@ -998,6 +1002,12 @@ def runConsenrich(
     stateForwardArr = stateForward
     stateCovarForwardArr = stateCovarForward
     pNoiseForwardArr = pNoiseForward
+
+    # log num. times process noise was adjusted
+    logger.info(
+        f"`Median(normedInnovations) > α_D` triggered the adaptive procedure at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
+    )
+
 
     # ==========================
     # backward: n,n-1,n-2,...,0
