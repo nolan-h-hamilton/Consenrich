@@ -1281,7 +1281,7 @@ def main():
         if outputArgs.writeStateStd:
             suffixes.append('stdDevs')
 
-        if c_ == 0 and len(chromosomes) > 1:
+        if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):
                 if file_.startswith(
                     f"consenrichOutput_{experimentName}"
