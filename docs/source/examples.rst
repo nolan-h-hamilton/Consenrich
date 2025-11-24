@@ -169,7 +169,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python `3.12.9`
-- Consenrich `v0.7.1b2`
+- Consenrich `v0.7.4b3`
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -243,7 +243,7 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-Consenrich outputs are visualized over a 50kb genomic region centered around `LYL1`.
+Consenrich outputs are visualized over a 25kb genomic region centered around `LYL1`, which is highly expressed in LCLs.
 
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib25KB.png
@@ -253,7 +253,7 @@ Consenrich outputs are visualized over a 50kb genomic region centered around `LY
 
 **Evaluating Structured Peak Results: cCRE Overlaps**
 
-We measure overlap between the Consenrich-detected regions and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
+Here, we count *genome-wide* overlaps between Consenrich-detected matches and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
 
 
 Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and strict concordance is not expected. Nonetheless, given the breadth of cell types and tissues surveyed in ENCODE, a substantial overlap between Consenrich-detected structured peaks and cCREs is desirable.
@@ -434,7 +434,7 @@ File Formats
   * *Precision-weighted residual track*: ``<experimentName>_consenrich_residuals.bw``
 
     * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
-    * These values may be interpreted as a measure of model mismatch: If large (in magnitude), the estimated signal and uncertainty explain less of the observed deviation from the data. In contrast, where small, the model explains more of the observed deviation from the data.
+    * These values can reflect model mismatch: Where they are large (magnitude), the model's estimated uncertainty may fail to explain discrepancies with the observed data.
     * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
 
   * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
@@ -442,7 +442,7 @@ File Formats
     * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
     * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
-See also :class:`outputParams` in the :ref:`API`.
+See also :class:`outputParams` in the :ref:`API` for additional output options.
 
 .. _tips:
 
@@ -496,4 +496,17 @@ Broad, Heterochromatic and/or Repressive targets
   - `detrendParams.detrendWindowLengthBP: 25000`
 
 * When targeting signals associated with *heterochromatin/repression*, consider setting ``observationParams.useALV: true`` in the YAML configuration file to avoid conflating signal with noise.
+
+
+Preprocessing and Calibration of Uncertainty Metrics
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+To promote homoskedastic, symmetric, and uncorrelated residuals that are amenable to analyses requiring well-calibrated/absolute uncertainty quantification, consider:
+
+.. code-block:: yaml
+
+  countingParams.applyLog: true # or `applyAsinh`` to maintain linearity near zero
+  stateParams.boundState: false
+
+Otherwise---particularly in the absence of control input samples---Consenrich outputs such as :math:`\sqrt{\widetilde{P}_{[i,11]}}~` (`outputParams.writeStateStd`) are better interpreted as *relative, pointwise* measures of uncertainty (i.e., higher vs. lower uncertainty regions).
 
