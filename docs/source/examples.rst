@@ -492,8 +492,8 @@ Broad, Heterochromatic and/or Repressive targets
 
   * For instance, polycomb-repressed domains (H3K27me3) and constitutive heterochromatin (H3K9me3): 
 
-  - `countingParams.stepSize: 100`
-  - `detrendParams.detrendWindowLengthBP: 25000`
+    - `countingParams.stepSize: 100`
+    - `detrendParams.detrendWindowLengthBP: 25000`
 
 * When targeting signals associated with *heterochromatin/repression*, consider setting ``observationParams.useALV: true`` in the YAML configuration file to avoid conflating signal with noise.
 
