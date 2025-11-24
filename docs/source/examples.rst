@@ -227,7 +227,9 @@ Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed e
   ]
 
   matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2, 2]
+  matchingParams.cascadeLevels: [3, 3]
+  matchingParams.minMatchLengthBP: -1
+  matchingParams.mergeGapBP: -1
 
 
 Run Consenrich
@@ -258,8 +260,8 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
 
 * We first count:
 
-  - The total number of Consenrich-detected structured peaks (183,449)
-  - The number of *unique* Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE (163,511)
+  - The total number of Consenrich-detected structured peaks (165,090)
+  - The number of *unique* Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE (148,767)
 
   .. code-block:: console
 
@@ -270,9 +272,9 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
       | wc -l
 
 
-* We also evaluate overlaps compared to a null baseline:
+* We also evaluate overlaps compared to a null baseline addressing random chance,
 
-  |    *Controlling for feature size and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 183,449 regions?*
+  |    *Controlling for peak size (avg. 534 bp) and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 165,090 regions?*
 
   We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_,
 
@@ -288,20 +290,20 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
   and aggregate results for `N=250` independent trials to build an empirical distribution for cCRE-hits under our null model.
 
 
-We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (3 :math:`\times` fold-change, :math:`\hat{p} \approx 0.0039`):
+We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (:math:`\hat{p} \approx 0.0039`):
 
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Feature                                                                                  | Value                                        |
 +==========================================================================================+==============================================+
-| Consenrich: Total structured peaks (α=0.05)                                              | 183,449                                      |
+| Consenrich: Total structured peaks (α=0.05)                                              | 165,090                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Distinct cCRE overlaps*                                                      | 163,511                                      |
+| Consenrich: Distinct cCRE overlaps*                                                      | 148,767                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Percent overlapping                                                          | **89.1%**                                    |
+| Consenrich: Percent overlapping                                                          | **90.1%**                                    |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 54,806.6,  σ ≈ 190.6                     |
+| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 56,652.8,  σ ≈ 196.9                     |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Percent overlapping                                                | ≈ **29.8%**                                  |
+| Random (``shuffle``): Percent overlapping                                                | ≈ **34.2%**                                  |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 
 :math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
@@ -366,6 +368,7 @@ Configuration
     matchingParams.templateNames: [haar, db2]
     matchingParams.cascadeLevels: [3, 3]
     matchingParams.minMatchLengthBP: -1
+    matchingParams.mergeGapBP: -1
 
 
 Run Consenrich
