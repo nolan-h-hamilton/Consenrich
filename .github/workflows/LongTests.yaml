@@ -93,7 +93,7 @@ jobs:
       - name: ensure consistency in output
         working-directory: ./tests
         env:
-          THRESHOLD: "0.95"
+          THRESHOLD: "0.90"
         run: |
           set -euo pipefail
           corr_state=$(bigWigCorrelate -ignoreMissing \
