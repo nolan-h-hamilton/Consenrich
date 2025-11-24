@@ -1334,7 +1334,7 @@ def main():
                     useScalingFunction=matchingArgs.useScalingFunction,
                     excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
                     randSeed=matchingArgs.randSeed,
-                    weights=1.0/weights_,
+                    weights=1.0 / weights_ if weights_ is not None else None,
                     eps=matchingArgs.eps,
                     isLogScale=countingArgs.applyLog or countingArgs.applyAsinh,
                 )
