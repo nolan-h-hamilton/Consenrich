@@ -1218,17 +1218,9 @@ def main():
 
         weights_: Optional[np.ndarray] = None
         if matchingArgs.penalizeBy is not None:
-            if matchingArgs.penalizeBy == "absResiduals":
+            if matchingArgs.penalizeBy == "stateUncertainty" or matchingArgs.penalizeBy == "stateStdDev":
                 try:
-                    weights_ = np.abs(y_)
-                except Exception as e:
-                    logger.warning(
-                        f"Error computing weights for 'absResiduals': {e}. No weights applied for matching."
-                    )
-                    weights_ = None
-            elif matchingArgs.penalizeBy == "stateUncertainty" or matchingArgs.penalizeBy == "stateStdDev":
-                try:
-                    weights_ = np.sqrt(P[:, 0, 0])
+                    weights_ = np.sqrt(P[:, 0, 0] + 1.0)
                 except Exception as e:
                     logger.warning(
                         f"Error computing weights for 'stateUncertainty': {e}. No weights applied for matching."
@@ -1237,7 +1229,7 @@ def main():
             elif matchingArgs.penalizeBy == "muncTrace":
                 try:
                     weights_ = np.sqrt(
-                        np.mean(muncMat.astype(np.float64), axis=0)
+                        np.mean(muncMat.astype(np.float64), axis=0) + 1.0,
                     )
                 except Exception as e:
                     logger.warning(
@@ -1342,7 +1334,9 @@ def main():
                     useScalingFunction=matchingArgs.useScalingFunction,
                     excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
                     randSeed=matchingArgs.randSeed,
-                    weights=weights_,
+                    weights=1.0/weights_,
+                    eps=matchingArgs.eps,
+                    isLogScale=countingArgs.applyLog or countingArgs.applyAsinh,
                 )
                 if not matchingDF.empty:
                     matchingDF.to_csv(

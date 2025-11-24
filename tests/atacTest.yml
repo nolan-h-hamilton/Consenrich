@@ -34,3 +34,4 @@ detrendParams.useOrderStatFilter: true
 detrendParams.detrendTrackPercentile: 75.0
 detrendParams.usePolyFilter: false
 detrendParams.detrendSavitzkyGolayDegree: 2
+processParams.scaleResidualsByP11: false

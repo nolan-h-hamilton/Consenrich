@@ -272,6 +272,7 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-2,
+    isLogScale: bool = False,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -318,6 +319,8 @@ def matchWavelet(
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
+    :param isLogScale: Whether the input values have already been log- or asinh-transformed. Used to avoid redundant transformations.
+    :type isLogScale: bool
     :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     :return: A pandas DataFrame with detected matches
     :rtype: pd.DataFrame
@@ -361,7 +364,10 @@ def matchWavelet(
         else:
             values = values * weights
 
-    asinhValues = np.asinh(values, dtype=np.float32)
+    if not isLogScale:
+        asinhValues = np.asinh(values, dtype=np.float32)
+    else:
+        asinhValues = values.astype(np.float32)
     asinhNonZeroValues = asinhValues[asinhValues > 0]
 
     iters = max(int(iters), 1000)

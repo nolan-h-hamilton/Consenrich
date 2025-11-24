@@ -169,7 +169,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python `3.12.9`
-- Consenrich `v0.7.4b3`
+- Consenrich `v0.7.5b1`
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -508,5 +508,5 @@ To promote homoskedastic, symmetric, and uncorrelated residuals that are amenabl
   countingParams.applyLog: true # or `applyAsinh`` to maintain linearity near zero
   stateParams.boundState: false
 
-Otherwise---particularly in the absence of control input samples---Consenrich outputs such as :math:`\sqrt{\widetilde{P}_{[i,11]}}~` (`outputParams.writeStateStd`) are better interpreted as *relative, pointwise* measures of uncertainty (i.e., higher vs. lower uncertainty regions).
+Otherwise---particularly in the absence of control input samples---numeric Consenrich uncertainty tracks, e.g., :math:`\sqrt{\widetilde{P}_{[i,11]}},~i=1 \cdots n~` (`outputParams.writeStateStd`), are better interpreted as *relative, pointwise* measures of uncertainty (i.e., higher vs. lower uncertainty regions).
 

@@ -358,12 +358,9 @@ class matchingParams(NamedTuple):
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]
     :param penalizeBy: Specify a positional metric to scale/weight signal values by when matching.
-      For example, 'absResiduals' divides signal values by :math:`|\widetilde{y}_i|` at each
-      position :math:`i`, thereby down-weighting positions where the signal estimate deviates from
-      the data after accounting for observation noise. 'stateUncertainty' divides signal values by
-      the square root of the primary state variance :math:`\sqrt{\widetilde{P}_{i,(11)}}` at each position :math:`i`,
+      `stateUncertainty` divides signal values by the square root of the primary state variance :math:`\sqrt{\widetilde{P}_{i,(11)}}` at each position :math:`i`,
       thereby down-weighting positions where the posterior state uncertainty is high. 'muncTrace' divides signal values by
-      the square root of the average observation noise trace :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` at each position :math:`i`,
+      the square root of the *average* observation noise per interval :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` at each position :math:`i`,
     :type penalizeBy: Optional[str]
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
