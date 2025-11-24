@@ -169,7 +169,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python `3.12.9`
-- Consenrich `v0.7.1b2`
+- Consenrich `v0.7.4b3`
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -227,7 +227,9 @@ Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed e
   ]
 
   matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2, 2]
+  matchingParams.cascadeLevels: [3, 3]
+  matchingParams.minMatchLengthBP: -1
+  matchingParams.mergeGapBP: -1
 
 
 Run Consenrich
@@ -241,7 +243,7 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-Consenrich outputs are visualized over a 50kb genomic region centered around `LYL1`.
+Consenrich outputs are visualized over a 25kb genomic region centered around `LYL1`, which is highly expressed in LCLs.
 
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib25KB.png
@@ -251,15 +253,15 @@ Consenrich outputs are visualized over a 50kb genomic region centered around `LY
 
 **Evaluating Structured Peak Results: cCRE Overlaps**
 
-We measure overlap between the Consenrich-detected regions and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
+Here, we count *genome-wide* overlaps between Consenrich-detected matches and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
 
 
 Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and strict concordance is not expected. Nonetheless, given the breadth of cell types and tissues surveyed in ENCODE, a substantial overlap between Consenrich-detected structured peaks and cCREs is desirable.
 
 * We first count:
 
-  - The total number of Consenrich-detected structured peaks (183,449)
-  - The number of *unique* Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE (163,511)
+  - The total number of Consenrich-detected structured peaks (165,090)
+  - The number of *unique* Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE (148,767)
 
   .. code-block:: console
 
@@ -270,9 +272,9 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
       | wc -l
 
 
-* We also evaluate overlaps compared to a null baseline:
+* We also evaluate overlaps compared to a null baseline addressing random chance,
 
-  |    *Controlling for feature size and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 183,449 regions?*
+  |    *Controlling for peak size (avg. 534 bp) and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 165,090 regions?*
 
   We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_,
 
@@ -288,20 +290,20 @@ Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset 
   and aggregate results for `N=250` independent trials to build an empirical distribution for cCRE-hits under our null model.
 
 
-We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (3 :math:`\times` fold-change, :math:`\hat{p} \approx 0.0039`):
+We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (:math:`\hat{p} \approx 0.0039`):
 
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 | Feature                                                                                  | Value                                        |
 +==========================================================================================+==============================================+
-| Consenrich: Total structured peaks (α=0.05)                                              | 183,449                                      |
+| Consenrich: Total structured peaks (α=0.05)                                              | 165,090                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Distinct cCRE overlaps*                                                      | 163,511                                      |
+| Consenrich: Distinct cCRE overlaps*                                                      | 148,767                                      |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Percent overlapping                                                          | **89.1%**                                    |
+| Consenrich: Percent overlapping                                                          | **90.1%**                                    |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 54,806.6,  σ ≈ 190.6                     |
+| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 56,652.8,  σ ≈ 196.9                     |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Percent overlapping                                                | ≈ **29.8%**                                  |
+| Random (``shuffle``): Percent overlapping                                                | ≈ **34.2%**                                  |
 +------------------------------------------------------------------------------------------+----------------------------------------------+
 
 :math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
@@ -366,6 +368,7 @@ Configuration
     matchingParams.templateNames: [haar, db2]
     matchingParams.cascadeLevels: [3, 3]
     matchingParams.minMatchLengthBP: -1
+    matchingParams.mergeGapBP: -1
 
 
 Run Consenrich
@@ -431,7 +434,7 @@ File Formats
   * *Precision-weighted residual track*: ``<experimentName>_consenrich_residuals.bw``
 
     * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
-    * These values may be interpreted as a measure of model mismatch: If large (in magnitude), the estimated signal and uncertainty explain less of the observed deviation from the data. In contrast, where small, the model explains more of the observed deviation from the data.
+    * These values can reflect model mismatch: Where they are large (magnitude), the model's estimated uncertainty may fail to explain discrepancies with the observed data.
     * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
 
   * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
@@ -439,7 +442,7 @@ File Formats
     * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
     * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
-See also :class:`outputParams` in the :ref:`API`.
+See also :class:`outputParams` in the :ref:`API` for additional output options.
 
 .. _tips:
 
@@ -489,8 +492,21 @@ Broad, Heterochromatic and/or Repressive targets
 
   * For instance, polycomb-repressed domains (H3K27me3) and constitutive heterochromatin (H3K9me3): 
 
-  - `countingParams.stepSize: 100`
-  - `detrendParams.detrendWindowLengthBP: 25000`
+    - `countingParams.stepSize: 100`
+    - `detrendParams.detrendWindowLengthBP: 25000`
 
 * When targeting signals associated with *heterochromatin/repression*, consider setting ``observationParams.useALV: true`` in the YAML configuration file to avoid conflating signal with noise.
+
+
+Preprocessing and Calibration of Uncertainty Metrics
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+To promote homoskedastic, symmetric, and uncorrelated residuals that are amenable to analyses requiring well-calibrated/absolute uncertainty quantification, consider:
+
+.. code-block:: yaml
+
+  countingParams.applyLog: true # or `applyAsinh`` to maintain linearity near zero
+  stateParams.boundState: false
+
+Otherwise---particularly in the absence of control input samples---Consenrich outputs such as :math:`\sqrt{\widetilde{P}_{[i,11]}}~` (`outputParams.writeStateStd`) are better interpreted as *relative, pointwise* measures of uncertainty (i.e., higher vs. lower uncertainty regions).
 
