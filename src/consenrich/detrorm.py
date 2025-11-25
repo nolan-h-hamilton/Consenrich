@@ -73,12 +73,12 @@ def getScaleFactor1x(
             f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}."
         )
     return round(
-        effectiveGenomeSize / (totalMappedReads * readLength), 4
+        effectiveGenomeSize / (totalMappedReads * readLength), 5
     )
 
 
 def getScaleFactorPerMillion(
-    bamFile: str, excludeChroms: List[str]
+    bamFile: str, excludeChroms: List[str], stepSize: int
 ) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
@@ -103,7 +103,7 @@ def getScaleFactorPerMillion(
         raise ValueError(
             f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}."
         )
-    scalePM = round(1_000_000 / totalMappedReads, 4)
+    scalePM = round((1_000_000 / totalMappedReads)*(1000/stepSize), 5)
     return scalePM
 
 
@@ -117,7 +117,9 @@ def getPairScaleFactors(
     excludeChroms: List[str],
     chromSizesFile: str,
     samThreads: int,
-    scaleDown: bool = True,
+    stepSize: int,
+    scaleDown: bool = False,
+    normMethod: str = "EGS",
 ) -> Tuple[float, float]:
     r"""Get scaling constants that normalize two alignment files to each other (e.g. ChIP-seq treatment and control) with respect to sequence coverage.
 
@@ -139,9 +141,53 @@ def getPairScaleFactors(
     :type chromSizesFile: str
     :param samThreads: Number of threads to use for reading BAM files.
     :type samThreads: int
+    :param normMethod: Normalization method to use ("RPKM" or "EGS").
+    :type normMethod: str
     :return: A tuple containing the scale factors for the first and second BAM files.
     :rtype: Tuple[float, float]
     """
+    # RPKM
+    if normMethod.upper() == "RPKM":
+        scaleFactorA = getScaleFactorPerMillion(
+            bamFileA,
+            excludeChroms,
+            stepSize,
+        )
+        scaleFactorB = getScaleFactorPerMillion(
+            bamFileB,
+            excludeChroms,
+            stepSize,
+        )
+        logger.info(
+            f"Initial scale factors (per million): {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
+        )
+
+        if not scaleDown:
+            return scaleFactorA, scaleFactorB
+        coverageA = 1 / scaleFactorA
+        coverageB = 1 / scaleFactorB
+        if coverageA < coverageB:
+            scaleFactorB *= coverageA / coverageB
+            scaleFactorA = 1.0
+        else:
+            scaleFactorA *= coverageB / coverageA
+            scaleFactorB = 1.0
+
+        logger.info(
+            f"Final scale factors (per million): {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
+        )
+
+        ratio = max(scaleFactorA, scaleFactorB) / min(
+            scaleFactorA, scaleFactorB
+        )
+        if ratio > 5.0:
+            logger.warning(
+                f"Scale factors differ > 5x....\n"
+                f"\n\tAre read/fragment lengths {readLengthA},{readLengthB} correct?"
+            )
+        return scaleFactorA, scaleFactorB
+
+    # EGS normalization
     scaleFactorA = getScaleFactor1x(
         bamFileA,
         effectiveGenomeSizeA,

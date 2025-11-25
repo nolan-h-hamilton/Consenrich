@@ -251,17 +251,17 @@ def getInputArgs(config_path: str) -> core.inputParams:
         pairedEnd=pairedEndConfig,
     )
 
-def getOutputArgs(config_path: str) -> core.outputParams:
 
+def getOutputArgs(config_path: str) -> core.outputParams:
     configData = _loadConfig(config_path)
 
     convertToBigWig_ = _cfgGet(
-        configData, "outputParams.convertToBigWig", True if shutil.which("bedGraphToBigWig") else False
+        configData,
+        "outputParams.convertToBigWig",
+        True if shutil.which("bedGraphToBigWig") else False,
     )
 
-    roundDigits_ = _cfgGet(
-        configData, "outputParams.roundDigits", 3
-    )
+    roundDigits_ = _cfgGet(configData, "outputParams.roundDigits", 3)
 
     writeResiduals_ = _cfgGet(
         configData, "outputParams.writeResiduals", True
@@ -392,7 +392,9 @@ def getCountingArgs(config_path: str) -> core.countingParams:
 
     stepSize = _cfgGet(configData, "countingParams.stepSize", 25)
     scaleDownFlag = _cfgGet(
-        configData, "countingParams.scaleDown", True
+        configData,
+        "countingParams.scaleDown",
+        False,
     )
     scaleFactorList = _cfgGet(
         configData, "countingParams.scaleFactors", None
@@ -412,7 +414,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         applyAsinhFlag = True
         applyLogFlag = False
         logger.warning(
-            "Both `applyAsinh` and `applyLog` are set. Overriding `applyLog` to False."
+            "Both `applyAsinh` and `applyLog` are set. Overriding `applyLog=False` & `applyAsinh=True`."
         )
 
     rescaleToTreatmentCoverageFlag = _cfgGet(
@@ -447,6 +449,17 @@ def getCountingArgs(config_path: str) -> core.countingParams:
                 "control and treatment scale factors: must be equal length or 1 control"
             )
 
+
+    normMethod_ = _cfgGet(
+        configData,
+        "countingParams.normMethod", "EGS",
+    )
+    if normMethod_.upper() not in ["EGS", "RPKM"]:
+        logger.warning(
+            f"Unknown `countingParams.normMethod`...Using `EGS`...",
+        )
+        normMethod_ = "EGS"
+
     return core.countingParams(
         stepSize=stepSize,
         scaleDown=scaleDownFlag,
@@ -456,6 +469,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         applyAsinh=applyAsinhFlag,
         applyLog=applyLogFlag,
         rescaleToTreatmentCoverage=rescaleToTreatmentCoverageFlag,
+        normMethod=normMethod_,
     )
 
 
@@ -709,9 +723,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     }
 
 
-def convertBedGraphToBigWig(experimentName, chromSizesFile,
- suffixes: Optional[List[str]] = None):
-
+def convertBedGraphToBigWig(
+    experimentName,
+    chromSizesFile,
+    suffixes: Optional[List[str]] = None,
+):
     if suffixes is None:
         # at least look for `state` bedGraph
         suffixes = ["state"]
@@ -957,6 +973,7 @@ def main():
     effectiveGenomeSizes = getEffectiveGenomeSizes(
         genomeArgs, readLengthsBamFiles
     )
+
     matchingEnabled = checkMatchingEnabled(matchingArgs)
     if args.verbose:
         logger.info(f"matchingEnabled: {matchingEnabled}")
@@ -996,7 +1013,7 @@ def main():
                         bamFile,
                         effectiveGenomeSize,
                         readLength,
-                        genomeArgs.excludeChroms,
+                        excludeForNorm,
                         genomeArgs.chromSizesFile,
                         samArgs.samThreads,
                     )
@@ -1020,7 +1037,9 @@ def main():
                     excludeForNorm,
                     chromSizes,
                     samArgs.samThreads,
+                    stepSize,
                     scaleDown,
+                    normMethod=countingArgs.normMethod,
                 )
                 for bamFileA, bamFileB, effectiveGenomeSizeA, effectiveGenomeSizeB, readLengthA, readLengthB in zip(
                     bamFiles,
@@ -1043,19 +1062,29 @@ def main():
         controlScaleFactors = scaleFactorsControl
 
     if scaleFactors is None and not controlsPresent:
-        scaleFactors = [
-            detrorm.getScaleFactor1x(
-                bamFile,
-                effectiveGenomeSize,
-                readLength,
-                genomeArgs.excludeChroms,
-                genomeArgs.chromSizesFile,
-                samArgs.samThreads,
-            )
-            for bamFile, effectiveGenomeSize, readLength in zip(
-                bamFiles, effectiveGenomeSizes, readLengthsBamFiles
-            )
-        ]
+        if countingArgs.normMethod.upper() == "RPKM":
+            scaleFactors = [
+                detrorm.getScaleFactorPerMillion(
+                    bamFile, excludeForNorm, stepSize,
+                )
+                for bamFile in bamFiles
+            ]
+        else:
+            scaleFactors = [
+                detrorm.getScaleFactor1x(
+                    bamFile,
+                    effectiveGenomeSize,
+                    readLength,
+                    excludeForNorm,
+                    genomeArgs.chromSizesFile,
+                    samArgs.samThreads,
+                )
+                for bamFile, effectiveGenomeSize, readLength in zip(
+                    bamFiles,
+                    effectiveGenomeSizes,
+                    readLengthsBamFiles,
+                )
+            ]
     chromSizesDict = misc_util.getChromSizesDict(
         genomeArgs.chromSizesFile,
         excludeChroms=genomeArgs.excludeChroms,
@@ -1115,9 +1144,7 @@ def main():
                     countEndsOnly=samArgs.countEndsOnly,
                 )
 
-                chromMat[j_, :] = (
-                    pairMatrix[0, :] - pairMatrix[1, :]
-                )
+                chromMat[j_, :] = pairMatrix[0, :] - pairMatrix[1, :]
                 j_ += 1
         else:
             chromMat = core.readBamSegments(
@@ -1218,7 +1245,12 @@ def main():
 
         weights_: Optional[np.ndarray] = None
         if matchingArgs.penalizeBy is not None:
-            if matchingArgs.penalizeBy == "stateUncertainty" or matchingArgs.penalizeBy == "stateStdDev":
+            if matchingArgs.penalizeBy.lower() in [
+                "stateuncertainty",
+                "statestddev",
+                "statestd",
+                "p11",
+            ]:
                 try:
                     weights_ = np.sqrt(P[:, 0, 0] + 1.0)
                 except Exception as e:
@@ -1229,7 +1261,8 @@ def main():
             elif matchingArgs.penalizeBy == "muncTrace":
                 try:
                     weights_ = np.sqrt(
-                        np.mean(muncMat.astype(np.float64), axis=0) + 1.0,
+                        np.mean(muncMat.astype(np.float64), axis=0)
+                        + 1.0,
                     )
                 except Exception as e:
                     logger.warning(
@@ -1252,7 +1285,7 @@ def main():
         )
 
         if outputArgs.writeResiduals:
-            df["Res"] = y_.astype(np.float32) # FFR: cast necessary?
+            df["Res"] = y_.astype(np.float32)  # FFR: cast necessary?
         if outputArgs.writeRawResiduals:
             df["RawRes"] = np.mean(y, axis=1).astype(np.float32)
         if outputArgs.writeMuncTrace:
@@ -1272,17 +1305,19 @@ def main():
         if outputArgs.writeRawResiduals:
             cols_.append("RawRes")
         df = df[cols_]
-        suffixes = ['state']
+        suffixes = ["state"]
         if outputArgs.writeResiduals:
-            suffixes.append('residuals')
+            suffixes.append("residuals")
         if outputArgs.writeMuncTrace:
-            suffixes.append('muncTraces')
+            suffixes.append("muncTraces")
         if outputArgs.writeStateStd:
-            suffixes.append('stdDevs')
+            suffixes.append("stdDevs")
         if outputArgs.writeRawResiduals:
-            suffixes.append('rawResiduals')
+            suffixes.append("rawResiduals")
 
-        if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
+        if (c_ == 0 and len(chromosomes) > 1) or (
+            len(chromosomes) == 1
+        ):
             for file_ in os.listdir("."):
                 if file_.startswith(
                     f"consenrichOutput_{experimentName}"
@@ -1334,9 +1369,12 @@ def main():
                     useScalingFunction=matchingArgs.useScalingFunction,
                     excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
                     randSeed=matchingArgs.randSeed,
-                    weights=1.0 / weights_ if weights_ is not None else None,
+                    weights=1.0 / weights_
+                    if weights_ is not None
+                    else None,
                     eps=matchingArgs.eps,
-                    isLogScale=countingArgs.applyLog or countingArgs.applyAsinh,
+                    isLogScale=countingArgs.applyLog
+                    or countingArgs.applyAsinh,
                 )
                 if not matchingDF.empty:
                     matchingDF.to_csv(
@@ -1356,7 +1394,11 @@ def main():
     logger.info("Finished: output in human-readable format")
 
     if outputArgs.convertToBigWig:
-        convertBedGraphToBigWig(experimentName, genomeArgs.chromSizesFile, suffixes=suffixes)
+        convertBedGraphToBigWig(
+            experimentName,
+            genomeArgs.chromSizesFile,
+            suffixes=suffixes,
+        )
 
     if matchingEnabled and matchingArgs.merge:
         try:

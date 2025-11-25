@@ -311,6 +311,8 @@ class countingParams(NamedTuple):
     :type applyAsinh: bool, optional
     :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x` for each supplied BAM file.
     :type applyLog: bool, optional
+    :param normMethod: Method for normalizing read counts. One of: `EGS` (Effective Genome Size - default) or `RPKM` (``CPM * 1000/stepSize```)
+    :type normMethod: str
     """
 
     stepSize: int
@@ -321,6 +323,7 @@ class countingParams(NamedTuple):
     applyAsinh: Optional[bool]
     applyLog: Optional[bool]
     rescaleToTreatmentCoverage: Optional[bool] = False # deprecated
+    normMethod: Optional[str] = "EGS"
 
 
 class matchingParams(NamedTuple):
