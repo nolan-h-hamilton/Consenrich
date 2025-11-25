@@ -973,6 +973,7 @@ def main():
     effectiveGenomeSizes = getEffectiveGenomeSizes(
         genomeArgs, readLengthsBamFiles
     )
+
     matchingEnabled = checkMatchingEnabled(matchingArgs)
     if args.verbose:
         logger.info(f"matchingEnabled: {matchingEnabled}")
@@ -1012,7 +1013,7 @@ def main():
                         bamFile,
                         effectiveGenomeSize,
                         readLength,
-                        genomeArgs.excludeChroms,
+                        excludeForNorm,
                         genomeArgs.chromSizesFile,
                         samArgs.samThreads,
                     )
@@ -1064,9 +1065,8 @@ def main():
         if countingArgs.normMethod.upper() == "RPKM":
             scaleFactors = [
                 detrorm.getScaleFactorPerMillion(
-                    bamFile,
-                    genomeArgs.excludeChroms,
-                    stepSize)
+                    bamFile, excludeForNorm, stepSize,
+                )
                 for bamFile in bamFiles
             ]
         else:
@@ -1075,7 +1075,7 @@ def main():
                     bamFile,
                     effectiveGenomeSize,
                     readLength,
-                    genomeArgs.excludeChroms,
+                    excludeForNorm,
                     genomeArgs.chromSizesFile,
                     samArgs.samThreads,
                 )

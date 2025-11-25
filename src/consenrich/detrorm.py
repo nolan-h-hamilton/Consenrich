@@ -73,7 +73,7 @@ def getScaleFactor1x(
             f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}."
         )
     return round(
-        effectiveGenomeSize / (totalMappedReads * readLength), 4
+        effectiveGenomeSize / (totalMappedReads * readLength), 5
     )
 
 
