@@ -449,10 +449,10 @@ def getCountingArgs(config_path: str) -> core.countingParams:
                 "control and treatment scale factors: must be equal length or 1 control"
             )
 
-
     normMethod_ = _cfgGet(
         configData,
-        "countingParams.normMethod", "EGS",
+        "countingParams.normMethod",
+        "EGS",
     )
     if normMethod_.upper() not in ["EGS", "RPKM"]:
         logger.warning(
@@ -582,7 +582,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData, "observationParams.returnCenter", True
         ),
         shrinkOffset=_cfgGet(
-            configData, "observationParams.shrinkOffset", 0.5,
+            configData,
+            "observationParams.shrinkOffset",
+            0.5,
         ),
     )
 
@@ -1068,7 +1070,9 @@ def main():
         if countingArgs.normMethod.upper() == "RPKM":
             scaleFactors = [
                 detrorm.getScaleFactorPerMillion(
-                    bamFile, excludeForNorm, stepSize,
+                    bamFile,
+                    excludeForNorm,
+                    stepSize,
                 )
                 for bamFile in bamFiles
             ]

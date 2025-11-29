@@ -160,7 +160,6 @@ class observationParams(NamedTuple):
     shrinkOffset: Optional[float]
 
 
-
 class stateParams(NamedTuple):
     r"""Parameters related to state and uncertainty bounds and initialization.
 
@@ -731,7 +730,7 @@ def getAverageLocalVarianceTrack(
         - localMeanTrack**2
     )
 
-    np.maximum(totalVarTrack, 0.0, out=totalVarTrack) # JIC
+    np.maximum(totalVarTrack, 0.0, out=totalVarTrack)  # JIC
 
     noiseLevel: npt.NDArray[np.float32]
     localVarTrack: npt.NDArray[np.float32]
@@ -742,15 +741,18 @@ def getAverageLocalVarianceTrack(
         # ...autocorr small --> retain more of the variance estimate
         # ...autocorr large --> more shrinkage
         logger.info(
-            f"Shrinking local noise estimates by autocorrelation with `shrinkOffset={shrinkOffset}`..."
+            f"Median local noise: {np.median(totalVarTrack):.4f} "
+            f"...shrinking local noises wrt autocorrelation..."
         )
         # shift idx +1
         valuesLag = np.roll(values, 1)
         valuesLag[0] = valuesLag[1]
 
         # get smooth `x_{[i]} * x_{[i-1]}` and standardize
-        localMeanLag: npt.NDArray[np.float32] = ndimage.uniform_filter(
-            valuesLag, size=windowLength, mode="nearest"
+        localMeanLag: npt.NDArray[np.float32] = (
+            ndimage.uniform_filter(
+                valuesLag, size=windowLength, mode="nearest"
+            )
         )
         smoothProd: npt.NDArray[np.float32] = ndimage.uniform_filter(
             values * valuesLag, size=windowLength, mode="nearest"
@@ -766,8 +768,9 @@ def getAverageLocalVarianceTrack(
 
         # apply shrinkage
         noiseFracEstimate: npt.NDArray[np.float32] = 1.0 - rho1**2
-        localVarTrack = (
-            totalVarTrack * noiseFracEstimate
+        localVarTrack = totalVarTrack * noiseFracEstimate
+        logger.info(
+            f"...median of shrunk local noises: {np.median(localVarTrack):.4f} ..."
         )
     else:
         logger.info(
@@ -957,10 +960,56 @@ def runConsenrich(
     :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
     :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
     """
+
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
-    m: int = 1 if matrixData.ndim == 1 else matrixData.shape[0]
-    n: int = 1 if matrixData.ndim == 1 else matrixData.shape[1]
+
+    # -------
+    # check edge cases
+    if matrixData.ndim == 1:
+        matrixData = matrixData[None, :]
+    elif matrixData.ndim != 2:
+        raise ValueError(
+            "`matrixData` must be 1D or 2D (got ndim = "
+            f"{matrixData.ndim})"
+        )
+    if matrixMunc.ndim == 1:
+        matrixMunc = matrixMunc[None, :]
+    elif matrixMunc.ndim != 2:
+        raise ValueError(
+            "`matrixMunc` must be 1D or 2D (got ndim = "
+            f"{matrixMunc.ndim})"
+        )
+    if matrixMunc.shape != matrixData.shape:
+        raise ValueError(
+            f"`matrixMunc` shape {matrixMunc.shape} not equal to `matrixData` shape {matrixData.shape}"
+        )
+
+    m, n = matrixData.shape
+    if m < 1 or n < 1:
+        # ideally, we don't get here, but JIC
+        raise ValueError(
+            f"`matrixData` and `matrixMunc` need positive m x n, shape={matrixData.shape})"
+        )
+
+    if n <= 100:
+        logger.warning(
+            f"`matrixData` and `matrixMunc` span very fer genomic intervals (n={n})...is this correct?"
+        )
+
+    if chunkSize < 1:
+        logger.warning(
+            f"`chunkSize` must be positive, setting to 1000000"
+        )
+        chunkSize = 1_000_000
+
+    if chunkSize > n:
+        logger.warning(
+            f"`chunkSize` of {chunkSize} is greater than the number of intervals (n={n}), setting to {n}"
+        )
+        chunkSize = n
+    # -------
+
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
     countAdjustments: int = 0
