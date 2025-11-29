@@ -141,6 +141,8 @@ class observationParams(NamedTuple):
     :type useALV: bool
     :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
     :type lowPassFilterType: Optional[str]
+    :param shrinkOffset: An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not reduce the local variance estimate near zero.
+        If using Consenrich programmatically and `values` has already been detrended, consider increasing this value to avoid excessive shrinkage. Setting to >= `1` disables shrinkage.
     """
 
     minR: float
@@ -155,6 +157,8 @@ class observationParams(NamedTuple):
     lowPassWindowLengthBP: int
     lowPassFilterType: Optional[str]
     returnCenter: bool
+    shrinkOffset: Optional[float]
+
 
 
 class stateParams(NamedTuple):
@@ -322,7 +326,7 @@ class countingParams(NamedTuple):
     numReads: int
     applyAsinh: Optional[bool]
     applyLog: Optional[bool]
-    rescaleToTreatmentCoverage: Optional[bool] = False # deprecated
+    rescaleToTreatmentCoverage: Optional[bool] = False  # deprecated
     normMethod: Optional[str] = "EGS"
 
 
@@ -665,7 +669,6 @@ def readBamSegments(
     return counts
 
 
-
 def getAverageLocalVarianceTrack(
     values: np.ndarray,
     stepSize: int,
@@ -674,29 +677,31 @@ def getAverageLocalVarianceTrack(
     minR: float,
     maxR: float,
     lowPassFilterType: Optional[str] = "median",
+    shrinkOffset: float = 0.5,
 ) -> npt.NDArray[np.float32]:
-    r"""Generate positional noise-level tracks with first and second moments approximated from local windows
+    r"""Generate positional noise-level tracks with first and second moments approximated from local windows and shrinkage based on autocorrelation
 
     First, computes a moving average of ``values`` using a bp-length window
     ``approximationWindowLengthBP`` and a moving average of ``values**2`` over the
-    same window. Their difference is used to approximate the local variance. A low-pass filter
-    (median or mean) with window ``lowPassWindowLengthBP`` then smooths the variance track.
-    Finally, the track is clipped to ``[minR, maxR]`` to yield the local noise level track.
+    same window. Their difference is used to approximate the *initial* 'local variance' before
+    autocorrelation-based shrinkage.
 
-    :param values: 1D array of read-density-based values for a single sample.
-    :type values: np.ndarray
-    :param stepSize: Bin size (bp).
+    Finally, a broad/low-pass filter (``median`` or ``mean``) with window ``lowPassWindowLengthBP`` then smooths the variance track.
+
+    :param stepSize: see :class:`countingParams`.
     :type stepSize: int
     :param approximationWindowLengthBP: Window (bp) for local mean and second-moment. See :class:`observationParams`.
     :type approximationWindowLengthBP: int
     :param lowPassWindowLengthBP: Window (bp) for the low-pass filter on the variance track. See :class:`observationParams`.
     :type lowPassWindowLengthBP: int
-    :param minR: Lower clip for the returned noise level. See :class:`observationParams`.
+    :param minR: Lower bound for the returned noise level. See :class:`observationParams`.
     :type minR: float
-    :param maxR: Upper clip for the returned noise level. See :class:`observationParams`.
+    :param maxR: Upper bound for the returned noise level. See :class:`observationParams`.
     :type maxR: float
-    :param lowPassFilterType: ``"median"`` (default) or ``"mean"``. Type of low-pass filter to use for smoothing the local variance track. See :class:`observationParams`.
+    :param lowPassFilterType: ``"median"`` (default) or ``"mean"``. Type of low-pass filter to use for smoothing the final noise level track. See :class:`observationParams`.
     :type lowPassFilterType: Optional[str]
+    :param shrinkOffset: Offset applied to lag-1 autocorrelation when shrinking local variance estimates. See :class:`observationParams`.
+    :type shrinkOffset: float
     :return: Local noise level per interval.
     :rtype: npt.NDArray[np.float32]
 
@@ -706,51 +711,99 @@ def getAverageLocalVarianceTrack(
     windowLength = int(approximationWindowLengthBP / stepSize)
     if windowLength % 2 == 0:
         windowLength += 1
+
     if len(values) < 3:
         constVar = np.var(values)
         if constVar < minR:
             return np.full_like(values, minR, dtype=np.float32)
         return np.full_like(values, constVar, dtype=np.float32)
 
-    # first get a simple moving average of the values
+    # get local mean (simple moving average)
     localMeanTrack: npt.NDArray[np.float32] = ndimage.uniform_filter(
         values, size=windowLength, mode="nearest"
     )
 
-    #  ~ E[X_i^2] - E[X_i]^2 ~
-    localVarTrack: npt.NDArray[np.float32] = (
+    # apply V[X] ~=~ E[X^2] - (E[X])^2 locally to approximate local variance
+    totalVarTrack: npt.NDArray[np.float32] = (
         ndimage.uniform_filter(
             values**2, size=windowLength, mode="nearest"
         )
         - localMeanTrack**2
     )
 
-    # safe-guard: difference of convolutions returns negative values.
-    # shouldn't actually happen, but just in case there are some
-    # ...potential artifacts i'm unaware of edge effects, etc.
-    localVarTrack = np.maximum(localVarTrack, 0.0)
+    np.maximum(totalVarTrack, 0.0, out=totalVarTrack) # JIC
 
-    # low-pass filter on the local variance track: positional 'noise level' track
+    noiseLevel: npt.NDArray[np.float32]
+    localVarTrack: npt.NDArray[np.float32]
+
+    if abs(shrinkOffset) < 1:
+        # Aim is to shrink the local noise variance estimates
+        # ...where there's evidence of structure (signal) in the data
+        # ...autocorr small --> retain more of the variance estimate
+        # ...autocorr large --> more shrinkage
+        logger.info(
+            f"Shrinking local noise estimates by autocorrelation with `shrinkOffset={shrinkOffset}`..."
+        )
+        # shift idx +1
+        valuesLag = np.roll(values, 1)
+        valuesLag[0] = valuesLag[1]
+
+        # get smooth `x_{[i]} * x_{[i-1]}` and standardize
+        localMeanLag: npt.NDArray[np.float32] = ndimage.uniform_filter(
+            valuesLag, size=windowLength, mode="nearest"
+        )
+        smoothProd: npt.NDArray[np.float32] = ndimage.uniform_filter(
+            values * valuesLag, size=windowLength, mode="nearest"
+        )
+        covLag1: npt.NDArray[np.float32] = (
+            smoothProd - localMeanTrack * localMeanLag
+        )
+        rho1: npt.NDArray[np.float32] = np.clip(
+            covLag1 / (totalVarTrack + 1.0e-2),
+            -1.0 + shrinkOffset,
+            1 - shrinkOffset,
+        )
+
+        # apply shrinkage
+        noiseFracEstimate: npt.NDArray[np.float32] = 1.0 - rho1**2
+        localVarTrack = (
+            totalVarTrack * noiseFracEstimate
+        )
+    else:
+        logger.info(
+            f"No shrinkage of local noise estimates applied (|shrinkOffset| >= 1)..."
+        )
+        localVarTrack = totalVarTrack
+
+    np.maximum(localVarTrack, 0.0, out=localVarTrack)
     lpassWindowLength = int(lowPassWindowLengthBP / stepSize)
     if lpassWindowLength % 2 == 0:
         lpassWindowLength += 1
 
-    noiseLevel: npt.NDArray[np.float32] = np.zeros_like(
-        localVarTrack, dtype=np.float32
-    )
+    # FFR: consider making this step optional
     if lowPassFilterType is None or (
         isinstance(lowPassFilterType, str)
         and lowPassFilterType.lower() == "median"
     ):
-        noiseLevel = ndimage.median_filter(
-            localVarTrack, size=lpassWindowLength
+        noiseLevel: npt.NDArray[np.float32] = ndimage.median_filter(
+            localVarTrack,
+            size=lpassWindowLength,
         )
     elif (
         isinstance(lowPassFilterType, str)
         and lowPassFilterType.lower() == "mean"
     ):
         noiseLevel = ndimage.uniform_filter(
-            localVarTrack, size=lpassWindowLength
+            localVarTrack,
+            size=lpassWindowLength,
+        )
+    else:
+        logger.warning(
+            f"Unknown lowPassFilterType, expected `median` or `mean`, defaulting to `median`..."
+        )
+        noiseLevel = ndimage.median_filter(
+            localVarTrack,
+            size=lpassWindowLength,
         )
 
     return np.clip(noiseLevel, minR, maxR).astype(np.float32)
@@ -1011,7 +1064,6 @@ def runConsenrich(
         f"`Median(normedInnovations) > α_D` triggered the adaptive procedure at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
     )
 
-
     # ==========================
     # backward: n,n-1,n-2,...,0
     # ==========================
@@ -1208,6 +1260,7 @@ def getMuncTrack(
     returnCenter: bool,
     sparseMap: Optional[dict[int, int]] = None,
     lowPassFilterType: Optional[str] = "median",
+    shrinkOffset: float = 0.5,
 ) -> npt.NDArray[np.float32]:
     r"""Get observation noise variance :math:`R_{[:,jj]}` for the sample :math:`j`.
 
@@ -1216,9 +1269,6 @@ def getMuncTrack(
     ``useConstantNoiseLevel`` is True, a constant track set to the global mean is used.
     When a ``sparseMap`` is provided, local values are aggregated over nearby 'sparse'
     regions before mixing with the global component.
-
-    For heterochromatic or repressive marks (H3K9me3, H3K27me3, MNase-seq, etc.), consider setting
-    `useALV=True` to prevent inflated sample-level noise estimates.
 
     :param chromosome: Tracks are approximated for this chromosome.
     :type chromosome: str
@@ -1249,9 +1299,10 @@ def getMuncTrack(
     :type sparseMap: Optional[dict[int, int]]
     :param lowPassFilterType: The type of low-pass filter to use in average local variance track (e.g., 'median', 'mean').
     :type lowPassFilterType: Optional[str]
+    :param shrinkOffset: See :func:`getAverageLocalVarianceTrack`.
+    :type shrinkOffset: float
     :return: A one-dimensional numpy array of the observation noise track for the sample :math:`j`.
     :rtype: npt.NDArray[np.float32]
-
     """
     trackALV = getAverageLocalVarianceTrack(
         rowValues,
@@ -1261,6 +1312,7 @@ def getMuncTrack(
         minR,
         maxR,
         lowPassFilterType,
+        shrinkOffset=shrinkOffset,
     ).astype(np.float32)
 
     globalNoise: float = np.float32(np.mean(trackALV))

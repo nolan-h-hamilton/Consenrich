@@ -581,6 +581,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         returnCenter=_cfgGet(
             configData, "observationParams.returnCenter", True
         ),
+        shrinkOffset=_cfgGet(
+            configData, "observationParams.shrinkOffset", 0.5,
+        ),
     )
 
     stateArgs = core.stateParams(
@@ -1201,6 +1204,7 @@ def main():
                 observationArgs.returnCenter,
                 sparseMap=sparseMap,
                 lowPassFilterType=observationArgs.lowPassFilterType,
+                shrinkOffset=observationArgs.shrinkOffset,
             )
             chromMat[j, :] = detrorm.detrendTrack(
                 chromMat[j, :],
