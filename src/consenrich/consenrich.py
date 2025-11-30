@@ -520,7 +520,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
             "detrendParams.detrendSavitzkyGolayDegree",
-            2,
+            1,
         )
 
     experimentName = _cfgGet(
