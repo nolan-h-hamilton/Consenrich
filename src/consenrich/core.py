@@ -78,7 +78,8 @@ class processParams(NamedTuple):
     and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
     matrices.
 
-    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals.
+    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. Set to `< 0` to determine based on stepSize:fragment-length ratio.
+    :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
         for each state variable.
     :type minQ: float
@@ -93,7 +94,12 @@ class processParams(NamedTuple):
     :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
         If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (See :class:`outputParams`).
     :type scaleResidualsByP11: Optional[bool]
-
+    :param adjustPmatByInnovationAC: (Experimental) If True, adjust the returned state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}`
+        based on `1 + average autocorrelation` of the innovation sequence from the forward pass. This adjustment
+        aims to account for residual correlations in the data not captured by the observation noise covariance matrices but
+        reflected in the innovation sequence. Note that applying this heuristic can only increase
+        estimates of the state uncertainty.
+    :type adjustPmatByInnovationAC: Optional[bool]
     """
 
     deltaF: float
@@ -104,6 +110,7 @@ class processParams(NamedTuple):
     dStatd: float
     dStatPC: float
     scaleResidualsByP11: Optional[bool] = True
+    adjustPmatByInnovationAC: Optional[bool] = False
 
 
 class observationParams(NamedTuple):
@@ -142,7 +149,7 @@ class observationParams(NamedTuple):
     :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
     :type lowPassFilterType: Optional[str]
     :param shrinkOffset: An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not reduce the local variance estimate near zero.
-        If using Consenrich programmatically and `values` has already been detrended, consider increasing this value to avoid excessive shrinkage. Setting to >= `1` disables shrinkage.
+        Setting to >= `1` disables shrinkage.
     """
 
     minR: float
@@ -173,8 +180,6 @@ class stateParams(NamedTuple):
     :type stateLowerBound: float
     :param stateUpperBound: Upper bound for the state estimate.
     :type stateUpperBound: float
-    :param adjustPmatByInnovationAC: If True, the state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` are scaled up *post-hoc* based on the autocorrelation structure of innovations (forward-pass residuals).
-    :type adjustPmatByInnovationAC: Optional[bool]
     """
 
     stateInit: float
@@ -182,7 +187,6 @@ class stateParams(NamedTuple):
     boundState: bool
     stateLowerBound: float
     stateUpperBound: float
-    adjustPmatByInnovationAC: Optional[bool]
 
 
 class samParams(NamedTuple):
@@ -232,7 +236,7 @@ class samParams(NamedTuple):
 
 
 class detrendParams(NamedTuple):
-    r"""Parameters related detrending and background-removal
+    r"""Parameters related detrending and background-removal after normalizing by sequencing depth.
 
     :param useOrderStatFilter: Whether to use a local/moving order statistic (percentile filter) to model and remove trends in the read density data.
     :type useOrderStatFilter: bool
@@ -263,9 +267,9 @@ class inputParams(NamedTuple):
 
     :param bamFilesControl: A list of paths to distinct coordinate-sorted and
         indexed control BAM files. e.g., IgG control inputs for ChIP-seq.
-
     :type bamFilesControl: List[str], optional
-
+    :param pairedEnd: Deprecated: Paired-end/Single-end is inferred automatically from the alignment flags in input BAM files.
+    :type pairedEnd: Optional[bool]
     """
 
     bamFiles: List[str]
@@ -319,8 +323,20 @@ class countingParams(NamedTuple):
     :type applyLog: bool, optional
     :param applySqrt: If true, :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
     :type applySqrt: bool, optional
-    :param normMethod: Method for normalizing read counts (sequencing depth). One of: `EGS` (Effective Genome Size - default) or `RPKM` (``CPM * 1000/stepSize```)
-    :type normMethod: str
+    :param noTransform: Shorthand to disable all transformations.
+    :type noTransform: bool, optional
+    :param rescaleToTreatmentCoverage: Deprecated: no effect.
+    :type rescaleToTreatmentCoverage: bool, optional
+
+    .. tip::
+
+      To promote (absolute) statistical calibration of uncertainty metrics, ``applySqrt``, ``applyAsinh``, ``applyLog`` can mitigate heteroskedasticity and improve symmetry.
+      ``applySqrt`` offers a relatively gentle compression of the dynamic range and may be preferable to recover a greater breadth of signal variation. Log-like
+      transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components and representing
+      conventional fold-changes/enrichment against local background. Consider pairing with `stateParams.boundState: False` to promote symmetry in the estimated signals.
+
+      In either case, uncertainty outputs (e.g., state standard deviations) can be interpreted as *relative* measures of uncertainty in their transformed space.
+
     """
 
     stepSize: int
@@ -331,6 +347,7 @@ class countingParams(NamedTuple):
     applyAsinh: Optional[bool]
     applyLog: Optional[bool]
     applySqrt: Optional[bool]
+    noTransform: Optional[bool]
     rescaleToTreatmentCoverage: Optional[bool] = False  # deprecated
     normMethod: Optional[str] = "EGS"
 
@@ -403,15 +420,15 @@ class outputParams(NamedTuple):
     :type convertToBigWig: bool
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
-    :param writeResiduals: If True, write to a separate bedGraph the mean of precision-weighted residuals at each interval. These may be interpreted as
-        a measure of model mismatch. Where these quantities are large (+-) the estimated signal and uncertainty do not explain the observed deviation from the data.
+    :param writeResiduals: If True, write to a separate bedGraph the pointwise avg. of precision-weighted residuals at each interval. These may be interpreted as
+        a measure of model mismatch. Where these quantities are larger (+-), the estimated signal there is more *unexplained* deviance from the observed data.
     :type writeResiduals: bool
-    :param writeRawResiduals: If True, write to a separate bedGraph the pointwise avg. of post-fit residuals at each interval. These values are not 'precision-weighted'.
+    :param writeRawResiduals: If True, write to a separate bedGraph the pointwise avg. of post-fit residuals at each interval.
+        These values are 'raw' in the sense that they are not scaled to  account for state uncertainty or observation noise levels.
     :type writeRawResiduals: bool
     :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' observation noise level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
     :type writeMuncTrace: bool
-    :param writeStateStd: If True, write to a separate bedGraph estimated 'standard deviation' of the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, at each interval. Note that an absolute Gaussian interpretation of this metric depends on sample size, arguments in :class:`processParams` and :class:`observationParams`, etc.
-        In any case, this metric may be interpreted as a relative measure of uncertainty in the state estimate at each interval.
+    :param writeStateStd: If True, write to a separate bedGraph the estimated 'standard deviation' of the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, at each interval
     :type writeStateStd: bool
     """
 
@@ -955,8 +972,8 @@ def runConsenrich(
     :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
         If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
     :type adjustProcessNoiseFunc: Optional[Callable]
-    :param adjustPmatByInnovationAC: If True, adjust the returned state covariance matrices :math:`\widehat{\mathbf{P}}_{[i]}`
-        based on `1 + average autocorrelation` of the innovation sequence from the forward pass.
+    :param adjustPmatByInnovationAC: See :class:`processParams`.
+    :type adjustPmatByInnovationAC: Optional[bool]
     :return: Tuple of three numpy arrays:
         - state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
         - state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
@@ -1084,17 +1101,19 @@ def runConsenrich(
         vectorX = matrixF @ vectorX
         matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
         vectorY = vectorZ - (matrixH @ vectorX)
-        innov = vectorY.astype(np.float64)
 
-        if i == 0:
-            innovFirst[:] = innov
-        innovSum += innov
-        innovLast[:] = innov
-        if haveInnovPrev:
-            innovationProd += innovPrev * innov
-        innovSq += innov * innov
-        innovPrev = innov
-        haveInnovPrev = True
+        if adjustPmatByInnovationAC:
+            innov = vectorY.astype(np.float64)
+
+            if i == 0:
+                innovFirst[:] = innov
+            innovSum += innov
+            innovLast[:] = innov
+            if haveInnovPrev:
+                innovationProd += innovPrev * innov
+            innovSq += innov * innov
+            innovPrev = innov
+            haveInnovPrev = True
 
         matrixEInverse = residualCovarInversionFunc(
             matrixMunc[:, i], np.float32(matrixP[0, 0])
@@ -1251,9 +1270,6 @@ def runConsenrich(
                 :
             ] * np.float32(varInflation)
             stateCovarSmoothed.flush()
-            logger.info(
-                f"AC-based adjustment applied to post-fit `P_[i]`: {varInflation:.3f}",
-            )
 
     stateSmoothed.flush()
     stateCovarSmoothed.flush()
@@ -1312,9 +1328,7 @@ def getPrecisionWeightedResidual(
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional precision-weighted array residuals after running Consenrich.
 
-    Applies an inverse-variance weighting  of the post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` and
-    returns a one-dimensional array of "precision-weighted residuals". The state-level uncertainty can also be
-    incorporated given `stateCovarSmoothed`.
+    Post-fit residuals weighted by the inverse of the observation noise covariance and primary state uncertainty.
 
     :param postFitResiduals: Post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray
@@ -1354,8 +1368,6 @@ def getPrecisionWeightedResidual(
     )
 
     if needsCopy:
-        # adds the 'primary' state uncertainty to observation noise covariance :math:`\mathbf{R}_{[i,:]}`
-        # primary state uncertainty (0,0) :math:`\mathbf{P}_{[i]} \in \mathbb{R}^{2 \times 2}`
         stateCovarArr00 = np.asarray(
             stateCovarSmoothed[:, 0, 0], dtype=np.float32
         )
@@ -1619,3 +1631,65 @@ def getBedMask(
         intervals_,
         stepSize_,
     ).astype(np.bool_)
+
+
+def autoDeltaF(
+    chromosome: str,
+    start: int,
+    end: int,
+    stepSize: int,
+    fragmentLengths: Optional[List[int]] = None,
+    bamFiles: Optional[List[str]] = None,
+    fallBackFragmentLength: int = 147,
+) -> float:
+    r"""(Experimental) Set `deltaF` as the ratio intervalLength:fragmentLength.
+
+    Computes average fragment length across samples and sets `deltaF = stepSize / avgFragmentLength`.
+    Assuming fragments contribute +1 to each genomic interval they overlap, a small intervalLength:fragmentLength
+    motivates a small `deltaF` (i.e., less state change between intervals).
+
+    :param chromosome: Chromosome name.
+    :type chromosome: str
+    :param start: Start position of a region (e.g., chromosome)
+    :type start: int
+    :param end: End position of a region (e.g., chromosome)
+    :type end: int
+    :param stepSize: Length of genomic intervals/bins. See :class:`countingParams`.
+    :type stepSize: int
+    :param bamFiles: List of sorted/indexed BAM files to estimate fragment lengths from.
+    :type bamFiles: Optional[List[str]]
+    """
+
+    avgFragmentLength: float = 0.0
+    if (
+        fragmentLengths is not None
+        and len(fragmentLengths) > 0
+        and all(isinstance(x, (int, float)) for x in fragmentLengths)
+    ):
+        avgFragmentLength = np.mean(fragmentLengths)
+    elif bamFiles is not None and len(bamFiles) > 0:
+        for bamFile in bamFiles:
+            fLen = cconsenrich.cgetFragmentLength(
+                bamFile,
+                chromosome,
+                start,
+                end,
+                fallBack=fallBackFragmentLength,
+            )
+            avgFragmentLength += fLen
+            logger.info(
+                f"Estimated fragment length for {bamFile}: {fLen} bp"
+            )
+        avgFragmentLength /= len(bamFiles)
+    else:
+        raise ValueError(
+            "One of `fragmentLengths` or `bamFiles` is required..."
+        )
+    if avgFragmentLength > 0:
+        deltaF = round(stepSize / float(avgFragmentLength), 4)
+        logger.info(f"Setting `processParams.deltaF`={deltaF}")
+        return np.float32(deltaF)
+    else:
+        raise ValueError(
+            "Average cross-sample fraglen estimation failed"
+        )

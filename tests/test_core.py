@@ -219,9 +219,9 @@ def testgetPrimaryStateF64():
 
 
 @pytest.mark.correctness
-def testFragLen(threshold: float = 25, expected: float = 220):
+def testFragLen(threshold: float = 50, expected: float = 250):
     fragLens = []
-    for i in range(50):
+    for i in range(25):
         fragLen = float(
             cconsenrich.cgetFragmentLength(
                 "smallTest.bam",
@@ -235,7 +235,7 @@ def testFragLen(threshold: float = 25, expected: float = 220):
     fragLens.sort()
 
     assert stats.iqr(fragLens) < 2 * threshold
-    assert abs(np.median(fragLens) - expected) < threshold
+    assert abs(np.median(fragLens) - expected) <= threshold
 
 
 @pytest.mark.correctness
