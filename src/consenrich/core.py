@@ -1641,6 +1641,7 @@ def autoDeltaF(
     fragmentLengths: Optional[List[int]] = None,
     bamFiles: Optional[List[str]] = None,
     fallBackFragmentLength: int = 147,
+    randomSeed: int = 42,
 ) -> float:
     r"""(Experimental) Set `deltaF` as the ratio intervalLength:fragmentLength.
 
@@ -1675,6 +1676,7 @@ def autoDeltaF(
                 start,
                 end,
                 fallBack=fallBackFragmentLength,
+                randSeed=randomSeed,
             )
             avgFragmentLength += fLen
             logger.info(

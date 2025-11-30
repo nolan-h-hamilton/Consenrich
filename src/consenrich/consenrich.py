@@ -517,9 +517,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
 
-    m = len(inputParams.bamFiles)
-    minRDefault = _getMinR(configData, m)
-    minQDefault = (minRDefault / m) + 0.10
 
     matchingExcludeRegionsFileDefault: Optional[str] = (
         genomeParams.blacklistFile
@@ -537,18 +534,18 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
             "detrendParams.detrendSavitzkyGolayDegree",
-            1,
+            2,
         )
     else:
         detrendWindowLengthBp = _cfgGet(
             configData,
             "detrendParams.detrendWindowLengthBP",
-            10_000,
+            25_000,
         )
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
             "detrendParams.detrendSavitzkyGolayDegree",
-            1,
+            2,
         )
 
     experimentName = _cfgGet(
@@ -557,7 +554,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
-        minQ=_cfgGet(configData, "processParams.minQ", minQDefault),
+        minQ=_cfgGet(configData, "processParams.minQ", -1.0),
         maxQ=_cfgGet(configData, "processParams.maxQ", 100.0),
         offDiagQ=_cfgGet(configData, "processParams.offDiagQ", 0.0),
         dStatAlpha=_cfgGet(
@@ -575,12 +572,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         adjustPmatByInnovationAC=_cfgGet(
             configData,
             "processParams.adjustPmatByInnovationAC",
-            False,
+            True,
         ),
     )
 
     observationArgs = core.observationParams(
-        minR=minRDefault,
+        minR= _cfgGet(configData, "observationParams.minR", -1.0),
         maxR=_cfgGet(configData, "observationParams.maxR", 100.0),
         useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
@@ -991,6 +988,8 @@ def main():
     minMatchLengthBP_: Optional[int] = matchingArgs.minMatchLengthBP
     mergeGapBP_: Optional[int] = matchingArgs.mergeGapBP
     deltaF_ = processArgs.deltaF
+    minR_ = observationArgs.minR
+    minQ_ = processArgs.minQ
 
     if args.verbose:
         try:
@@ -1247,7 +1246,8 @@ def main():
                 numNearest,
                 genomeArgs.sparseBedFile,
             )
-
+        if observationArgs.minR < 0.0:
+            minR_ = 0.0
         muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
             logger.info(
@@ -1269,7 +1269,7 @@ def main():
                 intervals,
                 stepSize,
                 chromMat[j, :],
-                observationArgs.minR,
+                minR_,
                 observationArgs.maxR,
                 observationArgs.useALV,
                 observationArgs.useConstantNoiseLevel,
@@ -1284,13 +1284,25 @@ def main():
                 shrinkOffset=observationArgs.shrinkOffset,
             )
 
+        if observationArgs.minR < 0.0 or minR_ < 0.0:
+            minR_ = np.percentile(muncMat, 25.0) + 0.01
+            logger.info(
+                f"minR_={minR_}..."
+            )
+            muncMat[muncMat < minR_] = minR_
+
+        if processArgs.minQ < 0.0 or minQ_ < 0.0:
+            minQ_ = (2*minR_ / numSamples)
+            logger.info(
+                f"`minQ={minQ_}..."
+            )
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(
             chromMat,
             muncMat,
             deltaF_,
-            processArgs.minQ,
+            minQ_,
             processArgs.maxQ,
             processArgs.offDiagQ,
             processArgs.dStatAlpha,
