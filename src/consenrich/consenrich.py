@@ -420,7 +420,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     applySqrtFlag = _cfgGet(
         configData,
         "countingParams.applySqrt",
-        True,
+        False,
     )
 
     noTransformFlag = _cfgGet(
