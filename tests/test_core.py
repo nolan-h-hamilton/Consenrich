@@ -435,8 +435,8 @@ def testMergeMatchesReduction():
 
 @pytest.mark.correctness
 def testRunConsenrich1DInputShapes():
-    np.random.seed(0)
-    n = 25
+    np.random.seed(42)
+    n = 1000
     matrixData = np.random.poisson(lam=5, size=n).astype(np.float32)
     matrixMunc = np.ones_like(matrixData, dtype=np.float32)
 
@@ -468,13 +468,13 @@ def testRunConsenrich1DInputShapes():
         offDiagQ=0.0,
         dStatAlpha=1e9,
         dStatd=1.0,
-        dStatPC=0.0,
+        dStatPC=1.0,
         stateInit=0.0,
-        stateCovarInit=1.0,
+        stateCovarInit=100.0,
         boundState=False,
-        stateLowerBound=-10.0,
-        stateUpperBound=10.0,
-        chunkSize=10,
+        stateLowerBound=0.0,
+        stateUpperBound=10000.0,
+        chunkSize=25,
         progressIter=1000,
         residualCovarInversionFunc=invertMatrixE,
         adjustProcessNoiseFunc=adjustProcessNoise,
@@ -488,8 +488,8 @@ def testRunConsenrich1DInputShapes():
 
 @pytest.mark.correctness
 def testRunConsenrich2DInputShapes():
-    np.random.seed(0)
-    m, n = 3, 40
+    np.random.seed(42)
+    m, n = 3, 1000
     matrixData = np.random.poisson(lam=5, size=(m, n)).astype(
         np.float32
     )
@@ -523,13 +523,13 @@ def testRunConsenrich2DInputShapes():
         offDiagQ=0.0,
         dStatAlpha=1e9,
         dStatd=1.0,
-        dStatPC=0.0,
+        dStatPC=1.0,
         stateInit=0.0,
-        stateCovarInit=1.0,
+        stateCovarInit=100.0,
         boundState=False,
-        stateLowerBound=-10.0,
-        stateUpperBound=10.0,
-        chunkSize=10,
+        stateLowerBound=0.0,
+        stateUpperBound=10000.0,
+        chunkSize=25,
         progressIter=1000,
         residualCovarInversionFunc=invertMatrixE,
         adjustProcessNoiseFunc=adjustProcessNoise,

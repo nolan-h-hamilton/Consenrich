@@ -409,12 +409,13 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     applyLogFlag = _cfgGet(
         configData, "countingParams.applyLog", False
     )
+    applySqrtFlag = _cfgGet(
+        configData, "countingParams.applySqrt", False
+    )
 
-    if applyAsinhFlag and applyLogFlag:
-        applyAsinhFlag = True
-        applyLogFlag = False
-        logger.warning(
-            "Both `applyAsinh` and `applyLog` are set. Overriding `applyLog=False` & `applyAsinh=True`."
+    if int(applyAsinhFlag) + int(applyLogFlag) + int(applySqrtFlag) > 1:
+        raise ValueError(
+            "Only <= 1 of `applyAsinh`, `applyLog`, `applySqrt` can be true."
         )
 
     rescaleToTreatmentCoverageFlag = _cfgGet(
@@ -468,6 +469,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         numReads=numReads,
         applyAsinh=applyAsinhFlag,
         applyLog=applyLogFlag,
+        applySqrt=applySqrtFlag,
         rescaleToTreatmentCoverage=rescaleToTreatmentCoverageFlag,
         normMethod=normMethod_,
     )
@@ -528,10 +530,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", 0.5),
         minQ=_cfgGet(configData, "processParams.minQ", minQDefault),
-        maxQ=_cfgGet(configData, "processParams.maxQ", 500.0),
+        maxQ=_cfgGet(configData, "processParams.maxQ", 100.0),
         offDiagQ=_cfgGet(configData, "processParams.offDiagQ", 0.0),
         dStatAlpha=_cfgGet(
-            configData, "processParams.dStatAlpha", 2.0
+            configData, "processParams.dStatAlpha", 2.0,
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
@@ -544,7 +546,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     observationArgs = core.observationParams(
         minR=minRDefault,
-        maxR=_cfgGet(configData, "observationParams.maxR", 500.0),
+        maxR=_cfgGet(configData, "observationParams.maxR", 100.0),
         useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
             configData,
@@ -591,16 +593,19 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     stateArgs = core.stateParams(
         stateInit=_cfgGet(configData, "stateParams.stateInit", 0.0),
         stateCovarInit=_cfgGet(
-            configData, "stateParams.stateCovarInit", 100.0
+            configData, "stateParams.stateCovarInit", 100.0,
         ),
         boundState=_cfgGet(
-            configData, "stateParams.boundState", True
+            configData, "stateParams.boundState", True,
         ),
         stateLowerBound=_cfgGet(
-            configData, "stateParams.stateLowerBound", 0.0
+            configData, "stateParams.stateLowerBound", 0.0,
         ),
         stateUpperBound=_cfgGet(
-            configData, "stateParams.stateUpperBound", 10000.0
+            configData, "stateParams.stateUpperBound", 10000.0,
+        ),
+        adjustPmatByInnovationAC=_cfgGet(
+            configData, "stateParams.adjustPmatByInnovationAC", False,
         ),
     )
 
@@ -1148,6 +1153,7 @@ def main():
                     inferFragmentLength=samArgs.inferFragmentLength,
                     applyAsinh=countingArgs.applyAsinh,
                     applyLog=countingArgs.applyLog,
+                    applySqrt=countingArgs.applySqrt,
                     countEndsOnly=samArgs.countEndsOnly,
                 )
 
@@ -1172,6 +1178,8 @@ def main():
                 inferFragmentLength=samArgs.inferFragmentLength,
                 applyAsinh=countingArgs.applyAsinh,
                 applyLog=countingArgs.applyLog,
+                applySqrt=countingArgs.applySqrt,
+
                 countEndsOnly=samArgs.countEndsOnly,
             )
         sparseMap = None
@@ -1191,6 +1199,7 @@ def main():
             logger.info(
                 f"Muncing {j + 1}/{numSamples} for {chromosome}..."
             )
+
             muncMat[j, :] = core.getMuncTrack(
                 chromosome,
                 intervals,
@@ -1381,8 +1390,9 @@ def main():
                     if weights_ is not None
                     else None,
                     eps=matchingArgs.eps,
-                    isLogScale=countingArgs.applyLog
-                    or countingArgs.applyAsinh,
+                    isLogScale=countingArgs.applyLog  # any monotone/concave func. is considered for th purposes of matching
+                    or countingArgs.applyAsinh
+                    or countingArgs.applySqrt,
                 )
                 if not matchingDF.empty:
                     matchingDF.to_csv(

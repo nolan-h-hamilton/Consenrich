@@ -20,7 +20,7 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
-from scipy import signal, ndimage
+from scipy import signal, ndimage, stats
 
 from . import cconsenrich
 
@@ -173,6 +173,8 @@ class stateParams(NamedTuple):
     :type stateLowerBound: float
     :param stateUpperBound: Upper bound for the state estimate.
     :type stateUpperBound: float
+    :param adjustPmatByInnovationAC: If True, the state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` are scaled up *post-hoc* based on the autocorrelation structure of innovations (forward-pass residuals).
+    :type adjustPmatByInnovationAC: Optional[bool]
     """
 
     stateInit: float
@@ -180,6 +182,7 @@ class stateParams(NamedTuple):
     boundState: bool
     stateLowerBound: float
     stateUpperBound: float
+    adjustPmatByInnovationAC: Optional[bool]
 
 
 class samParams(NamedTuple):
@@ -314,7 +317,9 @@ class countingParams(NamedTuple):
     :type applyAsinh: bool, optional
     :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x` for each supplied BAM file.
     :type applyLog: bool, optional
-    :param normMethod: Method for normalizing read counts. One of: `EGS` (Effective Genome Size - default) or `RPKM` (``CPM * 1000/stepSize```)
+    :param applySqrt: If true, :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
+    :type applySqrt: bool, optional
+    :param normMethod: Method for normalizing read counts (sequencing depth). One of: `EGS` (Effective Genome Size - default) or `RPKM` (``CPM * 1000/stepSize```)
     :type normMethod: str
     """
 
@@ -325,6 +330,7 @@ class countingParams(NamedTuple):
     numReads: int
     applyAsinh: Optional[bool]
     applyLog: Optional[bool]
+    applySqrt: Optional[bool]
     rescaleToTreatmentCoverage: Optional[bool] = False  # deprecated
     normMethod: Optional[str] = "EGS"
 
@@ -572,6 +578,7 @@ def readBamSegments(
     offsetStr: Optional[str] = "0,0",
     applyAsinh: Optional[bool] = False,
     applyLog: Optional[bool] = False,
+    applySqrt: Optional[bool] = False,
     extendBP: List[int] = [],
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
@@ -581,6 +588,9 @@ def readBamSegments(
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
     See :func:`cconsenrich.creadBamSegment` for the underlying implementation in Cython.
+    Note that read counts are scaled by `scaleFactors` and possibly transformed if
+    any of `applyAsinh`, `applyLog`, `applySqrt`. Note that these transformations are mutually
+    exclusive and may affect interpretation of results.
 
     :param bamFiles: See :class:`inputParams`.
     :type bamFiles: List[str]
@@ -665,6 +675,8 @@ def readBamSegments(
             counts[j, :] = np.arcsinh(counts[j, :])
         elif applyLog:
             counts[j, :] = np.log1p(counts[j, :])
+        elif applySqrt:
+            counts[j, :] = np.sqrt(counts[j, :])
     return counts
 
 
@@ -740,10 +752,7 @@ def getAverageLocalVarianceTrack(
         # ...where there's evidence of structure (signal) in the data
         # ...autocorr small --> retain more of the variance estimate
         # ...autocorr large --> more shrinkage
-        logger.info(
-            f"Median local noise: {np.median(totalVarTrack):.4f} "
-            f"...shrinking local noises wrt autocorrelation..."
-        )
+
         # shift idx +1
         valuesLag = np.roll(values, 1)
         valuesLag[0] = valuesLag[1]
@@ -761,21 +770,15 @@ def getAverageLocalVarianceTrack(
             smoothProd - localMeanTrack * localMeanLag
         )
         rho1: npt.NDArray[np.float32] = np.clip(
-            covLag1 / (totalVarTrack + 1.0e-2),
+            covLag1 / (totalVarTrack + 1.0e-4),
             -1.0 + shrinkOffset,
             1 - shrinkOffset,
         )
 
-        # apply shrinkage
         noiseFracEstimate: npt.NDArray[np.float32] = 1.0 - rho1**2
         localVarTrack = totalVarTrack * noiseFracEstimate
-        logger.info(
-            f"...median of shrunk local noises: {np.median(localVarTrack):.4f} ..."
-        )
+
     else:
-        logger.info(
-            f"No shrinkage of local noise estimates applied (|shrinkOffset| >= 1)..."
-        )
         localVarTrack = totalVarTrack
 
     np.maximum(localVarTrack, 0.0, out=localVarTrack)
@@ -898,6 +901,7 @@ def runConsenrich(
     coefficientsH: Optional[np.ndarray] = None,
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
+    adjustPmatByInnovationAC: Optional[bool] = False,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -951,6 +955,8 @@ def runConsenrich(
     :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
         If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
     :type adjustProcessNoiseFunc: Optional[Callable]
+    :param adjustPmatByInnovationAC: If True, adjust the returned state covariance matrices :math:`\widehat{\mathbf{P}}_{[i]}`
+        based on `1 + average autocorrelation` of the innovation sequence from the forward pass.
     :return: Tuple of three numpy arrays:
         - state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
         - state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
@@ -1039,6 +1045,15 @@ def runConsenrich(
             cconsenrich.updateProcessNoiseCovariance
         )
 
+    innovationProd = np.zeros(m, dtype=np.float64)
+    innovSq = np.zeros(m, dtype=np.float64)
+    innovPrev = np.zeros(m, dtype=np.float64)
+    innovSum = np.zeros(m, dtype=np.float64)
+    innovFirst = np.zeros(m, dtype=np.float64)
+    innovLast = np.zeros(m, dtype=np.float64)
+    innov = np.zeros(m, dtype=np.float64)
+    haveInnovPrev = False
+
     # ==========================
     # forward: 0,1,2,...,n-1
     # ==========================
@@ -1061,6 +1076,7 @@ def runConsenrich(
         shape=(n, 2, 2),
     )
     progressIter = max(1, progressIter)
+    avgDstat: float = 0.0
     for i in range(n):
         if i % progressIter == 0:
             logger.info(f"Forward pass interval: {i + 1}/{n}")
@@ -1068,11 +1084,24 @@ def runConsenrich(
         vectorX = matrixF @ vectorX
         matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
         vectorY = vectorZ - (matrixH @ vectorX)
+        innov = vectorY.astype(np.float64)
+
+        if i == 0:
+            innovFirst[:] = innov
+        innovSum += innov
+        innovLast[:] = innov
+        if haveInnovPrev:
+            innovationProd += innovPrev * innov
+        innovSq += innov * innov
+        innovPrev = innov
+        haveInnovPrev = True
+
         matrixEInverse = residualCovarInversionFunc(
             matrixMunc[:, i], np.float32(matrixP[0, 0])
         )
         Einv_diag = np.diag(matrixEInverse)
         dStat = np.median((vectorY**2) * Einv_diag)
+        avgDstat += float(dStat)
         countAdjustments = countAdjustments + int(dStat > dStatAlpha)
         matrixQ, inflatedQ = adjustProcessNoiseFunc(
             matrixQ,
@@ -1107,10 +1136,11 @@ def runConsenrich(
     stateForwardArr = stateForward
     stateCovarForwardArr = stateCovarForward
     pNoiseForwardArr = pNoiseForward
+    avgDstat /= n
 
-    # log num. times process noise was adjusted
+    logger.info(f"Average D_[i] over `n` intervals: {avgDstat:.3f}")
     logger.info(
-        f"`Median(normedInnovations) > α_D` triggered the adaptive procedure at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
+        f"`D_[i] > α_D` triggered adjustments to Q_[i] at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
     )
 
     # ==========================
@@ -1177,9 +1207,58 @@ def runConsenrich(
             stateCovarSmoothed.flush()
             postFitResiduals.flush()
 
+    if adjustPmatByInnovationAC and n > 1:
+        rhoValues = []
+        biasTol = 1e-3
+        for j in range(m):
+            totalSquaredInnovation = float(innovSq[j])
+            totalInnovation = float(innovSum[j])
+            if totalSquaredInnovation <= 0.0:
+                continue
+            meanInnovation = totalInnovation / n
+            if abs(meanInnovation) < biasTol:
+                rhoValues.append(
+                    float(innovationProd[j]) / totalSquaredInnovation
+                )
+                continue
+            innovationVariance = (
+                totalSquaredInnovation
+                - (totalInnovation * totalInnovation) / n
+            )
+            if innovationVariance <= 0.0:
+                continue
+            prodLag1 = float(innovationProd[j])
+            firstInnovation = float(innovFirst[j])
+            lastInnovation = float(innovLast[j])
+
+            centeredLag1Sum = (
+                prodLag1
+                - meanInnovation
+                * (
+                    (totalInnovation - firstInnovation)
+                    + (totalInnovation - lastInnovation)
+                )
+                + meanInnovation * meanInnovation * (n - 1.0)
+            )
+
+            rhoValues.append(centeredLag1Sum / innovationVariance)
+
+        if rhoValues:
+            rhoHat = float(np.median(rhoValues))
+            varInflation = 1.0 + max(0.0, 2.0 * rhoHat)
+            varInflation = float(np.clip(varInflation, 1.0, 10.0))
+            stateCovarSmoothed[:] = stateCovarSmoothed[
+                :
+            ] * np.float32(varInflation)
+            stateCovarSmoothed.flush()
+            logger.info(
+                f"AC-based adjustment applied to post-fit `P_[i]`: {varInflation:.3f}",
+            )
+
     stateSmoothed.flush()
     stateCovarSmoothed.flush()
     postFitResiduals.flush()
+
     if boundState:
         stateSmoothed[:, 0] = np.clip(
             stateSmoothed[:, 0], stateLowerBound, stateUpperBound
