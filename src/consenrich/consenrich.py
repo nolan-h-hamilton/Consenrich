@@ -504,6 +504,81 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     )
 
 
+def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
+    configData = _loadConfig(config_path)
+
+    plotPrefix_ = _cfgGet(configData, "plotParams.plotPrefix", experimentName)
+
+    plotStateEstimatesHistogram_ = _cfgGet(
+        configData,
+        "plotParams.plotStateEstimatesHistogram",
+        False,
+    )
+
+    plotResidualsHistogram_ = _cfgGet(
+        configData,
+        "plotParams.plotResidualsHistogram",
+        False,
+    )
+
+    plotStateStdHistogram_ = _cfgGet(
+        configData,
+        "plotParams.plotStateStdHistogram",
+        False,
+    )
+
+    plotHeightInches_ = _cfgGet(
+        configData, "plotParams.plotHeightInches", 6.0,
+    )
+
+    plotWidthInches_ = _cfgGet(
+        configData, "plotParams.plotWidthInches", 8.0,
+    )
+
+    plotDPI_ = _cfgGet(
+        configData, "plotParams.plotDPI", 300,
+    )
+
+    plotDirectory_ = _cfgGet(
+        configData, "plotParams.plotDirectory", os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
+    )
+
+
+    if plotDirectory_ is not None and (not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)):
+        try:
+            os.makedirs(plotDirectory_, exist_ok=True)
+        except Exception as e:
+            logger.warning(
+                f"Failed to create {plotDirectory_}:\n\t{e}\nUsing CWD."
+            )
+            plotDirectory_ = os.getcwd()
+    elif plotDirectory_ is None:
+        plotDirectory_ = os.getcwd()
+
+    elif os.path.exists(plotDirectory_) and os.path.isdir(
+        plotDirectory_):
+        logger.warning(
+            f"Using existing plot directory: {plotDirectory_}"
+        )
+    else:
+        logger.warning(
+            f"Failed creating/identifying {plotDirectory_}...Using CWD."
+        )
+        plotDirectory_ = os.getcwd()
+
+    return core.plotParams(
+        plotPrefix=plotPrefix_,
+        plotStateEstimatesHistogram=plotStateEstimatesHistogram_,
+        plotResidualsHistogram=plotResidualsHistogram_,
+        plotStateStdHistogram=plotStateStdHistogram_,
+        plotHeightInches=plotHeightInches_,
+        plotWidthInches=plotWidthInches_,
+        plotDPI=plotDPI_,
+        plotDirectory=plotDirectory_,
+
+    )
+
+
 def readConfig(config_path: str) -> Dict[str, Any]:
     r"""Read and parse the configuration file for Consenrich.
 
@@ -575,6 +650,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             True,
         ),
     )
+
+    plotArgs = getPlotArgs(config_path, experimentName)
 
     observationArgs = core.observationParams(
         minR= _cfgGet(configData, "observationParams.minR", -1.0),
@@ -762,6 +839,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "outputArgs": outputParams,
         "countingArgs": countingParams,
         "processArgs": processArgs,
+        "plotArgs": plotArgs,
         "observationArgs": observationArgs,
         "stateArgs": stateArgs,
         "samArgs": samArgs,
@@ -975,6 +1053,7 @@ def main():
     samArgs = config["samArgs"]
     detrendArgs = config["detrendArgs"]
     matchingArgs = config["matchingArgs"]
+    plotArgs = config["plotArgs"]
     bamFiles = inputArgs.bamFiles
     bamFilesControl = inputArgs.bamFilesControl
     numSamples = len(bamFiles)
@@ -1328,6 +1407,30 @@ def main():
             and processArgs.scaleResidualsByP11
             else None,
         )
+
+        if plotArgs.plotStateEstimatesHistogram:
+            core.plotStateEstimatesHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                x_,
+                plotDirectory=plotArgs.plotDirectory,
+            )
+
+        if plotArgs.plotResidualsHistogram:
+            core.plotResidualsHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                y,
+                plotDirectory=plotArgs.plotDirectory,
+            )
+
+        if plotArgs.plotStateStdHistogram:
+            core.plotStateStdHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                np.sqrt(P[:, 0, 0]),
+                plotDirectory=plotArgs.plotDirectory,
+            )
 
         weights_: Optional[np.ndarray] = None
         if matchingArgs.penalizeBy is not None:

@@ -3,24 +3,25 @@ r"""
 Consenrich core functions and classes.
 
 """
-
 import logging
 import os
 from tempfile import NamedTemporaryFile
 from typing import (
+    Any,
     Callable,
+    DefaultDict,
     List,
+    NamedTuple,
     Optional,
     Tuple,
-    DefaultDict,
-    Any,
-    NamedTuple,
 )
 
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
-from scipy import signal, ndimage, stats
+from numpy.lib.stride_tricks import as_strided
+from scipy import ndimage, signal
 
 from . import cconsenrich
 
@@ -70,6 +71,34 @@ def resolveExtendBP(extendBP, bamFiles: List[str]) -> List[int]:
     )
 
 
+class plotParams(NamedTuple):
+    r"""(Experimental) Parameters related to plotting.
+    :param plotPrefix: Prefix for output plot filenames.
+    :type plotPrefix: str | None = None
+    :param plotStateEstimatesHistogram: If True, plot a histogram of post-fit primary state estimates
+    :type plotStateEstimatesHistogram: bool
+    :param plotResidualsHistogram: If True, plot a histogram of post-fit residuals
+    :type plotResidualsHistogram: bool
+    :param plotStateStdHistogram: If True, plot a histogram of the post-fit state estimates' variances (sqrt).
+    :type plotStateStdHistogram: bool
+    :param plotHeightInches: Height of output plots in inches.
+    :type plotHeightInches: float
+    :param plotWidthInches: Width of output plots in inches.
+    :type plotWidthInches: float
+    :param plotDPI: DPI of output plots (png)
+    :type plotDPI: int
+    :seealso: :func:`consenrich.core.plotStateEstimatesHistogram`
+    """
+    plotPrefix: str | None = None
+    plotStateEstimatesHistogram: bool = False
+    plotResidualsHistogram: bool = False
+    plotStateStdHistogram: bool = False
+    plotHeightInches: float = 6.0
+    plotWidthInches: float = 8.0
+    plotDPI: int = 300
+    plotDirectory: str | None = None
+
+
 class processParams(NamedTuple):
     r"""Parameters related to the process model of Consenrich.
 
@@ -95,7 +124,7 @@ class processParams(NamedTuple):
         If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (See :class:`outputParams`).
     :type scaleResidualsByP11: Optional[bool]
     :param adjustPmatByInnovationAC: (Experimental) If True, adjust the returned state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}`
-        based on `1 + average autocorrelation` of the innovation sequence from the forward pass. This adjustment
+        based on average autocorrelation approximated by the innovation sequences from the forward pass. This adjustment
         aims to account for residual correlations in the data not captured by the observation noise covariance matrices but
         reflected in the innovation sequence. Note that applying this heuristic can only increase
         estimates of the state uncertainty.
@@ -975,9 +1004,9 @@ def runConsenrich(
     :param adjustPmatByInnovationAC: See :class:`processParams`.
     :type adjustPmatByInnovationAC: Optional[bool]
     :return: Tuple of three numpy arrays:
-        - state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
-        - state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
-        - post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
+        - post-fit (forward/backward-smoothed)state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
+        - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
+        - post-fit residuals (after forward/backward smoothing) :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
 
     :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
@@ -1288,7 +1317,7 @@ def runConsenrich(
 
 
 def getPrimaryState(
-    stateVectors: np.ndarray, roundPrecision: int = 3
+    stateVectors: np.ndarray, roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
     r"""Get the primary state estimate from each vector after running Consenrich.
 
@@ -1303,7 +1332,7 @@ def getPrimaryState(
 
 
 def getStateCovarTrace(
-    stateCovarMatrices: np.ndarray, roundPrecision: int = 3
+    stateCovarMatrices: np.ndarray, roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional array of state covariance traces after running Consenrich
 
@@ -1323,7 +1352,7 @@ def getStateCovarTrace(
 def getPrecisionWeightedResidual(
     postFitResiduals: np.ndarray,
     matrixMunc: np.ndarray,
-    roundPrecision: int = 3,
+    roundPrecision: int = 4,
     stateCovarSmoothed: Optional[np.ndarray] = None,
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional precision-weighted array residuals after running Consenrich.
@@ -1336,7 +1365,7 @@ def getPrecisionWeightedResidual(
         That is, the observation noise levels for each sample :math:`j=1,2,\ldots,m` at interval :math:`i`. To keep memory usage minimal `matrixMunc` is not returned in full or computed in
         in :func:`runConsenrich`. If using Consenrich programmatically, run :func:`consenrich.core.getMuncTrack` for each sample's count data (rows in the matrix output of :func:`readBamSegments`).
     :type matrixMunc: np.ndarray
-    :param stateCovarSmoothed: Smoothed state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}` from :func:`runConsenrich`.
+    :param stateCovarSmoothed: Post-fit (forward/backward-smoothed) state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}` from :func:`runConsenrich`.
     :type stateCovarSmoothed: Optional[np.ndarray]
     :return: A one-dimensional array of "precision-weighted residuals"
     :rtype: npt.NDArray[np.float32]
@@ -1695,3 +1724,278 @@ def autoDeltaF(
         raise ValueError(
             "Average cross-sample fraglen estimation failed"
         )
+
+
+def _forPlotsSampleBlockStats(
+    values_: npt.NDArray[np.float32],
+    blockSize_: int,
+    numBlocks_: int,
+    statFunction_: Callable = np.mean,
+    randomSeed_: int = 42,
+):
+    r"""Pure python helper for plotting distributions of block-sampled statistics.
+
+    Intended for use in the plotting functions, not as an alternative to
+    the Cython ``cconsenrich.csampleBlockStats`` function used in the
+    `matching` module. Call on 32bit numpy arrays so that copies are not made.
+
+    :param values: One-dimensional array of values to sample blocks from.
+    :type values: np.ndarray
+    :param blockSize: Length of each block to sample.
+    :type blockSize: int
+    :param numBlocks: Number of blocks to sample.
+    :type numBlocks: int
+    """
+    np.random.seed(randomSeed_)
+
+    if type(values_) == npt.NDArray[np.float32]:
+        x = values_
+    else:
+        x = np.ascontiguousarray(values_, dtype=np.float32)
+    n = x.shape[0]
+    if blockSize_ > n:
+        logger.warning(
+            f"`blockSize>values.size`...setting `blockSize` = {max(n // 2, 1)}."
+        )
+        blockSize_ = int(max(n // 2, 1))
+
+    maxStart = n - blockSize_ + 1
+
+    # avoid copies
+    blockView = as_strided(
+        x,
+        shape=(maxStart, blockSize_),
+        strides=(x.strides[0], x.strides[0]),
+    )
+    starts = np.random.randint(0, maxStart, size=numBlocks_)
+    return statFunction_(blockView[starts], axis=1)
+
+
+def plotStateEstimatesHistogram(
+    chromosome: str,
+    plotPrefix: str,
+    primaryStateValues: npt.NDArray[np.float32],
+    blockSize: int = 10,
+    numBlocks: int = 1000,
+    statFunction: Callable = np.mean,
+    randomSeed: int = 42,
+    roundPrecision: int = 4,
+    plotHeightInches: float = 6.0,
+    plotWidthInches: float = 8.0,
+    plotDPI: int = 300,
+    plotDirectory: str | None = None,
+) -> str|None:
+    r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state estimates.
+
+    :param plotPrefix: Prefixes the output filename
+    :type plotPrefix: str
+    :param primaryStateValues: 1D 32bit float array of primary state estimates, i.e., :math:`\widetilde{\mathbf{x}}_{[i,1]}`,
+        that is, ``stateSmoothed[0,:]`` from :func:`runConsenrich`. See also :func:`getPrimaryState`.
+    :type primaryStateValues: npt.NDArray[np.float32]
+    :param blockSize: Number of contiguous intervals to sample per block.
+    :type blockSize: int
+    :param numBlocks: Number of samples to draw
+    :type numBlocks: int
+    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
+    :type statFunction: Callable
+    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
+    :type plotDirectory: str | None
+    """
+
+    if plotDirectory is None:
+        plotDirectory = os.getcwd()
+    elif not os.path.exists(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+    elif not os.path.isdir(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+
+    plotFileName = (
+        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.png")
+    )
+    binnedStateEstimates = _forPlotsSampleBlockStats(
+        values_=primaryStateValues,
+        blockSize_=blockSize,
+        numBlocks_=numBlocks,
+        statFunction_=statFunction,
+        randomSeed_=randomSeed,
+    )
+    plt.figure(
+        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI
+    )
+    plt.hist(
+        binnedStateEstimates,
+        bins='auto',
+        color="blue",
+        alpha=0.85,
+        edgecolor="black",
+        fill=True,
+    )
+    plt.title(
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each):  $\widetilde{{x}}_{{[\cdot]}}$",
+    )
+    plt.savefig(plotFileName, dpi=plotDPI)
+    plt.close()
+    if os.path.exists(plotFileName):
+        logger.info(f"Wrote state estimate histogram to {plotFileName}")
+        return plotFileName
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    return None
+
+
+def plotResidualsHistogram(
+    chromosome: str,
+    plotPrefix: str,
+    residuals: npt.NDArray[np.float32],
+    blockSize: int = 10,
+    numBlocks: int = 1000,
+    statFunction: Callable = np.mean,
+    randomSeed: int = 42,
+    roundPrecision: int = 4,
+    plotHeightInches: float = 6.0,
+    plotWidthInches: float = 8.0,
+    plotDPI: int = 300,
+    flattenResiduals: bool = False,
+    plotDirectory: str | None = None,
+) -> str|None:
+    r"""(Experimental) Plot a histogram of within-chromosome post-fit residuals.
+
+    :param plotPrefix: Prefixes the output filename
+    :type plotPrefix: str
+    :param residuals: :math:`m \times n` (sample-by-interval) 32bit float array of post-fit residuals.
+    :type residuals: npt.NDArray[np.float32]
+    :param blockSize: Number of contiguous intervals to sample per block.
+    :type blockSize: int
+    :param numBlocks: Number of samples to draw
+    :type numBlocks: int
+    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
+    :type statFunction: Callable
+    :param flattenResiduals: If True, flattens the :math:`m \times n` (sample-by-interval) residuals
+        array to 1D (via `np.flatten`) before sampling blocks. If False, a random row (sample) is
+        selected for each column (interval) prior to the block sampling.
+        in each iteration.
+    :type flattenResiduals: bool
+    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
+    :type plotDirectory: str | None
+    """
+
+    if plotDirectory is None:
+        plotDirectory = os.getcwd()
+    elif not os.path.exists(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+    elif not os.path.isdir(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+
+    plotFileName = (
+        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.png")
+    )
+
+    x = np.ascontiguousarray(residuals, dtype=np.float32)
+
+    if not flattenResiduals:
+        n, m = x.shape
+        rng = np.random.default_rng(randomSeed)
+        sample_idx = rng.integers(0, m, size=n)
+        x = x[np.arange(n), sample_idx]
+    else:
+        x = x.ravel()
+
+    binnedResiduals = _forPlotsSampleBlockStats(
+        values_=x,
+        blockSize_=blockSize,
+        numBlocks_=numBlocks,
+        statFunction_=statFunction,
+        randomSeed_=randomSeed,
+    )
+    plt.figure(
+        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI
+    )
+    plt.hist(
+        binnedResiduals,
+        bins='auto',
+        color="blue",
+        alpha=0.85,
+        edgecolor="black",
+        fill=True,
+    )
+    plt.title(
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each):  $\widetilde{{y}}_{{[\cdot]}}$",
+    )
+    plt.savefig(plotFileName, dpi=plotDPI)
+    plt.close()
+    if os.path.exists(plotFileName):
+        logger.info(f"Wrote residuals histogram to {plotFileName}")
+        return plotFileName
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    return None
+
+
+def plotStateStdHistogram(
+    chromosome: str,
+    plotPrefix: str,
+    stateStd: npt.NDArray[np.float32],
+    blockSize: int = 10,
+    numBlocks: int = 1000,
+    statFunction: Callable = np.mean,
+    randomSeed: int = 42,
+    roundPrecision: int = 4,
+    plotHeightInches: float = 6.0,
+    plotWidthInches: float = 8.0,
+    plotDPI: int = 300,
+    plotDirectory: str | None = None,
+) -> str|None:
+    r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state standard deviations, i.e., :math:`\sqrt{\widetilde{\mathbf{P}}_{[i,11]}}`.
+
+    :param plotPrefix: Prefixes the output filename
+    :type plotPrefix: str
+    :param stateStd: 1D numpy 32bit float array of primary state standard deviations, i.e., :math:`\sqrt{\widetilde{\mathbf{P}}_{[i,11]}}`,
+        that is, the first diagonal elements in the :math:`n \times (2 \times 2)` numpy array `stateCovarSmoothed`. Access as ``(stateCovarSmoothed[:, 0, 0]``.
+    :type stateStd: npt.NDArray[np.float32]
+    :param blockSize: Number of contiguous intervals to sample per block.
+    :type blockSize: int
+    :param numBlocks: Number of samples to draw
+    :type numBlocks: int
+    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
+    :type statFunction: Callable
+    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
+    :type plotDirectory: str | None
+    """
+
+    if plotDirectory is None:
+        plotDirectory = os.getcwd()
+    elif not os.path.exists(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+    elif not os.path.isdir(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+
+    plotFileName = (
+        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.png")
+    )
+
+    binnedStateStdEstimates = _forPlotsSampleBlockStats(
+        values_=stateStd,
+        blockSize_=blockSize,
+        numBlocks_=numBlocks,
+        statFunction_=statFunction,
+        randomSeed_=randomSeed,
+    )
+    plt.figure(
+        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI,
+    )
+    plt.hist(
+        binnedStateStdEstimates,
+        bins='auto',
+        color="blue",
+        alpha=0.85,
+        edgecolor="black",
+        fill=True,
+    )
+    plt.title(
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each):  $\sqrt{{\widetilde{{P}}_{{[\cdot,11]}}}}$",
+    )
+    plt.savefig(plotFileName, dpi=plotDPI)
+    plt.close()
+    if os.path.exists(plotFileName):
+        logger.info(f"Wrote state std histogram to {plotFileName}")
+        return plotFileName
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    return None
