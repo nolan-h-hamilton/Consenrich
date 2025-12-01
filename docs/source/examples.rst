@@ -88,7 +88,7 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 
   experimentName: demoHistoneChIPSeq
   genomeParams.name: hg38
-  genomeParams.chromosomes: [chr21, chr22] # remove to run genome-wide
+  genomeParams.chromosomes: [chr21, chr22]
   genomeParams.excludeForNorm: [chrX, chrY]
 
   inputParams.bamFiles: [ENCFF793ZHL.bam,
@@ -107,6 +107,8 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   matchingParams.minMatchLengthBP: -1
   matchingParams.mergeGapBP: -1
 
+  # Optional: transform counts
+  countingParams.applySqrt: true
 
 .. admonition:: Control Inputs
   :class: tip
@@ -137,8 +139,8 @@ Results
 * We display Consenrich results (blue) at ``APOL2 <--| |--> APOL1``
 
 
-* For reference, ENCODE peaks for the same `Experiments` and donor samples are included (black):
-  * `Histone ChIP-seq (unreplicated) <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ (MACS2 calls,  partition concordance)
+* For reference, ENCODE peaks (label: `rep1 pseudoreplicated peaks`) for the same `Experiments` and donor samples are included (black):
+  * `ENCODE Histone ChIP-seq pipeline (unreplicated) <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ (MACS2 calls,  partition concordance)
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
   :alt: Output Consenrich Signal Estimates
@@ -169,7 +171,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python `3.12.9`
-- Consenrich `v0.7.5b1`
+- Consenrich `v0.7.7b1`
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -226,11 +228,19 @@ Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed e
     ENCFF948HNW.bam
   ]
 
+  # Optional: call 'structured peaks' via `consenrich.matching`
   matchingParams.templateNames: [haar, db2]
   matchingParams.cascadeLevels: [3, 3]
   matchingParams.minMatchLengthBP: -1
   matchingParams.mergeGapBP: -1
 
+  # Optional: transform counts
+  countingParams.applySqrt: true
+
+  # Optional: plot distributions
+  plotParams.plotStateTrace: true
+  plotParams.plotResidualsHistogram: true
+  plotParams.plotStateStdHistogram: true
 
 Run Consenrich
 ''''''''''''''''''''
@@ -239,17 +249,40 @@ Run Consenrich
 
   % consenrich --config atac20Benchmark.yaml --verbose
 
-
 Results
 ''''''''''''''''''''''''''''
 
-Consenrich outputs are visualized over a 25kb genomic region centered around `LYL1`, which is highly expressed in LCLs.
-
+**Browser Snapshot**
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkIGVSpib25KB.png
     :alt: IGV Browser Snapshot (25kb)
-    :width: 800px
+    :width: 700px
     :align: left
+
+
+**Visualizing State and Residual Distributions**
+
+For downstream analyses, it can be useful to inspect the distributions of state estimates, residuals, and state uncertainties. Basic convenience utilities are built into the software implementation of Consenrich for this purpose.
+
+We display plots corresponding to `chr19`, as in the browser snapshot above. Note, ``plotParams.plot<...>`` will create a separate directory ``<experimentName>_consenrichPlots`` to store files.
+
+.. list-table::
+   :widths: 32 32 32
+   :align: left
+
+   * - .. image:: ../benchmarks/atac20/images/consenrichPlot_hist_chr19_atac20Benchmark_state.png
+          :alt: Approximate state/signal distribution for atac20 Demo (v0.7.7b1, applySqrt: true)
+          :width: 100%
+     - .. image:: ../benchmarks/atac20/images/consenrichPlot_hist_chr19_atac20Benchmark_residuals.png
+          :alt: Residual distribution for atac20 Demo (v0.7.7b1, applySqrt: true)
+          :width: 100%
+     - .. image:: ../benchmarks/atac20/images/consenrichPlot_hist_chr19_atac20Benchmark_stateStd.png
+          :alt: Approximate state variance distribution for atac20 Demo (v0.7.7b1, applySqrt: true)
+          :width: 100%
+
+
+See :class:`consenrich.core.plotParams` and associated functions for more details.
+
 
 **Evaluating Structured Peak Results: cCRE Overlaps**
 
@@ -316,7 +349,7 @@ Runtime and Memory Profiling
 
 Memory was profiled using the package `memory-profiler <https://pypi.org/project/memory-profiler/>`_. See the plot below for memory usage over time. Function calls are marked as notches.
 
-Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime.
+Note that the repeated sampling of memory every 0.1 seconds during profiling introduces some overhead that affects runtime. MacOS's `caffeinate` command was used to prevent sleeping during execution.
 
 .. image:: ../benchmarks/atac20/images/atac20BenchmarkMemoryPlot.png
     :alt: Time vs. Memory Usage (`memory-profiler`)
@@ -361,14 +394,12 @@ Configuration
      ENCFF648HNK.bam
     ]
 
-    # Increased from default (25 bp) given H3K36me3's classification
-    # as a broad histone mark associated with gene bodies
-    countingParams.stepSize: 100
+    countingParams.applySqrt: true
 
-    matchingParams.templateNames: [haar, db2]
+    matchingParams.templateNames: [haar, sym3] # include longer template for broad marks
     matchingParams.cascadeLevels: [3, 3]
     matchingParams.minMatchLengthBP: -1
-    matchingParams.mergeGapBP: -1
+    matchingParams.mergeGapBP: 500 # increase merge radius for broad marks
 
 
 Run Consenrich
@@ -382,33 +413,12 @@ Run Consenrich
 Results
 ''''''''''''''''''''''''''''
 
-Signal estimates, weighted residuals, and structured peaks (via :ref:`matching`) over a **150kb region** spanning `LINC01176`, `NOD1`, `GGCT`:
+Signal estimates, weighted residuals, and structured peaks (via :ref:`matching`) over a large genomic region spanning `LINC01176`, `NOD1`, `GGCT`:
 
 .. image:: ../benchmarks/H3K36me3/images/Consenrich_ENTexFour_DualMark.png
     :alt: H3K36me3 Intron-Exon
     :width: 800px
     :align: left
-
-
-**Genome-Wide Exonic Enrichment**
-
-We evaluate signal intensities and peak density at exonic regions given H3K36me3's association with actively transcribed gene bodies.
-
-Using the set of Consenrich peaks, we apply `bedtools shuffle` to permute their genomic locations while preserving chromosome assignment and feature lengths to build a null distribution. (This is effectively the same procedure as in the previous `ATAC-seq` example.)
-
-
-- Peaks: Exon Overlaps (bp)
-
-  - *Shuffled (Null)*: mean exonic overlap (:math:`N=250` iterations): μ ≈ 1,134,214, σ ≈ 25,008.34
-  - *Consenrich*: observed exonic overlap: **7,510,079**
-
-    - *Fold-enrichment*: :math:`7.14`, :math:`\hat{p} \approx 0.0039`
-
-- Relative Signals: All Consenrich Peaks vs. Consenrich Peaks :math:`\cap` Exons
-
-  - Median signal at peaks that overlap exons: **9.554**
-  - Median signal at all peaks: **5.950**
-
 
 
 .. _files:
@@ -519,17 +529,8 @@ Several simple transformations are built into Consenrich for convenience, e.g.,
 
   countingParams.applySqrt: true # `applyLog`, `applyAsinh``
 
-In the default (CLI) implementation, these transformations are applied *before* detrending and and running the primary filtering step.
+* ``applySqrt`` offers a gentle compression of the dynamic range and may be preferable to log transforms to preserve a greater breadth of signal variation for downstream peak calling, etc. Note this is the canonical link for Poisson GLMs but, more generally, confers analytic advantages that can aid in distribution-free uncertainty quantification.
+* Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components for additive linear modeling. Depending on sparsity, their comparably strong compression may reduce capture of subtle signal patterns when applying Consenrich.
 
-For instance, adding ``applySqrt: true`` to the H3K27ac ChIP-seq demo above,
+Note, in the default (CLI) implementation, these transformations are applied *before* detrending and running the primary filtering step. Users running Consenrich programmatically can apply custom transformations and preprocesssing pipelines as desired, e.g., `Yeo-Johnson, general power transforms <https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html>_`.
 
-.. list-table::
-   :widths: 50 50
-   :align: center
-
-   * - .. image:: ../images/consenrichPlot_hist_chr22_demoHistoneChIPSeq_residuals.png
-         :alt: Residual distribution for H3K27ac ChIP-seq Demo (v0.7.7b1, ``applySqrt: true``)
-         :width: 100%
-     - .. image:: ../images/consenrichPlot_hist_chr22_demoHistoneChIPSeq_stateStd.png
-         :alt: v0.7.7b1 State variance distribution for H3K27ac ChIP-seq Demo (v0.7.7b1, ``applySqrt: true``)
-         :width: 100%
