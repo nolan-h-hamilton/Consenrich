@@ -3,24 +3,25 @@ r"""
 Consenrich core functions and classes.
 
 """
-
 import logging
 import os
 from tempfile import NamedTemporaryFile
 from typing import (
+    Any,
     Callable,
+    DefaultDict,
     List,
+    NamedTuple,
     Optional,
     Tuple,
-    DefaultDict,
-    Any,
-    NamedTuple,
 )
 
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
-from scipy import signal, ndimage
+from numpy.lib.stride_tricks import as_strided
+from scipy import ndimage, signal
 
 from . import cconsenrich
 
@@ -70,6 +71,39 @@ def resolveExtendBP(extendBP, bamFiles: List[str]) -> List[int]:
     )
 
 
+class plotParams(NamedTuple):
+    r"""(Experimental) Parameters related to plotting filter results and diagnostics.
+
+    :param plotPrefix: Prefix for output plot filenames.
+    :type plotPrefix: str or None
+    :param plotStateEstimatesHistogram: If True, plot a histogram of post-fit primary state estimates
+    :type plotStateEstimatesHistogram: bool
+    :param plotResidualsHistogram: If True, plot a histogram of post-fit residuals
+    :type plotResidualsHistogram: bool
+    :param plotStateStdHistogram: If True, plot a histogram of the posterior state standard deviations.
+    :type plotStateStdHistogram: bool
+    :param plotHeightInches: Height of output plots in inches.
+    :type plotHeightInches: float
+    :param plotWidthInches: Width of output plots in inches.
+    :type plotWidthInches: float
+    :param plotDPI: DPI of output plots (png)
+    :type plotDPI: int
+    :param plotDirectory: Directory where plots will be written.
+    :type plotDirectory: str or None
+
+    :seealso: :func:`consenrich.core.plotStateEstimatesHistogram`
+    """
+
+    plotPrefix: str | None = None
+    plotStateEstimatesHistogram: bool = False
+    plotResidualsHistogram: bool = False
+    plotStateStdHistogram: bool = False
+    plotHeightInches: float = 6.0
+    plotWidthInches: float = 8.0
+    plotDPI: int = 300
+    plotDirectory: str | None = None
+
+
 class processParams(NamedTuple):
     r"""Parameters related to the process model of Consenrich.
 
@@ -78,7 +112,8 @@ class processParams(NamedTuple):
     and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
     matrices.
 
-    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals.
+    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. Set to `< 0` to determine based on stepSize:fragment-length ratio.
+    :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
         for each state variable.
     :type minQ: float
@@ -91,9 +126,14 @@ class processParams(NamedTuple):
         that is used to up/down-scale the process noise covariance in the event of a model mismatch.
     :type dStatPC: float
     :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
-        If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (See :class:`outputParams`).
+        If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (i.e., ``postFitResiduals`` from :func:`consenrich.consenrich.runConsenrich`).
     :type scaleResidualsByP11: Optional[bool]
-
+    :param adjustPmatByInnovationAC: (Experimental) If True, adjust the returned state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}`
+        based on average autocorrelation approximated by the innovation sequences from the forward pass. This adjustment
+        aims to account for residual correlations in the data not captured by the observation noise covariance matrices but
+        reflected in the innovation sequence. Note that applying this heuristic can only increase
+        estimates of the state uncertainty.
+    :type adjustPmatByInnovationAC: Optional[bool]
     """
 
     deltaF: float
@@ -104,6 +144,7 @@ class processParams(NamedTuple):
     dStatd: float
     dStatPC: float
     scaleResidualsByP11: Optional[bool] = True
+    adjustPmatByInnovationAC: Optional[bool] = False
 
 
 class observationParams(NamedTuple):
@@ -141,6 +182,8 @@ class observationParams(NamedTuple):
     :type useALV: bool
     :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
     :type lowPassFilterType: Optional[str]
+    :param shrinkOffset: An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not reduce the local variance estimate near zero.
+        Setting to >= `1` disables shrinkage.
     """
 
     minR: float
@@ -155,6 +198,7 @@ class observationParams(NamedTuple):
     lowPassWindowLengthBP: int
     lowPassFilterType: Optional[str]
     returnCenter: bool
+    shrinkOffset: Optional[float]
 
 
 class stateParams(NamedTuple):
@@ -226,7 +270,7 @@ class samParams(NamedTuple):
 
 
 class detrendParams(NamedTuple):
-    r"""Parameters related detrending and background-removal
+    r"""Parameters related detrending and background-removal after normalizing by sequencing depth.
 
     :param useOrderStatFilter: Whether to use a local/moving order statistic (percentile filter) to model and remove trends in the read density data.
     :type useOrderStatFilter: bool
@@ -257,9 +301,9 @@ class inputParams(NamedTuple):
 
     :param bamFilesControl: A list of paths to distinct coordinate-sorted and
         indexed control BAM files. e.g., IgG control inputs for ChIP-seq.
-
     :type bamFilesControl: List[str], optional
-
+    :param pairedEnd: Deprecated: Paired-end/Single-end is inferred automatically from the alignment flags in input BAM files.
+    :type pairedEnd: Optional[bool]
     """
 
     bamFiles: List[str]
@@ -311,8 +355,26 @@ class countingParams(NamedTuple):
     :type applyAsinh: bool, optional
     :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x` for each supplied BAM file.
     :type applyLog: bool, optional
-    :param normMethod: Method for normalizing read counts. One of: `EGS` (Effective Genome Size - default) or `RPKM` (``CPM * 1000/stepSize```)
-    :type normMethod: str
+    :param applySqrt: If true, :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
+    :type applySqrt: bool, optional
+    :param noTransform: Shorthand to disable all transformations.
+    :type noTransform: bool, optional
+    :param rescaleToTreatmentCoverage: Deprecated: no effect.
+    :type rescaleToTreatmentCoverage: bool, optional
+
+    .. tip::
+
+      To promote (absolute) statistical calibration of uncertainty metrics, ``applySqrt``, ``applyAsinh``, ``applyLog`` can mitigate heteroskedasticity and improve symmetry.
+
+      * ``applySqrt`` offers a relatively gentle compression of the dynamic range and may be preferable to recover a greater breadth of signal variation.
+      * Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components and representing
+        conventional fold-changes/enrichment against local background.
+
+      In either case, uncertainty outputs (e.g., state standard deviations) can be interpreted as *relative* measures of uncertainty in their transformed space.  Consider also ``stateParams.boundState: False`` to improve symmetry and possibly aid interpretation of the estimated signals values.
+
+      See also :ref:`calibration`.
+
+
     """
 
     stepSize: int
@@ -322,7 +384,9 @@ class countingParams(NamedTuple):
     numReads: int
     applyAsinh: Optional[bool]
     applyLog: Optional[bool]
-    rescaleToTreatmentCoverage: Optional[bool] = False # deprecated
+    applySqrt: Optional[bool]
+    noTransform: Optional[bool]
+    rescaleToTreatmentCoverage: Optional[bool] = False  # deprecated
     normMethod: Optional[str] = "EGS"
 
 
@@ -394,22 +458,18 @@ class outputParams(NamedTuple):
     :type convertToBigWig: bool
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
-    :param writeResiduals: If True, write to a separate bedGraph the mean of precision-weighted residuals at each interval. These may be interpreted as
-        a measure of model mismatch. Where these quantities are large (+-) the estimated signal and uncertainty do not explain the observed deviation from the data.
+    :param writeResiduals: If True, write to a separate bedGraph the pointwise avg. of precision-weighted residuals at each interval. These may be interpreted as
+        a measure of model mismatch. Where these quantities are larger (+-), there may be more unexplained deviation between the data and fitted model.
     :type writeResiduals: bool
-    :param writeRawResiduals: If True, write to a separate bedGraph the pointwise avg. of post-fit residuals at each interval. These values are not 'precision-weighted'.
-    :type writeRawResiduals: bool
     :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' observation noise level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
     :type writeMuncTrace: bool
-    :param writeStateStd: If True, write to a separate bedGraph estimated 'standard deviation' of the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, at each interval. Note that an absolute Gaussian interpretation of this metric depends on sample size, arguments in :class:`processParams` and :class:`observationParams`, etc.
-        In any case, this metric may be interpreted as a relative measure of uncertainty in the state estimate at each interval.
+    :param writeStateStd: If True, write to a separate bedGraph the estimated pointwise uncertainty in the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, on a scale comparable to the estimated signal.
     :type writeStateStd: bool
     """
 
     convertToBigWig: bool
     roundDigits: int
     writeResiduals: bool
-    writeRawResiduals: bool
     writeMuncTrace: bool
     writeStateStd: bool
 
@@ -569,6 +629,7 @@ def readBamSegments(
     offsetStr: Optional[str] = "0,0",
     applyAsinh: Optional[bool] = False,
     applyLog: Optional[bool] = False,
+    applySqrt: Optional[bool] = False,
     extendBP: List[int] = [],
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
@@ -578,6 +639,9 @@ def readBamSegments(
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
     See :func:`cconsenrich.creadBamSegment` for the underlying implementation in Cython.
+    Note that read counts are scaled by `scaleFactors` and possibly transformed if
+    any of `applyAsinh`, `applyLog`, `applySqrt`. Note that these transformations are mutually
+    exclusive and may affect interpretation of results.
 
     :param bamFiles: See :class:`inputParams`.
     :type bamFiles: List[str]
@@ -662,8 +726,9 @@ def readBamSegments(
             counts[j, :] = np.arcsinh(counts[j, :])
         elif applyLog:
             counts[j, :] = np.log1p(counts[j, :])
+        elif applySqrt:
+            counts[j, :] = np.sqrt(counts[j, :])
     return counts
-
 
 
 def getAverageLocalVarianceTrack(
@@ -674,29 +739,31 @@ def getAverageLocalVarianceTrack(
     minR: float,
     maxR: float,
     lowPassFilterType: Optional[str] = "median",
+    shrinkOffset: float = 0.5,
 ) -> npt.NDArray[np.float32]:
-    r"""Generate positional noise-level tracks with first and second moments approximated from local windows
+    r"""Generate positional noise-level tracks with first and second moments approximated from local windows and shrinkage based on autocorrelation
 
     First, computes a moving average of ``values`` using a bp-length window
     ``approximationWindowLengthBP`` and a moving average of ``values**2`` over the
-    same window. Their difference is used to approximate the local variance. A low-pass filter
-    (median or mean) with window ``lowPassWindowLengthBP`` then smooths the variance track.
-    Finally, the track is clipped to ``[minR, maxR]`` to yield the local noise level track.
+    same window. Their difference is used to approximate the *initial* 'local variance' before
+    autocorrelation-based shrinkage.
 
-    :param values: 1D array of read-density-based values for a single sample.
-    :type values: np.ndarray
-    :param stepSize: Bin size (bp).
+    Finally, a broad/low-pass filter (``median`` or ``mean``) with window ``lowPassWindowLengthBP`` then smooths the variance track.
+
+    :param stepSize: see :class:`countingParams`.
     :type stepSize: int
     :param approximationWindowLengthBP: Window (bp) for local mean and second-moment. See :class:`observationParams`.
     :type approximationWindowLengthBP: int
     :param lowPassWindowLengthBP: Window (bp) for the low-pass filter on the variance track. See :class:`observationParams`.
     :type lowPassWindowLengthBP: int
-    :param minR: Lower clip for the returned noise level. See :class:`observationParams`.
+    :param minR: Lower bound for the returned noise level. See :class:`observationParams`.
     :type minR: float
-    :param maxR: Upper clip for the returned noise level. See :class:`observationParams`.
+    :param maxR: Upper bound for the returned noise level. See :class:`observationParams`.
     :type maxR: float
-    :param lowPassFilterType: ``"median"`` (default) or ``"mean"``. Type of low-pass filter to use for smoothing the local variance track. See :class:`observationParams`.
+    :param lowPassFilterType: ``"median"`` (default) or ``"mean"``. Type of low-pass filter to use for smoothing the final noise level track. See :class:`observationParams`.
     :type lowPassFilterType: Optional[str]
+    :param shrinkOffset: Offset applied to lag-1 autocorrelation when shrinking local variance estimates. See :class:`observationParams`.
+    :type shrinkOffset: float
     :return: Local noise level per interval.
     :rtype: npt.NDArray[np.float32]
 
@@ -706,51 +773,94 @@ def getAverageLocalVarianceTrack(
     windowLength = int(approximationWindowLengthBP / stepSize)
     if windowLength % 2 == 0:
         windowLength += 1
+
     if len(values) < 3:
         constVar = np.var(values)
         if constVar < minR:
             return np.full_like(values, minR, dtype=np.float32)
         return np.full_like(values, constVar, dtype=np.float32)
 
-    # first get a simple moving average of the values
+    # get local mean (simple moving average)
     localMeanTrack: npt.NDArray[np.float32] = ndimage.uniform_filter(
         values, size=windowLength, mode="nearest"
     )
 
-    #  ~ E[X_i^2] - E[X_i]^2 ~
-    localVarTrack: npt.NDArray[np.float32] = (
+    # apply V[X] ~=~ E[X^2] - (E[X])^2 locally to approximate local variance
+    totalVarTrack: npt.NDArray[np.float32] = (
         ndimage.uniform_filter(
             values**2, size=windowLength, mode="nearest"
         )
         - localMeanTrack**2
     )
 
-    # safe-guard: difference of convolutions returns negative values.
-    # shouldn't actually happen, but just in case there are some
-    # ...potential artifacts i'm unaware of edge effects, etc.
-    localVarTrack = np.maximum(localVarTrack, 0.0)
+    np.maximum(totalVarTrack, 0.0, out=totalVarTrack)  # JIC
 
-    # low-pass filter on the local variance track: positional 'noise level' track
+    noiseLevel: npt.NDArray[np.float32]
+    localVarTrack: npt.NDArray[np.float32]
+
+    if abs(shrinkOffset) < 1:
+        # Aim is to shrink the local noise variance estimates
+        # ...where there's evidence of structure (signal) in the data
+        # ...autocorr small --> retain more of the variance estimate
+        # ...autocorr large --> more shrinkage
+
+        # shift idx +1
+        valuesLag = np.roll(values, 1)
+        valuesLag[0] = valuesLag[1]
+
+        # get smooth `x_{[i]} * x_{[i-1]}` and standardize
+        localMeanLag: npt.NDArray[np.float32] = (
+            ndimage.uniform_filter(
+                valuesLag, size=windowLength, mode="nearest"
+            )
+        )
+        smoothProd: npt.NDArray[np.float32] = ndimage.uniform_filter(
+            values * valuesLag, size=windowLength, mode="nearest"
+        )
+        covLag1: npt.NDArray[np.float32] = (
+            smoothProd - localMeanTrack * localMeanLag
+        )
+        rho1: npt.NDArray[np.float32] = np.clip(
+            covLag1 / (totalVarTrack + 1.0e-4),
+            -1.0 + shrinkOffset,
+            1 - shrinkOffset,
+        )
+
+        noiseFracEstimate: npt.NDArray[np.float32] = 1.0 - rho1**2
+        localVarTrack = totalVarTrack * noiseFracEstimate
+
+    else:
+        localVarTrack = totalVarTrack
+
+    np.maximum(localVarTrack, 0.0, out=localVarTrack)
     lpassWindowLength = int(lowPassWindowLengthBP / stepSize)
     if lpassWindowLength % 2 == 0:
         lpassWindowLength += 1
 
-    noiseLevel: npt.NDArray[np.float32] = np.zeros_like(
-        localVarTrack, dtype=np.float32
-    )
+    # FFR: consider making this step optional
     if lowPassFilterType is None or (
         isinstance(lowPassFilterType, str)
         and lowPassFilterType.lower() == "median"
     ):
-        noiseLevel = ndimage.median_filter(
-            localVarTrack, size=lpassWindowLength
+        noiseLevel: npt.NDArray[np.float32] = ndimage.median_filter(
+            localVarTrack,
+            size=lpassWindowLength,
         )
     elif (
         isinstance(lowPassFilterType, str)
         and lowPassFilterType.lower() == "mean"
     ):
         noiseLevel = ndimage.uniform_filter(
-            localVarTrack, size=lpassWindowLength
+            localVarTrack,
+            size=lpassWindowLength,
+        )
+    else:
+        logger.warning(
+            f"Unknown lowPassFilterType, expected `median` or `mean`, defaulting to `median`..."
+        )
+        noiseLevel = ndimage.median_filter(
+            localVarTrack,
+            size=lpassWindowLength,
         )
 
     return np.clip(noiseLevel, minR, maxR).astype(np.float32)
@@ -842,6 +952,7 @@ def runConsenrich(
     coefficientsH: Optional[np.ndarray] = None,
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
+    adjustPmatByInnovationAC: Optional[bool] = False,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -895,19 +1006,67 @@ def runConsenrich(
     :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
         If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
     :type adjustProcessNoiseFunc: Optional[Callable]
+    :param adjustPmatByInnovationAC: See :class:`processParams`.
+    :type adjustPmatByInnovationAC: Optional[bool]
     :return: Tuple of three numpy arrays:
-        - state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
-        - state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
-        - post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
+        - post-fit (forward/backward-smoothed)state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
+        - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
+        - post-fit residuals (after forward/backward smoothing) :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
 
     :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
     :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
     """
+
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
-    m: int = 1 if matrixData.ndim == 1 else matrixData.shape[0]
-    n: int = 1 if matrixData.ndim == 1 else matrixData.shape[1]
+
+    # -------
+    # check edge cases
+    if matrixData.ndim == 1:
+        matrixData = matrixData[None, :]
+    elif matrixData.ndim != 2:
+        raise ValueError(
+            "`matrixData` must be 1D or 2D (got ndim = "
+            f"{matrixData.ndim})"
+        )
+    if matrixMunc.ndim == 1:
+        matrixMunc = matrixMunc[None, :]
+    elif matrixMunc.ndim != 2:
+        raise ValueError(
+            "`matrixMunc` must be 1D or 2D (got ndim = "
+            f"{matrixMunc.ndim})"
+        )
+    if matrixMunc.shape != matrixData.shape:
+        raise ValueError(
+            f"`matrixMunc` shape {matrixMunc.shape} not equal to `matrixData` shape {matrixData.shape}"
+        )
+
+    m, n = matrixData.shape
+    if m < 1 or n < 1:
+        # ideally, we don't get here, but JIC
+        raise ValueError(
+            f"`matrixData` and `matrixMunc` need positive m x n, shape={matrixData.shape})"
+        )
+
+    if n <= 100:
+        logger.warning(
+            f"`matrixData` and `matrixMunc` span very fer genomic intervals (n={n})...is this correct?"
+        )
+
+    if chunkSize < 1:
+        logger.warning(
+            f"`chunkSize` must be positive, setting to 1000000"
+        )
+        chunkSize = 1_000_000
+
+    if chunkSize > n:
+        logger.warning(
+            f"`chunkSize` of {chunkSize} is greater than the number of intervals (n={n}), setting to {n}"
+        )
+        chunkSize = n
+    # -------
+
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
     countAdjustments: int = 0
@@ -937,6 +1096,15 @@ def runConsenrich(
             cconsenrich.updateProcessNoiseCovariance
         )
 
+    innovationProd = np.zeros(m, dtype=np.float64)
+    innovSq = np.zeros(m, dtype=np.float64)
+    innovPrev = np.zeros(m, dtype=np.float64)
+    innovSum = np.zeros(m, dtype=np.float64)
+    innovFirst = np.zeros(m, dtype=np.float64)
+    innovLast = np.zeros(m, dtype=np.float64)
+    innov = np.zeros(m, dtype=np.float64)
+    haveInnovPrev = False
+
     # ==========================
     # forward: 0,1,2,...,n-1
     # ==========================
@@ -959,6 +1127,7 @@ def runConsenrich(
         shape=(n, 2, 2),
     )
     progressIter = max(1, progressIter)
+    avgDstat: float = 0.0
     for i in range(n):
         if i % progressIter == 0:
             logger.info(f"Forward pass interval: {i + 1}/{n}")
@@ -966,11 +1135,26 @@ def runConsenrich(
         vectorX = matrixF @ vectorX
         matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
         vectorY = vectorZ - (matrixH @ vectorX)
+
+        if adjustPmatByInnovationAC:
+            innov = vectorY.astype(np.float64)
+
+            if i == 0:
+                innovFirst[:] = innov
+            innovSum += innov
+            innovLast[:] = innov
+            if haveInnovPrev:
+                innovationProd += innovPrev * innov
+            innovSq += innov * innov
+            innovPrev = innov
+            haveInnovPrev = True
+
         matrixEInverse = residualCovarInversionFunc(
             matrixMunc[:, i], np.float32(matrixP[0, 0])
         )
         Einv_diag = np.diag(matrixEInverse)
         dStat = np.median((vectorY**2) * Einv_diag)
+        avgDstat += float(dStat)
         countAdjustments = countAdjustments + int(dStat > dStatAlpha)
         matrixQ, inflatedQ = adjustProcessNoiseFunc(
             matrixQ,
@@ -1005,12 +1189,12 @@ def runConsenrich(
     stateForwardArr = stateForward
     stateCovarForwardArr = stateCovarForward
     pNoiseForwardArr = pNoiseForward
+    avgDstat /= n
 
-    # log num. times process noise was adjusted
+    logger.info(f"Average D_[i] over `n` intervals: {avgDstat:.3f}")
     logger.info(
-        f"`Median(normedInnovations) > α_D` triggered the adaptive procedure at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
+        f"`D_[i] > α_D` triggered adjustments to Q_[i] at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
     )
-
 
     # ==========================
     # backward: n,n-1,n-2,...,0
@@ -1076,9 +1260,55 @@ def runConsenrich(
             stateCovarSmoothed.flush()
             postFitResiduals.flush()
 
+    if adjustPmatByInnovationAC and n > 1:
+        rhoValues = []
+        biasTol = 1e-3
+        for j in range(m):
+            totalSquaredInnovation = float(innovSq[j])
+            totalInnovation = float(innovSum[j])
+            if totalSquaredInnovation <= 0.0:
+                continue
+            meanInnovation = totalInnovation / n
+            if abs(meanInnovation) < biasTol:
+                rhoValues.append(
+                    float(innovationProd[j]) / totalSquaredInnovation
+                )
+                continue
+            innovationVariance = (
+                totalSquaredInnovation
+                - (totalInnovation * totalInnovation) / n
+            )
+            if innovationVariance <= 0.0:
+                continue
+            prodLag1 = float(innovationProd[j])
+            firstInnovation = float(innovFirst[j])
+            lastInnovation = float(innovLast[j])
+
+            centeredLag1Sum = (
+                prodLag1
+                - meanInnovation
+                * (
+                    (totalInnovation - firstInnovation)
+                    + (totalInnovation - lastInnovation)
+                )
+                + meanInnovation * meanInnovation * (n - 1.0)
+            )
+
+            rhoValues.append(centeredLag1Sum / innovationVariance)
+
+        if rhoValues:
+            rhoHat = float(np.median(rhoValues))
+            varInflation = 1.0 + max(0.0, 2.0 * rhoHat)
+            varInflation = float(np.clip(varInflation, 1.0, 10.0))
+            stateCovarSmoothed[:] = stateCovarSmoothed[
+                :
+            ] * np.float32(varInflation)
+            stateCovarSmoothed.flush()
+
     stateSmoothed.flush()
     stateCovarSmoothed.flush()
     postFitResiduals.flush()
+
     if boundState:
         stateSmoothed[:, 0] = np.clip(
             stateSmoothed[:, 0], stateLowerBound, stateUpperBound
@@ -1092,7 +1322,7 @@ def runConsenrich(
 
 
 def getPrimaryState(
-    stateVectors: np.ndarray, roundPrecision: int = 3
+    stateVectors: np.ndarray, roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
     r"""Get the primary state estimate from each vector after running Consenrich.
 
@@ -1107,7 +1337,7 @@ def getPrimaryState(
 
 
 def getStateCovarTrace(
-    stateCovarMatrices: np.ndarray, roundPrecision: int = 3
+    stateCovarMatrices: np.ndarray, roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional array of state covariance traces after running Consenrich
 
@@ -1127,14 +1357,12 @@ def getStateCovarTrace(
 def getPrecisionWeightedResidual(
     postFitResiduals: np.ndarray,
     matrixMunc: np.ndarray,
-    roundPrecision: int = 3,
+    roundPrecision: int = 4,
     stateCovarSmoothed: Optional[np.ndarray] = None,
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional precision-weighted array residuals after running Consenrich.
 
-    Applies an inverse-variance weighting  of the post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` and
-    returns a one-dimensional array of "precision-weighted residuals". The state-level uncertainty can also be
-    incorporated given `stateCovarSmoothed`.
+    Post-fit residuals weighted by the inverse of the observation noise covariance and primary state uncertainty.
 
     :param postFitResiduals: Post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray
@@ -1142,7 +1370,7 @@ def getPrecisionWeightedResidual(
         That is, the observation noise levels for each sample :math:`j=1,2,\ldots,m` at interval :math:`i`. To keep memory usage minimal `matrixMunc` is not returned in full or computed in
         in :func:`runConsenrich`. If using Consenrich programmatically, run :func:`consenrich.core.getMuncTrack` for each sample's count data (rows in the matrix output of :func:`readBamSegments`).
     :type matrixMunc: np.ndarray
-    :param stateCovarSmoothed: Smoothed state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}` from :func:`runConsenrich`.
+    :param stateCovarSmoothed: Post-fit (forward/backward-smoothed) state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}` from :func:`runConsenrich`.
     :type stateCovarSmoothed: Optional[np.ndarray]
     :return: A one-dimensional array of "precision-weighted residuals"
     :rtype: npt.NDArray[np.float32]
@@ -1174,8 +1402,6 @@ def getPrecisionWeightedResidual(
     )
 
     if needsCopy:
-        # adds the 'primary' state uncertainty to observation noise covariance :math:`\mathbf{R}_{[i,:]}`
-        # primary state uncertainty (0,0) :math:`\mathbf{P}_{[i]} \in \mathbb{R}^{2 \times 2}`
         stateCovarArr00 = np.asarray(
             stateCovarSmoothed[:, 0, 0], dtype=np.float32
         )
@@ -1208,6 +1434,7 @@ def getMuncTrack(
     returnCenter: bool,
     sparseMap: Optional[dict[int, int]] = None,
     lowPassFilterType: Optional[str] = "median",
+    shrinkOffset: float = 0.5,
 ) -> npt.NDArray[np.float32]:
     r"""Get observation noise variance :math:`R_{[:,jj]}` for the sample :math:`j`.
 
@@ -1216,9 +1443,6 @@ def getMuncTrack(
     ``useConstantNoiseLevel`` is True, a constant track set to the global mean is used.
     When a ``sparseMap`` is provided, local values are aggregated over nearby 'sparse'
     regions before mixing with the global component.
-
-    For heterochromatic or repressive marks (H3K9me3, H3K27me3, MNase-seq, etc.), consider setting
-    `useALV=True` to prevent inflated sample-level noise estimates.
 
     :param chromosome: Tracks are approximated for this chromosome.
     :type chromosome: str
@@ -1249,9 +1473,10 @@ def getMuncTrack(
     :type sparseMap: Optional[dict[int, int]]
     :param lowPassFilterType: The type of low-pass filter to use in average local variance track (e.g., 'median', 'mean').
     :type lowPassFilterType: Optional[str]
+    :param shrinkOffset: See :func:`getAverageLocalVarianceTrack`.
+    :type shrinkOffset: float
     :return: A one-dimensional numpy array of the observation noise track for the sample :math:`j`.
     :rtype: npt.NDArray[np.float32]
-
     """
     trackALV = getAverageLocalVarianceTrack(
         rowValues,
@@ -1261,6 +1486,7 @@ def getMuncTrack(
         minR,
         maxR,
         lowPassFilterType,
+        shrinkOffset=shrinkOffset,
     ).astype(np.float32)
 
     globalNoise: float = np.float32(np.mean(trackALV))
@@ -1439,3 +1665,349 @@ def getBedMask(
         intervals_,
         stepSize_,
     ).astype(np.bool_)
+
+
+def autoDeltaF(
+    chromosome: str,
+    start: int,
+    end: int,
+    stepSize: int,
+    fragmentLengths: Optional[List[int]] = None,
+    bamFiles: Optional[List[str]] = None,
+    fallBackFragmentLength: int = 147,
+    randomSeed: int = 42,
+) -> float:
+    r"""(Experimental) Set `deltaF` as the ratio intervalLength:fragmentLength.
+
+    Computes average fragment length across samples and sets `deltaF = stepSize / avgFragmentLength`.
+    Assuming fragments contribute +1 to each genomic interval they overlap, a small intervalLength:fragmentLength
+    motivates a small `deltaF` (i.e., less state change between intervals).
+
+    :param chromosome: Chromosome name.
+    :type chromosome: str
+    :param start: Start position of a region (e.g., chromosome)
+    :type start: int
+    :param end: End position of a region (e.g., chromosome)
+    :type end: int
+    :param stepSize: Length of genomic intervals/bins. See :class:`countingParams`.
+    :type stepSize: int
+    :param bamFiles: List of sorted/indexed BAM files to estimate fragment lengths from.
+    :type bamFiles: Optional[List[str]]
+    """
+
+    avgFragmentLength: float = 0.0
+    if (
+        fragmentLengths is not None
+        and len(fragmentLengths) > 0
+        and all(isinstance(x, (int, float)) for x in fragmentLengths)
+    ):
+        avgFragmentLength = np.mean(fragmentLengths)
+    elif bamFiles is not None and len(bamFiles) > 0:
+        for bamFile in bamFiles:
+            fLen = cconsenrich.cgetFragmentLength(
+                bamFile,
+                chromosome,
+                start,
+                end,
+                fallBack=fallBackFragmentLength,
+                randSeed=randomSeed,
+            )
+            avgFragmentLength += fLen
+            logger.info(
+                f"Estimated fragment length for {bamFile}: {fLen} bp"
+            )
+        avgFragmentLength /= len(bamFiles)
+    else:
+        raise ValueError(
+            "One of `fragmentLengths` or `bamFiles` is required..."
+        )
+    if avgFragmentLength > 0:
+        deltaF = round(stepSize / float(avgFragmentLength), 4)
+        logger.info(f"Setting `processParams.deltaF`={deltaF}")
+        return np.float32(deltaF)
+    else:
+        raise ValueError(
+            "Average cross-sample fraglen estimation failed"
+        )
+
+
+def _forPlotsSampleBlockStats(
+    values_: npt.NDArray[np.float32],
+    blockSize_: int,
+    numBlocks_: int,
+    statFunction_: Callable = np.mean,
+    randomSeed_: int = 42,
+):
+    r"""Pure python helper for plotting distributions of block-sampled statistics.
+
+    Intended for use in the plotting functions, not as an alternative to
+    the Cython ``cconsenrich.csampleBlockStats`` function used in the
+    `matching` module. Call on 32bit numpy arrays so that copies are not made.
+
+    :param values: One-dimensional array of values to sample blocks from.
+    :type values: np.ndarray
+    :param blockSize: Length of each block to sample.
+    :type blockSize: int
+    :param numBlocks: Number of blocks to sample.
+    :type numBlocks: int
+    """
+    np.random.seed(randomSeed_)
+
+    if type(values_) == npt.NDArray[np.float32]:
+        x = values_
+    else:
+        x = np.ascontiguousarray(values_, dtype=np.float32)
+    n = x.shape[0]
+    if blockSize_ > n:
+        logger.warning(
+            f"`blockSize>values.size`...setting `blockSize` = {max(n // 2, 1)}."
+        )
+        blockSize_ = int(max(n // 2, 1))
+
+    maxStart = n - blockSize_ + 1
+
+    # avoid copies
+    blockView = as_strided(
+        x,
+        shape=(maxStart, blockSize_),
+        strides=(x.strides[0], x.strides[0]),
+    )
+    starts = np.random.randint(0, maxStart, size=numBlocks_)
+    return statFunction_(blockView[starts], axis=1)
+
+
+def plotStateEstimatesHistogram(
+    chromosome: str,
+    plotPrefix: str,
+    primaryStateValues: npt.NDArray[np.float32],
+    blockSize: int = 10,
+    numBlocks: int = 10_000,
+    statFunction: Callable = np.mean,
+    randomSeed: int = 42,
+    roundPrecision: int = 4,
+    plotHeightInches: float = 8.0,
+    plotWidthInches: float = 10.0,
+    plotDPI: int = 300,
+    plotDirectory: str | None = None,
+) -> str|None:
+    r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state estimates.
+
+    :param plotPrefix: Prefixes the output filename
+    :type plotPrefix: str
+    :param primaryStateValues: 1D 32bit float array of primary state estimates, i.e., :math:`\widetilde{\mathbf{x}}_{[i,1]}`,
+        that is, ``stateSmoothed[0,:]`` from :func:`runConsenrich`. See also :func:`getPrimaryState`.
+    :type primaryStateValues: npt.NDArray[np.float32]
+    :param blockSize: Number of contiguous intervals to sample per block.
+    :type blockSize: int
+    :param numBlocks: Number of samples to draw
+    :type numBlocks: int
+    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
+    :type statFunction: Callable
+    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
+    :type plotDirectory: str | None
+    """
+
+    if plotDirectory is None:
+        plotDirectory = os.getcwd()
+    elif not os.path.exists(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+    elif not os.path.isdir(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+
+    plotFileName = (
+        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.png")
+    )
+    binnedStateEstimates = _forPlotsSampleBlockStats(
+        values_=primaryStateValues,
+        blockSize_=blockSize,
+        numBlocks_=numBlocks,
+        statFunction_=statFunction,
+        randomSeed_=randomSeed,
+    )
+    plt.figure(
+        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI
+    )
+    plt.hist(
+        binnedStateEstimates,
+        bins='doane',
+        color="blue",
+        alpha=0.85,
+        edgecolor="black",
+        fill=True,
+    )
+    plt.title(
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior Signal Estimates $\widetilde{{x}}_{{[1 : n]}}$",
+    )
+    plt.savefig(plotFileName, dpi=plotDPI)
+    plt.close()
+    if os.path.exists(plotFileName):
+        logger.info(f"Wrote state estimate histogram to {plotFileName}")
+        return plotFileName
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    return None
+
+
+def plotResidualsHistogram(
+    chromosome: str,
+    plotPrefix: str,
+    residuals: npt.NDArray[np.float32],
+    blockSize: int = 10,
+    numBlocks: int = 10_000,
+    statFunction: Callable = np.mean,
+    randomSeed: int = 42,
+    roundPrecision: int = 4,
+    plotHeightInches: float = 8.0,
+    plotWidthInches: float = 10.0,
+    plotDPI: int = 300,
+    flattenResiduals: bool = False,
+    plotDirectory: str | None = None,
+) -> str|None:
+    r"""(Experimental) Plot a histogram of within-chromosome post-fit residuals.
+
+    .. note::
+
+      To economically represent residuals across multiple samples, at each genomic interval :math:`i`,
+      we randomly select a single sample's residual in vector :math:`\mathbf{y}_{[i]} = \mathbf{Z}_{[:,i]} - \mathbf{H}\widetilde{\mathbf{x}}_{[i]}`
+      to obtain a 1D array, :math:`\mathbf{a} \in \mathbb{R}^{1 \times n}`. Then, contiguous blocks :math:`\mathbf{a}_{[k:k+blockSize]}` are sampled
+      to compute the desired statistic (e.g., mean, median). These block statistics comprise the empirical distribution plotted in the histogram.
+
+    :param plotPrefix: Prefixes the output filename
+    :type plotPrefix: str
+    :param residuals: :math:`m \times n` (sample-by-interval) 32bit float array of post-fit residuals.
+    :type residuals: npt.NDArray[np.float32]
+    :param blockSize: Number of contiguous intervals to sample per block.
+    :type blockSize: int
+    :param numBlocks: Number of samples to draw
+    :type numBlocks: int
+    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
+    :type statFunction: Callable
+    :param flattenResiduals: If True, flattens the :math:`m \times n` (sample-by-interval) residuals
+        array to 1D (via `np.flatten`) before sampling blocks. If False, a random row (sample) is
+        selected for each column (interval) prior to the block sampling.
+        in each iteration.
+    :type flattenResiduals: bool
+    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
+    :type plotDirectory: str | None
+    """
+
+    if plotDirectory is None:
+        plotDirectory = os.getcwd()
+    elif not os.path.exists(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+    elif not os.path.isdir(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+
+    plotFileName = (
+        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.png")
+    )
+
+    x = np.ascontiguousarray(residuals, dtype=np.float32)
+
+    if not flattenResiduals:
+        n, m = x.shape
+        rng = np.random.default_rng(randomSeed)
+        sample_idx = rng.integers(0, m, size=n)
+        x = x[np.arange(n), sample_idx]
+    else:
+        x = x.ravel()
+
+    binnedResiduals = _forPlotsSampleBlockStats(
+        values_=x,
+        blockSize_=blockSize,
+        numBlocks_=numBlocks,
+        statFunction_=statFunction,
+        randomSeed_=randomSeed,
+    )
+    plt.figure(
+        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI
+    )
+    plt.hist(
+        binnedResiduals,
+        bins='doane',
+        color="blue",
+        alpha=0.85,
+        edgecolor="black",
+        fill=True,
+    )
+    plt.title(
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Post-Fit Residuals $\widetilde{{y}}_{{[1 : m,  1 : n]}}$",
+    )
+    plt.savefig(plotFileName, dpi=plotDPI)
+    plt.close()
+    if os.path.exists(plotFileName):
+        logger.info(f"Wrote residuals histogram to {plotFileName}")
+        return plotFileName
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    return None
+
+
+def plotStateStdHistogram(
+    chromosome: str,
+    plotPrefix: str,
+    stateStd: npt.NDArray[np.float32],
+    blockSize: int = 10,
+    numBlocks: int = 10_000,
+    statFunction: Callable = np.mean,
+    randomSeed: int = 42,
+    roundPrecision: int = 4,
+    plotHeightInches: float = 8.0,
+    plotWidthInches: float = 10.0,
+    plotDPI: int = 300,
+    plotDirectory: str | None = None,
+) -> str|None:
+    r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state standard deviations, i.e., :math:`\sqrt{\widetilde{\mathbf{P}}_{[i,11]}}`.
+
+    :param plotPrefix: Prefixes the output filename
+    :type plotPrefix: str
+    :param stateStd: 1D numpy 32bit float array of primary state standard deviations, i.e., :math:`\sqrt{\widetilde{\mathbf{P}}_{[i,11]}}`,
+        that is, the first diagonal elements in the :math:`n \times (2 \times 2)` numpy array `stateCovarSmoothed`. Access as ``(stateCovarSmoothed[:, 0, 0]``.
+    :type stateStd: npt.NDArray[np.float32]
+    :param blockSize: Number of contiguous intervals to sample per block.
+    :type blockSize: int
+    :param numBlocks: Number of samples to draw
+    :type numBlocks: int
+    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
+    :type statFunction: Callable
+    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
+    :type plotDirectory: str | None
+    """
+
+    if plotDirectory is None:
+        plotDirectory = os.getcwd()
+    elif not os.path.exists(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+    elif not os.path.isdir(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+
+    plotFileName = (
+        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.png")
+    )
+
+    binnedStateStdEstimates = _forPlotsSampleBlockStats(
+        values_=stateStd,
+        blockSize_=blockSize,
+        numBlocks_=numBlocks,
+        statFunction_=statFunction,
+        randomSeed_=randomSeed,
+    )
+    plt.figure(
+        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI,
+    )
+    plt.hist(
+        binnedStateStdEstimates,
+        bins='doane',
+        color="blue",
+        alpha=0.85,
+        edgecolor="black",
+        fill=True,
+    )
+    plt.title(
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior State StdDev $\sqrt{{\widetilde{{P}}_{{[1:n,11]}}}}$",
+    )
+    plt.savefig(plotFileName, dpi=plotDPI)
+    plt.close()
+    if os.path.exists(plotFileName):
+        logger.info(f"Wrote state std histogram to {plotFileName}")
+        return plotFileName
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    return None

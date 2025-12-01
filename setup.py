@@ -36,7 +36,7 @@ extensions = [
 
 setup(
     name="consenrich",
-    version="0.7.5b2",
+    version="0.7.7b1",
     packages=find_packages(where="src"),
     include_package_data=True,
     package_dir={"": "src"},
@@ -50,6 +50,7 @@ setup(
         "pybedtools>=0.11.2",
         "PyYAML>=6.0.2",
         "PyWavelets>=1.9.0",
+        "matplotlib",
     ],
     python_requires=">=3.11",
     zip_safe=False,

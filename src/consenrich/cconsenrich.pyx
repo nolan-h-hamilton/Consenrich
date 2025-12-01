@@ -17,6 +17,7 @@ cimport numpy as cnp
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
+from numpy.random import default_rng
 
 cnp.import_array()
 
@@ -565,10 +566,10 @@ cpdef int64_t cgetFragmentLength(
     int64_t fallBack=147,
     int64_t rollingChunkSize=250,
     int64_t lagStep=5,
-    int64_t earlyExit=100,
+    int64_t earlyExit=250,
     int64_t randSeed=42,
 ):
-    np.random.seed(randSeed)
+    cdef object rng = default_rng(randSeed)
     cdef int64_t regionLen, numRollSteps, numChunks
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rawArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] medArr
@@ -588,13 +589,18 @@ cpdef int64_t cgetFragmentLength(
     cdef cnp.intp_t[::1] expandedIdxView
     cdef cnp.ndarray[cnp.float64_t, ndim=1] unsortedVals
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] seen
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd = np.zeros(blockSize, dtype=np.float64, order='C')
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rev = np.zeros(blockSize, dtype=np.float64, order='C')
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwdDiff = np.zeros(blockSize + 1, dtype=np.float64, order='C')
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] revDiff = np.zeros(blockSize + 1, dtype=np.float64, order='C')
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rev
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwdDiff
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] revDiff
     cdef int64_t diffS, diffE = 0
     cdef cnp.ndarray[cnp.float64_t, ndim=1] xCorr
     cdef cnp.ndarray[cnp.uint32_t, ndim=1] bestLagsArr
+    cdef bint isPairedEnd = <bint>0
+    cdef double avgTemplateLen = <double>0.0
+    cdef int64_t templateLenSamples = <int64_t>0
+    cdef double rLen = <double>0.0
+    cdef int64_t numReadLengthSamples = <int64_t>0
 
     earlyExit = min(earlyExit, iters)
     regionLen = end - start
@@ -632,137 +638,188 @@ cpdef int64_t cgetFragmentLength(
                 continue
             if read_.reference_start < start or read_.reference_end >= end:
                 continue
+
+            if read_.is_paired:
+                # skip to the paired-end block below (no xCorr --> average template len)
+                isPairedEnd = <bint>1
+                break
+            # ~arbitrary~ but in case of overflow
+            if numReadLengthSamples < iters:
+                rLen += read_.query_length
+                numReadLengthSamples += 1
             j = <int>((read_.reference_start - start) // rollingChunkSize)
             if 0 <= j < numChunks:
                 rawArr[j] += 1.0
+        if not isPairedEnd:
+            # second, we apply a rolling/moving/local/weywtci order-statistic filter (median)
+            # ...the size of the kernel is based on the blockSize -- we want high-coverage
+            # ...blocks as measured by their local median read count
+            rLen /= numReadLengthSamples if numReadLengthSamples > 0 else 1
 
-        # second, we apply a rolling/moving/local/weywtci order-statistic filter (median)
-        # ...the size of the kernel is based on the blockSize -- we want high-coverage
-        # ...blocks as measured by their local median read counts
-        winSize = <int>(blockSize // rollingChunkSize)
-        if winSize < 1:
-            winSize = 1
-        if (winSize & 1) == 0:
-            winSize += 1
-        medArr[:] = ndimage.median_filter(rawArr, size=winSize, mode="nearest")
+            # note that these will remain unallocated in case of PE
+            fwd = np.zeros(blockSize, dtype=np.float64, order='C')
+            rev = np.zeros(blockSize, dtype=np.float64, order='C')
+            fwdDiff = np.zeros(blockSize, dtype=np.float64, order='C')
+            revDiff = np.zeros(blockSize, dtype=np.float64, order='C')
+            winSize = <int>(blockSize // rollingChunkSize)
+            if winSize < 1:
+                winSize = 1
+            if (winSize & 1) == 0:
+                winSize += 1
+            medArr[:] = ndimage.median_filter(rawArr, size=winSize, mode="nearest")
 
-        # we pick the largest local-medians and form a block around each
-        takeK = iters if iters < numChunks else numChunks
-        unsortedIdx = np.argpartition(medArr, -takeK)[-takeK:]
-        unsortedVals = medArr[unsortedIdx]
-        sortedIdx = unsortedIdx[np.argsort(unsortedVals)[::-1]]
-        coverageIdxTopK = sortedIdx[:takeK].tolist()
-        expandedLen = takeK*winSize
-        expandedIdx = np.empty(expandedLen, dtype=np.intp)
-        expandedIdxView = expandedIdx
-        k = 0
-        for i in range(takeK):
-            idxVal = coverageIdxTopK[i]
-            startIdx = idxVal - (winSize // 2)
-            endIdx = startIdx + winSize
-            if startIdx < 0:
-                startIdx = 0
-                endIdx = winSize if winSize < numChunks else numChunks
-            if endIdx > numChunks:
-                endIdx = numChunks
-                startIdx = endIdx - winSize if winSize <= numChunks else 0
-            for j in range(startIdx, endIdx):
-                expandedIdxView[k] = j
-                k += 1
-        if k < expandedLen:
-            expandedIdx = expandedIdx[:k]
+            # we pick the largest local-medians and form a block around each
+            takeK = iters if iters < numChunks else numChunks
+            unsortedIdx = np.argpartition(medArr, -takeK)[-takeK:]
+            unsortedVals = medArr[unsortedIdx]
+            sortedIdx = unsortedIdx[np.argsort(unsortedVals)[::-1]]
+            coverageIdxTopK = sortedIdx[:takeK].tolist()
+            expandedLen = takeK*winSize
+            expandedIdx = np.empty(expandedLen, dtype=np.intp)
             expandedIdxView = expandedIdx
+            k = 0
+            for i in range(takeK):
+                idxVal = coverageIdxTopK[i]
+                startIdx = idxVal - (winSize // 2)
+                endIdx = startIdx + winSize
+                if startIdx < 0:
+                    startIdx = 0
+                    endIdx = winSize if winSize < numChunks else numChunks
+                if endIdx > numChunks:
+                    endIdx = numChunks
+                    startIdx = endIdx - winSize if winSize <= numChunks else 0
+                for j in range(startIdx, endIdx):
+                    expandedIdxView[k] = j
+                    k += 1
+            if k < expandedLen:
+                expandedIdx = expandedIdx[:k]
+                expandedIdxView = expandedIdx
 
-        seen = np.zeros(numChunks, dtype=np.uint8)
-        blockCenters = []
-        for i in range(expandedIdx.shape[0]):
-            j = <int>expandedIdxView[i]
-            if seen[j] == 0:
-                seen[j] = 1
-                blockCenters.append(j)
+            seen = np.zeros(numChunks, dtype=np.uint8)
+            blockCenters = []
+            for i in range(expandedIdx.shape[0]):
+                j = <int>expandedIdxView[i]
+                if seen[j] == 0:
+                    seen[j] = 1
+                    blockCenters.append(j)
 
-        if len(blockCenters) > 1:
-            blockCenters = np.random.choice(
-                blockCenters,
-                size=len(blockCenters),
-                replace=False,
-                p=None
-            ).tolist()
+            if len(blockCenters) > 1:
+                blockCenters = rng.choice(
+                    blockCenters,
+                    size=len(blockCenters),
+                    replace=False,
+                    p=None
+                ).tolist()
 
-        bestLags = []
-        blockHalf = blockSize // 2
+            bestLags = []
+            blockHalf = blockSize // 2
 
-        for idxVal in blockCenters:
-            # this should map back to genomic coordinates
-            blockStartBP = start + idxVal * rollingChunkSize + (rollingChunkSize // 2) - blockHalf
-            if blockStartBP < start:
-                blockStartBP = start
-            blockEndBP = blockStartBP + blockSize
-            if blockEndBP > end:
-                blockEndBP = end
-                blockStartBP = blockEndBP - blockSize
+            for idxVal in blockCenters:
+                # this should map back to genomic coordinates
+                blockStartBP = start + idxVal * rollingChunkSize + (rollingChunkSize // 2) - blockHalf
                 if blockStartBP < start:
+                    blockStartBP = start
+                blockEndBP = blockStartBP + blockSize
+                if blockEndBP > end:
+                    blockEndBP = end
+                    blockStartBP = blockEndBP - blockSize
+                    if blockStartBP < start:
+                        continue
+
+                # now we build strand-specific tracks
+                # ...avoid forward/reverse strand for loops in each block w/ a cumsum
+                fwd.fill(0.0)
+                fwdDiff.fill(0.0)
+                rev.fill(0.0)
+                revDiff.fill(0.0)
+                readFlag = -1
+
+                for read_ in aln.fetch(chromosome, blockStartBP, blockEndBP):
+                    readFlag = read_.flag
+                    if (readFlag & samFlagExclude) != 0:
+                        continue
+                    readStart = min(read_.reference_start, read_.reference_end)
+                    readEnd = max(read_.reference_start, read_.reference_end)
+                    diffS = readStart - blockStartBP
+                    diffE = readEnd - blockStartBP
+                    strand = readFlag & 16
+                    if readStart < blockStartBP or readEnd > blockEndBP:
+                        continue
+                    posInBlock = readStart - blockStartBP
+                    if strand == 0:
+                        # forward
+                        # just mark offsets from block start/end
+                        fwdDiff[diffS] += 1.0
+                        fwdDiff[diffE] -= 1.0
+                    else:
+                        # reverse
+                        # ditto
+                        revDiff[diffS] += 1.0
+                        revDiff[diffE] -= 1.0
+                # now we can get coverage track by summing over diffs
+                fwd = np.cumsum(fwdDiff[:len(fwdDiff)-1], dtype=np.float64)
+                rev = np.cumsum(revDiff[:len(revDiff)-1], dtype=np.float64)
+
+                # maximizes the crossCovar(forward, reverse, lag) wrt lag.
+                fwd = (fwd - np.mean(fwd))
+                rev = (rev - np.mean(rev))
+                maxValidLag = maxInsertSize if (maxInsertSize < blockSize) else (blockSize - 1)
+                xCorr = np.zeros(maxInsertSize + 1, dtype=np.float64)
+                for lag in range(minInsertSize, maxValidLag + 1, lagStep):
+                    score = 0.0
+                    for i in range(blockSize - lag):
+                        score += fwd[i] * rev[i + lag]
+                    xCorr[lag] = score
+
+                if maxValidLag < minInsertSize:
                     continue
+                chosenLag = -1
+                chosenLag = int(np.argmax(xCorr[minInsertSize:maxValidLag + 1])) + minInsertSize
 
-            # now we build strand-specific tracks over each block
-            fwd.fill(0.0)
-            fwdDiff.fill(0.0)
-            rev.fill(0.0)
-            revDiff.fill(0.0)
-            readFlag = -1
-
-            for read_ in aln.fetch(chromosome, blockStartBP, blockEndBP):
-                readFlag = read_.flag
-                if (readFlag & samFlagExclude) != 0:
-                    continue
-                readStart = min(read_.reference_start, read_.reference_end)
-                readEnd = max(read_.reference_start, read_.reference_end)
-                diffS = readStart - blockStartBP
-                diffE = readEnd - blockStartBP
-                strand = readFlag & 16
-                if readStart < blockStartBP or readEnd > blockEndBP:
-                    continue
-                posInBlock = readStart - blockStartBP
-                if strand == 0:
-                    # forward
-                    fwdDiff[diffS] += 1.0
-                    fwdDiff[diffE] -= 1.0
-                else:
-                    # reverse
-                    revDiff[diffS] += 1.0
-                    revDiff[diffE] -= 1.0
-            fwd = np.cumsum(fwdDiff[:len(fwdDiff)-1], dtype=np.float64)
-            rev = np.cumsum(revDiff[:len(revDiff)-1], dtype=np.float64)
-
-            # maximizes the crossCovar(forward, reverse, lag) wrt lag.
-            fwd = (fwd - np.mean(fwd))
-            rev = (rev - np.mean(rev))
-            maxValidLag = maxInsertSize if (maxInsertSize < blockSize) else (blockSize - 1)
-            xCorr = np.zeros(maxInsertSize + 1, dtype=np.float64)
-            for lag in range(minInsertSize, maxValidLag + 1, lagStep):
-                score = 0.0
-                for i in range(blockSize - lag):
-                    score += fwd[i] * rev[i + lag]
-                xCorr[lag] = score
-
-            if maxValidLag < minInsertSize:
-                continue
-            chosenLag = -1
-            chosenLag = int(np.argmax(xCorr[minInsertSize:maxValidLag + 1])) + minInsertSize
-
-            if chosenLag > 0:
-                bestLags.append(chosenLag)
-            if len(bestLags) >= earlyExit:
-                break
+                if chosenLag > 0:
+                    bestLags.append(chosenLag)
+                if len(bestLags) >= earlyExit:
+                    break
 
     finally:
         aln.close()
+
+    if isPairedEnd:
+        requiredSamplesPE = max(iters, 1000)
+        aln = AlignmentFile(bamFile, "rb", threads=samThreads_)
+        try:
+            for read_ in aln.fetch(chromosome, start, end):
+                if templateLenSamples >= requiredSamplesPE:
+                    break
+                if (read_.flag & samFlagExclude) != 0 or (read_.flag & 2) == 0:
+                    # skip any excluded flags, only count proper pairs
+                    continue
+                if read_.reference_start < start or read_.reference_end >= end:
+                    continue
+                if read_.template_length > 0 and read_.is_read1:
+                    # read1 only: otherwise each pair contributes to the mean twice
+                    # ...which might reduce breadth of the estimate
+                    avgTemplateLen += abs(read_.template_length)
+                    templateLenSamples += 1
+
+        finally:
+            aln.close()
+
+        if templateLenSamples < requiredSamplesPE:
+            return <int64_t> fallBack
+
+        avgTemplateLen /= <double>templateLenSamples
+
+        if avgTemplateLen >= minInsertSize and avgTemplateLen <= maxInsertSize:
+            return <int64_t> (avgTemplateLen + 0.5)
+        else:
+            return <int64_t> fallBack
 
     if len(bestLags) < 3:
         return fallBack
 
     bestLagsArr = np.asarray(bestLags, dtype=np.uint32)
-    med = int(np.median(bestLagsArr))
+    med = int(np.median(bestLagsArr) + rLen + 0.5)
     if med < minInsertSize:
         med = <int>minInsertSize
     elif med > maxInsertSize:

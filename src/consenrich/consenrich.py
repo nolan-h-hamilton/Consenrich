@@ -38,7 +38,7 @@ def _loadConfig(
 ) -> Dict[str, Any]:
     r"""Load a YAML config from a path or accept an already-parsed mapping.
 
-    If given a dict-like object, just return it.If given a path, try to load as YAML --> dict
+    If given a dict-like object, just return it. If given a path, try to load as YAML --> dict
     If given a path, try to load as YAML --> dict
 
     """
@@ -82,19 +82,6 @@ def _listOrEmpty(list_):
     if list_ is None:
         return []
     return list_
-
-
-def _getMinR(configMap, numBams: int) -> float:
-    fallbackMinR: float = 1.0
-    try:
-        rawVal = _cfgGet(configMap, "observationParams.minR", None)
-        return float(rawVal) if rawVal is not None else fallbackMinR
-    except (TypeError, ValueError, KeyError):
-        logger.warning(
-            f"Invalid or missing 'observationParams.minR' in config. Using `{fallbackMinR}`."
-        )
-        return fallbackMinR
-
 
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
     """Check if control BAM files are present in the input arguments.
@@ -264,7 +251,9 @@ def getOutputArgs(config_path: str) -> core.outputParams:
     roundDigits_ = _cfgGet(configData, "outputParams.roundDigits", 3)
 
     writeResiduals_ = _cfgGet(
-        configData, "outputParams.writeResiduals", True
+        configData,
+        "outputParams.writeResiduals",
+        True,
     )
 
     writeMuncTrace: bool = _cfgGet(
@@ -272,18 +261,15 @@ def getOutputArgs(config_path: str) -> core.outputParams:
     )
 
     writeStateStd: bool = _cfgGet(
-        configData, "outputParams.writeStateStd", False
-    )
-
-    writeRawResiduals: bool = _cfgGet(
-        configData, "outputParams.writeRawResiduals", False
+        configData,
+        "outputParams.writeStateStd",
+        True,
     )
 
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeResiduals=writeResiduals_,
-        writeRawResiduals=writeRawResiduals,
         writeMuncTrace=writeMuncTrace,
         writeStateStd=writeStateStd,
     )
@@ -404,18 +390,43 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         configData, "countingParams.scaleFactorsControl", None
     )
     applyAsinhFlag = _cfgGet(
-        configData, "countingParams.applyAsinh", False
+        configData,
+        "countingParams.applyAsinh",
+        False,
     )
     applyLogFlag = _cfgGet(
-        configData, "countingParams.applyLog", False
+        configData,
+        "countingParams.applyLog",
+        False,
+    )
+    applySqrtFlag = _cfgGet(
+        configData,
+        "countingParams.applySqrt",
+        False,
     )
 
-    if applyAsinhFlag and applyLogFlag:
-        applyAsinhFlag = True
-        applyLogFlag = False
+    noTransformFlag = _cfgGet(
+        configData,
+        "countingParams.noTransform",
+        False,
+    )
+
+    if (
+        int(applyAsinhFlag) + int(applyLogFlag) + int(applySqrtFlag)
+        > 1
+        and not noTransformFlag
+    ):
         logger.warning(
-            "Both `applyAsinh` and `applyLog` are set. Overriding `applyLog=False` & `applyAsinh=True`."
+            "Only <= 1 of `applyAsinh`, `applyLog`, `applySqrt` can be true...using applySqrt..."
         )
+        applyAsinhFlag = False
+        applyLogFlag = False
+        applySqrtFlag = True
+
+    if noTransformFlag:
+        applyAsinhFlag = False
+        applyLogFlag = False
+        applySqrtFlag = False
 
     rescaleToTreatmentCoverageFlag = _cfgGet(
         configData,
@@ -449,10 +460,10 @@ def getCountingArgs(config_path: str) -> core.countingParams:
                 "control and treatment scale factors: must be equal length or 1 control"
             )
 
-
     normMethod_ = _cfgGet(
         configData,
-        "countingParams.normMethod", "EGS",
+        "countingParams.normMethod",
+        "EGS",
     )
     if normMethod_.upper() not in ["EGS", "RPKM"]:
         logger.warning(
@@ -468,8 +479,86 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         numReads=numReads,
         applyAsinh=applyAsinhFlag,
         applyLog=applyLogFlag,
+        applySqrt=applySqrtFlag,
         rescaleToTreatmentCoverage=rescaleToTreatmentCoverageFlag,
         normMethod=normMethod_,
+        noTransform=noTransformFlag,
+    )
+
+
+def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
+    configData = _loadConfig(config_path)
+
+    plotPrefix_ = _cfgGet(configData, "plotParams.plotPrefix", experimentName)
+
+    plotStateEstimatesHistogram_ = _cfgGet(
+        configData,
+        "plotParams.plotStateEstimatesHistogram",
+        False,
+    )
+
+    plotResidualsHistogram_ = _cfgGet(
+        configData,
+        "plotParams.plotResidualsHistogram",
+        False,
+    )
+
+    plotStateStdHistogram_ = _cfgGet(
+        configData,
+        "plotParams.plotStateStdHistogram",
+        False,
+    )
+
+    plotHeightInches_ = _cfgGet(
+        configData, "plotParams.plotHeightInches", 6.0,
+    )
+
+    plotWidthInches_ = _cfgGet(
+        configData, "plotParams.plotWidthInches", 8.0,
+    )
+
+    plotDPI_ = _cfgGet(
+        configData, "plotParams.plotDPI", 300,
+    )
+
+    plotDirectory_ = _cfgGet(
+        configData, "plotParams.plotDirectory", os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
+    )
+
+    if int(plotStateEstimatesHistogram_) + int(plotResidualsHistogram_) + int(plotStateStdHistogram_) >= 1:
+        if plotDirectory_ is not None and (not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)):
+            try:
+                os.makedirs(plotDirectory_, exist_ok=True)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to create {plotDirectory_}:\n\t{e}\nUsing CWD."
+                )
+                plotDirectory_ = os.getcwd()
+        elif plotDirectory_ is None:
+            plotDirectory_ = os.getcwd()
+
+        elif os.path.exists(plotDirectory_) and os.path.isdir(
+            plotDirectory_):
+            logger.warning(
+                f"Using existing plot directory: {plotDirectory_}"
+            )
+        else:
+            logger.warning(
+                f"Failed creating/identifying {plotDirectory_}...Using CWD."
+            )
+            plotDirectory_ = os.getcwd()
+
+
+    return core.plotParams(
+        plotPrefix=plotPrefix_,
+        plotStateEstimatesHistogram=plotStateEstimatesHistogram_,
+        plotResidualsHistogram=plotResidualsHistogram_,
+        plotStateStdHistogram=plotStateStdHistogram_,
+        plotHeightInches=plotHeightInches_,
+        plotWidthInches=plotWidthInches_,
+        plotDPI=plotDPI_,
+        plotDirectory=plotDirectory_,
+
     )
 
 
@@ -486,10 +575,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
 
-    minRDefault = _getMinR(configData, len(inputParams.bamFiles))
-    minQDefault = (
-        minRDefault / len(inputParams.bamFiles)
-    ) + 0.10  # conditioning
 
     matchingExcludeRegionsFileDefault: Optional[str] = (
         genomeParams.blacklistFile
@@ -507,13 +592,13 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
             "detrendParams.detrendSavitzkyGolayDegree",
-            1,
+            2,
         )
     else:
         detrendWindowLengthBp = _cfgGet(
             configData,
             "detrendParams.detrendWindowLengthBP",
-            10_000,
+            25_000,
         )
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
@@ -526,12 +611,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     )
 
     processArgs = core.processParams(
-        deltaF=_cfgGet(configData, "processParams.deltaF", 0.5),
-        minQ=_cfgGet(configData, "processParams.minQ", minQDefault),
-        maxQ=_cfgGet(configData, "processParams.maxQ", 500.0),
+        deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
+        minQ=_cfgGet(configData, "processParams.minQ", -1.0),
+        maxQ=_cfgGet(configData, "processParams.maxQ", 100.0),
         offDiagQ=_cfgGet(configData, "processParams.offDiagQ", 0.0),
         dStatAlpha=_cfgGet(
-            configData, "processParams.dStatAlpha", 2.0
+            configData,
+            "processParams.dStatAlpha",
+            2.0,
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
@@ -540,11 +627,18 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "processParams.scaleResidualsByP11",
             True,
         ),
+        adjustPmatByInnovationAC=_cfgGet(
+            configData,
+            "processParams.adjustPmatByInnovationAC",
+            True,
+        ),
     )
 
+    plotArgs = getPlotArgs(config_path, experimentName)
+
     observationArgs = core.observationParams(
-        minR=minRDefault,
-        maxR=_cfgGet(configData, "observationParams.maxR", 500.0),
+        minR= _cfgGet(configData, "observationParams.minR", -1.0),
+        maxR=_cfgGet(configData, "observationParams.maxR", 100.0),
         useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
             configData,
@@ -581,21 +675,34 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         returnCenter=_cfgGet(
             configData, "observationParams.returnCenter", True
         ),
+        shrinkOffset=_cfgGet(
+            configData,
+            "observationParams.shrinkOffset",
+            0.50,
+        ),
     )
 
     stateArgs = core.stateParams(
         stateInit=_cfgGet(configData, "stateParams.stateInit", 0.0),
         stateCovarInit=_cfgGet(
-            configData, "stateParams.stateCovarInit", 100.0
+            configData,
+            "stateParams.stateCovarInit",
+            1000.0,
         ),
         boundState=_cfgGet(
-            configData, "stateParams.boundState", True
+            configData,
+            "stateParams.boundState",
+            True,
         ),
         stateLowerBound=_cfgGet(
-            configData, "stateParams.stateLowerBound", 0.0
+            configData,
+            "stateParams.stateLowerBound",
+            0.0,
         ),
         stateUpperBound=_cfgGet(
-            configData, "stateParams.stateUpperBound", 10000.0
+            configData,
+            "stateParams.stateUpperBound",
+            10000.0,
         ),
     )
 
@@ -608,7 +715,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     offsetStr = _cfgGet(configData, "samParams.offsetStr", "0,0")
     extendBpList = _cfgGet(configData, "samParams.extendBP", [])
     maxInsertSize = _cfgGet(
-        configData, "samParams.maxInsertSize", 1000
+        configData, "samParams.maxInsertSize", 1000,
     )
 
     pairedEndDefault = (
@@ -655,11 +762,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             75,
         ),
         usePolyFilter=_cfgGet(
-            configData, "detrendParams.usePolyFilter", False
+            configData, "detrendParams.usePolyFilter", False,
         ),
         detrendSavitzkyGolayDegree=detrendSavitzkyGolayDegree,
         useOrderStatFilter=_cfgGet(
-            configData, "detrendParams.useOrderStatFilter", True
+            configData, "detrendParams.useOrderStatFilter", True,
         ),
     )
 
@@ -715,6 +822,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "outputArgs": outputParams,
         "countingArgs": countingParams,
         "processArgs": processArgs,
+        "plotArgs": plotArgs,
         "observationArgs": observationArgs,
         "stateArgs": stateArgs,
         "samArgs": samArgs,
@@ -928,6 +1036,7 @@ def main():
     samArgs = config["samArgs"]
     detrendArgs = config["detrendArgs"]
     matchingArgs = config["matchingArgs"]
+    plotArgs = config["plotArgs"]
     bamFiles = inputArgs.bamFiles
     bamFilesControl = inputArgs.bamFilesControl
     numSamples = len(bamFiles)
@@ -940,6 +1049,9 @@ def main():
     initialTreatmentScaleFactors = []
     minMatchLengthBP_: Optional[int] = matchingArgs.minMatchLengthBP
     mergeGapBP_: Optional[int] = matchingArgs.mergeGapBP
+    deltaF_ = processArgs.deltaF
+    minR_ = observationArgs.minR
+    minQ_ = processArgs.minQ
 
     if args.verbose:
         try:
@@ -1065,7 +1177,9 @@ def main():
         if countingArgs.normMethod.upper() == "RPKM":
             scaleFactors = [
                 detrorm.getScaleFactorPerMillion(
-                    bamFile, excludeForNorm, stepSize,
+                    bamFile,
+                    excludeForNorm,
+                    stepSize,
                 )
                 for bamFile in bamFiles
             ]
@@ -1111,6 +1225,20 @@ def main():
         intervals = np.arange(
             chromosomeStart, chromosomeEnd, stepSize
         )
+
+        if c_ == 0 and deltaF_ < 0:
+            logger.info(
+                f"`processParams.deltaF < 0` --> calling core.autoDeltaF()..."
+            )
+            deltaF_ = core.autoDeltaF(
+                chromosome,
+                chromosomeStart,
+                chromosomeEnd,
+                stepSize,
+                bamFiles=bamFiles,
+            )
+
+
         chromMat: np.ndarray = np.empty(
             (numSamples, numIntervals), dtype=np.float32
         )
@@ -1141,6 +1269,7 @@ def main():
                     inferFragmentLength=samArgs.inferFragmentLength,
                     applyAsinh=countingArgs.applyAsinh,
                     applyLog=countingArgs.applyLog,
+                    applySqrt=countingArgs.applySqrt,
                     countEndsOnly=samArgs.countEndsOnly,
                 )
 
@@ -1165,6 +1294,7 @@ def main():
                 inferFragmentLength=samArgs.inferFragmentLength,
                 applyAsinh=countingArgs.applyAsinh,
                 applyLog=countingArgs.applyLog,
+                applySqrt=countingArgs.applySqrt,
                 countEndsOnly=samArgs.countEndsOnly,
             )
         sparseMap = None
@@ -1178,18 +1308,30 @@ def main():
                 numNearest,
                 genomeArgs.sparseBedFile,
             )
-
+        if observationArgs.minR < 0.0:
+            minR_ = 0.0
         muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
             logger.info(
                 f"Muncing {j + 1}/{numSamples} for {chromosome}..."
             )
+
+            chromMat[j, :] = detrorm.detrendTrack(
+                chromMat[j, :],
+                stepSize,
+                detrendArgs.detrendWindowLengthBP,
+                detrendArgs.useOrderStatFilter,
+                detrendArgs.usePolyFilter,
+                detrendArgs.detrendTrackPercentile,
+                detrendArgs.detrendSavitzkyGolayDegree,
+            )
+
             muncMat[j, :] = core.getMuncTrack(
                 chromosome,
                 intervals,
                 stepSize,
                 chromMat[j, :],
-                observationArgs.minR,
+                minR_,
                 observationArgs.maxR,
                 observationArgs.useALV,
                 observationArgs.useConstantNoiseLevel,
@@ -1201,23 +1343,28 @@ def main():
                 observationArgs.returnCenter,
                 sparseMap=sparseMap,
                 lowPassFilterType=observationArgs.lowPassFilterType,
+                shrinkOffset=observationArgs.shrinkOffset,
             )
-            chromMat[j, :] = detrorm.detrendTrack(
-                chromMat[j, :],
-                stepSize,
-                detrendArgs.detrendWindowLengthBP,
-                detrendArgs.useOrderStatFilter,
-                detrendArgs.usePolyFilter,
-                detrendArgs.detrendTrackPercentile,
-                detrendArgs.detrendSavitzkyGolayDegree,
+
+        if observationArgs.minR < 0.0 or minR_ < 0.0:
+            minR_ = np.percentile(muncMat, 25.0) + 0.01
+            logger.info(
+                f"minR_={minR_}..."
+            )
+            muncMat[muncMat < minR_] = minR_
+
+        if processArgs.minQ < 0.0 or minQ_ < 0.0:
+            minQ_ = (2*minR_ / numSamples)
+            logger.info(
+                f"`minQ={minQ_}..."
             )
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(
             chromMat,
             muncMat,
-            processArgs.deltaF,
-            processArgs.minQ,
+            deltaF_,
+            minQ_,
             processArgs.maxQ,
             processArgs.offDiagQ,
             processArgs.dStatAlpha,
@@ -1230,6 +1377,7 @@ def main():
             stateArgs.stateUpperBound,
             samArgs.chunkSize,
             progressIter=50_000,
+            adjustPmatByInnovationAC=processArgs.adjustPmatByInnovationAC,
         )
         logger.info("Done.")
 
@@ -1242,6 +1390,30 @@ def main():
             and processArgs.scaleResidualsByP11
             else None,
         )
+
+        if plotArgs.plotStateEstimatesHistogram:
+            core.plotStateEstimatesHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                x_,
+                plotDirectory=plotArgs.plotDirectory,
+            )
+
+        if plotArgs.plotResidualsHistogram:
+            core.plotResidualsHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                y,
+                plotDirectory=plotArgs.plotDirectory,
+            )
+
+        if plotArgs.plotStateStdHistogram:
+            core.plotStateStdHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                np.sqrt(P[:, 0, 0]),
+                plotDirectory=plotArgs.plotDirectory,
+            )
 
         weights_: Optional[np.ndarray] = None
         if matchingArgs.penalizeBy is not None:
@@ -1286,8 +1458,6 @@ def main():
 
         if outputArgs.writeResiduals:
             df["Res"] = y_.astype(np.float32)  # FFR: cast necessary?
-        if outputArgs.writeRawResiduals:
-            df["RawRes"] = np.mean(y, axis=1).astype(np.float32)
         if outputArgs.writeMuncTrace:
             munc_std = np.sqrt(
                 np.mean(muncMat.astype(np.float64), axis=0)
@@ -1302,8 +1472,6 @@ def main():
             cols_.append("Munc")
         if outputArgs.writeStateStd:
             cols_.append("StateStd")
-        if outputArgs.writeRawResiduals:
-            cols_.append("RawRes")
         df = df[cols_]
         suffixes = ["state"]
         if outputArgs.writeResiduals:
@@ -1312,8 +1480,6 @@ def main():
             suffixes.append("muncTraces")
         if outputArgs.writeStateStd:
             suffixes.append("stdDevs")
-        if outputArgs.writeRawResiduals:
-            suffixes.append("rawResiduals")
 
         if (c_ == 0 and len(chromosomes) > 1) or (
             len(chromosomes) == 1
@@ -1374,7 +1540,8 @@ def main():
                     else None,
                     eps=matchingArgs.eps,
                     isLogScale=countingArgs.applyLog
-                    or countingArgs.applyAsinh,
+                    or countingArgs.applyAsinh
+                    or countingArgs.applySqrt,
                 )
                 if not matchingDF.empty:
                     matchingDF.to_csv(
