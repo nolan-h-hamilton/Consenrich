@@ -140,11 +140,12 @@ Results
 
 
 * For reference, ENCODE peaks (label: `rep1 pseudoreplicated peaks`) for the same `Experiments` and donor samples are included (black):
-  * `ENCODE Histone ChIP-seq pipeline (unreplicated) <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ (MACS2 calls,  partition concordance)
+
+  * `ENCODE Histone ChIP-seq pipeline (unreplicated) <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ (MACS peak calls, partition concordance)
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
   :alt: Output Consenrich Signal Estimates
-    :width: 700px
+    :width: 600px
     :align: left
 
 
@@ -196,8 +197,7 @@ Configuration
 
 Run with the following YAML config file `atac20Benchmark.yaml`. Note that several parameters are listed and/or adjusted for demonstration purposes.
 
-Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed explicitly in the config to show their ENCODE accessions for reference.
-
+globs, e.g., `*.bam`, are allowed, but each file is listed below to reveal ENCODE accessions
 
 .. code-block:: yaml
 
@@ -234,13 +234,14 @@ Note that globs, e.g., `*.bam`, are allowed, but the BAM file names are listed e
   matchingParams.minMatchLengthBP: -1
   matchingParams.mergeGapBP: -1
 
-  # Optional: transform counts
-  countingParams.applySqrt: true
-
   # Optional: plot distributions
   plotParams.plotStateTrace: true
   plotParams.plotResidualsHistogram: true
   plotParams.plotStateStdHistogram: true
+
+  # Optional: transform counts
+  countingParams.applySqrt: true
+
 
 Run Consenrich
 ''''''''''''''''''''
@@ -262,9 +263,9 @@ Results
 
 **Visualizing State and Residual Distributions**
 
-For downstream analyses, it can be useful to inspect the distributions of state estimates, residuals, and state uncertainties. Basic convenience utilities are built into the software implementation of Consenrich for this purpose.
+For downstream analyses, it can be useful to inspect the distributions of state estimates, residuals, and state uncertainties.
 
-We display plots corresponding to `chr19`, as in the browser snapshot above. Note, ``plotParams.plot<...>`` will create a separate directory ``<experimentName>_consenrichPlots`` to store files.
+Basic convenience utilities are provided for this purpose. Here, we display plots corresponding to `chr19`, as in the browser snapshot above. Note, ``plotParams.plot<...>`` will create a separate directory ``<experimentName>_consenrichPlots`` to store files.
 
 .. list-table::
    :widths: 32 32 32
@@ -281,7 +282,7 @@ We display plots corresponding to `chr19`, as in the browser snapshot above. Not
           :width: 100%
 
 
-See :class:`consenrich.core.plotParams` and associated functions for more details.
+See :class:`consenrich.core.plotParams` and its associated functions for more details.
 
 
 **Evaluating Structured Peak Results: cCRE Overlaps**
@@ -394,12 +395,14 @@ Configuration
      ENCFF648HNK.bam
     ]
 
-    countingParams.applySqrt: true
-
-    matchingParams.templateNames: [haar, sym3] # include longer template for broad marks
+   # include longer more symmetric `sym3` template for broad marks
+    matchingParams.templateNames: [haar, sym3]
     matchingParams.cascadeLevels: [3, 3]
     matchingParams.minMatchLengthBP: -1
     matchingParams.mergeGapBP: 500 # increase merge radius for broad marks
+
+   # Optional: transform counts
+   countingParams.applySqrt: true
 
 
 Run Consenrich
@@ -417,7 +420,7 @@ Signal estimates, weighted residuals, and structured peaks (via :ref:`matching`)
 
 .. image:: ../benchmarks/H3K36me3/images/Consenrich_ENTexFour_DualMark.png
     :alt: H3K36me3 Intron-Exon
-    :width: 800px
+    :width: 700px
     :align: left
 
 
@@ -437,28 +440,30 @@ File Formats
 
 * Output
 
-See :class:`outputParams` in the :ref:`API` for full documentation of output options. By default, the Consenrich CLI generates the following files:
+  * *Posterior Signal estimate track*: ``<experimentName>_consenrich_state.bw``
 
-* *Posterior Signal estimate track*: ``<experimentName>_consenrich_state.bw``
+    * This track records genome-wide Consenrich estimates for the targeted signal of interest
+    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
 
-  * This track records genome-wide Consenrich estimates for the targeted signal of interest
-  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
+  * *Weighted post-fit residual track*: ``<experimentName>_consenrich_residuals.bw``
 
-* *Precision-weighted post-fit residual track*: ``<experimentName>_consenrich_residuals.bw``
+    * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- *after* accounting for regional + sample-specific uncertainty.
+    * These values can reflect model mismatch: Where they are large (magnitude), the model's estimated uncertainty may fail to explain discrepancies with the observed data.
+    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
 
-  * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
-  * These values can reflect model mismatch: Where they are large (magnitude), the model's estimated uncertainty may fail to explain discrepancies with the observed data.
-  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
+  * *Posterior state uncertainty track*: ``<experimentName>_consenrich_stateStd.bw``
 
-* *Posterior state uncertainty track*: ``<experimentName>_consenrich_stateStd.bw``
+    * Pointwise uncertainty in the primary state estimate, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, on a scale comparable to the estimated signal.
+    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_stateStd.bedGraph``
 
-  * Pointwise uncertainty in the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, on a scale comparable to the estimated signal.
-  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_stateStd.bedGraph``
+  * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
 
-* *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
+    * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
+    * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
-  * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
-  * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
+
+See :class:`outputParams` in the :ref:`API` for full documentation of output options.
+
 
 .. _tips:
 
@@ -482,6 +487,8 @@ For example, to run the `Consenrich+ROCCO` protocol as it is used in the manuscr
     # <...>
 
 The budgeted/total-variation-regularized optimization procedure performed by ROCCO to select consensus peak regions prevents excessive multiple comparisons downstream and enforces biological plausibility. Other peak calling methods---including the :ref:`matching` algorithm packaged with Consenrich---that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_) may also prove viable, but only Consenrich+ROCCO has been extensively benchmarked for differential accessibility analyses to date.
+
+In general, for workflows of the form ``Consenrich Signal Track --> Peak Caller --> Sample-by-CalledPeaks Count Matrix --> Differential Analysis between Conditions``, it is recommended to use *all samples from all experimental conditions* as input to Consenrich for better control of downstream false discovery rates. See, for example, `Lun and Smyth, 2014`.
 
 
 Matching Algorithm: Command-line Usage
@@ -521,7 +528,7 @@ Broad, Heterochromatic and/or Repressive targets
 Preprocessing and Calibration of Uncertainty Metrics
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-To promote homoskedastic, symmetric, and uncorrelated residuals that are amenable to analyses requiring calibrated/absolute uncertainty quantification, consider transforming count data.
+To obtain residuals that are approximately homoskedastic, symmetric, and uncorrelated---and therefore better-suited to downstream analyses that require calibrated uncertainty quantification---it is often helpful to transform input count-based data. If no such transformation is applied, the Consenrich's uncertainty estimates may still be interpreted *relatively* (e.g. comparing between genomic regions), but absolute statistical interpretations, e.g., coverage of prediction intervals, may be less reliable.
 
 Several simple transformations are built into Consenrich for convenience, e.g.,
 
@@ -530,7 +537,7 @@ Several simple transformations are built into Consenrich for convenience, e.g.,
   countingParams.applySqrt: true # `applyLog`, `applyAsinh``
 
 * ``applySqrt`` offers a gentle compression of the dynamic range and may be preferable to log transforms to preserve a greater breadth of signal variation for downstream peak calling, etc. Note this is the canonical link for Poisson GLMs but, more generally, confers analytic advantages that can aid in distribution-free uncertainty quantification.
-* Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components for additive linear modeling. Depending on sparsity, their comparably strong compression may reduce capture of subtle signal patterns when applying Consenrich.
+* Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components for additive linear modeling. Depending on sparsity, their comparably strong compression may affect capture of subtle signal patterns when applying Consenrich.
+* Users running Consenrich programmatically can apply custom transformations and preprocesssing pipelines as desired, e.g., `Yeo-Johnson or general power transforms <https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html>`_.
 
-Note, in the default (CLI) implementation, these transformations are applied *before* detrending and running the primary filtering step. Users running Consenrich programmatically can apply custom transformations and preprocesssing pipelines as desired, e.g., `Yeo-Johnson, general power transforms <https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html>_`.
-
+*Note, in the default (CLI) implementation, these transformations are applied *before* detrending (:mod:`consenrich.detrorm`).*
