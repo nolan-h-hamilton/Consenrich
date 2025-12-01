@@ -91,7 +91,7 @@ class plotParams(NamedTuple):
     :param plotDirectory: Directory where plots will be written.
     :type plotDirectory: str or None
 
-    :seealso: :func:`consenrich.core.plotStateEstimatesHistogram`
+    :seealso: :func:`plotStateEstimatesHistogram`, :func:`plotResidualsHistogram`, :func:`plotStateStdHistogram`
     """
 
     plotPrefix: str | None = None
@@ -362,19 +362,7 @@ class countingParams(NamedTuple):
     :param rescaleToTreatmentCoverage: Deprecated: no effect.
     :type rescaleToTreatmentCoverage: bool, optional
 
-    .. tip::
-
-      To promote (absolute) statistical calibration of uncertainty metrics, ``applySqrt``, ``applyAsinh``, ``applyLog`` can mitigate heteroskedasticity and improve symmetry.
-
-      * ``applySqrt`` offers a relatively gentle compression of the dynamic range and may be preferable to recover a greater breadth of signal variation.
-      * Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components and representing
-        conventional fold-changes/enrichment against local background.
-
-      In either case, uncertainty outputs (e.g., state standard deviations) can be interpreted as *relative* measures of uncertainty in their transformed space.  Consider also ``stateParams.boundState: False`` to improve symmetry and possibly aid interpretation of the estimated signals values.
-
-      See also :ref:`calibration`.
-
-
+    :seealso: :ref:`calibration` for details on transformations and their effects on interpretation of state estimates and uncertainty quantification.
     """
 
     stepSize: int
