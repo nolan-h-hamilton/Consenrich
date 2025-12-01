@@ -17,6 +17,7 @@ cimport numpy as cnp
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
+from numpy.random import default_rng
 
 cnp.import_array()
 
@@ -568,7 +569,7 @@ cpdef int64_t cgetFragmentLength(
     int64_t earlyExit=250,
     int64_t randSeed=42,
 ):
-    np.random.seed(randSeed)
+    cdef object rng = default_rng(randSeed)
     cdef int64_t regionLen, numRollSteps, numChunks
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rawArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] medArr
@@ -703,7 +704,7 @@ cpdef int64_t cgetFragmentLength(
                     blockCenters.append(j)
 
             if len(blockCenters) > 1:
-                blockCenters = np.random.choice(
+                blockCenters = rng.choice(
                     blockCenters,
                     size=len(blockCenters),
                     replace=False,

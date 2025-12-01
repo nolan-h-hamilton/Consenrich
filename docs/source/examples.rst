@@ -424,25 +424,31 @@ File Formats
 
   * Note, if using Consenrich programmatically, users can provide preprocessed sample-by-interval count matrices directly instead of BAM files (see :func:`consenrich.core.runConsenrich`)
 
+
 * Output
 
-  * *Signal estimate track*: ``<experimentName>_consenrich_state.bw``
+See :class:`outputParams` in the :ref:`API` for full documentation of output options. By default, the Consenrich CLI generates the following files:
 
-    * This track records genome-wide Consenrich estimates for the targeted signal of interest
-    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
+* *Posterior Signal estimate track*: ``<experimentName>_consenrich_state.bw``
 
-  * *Precision-weighted residual track*: ``<experimentName>_consenrich_residuals.bw``
+  * This track records genome-wide Consenrich estimates for the targeted signal of interest
+  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
 
-    * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
-    * These values can reflect model mismatch: Where they are large (magnitude), the model's estimated uncertainty may fail to explain discrepancies with the observed data.
-    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
+* *Precision-weighted post-fit residual track*: ``<experimentName>_consenrich_residuals.bw``
 
-  * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
+  * This track records genome-wide differences between (*a*) Consenrich estimates and (*b*) observed sample data -- after accounting for regional + sample-specific uncertainty.
+  * These values can reflect model mismatch: Where they are large (magnitude), the model's estimated uncertainty may fail to explain discrepancies with the observed data.
+  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_residuals.bedGraph``
 
-    * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
-    * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
+* *Posterior state uncertainty track*: ``<experimentName>_consenrich_stateStd.bw``
 
-See also :class:`outputParams` in the :ref:`API` for additional output options.
+  * Pointwise uncertainty in the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, on a scale comparable to the estimated signal.
+  * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_stateStd.bedGraph``
+
+* *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
+
+  * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
+  * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
 
 .. _tips:
 
@@ -490,23 +496,40 @@ Broad, Heterochromatic and/or Repressive targets
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 * When targeting large domain-level features, consider increasing `countingParams.stepSize` and/or `detrendParams.detrendWindowLengthBP` from their defaults (25 bp, 10000 bp respectively) to prioritize larger-scale trends.
 
-  * For instance, polycomb-repressed domains (H3K27me3) and constitutive heterochromatin (H3K9me3): 
+  * For instance, for polycomb-repressed domains (H3K27me3) and constitutive heterochromatin (H3K9me3), something like:
 
-    - `countingParams.stepSize: 100`
-    - `detrendParams.detrendWindowLengthBP: 25000`
+    - ``countingParams.stepSize: 100``
+    - ``detrendParams.detrendWindowLengthBP: 50_000``
+
+  to prevent large domains of interest from being detrended.
 
 * When targeting signals associated with *heterochromatin/repression*, consider setting ``observationParams.useALV: true`` in the YAML configuration file to avoid conflating signal with noise.
 
 
+.. _calibration:
+
 Preprocessing and Calibration of Uncertainty Metrics
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-To promote homoskedastic, symmetric, and uncorrelated residuals that are amenable to analyses requiring well-calibrated/absolute uncertainty quantification, consider:
+To promote homoskedastic, symmetric, and uncorrelated residuals that are amenable to analyses requiring calibrated/absolute uncertainty quantification, consider transforming count data.
+
+Several simple transformations are built into Consenrich for convenience, e.g.,
 
 .. code-block:: yaml
 
-  countingParams.applyLog: true # or `applyAsinh`` to maintain linearity near zero
-  stateParams.boundState: false
+  countingParams.applySqrt: true # `applyLog`, `applyAsinh``
 
-Otherwise---particularly in the absence of control input samples---numeric Consenrich uncertainty tracks, e.g., :math:`\sqrt{\widetilde{P}_{[i,11]}},~i=1 \cdots n~` (`outputParams.writeStateStd`), are better interpreted as *relative, pointwise* measures of uncertainty (i.e., higher vs. lower uncertainty regions).
+In the default (CLI) implementation, these transformations are applied *before* detrending and and running the primary filtering step.
 
+For instance, adding ``applySqrt: true`` to the H3K27ac ChIP-seq demo above,
+
+.. list-table::
+   :widths: 50 50
+   :align: center
+
+   * - .. image:: ../images/consenrichPlot_hist_chr22_demoHistoneChIPSeq_residuals.png
+         :alt: Residual distribution for H3K27ac ChIP-seq Demo (v0.7.7b1, ``applySqrt: true``)
+         :width: 100%
+     - .. image:: ../images/consenrichPlot_hist_chr22_demoHistoneChIPSeq_stateStd.png
+         :alt: v0.7.7b1 State variance distribution for H3K27ac ChIP-seq Demo (v0.7.7b1, ``applySqrt: true``)
+         :width: 100%

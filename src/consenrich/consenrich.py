@@ -83,19 +83,6 @@ def _listOrEmpty(list_):
         return []
     return list_
 
-
-def _getMinR(configMap, numBams: int) -> float:
-    fallbackMinR: float = 0.25
-    try:
-        rawVal = _cfgGet(configMap, "observationParams.minR", None)
-        return float(rawVal) if rawVal is not None else fallbackMinR
-    except (TypeError, ValueError, KeyError):
-        logger.warning(
-            f"Invalid or missing 'observationParams.minR' in config. Using `{fallbackMinR}`."
-        )
-        return fallbackMinR
-
-
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
     """Check if control BAM files are present in the input arguments.
 
@@ -279,15 +266,10 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         True,
     )
 
-    writeRawResiduals: bool = _cfgGet(
-        configData, "outputParams.writeRawResiduals", False
-    )
-
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeResiduals=writeResiduals_,
-        writeRawResiduals=writeRawResiduals,
         writeMuncTrace=writeMuncTrace,
         writeStateStd=writeStateStd,
     )
@@ -1476,8 +1458,6 @@ def main():
 
         if outputArgs.writeResiduals:
             df["Res"] = y_.astype(np.float32)  # FFR: cast necessary?
-        if outputArgs.writeRawResiduals:
-            df["RawRes"] = np.mean(y, axis=1).astype(np.float32)
         if outputArgs.writeMuncTrace:
             munc_std = np.sqrt(
                 np.mean(muncMat.astype(np.float64), axis=0)
@@ -1492,8 +1472,6 @@ def main():
             cols_.append("Munc")
         if outputArgs.writeStateStd:
             cols_.append("StateStd")
-        if outputArgs.writeRawResiduals:
-            cols_.append("RawRes")
         df = df[cols_]
         suffixes = ["state"]
         if outputArgs.writeResiduals:
@@ -1502,8 +1480,6 @@ def main():
             suffixes.append("muncTraces")
         if outputArgs.writeStateStd:
             suffixes.append("stdDevs")
-        if outputArgs.writeRawResiduals:
-            suffixes.append("rawResiduals")
 
         if (c_ == 0 and len(chromosomes) > 1) or (
             len(chromosomes) == 1
@@ -1563,7 +1539,7 @@ def main():
                     if weights_ is not None
                     else None,
                     eps=matchingArgs.eps,
-                    isLogScale=countingArgs.applyLog  # any monotone/concave func. is considered for th purposes of matching
+                    isLogScale=countingArgs.applyLog
                     or countingArgs.applyAsinh
                     or countingArgs.applySqrt,
                 )

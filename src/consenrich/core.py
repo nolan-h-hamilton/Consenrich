@@ -72,14 +72,15 @@ def resolveExtendBP(extendBP, bamFiles: List[str]) -> List[int]:
 
 
 class plotParams(NamedTuple):
-    r"""(Experimental) Parameters related to plotting.
+    r"""(Experimental) Parameters related to plotting filter results and diagnostics.
+
     :param plotPrefix: Prefix for output plot filenames.
-    :type plotPrefix: str | None = None
+    :type plotPrefix: str or None
     :param plotStateEstimatesHistogram: If True, plot a histogram of post-fit primary state estimates
     :type plotStateEstimatesHistogram: bool
     :param plotResidualsHistogram: If True, plot a histogram of post-fit residuals
     :type plotResidualsHistogram: bool
-    :param plotStateStdHistogram: If True, plot a histogram of the post-fit state estimates' variances (sqrt).
+    :param plotStateStdHistogram: If True, plot a histogram of the posterior state standard deviations.
     :type plotStateStdHistogram: bool
     :param plotHeightInches: Height of output plots in inches.
     :type plotHeightInches: float
@@ -87,8 +88,12 @@ class plotParams(NamedTuple):
     :type plotWidthInches: float
     :param plotDPI: DPI of output plots (png)
     :type plotDPI: int
+    :param plotDirectory: Directory where plots will be written.
+    :type plotDirectory: str or None
+
     :seealso: :func:`consenrich.core.plotStateEstimatesHistogram`
     """
+
     plotPrefix: str | None = None
     plotStateEstimatesHistogram: bool = False
     plotResidualsHistogram: bool = False
@@ -121,7 +126,7 @@ class processParams(NamedTuple):
         that is used to up/down-scale the process noise covariance in the event of a model mismatch.
     :type dStatPC: float
     :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
-        If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (See :class:`outputParams`).
+        If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (i.e., ``postFitResiduals`` from :func:`consenrich.consenrich.runConsenrich`).
     :type scaleResidualsByP11: Optional[bool]
     :param adjustPmatByInnovationAC: (Experimental) If True, adjust the returned state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}`
         based on average autocorrelation approximated by the innovation sequences from the forward pass. This adjustment
@@ -360,11 +365,15 @@ class countingParams(NamedTuple):
     .. tip::
 
       To promote (absolute) statistical calibration of uncertainty metrics, ``applySqrt``, ``applyAsinh``, ``applyLog`` can mitigate heteroskedasticity and improve symmetry.
-      ``applySqrt`` offers a relatively gentle compression of the dynamic range and may be preferable to recover a greater breadth of signal variation. Log-like
-      transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components and representing
-      conventional fold-changes/enrichment against local background. Consider pairing with `stateParams.boundState: False` to promote symmetry in the estimated signals.
 
-      In either case, uncertainty outputs (e.g., state standard deviations) can be interpreted as *relative* measures of uncertainty in their transformed space.
+      * ``applySqrt`` offers a relatively gentle compression of the dynamic range and may be preferable to recover a greater breadth of signal variation.
+      * Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components and representing
+        conventional fold-changes/enrichment against local background.
+
+      In either case, uncertainty outputs (e.g., state standard deviations) can be interpreted as *relative* measures of uncertainty in their transformed space.  Consider also ``stateParams.boundState: False`` to improve symmetry and possibly aid interpretation of the estimated signals values.
+
+      See also :ref:`calibration`.
+
 
     """
 
@@ -450,21 +459,17 @@ class outputParams(NamedTuple):
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
     :param writeResiduals: If True, write to a separate bedGraph the pointwise avg. of precision-weighted residuals at each interval. These may be interpreted as
-        a measure of model mismatch. Where these quantities are larger (+-), the estimated signal there is more *unexplained* deviance from the observed data.
+        a measure of model mismatch. Where these quantities are larger (+-), there may be more unexplained deviation between the data and fitted model.
     :type writeResiduals: bool
-    :param writeRawResiduals: If True, write to a separate bedGraph the pointwise avg. of post-fit residuals at each interval.
-        These values are 'raw' in the sense that they are not scaled to  account for state uncertainty or observation noise levels.
-    :type writeRawResiduals: bool
     :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' observation noise level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
     :type writeMuncTrace: bool
-    :param writeStateStd: If True, write to a separate bedGraph the estimated 'standard deviation' of the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, at each interval
+    :param writeStateStd: If True, write to a separate bedGraph the estimated pointwise uncertainty in the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, on a scale comparable to the estimated signal.
     :type writeStateStd: bool
     """
 
     convertToBigWig: bool
     roundDigits: int
     writeResiduals: bool
-    writeRawResiduals: bool
     writeMuncTrace: bool
     writeStateStd: bool
 

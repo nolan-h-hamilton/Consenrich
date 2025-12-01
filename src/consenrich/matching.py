@@ -59,6 +59,11 @@ def autoMinLengthIntervals(
     widths = widths[widths >= initLen]
     if len(widths) == 0:
         return initLen
+    # report some quantiles in case tuning is needed
+    logger.info(
+        f"\n\tq10:{np.quantile(widths, 0.10)}\tq25:{np.quantile(widths, 0.25)}\tq50:{np.quantile(widths, 0.50)}\tq75:{np.quantile(widths, 0.75)}\tq90:{np.quantile(widths, 0.90)}\n\n"
+        f"...setting minMatchLengthBP={int(np.mean(widths))} intervals"
+    )
     return int(np.mean(widths))
 
 
@@ -288,10 +293,10 @@ def matchWavelet(
         corresponding template. e.g., given templateNames `[haar, db2]`, then `[2,2]` would use 2 cascade levels for both templates.
     :type cascadeLevels: List[int]
     :param iters: Number of random blocks to sample in the response sequence while building
-        an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
+        an empirical null to test significance within chromosomes. See :func:`cconsenrich.csampleBlockStats`.
     :type iters: int
     :param alpha: Primary significance threshold on detected matches. Specifically, the
-        minimum corr. empirical p-value approximated from randomly sampled blocks in the
+        minimum corrected empirical p-value approximated from randomly sampled blocks in the
         response sequence.
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
@@ -299,10 +304,10 @@ def matchWavelet(
         If set to a value less than 1, the minimum length is determined via :func:`consenrich.matching.autoMinLengthIntervals`.
         If set to `None`, defaults to 250 bp.
     :type minMatchLengthBP: Optional[int]
-    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Requires the *signal value*
-        at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale
-        to temper genome-wide dynamic range. If a `float` value is provided, the minimum signal value must be greater
-        than this (absolute) value. *Set to a negative value to disable the threshold*.
+    :param minSignalAtMaxima: Secondary significance threshold coupled with :math:`\alpha`. Requires the *signal value*
+        at relative maxima in the response sequence to be greater than a threshold :math:`\pm \epsilon`. Comparisons are
+        made in log-scale (arsinh). If a `float` value is provided, then we require minimum signal value must be greater
+        than this value.
         If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The
         threshold is then set to the corresponding quantile of the non-zero signal estimates.
         Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
@@ -319,7 +324,7 @@ def matchWavelet(
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
-    :param isLogScale: Whether the input values have already been log- or asinh-transformed. Used to avoid redundant transformations.
+    :param isLogScale: Whether the input values have already been transformed. Used to double/redundant transformations.
     :type isLogScale: bool
     :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     :return: A pandas DataFrame with detected matches

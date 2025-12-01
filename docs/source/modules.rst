@@ -19,6 +19,7 @@ API Reference
 The core module implements the main aspects of Consenrich and defines key parameter classes.
 
 .. autoclass:: consenrich.core.processParams
+.. autoclass:: consenrich.core.plotParams
 .. autoclass:: consenrich.core.observationParams
 .. autoclass:: consenrich.core.stateParams
 .. autoclass:: consenrich.core.detrendParams
@@ -153,10 +154,11 @@ To detect significant hits,
   Specifically, we first sample blocks from the first :math:`M < n` genomic intervals in a given chromosome. We then detect peaks on the remaining :math:`n - M` intervals.
   A second empirical null is then built on the previously tested `n - M` intervals, and peaks are detected on the first :math:`M` intervals.
 
+  Note that the block-sampling routine is intended to break long-range dependencies---the sampled blocks are drawn as geometric with mean :math:`T`.
 
 **Thresholds**
 
-* ``matchingParams.alpha``: Significance cutoff (default ``0.05``). Peaks with adjusted empirical :math:`p`-values below this threshold are considered significant.
+* ``matchingParams.alpha``: Significance cutoff (default ``0.05``). Peaks with adjusted empirical :math:`p`-values below this threshold are considered significant within chromosomes.
 
 
 * ``matchingParams.minSignalAtMaxima`` (Optional)
@@ -170,7 +172,7 @@ To detect significant hits,
 
 **Generic Defaults**
 
-The following defaults should provide a strong starting point for many use cases. For broad marks, consider setting ``matchingParams.mergeGapBP`` and/or ``countingParams.stepSize`` to larger values to prioritize larger-scale trends.
+The following defaults should provide a strong starting point for many use cases. For broader marks, consider using higher-order wavelet-based templates or larger cascade levels, increasing ``matchingParams.mergeGapBP``, ``countingParams.stepSize``, etc. to prioritize larger-scale trends.
 
 .. code-block:: yaml
 
