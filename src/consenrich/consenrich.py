@@ -565,7 +565,7 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
                 f"Failed creating/identifying {plotDirectory_}...Using CWD."
             )
             plotDirectory_ = os.getcwd()
-    
+
 
     return core.plotParams(
         plotPrefix=plotPrefix_,

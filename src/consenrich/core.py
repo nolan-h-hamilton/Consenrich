@@ -1776,12 +1776,12 @@ def plotStateEstimatesHistogram(
     plotPrefix: str,
     primaryStateValues: npt.NDArray[np.float32],
     blockSize: int = 10,
-    numBlocks: int = 1000,
+    numBlocks: int = 10_000,
     statFunction: Callable = np.mean,
     randomSeed: int = 42,
     roundPrecision: int = 4,
-    plotHeightInches: float = 6.0,
-    plotWidthInches: float = 8.0,
+    plotHeightInches: float = 8.0,
+    plotWidthInches: float = 10.0,
     plotDPI: int = 300,
     plotDirectory: str | None = None,
 ) -> str|None:
@@ -1824,14 +1824,14 @@ def plotStateEstimatesHistogram(
     )
     plt.hist(
         binnedStateEstimates,
-        bins='auto',
+        bins='doane',
         color="blue",
         alpha=0.85,
         edgecolor="black",
         fill=True,
     )
     plt.title(
-        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each):  $\widetilde{{x}}_{{[\cdot]}}$",
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior Signal Estimates $\widetilde{{x}}_{{[1 : n]}}$",
     )
     plt.savefig(plotFileName, dpi=plotDPI)
     plt.close()
@@ -1847,17 +1847,24 @@ def plotResidualsHistogram(
     plotPrefix: str,
     residuals: npt.NDArray[np.float32],
     blockSize: int = 10,
-    numBlocks: int = 1000,
+    numBlocks: int = 10_000,
     statFunction: Callable = np.mean,
     randomSeed: int = 42,
     roundPrecision: int = 4,
-    plotHeightInches: float = 6.0,
-    plotWidthInches: float = 8.0,
+    plotHeightInches: float = 8.0,
+    plotWidthInches: float = 10.0,
     plotDPI: int = 300,
     flattenResiduals: bool = False,
     plotDirectory: str | None = None,
 ) -> str|None:
     r"""(Experimental) Plot a histogram of within-chromosome post-fit residuals.
+
+    .. note::
+
+      To economically represent residuals across multiple samples, at each genomic interval :math:`i`,
+      we randomly select a single sample's residual in vector :math:`\mathbf{y}_{[i]} = \mathbf{Z}_{[:,i]} - \mathbf{H}\widetilde{\mathbf{x}}_{[i]}`
+      to obtain a 1D array, :math:`\mathbf{a} \in \mathbb{R}^{1 \times n}`. Then, contiguous blocks :math:`\mathbf{a}_{[k:k+blockSize]}` are sampled
+      to compute the desired statistic (e.g., mean, median). These block statistics comprise the empirical distribution plotted in the histogram.
 
     :param plotPrefix: Prefixes the output filename
     :type plotPrefix: str
@@ -1911,14 +1918,14 @@ def plotResidualsHistogram(
     )
     plt.hist(
         binnedResiduals,
-        bins='auto',
+        bins='doane',
         color="blue",
         alpha=0.85,
         edgecolor="black",
         fill=True,
     )
     plt.title(
-        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each):  $\widetilde{{y}}_{{[\cdot]}}$",
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Post-Fit Residuals $\widetilde{{y}}_{{[1 : m,  1 : n]}}$",
     )
     plt.savefig(plotFileName, dpi=plotDPI)
     plt.close()
@@ -1934,12 +1941,12 @@ def plotStateStdHistogram(
     plotPrefix: str,
     stateStd: npt.NDArray[np.float32],
     blockSize: int = 10,
-    numBlocks: int = 1000,
+    numBlocks: int = 10_000,
     statFunction: Callable = np.mean,
     randomSeed: int = 42,
     roundPrecision: int = 4,
-    plotHeightInches: float = 6.0,
-    plotWidthInches: float = 8.0,
+    plotHeightInches: float = 8.0,
+    plotWidthInches: float = 10.0,
     plotDPI: int = 300,
     plotDirectory: str | None = None,
 ) -> str|None:
@@ -1983,14 +1990,14 @@ def plotStateStdHistogram(
     )
     plt.hist(
         binnedStateStdEstimates,
-        bins='auto',
+        bins='doane',
         color="blue",
         alpha=0.85,
         edgecolor="black",
         fill=True,
     )
     plt.title(
-        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each):  $\sqrt{{\widetilde{{P}}_{{[\cdot,11]}}}}$",
+        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior State StdDev $\sqrt{{\widetilde{{P}}_{{[1:n,11]}}}}$",
     )
     plt.savefig(plotFileName, dpi=plotDPI)
     plt.close()
