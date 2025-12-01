@@ -543,28 +543,29 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         configData, "plotParams.plotDirectory", os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
     )
 
+    if int(plotStateEstimatesHistogram_) + int(plotResidualsHistogram_) + int(plotStateStdHistogram_) >= 1:
+        if plotDirectory_ is not None and (not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)):
+            try:
+                os.makedirs(plotDirectory_, exist_ok=True)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to create {plotDirectory_}:\n\t{e}\nUsing CWD."
+                )
+                plotDirectory_ = os.getcwd()
+        elif plotDirectory_ is None:
+            plotDirectory_ = os.getcwd()
 
-    if plotDirectory_ is not None and (not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)):
-        try:
-            os.makedirs(plotDirectory_, exist_ok=True)
-        except Exception as e:
+        elif os.path.exists(plotDirectory_) and os.path.isdir(
+            plotDirectory_):
             logger.warning(
-                f"Failed to create {plotDirectory_}:\n\t{e}\nUsing CWD."
+                f"Using existing plot directory: {plotDirectory_}"
+            )
+        else:
+            logger.warning(
+                f"Failed creating/identifying {plotDirectory_}...Using CWD."
             )
             plotDirectory_ = os.getcwd()
-    elif plotDirectory_ is None:
-        plotDirectory_ = os.getcwd()
-
-    elif os.path.exists(plotDirectory_) and os.path.isdir(
-        plotDirectory_):
-        logger.warning(
-            f"Using existing plot directory: {plotDirectory_}"
-        )
-    else:
-        logger.warning(
-            f"Failed creating/identifying {plotDirectory_}...Using CWD."
-        )
-        plotDirectory_ = os.getcwd()
+    
 
     return core.plotParams(
         plotPrefix=plotPrefix_,
