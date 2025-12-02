@@ -983,7 +983,7 @@ def main():
             f"Running matching algorithm using bedGraph file {args.matchBedGraph}..."
         )
 
-        outName = matching.matchExistingBedGraph(
+        outName = matching.runMatchingAlgorithm(
             args.matchBedGraph,
             args.matchTemplate,
             args.matchLevel,
@@ -999,13 +999,6 @@ def main():
             randSeed=args.matchRandSeed,
         )
         logger.info(f"Finished matching. Written to {outName}")
-        sys.exit(0)
-
-    if args.matchBedGraph:
-        # this shouldn't happen, but just in case -- matching on previous bedGraph means no other processing
-        logger.info(
-            "If `--match-bedgraph <path_to_bedgraph>` is provided, only the matching algorithm is run."
-        )
         sys.exit(0)
 
     if not args.config:
@@ -1507,57 +1500,7 @@ def main():
                 float_format="%.3f",
                 lineterminator="\n",
             )
-        try:
-            if matchingEnabled:
-                if (
-                    minMatchLengthBP_ is None
-                    or minMatchLengthBP_ <= 0
-                ):
-                    minMatchLengthBP_ = (
-                        matching.autoMinLengthIntervals(x_)
-                        * (intervals[1] - intervals[0])
-                    )
 
-                if mergeGapBP_ is None:
-                    mergeGapBP_ = int(minMatchLengthBP_ / 2) + 1
-
-                matchingDF = matching.matchWavelet(
-                    chromosome,
-                    intervals,
-                    x_,
-                    matchingArgs.templateNames,
-                    matchingArgs.cascadeLevels,
-                    matchingArgs.iters,
-                    matchingArgs.alpha,
-                    minMatchLengthBP_,
-                    matchingArgs.maxNumMatches,
-                    matchingArgs.minSignalAtMaxima,
-                    useScalingFunction=matchingArgs.useScalingFunction,
-                    excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
-                    randSeed=matchingArgs.randSeed,
-                    weights=1.0 / weights_
-                    if weights_ is not None
-                    else None,
-                    eps=matchingArgs.eps,
-                    isLogScale=countingArgs.applyLog
-                    or countingArgs.applyAsinh
-                    or countingArgs.applySqrt,
-                )
-                if not matchingDF.empty:
-                    matchingDF.to_csv(
-                        f"consenrichOutput_{experimentName}_matches.narrowPeak",
-                        sep="\t",
-                        header=False,
-                        index=False,
-                        mode="a",
-                        float_format=f"%.{outputArgs.roundDigits}f",
-                        lineterminator="\n",
-                    )
-        except Exception as e:
-            logger.warning(
-                f"Matching routine unsuccessful for {chromosome}...SKIPPING:\n{e}\n\n"
-            )
-            continue
     logger.info("Finished: output in human-readable format")
 
     if outputArgs.convertToBigWig:
@@ -1567,26 +1510,46 @@ def main():
             suffixes=suffixes,
         )
 
-    if matchingEnabled and matchingArgs.merge:
-        try:
-            mergeGapBP_ = matchingArgs.mergeGapBP
-            if mergeGapBP_ is None or mergeGapBP_ <= 0:
-                mergeGapBP_ = (
-                    int(minMatchLengthBP_ / 2) + 1
-                    if minMatchLengthBP_ is not None
-                    and minMatchLengthBP_ >= 0
-                    else 75
+    if matchingEnabled:
+        weightsBedGraph: str|None = None
+        logger.info("Running matching algorithm...")
+        if matchingArgs.penalizeBy is not None:
+            if matchingArgs.penalizeBy.lower() in [
+                "stateuncertainty",
+                "statestddev",
+                "statestd",
+                "p11",
+            ]:
+                weightsBedGraph = (
+                    f"consenrichOutput_{experimentName}_stdDevs.bedGraph"
                 )
-            matching.mergeMatches(
-                f"consenrichOutput_{experimentName}_matches.narrowPeak",
-                mergeGapBP=mergeGapBP_,
-            )
+            elif matchingArgs.penalizeBy == "muncTrace":
+                weightsBedGraph = (
+                    f"consenrichOutput_{experimentName}_muncTraces.bedGraph"
+                )
+            elif matchingArgs.penalizeBy.lower() == "none":
+                weightsBedGraph = None
+            else:
+                weightsBedGraph = None
 
-        except Exception as e:
-            logger.warning(
-                f"Failed to merge matches...SKIPPING:\n{e}\n\n"
-            )
-    logger.info("Done.")
+        outName = matching.runMatchingAlgorithm(
+            f"consenrichOutput_{experimentName}_state.bedGraph",
+            matchingArgs.templateNames,
+            matchingArgs.cascadeLevels,
+            matchingArgs.iters,
+            alpha=matchingArgs.alpha,
+            minMatchLengthBP=minMatchLengthBP_,
+            maxNumMatches=matchingArgs.maxNumMatches,
+            minSignalAtMaxima=matchingArgs.minSignalAtMaxima,
+            useScalingFunction=matchingArgs.useScalingFunction,
+            merge=matchingArgs.merge,
+            mergeGapBP=mergeGapBP_,
+            excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
+            randSeed=matchingArgs.randSeed,
+            weightsBedGraph=weightsBedGraph,
+            eps=matchingArgs.eps,
+        )
+        logger.info(f"Finished matching. Written to {outName}")
 
 
 if __name__ == "__main__":

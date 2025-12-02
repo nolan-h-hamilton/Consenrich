@@ -24,6 +24,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _bhFdr(p: np.ndarray) -> np.ndarray:
+    m = len(p)
+    order = np.argsort(p, kind="mergesort")
+    ranked = np.arange(1, m + 1, dtype=float)
+    q = (p[order] * m) / ranked
+    q = np.minimum.accumulate(q[::-1])[::-1]
+    out = np.empty_like(q)
+    out[order] = q
+    return np.clip(out, 0.0, 1.0)
+
+
 def autoMinLengthIntervals(
     values: np.ndarray, initLen: int = 3
 ) -> int:
@@ -95,169 +106,6 @@ def castableToFloat(value) -> bool:
     except Exception:
         return False
     return False
-
-
-def matchExistingBedGraph(
-    bedGraphFile: str,
-    templateName: str,
-    cascadeLevel: int,
-    alpha: float = 0.05,
-    minMatchLengthBP: Optional[int] = 250,
-    iters: int = 25_000,
-    minSignalAtMaxima: Optional[float | str] = "q:0.75",
-    maxNumMatches: Optional[int] = 100_000,
-    recenterAtPointSource: bool = True,
-    useScalingFunction: bool = True,
-    excludeRegionsBedFile: Optional[str] = None,
-    mergeGapBP: Optional[int] = None,
-    merge: bool = True,
-    weights: Optional[npt.NDArray[np.float64]] = None,
-    randSeed: int = 42,
-) -> Optional[str]:
-    r"""Match discrete templates in a bedGraph file of Consenrich estimates
-
-    This function is a simple wrapper. See :func:`consenrich.matching.matchWavelet` for details on parameters.
-
-    :param bedGraphFile: A bedGraph file with 'consensus' signal estimates derived from multiple samples, e.g., from Consenrich. The suffix '.bedGraph' is required.
-    :type bedGraphFile: str
-
-    :seealso: :func:`consenrich.matching.matchWavelet`, :class:`consenrich.core.matchingParams`, :ref:`matching`
-    """
-    if not os.path.isfile(bedGraphFile):
-        raise FileNotFoundError(f"Couldn't access {bedGraphFile}")
-    if not bedGraphFile.endswith(".bedGraph"):
-        raise ValueError(
-            f"Please use a suffix '.bedGraph' for `bedGraphFile`, got: {bedGraphFile}"
-        )
-
-    if mergeGapBP is None:
-        mergeGapBP = (
-            (minMatchLengthBP // 2) + 1
-            if minMatchLengthBP is not None
-            else 75
-        )
-
-    allowedTemplates = [
-        x for x in pw.wavelist(kind="discrete") if "bio" not in x
-    ]
-    if templateName not in allowedTemplates:
-        raise ValueError(
-            f"Unknown wavelet template: {templateName}\nAvailable templates: {allowedTemplates}"
-        )
-
-    cols = ["chromosome", "start", "end", "value"]
-    bedGraphDF = pd.read_csv(
-        bedGraphFile,
-        sep="\t",
-        header=None,
-        names=cols,
-        dtype={
-            "chromosome": str,
-            "start": np.uint32,
-            "end": np.uint32,
-            "value": np.float64,
-        },
-    )
-
-    outPaths: List[str] = []
-    outPathsMerged: List[str] = []
-    outPathAll: Optional[str] = None
-    outPathMergedAll: Optional[str] = None
-
-    for chrom_ in sorted(bedGraphDF["chromosome"].unique()):
-        df_ = bedGraphDF[bedGraphDF["chromosome"] == chrom_]
-        if len(df_) < 5:
-            logger.info(f"Skipping {chrom_}: less than 5 intervals.")
-            continue
-
-        try:
-            df__ = matchWavelet(
-                chrom_,
-                df_["start"].to_numpy(),
-                df_["value"].to_numpy(),
-                [templateName],
-                [cascadeLevel],
-                iters,
-                alpha,
-                minMatchLengthBP,
-                maxNumMatches,
-                recenterAtPointSource=recenterAtPointSource,
-                useScalingFunction=useScalingFunction,
-                excludeRegionsBedFile=excludeRegionsBedFile,
-                weights=weights,
-                minSignalAtMaxima=minSignalAtMaxima,
-                randSeed=randSeed,
-            )
-        except Exception as ex:
-            logger.info(
-                f"Skipping {chrom_} due to error in matchWavelet: {ex}"
-            )
-            continue
-
-        if df__.empty:
-            logger.info(f"No matches detected on {chrom_}.")
-            continue
-
-        perChromOut = bedGraphFile.replace(
-            ".bedGraph",
-            f".{chrom_}.matched.{templateName}_lvl{cascadeLevel}.narrowPeak",
-        )
-        df__.to_csv(perChromOut, sep="\t", index=False, header=False)
-        logger.info(f"Matches written to {perChromOut}")
-        outPaths.append(perChromOut)
-
-        if merge:
-            mergedPath = mergeMatches(
-                perChromOut, mergeGapBP=mergeGapBP
-            )
-            if mergedPath is not None:
-                logger.info(f"Merged matches written to {mergedPath}")
-                outPathsMerged.append(mergedPath)
-
-    if len(outPaths) == 0 and len(outPathsMerged) == 0:
-        raise ValueError("No matches were detected.")
-
-    if len(outPaths) > 0:
-        outPathAll = (
-            f"{bedGraphFile.replace('.bedGraph', '')}"
-            f".allChroms.matched.{templateName}_lvl{cascadeLevel}.narrowPeak"
-        )
-        with open(outPathAll, "w") as outF:
-            for path_ in outPaths:
-                if os.path.isfile(path_):
-                    with open(path_, "r") as inF:
-                        for line in inF:
-                            outF.write(line)
-        logger.info(f"All unmerged matches written to {outPathAll}")
-
-    if merge and len(outPathsMerged) > 0:
-        outPathMergedAll = (
-            f"{bedGraphFile.replace('.bedGraph', '')}"
-            f".allChroms.matched.{templateName}_lvl{cascadeLevel}.mergedMatches.narrowPeak"
-        )
-        with open(outPathMergedAll, "w") as outF:
-            for path in outPathsMerged:
-                if os.path.isfile(path):
-                    with open(path, "r") as inF:
-                        for line in inF:
-                            outF.write(line)
-        logger.info(
-            f"All merged matches written to {outPathMergedAll}"
-        )
-
-    for path_ in outPaths + outPathsMerged:
-        try:
-            if os.path.isfile(path_):
-                os.remove(path_)
-        except Exception:
-            pass
-
-    if merge and outPathMergedAll:
-        return outPathMergedAll
-    if outPathAll:
-        return outPathAll
-    logger.warning("No matches were detected...returning `None`")
-    return None
 
 
 def matchWavelet(
@@ -388,16 +236,6 @@ def matchWavelet(
             chromosome, excludeRegionsBedFile, intervals
         ).astype(np.uint8)
     allRows = []
-
-    def bhFdr(p: np.ndarray) -> np.ndarray:
-        m = len(p)
-        order = np.argsort(p, kind="mergesort")
-        ranked = np.arange(1, m + 1, dtype=float)
-        q = (p[order] * m) / ranked
-        q = np.minimum.accumulate(q[::-1])[::-1]
-        out = np.empty_like(q)
-        out[order] = q
-        return np.clip(out, 0.0, 1.0)
 
     def parseMinSignalThreshold(val):
         if val is None:
@@ -673,7 +511,7 @@ def matchWavelet(
         )
 
     df = pd.DataFrame(allRows)
-    qVals = bhFdr(df["p_raw"].values.astype(float))
+    qVals = _bhFdr(df["p_raw"].values.astype(float))
     df["pValue"] = -np.log10(
         np.clip(df["p_raw"].values, 1.0e-10, 1.0)
     )
@@ -910,3 +748,132 @@ def mergeMatches(
         outF.write("\n".join(lines) + ("\n" if lines else ""))
     logger.info(f"Merged matches written to {outPath}")
     return outPath
+
+
+
+def runMatchingAlgorithm(
+bedGraphFile: str,
+templateNames: List[str],
+cascadeLevels: List[int],
+iters: int,
+alpha: float = 0.05,
+minMatchLengthBP: Optional[int] = 250,
+maxNumMatches: Optional[int] = 100_000,
+minSignalAtMaxima: Optional[float | str] = "q:0.75",
+randSeed: int = 42,
+recenterAtPointSource: bool = True,
+useScalingFunction: bool = True,
+excludeRegionsBedFile: Optional[str] = None,
+weightBedGraph: str|None = None,
+eps: float = 1.0e-2,
+isLogScale: bool = False,
+mergeGapBP: int|None = -1,
+):
+    gwideDF = pd.DataFrame()
+    chromosomes = pd.read_csv(
+        bedGraphFile,
+        sep="\t",
+        header=None,
+        names=["chromosome", "start", "end", "value"],
+        dtype={"chromosome": str, "start": np.uint32, "end": np.uint32, "value": np.float64},
+    )['chromosome'].unique().tolist()
+
+    for chromosome_ in chromosomes:
+        cols = ["chromosome", "start", "end", "value"]
+        chromBedGraphDF = pd.read_csv(
+            bedGraphFile,
+            sep="\t",
+            header=None,
+            names=cols,
+            dtype={
+                "chromosome": str,
+                "start": np.uint32,
+                "end": np.uint32,
+                "value": np.float64,
+            },
+        )
+        chromBedGraphDF = chromBedGraphDF[chromBedGraphDF["chromosome"] == chromosome_]
+        chromIntervals = chromBedGraphDF['start'].to_numpy()
+        chromValues = chromBedGraphDF['value'].to_numpy()
+        weights = np.ones_like(chromValues, dtype=np.float64)
+        del chromBedGraphDF
+        if weightBedGraph is not None and os.path.exists(
+            weightBedGraph
+        ):
+            try:
+                weightsDF = pd.read_csv(
+                    weightBedGraph,
+                    sep="\t",
+                    header=None,
+                    names=cols,
+                    dtype={
+                        "chromosome": str,
+                        "start": np.uint32,
+                        "end": np.uint32,
+                        "value": np.float64,
+                    },
+                )
+                weights = weightsDF[
+                    weightsDF["chromosome"] == chromosome_
+                ]
+                weights = weights['value'].to_numpy()
+            except Exception as ex:
+                logger.warning('Failed to parse weights from {weightBedGraph}. Ignoring weights....')
+        del weightsDF
+
+        df__ = matchWavelet(
+            chromosome_,
+            chromIntervals,
+            chromValues,
+            templateNames,
+            cascadeLevels,
+            iters,
+            1.0,
+            minMatchLengthBP,
+            maxNumMatches,
+            minSignalAtMaxima,
+            randSeed,
+            recenterAtPointSource,
+            useScalingFunction,
+            excludeRegionsBedFile,
+            weights,
+            eps,
+            isLogScale,
+        )
+        if df__.empty:
+            logger.info(f"No matches detected on {chromosome_}.")
+            continue
+        pd.concat([gwideDF, df__], axis=0, ignore_index=True)
+
+    # perform BH
+    if gwideDF.empty:
+        logger.warning("No matches detected genome-wide.")
+        return gwideDF
+    qVals = _bhFdr(-(gwideDF["pValue"].values.astype(float) ** 10))
+    gwideDF["qValue"] = -np.log10(
+        np.clip(qVals, 1.0e-10, 1.0)
+    )
+    # filter out non-significant
+    gwideDF = gwideDF[qVals <= alpha].copy()
+    gwideDF.sort_values(by=["chromosome", "start", "end"], inplace=True)
+    tempNarrowPeak = f"{bedGraphFile.replace('.bedGraph', '')}.narrowPeak"
+    gwideDF.to_csv(
+            tempNarrowPeak,
+            sep="\t",
+            index=False,
+            header=False,
+    )
+
+    mergedPath = mergeMatches(
+        tempNarrowPeak, mergeGapBP=mergeGapBP)
+    if mergedPath is not None and os.path.isfile(mergedPath):
+        logger.info(f"Merged matches written to {mergedPath}")
+
+    if os.path.isfile(tempNarrowPeak):
+        try:
+            os.remove(tempNarrowPeak)
+        except Exception:
+            pass
+
+    return mergedPath
+
