@@ -511,24 +511,27 @@ For more details on the matching algorithm in general, see :ref:`matching` and :
 
 Broad, Heterochromatic and/or Repressive targets
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-* When targeting large domain-level features, consider increasing `countingParams.stepSize` and/or `detrendParams.detrendWindowLengthBP` from their defaults (25 bp, 10000 bp respectively) to prioritize larger-scale trends.
+* When targeting broad, domain-level features, consider increasing `countingParams.stepSize` and/or `detrendParams.detrendWindowLengthBP` from their defaults to prioritize larger-scale trends.
 
   * For instance, for polycomb-repressed domains (H3K27me3) and constitutive heterochromatin (H3K9me3), something like:
 
     - ``countingParams.stepSize: 100``
     - ``detrendParams.detrendWindowLengthBP: 50_000``
 
-  to prevent large domains of interest from being detrended.
 
-* When targeting signals associated with *heterochromatin/repression*, consider setting ``observationParams.useALV: true`` in the YAML configuration file to avoid conflating signal with noise.
+* The generic ``genomeParams.sparseBedFile`` for humans, mice, etc. that are packaged with Consenrich are optimized for measuring noise levels in active/open chromatin assays (e.g., ATAC-seq, DNase-seq, ChIP-seq for narrow marks)
 
+  * For heterochromatic/repressive marks, setting ``observationParams.useALV: true`` is recommended. This triggers an annotation-free 'average local variance' procedure with autocorrelation-based shrinkage for genome-wide, sample-specific noise level estimation.
+  * Alternatively, users can provide custom sparse regions via ``genomeParams.sparseBedFile`` that are more appropriate for their assay of interest. For example, a complement of regions from the `Human Heterochromatin Database <https://pubmed.ncbi.nlm.nih.gov/37897357/>`_ or Roadmap.
 
 .. _calibration:
 
 Preprocessing and Calibration of Uncertainty Metrics
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-To obtain residuals that are approximately homoskedastic, symmetric, and uncorrelated---and therefore better-suited to downstream analyses that require calibrated uncertainty quantification---it is often helpful to transform input count-based data. If no such transformation is applied, the Consenrich's uncertainty estimates may still be interpreted *relatively* (e.g. comparing between genomic regions), but absolute statistical interpretations, e.g., coverage of prediction intervals, may be less reliable.
+To obtain residuals that are approximately homoskedastic, symmetric, and uncorrelated---and therefore better-suited to downstream analyses that require calibrated uncertainty quantification---it is often helpful to transform input count-based data.
+
+If no such transformation is applied, the Consenrich's uncertainty estimates may still be interpreted *relatively* (e.g. comparing between genomic regions), but absolute statistical interpretations, e.g., coverage of prediction intervals, may be less reliable.
 
 Several simple transformations are built into Consenrich for convenience, e.g.,
 
@@ -540,4 +543,4 @@ Several simple transformations are built into Consenrich for convenience, e.g.,
 * Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components for additive linear modeling. Depending on sparsity, their comparably strong compression may affect capture of subtle signal patterns when applying Consenrich.
 * Users running Consenrich programmatically can apply custom transformations and preprocesssing pipelines as desired, e.g., `Yeo-Johnson or general power transforms <https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html>`_.
 
-*Note, in the default (CLI) implementation, these transformations are applied *before* detrending (:mod:`consenrich.detrorm`).*
+Note, in the default (CLI) implementation, these transformations are applied *before* detrending (:mod:`consenrich.detrorm`).

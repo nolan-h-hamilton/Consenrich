@@ -24,23 +24,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _bhFdr(p: np.ndarray) -> np.ndarray:
-    m = len(p)
-    order = np.argsort(p, kind="mergesort")
-    ranked = np.arange(1, m + 1, dtype=float)
-    q = (p[order] * m) / ranked
-    q = np.minimum.accumulate(q[::-1])[::-1]
-    out = np.empty_like(q)
-    out[order] = q
-    return np.clip(out, 0.0, 1.0)
+def _FDR(pVals: np.ndarray, method: str = "bh") -> np.ndarray:
+    # can use bh or the more conservative Benjamini-Yekutieli to
+    # ... control FDR under arbitrary dependencies between tests
+    return stats.false_discovery_control(pVals, method=method)
 
 
 def autoMinLengthIntervals(
-    values: np.ndarray, initLen: int = 3
+    values: np.ndarray,
+    initLen: int = 3,
+    cutoffQuantile: float = 0.90,
+    isLogScale: bool = False,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
 
-    Returns the mean length of non-zero contiguous segments in a log-scaled/centered version of `values`
+    Returns the average length of non-zero contiguous segments in a log-scaled/centered version of `values`
 
     :param values: A 1D array of signal-like values.
     :type values: np.ndarray
@@ -50,32 +48,39 @@ def autoMinLengthIntervals(
     :rtype: int
 
     """
-    trValues = np.asinh(values) - signal.medfilt(
-        np.asinh(values),
+    values_ = values.astype(np.float64).copy()
+    if not isLogScale:
+        np.asinh(values_, out=values_)
+
+    trValues = values_ - signal.medfilt(
+        values_,
         kernel_size=max(
             (2 * initLen) + 1,
-            2 * (int(len(values) * 0.005)) + 1,
+            2 * (int(len(values_) * 0.005)) + 1,
         ),
     )
+
+    # just consider stretches of positive signal
     nz = trValues[trValues > 0]
     if len(nz) == 0:
         return initLen
-    thr = np.quantile(nz, 0.90, method="interpolated_inverted_cdf")
+    # ... mask out < quantile
+    thr = np.quantile(
+        nz, cutoffQuantile, method="interpolated_inverted_cdf"
+    )
     mask = nz >= thr
     if not np.any(mask):
         return initLen
+
     idx = np.flatnonzero(np.diff(np.r_[False, mask, False]))
     runs = idx.reshape(-1, 2)
     widths = runs[:, 1] - runs[:, 0]
     widths = widths[widths >= initLen]
+
     if len(widths) == 0:
         return initLen
-    # report some quantiles in case tuning is needed
-    logger.info(
-        f"\n\tq10:{np.quantile(widths, 0.10)}\tq25:{np.quantile(widths, 0.25)}\tq50:{np.quantile(widths, 0.50)}\tq75:{np.quantile(widths, 0.75)}\tq90:{np.quantile(widths, 0.90)}\n\n"
-        f"...setting minMatchLengthBP={int(np.mean(widths))} intervals"
-    )
-    return int(np.mean(widths))
+
+    return int(np.median(widths))
 
 
 def scalarClip(value: float, low: float, high: float) -> float:
@@ -126,6 +131,7 @@ def matchWavelet(
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-2,
     isLogScale: bool = False,
+    autoLengthQuantile: float = 0.90,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -198,11 +204,13 @@ def matchWavelet(
     intervalLengthBp = intervals[1] - intervals[0]
 
     if minMatchLengthBP is not None and minMatchLengthBP < 1:
-        minMatchLengthBP = autoMinLengthIntervals(values) * int(
-            intervalLengthBp
-        )
+        minMatchLengthBP = autoMinLengthIntervals(
+            values,
+            cutoffQuantile=autoLengthQuantile,
+            isLogScale=isLogScale,
+        ) * int(intervalLengthBp)
     elif minMatchLengthBP is None:
-        minMatchLengthBP = 250
+        minMatchLengthBP = 147  # default to nucleosome size
 
     logger.info(f"\n\tUsing minMatchLengthBP: {minMatchLengthBP}")
 
@@ -511,7 +519,7 @@ def matchWavelet(
         )
 
     df = pd.DataFrame(allRows)
-    qVals = _bhFdr(df["p_raw"].values.astype(float))
+    qVals = _FDR(df["p_raw"].values.astype(float))
     df["pValue"] = -np.log10(
         np.clip(df["p_raw"].values, 1.0e-10, 1.0)
     )
@@ -540,7 +548,7 @@ def matchWavelet(
 
 def mergeMatches(
     filePath: str,
-    mergeGapBP: Optional[int],
+    mergeGapBP: Optional[int] = -1,
 ) -> Optional[str]:
     r"""Merge overlapping or nearby structured peaks ('matches') in a narrowPeak file.
 
@@ -552,14 +560,15 @@ def mergeMatches(
 
     :param filePath: narrowPeak file containing matches detected with :func:`consenrich.matching.matchWavelet`
     :type filePath: str
-    :param mergeGapBP: Maximum gap size (in base pairs) to consider for merging. Defaults to 75 bp if `None` or less than 1.
+    :param mergeGapBP: Maximum gap size (in base pairs) to consider for merging.
     :type mergeGapBP: Optional[int]
 
     :seealso: :ref:`matching`, :class:`consenrich.core.matchingParams`
     """
 
     if mergeGapBP is None or mergeGapBP < 1:
-        mergeGapBP = 75
+        mergeGapBP = 147
+        logger.info(f"Setting mergeGapBP = {mergeGapBP} bp")
 
     MAX_NEGLOGP = 10.0
     MIN_NEGLOGP = 1.0e-10
@@ -750,35 +759,48 @@ def mergeMatches(
     return outPath
 
 
-
 def runMatchingAlgorithm(
-bedGraphFile: str,
-templateNames: List[str],
-cascadeLevels: List[int],
-iters: int,
-alpha: float = 0.05,
-minMatchLengthBP: Optional[int] = 250,
-maxNumMatches: Optional[int] = 100_000,
-minSignalAtMaxima: Optional[float | str] = "q:0.75",
-randSeed: int = 42,
-recenterAtPointSource: bool = True,
-useScalingFunction: bool = True,
-excludeRegionsBedFile: Optional[str] = None,
-weightBedGraph: str|None = None,
-eps: float = 1.0e-2,
-isLogScale: bool = False,
-mergeGapBP: int|None = -1,
+    bedGraphFile: str,
+    templateNames: List[str],
+    cascadeLevels: List[int],
+    iters: int,
+    alpha: float = 0.05,
+    minMatchLengthBP: Optional[int] = 250,
+    maxNumMatches: Optional[int] = 100_000,
+    minSignalAtMaxima: Optional[float | str] = "q:0.75",
+    randSeed: int = 42,
+    recenterAtPointSource: bool = True,
+    useScalingFunction: bool = True,
+    excludeRegionsBedFile: Optional[str] = None,
+    weightsBedGraph: str | None = None,
+    eps: float = 1.0e-2,
+    isLogScale: bool = False,
+    autoLengthQuantile: float = 0.90,
+    mergeGapBP: int | None = -1,
+    methodFDR: str = "bh",
 ):
+    r"""Wraps :func:`matchWavelet` for genome-wide matching given a bedGraph file"""
     gwideDF = pd.DataFrame()
-    chromosomes = pd.read_csv(
-        bedGraphFile,
-        sep="\t",
-        header=None,
-        names=["chromosome", "start", "end", "value"],
-        dtype={"chromosome": str, "start": np.uint32, "end": np.uint32, "value": np.float64},
-    )['chromosome'].unique().tolist()
+    chromosomes = (
+        pd.read_csv(
+            bedGraphFile,
+            sep="\t",
+            header=None,
+            names=["chromosome", "start", "end", "value"],
+            dtype={
+                "chromosome": str,
+                "start": np.uint32,
+                "end": np.uint32,
+                "value": np.float64,
+            },
+        )["chromosome"]
+        .unique()
+        .tolist()
+    )
+    
+    avgMinMatchLengths = []
 
-    for chromosome_ in chromosomes:
+    for c_, chromosome_ in enumerate(chromosomes):
         cols = ["chromosome", "start", "end", "value"]
         chromBedGraphDF = pd.read_csv(
             bedGraphFile,
@@ -792,17 +814,21 @@ mergeGapBP: int|None = -1,
                 "value": np.float64,
             },
         )
-        chromBedGraphDF = chromBedGraphDF[chromBedGraphDF["chromosome"] == chromosome_]
-        chromIntervals = chromBedGraphDF['start'].to_numpy()
-        chromValues = chromBedGraphDF['value'].to_numpy()
-        weights = np.ones_like(chromValues, dtype=np.float64)
+        chromBedGraphDF = chromBedGraphDF[
+            chromBedGraphDF["chromosome"] == chromosome_
+        ]
+        chromIntervals = chromBedGraphDF["start"].to_numpy()
+        chromValues = chromBedGraphDF["value"].to_numpy()
         del chromBedGraphDF
-        if weightBedGraph is not None and os.path.exists(
-            weightBedGraph
+
+        weightsDF = pd.DataFrame()
+        weights = np.ones_like(chromValues, dtype=np.float64)
+        if weightsBedGraph is not None and os.path.exists(
+            weightsBedGraph
         ):
             try:
                 weightsDF = pd.read_csv(
-                    weightBedGraph,
+                    weightsBedGraph,
                     sep="\t",
                     header=None,
                     names=cols,
@@ -816,10 +842,25 @@ mergeGapBP: int|None = -1,
                 weights = weightsDF[
                     weightsDF["chromosome"] == chromosome_
                 ]
-                weights = weights['value'].to_numpy()
+                weights = 1 / np.sqrt(
+                    weights["value"].to_numpy() + 1.0
+                )
             except Exception as ex:
-                logger.warning('Failed to parse weights from {weightBedGraph}. Ignoring weights....')
+                logger.warning(
+                    "Failed to parse weights from {weightsBedGraph}. Ignoring weights...."
+                )
         del weightsDF
+
+        if minMatchLengthBP is not None and minMatchLengthBP < 1:
+            minMatchLengthBP_ = autoMinLengthIntervals(
+                chromValues,
+                cutoffQuantile=autoLengthQuantile,
+                isLogScale=isLogScale,
+            ) * int(chromIntervals[1] - chromIntervals[0])
+        else:
+            minMatchLengthBP_ = minMatchLengthBP
+
+        avgMinMatchLengths.append(minMatchLengthBP_)
 
         df__ = matchWavelet(
             chromosome_,
@@ -828,8 +869,8 @@ mergeGapBP: int|None = -1,
             templateNames,
             cascadeLevels,
             iters,
-            1.0,
-            minMatchLengthBP,
+            1.0, # keep all for later gwide correction
+            minMatchLengthBP_,
             maxNumMatches,
             minSignalAtMaxima,
             randSeed,
@@ -843,37 +884,38 @@ mergeGapBP: int|None = -1,
         if df__.empty:
             logger.info(f"No matches detected on {chromosome_}.")
             continue
-        pd.concat([gwideDF, df__], axis=0, ignore_index=True)
+        gwideDF = pd.concat(
+            [gwideDF, df__], axis=0, ignore_index=True
+        )
 
-    # perform BH
     if gwideDF.empty:
-        logger.warning("No matches detected genome-wide.")
+        logger.warning("Empty matching results over `chromosomes`.")
         return gwideDF
-    qVals = _bhFdr(-(gwideDF["pValue"].values.astype(float) ** 10))
-    gwideDF["qValue"] = -np.log10(
-        np.clip(qVals, 1.0e-10, 1.0)
+    naturalScalePValues = 10 ** (
+        -gwideDF["pValue"].values.astype(float)
     )
-    # filter out non-significant
+    qVals = _FDR(naturalScalePValues, method=methodFDR)
+    gwideDF["qValue"] = -np.log10(np.clip(qVals, 1.0e-10, 1.0))
     gwideDF = gwideDF[qVals <= alpha].copy()
-    gwideDF.sort_values(by=["chromosome", "start", "end"], inplace=True)
-    tempNarrowPeak = f"{bedGraphFile.replace('.bedGraph', '')}.narrowPeak"
+    gwideDF.sort_values(
+        by=["chromosome", "start", "end"], inplace=True
+    )
+    tempNarrowPeak = f"{bedGraphFile}_matches.narrowPeak".replace(
+        ".bedGraph", ""
+    )
     gwideDF.to_csv(
-            tempNarrowPeak,
-            sep="\t",
-            index=False,
-            header=False,
+        tempNarrowPeak,
+        sep="\t",
+        index=False,
+        header=False,
     )
 
-    mergedPath = mergeMatches(
-        tempNarrowPeak, mergeGapBP=mergeGapBP)
+    if mergeGapBP is None or mergeGapBP < 1:
+        mergeGapBP = max((np.median(avgMinMatchLengths).astype(int) // 2), 147)
+    logger.info(f"mergeGapBP = {mergeGapBP} bp")
+
+    mergedPath = mergeMatches(tempNarrowPeak, mergeGapBP=mergeGapBP)
     if mergedPath is not None and os.path.isfile(mergedPath):
         logger.info(f"Merged matches written to {mergedPath}")
 
-    if os.path.isfile(tempNarrowPeak):
-        try:
-            os.remove(tempNarrowPeak)
-        except Exception:
-            pass
-
     return mergedPath
-

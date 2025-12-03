@@ -314,12 +314,12 @@ def testMatchExistingBedGraph():
         dataFrame.to_csv(
             bedGraphPath, sep="\t", header=False, index=False
         )
-        outputPath = matching.matchExistingBedGraph(
+        outputPath = matching.runMatchingAlgorithm(
             bedGraphFile=str(bedGraphPath),
-            templateName="haar",
-            cascadeLevel=5,
+            templateNames=["haar"],
+            cascadeLevels=[5],
+            iters=5000,
             alpha=0.10,
-            merge=False,
             minSignalAtMaxima=-1,
             minMatchLengthBP=50,
         )

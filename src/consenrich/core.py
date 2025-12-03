@@ -420,6 +420,12 @@ class matchingParams(NamedTuple):
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
+    :param autoLengthQuantile: If `minMatchLengthBP < 1`, the minimum match length (in intervals) is determined
+        by computing the specified quantile of lengths (in intervals) of contiguous runs of non-zero
+        signal estimates after standardizing to local regions.
+    :type autoLengthQuantile: float
+    :param methodFDR: Method for multiple hypothesis testing correction. Can use Benjamini-Hochberg ('bh') or the more conservative Benjamini-Yekutieli ('by') to account for arbitrary dependencies between tests.
+    :type methodFDR: str
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
     """
 
@@ -437,6 +443,8 @@ class matchingParams(NamedTuple):
     penalizeBy: Optional[str]
     randSeed: Optional[int] = 42
     eps: Optional[float] = 1.0e-2
+    autoLengthQuantile: Optional[float] = 0.90
+    methodFDR: Optional[str] = "bh"
 
 
 class outputParams(NamedTuple):

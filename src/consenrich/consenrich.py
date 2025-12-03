@@ -83,6 +83,7 @@ def _listOrEmpty(list_):
         return []
     return list_
 
+
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
     """Check if control BAM files are present in the input arguments.
 
@@ -486,10 +487,14 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     )
 
 
-def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
+def getPlotArgs(
+    config_path: str, experimentName: str
+) -> core.plotParams:
     configData = _loadConfig(config_path)
 
-    plotPrefix_ = _cfgGet(configData, "plotParams.plotPrefix", experimentName)
+    plotPrefix_ = _cfgGet(
+        configData, "plotParams.plotPrefix", experimentName
+    )
 
     plotStateEstimatesHistogram_ = _cfgGet(
         configData,
@@ -510,23 +515,41 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     )
 
     plotHeightInches_ = _cfgGet(
-        configData, "plotParams.plotHeightInches", 6.0,
+        configData,
+        "plotParams.plotHeightInches",
+        6.0,
     )
 
     plotWidthInches_ = _cfgGet(
-        configData, "plotParams.plotWidthInches", 8.0,
+        configData,
+        "plotParams.plotWidthInches",
+        8.0,
     )
 
     plotDPI_ = _cfgGet(
-        configData, "plotParams.plotDPI", 300,
+        configData,
+        "plotParams.plotDPI",
+        300,
     )
 
     plotDirectory_ = _cfgGet(
-        configData, "plotParams.plotDirectory", os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
+        configData,
+        "plotParams.plotDirectory",
+        os.path.join(
+            os.getcwd(), f"{experimentName}_consenrichPlots"
+        ),
     )
 
-    if int(plotStateEstimatesHistogram_) + int(plotResidualsHistogram_) + int(plotStateStdHistogram_) >= 1:
-        if plotDirectory_ is not None and (not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)):
+    if (
+        int(plotStateEstimatesHistogram_)
+        + int(plotResidualsHistogram_)
+        + int(plotStateStdHistogram_)
+        >= 1
+    ):
+        if plotDirectory_ is not None and (
+            not os.path.exists(plotDirectory_)
+            or not os.path.isdir(plotDirectory_)
+        ):
             try:
                 os.makedirs(plotDirectory_, exist_ok=True)
             except Exception as e:
@@ -538,7 +561,8 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
             plotDirectory_ = os.getcwd()
 
         elif os.path.exists(plotDirectory_) and os.path.isdir(
-            plotDirectory_):
+            plotDirectory_
+        ):
             logger.warning(
                 f"Using existing plot directory: {plotDirectory_}"
             )
@@ -547,7 +571,6 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
                 f"Failed creating/identifying {plotDirectory_}...Using CWD."
             )
             plotDirectory_ = os.getcwd()
-
 
     return core.plotParams(
         plotPrefix=plotPrefix_,
@@ -558,7 +581,6 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         plotWidthInches=plotWidthInches_,
         plotDPI=plotDPI_,
         plotDirectory=plotDirectory_,
-
     )
 
 
@@ -574,7 +596,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     outputParams = getOutputArgs(config_path)
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
-
 
     matchingExcludeRegionsFileDefault: Optional[str] = (
         genomeParams.blacklistFile
@@ -637,7 +658,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     plotArgs = getPlotArgs(config_path, experimentName)
 
     observationArgs = core.observationParams(
-        minR= _cfgGet(configData, "observationParams.minR", -1.0),
+        minR=_cfgGet(configData, "observationParams.minR", -1.0),
         maxR=_cfgGet(configData, "observationParams.maxR", 100.0),
         useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
@@ -715,7 +736,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     offsetStr = _cfgGet(configData, "samParams.offsetStr", "0,0")
     extendBpList = _cfgGet(configData, "samParams.extendBP", [])
     maxInsertSize = _cfgGet(
-        configData, "samParams.maxInsertSize", 1000,
+        configData,
+        "samParams.maxInsertSize",
+        1000,
     )
 
     pairedEndDefault = (
@@ -762,11 +785,15 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             75,
         ),
         usePolyFilter=_cfgGet(
-            configData, "detrendParams.usePolyFilter", False,
+            configData,
+            "detrendParams.usePolyFilter",
+            False,
         ),
         detrendSavitzkyGolayDegree=detrendSavitzkyGolayDegree,
         useOrderStatFilter=_cfgGet(
-            configData, "detrendParams.useOrderStatFilter", True,
+            configData,
+            "detrendParams.useOrderStatFilter",
+            True,
         ),
     )
 
@@ -782,7 +809,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minMatchLengthBP=_cfgGet(
             configData,
             "matchingParams.minMatchLengthBP",
-            250,
+            -1,
         ),
         maxNumMatches=_cfgGet(
             configData,
@@ -796,7 +823,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
-            configData, "matchingParams.mergeGapBP", None
+            configData,
+            "matchingParams.mergeGapBP",
+            -1,
         ),
         useScalingFunction=_cfgGet(
             configData,
@@ -813,6 +842,15 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData, "matchingParams.penalizeBy", None
         ),
         eps=_cfgGet(configData, "matchingParams.eps", 1.0e-2),
+        autoLengthQuantile=_cfgGet(
+            configData,
+            "matchingParams.autoLengthQuantile",
+            0.90,
+        ),
+        methodFDR =_cfgGet(
+            configData,
+            "matchingParams.methodFDR","bh",
+        ),
     )
 
     return {
@@ -928,7 +966,7 @@ def main():
     parser.add_argument(
         "--match-min-length",
         type=int,
-        default=250,
+        default=-1,
         dest="matchMinMatchLengthBP",
     )
     parser.add_argument(
@@ -952,7 +990,7 @@ def main():
     parser.add_argument(
         "--match-merge-gap",
         type=int,
-        default=None,
+        default=-1,
         dest="matchMergeGapBP",
     )
     parser.add_argument(
@@ -1041,7 +1079,6 @@ def main():
     extendBP_ = core.resolveExtendBP(samArgs.extendBP, bamFiles)
     initialTreatmentScaleFactors = []
     minMatchLengthBP_: Optional[int] = matchingArgs.minMatchLengthBP
-    mergeGapBP_: Optional[int] = matchingArgs.mergeGapBP
     deltaF_ = processArgs.deltaF
     minR_ = observationArgs.minR
     minQ_ = processArgs.minQ
@@ -1231,7 +1268,6 @@ def main():
                 bamFiles=bamFiles,
             )
 
-
         chromMat: np.ndarray = np.empty(
             (numSamples, numIntervals), dtype=np.float32
         )
@@ -1341,16 +1377,12 @@ def main():
 
         if observationArgs.minR < 0.0 or minR_ < 0.0:
             minR_ = np.percentile(muncMat, 25.0) + 0.01
-            logger.info(
-                f"minR_={minR_}..."
-            )
+            logger.info(f"minR_={minR_}...")
             muncMat[muncMat < minR_] = minR_
 
         if processArgs.minQ < 0.0 or minQ_ < 0.0:
-            minQ_ = (2*minR_ / numSamples)
-            logger.info(
-                f"`minQ={minQ_}..."
-            )
+            minQ_ = 2 * minR_ / numSamples
+            logger.info(f"`minQ={minQ_}...")
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(
@@ -1407,38 +1439,6 @@ def main():
                 np.sqrt(P[:, 0, 0]),
                 plotDirectory=plotArgs.plotDirectory,
             )
-
-        weights_: Optional[np.ndarray] = None
-        if matchingArgs.penalizeBy is not None:
-            if matchingArgs.penalizeBy.lower() in [
-                "stateuncertainty",
-                "statestddev",
-                "statestd",
-                "p11",
-            ]:
-                try:
-                    weights_ = np.sqrt(P[:, 0, 0] + 1.0)
-                except Exception as e:
-                    logger.warning(
-                        f"Error computing weights for 'stateUncertainty': {e}. No weights applied for matching."
-                    )
-                    weights_ = None
-            elif matchingArgs.penalizeBy == "muncTrace":
-                try:
-                    weights_ = np.sqrt(
-                        np.mean(muncMat.astype(np.float64), axis=0)
-                        + 1.0,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Error computing weights for 'muncTrace': {e}. No weights applied for matching."
-                    )
-                    weights_ = None
-            else:
-                logger.warning(
-                    f"Unrecognized `matchingParams.penalizeBy`: {matchingArgs.penalizeBy}. No weights applied."
-                )
-                weights_ = None
 
         df = pd.DataFrame(
             {
@@ -1511,45 +1511,57 @@ def main():
         )
 
     if matchingEnabled:
-        weightsBedGraph: str|None = None
-        logger.info("Running matching algorithm...")
-        if matchingArgs.penalizeBy is not None:
-            if matchingArgs.penalizeBy.lower() in [
-                "stateuncertainty",
-                "statestddev",
-                "statestd",
-                "p11",
-            ]:
-                weightsBedGraph = (
-                    f"consenrichOutput_{experimentName}_stdDevs.bedGraph"
-                )
-            elif matchingArgs.penalizeBy == "muncTrace":
-                weightsBedGraph = (
-                    f"consenrichOutput_{experimentName}_muncTraces.bedGraph"
-                )
-            elif matchingArgs.penalizeBy.lower() == "none":
-                weightsBedGraph = None
-            else:
-                weightsBedGraph = None
+        try:
+            weightsBedGraph: str | None = None
+            logger.info("Running matching algorithm...")
+            if matchingArgs.penalizeBy is not None:
+                if matchingArgs.penalizeBy.lower() in [
+                    "stateuncertainty",
+                    "statestddev",
+                    "statestd",
+                    "p11",
+                ]:
+                    weightsBedGraph = f"consenrichOutput_{experimentName}_stdDevs.bedGraph"
+                elif matchingArgs.penalizeBy.lower() in [
+                    "munc",
+                    "munctrace",
+                    "avgmunctrace",
+                ]:
+                    weightsBedGraph = f"consenrichOutput_{experimentName}_muncTraces.bedGraph"
+                elif matchingArgs.penalizeBy.lower() == "none":
+                    weightsBedGraph = None
+                else:
+                    weightsBedGraph = None
 
-        outName = matching.runMatchingAlgorithm(
-            f"consenrichOutput_{experimentName}_state.bedGraph",
-            matchingArgs.templateNames,
-            matchingArgs.cascadeLevels,
-            matchingArgs.iters,
-            alpha=matchingArgs.alpha,
-            minMatchLengthBP=minMatchLengthBP_,
-            maxNumMatches=matchingArgs.maxNumMatches,
-            minSignalAtMaxima=matchingArgs.minSignalAtMaxima,
-            useScalingFunction=matchingArgs.useScalingFunction,
-            merge=matchingArgs.merge,
-            mergeGapBP=mergeGapBP_,
-            excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
-            randSeed=matchingArgs.randSeed,
-            weightsBedGraph=weightsBedGraph,
-            eps=matchingArgs.eps,
-        )
-        logger.info(f"Finished matching. Written to {outName}")
+            outName = matching.runMatchingAlgorithm(
+                f"consenrichOutput_{experimentName}_state.bedGraph",
+                matchingArgs.templateNames,
+                matchingArgs.cascadeLevels,
+                matchingArgs.iters,
+                alpha=matchingArgs.alpha,
+                minMatchLengthBP=minMatchLengthBP_,
+                maxNumMatches=matchingArgs.maxNumMatches,
+                minSignalAtMaxima=matchingArgs.minSignalAtMaxima,
+                useScalingFunction=matchingArgs.useScalingFunction,
+                mergeGapBP=matchingArgs.mergeGapBP,
+                excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
+                randSeed=matchingArgs.randSeed,
+                weightsBedGraph=weightsBedGraph,
+                eps=matchingArgs.eps,
+                isLogScale=countingArgs.applyLog
+                or countingArgs.applyAsinh
+                or countingArgs.applySqrt,
+                autoLengthQuantile=matchingArgs.autoLengthQuantile,
+                methodFDR=matchingArgs.methodFDR.lower(),
+            )
+
+            logger.info(f"Finished matching. Written to {outName}")
+        except Exception as ex_:
+            logger.warning(
+                f"Matching algorithm raised an exception:\n\n\t{ex_}\n"
+                f"Skipping matching step...try running post-hoc via `consenrich --match-bedGraph <bedGraphFile>`\n"
+                f"\tSee ``consenrich -h`` for more details.\n"
+            )
 
 
 if __name__ == "__main__":
