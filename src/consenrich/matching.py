@@ -778,6 +778,7 @@ def runMatchingAlgorithm(
     autoLengthQuantile: float = 0.90,
     mergeGapBP: int | None = -1,
     methodFDR: str = "bh",
+    merge: bool = True,
 ):
     r"""Wraps :func:`matchWavelet` for genome-wide matching given a bedGraph file"""
     gwideDF = pd.DataFrame()
@@ -912,10 +913,11 @@ def runMatchingAlgorithm(
 
     if mergeGapBP is None or mergeGapBP < 1:
         mergeGapBP = max((np.median(avgMinMatchLengths).astype(int) // 2), 147)
-    logger.info(f"mergeGapBP = {mergeGapBP} bp")
 
-    mergedPath = mergeMatches(tempNarrowPeak, mergeGapBP=mergeGapBP)
-    if mergedPath is not None and os.path.isfile(mergedPath):
-        logger.info(f"Merged matches written to {mergedPath}")
+    mergedPath = None
+    if merge:
+        mergedPath = mergeMatches(tempNarrowPeak, mergeGapBP=mergeGapBP)
+        if mergedPath is not None and os.path.isfile(mergedPath):
+            logger.info(f"Merged matches written to {mergedPath}")
 
     return mergedPath

@@ -115,7 +115,9 @@ class processParams(NamedTuple):
     :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. Set to `< 0` to determine based on stepSize:fragment-length ratio.
     :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
-        for each state variable.
+        for each state variable. If `minQ < 0` (default), a small value based on
+        the minimum observation noise level (``observationParams.minR``) is used that
+        enforces numerical stability and proper balance between process and observation models.
     :type minQ: float
     :param dStatAlpha: Threshold on the deviation between the data and estimated signal -- used to determine whether the process noise is scaled up.
     :type dStatAlpha: float
@@ -156,9 +158,9 @@ class observationParams(NamedTuple):
     :math:`\mathbf{H} \in \mathbb{R}^{m \times 2}` maps from the state dimension (2)
     to the dimension of measurements/data (:math:`m`).
 
-    :param minR: The minimum observation noise level for each sample
-        :math:`j=1\ldots m` in the observation noise covariance
-        matrix :math:`\mathbf{R}_{[i, (11:mm)]}`.
+    :param minR: Genome-wide lower bound for the local/sample-specific observation noise levels.
+        If ``minR < 0``, the minimum noise level is set to the lower quartile of the initial
+        noise level estimates (default behavior).
     :type minR: float
     :param numNearest: The number of nearest nearby 'sparse' features to use for local
         variance calculation. Ignored if `useALV` is True.
@@ -385,7 +387,7 @@ class matchingParams(NamedTuple):
 
     :param templateNames: A list of str values -- each entry references a mother wavelet (or its corresponding scaling function). e.g., `[haar, db2]`
     :type templateNames: List[str]
-    :param cascadeLevels: Number of cascade iterations used to approximate each template (wavelet or scaling function).
+    :param cascadeLevels: Number of cascade iterations, or 'levels', used to define wavelet-based templates
         Must have the same length as `templateNames`, with each entry aligned to the
         corresponding template. e.g., given templateNames `[haar, db2]`, then `[2,2]` would use 2 cascade levels for both templates.
     :type cascadeLevels: List[int]
@@ -397,34 +399,34 @@ class matchingParams(NamedTuple):
         response sequence.
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
-        the signal-template convolution must be greater in value than others to qualify as matches.
-        If set to a value less than 1, the minimum length is determined via :func:`consenrich.matching.autoMinLengthIntervals`.
-        If set to `None`, defaults to 250 bp.
-    :param minSignalAtMaxima: Secondary significance threshold coupled with `alpha`. Requires the *signal value*
-        at relative maxima in the response sequence to be greater than this threshold. Comparisons are made in log-scale
-        to temper genome-wide dynamic range. If a `float` value is provided, the minimum signal value must be greater
-        than this (absolute) value. *Set to a negative value to disable the threshold*.
-        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The
-        threshold is then set to the corresponding quantile of the non-zero signal estimates.
+        the signal-template convolution :math:`\mathcal{R}_{[\ast]}` must be greater in value than
+        others to qualify as matches. If set to a value less than 1, the minimum length is determined
+        via :func:`consenrich.matching.autoMinLengthIntervals` (default behavior).
+    :type minMatchLengthBP: Optional[int]
+    :param minSignalAtMaxima: Secondary/optional threshold coupled with ``alpha``. Requires the *signal value*, :math:`\widetilde{x}_{[i^*]}`,
+        at relative maxima in the response sequence, :math:`\mathcal{R}_{[i^*]}`, to be greater than this threshold.
+        If a ``str`` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The threshold is then set to the
+        corresponding quantile of the non-zero signal estimates in the distribution of transformed values.
     :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
         If False, use (only) the wavelet function.
     :type useScalingFunction: bool
     :param excludeRegionsBedFile: A BED file with regions to exclude from matching
     :type excludeRegionsBedFile: Optional[str]
-    :param penalizeBy: Specify a positional metric to scale/weight signal values by when matching.
-      `stateUncertainty` divides signal values by the square root of the primary state variance :math:`\sqrt{\widetilde{P}_{i,(11)}}` at each position :math:`i`,
-      thereby down-weighting positions where the posterior state uncertainty is high. 'muncTrace' divides signal values by
-      the square root of the *average* observation noise per interval :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` at each position :math:`i`,
+    :param penalizeBy: Specify a positional metric to scale signal estimate values by when matching.
+      For example, ``stateUncertainty`` divides signal values by the square root of the primary state
+      variance :math:`\sqrt{\widetilde{P}_{i,(11)}}` at each position :math:`i`,
+      thereby down-weighting positions where the posterior state uncertainty is
+      high during matching.
     :type penalizeBy: Optional[str]
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
-    :param autoLengthQuantile: If `minMatchLengthBP < 1`, the minimum match length (in intervals) is determined
-        by computing the specified quantile of lengths (in intervals) of contiguous runs of non-zero
-        signal estimates after standardizing to local regions.
+    :param autoLengthQuantile: If `minMatchLengthBP < 1`, the minimum match length (``minMatchLengthBP / stepSize``) is determined
+        by the quantile in the distribution of non-zero segment lengths (i.e., consecutive intervals with non-zero signal estimates).
+        after local standardization.
     :type autoLengthQuantile: float
-    :param methodFDR: Method for multiple hypothesis testing correction. Can use Benjamini-Hochberg ('bh') or the more conservative Benjamini-Yekutieli ('by') to account for arbitrary dependencies between tests.
+    :param methodFDR: Method for genome-wide multiple hypothesis testing correction. Can use Benjamini-Hochberg ('bh') or the more conservative Benjamini-Yekutieli ('by') to account for arbitrary dependencies between tests.
     :type methodFDR: str
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
     """

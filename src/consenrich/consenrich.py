@@ -1072,6 +1072,7 @@ def main():
             methodFDR=args.matchMethodFDR,
             isLogScale=args.matchIsLogScale,
             randSeed=args.matchRandSeed,
+            merge=True, # always merge for CLI use -- either way, both files produced
         )
         logger.info(f"Finished matching. Written to {outName}")
         sys.exit(0)
@@ -1413,12 +1414,14 @@ def main():
             )
 
         if observationArgs.minR < 0.0 or minR_ < 0.0:
+            # case minR < 0 --> clip to 25th percentile of muncMat
             minR_ = np.percentile(muncMat, 25.0) + 0.01
             logger.info(f"minR_={minR_}...")
             muncMat[muncMat < minR_] = minR_
 
         if processArgs.minQ < 0.0 or minQ_ < 0.0:
-            minQ_ = 2 * minR_ / numSamples
+            # case minQ < 0 --> set based on the minimum observation noise
+            minQ_ = 2*(minR_ / numSamples) + 0.01
             logger.info(f"`minQ={minQ_}...")
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
@@ -1590,6 +1593,7 @@ def main():
                 or countingArgs.applySqrt,
                 autoLengthQuantile=matchingArgs.autoLengthQuantile,
                 methodFDR=matchingArgs.methodFDR.lower(),
+                merge=matchingArgs.merge,
             )
 
             logger.info(f"Finished matching. Written to {outName}")
