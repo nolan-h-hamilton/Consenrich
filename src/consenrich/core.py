@@ -112,7 +112,7 @@ class processParams(NamedTuple):
     and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
     matrices.
 
-    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. Set to `< 0` to determine based on stepSize:fragment-length ratio.
+    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), determined based on stepSize:fragment-length ratio.
     :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
         for each state variable. If `minQ < 0` (default), a small value based on
