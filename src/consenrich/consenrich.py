@@ -847,9 +847,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "matchingParams.autoLengthQuantile",
             0.90,
         ),
-        methodFDR =_cfgGet(
+        methodFDR=_cfgGet(
             configData,
-            "matchingParams.methodFDR","bh",
+            "matchingParams.methodFDR",
+            "bh",
         ),
     )
 
@@ -948,35 +949,49 @@ def main():
     )
     parser.add_argument(
         "--match-template",
+        nargs="+",
         type=str,
-        default="haar",
-        choices=[
-            x
-            for x in pywt.wavelist(kind="discrete")
-            if "bio" not in x
-        ],
+        help="List of template names to use in matching. See PyWavelets discrete wavelet families: https://pywavelets.readthedocs.io/en/latest/ref/wavelets.html#discrete-wavelets. \
+            Needs to match `--match-level` in length",
         dest="matchTemplate",
     )
+
     parser.add_argument(
-        "--match-level", type=int, default=2, dest="matchLevel"
+        "--match-level",
+        nargs="+",
+        type=int,
+        help="List of cascade levels to use in matching. Needs to match `--match-template` in length",
+        dest="matchLevel",
     )
+
     parser.add_argument(
-        "--match-alpha", type=float, default=0.05, dest="matchAlpha"
+        "--match-alpha",
+        type=float,
+        default=0.05,
+        dest="matchAlpha",
+        help="Cutoff qualifying  candidate matches as significant (FDR-adjusted p-value < alpha).",
     )
     parser.add_argument(
         "--match-min-length",
         type=int,
         default=-1,
         dest="matchMinMatchLengthBP",
+        help="Minimum length (bp) qualifying candidate matches. Set to -1 for auto calculation from data",
     )
     parser.add_argument(
-        "--match-iters", type=int, default=25000, dest="matchIters"
+        "--match-iters",
+        type=int,
+        default=25000,
+        dest="matchIters",
+        help="Number of sampled blocks for estimating null distribution of match scores (cross correlations with templates).",
     )
     parser.add_argument(
         "--match-min-signal",
         type=str,
         default="q:0.75",
         dest="matchMinSignalAtMaxima",
+        help="Minimum signal at local maxima in the response sequence that qualifies candidate matches\
+            Can be an absolute value (e.g., `50.0`) or a quantile (e.g., `q:0.75` for 75th percentile).",
     )
     parser.add_argument(
         "--match-max-matches",
@@ -985,18 +1000,18 @@ def main():
         dest="matchMaxNumMatches",
     )
     parser.add_argument(
-        "--match-no-merge", action="store_true", dest="matchNoMerge"
-    )
-    parser.add_argument(
         "--match-merge-gap",
         type=int,
         default=-1,
         dest="matchMergeGapBP",
+        help="Maximum gap (bp) between candidate matches to merge into a single match.\
+            Set to -1 for auto calculation from data.",
     )
     parser.add_argument(
         "--match-use-wavelet",
         action="store_true",
         dest="matchUseWavelet",
+        help="If set, use the wavelet function at the given level rather than scaling function.",
     )
     parser.add_argument(
         "--match-seed", type=int, default=42, dest="matchRandSeed"
@@ -1006,6 +1021,26 @@ def main():
         type=str,
         default=None,
         dest="matchExcludeBed",
+    )
+    parser.add_argument(
+        "--match-auto-length-quantile",
+        type=float,
+        default=0.90,
+        dest="matchAutoLengthQuantile",
+        help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
+    )
+    parser.add_argument(
+        "--match-method-fdr",
+        type=str,
+        default="bh",
+        dest="matchMethodFDR",
+        help="Method for multiple hypothesis correction of p-values. (bh, by)"
+    )
+    parser.add_argument(
+        "--match-is-log-scale",
+        action="store_true",
+        dest="matchIsLogScale",
+        help="If set, indicates that the input bedGraph has already been transformed.",
     )
     parser.add_argument(
         "--verbose", action="store_true", help="If set, logs config"
@@ -1031,9 +1066,11 @@ def main():
             minSignalAtMaxima=args.matchMinSignalAtMaxima,
             maxNumMatches=args.matchMaxNumMatches,
             useScalingFunction=(not args.matchUseWavelet),
-            merge=(not args.matchNoMerge),
             mergeGapBP=args.matchMergeGapBP,
             excludeRegionsBedFile=args.matchExcludeBed,
+            autoLengthQuantile=args.matchAutoLengthQuantile,
+            methodFDR=args.matchMethodFDR,
+            isLogScale=args.matchIsLogScale,
             randSeed=args.matchRandSeed,
         )
         logger.info(f"Finished matching. Written to {outName}")
