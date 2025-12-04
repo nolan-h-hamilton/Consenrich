@@ -102,10 +102,11 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   ENCFF490MWV.bam]
 
   # Optional: call 'structured peaks' via `consenrich.matching`
-  matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [3, 3]
+  matchingParams.templateNames: [haar, db2, sym4]
+  matchingParams.cascadeLevels: [3,3,1]
   matchingParams.minMatchLengthBP: -1
   matchingParams.mergeGapBP: -1
+  observationParams.useALV: true
 
 .. admonition:: Control Inputs
   :class: tip
@@ -169,7 +170,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python `3.12.9`
-- Consenrich `v0.7.7b1`
+- Consenrich `v0.7.9b1`
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -278,65 +279,6 @@ Basic convenience utilities are provided for this purpose. Here, we display plot
 
 
 See :class:`consenrich.core.plotParams` and its associated functions for more details.
-
-
-**Evaluating Structured Peak Results: cCRE Overlaps**
-
-Here, we count *genome-wide* overlaps between Consenrich-detected matches and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
-
-
-Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and strict concordance is not expected. Nonetheless, given the breadth of cell types and tissues surveyed in ENCODE, a substantial overlap between Consenrich-detected structured peaks and cCREs is desirable.
-
-* We first count:
-
-  - The total number of Consenrich-detected structured peaks (165,090)
-  - The number of *unique* Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE (148,767)
-
-  .. code-block:: console
-
-    % bedtools intersect \
-      -a consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
-      -b GRCh38-cCREs.bed \
-      -f 0.25 -r -u \
-      | wc -l
-
-
-* We also evaluate overlaps compared to a null baseline addressing random chance,
-
-  |    *Controlling for peak size (avg. 534 bp) and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 165,090 regions?*
-
-  We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_,
-
-  .. code-block:: console
-
-    % bedtools shuffle \
-      -i consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
-      -g hg38.sizes \
-      -chrom \
-      | bedtools intersect -a stdin -b GRCh38-cCREs.bed -f 0.25 -r -u \
-      | wc -l
-
-  and aggregate results for `N=250` independent trials to build an empirical distribution for cCRE-hits under our null model.
-
-
-We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (:math:`\hat{p} \approx 0.0039`):
-
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Feature                                                                                  | Value                                        |
-+==========================================================================================+==============================================+
-| Consenrich: Total structured peaks (α=0.05)                                              | 165,090                                      |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Distinct cCRE overlaps*                                                      | 148,767                                      |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Percent overlapping                                                          | **90.1%**                                    |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 56,652.8,  σ ≈ 196.9                     |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Percent overlapping                                                | ≈ **34.2%**                                  |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-
-:math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
-
 
 .. _runtimeAndMemoryProfilingAtac20:
 
