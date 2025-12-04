@@ -80,7 +80,7 @@ def autoMinLengthIntervals(
     if len(widths) == 0:
         return initLen
 
-    return int(np.median(widths))
+    return int(np.mean(widths))
 
 
 def scalarClip(value: float, low: float, high: float) -> float:

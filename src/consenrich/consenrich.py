@@ -1393,10 +1393,10 @@ def main():
         # negative --> data-based
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = 0.0
-            maxR_ = 1e6
+            maxR_ = 1e4
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             minQ_ = 0.0
-            maxQ_ = 1e6
+            maxQ_ = 1e4
 
         muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
@@ -1435,15 +1435,15 @@ def main():
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            minR_ = np.quantile(muncMat, 0.005) + 1.0e-2
-            maxR_ = np.quantile(muncMat, 0.995) + 1.0e-2
+            minR_ = np.round(np.quantile(muncMat, 0.05) + 0.05, 4)
+            maxR_ = np.round(np.quantile(muncMat, 0.95) + 0.05, 4)
             logger.info(f"Setting: minR_={minR_}, maxR_={maxR_}...")
             muncMat = np.clip(muncMat, minR_, maxR_)
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
-            minQ_ = (minR_ / np.sqrt(numSamples)) + offDiagQ_ + 1.0e-2
-            # arbitrary, but we shouldn't limit adaptive noise protocol at transients
-            maxQ_ = (10*maxR_) + offDiagQ_ + 1.0e-2
+            # + small cushion to prevent numerical issues in f32
+            minQ_ = np.round((minR_ / np.sqrt(numSamples)) + offDiagQ_ + 0.05, 4)
+            maxQ_ = np.round((10*maxR_) + offDiagQ_ + 0.05, 4)
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(
