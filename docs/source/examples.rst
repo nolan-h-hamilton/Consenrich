@@ -107,9 +107,6 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   matchingParams.minMatchLengthBP: -1
   matchingParams.mergeGapBP: -1
 
-  # Optional: transform counts
-  countingParams.applySqrt: true
-
 .. admonition:: Control Inputs
   :class: tip
 
@@ -239,8 +236,6 @@ globs, e.g., `*.bam`, are allowed, but each file is listed below to reveal ENCOD
   plotParams.plotResidualsHistogram: true
   plotParams.plotStateStdHistogram: true
 
-  # Optional: transform counts
-  countingParams.applySqrt: true
 
 
 Run Consenrich
@@ -401,8 +396,6 @@ Configuration
     matchingParams.minMatchLengthBP: -1
     matchingParams.mergeGapBP: 500 # increase merge radius for broad marks
 
-   # Optional: transform counts
-   countingParams.applySqrt: true
 
 
 Run Consenrich
@@ -529,17 +522,11 @@ Broad, Heterochromatic and/or Repressive targets
 Preprocessing and Calibration of Uncertainty Metrics
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-To obtain residuals that are approximately homoskedastic, symmetric, and uncorrelated---and therefore better-suited to downstream analyses that require calibrated uncertainty quantification---it is often helpful to transform input count-based data.
+To promote homoskedasticity, symmetry, independence, etc. of residuals for downstream analyses that require calibrated uncertainty quantification it is often helpful/necessary to transform count-based data.
 
-If no such transformation is applied, the Consenrich's uncertainty estimates may still be interpreted *relatively* (e.g. comparing between genomic regions), but absolute statistical interpretations, e.g., coverage of prediction intervals, may be less reliable.
+Consenrich's uncertainty estimates can generally be interpreted on a *relative* scale (e.g. comparing between genomic regions), but classic statistical interpretations, e.g., coverage of prediction intervals, can be made more reliable through appropriate preprocessing.
 
-Several simple transformations are built into Consenrich for convenience, e.g.,
-
-.. code-block:: yaml
-
-  countingParams.applySqrt: true # `applyLog`, `applyAsinh``
-
-* ``applySqrt`` offers a gentle compression of the dynamic range and may be preferable to log transforms to preserve a greater breadth of signal variation for downstream peak calling, etc. Note this is the canonical link for Poisson GLMs but, more generally, confers analytic advantages that can aid in distribution-free uncertainty quantification.
+* ``countingParams.applySqrt`` is applied by default. This offers a gentle compression of the dynamic range and may be preferable to log transforms if needing to preserve a greater breadth of signal variation for downstream tasks like peak calling.
 * Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components for additive linear modeling. Depending on sparsity, their comparably strong compression may affect capture of subtle signal patterns when applying Consenrich.
 * Users running Consenrich programmatically can apply custom transformations and preprocesssing pipelines as desired, e.g., `Yeo-Johnson or general power transforms <https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html>`_.
 

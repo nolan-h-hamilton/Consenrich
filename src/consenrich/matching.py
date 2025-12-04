@@ -56,7 +56,7 @@ def autoMinLengthIntervals(
         values_,
         kernel_size=max(
             (2 * initLen) + 1,
-            2 * (int(len(values_) * 0.005)) + 1,
+            2 * (int(len(values_) * 0.05)) + 1,
         ),
     )
 

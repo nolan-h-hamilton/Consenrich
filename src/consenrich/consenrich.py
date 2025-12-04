@@ -403,7 +403,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     applySqrtFlag = _cfgGet(
         configData,
         "countingParams.applySqrt",
-        False,
+        True,
     )
 
     noTransformFlag = _cfgGet(
@@ -608,7 +608,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendWindowLengthBp = _cfgGet(
             configData,
             "detrendParams.detrendWindowLengthBP",
-            25_000,
+            20_000,
         )
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
@@ -619,7 +619,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendWindowLengthBp = _cfgGet(
             configData,
             "detrendParams.detrendWindowLengthBP",
-            25_000,
+            20_000,
         )
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
@@ -634,7 +634,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
         minQ=_cfgGet(configData, "processParams.minQ", -1.0),
-        maxQ=_cfgGet(configData, "processParams.maxQ", 100.0),
+        maxQ=_cfgGet(configData, "processParams.maxQ", -1.0),
         offDiagQ=_cfgGet(configData, "processParams.offDiagQ", 0.0),
         dStatAlpha=_cfgGet(
             configData,
@@ -659,7 +659,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
-        maxR=_cfgGet(configData, "observationParams.maxR", 100.0),
+        maxR=_cfgGet(configData, "observationParams.maxR", -1.0),
         useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
             configData,
@@ -670,7 +670,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData, "observationParams.noGlobal", False
         ),
         numNearest=_cfgGet(
-            configData, "observationParams.numNearest", 25
+            configData, "observationParams.numNearest", 25,
         ),
         localWeight=_cfgGet(
             configData, "observationParams.localWeight", 0.333
@@ -681,12 +681,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         approximationWindowLengthBP=_cfgGet(
             configData,
             "observationParams.approximationWindowLengthBP",
-            10_000,
+            25_000,
         ),
         lowPassWindowLengthBP=_cfgGet(
             configData,
             "observationParams.lowPassWindowLengthBP",
-            20_000,
+            50_000,
         ),
         lowPassFilterType=_cfgGet(
             configData,
@@ -729,7 +729,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
     samFlagExclude = _cfgGet(
-        configData, "samParams.samFlagExclude", 3844
+        configData, "samParams.samFlagExclude", 3844,
+    )
+    minMappingQuality = _cfgGet(
+        configData, "samParams.minMappingQuality", 0,
     )
     oneReadPerBin = _cfgGet(configData, "samParams.oneReadPerBin", 0)
     chunkSize = _cfgGet(configData, "samParams.chunkSize", 1_000_000)
@@ -775,6 +778,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         countEndsOnly=_cfgGet(
             configData, "samParams.countEndsOnly", False
         ),
+        minMappingQuality=minMappingQuality,
+        minTemplateLength=_cfgGet(
+            configData, "samParams.minTemplateLength", -1,
+        ),
     )
 
     detrendArgs = core.detrendParams(
@@ -782,7 +789,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendTrackPercentile=_cfgGet(
             configData,
             "detrendParams.detrendTrackPercentile",
-            75,
+            75.0,
         ),
         usePolyFilter=_cfgGet(
             configData,
@@ -981,7 +988,7 @@ def main():
     parser.add_argument(
         "--match-iters",
         type=int,
-        default=25000,
+        default=50000,
         dest="matchIters",
         help="Number of sampled blocks for estimating null distribution of match scores (cross correlations with templates).",
     )
@@ -996,7 +1003,7 @@ def main():
     parser.add_argument(
         "--match-max-matches",
         type=int,
-        default=100000,
+        default=1000000,
         dest="matchMaxNumMatches",
     )
     parser.add_argument(
@@ -1119,7 +1126,10 @@ def main():
     minMatchLengthBP_: Optional[int] = matchingArgs.minMatchLengthBP
     deltaF_ = processArgs.deltaF
     minR_ = observationArgs.minR
+    maxR_ = observationArgs.maxR
     minQ_ = processArgs.minQ
+    maxQ_ = processArgs.maxQ
+    offDiagQ_ = processArgs.offDiagQ
 
     if args.verbose:
         try:
@@ -1338,6 +1348,8 @@ def main():
                     applyLog=countingArgs.applyLog,
                     applySqrt=countingArgs.applySqrt,
                     countEndsOnly=samArgs.countEndsOnly,
+                    minMappingQuality=samArgs.minMappingQuality,
+                    minTemplateLength=samArgs.minTemplateLength,
                 )
 
                 chromMat[j_, :] = pairMatrix[0, :] - pairMatrix[1, :]
@@ -1363,6 +1375,8 @@ def main():
                 applyLog=countingArgs.applyLog,
                 applySqrt=countingArgs.applySqrt,
                 countEndsOnly=samArgs.countEndsOnly,
+                minMappingQuality=samArgs.minMappingQuality,
+                minTemplateLength=samArgs.minTemplateLength,
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
@@ -1375,8 +1389,15 @@ def main():
                 numNearest,
                 genomeArgs.sparseBedFile,
             )
-        if observationArgs.minR < 0.0:
+
+        # negative --> data-based
+        if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = 0.0
+            maxR_ = 1e6
+        if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
+            minQ_ = 0.0
+            maxQ_ = 1e6
+
         muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
             logger.info(
@@ -1399,7 +1420,7 @@ def main():
                 stepSize,
                 chromMat[j, :],
                 minR_,
-                observationArgs.maxR,
+                maxR_,
                 observationArgs.useALV,
                 observationArgs.useConstantNoiseLevel,
                 observationArgs.noGlobal,
@@ -1413,16 +1434,16 @@ def main():
                 shrinkOffset=observationArgs.shrinkOffset,
             )
 
-        if observationArgs.minR < 0.0 or minR_ < 0.0:
-            # case minR < 0 --> clip to 25th percentile of muncMat
-            minR_ = np.percentile(muncMat, 25.0) + 0.01
-            logger.info(f"minR_={minR_}...")
-            muncMat[muncMat < minR_] = minR_
+        if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
+            minR_ = np.quantile(muncMat, 0.005) + 1.0e-2
+            maxR_ = np.quantile(muncMat, 0.995) + 1.0e-2
+            logger.info(f"Setting: minR_={minR_}, maxR_={maxR_}...")
+            muncMat = np.clip(muncMat, minR_, maxR_)
 
-        if processArgs.minQ < 0.0 or minQ_ < 0.0:
-            # case minQ < 0 --> set based on the minimum observation noise
-            minQ_ = 2*(minR_ / numSamples) + 0.01
-            logger.info(f"`minQ={minQ_}...")
+        if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
+            minQ_ = (minR_ / np.sqrt(numSamples)) + offDiagQ_ + 1.0e-2
+            # arbitrary, but we shouldn't limit adaptive noise protocol at transients
+            maxQ_ = (10*maxR_) + offDiagQ_ + 1.0e-2
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(
@@ -1430,8 +1451,8 @@ def main():
             muncMat,
             deltaF_,
             minQ_,
-            processArgs.maxQ,
-            processArgs.offDiagQ,
+            maxQ_,
+            offDiagQ_,
             processArgs.dStatAlpha,
             processArgs.dStatd,
             processArgs.dStatPC,

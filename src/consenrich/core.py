@@ -115,9 +115,14 @@ class processParams(NamedTuple):
     :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), determined based on stepSize:fragment-length ratio.
     :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
-        for each state variable. If `minQ < 0` (default), a small value based on
+        for each state variable. If `minQ < 0` (default), a value based on
         the minimum observation noise level (``observationParams.minR``) is used that
-        enforces numerical stability and proper balance between process and observation models.
+        enforces numerical stability and a worst-case balance between process and observation models
+        for the given number of samples.
+    :param maxQ: Maximum process noise level. If `maxQ < 0` (default), a value based on
+        the maximum observation noise level (``observationParams.maxR``) is used that
+        enforces numerical stability and a worst-case balance between process and observation models
+        for the given number of samples.
     :type minQ: float
     :param dStatAlpha: Threshold on the deviation between the data and estimated signal -- used to determine whether the process noise is scaled up.
     :type dStatAlpha: float
@@ -131,10 +136,9 @@ class processParams(NamedTuple):
         If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (i.e., ``postFitResiduals`` from :func:`consenrich.consenrich.runConsenrich`).
     :type scaleResidualsByP11: Optional[bool]
     :param adjustPmatByInnovationAC: (Experimental) If True, adjust the returned state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}`
-        based on average autocorrelation approximated by the innovation sequences from the forward pass. This adjustment
+        based on average autocorrelation approximated by the innovation sequences from the *forward pass*. This adjustment
         aims to account for residual correlations in the data not captured by the observation noise covariance matrices but
-        reflected in the innovation sequence. Note that applying this heuristic can only increase
-        estimates of the state uncertainty.
+        reflected in the innovation sequence. Note that applying this heuristic can only increase estimates of the state uncertainty.
     :type adjustPmatByInnovationAC: Optional[bool]
     """
 
@@ -159,9 +163,12 @@ class observationParams(NamedTuple):
     to the dimension of measurements/data (:math:`m`).
 
     :param minR: Genome-wide lower bound for the local/sample-specific observation noise levels.
-        If ``minR < 0``, the minimum noise level is set to the lower quartile of the initial
-        noise level estimates (default behavior).
+        If ``minR < 0`` (default), the minimum noise level is set based on the data as in the left
+        tail of empirical noise level estimates.
     :type minR: float
+    :param maxR: Genome-wide upper bound for the local/sample-specific observation noise levels.
+        If ``maxR < 0`` (default), the maximum noise level is set based on the data in the right tail
+        of empirical noise level estimates.
     :param numNearest: The number of nearest nearby 'sparse' features to use for local
         variance calculation. Ignored if `useALV` is True.
     :type numNearest: int
@@ -241,17 +248,19 @@ class samParams(NamedTuple):
     :param extendBP: A list of integers specifying the number of base pairs to extend reads for each BAM file after shifting per `offsetStr`.
         If all BAM files share the same expected frag. length, can supply a single numeric value to be broadcasted. Ignored for PE reads.
     :type extendBP: List[int]
-    :param maxInsertSize: Maximum frag length/insert for paired-end reads.
+    :param maxInsertSize: Maximum frag length/insert to consider when estimating fragment length.
     :type maxInsertSize: int
-    :param pairedEndMode: If > 0, only proper pairs are counted subject to `maxInsertSize`.
+    :param pairedEndMode: If > 0, use TLEN attribute to determine span of (proper) read pairs and extend reads accordingly.
     :type pairedEndMode: int
     :param inferFragmentLength: Intended for single-end data: if > 0, the maximum correlation lag
        (avg.) between *strand-specific* read tracks is taken as the fragment length estimate and used to
        extend reads from 5'. Ignored if `pairedEndMode > 0` or `extendBP` set. This parameter is particularly
        important when targeting broader marks (e.g., ChIP-seq H3K27me3).
     :type inferFragmentLength: int
-    :param countEndsOnly: If True, only the 5' ends of reads are counted. Overrides `inferFragmentLength` and `pairedEndMode`.
+    :param countEndsOnly: If True, only the 5' read lengths contribute to counting. Overrides `inferFragmentLength` and `pairedEndMode`.
     :type countEndsOnly: Optional[bool]
+    :param minMappingQuality: Minimum mapping quality (MAPQ) for reads to be counted.
+    :type minMappingQuality: Optional[int]
 
     .. tip::
 
@@ -269,6 +278,8 @@ class samParams(NamedTuple):
     pairedEndMode: Optional[int] = 0
     inferFragmentLength: Optional[int] = 0
     countEndsOnly: Optional[bool] = False
+    minMappingQuality: Optional[int] = 0
+    minTemplateLength: Optional[int] = -1
 
 
 class detrendParams(NamedTuple):
@@ -342,7 +353,10 @@ class genomeParams(NamedTuple):
 class countingParams(NamedTuple):
     r"""Parameters related to counting reads in genomic intervals.
 
-    :param stepSize: Step size (bp) for the genomic intervals (AKA bin size, interval length, width, etc.)
+    :param stepSize: Size (bp) of genomic intervals (AKA bin size, interval length, width, etc.).
+        ``consenrich.py`` defaults to 25 bp, but users may adjust this based on expected sequencing
+        depth and expected feature sizes. Lower sequencing depth and/or broader features may warrant
+        larger step sizes (e.g., 50-100bp or more).
     :type stepSize: int
     :param scaleDown: If using paired treatment and control BAM files, whether to
         scale down the larger of the two before computing the difference/ratio
@@ -357,9 +371,9 @@ class countingParams(NamedTuple):
     :type applyAsinh: bool, optional
     :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x` for each supplied BAM file.
     :type applyLog: bool, optional
-    :param applySqrt: If true, :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
+    :param applySqrt: If true (default), :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
     :type applySqrt: bool, optional
-    :param noTransform: Shorthand to disable all transformations.
+    :param noTransform: Disable all transformations.
     :type noTransform: bool, optional
     :param rescaleToTreatmentCoverage: Deprecated: no effect.
     :type rescaleToTreatmentCoverage: bool, optional
@@ -628,11 +642,13 @@ def readBamSegments(
     applyAsinh: Optional[bool] = False,
     applyLog: Optional[bool] = False,
     applySqrt: Optional[bool] = False,
-    extendBP: List[int] = [],
+    extendBP: Optional[List[int]] = None,
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
     inferFragmentLength: Optional[int] = 0,
     countEndsOnly: Optional[bool] = False,
+    minMappingQuality: Optional[int] = 0,
+    minTemplateLength: Optional[int] = -1,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -671,10 +687,17 @@ def readBamSegments(
     :type pairedEndMode: int
     :param inferFragmentLength: See :class:`samParams`.
     :type inferFragmentLength: int
-    :param countEndsOnly: If True, only the 5' ends of reads are counted. This overrides `inferFragmentLength` and `pairedEndMode`.
-    :type countEndsOnly: Optional[bool]
-
+    :param minMappingQuality: See :class:`samParams`.
+    :type minMappingQuality: int
+    :param minTemplateLength: See :class:`samParams`.
+    :type minTemplateLength: Optional[int]
     """
+
+    segmentSize_ = end - start
+    if stepSize <= 0 or segmentSize_ <= 0:
+        raise ValueError(
+            "Invalid stepSize or genomic segment specified (end <= start)"
+        )
 
     if len(bamFiles) == 0:
         raise ValueError("bamFiles list is empty")
@@ -686,7 +709,7 @@ def readBamSegments(
             "readLengths and scaleFactors must match bamFiles length"
         )
 
-    extendBP = resolveExtendBP(extendBP, bamFiles)
+    extendBP = resolveExtendBP(extendBP or [], bamFiles)
     offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(
         ","
     )
@@ -716,16 +739,18 @@ def readBamSegments(
             maxInsertSize,
             pairedEndMode,
             inferFragmentLength,
+            minMappingQuality,
+            minTemplateLength,
         )
-        # FFR: use ufuncs?
+
         counts[j, :] = arr
         counts[j, :] *= np.float32(scaleFactors[j])
         if applyAsinh:
-            counts[j, :] = np.arcsinh(counts[j, :])
+            np.asinh(counts[j, :], out=counts[j, :])
         elif applyLog:
-            counts[j, :] = np.log1p(counts[j, :])
+            np.log1p(counts[j, :], out=counts[j, :])
         elif applySqrt:
-            counts[j, :] = np.sqrt(counts[j, :])
+            np.sqrt(counts[j, :], out=counts[j, :])
     return counts
 
 
@@ -739,14 +764,13 @@ def getAverageLocalVarianceTrack(
     lowPassFilterType: Optional[str] = "median",
     shrinkOffset: float = 0.5,
 ) -> npt.NDArray[np.float32]:
-    r"""Generate positional noise-level tracks with first and second moments approximated from local windows and shrinkage based on autocorrelation
+    r"""A moment-based local variance estimator with autocorrelation-based shrinkage for genome-wide sample-specific noise level approximation.
 
     First, computes a moving average of ``values`` using a bp-length window
     ``approximationWindowLengthBP`` and a moving average of ``values**2`` over the
     same window. Their difference is used to approximate the *initial* 'local variance' before
-    autocorrelation-based shrinkage.
-
-    Finally, a broad/low-pass filter (``median`` or ``mean``) with window ``lowPassWindowLengthBP`` then smooths the variance track.
+    autocorrelation-based shrinkage. Finally, a broad/low-pass filter (``median`` or ``mean``)
+    with window ``lowPassWindowLengthBP`` then smooths the variance track.
 
     :param stepSize: see :class:`countingParams`.
     :type stepSize: int
@@ -1007,7 +1031,7 @@ def runConsenrich(
     :param adjustPmatByInnovationAC: See :class:`processParams`.
     :type adjustPmatByInnovationAC: Optional[bool]
     :return: Tuple of three numpy arrays:
-        - post-fit (forward/backward-smoothed)state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
+        - post-fit (forward/backward-smoothed) state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
         - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
         - post-fit residuals (after forward/backward smoothing) :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -1476,12 +1500,14 @@ def getMuncTrack(
     :return: A one-dimensional numpy array of the observation noise track for the sample :math:`j`.
     :rtype: npt.NDArray[np.float32]
     """
+
+    # FFR: we should consider whether to apply bounds only after mixing local/global
     trackALV = getAverageLocalVarianceTrack(
         rowValues,
         stepSize,
         approximationWindowLengthBP,
         lowPassWindowLengthBP,
-        minR,
+        minR, 
         maxR,
         lowPassFilterType,
         shrinkOffset=shrinkOffset,
