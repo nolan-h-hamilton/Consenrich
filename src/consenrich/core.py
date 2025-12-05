@@ -119,10 +119,7 @@ class processParams(NamedTuple):
         the minimum observation noise level (``observationParams.minR``) is used that
         enforces numerical stability and a worst-case balance between process and observation models
         for the given number of samples.
-    :param maxQ: Maximum process noise level. If `maxQ < 0` (default), a value based on
-        the maximum observation noise level (``observationParams.maxR``) is used that
-        enforces numerical stability and a worst-case balance between process and observation models
-        for the given number of samples.
+    :param maxQ: Maximum process noise level.
     :type minQ: float
     :param dStatAlpha: Threshold on the deviation between the data and estimated signal -- used to determine whether the process noise is scaled up.
     :type dStatAlpha: float
@@ -135,11 +132,6 @@ class processParams(NamedTuple):
     :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
         If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (i.e., ``postFitResiduals`` from :func:`consenrich.consenrich.runConsenrich`).
     :type scaleResidualsByP11: Optional[bool]
-    :param adjustPmatByInnovationAC: (Experimental) If True, adjust the returned state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}`
-        based on average autocorrelation approximated by the innovation sequences from the *forward pass*. This adjustment
-        aims to account for residual correlations in the data not captured by the observation noise covariance matrices but
-        reflected in the innovation sequence. Note that applying this heuristic can only increase estimates of the state uncertainty.
-    :type adjustPmatByInnovationAC: Optional[bool]
     """
 
     deltaF: float
@@ -149,8 +141,8 @@ class processParams(NamedTuple):
     dStatAlpha: float
     dStatd: float
     dStatPC: float
-    scaleResidualsByP11: Optional[bool] = True
-    adjustPmatByInnovationAC: Optional[bool] = False
+    scaleResidualsByP11: Optional[bool]
+    adjustPmatByInnovationAC: Optional[bool]
 
 
 class observationParams(NamedTuple):
@@ -166,9 +158,7 @@ class observationParams(NamedTuple):
         If ``minR < 0`` (default), the minimum noise level is set based on the data as in the left
         tail of empirical noise level estimates.
     :type minR: float
-    :param maxR: Genome-wide upper bound for the local/sample-specific observation noise levels.
-        If ``maxR < 0`` (default), the maximum noise level is set based on the data in the right tail
-        of empirical noise level estimates.
+    :param maxR: Genome-wide upper bound for the local/sample-specific observation noise levels
     :param numNearest: The number of nearest nearby 'sparse' features to use for local
         variance calculation. Ignored if `useALV` is True.
     :type numNearest: int

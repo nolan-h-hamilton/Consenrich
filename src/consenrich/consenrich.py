@@ -634,7 +634,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
         minQ=_cfgGet(configData, "processParams.minQ", -1.0),
-        maxQ=_cfgGet(configData, "processParams.maxQ", -1.0),
+        maxQ=_cfgGet(configData, "processParams.maxQ", 10_000),
         offDiagQ=_cfgGet(configData, "processParams.offDiagQ", 0.0),
         dStatAlpha=_cfgGet(
             configData,
@@ -651,7 +651,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         adjustPmatByInnovationAC=_cfgGet(
             configData,
             "processParams.adjustPmatByInnovationAC",
-            True,
+            False,
         ),
     )
 
@@ -659,7 +659,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
-        maxR=_cfgGet(configData, "observationParams.maxR", -1.0),
+        maxR=_cfgGet(configData, "observationParams.maxR", 10_000),
         useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
             configData,
@@ -699,7 +699,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         shrinkOffset=_cfgGet(
             configData,
             "observationParams.shrinkOffset",
-            0.50,
+            0.75,
         ),
     )
 
@@ -1436,15 +1436,12 @@ def main():
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = np.quantile(muncMat, 0.01) + 0.05
-            maxR_ = np.quantile(muncMat, 0.99) + 0.05
-            logger.info(f"Setting: minR_={minR_}, maxR_={maxR_}...")
+            logger.info(f"Setting: minR_={minR_}")
             muncMat = np.clip(muncMat, minR_, maxR_)
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             cushion = offDiagQ_ + 0.05
             minQ_ = (minR_ / np.sqrt(numSamples)) + cushion
-            maxQ_ = max((maxR_ + cushion), 1.0)
-            logger.info(f"Setting: minQ_={minQ_}, maxQ_={maxQ_}...")
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(
