@@ -83,6 +83,7 @@ def test_readConfigDottedAndNestedEquivalent(
     genomeParams.excludeChroms: [chrM]
     countingParams.stepSize: 50
     countingParams.applyAsinh: true
+    countingParams.applySqrt: false
     """
 
     nestedYaml = """
@@ -98,6 +99,7 @@ def test_readConfigDottedAndNestedEquivalent(
     countingParams:
       stepSize: 50
       applyAsinh: true
+      applySqrt: false
     """
 
     dottedPath = writeConfigFile(

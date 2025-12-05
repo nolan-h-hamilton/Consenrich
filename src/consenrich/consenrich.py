@@ -83,6 +83,7 @@ def _listOrEmpty(list_):
         return []
     return list_
 
+
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
     """Check if control BAM files are present in the input arguments.
 
@@ -402,7 +403,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     applySqrtFlag = _cfgGet(
         configData,
         "countingParams.applySqrt",
-        False,
+        True,
     )
 
     noTransformFlag = _cfgGet(
@@ -486,10 +487,14 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     )
 
 
-def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
+def getPlotArgs(
+    config_path: str, experimentName: str
+) -> core.plotParams:
     configData = _loadConfig(config_path)
 
-    plotPrefix_ = _cfgGet(configData, "plotParams.plotPrefix", experimentName)
+    plotPrefix_ = _cfgGet(
+        configData, "plotParams.plotPrefix", experimentName
+    )
 
     plotStateEstimatesHistogram_ = _cfgGet(
         configData,
@@ -510,23 +515,41 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     )
 
     plotHeightInches_ = _cfgGet(
-        configData, "plotParams.plotHeightInches", 6.0,
+        configData,
+        "plotParams.plotHeightInches",
+        6.0,
     )
 
     plotWidthInches_ = _cfgGet(
-        configData, "plotParams.plotWidthInches", 8.0,
+        configData,
+        "plotParams.plotWidthInches",
+        8.0,
     )
 
     plotDPI_ = _cfgGet(
-        configData, "plotParams.plotDPI", 300,
+        configData,
+        "plotParams.plotDPI",
+        300,
     )
 
     plotDirectory_ = _cfgGet(
-        configData, "plotParams.plotDirectory", os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
+        configData,
+        "plotParams.plotDirectory",
+        os.path.join(
+            os.getcwd(), f"{experimentName}_consenrichPlots"
+        ),
     )
 
-    if int(plotStateEstimatesHistogram_) + int(plotResidualsHistogram_) + int(plotStateStdHistogram_) >= 1:
-        if plotDirectory_ is not None and (not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)):
+    if (
+        int(plotStateEstimatesHistogram_)
+        + int(plotResidualsHistogram_)
+        + int(plotStateStdHistogram_)
+        >= 1
+    ):
+        if plotDirectory_ is not None and (
+            not os.path.exists(plotDirectory_)
+            or not os.path.isdir(plotDirectory_)
+        ):
             try:
                 os.makedirs(plotDirectory_, exist_ok=True)
             except Exception as e:
@@ -538,7 +561,8 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
             plotDirectory_ = os.getcwd()
 
         elif os.path.exists(plotDirectory_) and os.path.isdir(
-            plotDirectory_):
+            plotDirectory_
+        ):
             logger.warning(
                 f"Using existing plot directory: {plotDirectory_}"
             )
@@ -547,7 +571,6 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
                 f"Failed creating/identifying {plotDirectory_}...Using CWD."
             )
             plotDirectory_ = os.getcwd()
-
 
     return core.plotParams(
         plotPrefix=plotPrefix_,
@@ -558,7 +581,6 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         plotWidthInches=plotWidthInches_,
         plotDPI=plotDPI_,
         plotDirectory=plotDirectory_,
-
     )
 
 
@@ -575,7 +597,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     countingParams = getCountingArgs(config_path)
 
-
     matchingExcludeRegionsFileDefault: Optional[str] = (
         genomeParams.blacklistFile
     )
@@ -587,7 +608,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendWindowLengthBp = _cfgGet(
             configData,
             "detrendParams.detrendWindowLengthBP",
-            25_000,
+            20_000,
         )
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
@@ -598,7 +619,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendWindowLengthBp = _cfgGet(
             configData,
             "detrendParams.detrendWindowLengthBP",
-            25_000,
+            20_000,
         )
         detrendSavitzkyGolayDegree = _cfgGet(
             configData,
@@ -613,7 +634,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
         minQ=_cfgGet(configData, "processParams.minQ", -1.0),
-        maxQ=_cfgGet(configData, "processParams.maxQ", 100.0),
+        maxQ=_cfgGet(configData, "processParams.maxQ", -1.0),
         offDiagQ=_cfgGet(configData, "processParams.offDiagQ", 0.0),
         dStatAlpha=_cfgGet(
             configData,
@@ -637,8 +658,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     plotArgs = getPlotArgs(config_path, experimentName)
 
     observationArgs = core.observationParams(
-        minR= _cfgGet(configData, "observationParams.minR", -1.0),
-        maxR=_cfgGet(configData, "observationParams.maxR", 100.0),
+        minR=_cfgGet(configData, "observationParams.minR", -1.0),
+        maxR=_cfgGet(configData, "observationParams.maxR", -1.0),
         useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
             configData,
@@ -649,7 +670,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData, "observationParams.noGlobal", False
         ),
         numNearest=_cfgGet(
-            configData, "observationParams.numNearest", 25
+            configData, "observationParams.numNearest", 25,
         ),
         localWeight=_cfgGet(
             configData, "observationParams.localWeight", 0.333
@@ -660,12 +681,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         approximationWindowLengthBP=_cfgGet(
             configData,
             "observationParams.approximationWindowLengthBP",
-            10_000,
+            25_000,
         ),
         lowPassWindowLengthBP=_cfgGet(
             configData,
             "observationParams.lowPassWindowLengthBP",
-            20_000,
+            50_000,
         ),
         lowPassFilterType=_cfgGet(
             configData,
@@ -708,14 +729,19 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
     samFlagExclude = _cfgGet(
-        configData, "samParams.samFlagExclude", 3844
+        configData, "samParams.samFlagExclude", 3844,
+    )
+    minMappingQuality = _cfgGet(
+        configData, "samParams.minMappingQuality", 0,
     )
     oneReadPerBin = _cfgGet(configData, "samParams.oneReadPerBin", 0)
     chunkSize = _cfgGet(configData, "samParams.chunkSize", 1_000_000)
     offsetStr = _cfgGet(configData, "samParams.offsetStr", "0,0")
     extendBpList = _cfgGet(configData, "samParams.extendBP", [])
     maxInsertSize = _cfgGet(
-        configData, "samParams.maxInsertSize", 1000,
+        configData,
+        "samParams.maxInsertSize",
+        1000,
     )
 
     pairedEndDefault = (
@@ -752,6 +778,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         countEndsOnly=_cfgGet(
             configData, "samParams.countEndsOnly", False
         ),
+        minMappingQuality=minMappingQuality,
+        minTemplateLength=_cfgGet(
+            configData, "samParams.minTemplateLength", -1,
+        ),
     )
 
     detrendArgs = core.detrendParams(
@@ -759,14 +789,18 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         detrendTrackPercentile=_cfgGet(
             configData,
             "detrendParams.detrendTrackPercentile",
-            75,
+            75.0,
         ),
         usePolyFilter=_cfgGet(
-            configData, "detrendParams.usePolyFilter", False,
+            configData,
+            "detrendParams.usePolyFilter",
+            False,
         ),
         detrendSavitzkyGolayDegree=detrendSavitzkyGolayDegree,
         useOrderStatFilter=_cfgGet(
-            configData, "detrendParams.useOrderStatFilter", True,
+            configData,
+            "detrendParams.useOrderStatFilter",
+            True,
         ),
     )
 
@@ -782,7 +816,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minMatchLengthBP=_cfgGet(
             configData,
             "matchingParams.minMatchLengthBP",
-            250,
+            -1,
         ),
         maxNumMatches=_cfgGet(
             configData,
@@ -796,7 +830,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
-            configData, "matchingParams.mergeGapBP", None
+            configData,
+            "matchingParams.mergeGapBP",
+            -1,
         ),
         useScalingFunction=_cfgGet(
             configData,
@@ -813,6 +849,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData, "matchingParams.penalizeBy", None
         ),
         eps=_cfgGet(configData, "matchingParams.eps", 1.0e-2),
+        autoLengthQuantile=_cfgGet(
+            configData,
+            "matchingParams.autoLengthQuantile",
+            0.90,
+        ),
+        methodFDR=_cfgGet(
+            configData,
+            "matchingParams.methodFDR",
+            "bh",
+        ),
     )
 
     return {
@@ -910,55 +956,69 @@ def main():
     )
     parser.add_argument(
         "--match-template",
+        nargs="+",
         type=str,
-        default="haar",
-        choices=[
-            x
-            for x in pywt.wavelist(kind="discrete")
-            if "bio" not in x
-        ],
+        help="List of template names to use in matching. See PyWavelets discrete wavelet families: https://pywavelets.readthedocs.io/en/latest/ref/wavelets.html#discrete-wavelets. \
+            Needs to match `--match-level` in length",
         dest="matchTemplate",
     )
+
     parser.add_argument(
-        "--match-level", type=int, default=2, dest="matchLevel"
+        "--match-level",
+        nargs="+",
+        type=int,
+        help="List of cascade levels to use in matching. Needs to match `--match-template` in length",
+        dest="matchLevel",
     )
+
     parser.add_argument(
-        "--match-alpha", type=float, default=0.05, dest="matchAlpha"
+        "--match-alpha",
+        type=float,
+        default=0.05,
+        dest="matchAlpha",
+        help="Cutoff qualifying  candidate matches as significant (FDR-adjusted p-value < alpha).",
     )
     parser.add_argument(
         "--match-min-length",
         type=int,
-        default=250,
+        default=-1,
         dest="matchMinMatchLengthBP",
+        help="Minimum length (bp) qualifying candidate matches. Set to -1 for auto calculation from data",
     )
     parser.add_argument(
-        "--match-iters", type=int, default=25000, dest="matchIters"
+        "--match-iters",
+        type=int,
+        default=50000,
+        dest="matchIters",
+        help="Number of sampled blocks for estimating null distribution of match scores (cross correlations with templates).",
     )
     parser.add_argument(
         "--match-min-signal",
         type=str,
         default="q:0.75",
         dest="matchMinSignalAtMaxima",
+        help="Minimum signal at local maxima in the response sequence that qualifies candidate matches\
+            Can be an absolute value (e.g., `50.0`) or a quantile (e.g., `q:0.75` for 75th percentile).",
     )
     parser.add_argument(
         "--match-max-matches",
         type=int,
-        default=100000,
+        default=1000000,
         dest="matchMaxNumMatches",
-    )
-    parser.add_argument(
-        "--match-no-merge", action="store_true", dest="matchNoMerge"
     )
     parser.add_argument(
         "--match-merge-gap",
         type=int,
-        default=None,
+        default=-1,
         dest="matchMergeGapBP",
+        help="Maximum gap (bp) between candidate matches to merge into a single match.\
+            Set to -1 for auto calculation from data.",
     )
     parser.add_argument(
         "--match-use-wavelet",
         action="store_true",
         dest="matchUseWavelet",
+        help="If set, use the wavelet function at the given level rather than scaling function.",
     )
     parser.add_argument(
         "--match-seed", type=int, default=42, dest="matchRandSeed"
@@ -968,6 +1028,26 @@ def main():
         type=str,
         default=None,
         dest="matchExcludeBed",
+    )
+    parser.add_argument(
+        "--match-auto-length-quantile",
+        type=float,
+        default=0.90,
+        dest="matchAutoLengthQuantile",
+        help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
+    )
+    parser.add_argument(
+        "--match-method-fdr",
+        type=str,
+        default="bh",
+        dest="matchMethodFDR",
+        help="Method for multiple hypothesis correction of p-values. (bh, by)"
+    )
+    parser.add_argument(
+        "--match-is-log-scale",
+        action="store_true",
+        dest="matchIsLogScale",
+        help="If set, indicates that the input bedGraph has already been transformed.",
     )
     parser.add_argument(
         "--verbose", action="store_true", help="If set, logs config"
@@ -983,7 +1063,7 @@ def main():
             f"Running matching algorithm using bedGraph file {args.matchBedGraph}..."
         )
 
-        outName = matching.matchExistingBedGraph(
+        outName = matching.runMatchingAlgorithm(
             args.matchBedGraph,
             args.matchTemplate,
             args.matchLevel,
@@ -993,19 +1073,15 @@ def main():
             minSignalAtMaxima=args.matchMinSignalAtMaxima,
             maxNumMatches=args.matchMaxNumMatches,
             useScalingFunction=(not args.matchUseWavelet),
-            merge=(not args.matchNoMerge),
             mergeGapBP=args.matchMergeGapBP,
             excludeRegionsBedFile=args.matchExcludeBed,
+            autoLengthQuantile=args.matchAutoLengthQuantile,
+            methodFDR=args.matchMethodFDR,
+            isLogScale=args.matchIsLogScale,
             randSeed=args.matchRandSeed,
+            merge=True, # always merge for CLI use -- either way, both files produced
         )
         logger.info(f"Finished matching. Written to {outName}")
-        sys.exit(0)
-
-    if args.matchBedGraph:
-        # this shouldn't happen, but just in case -- matching on previous bedGraph means no other processing
-        logger.info(
-            "If `--match-bedgraph <path_to_bedgraph>` is provided, only the matching algorithm is run."
-        )
         sys.exit(0)
 
     if not args.config:
@@ -1048,10 +1124,12 @@ def main():
     extendBP_ = core.resolveExtendBP(samArgs.extendBP, bamFiles)
     initialTreatmentScaleFactors = []
     minMatchLengthBP_: Optional[int] = matchingArgs.minMatchLengthBP
-    mergeGapBP_: Optional[int] = matchingArgs.mergeGapBP
     deltaF_ = processArgs.deltaF
     minR_ = observationArgs.minR
+    maxR_ = observationArgs.maxR
     minQ_ = processArgs.minQ
+    maxQ_ = processArgs.maxQ
+    offDiagQ_ = processArgs.offDiagQ
 
     if args.verbose:
         try:
@@ -1238,7 +1316,6 @@ def main():
                 bamFiles=bamFiles,
             )
 
-
         chromMat: np.ndarray = np.empty(
             (numSamples, numIntervals), dtype=np.float32
         )
@@ -1271,6 +1348,8 @@ def main():
                     applyLog=countingArgs.applyLog,
                     applySqrt=countingArgs.applySqrt,
                     countEndsOnly=samArgs.countEndsOnly,
+                    minMappingQuality=samArgs.minMappingQuality,
+                    minTemplateLength=samArgs.minTemplateLength,
                 )
 
                 chromMat[j_, :] = pairMatrix[0, :] - pairMatrix[1, :]
@@ -1296,6 +1375,8 @@ def main():
                 applyLog=countingArgs.applyLog,
                 applySqrt=countingArgs.applySqrt,
                 countEndsOnly=samArgs.countEndsOnly,
+                minMappingQuality=samArgs.minMappingQuality,
+                minTemplateLength=samArgs.minTemplateLength,
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
@@ -1308,8 +1389,15 @@ def main():
                 numNearest,
                 genomeArgs.sparseBedFile,
             )
-        if observationArgs.minR < 0.0:
+
+        # negative --> data-based
+        if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = 0.0
+            maxR_ = 1e4
+        if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
+            minQ_ = 0.0
+            maxQ_ = 1e4
+
         muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
             logger.info(
@@ -1332,7 +1420,7 @@ def main():
                 stepSize,
                 chromMat[j, :],
                 minR_,
-                observationArgs.maxR,
+                maxR_,
                 observationArgs.useALV,
                 observationArgs.useConstantNoiseLevel,
                 observationArgs.noGlobal,
@@ -1346,18 +1434,17 @@ def main():
                 shrinkOffset=observationArgs.shrinkOffset,
             )
 
-        if observationArgs.minR < 0.0 or minR_ < 0.0:
-            minR_ = np.percentile(muncMat, 25.0) + 0.01
-            logger.info(
-                f"minR_={minR_}..."
-            )
-            muncMat[muncMat < minR_] = minR_
+        if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
+            minR_ = np.quantile(muncMat, 0.01) + 0.05
+            maxR_ = np.quantile(muncMat, 0.99) + 0.05
+            logger.info(f"Setting: minR_={minR_}, maxR_={maxR_}...")
+            muncMat = np.clip(muncMat, minR_, maxR_)
 
-        if processArgs.minQ < 0.0 or minQ_ < 0.0:
-            minQ_ = (2*minR_ / numSamples)
-            logger.info(
-                f"`minQ={minQ_}..."
-            )
+        if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
+            cushion = offDiagQ_ + 0.05
+            minQ_ = (minR_ / np.sqrt(numSamples)) + cushion
+            maxQ_ = max((maxR_ + cushion), 1.0)
+            logger.info(f"Setting: minQ_={minQ_}, maxQ_={maxQ_}...")
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(
@@ -1365,8 +1452,8 @@ def main():
             muncMat,
             deltaF_,
             minQ_,
-            processArgs.maxQ,
-            processArgs.offDiagQ,
+            maxQ_,
+            offDiagQ_,
             processArgs.dStatAlpha,
             processArgs.dStatd,
             processArgs.dStatPC,
@@ -1414,38 +1501,6 @@ def main():
                 np.sqrt(P[:, 0, 0]),
                 plotDirectory=plotArgs.plotDirectory,
             )
-
-        weights_: Optional[np.ndarray] = None
-        if matchingArgs.penalizeBy is not None:
-            if matchingArgs.penalizeBy.lower() in [
-                "stateuncertainty",
-                "statestddev",
-                "statestd",
-                "p11",
-            ]:
-                try:
-                    weights_ = np.sqrt(P[:, 0, 0] + 1.0)
-                except Exception as e:
-                    logger.warning(
-                        f"Error computing weights for 'stateUncertainty': {e}. No weights applied for matching."
-                    )
-                    weights_ = None
-            elif matchingArgs.penalizeBy == "muncTrace":
-                try:
-                    weights_ = np.sqrt(
-                        np.mean(muncMat.astype(np.float64), axis=0)
-                        + 1.0,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Error computing weights for 'muncTrace': {e}. No weights applied for matching."
-                    )
-                    weights_ = None
-            else:
-                logger.warning(
-                    f"Unrecognized `matchingParams.penalizeBy`: {matchingArgs.penalizeBy}. No weights applied."
-                )
-                weights_ = None
 
         df = pd.DataFrame(
             {
@@ -1507,57 +1562,7 @@ def main():
                 float_format="%.3f",
                 lineterminator="\n",
             )
-        try:
-            if matchingEnabled:
-                if (
-                    minMatchLengthBP_ is None
-                    or minMatchLengthBP_ <= 0
-                ):
-                    minMatchLengthBP_ = (
-                        matching.autoMinLengthIntervals(x_)
-                        * (intervals[1] - intervals[0])
-                    )
 
-                if mergeGapBP_ is None:
-                    mergeGapBP_ = int(minMatchLengthBP_ / 2) + 1
-
-                matchingDF = matching.matchWavelet(
-                    chromosome,
-                    intervals,
-                    x_,
-                    matchingArgs.templateNames,
-                    matchingArgs.cascadeLevels,
-                    matchingArgs.iters,
-                    matchingArgs.alpha,
-                    minMatchLengthBP_,
-                    matchingArgs.maxNumMatches,
-                    matchingArgs.minSignalAtMaxima,
-                    useScalingFunction=matchingArgs.useScalingFunction,
-                    excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
-                    randSeed=matchingArgs.randSeed,
-                    weights=1.0 / weights_
-                    if weights_ is not None
-                    else None,
-                    eps=matchingArgs.eps,
-                    isLogScale=countingArgs.applyLog
-                    or countingArgs.applyAsinh
-                    or countingArgs.applySqrt,
-                )
-                if not matchingDF.empty:
-                    matchingDF.to_csv(
-                        f"consenrichOutput_{experimentName}_matches.narrowPeak",
-                        sep="\t",
-                        header=False,
-                        index=False,
-                        mode="a",
-                        float_format=f"%.{outputArgs.roundDigits}f",
-                        lineterminator="\n",
-                    )
-        except Exception as e:
-            logger.warning(
-                f"Matching routine unsuccessful for {chromosome}...SKIPPING:\n{e}\n\n"
-            )
-            continue
     logger.info("Finished: output in human-readable format")
 
     if outputArgs.convertToBigWig:
@@ -1567,26 +1572,59 @@ def main():
             suffixes=suffixes,
         )
 
-    if matchingEnabled and matchingArgs.merge:
+    if matchingEnabled:
         try:
-            mergeGapBP_ = matchingArgs.mergeGapBP
-            if mergeGapBP_ is None or mergeGapBP_ <= 0:
-                mergeGapBP_ = (
-                    int(minMatchLengthBP_ / 2) + 1
-                    if minMatchLengthBP_ is not None
-                    and minMatchLengthBP_ >= 0
-                    else 75
-                )
-            matching.mergeMatches(
-                f"consenrichOutput_{experimentName}_matches.narrowPeak",
-                mergeGapBP=mergeGapBP_,
+            weightsBedGraph: str | None = None
+            logger.info("Running matching algorithm...")
+            if matchingArgs.penalizeBy is not None:
+                if matchingArgs.penalizeBy.lower() in [
+                    "stateuncertainty",
+                    "statestddev",
+                    "statestd",
+                    "p11",
+                ]:
+                    weightsBedGraph = f"consenrichOutput_{experimentName}_stdDevs.bedGraph"
+                elif matchingArgs.penalizeBy.lower() in [
+                    "munc",
+                    "munctrace",
+                    "avgmunctrace",
+                ]:
+                    weightsBedGraph = f"consenrichOutput_{experimentName}_muncTraces.bedGraph"
+                elif matchingArgs.penalizeBy.lower() == "none":
+                    weightsBedGraph = None
+                else:
+                    weightsBedGraph = None
+
+            outName = matching.runMatchingAlgorithm(
+                f"consenrichOutput_{experimentName}_state.bedGraph",
+                matchingArgs.templateNames,
+                matchingArgs.cascadeLevels,
+                matchingArgs.iters,
+                alpha=matchingArgs.alpha,
+                minMatchLengthBP=minMatchLengthBP_,
+                maxNumMatches=matchingArgs.maxNumMatches,
+                minSignalAtMaxima=matchingArgs.minSignalAtMaxima,
+                useScalingFunction=matchingArgs.useScalingFunction,
+                mergeGapBP=matchingArgs.mergeGapBP,
+                excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
+                randSeed=matchingArgs.randSeed,
+                weightsBedGraph=weightsBedGraph,
+                eps=matchingArgs.eps,
+                isLogScale=countingArgs.applyLog
+                or countingArgs.applyAsinh
+                or countingArgs.applySqrt,
+                autoLengthQuantile=matchingArgs.autoLengthQuantile,
+                methodFDR=matchingArgs.methodFDR.lower(),
+                merge=matchingArgs.merge,
             )
 
-        except Exception as e:
+            logger.info(f"Finished matching. Written to {outName}")
+        except Exception as ex_:
             logger.warning(
-                f"Failed to merge matches...SKIPPING:\n{e}\n\n"
+                f"Matching algorithm raised an exception:\n\n\t{ex_}\n"
+                f"Skipping matching step...try running post-hoc via `consenrich --match-bedGraph <bedGraphFile>`\n"
+                f"\tSee ``consenrich -h`` for more details.\n"
             )
-    logger.info("Done.")
 
 
 if __name__ == "__main__":

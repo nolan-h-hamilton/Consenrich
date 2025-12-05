@@ -154,10 +154,19 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     int64_t extendBP = 0,
     int64_t maxInsertSize=1000,
     int64_t pairedEndMode=0,
-    int64_t inferFragmentLength=0):
+    int64_t inferFragmentLength=0,
+    int64_t minMappingQuality=0,
+    int64_t minTemplateLength=-1,
+    ):
     r"""Count reads in a BAM file for a given chromosome"""
 
-    cdef Py_ssize_t numIntervals = <Py_ssize_t>(((end - start) + stepSize - 1) // stepSize)
+    cdef Py_ssize_t numIntervals
+    cdef int64_t width = <int64_t>end - <int64_t>start
+
+    if stepSize <= 0 or width <= 0:
+        numIntervals = 0
+    else:
+        numIntervals = <Py_ssize_t>((width + stepSize - 1) // stepSize)
 
     cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.uint32)
     cdef cnp.uint32_t[::1] values = values_np
@@ -170,13 +179,19 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     cdef int64_t start64 = start
     cdef int64_t end64 = end
     cdef int64_t step64 = stepSize
-    cdef Py_ssize_t i, index0, index1
+    cdef Py_ssize_t i, index0, index1, b_, midIndex
     cdef Py_ssize_t lastIndex = numIntervals - 1
     cdef bint readIsForward
     cdef int64_t readStart, readEnd
-    cdef int64_t adjStart, adjEnd, fivePrime, mid, midIndex, tlen, atlen
+    cdef int64_t adjStart, adjEnd, fivePrime, mid, tlen, atlen
     cdef uint16_t flag
-    if inferFragmentLength > 0 and pairedEndMode == 0 and extendBP == 0:
+    cdef int64_t minTLEN = minTemplateLength
+    cdef int minMapQ = <int>minMappingQuality
+
+    if minTLEN < 0:
+        minTLEN = readLength
+
+    if inferFragmentLength > 0 and pairedEndMode <= 0 and extendBP <= 0:
         extendBP = cgetFragmentLength(bamFile,
          chromosome,
          <int64_t>start,
@@ -190,15 +205,15 @@ cpdef cnp.uint32_t[:] creadBamSegment(
         with aln:
             for read in aln.fetch(chromosome, start64, end64):
                 flag = <uint16_t>read.flag
-                if flag & samFlagExclude:
+                if flag & samFlagExclude or read.mapping_quality < minMapQ:
                     continue
 
                 readIsForward = (flag & 16) == 0
                 readStart = <int64_t>read.reference_start
-                readEnd   = <int64_t>read.reference_end
+                readEnd = <int64_t>read.reference_end
 
                 if pairedEndMode > 0:
-                    if flag & 1 == 0: # not a paired read
+                    if flag & 2 == 0: # not a properly paired read
                         continue
                     # use first in pair + fragment
                     if flag & 128:
@@ -207,21 +222,21 @@ cpdef cnp.uint32_t[:] creadBamSegment(
                         continue
                     tlen = <int64_t>read.template_length
                     atlen = tlen if tlen >= 0 else -tlen
-                    if atlen == 0 or atlen > maxInsertSize:
+                    if atlen == 0 or atlen < minTLEN:
                         continue
                     if tlen >= 0:
                         adjStart = readStart
-                        adjEnd   = readStart + atlen
+                        adjEnd = readStart + atlen
                     else:
-                        adjEnd   = readEnd
+                        adjEnd = readEnd
                         adjStart = adjEnd - atlen
                     if shiftForwardStrand53 != 0 or shiftReverseStrand53 != 0:
                         if readIsForward:
                             adjStart += shiftForwardStrand53
-                            adjEnd   += shiftForwardStrand53
+                            adjEnd += shiftForwardStrand53
                         else:
                             adjStart -= shiftReverseStrand53
-                            adjEnd   -= shiftReverseStrand53
+                            adjEnd -= shiftReverseStrand53
                 else:
                     # SE
                     if readIsForward:
@@ -233,20 +248,20 @@ cpdef cnp.uint32_t[:] creadBamSegment(
                         # from the cut 5' --> 3'
                         if readIsForward:
                             adjStart = fivePrime
-                            adjEnd   = fivePrime + extendBP
+                            adjEnd = fivePrime + extendBP
                         else:
-                            adjEnd   = fivePrime + 1
+                            adjEnd = fivePrime + 1
                             adjStart = adjEnd - extendBP
                     elif shiftForwardStrand53 != 0 or shiftReverseStrand53 != 0:
                         if readIsForward:
                             adjStart = readStart + shiftForwardStrand53
-                            adjEnd   = readEnd   + shiftForwardStrand53
+                            adjEnd = readEnd + shiftForwardStrand53
                         else:
                             adjStart = readStart - shiftReverseStrand53
-                            adjEnd   = readEnd   - shiftReverseStrand53
+                            adjEnd = readEnd - shiftReverseStrand53
                     else:
                         adjStart = readStart
-                        adjEnd   = readEnd
+                        adjEnd = readEnd
 
                 if adjEnd <= start64 or adjStart >= end64:
                     continue

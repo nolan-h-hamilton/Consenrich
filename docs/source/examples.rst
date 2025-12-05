@@ -102,13 +102,11 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   ENCFF490MWV.bam]
 
   # Optional: call 'structured peaks' via `consenrich.matching`
-  matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [3, 3]
+  matchingParams.templateNames: [haar, db2, sym4]
+  matchingParams.cascadeLevels: [3,3,1]
   matchingParams.minMatchLengthBP: -1
   matchingParams.mergeGapBP: -1
-
-  # Optional: transform counts
-  countingParams.applySqrt: true
+  observationParams.useALV: true
 
 .. admonition:: Control Inputs
   :class: tip
@@ -172,7 +170,7 @@ Environment
 
 - MacBook MX313LL/A (arm64)
 - Python `3.12.9`
-- Consenrich `v0.7.7b1`
+- Consenrich `v0.7.9b1`
 - `HTSlib (Samtools) <https://www.htslib.org/>`_ 1.22.1
 - `Bedtools <https://bedtools.readthedocs.io/en/latest/>`_ 2.31.1
 
@@ -239,8 +237,6 @@ globs, e.g., `*.bam`, are allowed, but each file is listed below to reveal ENCOD
   plotParams.plotResidualsHistogram: true
   plotParams.plotStateStdHistogram: true
 
-  # Optional: transform counts
-  countingParams.applySqrt: true
 
 
 Run Consenrich
@@ -283,65 +279,6 @@ Basic convenience utilities are provided for this purpose. Here, we display plot
 
 
 See :class:`consenrich.core.plotParams` and its associated functions for more details.
-
-
-**Evaluating Structured Peak Results: cCRE Overlaps**
-
-Here, we count *genome-wide* overlaps between Consenrich-detected matches and previously-identified candidate regulatory elements (`ENCODE4 GRCh38 cCREs <https://screen.wenglab.org/downloads>`_).
-
-
-Note that the ENCODE cCREs are not specific to our lymphoblastoid input dataset (`atac20`) and strict concordance is not expected. Nonetheless, given the breadth of cell types and tissues surveyed in ENCODE, a substantial overlap between Consenrich-detected structured peaks and cCREs is desirable.
-
-* We first count:
-
-  - The total number of Consenrich-detected structured peaks (165,090)
-  - The number of *unique* Consenrich-detected structured peaks sharing at least a :math:`25\%` *reciprocal* overlap with an ENCODE4 cCRE (148,767)
-
-  .. code-block:: console
-
-    % bedtools intersect \
-      -a consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
-      -b GRCh38-cCREs.bed \
-      -f 0.25 -r -u \
-      | wc -l
-
-
-* We also evaluate overlaps compared to a null baseline addressing random chance,
-
-  |    *Controlling for peak size (avg. 534 bp) and chromosome placement, how many cCRE overlaps would we expect by randomly selecting 165,090 regions?*
-
-  We invoke `bedtools shuffle <https://bedtools.readthedocs.io/en/latest/content/tools/shuffle.html>`_,
-
-  .. code-block:: console
-
-    % bedtools shuffle \
-      -i consenrichOutput_atac20Benchmark_matches.mergedMatches.narrowPeak \
-      -g hg38.sizes \
-      -chrom \
-      | bedtools intersect -a stdin -b GRCh38-cCREs.bed -f 0.25 -r -u \
-      | wc -l
-
-  and aggregate results for `N=250` independent trials to build an empirical distribution for cCRE-hits under our null model.
-
-
-We find a substantial overlap between Consenrich-detected regions and cCREs, with a significant enrichment versus null hits (:math:`\hat{p} \approx 0.0039`):
-
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Feature                                                                                  | Value                                        |
-+==========================================================================================+==============================================+
-| Consenrich: Total structured peaks (α=0.05)                                              | 165,090                                      |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Distinct cCRE overlaps*                                                      | 148,767                                      |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Consenrich: Percent overlapping                                                          | **90.1%**                                    |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Distinct cCRE overlaps*                                            | μ ≈ 56,652.8,  σ ≈ 196.9                     |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-| Random (``shuffle``): Percent overlapping                                                | ≈ **34.2%**                                  |
-+------------------------------------------------------------------------------------------+----------------------------------------------+
-
-:math:`\ast`: ``bedtools intersect -f 0.25 -r -u``
-
 
 .. _runtimeAndMemoryProfilingAtac20:
 
@@ -401,8 +338,6 @@ Configuration
     matchingParams.minMatchLengthBP: -1
     matchingParams.mergeGapBP: 500 # increase merge radius for broad marks
 
-   # Optional: transform counts
-   countingParams.applySqrt: true
 
 
 Run Consenrich
@@ -511,33 +446,30 @@ For more details on the matching algorithm in general, see :ref:`matching` and :
 
 Broad, Heterochromatic and/or Repressive targets
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-* When targeting large domain-level features, consider increasing `countingParams.stepSize` and/or `detrendParams.detrendWindowLengthBP` from their defaults (25 bp, 10000 bp respectively) to prioritize larger-scale trends.
+* When targeting broad, domain-level features, consider increasing `countingParams.stepSize` and/or `detrendParams.detrendWindowLengthBP` from their defaults to prioritize larger-scale trends.
 
   * For instance, for polycomb-repressed domains (H3K27me3) and constitutive heterochromatin (H3K9me3), something like:
 
     - ``countingParams.stepSize: 100``
     - ``detrendParams.detrendWindowLengthBP: 50_000``
 
-  to prevent large domains of interest from being detrended.
 
-* When targeting signals associated with *heterochromatin/repression*, consider setting ``observationParams.useALV: true`` in the YAML configuration file to avoid conflating signal with noise.
+* The generic ``genomeParams.sparseBedFile`` for humans, mice, etc. that are packaged with Consenrich are optimized for measuring noise levels in active/open chromatin assays (e.g., ATAC-seq, DNase-seq, ChIP-seq for narrow marks)
 
+  * For heterochromatic/repressive marks, setting ``observationParams.useALV: true`` is recommended. This triggers an annotation-free 'average local variance' procedure with autocorrelation-based shrinkage for genome-wide, sample-specific noise level estimation.
+  * Alternatively, users can provide custom sparse regions via ``genomeParams.sparseBedFile`` that are more appropriate for their assay of interest. For example, a complement of regions from the `Human Heterochromatin Database <https://pubmed.ncbi.nlm.nih.gov/37897357/>`_ or Roadmap.
 
 .. _calibration:
 
 Preprocessing and Calibration of Uncertainty Metrics
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-To obtain residuals that are approximately homoskedastic, symmetric, and uncorrelated---and therefore better-suited to downstream analyses that require calibrated uncertainty quantification---it is often helpful to transform input count-based data. If no such transformation is applied, the Consenrich's uncertainty estimates may still be interpreted *relatively* (e.g. comparing between genomic regions), but absolute statistical interpretations, e.g., coverage of prediction intervals, may be less reliable.
+To promote homoskedasticity, symmetry, independence, etc. of residuals for downstream analyses that require calibrated uncertainty quantification it is often helpful/necessary to transform count-based data.
 
-Several simple transformations are built into Consenrich for convenience, e.g.,
+Consenrich's uncertainty estimates can generally be interpreted on a *relative* scale (e.g. comparing between genomic regions), but classic statistical interpretations, e.g., coverage of prediction intervals, can be made more reliable through appropriate preprocessing.
 
-.. code-block:: yaml
-
-  countingParams.applySqrt: true # `applyLog`, `applyAsinh``
-
-* ``applySqrt`` offers a gentle compression of the dynamic range and may be preferable to log transforms to preserve a greater breadth of signal variation for downstream peak calling, etc. Note this is the canonical link for Poisson GLMs but, more generally, confers analytic advantages that can aid in distribution-free uncertainty quantification.
+* ``countingParams.applySqrt`` is applied by default. This offers a gentle compression of the dynamic range and may be preferable to log transforms if needing to preserve a greater breadth of signal variation for downstream tasks like peak calling.
 * Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components for additive linear modeling. Depending on sparsity, their comparably strong compression may affect capture of subtle signal patterns when applying Consenrich.
 * Users running Consenrich programmatically can apply custom transformations and preprocesssing pipelines as desired, e.g., `Yeo-Johnson or general power transforms <https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html>`_.
 
-*Note, in the default (CLI) implementation, these transformations are applied *before* detrending (:mod:`consenrich.detrorm`).*
+Note, in the default (CLI) implementation, these transformations are applied *before* detrending (:mod:`consenrich.detrorm`).
