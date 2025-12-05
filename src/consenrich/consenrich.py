@@ -1435,15 +1435,16 @@ def main():
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            minR_ = np.round(np.quantile(muncMat, 0.05) + 0.05, 4)
-            maxR_ = np.round(np.quantile(muncMat, 0.95) + 0.05, 4)
+            minR_ = np.quantile(muncMat, 0.01) + 0.05
+            maxR_ = np.quantile(muncMat, 0.99) + 0.05
             logger.info(f"Setting: minR_={minR_}, maxR_={maxR_}...")
             muncMat = np.clip(muncMat, minR_, maxR_)
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
-            # + small cushion to prevent numerical issues in f32
-            minQ_ = np.round((minR_ / np.sqrt(numSamples)) + offDiagQ_ + 0.05, 4)
-            maxQ_ = np.round((10*maxR_) + offDiagQ_ + 0.05, 4)
+            cushion = offDiagQ_ + 0.05
+            minQ_ = (minR_ / np.sqrt(numSamples)) + cushion
+            maxQ_ = max((maxR_ + cushion), 1.0)
+            logger.info(f"Setting: minQ_={minQ_}, maxQ_={maxQ_}...")
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(
