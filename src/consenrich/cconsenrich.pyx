@@ -298,13 +298,15 @@ cpdef cnp.uint32_t[:] creadBamSegment(
 cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(
         cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixIter,
         cnp.float32_t priorCovarianceOO,
-        cnp.float32_t innovationCovariancePadding=1e-2):
+        cnp.float32_t innovationCovariancePadding=1.0e-2):
     r"""Invert the residual covariance matrix during the forward pass.
 
     :param muncMatrixIter: The diagonal elements of the covariance matrix at a given genomic interval.
     :type muncMatrixIter: cnp.ndarray[cnp.float32_t, ndim=1]
-    :param priorCovarianceOO: The a priori 'primary' state variance :math:`P_{[i|i-1,11]}`.
+    :param priorCovarianceOO: The a priori 'primary' state variance :math:`P_{[i|i-1,00]} = \left(\mathbf{F}\mathbf{P}_{[i-1\,|\,i-1]}\mathbf{F}^{\top} + Q_[i]\right)_{[00]}`.
     :type priorCovarianceOO: cnp.float32_t
+    :param innovationCovariancePadding: Small value added to the diagonal for numerical stability.
+    :type innovationCovariancePadding: cnp.float32_t
     :return: The inverted covariance matrix.
     :rtype: cnp.ndarray[cnp.float32_t, ndim=2]
     """
@@ -314,16 +316,16 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(
     cdef cnp.ndarray[cnp.float32_t, ndim=2] inverse = np.empty((m, m), dtype=np.float32)
     # note, not actually an m-dim matrix, just the diagonal elements taken as input
     cdef cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixInverse = np.empty(m, dtype=np.float32)
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] muncArr = np.ascontiguousarray(muncMatrixIter, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] muncArr = np.ascontiguousarray(muncMatrixIter, dtype=np.float32, )
 
-    # memoryviews for faster indexing + nogil safety
+    # (numpy) memoryviews for faster indexing + nogil safety
     cdef cnp.float32_t[::1] munc = muncArr
     cdef cnp.float32_t[::1] muncInv = muncMatrixInverse
     cdef cnp.float32_t[:, ::1] inv = inverse
 
 
     cdef float divisor = 1.0
-    cdef float scale
+    cdef float scale, scaleTimesPrior
     cdef float prior = priorCovarianceOO
     cdef float pad = innovationCovariancePadding
     cdef float inv_i
@@ -335,24 +337,34 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(
         muncInv[i] = 1.0/(munc[i] + pad)
         divisor += prior*muncInv[i]
 
+    # precompute both scale, scale*prior
     scale = 1.0 / divisor
+    scaleTimesPrior = scale * prior
+
+    # ----
+    # FFR (I): explore prange(...) options to quickly invoke openMP for both cases
+    # FFR (II: add nogil block for prange-less case, too?
+    # FFR (III): run prange(m, schedule='static', nogil=True)?
+    # ----
 
     # unless sample size warrants it, no OMP here
     if m < 512:
         for i in range(m):
             inv_i = muncInv[i]
-            inv[i, i] = inv_i-(scale*prior*inv_i*inv_i)
+            inv[i, i] = inv_i-(scaleTimesPrior*inv_i*inv_i)
             for j in range(i + 1, m):
-                val = -scale * (prior*inv_i*muncInv[j])
+                val = -scaleTimesPrior*inv_i*muncInv[j]
                 inv[i, j] = val
                 inv[j, i] = val
+
+    # very large sample size --> prange
     else:
         with nogil:
             for i in prange(m, schedule='static'):
                 inv_i = muncInv[i]
-                inv[i, i] = inv_i-(scale*prior*inv_i*inv_i)
+                inv[i, i] = inv_i-(scaleTimesPrior*inv_i*inv_i)
                 for j in range(i + 1, m):
-                    val = -scale * (prior*inv_i*muncInv[j])
+                    val = -scaleTimesPrior * inv_i * muncInv[j]
                     inv[i, j] = val
                     inv[j, i] = val
 
