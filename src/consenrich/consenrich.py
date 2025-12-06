@@ -438,7 +438,8 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     trimLeftTail = _cfgGet(
         configData,
         "countingParams.trimLeftTail",
-        0.05)
+        0.10,
+    )
 
     if scaleFactorList is not None and not isinstance(
         scaleFactorList, list
@@ -1352,7 +1353,6 @@ def main():
                     minTemplateLength=samArgs.minTemplateLength,
                     trimLeftTail=countingArgs.trimLeftTail,
                 )
-
                 chromMat[j_, :] = pairMatrix[0, :] - pairMatrix[1, :]
                 j_ += 1
         else:
@@ -1449,7 +1449,9 @@ def main():
             logger.info(f"minR: {minR_:.4f}, κ:{kappa:.2f}...")
             for k_ in range(n__):
                 if k_ % 100_000 == 0 and k_ > 0:
-                    logger.info(f"\tprocessing munc interval {k_}/{n__}...")
+                    logger.info(
+                        f"\tprocessing munc interval {k_}/{n__}..."
+                    )
 
                 colMax = np.float32(
                     max(np.max(muncMat[:, k_]), minR_)
@@ -1457,15 +1459,38 @@ def main():
                 colMin = np.float32(
                     max(np.min(muncMat[:, k_]), colMax / kappa)
                 )
-                muncMat[:, k_] = np.clip(
-                    muncMat[:, k_], colMin, colMax
-                ) + muncEps
+                muncMat[:, k_] = (
+                    np.clip(muncMat[:, k_], colMin, colMax) + muncEps
+                )
+        minQ_ = processArgs.minQ
+        maxQ_ = processArgs.maxQ
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
-            minQ_ = (minR_ / np.sqrt(numSamples)) + 1.0e-2
-            maxQ_ += minQ_
-        logger.info(f">>>Running consenrich: {chromosome}<<<")
+            if minR_ is None:
+                minR_ = np.float32(
+                    max(
+                        np.quantile(muncMat[muncMat > muncEps], 0.10),
+                        (1 / numSamples),
+                    )
+                )
 
+            autoMinQ = np.float32(
+                (minR_ / np.sqrt(numSamples)) + 0.01
+            )
+
+            if processArgs.minQ < 0.0:
+                minQ_ = autoMinQ
+            else:
+                minQ_ = np.float32(processArgs.minQ)
+
+            if processArgs.maxQ < 0.0:
+                maxQ_ = minQ_
+            else:
+                maxQ_ = np.float32(max(processArgs.maxQ, minQ_))
+        else:
+            maxQ_ = np.float32(max(maxQ_, minQ_))
+
+        logger.info(f">>>Running consenrich: {chromosome}<<<")
         x, P, y = core.runConsenrich(
             chromMat,
             muncMat,
