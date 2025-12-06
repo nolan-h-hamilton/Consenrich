@@ -3,6 +3,7 @@ r"""
 Consenrich core functions and classes.
 
 """
+
 import logging
 import os
 from tempfile import NamedTemporaryFile
@@ -22,7 +23,7 @@ import numpy.typing as npt
 import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
 from scipy import ndimage, signal
-
+from scipy.stats.mstats import trimtail
 from . import cconsenrich
 
 logging.basicConfig(
@@ -183,6 +184,8 @@ class observationParams(NamedTuple):
     :type lowPassFilterType: Optional[str]
     :param shrinkOffset: An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not reduce the local variance estimate near zero.
         Setting to >= `1` disables shrinkage.
+    :type shrinkOffset: Optional[float]
+    :param kappaALV: For ``minR < 0``, bounds the ratio of :math:`\frac{R_{[i,j_{\max}]}}{R_{[i,j_{\min}]}}` at each interval :math:`i=1\ldots n. Promotes numerical stability.
     """
 
     minR: float
@@ -198,6 +201,7 @@ class observationParams(NamedTuple):
     lowPassFilterType: Optional[str]
     returnCenter: bool
     shrinkOffset: Optional[float]
+    kappaALV: Optional[float]
 
 
 class stateParams(NamedTuple):
@@ -367,6 +371,7 @@ class countingParams(NamedTuple):
     :type noTransform: bool, optional
     :param rescaleToTreatmentCoverage: Deprecated: no effect.
     :type rescaleToTreatmentCoverage: bool, optional
+    :param trimLeftTail: If > 0, quantile of scaled counts to trim from the left tail before computing transformations.
 
     :seealso: :ref:`calibration` for details on transformations and their effects on interpretation of state estimates and uncertainty quantification.
     """
@@ -382,6 +387,7 @@ class countingParams(NamedTuple):
     noTransform: Optional[bool]
     rescaleToTreatmentCoverage: Optional[bool] = False  # deprecated
     normMethod: Optional[str] = "EGS"
+    trimLeftTail: Optional[float] = 0.0
 
 
 class matchingParams(NamedTuple):
@@ -639,6 +645,7 @@ def readBamSegments(
     countEndsOnly: Optional[bool] = False,
     minMappingQuality: Optional[int] = 0,
     minTemplateLength: Optional[int] = -1,
+    trimLeftTail: Optional[float] = 0.0,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -734,6 +741,8 @@ def readBamSegments(
         )
 
         counts[j, :] = arr
+        if trimLeftTail > 0.0:
+            trimtail(counts[j, :], trimLeftTail, tail="left")
         counts[j, :] *= np.float32(scaleFactors[j])
         if applyAsinh:
             np.asinh(counts[j, :], out=counts[j, :])
@@ -1142,12 +1151,11 @@ def runConsenrich(
     avgDstat: float = 0.0
     for i in range(n):
         if i % progressIter == 0:
-            logger.info(f"Forward pass interval: {i + 1}/{n}")
+            logger.info(f"\tForward pass interval: {i + 1}/{n}")
         vectorZ = matrixData[:, i]
         vectorX = matrixF @ vectorX
         matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
         vectorY = vectorZ - (matrixH @ vectorX)
-
         if adjustPmatByInnovationAC:
             innov = vectorY.astype(np.float64)
 
@@ -1162,7 +1170,8 @@ def runConsenrich(
             haveInnovPrev = True
 
         matrixEInverse = residualCovarInversionFunc(
-            matrixMunc[:, i], np.float32(matrixP[0, 0])
+            matrixMunc[:, i],
+            np.float32(matrixP[0, 0]),
         )
         Einv_diag = np.diag(matrixEInverse)
         dStat = np.median((vectorY**2) * Einv_diag)
@@ -1203,7 +1212,7 @@ def runConsenrich(
     pNoiseForwardArr = pNoiseForward
     avgDstat /= n
 
-    logger.info(f"Average D_[i] over `n` intervals: {avgDstat:.3f}")
+    logger.info(f"Average D_[i] statistic over `n` intervals: {avgDstat:.3f}")
     logger.info(
         f"`D_[i] > α_D` triggered adjustments to Q_[i] at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
     )
@@ -1238,7 +1247,7 @@ def runConsenrich(
 
     for k in range(n - 2, -1, -1):
         if k % progressIter == 0:
-            logger.info(f"Backward pass interval: {k + 1}/{n}")
+            logger.info(f"\tBackward pass interval: {k + 1}/{n}")
         forwardStatePosterior = stateForwardArr[k]
         forwardCovariancePosterior = stateCovarForwardArr[k]
         backwardInitialState = matrixF @ forwardStatePosterior
@@ -1334,7 +1343,8 @@ def runConsenrich(
 
 
 def getPrimaryState(
-    stateVectors: np.ndarray, roundPrecision: int = 4,
+    stateVectors: np.ndarray,
+    roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
     r"""Get the primary state estimate from each vector after running Consenrich.
 
@@ -1349,7 +1359,8 @@ def getPrimaryState(
 
 
 def getStateCovarTrace(
-    stateCovarMatrices: np.ndarray, roundPrecision: int = 4,
+    stateCovarMatrices: np.ndarray,
+    roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional array of state covariance traces after running Consenrich
 
@@ -1497,7 +1508,7 @@ def getMuncTrack(
         stepSize,
         approximationWindowLengthBP,
         lowPassWindowLengthBP,
-        minR, 
+        minR,
         maxR,
         lowPassFilterType,
         shrinkOffset=shrinkOffset,
@@ -1803,7 +1814,7 @@ def plotStateEstimatesHistogram(
     plotWidthInches: float = 10.0,
     plotDPI: int = 300,
     plotDirectory: str | None = None,
-) -> str|None:
+) -> str | None:
     r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state estimates.
 
     :param plotPrefix: Prefixes the output filename
@@ -1824,12 +1835,17 @@ def plotStateEstimatesHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} does not exist"
+        )
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} is not a directory"
+        )
 
-    plotFileName = (
-        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.png")
+    plotFileName = os.path.join(
+        plotDirectory,
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.png",
     )
     binnedStateEstimates = _forPlotsSampleBlockStats(
         values_=primaryStateValues,
@@ -1843,7 +1859,7 @@ def plotStateEstimatesHistogram(
     )
     plt.hist(
         binnedStateEstimates,
-        bins='doane',
+        bins="doane",
         color="blue",
         alpha=0.85,
         edgecolor="black",
@@ -1855,9 +1871,13 @@ def plotStateEstimatesHistogram(
     plt.savefig(plotFileName, dpi=plotDPI)
     plt.close()
     if os.path.exists(plotFileName):
-        logger.info(f"Wrote state estimate histogram to {plotFileName}")
+        logger.info(
+            f"Wrote state estimate histogram to {plotFileName}"
+        )
         return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    logger.warning(
+        f"Failed to create histogram. {plotFileName} not written."
+    )
     return None
 
 
@@ -1875,7 +1895,7 @@ def plotResidualsHistogram(
     plotDPI: int = 300,
     flattenResiduals: bool = False,
     plotDirectory: str | None = None,
-) -> str|None:
+) -> str | None:
     r"""(Experimental) Plot a histogram of within-chromosome post-fit residuals.
 
     .. note::
@@ -1907,12 +1927,17 @@ def plotResidualsHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} does not exist"
+        )
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} is not a directory"
+        )
 
-    plotFileName = (
-        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.png")
+    plotFileName = os.path.join(
+        plotDirectory,
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.png",
     )
 
     x = np.ascontiguousarray(residuals, dtype=np.float32)
@@ -1937,7 +1962,7 @@ def plotResidualsHistogram(
     )
     plt.hist(
         binnedResiduals,
-        bins='doane',
+        bins="doane",
         color="blue",
         alpha=0.85,
         edgecolor="black",
@@ -1951,7 +1976,9 @@ def plotResidualsHistogram(
     if os.path.exists(plotFileName):
         logger.info(f"Wrote residuals histogram to {plotFileName}")
         return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    logger.warning(
+        f"Failed to create histogram. {plotFileName} not written."
+    )
     return None
 
 
@@ -1968,7 +1995,7 @@ def plotStateStdHistogram(
     plotWidthInches: float = 10.0,
     plotDPI: int = 300,
     plotDirectory: str | None = None,
-) -> str|None:
+) -> str | None:
     r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state standard deviations, i.e., :math:`\sqrt{\widetilde{\mathbf{P}}_{[i,11]}}`.
 
     :param plotPrefix: Prefixes the output filename
@@ -1989,12 +2016,17 @@ def plotStateStdHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} does not exist"
+        )
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} is not a directory"
+        )
 
-    plotFileName = (
-        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.png")
+    plotFileName = os.path.join(
+        plotDirectory,
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.png",
     )
 
     binnedStateStdEstimates = _forPlotsSampleBlockStats(
@@ -2005,11 +2037,12 @@ def plotStateStdHistogram(
         randomSeed_=randomSeed,
     )
     plt.figure(
-        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI,
+        figsize=(plotWidthInches, plotHeightInches),
+        dpi=plotDPI,
     )
     plt.hist(
         binnedStateStdEstimates,
-        bins='doane',
+        bins="doane",
         color="blue",
         alpha=0.85,
         edgecolor="black",
@@ -2023,5 +2056,7 @@ def plotStateStdHistogram(
     if os.path.exists(plotFileName):
         logger.info(f"Wrote state std histogram to {plotFileName}")
         return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    logger.warning(
+        f"Failed to create histogram. {plotFileName} not written."
+    )
     return None

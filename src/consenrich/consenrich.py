@@ -435,6 +435,11 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         False,
     )
 
+    trimLeftTail = _cfgGet(
+        configData,
+        "countingParams.trimLeftTail",
+        0.10)
+
     if scaleFactorList is not None and not isinstance(
         scaleFactorList, list
     ):
@@ -484,6 +489,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         rescaleToTreatmentCoverage=rescaleToTreatmentCoverageFlag,
         normMethod=normMethod_,
         noTransform=noTransformFlag,
+        trimLeftTail=trimLeftTail,
     )
 
 
@@ -601,32 +607,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         genomeParams.blacklistFile
     )
 
-    if (
-        inputParams.bamFilesControl is not None
-        and len(inputParams.bamFilesControl) > 0
-    ):
-        detrendWindowLengthBp = _cfgGet(
-            configData,
-            "detrendParams.detrendWindowLengthBP",
-            20_000,
-        )
-        detrendSavitzkyGolayDegree = _cfgGet(
-            configData,
-            "detrendParams.detrendSavitzkyGolayDegree",
-            2,
-        )
-    else:
-        detrendWindowLengthBp = _cfgGet(
-            configData,
-            "detrendParams.detrendWindowLengthBP",
-            20_000,
-        )
-        detrendSavitzkyGolayDegree = _cfgGet(
-            configData,
-            "detrendParams.detrendSavitzkyGolayDegree",
-            2,
-        )
-
     experimentName = _cfgGet(
         configData, "experimentName", "consenrichExperiment"
     )
@@ -660,7 +640,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
         maxR=_cfgGet(configData, "observationParams.maxR", 10_000),
-        useALV=_cfgGet(configData, "observationParams.useALV", False),
+        useALV=_cfgGet(configData, "observationParams.useALV", True),
         useConstantNoiseLevel=_cfgGet(
             configData,
             "observationParams.useConstantNoiseLevel",
@@ -670,7 +650,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData, "observationParams.noGlobal", False
         ),
         numNearest=_cfgGet(
-            configData, "observationParams.numNearest", 25,
+            configData,
+            "observationParams.numNearest",
+            25,
         ),
         localWeight=_cfgGet(
             configData, "observationParams.localWeight", 0.333
@@ -691,7 +673,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         lowPassFilterType=_cfgGet(
             configData,
             "observationParams.lowPassFilterType",
-            "median",
+            "mean",
         ),
         returnCenter=_cfgGet(
             configData, "observationParams.returnCenter", True
@@ -699,7 +681,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         shrinkOffset=_cfgGet(
             configData,
             "observationParams.shrinkOffset",
-            0.75,
+            1 - 0.05,
+        ),
+        kappaALV=_cfgGet(
+            configData,
+            "observationParams.kappaALV",
+            10.0,
         ),
     )
 
@@ -729,10 +716,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
     samFlagExclude = _cfgGet(
-        configData, "samParams.samFlagExclude", 3844,
+        configData,
+        "samParams.samFlagExclude",
+        3844,
     )
     minMappingQuality = _cfgGet(
-        configData, "samParams.minMappingQuality", 0,
+        configData,
+        "samParams.minMappingQuality",
+        0,
     )
     oneReadPerBin = _cfgGet(configData, "samParams.oneReadPerBin", 0)
     chunkSize = _cfgGet(configData, "samParams.chunkSize", 1_000_000)
@@ -780,12 +771,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         minMappingQuality=minMappingQuality,
         minTemplateLength=_cfgGet(
-            configData, "samParams.minTemplateLength", -1,
+            configData,
+            "samParams.minTemplateLength",
+            -1,
         ),
     )
 
     detrendArgs = core.detrendParams(
-        detrendWindowLengthBP=detrendWindowLengthBp,
+        detrendWindowLengthBP=_cfgGet(
+            configData, "detrendParams.detrendWindowLengthBP", 20_000
+        ),
         detrendTrackPercentile=_cfgGet(
             configData,
             "detrendParams.detrendTrackPercentile",
@@ -796,7 +791,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "detrendParams.usePolyFilter",
             False,
         ),
-        detrendSavitzkyGolayDegree=detrendSavitzkyGolayDegree,
+        detrendSavitzkyGolayDegree=_cfgGet(
+            configData,
+            "detrendParams.detrendSavitzkyGolayDegree",
+            1,
+        ),
         useOrderStatFilter=_cfgGet(
             configData,
             "detrendParams.useOrderStatFilter",
@@ -1041,7 +1040,7 @@ def main():
         type=str,
         default="bh",
         dest="matchMethodFDR",
-        help="Method for multiple hypothesis correction of p-values. (bh, by)"
+        help="Method for multiple hypothesis correction of p-values. (bh, by)",
     )
     parser.add_argument(
         "--match-is-log-scale",
@@ -1079,7 +1078,7 @@ def main():
             methodFDR=args.matchMethodFDR,
             isLogScale=args.matchIsLogScale,
             randSeed=args.matchRandSeed,
-            merge=True, # always merge for CLI use -- either way, both files produced
+            merge=True,  # always merge for CLI use -- either way, both files produced
         )
         logger.info(f"Finished matching. Written to {outName}")
         sys.exit(0)
@@ -1130,6 +1129,7 @@ def main():
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
     offDiagQ_ = processArgs.offDiagQ
+    muncEps: float = 10e-2
 
     if args.verbose:
         try:
@@ -1350,6 +1350,7 @@ def main():
                     countEndsOnly=samArgs.countEndsOnly,
                     minMappingQuality=samArgs.minMappingQuality,
                     minTemplateLength=samArgs.minTemplateLength,
+                    trimLeftTail=countingArgs.trimLeftTail,
                 )
 
                 chromMat[j_, :] = pairMatrix[0, :] - pairMatrix[1, :]
@@ -1377,6 +1378,7 @@ def main():
                 countEndsOnly=samArgs.countEndsOnly,
                 minMappingQuality=samArgs.minMappingQuality,
                 minTemplateLength=samArgs.minTemplateLength,
+                trimLeftTail=countingArgs.trimLeftTail,
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
@@ -1435,13 +1437,32 @@ def main():
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            minR_ = np.quantile(muncMat, 0.01) + 0.05
-            logger.info(f"Setting: minR_={minR_}")
-            muncMat = np.clip(muncMat, minR_, maxR_)
+            kappa = np.float32(observationArgs.kappaALV)
+            minR_ = np.float32(
+                max(
+                    np.quantile(muncMat[muncMat > muncEps], 0.10),
+                    (1 / numSamples),
+                )
+            )
+
+            n__ = numIntervals
+            logger.info(f"minR: {minR_:.4f}, κ:{kappa:.2f}...")
+            for k_ in range(n__):
+                if k_ % 100_000 == 0 and k_ > 0:
+                    logger.info(f"\tprocessing munc interval {k_}/{n__}...")
+
+                colMax = np.float32(
+                    max(np.max(muncMat[:, k_]), minR_)
+                )
+                colMin = np.float32(
+                    max(np.min(muncMat[:, k_]), colMax / kappa)
+                )
+                muncMat[:, k_] = np.clip(
+                    muncMat[:, k_], colMin, colMax
+                ) + muncEps
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
-            cushion = offDiagQ_ + 0.05
-            minQ_ = (minR_ / np.sqrt(numSamples)) + cushion
+            minQ_ = (minR_ / np.sqrt(numSamples)) + 1.0e-3
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(

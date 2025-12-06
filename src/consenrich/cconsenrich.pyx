@@ -18,7 +18,7 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
 from numpy.random import default_rng
-
+from cython.parallel import prange
 cnp.import_array()
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
@@ -295,8 +295,10 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     return values
 
 
-
-cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixIter, cnp.float32_t priorCovarianceOO):
+cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(
+        cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixIter,
+        cnp.float32_t priorCovarianceOO,
+        cnp.float32_t innovationCovariancePadding=1e-2):
     r"""Invert the residual covariance matrix during the forward pass.
 
     :param muncMatrixIter: The diagonal elements of the covariance matrix at a given genomic interval.
@@ -312,28 +314,48 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(cnp.ndarray[cnp.float32_
     cdef cnp.ndarray[cnp.float32_t, ndim=2] inverse = np.empty((m, m), dtype=np.float32)
     # note, not actually an m-dim matrix, just the diagonal elements taken as input
     cdef cnp.ndarray[cnp.float32_t, ndim=1] muncMatrixInverse = np.empty(m, dtype=np.float32)
-    cdef float sqrtPrior = np.sqrt(priorCovarianceOO)
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] uVec = np.empty(m, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] muncArr = np.ascontiguousarray(muncMatrixIter, dtype=np.float32)
+
+    # memoryviews for faster indexing + nogil safety
+    cdef cnp.float32_t[::1] munc = muncArr
+    cdef cnp.float32_t[::1] muncInv = muncMatrixInverse
+    cdef cnp.float32_t[:, ::1] inv = inverse
+
+
     cdef float divisor = 1.0
     cdef float scale
-    cdef float uVecI
+    cdef float prior = priorCovarianceOO
+    cdef float pad = innovationCovariancePadding
+    cdef float inv_i
+    cdef float val
     cdef Py_ssize_t i, j
+
     for i in range(m):
         # two birds: build up the trace while taking the reciprocals
-        muncMatrixInverse[i] = 1.0/(muncMatrixIter[i])
-        divisor += priorCovarianceOO*muncMatrixInverse[i]
-    # we can combine these two loops, keeping construction
-    # of muncMatrixInverse and uVec separate for now in case
-    # we want to parallelize this later
-    for i in range(m):
-        uVec[i] = sqrtPrior*muncMatrixInverse[i]
+        muncInv[i] = 1.0/(munc[i] + pad)
+        divisor += prior*muncInv[i]
+
     scale = 1.0 / divisor
-    for i in range(m):
-        uVecI = uVec[i]
-        inverse[i, i] = muncMatrixInverse[i]-(scale*uVecI*uVecI)
-        for j in range(i + 1, m):
-            inverse[i, j] = -scale * (uVecI*uVec[j])
-            inverse[j, i] = inverse[i, j]
+
+    # unless sample size warrants it, no OMP here
+    if m < 512:
+        for i in range(m):
+            inv_i = muncInv[i]
+            inv[i, i] = inv_i-(scale*prior*inv_i*inv_i)
+            for j in range(i + 1, m):
+                val = -scale * (prior*inv_i*muncInv[j])
+                inv[i, j] = val
+                inv[j, i] = val
+    else:
+        with nogil:
+            for i in prange(m, schedule='static'):
+                inv_i = muncInv[i]
+                inv[i, i] = inv_i-(scale*prior*inv_i*inv_i)
+                for j in range(i + 1, m):
+                    val = -scale * (prior*inv_i*muncInv[j])
+                    inv[i, j] = val
+                    inv[j, i] = val
+
     return inverse
 
 

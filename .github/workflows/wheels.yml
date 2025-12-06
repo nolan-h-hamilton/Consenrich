@@ -67,8 +67,13 @@ jobs:
               fi
             '
 
-          CIBW_BEFORE_ALL_MACOS: >
-            brew update && brew install xz || true
+          CIBW_BEFORE_ALL_MACOS: |
+            brew update
+            brew install xz libomp
+
+          CIBW_ENVIRONMENT_MACOS: >
+            CPPFLAGS="-I$(brew --prefix libomp)/include"
+            LDFLAGS="-L$(brew --prefix libomp)/lib"
 
       - if: matrix.name == 'linux-x86_64'
         name: Build source distribution
