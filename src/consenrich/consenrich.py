@@ -438,7 +438,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     trimLeftTail = _cfgGet(
         configData,
         "countingParams.trimLeftTail",
-        0.10)
+        0.05)
 
     if scaleFactorList is not None and not isinstance(
         scaleFactorList, list
@@ -1462,7 +1462,8 @@ def main():
                 ) + muncEps
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
-            minQ_ = (minR_ / np.sqrt(numSamples)) + 1.0e-3
+            minQ_ = (minR_ / np.sqrt(numSamples)) + 1.0e-2
+            maxQ_ += minQ_
         logger.info(f">>>Running consenrich: {chromosome}<<<")
 
         x, P, y = core.runConsenrich(

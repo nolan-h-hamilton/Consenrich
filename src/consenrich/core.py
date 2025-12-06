@@ -742,7 +742,7 @@ def readBamSegments(
 
         counts[j, :] = arr
         if trimLeftTail > 0.0:
-            trimtail(counts[j, :], trimLeftTail, tail="left")
+            counts[j,:] = trimtail(counts[j, :], trimLeftTail, tail="left")
         counts[j, :] *= np.float32(scaleFactors[j])
         if applyAsinh:
             np.asinh(counts[j, :], out=counts[j, :])
@@ -1150,8 +1150,10 @@ def runConsenrich(
     progressIter = max(1, progressIter)
     avgDstat: float = 0.0
     for i in range(n):
-        if i % progressIter == 0:
-            logger.info(f"\tForward pass interval: {i + 1}/{n}")
+        if i % progressIter == 0 and i > 0:
+            logger.info(f"\nForward pass interval: {i + 1}/{n}")
+            logger.info(f"\nP_[i-1]:\n{matrixP}\n")
+
         vectorZ = matrixData[:, i]
         vectorX = matrixF @ vectorX
         matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
