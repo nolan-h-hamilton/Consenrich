@@ -6,7 +6,7 @@ Consenrich core functions and classes.
 
 import logging
 import os
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import (
     Any,
     Callable,
@@ -385,9 +385,9 @@ class countingParams(NamedTuple):
     applyLog: Optional[bool]
     applySqrt: Optional[bool]
     noTransform: Optional[bool]
-    rescaleToTreatmentCoverage: Optional[bool] = False  # deprecated
-    normMethod: Optional[str] = "EGS"
-    trimLeftTail: Optional[float] = 0.0
+    rescaleToTreatmentCoverage: Optional[bool]
+    normMethod: Optional[str]
+    trimLeftTail: Optional[float]
 
 
 class matchingParams(NamedTuple):
@@ -645,7 +645,7 @@ def readBamSegments(
     countEndsOnly: Optional[bool] = False,
     minMappingQuality: Optional[int] = 0,
     minTemplateLength: Optional[int] = -1,
-    trimLeftTail: Optional[float] = 0.0,
+    trimLeftTail: Optional[float] = 0.10,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -742,7 +742,9 @@ def readBamSegments(
 
         counts[j, :] = arr
         if trimLeftTail > 0.0:
-            counts[j,:] = trimtail(counts[j, :], trimLeftTail, tail="left")
+            counts[j, :] = trimtail(
+                counts[j, :], trimLeftTail, tail="left"
+            )
         counts[j, :] *= np.float32(scaleFactors[j])
         if applyAsinh:
             np.asinh(counts[j, :], out=counts[j, :])
@@ -974,6 +976,7 @@ def runConsenrich(
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
     adjustPmatByInnovationAC: Optional[bool] = False,
+    covarClip: float = 4.0,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -1029,6 +1032,9 @@ def runConsenrich(
     :type adjustProcessNoiseFunc: Optional[Callable]
     :param adjustPmatByInnovationAC: See :class:`processParams`.
     :type adjustPmatByInnovationAC: Optional[bool]
+    :param covarClip: For numerical stability, truncate state/process noise covariances
+        to :math:`[10^{-\textsf{covarClip}}, 10^{\textsf{covarClip}}]`.
+    :type covarClip: float
     :return: Tuple of three numpy arrays:
         - post-fit (forward/backward-smoothed) state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
         - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
@@ -1090,6 +1096,8 @@ def runConsenrich(
 
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
+    y64 = np.empty(m, dtype=np.float64)
+    sq64 = np.empty(m, dtype=np.float64)
     countAdjustments: int = 0
 
     IKH: np.ndarray = np.zeros(shape=(2, 2), dtype=np.float32)
@@ -1102,6 +1110,7 @@ def runConsenrich(
     matrixP: np.ndarray = np.eye(2, dtype=np.float32) * np.float32(
         stateCovarInit
     )
+    matrixP = matrixP.astype(np.float64)
     matrixH: np.ndarray = constructMatrixH(
         m, coefficients=coefficientsH
     )
@@ -1109,7 +1118,8 @@ def runConsenrich(
     vectorX: np.ndarray = np.array([stateInit, 0.0], dtype=np.float32)
     vectorY: np.ndarray = np.zeros(m, dtype=np.float32)
     matrixI2: np.ndarray = np.eye(2, dtype=np.float32)
-
+    clipSmall: float = 10 ** (-covarClip)
+    clipBig: float = 10 ** (covarClip)
     if residualCovarInversionFunc is None:
         residualCovarInversionFunc = cconsenrich.cinvertMatrixE
     if adjustProcessNoiseFunc is None:
@@ -1129,218 +1139,282 @@ def runConsenrich(
     # ==========================
     # forward: 0,1,2,...,n-1
     # ==========================
-    stateForward = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2),
-    )
-    stateCovarForward = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2, 2),
-    )
-    pNoiseForward = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2, 2),
-    )
-    progressIter = max(1, progressIter)
-    avgDstat: float = 0.0
-    for i in range(n):
-        if i % progressIter == 0 and i > 0:
-            logger.info(f"\nForward pass interval: {i + 1}/{n}")
-            logger.info(f"\nP_[i-1]:\n{matrixP}\n")
-
-        vectorZ = matrixData[:, i]
-        vectorX = matrixF @ vectorX
-        matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
-        vectorY = vectorZ - (matrixH @ vectorX)
-        if adjustPmatByInnovationAC:
-            innov = vectorY.astype(np.float64)
-
-            if i == 0:
-                innovFirst[:] = innov
-            innovSum += innov
-            innovLast[:] = innov
-            if haveInnovPrev:
-                innovationProd += innovPrev * innov
-            innovSq += innov * innov
-            innovPrev = innov
-            haveInnovPrev = True
-
-        matrixEInverse = residualCovarInversionFunc(
-            matrixMunc[:, i],
-            np.float32(matrixP[0, 0]),
+    with TemporaryDirectory() as tempDir_:
+        stateForwardPathMM = os.path.join(
+            tempDir_, "stateForward.dat"
         )
-        Einv_diag = np.diag(matrixEInverse)
-        dStat = np.median((vectorY**2) * Einv_diag)
-        avgDstat += float(dStat)
-        countAdjustments = countAdjustments + int(dStat > dStatAlpha)
-        matrixQ, inflatedQ = adjustProcessNoiseFunc(
-            matrixQ,
-            matrixQCopy,
-            dStat,
-            dStatAlpha,
-            dStatd,
-            dStatPC,
-            inflatedQ,
-            maxQ,
-            minQ,
+        stateCovarForwardPathMM = os.path.join(
+            tempDir_, "stateCovarForward.dat"
         )
-        matrixK = (matrixP @ matrixH.T) @ matrixEInverse
-        IKH = matrixI2 - (matrixK @ matrixH)
-
-        vectorX = vectorX + (matrixK @ vectorY)
-        matrixP = (IKH) @ matrixP @ (IKH).T + (
-            matrixK * matrixMunc[:, i]
-        ) @ matrixK.T
-        stateForward[i] = vectorX.astype(np.float32)
-        stateCovarForward[i] = matrixP.astype(np.float32)
-        pNoiseForward[i] = matrixQ.astype(np.float32)
-
-        if i % chunkSize == 0 and i > 0:
-            stateForward.flush()
-            stateCovarForward.flush()
-            pNoiseForward.flush()
-
-    stateForward.flush()
-    stateCovarForward.flush()
-    pNoiseForward.flush()
-    stateForwardArr = stateForward
-    stateCovarForwardArr = stateCovarForward
-    pNoiseForwardArr = pNoiseForward
-    avgDstat /= n
-
-    logger.info(f"Average D_[i] statistic over `n` intervals: {avgDstat:.3f}")
-    logger.info(
-        f"`D_[i] > α_D` triggered adjustments to Q_[i] at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
-    )
-
-    # ==========================
-    # backward: n,n-1,n-2,...,0
-    # ==========================
-    stateSmoothed = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2),
-    )
-    stateCovarSmoothed = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2, 2),
-    )
-    postFitResiduals = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, m),
-    )
-
-    stateSmoothed[-1] = np.float32(stateForwardArr[-1])
-    stateCovarSmoothed[-1] = np.float32(stateCovarForwardArr[-1])
-    postFitResiduals[-1] = np.float32(
-        matrixData[:, -1] - (matrixH @ stateSmoothed[-1])
-    )
-
-    for k in range(n - 2, -1, -1):
-        if k % progressIter == 0:
-            logger.info(f"\tBackward pass interval: {k + 1}/{n}")
-        forwardStatePosterior = stateForwardArr[k]
-        forwardCovariancePosterior = stateCovarForwardArr[k]
-        backwardInitialState = matrixF @ forwardStatePosterior
-        backwardInitialCovariance = (
-            matrixF @ forwardCovariancePosterior @ matrixF.T
-            + pNoiseForwardArr[k + 1]
+        pNoiseForwardPathMM = os.path.join(
+            tempDir_, "pNoiseForward.dat"
+        )
+        stateBackwardPathMM = os.path.join(
+            tempDir_, "stateSmoothed.dat"
+        )
+        stateCovarBackwardPathMM = os.path.join(
+            tempDir_, "stateCovarSmoothed.dat"
+        )
+        postFitResidualsPathMM = os.path.join(
+            tempDir_, "postFitResiduals.dat"
         )
 
-        smootherGain = np.linalg.solve(
-            backwardInitialCovariance.T,
-            (forwardCovariancePosterior @ matrixF.T).T,
-        ).T
-        stateSmoothed[k] = (
-            forwardStatePosterior
-            + smootherGain
-            @ (stateSmoothed[k + 1] - backwardInitialState)
-        ).astype(np.float32)
-
-        stateCovarSmoothed[k] = (
-            forwardCovariancePosterior
-            + smootherGain
-            @ (stateCovarSmoothed[k + 1] - backwardInitialCovariance)
-            @ smootherGain.T
-        ).astype(np.float32)
-        postFitResiduals[k] = np.float32(
-            matrixData[:, k] - matrixH @ stateSmoothed[k]
+        # ==========================
+        # forward: 0,1,2,...,n-1
+        # ==========================
+        stateForward = np.memmap(
+            stateForwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2),
+        )
+        stateCovarForward = np.memmap(
+            stateCovarForwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2, 2),
+        )
+        pNoiseForward = np.memmap(
+            pNoiseForwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2, 2),
         )
 
-        if k % chunkSize == 0 and k > 0:
-            stateSmoothed.flush()
-            stateCovarSmoothed.flush()
-            postFitResiduals.flush()
+        progressIter = max(1, progressIter)
+        avgDstat: float = 0.0
 
-    if adjustPmatByInnovationAC and n > 1:
-        rhoValues = []
-        biasTol = 1e-3
-        for j in range(m):
-            totalSquaredInnovation = float(innovSq[j])
-            totalInnovation = float(innovSum[j])
-            if totalSquaredInnovation <= 0.0:
-                continue
-            meanInnovation = totalInnovation / n
-            if abs(meanInnovation) < biasTol:
-                rhoValues.append(
-                    float(innovationProd[j]) / totalSquaredInnovation
-                )
-                continue
-            innovationVariance = (
-                totalSquaredInnovation
-                - (totalInnovation * totalInnovation) / n
-            )
-            if innovationVariance <= 0.0:
-                continue
-            prodLag1 = float(innovationProd[j])
-            firstInnovation = float(innovFirst[j])
-            lastInnovation = float(innovLast[j])
+        for i in range(n):
+            if i % progressIter == 0 and i > 0:
+                logger.info(f"Forward pass interval: {i + 1}/{n}")
+                logger.info(f"\nP_[i-1 | i-1]:\n{matrixP}\n")
 
-            centeredLag1Sum = (
-                prodLag1
-                - meanInnovation
-                * (
-                    (totalInnovation - firstInnovation)
-                    + (totalInnovation - lastInnovation)
-                )
-                + meanInnovation * meanInnovation * (n - 1.0)
+            vectorZ = matrixData[:, i]
+            vectorX = matrixF @ vectorX
+            matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
+            vectorY = vectorZ - (matrixH @ vectorX)
+
+            if adjustPmatByInnovationAC:
+                innov = vectorY.astype(np.float64)
+
+                if i == 0:
+                    innovFirst[:] = innov
+                innovSum += innov
+                innovLast[:] = innov
+                if haveInnovPrev:
+                    innovationProd += innovPrev * innov
+                innovSq += innov * innov
+                innovPrev = innov
+                haveInnovPrev = True
+
+            matrixEInverse = residualCovarInversionFunc(
+                matrixMunc[:, i],
+                np.float32(matrixP[0, 0]),
             )
 
-            rhoValues.append(centeredLag1Sum / innovationVariance)
+            # D_[i] (`dStat`): NIS-like, but w/ median:
+            # ... median(y_[i]^2 * Einv_[i, diag])
 
-        if rhoValues:
-            rhoHat = float(np.median(rhoValues))
-            varInflation = 1.0 + max(0.0, 2.0 * rhoHat)
-            varInflation = float(np.clip(varInflation, 1.0, 10.0))
-            stateCovarSmoothed[:] = stateCovarSmoothed[
-                :
-            ] * np.float32(varInflation)
-            stateCovarSmoothed.flush()
+            Einv_diag = matrixEInverse.diagonal()
+            # avoid per-iteration allocations
+            np.copyto(y64, vectorY, casting="same_kind")
+            np.square(y64, out=sq64, casting="same_kind")
+            np.multiply(sq64, Einv_diag, out=sq64)
+            dStat = np.float32(np.median(sq64))
 
-    stateSmoothed.flush()
-    stateCovarSmoothed.flush()
-    postFitResiduals.flush()
+            avgDstat += float(dStat)
+            countAdjustments = countAdjustments + int(
+                dStat > dStatAlpha,
+            )
 
-    if boundState:
-        stateSmoothed[:, 0] = np.clip(
-            stateSmoothed[:, 0], stateLowerBound, stateUpperBound
-        ).astype(np.float32)
+            matrixQ, inflatedQ = adjustProcessNoiseFunc(
+                matrixQ,
+                matrixQCopy,
+                dStat,
+                dStatAlpha,
+                dStatd,
+                dStatPC,
+                inflatedQ,
+                maxQ,
+                minQ,
+            )
+            np.clip(matrixQ, clipSmall, clipBig, out=matrixQ)
+            matrixK = (matrixP @ matrixH.T) @ matrixEInverse
+            IKH = matrixI2 - (matrixK @ matrixH)
+            # update for forward posterior state
+            vectorX = vectorX + (matrixK @ vectorY)
+            # ... and covariance
+            np.clip(
+                (IKH) @ matrixP @ (IKH).T
+                + (matrixK * matrixMunc[:, i]) @ matrixK.T,
+                clipSmall,
+                clipBig,
+                out=matrixP,
+            )
+            stateForward[i] = vectorX.astype(np.float32)
+            stateCovarForward[i] = matrixP.astype(np.float32)
+            pNoiseForward[i] = matrixQ.astype(np.float32)
+
+            if i % chunkSize == 0 and i > 0:
+                stateForward.flush()
+                stateCovarForward.flush()
+                pNoiseForward.flush()
+
+        stateForward.flush()
+        stateCovarForward.flush()
+        pNoiseForward.flush()
+
+        stateForwardArr = stateForward
+        stateCovarForwardArr = stateCovarForward
+        pNoiseForwardArr = pNoiseForward
+
+        avgDstat /= n
+
+        logger.info(
+            f"Average D_[i] statistic over `n` intervals: {avgDstat:.3f}"
+        )
+        logger.info(
+            f"`D_[i] > α_D` triggered adjustments to Q_[i] at "
+            f"[{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
+        )
+
+        # ==========================
+        # backward: n-1,n-2,...,0
+        # ==========================
+        stateSmoothed = np.memmap(
+            stateBackwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2),
+        )
+        stateCovarSmoothed = np.memmap(
+            stateCovarBackwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2, 2),
+        )
+        postFitResiduals = np.memmap(
+            postFitResidualsPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, m),
+        )
+
+        stateSmoothed[-1] = np.float32(stateForwardArr[-1])
+        stateCovarSmoothed[-1] = np.float32(stateCovarForwardArr[-1])
+        postFitResiduals[-1] = np.float32(
+            matrixData[:, -1] - (matrixH @ stateSmoothed[-1])
+        )
+
+        for k in range(n - 2, -1, -1):
+            if k % progressIter == 0:
+                logger.info(f"\tBackward pass interval: {k + 1}/{n}")
+
+            forwardStatePosterior = stateForwardArr[k]
+            forwardCovariancePosterior = stateCovarForwardArr[k]
+
+            backwardInitialState = matrixF @ forwardStatePosterior
+            backwardInitialCovariance = (
+                matrixF @ forwardCovariancePosterior @ matrixF.T
+                + pNoiseForwardArr[k + 1]
+            )
+
+            smootherGain = np.linalg.solve(
+                backwardInitialCovariance.T,
+                (forwardCovariancePosterior @ matrixF.T).T,
+            ).T
+
+            stateSmoothed[k] = (
+                forwardStatePosterior
+                + smootherGain
+                @ (stateSmoothed[k + 1] - backwardInitialState)
+            ).astype(np.float32)
+
+            stateCovarSmoothed[k] = (
+                forwardCovariancePosterior
+                + smootherGain
+                @ (
+                    stateCovarSmoothed[k + 1]
+                    - backwardInitialCovariance
+                )
+                @ smootherGain.T
+            ).astype(np.float32)
+
+            postFitResiduals[k] = np.float32(
+                matrixData[:, k] - matrixH @ stateSmoothed[k]
+            )
+
+            if k % chunkSize == 0 and k > 0:
+                stateSmoothed.flush()
+                stateCovarSmoothed.flush()
+                postFitResiduals.flush()
+
+        if adjustPmatByInnovationAC and n > 1:
+            rhoValues = []
+            biasTol = 1e-3
+            for j in range(m):
+                totalSquaredInnovation = float(innovSq[j])
+                totalInnovation = float(innovSum[j])
+                if totalSquaredInnovation <= 0.0:
+                    continue
+                meanInnovation = totalInnovation / n
+                if abs(meanInnovation) < biasTol:
+                    rhoValues.append(
+                        float(innovationProd[j])
+                        / totalSquaredInnovation
+                    )
+                    continue
+                innovationVariance = (
+                    totalSquaredInnovation
+                    - (totalInnovation * totalInnovation) / n
+                )
+                if innovationVariance <= 0.0:
+                    continue
+
+                prodLag1 = float(innovationProd[j])
+                firstInnovation = float(innovFirst[j])
+                lastInnovation = float(innovLast[j])
+
+                centeredLag1Sum = (
+                    prodLag1
+                    - meanInnovation
+                    * (
+                        (totalInnovation - firstInnovation)
+                        + (totalInnovation - lastInnovation)
+                    )
+                    + meanInnovation * meanInnovation * (n - 1.0)
+                )
+
+                rhoValues.append(centeredLag1Sum / innovationVariance)
+
+            if rhoValues:
+                rhoHat = float(np.median(rhoValues))
+                varInflation = 1.0 + max(0.0, 2.0 * rhoHat)
+                varInflation = float(np.clip(varInflation, 1.0, 10.0))
+                stateCovarSmoothed[:] = stateCovarSmoothed[
+                    :
+                ] * np.float32(varInflation)
+                stateCovarSmoothed.flush()
+
+        stateSmoothed.flush()
+        stateCovarSmoothed.flush()
+        postFitResiduals.flush()
+
+        if boundState:
+            stateSmoothed[:, 0] = np.clip(
+                stateSmoothed[:, 0], stateLowerBound, stateUpperBound,
+            ).astype(np.float32)
+
+        outStateSmoothed = np.array(stateSmoothed, copy=True)
+        outStateCovarSmoothed = np.array(
+            stateCovarSmoothed, copy=True
+        )
+        outPostFitResiduals = np.array(postFitResiduals, copy=True)
 
     return (
-        stateSmoothed[:],
-        stateCovarSmoothed[:],
-        postFitResiduals[:],
+        outStateSmoothed,
+        outStateCovarSmoothed,
+        outPostFitResiduals,
     )
 
 
