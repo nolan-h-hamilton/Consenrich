@@ -1475,7 +1475,7 @@ def main():
                 )
 
             autoMinQ = np.float32(
-                (minR_ / np.sqrt(numSamples)) + 0.01
+                (minR_ / numSamples) + offDiagQ_ + 0.01,
             )
 
             if processArgs.minQ < 0.0:
