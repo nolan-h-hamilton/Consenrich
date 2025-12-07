@@ -976,7 +976,7 @@ def runConsenrich(
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
     adjustPmatByInnovationAC: Optional[bool] = False,
-    covarClip: float = 4.0,
+    covarClip: float = 3.0,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -1187,7 +1187,7 @@ def runConsenrich(
         for i in range(n):
             if i % progressIter == 0 and i > 0:
                 logger.info(f"Forward pass interval: {i + 1}/{n}")
-                logger.info(f"\nP_[i-1 | i-1]:\n{matrixP}\n")
+                logger.info(f"Gain(i-1)@H: \n{1 - IKH[0,0]:.4f}")
 
             vectorZ = matrixData[:, i]
             vectorX = matrixF @ vectorX
