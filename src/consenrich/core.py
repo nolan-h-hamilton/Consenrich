@@ -143,7 +143,6 @@ class processParams(NamedTuple):
     dStatd: float
     dStatPC: float
     scaleResidualsByP11: Optional[bool]
-    adjustPmatByInnovationAC: Optional[bool]
 
 
 class observationParams(NamedTuple):
@@ -975,7 +974,6 @@ def runConsenrich(
     coefficientsH: Optional[np.ndarray] = None,
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
-    adjustPmatByInnovationAC: Optional[bool] = False,
     covarClip: float = 3.0,
 ) -> Tuple[
     npt.NDArray[np.float32],
@@ -1030,8 +1028,6 @@ def runConsenrich(
     :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
         If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
     :type adjustProcessNoiseFunc: Optional[Callable]
-    :param adjustPmatByInnovationAC: See :class:`processParams`.
-    :type adjustPmatByInnovationAC: Optional[bool]
     :param covarClip: For numerical stability, truncate state/process noise covariances
         to :math:`[10^{-\textsf{covarClip}}, 10^{\textsf{covarClip}}]`.
     :type covarClip: float
@@ -1127,14 +1123,6 @@ def runConsenrich(
             cconsenrich.updateProcessNoiseCovariance
         )
 
-    innovationProd = np.zeros(m, dtype=np.float64)
-    innovSq = np.zeros(m, dtype=np.float64)
-    innovPrev = np.zeros(m, dtype=np.float64)
-    innovSum = np.zeros(m, dtype=np.float64)
-    innovFirst = np.zeros(m, dtype=np.float64)
-    innovLast = np.zeros(m, dtype=np.float64)
-    innov = np.zeros(m, dtype=np.float64)
-    haveInnovPrev = False
 
     # ==========================
     # forward: 0,1,2,...,n-1
@@ -1187,25 +1175,12 @@ def runConsenrich(
         for i in range(n):
             if i % progressIter == 0 and i > 0:
                 logger.info(f"Forward pass interval: {i + 1}/{n}")
-                logger.info(f"Gain(i-1)@H: \n{1 - IKH[0,0]:.4f}")
+                logger.info(f"Gain(i-1)@H: {1 - IKH[0,0]:.4f}")
 
             vectorZ = matrixData[:, i]
             vectorX = matrixF @ vectorX
             matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
             vectorY = vectorZ - (matrixH @ vectorX)
-
-            if adjustPmatByInnovationAC:
-                innov = vectorY.astype(np.float64)
-
-                if i == 0:
-                    innovFirst[:] = innov
-                innovSum += innov
-                innovLast[:] = innov
-                if haveInnovPrev:
-                    innovationProd += innovPrev * innov
-                innovSq += innov * innov
-                innovPrev = innov
-                haveInnovPrev = True
 
             matrixEInverse = residualCovarInversionFunc(
                 matrixMunc[:, i],
@@ -1348,53 +1323,6 @@ def runConsenrich(
                 stateSmoothed.flush()
                 stateCovarSmoothed.flush()
                 postFitResiduals.flush()
-
-        if adjustPmatByInnovationAC and n > 1:
-            rhoValues = []
-            biasTol = 1e-3
-            for j in range(m):
-                totalSquaredInnovation = float(innovSq[j])
-                totalInnovation = float(innovSum[j])
-                if totalSquaredInnovation <= 0.0:
-                    continue
-                meanInnovation = totalInnovation / n
-                if abs(meanInnovation) < biasTol:
-                    rhoValues.append(
-                        float(innovationProd[j])
-                        / totalSquaredInnovation
-                    )
-                    continue
-                innovationVariance = (
-                    totalSquaredInnovation
-                    - (totalInnovation * totalInnovation) / n
-                )
-                if innovationVariance <= 0.0:
-                    continue
-
-                prodLag1 = float(innovationProd[j])
-                firstInnovation = float(innovFirst[j])
-                lastInnovation = float(innovLast[j])
-
-                centeredLag1Sum = (
-                    prodLag1
-                    - meanInnovation
-                    * (
-                        (totalInnovation - firstInnovation)
-                        + (totalInnovation - lastInnovation)
-                    )
-                    + meanInnovation * meanInnovation * (n - 1.0)
-                )
-
-                rhoValues.append(centeredLag1Sum / innovationVariance)
-
-            if rhoValues:
-                rhoHat = float(np.median(rhoValues))
-                varInflation = 1.0 + max(0.0, 2.0 * rhoHat)
-                varInflation = float(np.clip(varInflation, 1.0, 10.0))
-                stateCovarSmoothed[:] = stateCovarSmoothed[
-                    :
-                ] * np.float32(varInflation)
-                stateCovarSmoothed.flush()
 
         stateSmoothed.flush()
         stateCovarSmoothed.flush()

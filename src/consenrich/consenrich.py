@@ -629,11 +629,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "processParams.scaleResidualsByP11",
             True,
         ),
-        adjustPmatByInnovationAC=_cfgGet(
-            configData,
-            "processParams.adjustPmatByInnovationAC",
-            False,
-        ),
     )
 
     plotArgs = getPlotArgs(config_path, experimentName)
@@ -1508,7 +1503,6 @@ def main():
             stateArgs.stateUpperBound,
             samArgs.chunkSize,
             progressIter=50_000,
-            adjustPmatByInnovationAC=processArgs.adjustPmatByInnovationAC,
         )
         logger.info("Done.")
 
