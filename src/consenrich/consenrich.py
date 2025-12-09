@@ -1015,7 +1015,7 @@ def main():
         type=float,
         default=0.05,
         dest="matchAlpha",
-        help="Cutoff qualifying  candidate matches as significant (FDR-adjusted p-value < alpha).",
+        help="Cutoff qualifying candidate matches as significant (FDR-adjusted p-value < alpha).",
     )
     parser.add_argument(
         "--match-min-length",

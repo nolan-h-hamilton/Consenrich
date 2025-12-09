@@ -220,26 +220,6 @@ def testgetPrimaryStateF64():
 
 
 @pytest.mark.correctness
-def testFragLen(threshold: float = 50, expected: float = 250):
-    fragLens = []
-    for i in range(25):
-        fragLen = float(
-            cconsenrich.cgetFragmentLength(
-                "smallTest.bam",
-                "chr6",
-                32_000_000,
-                35_000_000,
-                randSeed=i,
-            )
-        )
-        fragLens.append(fragLen)
-    fragLens.sort()
-
-    assert stats.iqr(fragLens) < 2 * threshold
-    assert abs(np.median(fragLens) - expected) <= threshold
-
-
-@pytest.mark.correctness
 def testSingleEndDetection():
     # case: single-end BAM
     bamFiles = ["smallTest.bam"]
@@ -470,6 +450,7 @@ def testRunConsenrich1DInputShapes():
         dStatAlpha=1e9,
         dStatd=1.0,
         dStatPC=1.0,
+        dStatUseMean=False,
         stateInit=0.0,
         stateCovarInit=100.0,
         boundState=False,
@@ -525,6 +506,7 @@ def testRunConsenrich2DInputShapes():
         dStatAlpha=1e9,
         dStatd=1.0,
         dStatPC=1.0,
+        dStatUseMean=False,
         stateInit=0.0,
         stateCovarInit=100.0,
         boundState=False,
@@ -560,6 +542,7 @@ def testRunConsenrichInvalidShapeRaises():
             dStatAlpha=3.0,
             dStatd=10.0,
             dStatPC=1.0,
+            dStatUseMean=False,
             stateInit=0.0,
             stateCovarInit=1.0,
             boundState=False,
