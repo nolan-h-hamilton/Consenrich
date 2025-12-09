@@ -665,6 +665,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
+        dStatUseMean=_cfgGet(
+            configData,
+            "processParams.dStatUseMean",
+            False,
+        ),
         scaleResidualsByP11=_cfgGet(
             configData,
             "processParams.scaleResidualsByP11",
@@ -1560,6 +1565,7 @@ def main():
             processArgs.dStatAlpha,
             processArgs.dStatd,
             processArgs.dStatPC,
+            processArgs.dStatUseMean,
             stateArgs.stateInit,
             stateArgs.stateCovarInit,
             stateArgs.boundState,

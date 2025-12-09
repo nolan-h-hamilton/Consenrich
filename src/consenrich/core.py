@@ -92,6 +92,7 @@ class processParams(NamedTuple):
     :param dStatPC: Constant :math:`c` in the scaling expression :math:`\sqrt{d|D_{[i]} - \alpha_D| + c}`
         that is used to up/down-scale the process noise covariance in the event of a model mismatch.
     :type dStatPC: float
+    :param dStatUseMean: If `True`, the mean of squared, diagonal-standardized residuals (rather than the median) is used to compute the :math:`D_{[i]}` statistic at each interval :math:`i`.
     :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
         If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (i.e., ``postFitResiduals`` from :func:`consenrich.consenrich.runConsenrich`).
     :type scaleResidualsByP11: Optional[bool]
@@ -104,6 +105,7 @@ class processParams(NamedTuple):
     dStatAlpha: float
     dStatd: float
     dStatPC: float
+    dStatUseMean: bool
     scaleResidualsByP11: Optional[bool]
 
 
@@ -941,6 +943,7 @@ def runConsenrich(
     dStatAlpha: float,
     dStatd: float,
     dStatPC: float,
+    dStatUseMean: bool,
     stateInit: float,
     stateCovarInit: float,
     boundState: bool,
@@ -988,6 +991,8 @@ def runConsenrich(
     :type dStatd: float
     :param dStatPC: See :class:`processParams`.
     :type dStatPC: float
+    :param dStatUseMean: See :class:`processParams`.
+    :type dStatUseMean: bool
     :param stateInit: See :class:`stateParams`.
     :type stateInit: float
     :param stateCovarInit: See :class:`stateParams`.
@@ -1172,7 +1177,7 @@ def runConsenrich(
             np.copyto(y64, vectorY, casting="same_kind")
             np.square(y64, out=sq64, casting="same_kind")
             np.multiply(sq64, Einv_diag, out=sq64)
-            dStat = np.float32(np.median(sq64))
+            dStat = np.float32(np.median(sq64)) if dStatUseMean else np.float32(np.mean(sq64))
 
             avgDstat += float(dStat)
             countAdjustments = countAdjustments + int(
