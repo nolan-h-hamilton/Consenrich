@@ -34,6 +34,50 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _resolveFragmentLengthPairs(
+    treatmentFragmentLengths: Optional[Sequence[Union[int, float]]],
+    controlFragmentLengths: Optional[Sequence[Union[int, float]]],
+) -> Tuple[List[int], List[int]]:
+    r"""Assign consistent fragment length estimates to treatment and control BAM files.
+
+    For single-end data, cross-correlation-based fragment estimates for control inputs
+    can be much smaller than for treatment samples due to lack of structure. This creates
+    artifacts during signal quantification and normalization steps, and it's common to use
+    the treatment fragment length for both treatment and control samples. So we offer that here.
+    """
+
+    if not treatmentFragmentLengths:
+        logger.warning(
+            "No treatment fragment lengths provided...returning [],[]"
+        )
+        return [], []
+
+    n_treat = len(treatmentFragmentLengths)
+
+    if controlFragmentLengths:
+        if len(controlFragmentLengths) == 1 and n_treat > 1:
+            controlFragmentLengths = (
+                list(controlFragmentLengths) * n_treat
+            )
+            logger.info(
+                "Only one control fragment length provided: broadcasting this value for all control BAM files."
+            )
+        elif len(controlFragmentLengths) != n_treat:
+            logger.warning(
+                "Sizes of treatment and control fragment length lists are incompatible...returning [],[]"
+            )
+            return [], []
+        else:
+            controlFragmentLengths = list(controlFragmentLengths)
+    else:
+        controlFragmentLengths = list(treatmentFragmentLengths)
+
+    finalTreatment = [int(x) for x in treatmentFragmentLengths]
+    finalControl = [int(x) for x in treatmentFragmentLengths]
+
+    return finalTreatment, finalControl
+
+
 def _loadConfig(
     configSource: Union[str, Path, Mapping[str, Any]],
 ) -> Dict[str, Any]:
@@ -530,6 +574,11 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         trimLeftTail=trimLeftTail,
         fragmentLengths=fragmentLengths,
         fragmentLengthsControl=fragmentLengthsControl,
+        useTreatmentFragmentLengths=_cfgGet(
+            configData,
+            "countingParams.useTreatmentFragmentLengths",
+            True,
+        ),
     )
 
 
@@ -697,10 +746,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             25,
         ),
         localWeight=_cfgGet(
-            configData, "observationParams.localWeight", 0.333
+            configData, "observationParams.localWeight", 0.333,
         ),
         globalWeight=_cfgGet(
-            configData, "observationParams.globalWeight", 0.667
+            configData, "observationParams.globalWeight", 0.667,
         ),
         approximationWindowLengthBP=_cfgGet(
             configData,
@@ -1251,7 +1300,7 @@ def main():
             fragmentLengthsControl = list(
                 countingArgs.fragmentLengthsControl
             )
-        else:
+        elif not countingArgs.useTreatmentFragmentLengths:
             for bamFile in bamFilesControl:
                 fragmentLengthsControl.append(
                     cconsenrich.cgetFragmentLength(
@@ -1264,6 +1313,17 @@ def main():
                 logger.info(
                     f"Estimated fragment length for {bamFile}: {fragmentLengthsControl[-1]}"
                 )
+        if countingArgs.useTreatmentFragmentLengths:
+            logger.info(
+                "`countingParams.useTreatmentFragmentLengths=True`"
+                "`\n\t--> using treatment fraglens for control samples, too"
+            )
+            fragmentLengthsTreatment, fragmentLengthsControl = _resolveFragmentLengthPairs(
+                fragmentLengthsTreatment, fragmentLengthsControl
+            )
+
+
+
 
         if (
             scaleFactors is not None
@@ -1459,9 +1519,10 @@ def main():
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
-            logger.info(
-                f"Building sparse mapping for {chromosome}..."
-            )
+            if c_ == 0:
+                logger.info(
+                    f"\n\t`useALV={observationArgs.useALV}` --> the (local-level) component of sample-specific observation uncertainty tracks will be calculated pointwise from `observationParams.numNearest={observationArgs.numNearest}` regions in {genomeArgs.sparseBedFile}..."
+                )
             sparseMap = core.getSparseMap(
                 chromosome,
                 intervals,
