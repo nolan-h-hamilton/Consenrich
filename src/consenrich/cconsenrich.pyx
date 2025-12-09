@@ -139,7 +139,7 @@ cdef inline Py_ssize_t floordiv64(int64_t a, int64_t b) nogil:
         return <Py_ssize_t>(- ((-a + b - 1) // b))
 
 
-cpdef cnp.uint32_t[:] creadBamSegment(
+cpdef cnp.float32_t[:] creadBamSegment(
     str bamFile,
     str chromosome,
     uint32_t start,
@@ -157,6 +157,7 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     int64_t inferFragmentLength=0,
     int64_t minMappingQuality=0,
     int64_t minTemplateLength=-1,
+    uint8_t weightByOverlap=1,
     ):
     r"""Count reads in a BAM file for a given chromosome"""
 
@@ -168,8 +169,8 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     else:
         numIntervals = <Py_ssize_t>((width + stepSize - 1) // stepSize)
 
-    cdef cnp.ndarray[cnp.uint32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.uint32)
-    cdef cnp.uint32_t[::1] values = values_np
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.float32)
+    cdef cnp.float32_t[::1] values = values_np
 
     if numIntervals <= 0:
         return values
@@ -183,6 +184,8 @@ cpdef cnp.uint32_t[:] creadBamSegment(
     cdef Py_ssize_t lastIndex = numIntervals - 1
     cdef bint readIsForward
     cdef int64_t readStart, readEnd
+    cdef int64_t binStart, binEnd
+    cdef int64_t overlapStart, overlapEnd, overlap
     cdef int64_t adjStart, adjEnd, fivePrime, mid, tlen, atlen
     cdef uint16_t flag
     cdef int64_t minTLEN = minTemplateLength
@@ -193,13 +196,8 @@ cpdef cnp.uint32_t[:] creadBamSegment(
 
     if inferFragmentLength > 0 and pairedEndMode <= 0 and extendBP <= 0:
         extendBP = cgetFragmentLength(bamFile,
-         chromosome,
-         <int64_t>start,
-         <int64_t>end,
          samThreads = samThreads,
          samFlagExclude=samFlagExclude,
-         maxInsertSize=maxInsertSize,
-         minInsertSize=<int64_t>(readLength+1), # xCorr peak > rlen ~~> fraglen
          )
     try:
         with aln:
@@ -271,23 +269,37 @@ cpdef cnp.uint32_t[:] creadBamSegment(
                     adjEnd = end64
 
                 if oneReadPerBin:
-                    # +1 at midpoint of frag.
                     mid = (adjStart + adjEnd) // 2
                     midIndex = <Py_ssize_t>((mid - start64) // step64)
                     if 0 <= midIndex <= lastIndex:
-                        values[midIndex] += <uint32_t>1
+                        values[midIndex] += <cnp.float32_t>1.0
+
                 else:
-                    # +1 every interval intersecting frag
                     index0 = <Py_ssize_t>((adjStart - start64) // step64)
                     index1 = <Py_ssize_t>(((adjEnd - 1) - start64) // step64)
                     if index0 < 0:
-                        index0 = <Py_ssize_t>0
+                        index0 = 0
                     if index1 > lastIndex:
                         index1 = lastIndex
                     if index0 > lastIndex or index1 < 0 or index0 > index1:
                         continue
-                    for b_ in range(index0, index1 + 1):
-                        values[b_] += <uint32_t>1
+
+                    if weightByOverlap:
+                        for b_ in range(index0, index1 + 1):
+                            binStart = start64 + (<int64_t>b_) * step64
+                            binEnd = binStart + step64
+                            if binEnd > end64:
+                                binEnd = end64
+
+                            overlapStart = adjStart if adjStart > binStart else binStart
+                            overlapEnd = adjEnd if adjEnd < binEnd else binEnd
+                            overlap = overlapEnd - overlapStart
+                            if overlap > 0:
+                                values[b_] += (<cnp.float32_t>overlap / <cnp.float32_t>(binEnd - binStart))
+                    else:
+                        for b_ in range(index0, index1 + 1):
+                            values[b_] += <cnp.float32_t>1.0
+
 
     finally:
         aln.close()
@@ -603,27 +615,26 @@ cpdef cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
 
 cpdef int64_t cgetFragmentLength(
     str bamFile,
-    str chromosome,
-    int64_t start,
-    int64_t end,
     uint16_t samThreads=0,
     uint16_t samFlagExclude=3844,
     int64_t maxInsertSize=1000,
-    int64_t minInsertSize=50,
     int64_t iters=1000,
     int64_t blockSize=5000,
     int64_t fallBack=147,
     int64_t rollingChunkSize=250,
-    int64_t lagStep=5,
+    int64_t lagStep=10,
     int64_t earlyExit=250,
     int64_t randSeed=42,
 ):
+
+    # FFR: standardize, across codebase, random seeding (e.g., np.random.seed vs default_rng)
     cdef object rng = default_rng(randSeed)
-    cdef int64_t regionLen, numRollSteps, numChunks
+    cdef int64_t regionLen, numRollSteps
+    cdef int numChunks
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rawArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] medArr
     cdef AlignmentFile aln
-    cdef AlignedSegment read_
+    cdef AlignedSegment readSeg
     cdef list coverageIdxTopK
     cdef list blockCenters
     cdef list bestLags
@@ -632,7 +643,12 @@ cpdef int64_t cgetFragmentLength(
     cdef int winSize, takeK
     cdef int blockHalf, readFlag
     cdef int chosenLag, lag, maxValidLag
-    cdef int64_t blockStartBP, blockEndBP, readStart, readEnd, med
+    cdef int strand
+    cdef int expandedLen
+    cdef int samThreadsInternal
+    cdef int cpuCount
+    cdef int64_t blockStartBP, blockEndBP, readStart, readEnd
+    cdef int64_t med
     cdef double score
     cdef cnp.ndarray[cnp.intp_t, ndim=1] unsortedIdx, sortedIdx, expandedIdx
     cdef cnp.intp_t[::1] expandedIdxView
@@ -642,74 +658,165 @@ cpdef int64_t cgetFragmentLength(
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rev
     cdef cnp.ndarray[cnp.float64_t, ndim=1] fwdDiff
     cdef cnp.ndarray[cnp.float64_t, ndim=1] revDiff
-    cdef int64_t diffS, diffE = 0
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] xCorr
+    cdef int64_t diffS, diffE
     cdef cnp.ndarray[cnp.uint32_t, ndim=1] bestLagsArr
     cdef bint isPairedEnd = <bint>0
     cdef double avgTemplateLen = <double>0.0
     cdef int64_t templateLenSamples = <int64_t>0
-    cdef double rLen = <double>0.0
+    cdef double avgReadLength = <double>0.0
     cdef int64_t numReadLengthSamples = <int64_t>0
+    cdef int64_t minInsertSize
+    cdef int64_t requiredSamplesPE
+
+    # rather than taking `chromosome`, `start`, `end`
+    # ... we will just look at BAM contigs present and use
+    # ... the three largest to estimate the fragment length
+    cdef tuple contigs
+    cdef tuple lengths
+    cdef Py_ssize_t contigIdx
+    cdef str contig
+    cdef int64_t contigLen
+    cdef object top2ContigsIdx
+
+    cdef double[::1] fwdView
+    cdef double[::1] revView
+    cdef double[::1] fwdDiffView
+    cdef double[::1] revDiffView
+    cdef double runningSum
+    cdef double fwdSum
+    cdef double revSum
+    cdef double fwdMean
+    cdef double revMean
+    cdef double bestScore
+    cdef int bestLag
+    cdef int blockLen
+    cdef int localMinLag
+    cdef int localMaxLag
+    cdef int localLagStep
 
     earlyExit = min(earlyExit, iters)
-    regionLen = end - start
 
-    samThreads_ = <int>samThreads
-    numCPUs = os.cpu_count()
-    if numCPUs is None:
-        numCPUs = 1
+    samThreadsInternal = <int>samThreads
+    cpuCount = <uint32_t>os.cpu_count()
+    if cpuCount is None:
+        cpuCount = 1
     if samThreads < 1:
-        samThreads_ = <int>min(max(1,numCPUs // 2), 4)
+        samThreadsInternal = <int>min(max(1,cpuCount // 2), 4)
 
-    if regionLen < blockSize or regionLen <= 0:
-        return <int64_t>fallBack
-
-    if maxInsertSize < 1:
-        maxInsertSize = 1
-    if minInsertSize < 1:
-        minInsertSize = 1
-    if minInsertSize > maxInsertSize:
-        minInsertSize, maxInsertSize = maxInsertSize, minInsertSize
-
-    # first, we build a coarse read coverage track from `start` to `end`
-    numRollSteps = regionLen // rollingChunkSize
-    if numRollSteps <= 0:
-        numRollSteps = 1
-    numChunks = <int>numRollSteps
-
-    rawArr = np.zeros(numChunks, dtype=np.float64)
-    medArr = np.zeros(numChunks, dtype=np.float64)
-
-    aln = AlignmentFile(bamFile, "rb", threads=samThreads_)
+    aln = AlignmentFile(bamFile, "rb", threads=samThreadsInternal)
     try:
-        for read_ in aln.fetch(chromosome, start, end):
-            if (read_.flag & samFlagExclude) != 0:
-                continue
-            if read_.reference_start < start or read_.reference_end >= end:
+        contigs = aln.references
+        lengths = aln.lengths
+
+        if contigs is None or len(contigs) == 0:
+            return <int64_t>fallBack
+
+        top2ContigsIdx = np.argsort(lengths)[-min(2, len(contigs)):]
+
+        for contigIdx in top2ContigsIdx:
+            contig = contigs[contigIdx]
+            for readSeg in aln.fetch(contig):
+                if (readSeg.flag & samFlagExclude) != 0:
+                    continue
+                if numReadLengthSamples < iters:
+                    avgReadLength += readSeg.query_length
+                    numReadLengthSamples += 1
+                else:
+                    break
+
+        avgReadLength /= numReadLengthSamples if numReadLengthSamples > 0 else 1
+        minInsertSize = <int64_t>(avgReadLength + 0.5)
+        if minInsertSize < 1:
+            minInsertSize = 1
+        if minInsertSize > maxInsertSize:
+            minInsertSize = maxInsertSize
+
+        for contigIdx in top2ContigsIdx:
+            contig = contigs[contigIdx]
+            for readSeg in aln.fetch(contig):
+                if (readSeg.flag & samFlagExclude) != 0:
+                    continue
+                if readSeg.is_paired:
+                    # skip to the paired-end block below (no xCorr --> average template len)
+                    isPairedEnd = <bint>1
+                    break
+            if isPairedEnd:
+                break
+
+        if isPairedEnd:
+            requiredSamplesPE = max(iters, 1000)
+
+            for contigIdx in top2ContigsIdx:
+                if templateLenSamples >= requiredSamplesPE:
+                    break
+                contig = contigs[contigIdx]
+
+                for readSeg in aln.fetch(contig):
+                    if templateLenSamples >= requiredSamplesPE:
+                        break
+                    if (readSeg.flag & samFlagExclude) != 0 or (readSeg.flag & 2) == 0:
+                        # skip any excluded flags, only count proper pairs
+                        continue
+                    if readSeg.template_length > 0 and readSeg.is_read1:
+                        # read1 only: otherwise each pair contributes to the mean twice
+                        # ...which might reduce breadth of the estimate
+                        avgTemplateLen += abs(readSeg.template_length)
+                        templateLenSamples += 1
+
+            if templateLenSamples < requiredSamplesPE:
+                return <int64_t> fallBack
+
+            avgTemplateLen /= <double>templateLenSamples
+
+            if avgTemplateLen >= minInsertSize and avgTemplateLen <= maxInsertSize:
+                return <int64_t> (avgTemplateLen + 0.5)
+            else:
+                return <int64_t> fallBack
+
+        top2ContigsIdx = np.argsort(lengths)[-min(2, len(contigs)):]
+        bestLags = []
+        blockHalf = blockSize // 2
+
+        fwd = np.zeros(blockSize, dtype=np.float64, order='C')
+        rev = np.zeros(blockSize, dtype=np.float64, order='C')
+        fwdDiff = np.zeros(blockSize+1, dtype=np.float64, order='C')
+        revDiff = np.zeros(blockSize+1, dtype=np.float64, order='C')
+
+        fwdView = fwd
+        revView = rev
+        fwdDiffView = fwdDiff
+        revDiffView = revDiff
+
+        for contigIdx in top2ContigsIdx:
+            contig = contigs[contigIdx]
+            contigLen = <int64_t>lengths[contigIdx]
+            regionLen = contigLen
+
+            if regionLen < blockSize or regionLen <= 0:
                 continue
 
-            if read_.is_paired:
-                # skip to the paired-end block below (no xCorr --> average template len)
-                isPairedEnd = <bint>1
-                break
-            # ~arbitrary~ but in case of overflow
-            if numReadLengthSamples < iters:
-                rLen += read_.query_length
-                numReadLengthSamples += 1
-            j = <int>((read_.reference_start - start) // rollingChunkSize)
-            if 0 <= j < numChunks:
-                rawArr[j] += 1.0
-        if not isPairedEnd:
+            if maxInsertSize < 1:
+                maxInsertSize = 1
+
+            # first, we build a coarse read coverage track from `start` to `end`
+            numRollSteps = regionLen // rollingChunkSize
+            if numRollSteps <= 0:
+                numRollSteps = 1
+            numChunks = <int>numRollSteps
+
+            rawArr = np.zeros(numChunks, dtype=np.float64)
+            medArr = np.zeros(numChunks, dtype=np.float64)
+
+            for readSeg in aln.fetch(contig):
+                if (readSeg.flag & samFlagExclude) != 0:
+                    continue
+                j = <int>((readSeg.reference_start) // rollingChunkSize)
+                if 0 <= j < numChunks:
+                    rawArr[j] += 1.0
+
             # second, we apply a rolling/moving/local/weywtci order-statistic filter (median)
             # ...the size of the kernel is based on the blockSize -- we want high-coverage
             # ...blocks as measured by their local median read count
-            rLen /= numReadLengthSamples if numReadLengthSamples > 0 else 1
-
-            # note that these will remain unallocated in case of PE
-            fwd = np.zeros(blockSize, dtype=np.float64, order='C')
-            rev = np.zeros(blockSize, dtype=np.float64, order='C')
-            fwdDiff = np.zeros(blockSize, dtype=np.float64, order='C')
-            revDiff = np.zeros(blockSize, dtype=np.float64, order='C')
             winSize = <int>(blockSize // rollingChunkSize)
             if winSize < 1:
                 winSize = 1
@@ -723,6 +830,7 @@ cpdef int64_t cgetFragmentLength(
             unsortedVals = medArr[unsortedIdx]
             sortedIdx = unsortedIdx[np.argsort(unsortedVals)[::-1]]
             coverageIdxTopK = sortedIdx[:takeK].tolist()
+
             expandedLen = takeK*winSize
             expandedIdx = np.empty(expandedLen, dtype=np.intp)
             expandedIdxView = expandedIdx
@@ -753,26 +861,18 @@ cpdef int64_t cgetFragmentLength(
                     blockCenters.append(j)
 
             if len(blockCenters) > 1:
-                blockCenters = rng.choice(
-                    blockCenters,
-                    size=len(blockCenters),
-                    replace=False,
-                    p=None
-                ).tolist()
-
-            bestLags = []
-            blockHalf = blockSize // 2
+                rng.shuffle(blockCenters)
 
             for idxVal in blockCenters:
                 # this should map back to genomic coordinates
-                blockStartBP = start + idxVal * rollingChunkSize + (rollingChunkSize // 2) - blockHalf
-                if blockStartBP < start:
-                    blockStartBP = start
+                blockStartBP = idxVal * rollingChunkSize + (rollingChunkSize // 2) - blockHalf
+                if blockStartBP < 0:
+                    blockStartBP = 0
                 blockEndBP = blockStartBP + blockSize
-                if blockEndBP > end:
-                    blockEndBP = end
+                if blockEndBP > contigLen:
+                    blockEndBP = contigLen
                     blockStartBP = blockEndBP - blockSize
-                    if blockStartBP < start:
+                    if blockStartBP < 0:
                         continue
 
                 # now we build strand-specific tracks
@@ -783,49 +883,77 @@ cpdef int64_t cgetFragmentLength(
                 revDiff.fill(0.0)
                 readFlag = -1
 
-                for read_ in aln.fetch(chromosome, blockStartBP, blockEndBP):
-                    readFlag = read_.flag
+                for readSeg in aln.fetch(contig, blockStartBP, blockEndBP):
+                    readFlag = readSeg.flag
+                    readStart = <int64_t>readSeg.reference_start
+                    readEnd = <int64_t>readSeg.reference_end
                     if (readFlag & samFlagExclude) != 0:
                         continue
-                    readStart = min(read_.reference_start, read_.reference_end)
-                    readEnd = max(read_.reference_start, read_.reference_end)
+                    if readStart < blockStartBP or readEnd > blockEndBP:
+                        continue
                     diffS = readStart - blockStartBP
                     diffE = readEnd - blockStartBP
                     strand = readFlag & 16
-                    if readStart < blockStartBP or readEnd > blockEndBP:
-                        continue
-                    posInBlock = readStart - blockStartBP
                     if strand == 0:
                         # forward
                         # just mark offsets from block start/end
-                        fwdDiff[diffS] += 1.0
-                        fwdDiff[diffE] -= 1.0
+                        fwdDiffView[<int>diffS] += 1.0
+                        fwdDiffView[<int>diffE] -= 1.0
                     else:
                         # reverse
                         # ditto
-                        revDiff[diffS] += 1.0
-                        revDiff[diffE] -= 1.0
-                # now we can get coverage track by summing over diffs
-                fwd = np.cumsum(fwdDiff[:len(fwdDiff)-1], dtype=np.float64)
-                rev = np.cumsum(revDiff[:len(revDiff)-1], dtype=np.float64)
+                        revDiffView[<int>diffS] += 1.0
+                        revDiffView[<int>diffE] -= 1.0
 
-                # maximizes the crossCovar(forward, reverse, lag) wrt lag.
-                fwd = (fwd - np.mean(fwd))
-                rev = (rev - np.mean(rev))
                 maxValidLag = maxInsertSize if (maxInsertSize < blockSize) else (blockSize - 1)
-                xCorr = np.zeros(maxInsertSize + 1, dtype=np.float64)
-                for lag in range(minInsertSize, maxValidLag + 1, lagStep):
-                    score = 0.0
-                    for i in range(blockSize - lag):
-                        score += fwd[i] * rev[i + lag]
-                    xCorr[lag] = score
-
-                if maxValidLag < minInsertSize:
+                localMinLag = <int>minInsertSize
+                localMaxLag = <int>maxValidLag
+                if localMaxLag < localMinLag:
                     continue
-                chosenLag = -1
-                chosenLag = int(np.argmax(xCorr[minInsertSize:maxValidLag + 1])) + minInsertSize
+                localLagStep = <int>lagStep
+                if localLagStep < 1:
+                    localLagStep = 1
 
-                if chosenLag > 0:
+                # now we can get coverage track by summing over diffs
+                # maximizes the crossCovar(forward, reverse, lag) wrt lag.
+                with nogil:
+                    runningSum = 0.0
+                    for i from 0 <= i < blockSize:
+                        runningSum += fwdDiffView[i]
+                        fwdView[i] = runningSum
+
+                    runningSum = 0.0
+                    for i from 0 <= i < blockSize:
+                        runningSum += revDiffView[i]
+                        revView[i] = runningSum
+
+                    fwdSum = 0.0
+                    revSum = 0.0
+                    for i from 0 <= i < blockSize:
+                        fwdSum += fwdView[i]
+                        revSum += revView[i]
+
+                    fwdMean = fwdSum / blockSize
+                    revMean = revSum / blockSize
+
+                    for i from 0 <= i < blockSize:
+                        fwdView[i] = fwdView[i] - fwdMean
+                        revView[i] = revView[i] - revMean
+
+                    bestScore = -1e308
+                    bestLag = -1
+                    for lag from localMinLag <= lag <= localMaxLag by localLagStep:
+                        score = 0.0
+                        blockLen = blockSize - lag
+                        for i from 0 <= i < blockLen:
+                            score += fwdView[i] * revView[i + lag]
+                        if score > bestScore:
+                            bestScore = score
+                            bestLag = lag
+
+                chosenLag = bestLag
+
+                if chosenLag > 0 and bestScore != 0.0:
                     bestLags.append(chosenLag)
                 if len(bestLags) >= earlyExit:
                     break
@@ -833,47 +961,17 @@ cpdef int64_t cgetFragmentLength(
     finally:
         aln.close()
 
-    if isPairedEnd:
-        requiredSamplesPE = max(iters, 1000)
-        aln = AlignmentFile(bamFile, "rb", threads=samThreads_)
-        try:
-            for read_ in aln.fetch(chromosome, start, end):
-                if templateLenSamples >= requiredSamplesPE:
-                    break
-                if (read_.flag & samFlagExclude) != 0 or (read_.flag & 2) == 0:
-                    # skip any excluded flags, only count proper pairs
-                    continue
-                if read_.reference_start < start or read_.reference_end >= end:
-                    continue
-                if read_.template_length > 0 and read_.is_read1:
-                    # read1 only: otherwise each pair contributes to the mean twice
-                    # ...which might reduce breadth of the estimate
-                    avgTemplateLen += abs(read_.template_length)
-                    templateLenSamples += 1
-
-        finally:
-            aln.close()
-
-        if templateLenSamples < requiredSamplesPE:
-            return <int64_t> fallBack
-
-        avgTemplateLen /= <double>templateLenSamples
-
-        if avgTemplateLen >= minInsertSize and avgTemplateLen <= maxInsertSize:
-            return <int64_t> (avgTemplateLen + 0.5)
-        else:
-            return <int64_t> fallBack
-
     if len(bestLags) < 3:
         return fallBack
 
     bestLagsArr = np.asarray(bestLags, dtype=np.uint32)
-    med = int(np.median(bestLagsArr) + rLen + 0.5)
+    med = int(np.median(bestLagsArr) + avgReadLength + 0.5)
     if med < minInsertSize:
         med = <int>minInsertSize
     elif med > maxInsertSize:
         med = <int>maxInsertSize
-    return med
+    return <int64_t>med
+
 
 
 cdef inline Py_ssize_t getInsertion(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:

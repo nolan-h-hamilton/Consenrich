@@ -24,10 +24,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _FDR(pVals: np.ndarray, method: str = "bh") -> np.ndarray:
+def _FDR(pVals: np.ndarray, method: str|None = "bh") -> np.ndarray:
     # can use bh or the more conservative Benjamini-Yekutieli to
     # ... control FDR under arbitrary dependencies between tests
-    return stats.false_discovery_control(pVals, method=method)
+    if method is None:
+        return pVals
+    return stats.false_discovery_control(pVals, method=method.lower())
 
 
 def autoMinLengthIntervals(
@@ -446,7 +448,7 @@ def matchWavelet(
                 ]
             pEmp = np.clip(
                 ecdfSf.evaluate(response[candidateIdx]),
-                1.0e-10,
+                np.finfo(np.float32).tiny,
                 1.0,
             )
             startsIdx = np.maximum(candidateIdx - relWindowBins, 0)
@@ -521,9 +523,11 @@ def matchWavelet(
     df = pd.DataFrame(allRows)
     qVals = _FDR(df["p_raw"].values.astype(float))
     df["pValue"] = -np.log10(
-        np.clip(df["p_raw"].values, 1.0e-10, 1.0)
+        np.clip(df["p_raw"].values, np.finfo(np.float32).tiny, 1.0)
     )
-    df["qValue"] = -np.log10(np.clip(qVals, 1.0e-10, 1.0))
+    df["qValue"] = -np.log10(
+        np.clip(qVals, np.finfo(np.float32).tiny, 1.0)
+    )
     df.drop(columns=["p_raw"], inplace=True)
     df = df[qVals <= alpha].copy()
     df["chromosome"] = df["chromosome"].astype(str)
@@ -777,7 +781,7 @@ def runMatchingAlgorithm(
     isLogScale: bool = False,
     autoLengthQuantile: float = 0.90,
     mergeGapBP: int | None = -1,
-    methodFDR: str = "bh",
+    methodFDR: str|None = None,
     merge: bool = True,
 ):
     r"""Wraps :func:`matchWavelet` for genome-wide matching given a bedGraph file"""
@@ -896,7 +900,9 @@ def runMatchingAlgorithm(
         -gwideDF["pValue"].values.astype(float)
     )
     qVals = _FDR(naturalScalePValues, method=methodFDR)
-    gwideDF["qValue"] = -np.log10(np.clip(qVals, 1.0e-10, 1.0))
+    gwideDF["qValue"] = -np.log10(
+        np.clip(qVals, np.finfo(np.float32).tiny, 1.0)
+    )
     gwideDF = gwideDF[qVals <= alpha].copy()
     gwideDF.sort_values(
         by=["chromosome", "start", "end"], inplace=True

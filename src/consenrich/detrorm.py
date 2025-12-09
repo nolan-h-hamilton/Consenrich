@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 from .misc_util import getChromSizesDict
 from .constants import EFFECTIVE_GENOME_SIZES
+from .cconsenrich import cgetFragmentLength
 
 
 def getScaleFactor1x(
@@ -72,6 +73,7 @@ def getScaleFactor1x(
         raise ValueError(
             f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}."
         )
+
     return round(
         effectiveGenomeSize / (totalMappedReads * readLength), 5
     )

@@ -106,7 +106,7 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   matchingParams.cascadeLevels: [3,3,1]
   matchingParams.minMatchLengthBP: -1
   matchingParams.mergeGapBP: -1
-  observationParams.useALV: true
+
 
 .. admonition:: Control Inputs
   :class: tip
@@ -236,7 +236,7 @@ globs, e.g., `*.bam`, are allowed, but each file is listed below to reveal ENCOD
   plotParams.plotStateTrace: true
   plotParams.plotResidualsHistogram: true
   plotParams.plotStateStdHistogram: true
-
+  countingParams.applySqrt: true
 
 
 Run Consenrich
@@ -337,6 +337,7 @@ Configuration
     matchingParams.cascadeLevels: [3, 3]
     matchingParams.minMatchLengthBP: -1
     matchingParams.mergeGapBP: 500 # increase merge radius for broad marks
+    countingParams.applySqrt: true
 
 
 
@@ -468,8 +469,8 @@ To promote homoskedasticity, symmetry, independence, etc. of residuals for downs
 
 Consenrich's uncertainty estimates can generally be interpreted on a *relative* scale (e.g. comparing between genomic regions), but classic statistical interpretations, e.g., coverage of prediction intervals, can be made more reliable through appropriate preprocessing.
 
-* ``countingParams.applySqrt`` is applied by default. This offers a gentle compression of the dynamic range and may be preferable to log transforms if needing to preserve a greater breadth of signal variation for downstream tasks like peak calling.
 * Log-like transforms (``applyAsinh`` := ``numpy.arcsinh``, ``applyLog`` := ``numpy.log1p``) are useful for stripping multiplicative noise components for additive linear modeling. Depending on sparsity, their comparably strong compression may affect capture of subtle signal patterns when applying Consenrich.
+* ``applySqrt`` offers a comparatively gentle compression of the dynamic range and may be preferable to log transforms if needing to preserve a greater breadth of signal variation for downstream tasks like peak calling. This transformation may not be fully variance-stabilizing for highly overdispersed data, however.
 * Users running Consenrich programmatically can apply custom transformations and preprocesssing pipelines as desired, e.g., `Yeo-Johnson or general power transforms <https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html>`_.
 
 Note, in the default (CLI) implementation, these transformations are applied *before* detrending (:mod:`consenrich.detrorm`).

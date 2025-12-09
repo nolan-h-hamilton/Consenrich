@@ -34,44 +34,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def resolveExtendBP(extendBP, bamFiles: List[str]) -> List[int]:
-    numFiles = len(bamFiles)
-
-    if isinstance(extendBP, str):
-        stringValue = extendBP.replace(" ", "")
-        try:
-            extendBP = (
-                [int(x) for x in stringValue.split(",")]
-                if stringValue
-                else []
-            )
-        except ValueError:
-            raise ValueError(
-                "`extendBP` string must be comma-separated values (castable to integers)"
-            )
-    if extendBP is None:
-        return [0] * numFiles
-    elif isinstance(extendBP, list):
-        valuesList = [int(x) for x in extendBP]
-        valuesLen = len(valuesList)
-        if valuesLen == 0:
-            return [0] * numFiles
-        if valuesLen == 1:
-            return [valuesList[0]] * numFiles
-        if valuesLen == numFiles:
-            return valuesList
-        raise ValueError(
-            f"extendBP length {valuesLen} does not match number of bamFiles {numFiles}; "
-            f"provide 0, 1, or {numFiles} values."
-        )
-    elif isinstance(extendBP, int) or isinstance(extendBP, float):
-        return [int(extendBP)] * numFiles
-    raise TypeError(
-        f"Invalid extendBP type: {type(extendBP).__name__}. "
-        "Expecting a single number (broadcast), a list of numbers matching `bamFiles`."
-    )
-
-
 class plotParams(NamedTuple):
     r"""(Experimental) Parameters related to plotting filter results and diagnostics.
 
@@ -238,22 +200,20 @@ class samParams(NamedTuple):
     :type chunkSize: int
     :param offsetStr: A string of two comma-separated integers -- first for the 5' shift on forward strand, second for the 5' shift on reverse strand.
     :type offsetStr: str
-    :param extendBP: A list of integers specifying the number of base pairs to extend reads for each BAM file after shifting per `offsetStr`.
-        If all BAM files share the same expected frag. length, can supply a single numeric value to be broadcasted. Ignored for PE reads.
-    :type extendBP: List[int]
     :param maxInsertSize: Maximum frag length/insert to consider when estimating fragment length.
     :type maxInsertSize: int
     :param pairedEndMode: If > 0, use TLEN attribute to determine span of (proper) read pairs and extend reads accordingly.
     :type pairedEndMode: int
     :param inferFragmentLength: Intended for single-end data: if > 0, the maximum correlation lag
        (avg.) between *strand-specific* read tracks is taken as the fragment length estimate and used to
-       extend reads from 5'. Ignored if `pairedEndMode > 0` or `extendBP` set. This parameter is particularly
+       extend reads from 5'. Ignored if `pairedEndMode > 0`, `countEndsOnly`, or `fragmentLengths` is provided.
        important when targeting broader marks (e.g., ChIP-seq H3K27me3).
     :type inferFragmentLength: int
     :param countEndsOnly: If True, only the 5' read lengths contribute to counting. Overrides `inferFragmentLength` and `pairedEndMode`.
     :type countEndsOnly: Optional[bool]
     :param minMappingQuality: Minimum mapping quality (MAPQ) for reads to be counted.
     :type minMappingQuality: Optional[int]
+    :param fragmentLengths:
 
     .. tip::
 
@@ -266,13 +226,13 @@ class samParams(NamedTuple):
     oneReadPerBin: int
     chunkSize: int
     offsetStr: Optional[str] = "0,0"
-    extendBP: Optional[List[int]] = []
     maxInsertSize: Optional[int] = 1000
     pairedEndMode: Optional[int] = 0
     inferFragmentLength: Optional[int] = 0
     countEndsOnly: Optional[bool] = False
     minMappingQuality: Optional[int] = 0
     minTemplateLength: Optional[int] = -1
+    fragmentLengths: Optional[List[int]] = None
 
 
 class detrendParams(NamedTuple):
@@ -364,15 +324,18 @@ class countingParams(NamedTuple):
     :type applyAsinh: bool, optional
     :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x` for each supplied BAM file.
     :type applyLog: bool, optional
-    :param applySqrt: If true (default), :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
+    :param applySqrt: If true, :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
     :type applySqrt: bool, optional
     :param noTransform: Disable all transformations.
     :type noTransform: bool, optional
     :param rescaleToTreatmentCoverage: Deprecated: no effect.
     :type rescaleToTreatmentCoverage: bool, optional
     :param trimLeftTail: If > 0, quantile of scaled counts to trim from the left tail before computing transformations.
-
-    :seealso: :ref:`calibration` for details on transformations and their effects on interpretation of state estimates and uncertainty quantification.
+    :type trimLeftTail: float, optional
+    :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
+    :type fragmentLengths: List[int], optional
+    :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
+    :type fragmentLengthsControl: List[int], optional
     """
 
     stepSize: int
@@ -387,6 +350,8 @@ class countingParams(NamedTuple):
     rescaleToTreatmentCoverage: Optional[bool]
     normMethod: Optional[str]
     trimLeftTail: Optional[float]
+    fragmentLengths: Optional[List[int]]
+    fragmentLengthsControl: Optional[List[int]]
 
 
 class matchingParams(NamedTuple):
@@ -435,7 +400,7 @@ class matchingParams(NamedTuple):
         by the quantile in the distribution of non-zero segment lengths (i.e., consecutive intervals with non-zero signal estimates).
         after local standardization.
     :type autoLengthQuantile: float
-    :param methodFDR: Method for genome-wide multiple hypothesis testing correction. Can use Benjamini-Hochberg ('bh') or the more conservative Benjamini-Yekutieli ('by') to account for arbitrary dependencies between tests.
+    :param methodFDR: Method for genome-wide multiple hypothesis testing correction. Can specify either Benjamini-Hochberg ('BH'), the more conservative Benjamini-Yekutieli ('BY') to account for arbitrary dependencies between tests, or None.
     :type methodFDR: str
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
     """
@@ -452,10 +417,10 @@ class matchingParams(NamedTuple):
     mergeGapBP: Optional[int]
     excludeRegionsBedFile: Optional[str]
     penalizeBy: Optional[str]
-    randSeed: Optional[int] = 42
-    eps: Optional[float] = 1.0e-2
-    autoLengthQuantile: Optional[float] = 0.90
-    methodFDR: Optional[str] = "bh"
+    randSeed: Optional[int]
+    eps: Optional[float]
+    autoLengthQuantile: Optional[float]
+    methodFDR: Optional[str]
 
 
 class outputParams(NamedTuple):
@@ -637,14 +602,14 @@ def readBamSegments(
     applyAsinh: Optional[bool] = False,
     applyLog: Optional[bool] = False,
     applySqrt: Optional[bool] = False,
-    extendBP: Optional[List[int]] = None,
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
     inferFragmentLength: Optional[int] = 0,
     countEndsOnly: Optional[bool] = False,
     minMappingQuality: Optional[int] = 0,
     minTemplateLength: Optional[int] = -1,
-    trimLeftTail: Optional[float] = 0.10,
+    trimLeftTail: Optional[float] = 0.0,
+    fragmentLengths: Optional[List[int]] = None,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -675,8 +640,6 @@ def readBamSegments(
     :type samFlagExclude: int
     :param offsetStr: See :class:`samParams`.
     :type offsetStr: str
-    :param extendBP: See :class:`samParams`.
-    :type extendBP: int
     :param maxInsertSize: See :class:`samParams`.
     :type maxInsertSize: int
     :param pairedEndMode: See :class:`samParams`.
@@ -687,6 +650,10 @@ def readBamSegments(
     :type minMappingQuality: int
     :param minTemplateLength: See :class:`samParams`.
     :type minTemplateLength: Optional[int]
+    :param fragmentLengths: If supplied, a list of estimated fragment lengths for each BAM file.
+        In single-end mode, these are values are used to extend reads. They are ignored in paired-end
+        mode, where each proper pair `TLEN` is counted.
+    :type fragmentLengths: Optional[List[int]]
     """
 
     segmentSize_ = end - start
@@ -705,17 +672,27 @@ def readBamSegments(
             "readLengths and scaleFactors must match bamFiles length"
         )
 
-    extendBP = resolveExtendBP(extendBP or [], bamFiles)
     offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(
         ","
     )
+
     numIntervals = ((end - start) + stepSize - 1) // stepSize
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
+
+    if pairedEndMode:
+        fragmentLengths = [0] * len(bamFiles)
+        inferFragmentLength = 0
+    if not pairedEndMode and (
+        fragmentLengths is None or len(fragmentLengths) == 0
+    ):
+        inferFragmentLength = 1
+        fragmentLengths = [-1] * len(bamFiles)
 
     if isinstance(countEndsOnly, bool) and countEndsOnly:
         # note: setting this option ignores inferFragmentLength, pairedEndMode
         inferFragmentLength = 0
         pairedEndMode = 0
+        fragmentLengths = [0] * len(bamFiles)
 
     for j, bam in enumerate(bamFiles):
         logger.info(f"Reading {chromosome}: {bam}")
@@ -731,7 +708,7 @@ def readBamSegments(
             samFlagExclude,
             int(offsetStr[0]),
             int(offsetStr[1]),
-            extendBP[j],
+            fragmentLengths[j],
             maxInsertSize,
             pairedEndMode,
             inferFragmentLength,
@@ -1123,7 +1100,6 @@ def runConsenrich(
             cconsenrich.updateProcessNoiseCovariance
         )
 
-
     # ==========================
     # forward: 0,1,2,...,n-1
     # ==========================
@@ -1174,8 +1150,9 @@ def runConsenrich(
 
         for i in range(n):
             if i % progressIter == 0 and i > 0:
-                logger.info(f"Forward pass interval: {i + 1}/{n}")
-                logger.info(f"Gain(i-1)@H: {1 - IKH[0,0]:.4f}")
+                logger.info(f"\nForward pass interval: {i + 1}/{n}, "
+                f"Gain[0,:] (i --> i+1): {1 - IKH[0, 0]:.4f}\n"
+                )
 
             vectorZ = matrixData[:, i]
             vectorX = matrixF @ vectorX
@@ -1280,10 +1257,14 @@ def runConsenrich(
         postFitResiduals[-1] = np.float32(
             matrixData[:, -1] - (matrixH @ stateSmoothed[-1])
         )
+        smootherGain = np.zeros((2, 2), dtype=np.float32)
 
         for k in range(n - 2, -1, -1):
             if k % progressIter == 0:
-                logger.info(f"\tBackward pass interval: {k + 1}/{n}")
+                logger.info(
+                    f"\nBackward pass interval: {k + 1}/{n}, "
+                    f"smootherGain[0,0] (i+1 --> i): {smootherGain[0, 0]:.4f}\n"
+                )
 
             forwardStatePosterior = stateForwardArr[k]
             forwardCovariancePosterior = stateCovarForwardArr[k]
@@ -1330,7 +1311,9 @@ def runConsenrich(
 
         if boundState:
             stateSmoothed[:, 0] = np.clip(
-                stateSmoothed[:, 0], stateLowerBound, stateUpperBound,
+                stateSmoothed[:, 0],
+                stateLowerBound,
+                stateUpperBound,
             ).astype(np.float32)
 
         outStateSmoothed = np.array(stateSmoothed, copy=True)
@@ -1697,31 +1680,32 @@ def getBedMask(
 
 
 def autoDeltaF(
-    chromosome: str,
-    start: int,
-    end: int,
+    bamFiles: List[str],
     stepSize: int,
     fragmentLengths: Optional[List[int]] = None,
-    bamFiles: Optional[List[str]] = None,
     fallBackFragmentLength: int = 147,
     randomSeed: int = 42,
 ) -> float:
     r"""(Experimental) Set `deltaF` as the ratio intervalLength:fragmentLength.
 
-    Computes average fragment length across samples and sets `deltaF = stepSize / avgFragmentLength`.
-    Assuming fragments contribute +1 to each genomic interval they overlap, a small intervalLength:fragmentLength
-    motivates a small `deltaF` (i.e., less state change between intervals).
+    Computes average fragment length across samples and sets `processParams.deltaF = countingArgs.stepSize / medianFragmentLength`.
 
-    :param chromosome: Chromosome name.
-    :type chromosome: str
-    :param start: Start position of a region (e.g., chromosome)
-    :type start: int
-    :param end: End position of a region (e.g., chromosome)
-    :type end: int
+    Where `stepSize` is small, adjacent genomic intervals may share information from the same fragments. This motivates
+    a smaller `deltaF` (i.e., less state change between neighboring intervals).
+
     :param stepSize: Length of genomic intervals/bins. See :class:`countingParams`.
     :type stepSize: int
-    :param bamFiles: List of sorted/indexed BAM files to estimate fragment lengths from.
-    :type bamFiles: Optional[List[str]]
+    :param bamFiles: List of sorted/indexed BAM files to estimate fragment lengths from if they are not provided directly.
+    :type bamFiles: List[str]
+    :param fragmentLengths: Optional list of fragment lengths (in bp) for each sample. If provided, these values are used directly instead of estimating from `bamFiles`.
+    :type fragmentLengths: Optional[List[int]]
+    :param fallBackFragmentLength: If fragment length estimation from a BAM file fails, this value is used instead.
+    :type fallBackFragmentLength: int
+    :param randomSeed: Random seed for fragment length estimation.
+    :type randomSeed: int
+    :return: Estimated `deltaF` value.
+    :rtype: float
+    :seealso: :func:`cconsenrich.cgetFragmentLength`, :class:`processParams`, :class:`countingParams`
     """
 
     avgFragmentLength: float = 0.0
@@ -1730,22 +1714,17 @@ def autoDeltaF(
         and len(fragmentLengths) > 0
         and all(isinstance(x, (int, float)) for x in fragmentLengths)
     ):
-        avgFragmentLength = np.mean(fragmentLengths)
+        avgFragmentLength = np.median(fragmentLengths)
     elif bamFiles is not None and len(bamFiles) > 0:
+        fragmentLengths_ = []
         for bamFile in bamFiles:
             fLen = cconsenrich.cgetFragmentLength(
                 bamFile,
-                chromosome,
-                start,
-                end,
                 fallBack=fallBackFragmentLength,
                 randSeed=randomSeed,
             )
-            avgFragmentLength += fLen
-            logger.info(
-                f"Estimated fragment length for {bamFile}: {fLen} bp"
-            )
-        avgFragmentLength /= len(bamFiles)
+            fragmentLengths_.append(fLen)
+        avgFragmentLength = np.median(fragmentLengths_)
     else:
         raise ValueError(
             "One of `fragmentLengths` or `bamFiles` is required..."
