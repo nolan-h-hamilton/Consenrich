@@ -1,4 +1,4 @@
-import os
+import sys
 from setuptools import setup, Extension, find_packages
 from Cython.Build import cythonize
 import pysam
@@ -8,9 +8,6 @@ import numpy
 def get_includes():
     class Includes:
         def __iter__(self):
-            import pysam
-            import numpy
-
             return iter(pysam.get_include() + [numpy.get_include()])
 
         def __getitem__(self, i):
@@ -19,29 +16,42 @@ def get_includes():
     return Includes()
 
 
+base_compile = [
+    "-O3",
+    "-fno-trapping-math",
+    "-fno-math-errno",
+    "-mtune=generic",
+]
+
+if sys.platform == "darwin":
+    omp_compile = ["-Xpreprocessor", "-fopenmp"]
+    omp_link = ["-lomp"]
+elif sys.platform.startswith("linux"):
+    omp_compile = ["-fopenmp"]
+    omp_link = ["-fopenmp"]
+else:
+    omp_compile = []
+    omp_link = []
+
+
 extensions = [
     Extension(
         "consenrich.cconsenrich",
         sources=["src/consenrich/cconsenrich.pyx"],
         include_dirs=get_includes(),
         libraries=pysam.get_libraries(),
-        extra_compile_args=[
-            "-O3",
-            "-fno-trapping-math",
-            "-fno-math-errno",
-            "-mtune=generic",
-            "-fopenmp",
-        ],
-        extra_link_args=["-fopenmp"],
+        extra_compile_args=base_compile + omp_compile,
+        extra_link_args=omp_link,
     )
 ]
+
 
 setup(
     name="consenrich",
     version="0.7.11b1",
     packages=find_packages(where="src"),
-    include_package_data=True,
     package_dir={"": "src"},
+    include_package_data=True,
     ext_modules=cythonize(extensions, language_level="3"),
     install_requires=[
         "cython>=3.0",
