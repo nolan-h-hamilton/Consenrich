@@ -75,7 +75,7 @@ class processParams(NamedTuple):
     and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
     matrices.
 
-    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), determined based on stepSize:fragment-length ratio.
+    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), determined based on stepSize:fragmentLength ratio.
     :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
         for each state variable. If `minQ < 0` (default), a value based on
@@ -148,7 +148,7 @@ class observationParams(NamedTuple):
     :param shrinkOffset: An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not reduce the local variance estimate near zero.
         Setting to >= `1` disables shrinkage.
     :type shrinkOffset: Optional[float]
-    :param kappaALV: For ``minR < 0``, bounds the ratio of :math:`\frac{R_{[i,j_{\max}]}}{R_{[i,j_{\min}]}}` at each interval :math:`i=1\ldots n. Promotes numerical stability.
+    :param kappaALV: Applicable if ``minR < 0``. Prevent ill-conditioning by bounding the ratios :math:`\frac{R_{[i,j_{\max}]}}{R_{[i,j_{\min}]}}` at each interval :math:`i=1\ldots n`. Values up to `100` will typically retain most of the initial dynamic range while improving stability and mitigating outliers.
     """
 
     minR: float

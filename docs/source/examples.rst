@@ -86,9 +86,10 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 .. code-block:: yaml
   :name: demoHistoneChIPSeq.yaml
 
+  # v0.7.11b1
   experimentName: demoHistoneChIPSeq
   genomeParams.name: hg38
-  genomeParams.chromosomes: [chr21, chr22]
+  genomeParams.chromosomes: [chr21, chr22] # remove this line to run genome-wide
   genomeParams.excludeForNorm: [chrX, chrY]
 
   inputParams.bamFiles: [ENCFF793ZHL.bam,
@@ -101,11 +102,11 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   ENCFF898LKJ.bam,
   ENCFF490MWV.bam]
 
-  # Optional: call 'structured peaks' via `consenrich.matching`
-  matchingParams.templateNames: [haar, db2, sym4]
-  matchingParams.cascadeLevels: [3,3,1]
-  matchingParams.minMatchLengthBP: -1
-  matchingParams.mergeGapBP: -1
+  # Optional: call 'structured peaks'
+  matchingParams.templateNames: [haar, db2]
+  matchingParams.cascadeLevels: [3,3]
+  matchingParams.methodFDR: BH
+  outputParams.writeStateStd: true
 
 
 .. admonition:: Control Inputs
@@ -436,29 +437,25 @@ To avoid a full run/rerun of Consenrich when calling structured peaks, the match
 
   % consenrich \
     --match-bedGraph consenrichOutput_<experimentName>_state.bedGraph \
-    --match-template haar \
-    --match-level 3 \
+    --match-template sym3 sym4 \
+    --match-level 2 2 \
     --match-alpha 0.01
 
-This calls structured peaks with a Haar template/level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
+ Run ``consenrich -h`` for additional command-line options.
 
-For more details on the matching algorithm in general, see :ref:`matching` and :func:`consenrich.matching.matchWavelet` for more details.
+For more details on the matching algorithm in general, see :ref:`matching` and :func:`consenrich.matching.matchWavelet`.
 
 
 Broad, Heterochromatic and/or Repressive targets
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-* When targeting broad, domain-level features, consider increasing `countingParams.stepSize` and/or `detrendParams.detrendWindowLengthBP` from their defaults to prioritize larger-scale trends.
 
-  * For instance, for polycomb-repressed domains (H3K27me3) and constitutive heterochromatin (H3K9me3), something like:
+Several options are available for targeting broad, *domain-level* features:
 
-    - ``countingParams.stepSize: 100``
-    - ``detrendParams.detrendWindowLengthBP: 50_000``
+  * Decrease noise-vulnerability with larger genomic intervals (``countingParams.stepSize``). The default is 25bp, but increasing up to 250 bp or more may help stabilize estimates for very broad domains
+  * Soften or disable background-removal/detrending (:class:`detrendParams`) to avoid removing important broad/low-frequency signal
+  * Include larger/more symmetric wavelet/scaling templates (e.g., `sym3`, `sym4`) and larger ``matchingParams.mergeGapBP`` for the matching algorithm (:ref:`matching`)
 
-
-* The generic ``genomeParams.sparseBedFile`` for humans, mice, etc. that are packaged with Consenrich are optimized for measuring noise levels in active/open chromatin assays (e.g., ATAC-seq, DNase-seq, ChIP-seq for narrow marks)
-
-  * For heterochromatic/repressive marks, setting ``observationParams.useALV: true`` is recommended. This triggers an annotation-free 'average local variance' procedure with autocorrelation-based shrinkage for genome-wide, sample-specific noise level estimation.
-  * Alternatively, users can provide custom sparse regions via ``genomeParams.sparseBedFile`` that are more appropriate for their assay of interest. For example, a complement of regions from the `Human Heterochromatin Database <https://pubmed.ncbi.nlm.nih.gov/37897357/>`_ or Roadmap.
+If the targeted mark is associated with silencing/repression/heterochromatin, the default ``genomeParams.sparseBedFile`` annotations packaged with Consenrich may not be appropriate. Consider invoking the annotation-free variant of the ALV method (:func:`consenrich.core.getAverageLocalVariance`) with ``observationParams.useALV: true`` or specifying a custom ``genomeParams.sparseBedFile``
 
 .. _calibration:
 
