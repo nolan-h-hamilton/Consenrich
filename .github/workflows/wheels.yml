@@ -32,12 +32,14 @@ jobs:
           - name: macos-arm64
             runs-on: macos-15
             cibw_archs_macos: arm64
+            brew_prefix: /opt/homebrew
 
           # x86 mac
           - name: macos-x86_64
             runs-on: macos-15-intel
             cibw_archs_macos: x86_64
-
+            brew_prefix: /usr/local
+            
     runs-on: ${{ matrix.runs-on }}
 
     steps:
@@ -71,14 +73,13 @@ jobs:
             brew update
             brew install xz libomp llvm
 
-          CIBW_BEFORE_BUILD_MACOS: |
-            LLVM_PREFIX="$(brew --prefix llvm)"
-            LIBOMP_PREFIX="$(brew --prefix libomp)"
-            export PATH="$LLVM_PREFIX/bin:$PATH"
-            export CC="$LLVM_PREFIX/bin/clang"
-            export CXX="$LLVM_PREFIX/bin/clang++"
-            export CPPFLAGS="-I$LIBOMP_PREFIX/include"
-            export LDFLAGS="-L$LIBOMP_PREFIX/lib -Wl,-rpath,$LIBOMP_PREFIX/lib"
+          CIBW_ENVIRONMENT_MACOS: >
+            PATH="${{ matrix.brew_prefix }}/opt/llvm/bin:$PATH"
+            CC="${{ matrix.brew_prefix }}/opt/llvm/bin/clang"
+            CXX="${{ matrix.brew_prefix }}/opt/llvm/bin/clang++"
+            CPPFLAGS="-I${{ matrix.brew_prefix }}/opt/libomp/include"
+            LDFLAGS="-L${{ matrix.brew_prefix }}/opt/libomp/lib -Wl,-rpath,${{ matrix.brew_prefix }}/opt/libomp/lib"
+
 
       - if: matrix.name == 'linux-x86_64'
         name: Build source distribution
