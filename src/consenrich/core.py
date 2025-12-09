@@ -3,9 +3,10 @@ r"""
 Consenrich core functions and classes.
 
 """
+
 import logging
 import os
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import (
     Any,
     Callable,
@@ -22,7 +23,7 @@ import numpy.typing as npt
 import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
 from scipy import ndimage, signal
-
+from scipy.stats.mstats import trimtail
 from . import cconsenrich
 
 logging.basicConfig(
@@ -31,44 +32,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-
-def resolveExtendBP(extendBP, bamFiles: List[str]) -> List[int]:
-    numFiles = len(bamFiles)
-
-    if isinstance(extendBP, str):
-        stringValue = extendBP.replace(" ", "")
-        try:
-            extendBP = (
-                [int(x) for x in stringValue.split(",")]
-                if stringValue
-                else []
-            )
-        except ValueError:
-            raise ValueError(
-                "`extendBP` string must be comma-separated values (castable to integers)"
-            )
-    if extendBP is None:
-        return [0] * numFiles
-    elif isinstance(extendBP, list):
-        valuesList = [int(x) for x in extendBP]
-        valuesLen = len(valuesList)
-        if valuesLen == 0:
-            return [0] * numFiles
-        if valuesLen == 1:
-            return [valuesList[0]] * numFiles
-        if valuesLen == numFiles:
-            return valuesList
-        raise ValueError(
-            f"extendBP length {valuesLen} does not match number of bamFiles {numFiles}; "
-            f"provide 0, 1, or {numFiles} values."
-        )
-    elif isinstance(extendBP, int) or isinstance(extendBP, float):
-        return [int(extendBP)] * numFiles
-    raise TypeError(
-        f"Invalid extendBP type: {type(extendBP).__name__}. "
-        "Expecting a single number (broadcast), a list of numbers matching `bamFiles`."
-    )
 
 
 class plotParams(NamedTuple):
@@ -112,7 +75,7 @@ class processParams(NamedTuple):
     and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
     matrices.
 
-    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), determined based on stepSize:fragment-length ratio.
+    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), determined based on stepSize:fragmentLength ratio.
     :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
         for each state variable. If `minQ < 0` (default), a value based on
@@ -129,6 +92,7 @@ class processParams(NamedTuple):
     :param dStatPC: Constant :math:`c` in the scaling expression :math:`\sqrt{d|D_{[i]} - \alpha_D| + c}`
         that is used to up/down-scale the process noise covariance in the event of a model mismatch.
     :type dStatPC: float
+    :param dStatUseMean: If `True`, the mean of squared, diagonal-standardized residuals (rather than the median) is used to compute the :math:`D_{[i]}` statistic at each interval :math:`i`.
     :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
         If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (i.e., ``postFitResiduals`` from :func:`consenrich.consenrich.runConsenrich`).
     :type scaleResidualsByP11: Optional[bool]
@@ -141,8 +105,8 @@ class processParams(NamedTuple):
     dStatAlpha: float
     dStatd: float
     dStatPC: float
+    dStatUseMean: bool
     scaleResidualsByP11: Optional[bool]
-    adjustPmatByInnovationAC: Optional[bool]
 
 
 class observationParams(NamedTuple):
@@ -183,6 +147,8 @@ class observationParams(NamedTuple):
     :type lowPassFilterType: Optional[str]
     :param shrinkOffset: An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not reduce the local variance estimate near zero.
         Setting to >= `1` disables shrinkage.
+    :type shrinkOffset: Optional[float]
+    :param kappaALV: Applicable if ``minR < 0``. Prevent ill-conditioning by bounding the ratios :math:`\frac{R_{[i,j_{\max}]}}{R_{[i,j_{\min}]}}` at each interval :math:`i=1\ldots n`. Values up to `100` will typically retain most of the initial dynamic range while improving stability and mitigating outliers.
     """
 
     minR: float
@@ -198,6 +164,7 @@ class observationParams(NamedTuple):
     lowPassFilterType: Optional[str]
     returnCenter: bool
     shrinkOffset: Optional[float]
+    kappaALV: Optional[float]
 
 
 class stateParams(NamedTuple):
@@ -235,22 +202,20 @@ class samParams(NamedTuple):
     :type chunkSize: int
     :param offsetStr: A string of two comma-separated integers -- first for the 5' shift on forward strand, second for the 5' shift on reverse strand.
     :type offsetStr: str
-    :param extendBP: A list of integers specifying the number of base pairs to extend reads for each BAM file after shifting per `offsetStr`.
-        If all BAM files share the same expected frag. length, can supply a single numeric value to be broadcasted. Ignored for PE reads.
-    :type extendBP: List[int]
     :param maxInsertSize: Maximum frag length/insert to consider when estimating fragment length.
     :type maxInsertSize: int
     :param pairedEndMode: If > 0, use TLEN attribute to determine span of (proper) read pairs and extend reads accordingly.
     :type pairedEndMode: int
     :param inferFragmentLength: Intended for single-end data: if > 0, the maximum correlation lag
        (avg.) between *strand-specific* read tracks is taken as the fragment length estimate and used to
-       extend reads from 5'. Ignored if `pairedEndMode > 0` or `extendBP` set. This parameter is particularly
+       extend reads from 5'. Ignored if `pairedEndMode > 0`, `countEndsOnly`, or `fragmentLengths` is provided.
        important when targeting broader marks (e.g., ChIP-seq H3K27me3).
     :type inferFragmentLength: int
     :param countEndsOnly: If True, only the 5' read lengths contribute to counting. Overrides `inferFragmentLength` and `pairedEndMode`.
     :type countEndsOnly: Optional[bool]
     :param minMappingQuality: Minimum mapping quality (MAPQ) for reads to be counted.
     :type minMappingQuality: Optional[int]
+    :param fragmentLengths:
 
     .. tip::
 
@@ -263,13 +228,13 @@ class samParams(NamedTuple):
     oneReadPerBin: int
     chunkSize: int
     offsetStr: Optional[str] = "0,0"
-    extendBP: Optional[List[int]] = []
     maxInsertSize: Optional[int] = 1000
     pairedEndMode: Optional[int] = 0
     inferFragmentLength: Optional[int] = 0
     countEndsOnly: Optional[bool] = False
     minMappingQuality: Optional[int] = 0
     minTemplateLength: Optional[int] = -1
+    fragmentLengths: Optional[List[int]] = None
 
 
 class detrendParams(NamedTuple):
@@ -361,14 +326,18 @@ class countingParams(NamedTuple):
     :type applyAsinh: bool, optional
     :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x` for each supplied BAM file.
     :type applyLog: bool, optional
-    :param applySqrt: If true (default), :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
+    :param applySqrt: If true, :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
     :type applySqrt: bool, optional
     :param noTransform: Disable all transformations.
     :type noTransform: bool, optional
     :param rescaleToTreatmentCoverage: Deprecated: no effect.
     :type rescaleToTreatmentCoverage: bool, optional
-
-    :seealso: :ref:`calibration` for details on transformations and their effects on interpretation of state estimates and uncertainty quantification.
+    :param trimLeftTail: If > 0, quantile of scaled counts to trim from the left tail before computing transformations.
+    :type trimLeftTail: float, optional
+    :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
+    :type fragmentLengths: List[int], optional
+    :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
+    :type fragmentLengthsControl: List[int], optional
     """
 
     stepSize: int
@@ -380,8 +349,11 @@ class countingParams(NamedTuple):
     applyLog: Optional[bool]
     applySqrt: Optional[bool]
     noTransform: Optional[bool]
-    rescaleToTreatmentCoverage: Optional[bool] = False  # deprecated
-    normMethod: Optional[str] = "EGS"
+    rescaleToTreatmentCoverage: Optional[bool]
+    normMethod: Optional[str]
+    trimLeftTail: Optional[float]
+    fragmentLengths: Optional[List[int]]
+    fragmentLengthsControl: Optional[List[int]]
 
 
 class matchingParams(NamedTuple):
@@ -430,7 +402,7 @@ class matchingParams(NamedTuple):
         by the quantile in the distribution of non-zero segment lengths (i.e., consecutive intervals with non-zero signal estimates).
         after local standardization.
     :type autoLengthQuantile: float
-    :param methodFDR: Method for genome-wide multiple hypothesis testing correction. Can use Benjamini-Hochberg ('bh') or the more conservative Benjamini-Yekutieli ('by') to account for arbitrary dependencies between tests.
+    :param methodFDR: Method for genome-wide multiple hypothesis testing correction. Can specify either Benjamini-Hochberg ('BH'), the more conservative Benjamini-Yekutieli ('BY') to account for arbitrary dependencies between tests, or None.
     :type methodFDR: str
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
     """
@@ -447,10 +419,10 @@ class matchingParams(NamedTuple):
     mergeGapBP: Optional[int]
     excludeRegionsBedFile: Optional[str]
     penalizeBy: Optional[str]
-    randSeed: Optional[int] = 42
-    eps: Optional[float] = 1.0e-2
-    autoLengthQuantile: Optional[float] = 0.90
-    methodFDR: Optional[str] = "bh"
+    randSeed: Optional[int]
+    eps: Optional[float]
+    autoLengthQuantile: Optional[float]
+    methodFDR: Optional[str]
 
 
 class outputParams(NamedTuple):
@@ -632,13 +604,14 @@ def readBamSegments(
     applyAsinh: Optional[bool] = False,
     applyLog: Optional[bool] = False,
     applySqrt: Optional[bool] = False,
-    extendBP: Optional[List[int]] = None,
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
     inferFragmentLength: Optional[int] = 0,
     countEndsOnly: Optional[bool] = False,
     minMappingQuality: Optional[int] = 0,
     minTemplateLength: Optional[int] = -1,
+    trimLeftTail: Optional[float] = 0.0,
+    fragmentLengths: Optional[List[int]] = None,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
 
@@ -669,8 +642,6 @@ def readBamSegments(
     :type samFlagExclude: int
     :param offsetStr: See :class:`samParams`.
     :type offsetStr: str
-    :param extendBP: See :class:`samParams`.
-    :type extendBP: int
     :param maxInsertSize: See :class:`samParams`.
     :type maxInsertSize: int
     :param pairedEndMode: See :class:`samParams`.
@@ -681,6 +652,10 @@ def readBamSegments(
     :type minMappingQuality: int
     :param minTemplateLength: See :class:`samParams`.
     :type minTemplateLength: Optional[int]
+    :param fragmentLengths: If supplied, a list of estimated fragment lengths for each BAM file.
+        In single-end mode, these are values are used to extend reads. They are ignored in paired-end
+        mode, where each proper pair `TLEN` is counted.
+    :type fragmentLengths: Optional[List[int]]
     """
 
     segmentSize_ = end - start
@@ -699,17 +674,27 @@ def readBamSegments(
             "readLengths and scaleFactors must match bamFiles length"
         )
 
-    extendBP = resolveExtendBP(extendBP or [], bamFiles)
     offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(
         ","
     )
+
     numIntervals = ((end - start) + stepSize - 1) // stepSize
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
+
+    if pairedEndMode:
+        fragmentLengths = [0] * len(bamFiles)
+        inferFragmentLength = 0
+    if not pairedEndMode and (
+        fragmentLengths is None or len(fragmentLengths) == 0
+    ):
+        inferFragmentLength = 1
+        fragmentLengths = [-1] * len(bamFiles)
 
     if isinstance(countEndsOnly, bool) and countEndsOnly:
         # note: setting this option ignores inferFragmentLength, pairedEndMode
         inferFragmentLength = 0
         pairedEndMode = 0
+        fragmentLengths = [0] * len(bamFiles)
 
     for j, bam in enumerate(bamFiles):
         logger.info(f"Reading {chromosome}: {bam}")
@@ -725,7 +710,7 @@ def readBamSegments(
             samFlagExclude,
             int(offsetStr[0]),
             int(offsetStr[1]),
-            extendBP[j],
+            fragmentLengths[j],
             maxInsertSize,
             pairedEndMode,
             inferFragmentLength,
@@ -734,6 +719,10 @@ def readBamSegments(
         )
 
         counts[j, :] = arr
+        if trimLeftTail > 0.0:
+            counts[j, :] = trimtail(
+                counts[j, :], trimLeftTail, tail="left"
+            )
         counts[j, :] *= np.float32(scaleFactors[j])
         if applyAsinh:
             np.asinh(counts[j, :], out=counts[j, :])
@@ -954,6 +943,7 @@ def runConsenrich(
     dStatAlpha: float,
     dStatd: float,
     dStatPC: float,
+    dStatUseMean: bool,
     stateInit: float,
     stateCovarInit: float,
     boundState: bool,
@@ -964,7 +954,7 @@ def runConsenrich(
     coefficientsH: Optional[np.ndarray] = None,
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
-    adjustPmatByInnovationAC: Optional[bool] = False,
+    covarClip: float = 3.0,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -1001,6 +991,8 @@ def runConsenrich(
     :type dStatd: float
     :param dStatPC: See :class:`processParams`.
     :type dStatPC: float
+    :param dStatUseMean: See :class:`processParams`.
+    :type dStatUseMean: bool
     :param stateInit: See :class:`stateParams`.
     :type stateInit: float
     :param stateCovarInit: See :class:`stateParams`.
@@ -1018,8 +1010,9 @@ def runConsenrich(
     :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
         If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
     :type adjustProcessNoiseFunc: Optional[Callable]
-    :param adjustPmatByInnovationAC: See :class:`processParams`.
-    :type adjustPmatByInnovationAC: Optional[bool]
+    :param covarClip: For numerical stability, truncate state/process noise covariances
+        to :math:`[10^{-\textsf{covarClip}}, 10^{\textsf{covarClip}}]`.
+    :type covarClip: float
     :return: Tuple of three numpy arrays:
         - post-fit (forward/backward-smoothed) state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
         - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
@@ -1081,6 +1074,8 @@ def runConsenrich(
 
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
+    y64 = np.empty(m, dtype=np.float64)
+    sq64 = np.empty(m, dtype=np.float64)
     countAdjustments: int = 0
 
     IKH: np.ndarray = np.zeros(shape=(2, 2), dtype=np.float32)
@@ -1093,6 +1088,7 @@ def runConsenrich(
     matrixP: np.ndarray = np.eye(2, dtype=np.float32) * np.float32(
         stateCovarInit
     )
+    matrixP = matrixP.astype(np.float64)
     matrixH: np.ndarray = constructMatrixH(
         m, coefficients=coefficientsH
     )
@@ -1100,7 +1096,8 @@ def runConsenrich(
     vectorX: np.ndarray = np.array([stateInit, 0.0], dtype=np.float32)
     vectorY: np.ndarray = np.zeros(m, dtype=np.float32)
     matrixI2: np.ndarray = np.eye(2, dtype=np.float32)
-
+    clipSmall: float = 10 ** (-covarClip)
+    clipBig: float = 10 ** (covarClip)
     if residualCovarInversionFunc is None:
         residualCovarInversionFunc = cconsenrich.cinvertMatrixE
     if adjustProcessNoiseFunc is None:
@@ -1108,233 +1105,238 @@ def runConsenrich(
             cconsenrich.updateProcessNoiseCovariance
         )
 
-    innovationProd = np.zeros(m, dtype=np.float64)
-    innovSq = np.zeros(m, dtype=np.float64)
-    innovPrev = np.zeros(m, dtype=np.float64)
-    innovSum = np.zeros(m, dtype=np.float64)
-    innovFirst = np.zeros(m, dtype=np.float64)
-    innovLast = np.zeros(m, dtype=np.float64)
-    innov = np.zeros(m, dtype=np.float64)
-    haveInnovPrev = False
-
     # ==========================
     # forward: 0,1,2,...,n-1
     # ==========================
-    stateForward = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2),
-    )
-    stateCovarForward = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2, 2),
-    )
-    pNoiseForward = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2, 2),
-    )
-    progressIter = max(1, progressIter)
-    avgDstat: float = 0.0
-    for i in range(n):
-        if i % progressIter == 0:
-            logger.info(f"Forward pass interval: {i + 1}/{n}")
-        vectorZ = matrixData[:, i]
-        vectorX = matrixF @ vectorX
-        matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
-        vectorY = vectorZ - (matrixH @ vectorX)
-
-        if adjustPmatByInnovationAC:
-            innov = vectorY.astype(np.float64)
-
-            if i == 0:
-                innovFirst[:] = innov
-            innovSum += innov
-            innovLast[:] = innov
-            if haveInnovPrev:
-                innovationProd += innovPrev * innov
-            innovSq += innov * innov
-            innovPrev = innov
-            haveInnovPrev = True
-
-        matrixEInverse = residualCovarInversionFunc(
-            matrixMunc[:, i], np.float32(matrixP[0, 0])
+    with TemporaryDirectory() as tempDir_:
+        stateForwardPathMM = os.path.join(
+            tempDir_, "stateForward.dat"
         )
-        Einv_diag = np.diag(matrixEInverse)
-        dStat = np.median((vectorY**2) * Einv_diag)
-        avgDstat += float(dStat)
-        countAdjustments = countAdjustments + int(dStat > dStatAlpha)
-        matrixQ, inflatedQ = adjustProcessNoiseFunc(
-            matrixQ,
-            matrixQCopy,
-            dStat,
-            dStatAlpha,
-            dStatd,
-            dStatPC,
-            inflatedQ,
-            maxQ,
-            minQ,
+        stateCovarForwardPathMM = os.path.join(
+            tempDir_, "stateCovarForward.dat"
         )
-        matrixK = (matrixP @ matrixH.T) @ matrixEInverse
-        IKH = matrixI2 - (matrixK @ matrixH)
-
-        vectorX = vectorX + (matrixK @ vectorY)
-        matrixP = (IKH) @ matrixP @ (IKH).T + (
-            matrixK * matrixMunc[:, i]
-        ) @ matrixK.T
-        stateForward[i] = vectorX.astype(np.float32)
-        stateCovarForward[i] = matrixP.astype(np.float32)
-        pNoiseForward[i] = matrixQ.astype(np.float32)
-
-        if i % chunkSize == 0 and i > 0:
-            stateForward.flush()
-            stateCovarForward.flush()
-            pNoiseForward.flush()
-
-    stateForward.flush()
-    stateCovarForward.flush()
-    pNoiseForward.flush()
-    stateForwardArr = stateForward
-    stateCovarForwardArr = stateCovarForward
-    pNoiseForwardArr = pNoiseForward
-    avgDstat /= n
-
-    logger.info(f"Average D_[i] over `n` intervals: {avgDstat:.3f}")
-    logger.info(
-        f"`D_[i] > α_D` triggered adjustments to Q_[i] at [{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
-    )
-
-    # ==========================
-    # backward: n,n-1,n-2,...,0
-    # ==========================
-    stateSmoothed = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2),
-    )
-    stateCovarSmoothed = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, 2, 2),
-    )
-    postFitResiduals = np.memmap(
-        NamedTemporaryFile(delete=True),
-        dtype=np.float32,
-        mode="w+",
-        shape=(n, m),
-    )
-
-    stateSmoothed[-1] = np.float32(stateForwardArr[-1])
-    stateCovarSmoothed[-1] = np.float32(stateCovarForwardArr[-1])
-    postFitResiduals[-1] = np.float32(
-        matrixData[:, -1] - (matrixH @ stateSmoothed[-1])
-    )
-
-    for k in range(n - 2, -1, -1):
-        if k % progressIter == 0:
-            logger.info(f"Backward pass interval: {k + 1}/{n}")
-        forwardStatePosterior = stateForwardArr[k]
-        forwardCovariancePosterior = stateCovarForwardArr[k]
-        backwardInitialState = matrixF @ forwardStatePosterior
-        backwardInitialCovariance = (
-            matrixF @ forwardCovariancePosterior @ matrixF.T
-            + pNoiseForwardArr[k + 1]
+        pNoiseForwardPathMM = os.path.join(
+            tempDir_, "pNoiseForward.dat"
+        )
+        stateBackwardPathMM = os.path.join(
+            tempDir_, "stateSmoothed.dat"
+        )
+        stateCovarBackwardPathMM = os.path.join(
+            tempDir_, "stateCovarSmoothed.dat"
+        )
+        postFitResidualsPathMM = os.path.join(
+            tempDir_, "postFitResiduals.dat"
         )
 
-        smootherGain = np.linalg.solve(
-            backwardInitialCovariance.T,
-            (forwardCovariancePosterior @ matrixF.T).T,
-        ).T
-        stateSmoothed[k] = (
-            forwardStatePosterior
-            + smootherGain
-            @ (stateSmoothed[k + 1] - backwardInitialState)
-        ).astype(np.float32)
-
-        stateCovarSmoothed[k] = (
-            forwardCovariancePosterior
-            + smootherGain
-            @ (stateCovarSmoothed[k + 1] - backwardInitialCovariance)
-            @ smootherGain.T
-        ).astype(np.float32)
-        postFitResiduals[k] = np.float32(
-            matrixData[:, k] - matrixH @ stateSmoothed[k]
+        # ==========================
+        # forward: 0,1,2,...,n-1
+        # ==========================
+        stateForward = np.memmap(
+            stateForwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2),
+        )
+        stateCovarForward = np.memmap(
+            stateCovarForwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2, 2),
+        )
+        pNoiseForward = np.memmap(
+            pNoiseForwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2, 2),
         )
 
-        if k % chunkSize == 0 and k > 0:
-            stateSmoothed.flush()
-            stateCovarSmoothed.flush()
-            postFitResiduals.flush()
+        progressIter = max(1, progressIter)
+        avgDstat: float = 0.0
 
-    if adjustPmatByInnovationAC and n > 1:
-        rhoValues = []
-        biasTol = 1e-3
-        for j in range(m):
-            totalSquaredInnovation = float(innovSq[j])
-            totalInnovation = float(innovSum[j])
-            if totalSquaredInnovation <= 0.0:
-                continue
-            meanInnovation = totalInnovation / n
-            if abs(meanInnovation) < biasTol:
-                rhoValues.append(
-                    float(innovationProd[j]) / totalSquaredInnovation
+        for i in range(n):
+            if i % progressIter == 0 and i > 0:
+                logger.info(f"\nForward pass interval: {i + 1}/{n}, "
+                f"Gain[0,:] (i --> i+1): {1 - IKH[0, 0]:.4f}\n"
                 )
-                continue
-            innovationVariance = (
-                totalSquaredInnovation
-                - (totalInnovation * totalInnovation) / n
-            )
-            if innovationVariance <= 0.0:
-                continue
-            prodLag1 = float(innovationProd[j])
-            firstInnovation = float(innovFirst[j])
-            lastInnovation = float(innovLast[j])
 
-            centeredLag1Sum = (
-                prodLag1
-                - meanInnovation
-                * (
-                    (totalInnovation - firstInnovation)
-                    + (totalInnovation - lastInnovation)
-                )
-                + meanInnovation * meanInnovation * (n - 1.0)
+            vectorZ = matrixData[:, i]
+            vectorX = matrixF @ vectorX
+            matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
+            vectorY = vectorZ - (matrixH @ vectorX)
+
+            matrixEInverse = residualCovarInversionFunc(
+                matrixMunc[:, i],
+                np.float32(matrixP[0, 0]),
             )
 
-            rhoValues.append(centeredLag1Sum / innovationVariance)
+            # D_[i] (`dStat`): NIS-like, but w/ median:
+            # ... median(y_[i]^2 * Einv_[i, diag])
 
-        if rhoValues:
-            rhoHat = float(np.median(rhoValues))
-            varInflation = 1.0 + max(0.0, 2.0 * rhoHat)
-            varInflation = float(np.clip(varInflation, 1.0, 10.0))
-            stateCovarSmoothed[:] = stateCovarSmoothed[
-                :
-            ] * np.float32(varInflation)
-            stateCovarSmoothed.flush()
+            Einv_diag = matrixEInverse.diagonal()
+            # avoid per-iteration allocations
+            np.copyto(y64, vectorY, casting="same_kind")
+            np.square(y64, out=sq64, casting="same_kind")
+            np.multiply(sq64, Einv_diag, out=sq64)
+            dStat = np.float32(np.median(sq64)) if dStatUseMean else np.float32(np.mean(sq64))
 
-    stateSmoothed.flush()
-    stateCovarSmoothed.flush()
-    postFitResiduals.flush()
+            avgDstat += float(dStat)
+            countAdjustments = countAdjustments + int(
+                dStat > dStatAlpha,
+            )
 
-    if boundState:
-        stateSmoothed[:, 0] = np.clip(
-            stateSmoothed[:, 0], stateLowerBound, stateUpperBound
-        ).astype(np.float32)
+            matrixQ, inflatedQ = adjustProcessNoiseFunc(
+                matrixQ,
+                matrixQCopy,
+                dStat,
+                dStatAlpha,
+                dStatd,
+                dStatPC,
+                inflatedQ,
+                maxQ,
+                minQ,
+            )
+            np.clip(matrixQ, clipSmall, clipBig, out=matrixQ)
+            matrixK = (matrixP @ matrixH.T) @ matrixEInverse
+            IKH = matrixI2 - (matrixK @ matrixH)
+            # update for forward posterior state
+            vectorX = vectorX + (matrixK @ vectorY)
+            # ... and covariance
+            np.clip(
+                (IKH) @ matrixP @ (IKH).T
+                + (matrixK * matrixMunc[:, i]) @ matrixK.T,
+                clipSmall,
+                clipBig,
+                out=matrixP,
+            )
+            stateForward[i] = vectorX.astype(np.float32)
+            stateCovarForward[i] = matrixP.astype(np.float32)
+            pNoiseForward[i] = matrixQ.astype(np.float32)
+
+            if i % chunkSize == 0 and i > 0:
+                stateForward.flush()
+                stateCovarForward.flush()
+                pNoiseForward.flush()
+
+        stateForward.flush()
+        stateCovarForward.flush()
+        pNoiseForward.flush()
+
+        stateForwardArr = stateForward
+        stateCovarForwardArr = stateCovarForward
+        pNoiseForwardArr = pNoiseForward
+
+        avgDstat /= n
+
+        logger.info(
+            f"Average D_[i] statistic over `n` intervals: {avgDstat:.3f}"
+        )
+        logger.info(
+            f"`D_[i] > α_D` triggered adjustments to Q_[i] at "
+            f"[{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
+        )
+
+        # ==========================
+        # backward: n-1,n-2,...,0
+        # ==========================
+        stateSmoothed = np.memmap(
+            stateBackwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2),
+        )
+        stateCovarSmoothed = np.memmap(
+            stateCovarBackwardPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, 2, 2),
+        )
+        postFitResiduals = np.memmap(
+            postFitResidualsPathMM,
+            dtype=np.float32,
+            mode="w+",
+            shape=(n, m),
+        )
+
+        stateSmoothed[-1] = np.float32(stateForwardArr[-1])
+        stateCovarSmoothed[-1] = np.float32(stateCovarForwardArr[-1])
+        postFitResiduals[-1] = np.float32(
+            matrixData[:, -1] - (matrixH @ stateSmoothed[-1])
+        )
+        smootherGain = np.zeros((2, 2), dtype=np.float32)
+
+        for k in range(n - 2, -1, -1):
+            if k % progressIter == 0:
+                logger.info(
+                    f"\nBackward pass interval: {k + 1}/{n}, "
+                    f"smootherGain[0,0] (i+1 --> i): {smootherGain[0, 0]:.4f}\n"
+                )
+
+            forwardStatePosterior = stateForwardArr[k]
+            forwardCovariancePosterior = stateCovarForwardArr[k]
+
+            backwardInitialState = matrixF @ forwardStatePosterior
+            backwardInitialCovariance = (
+                matrixF @ forwardCovariancePosterior @ matrixF.T
+                + pNoiseForwardArr[k + 1]
+            )
+
+            smootherGain = np.linalg.solve(
+                backwardInitialCovariance.T,
+                (forwardCovariancePosterior @ matrixF.T).T,
+            ).T
+
+            stateSmoothed[k] = (
+                forwardStatePosterior
+                + smootherGain
+                @ (stateSmoothed[k + 1] - backwardInitialState)
+            ).astype(np.float32)
+
+            stateCovarSmoothed[k] = (
+                forwardCovariancePosterior
+                + smootherGain
+                @ (
+                    stateCovarSmoothed[k + 1]
+                    - backwardInitialCovariance
+                )
+                @ smootherGain.T
+            ).astype(np.float32)
+
+            postFitResiduals[k] = np.float32(
+                matrixData[:, k] - matrixH @ stateSmoothed[k]
+            )
+
+            if k % chunkSize == 0 and k > 0:
+                stateSmoothed.flush()
+                stateCovarSmoothed.flush()
+                postFitResiduals.flush()
+
+        stateSmoothed.flush()
+        stateCovarSmoothed.flush()
+        postFitResiduals.flush()
+
+        if boundState:
+            stateSmoothed[:, 0] = np.clip(
+                stateSmoothed[:, 0],
+                stateLowerBound,
+                stateUpperBound,
+            ).astype(np.float32)
+
+        outStateSmoothed = np.array(stateSmoothed, copy=True)
+        outStateCovarSmoothed = np.array(
+            stateCovarSmoothed, copy=True
+        )
+        outPostFitResiduals = np.array(postFitResiduals, copy=True)
 
     return (
-        stateSmoothed[:],
-        stateCovarSmoothed[:],
-        postFitResiduals[:],
+        outStateSmoothed,
+        outStateCovarSmoothed,
+        outPostFitResiduals,
     )
 
 
 def getPrimaryState(
-    stateVectors: np.ndarray, roundPrecision: int = 4,
+    stateVectors: np.ndarray,
+    roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
     r"""Get the primary state estimate from each vector after running Consenrich.
 
@@ -1349,7 +1351,8 @@ def getPrimaryState(
 
 
 def getStateCovarTrace(
-    stateCovarMatrices: np.ndarray, roundPrecision: int = 4,
+    stateCovarMatrices: np.ndarray,
+    roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional array of state covariance traces after running Consenrich
 
@@ -1497,7 +1500,7 @@ def getMuncTrack(
         stepSize,
         approximationWindowLengthBP,
         lowPassWindowLengthBP,
-        minR, 
+        minR,
         maxR,
         lowPassFilterType,
         shrinkOffset=shrinkOffset,
@@ -1682,31 +1685,32 @@ def getBedMask(
 
 
 def autoDeltaF(
-    chromosome: str,
-    start: int,
-    end: int,
+    bamFiles: List[str],
     stepSize: int,
     fragmentLengths: Optional[List[int]] = None,
-    bamFiles: Optional[List[str]] = None,
     fallBackFragmentLength: int = 147,
     randomSeed: int = 42,
 ) -> float:
     r"""(Experimental) Set `deltaF` as the ratio intervalLength:fragmentLength.
 
-    Computes average fragment length across samples and sets `deltaF = stepSize / avgFragmentLength`.
-    Assuming fragments contribute +1 to each genomic interval they overlap, a small intervalLength:fragmentLength
-    motivates a small `deltaF` (i.e., less state change between intervals).
+    Computes average fragment length across samples and sets `processParams.deltaF = countingArgs.stepSize / medianFragmentLength`.
 
-    :param chromosome: Chromosome name.
-    :type chromosome: str
-    :param start: Start position of a region (e.g., chromosome)
-    :type start: int
-    :param end: End position of a region (e.g., chromosome)
-    :type end: int
+    Where `stepSize` is small, adjacent genomic intervals may share information from the same fragments. This motivates
+    a smaller `deltaF` (i.e., less state change between neighboring intervals).
+
     :param stepSize: Length of genomic intervals/bins. See :class:`countingParams`.
     :type stepSize: int
-    :param bamFiles: List of sorted/indexed BAM files to estimate fragment lengths from.
-    :type bamFiles: Optional[List[str]]
+    :param bamFiles: List of sorted/indexed BAM files to estimate fragment lengths from if they are not provided directly.
+    :type bamFiles: List[str]
+    :param fragmentLengths: Optional list of fragment lengths (in bp) for each sample. If provided, these values are used directly instead of estimating from `bamFiles`.
+    :type fragmentLengths: Optional[List[int]]
+    :param fallBackFragmentLength: If fragment length estimation from a BAM file fails, this value is used instead.
+    :type fallBackFragmentLength: int
+    :param randomSeed: Random seed for fragment length estimation.
+    :type randomSeed: int
+    :return: Estimated `deltaF` value.
+    :rtype: float
+    :seealso: :func:`cconsenrich.cgetFragmentLength`, :class:`processParams`, :class:`countingParams`
     """
 
     avgFragmentLength: float = 0.0
@@ -1715,22 +1719,17 @@ def autoDeltaF(
         and len(fragmentLengths) > 0
         and all(isinstance(x, (int, float)) for x in fragmentLengths)
     ):
-        avgFragmentLength = np.mean(fragmentLengths)
+        avgFragmentLength = np.median(fragmentLengths)
     elif bamFiles is not None and len(bamFiles) > 0:
+        fragmentLengths_ = []
         for bamFile in bamFiles:
             fLen = cconsenrich.cgetFragmentLength(
                 bamFile,
-                chromosome,
-                start,
-                end,
                 fallBack=fallBackFragmentLength,
                 randSeed=randomSeed,
             )
-            avgFragmentLength += fLen
-            logger.info(
-                f"Estimated fragment length for {bamFile}: {fLen} bp"
-            )
-        avgFragmentLength /= len(bamFiles)
+            fragmentLengths_.append(fLen)
+        avgFragmentLength = np.median(fragmentLengths_)
     else:
         raise ValueError(
             "One of `fragmentLengths` or `bamFiles` is required..."
@@ -1803,7 +1802,7 @@ def plotStateEstimatesHistogram(
     plotWidthInches: float = 10.0,
     plotDPI: int = 300,
     plotDirectory: str | None = None,
-) -> str|None:
+) -> str | None:
     r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state estimates.
 
     :param plotPrefix: Prefixes the output filename
@@ -1824,12 +1823,17 @@ def plotStateEstimatesHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} does not exist"
+        )
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} is not a directory"
+        )
 
-    plotFileName = (
-        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.png")
+    plotFileName = os.path.join(
+        plotDirectory,
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.png",
     )
     binnedStateEstimates = _forPlotsSampleBlockStats(
         values_=primaryStateValues,
@@ -1843,7 +1847,7 @@ def plotStateEstimatesHistogram(
     )
     plt.hist(
         binnedStateEstimates,
-        bins='doane',
+        bins="doane",
         color="blue",
         alpha=0.85,
         edgecolor="black",
@@ -1855,9 +1859,13 @@ def plotStateEstimatesHistogram(
     plt.savefig(plotFileName, dpi=plotDPI)
     plt.close()
     if os.path.exists(plotFileName):
-        logger.info(f"Wrote state estimate histogram to {plotFileName}")
+        logger.info(
+            f"Wrote state estimate histogram to {plotFileName}"
+        )
         return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    logger.warning(
+        f"Failed to create histogram. {plotFileName} not written."
+    )
     return None
 
 
@@ -1875,7 +1883,7 @@ def plotResidualsHistogram(
     plotDPI: int = 300,
     flattenResiduals: bool = False,
     plotDirectory: str | None = None,
-) -> str|None:
+) -> str | None:
     r"""(Experimental) Plot a histogram of within-chromosome post-fit residuals.
 
     .. note::
@@ -1907,12 +1915,17 @@ def plotResidualsHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} does not exist"
+        )
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} is not a directory"
+        )
 
-    plotFileName = (
-        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.png")
+    plotFileName = os.path.join(
+        plotDirectory,
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.png",
     )
 
     x = np.ascontiguousarray(residuals, dtype=np.float32)
@@ -1937,7 +1950,7 @@ def plotResidualsHistogram(
     )
     plt.hist(
         binnedResiduals,
-        bins='doane',
+        bins="doane",
         color="blue",
         alpha=0.85,
         edgecolor="black",
@@ -1951,7 +1964,9 @@ def plotResidualsHistogram(
     if os.path.exists(plotFileName):
         logger.info(f"Wrote residuals histogram to {plotFileName}")
         return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    logger.warning(
+        f"Failed to create histogram. {plotFileName} not written."
+    )
     return None
 
 
@@ -1968,7 +1983,7 @@ def plotStateStdHistogram(
     plotWidthInches: float = 10.0,
     plotDPI: int = 300,
     plotDirectory: str | None = None,
-) -> str|None:
+) -> str | None:
     r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state standard deviations, i.e., :math:`\sqrt{\widetilde{\mathbf{P}}_{[i,11]}}`.
 
     :param plotPrefix: Prefixes the output filename
@@ -1989,12 +2004,17 @@ def plotStateStdHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} does not exist"
+        )
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+        raise ValueError(
+            f"`plotDirectory` {plotDirectory} is not a directory"
+        )
 
-    plotFileName = (
-        os.path.join(plotDirectory, f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.png")
+    plotFileName = os.path.join(
+        plotDirectory,
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.png",
     )
 
     binnedStateStdEstimates = _forPlotsSampleBlockStats(
@@ -2005,11 +2025,12 @@ def plotStateStdHistogram(
         randomSeed_=randomSeed,
     )
     plt.figure(
-        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI,
+        figsize=(plotWidthInches, plotHeightInches),
+        dpi=plotDPI,
     )
     plt.hist(
         binnedStateStdEstimates,
-        bins='doane',
+        bins="doane",
         color="blue",
         alpha=0.85,
         edgecolor="black",
@@ -2023,5 +2044,7 @@ def plotStateStdHistogram(
     if os.path.exists(plotFileName):
         logger.info(f"Wrote state std histogram to {plotFileName}")
         return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    logger.warning(
+        f"Failed to create histogram. {plotFileName} not written."
+    )
     return None
