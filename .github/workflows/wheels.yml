@@ -69,11 +69,14 @@ jobs:
 
           CIBW_BEFORE_ALL_MACOS: |
             brew update
-            brew install xz libomp
-
+            brew install xz libomp llvm # apple's clang --> no openmp
+    
           CIBW_ENVIRONMENT_MACOS: >
+            PATH="$(brew --prefix llvm)/bin:$PATH"
+            CC="$(brew --prefix llvm)/bin/clang"
+            CXX="$(brew --prefix llvm)/bin/clang++"
             CPPFLAGS="-I$(brew --prefix libomp)/include"
-            LDFLAGS="-L$(brew --prefix libomp)/lib"
+            LDFLAGS="-L$(brew --prefix libomp)/lib -Wl,-rpath,$(brew --prefix libomp)/lib"
 
       - if: matrix.name == 'linux-x86_64'
         name: Build source distribution
