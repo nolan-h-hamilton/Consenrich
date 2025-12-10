@@ -8,7 +8,7 @@ import pprint
 import os
 from pathlib import Path
 from collections.abc import Mapping
-from typing import List, Optional, Tuple, Dict, Any, Union
+from typing import List, Optional, Tuple, Dict, Any, Union, Sequence
 import shutil
 import subprocess
 import sys
@@ -78,7 +78,7 @@ def _resolveFragmentLengthPairs(
     return finalTreatment, finalControl
 
 
-def _loadConfig(
+def loadConfig(
     configSource: Union[str, Path, Mapping[str, Any]],
 ) -> Dict[str, Any]:
     r"""Load a YAML config from a path or accept an already-parsed mapping.
@@ -215,7 +215,7 @@ def getEffectiveGenomeSizes(
 
 
 def getInputArgs(config_path: str) -> core.inputParams:
-    configData = _loadConfig(config_path)
+    configData = loadConfig(config_path)
 
     def expandWildCards(bamList: List[str]) -> List[str]:
         expandedList: List[str] = []
@@ -285,7 +285,7 @@ def getInputArgs(config_path: str) -> core.inputParams:
 
 
 def getOutputArgs(config_path: str) -> core.outputParams:
-    configData = _loadConfig(config_path)
+    configData = loadConfig(config_path)
 
     convertToBigWig_ = _cfgGet(
         configData,
@@ -321,7 +321,7 @@ def getOutputArgs(config_path: str) -> core.outputParams:
 
 
 def getGenomeArgs(config_path: str) -> core.genomeParams:
-    configData = _loadConfig(config_path)
+    configData = loadConfig(config_path)
 
     genomeName = _cfgGet(configData, "genomeParams.name", None)
     genomeLabel = constants.resolveGenomeName(genomeName)
@@ -419,7 +419,7 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
 
 
 def getCountingArgs(config_path: str) -> core.countingParams:
-    configData = _loadConfig(config_path)
+    configData = loadConfig(config_path)
 
     stepSize = _cfgGet(configData, "countingParams.stepSize", 25)
     scaleDownFlag = _cfgGet(
@@ -585,7 +585,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
 def getPlotArgs(
     config_path: str, experimentName: str
 ) -> core.plotParams:
-    configData = _loadConfig(config_path)
+    configData = loadConfig(config_path)
 
     plotPrefix_ = _cfgGet(
         configData, "plotParams.plotPrefix", experimentName
@@ -685,7 +685,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     :param config_path: Path to the YAML configuration file.
     :return: Dictionary containing all parsed configuration parameters.
     """
-    configData = _loadConfig(config_path)
+    configData = loadConfig(config_path)
 
     inputParams = getInputArgs(config_path)
     outputParams = getOutputArgs(config_path)

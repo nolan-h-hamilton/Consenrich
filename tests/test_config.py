@@ -2,8 +2,18 @@ import textwrap
 import pytest
 from consenrich.consenrich import readConfig
 from pathlib import Path
+import consenrich.consenrich as consenrich
 import consenrich.constants as constants
 import consenrich.misc_util as misc_util
+import types
+
+
+class stopAfterResolve(Exception):
+    pass
+
+
+class stopOnFirstControlEstimate(Exception):
+    pass
 
 
 def writeConfigFile(tmpPath, fileName, yamlText):
@@ -186,3 +196,261 @@ def test_readConfigDottedAndNestedEquivalent(
     assert (
         matchingDotted.templateNames == matchingNested.templateNames
     )
+
+
+def makeFakeArgs(config="dummy.yaml", verbose=False):
+    return types.SimpleNamespace(
+        config=config,
+        matchBedGraph=None,
+        matchTemplate=None,
+        matchLevel=None,
+        matchAlpha=0.05,
+        matchMinMatchLengthBP=-1,
+        matchIters=50000,
+        matchMinSignalAtMaxima="q:0.75",
+        matchMaxNumMatches=1000000,
+        matchMergeGapBP=-1,
+        matchUseWavelet=False,
+        matchRandSeed=42,
+        matchExcludeBed=None,
+        matchAutoLengthQuantile=0.90,
+        matchMethodFDR=None,
+        matchIsLogScale=False,
+        verbose=verbose,
+    )
+
+
+def makeFakeConfig(useTreatmentFragmentLengths: bool):
+    inputArgs = types.SimpleNamespace(
+        bamFiles=["t1.bam", "t2.bam"],
+        bamFilesControl=["c1.bam", "c2.bam"],
+        pairedEnd=False,
+    )
+
+    genomeArgs = types.SimpleNamespace(
+        genomeName="testGenome",
+        chromSizesFile="fake.chrom.sizes",
+        excludeChroms=[],
+        excludeForNorm=[],
+        sparseBedFile=None,
+        chromosomes=["chrTest"],
+    )
+
+    countingArgs = types.SimpleNamespace(
+        stepSize=25,
+        scaleDown=False,
+        scaleFactors=None,
+        scaleFactorsControl=None,
+        numReads=100,
+        applyAsinh=False,
+        applyLog=False,
+        applySqrt=False,
+        rescaleToTreatmentCoverage=False,
+        normMethod="EGS",
+        noTransform=False,
+        trimLeftTail=0.0,
+        fragmentLengths=None,
+        fragmentLengthsControl=None,
+        useTreatmentFragmentLengths=useTreatmentFragmentLengths,
+    )
+
+    processArgs = types.SimpleNamespace(
+        deltaF=-1.0,
+        minQ=-1.0,
+        maxQ=10000,
+        offDiagQ=1.0e-3,
+        dStatAlpha=2.0,
+        dStatd=1.0,
+        dStatPC=1.0,
+        dStatUseMean=False,
+        scaleResidualsByP11=True,
+    )
+
+    observationArgs = types.SimpleNamespace(
+        numNearest=25,
+        minR=-1.0,
+        maxR=10000,
+        useALV=True,
+        useConstantNoiseLevel=False,
+        noGlobal=False,
+        localWeight=0.333,
+        globalWeight=0.667,
+        approximationWindowLengthBP=25000,
+        lowPassWindowLengthBP=50000,
+        lowPassFilterType="median",
+        returnCenter=True,
+        shrinkOffset=1 - 0.05,
+        kappaALV=50.0,
+    )
+
+    stateArgs = types.SimpleNamespace(
+        stateInit=0.0,
+        stateCovarInit=1000.0,
+        boundState=True,
+        stateLowerBound=0.0,
+        stateUpperBound=10000.0,
+    )
+
+    samArgs = types.SimpleNamespace(
+        samThreads=1,
+        samFlagExclude=3844,
+        maxInsertSize=1000,
+        oneReadPerBin=0,
+        chunkSize=1_000_000,
+        offsetStr="0,0",
+        pairedEndMode=0,
+        inferFragmentLength=1,
+        countEndsOnly=False,
+        minMappingQuality=0,
+        minTemplateLength=-1,
+    )
+
+    detrendArgs = types.SimpleNamespace(
+        detrendWindowLengthBP=20000,
+        useOrderStatFilter=True,
+        usePolyFilter=False,
+        detrendTrackPercentile=75.0,
+        detrendSavitzkyGolayDegree=0,
+    )
+
+    matchingArgs = types.SimpleNamespace(
+        templateNames=[],
+        cascadeLevels=[],
+        minMatchLengthBP=-1,
+        alpha=0.05,
+        iters=25000,
+        maxNumMatches=100000,
+        minSignalAtMaxima="q:0.75",
+        merge=True,
+        mergeGapBP=-1,
+        useScalingFunction=True,
+        excludeRegionsBedFile=None,
+        randSeed=42,
+        penalizeBy=None,
+        eps=1.0e-2,
+        autoLengthQuantile=0.90,
+        methodFDR=None,
+    )
+
+    plotArgs = types.SimpleNamespace(
+        plotStateEstimatesHistogram=False,
+        plotResidualsHistogram=False,
+        plotStateStdHistogram=False,
+        plotPrefix="test",
+        plotDirectory=".",
+    )
+
+    outputArgs = types.SimpleNamespace(
+        convertToBigWig=False,
+        roundDigits=3,
+        writeResiduals=False,
+        writeMuncTrace=False,
+        writeStateStd=False,
+    )
+
+    return {
+        "experimentName": "testExperiment",
+        "genomeArgs": genomeArgs,
+        "inputArgs": inputArgs,
+        "outputArgs": outputArgs,
+        "countingArgs": countingArgs,
+        "processArgs": processArgs,
+        "observationArgs": observationArgs,
+        "stateArgs": stateArgs,
+        "samArgs": samArgs,
+        "detrendArgs": detrendArgs,
+        "matchingArgs": matchingArgs,
+        "plotArgs": plotArgs,
+    }
+
+
+def patchMainEntry(
+    monkeypatch: pytest.MonkeyPatch, useTreatmentFragmentLengths: bool
+):
+    monkeypatch.setattr(
+        consenrich.argparse.ArgumentParser,
+        "parse_args",
+        lambda self: makeFakeArgs(),
+    )
+    monkeypatch.setattr(consenrich.os.path, "exists", lambda p: True)
+    monkeypatch.setattr(
+        consenrich,
+        "readConfig",
+        lambda p: makeFakeConfig(useTreatmentFragmentLengths),
+    )
+    monkeypatch.setattr(
+        consenrich, "getReadLengths", lambda *a, **k: [50, 50]
+    )
+    monkeypatch.setattr(
+        consenrich,
+        "getEffectiveGenomeSizes",
+        lambda *a, **k: [1000, 1000],
+    )
+    monkeypatch.setattr(
+        consenrich.core, "getReadLength", lambda *a, **k: 50
+    )
+    monkeypatch.setattr(
+        consenrich.constants,
+        "getEffectiveGenomeSize",
+        lambda *a, **k: 1000,
+    )
+    monkeypatch.setattr(
+        consenrich, "checkMatchingEnabled", lambda *a, **k: False
+    )
+
+
+def test_mainSkipsControlFraglenEstimationWhenFlagTrue(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    patchMainEntry(monkeypatch, True)
+
+    calls = []
+
+    def fakeCgetFragmentLength(bamFile, **kwargs):
+        calls.append(bamFile)
+        return 150
+
+    monkeypatch.setattr(
+        consenrich.cconsenrich,
+        "cgetFragmentLength",
+        fakeCgetFragmentLength,
+    )
+
+    monkeypatch.setattr(
+        consenrich,
+        "_resolveFragmentLengthPairs",
+        lambda t, c: (_ for _ in ()).throw(stopAfterResolve()),
+    )
+
+    with pytest.raises(stopAfterResolve):
+        consenrich.main()
+
+    assert "t1.bam" in calls
+    assert "t2.bam" in calls
+    assert "c1.bam" not in calls
+    assert "c2.bam" not in calls
+
+
+def test_mainEstimatesControlFraglenWhenFlagFalse(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    patchMainEntry(monkeypatch, False)
+
+    calls = []
+
+    def fakeCgetFragmentLength(bamFile, **kwargs):
+        calls.append(bamFile)
+        if bamFile.startswith("c"):
+            raise stopOnFirstControlEstimate()
+        return 150
+
+    monkeypatch.setattr(
+        consenrich.cconsenrich,
+        "cgetFragmentLength",
+        fakeCgetFragmentLength,
+    )
+
+    with pytest.raises(stopOnFirstControlEstimate):
+        consenrich.main()
+
+    assert any(b.startswith("c") for b in calls)
