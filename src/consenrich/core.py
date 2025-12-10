@@ -422,6 +422,8 @@ class matchingParams(NamedTuple):
     :type autoLengthQuantile: float
     :param methodFDR: Method for genome-wide multiple hypothesis testing correction. Can specify either Benjamini-Hochberg ('BH'), the more conservative Benjamini-Yekutieli ('BY') to account for arbitrary dependencies between tests, or None.
     :type methodFDR: str
+    :param massQuantileCutoff: Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' ``((avgSignal*length)/intervalLength)``. To diable, set ``< 0``.
+    :type massQuantileCutoff: float
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
     """
 
@@ -441,6 +443,7 @@ class matchingParams(NamedTuple):
     eps: Optional[float]
     autoLengthQuantile: Optional[float]
     methodFDR: Optional[str]
+    massQuantileCutoff: Optional[float]
 
 
 class outputParams(NamedTuple):
@@ -759,7 +762,7 @@ def getAverageLocalVarianceTrack(
     minR: float,
     maxR: float,
     lowPassFilterType: Optional[str] = "median",
-    shrinkOffset: float = 0.5,
+    shrinkOffset: float = 1 - 0.25,
 ) -> npt.NDArray[np.float32]:
     r"""A moment-based local variance estimator with autocorrelation-based shrinkage for genome-wide sample-specific noise level approximation.
 

@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _FDR(pVals: np.ndarray, method: str|None = "bh") -> np.ndarray:
+def _FDR(pVals: np.ndarray, method: str | None = "bh") -> np.ndarray:
     # can use bh or the more conservative Benjamini-Yekutieli to
     # ... control FDR under arbitrary dependencies between tests
     if method is None:
@@ -494,7 +494,7 @@ def matchWavelet(
                         "name": f"{templateName}_{cascadeLevel}_{idxVal}_{tag}",
                         "score": int(scores[i]),
                         "strand": ".",
-                        "signal": float(response[idxVal]),
+                        "signal": float(values[idxVal]),
                         "p_raw": float(pEmp[i]),
                         "pointSource": int(pointSourcesRel[i]),
                     }
@@ -781,8 +781,9 @@ def runMatchingAlgorithm(
     isLogScale: bool = False,
     autoLengthQuantile: float = 0.90,
     mergeGapBP: int | None = -1,
-    methodFDR: str|None = None,
+    methodFDR: str | None = None,
     merge: bool = True,
+    massQuantileCutoff: float = -1.0,
 ):
     r"""Wraps :func:`matchWavelet` for genome-wide matching given a bedGraph file"""
     gwideDF = pd.DataFrame()
@@ -802,7 +803,7 @@ def runMatchingAlgorithm(
         .unique()
         .tolist()
     )
-    
+
     avgMinMatchLengths = []
 
     for c_, chromosome_ in enumerate(chromosomes):
@@ -874,7 +875,7 @@ def runMatchingAlgorithm(
             templateNames,
             cascadeLevels,
             iters,
-            1.0, # keep all for later gwide correction
+            1.0,  # keep all for later gwide correction
             minMatchLengthBP_,
             maxNumMatches,
             minSignalAtMaxima,
@@ -889,9 +890,33 @@ def runMatchingAlgorithm(
         if df__.empty:
             logger.info(f"No matches detected on {chromosome_}.")
             continue
-        gwideDF = pd.concat(
-            [gwideDF, df__], axis=0, ignore_index=True
-        )
+
+
+        stepSize_ = np.float32(chromIntervals[1] - chromIntervals[0])
+        lengths = (
+            df__["end"].to_numpy(dtype=np.int64)
+            - df__["start"].to_numpy(dtype=np.int64)
+        ).astype(np.float32)
+
+        signals = df__["signal"].to_numpy(dtype=np.float32)
+
+        massProxy = ((lengths * np.abs(signals))/stepSize_).astype(np.float32)
+        massQuantileCutoff_ = min(massQuantileCutoff, 0.99)
+        if massQuantileCutoff_ > 0 and massProxy.size > 0:
+
+            cutoff = np.quantile(
+                massProxy,
+                float(massQuantileCutoff_),
+                method="interpolated_inverted_cdf",
+            )
+
+            logger.info(
+                f"Applying mass proxy cutoff: {cutoff:.3f} on chromosome {chromosome_}"
+            )
+            df__ = df__[massProxy >= cutoff].copy()
+        else:
+            df__ = df__.copy()
+        gwideDF = pd.concat([gwideDF, df__], ignore_index=True)
 
     if gwideDF.empty:
         logger.warning("Empty matching results over `chromosomes`.")
@@ -918,11 +943,15 @@ def runMatchingAlgorithm(
     )
 
     if mergeGapBP is None or mergeGapBP < 1:
-        mergeGapBP = max((np.median(avgMinMatchLengths).astype(int) // 2), 147)
+        mergeGapBP = max(
+            (np.median(avgMinMatchLengths).astype(int) // 2), 147
+        )
 
     mergedPath = None
     if merge:
-        mergedPath = mergeMatches(tempNarrowPeak, mergeGapBP=mergeGapBP)
+        mergedPath = mergeMatches(
+            tempNarrowPeak, mergeGapBP=mergeGapBP
+        )
         if mergedPath is not None and os.path.isfile(mergedPath):
             logger.info(f"Merged matches written to {mergedPath}")
 
