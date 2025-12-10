@@ -1521,7 +1521,7 @@ def main():
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
             if c_ == 0:
                 logger.info(
-                    f"\n\t`useALV={observationArgs.useALV}` -->\n\tThe (local-level) component of sample-specific observation uncertainty tracks will be estimated at each interval, pointwise, from the `observationParams.numNearest={observationArgs.numNearest}` regions in {genomeArgs.sparseBedFile}..."
+                    f"\n\t`useALV={observationArgs.useALV}`\n\t\t--> The local component of sample-specific observation uncertainty tracks will be estimated at each interval from the `numNearest={observationArgs.numNearest}` regions in `sparseBedFile={genomeArgs.sparseBedFile}`...\n"
                 )
             sparseMap = core.getSparseMap(
                 chromosome,
