@@ -338,6 +338,23 @@ class countingParams(NamedTuple):
     :type fragmentLengths: List[int], optional
     :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
     :type fragmentLengthsControl: List[int], optional
+    :param useTreatmentFragmentLengths: If True, use fragment lengths estimated from treatment BAM files for control BAM files, too.
+    :type useTreatmentFragmentLengths: bool, optional
+
+
+    .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
+    :class: tip
+    :collapsible: closed
+
+        For single-end data, cross-correlation-based estimates for fragment length
+        in control inputs can be biased due to a comparative lack of structure in
+        strand-specific coverage tracks.
+
+        This can create artifacts during counting, so it is common to use the estimated treatment
+        fragment length for both treatment and control samples. The argument
+        ``observationParams.useTreatmentFragmentLengths`` enables this behavior.
+
+    :seealso: :ref:`calibration`, :class:`samParams`.
     """
 
     stepSize: int
@@ -354,6 +371,7 @@ class countingParams(NamedTuple):
     trimLeftTail: Optional[float]
     fragmentLengths: Optional[List[int]]
     fragmentLengthsControl: Optional[List[int]]
+    useTreatmentFragmentLengths: Optional[bool]
 
 
 class matchingParams(NamedTuple):
