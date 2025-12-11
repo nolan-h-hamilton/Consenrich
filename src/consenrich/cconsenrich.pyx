@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # cython: boundscheck=False, wraparound=False, cdivision=True, nonecheck=False, initializedcheck=False, infer_types=True, language_level=3
-# distutils: language = c
+# distutils: language = projectedX_i0
 r"""Cython module for Consenrich core functions.
 
 This module contains Cython implementations of core functions used in Consenrich.
@@ -19,6 +19,7 @@ from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
 from numpy.random import default_rng
 from cython.parallel import prange
+from libc.math cimport isfinite, fabs
 cnp.import_array()
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
@@ -564,14 +565,14 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
         support.append(i_)
         i_ = i_ + 1
 
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] samples = np.random.choice(
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] starts_ = np.random.choice(
         support,
         size=iters,
         replace=True,
         p=None
         ).astype(np.intp)
 
-    cdef Py_ssize_t[::1] startsView = samples
+    cdef Py_ssize_t[::1] startsView = starts_
     cdef Py_ssize_t[::1] sizesView = sizesArr
     cdef double[::1] outView = out
     _blockMax(valuesView, startsView, sizesView, outView, eps)
@@ -1063,3 +1064,256 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
         if numIntervals > 0 and n > 0:
             maskMembership(posPtr, numIntervals, svPtr, evPtr, n, outPtr)
     return mask
+
+
+cdef inline bint _projectToBox(
+    cnp.float32_t[::1] vectorX,
+    cnp.float32_t[:, ::1] matrixP,
+    cnp.float32_t stateLowerBound,
+    cnp.float32_t stateUpperBound,
+    cnp.float32_t eps
+) nogil:
+    cdef cnp.float32_t initX_i0
+    cdef cnp.float32_t projectedX_i0
+    cdef cnp.float32_t P00
+    cdef cnp.float32_t P10
+    cdef cnp.float32_t P11
+    cdef cnp.float32_t padded_P00
+    cdef cnp.float32_t newP11
+
+    # Note, the following is straightforward algebraically, but some hand-waving here
+    # ... for future reference if I forget the intuition/context later on or somebody
+    # ... wants to change/debug. Essentially, finding a point in the feasible region
+    # ... that minimizes -weighted- distance to the unconstrained/infeasible solution.
+    # ... Weighting is determined by inverse state covariance P^{-1}_[i]
+    # ... So a WLS-like QP:
+    # ...   argmin (x^{*}_[i] - x^{unconstrained}_[i])^T (P^-1_{[i]}) (x^{*}_[i] - x^{unconstrained}_[i])
+    # ...   such that: lower <= x^{*}_[i,0] <= upper
+    # ... in our case (single-variable in box), solution is a simle truncation
+    # ... with a corresponding scaled-update to x_[i,1] based on their covariance
+
+    initX_i0 = vectorX[0]
+
+    if initX_i0 >= stateLowerBound and initX_i0 <= stateUpperBound:
+        return <bint>0 # no change if in bounds
+
+    # projection in our case --> truncated box on first state variable
+    projectedX_i0 = 0.0
+    if projectedX_i0 < stateLowerBound:
+        projectedX_i0 = stateLowerBound
+    if projectedX_i0 > stateUpperBound:
+        projectedX_i0 = stateUpperBound
+
+    P00 = matrixP[0, 0]
+    P10 = matrixP[1, 0]
+    P11 = matrixP[1, 1]
+    padded_P00 = P00 if P00 > eps else eps
+
+    # FIRST, adjust second state according to its original value + an update
+    # ... given the covariance between first,second variables that
+    # ... is scaled by the size of projection in the first state
+    vectorX[1] = <cnp.float32_t>(vectorX[1] + (P10 / padded_P00) * (projectedX_i0 - initX_i0))
+
+    # SECOND, now we set the projected first state variable and its covariance accordingly
+    vectorX[0] = projectedX_i0
+    newP11 = <cnp.float32_t>(P11 - (P10*P10) / padded_P00)
+
+    matrixP[0, 0] = eps
+    matrixP[0, 1] = <cnp.float32_t>0.0 # first state fixed --> covar = 0
+    matrixP[1, 0] = <cnp.float32_t>0.0
+    matrixP[1, 1] = newP11 if newP11 > eps else eps
+
+    return 1
+
+
+cpdef void projectToBox(
+    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] vectorX,
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixP,
+    cnp.float32_t stateLowerBound,
+    cnp.float32_t stateUpperBound,
+    cnp.float32_t eps
+):
+    _projectToBox(vectorX, matrixP, stateLowerBound, stateUpperBound, eps)
+
+
+cdef inline void _regionMeanVar(double[::1] valuesView,
+                                Py_ssize_t[::1] blockStartIndices,
+                                Py_ssize_t[::1] blockSizes,
+                                double[::1] meanOutView,
+                                double[::1] varOutView,
+                                double zeroPenalty,
+                                double zeroThresh) noexcept nogil:
+
+    cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
+    cdef Py_ssize_t diffCount
+    cdef double value, previousValue, difference
+    cdef double meanValue, countValue, deltaValue
+    cdef double minValue, maxValue
+    cdef double sumInterval, sumInterval2, sumDiff, sumIntervalDiff
+    cdef double intervalValue
+    cdef double beta_0, beta_1
+    cdef double residual, sumSqRes
+    cdef double baseVar
+    cdef double zeroProp, scaleFactor
+    cdef double diffCountD
+
+    for regionIndex in range(meanOutView.shape[0]):
+        startIndex = blockStartIndices[regionIndex]
+        blockLength = blockSizes[regionIndex]
+
+        if blockLength <= 0:
+            meanOutView[regionIndex] = 0.0
+            varOutView[regionIndex] = 0.0
+            continue
+
+        meanValue = 0.0
+        countValue = 0.0
+        zeroProp = 0.0
+
+        minValue = valuesView[startIndex]
+        maxValue = minValue
+
+        # one loop min, max, mean, 'zero' proportion
+        # mean: new = old  + (obs - old)/n
+        for elementIndex in range(blockLength):
+            value = valuesView[startIndex + elementIndex]
+
+            if value < minValue:
+                minValue = value
+            elif value > maxValue:
+                maxValue = value
+
+            if fabs(value) < zeroThresh:
+                zeroProp += 1.0
+
+            countValue += 1.0
+            deltaValue = value - meanValue
+            meanValue += deltaValue / countValue
+
+        meanOutView[regionIndex] = meanValue
+        zeroProp /= <double>blockLength
+
+        # I: RSS from linear fit to first-order differences is our proxy for variance
+        diffCount = blockLength - 1
+        if diffCount <= 0:
+            varOutView[regionIndex] = 0.0
+            continue
+
+        diffCountD = <double>diffCount
+
+        sumInterval = 0.0
+        sumInterval2 = 0.0
+        sumDiff = 0.0
+        sumIntervalDiff = 0.0
+
+        previousValue = valuesView[startIndex]
+        for elementIndex in range(1, blockLength):
+            value = valuesView[startIndex + elementIndex]
+            difference = value - previousValue
+            previousValue = value
+            # FFR: utlize
+            # ... 1 + 2 + ... + (n-1) = (n-1)*n/2
+            # ... 1 + 4 + 9 + ... + (n-1)^2 = (n-1)*n*(2n-1)/6
+            intervalValue = <double>(elementIndex - 1)
+            sumInterval += intervalValue
+            sumInterval2 += intervalValue * intervalValue
+            sumDiff += difference
+            sumIntervalDiff += intervalValue * difference
+
+        beta_1 = (diffCountD * sumIntervalDiff - sumInterval * sumDiff) / ((diffCountD * sumInterval2 - sumInterval * sumInterval) + 1.0e-2)
+        beta_0 = (sumDiff - beta_1 * sumInterval) / diffCountD
+
+        sumSqRes = 0.0
+        previousValue = valuesView[startIndex]
+
+        for elementIndex in range(1, blockLength):
+            value = valuesView[startIndex + elementIndex]
+            difference = value - previousValue
+            previousValue = value
+
+            intervalValue = <double>(elementIndex - 1)
+            residual = difference - (beta_0 + beta_1 * intervalValue)
+            # rss
+            sumSqRes += (residual * residual)
+
+        if diffCount > 2:
+            baseVar = sumSqRes / (<double>(diffCount - 2))
+        else:
+            baseVar = sumSqRes / diffCountD
+
+        # II: inflate variance based on 'zero' proportion
+        scaleFactor = 1.0 + (zeroPenalty*zeroProp)
+        if scaleFactor < 0.0:
+            scaleFactor = 0.0
+
+        varOutView[regionIndex] = baseVar * scaleFactor
+
+
+cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
+                          cnp.ndarray[cnp.float64_t, ndim=1] values,
+                          int blockSize,
+                          int iters,
+                          int randSeed,
+                          cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
+                          double zeroPenalty=1.0,
+                          double zeroThresh=10.0e-2):
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
+    cdef double[::1] valuesView
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] sizesArray
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] outMeans
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] outVars
+    cdef Py_ssize_t valuesLength
+    cdef Py_ssize_t maxBlockLength
+    cdef list supportList
+    cdef cnp.intp_t scanIndex
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] supportArr
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] starts_
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] ends
+    cdef Py_ssize_t[::1] startsView
+    cdef Py_ssize_t[::1] sizesView
+    cdef double[::1] meansView
+    cdef double[::1] varsView
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] emptyStarts
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] emptyEnds
+
+    np.random.seed(randSeed)
+    valuesArray = np.ascontiguousarray(values, dtype=np.float64)
+    valuesView = valuesArray
+    sizesArray = np.full(iters, blockSize, dtype=np.intp)
+    outMeans = np.empty(iters, dtype=np.float64)
+    outVars = np.empty(iters, dtype=np.float64)
+    valuesLength = <Py_ssize_t>valuesArray.size
+    maxBlockLength = <Py_ssize_t>blockSize
+
+    supportList = []
+    scanIndex = 0
+
+    while scanIndex <= valuesLength - maxBlockLength:
+        if excludeIdxMask[scanIndex:scanIndex + maxBlockLength].any():
+            scanIndex = scanIndex + maxBlockLength + 1
+            continue
+        supportList.append(scanIndex)
+        scanIndex = scanIndex + 1
+
+    # in case we want to put a distribution on block sizes later,
+    # ... e.g., `_blockMax`
+    if len(supportList) == 0:
+        outMeans[:] = 0.0
+        outVars[:] = 0.0
+        emptyStarts = np.empty(0, dtype=np.intp)
+        emptyEnds = np.empty(0, dtype=np.intp)
+        return outMeans, outVars, emptyStarts, emptyEnds
+
+    supportArr = np.asarray(supportList, dtype=np.intp)
+    starts_ = np.random.choice(supportArr, size=iters, replace=True).astype(np.intp)
+    ends = starts_ + maxBlockLength
+
+    startsView = starts_
+    sizesView = sizesArray
+    meansView = outMeans
+    varsView = outVars
+
+    _regionMeanVar(valuesView, startsView, sizesView, meansView, varsView, zeroPenalty, zeroThresh)
+
+    return outMeans, outVars, starts_, ends
