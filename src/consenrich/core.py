@@ -118,35 +118,24 @@ class observationParams(NamedTuple):
     :math:`\mathbf{H} \in \mathbb{R}^{m \times 2}` maps from the state dimension (2)
     to the dimension of measurements/data (:math:`m`).
 
-    :param minR: Genome-wide lower bound for the local/sample-specific observation noise levels.
-        If ``minR < 0`` (default), the minimum noise level is set based on the data as in the left
-        tail of empirical noise level estimates.
+    :param minR: Genome-wide lower bound for the sample-specific measurement uncertainty levels.
     :type minR: float
-    :param maxR: Genome-wide upper bound for the local/sample-specific observation noise levels
-    :param numNearest: The number of nearest nearby 'sparse' features to use for local
-        variance calculation. Ignored if `useALV` is True.
+    :param maxR: Genome-wide upper bound for the local/sample-specific measurement uncertainty levels.
+    :param numNearest: Optional. The number of nearest 'sparse' features in ``consenrich.core.genomeParams.sparseBedFile``
+      to use at each interval during the ALV/local measurement uncertainty calculation. See :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.getAverageLocalVarianceTrack`.
     :type numNearest: int
-    :param localWeight: The coefficient for the local noise level (based on the local surrounding window / `numNearest` features) used in the weighted sum measuring sample-specific noise level at the current interval.
+    :param localWeight: Weight for the 'local' model used to approximate genome-wide sample/region-level measurement uncertainty (see `consenrich.core.getAverageLocalVarianceTrack`, `consenrich.core.getMuncTrack`).
     :type localWeight: float
-    :param globalWeight: The coefficient for the global noise level (based on all genomic intervals :math:`i=1\ldots n`) used in the weighted sum measuring sample-specific noise level at the current interval.
-    :type globalWeight: float
-    :param approximationWindowLengthBP: The length of the local variance approximation window in base pairs (BP)
-        for the local variance calculation.
+    :param approximationWindowLengthBP: The size of the moving window used to estimate local moments for the ALV/local component.
     :type approximationWindowLengthBP: int
-    :param sparseBedFile: The path to a BED file of 'sparse' regions for the local variance calculation. For genomes with default resources in `src/consenrich/data`, this may be left as `None`,
-      and a default annotation that is devoid of putative regulatory elements (ENCODE cCREs) will be used. Users can instead supply a custom BED file or set `observationParams.useALV` to `True`
-      to avoid predefined annotations.
+    :param sparseBedFile: The path to a BED file of 'sparse' regions. For genomes with default resources in `src/consenrich/data`, this may be left as `None`,
+      and a default annotation that is devoid of putative regulatory elements (ENCODE cCREs) will be used. Users can instead supply a custom BED file annotation
+      or rely exclusively on the ALV heuristic for the *local* component.
     :type sparseBedFile: str, optional
-    :param noGlobal: If True, only the 'local' variances are used to approximate observation noise
-        covariance :math:`\mathbf{R}_{[:, (11:mm)]}`.
-    :type noGlobal: bool
-    :param useALV: Whether to use average local variance (ALV) heuristic *exclusively* to approximate observation noise
-        covariances per-sample, per-interval. Note that unrestricted ALV (i.e., without masking previously annotated high-signal regions) is comparatively vulnerable to inflated noise estimates in large enriched genomic domains.
-    :type useALV: bool
     :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
     :type lowPassFilterType: Optional[str]
-    :param shrinkOffset: An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not reduce the local variance estimate near zero.
-        Setting to >= `1` disables shrinkage.
+    :param shrinkOffset: (*Experimental*) An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the structure-based shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not deplete the ALV variance estimates. Consider setting near `1.0` if data has been preprocessed to remove local trends.
+        To disable, set to `>= 1`.
     :type shrinkOffset: Optional[float]
     :param kappaALV: Applicable if ``minR < 0``. Prevent ill-conditioning by bounding the ratios :math:`\frac{R_{[i,j_{\max}]}}{R_{[i,j_{\min}]}}` at each interval :math:`i=1\ldots n`. Values up to `100` will typically retain most of the initial dynamic range while improving stability and mitigating outliers.
     """
@@ -155,14 +144,13 @@ class observationParams(NamedTuple):
     maxR: float
     useALV: bool
     useConstantNoiseLevel: bool
-    noGlobal: bool
+    noGlobal: bool # deprecated
     numNearest: int
     localWeight: float
-    globalWeight: float
     approximationWindowLengthBP: int
     lowPassWindowLengthBP: int
     lowPassFilterType: Optional[str]
-    returnCenter: bool
+    returnCenter: bool # deprecated
     shrinkOffset: Optional[float]
     kappaALV: Optional[float]
 
@@ -456,7 +444,7 @@ class outputParams(NamedTuple):
     :param writeResiduals: If True, write to a separate bedGraph the pointwise avg. of precision-weighted residuals at each interval. These may be interpreted as
         a measure of model mismatch. Where these quantities are larger (+-), there may be more unexplained deviation between the data and fitted model.
     :type writeResiduals: bool
-    :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' observation noise level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
+    :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' measurement uncertainty level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
     :type writeMuncTrace: bool
     :param writeStateStd: If True, write to a separate bedGraph the estimated pointwise uncertainty in the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, on a scale comparable to the estimated signal.
     :type writeStateStd: bool
@@ -762,7 +750,7 @@ def getAverageLocalVarianceTrack(
     minR: float,
     maxR: float,
     lowPassFilterType: Optional[str] = "median",
-    shrinkOffset: float = 1 - 0.25,
+    shrinkOffset: float = 1.0,
 ) -> npt.NDArray[np.float32]:
     r"""A moment-based local variance estimator with autocorrelation-based shrinkage for genome-wide sample-specific noise level approximation.
 
@@ -976,72 +964,78 @@ def runConsenrich(
     residualCovarInversionFunc: Optional[Callable] = None,
     adjustProcessNoiseFunc: Optional[Callable] = None,
     covarClip: float = 3.0,
+    projectStateDuringFiltering: bool = False,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
 ]:
     r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
-    Completes the forward and backward passes given data and approximated observation noise
-    covariance matrices :math:`\mathbf{R}_{[1:n, (11:mm)]}`.
+        Completes the forward and backward passes given data :math:`\mathbf{Z}^{m \times n}` and
+        corresponding uncertainty tracks :math:`\mathbf{R}_{[1:n, (11:mm)]}` (see :func:`getMuncTrack`).
 
-    This is the primary function implementing the core Consenrich algorithm. Users requiring specialized
-    preprocessing may prefer to call this function programmatically on their own preprocessed data rather
-    than using the command-line interface.
+        This is the primary function implementing the core Consenrich algorithm. Users requiring specialized
+        preprocessing may prefer to call this function programmatically on their own preprocessed data rather
+        than using the command-line interface.
 
 
-    :param matrixData: Read density data for a single chromosome or general contiguous segment,
-      possibly preprocessed. Two-dimensional array of shape :math:`m \times n` where :math:`m`
-      is the number of samples/tracks and :math:`n` the number of genomic intervals.
-    :type matrixData: np.ndarray
-    :param matrixMunc: Uncertainty estimates for the read coverage data.
-        Two-dimensional array of shape :math:`m \times n` where :math:`m` is the number of samples/tracks
-        and :math:`n` the number of genomic intervals. See :func:`getMuncTrack`.
-    :type matrixMunc: np.ndarray
-    :param deltaF: See :class:`processParams`.
-    :type deltaF: float
-    :param minQ: See :class:`processParams`.
-    :type minQ: float
-    :param maxQ: See :class:`processParams`.
-    :type maxQ: float
-    :param offDiagQ: See :class:`processParams`.
-    :type offDiagQ: float
-    :param dStatAlpha: See :class:`processParams`.
-    :type dStatAlpha: float
-    :param dStatd: See :class:`processParams`.
-    :type dStatd: float
-    :param dStatPC: See :class:`processParams`.
-    :type dStatPC: float
-    :param dStatUseMean: See :class:`processParams`.
-    :type dStatUseMean: bool
-    :param stateInit: See :class:`stateParams`.
-    :type stateInit: float
-    :param stateCovarInit: See :class:`stateParams`.
-    :type stateCovarInit: float
-    :param chunkSize: Number of genomic intervals' data to keep in memory before flushing to disk.
-    :type chunkSize: int
-    :param progressIter: The number of iterations after which to log progress.
-    :type progressIter: int
-    :param coefficientsH: Optional coefficients for the observation model matrix :math:`\mathbf{H}`.
-        If None, the coefficients are set to 1.0 for all samples.
-    :type coefficientsH: Optional[np.ndarray]
-    :param residualCovarInversionFunc: Callable function to invert the observation covariance matrix :math:`\mathbf{E}_{[i]}`.
-        If None, defaults to :func:`cconsenrich.cinvertMatrixE`.
-    :type residualCovarInversionFunc: Optional[Callable]
-    :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
-        If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
-    :type adjustProcessNoiseFunc: Optional[Callable]
-    :param covarClip: For numerical stability, truncate state/process noise covariances
-        to :math:`[10^{-\textsf{covarClip}}, 10^{\textsf{covarClip}}]`.
-    :type covarClip: float
-    :return: Tuple of three numpy arrays:
-        - post-fit (forward/backward-smoothed) state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
-        - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
-        - post-fit residuals (after forward/backward smoothing) :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
-    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
+        :param matrixData: Read coverage data for a single chromosome or general contiguous segment,
+          possibly preprocessed. Two-dimensional array of shape :math:`m \times n` where :math:`m`
+          is the number of samples/tracks and :math:`n` the number of genomic intervals.
+        :type matrixData: np.ndarray
+        :param matrixMunc: Uncertainty estimates for the read coverage data.
+            Two-dimensional array of shape :math:`m \times n` where :math:`m` is the number of samples/tracks
+            and :math:`n` the number of genomic intervals. See :func:`getMuncTrack`.
+        :type matrixMunc: np.ndarray
+        :param deltaF: See :class:`processParams`.
+        :type deltaF: float
+        :param minQ: See :class:`processParams`.
+        :type minQ: float
+        :param maxQ: See :class:`processParams`.
+        :type maxQ: float
+        :param offDiagQ: See :class:`processParams`.
+        :type offDiagQ: float
+        :param dStatAlpha: See :class:`processParams`.
+        :type dStatAlpha: float
+        :param dStatd: See :class:`processParams`.
+        :type dStatd: float
+        :param dStatPC: See :class:`processParams`.
+        :type dStatPC: float
+        :param dStatUseMean: See :class:`processParams`.
+        :type dStatUseMean: bool
+        :param stateInit: See :class:`stateParams`.
+        :type stateInit: float
+        :param stateCovarInit: See :class:`stateParams`.
+        :type stateCovarInit: float
+        :param chunkSize: Number of genomic intervals' data to keep in memory before flushing to disk.
+        :type chunkSize: int
+        :param progressIter: The number of iterations after which to log progress.
+        :type progressIter: int
+        :param coefficientsH: Optional coefficients for the observation model matrix :math:`\mathbf{H}`.
+            If None, the coefficients are set to 1.0 for all samples.
+        :type coefficientsH: Optional[np.ndarray]
+        :param residualCovarInversionFunc: Callable function to invert the residual (innovation) covariance matrix at each interval, :math:`\mathbf{E}_{[i]}`.
+            If None, defaults to :func:`cconsenrich.cinvertMatrixE`.
+        :type residualCovarInversionFunc: Optional[Callable]
+        :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
+            If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
+        :type adjustProcessNoiseFunc: Optional[Callable]
+        :param covarClip: For numerical stability, truncate state/process noise covariances
+            to :math:`[10^{-\textsf{covarClip}}, 10^{\textsf{covarClip}}]`.
+        :type covarClip: float
+        :param projectStateDuringFiltering: If `True`, the posterior state estimates are projected to the feasible region defined by `stateLowerBound`, `stateUpperBound` *during* iteration.
+          See the constrained+weighted least-squares problem solved in :func:`consenrich.cconsenrich._projectToBox` and Simon, 2010.
+        :type projectStateDuringFiltering: bool:
+        :param boundState: If `True` final state estimates are clipped to [stateLowerBound, stateUpperBound] post-hoc.
+        :type boundState: bool
+        :return: Tuple of three numpy arrays:
+            - post-fit (forward/backward-smoothed) state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
+            - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
+            - post-fit residuals (after forward/backward smoothing) :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
+        :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
 
-    :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
-    :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
+        :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
+        :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
     """
 
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
@@ -1109,7 +1103,6 @@ def runConsenrich(
     matrixP: np.ndarray = np.eye(2, dtype=np.float32) * np.float32(
         stateCovarInit
     )
-    matrixP = matrixP.astype(np.float64)
     matrixH: np.ndarray = constructMatrixH(
         m, coefficients=coefficientsH
     )
@@ -1173,11 +1166,10 @@ def runConsenrich(
 
         progressIter = max(1, progressIter)
         avgDstat: float = 0.0
-
         for i in range(n):
             if i % progressIter == 0 and i > 0:
-                logger.info(f"\nForward pass interval: {i + 1}/{n}, "
-                f"Gain[0,:] (i --> i+1): {1 - IKH[0, 0]:.4f}\n"
+                logger.info(
+                    f"\nForward pass interval: {i + 1}/{n}"
                 )
 
             vectorZ = matrixData[:, i]
@@ -1229,6 +1221,14 @@ def runConsenrich(
                 clipBig,
                 out=matrixP,
             )
+            if projectStateDuringFiltering:
+                cconsenrich.projectToBox(
+                    vectorX,
+                    matrixP,
+                    np.float32(stateLowerBound),
+                    np.float32(stateUpperBound),
+                    np.float32(clipSmall),
+                )
             stateForward[i] = vectorX.astype(np.float32)
             stateCovarForward[i] = matrixP.astype(np.float32)
             pNoiseForward[i] = matrixQ.astype(np.float32)
@@ -1284,12 +1284,10 @@ def runConsenrich(
             matrixData[:, -1] - (matrixH @ stateSmoothed[-1])
         )
         smootherGain = np.zeros((2, 2), dtype=np.float32)
-
         for k in range(n - 2, -1, -1):
             if k % progressIter == 0:
                 logger.info(
-                    f"\nBackward pass interval: {k + 1}/{n}, "
-                    f"smootherGain[0,0] (i+1 --> i): {smootherGain[0, 0]:.4f}\n"
+                    f"\nBackward pass interval: {k + 1}/{n}"
                 )
 
             forwardStatePosterior = stateForwardArr[k]
@@ -1305,7 +1303,6 @@ def runConsenrich(
                 backwardInitialCovariance.T,
                 (forwardCovariancePosterior @ matrixF.T).T,
             ).T
-
             stateSmoothed[k] = (
                 forwardStatePosterior
                 + smootherGain
@@ -1322,6 +1319,15 @@ def runConsenrich(
                 @ smootherGain.T
             ).astype(np.float32)
 
+            if projectStateDuringFiltering:
+                cconsenrich.projectToBox(
+                    stateSmoothed[k],
+                    stateCovarSmoothed[k],
+                    np.float32(stateLowerBound),
+                    np.float32(stateUpperBound),
+                    np.float32(clipSmall),
+                )
+
             postFitResiduals[k] = np.float32(
                 matrixData[:, k] - matrixH @ stateSmoothed[k]
             )
@@ -1331,22 +1337,21 @@ def runConsenrich(
                 stateCovarSmoothed.flush()
                 postFitResiduals.flush()
 
-        stateSmoothed.flush()
-        stateCovarSmoothed.flush()
-        postFitResiduals.flush()
-
         if boundState:
-            stateSmoothed[:, 0] = np.clip(
+            np.clip(
                 stateSmoothed[:, 0],
                 stateLowerBound,
                 stateUpperBound,
-            ).astype(np.float32)
-
+                out=stateSmoothed[:, 0],
+            )
+        stateSmoothed.flush()
+        stateCovarSmoothed.flush()
+        postFitResiduals.flush()
         outStateSmoothed = np.array(stateSmoothed, copy=True)
+        outPostFitResiduals = np.array(postFitResiduals, copy=True)
         outStateCovarSmoothed = np.array(
             stateCovarSmoothed, copy=True
         )
-        outPostFitResiduals = np.array(postFitResiduals, copy=True)
 
     return (
         outStateSmoothed,
@@ -1398,7 +1403,10 @@ def getPrecisionWeightedResidual(
 ) -> npt.NDArray[np.float32]:
     r"""Get a one-dimensional precision-weighted array residuals after running Consenrich.
 
-    Post-fit residuals weighted by the inverse of the observation noise covariance and primary state uncertainty.
+    Post-fit residuals weighted by 'precision' (inverse variance) approximated by *diagonals*
+    in the inverse covariances. This reduces overhead for default use-cases (extra matrix operations during iteration),
+    but these values cannot be interpreted as fully-whitened residuals. Unweighted post-fit residuals are available
+    directly from :func:`runConsenrich`.
 
     :param postFitResiduals: Post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray
@@ -1456,98 +1464,161 @@ def getPrecisionWeightedResidual(
 def getMuncTrack(
     chromosome: str,
     intervals: np.ndarray,
+    values: np.ndarray,
     stepSize: int,
-    rowValues: np.ndarray,
     minR: float,
     maxR: float,
-    useALV: bool,
-    useConstantNoiseLevel: bool,
-    noGlobal: bool,
-    localWeight: float,
-    globalWeight: float,
-    approximationWindowLengthBP: int,
-    lowPassWindowLengthBP: int,
-    returnCenter: bool,
-    sparseMap: Optional[dict[int, int]] = None,
-    lowPassFilterType: Optional[str] = "median",
-    shrinkOffset: float = 0.5,
+    sparseMap: Optional[dict] = None,
+    useALV: bool = False,
+    blockSizeBP: int = 1000,
+    samplingIters: int = 10_000,
+    randomSeed: int = 42,
+    localWeight: float = 0.50,
+    zeroPenalty: float = 0.0,
+    zeroThresh: float = 0.0,
+    approximationWindowLengthBP: int = 25_000,
+    lowPassWindowLengthBP: int = 50_000,
+    fitFunc: Optional[Callable] = np.polyfit,
+    fitFuncArgs: Optional[dict] = {"deg": 2},
+    evalFunc: Optional[Callable] = np.polyval,
+    excludeMask: Optional[np.ndarray] = None,
 ) -> npt.NDArray[np.float32]:
-    r"""Get observation noise variance :math:`R_{[:,jj]}` for the sample :math:`j`.
+    r"""Approximate region- and sample-specific (M)easurement (unc)ertainty tracks
 
-    Combines a local ALV estimate (see :func:`getAverageLocalVarianceTrack`) with an
-    optional global component. If ``useALV`` is True, *only* the ALV is used. If
-    ``useConstantNoiseLevel`` is True, a constant track set to the global mean is used.
-    When a ``sparseMap`` is provided, local values are aggregated over nearby 'sparse'
-    regions before mixing with the global component.
+    For genomic intervals :math:`i=1,2,\ldots,n`, build :math:`\mathbf{R}_{[j, i]}` for sample/track :math:`j`.
 
-    :param chromosome: Tracks are approximated for this chromosome.
-    :type chromosome: str
-    :param intervals: Genomic intervals for which to compute the noise track.
-    :param stepSize: See :class:`countingParams`.
-    :type stepSize: int
-    :param rowValues: Read-density-based values for the sample :math:`j` at the genomic intervals :math:`i=1,2,\ldots,n`.
-    :type rowValues: np.ndarray
-    :param minR: See :class:`observationParams`.
+    .. admonition:: Global-Local Mixed Uncertainty
+    :class: tip
+    :collapsible: closed
+
+      (Experimental) Mix local/global models at each genomic interval to approximate uncertainty as both a function of
+      local/positional variance and a global mean-variance trend relationship. To disable, set `localWeight=1.0`.
+
+    :param minR: Minimum allowable uncertainty.
     :type minR: float
-    :param maxR: See :class:`observationParams`.
+    :param maxR: Maximum allowable uncertainty.
     :type maxR: float
-    :param useALV: See :class:`observationParams`.
+    :param sparseMap: Optional mapping of genomic intervals to sparse regions.
+        If provided, the local average variance track is averaged over these sparse regions.
+    :type sparseMap: Optional[dict]
+    :param useALV: If True, `sparseMap` is ignored.
     :type useALV: bool
-    :param useConstantNoiseLevel: See :class:`observationParams`.
-    :type useConstantNoiseLevel: bool
-    :param noGlobal: See :class:`observationParams`.
-    :type noGlobal: bool
-    :param localWeight: See :class:`observationParams`.
+    :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
+    :type blockSizeBP: int
+    :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
+    :type samplingIters: int
+    :param randomSeed: Random seed for the sampling during global mean-variance trend estimation
+    :type randomSeed: int
+    :param localWeight: Weight of local model in mixed uncertainty estimate.
+      ``--> 1.0 ignore global (mean-variance) model``, ``--> 0.0 ignore local rolling mean/var model``.
     :type localWeight: float
-    :param globalWeight: See :class:`observationParams`.
-    :type globalWeight: float
-    :param approximationWindowLengthBP: See :class:`observationParams` and/or :func:`getAverageLocalVarianceTrack`.
+    :param zeroPenalty: Not used currently.
+    :type zeroPenalty: float
+    :param zeroThresh: Not used currently.
+    :type zeroThresh: float
+    :param approximationWindowLengthBP: Window length (in bp) for local variance approximation. See :func:`getAverageLocalVarianceTrack`.
     :type approximationWindowLengthBP: int
-    :param lowPassWindowLengthBP: See :class:`observationParams` and/or :func:`getAverageLocalVarianceTrack`.
+    :param lowPassWindowLengthBP: Window length (in bp) for low-pass filtering the local variance approximation. See :func:`getAverageLocalVarianceTrack`.
     :type lowPassWindowLengthBP: int
-    :param sparseMap: Optional mapping (dictionary) of interval indices to the nearest sparse regions. See :func:`getSparseMap`.
-    :type sparseMap: Optional[dict[int, int]]
-    :param lowPassFilterType: The type of low-pass filter to use in average local variance track (e.g., 'median', 'mean').
-    :type lowPassFilterType: Optional[str]
-    :param shrinkOffset: See :func:`getAverageLocalVarianceTrack`.
-    :type shrinkOffset: float
-    :return: A one-dimensional numpy array of the observation noise track for the sample :math:`j`.
+    :param fitFunc: A *callable* function accepting input ``(arrayOfMeans,arrayOfVariances, **kwargs)``. Used to fit the global mean-variance model
+    given sampled blocks from :func:``consenrich.cconsnrich.cmeanVarPairs``. Defaults to simple least squares fit:
+    :math:`\hat{f}(\mu) = \hat{\beta}_0 + \hat{\beta}_2 \mu + \hat{\beta}_2 \mu^2` via ``numpy.polyfit(deg=2)``.
+    :type fitFunc: Optional[Callable]
+    :param fitFuncArgs: Additional keyword arguments to pass to `fitFunc`. Defaults to ``{"deg":2}`` for ``numpy.polyfit``.
+    :type fitFuncArgs: Optional[dict]
+    :param evalFunc: A *callable* function with input (``outputFromFitFunc, arrayLengthN``) that evaluates the fitted :math:`\hat{f}(array[i])` at each genomic interval :math:`i=1,2,\ldots,n`. Default is ``numpy.polyval``.
+    :type evalFunc: Optional[Callable]
+    :return: An uncertainty track with same length as input
     :rtype: npt.NDArray[np.float32]
     """
+    blockSizeIntervals = int(blockSizeBP / stepSize)
+    if blockSizeIntervals < 5:
+        logger.warning(
+            f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 10*stepSize"
+        )
+        blockSizeIntervals = 10
 
-    # FFR: we should consider whether to apply bounds only after mixing local/global
+    intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
+    valuesArr = np.ascontiguousarray(values, dtype=np.float64)
+
+    if excludeMask is None:
+        excludeMaskArr = np.zeros_like(intervalsArr, dtype=np.uint8)
+    else:
+        excludeMaskArr = np.ascontiguousarray(
+            excludeMask, dtype=np.uint8
+        )
+    globalWeight = 1.0 - localWeight # force sum-to-one
+
+    # I: Global model (variance = f(mean))
+    # ...  Variance as function of mean globally, as observed in contiguous blocks
+    # ... in cmeanVarPairs, variance is measured in each block as rss from a linear model fit to the
+    # ... first differences of contiguous values within each block. One hat(mean), hat(var) per block.
+    # ... These pairs are then used to fit the polynomial below (`opt`)
+    blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
+        intervalsArr,
+        valuesArr,
+        blockSizeIntervals,
+        samplingIters,
+        randomSeed,
+        excludeMaskArr,
+    )
+
+    # I (i) Fit mean ~ variance relationship as \hat{f}
+    # ... using summary stats over sampled blocks 
+    # ... (mean_k, var_k) k=1,..,samplingIters
+    sortIdx = np.argsort(blockMeans)
+    blockMeansSorted = blockMeans[sortIdx]
+    blockVarsSorted = blockVars[sortIdx]
+    opt = fitFunc(
+        blockMeansSorted,
+        blockVarsSorted,
+        **fitFuncArgs,
+    ).astype(np.float32)
+
+    # since we fit over summary statistics over fixed-size blocks,
+    # ... we compute each
+    # ...   globalModelVar(x_[i]) = \hat{f}(simpleMovingAverage(x_[i]))
+    # ... with a window size equal to block size
+    meanTrack = ndimage.uniform_filter1d(
+        valuesArr.astype(np.float32),
+        size=2*blockSizeIntervals + 1,
+        mode="nearest",
+    ).astype(np.float32)
+    globalModelVariances = evalFunc(opt, meanTrack).astype(
+       np.float32
+    )
+
+    # II: Local model (local moment-based variance via sliding windows)
+
+    # ... (a) At each genomic interval i = 1,2,...,n,
+    # ... apply local/moment-based heuristic to approximate variance
+    # ... i.e., a sliding estimate of E[X^2] - E[X]^2 within 25kb (tunable)
+    # ...
+    # ... (b) `sparseMap` is an optional mapping (implemented as a dictionary)
+    # ...    sparseMap(i) --> {F_i1,F_i2,...,F_i{numNearest}}
+    # ... where each F_ij is a 'sparse' genomic region *devoid* of previously-annotated
+    # ... regulatory elements. If provided,
+    # ...  `trackALV_{new}(i) = average(trackALV_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
+    # ... is the track from (a) are aggregated over sparseMap(i) to get each localModelVariance(i)
     trackALV = getAverageLocalVarianceTrack(
-        rowValues,
+        valuesArr,
         stepSize,
         approximationWindowLengthBP,
         lowPassWindowLengthBP,
-        minR,
-        maxR,
-        lowPassFilterType,
-        shrinkOffset=shrinkOffset,
+        0, # ignore minR, only clipped at return
+        10e6, # ditto maxR
     ).astype(np.float32)
-
-    globalNoise: float = np.float32(np.mean(trackALV))
-    if noGlobal or globalWeight == 0 or useALV:
-        return np.clip(trackALV, minR, maxR).astype(np.float32)
-
-    if (
-        useConstantNoiseLevel
-        or localWeight == 0
-        and sparseMap is None
-    ):
-        return np.clip(
-            globalNoise * np.ones_like(rowValues), minR, maxR
-        ).astype(np.float32)
 
     if sparseMap is not None:
         trackALV = cconsenrich.cSparseAvg(trackALV, sparseMap)
+    localModelVariances = trackALV
 
-    return np.clip(
-        trackALV * localWeight + np.mean(trackALV) * globalWeight,
-        minR,
-        maxR,
-    ).astype(np.float32)
+    # III: mix local and global models, weight sum to one
+    muncTrack = (localWeight * localModelVariances) + (
+        globalWeight * globalModelVariances
+    )
+
+    return np.clip(muncTrack, minR, maxR).astype(np.float32)
 
 
 def sparseIntersection(
@@ -2069,3 +2140,24 @@ def plotStateStdHistogram(
         f"Failed to create histogram. {plotFileName} not written."
     )
     return None
+
+
+def getAverageLocalMeanTrack(
+    rowValues: np.ndarray,
+    stepSize: int,
+    lowPassWindowLengthBP: int,
+    lowPassFilterType: str = "median",
+) -> npt.NDArray[np.float32]:
+    window = max(1, int(round(lowPassWindowLengthBP / stepSize)))
+
+    if window <= 1:
+        return rowValues.astype(np.float32)
+
+    if lowPassFilterType == "mean":
+        return ndimage.uniform_filter1d(
+            rowValues.astype(np.float32), size=window, mode="nearest"
+        ).astype(np.float32)
+
+    return ndimage.median_filter(
+        rowValues.astype(np.float32), size=window, mode="nearest"
+    ).astype(np.float32)

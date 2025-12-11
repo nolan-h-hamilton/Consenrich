@@ -8,6 +8,7 @@ import pprint
 import os
 from pathlib import Path
 from collections.abc import Mapping
+from textwrap import dedent
 from typing import List, Optional, Tuple, Dict, Any, Union, Sequence
 import shutil
 import subprocess
@@ -418,6 +419,46 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
     )
 
 
+def getStateArgs(config_path: str) -> core.stateParams:
+    configData = loadConfig(config_path)
+
+    stateInit_ = _cfgGet(configData, "stateParams.stateInit", 0.0)
+    stateCovarInit_ = _cfgGet(
+        configData,
+        "stateParams.stateCovarInit",
+        1000.0,
+    )
+    boundState_ = _cfgGet(
+        configData,
+        "stateParams.boundState",
+        True,
+    )
+    stateLowerBound_ = _cfgGet(
+        configData,
+        "stateParams.stateLowerBound",
+        0.0,
+    )
+    stateUpperBound_ = _cfgGet(
+        configData,
+        "stateParams.stateUpperBound",
+        10000.0,
+    )
+
+    if boundState_:
+        if stateLowerBound_ > stateUpperBound_:
+            raise ValueError(
+                "`stateLowerBound` is greater than `stateUpperBound`."
+            )
+
+    return core.stateParams(
+        stateInit=stateInit_,
+        stateCovarInit=stateCovarInit_,
+        boundState=boundState_,
+        stateLowerBound=stateLowerBound_,
+        stateUpperBound=stateUpperBound_,
+    )
+
+
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
@@ -690,8 +731,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     inputParams = getInputArgs(config_path)
     outputParams = getOutputArgs(config_path)
     genomeParams = getGenomeArgs(config_path)
+    stateParams = getStateArgs(config_path)
     countingParams = getCountingArgs(config_path)
-
     matchingExcludeRegionsFileDefault: Optional[str] = (
         genomeParams.blacklistFile
     )
@@ -743,13 +784,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         numNearest=_cfgGet(
             configData,
             "observationParams.numNearest",
-            25,
+            50,
         ),
         localWeight=_cfgGet(
-            configData, "observationParams.localWeight", 0.333,
-        ),
-        globalWeight=_cfgGet(
-            configData, "observationParams.globalWeight", 0.667,
+            configData,
+            "observationParams.localWeight",
+            0.50,
         ),
         approximationWindowLengthBP=_cfgGet(
             configData,
@@ -777,31 +817,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         kappaALV=_cfgGet(
             configData,
             "observationParams.kappaALV",
-            50.0,
-        ),
-    )
-
-    stateArgs = core.stateParams(
-        stateInit=_cfgGet(configData, "stateParams.stateInit", 0.0),
-        stateCovarInit=_cfgGet(
-            configData,
-            "stateParams.stateCovarInit",
-            1000.0,
-        ),
-        boundState=_cfgGet(
-            configData,
-            "stateParams.boundState",
-            True,
-        ),
-        stateLowerBound=_cfgGet(
-            configData,
-            "stateParams.stateLowerBound",
-            0.0,
-        ),
-        stateUpperBound=_cfgGet(
-            configData,
-            "stateParams.stateUpperBound",
-            10000.0,
+            100.0,
         ),
     )
 
@@ -868,7 +884,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     detrendArgs = core.detrendParams(
         detrendWindowLengthBP=_cfgGet(
-            configData, "detrendParams.detrendWindowLengthBP", 20_000
+            configData, "detrendParams.detrendWindowLengthBP", 20_000,
         ),
         detrendTrackPercentile=_cfgGet(
             configData,
@@ -914,7 +930,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minSignalAtMaxima=_cfgGet(
             configData,
             "matchingParams.minSignalAtMaxima",
-            "q:0.75",
+            "q:0.50",
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
@@ -947,6 +963,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "matchingParams.methodFDR",
             None,
         ),
+        massQuantileCutoff=_cfgGet(
+            configData,
+            "matchingParams.massQuantileCutoff",
+            0.10,
+        ),
     )
 
     return {
@@ -958,7 +979,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "processArgs": processArgs,
         "plotArgs": plotArgs,
         "observationArgs": observationArgs,
-        "stateArgs": stateArgs,
+        "stateArgs": stateParams,
         "samArgs": samArgs,
         "detrendArgs": detrendArgs,
         "matchingArgs": matchingArgs,
@@ -1083,7 +1104,7 @@ def main():
     parser.add_argument(
         "--match-min-signal",
         type=str,
-        default="q:0.75",
+        default="q:0.50",
         dest="matchMinSignalAtMaxima",
         help="Minimum signal at local maxima in the response sequence that qualifies candidate matches\
             Can be an absolute value (e.g., `50.0`) or a quantile (e.g., `q:0.75` for 75th percentile).",
@@ -1138,6 +1159,13 @@ def main():
         help="If set, indicates that the input bedGraph has already been transformed.",
     )
     parser.add_argument(
+        "--match-mass-quantile-cutoff",
+        type=float,
+        default=0.10,
+        dest="matchMassQuantileCutoff",
+        help="Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' (average signal value * length). Set to < 0 to disable",
+    )
+    parser.add_argument(
         "--verbose", action="store_true", help="If set, logs config"
     )
     args = parser.parse_args()
@@ -1170,6 +1198,7 @@ def main():
             isLogScale=args.matchIsLogScale,
             randSeed=args.matchRandSeed,
             merge=True,  # always merge for CLI use -- either way, both files produced
+            massQuantileCutoff=args.matchMassQuantileCutoff,
         )
         logger.info(f"Finished matching. Written to {outName}")
         sys.exit(0)
@@ -1240,7 +1269,14 @@ def main():
             config_truncated["stateArgs"] = stateArgs
             config_truncated["samArgs"] = samArgs
             config_truncated["detrendArgs"] = detrendArgs
-            pprint.pprint(config_truncated, indent=8)
+            pretty = pprint.pformat(
+                config_truncated,
+                indent=2,
+                width=72,
+                sort_dicts=True,
+                compact=False,
+            )
+            logger.info(f"\n{pretty}\n")
         except Exception as e:
             logger.warning(f"Failed to print parsed config:\n{e}\n")
 
@@ -1318,12 +1354,11 @@ def main():
                 "`countingParams.useTreatmentFragmentLengths=True`"
                 "`\n\t--> using treatment fraglens for control samples, too"
             )
-            fragmentLengthsTreatment, fragmentLengthsControl = _resolveFragmentLengthPairs(
-                fragmentLengthsTreatment, fragmentLengthsControl
+            fragmentLengthsTreatment, fragmentLengthsControl = (
+                _resolveFragmentLengthPairs(
+                    fragmentLengthsTreatment, fragmentLengthsControl
+                )
             )
-
-
-
 
         if (
             scaleFactors is not None
@@ -1521,8 +1556,9 @@ def main():
         if genomeArgs.sparseBedFile and not observationArgs.useALV:
             if c_ == 0:
                 logger.info(
-                    f"\n\t`useALV={observationArgs.useALV}`\n\t\t--> The local component of sample-specific observation uncertainty tracks will be estimated at each interval from the `numNearest={observationArgs.numNearest}` regions in `sparseBedFile={genomeArgs.sparseBedFile}`...\n"
+                    f"Building sparseMap[i] --> (nearestSparseRegion[i,1], ..., nearestSparseRegion[i, `numNearest`])"
                 )
+
             sparseMap = core.getSparseMap(
                 chromosome,
                 intervals,
@@ -1557,21 +1593,16 @@ def main():
             muncMat[j, :] = core.getMuncTrack(
                 chromosome,
                 intervals,
-                stepSize,
                 chromMat[j, :],
+                stepSize,
                 minR_,
                 maxR_,
+                sparseMap,
                 observationArgs.useALV,
-                observationArgs.useConstantNoiseLevel,
-                observationArgs.noGlobal,
-                observationArgs.localWeight,
-                observationArgs.globalWeight,
-                observationArgs.approximationWindowLengthBP,
-                observationArgs.lowPassWindowLengthBP,
-                observationArgs.returnCenter,
-                sparseMap=sparseMap,
-                lowPassFilterType=observationArgs.lowPassFilterType,
-                shrinkOffset=observationArgs.shrinkOffset,
+                localWeight=observationArgs.localWeight,
+                approximationWindowLengthBP=observationArgs.approximationWindowLengthBP,
+                lowPassWindowLengthBP=observationArgs.lowPassWindowLengthBP,
+                randomSeed=42 + j,
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
@@ -1580,9 +1611,7 @@ def main():
                 np.quantile(muncMat[muncMat > muncEps], 0.10)
             )
 
-            colMax = np.maximum(muncMat.max(axis=0), minR_).astype(
-                np.float32
-            )
+            colMax = muncMat.max(axis=0).astype(np.float32)
             colMin = np.maximum(
                 muncMat.min(axis=0), (colMax / kappa)
             ).astype(np.float32)
@@ -1599,8 +1628,11 @@ def main():
                     np.quantile(muncMat[muncMat > muncEps], 0.10)
                 )
 
-            autoMinQ = np.float32(
-                (minR_ / numSamples) + offDiagQ_,
+            # Following ad hoc rule is applied if we get negative minQ:
+            # ... worst case: stay PD+stable in f32 and preserve
+            # ... sum(gains) < 1.0 for arbitrary sample sizes at steady
+            autoMinQ = (
+                np.float32(min(1.0e-3 + (minR_ / numSamples), 0.01)) + (2 * offDiagQ_)
             )
 
             if processArgs.minQ < 0.0:
@@ -1615,6 +1647,10 @@ def main():
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
 
+        logger.info(
+            f"Median muncMatrix[:,:]={np.median(muncMat):.3f}, {np.min(muncMat):.3f} <= muncMatrix[:,:] <= {np.max(muncMat):.3f}"
+        )
+        logger.info(f"minQ={minQ_:.3f}, offDiagQ={offDiagQ_:.3f}")
         logger.info(f">>>Running consenrich: {chromosome}<<<")
         x, P, y = core.runConsenrich(
             chromMat,
@@ -1787,6 +1823,7 @@ def main():
                 if matchingArgs.methodFDR is not None
                 else None,
                 merge=matchingArgs.merge,
+                massQuantileCutoff=matchingArgs.massQuantileCutoff,
             )
 
             logger.info(f"Finished matching. Written to {outName}")

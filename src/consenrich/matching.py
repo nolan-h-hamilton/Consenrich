@@ -82,7 +82,7 @@ def autoMinLengthIntervals(
     if len(widths) == 0:
         return initLen
 
-    return int(np.mean(widths))
+    return int(stats.trim_mean(widths, proportiontocut=0.05) + 0.5)
 
 
 def scalarClip(value: float, low: float, high: float) -> float:
@@ -911,7 +911,7 @@ def runMatchingAlgorithm(
             )
 
             logger.info(
-                f"Applying mass proxy cutoff: {cutoff:.3f} on chromosome {chromosome_}"
+                f"Applying mass cutoff: {cutoff:.3f} on chromosome {chromosome_}"
             )
             df__ = df__[massProxy >= cutoff].copy()
         else:

@@ -981,15 +981,20 @@ cdef inline Py_ssize_t getInsertion(const uint32_t* array_, Py_ssize_t n, uint32
     cdef Py_ssize_t high = n
     cdef Py_ssize_t midpt
     while low < high:
+        # [low,x1,x2,x3,...,(high-low)>>1,...,xn-2, high]
+        # ... --> [(high-low)>>1 + 1,...,xn-2, high]
         midpt = low + ((high - low) >> 1)
         if array_[midpt] <= x:
             low = midpt + 1
+        # [low,x1,x2,x3,...,(high-low)>>1,...,xn-2, high]
+        # ... --> [low,x1,x2,x3,...,(high-low)>>1]
         else:
             high = midpt
+    # array_[low] <= x* < array_[low+1]
     return low
 
 
-cdef int maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, const uint32_t* mStarts, const uint32_t* mEnds, Py_ssize_t n, uint8_t* outMask) nogil:
+cdef inline int maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, const uint32_t* mStarts, const uint32_t* mEnds, Py_ssize_t n, uint8_t* outMask) nogil:
     cdef Py_ssize_t i = 0
     cdef Py_ssize_t k
     cdef uint32_t p
@@ -1054,7 +1059,6 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     cdef cnp.uint32_t[:] endsView = ends
     cdef cnp.uint32_t[:] posView = intervals
     cdef cnp.uint8_t[:] outView = mask
-    # for nogil
     cdef uint32_t* svPtr = &startsView[0] if starts.size > 0 else <uint32_t*>NULL
     cdef uint32_t* evPtr = &endsView[0] if ends.size > 0 else <uint32_t*>NULL
     cdef uint32_t* posPtr = &posView[0] if numIntervals > 0 else <uint32_t*>NULL
@@ -1091,6 +1095,7 @@ cdef inline bint _projectToBox(
     # ...   such that: lower <= x^{*}_[i,0] <= upper
     # ... in our case (single-variable in box), solution is a simle truncation
     # ... with a corresponding scaled-update to x_[i,1] based on their covariance
+    # ... REFERENCE: Simon, 2006 (IET survey paper on constrained linear filters)
 
     initX_i0 = vectorX[0]
 
@@ -1114,7 +1119,8 @@ cdef inline bint _projectToBox(
     # ... is scaled by the size of projection in the first state
     vectorX[1] = <cnp.float32_t>(vectorX[1] + (P10 / padded_P00) * (projectedX_i0 - initX_i0))
 
-    # SECOND, now we set the projected first state variable and its covariance accordingly
+    # SECOND, now we set the projected first state variable
+    # ...  and the second state's variance
     vectorX[0] = projectedX_i0
     newP11 = <cnp.float32_t>(P11 - (P10*P10) / padded_P00)
 
@@ -1255,7 +1261,7 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           int iters,
                           int randSeed,
                           cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
-                          double zeroPenalty=1.0,
+                          double zeroPenalty=10.0,
                           double zeroThresh=10.0e-2):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
