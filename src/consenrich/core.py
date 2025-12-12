@@ -17,7 +17,7 @@ from typing import (
     Tuple,
 )
 
-import matplotlib.pyplot as plt
+from importlib.util import find_spec
 import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
@@ -30,7 +30,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
 )
-
 logger = logging.getLogger(__name__)
 
 
@@ -457,6 +456,12 @@ class outputParams(NamedTuple):
     writeStateStd: bool
 
 
+def _checkMod(name: str) -> bool:
+    try:
+        return find_spec(name) is not None
+    except Exception:
+        return False
+
 def _numIntervals(start: int, end: int, step: int) -> int:
     # helper for consistency
     length = max(0, end - start)
@@ -809,10 +814,7 @@ def getAverageLocalVarianceTrack(
     localVarTrack: npt.NDArray[np.float32]
 
     if abs(shrinkOffset) < 1:
-        # Aim is to shrink the local noise variance estimates
-        # ...where there's evidence of structure (signal) in the data
-        # ...autocorr small --> retain more of the variance estimate
-        # ...autocorr large --> more shrinkage
+        # motivation: large autocorrelation --> evidence of structure/ non-random signal
 
         # shift idx +1
         valuesLag = np.roll(values, 1)
@@ -837,7 +839,7 @@ def getAverageLocalVarianceTrack(
         )
 
         noiseFracEstimate: npt.NDArray[np.float32] = 1.0 - rho1**2
-        localVarTrack = totalVarTrack * noiseFracEstimate
+        localVarTrack = totalVarTrack * noiseFracEstimate  # variance*(1 - rho^2)
 
     else:
         localVarTrack = totalVarTrack
@@ -1482,6 +1484,7 @@ def getMuncTrack(
     fitFuncArgs: Optional[dict] = {"deg": 2},
     evalFunc: Optional[Callable] = np.polyval,
     excludeMask: Optional[np.ndarray] = None,
+    textPlotMeanVarianceTrend: bool = False,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (M)easurement (unc)ertainty tracks
 
@@ -1574,6 +1577,7 @@ def getMuncTrack(
         blockVarsSorted,
         **fitFuncArgs,
     ).astype(np.float32)
+    logger.info(f"Fit: β_0, β_1, β_2=({np.round(opt,4)})")
 
     # since we fit summary statistics over fixed-size blocks,
     # ... we compute each
@@ -1588,13 +1592,29 @@ def getMuncTrack(
        np.float32
     )
 
-    # FFR: this is fun but introduces a dependency (plotext)
-    # textplt.scatter(
-    #     blockMeans,
-    #     blockVars,
-    #     label="(Block Mean) vs. (Block RSS)``",
-    # )
-    # textplt.show()
+    if textPlotMeanVarianceTrend:
+        try:
+            if _checkMod('plotext'):
+                import plotext as textplt
+                textplt.scatter(
+                    blockMeans,
+                    blockVars,
+                    label="Block Sample Mean vs. Block RSS (linear fit to first order differences)``",
+                )
+                textplt.scatter(
+                    blockMeansSorted,
+                    evalFunc(opt, blockMeansSorted),
+                    label="`opt` fit",
+                    color="red",
+                )
+                textplt.limit_size(True,True)
+                textplt.show()
+                textplt.clf()
+        except Exception as e:
+            logger.warning(
+                f"Ignoring `textPlotMeanVarianceTrend`:\n{e}\n"
+            )
+
 
     # II: Local model (local moment-based variance via sliding windows)
 
@@ -1920,6 +1940,14 @@ def plotStateEstimatesHistogram(
     :type plotDirectory: str | None
     """
 
+    if _checkMod('matplotlib'):
+        import matplotlib.pyplot as plt
+    else:
+        logger.warning(
+            "matplotlib not found...returning None"
+        )
+        return None
+
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
@@ -2012,6 +2040,12 @@ def plotResidualsHistogram(
     :type plotDirectory: str | None
     """
 
+    if _checkMod("matplotlib"):
+        import matplotlib.pyplot as plt
+    else:
+        logger.warning("matplotlib not found...returning None")
+        return None
+
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
@@ -2101,6 +2135,12 @@ def plotStateStdHistogram(
     :type plotDirectory: str | None
     """
 
+    if _checkMod("matplotlib"):
+        import matplotlib.pyplot as plt
+    else:
+        logger.warning("matplotlib not found...returning None")
+        return None
+
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
@@ -2148,24 +2188,3 @@ def plotStateStdHistogram(
         f"Failed to create histogram. {plotFileName} not written."
     )
     return None
-
-
-def getAverageLocalMeanTrack(
-    rowValues: np.ndarray,
-    stepSize: int,
-    lowPassWindowLengthBP: int,
-    lowPassFilterType: str = "median",
-) -> npt.NDArray[np.float32]:
-    window = max(1, int(round(lowPassWindowLengthBP / stepSize)))
-
-    if window <= 1:
-        return rowValues.astype(np.float32)
-
-    if lowPassFilterType == "mean":
-        return ndimage.uniform_filter1d(
-            rowValues.astype(np.float32), size=window, mode="nearest"
-        ).astype(np.float32)
-
-    return ndimage.median_filter(
-        rowValues.astype(np.float32), size=window, mode="nearest"
-    ).astype(np.float32)

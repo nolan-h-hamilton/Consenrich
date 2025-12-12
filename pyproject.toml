@@ -40,6 +40,11 @@ docs = [
     "sphinx-copybutton>=0.5.0",
     "sphinxcontrib-bibtex>=2.4.0",
 ]
+plot = [
+    "plotext",
+    "seaborn",
+    "matplotlib",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

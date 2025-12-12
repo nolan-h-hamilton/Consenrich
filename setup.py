@@ -62,8 +62,10 @@ setup(
         "pybedtools>=0.11.2",
         "PyYAML>=6.0.2",
         "PyWavelets>=1.9.0",
-        "matplotlib",
     ],
+    extras_require={
+        "plot": ["plotext", "matplotlib", "seaborn"],
+    },
     python_requires=">=3.11",
     zip_safe=False,
 )
