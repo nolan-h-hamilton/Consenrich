@@ -1199,7 +1199,8 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         meanOutView[regionIndex] = meanValue
         zeroProp /= <double>blockLength
 
-        # I: RSS from linear fit to first-order differences is our proxy for variance
+        # I: RSS from linear fit to first-order differences is our proxy
+        # ... note that this setup may assign very jerky transients to the variance
         diffCount = blockLength - 1
         if diffCount <= 0:
             varOutView[regionIndex] = 0.0
@@ -1217,16 +1218,13 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             value = valuesView[startIndex + elementIndex]
             difference = value - previousValue
             previousValue = value
-            # FFR: utlize
-            # ... 1 + 2 + ... + (n-1) = (n-1)*n/2
-            # ... 1 + 4 + 9 + ... + (n-1)^2 = (n-1)*n*(2n-1)/6
             intervalValue = <double>(elementIndex - 1)
             sumInterval += intervalValue
             sumInterval2 += intervalValue * intervalValue
             sumDiff += difference
             sumIntervalDiff += intervalValue * difference
 
-        beta_1 = (diffCountD * sumIntervalDiff - sumInterval * sumDiff) / ((diffCountD * sumInterval2 - sumInterval * sumInterval) + 1.0e-2)
+        beta_1 = (diffCountD * sumIntervalDiff - sumInterval * sumDiff) / ((diffCountD * sumInterval2 - sumInterval * sumInterval) + 1.0e-4)
         beta_0 = (sumDiff - beta_1 * sumInterval) / diffCountD
 
         sumSqRes = 0.0

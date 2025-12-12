@@ -1575,7 +1575,7 @@ def getMuncTrack(
         **fitFuncArgs,
     ).astype(np.float32)
 
-    # since we fit over summary statistics over fixed-size blocks,
+    # since we fit summary statistics over fixed-size blocks,
     # ... we compute each
     # ...   globalModelVar(x_[i]) = \hat{f}(simpleMovingAverage(x_[i]))
     # ... with a window size equal to block size
@@ -1587,6 +1587,14 @@ def getMuncTrack(
     globalModelVariances = evalFunc(opt, meanTrack).astype(
        np.float32
     )
+
+    # FFR: this is fun but introduces a dependency (plotext)
+    # textplt.scatter(
+    #     blockMeans,
+    #     blockVars,
+    #     label="(Block Mean) vs. (Block RSS)``",
+    # )
+    # textplt.show()
 
     # II: Local model (local moment-based variance via sliding windows)
 

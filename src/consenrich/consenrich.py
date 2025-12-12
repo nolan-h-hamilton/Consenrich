@@ -884,7 +884,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     detrendArgs = core.detrendParams(
         detrendWindowLengthBP=_cfgGet(
-            configData, "detrendParams.detrendWindowLengthBP", 20_000,
+            configData, "detrendParams.detrendWindowLengthBP", 25_000,
         ),
         detrendTrackPercentile=_cfgGet(
             configData,
@@ -1580,16 +1580,7 @@ def main():
                 f"Muncing {j + 1}/{numSamples} for {chromosome}..."
             )
 
-            chromMat[j, :] = detrorm.detrendTrack(
-                chromMat[j, :],
-                stepSize,
-                detrendArgs.detrendWindowLengthBP,
-                detrendArgs.useOrderStatFilter,
-                detrendArgs.usePolyFilter,
-                detrendArgs.detrendTrackPercentile,
-                detrendArgs.detrendSavitzkyGolayDegree,
-            )
-
+            # compute munc track for each sample independently
             muncMat[j, :] = core.getMuncTrack(
                 chromosome,
                 intervals,
@@ -1603,6 +1594,18 @@ def main():
                 approximationWindowLengthBP=observationArgs.approximationWindowLengthBP,
                 lowPassWindowLengthBP=observationArgs.lowPassWindowLengthBP,
                 randomSeed=42 + j,
+                # FFR: add args
+            )
+            # (default) 25kb window 'detrend'/background removal
+            # using an order-statistic filter
+            chromMat[j, :] = detrorm.detrendTrack(
+                chromMat[j, :],
+                stepSize,
+                detrendArgs.detrendWindowLengthBP,
+                detrendArgs.useOrderStatFilter,
+                detrendArgs.usePolyFilter,
+                detrendArgs.detrendTrackPercentile,
+                detrendArgs.detrendSavitzkyGolayDegree,
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
