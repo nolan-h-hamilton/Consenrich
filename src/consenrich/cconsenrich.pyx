@@ -19,7 +19,7 @@ from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, asinh, sinh, sqrt
+from libc.math cimport isfinite, fabs, asinh, sinh, sqrt, pow
 cnp.import_array()
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
@@ -976,7 +976,6 @@ cpdef int64_t cgetFragmentLength(
 
 
 cdef inline Py_ssize_t getInsertion(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:
-    # helper: binary search to find insertion point into sorted `arrray_`
     cdef Py_ssize_t low = 0
     cdef Py_ssize_t high = n
     cdef Py_ssize_t midpt
@@ -1149,19 +1148,19 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 double[::1] varOutView,
                                 double zeroPenalty,
                                 double zeroThresh) noexcept nogil:
-
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
-    cdef Py_ssize_t diffCount
-    cdef double value, previousValue, difference
-    cdef double meanValue, countValue, deltaValue
-    cdef double minValue, maxValue
-    cdef double sumInterval, sumInterval2, sumDiff, sumIntervalDiff
-    cdef double intervalValue
-    cdef double beta_0, beta_1
-    cdef double residual, sumSqRes
-    cdef double baseVar
-    cdef double zeroProp, scaleFactor
-    cdef double diffCountD
+    cdef double value
+    cdef double sumX, sumSqX, sumY, sumXY
+    cdef double beta0, beta1
+    cdef double fitted, residual, RSS
+    cdef double zeroCount, zeroProp, scaleFactor
+    cdef double blockLengthDouble
+    cdef double previousValue, currentValue
+    cdef double scaleFac
+    cdef double meanValue
+    cdef double pairCountDouble
+    cdef double centeredPrev, centeredCurr
+    cdef double* blockPtr # FFR: try to use this convention to avoid indexing as [start + idx]
 
     for regionIndex in range(meanOutView.shape[0]):
         startIndex = blockStartIndices[regionIndex]
@@ -1172,85 +1171,77 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             varOutView[regionIndex] = 0.0
             continue
 
-        meanValue = 0.0
-        countValue = 0.0
-        zeroProp = 0.0
+        blockPtr = &valuesView[startIndex]
+        blockLengthDouble = <double>blockLength
 
-        minValue = valuesView[startIndex]
-        maxValue = minValue
-
-        # one loop min, max, mean, 'zero' proportion
-        # mean: new = old  + (obs - old)/n
+        sumY = 0.0
+        zeroCount = 0.0
         for elementIndex in range(blockLength):
-            value = valuesView[startIndex + elementIndex]
+            value = blockPtr[elementIndex]
+            sumY += value
+            #if fabs(value) < zeroThresh:
+            #    zeroCount += 1.0
 
-            if value < minValue:
-                minValue = value
-            elif value > maxValue:
-                maxValue = value
-
-            if fabs(value) < zeroThresh:
-                zeroProp += 1.0
-
-            countValue += 1.0
-            deltaValue = value - meanValue
-            meanValue += deltaValue / countValue
-
+        meanValue = sumY / blockLengthDouble
+        # note that the output mean here isn't the μ/1-ρ estimator
+        # ... just the sample mean per block. AR(1) variance is then
+        # ... the innovation var
         meanOutView[regionIndex] = meanValue
-        zeroProp /= <double>blockLength
 
-        # I: RSS from linear fit to first-order differences is our proxy
-        # ... note that this setup may assign very jerky transients to the variance
-        diffCount = blockLength - 1
-        if diffCount <= 0:
+        if blockLength <= 1:
             varOutView[regionIndex] = 0.0
             continue
 
-        diffCountD = <double>diffCount
+        sumX = 0.0
+        sumSqX = 0.0
+        sumXY = 0.0
 
-        sumInterval = 0.0
-        sumInterval2 = 0.0
-        sumDiff = 0.0
-        sumIntervalDiff = 0.0
-
-        previousValue = valuesView[startIndex]
-        for elementIndex in range(1, blockLength):
-            value = valuesView[startIndex + elementIndex]
-            difference = value - previousValue
-            previousValue = value
-            intervalValue = <double>(elementIndex - 1)
-            sumInterval += intervalValue
-            sumInterval2 += intervalValue * intervalValue
-            sumDiff += difference
-            sumIntervalDiff += intervalValue * difference
-
-        beta_1 = (diffCountD * sumIntervalDiff - sumInterval * sumDiff) / ((diffCountD * sumInterval2 - sumInterval * sumInterval) + 1.0e-4)
-        beta_0 = (sumDiff - beta_1 * sumInterval) / diffCountD
-
-        sumSqRes = 0.0
-        previousValue = valuesView[startIndex]
+        previousValue = blockPtr[0]
+        centeredPrev = previousValue - meanValue
 
         for elementIndex in range(1, blockLength):
-            value = valuesView[startIndex + elementIndex]
-            difference = value - previousValue
-            previousValue = value
+            currentValue = blockPtr[elementIndex]
+            centeredCurr = currentValue - meanValue
 
-            intervalValue = <double>(elementIndex - 1)
-            residual = difference - (beta_0 + beta_1 * intervalValue)
-            # rss
-            sumSqRes += (residual * residual)
+            sumX += centeredPrev
+            sumSqX += centeredPrev*centeredPrev
+            sumXY += centeredPrev*centeredCurr
 
-        if diffCount > 2:
-            baseVar = sumSqRes / (<double>(diffCount - 2))
+            centeredPrev = centeredCurr
+            previousValue = currentValue
+
+        pairCountDouble = <double>(blockLength-1)
+        scaleFac = sumSqX
+
+        if fabs(scaleFac) > 1.0e-12:
+            beta1 = sumXY / scaleFac
         else:
-            baseVar = sumSqRes / diffCountD
+            beta1 = 0.0
+        beta0 = 0.0
 
-        # II: inflate variance based on 'zero' proportion
-        scaleFactor = 1.0 + (zeroPenalty*zeroProp)
-        if scaleFactor < 0.0:
-            scaleFactor = 0.0
+        RSS = 0.0
+        previousValue = blockPtr[0]
+        centeredPrev = previousValue - meanValue
 
-        varOutView[regionIndex] = baseVar * scaleFactor
+        for elementIndex in range(1, blockLength):
+            currentValue = blockPtr[elementIndex]
+            centeredCurr = currentValue - meanValue
+            fitted = beta1*centeredPrev
+            residual = centeredCurr-fitted
+            RSS += residual*residual
+
+            centeredPrev = centeredCurr
+            previousValue = currentValue
+
+        if blockLength - 1 > 1:
+            varOutView[regionIndex] = RSS / (<double>(blockLength - 2))
+        else:
+            varOutView[regionIndex] = RSS / pairCountDouble
+
+        zeroProp = zeroCount / blockLengthDouble
+        scaleFactor = 1.0 # + (zeroPenalty * zeroProp) # ignoring for now, implement zero-penalty elsewhere
+        varOutView[regionIndex] *= scaleFactor
+
 
 
 cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
@@ -1344,18 +1335,22 @@ cdef inline double ridgeLoss(
     double sumSqZ, double numSamples,
     double ridge
 ) noexcept:
-    cdef double loss = 0
+
+    cdef double loss = 0.0
+    # FFR: consistent throughout with x**2 vs x*x
     loss = (
         sumSqZ
         - 2.0 * slope * sumXZ
         - 2.0 * intercept * sumZ
-        + slope * slope * sumSqX
+        + (slope**2) * sumSqX
         + 2.0 * slope * intercept * sumX
-        + intercept * intercept * numSamples)
-    return loss + ridge * slope * slope
+        + (intercept**2) * numSamples
+    )
+
+    return loss + (ridge * (slope**2))
 
 
-cpdef cmonotonicFit(means, variances, double ridge=1.0e-3):
+cpdef cmonotonicFit(means, variances, double ridge=1.0e-3, bint isLogScale = 0):
     # we fit mean~var via asinh(var) = slope*mean + intercept + ridge
     # ... with constraints slope >= 0, intercept >= 0 so that our variance estimates
     # ... guarantee >= 0, and monotonicity as mean increases
@@ -1395,7 +1390,10 @@ cpdef cmonotonicFit(means, variances, double ridge=1.0e-3):
         yVal = yArr[i]
         if yVal < 0.0:
             yVal = 0.0
-        z = asinh(yVal)
+        if not isLogScale:
+            z = asinh(yVal)
+        else:
+            z = yVal
 
         sumX += x
         sumSqX += x*x
@@ -1450,12 +1448,14 @@ cpdef cmonotonicFit(means, variances, double ridge=1.0e-3):
         if yVal < 0.0:
             yVal = 0.0
         # transform via asinh (linear -->_x log)
-        z = asinh(yVal)
+        if not isLogScale:
+            z = asinh(yVal)
+        else:
+            z = yVal
         sumSqShiftX += (xShift*xShift)
         sumShiftXZ += (xShift*z)
 
     if sumSqShiftX + ridge > 0.0:
-        # at the boundary slope*(xMin) + intercept = 0 --> intercept = -slope*xMin
         slopeBound = sumShiftXZ/(sumSqShiftX + ridge)
     else:
         slopeBound = 0.0
@@ -1475,24 +1475,77 @@ cpdef cmonotonicFit(means, variances, double ridge=1.0e-3):
     return np.asarray([optimalSlope, optimalIntercept], dtype=np.float32)
 
 
-cpdef cmonotonicFitEval(coeffs, meanTrack):
+cpdef cmonotonicFitEval(
+    cnp.ndarray[cnp.float32_t, ndim=1] coeffs,
+    cnp.ndarray[cnp.float32_t, ndim=1] meanTrack,
+    bint isLogScale = 0
+):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
     cdef Py_ssize_t n = xArr.shape[0]
     cdef Py_ssize_t i
     cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
+
     cdef float[:] outView = out
     cdef float[:] xView = xArr
-    cdef double slope = float(np.asarray(coeffs).ravel()[0])
-    cdef double intercept = float(np.asarray(coeffs).ravel()[1])
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] cArr = np.ascontiguousarray(coeffs, dtype=np.float32).ravel()
+    cdef double slope = <double>cArr[0]
+    cdef double intercept = <double>cArr[1]
     cdef double z
+
     if slope < 0.0:
         slope = 0.0
     if intercept < 0.0:
         intercept = 0.0
+
     for i in range(n):
-        z = slope*(<double>xView[i]) + intercept
+        z = slope * (<double>xView[i]) + intercept
         if z < 0.0:
             z = 0.0
-        outView[i] = <float>sinh(z)
+        if not isLogScale:
+            outView[i] = <float>sinh(z)
+        else:
+            outView[i] = <float>z
 
     return out
+
+
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredFOD(
+        cnp.ndarray[cnp.float64_t, ndim=1] values,
+        Py_ssize_t windowLength):
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] outputArray
+    cdef double[::1] valuesView
+    cdef float[::1] outputView
+    cdef Py_ssize_t valuesLength
+    cdef Py_ssize_t i
+    cdef double runningSum
+    cdef double diff
+    cdef double diff_
+    cdef double* valuesPtr
+
+    if windowLength <= 0:
+        raise ValueError("windowLength must be > 0")
+
+    valuesView = np.ascontiguousarray(values, dtype=np.float64)
+    valuesLength = valuesView.shape[0]
+    outputArray = np.zeros(valuesLength, dtype=np.float32)
+    outputView = outputArray
+    if valuesLength <= 1:
+        return outputArray
+    valuesPtr = &valuesView[0]
+
+    with nogil:
+        runningSum = 0.0
+        outputView[0] = <float>0.0
+
+        for i in range(1, valuesLength):
+            diff = (valuesPtr[i] - valuesPtr[i - 1])
+            runningSum += diff**2
+            if i > windowLength:
+                diff_ = valuesPtr[i-windowLength] - valuesPtr[i-windowLength-1]
+                runningSum -= diff_**2
+
+            outputView[i] = <float>runningSum
+
+    return outputArray
