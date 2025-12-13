@@ -970,7 +970,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         massQuantileCutoff=_cfgGet(
             configData,
             "matchingParams.massQuantileCutoff",
-            0.10,
+            0.25,
         ),
     )
 
@@ -1621,6 +1621,7 @@ def main():
                 randomSeed=42 + j,
                 zeroPenalty=observationArgs.zeroPenalty,
                 textPlotMeanVarianceTrend=args.verbose2,
+                isLogScale = countingArgs.applyLog or countingArgs.applyAsinh or countingArgs.applySqrt,
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
