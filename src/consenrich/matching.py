@@ -81,8 +81,8 @@ def autoMinLengthIntervals(
 
     if len(widths) == 0:
         return initLen
-
-    return int(stats.trim_mean(widths, proportiontocut=0.05) + 0.5)
+    # changed from previous...trim right tail
+    return max(int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.95)))), initLen)
 
 
 def scalarClip(value: float, low: float, high: float) -> float:

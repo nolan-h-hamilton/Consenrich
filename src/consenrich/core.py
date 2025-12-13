@@ -117,18 +117,18 @@ class observationParams(NamedTuple):
     :math:`\mathbf{H} \in \mathbb{R}^{m \times 2}` maps from the state dimension (2)
     to the dimension of measurements/data (:math:`m`).
 
-    :param minR: Genome-wide lower bound for the sample-specific measurement uncertainty levels.
+    :param minR: Genome-wide lower bound for sample-specific measurement uncertainty levels.
     :type minR: float
-    :param maxR: Genome-wide upper bound for the local/sample-specific measurement uncertainty levels.
+    :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels.
     :param numNearest: Optional. The number of nearest 'sparse' features in ``consenrich.core.genomeParams.sparseBedFile``
       to use at each interval during the ALV/local measurement uncertainty calculation. See :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.getAverageLocalVarianceTrack`.
     :type numNearest: int
     :param localWeight: Weight for the 'local' model used to approximate genome-wide sample/region-level measurement uncertainty (see `consenrich.core.getAverageLocalVarianceTrack`, `consenrich.core.getMuncTrack`).
     :type localWeight: float
-    :param approximationWindowLengthBP: The size of the moving window used to estimate local moments for the ALV/local component.
+    :param approximationWindowLengthBP: The size of the moving window used in the local model (:func:`consenrich.core.getMuncTrack`).
     :type approximationWindowLengthBP: int
     :param sparseBedFile: The path to a BED file of 'sparse' regions. For genomes with default resources in `src/consenrich/data`, this may be left as `None`,
-      and a default annotation that is devoid of putative regulatory elements (ENCODE cCREs) will be used. Users can instead supply a custom BED file annotation
+      and a default annotation that is devoid/exclusive of/with putative regulatory elements (ENCODE cCREs) will be used. Users can instead supply a custom BED file annotation
       or rely exclusively on the ALV heuristic for the *local* component.
     :type sparseBedFile: str, optional
     :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
@@ -1344,7 +1344,7 @@ def getMuncTrack(
     maxR: float,
     sparseMap: Optional[dict] = None,
     useALV: bool = False,
-    blockSizeBP: Optional[int] = None,
+    blockSizeBP: Optional[int] = 1000,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     localWeight: float = 0.25,
@@ -1355,21 +1355,41 @@ def getMuncTrack(
     fitFuncArgs: Optional[dict] = None,
     evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
-    binQuantile: float = 0.75,
+    binQuantile: float = 0.50,
     textPlotMeanVarianceTrend: bool = False,
     isLogScale: bool = True,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (M)easurement (unc)ertainty tracks
 
-    For genomic intervals :math:`i=1,2,\ldots,n`, build :math:`\mathbf{R}_{[j, i]}` for sample/track :math:`j`.
+    Compute sample-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
+    weighted combination of (i) a global mean-variance trend and (ii) a local rolling
+    estimate.
 
-    .. admonition:: Global-Local Mixed Uncertainty
-    :class: tip
-    :collapsible: closed
+    * The global model is based on a mean-variance trend :math:`\hat{f}`, fit to pairs :math:`(\hat{\mu}_k, \hat{sigma}^2_k)`
+    for each of :math:`k=1,2,\ldots,K` (``samplingIters``) randomly sampled contiguous genomic blocks.
+    Note, :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` is computed by taking the sum of squared residuals
+    (RSS) from an AR(1) model fit over the block (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
 
-      (Experimental) Mix local/global models at each genomic interval to approximate uncertainty as both a function of
-      local/positional variance and a global mean-variance trend relationship. To disable, set `localWeight=1.0`.
+    * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
+      *interval* :math:`i=1,2,\ldots,n`. Specifically, the local squared, first-order differences
+      is computed over a window of size ``approximationWindowLengthBP``. See :func:`consenrich.cconsenrich.csumSquaredFOD`.
 
+      * Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
+      the local model restricts the calculation to the nearest 'sparse' genomic regions at each interval :math:`i=1,2,\ldots,n`
+      defined as regions devoid or exclusive to the targeted signal (:func:`consenrich.cconsenrich.cSparseAvg`).
+      For instance, if targeting the histone PTM `H3K27ac`, sparse regions could be defined with a
+      BED annotation of broad `H3K27me3` domains.
+
+    * The final quantity is a weighted combination from both models, controlled by ``localWeight``,
+
+      .. math::
+
+      R_{[i]} = \textsf{localWeight} \cdot \hat{f}_{\textsf{local}}(i) + (1-\textsf{localWeight}) \cdot \hat{f}_{\textsf{global}}(\mu_{i})
+
+    :param chromosome: chromosome/contig name
+    :type chromosome: str
+    :param intervals: genomic intervals positions (start positions)
+    :type intervals: npt.NDArray[np.uint32]
     :param minR: Minimum allowable uncertainty.
     :type minR: float
     :param maxR: Maximum allowable uncertainty.
@@ -1377,7 +1397,7 @@ def getMuncTrack(
     :param sparseMap: Optional mapping of genomic intervals to sparse regions.
         If provided, the local average variance track is averaged over these sparse regions.
     :type sparseMap: Optional[dict]
-    :param useALV: If True, `sparseMap` is ignored.
+    :param useALV: If True, `sparseMap` is ignored, i.e., use the local model (ALV) *exclusively*
     :type useALV: bool
     :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
     :type blockSizeBP: int
@@ -1393,10 +1413,10 @@ def getMuncTrack(
     :type zeroPenalty: float
     :param approximationWindowLengthBP: Window length (in bp) for local variance approximation. See :func:`getAverageLocalVarianceTrack`.
     :type approximationWindowLengthBP: int
-    :param lowPassWindowLengthBP: Window length (in bp) for low-pass filtering the local variance approximation. See :func:`getAverageLocalVarianceTrack`.
+    :param lowPassWindowLengthBP: Deprecated -- no effect.
     :type lowPassWindowLengthBP: int
     :param fitFunc: A *callable* function accepting input ``(arrayOfMeans,arrayOfVariances, **kwargs)``. Used to fit the global mean-variance model
-    given sampled blocks from :func:``consenrich.cconsnrich.cmeanVarPairs``. Defaults to `cconsenrich.cmonotonicFit`, ridge-penalized, monotone/pos-constrained regression.
+    given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``. Defaults to `cconsenrich.cmonotonicFit`, ridge-penalized, positive regression.
     :type fitFunc: Optional[Callable]
     :param fitFuncArgs: Additional keyword arguments to pass to `fitFunc`.
     :type fitFuncArgs: Optional[dict]
@@ -1418,12 +1438,12 @@ def getMuncTrack(
     blockSizeIntervals = int(blockSizeBP / stepSize)
     if blockSizeIntervals < 10:
         logger.warning(
-            f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 10*stepSize"
+            f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 11*stepSize"
         )
         blockSizeIntervals = 11
 
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
-    valuesArr = np.ascontiguousarray(values, dtype=np.float64)
+    valuesArr = np.ascontiguousarray(values, dtype=np.float32)
 
     if excludeMask is None:
         excludeMaskArr = np.zeros_like(intervalsArr, dtype=np.uint8)
@@ -1438,9 +1458,16 @@ def getMuncTrack(
                 "Ignoring `sparseMap`: `useALV` is True"
             )
         sparseMap = None
-
+    cpy = localWeight
     localWeight = np.clip(localWeight, 0.0, 1.0)
     globalWeight = 1.0 - localWeight  # force sum-to-one
+    if localWeight != cpy:
+        logger.warning(
+            f"`localWeight` clipped to [{localWeight}] to ensure in [0.0,1.0] and local+global=1.0"
+        )
+    logger.info(
+        f"localWeight={localWeight}, globalWeight={globalWeight}",
+    )
 
     # I: Global model (variance = f(mean))
     # ...  Variance as function of mean globally, as observed in contiguous blocks
@@ -1454,7 +1481,9 @@ def getMuncTrack(
         med = np.median(absVals)
         mad = np.median(np.abs(absVals - med))
         if mad > 0.0:
-            zeroThreshold = mad
+            zeroThreshold = (mad*1.4826)/2.0
+        else:
+            zeroThreshold = 1e-4
 
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
@@ -1463,15 +1492,13 @@ def getMuncTrack(
         samplingIters,
         randomSeed,
         excludeMaskArr,
-        zeroPenalty=zeroPenalty,
-        zeroThresh=zeroThreshold,
+        zeroPenalty,
+        zeroThreshold,
     )
 
     #  (i) Fit mean ~ variance relationship as \hat{f}
-    # ... using AR(1) summary stats over sampled blocks
-    # ... (mean_k, var_k) k=1,..,samplingIters
-
-    sortIdx = np.argsort(blockMeans)
+    # ... over sampled blocks' stats (mean_k, var_k) k=1,..,samplingIters
+    sortIdx = np.argsort(blockMeans) # jointly sorted by blockMean
     blockMeansSorted = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
 
@@ -1494,13 +1521,11 @@ def getMuncTrack(
         **fitFuncArgs,
     ).astype(np.float32)
 
-
     meanTrack = ndimage.uniform_filter1d(
         valuesArr.astype(np.float32),
         5,
         mode="nearest",
     ).astype(np.float32)
-
     globalModelVariances = evalFunc(opt, meanTrack, isLogScale).astype(np.float32)
 
     if textPlotMeanVarianceTrend:
@@ -1519,8 +1544,8 @@ def getMuncTrack(
                 )
                 textplt.scatter(
                     blockMeansSorted,
-                    evalFunc(opt, blockMeansSorted),
-                    label="`opt` fit",
+                    evalFunc(opt, blockMeansSorted, isLogScale),
+                    label=f"`opt`: {opt}",
                     color="red",
                 )
                 textplt.limit_size(True, True)
@@ -1550,9 +1575,7 @@ def getMuncTrack(
         localModelVariances = cconsenrich.cSparseAvg(localModelVariances.copy(), sparseMap)
 
     # III: mix local and global models, weight sum to one
-    muncTrack = (localWeight * localModelVariances) + (
-        globalWeight * globalModelVariances
-    )
+    muncTrack = (localWeight*localModelVariances) + (globalWeight*globalModelVariances)
 
     return np.clip(muncTrack, minR, maxR).astype(np.float32)
 
@@ -2144,3 +2167,139 @@ def _extractUpperTail(
 
     keep = np.isfinite(outMeans) & np.isfinite(outVars)
     return outMeans[keep], outVars[keep]
+
+
+def getAverageLocalVarianceTrack(
+    values: np.ndarray,
+    stepSize: int,
+    approximationWindowLengthBP: int,
+    lowPassWindowLengthBP: int,
+    minR: float,
+    maxR: float,
+    lowPassFilterType: Optional[str] = "median",
+    shrinkOffset: float = 1.0,
+) -> npt.NDArray[np.float32]:
+    r"""A moment-based local variance estimator with autocorrelation-based shrinkage for genome-wide sample-specific noise level approximation.
+
+    First, computes a moving average of ``values`` using a bp-length window
+    ``approximationWindowLengthBP`` and a moving average of ``values**2`` over the
+    same window. Their difference is used to approximate the *initial* 'local variance' before
+    autocorrelation-based shrinkage. Finally, a broad/low-pass filter (``median`` or ``mean``)
+    with window ``lowPassWindowLengthBP`` then smooths the variance track.
+
+    (Retained for backward compatibility).
+
+    :param stepSize: see :class:`countingParams`.
+    :type stepSize: int
+    :param approximationWindowLengthBP: Window (bp) for local mean and second-moment. See :class:`observationParams`.
+    :type approximationWindowLengthBP: int
+    :param lowPassWindowLengthBP: Window (bp) for the low-pass filter on the variance track. See :class:`observationParams`.
+    :type lowPassWindowLengthBP: int
+    :param minR: Lower bound for the returned noise level. See :class:`observationParams`.
+    :type minR: float
+    :param maxR: Upper bound for the returned noise level. See :class:`observationParams`.
+    :type maxR: float
+    :param lowPassFilterType: ``"median"`` (default) or ``"mean"``. Type of low-pass filter to use for smoothing the final noise level track. See :class:`observationParams`.
+    :type lowPassFilterType: Optional[str]
+    :param shrinkOffset: Offset applied to lag-1 autocorrelation when shrinking local variance estimates. See :class:`observationParams`.
+    :type shrinkOffset: float
+    :return: Local noise level per interval.
+    :rtype: npt.NDArray[np.float32]
+
+    :seealso: :class:`observationParams`
+    """
+    values = np.asarray(values, dtype=np.float32)
+    windowLength = int(approximationWindowLengthBP / stepSize)
+    if windowLength % 2 == 0:
+        windowLength += 1
+
+    if len(values) < 3:
+        constVar = np.var(values)
+        if constVar < minR:
+            return np.full_like(values, minR, dtype=np.float32)
+        return np.full_like(values, constVar, dtype=np.float32)
+
+    # get local mean (simple moving average)
+    localMeanTrack: npt.NDArray[np.float32] = ndimage.uniform_filter(
+        values, size=windowLength, mode="nearest"
+    )
+
+    # apply V[X] ~=~ E[X^2] - (E[X])^2 locally to approximate local variance
+    totalVarTrack: npt.NDArray[np.float32] = (
+        ndimage.uniform_filter(
+            values**2, size=windowLength, mode="nearest"
+        )
+        - localMeanTrack**2
+    )
+
+    np.maximum(totalVarTrack, 0.0, out=totalVarTrack)  # JIC
+
+    noiseLevel: npt.NDArray[np.float32]
+    localVarTrack: npt.NDArray[np.float32]
+
+    if abs(shrinkOffset) < 1:
+        # Aim is to shrink the local noise variance estimates
+        # ...where there's evidence of structure (signal) in the data
+        # ...autocorr small --> retain more of the variance estimate
+        # ...autocorr large --> more shrinkage
+
+        # shift idx +1
+        valuesLag = np.roll(values, 1)
+        valuesLag[0] = valuesLag[1]
+
+        # get smooth `x_{[i]} * x_{[i-1]}` and standardize
+        localMeanLag: npt.NDArray[np.float32] = (
+            ndimage.uniform_filter(
+                valuesLag, size=windowLength, mode="nearest"
+            )
+        )
+        smoothProd: npt.NDArray[np.float32] = ndimage.uniform_filter(
+            values * valuesLag, size=windowLength, mode="nearest"
+        )
+        covLag1: npt.NDArray[np.float32] = (
+            smoothProd - localMeanTrack * localMeanLag
+        )
+        rho1: npt.NDArray[np.float32] = np.clip(
+            covLag1 / (totalVarTrack + 1.0e-4),
+            -1.0 + shrinkOffset,
+            1 - shrinkOffset,
+        )
+
+        noiseFracEstimate: npt.NDArray[np.float32] = 1.0 - rho1**2
+        localVarTrack = totalVarTrack * noiseFracEstimate
+
+    else:
+        localVarTrack = totalVarTrack
+
+    np.maximum(localVarTrack, 0.0, out=localVarTrack)
+    lpassWindowLength = int(lowPassWindowLengthBP / stepSize)
+    if lpassWindowLength % 2 == 0:
+        lpassWindowLength += 1
+
+    # FFR: consider making this step optional
+    if lowPassFilterType is None or (
+        isinstance(lowPassFilterType, str)
+        and lowPassFilterType.lower() == "median"
+    ):
+        noiseLevel: npt.NDArray[np.float32] = ndimage.median_filter(
+            localVarTrack,
+            size=lpassWindowLength,
+        )
+    elif (
+        isinstance(lowPassFilterType, str)
+        and lowPassFilterType.lower() == "mean"
+    ):
+        noiseLevel = ndimage.uniform_filter(
+            localVarTrack,
+            size=lpassWindowLength,
+        )
+    else:
+        logger.warning(
+            f"Unknown lowPassFilterType, expected `median` or `mean`, defaulting to `median`..."
+        )
+        noiseLevel = ndimage.median_filter(
+            localVarTrack,
+            size=lpassWindowLength,
+        )
+
+    return np.clip(noiseLevel, minR, maxR).astype(np.float32)

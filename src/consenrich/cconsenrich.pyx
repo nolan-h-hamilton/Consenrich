@@ -407,7 +407,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetPrecisionWeightedResidual(
     cdef cnp.float32_t[::1] outv = out
     cdef Py_ssize_t i, j
     cdef float wsum, rwsum, w
-    cdef float eps = 1e-12  # guard for zeros
+    cdef float eps = 1e-6  # guard for zeros
 
     for i in range(n):
         wsum = 0.0
@@ -1144,8 +1144,8 @@ cpdef void projectToBox(
 cdef inline void _regionMeanVar(double[::1] valuesView,
                                 Py_ssize_t[::1] blockStartIndices,
                                 Py_ssize_t[::1] blockSizes,
-                                double[::1] meanOutView,
-                                double[::1] varOutView,
+                                float[::1] meanOutView,
+                                float[::1] varOutView,
                                 double zeroPenalty,
                                 double zeroThresh) noexcept nogil:
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
@@ -1179,14 +1179,14 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         for elementIndex in range(blockLength):
             value = blockPtr[elementIndex]
             sumY += value
-            #if fabs(value) < zeroThresh:
-            #    zeroCount += 1.0
+            if fabs(value) < zeroThresh:
+                zeroCount += 1.0
 
         meanValue = sumY / blockLengthDouble
         # note that the output mean here isn't the μ/1-ρ estimator
         # ... just the sample mean per block. AR(1) variance is then
         # ... the innovation var
-        meanOutView[regionIndex] = meanValue
+        meanOutView[regionIndex] = <float>meanValue
 
         if blockLength <= 1:
             varOutView[regionIndex] = 0.0
@@ -1198,7 +1198,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
         previousValue = blockPtr[0]
         centeredPrev = previousValue - meanValue
-
         for elementIndex in range(1, blockLength):
             currentValue = blockPtr[elementIndex]
             centeredCurr = currentValue - meanValue
@@ -1213,7 +1212,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         pairCountDouble = <double>(blockLength-1)
         scaleFac = sumSqX
 
-        if fabs(scaleFac) > 1.0e-12:
+        if fabs(scaleFac) > 1.0e-6:
             beta1 = sumXY / scaleFac
         else:
             beta1 = 0.0
@@ -1234,18 +1233,18 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             previousValue = currentValue
 
         if blockLength - 1 > 1:
-            varOutView[regionIndex] = RSS / (<double>(blockLength - 2))
+            varOutView[regionIndex] = <float>(RSS / (<double>(blockLength - 2)))
         else:
-            varOutView[regionIndex] = RSS / pairCountDouble
+            varOutView[regionIndex] = <float>(RSS/pairCountDouble)
 
         zeroProp = zeroCount / blockLengthDouble
-        scaleFactor = 1.0 # + (zeroPenalty * zeroProp) # ignoring for now, implement zero-penalty elsewhere
-        varOutView[regionIndex] *= scaleFactor
+        scaleFactor = 1.0  + (zeroPenalty*zeroProp)
+        varOutView[regionIndex] *= <float>scaleFactor
 
 
 
 cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
-                          cnp.ndarray[cnp.float64_t, ndim=1] values,
+                          cnp.ndarray[cnp.float32_t, ndim=1] values,
                           int blockSize,
                           int iters,
                           int randSeed,
@@ -1256,8 +1255,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
     cdef cnp.ndarray[cnp.intp_t, ndim=1] sizesArray
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] outMeans
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] outVars
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] outMeans
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] outVars
     cdef Py_ssize_t valuesLength
     cdef Py_ssize_t maxBlockLength
     cdef list supportList
@@ -1267,8 +1266,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     cdef cnp.ndarray[cnp.intp_t, ndim=1] ends
     cdef Py_ssize_t[::1] startsView
     cdef Py_ssize_t[::1] sizesView
-    cdef double[::1] meansView
-    cdef double[::1] varsView
+    cdef float[::1] meansView
+    cdef float[::1] varsView
     cdef cnp.ndarray[cnp.intp_t, ndim=1] emptyStarts
     cdef cnp.ndarray[cnp.intp_t, ndim=1] emptyEnds
 
@@ -1276,8 +1275,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     valuesArray = np.ascontiguousarray(values, dtype=np.float64)
     valuesView = valuesArray
     sizesArray = np.full(iters, blockSize, dtype=np.intp)
-    outMeans = np.empty(iters, dtype=np.float64)
-    outVars = np.empty(iters, dtype=np.float64)
+    outMeans = np.empty(iters, dtype=np.float32)
+    outVars = np.empty(iters, dtype=np.float32)
     valuesLength = <Py_ssize_t>valuesArray.size
     maxBlockLength = <Py_ssize_t>blockSize
 
@@ -1314,18 +1313,19 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return outMeans, outVars, starts_, ends
 
 
-cdef inline void invert22(
+cdef inline bint invert22(
     double a00, double a01, double a10, double a11,
     double b0, double b1,
     double* x0, double* x1
-) noexcept:
+) noexcept nogil:
     cdef double det = (a00*a11) - (a01*a10)
     if fabs(det) < 1.0e-4:
         x0[0] = 0.0
         x1[0] = b1 / a11 if fabs(a11) > 1.0e-30 else 0.0
-        return
+        return <bint>1
     x0[0] = ( b0 * a11 - a01 * b1) / det
     x1[0] = (-b0 * a10 + a00 * b1) / det
+    return <bint>0
 
 
 cdef inline double ridgeLoss(
@@ -1346,17 +1346,14 @@ cdef inline double ridgeLoss(
         + 2.0 * slope * intercept * sumX
         + (intercept**2) * numSamples
     )
-
     return loss + (ridge * (slope**2))
 
 
-cpdef cmonotonicFit(means, variances, double ridge=1.0e-3, bint isLogScale = 0):
-    # we fit mean~var via asinh(var) = slope*mean + intercept + ridge
-    # ... with constraints slope >= 0, intercept >= 0 so that our variance estimates
-    # ... guarantee >= 0, and monotonicity as mean increases
+cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isLogScale = 0):
 
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] xArr = np.ascontiguousarray(means, dtype=np.float64).ravel()
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] yArr = np.ascontiguousarray(variances, dtype=np.float64).ravel()
+    # note this breaks if the means,variance are not sorted by mean, hence renaming
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] yArr = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
 
     cdef Py_ssize_t n = xArr.shape[0]
     cdef Py_ssize_t i
@@ -1377,17 +1374,11 @@ cpdef cmonotonicFit(means, variances, double ridge=1.0e-3, bint isLogScale = 0):
     cdef double sumShiftXZ = 0.0
     cdef double xShift
 
-    if n <= 0:
-        return np.asarray([0.0, 0.0], dtype=np.float32)
-
-    xMin = xArr[0]
-    for i in range(n):
-        if xArr[i] < xMin:
-            xMin = xArr[i]
+    xMin = <double>xArr[0]
 
     for i in range(n):
-        x = xArr[i]
-        yVal = yArr[i]
+        x = <double>xArr[i]
+        yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
         if not isLogScale:
@@ -1402,7 +1393,6 @@ cpdef cmonotonicFit(means, variances, double ridge=1.0e-3, bint isLogScale = 0):
         sumSqZ += z*z
 
     numSamples = <double>n
-    # get unconstrained solution (HTH^-1)
     invert22(sumSqX + ridge, sumX, sumX, numSamples,
         sumXZ,
         sumZ,
@@ -1443,25 +1433,29 @@ cpdef cmonotonicFit(means, variances, double ridge=1.0e-3, bint isLogScale = 0):
         optimalIntercept = interceptZero
 
     for i in range(n):
-        xShift = xArr[i] - xMin
-        yVal = yArr[i]
+        xShift = (<double>xArr[i]) - xMin
+        yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
-        # transform via asinh (linear -->_x log)
+        # transform via asinh
         if not isLogScale:
             z = asinh(yVal)
         else:
             z = yVal
-        sumSqShiftX += (xShift*xShift)
-        sumShiftXZ += (xShift*z)
+        sumSqShiftX += (xShift**2)
+        sumShiftXZ += (xShift*z) # z*x - z*xMin
 
     if sumSqShiftX + ridge > 0.0:
+        # regularized slope fitting the offset vals
         slopeBound = sumShiftXZ/(sumSqShiftX + ridge)
     else:
         slopeBound = 0.0
     if slopeBound < 0.0:
         slopeBound = 0.0
 
+
+    # since 0 <= slope <= slopeBound = sumShiftXZ/(sumSqShiftX + ridge),
+    # ... intercept >= -slopeBound*xMin --> nonnegative estimates
     interceptBound = -slopeBound*xMin
     currentObjective = ridgeLoss(
         slopeBound, interceptBound,
@@ -1476,8 +1470,8 @@ cpdef cmonotonicFit(means, variances, double ridge=1.0e-3, bint isLogScale = 0):
 
 
 cpdef cmonotonicFitEval(
-    cnp.ndarray[cnp.float32_t, ndim=1] coeffs,
-    cnp.ndarray[cnp.float32_t, ndim=1] meanTrack,
+    cnp.ndarray coeffs,
+    cnp.ndarray meanTrack,
     bint isLogScale = 0
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
@@ -1511,7 +1505,7 @@ cpdef cmonotonicFitEval(
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredFOD(
-        cnp.ndarray[cnp.float64_t, ndim=1] values,
+        cnp.ndarray[cnp.float32_t, ndim=1] values,
         Py_ssize_t windowLength):
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1] outputArray
@@ -1524,28 +1518,22 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredFOD(
     cdef double diff_
     cdef double* valuesPtr
 
-    if windowLength <= 0:
-        raise ValueError("windowLength must be > 0")
-
     valuesView = np.ascontiguousarray(values, dtype=np.float64)
     valuesLength = valuesView.shape[0]
     outputArray = np.zeros(valuesLength, dtype=np.float32)
     outputView = outputArray
-    if valuesLength <= 1:
-        return outputArray
     valuesPtr = &valuesView[0]
 
     with nogil:
         runningSum = 0.0
         outputView[0] = <float>0.0
-
         for i in range(1, valuesLength):
             diff = (valuesPtr[i] - valuesPtr[i - 1])
             runningSum += diff**2
             if i > windowLength:
                 diff_ = valuesPtr[i-windowLength] - valuesPtr[i-windowLength-1]
                 runningSum -= diff_**2
-
-            outputView[i] = <float>runningSum
+                # window now [i-windowLength, i]
+            outputView[i] = <float>runningSum / (<double>(windowLength if i >= windowLength else i))
 
     return outputArray
