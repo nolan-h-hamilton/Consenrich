@@ -1359,32 +1359,33 @@ def getMuncTrack(
     textPlotMeanVarianceTrend: bool = False,
     isLogScale: bool = True,
 ) -> npt.NDArray[np.float32]:
-    r"""Approximate region- and sample-specific (M)easurement (unc)ertainty tracks
+    r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     Compute sample-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
-    weighted combination of (i) a global mean-variance trend and (ii) a local rolling
-    estimate.
+    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, first-order differences.
 
-    * The global model is based on a mean-variance trend :math:`\hat{f}`, fit to pairs :math:`(\hat{\mu}_k, \hat{sigma}^2_k)`
-    for each of :math:`k=1,2,\ldots,K` (``samplingIters``) randomly sampled contiguous genomic blocks.
-    Note, :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` is computed by taking the sum of squared residuals
-    (RSS) from an AR(1) model fit over the block (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
+    * The global model is based on a mean-variance trend :math:`\hat{f}`, fit to pairs :math:`(\hat{\mu}_k, \hat{\sigma}^2_k)`
+        for each of :math:`k=1,2,\ldots,K` (``samplingIters``) randomly sampled contiguous genomic blocks.
+        Note, :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` is computed by taking the sum of squared residuals
+        (RSS) from an AR(1) model fit over the block (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
-      *interval* :math:`i=1,2,\ldots,n`. Specifically, the local squared, first-order differences
-      is computed over a window of size ``approximationWindowLengthBP``. See :func:`consenrich.cconsenrich.csumSquaredFOD`.
+        *interval* :math:`i=1,2,\ldots,n`. Specifically, the local squared, first-order differences
+        is computed over a window of size ``approximationWindowLengthBP``. See :func:`consenrich.cconsenrich.csumSquaredFOD`.
 
-      * Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
-      the local model restricts the calculation to the nearest 'sparse' genomic regions at each interval :math:`i=1,2,\ldots,n`
-      defined as regions devoid or exclusive to the targeted signal (:func:`consenrich.cconsenrich.cSparseAvg`).
-      For instance, if targeting the histone PTM `H3K27ac`, sparse regions could be defined with a
-      BED annotation of broad `H3K27me3` domains.
+        Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
+        the local model restricts the calculation to the nearest 'sparse' genomic regions at each interval :math:`i=1,2,\ldots,n`
+        defined as regions devoid of or mutually exclusive with the targeted signal (:func:`consenrich.cconsenrich.cSparseAvg`).
+        For instance, if targeting the histone PTM `H3K27ac`, sparse regions could be defined with a
+        BED annotation of broad `H3K27me3` domains.
 
-    * The final quantity is a weighted combination from both models, controlled by ``localWeight``,
 
-      .. math::
+    The final quantity is a weighted combination from both models, controlled by ``localWeight``,
 
-      R_{[i]} = \textsf{localWeight} \cdot \hat{f}_{\textsf{local}}(i) + (1-\textsf{localWeight}) \cdot \hat{f}_{\textsf{global}}(\mu_{i})
+    .. math::
+
+       R_{[i]} = \textsf{localWeight}\,\hat{f}_{\textsf{local}}(i)
+                + (1-\textsf{localWeight})\,\hat{f}_{\textsf{global}}(\mu_i)
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -1406,10 +1407,10 @@ def getMuncTrack(
     :param randomSeed: Random seed for the sampling during global mean-variance trend estimation
     :type randomSeed: int
     :param localWeight: Weight of local model in mixed uncertainty estimate.
-      ``--> 1.0 ignore global (mean-variance) model``, ``--> 0.0 ignore local rolling mean/var model``.
+        ``--> 1.0 ignore global (mean-variance) model``, ``--> 0.0 ignore local rolling mean/var model``.
     :type localWeight: float
     :param zeroPenalty: Inflate variance at data points in the left tail of the mean-variance trend
-      (i.e., low mean values) by this amount during global model fitting.
+        (i.e., low mean values) by this amount during global model fitting.
     :type zeroPenalty: float
     :param approximationWindowLengthBP: Window length (in bp) for local variance approximation. See :func:`getAverageLocalVarianceTrack`.
     :type approximationWindowLengthBP: int
