@@ -198,7 +198,7 @@ def test_readConfigDottedAndNestedEquivalent(
     )
 
 
-def makeFakeArgs(config="dummy.yaml", verbose=False):
+def makeFakeArgs(config="dummy.yaml", verbose=False, verbose2=False):
     return types.SimpleNamespace(
         config=config,
         matchBedGraph=None,
@@ -217,6 +217,7 @@ def makeFakeArgs(config="dummy.yaml", verbose=False):
         matchMethodFDR=None,
         matchIsLogScale=False,
         verbose=verbose,
+        verbose2=verbose2,
     )
 
 

@@ -136,6 +136,8 @@ class observationParams(NamedTuple):
     :param shrinkOffset: (*Experimental*) An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the structure-based shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not deplete the ALV variance estimates. Consider setting near `1.0` if data has been preprocessed to remove local trends.
         To disable, set to `>= 1`.
     :type shrinkOffset: Optional[float]
+    :param zeroPenalty: Inflate variance estimates in genomic regions with a larger proportion of zeros.
+    :type zeroPenalty: Optional[float]
     :param kappaALV: Applicable if ``minR < 0``. Prevent ill-conditioning by bounding the ratios :math:`\frac{R_{[i,j_{\max}]}}{R_{[i,j_{\min}]}}` at each interval :math:`i=1\ldots n`. Values up to `100` will typically retain most of the initial dynamic range while improving stability and mitigating outliers.
     """
 
@@ -152,6 +154,7 @@ class observationParams(NamedTuple):
     returnCenter: bool # deprecated
     shrinkOffset: Optional[float]
     kappaALV: Optional[float]
+    zeroPenalty: Optional[float]
 
 
 class stateParams(NamedTuple):
@@ -1298,7 +1301,7 @@ def runConsenrich(
             backwardInitialState = matrixF @ forwardStatePosterior
             backwardInitialCovariance = (
                 matrixF @ forwardCovariancePosterior @ matrixF.T
-                + pNoiseForwardArr[k + 1]
+                + np.eye(2, dtype=np.float32)*minQ
             )
 
             smootherGain = np.linalg.solve(
@@ -1473,17 +1476,17 @@ def getMuncTrack(
     sparseMap: Optional[dict] = None,
     useALV: bool = False,
     blockSizeBP: int = 1000,
-    samplingIters: int = 10_000,
+    samplingIters: int = 25_000,
     randomSeed: int = 42,
-    localWeight: float = 0.50,
-    zeroPenalty: float = 0.0,
-    zeroThresh: float = 0.0,
+    localWeight: float = 0.25,
+    zeroPenalty: float = 1.0,
     approximationWindowLengthBP: int = 25_000,
-    lowPassWindowLengthBP: int = 50_000,
-    fitFunc: Optional[Callable] = np.polyfit,
-    fitFuncArgs: Optional[dict] = {"deg": 2},
-    evalFunc: Optional[Callable] = np.polyval,
+    lowPassWindowLengthBP: int = 25_000,
+    fitFunc: Optional[Callable] = None,
+    fitFuncArgs: Optional[dict] = None,
+    evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
+    binQuantile: float = 0.75,
     textPlotMeanVarianceTrend: bool = False,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (M)easurement (unc)ertainty tracks
@@ -1515,25 +1518,31 @@ def getMuncTrack(
     :param localWeight: Weight of local model in mixed uncertainty estimate.
       ``--> 1.0 ignore global (mean-variance) model``, ``--> 0.0 ignore local rolling mean/var model``.
     :type localWeight: float
-    :param zeroPenalty: Not used currently.
+    :param zeroPenalty: Inflate variance at data points in the left tail of the mean-variance trend
+      (i.e., low mean values) by this amount during global model fitting.
     :type zeroPenalty: float
-    :param zeroThresh: Not used currently.
-    :type zeroThresh: float
     :param approximationWindowLengthBP: Window length (in bp) for local variance approximation. See :func:`getAverageLocalVarianceTrack`.
     :type approximationWindowLengthBP: int
     :param lowPassWindowLengthBP: Window length (in bp) for low-pass filtering the local variance approximation. See :func:`getAverageLocalVarianceTrack`.
     :type lowPassWindowLengthBP: int
     :param fitFunc: A *callable* function accepting input ``(arrayOfMeans,arrayOfVariances, **kwargs)``. Used to fit the global mean-variance model
-    given sampled blocks from :func:``consenrich.cconsnrich.cmeanVarPairs``. Defaults to simple least squares fit:
-    :math:`\hat{f}(\mu) = \hat{\beta}_0 + \hat{\beta}_2 \mu + \hat{\beta}_2 \mu^2` via ``numpy.polyfit(deg=2)``.
+    given sampled blocks from :func:``consenrich.cconsnrich.cmeanVarPairs``. Defaults to `cconsenrich.cmonotonicFit`, ridge-penalized, monotone/pos-constrained regression.
     :type fitFunc: Optional[Callable]
-    :param fitFuncArgs: Additional keyword arguments to pass to `fitFunc`. Defaults to ``{"deg":2}`` for ``numpy.polyfit``.
+    :param fitFuncArgs: Additional keyword arguments to pass to `fitFunc`.
     :type fitFuncArgs: Optional[dict]
-    :param evalFunc: A *callable* function with input (``outputFromFitFunc, arrayLengthN``) that evaluates the fitted :math:`\hat{f}(array[i])` at each genomic interval :math:`i=1,2,\ldots,n`. Default is ``numpy.polyval``.
+    :param evalFunc: A *callable* function with input (``outputFromFitFunc, arrayLengthN``) that evaluates the fitted :math:`\hat{f}(array[i])` at each genomic interval :math:`i=1,2,\ldots,n`.
     :type evalFunc: Optional[Callable]
     :return: An uncertainty track with same length as input
     :rtype: npt.NDArray[np.float32]
     """
+
+    if fitFunc is None:
+        fitFunc = cconsenrich.cmonotonicFit
+    if evalFunc is None:
+        evalFunc = cconsenrich.cmonotonicFitEval
+    if fitFuncArgs is None:
+        fitFuncArgs = {"ridge": 1.0e-2}
+
     blockSizeIntervals = int(blockSizeBP / stepSize)
     if blockSizeIntervals < 5:
         logger.warning(
@@ -1550,13 +1559,31 @@ def getMuncTrack(
         excludeMaskArr = np.ascontiguousarray(
             excludeMask, dtype=np.uint8
         )
-    globalWeight = 1.0 - localWeight # force sum-to-one
+
+    if useALV:
+        if sparseMap is not None:
+            logger.warning(
+                "Ignoring `sparseMap`: `useALV` is True"
+            )
+        sparseMap = None
+
+    localWeight = np.clip(localWeight, 0.0, 1.0)
+    globalWeight = 1.0 - localWeight  # force sum-to-one
 
     # I: Global model (variance = f(mean))
     # ...  Variance as function of mean globally, as observed in contiguous blocks
     # ... in cmeanVarPairs, variance is measured in each block as rss from a linear model fit to the
     # ... first differences of contiguous values within each block. One hat(mean), hat(var) per block.
-    # ... These pairs are then used to fit the polynomial below (`opt`)
+    # ... These pairs are then used to fit the trend below (`opt`)
+
+    zeroThreshold = 0.0
+    if zeroPenalty > 0.0:
+        absVals = np.abs(valuesArr)
+        med = np.median(absVals)
+        mad = np.median(np.abs(absVals - med))
+        if mad > 0.0:
+            zeroThreshold = mad
+
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
         valuesArr,
@@ -1564,42 +1591,60 @@ def getMuncTrack(
         samplingIters,
         randomSeed,
         excludeMaskArr,
+        zeroPenalty=zeroPenalty,
+        zeroThresh=zeroThreshold,
     )
 
     # I (i) Fit mean ~ variance relationship as \hat{f}
-    # ... using summary stats over sampled blocks 
+    # ... using summary stats over sampled blocks
     # ... (mean_k, var_k) k=1,..,samplingIters
+
     sortIdx = np.argsort(blockMeans)
     blockMeansSorted = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
+
+    cleanBinMeans, cleanBinVars = _extractUpperTail(
+        blockMeansSorted, blockVarsSorted, binQuantile
+    )
+
+    blockMeansSorted = cleanBinMeans.astype(np.float32)
+    blockVarsSorted = cleanBinVars.astype(np.float32)
+
+    keep = np.isfinite(blockMeansSorted) & np.isfinite(
+        blockVarsSorted
+    )
+    blockMeansSorted = blockMeansSorted[keep]
+    blockVarsSorted = blockVarsSorted[keep]
+
+    logger.info("\tFitting global mean-variance trend...")
     opt = fitFunc(
         blockMeansSorted,
         blockVarsSorted,
         **fitFuncArgs,
     ).astype(np.float32)
-    logger.info(f"Fit: β_0, β_1, β_2=({np.round(opt,4)})")
 
-    # since we fit summary statistics over fixed-size blocks,
-    # ... we compute each
-    # ...   globalModelVar(x_[i]) = \hat{f}(simpleMovingAverage(x_[i]))
-    # ... with a window size equal to block size
+
     meanTrack = ndimage.uniform_filter1d(
         valuesArr.astype(np.float32),
-        size=2*blockSizeIntervals + 1,
+        3,
         mode="nearest",
     ).astype(np.float32)
-    globalModelVariances = evalFunc(opt, meanTrack).astype(
-       np.float32
-    )
+
+    globalModelVariances = evalFunc(opt, meanTrack).astype(np.float32)
 
     if textPlotMeanVarianceTrend:
         try:
-            if _checkMod('plotext'):
+            if _checkMod("plotext"):
                 import plotext as textplt
+
+                logger.info(
+                    '\tPlotting mean-variance trend via `plotext`...'
+                    '\t(to disable these plots in the default CLI implementation, do not invoke `--verbose2` flag)'
+                )
                 textplt.scatter(
                     blockMeans,
                     blockVars,
-                    label="Block Sample Mean vs. Block RSS (linear fit to first order differences)``",
+                    label="(Block Mean, Block RSS)",
                 )
                 textplt.scatter(
                     blockMeansSorted,
@@ -1607,7 +1652,7 @@ def getMuncTrack(
                     label="`opt` fit",
                     color="red",
                 )
-                textplt.limit_size(True,True)
+                textplt.limit_size(True, True)
                 textplt.show()
                 textplt.clf()
         except Exception as e:
@@ -1615,9 +1660,7 @@ def getMuncTrack(
                 f"Ignoring `textPlotMeanVarianceTrend`:\n{e}\n"
             )
 
-
     # II: Local model (local moment-based variance via sliding windows)
-
     # ... (a) At each genomic interval i = 1,2,...,n,
     # ... apply local/moment-based heuristic to approximate variance
     # ... i.e., a sliding estimate of E[X^2] - E[X]^2 within 25kb (tunable)
@@ -1633,8 +1676,8 @@ def getMuncTrack(
         stepSize,
         approximationWindowLengthBP,
         lowPassWindowLengthBP,
-        0, # ignore minR, only clipped at return
-        10e6, # ditto maxR
+        0,  # ignore minR maxR here, only clipped at return
+        10e6,
     ).astype(np.float32)
 
     if sparseMap is not None:
@@ -2188,3 +2231,51 @@ def plotStateStdHistogram(
         f"Failed to create histogram. {plotFileName} not written."
     )
     return None
+
+
+def _extractUpperTail(
+    blockMeans,
+    blockVars,
+    q=0.50,
+    binsPerUnit=25,
+    minBins=50,
+    maxBins=250,
+    transformFunc=np.asinh,
+):
+    means = np.asarray(blockMeans, dtype=np.float64)
+    vars_ = np.asarray(blockVars, dtype=np.float64)
+    transformedBlockMeans = transformFunc(means)
+    transformedMin = float(np.min(transformedBlockMeans))
+    transformedMax = float(np.max(transformedBlockMeans))
+    dynamicRange = transformedMax - transformedMin
+
+    numBins = int(
+        np.clip(
+            np.ceil(binsPerUnit * max(dynamicRange, 1e-4)),
+            minBins,
+            maxBins,
+        )
+    )
+
+    edges = np.linspace(
+        transformedMin, transformedMax, num=numBins + 1, dtype=np.float64
+    )
+    binIdx = np.clip(
+        np.searchsorted(edges, transformedBlockMeans, side="right") - 1, 0, numBins - 1
+    )
+
+    outMeans = np.empty(numBins, dtype=np.float64)
+    outVars = np.empty(numBins, dtype=np.float64)
+
+    for k in range(numBins):
+        mask = binIdx == k
+        if not np.any(mask):
+            outMeans[k] = np.nan
+            outVars[k] = np.nan
+            continue
+        # median of means within bin
+        outMeans[k] = np.median(means[mask])
+        outVars[k] = np.quantile(vars_[mask], q)
+
+    keep = np.isfinite(outMeans) & np.isfinite(outVars)
+    return outMeans[keep], outVars[keep]

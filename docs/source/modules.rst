@@ -8,6 +8,19 @@ API Reference
    :name: API
 
 
+Key Parameters
+~~~~~~~~~~~~~~~~~~~
+
+Below, we list a few parameters that may warrant adjustment in specific scenarios:
+
+* `countingParams.stepSize`: - Sets the length (in base pairs) of contiguous, non-overlapping bins over which reads are counted.
+   Increasing this value (default ``25 bp``) can improve performance given shallow sequencing depths and/or large domain-level targets (e.g., H3K27me3).
+* `processParams.minQ`: - Default is a small value to avoid singular Sets the lower bound on the process noise variance. If outputs look over-smoothed by the model, consider increasing this value to contribute more weight to the data. If output appears  unstable/high-frequency, consider reducing this value toward zero.
+  The default is ``-1``, which lets Consenrich set a minimal data-driven value based on the input data.
+* `observationParams.minR`: - Sets the lower bound on the measurement uncertainty tracks. Default is ``-1.0``, which lets Consenrich set a minimal data-driven value based on the input data.
+* `observationParams.localWeight`: - Sets the weight given to the local, ALV-based component of the measurement uncertainty calculations (:func:`consenrich.core.getMuncTrack`). Default is ``0.25``.
+   Decreasing this value (toward ``0.0``) will give more influence to a 'global' fitted mean-variance trend.
+
 ``consenrich.core``
 ~~~~~~~~~~~~~~~~~~~~~~
 

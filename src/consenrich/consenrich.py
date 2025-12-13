@@ -25,7 +25,7 @@ import consenrich.constants as constants
 import consenrich.detrorm as detrorm
 import consenrich.matching as matching
 import consenrich.cconsenrich as cconsenrich
-
+from . import __version__
 
 logging.basicConfig(
     level=logging.INFO,
@@ -744,7 +744,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
         minQ=_cfgGet(configData, "processParams.minQ", -1.0),
-        maxQ=_cfgGet(configData, "processParams.maxQ", 10_000),
+        maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
             configData, "processParams.offDiagQ", 1.0e-3
         ),
@@ -758,7 +758,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         dStatUseMean=_cfgGet(
             configData,
             "processParams.dStatUseMean",
-            False,
+            True,
         ),
         scaleResidualsByP11=_cfgGet(
             configData,
@@ -771,7 +771,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
-        maxR=_cfgGet(configData, "observationParams.maxR", 10_000),
+        maxR=_cfgGet(configData, "observationParams.maxR", 1000.0),
         useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
             configData,
@@ -789,7 +789,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         localWeight=_cfgGet(
             configData,
             "observationParams.localWeight",
-            0.50,
+            0.25,
         ),
         approximationWindowLengthBP=_cfgGet(
             configData,
@@ -812,13 +812,17 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         shrinkOffset=_cfgGet(
             configData,
             "observationParams.shrinkOffset",
-            1 - 0.05,
+            1 - 0.25,
         ),
         kappaALV=_cfgGet(
             configData,
             "observationParams.kappaALV",
-            100.0,
+            25.0,
         ),
+        zeroPenalty=_cfgGet(
+            configData,
+            "observationParams.zeroPenalty",
+            2.0)
     )
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
@@ -916,7 +920,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData, "matchingParams.cascadeLevels", []
         ),
         iters=_cfgGet(configData, "matchingParams.iters", 25_000),
-        alpha=_cfgGet(configData, "matchingParams.alpha", 0.05),
+        alpha=_cfgGet(configData, "matchingParams.alpha", 0.01),
         minMatchLengthBP=_cfgGet(
             configData,
             "matchingParams.minMatchLengthBP",
@@ -930,7 +934,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minSignalAtMaxima=_cfgGet(
             configData,
             "matchingParams.minSignalAtMaxima",
-            "q:0.75",
+            "q:0.50",
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
@@ -1083,7 +1087,7 @@ def main():
     parser.add_argument(
         "--match-alpha",
         type=float,
-        default=0.05,
+        default=0.01,
         dest="matchAlpha",
         help="Cutoff qualifying candidate matches as significant (FDR-adjusted p-value < alpha).",
     )
@@ -1097,7 +1101,7 @@ def main():
     parser.add_argument(
         "--match-iters",
         type=int,
-        default=50000,
+        default=25_000,
         dest="matchIters",
         help="Number of sampled blocks for estimating null distribution of match scores (cross correlations with templates).",
     )
@@ -1167,6 +1171,14 @@ def main():
     )
     parser.add_argument(
         "--verbose", action="store_true", help="If set, logs config"
+    )
+    parser.add_argument(
+        "--verbose2", action="store_true",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"Consenrich version {__version__}",
     )
     args = parser.parse_args()
 
@@ -1250,9 +1262,12 @@ def main():
     offDiagQ_ = processArgs.offDiagQ
     muncEps: float = 10e-2
 
+    if args.verbose2:
+        args.verbose = True
+
     if args.verbose:
         try:
-            logger.info("Initial Configuration:\n")
+            logger.info(f"Initial Configuration ({__version__})\n")
             config_truncated = {
                 k: v
                 for k, v in config.items()
@@ -1580,6 +1595,16 @@ def main():
                 f"Muncing {j + 1}/{numSamples} for {chromosome}..."
             )
 
+            chromMat[j, :] = detrorm.detrendTrack(
+                chromMat[j, :],
+                stepSize,
+                detrendArgs.detrendWindowLengthBP,
+                detrendArgs.useOrderStatFilter,
+                detrendArgs.usePolyFilter,
+                detrendArgs.detrendTrackPercentile,
+                detrendArgs.detrendSavitzkyGolayDegree,
+            )
+
             # compute munc track for each sample independently
             muncMat[j, :] = core.getMuncTrack(
                 chromosome,
@@ -1594,18 +1619,8 @@ def main():
                 approximationWindowLengthBP=observationArgs.approximationWindowLengthBP,
                 lowPassWindowLengthBP=observationArgs.lowPassWindowLengthBP,
                 randomSeed=42 + j,
-                # FFR: add args
-            )
-            # (default) 25kb window 'detrend'/background removal
-            # using an order-statistic filter
-            chromMat[j, :] = detrorm.detrendTrack(
-                chromMat[j, :],
-                stepSize,
-                detrendArgs.detrendWindowLengthBP,
-                detrendArgs.useOrderStatFilter,
-                detrendArgs.usePolyFilter,
-                detrendArgs.detrendTrackPercentile,
-                detrendArgs.detrendSavitzkyGolayDegree,
+                zeroPenalty=observationArgs.zeroPenalty,
+                textPlotMeanVarianceTrend=args.verbose2,
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
@@ -1633,9 +1648,10 @@ def main():
 
             # Following ad hoc rule is applied if we get negative minQ:
             # ... worst case: stay PD+stable in f32 and preserve
-            # ... sum(gains) < 1.0 for arbitrary sample sizes at steady
+            # ... reasonable sum(gains) for arbitrary sample sizes
+            # ... at baseline
             autoMinQ = (
-                np.float32(min(1.0e-3 + (minR_ / numSamples), 0.01)) + (2 * offDiagQ_)
+                (minR_*(0.10) + 2*offDiagQ_) + 0.01
             )
 
             if processArgs.minQ < 0.0:

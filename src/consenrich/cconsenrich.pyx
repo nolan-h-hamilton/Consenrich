@@ -19,7 +19,7 @@ from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs
+from libc.math cimport isfinite, fabs, asinh, sinh, sqrt
 cnp.import_array()
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
@@ -1259,8 +1259,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           int iters,
                           int randSeed,
                           cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
-                          double zeroPenalty=10.0,
-                          double zeroThresh=10.0e-2):
+                          double zeroPenalty=0.0,
+                          double zeroThresh=0.0):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -1321,3 +1321,178 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     _regionMeanVar(valuesView, startsView, sizesView, meansView, varsView, zeroPenalty, zeroThresh)
 
     return outMeans, outVars, starts_, ends
+
+
+cdef inline void invert22(
+    double a00, double a01, double a10, double a11,
+    double b0, double b1,
+    double* x0, double* x1
+) noexcept:
+    cdef double det = (a00*a11) - (a01*a10)
+    if fabs(det) < 1.0e-4:
+        x0[0] = 0.0
+        x1[0] = b1 / a11 if fabs(a11) > 1.0e-30 else 0.0
+        return
+    x0[0] = ( b0 * a11 - a01 * b1) / det
+    x1[0] = (-b0 * a10 + a00 * b1) / det
+
+
+cdef inline double ridgeLoss(
+    double slope, double intercept,
+    double sumX, double sumSqX,
+    double sumZ, double sumXZ,
+    double sumSqZ, double numSamples,
+    double ridge
+) noexcept:
+    cdef double loss = 0
+    loss = (
+        sumSqZ
+        - 2.0 * slope * sumXZ
+        - 2.0 * intercept * sumZ
+        + slope * slope * sumSqX
+        + 2.0 * slope * intercept * sumX
+        + intercept * intercept * numSamples)
+    return loss + ridge * slope * slope
+
+
+cpdef cmonotonicFit(means, variances, double ridge=1.0e-3):
+    # we fit mean~var via asinh(var) = slope*mean + intercept + ridge
+    # ... with constraints slope >= 0, intercept >= 0 so that our variance estimates
+    # ... guarantee >= 0, and monotonicity as mean increases
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] xArr = np.ascontiguousarray(means, dtype=np.float64).ravel()
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] yArr = np.ascontiguousarray(variances, dtype=np.float64).ravel()
+
+    cdef Py_ssize_t n = xArr.shape[0]
+    cdef Py_ssize_t i
+    cdef double xMin
+    cdef double x, z, yVal
+    cdef double sumX = 0.0
+    cdef double sumSqX = 0.0
+    cdef double sumZ = 0.0
+    cdef double sumXZ = 0.0
+    cdef double sumSqZ = 0.0
+    cdef double numSamples
+    cdef double slopeUnconstrained, interceptUnconstrained
+    cdef double slopeZero, interceptZero
+    cdef double slopeBound, interceptBound
+    cdef double optimalSlope, optimalIntercept
+    cdef double optimalObjective, currentObjective
+    cdef double sumSqShiftX = 0.0
+    cdef double sumShiftXZ = 0.0
+    cdef double xShift
+
+    if n <= 0:
+        return np.asarray([0.0, 0.0], dtype=np.float32)
+
+    xMin = xArr[0]
+    for i in range(n):
+        if xArr[i] < xMin:
+            xMin = xArr[i]
+
+    for i in range(n):
+        x = xArr[i]
+        yVal = yArr[i]
+        if yVal < 0.0:
+            yVal = 0.0
+        z = asinh(yVal)
+
+        sumX += x
+        sumSqX += x*x
+        sumZ += z
+        sumXZ += x*z
+        sumSqZ += z*z
+
+    numSamples = <double>n
+    # get unconstrained solution (HTH^-1)
+    invert22(sumSqX + ridge, sumX, sumX, numSamples,
+        sumXZ,
+        sumZ,
+        &slopeUnconstrained,
+        &interceptUnconstrained)
+
+    optimalSlope = 0.0
+    optimalIntercept = 0.0
+    # unconstrained solution gives a lower bound in loss
+    optimalObjective = ridgeLoss(
+        optimalSlope, optimalIntercept,
+        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples, ridge
+    )
+
+    if slopeUnconstrained >= 0.0 and (slopeUnconstrained*xMin + interceptUnconstrained) >= 0.0:
+        currentObjective = ridgeLoss(
+            slopeUnconstrained, interceptUnconstrained,
+            sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples, ridge
+        )
+        if currentObjective < optimalObjective:
+            optimalObjective = currentObjective
+            # best case: unconstrained solution is feasible
+            optimalSlope = slopeUnconstrained
+            optimalIntercept = interceptUnconstrained
+
+    slopeZero = 0.0
+    interceptZero = sumZ / numSamples
+    if interceptZero < 0.0:
+        interceptZero = 0.0
+
+    currentObjective = ridgeLoss(
+        slopeZero, interceptZero,
+        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples, ridge
+    )
+    if currentObjective < optimalObjective:
+        optimalObjective = currentObjective
+        optimalSlope = slopeZero
+        optimalIntercept = interceptZero
+
+    for i in range(n):
+        xShift = xArr[i] - xMin
+        yVal = yArr[i]
+        if yVal < 0.0:
+            yVal = 0.0
+        # transform via asinh (linear -->_x log)
+        z = asinh(yVal)
+        sumSqShiftX += (xShift*xShift)
+        sumShiftXZ += (xShift*z)
+
+    if sumSqShiftX + ridge > 0.0:
+        # at the boundary slope*(xMin) + intercept = 0 --> intercept = -slope*xMin
+        slopeBound = sumShiftXZ/(sumSqShiftX + ridge)
+    else:
+        slopeBound = 0.0
+    if slopeBound < 0.0:
+        slopeBound = 0.0
+
+    interceptBound = -slopeBound*xMin
+    currentObjective = ridgeLoss(
+        slopeBound, interceptBound,
+        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples, ridge
+    )
+    if currentObjective < optimalObjective:
+        optimalObjective = currentObjective
+        optimalSlope = slopeBound
+        optimalIntercept = interceptBound
+
+    return np.asarray([optimalSlope, optimalIntercept], dtype=np.float32)
+
+
+cpdef cmonotonicFitEval(coeffs, meanTrack):
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
+    cdef Py_ssize_t n = xArr.shape[0]
+    cdef Py_ssize_t i
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
+    cdef float[:] outView = out
+    cdef float[:] xView = xArr
+    cdef double slope = float(np.asarray(coeffs).ravel()[0])
+    cdef double intercept = float(np.asarray(coeffs).ravel()[1])
+    cdef double z
+    if slope < 0.0:
+        slope = 0.0
+    if intercept < 0.0:
+        intercept = 0.0
+    for i in range(n):
+        z = slope*(<double>xView[i]) + intercept
+        if z < 0.0:
+            z = 0.0
+        outView[i] = <float>sinh(z)
+
+    return out
