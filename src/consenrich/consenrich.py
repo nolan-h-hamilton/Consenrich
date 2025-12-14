@@ -1260,7 +1260,7 @@ def main():
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
     offDiagQ_ = processArgs.offDiagQ
-    muncEps: float = 10e-2
+    muncEps: float = 1.0e-4
 
     if args.verbose2:
         args.verbose = True
