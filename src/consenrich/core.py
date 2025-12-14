@@ -1295,7 +1295,7 @@ def runConsenrich(
             backwardInitialState = matrixF @ forwardStatePosterior
             backwardInitialCovariance = (
                 matrixF @ forwardCovariancePosterior @ matrixF.T
-                + np.eye(2, dtype=np.float32) * minQ
+                + pNoiseForwardArr[k + 1]
             )
 
             smootherGain = np.linalg.solve(
