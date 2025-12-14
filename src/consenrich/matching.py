@@ -36,7 +36,7 @@ def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 3,
     cutoffQuantile: float = 0.90,
-    isLogScale: bool = False,
+    isTransformed: bool = False,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
 
@@ -51,7 +51,7 @@ def autoMinLengthIntervals(
 
     """
     values_ = values.astype(np.float64).copy()
-    if not isLogScale:
+    if not isTransformed:
         np.asinh(values_, out=values_)
 
     trValues = values_ - signal.medfilt(
@@ -132,7 +132,7 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-2,
-    isLogScale: bool = False,
+    isTransformed: bool = False,
     autoLengthQuantile: float = 0.90,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
@@ -180,8 +180,8 @@ def matchWavelet(
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
-    :param isLogScale: Whether the input values have already been transformed. Used to double/redundant transformations.
-    :type isLogScale: bool
+    :param isTransformed: Whether the input values have already been transformed. Used to double/redundant transformations.
+    :type isTransformed: bool
     :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     :return: A pandas DataFrame with detected matches
     :rtype: pd.DataFrame
@@ -209,7 +209,7 @@ def matchWavelet(
         minMatchLengthBP = autoMinLengthIntervals(
             values,
             cutoffQuantile=autoLengthQuantile,
-            isLogScale=isLogScale,
+            isTransformed=isTransformed,
         ) * int(intervalLengthBp)
     elif minMatchLengthBP is None:
         minMatchLengthBP = 147  # default to nucleosome size
@@ -227,7 +227,7 @@ def matchWavelet(
         else:
             values = values * weights
 
-    if not isLogScale:
+    if not isTransformed:
         asinhValues = np.asinh(values, dtype=np.float32)
     else:
         asinhValues = values.astype(np.float32)
@@ -778,7 +778,7 @@ def runMatchingAlgorithm(
     excludeRegionsBedFile: Optional[str] = None,
     weightsBedGraph: str | None = None,
     eps: float = 1.0e-2,
-    isLogScale: bool = False,
+    isTransformed: bool = False,
     autoLengthQuantile: float = 0.90,
     mergeGapBP: int | None = -1,
     methodFDR: str | None = None,
@@ -861,7 +861,7 @@ def runMatchingAlgorithm(
             minMatchLengthBP_ = autoMinLengthIntervals(
                 chromValues,
                 cutoffQuantile=autoLengthQuantile,
-                isLogScale=isLogScale,
+                isTransformed=isTransformed,
             ) * int(chromIntervals[1] - chromIntervals[0])
         else:
             minMatchLengthBP_ = minMatchLengthBP
@@ -885,7 +885,7 @@ def runMatchingAlgorithm(
             excludeRegionsBedFile,
             weights,
             eps,
-            isLogScale,
+            isTransformed,
         )
         if df__.empty:
             logger.info(f"No matches detected on {chromosome_}.")

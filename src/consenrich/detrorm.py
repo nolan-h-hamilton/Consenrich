@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 from .misc_util import getChromSizesDict
 from .constants import EFFECTIVE_GENOME_SIZES
-from .cconsenrich import cgetFragmentLength
+from .cconsenrich import cgetFragmentLength, cEMA
 
 
 def getScaleFactor1x(
@@ -242,10 +242,12 @@ def detrendTrack(
     detrendWindowLengthBP: int,
     useOrderStatFilter: bool,
     usePolyFilter: bool,
+    useEMA: bool,
     detrendTrackPercentile: float,
     detrendSavitzkyGolayDegree: int,
+    isTransformed: bool,
 ) -> np.ndarray:
-    r"""Detrend tracks using either an order statistic filter or a polynomial filter.
+    r"""Detrend/remove baseline from tracks using sliding window filters.
 
     :param values: Values to detrend.
     :type values: np.ndarray
@@ -277,21 +279,35 @@ def detrendTrack(
             "values length must be greater than windowLength."
         )
 
-    if useOrderStatFilter and usePolyFilter:
-        logger.warning(
-            "Both order statistic and polynomial filters specified...using order statistic filter."
-        )
-        bothSpecified = True
+    x = values.astype(float, copy=False)
+    scale = max(np.quantile(x[x > 0], 0.95) - np.quantile(x[x > 0], 0.05), 1.0)
+    logX = x if isTransformed else np.asinh(x/scale)
 
-    if useOrderStatFilter or bothSpecified:
-        return values - ndimage.percentile_filter(
-            values, detrendTrackPercentile, size=size
-        )
-    elif usePolyFilter:
-        return values - signal.savgol_filter(
-            values, size, detrendSavitzkyGolayDegree
-        )
+    if useEMA:
+        baseline = cEMA(logX, 2.0 / (size + 1.0))
 
-    return values - ndimage.uniform_filter1d(
-        values, size=size, mode="nearest"
-    )
+    else:
+        bothSpecified = useOrderStatFilter and usePolyFilter
+        if bothSpecified:
+            logger.warning(
+                "Both order statistic and polynomial filters specified...using order statistic filter."
+            )
+
+        if useOrderStatFilter or bothSpecified:
+            baseline = ndimage.percentile_filter(
+                logX, detrendTrackPercentile, size=size
+            )
+        elif usePolyFilter:
+            baseline = signal.savgol_filter(
+                logX, size, detrendSavitzkyGolayDegree
+            )
+        else:
+            raise ValueError(
+                "set as useOrderStatFilter, usePolyFilter, or useEMA."
+            )
+
+    detrended_log = logX - baseline
+    if isTransformed:
+        return detrended_log
+    return np.sinh(detrended_log) * scale
+

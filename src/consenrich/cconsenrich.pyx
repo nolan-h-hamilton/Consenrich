@@ -1349,7 +1349,7 @@ cdef inline double ridgeLoss(
     return loss + (ridge * (slope**2))
 
 
-cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isLogScale = 0):
+cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isTransformed = 0):
 
     # note this breaks if the means,variance are not sorted by mean, hence renaming
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
@@ -1381,7 +1381,7 @@ cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0
         yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
-        if not isLogScale:
+        if not isTransformed:
             z = asinh(yVal)
         else:
             z = yVal
@@ -1438,7 +1438,7 @@ cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0
         if yVal < 0.0:
             yVal = 0.0
         # transform via asinh
-        if not isLogScale:
+        if not isTransformed:
             z = asinh(yVal)
         else:
             z = yVal
@@ -1472,7 +1472,7 @@ cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0
 cpdef cmonotonicFitEval(
     cnp.ndarray coeffs,
     cnp.ndarray meanTrack,
-    bint isLogScale = 0
+    bint isTransformed = 0
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
     cdef Py_ssize_t n = xArr.shape[0]
@@ -1496,7 +1496,7 @@ cpdef cmonotonicFitEval(
         z = slope * (<double>xView[i]) + intercept
         if z < 0.0:
             z = 0.0
-        if not isLogScale:
+        if not isTransformed:
             outView[i] = <float>sinh(z)
         else:
             outView[i] = <float>z
@@ -1537,3 +1537,27 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredFOD(
             outputView[i] = <float>runningSum / (<double>(windowLength if i >= windowLength else i))
 
     return outputArray
+
+
+cdef bint _cEMA(const double* xPtr, double* outPtr,
+                    Py_ssize_t n, double alpha) nogil:
+    cdef Py_ssize_t i
+    if alpha > 1.0 or alpha < 0.0:
+        return <bint>1
+
+    outPtr[0] = xPtr[0]
+
+    for i in range(1, n):
+        outPtr[i] = alpha*xPtr[i] + (1.0 - alpha)*outPtr[i - 1]
+
+    for i in range(n - 2, -1, -1):
+        outPtr[i] = alpha*outPtr[i] + (1.0 - alpha)*outPtr[i + 1]
+
+    return <bint>0
+
+cpdef cEMA(cnp.ndarray x, double alpha):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] x1 = np.ascontiguousarray(x, dtype=np.float64)
+    cdef Py_ssize_t n = x1.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
+    _cEMA(<const double*>x1.data, <double*>out.data, n, alpha)
+    return out

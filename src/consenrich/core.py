@@ -145,13 +145,13 @@ class observationParams(NamedTuple):
     maxR: float
     useALV: bool
     useConstantNoiseLevel: bool
-    noGlobal: bool # deprecated
+    noGlobal: bool  # deprecated
     numNearest: int
     localWeight: float
     approximationWindowLengthBP: int
     lowPassWindowLengthBP: int
     lowPassFilterType: Optional[str]
-    returnCenter: bool # deprecated
+    returnCenter: bool  # deprecated
     shrinkOffset: Optional[float]
     kappaALV: Optional[float]
     zeroPenalty: Optional[float]
@@ -464,6 +464,7 @@ def _checkMod(name: str) -> bool:
         return find_spec(name) is not None
     except Exception:
         return False
+
 
 def _numIntervals(start: int, end: int, step: int) -> int:
     # helper for consistency
@@ -839,11 +840,8 @@ def runConsenrich(
     adjustProcessNoiseFunc: Optional[Callable] = None,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-) -> Tuple[
-    npt.NDArray[np.float32],
-    npt.NDArray[np.float32],
-    npt.NDArray[np.float32],
-]:
+    fitPhi: bool = True,
+) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.float32]]:
     r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
         Completes the forward and backward passes given data :math:`\mathbf{Z}^{m \times n}` and
         corresponding uncertainty tracks :math:`\mathbf{R}_{[1:n, (11:mm)]}` (see :func:`getMuncTrack`).
@@ -854,8 +852,8 @@ def runConsenrich(
 
 
         :param matrixData: Read coverage data for a single chromosome or general contiguous segment,
-          possibly preprocessed. Two-dimensional array of shape :math:`m \times n` where :math:`m`
-          is the number of samples/tracks and :math:`n` the number of genomic intervals.
+        possibly preprocessed. Two-dimensional array of shape :math:`m \times n` where :math:`m`
+        is the number of samples/tracks and :math:`n` the number of genomic intervals.
         :type matrixData: np.ndarray
         :param matrixMunc: Uncertainty estimates for the read coverage data.
             Two-dimensional array of shape :math:`m \times n` where :math:`m` is the number of samples/tracks
@@ -898,10 +896,12 @@ def runConsenrich(
             to :math:`[10^{-\textsf{covarClip}}, 10^{\textsf{covarClip}}]`.
         :type covarClip: float
         :param projectStateDuringFiltering: If `True`, the posterior state estimates are projected to the feasible region defined by `stateLowerBound`, `stateUpperBound` *during* iteration.
-          See the constrained+weighted least-squares problem solved in :func:`consenrich.cconsenrich._projectToBox` and Simon, 2010.
+        See the constrained+weighted least-squares problem solved in :func:`consenrich.cconsenrich._projectToBox` and Simon, 2010.
         :type projectStateDuringFiltering: bool:
         :param boundState: If `True` final state estimates are clipped to [stateLowerBound, stateUpperBound] post-hoc.
         :type boundState: bool
+        :param fitPhi: If `True`, NIS-based inflation factor :math:`\hat{\phi}` is estimated and used to scale covariances for a second pass.
+        :type fitPhi: bool
         :return: Tuple of three numpy arrays:
             - post-fit (forward/backward-smoothed) state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
             - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
@@ -910,7 +910,7 @@ def runConsenrich(
 
         :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
         :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
-    """
+        """
 
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
@@ -965,37 +965,36 @@ def runConsenrich(
     dStat: float = np.float32(0.0)
     y64 = np.empty(m, dtype=np.float64)
     sq64 = np.empty(m, dtype=np.float64)
+    tmp64 = np.empty(m, dtype=np.float64)
+    vectorD = np.zeros(n, dtype=np.float32)
     countAdjustments: int = 0
 
-    IKH: np.ndarray = np.zeros(shape=(2, 2), dtype=np.float32)
-    matrixEInverse: np.ndarray = np.zeros(
-        shape=(m, m), dtype=np.float32
-    )
     matrixF: np.ndarray = constructMatrixF(deltaF)
     matrixQ: np.ndarray = constructMatrixQ(minQ, offDiagQ=offDiagQ)
     matrixQCopy: np.ndarray = matrixQ.copy()
     matrixP: np.ndarray = np.eye(2, dtype=np.float32) * np.float32(
         stateCovarInit
     )
-    matrixH: np.ndarray = constructMatrixH(
-        m, coefficients=coefficientsH
-    )
-    matrixK: np.ndarray = np.zeros((2, m), dtype=np.float32)
+
+    u64 = None
+    u2_64 = None
+    if coefficientsH is not None:
+        u64 = np.ascontiguousarray(
+            coefficientsH, dtype=np.float64
+        ).ravel()
+        u2_64 = u64 * u64
+
     vectorX: np.ndarray = np.array([stateInit, 0.0], dtype=np.float32)
     vectorY: np.ndarray = np.zeros(m, dtype=np.float32)
-    matrixI2: np.ndarray = np.eye(2, dtype=np.float32)
+
     clipSmall: float = 10 ** (-covarClip)
     clipBig: float = 10 ** (covarClip)
-    if residualCovarInversionFunc is None:
-        residualCovarInversionFunc = cconsenrich.cinvertMatrixE
+
     if adjustProcessNoiseFunc is None:
         adjustProcessNoiseFunc = (
             cconsenrich.updateProcessNoiseCovariance
         )
 
-    # ==========================
-    # forward: 0,1,2,...,n-1
-    # ==========================
     with TemporaryDirectory() as tempDir_:
         stateForwardPathMM = os.path.join(
             tempDir_, "stateForward.dat"
@@ -1038,98 +1037,216 @@ def runConsenrich(
             shape=(n, 2, 2),
         )
 
-        progressIter = max(1, progressIter)
-        avgDstat: float = 0.0
-        for i in range(n):
-            if i % progressIter == 0 and i > 0:
-                logger.info(
-                    f"\nForward pass interval: {i + 1}/{n}"
+        pad__ = 1.0e-2
+        muncScaled32__ = np.empty(m, dtype=np.float32)
+        muncScaled64__ = np.empty(m, dtype=np.float64)
+        dInv64__ = np.empty(m, dtype=np.float64)
+
+        def _forwardPass(
+            phiScale__: float,
+            collectD__: bool = True,
+            firstPass__: bool = False,
+        ) -> tuple[float, int]:
+            nonlocal inflatedQ, matrixQ, matrixQCopy, matrixP, vectorX, vectorY, countAdjustments, muncScaled32__, muncScaled64__, dInv64__, y64, sq64, tmp64, u64, u2_64
+            inflatedQ = False
+            countAdjustments = 0
+            matrixQ = constructMatrixQ(minQ, offDiagQ=offDiagQ)
+            matrixQCopy = matrixQ.copy()
+            matrixP = np.eye(2, dtype=np.float32) * np.float32(
+                stateCovarInit
+            )
+            vectorX = np.array([stateInit, 0.0], dtype=np.float32)
+
+            for i in range(n):
+                if i % progressIter == 0 and i > 0:
+                    logger.info(
+                        f"\nForward pass interval: {i + 1}/{n}"
+                    )
+
+                vectorZ = matrixData[:, i]
+                vectorX = matrixF @ vectorX
+                matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
+
+                if u64 is None:
+                    vectorY = vectorZ - vectorX[0]
+                else:
+                    vectorY = vectorZ - (
+                        u64.astype(np.float32, copy=False)
+                        * vectorX[0]
+                    )
+
+                if phiScale__ != 1.0:
+                    # MoM-like rescaling for dStat/NIS
+                    np.multiply(
+                        matrixMunc[:, i],
+                        np.float32(phiScale__),
+                        out=muncScaled32__,
+                    )
+                    R32__ = muncScaled32__
+                else:
+                    R32__ = matrixMunc[:, i]
+
+                P00__ = float(matrixP[0, 0])
+                P01__ = float(matrixP[0, 1])
+                P10__ = float(matrixP[1, 0])
+                P11__ = float(matrixP[1, 1])
+
+                np.copyto(y64, vectorY, casting="same_kind")
+                np.square(y64, out=sq64, casting="same_kind")
+
+                np.copyto(muncScaled64__, R32__, casting="same_kind")
+                muncScaled64__ += pad__
+                np.reciprocal(muncScaled64__, out=dInv64__)
+
+                if u64 is None:
+                    sumUU__ = float(dInv64__.sum())
+                    sumUY__ = float(np.dot(dInv64__, y64))
+                    sumYY__ = float(np.dot(dInv64__, sq64))
+                    np.copyto(tmp64, dInv64__, casting="same_kind")
+                    np.square(tmp64, out=tmp64, casting="same_kind")
+                    sumRUU__ = float(
+                        np.dot(
+                            R32__.astype(np.float64, copy=False),
+                            tmp64,
+                        )
+                    )
+                else:
+                    np.multiply(dInv64__, u64, out=tmp64)
+                    sumUY__ = float(np.dot(tmp64, y64))
+                    np.square(tmp64, out=tmp64, casting="same_kind")
+                    sumRUU__ = float(
+                        np.dot(
+                            R32__.astype(np.float64, copy=False),
+                            tmp64,
+                        )
+                    )
+                    sumUU__ = float(np.dot(dInv64__, u2_64))
+                    sumYY__ = float(np.dot(dInv64__, sq64))
+
+                denom__ = 1.0 + P00__ * sumUU__
+                wRank1__ = P00__ / denom__
+
+                # normalized NIS/dStat in O(m)
+                qform__ = sumYY__ - wRank1__ * (sumUY__ * sumUY__)
+                dStat__ = qform__ / float(m)
+                if collectD__:
+                    vectorD[i] = np.float32(dStat__)
+                dStatUse__ = dStat__
+                countAdjustments += int(dStatUse__ > dStatAlpha)
+
+                matrixQ, inflatedQ = adjustProcessNoiseFunc(
+                    matrixQ,
+                    matrixQCopy,
+                    np.float32(dStatUse__),
+                    dStatAlpha,
+                    dStatd,
+                    dStatPC,
+                    inflatedQ,
+                    maxQ,
+                    minQ,
+                )
+                np.clip(matrixQ, clipSmall, clipBig, out=matrixQ)
+
+                alpha__ = sumUY__ / denom__
+
+                vectorX[0] = np.float32(
+                    vectorX[0] + (P00__ * alpha__)
+                )
+                vectorX[1] = np.float32(
+                    vectorX[1] + (P10__ * alpha__)
+                )
+                g__ = sumUU__ / denom__
+                h__ = sumRUU__ / (denom__ * denom__)
+                ikh00__ = 1.0 - (P00__ * g__)
+                ikh10__ = -(P10__ * g__)
+                P00new__ = (ikh00__ * ikh00__ * P00__) + (
+                    h__ * (P00__ * P00__)
+                )
+                P01new__ = (ikh00__ * (ikh10__ * P00__ + P01__)) + (
+                    h__ * (P00__ * P10__)
+                )
+                P11new__ = (
+                    ikh10__ * ikh10__ * P00__
+                    + 2.0 * ikh10__ * P10__
+                    + P11__
+                ) + (h__ * (P10__ * P10__))
+                matrixP[0, 0] = np.float32(
+                    np.clip(P00new__, clipSmall, clipBig)
+                )
+                matrixP[0, 1] = np.float32(
+                    np.clip(P01new__, clipSmall, clipBig)
+                )
+                matrixP[1, 0] = np.float32(
+                    np.clip(P01new__, clipSmall, clipBig)
+                )
+                matrixP[1, 1] = np.float32(
+                    np.clip(P11new__, clipSmall, clipBig)
                 )
 
-            vectorZ = matrixData[:, i]
-            vectorX = matrixF @ vectorX
-            matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
-            vectorY = vectorZ - (matrixH @ vectorX)
+                if projectStateDuringFiltering:
+                    cconsenrich.projectToBox(
+                        vectorX,
+                        matrixP,
+                        np.float32(stateLowerBound),
+                        np.float32(stateUpperBound),
+                        np.float32(clipSmall),
+                    )
 
-            matrixEInverse = residualCovarInversionFunc(
-                matrixMunc[:, i],
-                np.float32(matrixP[0, 0]),
-            )
+                if not firstPass__:
+                    stateForward[i] = vectorX
+                    stateCovarForward[i] = matrixP
+                    pNoiseForward[i] = matrixQ
 
-            # D_[i] (`dStat`): NIS-like, but w/ median:
-            # ... median(y_[i]^2 * Einv_[i, diag])
+                if i % chunkSize == 0 and i > 0 and not firstPass__:
+                    stateForward.flush()
+                    stateCovarForward.flush()
+                    pNoiseForward.flush()
 
-            Einv_diag = matrixEInverse.diagonal()
-            # avoid per-iteration allocations
-            np.copyto(y64, vectorY, casting="same_kind")
-            np.square(y64, out=sq64, casting="same_kind")
-            np.multiply(sq64, Einv_diag, out=sq64)
-            dStat = np.float32(np.median(sq64)) if dStatUseMean else np.float32(np.mean(sq64))
-
-            avgDstat += float(dStat)
-            countAdjustments = countAdjustments + int(
-                dStat > dStatAlpha,
-            )
-
-            matrixQ, inflatedQ = adjustProcessNoiseFunc(
-                matrixQ,
-                matrixQCopy,
-                dStat,
-                dStatAlpha,
-                dStatd,
-                dStatPC,
-                inflatedQ,
-                maxQ,
-                minQ,
-            )
-            np.clip(matrixQ, clipSmall, clipBig, out=matrixQ)
-            matrixK = (matrixP @ matrixH.T) @ matrixEInverse
-            IKH = matrixI2 - (matrixK @ matrixH)
-            # update for forward posterior state
-            vectorX = vectorX + (matrixK @ vectorY)
-            # ... and covariance
-            np.clip(
-                (IKH) @ matrixP @ (IKH).T
-                + (matrixK * matrixMunc[:, i]) @ matrixK.T,
-                clipSmall,
-                clipBig,
-                out=matrixP,
-            )
-            if projectStateDuringFiltering:
-                cconsenrich.projectToBox(
-                    vectorX,
-                    matrixP,
-                    np.float32(stateLowerBound),
-                    np.float32(stateUpperBound),
-                    np.float32(clipSmall),
-                )
-            stateForward[i] = vectorX.astype(np.float32)
-            stateCovarForward[i] = matrixP.astype(np.float32)
-            pNoiseForward[i] = matrixQ.astype(np.float32)
-
-            if i % chunkSize == 0 and i > 0:
+            if not firstPass__:
                 stateForward.flush()
                 stateCovarForward.flush()
                 pNoiseForward.flush()
 
-        stateForward.flush()
-        stateCovarForward.flush()
-        pNoiseForward.flush()
+            if collectD__:
+                phiHat__ = float(np.mean(vectorD))
+            else:
+                phiHat__ = 1.0
+            return phiHat__, countAdjustments
+
+        # first run
+        phiHat__, countAdjustments__ = _forwardPass(
+            phiScale__=1.0,
+            collectD__=fitPhi,
+            firstPass__=fitPhi,
+        )
+        phiScale__ = 1.0
+        if fitPhi:
+            logger.info(f"Mean D_[i]: {phiHat__:.6f}")
+            if phiHat__ > 0.0:
+                phiScale__ = 1.0 / phiHat__
+            else:
+                phiScale__ = 1.0
+            # second
+            logger.info(
+                f"Second Pass with adjustment Φ = {phiScale__:.4f}"
+            )
+            _ = _forwardPass(
+                phiScale__=phiScale__,
+                collectD__=True,
+                firstPass__=False,
+            )
 
         stateForwardArr = stateForward
         stateCovarForwardArr = stateCovarForward
         pNoiseForwardArr = pNoiseForward
+        stateForward.flush()
+        stateCovarForward.flush()
+        pNoiseForward.flush()
 
-        avgDstat /= n
-
-        logger.info(
-            f"Average D_[i] statistic over `n` intervals: {avgDstat:.3f}"
-        )
         logger.info(
             f"`D_[i] > α_D` triggered adjustments to Q_[i] at "
             f"[{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
         )
-
         # ==========================
         # backward: n-1,n-2,...,0
         # ==========================
@@ -1154,15 +1271,23 @@ def runConsenrich(
 
         stateSmoothed[-1] = np.float32(stateForwardArr[-1])
         stateCovarSmoothed[-1] = np.float32(stateCovarForwardArr[-1])
-        postFitResiduals[-1] = np.float32(
-            matrixData[:, -1] - (matrixH @ stateSmoothed[-1])
-        )
+        if u64 is None:
+            postFitResiduals[-1] = np.float32(
+                matrixData[:, -1] - stateSmoothed[-1, 0]
+            )
+        else:
+            postFitResiduals[-1] = np.float32(
+                matrixData[:, -1]
+                - (
+                    u64.astype(np.float32, copy=False)
+                    * stateSmoothed[-1, 0]
+                )
+            )
+
         smootherGain = np.zeros((2, 2), dtype=np.float32)
         for k in range(n - 2, -1, -1):
             if k % progressIter == 0:
-                logger.info(
-                    f"\nBackward pass interval: {k + 1}/{n}"
-                )
+                logger.info(f"\nBackward pass interval: {k + 1}/{n}")
 
             forwardStatePosterior = stateForwardArr[k]
             forwardCovariancePosterior = stateCovarForwardArr[k]
@@ -1170,7 +1295,7 @@ def runConsenrich(
             backwardInitialState = matrixF @ forwardStatePosterior
             backwardInitialCovariance = (
                 matrixF @ forwardCovariancePosterior @ matrixF.T
-                + np.eye(2, dtype=np.float32)*minQ
+                + np.eye(2, dtype=np.float32) * minQ
             )
 
             smootherGain = np.linalg.solve(
@@ -1202,9 +1327,18 @@ def runConsenrich(
                     np.float32(clipSmall),
                 )
 
-            postFitResiduals[k] = np.float32(
-                matrixData[:, k] - matrixH @ stateSmoothed[k]
-            )
+            if u64 is None:
+                postFitResiduals[k] = np.float32(
+                    matrixData[:, k] - stateSmoothed[k, 0]
+                )
+            else:
+                postFitResiduals[k] = np.float32(
+                    matrixData[:, k]
+                    - (
+                        u64.astype(np.float32, copy=False)
+                        * stateSmoothed[k, 0]
+                    )
+                )
 
             if k % chunkSize == 0 and k > 0:
                 stateSmoothed.flush()
@@ -1271,16 +1405,13 @@ def getStateCovarTrace(
 
 def getPrecisionWeightedResidual(
     postFitResiduals: np.ndarray,
-    matrixMunc: np.ndarray,
-    roundPrecision: int = 4,
+    matrixMunc: Optional[np.ndarray] = None,
     stateCovarSmoothed: Optional[np.ndarray] = None,
+    roundPrecision: int = 4,
 ) -> npt.NDArray[np.float32]:
-    r"""Get a one-dimensional precision-weighted array residuals after running Consenrich.
+    r"""Get a one-dimensional representation of average residuals after running Consenrich.
 
-    Post-fit residuals weighted by 'precision' (inverse variance) approximated by *diagonals*
-    in the inverse covariances. This reduces overhead for default use-cases (extra matrix operations during iteration),
-    but these values cannot be interpreted as fully-whitened residuals. Unweighted post-fit residuals are available
-    directly from :func:`runConsenrich`.
+    Optionally, if `matrixMunc` is provided, residuals are precision-weighted by the respective covariances.
 
     :param postFitResiduals: Post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray
@@ -1295,21 +1426,23 @@ def getPrecisionWeightedResidual(
     """
 
     n, m = postFitResiduals.shape
-    if matrixMunc.shape != (m, n):
-        raise ValueError(
-            f"matrixMunc should be (m,n)=({m}, {n}): observed {matrixMunc.shape}"
-        )
+    postFitResiduals_CContig = np.ascontiguousarray(
+        postFitResiduals, dtype=np.float32)
+
+    if matrixMunc is None:
+        return np.mean(postFitResiduals_CContig, axis=0)
+
+    else:
+        if matrixMunc.shape != (m, n):
+            raise ValueError(
+                f"matrixMunc should be (m,n)=({m}, {n}): observed {matrixMunc.shape}"
+            )
     if stateCovarSmoothed is not None and (
         stateCovarSmoothed.ndim < 3 or len(stateCovarSmoothed) != n
     ):
         raise ValueError(
             "stateCovarSmoothed must be shape (n) x (2,2) (if provided)"
         )
-
-    postFitResiduals_CContig = np.ascontiguousarray(
-        postFitResiduals, dtype=np.float32
-    )
-
     needsCopy = (
         (stateCovarSmoothed is not None)
         and len(stateCovarSmoothed) == n
@@ -1357,7 +1490,7 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     binQuantile: float = 0.50,
     textPlotMeanVarianceTrend: bool = False,
-    isLogScale: bool = True,
+    isTransformed: bool = True,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -1432,10 +1565,13 @@ def getMuncTrack(
     if evalFunc is None:
         evalFunc = cconsenrich.cmonotonicFitEval
     if fitFuncArgs is None:
-        fitFuncArgs = {"ridge": 1.0e-2, "isLogScale": isLogScale}
+        fitFuncArgs = {
+            "ridge": 1.0e-2,
+            "isTransformed": isTransformed,
+        }
 
     if blockSizeBP is None:
-        blockSizeBP = stepSize*11
+        blockSizeBP = stepSize * 11
     blockSizeIntervals = int(blockSizeBP / stepSize)
     if blockSizeIntervals < 10:
         logger.warning(
@@ -1455,9 +1591,7 @@ def getMuncTrack(
 
     if useALV:
         if sparseMap is not None:
-            logger.warning(
-                "Ignoring `sparseMap`: `useALV` is True"
-            )
+            logger.warning("Ignoring `sparseMap`: `useALV` is True")
         sparseMap = None
     cpy = localWeight
     localWeight = np.clip(localWeight, 0.0, 1.0)
@@ -1482,7 +1616,7 @@ def getMuncTrack(
         med = np.median(absVals)
         mad = np.median(np.abs(absVals - med))
         if mad > 0.0:
-            zeroThreshold = (mad*1.4826)/2.0
+            zeroThreshold = (mad * 1.4826) / 2.0
         else:
             zeroThreshold = 1e-4
 
@@ -1499,7 +1633,7 @@ def getMuncTrack(
 
     #  (i) Fit mean ~ variance relationship as \hat{f}
     # ... over sampled blocks' stats (mean_k, var_k) k=1,..,samplingIters
-    sortIdx = np.argsort(blockMeans) # jointly sorted by blockMean
+    sortIdx = np.argsort(blockMeans)  # jointly sorted by blockMean
     blockMeansSorted = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
 
@@ -1527,7 +1661,9 @@ def getMuncTrack(
         5,
         mode="nearest",
     ).astype(np.float32)
-    globalModelVariances = evalFunc(opt, meanTrack, isLogScale).astype(np.float32)
+    globalModelVariances = evalFunc(
+        opt, meanTrack, isTransformed
+    ).astype(np.float32)
 
     if textPlotMeanVarianceTrend:
         try:
@@ -1535,8 +1671,8 @@ def getMuncTrack(
                 import plotext as textplt
 
                 logger.info(
-                    '\tPlotting mean-variance trend via `plotext`...'
-                    '\t(to disable these plots in the default CLI implementation, do not invoke `--verbose2` flag)'
+                    "\tPlotting mean-variance trend via `plotext`..."
+                    "\t(to disable these plots in the default CLI implementation, do not invoke `--verbose2` flag)"
                 )
                 textplt.scatter(
                     blockMeans,
@@ -1545,7 +1681,7 @@ def getMuncTrack(
                 )
                 textplt.scatter(
                     blockMeansSorted,
-                    evalFunc(opt, blockMeansSorted, isLogScale),
+                    evalFunc(opt, blockMeansSorted, isTransformed),
                     label=f"`opt`: {opt}",
                     color="red",
                 )
@@ -1570,13 +1706,19 @@ def getMuncTrack(
     if windowLength % 2 == 0:
         windowLength += 1
 
-    localModelVariances = np.asarray(cconsenrich.csumSquaredFOD(
-        valuesArr, windowLength), dtype=np.float32)
+    localModelVariances = np.asarray(
+        cconsenrich.csumSquaredFOD(valuesArr, windowLength),
+        dtype=np.float32,
+    )
     if sparseMap is not None:
-        localModelVariances = cconsenrich.cSparseAvg(localModelVariances.copy(), sparseMap)
+        localModelVariances = cconsenrich.cSparseAvg(
+            localModelVariances.copy(), sparseMap
+        )
 
     # III: mix local and global models, weight sum to one
-    muncTrack = (localWeight*localModelVariances) + (globalWeight*globalModelVariances)
+    muncTrack = (localWeight * localModelVariances) + (
+        globalWeight * globalModelVariances
+    )
 
     return np.clip(muncTrack, minR, maxR).astype(np.float32)
 
@@ -1872,12 +2014,10 @@ def plotStateEstimatesHistogram(
     :type plotDirectory: str | None
     """
 
-    if _checkMod('matplotlib'):
+    if _checkMod("matplotlib"):
         import matplotlib.pyplot as plt
     else:
-        logger.warning(
-            "matplotlib not found...returning None"
-        )
+        logger.warning("matplotlib not found...returning None")
         return None
 
     if plotDirectory is None:
@@ -2147,10 +2287,16 @@ def _extractUpperTail(
     )
 
     edges = np.linspace(
-        transformedMin, transformedMax, num=numBins + 1, dtype=np.float64
+        transformedMin,
+        transformedMax,
+        num=numBins + 1,
+        dtype=np.float64,
     )
     binIdx = np.clip(
-        np.searchsorted(edges, transformedBlockMeans, side="right") - 1, 0, numBins - 1
+        np.searchsorted(edges, transformedBlockMeans, side="right")
+        - 1,
+        0,
+        numBins - 1,
     )
 
     outMeans = np.empty(numBins, dtype=np.float64)

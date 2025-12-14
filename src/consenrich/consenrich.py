@@ -789,7 +789,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         localWeight=_cfgGet(
             configData,
             "observationParams.localWeight",
-            0.25,
+            0.50,
         ),
         approximationWindowLengthBP=_cfgGet(
             configData,
@@ -1165,7 +1165,7 @@ def main():
     parser.add_argument(
         "--match-mass-quantile-cutoff",
         type=float,
-        default=0.10,
+        default=0.25,
         dest="matchMassQuantileCutoff",
         help="Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' (average signal value * length). Set to < 0 to disable",
     )
@@ -1207,7 +1207,7 @@ def main():
             methodFDR=args.matchMethodFDR.lower()
             if args.matchMethodFDR
             else None,
-            isLogScale=args.matchIsLogScale,
+            isTransformed=args.matchIsLogScale,
             randSeed=args.matchRandSeed,
             merge=True,  # always merge for CLI use -- either way, both files produced
             massQuantileCutoff=args.matchMassQuantileCutoff,
@@ -1595,14 +1595,20 @@ def main():
                 f"Muncing {j + 1}/{numSamples} for {chromosome}..."
             )
 
+
             chromMat[j, :] = detrorm.detrendTrack(
                 chromMat[j, :],
                 stepSize,
                 detrendArgs.detrendWindowLengthBP,
                 detrendArgs.useOrderStatFilter,
                 detrendArgs.usePolyFilter,
+                (not detrendArgs.useOrderStatFilter
+                and not detrendArgs.usePolyFilter),
                 detrendArgs.detrendTrackPercentile,
                 detrendArgs.detrendSavitzkyGolayDegree,
+                isTransformed=countingArgs.applyLog
+                or countingArgs.applyAsinh
+                or countingArgs.applySqrt,
             )
 
             # compute munc track for each sample independently
@@ -1621,7 +1627,7 @@ def main():
                 randomSeed=42 + j,
                 zeroPenalty=observationArgs.zeroPenalty,
                 textPlotMeanVarianceTrend=args.verbose2,
-                isLogScale = countingArgs.applyLog or countingArgs.applyAsinh or countingArgs.applySqrt,
+                isTransformed = countingArgs.applyLog or countingArgs.applyAsinh or countingArgs.applySqrt,
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
@@ -1646,20 +1652,11 @@ def main():
                 minR_ = np.float32(
                     np.quantile(muncMat[muncMat > muncEps], 0.10)
                 )
-
-            # Following ad hoc rule is applied if we get negative minQ:
-            # ... worst case: stay PD+stable in f32 and preserve
-            # ... reasonable sum(gains) for arbitrary sample sizes
-            # ... at baseline
-            autoMinQ = (
-                (minR_*(0.10) + 2*offDiagQ_) + 0.01
-            )
-
+            autoMinQ = (minR_ + 2*offDiagQ_)*(1 + 1.0e-2)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
                 minQ_ = np.float32(processArgs.minQ)
-
             if processArgs.maxQ < 0.0:
                 maxQ_ = minQ_
             else:
@@ -1668,7 +1665,7 @@ def main():
             maxQ_ = np.float32(max(maxQ_, minQ_))
 
         logger.info(
-            f"Median muncMatrix[:,:]={np.median(muncMat):.3f}, {np.min(muncMat):.3f} <= muncMatrix[:,:] <= {np.max(muncMat):.3f}"
+            f"Median muncMatrix[:,:]={np.median(muncMat):.3f}, IQR:{np.quantile(muncMat,0.25):.3f}, {np.quantile(muncMat, 0.95):.3f}"
         )
         logger.info(f"minQ={minQ_:.3f}, offDiagQ={offDiagQ_:.3f}")
         logger.info(f">>>Running consenrich: {chromosome}<<<")
@@ -1835,7 +1832,7 @@ def main():
                 randSeed=matchingArgs.randSeed,
                 weightsBedGraph=weightsBedGraph,
                 eps=matchingArgs.eps,
-                isLogScale=countingArgs.applyLog
+                isTransformed=countingArgs.applyLog
                 or countingArgs.applyAsinh
                 or countingArgs.applySqrt,
                 autoLengthQuantile=matchingArgs.autoLengthQuantile,
