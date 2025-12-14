@@ -133,8 +133,7 @@ class observationParams(NamedTuple):
     :type sparseBedFile: str, optional
     :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
     :type lowPassFilterType: Optional[str]
-    :param shrinkOffset: (*Experimental*) An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the structure-based shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not deplete the ALV variance estimates. Consider setting near `1.0` if data has been preprocessed to remove local trends.
-        To disable, set to `>= 1`.
+    :param shrinkOffset: (**Deprecated**) No effect.
     :type shrinkOffset: Optional[float]
     :param zeroPenalty: Inflate variance estimates in genomic regions with a larger proportion of zeros.
     :type zeroPenalty: Optional[float]
@@ -152,7 +151,7 @@ class observationParams(NamedTuple):
     lowPassWindowLengthBP: int
     lowPassFilterType: Optional[str]
     returnCenter: bool  # deprecated
-    shrinkOffset: Optional[float]
+    shrinkOffset: Optional[float] # deprecated
     kappaALV: Optional[float]
     zeroPenalty: Optional[float]
 
@@ -2334,7 +2333,7 @@ def getAverageLocalVarianceTrack(
     autocorrelation-based shrinkage. Finally, a broad/low-pass filter (``median`` or ``mean``)
     with window ``lowPassWindowLengthBP`` then smooths the variance track.
 
-    (Retained for backward compatibility).
+    (**Deprecated**) Retained for backward compatibility. Minor adjustments + refactored into :func:`getMuncTrack`.
 
     :param stepSize: see :class:`countingParams`.
     :type stepSize: int
