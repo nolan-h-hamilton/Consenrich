@@ -7,20 +7,22 @@ This module contains Cython implementations of core functions used in Consenrich
 """
 
 cimport cython
-
 import os
 import numpy as np
 from scipy import ndimage
 import pysam
-
 cimport numpy as cnp
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, asinh, sinh, sqrt, pow
+from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf
 cnp.import_array()
+
+cdef double __INVERSE_LOG2_DOUBLE = <double>(1.0 / log(2.0))
+cdef float __INVERSE_LOG2_FLOAT = <float>(1.0 / logf(<float>2.0))
+
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
     r"""Adjusts a value to the nearest multiple of stepSize, optionally pushing it forward.
@@ -430,7 +432,8 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
         float dStatPC,
         bint inflatedQ,
         float maxQ,
-        float minQ):
+        float minQ,
+        float maxMult=2.0):
     r"""Adjust process noise covariance matrix :math:`\mathbf{Q}_{[i]}`
 
     :param matrixQ: Current process noise covariance
@@ -442,7 +445,7 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
 
     cdef float scaleQ, fac
     if dStat > dStatAlpha:
-        scaleQ = np.sqrt(dStatd * np.abs(dStat-dStatAlpha) + dStatPC)
+        scaleQ = min(np.sqrt(dStatd * np.abs(dStat-dStatAlpha) + dStatPC), maxMult)
         if matrixQ[0, 0] * scaleQ <= maxQ:
             matrixQ[0, 0] *= scaleQ
             matrixQ[0, 1] *= scaleQ
@@ -457,7 +460,7 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
         inflatedQ = True
 
     elif dStat < dStatAlpha and inflatedQ:
-        scaleQ = np.sqrt(dStatd * np.abs(dStat-dStatAlpha) + dStatPC)
+        scaleQ = min(np.sqrt(dStatd * np.abs(dStat-dStatAlpha) + dStatPC), maxMult)
         if matrixQ[0, 0] / scaleQ >= minQ:
             matrixQ[0, 0] /= scaleQ
             matrixQ[0, 1] /= scaleQ
@@ -1349,7 +1352,7 @@ cdef inline double ridgeLoss(
     return loss + (ridge * (slope**2))
 
 
-cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isTransformed = 0):
+cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isTransformed = 1):
 
     # note this breaks if the means,variance are not sorted by mean, hence renaming
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
@@ -1539,6 +1542,42 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredFOD(
     return outputArray
 
 
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredSOD(
+        cnp.ndarray[cnp.float32_t, ndim=1] values,
+        Py_ssize_t windowLength):
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] outputArray
+    cdef double[::1] valuesView
+    cdef float[::1] outputView
+    cdef Py_ssize_t valuesLength
+    cdef Py_ssize_t i
+    cdef double runningSum
+    cdef double diff
+    cdef double diff_
+    cdef double* valuesPtr
+
+    valuesView = np.ascontiguousarray(values, dtype=np.float64)
+    valuesLength = valuesView.shape[0]
+    outputArray = np.zeros(valuesLength, dtype=np.float32)
+    outputView = outputArray
+    valuesPtr = &valuesView[0]
+
+    with nogil:
+        runningSum = 0.0
+        outputView[0] = <float>0.0
+        if valuesLength > 1:
+            outputView[1] = <float>0.0
+        for i in range(2, valuesLength):
+            diff = (valuesPtr[i] - 2.0*valuesPtr[i - 1] + valuesPtr[i - 2])
+            runningSum += diff**2
+            if i > windowLength + 1:
+                diff_ = (valuesPtr[i-windowLength] - 2.0*valuesPtr[i-windowLength-1] + valuesPtr[i-windowLength-2])
+                runningSum -= diff_**2
+            outputView[i] = <float>runningSum / (<double>(windowLength if i >= windowLength + 1 else i - 1))
+
+    return outputArray
+
+
 cdef bint _cEMA(const double* xPtr, double* outPtr,
                     Py_ssize_t n, double alpha) nogil:
     cdef Py_ssize_t i
@@ -1561,3 +1600,163 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
     _cEMA(<const double*>x1.data, <double*>out.data, n, alpha)
     return out
+
+
+cdef inline float carsinh_F32(float x) nogil:
+    return asinhf(x/2.0) * __INVERSE_LOG2_FLOAT
+cdef inline double carsinh_F64(double x) nogil:
+    return asinh(x/2.0) * __INVERSE_LOG2_DOUBLE
+
+cpdef object carsinhRatio(object x, Py_ssize_t blockLength, float eps_F32=<float>1.0e-3, double eps_F64=<double>1.0e-3):
+    r"""Compute log-scale enrichment versus local backgrounds computed as interpolated blockwise means.
+    """
+
+    cdef cnp.ndarray finalArr__
+    cdef Py_ssize_t valuesLength, blockCount, blockIndex, startIndex, endIndex, i, k, blockSize_F32, blockSize_F64
+    cdef float[::1] valuesView_F32
+    cdef float[::1] outputView_F32
+    cdef float[::1] blockMeans_F32
+    cdef float* valuesPtr_F32
+    cdef float* outputPtr_F32
+    cdef float* blockPtr_F32
+    cdef float withinBlockSum_F32
+    cdef float interpolatedBackground_F32
+    cdef float logDiff_F32
+
+    cdef double[::1] valuesView_F64
+    cdef double[::1] outputView_F64
+    cdef double[::1] blockMeans_F64
+    cdef double* valuesPtr_F64
+    cdef double* outputPtr_F64
+    cdef double* blockPtr_F64
+    cdef double withinBlockSum_F64
+    cdef double interpolatedBackground_F64
+    cdef double logDiff_F64
+
+    cdef double blockCenterCurr,blockCenterNext,lastCenter
+    cdef double carryOver, bgroundEstimate
+
+    if blockLength <= 0:
+        return None
+
+    if isinstance(x, np.ndarray):
+        # F32 case
+        if (<cnp.ndarray>x).dtype == np.float32:
+            valuesView_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+            valuesLength = valuesView_F32.shape[0]
+            finalArr__ = np.zeros(valuesLength, dtype=np.float32)
+            outputView_F32 = finalArr__
+
+            if valuesLength == 0:
+                return None
+
+            # note last block may have length < blockLength
+            blockCount = (valuesLength + blockLength - 1) // blockLength
+            if blockCount < 2:
+                return None
+
+            blockMeans_F32 = np.zeros(blockCount, dtype=np.float32)
+            valuesPtr_F32 = &valuesView_F32[0]
+            outputPtr_F32 = &outputView_F32[0]
+            blockPtr_F32  = &blockMeans_F32[0]
+
+            with nogil:
+                # compute within-block means
+                for blockIndex in range(blockCount):
+                    startIndex = blockIndex*blockLength
+                    endIndex = startIndex + blockLength
+                    if endIndex > valuesLength:
+                        endIndex = valuesLength
+                    withinBlockSum_F32 = <float>0.0
+                    blockSize_F32 = endIndex - startIndex
+                    for i in range(startIndex, endIndex):
+                        withinBlockSum_F32 += valuesPtr_F32[i]
+                    blockPtr_F32[blockIndex] = withinBlockSum_F32 / (<float>blockSize_F32)
+
+                # find the block `i` is located in, and take:
+                # ...    interpolatedBackground(i) = (1-c)*blockMean(k) + c*blockMean(k+1)
+                # ... where c is equal to the fractional distance between block ---centers--- (`carryOver`)
+                # ... this mitigates autocorrelation up to lag ~=~ blockLength/2
+                k = 0
+                blockCenterCurr = (<double>blockLength) * (<double>k + 0.5)
+                blockCenterNext = (<double>blockLength) * (<double>(k + 1) + 0.5)
+                lastCenter = (<double>blockLength) * (<double>(blockCount - 1) + 0.5)
+                for i in range(valuesLength):
+                    if (<double>i) <= blockCenterCurr:
+                        interpolatedBackground_F32 = blockPtr_F32[0]
+                    elif (<double>i) >= lastCenter:
+                        interpolatedBackground_F32 = blockPtr_F32[blockCount - 1]
+                    else:
+                        # shift blocks
+                        while (<double>i) > blockCenterNext and k < blockCount - 2:
+                            k += 1
+                            blockCenterCurr = blockCenterNext
+                            blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
+                        carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
+                        bgroundEstimate = ((1.0 - carryOver)*(<double>blockPtr_F32[k])) + (carryOver*(<double>blockPtr_F32[k+1]))
+                        interpolatedBackground_F32 = <float>bgroundEstimate
+                        interpolatedBackground_F32 = fmaxf(interpolatedBackground_F32, <float>eps_F32)
+                    # finally, we take ~log-scale~ difference currentValue - background
+                    logDiff_F32 = carsinh_F32(valuesPtr_F32[i]) - carsinh_F32(interpolatedBackground_F32)
+                    outputPtr_F32[i] = logDiff_F32
+
+            return finalArr__
+
+
+        # F64 case, same logic as above
+        valuesView_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
+        valuesLength = valuesView_F64.shape[0]
+        finalArr__ = np.zeros(valuesLength, dtype=np.float64)
+        outputView_F64 = finalArr__
+
+        if valuesLength == 0:
+            return None
+
+        blockCount = (valuesLength + blockLength - 1) // blockLength
+        if blockCount < 2:
+            return None
+
+        blockMeans_F64 = np.zeros(blockCount, dtype=np.float64)
+        valuesPtr_F64 = &valuesView_F64[0]
+        outputPtr_F64 = &outputView_F64[0]
+        blockPtr_F64  = &blockMeans_F64[0]
+
+        with nogil:
+            for blockIndex in range(blockCount):
+                startIndex = blockIndex * blockLength
+                endIndex = startIndex + blockLength
+                if endIndex > valuesLength:
+                    endIndex = valuesLength
+                withinBlockSum_F64 = 0.0
+                blockSize_F64 = endIndex - startIndex
+                for i in range(startIndex, endIndex):
+                    withinBlockSum_F64 += valuesPtr_F64[i]
+                blockPtr_F64[blockIndex] = withinBlockSum_F64 / (<double>blockSize_F64)
+                for i in range(valuesLength):
+                    logDiff_F64 = carsinh_F64(valuesPtr_F64[i]) - carsinh_F64(interpolatedBackground_F64)
+                    outputPtr_F64[i] = logDiff_F64
+
+            k = 0
+            blockCenterCurr = (<double>blockLength) * (<double>k + 0.5)
+            blockCenterNext = (<double>blockLength) * (<double>(k + 1) + 0.5)
+            lastCenter = (<double>blockLength) * (<double>(blockCount - 1) + 0.5)
+            for i in range(valuesLength):
+                if (<double>i) <= blockCenterCurr:
+                    interpolatedBackground_F64 = blockPtr_F64[0]
+                elif (<double>i) >= lastCenter:
+                    interpolatedBackground_F64 = blockPtr_F64[blockCount - 1]
+                else:
+                    while (<double>i) > blockCenterNext and k < blockCount - 2:
+                        k += 1
+                        blockCenterCurr = blockCenterNext
+                        blockCenterNext = (<double>blockLength) * (<double>(k + 1) + 0.5)
+
+                    carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
+                    interpolatedBackground_F64 = ((1.0-carryOver) * blockPtr_F64[k]) + (carryOver*blockPtr_F64[k + 1])
+                    interpolatedBackground_F64 = fmax(interpolatedBackground_F64, <double>eps_F64)
+                logDiff_F64 = carsinh_F64(valuesPtr_F64[i]) - carsinh_F64(interpolatedBackground_F64)
+                outputPtr_F64[i] = logDiff_F64
+
+        return finalArr__
+
+    return None

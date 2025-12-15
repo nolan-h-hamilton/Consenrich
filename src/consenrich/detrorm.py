@@ -245,7 +245,6 @@ def detrendTrack(
     useEMA: bool,
     detrendTrackPercentile: float,
     detrendSavitzkyGolayDegree: int,
-    isTransformed: bool,
 ) -> np.ndarray:
     r"""Detrend/remove baseline from tracks using sliding window filters.
 
@@ -279,12 +278,10 @@ def detrendTrack(
             "values length must be greater than windowLength."
         )
 
-    x = values.astype(float, copy=False)
-    scale = max(np.quantile(x[x > 0], 0.95) - np.quantile(x[x > 0], 0.05), 1.0)
-    logX = x if isTransformed else np.asinh(x/scale)
+    x_ = values.astype(float, copy=False)
 
     if useEMA:
-        baseline = cEMA(logX, 2.0 / (size + 1.0))
+        baseline = cEMA(x_, 2.0 / (size + 1.0))
 
     else:
         bothSpecified = useOrderStatFilter and usePolyFilter
@@ -295,19 +292,17 @@ def detrendTrack(
 
         if useOrderStatFilter or bothSpecified:
             baseline = ndimage.percentile_filter(
-                logX, detrendTrackPercentile, size=size
+                x_, detrendTrackPercentile, size=size
             )
         elif usePolyFilter:
             baseline = signal.savgol_filter(
-                logX, size, detrendSavitzkyGolayDegree
+                x_, size, detrendSavitzkyGolayDegree
             )
         else:
             raise ValueError(
                 "set as useOrderStatFilter, usePolyFilter, or useEMA."
             )
 
-    detrended_log = logX - baseline
-    if isTransformed:
-        return detrended_log
-    return np.sinh(detrended_log) * scale
+    return x_ - baseline
+
 

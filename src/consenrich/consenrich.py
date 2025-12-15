@@ -4,6 +4,7 @@
 import argparse
 import glob
 import logging
+import math
 import pprint
 import os
 from pathlib import Path
@@ -488,7 +489,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     applySqrtFlag = _cfgGet(
         configData,
         "countingParams.applySqrt",
-        False,
+        True,
     )
 
     noTransformFlag = _cfgGet(
@@ -789,7 +790,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         localWeight=_cfgGet(
             configData,
             "observationParams.localWeight",
-            0.50,
+            0.25,
         ),
         approximationWindowLengthBP=_cfgGet(
             configData,
@@ -817,12 +818,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         kappaALV=_cfgGet(
             configData,
             "observationParams.kappaALV",
-            25.0,
+            100.0,
         ),
         zeroPenalty=_cfgGet(
-            configData,
-            "observationParams.zeroPenalty",
-            2.0)
+            configData, "observationParams.zeroPenalty", 2.0
+        ),
     )
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
@@ -888,7 +888,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     detrendArgs = core.detrendParams(
         detrendWindowLengthBP=_cfgGet(
-            configData, "detrendParams.detrendWindowLengthBP", 25_000,
+            configData,
+            "detrendParams.detrendWindowLengthBP",
+            10_000,
         ),
         detrendTrackPercentile=_cfgGet(
             configData,
@@ -908,7 +910,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         useOrderStatFilter=_cfgGet(
             configData,
             "detrendParams.useOrderStatFilter",
-            True,
+            False,
         ),
     )
 
@@ -920,7 +922,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData, "matchingParams.cascadeLevels", []
         ),
         iters=_cfgGet(configData, "matchingParams.iters", 25_000),
-        alpha=_cfgGet(configData, "matchingParams.alpha", 0.01),
+        alpha=_cfgGet(configData, "matchingParams.alpha", 0.05),
         minMatchLengthBP=_cfgGet(
             configData,
             "matchingParams.minMatchLengthBP",
@@ -1087,7 +1089,7 @@ def main():
     parser.add_argument(
         "--match-alpha",
         type=float,
-        default=0.01,
+        default=0.05,
         dest="matchAlpha",
         help="Cutoff qualifying candidate matches as significant (FDR-adjusted p-value < alpha).",
     )
@@ -1173,7 +1175,8 @@ def main():
         "--verbose", action="store_true", help="If set, logs config"
     )
     parser.add_argument(
-        "--verbose2", action="store_true",
+        "--verbose2",
+        action="store_true",
     )
     parser.add_argument(
         "--version",
@@ -1260,7 +1263,7 @@ def main():
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
     offDiagQ_ = processArgs.offDiagQ
-    muncEps: float = 1.0e-4
+    muncEps: float = 10e-2
 
     if args.verbose2:
         args.verbose = True
@@ -1595,20 +1598,9 @@ def main():
                 f"Muncing {j + 1}/{numSamples} for {chromosome}..."
             )
 
-
-            chromMat[j, :] = detrorm.detrendTrack(
+            chromMat[j, :] = cconsenrich.carsinhRatio(
                 chromMat[j, :],
-                stepSize,
                 detrendArgs.detrendWindowLengthBP,
-                detrendArgs.useOrderStatFilter,
-                detrendArgs.usePolyFilter,
-                (not detrendArgs.useOrderStatFilter
-                and not detrendArgs.usePolyFilter),
-                detrendArgs.detrendTrackPercentile,
-                detrendArgs.detrendSavitzkyGolayDegree,
-                isTransformed=countingArgs.applyLog
-                or countingArgs.applyAsinh
-                or countingArgs.applySqrt,
             )
 
             # compute munc track for each sample independently
@@ -1627,13 +1619,13 @@ def main():
                 randomSeed=42 + j,
                 zeroPenalty=observationArgs.zeroPenalty,
                 textPlotMeanVarianceTrend=args.verbose2,
-                isTransformed = countingArgs.applyLog or countingArgs.applyAsinh or countingArgs.applySqrt,
+                isTransformed=True,
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             kappa = np.float32(observationArgs.kappaALV)
             minR_ = np.float32(
-                np.quantile(muncMat[muncMat > muncEps], 0.10)
+                np.quantile(muncMat[muncMat > 0], 0.10)
             )
 
             colMax = muncMat.max(axis=0).astype(np.float32)
@@ -1650,9 +1642,9 @@ def main():
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
                 minR_ = np.float32(
-                    np.quantile(muncMat[muncMat > muncEps], 0.10)
+                    np.quantile(muncMat[muncMat > 0], 0.10)
                 )
-            autoMinQ = (minR_ + 2*offDiagQ_)*(1 + 1.0e-2)
+            autoMinQ = (minR_ + 2 * offDiagQ_) * (1 + 1.0e-2)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1664,10 +1656,7 @@ def main():
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
 
-        logger.info(
-            f"Median muncMatrix[:,:]={np.median(muncMat):.3f}, IQR:{np.quantile(muncMat,0.25):.3f}, {np.quantile(muncMat, 0.95):.3f}"
-        )
-        logger.info(f"minQ={minQ_:.3f}, offDiagQ={offDiagQ_:.3f}")
+
         logger.info(f">>>Running consenrich: {chromosome}<<<")
         x, P, y = core.runConsenrich(
             chromMat,
@@ -1690,15 +1679,8 @@ def main():
         )
         logger.info("Done.")
 
-        x_ = core.getPrimaryState(x)
-        y_ = core.getPrecisionWeightedResidual(
-            y,
-            muncMat,
-            stateCovarSmoothed=P
-            if processArgs.scaleResidualsByP11 is not None
-            and processArgs.scaleResidualsByP11
-            else None,
-        )
+        x_ = core.getPrimaryState(x, stateLowerBound = stateArgs.stateLowerBound, stateUpperBound = stateArgs.stateUpperBound, boundState = stateArgs.boundState)
+        y_ = core.getPrecisionWeightedResidual(y)
 
         if plotArgs.plotStateEstimatesHistogram:
             core.plotStateEstimatesHistogram(
@@ -1832,9 +1814,7 @@ def main():
                 randSeed=matchingArgs.randSeed,
                 weightsBedGraph=weightsBedGraph,
                 eps=matchingArgs.eps,
-                isTransformed=countingArgs.applyLog
-                or countingArgs.applyAsinh
-                or countingArgs.applySqrt,
+                isTransformed=True,
                 autoLengthQuantile=matchingArgs.autoLengthQuantile,
                 methodFDR=matchingArgs.methodFDR.lower()
                 if matchingArgs.methodFDR is not None

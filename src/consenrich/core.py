@@ -133,7 +133,8 @@ class observationParams(NamedTuple):
     :type sparseBedFile: str, optional
     :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
     :type lowPassFilterType: Optional[str]
-    :param shrinkOffset: (**Deprecated**) No effect.
+    :param shrinkOffset: (*Experimental*) An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the structure-based shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not deplete the ALV variance estimates. Consider setting near `1.0` if data has been preprocessed to remove local trends.
+        To disable, set to `>= 1`.
     :type shrinkOffset: Optional[float]
     :param zeroPenalty: Inflate variance estimates in genomic regions with a larger proportion of zeros.
     :type zeroPenalty: Optional[float]
@@ -151,7 +152,7 @@ class observationParams(NamedTuple):
     lowPassWindowLengthBP: int
     lowPassFilterType: Optional[str]
     returnCenter: bool  # deprecated
-    shrinkOffset: Optional[float] # deprecated
+    shrinkOffset: Optional[float]
     kappaALV: Optional[float]
     zeroPenalty: Optional[float]
 
@@ -741,12 +742,6 @@ def readBamSegments(
                 counts[j, :], trimLeftTail, tail="left"
             )
         counts[j, :] *= np.float32(scaleFactors[j])
-        if applyAsinh:
-            np.asinh(counts[j, :], out=counts[j, :])
-        elif applyLog:
-            np.log1p(counts[j, :], out=counts[j, :])
-        elif applySqrt:
-            np.sqrt(counts[j, :], out=counts[j, :])
     return counts
 
 
@@ -785,7 +780,7 @@ def constructMatrixQ(
         (2, 2), dtype=np.float32
     )
     initMatrixQ[0, 0] = minDiagQ
-    initMatrixQ[1, 1] = minDiagQ
+    initMatrixQ[1, 1] = 2*minDiagQ
     initMatrixQ[0, 1] = offDiagQ
     initMatrixQ[1, 0] = offDiagQ
     return initMatrixQ
@@ -1075,7 +1070,6 @@ def runConsenrich(
                     )
 
                 if phiScale__ != 1.0:
-                    # MoM-like rescaling for dStat/NIS
                     np.multiply(
                         matrixMunc[:, i],
                         np.float32(phiScale__),
@@ -1132,7 +1126,6 @@ def runConsenrich(
                     vectorD[i] = np.float32(dStat__)
                 dStatUse__ = dStat__
                 countAdjustments += int(dStatUse__ > dStatAlpha)
-
                 matrixQ, inflatedQ = adjustProcessNoiseFunc(
                     matrixQ,
                     matrixQCopy,
@@ -1220,15 +1213,14 @@ def runConsenrich(
         )
         phiScale__ = 1.0
         if fitPhi:
-            logger.info(f"Mean D_[i]: {phiHat__:.6f}")
+            meanD_ = float(np.mean(vectorD))
+            varD_ = float(np.var(vectorD))
+            logger.info(f"\nInitial pass:")
+            logger.info(f"Mean D[i] ≈ {meanD_}, Var D[i] ≈ {varD_}: Rescaling 1/Φ ≈ {1/phiHat__:.6f}")
             if phiHat__ > 0.0:
                 phiScale__ = 1.0 / phiHat__
             else:
                 phiScale__ = 1.0
-            # second
-            logger.info(
-                f"Second Pass with adjustment Φ = {phiScale__:.4f}"
-            )
             _ = _forwardPass(
                 phiScale__=phiScale__,
                 collectD__=True,
@@ -1344,13 +1336,6 @@ def runConsenrich(
                 stateCovarSmoothed.flush()
                 postFitResiduals.flush()
 
-        if boundState:
-            np.clip(
-                stateSmoothed[:, 0],
-                stateLowerBound,
-                stateUpperBound,
-                out=stateSmoothed[:, 0],
-            )
         stateSmoothed.flush()
         stateCovarSmoothed.flush()
         postFitResiduals.flush()
@@ -1370,6 +1355,9 @@ def runConsenrich(
 def getPrimaryState(
     stateVectors: np.ndarray,
     roundPrecision: int = 4,
+    stateLowerBound: Optional[float] = None,
+    stateUpperBound: Optional[float] = None,
+    boundState: bool = False,
 ) -> npt.NDArray[np.float32]:
     r"""Get the primary state estimate from each vector after running Consenrich.
 
@@ -1379,6 +1367,13 @@ def getPrimaryState(
     :rtype: npt.NDArray[np.float32]
     """
     out_ = np.ascontiguousarray(stateVectors[:, 0], dtype=np.float32)
+    if boundState:
+        if stateLowerBound is not None:
+            np.maximum(
+                out_, np.float32(stateLowerBound), out=out_)
+        if stateUpperBound is not None:
+            np.minimum(
+                out_, np.float32(stateUpperBound), out=out_)
     np.round(out_, decimals=roundPrecision, out=out_)
     return out_
 
@@ -1429,7 +1424,7 @@ def getPrecisionWeightedResidual(
         postFitResiduals, dtype=np.float32)
 
     if matrixMunc is None:
-        return np.mean(postFitResiduals_CContig, axis=0)
+        return np.mean(postFitResiduals_CContig, axis=1)
 
     else:
         if matrixMunc.shape != (m, n):
@@ -1477,7 +1472,7 @@ def getMuncTrack(
     sparseMap: Optional[dict] = None,
     useALV: bool = False,
     blockSizeBP: Optional[int] = 1000,
-    samplingIters: int = 25_000,
+    samplingIters: int = 50_000,
     randomSeed: int = 42,
     localWeight: float = 0.25,
     zeroPenalty: float = 1.0,
@@ -1487,14 +1482,14 @@ def getMuncTrack(
     fitFuncArgs: Optional[dict] = None,
     evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
-    binQuantile: float = 0.50,
+    binQuantile: float = 0.75,
     textPlotMeanVarianceTrend: bool = False,
     isTransformed: bool = True,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     Compute sample-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
-    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, first-order differences.
+    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, first (or second)-order differences.
 
     * The global model is based on a mean-variance trend :math:`\hat{f}`, fit to pairs :math:`(\hat{\mu}_k, \hat{\sigma}^2_k)`
         for each of :math:`k=1,2,\ldots,K` (``samplingIters``) randomly sampled contiguous genomic blocks.
@@ -1502,7 +1497,7 @@ def getMuncTrack(
         (RSS) from an AR(1) model fit over the block (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
-        *interval* :math:`i=1,2,\ldots,n`. Specifically, the local squared, first-order differences
+        *interval* :math:`i=1,2,\ldots,n`. Specifically, the local squared, first (or second)-order differences
         is computed over a window of size ``approximationWindowLengthBP``. See :func:`consenrich.cconsenrich.csumSquaredFOD`.
 
         Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
@@ -1612,12 +1607,7 @@ def getMuncTrack(
     zeroThreshold = 0.0
     if zeroPenalty > 0.0:
         absVals = np.abs(valuesArr)
-        med = np.median(absVals)
-        mad = np.median(np.abs(absVals - med))
-        if mad > 0.0:
-            zeroThreshold = (mad * 1.4826) / 2.0
-        else:
-            zeroThreshold = 1e-4
+        zeroThreshold = np.quantile(absVals, 0.05)
 
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
@@ -1637,7 +1627,7 @@ def getMuncTrack(
     blockVarsSorted = blockVars[sortIdx]
 
     cleanBinMeans, cleanBinVars = _extractUpperTail(
-        blockMeansSorted, blockVarsSorted, binQuantile
+        blockMeansSorted, blockVarsSorted, q=binQuantile,
     )
 
     blockMeansSorted = cleanBinMeans.astype(np.float32)
@@ -1655,13 +1645,8 @@ def getMuncTrack(
         **fitFuncArgs,
     ).astype(np.float32)
 
-    meanTrack = ndimage.uniform_filter1d(
-        valuesArr.astype(np.float32),
-        5,
-        mode="nearest",
-    ).astype(np.float32)
     globalModelVariances = evalFunc(
-        opt, meanTrack, isTransformed
+        opt, values, isTransformed
     ).astype(np.float32)
 
     if textPlotMeanVarianceTrend:
@@ -1694,21 +1679,21 @@ def getMuncTrack(
 
     # II: Local model (local moment-based variance via sliding windows)
     # ... (a) At each genomic interval i = 1,2,...,n,
-    # ... apply local/moment-based heuristic on first order differences
+    # ... apply local/moment-based heuristic on first/second order differences
     # ... (b) `sparseMap` is an optional mapping (implemented as a dictionary)
     # ...    sparseMap(i) --> {F_i1,F_i2,...,F_i{numNearest}}
     # ... where each F_ij is a 'sparse' genomic region *devoid* of previously-annotated
     # ... regulatory elements. If provided,
     # ...  `trackALV_{new}(i) = average(trackALV_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
     # ... is the track from (a) are aggregated over sparseMap(i) to get each localModelVariance(i)
-    windowLength = int(approximationWindowLengthBP / stepSize)
-    if windowLength % 2 == 0:
-        windowLength += 1
-
     localModelVariances = np.asarray(
-        cconsenrich.csumSquaredFOD(valuesArr, windowLength),
+        cconsenrich.csumSquaredSOD(valuesArr, blockSizeIntervals),
         dtype=np.float32,
     )
+    import matplotlib.pyplot as plt
+    plt.hist(localModelVariances, bins='doane')
+    plt.savefig('localModelVariances_histogram.png')
+    plt.close()
     if sparseMap is not None:
         localModelVariances = cconsenrich.cSparseAvg(
             localModelVariances.copy(), sparseMap
@@ -2265,16 +2250,16 @@ def _extractUpperTail(
     blockMeans,
     blockVars,
     q=0.50,
-    binsPerUnit=25,
+    binsPerUnit=10,
     minBins=50,
     maxBins=250,
-    transformFunc=np.asinh,
+    transformFunc=None,
 ):
     means = np.asarray(blockMeans, dtype=np.float64)
     vars_ = np.asarray(blockVars, dtype=np.float64)
-    transformedBlockMeans = transformFunc(means)
-    transformedMin = float(np.min(transformedBlockMeans))
-    transformedMax = float(np.max(transformedBlockMeans))
+    transformedBlockMeans = means if transformFunc is None else transformFunc(means)
+    transformedMin = float(np.quantile(transformedBlockMeans, 0.01))
+    transformedMax = float(np.quantile(transformedBlockMeans, 0.99))
     dynamicRange = transformedMax - transformedMin
 
     numBins = int(
@@ -2333,7 +2318,7 @@ def getAverageLocalVarianceTrack(
     autocorrelation-based shrinkage. Finally, a broad/low-pass filter (``median`` or ``mean``)
     with window ``lowPassWindowLengthBP`` then smooths the variance track.
 
-    (**Deprecated**) Retained for backward compatibility. Minor adjustments + refactored into :func:`getMuncTrack`.
+    (Retained for backward compatibility).
 
     :param stepSize: see :class:`countingParams`.
     :type stepSize: int
