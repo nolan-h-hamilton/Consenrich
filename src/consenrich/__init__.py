@@ -9,4 +9,4 @@ from .misc_util import *
 from .constants import *
 from .detrorm import *
 from .matching import *
-__version__ = "0.7.14rc1"
+__version__ = "0.7.15rc2"

@@ -143,7 +143,6 @@ class observationParams(NamedTuple):
 
     minR: float
     maxR: float
-    useALV: bool
     useConstantNoiseLevel: bool
     noGlobal: bool  # deprecated
     numNearest: int
@@ -279,8 +278,7 @@ class genomeParams(NamedTuple):
     :type chromSizesFile: str
     :param blacklistFile: A BED file with regions to exclude.
     :type blacklistFile: str, optional
-    :param sparseBedFile: A BED file with 'sparse regions' used to estimate noise levels -- ignored if `observationParams.useALV` is True. 'Sparse regions' broadly refers to genomic intervals devoid of the targeted signal, based on prior annotations.
-      Users may supply a custom BED file and/or set `observationParams.useALV` to `True` to avoid relying on predefined annotations.
+    :param sparseBedFile: A BED file with 'sparse regions' that are mutually exclusive with or devoid of the targeted signal. Used to estimate noise levels. See :func:`getMuncTrack`.
     :type sparseBedFile: str, optional
     :param chromosomes: A list of chromosome names to analyze. If None, all chromosomes in `chromSizesFile` are used.
     :type chromosomes: List[str]
@@ -780,9 +778,9 @@ def constructMatrixQ(
         (2, 2), dtype=np.float32
     )
     initMatrixQ[0, 0] = minDiagQ
-    initMatrixQ[1, 1] = 2*minDiagQ
-    initMatrixQ[0, 1] = offDiagQ
-    initMatrixQ[1, 0] = offDiagQ
+    initMatrixQ[1, 1] = minDiagQ
+    initMatrixQ[0, 1] = 0.0
+    initMatrixQ[1, 0] = 0.0
     return initMatrixQ
 
 
@@ -835,6 +833,7 @@ def runConsenrich(
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
     fitPhi: bool = True,
+    textPlotDstatHistogram: bool = False,
 ) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.float32]]:
     r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
         Completes the forward and backward passes given data :math:`\mathbf{Z}^{m \times n}` and
@@ -1121,7 +1120,7 @@ def runConsenrich(
 
                 # normalized NIS/dStat in O(m)
                 qform__ = sumYY__ - wRank1__ * (sumUY__ * sumUY__)
-                dStat__ = qform__ / float(m)
+                dStat__ = qform__ / np.float32(m)
                 if collectD__:
                     vectorD[i] = np.float32(dStat__)
                 dStatUse__ = dStat__
@@ -1183,7 +1182,8 @@ def runConsenrich(
                         np.float32(stateUpperBound),
                         np.float32(clipSmall),
                     )
-
+                # enforce symmetric and positive definite per iteration
+                cconsenrich.protectCovariance22(matrixP)
                 if not firstPass__:
                     stateForward[i] = vectorX
                     stateCovarForward[i] = matrixP
@@ -1212,13 +1212,13 @@ def runConsenrich(
             firstPass__=fitPhi,
         )
         phiScale__ = 1.0
-        if fitPhi:
+        if fitPhi and abs(phiHat__ - 1.0) > 1.0e-2:
             meanD_ = float(np.mean(vectorD))
-            varD_ = float(np.var(vectorD))
+            varD_ = float(np.var(vectorD, ddof=1))
             logger.info(f"\nInitial pass:")
-            logger.info(f"Mean D[i] ≈ {meanD_}, Var D[i] ≈ {varD_}: Rescaling 1/Φ ≈ {1/phiHat__:.6f}")
+            logger.info(f"Mean D[i] ≈ {meanD_}, Var D[i] ≈ {varD_}")
             if phiHat__ > 0.0:
-                phiScale__ = 1.0 / phiHat__
+                phiScale__ = 1 / phiHat__
             else:
                 phiScale__ = 1.0
             _ = _forwardPass(
@@ -1238,6 +1238,13 @@ def runConsenrich(
             f"`D_[i] > α_D` triggered adjustments to Q_[i] at "
             f"[{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
         )
+
+        _textplotDstatHistogram(
+            vectorD,
+            n=vectorD.size,
+            enabled=textPlotDstatHistogram,
+        )
+
         # ==========================
         # backward: n-1,n-2,...,0
         # ==========================
@@ -1470,9 +1477,8 @@ def getMuncTrack(
     minR: float,
     maxR: float,
     sparseMap: Optional[dict] = None,
-    useALV: bool = False,
-    blockSizeBP: Optional[int] = 1000,
-    samplingIters: int = 50_000,
+    blockSizeBP: Optional[int] = 5000,
+    samplingIters: int = 25_000,
     randomSeed: int = 42,
     localWeight: float = 0.25,
     zeroPenalty: float = 1.0,
@@ -1482,13 +1488,13 @@ def getMuncTrack(
     fitFuncArgs: Optional[dict] = None,
     evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
-    binQuantile: float = 0.75,
+    binQuantile: float = 0.50,
     textPlotMeanVarianceTrend: bool = False,
     isTransformed: bool = True,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
-    Compute sample-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
+    Compute sample- and region-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
     weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, first (or second)-order differences.
 
     * The global model is based on a mean-variance trend :math:`\hat{f}`, fit to pairs :math:`(\hat{\mu}_k, \hat{\sigma}^2_k)`
@@ -1523,10 +1529,8 @@ def getMuncTrack(
     :param maxR: Maximum allowable uncertainty.
     :type maxR: float
     :param sparseMap: Optional mapping of genomic intervals to sparse regions.
-        If provided, the local average variance track is averaged over these sparse regions.
+        If provided, the local model estimates are averaged over these sparse regions.
     :type sparseMap: Optional[dict]
-    :param useALV: If True, `sparseMap` is ignored, i.e., use the local model (ALV) *exclusively*
-    :type useALV: bool
     :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
     :type blockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
@@ -1560,7 +1564,7 @@ def getMuncTrack(
         evalFunc = cconsenrich.cmonotonicFitEval
     if fitFuncArgs is None:
         fitFuncArgs = {
-            "ridge": 1.0e-2,
+            "ridge": 1.0e-4,
             "isTransformed": isTransformed,
         }
 
@@ -1583,10 +1587,6 @@ def getMuncTrack(
             excludeMask, dtype=np.uint8
         )
 
-    if useALV:
-        if sparseMap is not None:
-            logger.warning("Ignoring `sparseMap`: `useALV` is True")
-        sparseMap = None
     cpy = localWeight
     localWeight = np.clip(localWeight, 0.0, 1.0)
     globalWeight = 1.0 - localWeight  # force sum-to-one
@@ -1607,7 +1607,7 @@ def getMuncTrack(
     zeroThreshold = 0.0
     if zeroPenalty > 0.0:
         absVals = np.abs(valuesArr)
-        zeroThreshold = np.quantile(absVals, 0.05)
+        zeroThreshold = np.quantile(absVals, 0.005)
 
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
@@ -1646,36 +1646,18 @@ def getMuncTrack(
     ).astype(np.float32)
 
     globalModelVariances = evalFunc(
-        opt, values, isTransformed
+        opt, cconsenrich.cEMA(valuesArr, 2/(blockSizeIntervals+1)), isTransformed,
     ).astype(np.float32)
 
-    if textPlotMeanVarianceTrend:
-        try:
-            if _checkMod("plotext"):
-                import plotext as textplt
-
-                logger.info(
-                    "\tPlotting mean-variance trend via `plotext`..."
-                    "\t(to disable these plots in the default CLI implementation, do not invoke `--verbose2` flag)"
-                )
-                textplt.scatter(
-                    blockMeans,
-                    blockVars,
-                    label="(Block Mean, Block RSS)",
-                )
-                textplt.scatter(
-                    blockMeansSorted,
-                    evalFunc(opt, blockMeansSorted, isTransformed),
-                    label=f"`opt`: {opt}",
-                    color="red",
-                )
-                textplt.limit_size(True, True)
-                textplt.show()
-                textplt.clf()
-        except Exception as e:
-            logger.warning(
-                f"Ignoring `textPlotMeanVarianceTrend`:\n{e}\n"
-            )
+    _textplotMeanVarianceTrend(
+        blockMeans=blockMeans,
+        blockVars=blockVars,
+        blockMeansSorted=blockMeansSorted,
+        opt=opt,
+        evalFunc=evalFunc,
+        isTransformed=isTransformed,
+        enabled=textPlotMeanVarianceTrend,
+    )
 
     # II: Local model (local moment-based variance via sliding windows)
     # ... (a) At each genomic interval i = 1,2,...,n,
@@ -1687,13 +1669,13 @@ def getMuncTrack(
     # ...  `trackALV_{new}(i) = average(trackALV_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
     # ... is the track from (a) are aggregated over sparseMap(i) to get each localModelVariance(i)
     localModelVariances = np.asarray(
-        cconsenrich.csumSquaredSOD(valuesArr, blockSizeIntervals),
+        cconsenrich.csumSquaredFOD(
+            valuesArr,
+            max(2, int(approximationWindowLengthBP / stepSize)),
+        ),
         dtype=np.float32,
     )
-    import matplotlib.pyplot as plt
-    plt.hist(localModelVariances, bins='doane')
-    plt.savefig('localModelVariances_histogram.png')
-    plt.close()
+
     if sparseMap is not None:
         localModelVariances = cconsenrich.cSparseAvg(
             localModelVariances.copy(), sparseMap
@@ -1710,9 +1692,7 @@ def getMuncTrack(
 def sparseIntersection(
     chromosome: str, intervals: np.ndarray, sparseBedFile: str
 ) -> npt.NDArray[np.int64]:
-    r"""Returns intervals in the chromosome that overlap with the sparse features.
-
-    Not relevant if `observationParams.useALV` is True.
+    r"""Returns intervals in the chromosome that overlap with the 'sparse' features.
 
     :param chromosome: The chromosome name.
     :type chromosome: str
@@ -1722,6 +1702,7 @@ def sparseIntersection(
     :type sparseBedFile: str
     :return: A numpy array of start positions of the sparse features that overlap with the intervals
     :rtype: np.ndarray[Tuple[Any], np.dtype[Any]]
+    :seealso: :func:`getSparseMap`, :class:`consenrich.core.observationParams`
     """
 
     stepSize: int = intervals[1] - intervals[0]
@@ -2258,8 +2239,8 @@ def _extractUpperTail(
     means = np.asarray(blockMeans, dtype=np.float64)
     vars_ = np.asarray(blockVars, dtype=np.float64)
     transformedBlockMeans = means if transformFunc is None else transformFunc(means)
-    transformedMin = float(np.quantile(transformedBlockMeans, 0.01))
-    transformedMax = float(np.quantile(transformedBlockMeans, 0.99))
+    transformedMin = float(np.quantile(transformedBlockMeans, 0.005))
+    transformedMax = float(np.quantile(transformedBlockMeans, 0.995))
     dynamicRange = transformedMax - transformedMin
 
     numBins = int(
@@ -2434,3 +2415,93 @@ def getAverageLocalVarianceTrack(
         )
 
     return np.clip(noiseLevel, minR, maxR).astype(np.float32)
+
+
+def _textplotDstatHistogram(
+    vectorD: np.ndarray,
+    n: int,
+    enabled: bool = True,
+    checkMod: Callable[[str], bool] = _checkMod,
+    maxPoints: int = 10_000,
+) -> None:
+    if not enabled:
+        return
+    try:
+        if not checkMod("plotext"):
+            return
+        import plotext as textplt
+
+        if n > maxPoints:
+            indices = np.random.choice(
+                n, size=maxPoints, replace=True
+            )
+            dvals = vectorD[indices]
+        else:
+            dvals = vectorD
+        iqr = np.quantile(vectorD, 0.75) - np.quantile(vectorD, 0.25)
+        binWidth = (2 * iqr) / (vectorD.size ** (1 / 3))
+        if binWidth > 0.0:
+            bins = int(
+                np.ceil(
+                    (np.max(vectorD) - np.min(vectorD)) / binWidth
+                )
+            )
+        else:
+            bins = 10
+        logger.info(
+            "\tPlotting NIS histogram via `plotext`..."
+            "(To disable these plots in the default CLI implementation, do not invoke `--verbose2` flag)"
+        )
+        textplt.hist(dvals, bins=bins, label="(Forward) NIS/D [:]")
+        textplt.limit_size(True, True)
+        textplt.show()
+        textplt.clf()
+    except Exception as e:
+        logger.warning(f"Ignoring `textPlotDstatHistogram`:\n{e}\n")
+
+
+def _textplotMeanVarianceTrend(
+    blockMeans: np.ndarray,
+    blockVars: np.ndarray,
+    blockMeansSorted: np.ndarray,
+    opt: np.ndarray,
+    evalFunc: Callable = cconsenrich.cmonotonicFitEval,
+    isTransformed: bool = True,
+    enabled: bool = True,
+    checkMod: Callable[[str], bool] = _checkMod,
+    maxPoints: int = 10_000,
+) -> None:
+    if not enabled:
+        return
+    try:
+        if not checkMod("plotext"):
+            return
+        import plotext as textplt
+
+        n = int(blockMeans.size)
+        if n > maxPoints:
+            idx = np.random.choice(n, size=maxPoints, replace=True)
+            x = blockMeans[idx]
+            y = blockVars[idx]
+        else:
+            x = blockMeans
+            y = blockVars
+
+        logger.info(
+            "\tPlotting mean-variance trend via `plotext`..."
+            "(To disable these plots in the default CLI implementation, do not invoke `--verbose2` flag)"
+        )
+        textplt.scatter(x, y, label="(Block Mean, Block Var)")
+        textplt.scatter(
+            blockMeansSorted,
+            evalFunc(opt, blockMeansSorted, isTransformed),
+            label=f"`opt`: {opt}",
+            color="red",
+        )
+        textplt.limit_size(True, True)
+        textplt.show()
+        textplt.clf()
+    except Exception as e:
+        logger.warning(
+            f"Ignoring `textPlotMeanVarianceTrend`:\n{e}\n"
+        )

@@ -773,7 +773,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
         maxR=_cfgGet(configData, "observationParams.maxR", 1000.0),
-        useALV=_cfgGet(configData, "observationParams.useALV", False),
         useConstantNoiseLevel=_cfgGet(
             configData,
             "observationParams.useConstantNoiseLevel",
@@ -790,7 +789,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         localWeight=_cfgGet(
             configData,
             "observationParams.localWeight",
-            0.25,
+            0.50,
         ),
         approximationWindowLengthBP=_cfgGet(
             configData,
@@ -821,7 +820,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             100.0,
         ),
         zeroPenalty=_cfgGet(
-            configData, "observationParams.zeroPenalty", 2.0
+            configData, "observationParams.zeroPenalty", 1.0
         ),
     )
 
@@ -1571,7 +1570,7 @@ def main():
                 fragmentLengths=fragmentLengthsTreatment,
             )
         sparseMap = None
-        if genomeArgs.sparseBedFile and not observationArgs.useALV:
+        if genomeArgs.sparseBedFile and not genomeArgs.sparseBedFile.lower() == 'none':
             if c_ == 0:
                 logger.info(
                     f"Building sparseMap[i] --> (nearestSparseRegion[i,1], ..., nearestSparseRegion[i, `numNearest`])"
@@ -1612,7 +1611,6 @@ def main():
                 minR_,
                 maxR_,
                 sparseMap,
-                observationArgs.useALV,
                 localWeight=observationArgs.localWeight,
                 approximationWindowLengthBP=observationArgs.approximationWindowLengthBP,
                 lowPassWindowLengthBP=observationArgs.lowPassWindowLengthBP,
@@ -1625,7 +1623,7 @@ def main():
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             kappa = np.float32(observationArgs.kappaALV)
             minR_ = np.float32(
-                np.quantile(muncMat[muncMat > 0], 0.10)
+                np.quantile(muncMat[muncMat > 0], 0.01)
             )
 
             colMax = muncMat.max(axis=0).astype(np.float32)
@@ -1642,9 +1640,9 @@ def main():
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
                 minR_ = np.float32(
-                    np.quantile(muncMat[muncMat > 0], 0.10)
+                    np.quantile(muncMat[muncMat > 0], 0.01)
                 )
-            autoMinQ = (minR_ + 2 * offDiagQ_) * (1 + 1.0e-2)
+            autoMinQ = (minR_ + 2*offDiagQ_) * (1 + 1.0e-2)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1676,6 +1674,7 @@ def main():
             stateArgs.stateUpperBound,
             samArgs.chunkSize,
             progressIter=25_000,
+            textPlotDstatHistogram=args.verbose2,
         )
         logger.info("Done.")
 

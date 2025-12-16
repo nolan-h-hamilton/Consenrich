@@ -17,7 +17,7 @@ from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf
+from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf
 cnp.import_array()
 
 cdef double __INVERSE_LOG2_DOUBLE = <double>(1.0 / log(2.0))
@@ -433,19 +433,19 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
         bint inflatedQ,
         float maxQ,
         float minQ,
+        float dStatAlphaLowMult=0.50,
         float maxMult=2.0):
-    r"""Adjust process noise covariance matrix :math:`\mathbf{Q}_{[i]}`
 
-    :param matrixQ: Current process noise covariance
-    :param matrixQCopy: A copy of the initial original covariance matrix :math:`\mathbf{Q}_{[.]}`
-    :param inflatedQ: Flag indicating if the process noise covariance is inflated
-    :return: Updated process noise covariance matrix and inflated flag
-    :rtype: tuple
-    """
+    cdef float scaleQ, fac, dStatAlphaLow
+    if dStatAlphaLowMult <= 0:
+        dStatAlphaLow = 1.0
+    else:
+        dStatAlphaLow = dStatAlpha * dStatAlphaLowMult
+    if dStatAlphaLow >= dStatAlpha:
+        dStatAlphaLow = dStatAlpha
 
-    cdef float scaleQ, fac
     if dStat > dStatAlpha:
-        scaleQ = min(np.sqrt(dStatd * np.abs(dStat-dStatAlpha) + dStatPC), maxMult)
+        scaleQ = fminf(sqrtf(dStatd * fabsf(dStat - dStatAlpha) + dStatPC), maxMult)
         if matrixQ[0, 0] * scaleQ <= maxQ:
             matrixQ[0, 0] *= scaleQ
             matrixQ[0, 1] *= scaleQ
@@ -459,8 +459,8 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
             matrixQ[1, 1] = maxQ
         inflatedQ = True
 
-    elif dStat < dStatAlpha and inflatedQ:
-        scaleQ = min(np.sqrt(dStatd * np.abs(dStat-dStatAlpha) + dStatPC), maxMult)
+    elif dStat <= dStatAlphaLow and inflatedQ:
+        scaleQ = fminf(sqrtf(dStatd * fabsf(dStat - dStatAlphaLow) + dStatPC), maxMult)
         if matrixQ[0, 0] / scaleQ >= minQ:
             matrixQ[0, 0] /= scaleQ
             matrixQ[0, 1] /= scaleQ
@@ -474,7 +474,9 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
             matrixQ[1, 0] = matrixQCopy[1, 0] * fac
             matrixQ[1, 1] = minQ
             inflatedQ = False
+
     return matrixQ, inflatedQ
+
 
 
 cdef void _blockMax(double[::1] valuesView,
@@ -1052,6 +1054,7 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     finally:
         f.close()
     cdef Py_ssize_t numIntervals = intervals.size
+
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] mask = np.zeros(numIntervals, dtype=np.uint8)
     if not startsList:
         return mask
@@ -1061,11 +1064,29 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     cdef cnp.uint32_t[:] endsView = ends
     cdef cnp.uint32_t[:] posView = intervals
     cdef cnp.uint8_t[:] outView = mask
-    cdef uint32_t* svPtr = &startsView[0] if starts.size > 0 else <uint32_t*>NULL
-    cdef uint32_t* evPtr = &endsView[0] if ends.size > 0 else <uint32_t*>NULL
-    cdef uint32_t* posPtr = &posView[0] if numIntervals > 0 else <uint32_t*>NULL
-    cdef uint8_t* outPtr = &outView[0] if numIntervals > 0 else <uint8_t*>NULL
+    cdef uint32_t* svPtr
+    cdef uint32_t* evPtr
+    cdef uint32_t* posPtr
+
+    cdef uint8_t* outPtr
     cdef Py_ssize_t n = starts.size
+    if starts.size > 0:
+        svPtr = &startsView[0]
+    else:
+        svPtr = <uint32_t*>NULL
+
+    if ends.size > 0:
+        evPtr = &endsView[0]
+    else:
+        evPtr = <uint32_t*>NULL
+
+    if numIntervals > 0:
+        posPtr = &posView[0]
+        outPtr = &outView[0]
+    else:
+        posPtr = <uint32_t*>NULL
+        outPtr = <uint8_t*>NULL
+
     with nogil:
         if numIntervals > 0 and n > 0:
             maskMembership(posPtr, numIntervals, svPtr, evPtr, n, outPtr)
@@ -1105,7 +1126,7 @@ cdef inline bint _projectToBox(
         return <bint>0 # no change if in bounds
 
     # projection in our case --> truncated box on first state variable
-    projectedX_i0 = 0.0
+    projectedX_i0 = initX_i0
     if projectedX_i0 < stateLowerBound:
         projectedX_i0 = stateLowerBound
     if projectedX_i0 > stateUpperBound:
@@ -1162,17 +1183,12 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double scaleFac
     cdef double meanValue
     cdef double pairCountDouble
-    cdef double centeredPrev, centeredCurr
+    cdef double centeredPrev, centeredCurr, oneMinusBetaSq
     cdef double* blockPtr # FFR: try to use this convention to avoid indexing as [start + idx]
 
     for regionIndex in range(meanOutView.shape[0]):
         startIndex = blockStartIndices[regionIndex]
         blockLength = blockSizes[regionIndex]
-
-        if blockLength <= 0:
-            meanOutView[regionIndex] = 0.0
-            varOutView[regionIndex] = 0.0
-            continue
 
         blockPtr = &valuesView[startIndex]
         blockLengthDouble = <double>blockLength
@@ -1186,9 +1202,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                 zeroCount += 1.0
 
         meanValue = sumY / blockLengthDouble
-        # note that the output mean here isn't the μ/1-ρ estimator
-        # ... just the sample mean per block. AR(1) variance is then
-        # ... the innovation var
         meanOutView[regionIndex] = <float>meanValue
 
         if blockLength <= 1:
@@ -1235,11 +1248,13 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             centeredPrev = centeredCurr
             previousValue = currentValue
 
-        if blockLength - 1 > 1:
-            varOutView[regionIndex] = <float>(RSS / (<double>(blockLength - 2)))
-        else:
-            varOutView[regionIndex] = <float>(RSS/pairCountDouble)
 
+        varOutView[regionIndex] = <float>(RSS/pairCountDouble)
+        oneMinusBetaSq = (1.0 - (beta1*beta1))
+        if oneMinusBetaSq < 1.0e-3:
+            oneMinusBetaSq = 1.0e-3
+
+        varOutView[regionIndex] = <float>((<double>varOutView[regionIndex]) / oneMinusBetaSq)
         zeroProp = zeroCount / blockLengthDouble
         scaleFactor = 1.0  + (zeroPenalty*zeroProp)
         varOutView[regionIndex] *= <float>scaleFactor
@@ -1340,16 +1355,15 @@ cdef inline double ridgeLoss(
 ) noexcept:
 
     cdef double loss = 0.0
-    # FFR: consistent throughout with x**2 vs x*x
     loss = (
         sumSqZ
         - 2.0 * slope * sumXZ
         - 2.0 * intercept * sumZ
-        + (slope**2) * sumSqX
+        + (slope*slope) * sumSqX
         + 2.0 * slope * intercept * sumX
-        + (intercept**2) * numSamples
+        + (intercept*intercept) * numSamples
     )
-    return loss + (ridge * (slope**2))
+    return loss + (ridge * (slope*slope))
 
 
 cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isTransformed = 1):
@@ -1445,7 +1459,7 @@ cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0
             z = asinh(yVal)
         else:
             z = yVal
-        sumSqShiftX += (xShift**2)
+        sumSqShiftX += (xShift*xShift)
         sumShiftXZ += (xShift*z) # z*x - z*xMin
 
     if sumSqShiftX + ridge > 0.0:
@@ -1532,10 +1546,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredFOD(
         outputView[0] = <float>0.0
         for i in range(1, valuesLength):
             diff = (valuesPtr[i] - valuesPtr[i - 1])
-            runningSum += diff**2
+            runningSum += diff*diff
             if i > windowLength:
                 diff_ = valuesPtr[i-windowLength] - valuesPtr[i-windowLength-1]
-                runningSum -= diff_**2
+                runningSum -= diff_*diff_
                 # window now [i-windowLength, i]
             outputView[i] = <float>runningSum / (<double>(windowLength if i >= windowLength else i))
 
@@ -1569,10 +1583,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredSOD(
             outputView[1] = <float>0.0
         for i in range(2, valuesLength):
             diff = (valuesPtr[i] - 2.0*valuesPtr[i - 1] + valuesPtr[i - 2])
-            runningSum += diff**2
+            runningSum += diff*diff
             if i > windowLength + 1:
                 diff_ = (valuesPtr[i-windowLength] - 2.0*valuesPtr[i-windowLength-1] + valuesPtr[i-windowLength-2])
-                runningSum -= diff_**2
+                runningSum -= diff_*diff_
             outputView[i] = <float>runningSum / (<double>(windowLength if i >= windowLength + 1 else i - 1))
 
     return outputArray
@@ -1607,33 +1621,40 @@ cdef inline float carsinh_F32(float x) nogil:
 cdef inline double carsinh_F64(double x) nogil:
     return asinh(x/2.0) * __INVERSE_LOG2_DOUBLE
 
-cpdef object carsinhRatio(object x, Py_ssize_t blockLength, float eps_F32=<float>1.0e-3, double eps_F64=<double>1.0e-3):
-    r"""Compute log-scale enrichment versus local backgrounds computed as interpolated blockwise means.
+cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
+                          float eps_F32=<float>1.0e-3, double eps_F64=<double>1.0e-3):
+    r"""Compute log-scale enrichment versus local background
+
+    The local background is at each *interval* computed by --interpolating-- means from each *block* midpoint.
+    where each *block* consists of multiple contiguous intervals.
     """
 
     cdef cnp.ndarray finalArr__
-    cdef Py_ssize_t valuesLength, blockCount, blockIndex, startIndex, endIndex, i, k, blockSize_F32, blockSize_F64
+    cdef Py_ssize_t valuesLength, blockCount, blockIndex, startIndex, endIndex, i, k, blockSize_F32, blockSize_F64, centerIndex
+    cdef cnp.ndarray valuesArr_F32
     cdef float[::1] valuesView_F32
     cdef float[::1] outputView_F32
     cdef float[::1] blockMeans_F32
+    cdef float[::1] emaView_F32
     cdef float* valuesPtr_F32
     cdef float* outputPtr_F32
     cdef float* blockPtr_F32
-    cdef float withinBlockSum_F32
+    cdef float* emaPtr_F32
     cdef float interpolatedBackground_F32
     cdef float logDiff_F32
-
+    cdef cnp.ndarray valuesArr_F64
     cdef double[::1] valuesView_F64
     cdef double[::1] outputView_F64
     cdef double[::1] blockMeans_F64
+    cdef double[::1] emaView_F64
     cdef double* valuesPtr_F64
     cdef double* outputPtr_F64
     cdef double* blockPtr_F64
-    cdef double withinBlockSum_F64
+    cdef double* emaPtr_F64
     cdef double interpolatedBackground_F64
     cdef double logDiff_F64
 
-    cdef double blockCenterCurr,blockCenterNext,lastCenter
+    cdef double blockCenterCurr,blockCenterNext,lastCenter, edgeWeight
     cdef double carryOver, bgroundEstimate
 
     if blockLength <= 0:
@@ -1642,7 +1663,8 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength, float eps_F32=<float
     if isinstance(x, np.ndarray):
         # F32 case
         if (<cnp.ndarray>x).dtype == np.float32:
-            valuesView_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+            valuesArr_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+            valuesView_F32 = valuesArr_F32
             valuesLength = valuesView_F32.shape[0]
             finalArr__ = np.zeros(valuesLength, dtype=np.float32)
             outputView_F32 = finalArr__
@@ -1655,47 +1677,59 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength, float eps_F32=<float
             if blockCount < 2:
                 return None
 
-            blockMeans_F32 = np.zeros(blockCount, dtype=np.float32)
+            # run a two-way exponential moving average weighted such that,
+            # ... at each block's --center--, the influence from values at the
+            # ... edges has effectively decayed. Assign the mean for block `k`
+            # ... as the EMA value at the center of block `k`. Then, interpolate
+            # ... background estimates for each interval/index `i` within the larger blocks.
+            # ... This gives us a decent --local-- background estimate that does not induce
+            # ... too much autocorrelation (~ 1/blockLength ~) and keeps things fairly smooth
+
+            edgeWeight = 1.0 - pow(0.01, 2.0 / (<double>(blockLength + 1)))
+            emaView_F32 = cEMA(valuesArr_F32, edgeWeight).astype(np.float32)
+            blockMeans_F32 = np.empty(blockCount, dtype=np.float32)
             valuesPtr_F32 = &valuesView_F32[0]
             outputPtr_F32 = &outputView_F32[0]
+            emaPtr_F32 = &emaView_F32[0]
             blockPtr_F32  = &blockMeans_F32[0]
 
             with nogil:
-                # compute within-block means
+                # FFR: should probably use an arithmetic progression for
+                # ...  the indices, up to the last block, now that we've precomputed
                 for blockIndex in range(blockCount):
                     startIndex = blockIndex*blockLength
                     endIndex = startIndex + blockLength
                     if endIndex > valuesLength:
                         endIndex = valuesLength
-                    withinBlockSum_F32 = <float>0.0
                     blockSize_F32 = endIndex - startIndex
-                    for i in range(startIndex, endIndex):
-                        withinBlockSum_F32 += valuesPtr_F32[i]
-                    blockPtr_F32[blockIndex] = withinBlockSum_F32 / (<float>blockSize_F32)
+                    centerIndex = startIndex + (blockSize_F32 // 2)
+                    blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
 
-                # find the block `i` is located in, and take:
-                # ...    interpolatedBackground(i) = (1-c)*blockMean(k) + c*blockMean(k+1)
-                # ... where c is equal to the fractional distance between block ---centers--- (`carryOver`)
-                # ... this mitigates autocorrelation up to lag ~=~ blockLength/2
                 k = 0
                 blockCenterCurr = (<double>blockLength) * (<double>k + 0.5)
                 blockCenterNext = (<double>blockLength) * (<double>(k + 1) + 0.5)
                 lastCenter = (<double>blockLength) * (<double>(blockCount - 1) + 0.5)
+
                 for i in range(valuesLength):
+                    # (literal) edge cases
                     if (<double>i) <= blockCenterCurr:
                         interpolatedBackground_F32 = blockPtr_F32[0]
                     elif (<double>i) >= lastCenter:
                         interpolatedBackground_F32 = blockPtr_F32[blockCount - 1]
                     else:
-                        # shift blocks
                         while (<double>i) > blockCenterNext and k < blockCount - 2:
                             k += 1
                             blockCenterCurr = blockCenterNext
                             blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
+                        # interpolate based on position of the interval relative to block centers
+                        # [---------block_k---------|---------block_k+1---------]
+                        #                <----------|---------->
+                        #                  (c < 1/2)|(c > 1/2)
                         carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                         bgroundEstimate = ((1.0 - carryOver)*(<double>blockPtr_F32[k])) + (carryOver*(<double>blockPtr_F32[k+1]))
                         interpolatedBackground_F32 = <float>bgroundEstimate
                         interpolatedBackground_F32 = fmaxf(interpolatedBackground_F32, <float>eps_F32)
+
                     # finally, we take ~log-scale~ difference currentValue - background
                     logDiff_F32 = carsinh_F32(valuesPtr_F32[i]) - carsinh_F32(interpolatedBackground_F32)
                     outputPtr_F32[i] = logDiff_F32
@@ -1704,7 +1738,8 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength, float eps_F32=<float
 
 
         # F64 case, same logic as above
-        valuesView_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
+        valuesArr_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
+        valuesView_F64 = valuesArr_F64
         valuesLength = valuesView_F64.shape[0]
         finalArr__ = np.zeros(valuesLength, dtype=np.float64)
         outputView_F64 = finalArr__
@@ -1716,25 +1751,24 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength, float eps_F32=<float
         if blockCount < 2:
             return None
 
-        blockMeans_F64 = np.zeros(blockCount, dtype=np.float64)
+        edgeWeight = 1.0 - pow(0.01, 2.0 / (<double>(blockLength + 1)))
+        emaView_F64 = cEMA(valuesArr_F64, edgeWeight).astype(np.float64)
+        blockMeans_F64 = np.empty(blockCount, dtype=np.float64)
+
         valuesPtr_F64 = &valuesView_F64[0]
         outputPtr_F64 = &outputView_F64[0]
+        emaPtr_F64 = &emaView_F64[0]
         blockPtr_F64  = &blockMeans_F64[0]
 
         with nogil:
             for blockIndex in range(blockCount):
-                startIndex = blockIndex * blockLength
+                startIndex = blockIndex*blockLength
                 endIndex = startIndex + blockLength
                 if endIndex > valuesLength:
                     endIndex = valuesLength
-                withinBlockSum_F64 = 0.0
                 blockSize_F64 = endIndex - startIndex
-                for i in range(startIndex, endIndex):
-                    withinBlockSum_F64 += valuesPtr_F64[i]
-                blockPtr_F64[blockIndex] = withinBlockSum_F64 / (<double>blockSize_F64)
-                for i in range(valuesLength):
-                    logDiff_F64 = carsinh_F64(valuesPtr_F64[i]) - carsinh_F64(interpolatedBackground_F64)
-                    outputPtr_F64[i] = logDiff_F64
+                centerIndex = startIndex + (blockSize_F64 // 2)
+                blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
 
             k = 0
             blockCenterCurr = (<double>blockLength) * (<double>k + 0.5)
@@ -1749,10 +1783,11 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength, float eps_F32=<float
                     while (<double>i) > blockCenterNext and k < blockCount - 2:
                         k += 1
                         blockCenterCurr = blockCenterNext
-                        blockCenterNext = (<double>blockLength) * (<double>(k + 1) + 0.5)
+                        blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
 
                     carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
-                    interpolatedBackground_F64 = ((1.0-carryOver) * blockPtr_F64[k]) + (carryOver*blockPtr_F64[k + 1])
+                    bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
+                    interpolatedBackground_F64 = bgroundEstimate
                     interpolatedBackground_F64 = fmax(interpolatedBackground_F64, <double>eps_F64)
                 logDiff_F64 = carsinh_F64(valuesPtr_F64[i]) - carsinh_F64(interpolatedBackground_F64)
                 outputPtr_F64[i] = logDiff_F64
@@ -1760,3 +1795,116 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength, float eps_F32=<float
         return finalArr__
 
     return None
+
+
+cpdef protectCovariance22(object A, double eigFloor=1.0e-4):
+    cdef cnp.ndarray arr
+    cdef double a_, b_, c_
+    cdef double TRACE, DET, EIG1, EIG2
+    cdef float TRACE_F32, DET_F32, EIG1_F32, EIG2_F32, LAM_F32
+    cdef double eigvecFirstComponent, eigvecSecondComponent, invn, eigvecFirstSquared, eigvecSecondSquared, eigvecProd, LAM
+    cdef double* ptr_F64
+    cdef float* ptr_F32
+
+    arr = <cnp.ndarray>A
+
+    # F64
+    if arr.dtype == np.float64:
+        ptr_F64 = <double*>arr.data
+        with nogil:
+            a_ = ptr_F64[0]
+            c_ = ptr_F64[3]
+            b_ = 0.5 * (ptr_F64[1] + ptr_F64[2])
+
+            if b_ == 0.0:
+                if a_ < eigFloor: a_ = eigFloor
+                if c_ < eigFloor: c_ = eigFloor
+                ptr_F64[0] = a_
+                ptr_F64[1] = 0.0
+                ptr_F64[2] = 0.0
+                ptr_F64[3] = c_
+            else:
+                TRACE = a_ + c_
+                DET = sqrt(0.25 * (a_ - c_)*(a_ - c_) + (b_*b_))
+                EIG1 = <double>(TRACE + 2*DET)/2.0
+                EIG2 = <double>(TRACE - 2*DET)/2.0
+
+                if EIG1 < eigFloor: EIG1 = eigFloor
+                if EIG2 < eigFloor: EIG2 = eigFloor
+
+                if fabs(EIG1 - c_) > fabs(EIG1 - a_):
+                    eigvecFirstComponent = EIG1 - c_
+                    eigvecSecondComponent = b_
+                else:
+                    eigvecFirstComponent = b_
+                    eigvecSecondComponent = EIG1 - a_
+
+                if eigvecFirstComponent == 0.0 and eigvecSecondComponent == 0.0:
+                    eigvecFirstComponent = <double>1.0
+                    eigvecSecondComponent = <double>0.0
+
+                invn = 1.0 / sqrt((eigvecFirstComponent*eigvecFirstComponent) + (eigvecSecondComponent*eigvecSecondComponent))
+                eigvecFirstComponent *= invn
+                eigvecSecondComponent *= invn
+
+                eigvecFirstSquared = (eigvecFirstComponent * eigvecFirstComponent)
+                eigvecSecondSquared = (eigvecSecondComponent * eigvecSecondComponent)
+                eigvecProd = eigvecFirstComponent * eigvecSecondComponent
+                LAM = EIG1 - EIG2
+                ptr_F64[0] = EIG2 + LAM * eigvecFirstSquared
+                ptr_F64[3] = EIG2 + LAM * eigvecSecondSquared
+                ptr_F64[1] = LAM * eigvecProd
+                ptr_F64[2] = ptr_F64[1]
+        return A
+
+    # F32
+    if arr.dtype == np.float32:
+        ptr_F32 = <float*>arr.data
+        with nogil:
+            a_ = <double>ptr_F32[0]
+            c_ = <double>ptr_F32[3]
+            b_ = 0.5 * ((<double>ptr_F32[1]) + (<double>ptr_F32[2]))
+
+            if b_ == 0.0:
+                if a_ < eigFloor: a_ = eigFloor
+                if c_ < eigFloor: c_ = eigFloor
+                ptr_F32[0] = <float>a_
+                ptr_F32[1] = <float>0.0
+                ptr_F32[2] = <float>0.0
+                ptr_F32[3] = <float>c_
+            else:
+                TRACE_F32 = <float>(a_ + c_)
+                DET_F32 = <float>(sqrt(0.25 * (a_ - c_)*(a_-c_) + (b_*b_)))
+                EIG1_F32 = <float>((TRACE_F32 + 2*DET_F32) / 2.0)
+                EIG2_F32 = <float>(TRACE_F32 - 2*DET_F32) / 2.0
+
+                if EIG1_F32 < eigFloor: EIG1_F32 = eigFloor
+                if EIG2_F32 < eigFloor: EIG2_F32 = eigFloor
+
+                if fabs(EIG1_F32 - c_) > fabs(EIG1_F32 - a_):
+                    eigvecFirstComponent = EIG1_F32 - c_
+                    eigvecSecondComponent = b_
+                else:
+                    eigvecFirstComponent = b_
+                    eigvecSecondComponent = EIG1_F32 - a_
+
+                if eigvecFirstComponent == 0.0 and eigvecSecondComponent == 0.0:
+                    eigvecFirstComponent = 1.0
+                    eigvecSecondComponent = 0.0
+
+                invn = 1.0 / sqrt(eigvecFirstComponent*eigvecFirstComponent + eigvecSecondComponent*eigvecSecondComponent)
+                eigvecFirstComponent *= invn
+                eigvecSecondComponent *= invn
+
+                eigvecFirstSquared = eigvecFirstComponent*eigvecFirstComponent
+                eigvecSecondSquared = eigvecSecondComponent*eigvecSecondComponent
+                eigvecProd = eigvecFirstComponent*eigvecSecondComponent
+                LAM_F32 = EIG1_F32 - EIG2_F32
+
+                ptr_F32[0] = <float>(EIG2_F32 + LAM_F32 * eigvecFirstSquared)
+                ptr_F32[3] = <float>(EIG2_F32 + LAM_F32 * eigvecSecondSquared)
+                ptr_F32[1] = <float>(LAM_F32 * eigvecProd)
+                ptr_F32[2] = ptr_F32[1]
+        return A
+
+    raise TypeError("A.dtype must be float32 or float64")
