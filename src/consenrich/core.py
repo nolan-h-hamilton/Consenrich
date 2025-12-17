@@ -1053,7 +1053,7 @@ def runConsenrich(
                 and (progressIter is not None)
                 and (progressIter > 0)
             ):
-                progressBar = tqdm(total=n, unit="intervals")
+                progressBar = tqdm(total=n, unit=" intervals ")
 
             try:
                 phiHat__, countAdjustments__, vectorDOut = (
@@ -1113,12 +1113,6 @@ def runConsenrich(
             f"[{round(((1.0 * countAdjustments__) / n) * 100.0, 4)}%]"
         )
 
-        _textplotDstatHistogram(
-            vectorD,
-            n=vectorD.size,
-            enabled=textPlotDstatHistogram,
-        )
-
         # ==========================
         # backward: n-1,n-2,...,0
         # ==========================
@@ -1143,7 +1137,7 @@ def runConsenrich(
 
         progressBarBack = None
         if (progressIter is not None) and (progressIter > 0):
-            progressBarBack = tqdm(total=(n - 1), unit="intervals")
+            progressBarBack = tqdm(total=(n - 1), unit=" intervals ")
 
             stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr = cconsenrich.cbackwardPass(
             matrixData=matrixData,
@@ -1312,18 +1306,18 @@ def getMuncTrack(
     minR: float,
     maxR: float,
     sparseMap: Optional[dict] = None,
-    blockSizeBP: Optional[int] = 1000,
+    blockSizeBP: Optional[int] = 500,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     localWeight: float = 0.50,
     zeroPenalty: float = 1.0,
-    approximationWindowLengthBP: int = 25_000,
+    approximationWindowLengthBP: int = 50_000,
     lowPassWindowLengthBP: int = 25_000,
     fitFunc: Optional[Callable] = None,
     fitFuncArgs: Optional[dict] = None,
     evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
-    binQuantile: float = 0.50,
+    binQuantile: float = 0.90,
     textPlotMeanVarianceTrend: bool = False,
     isTransformed: bool = True,
 ) -> npt.NDArray[np.float32]:
@@ -1338,8 +1332,8 @@ def getMuncTrack(
         from an AR(1) model fit with a correction for ρ (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
-        *interval* :math:`i=1,2,\ldots,n`. Specifically, the local squared, first (or second)-order differences
-        is computed over a window of size ``approximationWindowLengthBP``. See :func:`consenrich.cconsenrich.csumSquaredFOD`.
+        *interval* :math:`i=1,2,\ldots,n`. The squared, first (or second)-order differences are computed within
+        of length ``approximationWindowLengthBP``. See :func:`consenrich.cconsenrich.csumSquaredSOD`.
 
         Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
         the local model restricts the calculation to the nearest 'sparse' genomic regions at each interval :math:`i=1,2,\ldots,n`
@@ -1434,11 +1428,12 @@ def getMuncTrack(
     )
 
     # I: Global model (variance = f(mean))
-    # ...  Variance as function of mean globally, as observed in contiguous blocks
-    # ... in cmeanVarPairs, variance is measured in each block as AR(1) RSS/n-1 after
-    # ... correcting for ρ.
+    # ... Variance as function of mean globally, as observed in short contiguous blocks
+    # ... where an AR(1) process can, on the average, account for credible signals,
+    # ... and residual variance may be ascribed to noise.
+    # ...
     # ... For each block, we get a (blockMean, blockVar) pair, and `samplingIters`
-    # ...  such pairs are used are used to fit the global trend.
+    # ... such pairs are used are used to fit the global trend.
 
 
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
@@ -1494,10 +1489,9 @@ def getMuncTrack(
     # ... apply local/moment-based heuristic on first/second order differences
     # ... (b) `sparseMap` is an optional mapping (implemented as a dictionary)
     # ...    sparseMap(i) --> {F_i1,F_i2,...,F_i{numNearest}}
-    # ... where each F_ij is a 'sparse' genomic region *devoid* of previously-annotated
-    # ... regulatory elements. If provided,
-    # ...  `trackALV_{new}(i) = average(trackALV_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
-    # ... is the track from (a) are aggregated over sparseMap(i) to get each localModelVariance(i)
+    # ... where each F_ij is a 'sparse' genomic region devoid of or mutually exclusive with
+    # ... the targeted signal. If provided,
+    # ...      `locaModel(i) = average(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
     localModelVariances = np.asarray(
         cconsenrich.csumSquaredSOD(
             valuesArr,
@@ -2111,142 +2105,6 @@ def _extractUpperTail(
     return outMeans[keep], outVars[keep]
 
 
-def getAverageLocalVarianceTrack(
-    values: np.ndarray,
-    stepSize: int,
-    approximationWindowLengthBP: int,
-    lowPassWindowLengthBP: int,
-    minR: float,
-    maxR: float,
-    lowPassFilterType: Optional[str] = "median",
-    shrinkOffset: float = 1.0,
-) -> npt.NDArray[np.float32]:
-    r"""A moment-based local variance estimator with autocorrelation-based shrinkage for genome-wide sample-specific noise level approximation.
-
-    First, computes a moving average of ``values`` using a bp-length window
-    ``approximationWindowLengthBP`` and a moving average of ``values**2`` over the
-    same window. Their difference is used to approximate the *initial* 'local variance' before
-    autocorrelation-based shrinkage. Finally, a broad/low-pass filter (``median`` or ``mean``)
-    with window ``lowPassWindowLengthBP`` then smooths the variance track.
-
-    (Retained for backward compatibility).
-
-    :param stepSize: see :class:`countingParams`.
-    :type stepSize: int
-    :param approximationWindowLengthBP: Window (bp) for local mean and second-moment. See :class:`observationParams`.
-    :type approximationWindowLengthBP: int
-    :param lowPassWindowLengthBP: Window (bp) for the low-pass filter on the variance track. See :class:`observationParams`.
-    :type lowPassWindowLengthBP: int
-    :param minR: Lower bound for the returned noise level. See :class:`observationParams`.
-    :type minR: float
-    :param maxR: Upper bound for the returned noise level. See :class:`observationParams`.
-    :type maxR: float
-    :param lowPassFilterType: ``"median"`` (default) or ``"mean"``. Type of low-pass filter to use for smoothing the final noise level track. See :class:`observationParams`.
-    :type lowPassFilterType: Optional[str]
-    :param shrinkOffset: Offset applied to lag-1 autocorrelation when shrinking local variance estimates. See :class:`observationParams`.
-    :type shrinkOffset: float
-    :return: Local noise level per interval.
-    :rtype: npt.NDArray[np.float32]
-
-    :seealso: :class:`observationParams`
-    """
-    values = np.asarray(values, dtype=np.float32)
-    windowLength = int(approximationWindowLengthBP / stepSize)
-    if windowLength % 2 == 0:
-        windowLength += 1
-
-    if len(values) < 3:
-        constVar = np.var(values)
-        if constVar < minR:
-            return np.full_like(values, minR, dtype=np.float32)
-        return np.full_like(values, constVar, dtype=np.float32)
-
-    # get local mean (simple moving average)
-    localMeanTrack: npt.NDArray[np.float32] = ndimage.uniform_filter(
-        values, size=windowLength, mode="nearest"
-    )
-
-    # apply V[X] ~=~ E[X^2] - (E[X])^2 locally to approximate local variance
-    totalVarTrack: npt.NDArray[np.float32] = (
-        ndimage.uniform_filter(
-            values**2, size=windowLength, mode="nearest"
-        )
-        - localMeanTrack**2
-    )
-
-    np.maximum(totalVarTrack, 0.0, out=totalVarTrack)  # JIC
-
-    noiseLevel: npt.NDArray[np.float32]
-    localVarTrack: npt.NDArray[np.float32]
-
-    if abs(shrinkOffset) < 1:
-        # Aim is to shrink the local noise variance estimates
-        # ...where there's evidence of structure (signal) in the data
-        # ...autocorr small --> retain more of the variance estimate
-        # ...autocorr large --> more shrinkage
-
-        # shift idx +1
-        valuesLag = np.roll(values, 1)
-        valuesLag[0] = valuesLag[1]
-
-        # get smooth `x_{[i]} * x_{[i-1]}` and standardize
-        localMeanLag: npt.NDArray[np.float32] = (
-            ndimage.uniform_filter(
-                valuesLag, size=windowLength, mode="nearest"
-            )
-        )
-        smoothProd: npt.NDArray[np.float32] = ndimage.uniform_filter(
-            values * valuesLag, size=windowLength, mode="nearest"
-        )
-        covLag1: npt.NDArray[np.float32] = (
-            smoothProd - localMeanTrack * localMeanLag
-        )
-        rho1: npt.NDArray[np.float32] = np.clip(
-            covLag1 / (totalVarTrack + 1.0e-4),
-            -1.0 + shrinkOffset,
-            1 - shrinkOffset,
-        )
-
-        noiseFracEstimate: npt.NDArray[np.float32] = 1.0 - rho1**2
-        localVarTrack = totalVarTrack * noiseFracEstimate
-
-    else:
-        localVarTrack = totalVarTrack
-
-    np.maximum(localVarTrack, 0.0, out=localVarTrack)
-    lpassWindowLength = int(lowPassWindowLengthBP / stepSize)
-    if lpassWindowLength % 2 == 0:
-        lpassWindowLength += 1
-
-    # FFR: consider making this step optional
-    if lowPassFilterType is None or (
-        isinstance(lowPassFilterType, str)
-        and lowPassFilterType.lower() == "median"
-    ):
-        noiseLevel: npt.NDArray[np.float32] = ndimage.median_filter(
-            localVarTrack,
-            size=lpassWindowLength,
-        )
-    elif (
-        isinstance(lowPassFilterType, str)
-        and lowPassFilterType.lower() == "mean"
-    ):
-        noiseLevel = ndimage.uniform_filter(
-            localVarTrack,
-            size=lpassWindowLength,
-        )
-    else:
-        logger.warning(
-            f"Unknown lowPassFilterType, expected `median` or `mean`, defaulting to `median`..."
-        )
-        noiseLevel = ndimage.median_filter(
-            localVarTrack,
-            size=lpassWindowLength,
-        )
-
-    return np.clip(noiseLevel, minR, maxR).astype(np.float32)
-
-
 def _textplotDstatHistogram(
     vectorD: np.ndarray,
     n: int,
@@ -2307,7 +2165,6 @@ def _textplotMeanVarianceTrend(
         if not checkMod("plotext"):
             return
         import plotext as textplt
-
         n = int(blockMeans.size)
         if n > maxPoints:
             idx = np.random.choice(n, size=maxPoints, replace=True)

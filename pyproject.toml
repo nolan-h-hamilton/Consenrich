@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "consenrich"
-version = "0.7.15rc4"
+version = "0.7.16rc1"
 description = "Genome-wide estimation of signals hidden in noisy multi-sample HTS datasets"
 authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
 readme = "README.md"
@@ -26,6 +26,7 @@ dependencies = [
     "PyYAML>=6.0.2",
     "PyWavelets>=1.9.0",
     "matplotlib",
+    "tqdm",
 ]
 
 [project.optional-dependencies]
@@ -51,7 +52,7 @@ package-dir = {"" = "src"}
 include-package-data = true
 
 [tool.setuptools.package-data]
-consenrich = ["src/consenrich/data/**"]
+consenrich = ["src/consenrich/data/*"]
 
 [project.scripts]
 consenrich = "consenrich.consenrich:main"

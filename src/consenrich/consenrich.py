@@ -19,6 +19,7 @@ import pandas as pd
 import pysam
 import pywt
 import yaml
+from tqdm import tqdm
 
 import consenrich.core as core
 import consenrich.misc_util as misc_util
@@ -1587,7 +1588,7 @@ def main():
             maxQ_ = 1e4
 
         muncMat = np.empty_like(chromMat, dtype=np.float32)
-        for j in range(numSamples):
+        for j in tqdm(range(numSamples)):
             chromMat[j, :] = cconsenrich.carsinhRatio(
                 chromMat[j, :],
                 detrendArgs.detrendWindowLengthBP,
@@ -1633,7 +1634,9 @@ def main():
                 minR_ = np.float32(
                     np.quantile(muncMat[muncMat > 0], 0.05)
                 )
-            autoMinQ = (minR_ + 2*offDiagQ_) * (1/np.sqrt(numSamples))
+            # heuristic to keep us PD, on scale, growing with model's deltaF
+            autoMinQ = (minR_*deltaF_)/numSamples + 2.0*offDiagQ_ + 1.0e-3
+
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1668,7 +1671,9 @@ def main():
             textPlotDstatHistogram=args.verbose2,
         )
         logger.info("Done.")
-
+        logger.info(
+            f"minQ={minQ_}, minR={minR_}"
+        )
         x_ = core.getPrimaryState(x, stateLowerBound = stateArgs.stateLowerBound, stateUpperBound = stateArgs.stateUpperBound, boundState = stateArgs.boundState)
         y_ = core.getPrecisionWeightedResidual(y, muncMat, P)
 
@@ -1824,3 +1829,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

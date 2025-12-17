@@ -1186,6 +1186,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double centeredPrev, centeredCurr, oneMinusBetaSq
     cdef double* blockPtr # FFR: try to use this convention to avoid indexing as [start + idx]
     cdef double oneMinusZeroProp
+    cdef double maxBeta = <double>0.99
 
     for regionIndex in range(meanOutView.shape[0]):
         startIndex = blockStartIndices[regionIndex]
@@ -1228,17 +1229,14 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         pairCountDouble = <double>(blockLength-1)
         scaleFac = sumSqX
 
-        if fabs(scaleFac) > 1.0e-4:
+        if fabs(scaleFac) > 1.0e-2:
             beta1 = sumXY / scaleFac
         else:
             beta1 = 0.0
-        if beta1 > 0:
-            if beta1 < 1.0e-4:
-                beta1 = 1.0e-4
-        if beta1 < 0:
-            if beta1 > -1.0e-4:
-                beta1 = -1.0e-4
         beta0 = 0.0
+
+        if beta1 >  maxBeta: beta1 =  maxBeta
+        if beta1 < -maxBeta: beta1 = -maxBeta
 
         RSS = 0.0
         previousValue = blockPtr[0]
@@ -1255,7 +1253,8 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             previousValue = currentValue
 
         oneMinusBetaSq = (1.0 - (beta1*beta1))
-        varOutView[regionIndex] = <float>((RSS/pairCountDouble)/oneMinusBetaSq)
+        varOutView[regionIndex] = <float>((RSS/pairCountDouble/oneMinusBetaSq))
+
 
 cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           cnp.ndarray[cnp.float32_t, ndim=1] values,
