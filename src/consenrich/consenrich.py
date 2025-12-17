@@ -747,12 +747,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minQ=_cfgGet(configData, "processParams.minQ", -1.0),
         maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
-            configData, "processParams.offDiagQ", 1.0e-3
+            configData, "processParams.offDiagQ", 0.0,
         ),
         dStatAlpha=_cfgGet(
             configData,
             "processParams.dStatAlpha",
-            2.0,
+            3.0,
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
@@ -789,7 +789,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         localWeight=_cfgGet(
             configData,
             "observationParams.localWeight",
-            0.50,
+            0.25,
         ),
         approximationWindowLengthBP=_cfgGet(
             configData,
@@ -820,7 +820,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             100.0,
         ),
         zeroPenalty=_cfgGet(
-            configData, "observationParams.zeroPenalty", 1.0
+            configData, "observationParams.zeroPenalty", 1.0,
         ),
     )
 
@@ -1571,11 +1571,6 @@ def main():
             )
         sparseMap = None
         if genomeArgs.sparseBedFile and not genomeArgs.sparseBedFile.lower() == 'none':
-            if c_ == 0:
-                logger.info(
-                    f"Building sparseMap[i] --> (nearestSparseRegion[i,1], ..., nearestSparseRegion[i, `numNearest`])"
-                )
-
             sparseMap = core.getSparseMap(
                 chromosome,
                 intervals,
@@ -1593,10 +1588,6 @@ def main():
 
         muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
-            logger.info(
-                f"Muncing {j + 1}/{numSamples} for {chromosome}..."
-            )
-
             chromMat[j, :] = cconsenrich.carsinhRatio(
                 chromMat[j, :],
                 detrendArgs.detrendWindowLengthBP,
@@ -1623,7 +1614,7 @@ def main():
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             kappa = np.float32(observationArgs.kappaALV)
             minR_ = np.float32(
-                np.quantile(muncMat[muncMat > 0], 0.01)
+                np.quantile(muncMat[muncMat > 0], 0.05)
             )
 
             colMax = muncMat.max(axis=0).astype(np.float32)
@@ -1640,9 +1631,9 @@ def main():
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
                 minR_ = np.float32(
-                    np.quantile(muncMat[muncMat > 0], 0.01)
+                    np.quantile(muncMat[muncMat > 0], 0.05)
                 )
-            autoMinQ = (minR_ + 2*offDiagQ_) * (1 + 1.0e-2)
+            autoMinQ = (minR_ + 2*offDiagQ_) * (1/np.sqrt(numSamples))
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1679,7 +1670,7 @@ def main():
         logger.info("Done.")
 
         x_ = core.getPrimaryState(x, stateLowerBound = stateArgs.stateLowerBound, stateUpperBound = stateArgs.stateUpperBound, boundState = stateArgs.boundState)
-        y_ = core.getPrecisionWeightedResidual(y)
+        y_ = core.getPrecisionWeightedResidual(y, muncMat, P)
 
         if plotArgs.plotStateEstimatesHistogram:
             core.plotStateEstimatesHistogram(

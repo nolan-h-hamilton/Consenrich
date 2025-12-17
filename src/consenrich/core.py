@@ -24,6 +24,7 @@ import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
 from scipy import ndimage, signal
 from scipy.stats.mstats import trimtail
+from tqdm import tqdm
 from . import cconsenrich
 
 logging.basicConfig(
@@ -83,7 +84,7 @@ class processParams(NamedTuple):
         for the given number of samples.
     :param maxQ: Maximum process noise level.
     :type minQ: float
-    :param dStatAlpha: Threshold on the deviation between the data and estimated signal -- used to determine whether the process noise is scaled up.
+    :param dStatAlpha: Threshold on the (normalized) deviation between the data and estimated signal -- determines whether the process noise is scaled up.
     :type dStatAlpha: float
     :param dStatd: Constant :math:`d` in the scaling expression :math:`\sqrt{d|D_{[i]} - \alpha_D| + c}`
         that is used to up/down-scale the process noise covariance in the event of a model mismatch.
@@ -832,78 +833,70 @@ def runConsenrich(
     adjustProcessNoiseFunc: Optional[Callable] = None,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-    fitPhi: bool = True,
     textPlotDstatHistogram: bool = False,
-) -> Tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-    r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data.
-        Completes the forward and backward passes given data :math:`\mathbf{Z}^{m \times n}` and
-        corresponding uncertainty tracks :math:`\mathbf{R}_{[1:n, (11:mm)]}` (see :func:`getMuncTrack`).
+) -> Tuple[
+    npt.NDArray[np.float32],
+    npt.NDArray[np.float32],
+    npt.NDArray[np.float32],
+]:
+    r"""Run consenrich on a contiguous segment (e.g. a chromosome) of read-density-based data from multiple samples.
+    Completes the forward and backward passes given data :math:`\mathbf{Z}^{m \times n}` and
+    corresponding uncertainty tracks :math:`\mathbf{R}_{[1:n, (11:mm)]}` (see :func:`getMuncTrack`).
 
-        This is the primary function implementing the core Consenrich algorithm. Users requiring specialized
-        preprocessing may prefer to call this function programmatically on their own preprocessed data rather
-        than using the command-line interface.
+    This is the primary function implementing the core Consenrich algorithm. Users requiring specialized
+    preprocessing may prefer to call this function programmatically on their own preprocessed data rather
+    than using the command-line interface.
 
+    :param deltaF: See :class:`processParams`.
+    :type deltaF: float
+    :param minQ: See :class:`processParams`.
+    :type minQ: float
+    :param maxQ: See :class:`processParams`.
+    :type maxQ: float
+    :param offDiagQ: See :class:`processParams`.
+    :type offDiagQ: float
+    :param dStatAlpha: See :class:`processParams`.
+    :type dStatAlpha: float
+    :param dStatd: See :class:`processParams`.
+    :type dStatd: float
+    :param dStatPC: See :class:`processParams`.
+    :type dStatPC: float
+    :param dStatUseMean: See :class:`processParams`.
+    :type dStatUseMean: bool
+    :param stateInit: See :class:`stateParams`.
+    :type stateInit: float
+    :param stateCovarInit: See :class:`stateParams`.
+    :type stateCovarInit: float
+    :param chunkSize: Number of genomic intervals' data to keep in memory before flushing to disk.
+    :type chunkSize: int
+    :param progressIter: The number of iterations after which to log progress.
+    :type progressIter: int
+    :param coefficientsH: Optional coefficients for the observation model matrix :math:`\mathbf{H}`.
+        If None, the coefficients are set to 1.0 for all samples.
+    :type coefficientsH: Optional[np.ndarray]
+    :param residualCovarInversionFunc: Callable function to invert the residual (innovation) covariance matrix at each interval, :math:`\mathbf{E}_{[i]}`.
+        If None, defaults to :func:`cconsenrich.cinvertMatrixE`.
+    :type residualCovarInversionFunc: Optional[Callable]
+    :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
+        If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
+    :type adjustProcessNoiseFunc: Optional[Callable]
+    :param covarClip: For numerical stability, truncate state/process noise covariances
+        to :math:`[10^{-\textsf{covarClip}}, 10^{\textsf{covarClip}}]`.
+    :type covarClip: float
+    :param projectStateDuringFiltering: If `True`, the posterior state estimates are projected to the feasible region defined by `stateLowerBound`, `stateUpperBound` *during* iteration.
+    See the constrained+weighted least-squares problem solved in :func:`consenrich.cconsenrich._projectToBox` and Simon, 2010.
+    :type projectStateDuringFiltering: bool:
+    :param boundState: If `True` final state estimates are clipped to [stateLowerBound, stateUpperBound] post-hoc.
+    :type boundState: bool
+    :return: Tuple of three numpy arrays:
+        - post-fit (forward/backward-smoothed) state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
+        - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
+        - post-fit residuals (after forward/backward smoothing) :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
+    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
 
-        :param matrixData: Read coverage data for a single chromosome or general contiguous segment,
-        possibly preprocessed. Two-dimensional array of shape :math:`m \times n` where :math:`m`
-        is the number of samples/tracks and :math:`n` the number of genomic intervals.
-        :type matrixData: np.ndarray
-        :param matrixMunc: Uncertainty estimates for the read coverage data.
-            Two-dimensional array of shape :math:`m \times n` where :math:`m` is the number of samples/tracks
-            and :math:`n` the number of genomic intervals. See :func:`getMuncTrack`.
-        :type matrixMunc: np.ndarray
-        :param deltaF: See :class:`processParams`.
-        :type deltaF: float
-        :param minQ: See :class:`processParams`.
-        :type minQ: float
-        :param maxQ: See :class:`processParams`.
-        :type maxQ: float
-        :param offDiagQ: See :class:`processParams`.
-        :type offDiagQ: float
-        :param dStatAlpha: See :class:`processParams`.
-        :type dStatAlpha: float
-        :param dStatd: See :class:`processParams`.
-        :type dStatd: float
-        :param dStatPC: See :class:`processParams`.
-        :type dStatPC: float
-        :param dStatUseMean: See :class:`processParams`.
-        :type dStatUseMean: bool
-        :param stateInit: See :class:`stateParams`.
-        :type stateInit: float
-        :param stateCovarInit: See :class:`stateParams`.
-        :type stateCovarInit: float
-        :param chunkSize: Number of genomic intervals' data to keep in memory before flushing to disk.
-        :type chunkSize: int
-        :param progressIter: The number of iterations after which to log progress.
-        :type progressIter: int
-        :param coefficientsH: Optional coefficients for the observation model matrix :math:`\mathbf{H}`.
-            If None, the coefficients are set to 1.0 for all samples.
-        :type coefficientsH: Optional[np.ndarray]
-        :param residualCovarInversionFunc: Callable function to invert the residual (innovation) covariance matrix at each interval, :math:`\mathbf{E}_{[i]}`.
-            If None, defaults to :func:`cconsenrich.cinvertMatrixE`.
-        :type residualCovarInversionFunc: Optional[Callable]
-        :param adjustProcessNoiseFunc: Function to adjust the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`.
-            If None, defaults to :func:`cconsenrich.updateProcessNoiseCovariance`.
-        :type adjustProcessNoiseFunc: Optional[Callable]
-        :param covarClip: For numerical stability, truncate state/process noise covariances
-            to :math:`[10^{-\textsf{covarClip}}, 10^{\textsf{covarClip}}]`.
-        :type covarClip: float
-        :param projectStateDuringFiltering: If `True`, the posterior state estimates are projected to the feasible region defined by `stateLowerBound`, `stateUpperBound` *during* iteration.
-        See the constrained+weighted least-squares problem solved in :func:`consenrich.cconsenrich._projectToBox` and Simon, 2010.
-        :type projectStateDuringFiltering: bool:
-        :param boundState: If `True` final state estimates are clipped to [stateLowerBound, stateUpperBound] post-hoc.
-        :type boundState: bool
-        :param fitPhi: If `True`, NIS-based inflation factor :math:`\hat{\phi}` is estimated and used to scale covariances for a second pass.
-        :type fitPhi: bool
-        :return: Tuple of three numpy arrays:
-            - post-fit (forward/backward-smoothed) state estimates :math:`\widetilde{\mathbf{x}}_{[i]}` of shape :math:`n \times 2`
-            - post-fit (forward/backward-smoothed) state covariance estimates :math:`\widetilde{\mathbf{P}}_{[i]}` of shape :math:`n \times 2 \times 2`
-            - post-fit residuals (after forward/backward smoothing) :math:`\widetilde{\mathbf{y}}_{[i]}` of shape :math:`n \times m`
-        :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
-
-        :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
-        :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
-        """
+    :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
+    :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
+    """
 
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
@@ -931,7 +924,6 @@ def runConsenrich(
 
     m, n = matrixData.shape
     if m < 1 or n < 1:
-        # ideally, we don't get here, but JIC
         raise ValueError(
             f"`matrixData` and `matrixMunc` need positive m x n, shape={matrixData.shape})"
         )
@@ -953,7 +945,7 @@ def runConsenrich(
         )
         chunkSize = n
     # -------
-
+    phiHat__: float = np.float32(1.0)
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
     y64 = np.empty(m, dtype=np.float64)
@@ -1030,17 +1022,12 @@ def runConsenrich(
             shape=(n, 2, 2),
         )
 
-        pad__ = 1.0e-2
-        muncScaled32__ = np.empty(m, dtype=np.float32)
-        muncScaled64__ = np.empty(m, dtype=np.float64)
-        dInv64__ = np.empty(m, dtype=np.float64)
-
         def _forwardPass(
-            phiScale__: float,
-            collectD__: bool = True,
-            firstPass__: bool = False,
+            phiScale: float,
+            collectD_: bool = True,
+            isInitialPass: bool = False,
         ) -> tuple[float, int]:
-            nonlocal inflatedQ, matrixQ, matrixQCopy, matrixP, vectorX, vectorY, countAdjustments, muncScaled32__, muncScaled64__, dInv64__, y64, sq64, tmp64, u64, u2_64
+            nonlocal inflatedQ, matrixQ, matrixQCopy, matrixP, vectorX, vectorY, countAdjustments, vectorD
             inflatedQ = False
             countAdjustments = 0
             matrixQ = constructMatrixQ(minQ, offDiagQ=offDiagQ)
@@ -1049,183 +1036,70 @@ def runConsenrich(
                 stateCovarInit
             )
             vectorX = np.array([stateInit, 0.0], dtype=np.float32)
+            vectorY = np.zeros(m, dtype=np.float32)
 
-            for i in range(n):
-                if i % progressIter == 0 and i > 0:
-                    logger.info(
-                        f"\nForward pass interval: {i + 1}/{n}"
-                    )
-
-                vectorZ = matrixData[:, i]
-                vectorX = matrixF @ vectorX
-                matrixP = matrixF @ matrixP @ matrixF.T + matrixQ
-
-                if u64 is None:
-                    vectorY = vectorZ - vectorX[0]
-                else:
-                    vectorY = vectorZ - (
-                        u64.astype(np.float32, copy=False)
-                        * vectorX[0]
-                    )
-
-                if phiScale__ != 1.0:
-                    np.multiply(
-                        matrixMunc[:, i],
-                        np.float32(phiScale__),
-                        out=muncScaled32__,
-                    )
-                    R32__ = muncScaled32__
-                else:
-                    R32__ = matrixMunc[:, i]
-
-                P00__ = float(matrixP[0, 0])
-                P01__ = float(matrixP[0, 1])
-                P10__ = float(matrixP[1, 0])
-                P11__ = float(matrixP[1, 1])
-
-                np.copyto(y64, vectorY, casting="same_kind")
-                np.square(y64, out=sq64, casting="same_kind")
-
-                np.copyto(muncScaled64__, R32__, casting="same_kind")
-                muncScaled64__ += pad__
-                np.reciprocal(muncScaled64__, out=dInv64__)
-
-                if u64 is None:
-                    sumUU__ = float(dInv64__.sum())
-                    sumUY__ = float(np.dot(dInv64__, y64))
-                    sumYY__ = float(np.dot(dInv64__, sq64))
-                    np.copyto(tmp64, dInv64__, casting="same_kind")
-                    np.square(tmp64, out=tmp64, casting="same_kind")
-                    sumRUU__ = float(
-                        np.dot(
-                            R32__.astype(np.float64, copy=False),
-                            tmp64,
-                        )
-                    )
-                else:
-                    np.multiply(dInv64__, u64, out=tmp64)
-                    sumUY__ = float(np.dot(tmp64, y64))
-                    np.square(tmp64, out=tmp64, casting="same_kind")
-                    sumRUU__ = float(
-                        np.dot(
-                            R32__.astype(np.float64, copy=False),
-                            tmp64,
-                        )
-                    )
-                    sumUU__ = float(np.dot(dInv64__, u2_64))
-                    sumYY__ = float(np.dot(dInv64__, sq64))
-
-                denom__ = 1.0 + P00__ * sumUU__
-                wRank1__ = P00__ / denom__
-
-                # normalized NIS/dStat in O(m)
-                qform__ = sumYY__ - wRank1__ * (sumUY__ * sumUY__)
-                dStat__ = qform__ / np.float32(m)
-                if collectD__:
-                    vectorD[i] = np.float32(dStat__)
-                dStatUse__ = dStat__
-                countAdjustments += int(dStatUse__ > dStatAlpha)
-                matrixQ, inflatedQ = adjustProcessNoiseFunc(
-                    matrixQ,
-                    matrixQCopy,
-                    np.float32(dStatUse__),
-                    dStatAlpha,
-                    dStatd,
-                    dStatPC,
-                    inflatedQ,
-                    maxQ,
-                    minQ,
-                )
-                np.clip(matrixQ, clipSmall, clipBig, out=matrixQ)
-
-                alpha__ = sumUY__ / denom__
-
-                vectorX[0] = np.float32(
-                    vectorX[0] + (P00__ * alpha__)
-                )
-                vectorX[1] = np.float32(
-                    vectorX[1] + (P10__ * alpha__)
-                )
-                g__ = sumUU__ / denom__
-                h__ = sumRUU__ / (denom__ * denom__)
-                ikh00__ = 1.0 - (P00__ * g__)
-                ikh10__ = -(P10__ * g__)
-                P00new__ = (ikh00__ * ikh00__ * P00__) + (
-                    h__ * (P00__ * P00__)
-                )
-                P01new__ = (ikh00__ * (ikh10__ * P00__ + P01__)) + (
-                    h__ * (P00__ * P10__)
-                )
-                P11new__ = (
-                    ikh10__ * ikh10__ * P00__
-                    + 2.0 * ikh10__ * P10__
-                    + P11__
-                ) + (h__ * (P10__ * P10__))
-                matrixP[0, 0] = np.float32(
-                    np.clip(P00new__, clipSmall, clipBig)
-                )
-                matrixP[0, 1] = np.float32(
-                    np.clip(P01new__, clipSmall, clipBig)
-                )
-                matrixP[1, 0] = np.float32(
-                    np.clip(P01new__, clipSmall, clipBig)
-                )
-                matrixP[1, 1] = np.float32(
-                    np.clip(P11new__, clipSmall, clipBig)
-                )
-
-                if projectStateDuringFiltering:
-                    cconsenrich.projectToBox(
-                        vectorX,
-                        matrixP,
-                        np.float32(stateLowerBound),
-                        np.float32(stateUpperBound),
-                        np.float32(clipSmall),
-                    )
-                # enforce symmetric and positive definite per iteration
-                cconsenrich.protectCovariance22(matrixP)
-                if not firstPass__:
-                    stateForward[i] = vectorX
-                    stateCovarForward[i] = matrixP
-                    pNoiseForward[i] = matrixQ
-
-                if i % chunkSize == 0 and i > 0 and not firstPass__:
-                    stateForward.flush()
-                    stateCovarForward.flush()
-                    pNoiseForward.flush()
-
-            if not firstPass__:
-                stateForward.flush()
-                stateCovarForward.flush()
-                pNoiseForward.flush()
-
-            if collectD__:
-                phiHat__ = float(np.mean(vectorD))
+            if isInitialPass:
+                stateForwardOut = None
+                stateCovarForwardOut = None
+                pNoiseForwardOut = None
             else:
-                phiHat__ = 1.0
-            return phiHat__, countAdjustments
+                stateForwardOut = stateForward
+                stateCovarForwardOut = stateCovarForward
+                pNoiseForwardOut = pNoiseForward
 
-        # first run
+            progressBar = None
+            if (
+                (not isInitialPass)
+                and (progressIter is not None)
+                and (progressIter > 0)
+            ):
+                progressBar = tqdm(total=n, unit="intervals")
+
+            try:
+                phiHat__, countAdjustments__, vectorDOut = (
+                    cconsenrich.cforwardPass(
+                        matrixData=matrixData,
+                        matrixMunc=matrixMunc,
+                        matrixF=matrixF,
+                        matrixQ=matrixQ,
+                        matrixQCopy=matrixQCopy,
+                        phiScale=float(phiScale),
+                        dStatAlpha=float(dStatAlpha),
+                        dStatd=float(dStatd),
+                        dStatPC=float(dStatPC),
+                        maxQ=float(maxQ),
+                        minQ=float(minQ),
+                        stateInit=float(stateInit),
+                        stateCovarInit=float(stateCovarInit),
+                        collectD=bool(collectD_),
+                        coefficientsH=coefficientsH,
+                        covarClip=float(covarClip),
+                        pad=float(1e-3),
+                        projectStateDuringFiltering=bool(
+                            projectStateDuringFiltering
+                        ),
+                        stateLowerBound=float(stateLowerBound),
+                        stateUpperBound=float(stateUpperBound),
+                        chunkSize=int(chunkSize),
+                        stateForward=stateForwardOut,
+                        stateCovarForward=stateCovarForwardOut,
+                        pNoiseForward=pNoiseForwardOut,
+                        vectorD=vectorD,
+                        progressBar=progressBar,
+                        progressIter=int(progressIter),
+                    )
+                )
+            finally:
+                if progressBar is not None:
+                    progressBar.close()
+
+            vectorD = vectorDOut
+            return float(phiHat__), int(countAdjustments__)
+
+        logger.info("Running forward pass...\n")
         phiHat__, countAdjustments__ = _forwardPass(
-            phiScale__=1.0,
-            collectD__=fitPhi,
-            firstPass__=fitPhi,
+            phiScale=1.0, collectD_=False, isInitialPass=False
         )
-        phiScale__ = 1.0
-        if fitPhi and abs(phiHat__ - 1.0) > 1.0e-2:
-            meanD_ = float(np.mean(vectorD))
-            varD_ = float(np.var(vectorD, ddof=1))
-            logger.info(f"\nInitial pass:")
-            logger.info(f"Mean D[i] ≈ {meanD_}, Var D[i] ≈ {varD_}")
-            if phiHat__ > 0.0:
-                phiScale__ = 1 / phiHat__
-            else:
-                phiScale__ = 1.0
-            _ = _forwardPass(
-                phiScale__=phiScale__,
-                collectD__=True,
-                firstPass__=False,
-            )
 
         stateForwardArr = stateForward
         stateCovarForwardArr = stateCovarForward
@@ -1236,7 +1110,7 @@ def runConsenrich(
 
         logger.info(
             f"`D_[i] > α_D` triggered adjustments to Q_[i] at "
-            f"[{round(((1.0 * countAdjustments) / n) * 100.0, 4)}%] of intervals"
+            f"[{round(((1.0 * countAdjustments__) / n) * 100.0, 4)}%]"
         )
 
         _textplotDstatHistogram(
@@ -1267,89 +1141,50 @@ def runConsenrich(
             shape=(n, m),
         )
 
-        stateSmoothed[-1] = np.float32(stateForwardArr[-1])
-        stateCovarSmoothed[-1] = np.float32(stateCovarForwardArr[-1])
-        if u64 is None:
-            postFitResiduals[-1] = np.float32(
-                matrixData[:, -1] - stateSmoothed[-1, 0]
-            )
-        else:
-            postFitResiduals[-1] = np.float32(
-                matrixData[:, -1]
-                - (
-                    u64.astype(np.float32, copy=False)
-                    * stateSmoothed[-1, 0]
-                )
-            )
+        progressBarBack = None
+        if (progressIter is not None) and (progressIter > 0):
+            progressBarBack = tqdm(total=(n - 1), unit="intervals")
 
-        smootherGain = np.zeros((2, 2), dtype=np.float32)
-        for k in range(n - 2, -1, -1):
-            if k % progressIter == 0:
-                logger.info(f"\nBackward pass interval: {k + 1}/{n}")
+            stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr = cconsenrich.cbackwardPass(
+            matrixData=matrixData,
+            matrixF=matrixF,
+            stateForward=stateForwardArr,
+            stateCovarForward=stateCovarForwardArr,
+            pNoiseForward=pNoiseForwardArr,
+            coefficientsH=coefficientsH,
+            projectStateDuringFiltering=bool(
+                projectStateDuringFiltering
+            ),
+            stateLowerBound=float(stateLowerBound),
+            stateUpperBound=float(stateUpperBound),
+            covarClip=float(covarClip),
+            chunkSize=int(chunkSize),
+            stateSmoothed=stateSmoothed,
+            stateCovarSmoothed=stateCovarSmoothed,
+            postFitResiduals=postFitResiduals,
+            progressBar=progressBarBack,
+            progressIter=int(progressIter),
+        )
 
-            forwardStatePosterior = stateForwardArr[k]
-            forwardCovariancePosterior = stateCovarForwardArr[k]
+        if progressBarBack is not None:
+            progressBarBack.close()
 
-            backwardInitialState = matrixF @ forwardStatePosterior
-            backwardInitialCovariance = (
-                matrixF @ forwardCovariancePosterior @ matrixF.T
-                + pNoiseForwardArr[k + 1]
-            )
+        stateSmoothedArr.flush()
+        stateCovarSmoothedArr.flush()
+        postFitResidualsArr.flush()
 
-            smootherGain = np.linalg.solve(
-                backwardInitialCovariance.T,
-                (forwardCovariancePosterior @ matrixF.T).T,
-            ).T
-            stateSmoothed[k] = (
-                forwardStatePosterior
-                + smootherGain
-                @ (stateSmoothed[k + 1] - backwardInitialState)
-            ).astype(np.float32)
-
-            stateCovarSmoothed[k] = (
-                forwardCovariancePosterior
-                + smootherGain
-                @ (
-                    stateCovarSmoothed[k + 1]
-                    - backwardInitialCovariance
-                )
-                @ smootherGain.T
-            ).astype(np.float32)
-
-            if projectStateDuringFiltering:
-                cconsenrich.projectToBox(
-                    stateSmoothed[k],
-                    stateCovarSmoothed[k],
-                    np.float32(stateLowerBound),
-                    np.float32(stateUpperBound),
-                    np.float32(clipSmall),
-                )
-
-            if u64 is None:
-                postFitResiduals[k] = np.float32(
-                    matrixData[:, k] - stateSmoothed[k, 0]
-                )
-            else:
-                postFitResiduals[k] = np.float32(
-                    matrixData[:, k]
-                    - (
-                        u64.astype(np.float32, copy=False)
-                        * stateSmoothed[k, 0]
-                    )
-                )
-
-            if k % chunkSize == 0 and k > 0:
-                stateSmoothed.flush()
-                stateCovarSmoothed.flush()
-                postFitResiduals.flush()
-
-        stateSmoothed.flush()
-        stateCovarSmoothed.flush()
-        postFitResiduals.flush()
-        outStateSmoothed = np.array(stateSmoothed, copy=True)
-        outPostFitResiduals = np.array(postFitResiduals, copy=True)
+        outStateSmoothed = np.array(stateSmoothedArr, copy=True)
+        outPostFitResiduals = np.array(postFitResidualsArr, copy=True)
         outStateCovarSmoothed = np.array(
-            stateCovarSmoothed, copy=True
+            stateCovarSmoothedArr, copy=True
+        )
+
+    if boundState:
+        np.clip(
+            outStateSmoothed[:, 0],
+            np.float32(stateLowerBound),
+            np.float32(stateUpperBound),
+            out=outStateSmoothed[:, 0],
         )
 
     return (
@@ -1477,10 +1312,10 @@ def getMuncTrack(
     minR: float,
     maxR: float,
     sparseMap: Optional[dict] = None,
-    blockSizeBP: Optional[int] = 5000,
+    blockSizeBP: Optional[int] = 1000,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
-    localWeight: float = 0.25,
+    localWeight: float = 0.50,
     zeroPenalty: float = 1.0,
     approximationWindowLengthBP: int = 25_000,
     lowPassWindowLengthBP: int = 25_000,
@@ -1499,8 +1334,8 @@ def getMuncTrack(
 
     * The global model is based on a mean-variance trend :math:`\hat{f}`, fit to pairs :math:`(\hat{\mu}_k, \hat{\sigma}^2_k)`
         for each of :math:`k=1,2,\ldots,K` (``samplingIters``) randomly sampled contiguous genomic blocks.
-        Note, :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` is computed by taking the sum of squared residuals
-        (RSS) from an AR(1) model fit over the block (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
+        Note, :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` is computed by taking the average of squared residuals
+        from an AR(1) model fit with a correction for ρ (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
         *interval* :math:`i=1,2,\ldots,n`. Specifically, the local squared, first (or second)-order differences
@@ -1600,14 +1435,11 @@ def getMuncTrack(
 
     # I: Global model (variance = f(mean))
     # ...  Variance as function of mean globally, as observed in contiguous blocks
-    # ... in cmeanVarPairs, variance is measured in each block as rss after modeling as AR(1)
-    # ... One \hat(mean) (acutal blockwise sample mean), \hat(var) (innovation var) per block
-    # ... These pairs are then used to fit the trend below (`opt`)
+    # ... in cmeanVarPairs, variance is measured in each block as AR(1) RSS/n-1 after
+    # ... correcting for ρ.
+    # ... For each block, we get a (blockMean, blockVar) pair, and `samplingIters`
+    # ...  such pairs are used are used to fit the global trend.
 
-    zeroThreshold = 0.0
-    if zeroPenalty > 0.0:
-        absVals = np.abs(valuesArr)
-        zeroThreshold = np.quantile(absVals, 0.005)
 
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
@@ -1616,8 +1448,6 @@ def getMuncTrack(
         samplingIters,
         randomSeed,
         excludeMaskArr,
-        zeroPenalty,
-        zeroThreshold,
     )
 
     #  (i) Fit mean ~ variance relationship as \hat{f}
@@ -1669,7 +1499,7 @@ def getMuncTrack(
     # ...  `trackALV_{new}(i) = average(trackALV_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
     # ... is the track from (a) are aggregated over sparseMap(i) to get each localModelVariance(i)
     localModelVariances = np.asarray(
-        cconsenrich.csumSquaredFOD(
+        cconsenrich.csumSquaredSOD(
             valuesArr,
             max(2, int(approximationWindowLengthBP / stepSize)),
         ),
