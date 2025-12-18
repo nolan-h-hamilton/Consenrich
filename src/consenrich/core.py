@@ -22,7 +22,7 @@ import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
-from scipy import ndimage, signal
+from scipy import ndimage, signal, optimize
 from scipy.stats.mstats import trimtail
 from tqdm import tqdm
 from . import cconsenrich
@@ -618,9 +618,6 @@ def readBamSegments(
     samThreads: int,
     samFlagExclude: int,
     offsetStr: Optional[str] = "0,0",
-    applyAsinh: Optional[bool] = False,
-    applyLog: Optional[bool] = False,
-    applySqrt: Optional[bool] = False,
     maxInsertSize: Optional[int] = 1000,
     pairedEndMode: Optional[int] = 0,
     inferFragmentLength: Optional[int] = 0,
@@ -695,26 +692,34 @@ def readBamSegments(
         ","
     )
 
-    numIntervals = ((end - start) + stepSize - 1) // stepSize
+    numIntervals = ((end - start - 1) // stepSize) + 1
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
 
     if pairedEndMode:
+        # paired end --> use TLEN attribute for each properly paired read
         fragmentLengths = [0] * len(bamFiles)
         inferFragmentLength = 0
+
     if not pairedEndMode and (
         fragmentLengths is None or len(fragmentLengths) == 0
     ):
+        # single-end without user-supplied fragment length -->
+        # ... estimate fragment lengths as the peak lag_k in
+        # ... cross-correlation(forwardReadsTrack,backwardReadsTrack, lag_k)
         inferFragmentLength = 1
         fragmentLengths = [-1] * len(bamFiles)
 
     if isinstance(countEndsOnly, bool) and countEndsOnly:
-        # note: setting this option ignores inferFragmentLength, pairedEndMode
+
+        # No fragment length extension, just count 5' ends
+        # ... May be preferred for high-resolution analyses in deeply-sequenced HTS
+        # ...  data but note the drift in interpretation for processParams.deltaF,
+        # ... consider setting deltaF \propto (readLength / stepSize)
         inferFragmentLength = 0
         pairedEndMode = 0
         fragmentLengths = [0] * len(bamFiles)
 
-    for j, bam in enumerate(bamFiles):
-        logger.info(f"Reading {chromosome}: {bam}")
+    for j, bam in tqdm(enumerate(bamFiles), desc='Building count matrix', unit=' bam files '):
         arr = cconsenrich.creadBamSegment(
             bam,
             chromosome,
@@ -740,7 +745,9 @@ def readBamSegments(
             counts[j, :] = trimtail(
                 counts[j, :], trimLeftTail, tail="left"
             )
-        counts[j, :] *= np.float32(scaleFactors[j])
+        np.multiply(
+            counts[j, :], np.float32(scaleFactors[j]), out=counts[j, :]
+        )
     return counts
 
 
@@ -1317,19 +1324,26 @@ def getMuncTrack(
     fitFuncArgs: Optional[dict] = None,
     evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
-    binQuantile: float = 0.90,
     textPlotMeanVarianceTrend: bool = False,
     isTransformed: bool = True,
+    underEstimatePenalty: float = 1.0,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     Compute sample- and region-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
     weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, first (or second)-order differences.
 
-    * The global model is based on a mean-variance trend :math:`\hat{f}`, fit to pairs :math:`(\hat{\mu}_k, \hat{\sigma}^2_k)`
-        for each of :math:`k=1,2,\ldots,K` (``samplingIters``) randomly sampled contiguous genomic blocks.
-        Note, :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` is computed by taking the average of squared residuals
-        from an AR(1) model fit with a correction for ρ (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
+    * The global model treats over/under-dispersion by accounting for mean-variance trends as observed in small, randomly-drawn
+        contiguous blocks. In each block, a simple autoregressive process is assumed to --on the average-- account for most of the
+        reliable structure/signal, such that large residual variances may be attributed to noise and prompt uncertainty.
+        [>FFR: try to use same language as deseq, etc. when discussing potential for bias/insensitive <]
+
+        Specifically, in each of the sampled blocks :math:`k=1,2,\ldots,\textsf{samplingIters}`, we compute estimates
+        :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` using an AR(1) model (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
+        The collection of pairs :math:`\{(\hat{\mu}_k, \hat{sigma}^2_k)\}_{k=1}^{\textsf{samplingIters}}` are then used to fit
+        a global mean-variance trend :math:`\hat{f}_{\textsf{global}}\left(\,\mid\,\mu\right)` using the provided `fitFunc`
+        (See the default :func:`consenrich.cconsenrich.cmonotonicFit`).
+
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
         *interval* :math:`i=1,2,\ldots,n`. The squared, first (or second)-order differences are computed within
@@ -1393,8 +1407,9 @@ def getMuncTrack(
         evalFunc = cconsenrich.cmonotonicFitEval
     if fitFuncArgs is None:
         fitFuncArgs = {
-            "ridge": 1.0e-4,
+            "ridge": 1.0e-2,
             "isTransformed": isTransformed,
+            'underEstimatePenalty': underEstimatePenalty,
         }
 
     if blockSizeBP is None:
@@ -1428,14 +1443,12 @@ def getMuncTrack(
     )
 
     # I: Global model (variance = f(mean))
-    # ... Variance as function of mean globally, as observed in short contiguous blocks
-    # ... where an AR(1) process can, on the average, account for credible signals,
-    # ... and residual variance may be ascribed to noise.
-    # ...
-    # ... For each block, we get a (blockMean, blockVar) pair, and `samplingIters`
-    # ... such pairs are used are used to fit the global trend.
+    # ... Variance as function of mean globally, as observed in randomly drawn contiguous
+    # ... blocks, in which an AR(1) process can --on the average-- account for a large
+    # ... fraction of real signal, and the residual variance is generally indicative of noise.
 
-
+    # (i) For each block `k`, we get one (blockMean_k, blockVar_k) pair, where
+    # ... `k=1,2,...,samplingIters`
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
         valuesArr,
@@ -1445,24 +1458,10 @@ def getMuncTrack(
         excludeMaskArr,
     )
 
-    #  (i) Fit mean ~ variance relationship as \hat{f}
-    # ... over sampled blocks' stats (mean_k, var_k) k=1,..,samplingIters
-    sortIdx = np.argsort(blockMeans)  # jointly sorted by blockMean
-    blockMeansSorted = blockMeans[sortIdx]
+    #  (ii) conservative: isotonic regression on mean,variance pairs
+    sortIdx = np.argsort(blockMeans)
+    blockMeansSorted  = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
-
-    cleanBinMeans, cleanBinVars = _extractUpperTail(
-        blockMeansSorted, blockVarsSorted, q=binQuantile,
-    )
-
-    blockMeansSorted = cleanBinMeans.astype(np.float32)
-    blockVarsSorted = cleanBinVars.astype(np.float32)
-
-    keep = np.isfinite(blockMeansSorted) & np.isfinite(
-        blockVarsSorted
-    )
-    blockMeansSorted = blockMeansSorted[keep]
-    blockVarsSorted = blockVarsSorted[keep]
 
     opt = fitFunc(
         blockMeansSorted,
@@ -1492,6 +1491,7 @@ def getMuncTrack(
     # ... where each F_ij is a 'sparse' genomic region devoid of or mutually exclusive with
     # ... the targeted signal. If provided,
     # ...      `locaModel(i) = average(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
+
     localModelVariances = np.asarray(
         cconsenrich.csumSquaredSOD(
             valuesArr,
@@ -1506,6 +1506,7 @@ def getMuncTrack(
         )
 
     # III: mix local and global models, weight sum to one
+    # FFR: localWeight should be determined by model
     muncTrack = (localWeight * localModelVariances) + (
         globalWeight * globalModelVariances
     )
@@ -2049,60 +2050,6 @@ def plotStateStdHistogram(
         f"Failed to create histogram. {plotFileName} not written."
     )
     return None
-
-
-def _extractUpperTail(
-    blockMeans,
-    blockVars,
-    q=0.50,
-    binsPerUnit=10,
-    minBins=50,
-    maxBins=250,
-    transformFunc=None,
-):
-    means = np.asarray(blockMeans, dtype=np.float64)
-    vars_ = np.asarray(blockVars, dtype=np.float64)
-    transformedBlockMeans = means if transformFunc is None else transformFunc(means)
-    transformedMin = float(np.quantile(transformedBlockMeans, 0.005))
-    transformedMax = float(np.quantile(transformedBlockMeans, 0.995))
-    dynamicRange = transformedMax - transformedMin
-
-    numBins = int(
-        np.clip(
-            np.ceil(binsPerUnit * max(dynamicRange, 1e-4)),
-            minBins,
-            maxBins,
-        )
-    )
-
-    edges = np.linspace(
-        transformedMin,
-        transformedMax,
-        num=numBins + 1,
-        dtype=np.float64,
-    )
-    binIdx = np.clip(
-        np.searchsorted(edges, transformedBlockMeans, side="right")
-        - 1,
-        0,
-        numBins - 1,
-    )
-
-    outMeans = np.empty(numBins, dtype=np.float64)
-    outVars = np.empty(numBins, dtype=np.float64)
-
-    for k in range(numBins):
-        mask = binIdx == k
-        if not np.any(mask):
-            outMeans[k] = np.nan
-            outVars[k] = np.nan
-            continue
-        # median of means within bin
-        outMeans[k] = np.median(means[mask])
-        outVars[k] = np.quantile(vars_[mask], q)
-
-    keep = np.isfinite(outMeans) & np.isfinite(outVars)
-    return outMeans[keep], outVars[keep]
 
 
 def _textplotDstatHistogram(
