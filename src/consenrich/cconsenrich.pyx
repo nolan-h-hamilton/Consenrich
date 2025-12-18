@@ -1361,12 +1361,11 @@ cdef inline double ridgeLoss(
     return loss + (ridge*(slope*slope))
 
 
-cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isTransformed = 1):
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isTransformed = 1, double underEstimatePenalty = 1.0):
 
-    # note this breaks if the means,variance are not sorted by mean, hence renaming
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
     cdef cnp.ndarray[cnp.float32_t, ndim=1] yArr = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
-
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(2, dtype=np.float32)
     cdef Py_ssize_t n = xArr.shape[0]
     cdef Py_ssize_t i
     cdef double xMin
@@ -1385,6 +1384,11 @@ cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0
     cdef double sumSqShiftX = 0.0
     cdef double sumShiftXZ = 0.0
     cdef double xShift
+    cdef double sumW, sumWX, sumWXX, sumWZ, sumWXZ
+    cdef double penSlope, penIntercept
+    cdef double initialVar, penTarget, penLoss
+    cdef int it, maxIter = 20
+    cdef double tol = 1.0e-12
 
     xMin = <double>xArr[0] + 1.0e-4
 
@@ -1448,7 +1452,6 @@ cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0
         yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
-        # transform via asinh
         if not isTransformed:
             z = asinh(yVal)
         else:
@@ -1464,7 +1467,6 @@ cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0
     if slopeBound < 0.0:
         slopeBound = 0.0
 
-
     # since 0 <= slope <= slopeBound = sumShiftXZ/(sumSqShiftX + ridge),
     # ... intercept >= -slopeBound*xMin --> nonnegative estimates
     interceptBound = -slopeBound*xMin
@@ -1477,7 +1479,60 @@ cpdef cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0
         optimalSlope = slopeBound
         optimalIntercept = interceptBound
 
-    return np.asarray([optimalSlope, optimalIntercept], dtype=np.float32)
+    # Assuming overdispersion, we'd want `varianceFit := B0 + B1*mean >= |mean|`,
+    # ... but this isn't guaranteed initially. To exclusively penalize --underestimated--
+    # ... variances, refit data with a --one-sided-- penalty (svm/hinge)
+    # ... i.e., a 'monotonicity hint' (see Abu-mostafa 1992 @ NIPS)
+    if underEstimatePenalty > 0.0:
+        for it in range(maxIter):
+            sumW = numSamples
+            sumWX = sumX
+            sumWXX = sumSqX
+            sumWZ = sumZ
+            sumWXZ = sumXZ
+
+            for i in range(n):
+                x = <double>xArr[i]
+                # original estimate B0 + B1*x
+                initialVar = optimalIntercept + optimalSlope*x
+                penTarget = fabs(x)
+                penLoss = penTarget - initialVar
+                # the following implements our 'hint' toward |x|
+                # (penalty)*max(0, |x| - (B0 + B1*x))^2
+                if penLoss > 0.0:
+                    sumW += underEstimatePenalty
+                    sumWX += underEstimatePenalty*x
+                    sumWXX += underEstimatePenalty*(x*x)
+                    sumWZ += underEstimatePenalty*penTarget
+                    sumWXZ += underEstimatePenalty*x*penTarget
+
+            # new WLS fit
+            invert22(sumWXX + ridge, sumWX, sumWX, sumW,
+                sumWXZ,
+                sumWZ,
+                &penSlope,
+                &penIntercept)
+
+            if penSlope < 0.0:
+                penSlope = 0.0
+                penIntercept = sumWZ / sumW
+                if penIntercept < 0.0:
+                    penIntercept = 0.0
+            if (penSlope*xMin + penIntercept) < 0.0:
+                penIntercept = -penSlope*xMin
+
+            if (((penSlope - optimalSlope) < tol and  optimalSlope - penSlope < tol) and ((penIntercept - optimalIntercept < tol and optimalIntercept - penIntercept < tol))):
+                optimalSlope = penSlope
+                optimalIntercept = penIntercept
+                break
+
+            optimalSlope = penSlope
+            optimalIntercept = penIntercept
+
+    out[0] = <cnp.float32_t>optimalSlope
+    out[1] = <cnp.float32_t>optimalIntercept
+    return out
+
 
 
 cpdef cmonotonicFitEval(
