@@ -478,7 +478,6 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
     return matrixQ, inflatedQ
 
 
-
 cdef void _blockMax(double[::1] valuesView,
                     Py_ssize_t[::1] blockStartIndices,
                     Py_ssize_t[::1] blockSizes,
@@ -584,13 +583,11 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return out
 
 
-cpdef cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
     r"""Fast access and average of `numNearest` sparse elements.
 
     See :func:`consenrich.core.getMuncTrack`
 
-    :param trackALV: See :func:`consenrich.core.getAverageLocalVarianceTrack`
-    :type trackALV: float[::1]
     :param sparseMap: See :func:`consenrich.core.getSparseMap`
     :type sparseMap: dict[int, np.ndarray]
     :return: array of mena('nearest local variances') same length as `trackALV`
@@ -1361,7 +1358,7 @@ cdef inline double ridgeLoss(
     return loss + (ridge*(slope*slope))
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, bint isTransformed = 1, double underEstimatePenalty = 1.0):
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, double refitWeight = 1.0):
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
     cdef cnp.ndarray[cnp.float32_t, ndim=1] yArr = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
@@ -1397,8 +1394,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
-        if not isTransformed:
-            z = asinh(yVal)
         else:
             z = yVal
 
@@ -1452,10 +1447,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
-        if not isTransformed:
-            z = asinh(yVal)
-        else:
-            z = yVal
+        z = yVal
         sumSqShiftX += (xShift*xShift)
         sumShiftXZ += (xShift*z) # z*x - z*xMin
 
@@ -1483,7 +1475,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     # ... but this isn't guaranteed initially. To exclusively penalize --underestimated--
     # ... variances, refit data with a --one-sided-- penalty (svm/hinge)
     # ... i.e., a 'monotonicity hint' (see Abu-mostafa 1992 @ NIPS)
-    if underEstimatePenalty > 0.0:
+    if refitWeight > 0.0:
         for it in range(maxIter):
             sumW = numSamples
             sumWX = sumX
@@ -1500,11 +1492,11 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
                 # the following implements our 'hint' toward |x|
                 # (penalty)*max(0, |x| - (B0 + B1*x))^2
                 if penLoss > 0.0:
-                    sumW += underEstimatePenalty
-                    sumWX += underEstimatePenalty*x
-                    sumWXX += underEstimatePenalty*(x*x)
-                    sumWZ += underEstimatePenalty*penTarget
-                    sumWXZ += underEstimatePenalty*x*penTarget
+                    sumW += refitWeight
+                    sumWX += refitWeight*x
+                    sumWXX += refitWeight*(x*x)
+                    sumWZ += refitWeight*penTarget
+                    sumWXZ += refitWeight*x*penTarget
 
             # new WLS fit
             invert22(sumWXX + ridge, sumWX, sumWX, sumW,
@@ -1538,7 +1530,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
 cpdef cmonotonicFitEval(
     cnp.ndarray coeffs,
     cnp.ndarray meanTrack,
-    bint isTransformed = 0
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
     cdef Py_ssize_t n = xArr.shape[0]
@@ -1562,10 +1553,7 @@ cpdef cmonotonicFitEval(
         z = slope*(<double>xView[i]) + intercept
         if z < 0.0:
             z = 0.0
-        if not isTransformed:
-            outView[i] = <float>sinh(z)
-        else:
-            outView[i] = <float>z
+        outView[i] = <float>z
 
     return out
 

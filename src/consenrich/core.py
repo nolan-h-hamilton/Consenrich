@@ -112,11 +112,10 @@ class processParams(NamedTuple):
 class observationParams(NamedTuple):
     r"""Parameters related to the observation model of Consenrich.
 
-    The observation model is used to integrate sequence alignment count
-    data from the multiple input samples and account for region-and-sample-specific
-    noise processes corrupting data. The observation model matrix
-    :math:`\mathbf{H} \in \mathbb{R}^{m \times 2}` maps from the state dimension (2)
-    to the dimension of measurements/data (:math:`m`).
+    The observation model is used to integrate measured sequence alignment count-based
+    data from the multiple input samples while accounting for region- and sample-specific
+    uncertainty arising from biological and/or technical sources of noise.
+
 
     :param minR: Genome-wide lower bound for sample-specific measurement uncertainty levels.
     :type minR: float
@@ -126,35 +125,19 @@ class observationParams(NamedTuple):
     :type numNearest: int
     :param localWeight: Weight for the 'local' model used to approximate genome-wide sample/region-level measurement uncertainty (see `consenrich.core.getAverageLocalVarianceTrack`, `consenrich.core.getMuncTrack`).
     :type localWeight: float
-    :param approximationWindowLengthBP: The size of the moving window used in the local model (:func:`consenrich.core.getMuncTrack`).
-    :type approximationWindowLengthBP: int
     :param sparseBedFile: The path to a BED file of 'sparse' regions. For genomes with default resources in `src/consenrich/data`, this may be left as `None`,
       and a default annotation that is devoid/exclusive of/with putative regulatory elements (ENCODE cCREs) will be used. Users can instead supply a custom BED file annotation
       or rely exclusively on the ALV heuristic for the *local* component.
     :type sparseBedFile: str, optional
-    :param lowPassFilterType: The type of low-pass filter to use (e.g., 'median', 'mean') in the ALV calculation (:func:`consenrich.core.getAverageLocalVarianceTrack`).
-    :type lowPassFilterType: Optional[str]
-    :param shrinkOffset: (*Experimental*) An offset applied to local lag-1 autocorrelation, :math:`A_{[i,1]}`, such that the structure-based shrinkage factor in :func:`consenrich.core.getAverageLocalVarianceTrack`, :math:`1 - A_{[i,1]}^2`, does not deplete the ALV variance estimates. Consider setting near `1.0` if data has been preprocessed to remove local trends.
-        To disable, set to `>= 1`.
-    :type shrinkOffset: Optional[float]
-    :param zeroPenalty: Inflate variance estimates in genomic regions with a larger proportion of zeros.
-    :type zeroPenalty: Optional[float]
-    :param kappaALV: Applicable if ``minR < 0``. Prevent ill-conditioning by bounding the ratios :math:`\frac{R_{[i,j_{\max}]}}{R_{[i,j_{\min}]}}` at each interval :math:`i=1\ldots n`. Values up to `100` will typically retain most of the initial dynamic range while improving stability and mitigating outliers.
+    :param refitWeight: Weight of the 'monotonicity/inequality hint' used during refitting of the mean-variance trend. Higher values more strictly penalize instances where :math:`\hat{f}(\mu) < \mu`. Smaller values
+        tend toward the initial unpenalized linear fit. See :func:`consenrich.cconsenrich.cmonotonicFit`.
     """
 
     minR: float
     maxR: float
-    useConstantNoiseLevel: bool
-    noGlobal: bool  # deprecated
     numNearest: int
     localWeight: float
-    approximationWindowLengthBP: int
-    lowPassWindowLengthBP: int
-    lowPassFilterType: Optional[str]
-    returnCenter: bool  # deprecated
-    shrinkOffset: Optional[float]
-    kappaALV: Optional[float]
-    zeroPenalty: Optional[float]
+    refitWeight: float
 
 
 class stateParams(NamedTuple):
@@ -719,7 +702,7 @@ def readBamSegments(
         pairedEndMode = 0
         fragmentLengths = [0] * len(bamFiles)
 
-    for j, bam in tqdm(enumerate(bamFiles), desc='Building count matrix', unit=' bam files '):
+    for j, bam in tqdm(enumerate(bamFiles), desc='Building count matrix', unit=' bam files', total=len(bamFiles)):
         arr = cconsenrich.creadBamSegment(
             bam,
             chromosome,
@@ -840,7 +823,6 @@ def runConsenrich(
     adjustProcessNoiseFunc: Optional[Callable] = None,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-    textPlotDstatHistogram: bool = False,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -1316,24 +1298,20 @@ def getMuncTrack(
     blockSizeBP: Optional[int] = 500,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
-    localWeight: float = 0.50,
-    zeroPenalty: float = 1.0,
-    approximationWindowLengthBP: int = 50_000,
-    lowPassWindowLengthBP: int = 25_000,
+    localWeight: float = 0.25,
     fitFunc: Optional[Callable] = None,
     fitFuncArgs: Optional[dict] = None,
     evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
     textPlotMeanVarianceTrend: bool = False,
-    isTransformed: bool = True,
-    underEstimatePenalty: float = 1.0,
+    refitWeight: float = 10.0,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     Compute sample- and region-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
-    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, first (or second)-order differences.
+    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, first- or second-order differences.
 
-    * The global model treats over/under-dispersion by accounting for mean-variance trends as observed in small, randomly-drawn
+    * The global model treats over/under-dispersion by accounting for mean-variance trends observed in randomly-drawn
         contiguous blocks. In each block, a simple autoregressive process is assumed to --on the average-- account for most of the
         reliable structure/signal, such that large residual variances may be attributed to noise and prompt uncertainty.
         [>FFR: try to use same language as deseq, etc. when discussing potential for bias/insensitive <]
@@ -1347,7 +1325,7 @@ def getMuncTrack(
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
         *interval* :math:`i=1,2,\ldots,n`. The squared, first (or second)-order differences are computed within
-        of length ``approximationWindowLengthBP``. See :func:`consenrich.cconsenrich.csumSquaredSOD`.
+        a local window about the curent interval. See :func:`consenrich.cconsenrich.csumSquaredSOD`.
 
         Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
         the local model restricts the calculation to the nearest 'sparse' genomic regions at each interval :math:`i=1,2,\ldots,n`
@@ -1378,20 +1356,11 @@ def getMuncTrack(
     :type blockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
-    :param randomSeed: Random seed for the sampling during global mean-variance trend estimation
-    :type randomSeed: int
     :param localWeight: Weight of local model in mixed uncertainty estimate.
         ``--> 1.0 ignore global (mean-variance) model``, ``--> 0.0 ignore local rolling mean/var model``.
     :type localWeight: float
-    :param zeroPenalty: Inflate variance at data points in the left tail of the mean-variance trend
-        (i.e., low mean values) by this amount during global model fitting.
-    :type zeroPenalty: float
-    :param approximationWindowLengthBP: Window length (in bp) for local variance approximation. See :func:`getAverageLocalVarianceTrack`.
-    :type approximationWindowLengthBP: int
-    :param lowPassWindowLengthBP: Deprecated -- no effect.
-    :type lowPassWindowLengthBP: int
     :param fitFunc: A *callable* function accepting input ``(arrayOfMeans,arrayOfVariances, **kwargs)``. Used to fit the global mean-variance model
-    given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``. Defaults to `cconsenrich.cmonotonicFit`, ridge-penalized, positive regression.
+    given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``. Defaults to `consenrich.cconsenrich.cmonotonicFit`
     :type fitFunc: Optional[Callable]
     :param fitFuncArgs: Additional keyword arguments to pass to `fitFunc`.
     :type fitFuncArgs: Optional[dict]
@@ -1407,9 +1376,8 @@ def getMuncTrack(
         evalFunc = cconsenrich.cmonotonicFitEval
     if fitFuncArgs is None:
         fitFuncArgs = {
-            "ridge": 1.0e-2,
-            "isTransformed": isTransformed,
-            'underEstimatePenalty': underEstimatePenalty,
+            "ridge": 1.0e-3,
+            'refitWeight': refitWeight,
         }
 
     if blockSizeBP is None:
@@ -1458,7 +1426,7 @@ def getMuncTrack(
         excludeMaskArr,
     )
 
-    #  (ii) conservative: isotonic regression on mean,variance pairs
+    #  (ii) Fit mean-variance trend to sampled blocks/pairs
     sortIdx = np.argsort(blockMeans)
     blockMeansSorted  = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
@@ -1470,7 +1438,7 @@ def getMuncTrack(
     ).astype(np.float32)
 
     globalModelVariances = evalFunc(
-        opt, cconsenrich.cEMA(valuesArr, 2/(blockSizeIntervals+1)), isTransformed,
+        opt, cconsenrich.cEMA(valuesArr, 2/(blockSizeIntervals+1)),
     ).astype(np.float32)
 
     _textplotMeanVarianceTrend(
@@ -1479,9 +1447,9 @@ def getMuncTrack(
         blockMeansSorted=blockMeansSorted,
         opt=opt,
         evalFunc=evalFunc,
-        isTransformed=isTransformed,
         enabled=textPlotMeanVarianceTrend,
     )
+
 
     # II: Local model (local moment-based variance via sliding windows)
     # ... (a) At each genomic interval i = 1,2,...,n,
@@ -1491,11 +1459,12 @@ def getMuncTrack(
     # ... where each F_ij is a 'sparse' genomic region devoid of or mutually exclusive with
     # ... the targeted signal. If provided,
     # ...      `locaModel(i) = average(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
-
+    # ...
+    # FFR: With enough replicates, the local model might be better fit with pointwise summary stats of dispersion
     localModelVariances = np.asarray(
         cconsenrich.csumSquaredSOD(
             valuesArr,
-            max(2, int(approximationWindowLengthBP / stepSize)),
+            max(2, int((2*(blockSizeIntervals+1)) / stepSize)),
         ),
         dtype=np.float32,
     )
@@ -1505,7 +1474,7 @@ def getMuncTrack(
             localModelVariances.copy(), sparseMap
         )
 
-    # III: mix local and global models, weight sum to one
+    # III: mix local and global models, weights sum to one
     # FFR: localWeight should be determined by model
     muncTrack = (localWeight * localModelVariances) + (
         globalWeight * globalModelVariances
@@ -2052,56 +2021,12 @@ def plotStateStdHistogram(
     return None
 
 
-def _textplotDstatHistogram(
-    vectorD: np.ndarray,
-    n: int,
-    enabled: bool = True,
-    checkMod: Callable[[str], bool] = _checkMod,
-    maxPoints: int = 10_000,
-) -> None:
-    if not enabled:
-        return
-    try:
-        if not checkMod("plotext"):
-            return
-        import plotext as textplt
-
-        if n > maxPoints:
-            indices = np.random.choice(
-                n, size=maxPoints, replace=True
-            )
-            dvals = vectorD[indices]
-        else:
-            dvals = vectorD
-        iqr = np.quantile(vectorD, 0.75) - np.quantile(vectorD, 0.25)
-        binWidth = (2 * iqr) / (vectorD.size ** (1 / 3))
-        if binWidth > 0.0:
-            bins = int(
-                np.ceil(
-                    (np.max(vectorD) - np.min(vectorD)) / binWidth
-                )
-            )
-        else:
-            bins = 10
-        logger.info(
-            "\tPlotting NIS histogram via `plotext`..."
-            "(To disable these plots in the default CLI implementation, do not invoke `--verbose2` flag)"
-        )
-        textplt.hist(dvals, bins=bins, label="(Forward) NIS/D [:]")
-        textplt.limit_size(True, True)
-        textplt.show()
-        textplt.clf()
-    except Exception as e:
-        logger.warning(f"Ignoring `textPlotDstatHistogram`:\n{e}\n")
-
-
 def _textplotMeanVarianceTrend(
     blockMeans: np.ndarray,
     blockVars: np.ndarray,
     blockMeansSorted: np.ndarray,
     opt: np.ndarray,
     evalFunc: Callable = cconsenrich.cmonotonicFitEval,
-    isTransformed: bool = True,
     enabled: bool = True,
     checkMod: Callable[[str], bool] = _checkMod,
     maxPoints: int = 10_000,
@@ -2128,7 +2053,7 @@ def _textplotMeanVarianceTrend(
         textplt.scatter(x, y, label="(Block Mean, Block Var)")
         textplt.scatter(
             blockMeansSorted,
-            evalFunc(opt, blockMeansSorted, isTransformed),
+            evalFunc(opt, blockMeansSorted),
             label=f"`opt`: {opt}",
             color="red",
         )

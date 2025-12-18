@@ -774,14 +774,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
         maxR=_cfgGet(configData, "observationParams.maxR", 1000.0),
-        useConstantNoiseLevel=_cfgGet(
-            configData,
-            "observationParams.useConstantNoiseLevel",
-            False,
-        ),
-        noGlobal=_cfgGet(
-            configData, "observationParams.noGlobal", False
-        ),
         numNearest=_cfgGet(
             configData,
             "observationParams.numNearest",
@@ -792,36 +784,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.localWeight",
             0.25,
         ),
-        approximationWindowLengthBP=_cfgGet(
+        refitWeight=_cfgGet(
             configData,
-            "observationParams.approximationWindowLengthBP",
-            25_000,
-        ),
-        lowPassWindowLengthBP=_cfgGet(
-            configData,
-            "observationParams.lowPassWindowLengthBP",
-            50_000,
-        ),
-        lowPassFilterType=_cfgGet(
-            configData,
-            "observationParams.lowPassFilterType",
-            "median",
-        ),
-        returnCenter=_cfgGet(
-            configData, "observationParams.returnCenter", True
-        ),
-        shrinkOffset=_cfgGet(
-            configData,
-            "observationParams.shrinkOffset",
-            1 - 0.25,
-        ),
-        kappaALV=_cfgGet(
-            configData,
-            "observationParams.kappaALV",
-            100.0,
-        ),
-        zeroPenalty=_cfgGet(
-            configData, "observationParams.zeroPenalty", 1.0,
+            "observationParams.refitWeight",
+            10.0,
         ),
     )
 
@@ -1159,12 +1125,6 @@ def main():
         help="Method for multiple hypothesis correction of p-values. (bh, by)",
     )
     parser.add_argument(
-        "--match-is-log-scale",
-        action="store_true",
-        dest="matchIsLogScale",
-        help="If set, indicates that the input bedGraph has already been transformed.",
-    )
-    parser.add_argument(
         "--match-mass-quantile-cutoff",
         type=float,
         default=0.25,
@@ -1210,7 +1170,6 @@ def main():
             methodFDR=args.matchMethodFDR.lower()
             if args.matchMethodFDR
             else None,
-            isTransformed=args.matchIsLogScale,
             randSeed=args.matchRandSeed,
             merge=True,  # always merge for CLI use -- either way, both files produced
             massQuantileCutoff=args.matchMassQuantileCutoff,
@@ -1531,9 +1490,6 @@ def main():
                     maxInsertSize=samArgs.maxInsertSize,
                     pairedEndMode=samArgs.pairedEndMode,
                     inferFragmentLength=samArgs.inferFragmentLength,
-                    applyAsinh=countingArgs.applyAsinh,
-                    applyLog=countingArgs.applyLog,
-                    applySqrt=countingArgs.applySqrt,
                     countEndsOnly=samArgs.countEndsOnly,
                     minMappingQuality=samArgs.minMappingQuality,
                     minTemplateLength=samArgs.minTemplateLength,
@@ -1561,9 +1517,6 @@ def main():
                 maxInsertSize=samArgs.maxInsertSize,
                 pairedEndMode=samArgs.pairedEndMode,
                 inferFragmentLength=samArgs.inferFragmentLength,
-                applyAsinh=countingArgs.applyAsinh,
-                applyLog=countingArgs.applyLog,
-                applySqrt=countingArgs.applySqrt,
                 countEndsOnly=samArgs.countEndsOnly,
                 minMappingQuality=samArgs.minMappingQuality,
                 minTemplateLength=samArgs.minTemplateLength,
@@ -1571,7 +1524,7 @@ def main():
                 fragmentLengths=fragmentLengthsTreatment,
             )
         sparseMap = None
-        if genomeArgs.sparseBedFile and not genomeArgs.sparseBedFile.lower() == 'none':
+        if genomeArgs.sparseBedFile and not genomeArgs.sparseBedFile.lower() not in ['none', 'false']:
             sparseMap = core.getSparseMap(
                 chromosome,
                 intervals,
@@ -1588,7 +1541,7 @@ def main():
             maxQ_ = 1e4
 
         muncMat = np.empty_like(chromMat, dtype=np.float32)
-        for j in tqdm(range(numSamples)):
+        for j in range(numSamples):
             chromMat[j, :] = cconsenrich.carsinhRatio(
                 chromMat[j, :],
                 detrendArgs.detrendWindowLengthBP,
@@ -1604,16 +1557,13 @@ def main():
                 maxR_,
                 sparseMap,
                 localWeight=observationArgs.localWeight,
-                approximationWindowLengthBP=observationArgs.approximationWindowLengthBP,
-                lowPassWindowLengthBP=observationArgs.lowPassWindowLengthBP,
                 randomSeed=42 + j,
-                zeroPenalty=observationArgs.zeroPenalty,
                 textPlotMeanVarianceTrend=args.verbose2,
-                isTransformed=True,
+                refitWeight=observationArgs.refitWeight,
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            kappa = np.float32(observationArgs.kappaALV)
+            kappa = 100.0 # conditioning given f32
             minR_ = np.float32(
                 np.quantile(muncMat[muncMat > 0], 0.05)
             )
@@ -1668,7 +1618,6 @@ def main():
             stateArgs.stateUpperBound,
             samArgs.chunkSize,
             progressIter=25_000,
-            textPlotDstatHistogram=args.verbose2,
         )
         logger.info("Done.")
         logger.info(
@@ -1809,7 +1758,6 @@ def main():
                 randSeed=matchingArgs.randSeed,
                 weightsBedGraph=weightsBedGraph,
                 eps=matchingArgs.eps,
-                isTransformed=True,
                 autoLengthQuantile=matchingArgs.autoLengthQuantile,
                 methodFDR=matchingArgs.methodFDR.lower()
                 if matchingArgs.methodFDR is not None
