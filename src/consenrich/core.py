@@ -1256,7 +1256,7 @@ def getMuncTrack(
 
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
-        *interval* :math:`i=1,2,\ldots,n`. The squared, first (or second)-order differences are computed within
+        *interval* :math:`i=1,2,\ldots,n`. The squared second-order differences are computed within
         a local window about the curent interval. See :func:`consenrich.cconsenrich.csumSquaredSOD`.
 
         Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
@@ -1385,7 +1385,7 @@ def getMuncTrack(
 
     # II: Local model (local moment-based variance via sliding windows)
     # ... (a) At each genomic interval i = 1,2,...,n,
-    # ... apply local/moment-based heuristic on first/second order differences
+    # ... apply local/moment-based heuristic on second order differences
     # ... (b) `sparseMap` is an optional mapping (implemented as a dictionary)
     # ...    sparseMap(i) --> {F_i1,F_i2,...,F_i{numNearest}}
     # ... where each F_ij is a 'sparse' genomic region devoid of or mutually exclusive with

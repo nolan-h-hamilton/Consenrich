@@ -1558,41 +1558,6 @@ cpdef cmonotonicFitEval(
     return out
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredFOD(
-        cnp.ndarray[cnp.float32_t, ndim=1] values,
-        Py_ssize_t windowLength):
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] outputArray
-    cdef double[::1] valuesView
-    cdef float[::1] outputView
-    cdef Py_ssize_t valuesLength
-    cdef Py_ssize_t i
-    cdef double runningSum
-    cdef double diff
-    cdef double diff_
-    cdef double* valuesPtr
-
-    valuesView = np.ascontiguousarray(values, dtype=np.float64)
-    valuesLength = valuesView.shape[0]
-    outputArray = np.zeros(valuesLength, dtype=np.float32)
-    outputView = outputArray
-    valuesPtr = &valuesView[0]
-
-    with nogil:
-        runningSum = 0.0
-        outputView[0] = <float>0.0
-        for i in range(1, valuesLength):
-            diff = (valuesPtr[i] - valuesPtr[i - 1])
-            runningSum += diff*diff
-            if i > windowLength:
-                diff_ = valuesPtr[i-windowLength] - valuesPtr[i-windowLength-1]
-                runningSum -= diff_*diff_
-                # window now [i-windowLength, i]
-            outputView[i] = <float>runningSum / (<double>(windowLength if i >= windowLength else i))
-
-    return outputArray
-
-
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredSOD(
         cnp.ndarray[cnp.float32_t, ndim=1] values,
         Py_ssize_t windowLength):
