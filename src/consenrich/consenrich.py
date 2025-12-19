@@ -720,11 +720,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.numNearest",
             50,
         ),
-        localWeight=_cfgGet(
-            configData,
-            "observationParams.localWeight",
-            0.25,
-        ),
         refitWeight=_cfgGet(
             configData,
             "observationParams.refitWeight",
@@ -1463,7 +1458,6 @@ def main():
                 minR_,
                 maxR_,
                 sparseMap,
-                localWeight=observationArgs.localWeight,
                 randomSeed=42 + j,
                 textPlotMeanVarianceTrend=args.verbose2,
                 refitWeight=observationArgs.refitWeight,

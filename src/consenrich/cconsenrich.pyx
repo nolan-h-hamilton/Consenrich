@@ -1384,10 +1384,11 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     cdef double sumW, sumWX, sumWXX, sumWZ, sumWXZ
     cdef double penSlope, penIntercept
     cdef double initialVar, penTarget, penLoss
-    cdef int it, maxIter = 20
-    cdef double tol = 1.0e-12
-
+    cdef double finalErr
+    cdef int it, maxIter
+    cdef double tol = 1.0e-4
     xMin = <double>xArr[0] + 1.0e-4
+    maxIter = 0
 
     for i in range(n):
         x = <double>xArr[i]
@@ -1424,7 +1425,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         )
         if currentObjective < optimalObjective:
             optimalObjective = currentObjective
-            # best case: unconstrained solution is feasible
             optimalSlope = slopeUnconstrained
             optimalIntercept = interceptUnconstrained
 
@@ -1471,10 +1471,26 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         optimalSlope = slopeBound
         optimalIntercept = interceptBound
 
-    # Assuming overdispersion, we'd want `varianceFit := B0 + B1*mean >= |mean|`,
-    # ... but this isn't guaranteed initially. To exclusively penalize --underestimated--
-    # ... variances, refit data with a --one-sided-- penalty (svm/hinge)
-    # ... i.e., a 'monotonicity hint' (see Abu-mostafa 1992 @ NIPS)
+    # Soft constraint to impose overdispersion conservatism
+    # ... Assuming overdispersion, we'd want `varianceFit := B0 + B1*mean >= |mean|`,
+    # ... but this isn't guaranteed above. To exclusively penalize --underestimated--
+    # ... variances less than their respective means, the following mimics (Abu-mostafa, 1992 NeurIPS)
+    # ...  and refit data with a --one-sided-- penalty (svm/hinge) with a monotonicity/inequality 'hint' toward
+    # ... `varianceFit >= |mean|`
+
+
+    # set maxIters as number of points where |x| > (B0 + B1*x), up to 100
+    maxIter = <int>0
+    i = <Py_ssize_t>0
+    for i in range(n):
+        x = <double>xArr[i]
+        # original estimate B0 + B1*x
+        initialVar = optimalIntercept + optimalSlope*x
+        penTarget = fabs(x)
+        if initialVar < penTarget:
+            maxIter += 1
+
+    maxIter = <int>fmin(<double>100.0, <double>maxIter)
     if refitWeight > 0.0:
         for it in range(maxIter):
             sumW = numSamples
@@ -1483,18 +1499,16 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
             sumWZ = sumZ
             sumWXZ = sumXZ
 
+
             for i in range(n):
                 x = <double>xArr[i]
-                # original estimate B0 + B1*x
                 initialVar = optimalIntercept + optimalSlope*x
                 penTarget = fabs(x)
                 penLoss = penTarget - initialVar
-                # the following implements our 'hint' toward |x|
-                # (penalty)*max(0, |x| - (B0 + B1*x))^2
                 if penLoss > 0.0:
                     sumW += refitWeight
                     sumWX += refitWeight*x
-                    sumWXX += refitWeight*(x*x)
+                    sumWXX += refitWeight*x*x
                     sumWZ += refitWeight*penTarget
                     sumWXZ += refitWeight*x*penTarget
 
@@ -1512,12 +1526,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
                     penIntercept = 0.0
             if (penSlope*xMin + penIntercept) < 0.0:
                 penIntercept = -penSlope*xMin
-
-            if (((penSlope - optimalSlope) < tol and  optimalSlope - penSlope < tol) and ((penIntercept - optimalIntercept < tol and optimalIntercept - penIntercept < tol))):
-                optimalSlope = penSlope
-                optimalIntercept = penIntercept
-                break
-
             optimalSlope = penSlope
             optimalIntercept = penIntercept
 
@@ -1556,6 +1564,50 @@ cpdef cmonotonicFitEval(
         outView[i] = <float>z
 
     return out
+
+
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetPosteriorMunc(
+        float[::1] priorMeanVariances,
+        float[::1] localMeanSquaredSOD,
+        Py_ssize_t windowLength,
+        double prior_Nu):
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] outputArray
+    cdef float[::1] outputView
+
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+    cdef double localDF = 0.0
+    cdef double S_theta
+    cdef double S_0
+    cdef double posteriorDF # the 'posterior sample size'
+    cdef double posteriorScale
+    cdef double priorMean
+    cdef double posteriorMean
+
+    n = priorMeanVariances.shape[0]
+    outputArray = np.zeros(n, dtype=np.float32)
+    outputView = outputArray
+
+    with nogil:
+        for i in range(n):
+            if i < 2:
+                localDF = <double>0.0
+            else:
+                localDF = <double>(windowLength if i >= windowLength + 1 else i - 1)
+            # Hoff's notation (chapter 7.3)
+            # ... S_theta is based on local mean-squared second order differences
+            # ... at proximal 'sparse' genomic regions, and S_0 is based the global/prior
+            # ... mean-variance fit
+            S_theta = (<double>localMeanSquaredSOD[i])*localDF
+            priorMean = <double>priorMeanVariances[i]
+            S_0 = (prior_Nu-2) * priorMean
+            posteriorDF = prior_Nu + localDF
+            posteriorScale = fmax(posteriorDF - 2.0, 1.0)
+            posteriorMean = (S_0 + S_theta) / posteriorScale
+            outputView[i] = <float>posteriorMean
+
+    return outputArray
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredSOD(

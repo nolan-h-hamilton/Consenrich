@@ -122,8 +122,6 @@ class observationParams(NamedTuple):
     :param numNearest: Optional. The number of nearest 'sparse' features in ``consenrich.core.genomeParams.sparseBedFile``
       to use at each interval during the ALV/local measurement uncertainty calculation. See :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.getAverageLocalVarianceTrack`.
     :type numNearest: int
-    :param localWeight: Weight for the 'local' model used to approximate genome-wide sample/region-level measurement uncertainty (see `consenrich.core.getAverageLocalVarianceTrack`, `consenrich.core.getMuncTrack`).
-    :type localWeight: float
     :param refitWeight: Weight of the 'monotonicity/inequality hint' used during refitting of the mean-variance trend. Higher values more strictly penalize instances where :math:`\hat{f}(\mu) < \mu`. Smaller values
         tend toward the initial unpenalized linear fit. See :func:`consenrich.cconsenrich.cmonotonicFit`.
     :type refitWeight: float
@@ -132,7 +130,6 @@ class observationParams(NamedTuple):
     minR: float|None
     maxR: float|None
     numNearest: int|None
-    localWeight: float|None
     refitWeight: float|None
 
 
@@ -1230,7 +1227,6 @@ def getMuncTrack(
     blockSizeBP: Optional[int] = 500,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
-    localWeight: float = 0.25,
     fitFunc: Optional[Callable] = None,
     fitFuncArgs: Optional[dict] = None,
     evalFunc: Optional[Callable] = None,
@@ -1266,12 +1262,7 @@ def getMuncTrack(
         BED annotation of broad `H3K27me3` domains.
 
 
-    The final quantity is a weighted combination from both models, controlled by ``localWeight``,
-
-    .. math::
-
-       R_{[i]} = \textsf{localWeight}\,\hat{f}_{\textsf{local}}(i)
-                + (1-\textsf{localWeight})\,\hat{f}_{\textsf{global}}(\mu_i)
+    The final quantity is a conservative weighted sum from both models.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -1288,9 +1279,6 @@ def getMuncTrack(
     :type blockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
-    :param localWeight: Weight of local model in mixed uncertainty estimate.
-        ``--> 1.0 ignore global (mean-variance) model``, ``--> 0.0 ignore local rolling mean/var model``.
-    :type localWeight: float
     :param fitFunc: A *callable* function accepting input ``(arrayOfMeans,arrayOfVariances, **kwargs)``. Used to fit the global mean-variance model
     given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``. Defaults to `consenrich.cconsenrich.cmonotonicFit`
     :type fitFunc: Optional[Callable]
@@ -1331,17 +1319,6 @@ def getMuncTrack(
             excludeMask, dtype=np.uint8
         )
 
-    cpy = localWeight
-    localWeight = np.clip(localWeight, 0.0, 1.0)
-    globalWeight = 1.0 - localWeight  # force sum-to-one
-    if localWeight != cpy:
-        logger.warning(
-            f"`localWeight` clipped to [{localWeight}] to ensure in [0.0,1.0] and local+global=1.0"
-        )
-    logger.info(
-        f"localWeight={localWeight}, globalWeight={globalWeight}",
-    )
-
     # I: Global model (variance = f(mean))
     # ... Variance as function of mean globally, as observed in randomly drawn contiguous
     # ... blocks, in which an AR(1) process can --on the average-- account for a large
@@ -1363,12 +1340,17 @@ def getMuncTrack(
     blockMeansSorted  = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
 
+    # ... internally, the default fitFunc `cmonotonicFit`
+    # ... penalizes |mu_k| < B_0 + B_1*mu_k = variance estimate at mu
     opt = fitFunc(
         blockMeansSorted,
         blockVarsSorted,
         **fitFuncArgs,
     ).astype(np.float32)
 
+    # (iii) At each genomic interval i = 1,2,...,n, sample j's observed value
+    # ... is assigned a variance given its 'mean', which is calculated with a
+    # ... moving average (EMA) that has span similar to block sizes used in (i)
     globalModelVariances = evalFunc(
         opt, cconsenrich.cEMA(valuesArr, 2/(blockSizeIntervals+1)),
     ).astype(np.float32)
@@ -1382,17 +1364,15 @@ def getMuncTrack(
         enabled=textPlotMeanVarianceTrend,
     )
 
-
-    # II: Local model (local moment-based variance via sliding windows)
+    # II: Local model
     # ... (a) At each genomic interval i = 1,2,...,n,
-    # ... apply local/moment-based heuristic on second order differences
+    # ... use rolling,squared second order differences to estimate a local variance (S_theta in Huff)
     # ... (b) `sparseMap` is an optional mapping (implemented as a dictionary)
     # ...    sparseMap(i) --> {F_i1,F_i2,...,F_i{numNearest}}
     # ... where each F_ij is a 'sparse' genomic region devoid of or mutually exclusive with
-    # ... the targeted signal. If provided,
+    # ... the targeted signal
     # ...      `locaModel(i) = average(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
-    # ...
-    # FFR: With enough replicates, the local model might be better fit with pointwise summary stats of dispersion
+    # ... FFR: With enough replicates, the local model might be better fit with pointwise sample variances
     localModelVariances = np.asarray(
         cconsenrich.csumSquaredSOD(
             valuesArr,
@@ -1401,15 +1381,28 @@ def getMuncTrack(
         dtype=np.float32,
     )
 
+    # if we get a sparse map, average local model variances over the nearest sparse regions
     if sparseMap is not None:
         localModelVariances = cconsenrich.cSparseAvg(
             localModelVariances.copy(), sparseMap
         )
 
-    # III: mix local and global models, weights sum to one
-    # FFR: localWeight should be determined by model
-    muncTrack = (localWeight * localModelVariances) + (
-        globalWeight * globalModelVariances
+    # III: Combine local and global models
+    # ... shrinkage to the global model increases with ratio `medianGlobalVar : medianLocalVar`,
+    # ... where the medians are taken over non-zero entries. This avoids another tuning knob (nu_0 in Hoff),
+    # ... keeps things conservative, but still offers a bayesian-motivated update to the local model
+    medianLocalVar = np.median(localModelVariances[localModelVariances > 0])
+    medianGlobalVar = np.median(globalModelVariances[globalModelVariances > 0])
+    localDF: float = max(2, int((2 * (blockSizeIntervals + 1)) / stepSize))
+    globalDF: float = (2 + localDF) + localDF*max(((medianGlobalVar+1) / (medianLocalVar+1)),1.0)
+
+    muncTrack = cconsenrich.cgetPosteriorMunc(
+        globalModelVariances,
+        localModelVariances,
+        localDF,
+        globalDF,
+        np.float32(minR),
+        np.float32(maxR),
     )
 
     return np.clip(muncTrack, minR, maxR).astype(np.float32)
