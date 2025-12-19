@@ -22,8 +22,7 @@ import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
-from scipy import ndimage, signal, optimize
-from scipy.stats.mstats import trimtail
+from scipy import ndimage, signal
 from tqdm import tqdm
 from . import cconsenrich
 
@@ -125,19 +124,16 @@ class observationParams(NamedTuple):
     :type numNearest: int
     :param localWeight: Weight for the 'local' model used to approximate genome-wide sample/region-level measurement uncertainty (see `consenrich.core.getAverageLocalVarianceTrack`, `consenrich.core.getMuncTrack`).
     :type localWeight: float
-    :param sparseBedFile: The path to a BED file of 'sparse' regions. For genomes with default resources in `src/consenrich/data`, this may be left as `None`,
-      and a default annotation that is devoid/exclusive of/with putative regulatory elements (ENCODE cCREs) will be used. Users can instead supply a custom BED file annotation
-      or rely exclusively on the ALV heuristic for the *local* component.
-    :type sparseBedFile: str, optional
     :param refitWeight: Weight of the 'monotonicity/inequality hint' used during refitting of the mean-variance trend. Higher values more strictly penalize instances where :math:`\hat{f}(\mu) < \mu`. Smaller values
         tend toward the initial unpenalized linear fit. See :func:`consenrich.cconsenrich.cmonotonicFit`.
+    :type refitWeight: float
     """
 
-    minR: float
-    maxR: float
-    numNearest: int
-    localWeight: float
-    refitWeight: float
+    minR: float|None
+    maxR: float|None
+    numNearest: int|None
+    localWeight: float|None
+    refitWeight: float|None
 
 
 class stateParams(NamedTuple):
@@ -210,30 +206,6 @@ class samParams(NamedTuple):
     fragmentLengths: Optional[List[int]] = None
 
 
-class detrendParams(NamedTuple):
-    r"""Parameters related detrending and background-removal after normalizing by sequencing depth.
-
-    :param useOrderStatFilter: Whether to use a local/moving order statistic (percentile filter) to model and remove trends in the read density data.
-    :type useOrderStatFilter: bool
-    :param usePolyFilter: Whether to use a low-degree polynomial fit to model and remove trends in the read density data.
-    :type usePolyFilter: bool
-    :param detrendSavitzkyGolayDegree: The polynomial degree of the Savitzky-Golay filter to use for detrending
-    :type detrendSavitzkyGolayDegree: int
-    :param detrendTrackPercentile: The percentile to use for the local/moving order-statistic filter.
-      Decrease for broad marks + sparse data if `useOrderStatFilter` is True.
-    :type detrendTrackPercentile: float
-    :param detrendWindowLengthBP: The length of the window in base pairs for detrending.
-      Increase for broader marks + sparse data.
-    :type detrendWindowLengthBP: int
-    """
-
-    useOrderStatFilter: bool
-    usePolyFilter: bool
-    detrendTrackPercentile: float
-    detrendSavitzkyGolayDegree: int
-    detrendWindowLengthBP: int
-
-
 class inputParams(NamedTuple):
     r"""Parameters related to the input data for Consenrich.
 
@@ -278,34 +250,14 @@ class genomeParams(NamedTuple):
 
 
 class countingParams(NamedTuple):
-    r"""Parameters related to counting reads in genomic intervals.
+    r"""Parameters related to counting aligned reads
 
-    :param stepSize: Size (bp) of genomic intervals (AKA bin size, interval length, width, etc.).
-        ``consenrich.py`` defaults to 25 bp, but users may adjust this based on expected sequencing
-        depth and expected feature sizes. Lower sequencing depth and/or broader features may warrant
-        larger step sizes (e.g., 50-100bp or more).
+    :param stepSize: Length (bp) of each genomic interval :math:`i=1\ldots n` used to index/partition contigs.
+        In the default implementation, 25bp is used, and this is generally robust. Sequencing depth and expected feature size may warrant
+        tuning, however. For very broad marks and/or low tag counts, consider increasing to 50, 100bp, etc.
     :type stepSize: int
-    :param scaleDown: If using paired treatment and control BAM files, whether to
-        scale down the larger of the two before computing the difference/ratio
-    :type scaleDown: bool, optional
-    :param scaleFactors: Scale factors for the read counts.
-    :type scaleFactors: List[float], optional
-    :param scaleFactorsControl: Scale factors for the control read counts.
-    :type scaleFactorsControl: List[float], optional
-    :param numReads: Number of reads to sample.
-    :type numReads: int
-    :param applyAsinh: If true, :math:`\textsf{arsinh}(x)` applied to counts :math:`x` for each supplied BAM file (log-like for large values and linear near the origin).
-    :type applyAsinh: bool, optional
-    :param applyLog: If true, :math:`\textsf{log}(x + 1)` applied to counts :math:`x` for each supplied BAM file.
-    :type applyLog: bool, optional
-    :param applySqrt: If true, :math:`\sqrt{x}` applied to counts :math:`x` for each supplied BAM file.
-    :type applySqrt: bool, optional
-    :param noTransform: Disable all transformations.
-    :type noTransform: bool, optional
-    :param rescaleToTreatmentCoverage: Deprecated: no effect.
-    :type rescaleToTreatmentCoverage: bool, optional
-    :param trimLeftTail: If > 0, quantile of scaled counts to trim from the left tail before computing transformations.
-    :type trimLeftTail: float, optional
+    :param backgroundWindowSizeBP: Size of windows (bp) used for estimating+interpolating between-block background estimates.
+        Per-interval autocorrelation in the background estimates grows roughly as :math:`\frac{stepSize}{\textsf{backgroundWindowBP}}`. See :func:`consenrich.cconsenrich.carsinhRatio`.
     :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
     :type fragmentLengths: List[int], optional
     :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
@@ -318,32 +270,24 @@ class countingParams(NamedTuple):
     :class: tip
     :collapsible: closed
 
-        For single-end data, cross-correlation-based estimates for fragment length
-        in control inputs can be biased due to a comparative lack of structure in
-        strand-specific coverage tracks.
+      For single-end data, cross-correlation-based estimates for fragment length
+      in control inputs can be biased due to a comparative lack of structure in
+      strand-specific coverage tracks.
 
-        This can create artifacts during counting, so it is common to use the estimated treatment
-        fragment length for both treatment and control samples. The argument
-        ``observationParams.useTreatmentFragmentLengths`` enables this behavior.
+      This can create artifacts during counting, so it is common to use the estimated treatment
+      fragment length for both treatment and control samples. The argument
+      ``observationParams.useTreatmentFragmentLengths`` enables this behavior.
 
-    :seealso: :ref:`calibration`, :class:`samParams`.
     """
 
-    stepSize: int
-    scaleDown: Optional[bool]
-    scaleFactors: Optional[List[float]]
-    scaleFactorsControl: Optional[List[float]]
-    numReads: int
-    applyAsinh: Optional[bool]
-    applyLog: Optional[bool]
-    applySqrt: Optional[bool]
-    noTransform: Optional[bool]
-    rescaleToTreatmentCoverage: Optional[bool]
-    normMethod: Optional[str]
-    trimLeftTail: Optional[float]
-    fragmentLengths: Optional[List[int]]
-    fragmentLengthsControl: Optional[List[int]]
-    useTreatmentFragmentLengths: Optional[bool]
+    stepSize: int|None
+    backgroundWindowSizeBP: int|None
+    scaleFactors: List[float]|None
+    scaleFactorsControl: List[float]|None
+    normMethod: str|None
+    fragmentLengths: List[int]|None
+    fragmentLengthsControl: List[int]|None
+    useTreatmentFragmentLengths: List[int]|None
 
 
 class matchingParams(NamedTuple):
@@ -607,7 +551,6 @@ def readBamSegments(
     countEndsOnly: Optional[bool] = False,
     minMappingQuality: Optional[int] = 0,
     minTemplateLength: Optional[int] = -1,
-    trimLeftTail: Optional[float] = 0.0,
     fragmentLengths: Optional[List[int]] = None,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
@@ -724,10 +667,6 @@ def readBamSegments(
         )
 
         counts[j, :] = arr
-        if trimLeftTail > 0.0:
-            counts[j, :] = trimtail(
-                counts[j, :], trimLeftTail, tail="left"
-            )
         np.multiply(
             counts[j, :], np.float32(scaleFactors[j]), out=counts[j, :]
         )
@@ -823,6 +762,7 @@ def runConsenrich(
     adjustProcessNoiseFunc: Optional[Callable] = None,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
+    pad: float = 1e-3,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -886,7 +826,7 @@ def runConsenrich(
     :raises ValueError: If the number of samples in `matrixData` is not equal to the number of samples in `matrixMunc`.
     :seealso: :class:`observationParams`, :class:`processParams`, :class:`stateParams`
     """
-
+    pad_ = np.float32(pad)
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
 
@@ -950,14 +890,6 @@ def runConsenrich(
         stateCovarInit
     )
 
-    u64 = None
-    u2_64 = None
-    if coefficientsH is not None:
-        u64 = np.ascontiguousarray(
-            coefficientsH, dtype=np.float64
-        ).ravel()
-        u2_64 = u64 * u64
-
     vectorX: np.ndarray = np.array([stateInit, 0.0], dtype=np.float32)
     vectorY: np.ndarray = np.zeros(m, dtype=np.float32)
 
@@ -1016,7 +948,7 @@ def runConsenrich(
             collectD_: bool = True,
             isInitialPass: bool = False,
         ) -> tuple[float, int]:
-            nonlocal inflatedQ, matrixQ, matrixQCopy, matrixP, vectorX, vectorY, countAdjustments, vectorD
+            nonlocal inflatedQ, matrixQ, matrixQCopy, matrixP, vectorX, vectorY, countAdjustments, vectorD, pad_
             inflatedQ = False
             countAdjustments = 0
             matrixQ = constructMatrixQ(minQ, offDiagQ=offDiagQ)
@@ -1063,7 +995,7 @@ def runConsenrich(
                         collectD=bool(collectD_),
                         coefficientsH=coefficientsH,
                         covarClip=float(covarClip),
-                        pad=float(1e-3),
+                        pad=float(pad_),
                         projectStateDuringFiltering=bool(
                             projectStateDuringFiltering
                         ),
@@ -1087,7 +1019,7 @@ def runConsenrich(
 
         logger.info("Running forward pass...\n")
         phiHat__, countAdjustments__ = _forwardPass(
-            phiScale=1.0, collectD_=False, isInitialPass=False
+            phiScale=1.0, collectD_=True, isInitialPass=False,
         )
 
         stateForwardArr = stateForward

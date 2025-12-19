@@ -171,7 +171,7 @@ def getReadLengths(
     return [
         core.getReadLength(
             bamFile,
-            countingArgs.numReads,
+            100,
             1000,
             samArgs.samThreads,
             samArgs.samFlagExclude,
@@ -465,69 +465,15 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
     stepSize = _cfgGet(configData, "countingParams.stepSize", 25)
-    scaleDownFlag = _cfgGet(
-        configData,
-        "countingParams.scaleDown",
-        False,
+    backgroundWindowSizeBP = _cfgGet(
+        configData, "countingParams.backgroundWindowSizeBP", 25_000,
     )
     scaleFactorList = _cfgGet(
         configData, "countingParams.scaleFactors", None
     )
-    numReads = _cfgGet(configData, "countingParams.numReads", 100)
     scaleFactorsControlList = _cfgGet(
         configData, "countingParams.scaleFactorsControl", None
     )
-    applyAsinhFlag = _cfgGet(
-        configData,
-        "countingParams.applyAsinh",
-        False,
-    )
-    applyLogFlag = _cfgGet(
-        configData,
-        "countingParams.applyLog",
-        False,
-    )
-    applySqrtFlag = _cfgGet(
-        configData,
-        "countingParams.applySqrt",
-        True,
-    )
-
-    noTransformFlag = _cfgGet(
-        configData,
-        "countingParams.noTransform",
-        False,
-    )
-
-    if (
-        int(applyAsinhFlag) + int(applyLogFlag) + int(applySqrtFlag)
-        > 1
-        and not noTransformFlag
-    ):
-        logger.warning(
-            "Only <= 1 of `applyAsinh`, `applyLog`, `applySqrt` can be true...using applySqrt..."
-        )
-        applyAsinhFlag = False
-        applyLogFlag = False
-        applySqrtFlag = True
-
-    if noTransformFlag:
-        applyAsinhFlag = False
-        applyLogFlag = False
-        applySqrtFlag = False
-
-    rescaleToTreatmentCoverageFlag = _cfgGet(
-        configData,
-        "countingParams.rescaleToTreatmentCoverage",
-        False,
-    )
-
-    trimLeftTail = _cfgGet(
-        configData,
-        "countingParams.trimLeftTail",
-        0.0,
-    )
-
     if scaleFactorList is not None and not isinstance(
         scaleFactorList, list
     ):
@@ -602,26 +548,21 @@ def getCountingArgs(config_path: str) -> core.countingParams:
                 "control and treatment fragment lengths: must be equal length or 1 control"
             )
 
+    useTreatmentFragmentLengths_ = _cfgGet(
+        configData,
+        "countingParams.useTreatmentFragmentLengths",
+        True,
+    )
+
     return core.countingParams(
         stepSize=stepSize,
-        scaleDown=scaleDownFlag,
+        backgroundWindowSizeBP=backgroundWindowSizeBP,
         scaleFactors=scaleFactorList,
         scaleFactorsControl=scaleFactorsControlList,
-        numReads=numReads,
-        applyAsinh=applyAsinhFlag,
-        applyLog=applyLogFlag,
-        applySqrt=applySqrtFlag,
-        rescaleToTreatmentCoverage=rescaleToTreatmentCoverageFlag,
         normMethod=normMethod_,
-        noTransform=noTransformFlag,
-        trimLeftTail=trimLeftTail,
         fragmentLengths=fragmentLengths,
         fragmentLengthsControl=fragmentLengthsControl,
-        useTreatmentFragmentLengths=_cfgGet(
-            configData,
-            "countingParams.useTreatmentFragmentLengths",
-            True,
-        ),
+        useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
     )
 
 
@@ -852,34 +793,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
     )
 
-    detrendArgs = core.detrendParams(
-        detrendWindowLengthBP=_cfgGet(
-            configData,
-            "detrendParams.detrendWindowLengthBP",
-            10_000,
-        ),
-        detrendTrackPercentile=_cfgGet(
-            configData,
-            "detrendParams.detrendTrackPercentile",
-            75.0,
-        ),
-        usePolyFilter=_cfgGet(
-            configData,
-            "detrendParams.usePolyFilter",
-            False,
-        ),
-        detrendSavitzkyGolayDegree=_cfgGet(
-            configData,
-            "detrendParams.detrendSavitzkyGolayDegree",
-            0,
-        ),
-        useOrderStatFilter=_cfgGet(
-            configData,
-            "detrendParams.useOrderStatFilter",
-            False,
-        ),
-    )
-
     matchingArgs = core.matchingParams(
         templateNames=_cfgGet(
             configData, "matchingParams.templateNames", []
@@ -928,7 +841,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.90,
+            0.50,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -953,7 +866,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "observationArgs": observationArgs,
         "stateArgs": stateParams,
         "samArgs": samArgs,
-        "detrendArgs": detrendArgs,
         "matchingArgs": matchingArgs,
     }
 
@@ -1203,7 +1115,6 @@ def main():
     observationArgs = config["observationArgs"]
     stateArgs = config["stateArgs"]
     samArgs = config["samArgs"]
-    detrendArgs = config["detrendArgs"]
     matchingArgs = config["matchingArgs"]
     plotArgs = config["plotArgs"]
     bamFiles = inputArgs.bamFiles
@@ -1213,7 +1124,6 @@ def main():
     stepSize = countingArgs.stepSize
     excludeForNorm = genomeArgs.excludeForNorm
     chromSizes = genomeArgs.chromSizesFile
-    scaleDown = countingArgs.scaleDown
     initialTreatmentScaleFactors = []
     minMatchLengthBP_: Optional[int] = matchingArgs.minMatchLengthBP
     deltaF_ = processArgs.deltaF
@@ -1245,7 +1155,6 @@ def main():
             config_truncated["observationArgs"] = observationArgs
             config_truncated["stateArgs"] = stateArgs
             config_truncated["samArgs"] = samArgs
-            config_truncated["detrendArgs"] = detrendArgs
             pretty = pprint.pformat(
                 config_truncated,
                 indent=2,
@@ -1295,7 +1204,7 @@ def main():
         readLengthsControlBamFiles = [
             core.getReadLength(
                 bamFile,
-                countingArgs.numReads,
+                100,
                 1000,
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
@@ -1377,7 +1286,7 @@ def main():
                     chromSizes,
                     samArgs.samThreads,
                     stepSize,
-                    scaleDown,
+                    True,
                     normMethod=countingArgs.normMethod,
                 )
                 for bamFileA, bamFileB, effectiveGenomeSizeA, effectiveGenomeSizeB, readLengthA, readLengthB in zip(
@@ -1493,7 +1402,6 @@ def main():
                     countEndsOnly=samArgs.countEndsOnly,
                     minMappingQuality=samArgs.minMappingQuality,
                     minTemplateLength=samArgs.minTemplateLength,
-                    trimLeftTail=countingArgs.trimLeftTail,
                     fragmentLengths=[
                         fragmentLengthsTreatment[j_],
                         fragmentLengthsControl[j_],
@@ -1520,7 +1428,6 @@ def main():
                 countEndsOnly=samArgs.countEndsOnly,
                 minMappingQuality=samArgs.minMappingQuality,
                 minTemplateLength=samArgs.minTemplateLength,
-                trimLeftTail=countingArgs.trimLeftTail,
                 fragmentLengths=fragmentLengthsTreatment,
             )
         sparseMap = None
@@ -1544,7 +1451,7 @@ def main():
         for j in range(numSamples):
             chromMat[j, :] = cconsenrich.carsinhRatio(
                 chromMat[j, :],
-                detrendArgs.detrendWindowLengthBP,
+                countingArgs.backgroundWindowSizeBP,
             )
 
             # compute munc track for each sample independently
