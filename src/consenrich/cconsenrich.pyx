@@ -1395,6 +1395,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
+            z = 0.0
         else:
             z = yVal
 
@@ -1447,6 +1448,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
+            z = 0.0
         z = yVal
         sumSqShiftX += (xShift*xShift)
         sumShiftXZ += (xShift*z) # z*x - z*xMin
@@ -1474,9 +1476,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     # Soft constraint to impose overdispersion conservatism
     # ... Assuming overdispersion, we'd want `varianceFit := B0 + B1*mean >= |mean|`,
     # ... but this isn't guaranteed above. To exclusively penalize --underestimated--
-    # ... variances less than their respective means, the following mimics (Abu-mostafa, 1992 NeurIPS)
-    # ...  and refit data with a --one-sided-- penalty (svm/hinge) with a monotonicity/inequality 'hint' toward
+    # ... variances, those less than their respective means, the following mimics (Abu-mostafa, 1992 NeurIPS)
+    # ...  and refits data with a --one-sided-- penalty (svm/hinge) using a monotonicity/inequality 'hint' toward
     # ... `varianceFit >= |mean|`
+    # ... FFR: revisit this
 
 
     # set maxIters as number of points where |x| > (B0 + B1*x), up to 100
@@ -1782,7 +1785,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                         #                  (c < 1/2)|(c > 1/2)
                         carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                         bgroundEstimate = ((1.0 - carryOver)*(<double>blockPtr_F32[k])) + (carryOver*(<double>blockPtr_F32[k+1]))
-                        interpolatedBackground_F32 = <float>bgroundEstimate
+                        interpolatedBackground_F32 = fmaxf(<float>bgroundEstimate, eps_F32)
 
                     # finally, we take ~log-scale~ difference currentValue - background
                     logDiff_F32 = carsinh_F32(valuesPtr_F32[i]) - carsinh_F32(interpolatedBackground_F32)
@@ -1841,7 +1844,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
 
                     carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                     bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
-                    interpolatedBackground_F64 = bgroundEstimate
+                    interpolatedBackground_F64 = fmax(bgroundEstimate, eps_F64)
                 logDiff_F64 = carsinh_F64(valuesPtr_F64[i]) - carsinh_F64(interpolatedBackground_F64)
                 outputPtr_F64[i] = logDiff_F64
 
