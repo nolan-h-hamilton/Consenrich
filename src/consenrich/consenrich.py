@@ -466,7 +466,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
 
     stepSize = _cfgGet(configData, "countingParams.stepSize", 25)
     backgroundWindowSizeBP = _cfgGet(
-        configData, "countingParams.backgroundWindowSizeBP", 25_000,
+        configData, "countingParams.backgroundWindowSizeBP", 10_000,
     )
     scaleFactorList = _cfgGet(
         configData, "countingParams.scaleFactors", None
@@ -1281,7 +1281,7 @@ def main():
                     chromSizes,
                     samArgs.samThreads,
                     stepSize,
-                    True,
+                    False,
                     normMethod=countingArgs.normMethod,
                 )
                 for bamFileA, bamFileB, effectiveGenomeSizeA, effectiveGenomeSizeB, readLengthA, readLengthB in zip(
@@ -1486,7 +1486,7 @@ def main():
                     np.quantile(muncMat[muncMat > 0], 0.05)
                 )
             # heuristic to keep us PD, on scale, growing with model's deltaF
-            autoMinQ = (minR_*deltaF_)/numSamples + 2.0*offDiagQ_ + 1.0e-3
+            autoMinQ = min((minR_*deltaF_)/numSamples + 2.0*offDiagQ_ + 1.0e-4, 0.01)
 
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
