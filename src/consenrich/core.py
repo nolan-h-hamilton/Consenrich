@@ -284,7 +284,7 @@ class countingParams(NamedTuple):
     normMethod: str|None
     fragmentLengths: List[int]|None
     fragmentLengthsControl: List[int]|None
-    useTreatmentFragmentLengths: List[int]|None
+    useTreatmentFragmentLengths: bool|None
 
 
 class matchingParams(NamedTuple):
@@ -1308,7 +1308,7 @@ def getMuncTrack(
             f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 11*stepSize"
         )
         blockSizeIntervals = 11
-
+    localWindow = max(2, 2 * (blockSizeIntervals + 1))
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
     valuesArr = np.ascontiguousarray(values, dtype=np.float32)
 
@@ -1376,7 +1376,7 @@ def getMuncTrack(
     localModelVariances = np.asarray(
         cconsenrich.csumSquaredSOD(
             valuesArr,
-            max(2, int((2*(blockSizeIntervals+1)) / stepSize)),
+            localWindow,
         ),
         dtype=np.float32,
     )
@@ -1388,21 +1388,12 @@ def getMuncTrack(
         )
 
     # III: Combine local and global models
-    # ... shrinkage to the global model increases with ratio `medianGlobalVar : medianLocalVar`,
-    # ... where the medians are taken over non-zero entries. This avoids another tuning knob (nu_0 in Hoff),
-    # ... keeps things conservative, but still offers a bayesian-motivated update to the local model
-    medianLocalVar = np.median(localModelVariances[localModelVariances > 0])
-    medianGlobalVar = np.median(globalModelVariances[globalModelVariances > 0])
-    localDF: float = max(2, int((2 * (blockSizeIntervals + 1)) / stepSize))
-    globalDF: float = (2 + localDF) + localDF*max(((medianGlobalVar+1) / (medianLocalVar+1)),1.0)
-
+    Nu_0: float = samplingIters + 2.0
     muncTrack = cconsenrich.cgetPosteriorMunc(
         globalModelVariances,
         localModelVariances,
-        localDF,
-        globalDF,
-        np.float32(minR),
-        np.float32(maxR),
+        localWindow if sparseMap is None else len(next(iter(sparseMap.values()))),
+        Nu_0,
     )
 
     return np.clip(muncTrack, minR, maxR).astype(np.float32)
