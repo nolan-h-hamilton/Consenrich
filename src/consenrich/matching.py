@@ -78,7 +78,12 @@ def autoMinLengthIntervals(
     if len(widths) == 0:
         return initLen
     # changed from previous...trim right tail
-    return max(int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.95)))), initLen)
+    return max(
+        int(
+            stats.tmean(widths, limits=(0, np.quantile(widths, 0.95)))
+        ),
+        initLen,
+    )
 
 
 def scalarClip(value: float, low: float, high: float) -> float:
@@ -877,7 +882,6 @@ def runMatchingAlgorithm(
             logger.info(f"No matches detected on {chromosome_}.")
             continue
 
-
         stepSize_ = np.float32(chromIntervals[1] - chromIntervals[0])
         lengths = (
             df__["end"].to_numpy(dtype=np.int64)
@@ -886,10 +890,11 @@ def runMatchingAlgorithm(
 
         signals = df__["signal"].to_numpy(dtype=np.float32)
 
-        massProxy = ((lengths * np.abs(signals))/stepSize_).astype(np.float32)
+        massProxy = ((lengths * np.abs(signals)) / stepSize_).astype(
+            np.float32
+        )
         massQuantileCutoff_ = min(massQuantileCutoff, 0.99)
         if massQuantileCutoff_ > 0 and massProxy.size > 0:
-
             cutoff = np.quantile(
                 massProxy,
                 float(massQuantileCutoff_),

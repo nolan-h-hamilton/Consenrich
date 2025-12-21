@@ -105,7 +105,9 @@ def getScaleFactorPerMillion(
         raise ValueError(
             f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}."
         )
-    scalePM = round((1_000_000 / totalMappedReads)*(1000/stepSize), 5)
+    scalePM = round(
+        (1_000_000 / totalMappedReads) * (1000 / stepSize), 5
+    )
     return scalePM
 
 
@@ -304,5 +306,3 @@ def detrendTrack(
             )
 
     return x_ - baseline
-
-

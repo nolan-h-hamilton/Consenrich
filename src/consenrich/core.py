@@ -1378,9 +1378,9 @@ def getMuncTrack(
     # ...      `locaModel(i) = max(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
     # ... FFR: With enough replicates, the local model might be better fit with pointwise sample variances
     localModelVariances = cconsenrich.caverageSquaredSOD(
-            valuesArr,
-            localWindow,
-        ).astype(np.float32)
+        valuesArr,
+        localWindow,
+    ).astype(np.float32)
 
     # if we get a sparse map, take the max of (EMW-averaged) squared second-order differences
     # ... over features in each sparseMap(i)
@@ -1399,9 +1399,7 @@ def getMuncTrack(
     # ... (or the number of local 'sparse' regions, if `sparseMap` is provided`)
     # ...
     # ... See :func:`consenrich.cconsenrich.cgetPosteriorMunc` for details.
-    Nu_0: float = (
-        sum([1.0 for x in blockVars if x > 1.0e-2])
-    )
+    Nu_0: float = sum([1.0 for x in blockVars if x > 1.0e-2])
     muncTrack = cconsenrich.cgetPosteriorMunc(
         globalModelVariances,
         localModelVariances,

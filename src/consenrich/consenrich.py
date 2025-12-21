@@ -466,7 +466,9 @@ def getCountingArgs(config_path: str) -> core.countingParams:
 
     stepSize = _cfgGet(configData, "countingParams.stepSize", 25)
     backgroundWindowSizeBP = _cfgGet(
-        configData, "countingParams.backgroundWindowSizeBP", 50_000,
+        configData,
+        "countingParams.backgroundWindowSizeBP",
+        50_000,
     )
     scaleFactorList = _cfgGet(
         configData, "countingParams.scaleFactors", None
@@ -689,7 +691,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minQ=_cfgGet(configData, "processParams.minQ", -1.0),
         maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
-            configData, "processParams.offDiagQ", 0.0,
+            configData,
+            "processParams.offDiagQ",
+            0.0,
         ),
         dStatAlpha=_cfgGet(
             configData,
@@ -805,7 +809,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minSignalAtMaxima=_cfgGet(
             configData,
             "matchingParams.minSignalAtMaxima",
-            "q:0.50",
+            "q:0.75",
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
@@ -978,7 +982,7 @@ def main():
     parser.add_argument(
         "--match-min-signal",
         type=str,
-        default="q:0.50",
+        default="q:0.75",
         dest="matchMinSignalAtMaxima",
         help="Minimum signal at local maxima in the response sequence that qualifies candidate matches\
             Can be an absolute value (e.g., `50.0`) or a quantile (e.g., `q:0.75` for 75th percentile).",
@@ -1421,7 +1425,11 @@ def main():
                 fragmentLengths=fragmentLengthsTreatment,
             )
         sparseMap = None
-        if genomeArgs.sparseBedFile and not genomeArgs.sparseBedFile.lower() not in ['none', 'false']:
+        if (
+            genomeArgs.sparseBedFile
+            and not genomeArgs.sparseBedFile.lower()
+            not in ["none", "false"]
+        ):
             sparseMap = core.getSparseMap(
                 chromosome,
                 intervals,
@@ -1458,7 +1466,7 @@ def main():
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            kappa = 100.0 # conditioning given f32
+            kappa = 100.0  # conditioning given f32
             minR_ = np.float32(
                 np.quantile(muncMat[muncMat > 0], 0.05)
             )
@@ -1480,7 +1488,12 @@ def main():
                     np.quantile(muncMat[muncMat > 0], 0.05)
                 )
             # heuristic to keep us PD, on scale, growing with model's deltaF
-            autoMinQ = min((minR_*deltaF_)/numSamples + 2.0*offDiagQ_ + 1.0e-4, 0.01)
+            autoMinQ = min(
+                (minR_ * deltaF_) / numSamples
+                + 2.0 * offDiagQ_
+                + 1.0e-4,
+                0.01,
+            )
 
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
@@ -1492,7 +1505,6 @@ def main():
                 maxQ_ = np.float32(max(processArgs.maxQ, minQ_))
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
-
 
         logger.info(f">>>Running consenrich: {chromosome}<<<")
         x, P, y = core.runConsenrich(
@@ -1515,10 +1527,13 @@ def main():
             progressIter=25_000,
         )
         logger.info("Done.")
-        logger.info(
-            f"minQ={minQ_}, minR={minR_}"
+        logger.info(f"minQ={minQ_}, minR={minR_}")
+        x_ = core.getPrimaryState(
+            x,
+            stateLowerBound=stateArgs.stateLowerBound,
+            stateUpperBound=stateArgs.stateUpperBound,
+            boundState=stateArgs.boundState,
         )
-        x_ = core.getPrimaryState(x, stateLowerBound = stateArgs.stateLowerBound, stateUpperBound = stateArgs.stateUpperBound, boundState = stateArgs.boundState)
         y_ = core.getPrecisionWeightedResidual(y, muncMat, P)
 
         if plotArgs.plotStateEstimatesHistogram:
@@ -1672,4 +1687,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

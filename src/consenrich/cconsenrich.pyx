@@ -10,7 +10,6 @@ cimport cython
 import os
 import numpy as np
 from scipy import ndimage
-import pysam
 cimport numpy as cnp
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
