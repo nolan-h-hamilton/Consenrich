@@ -1338,15 +1338,15 @@ cdef inline bint invert22(
     return <bint>0
 
 
-cdef inline double ridgeLoss(
+cdef inline double _loss(
     double slope, double intercept,
     double sumX, double sumSqX,
     double sumZ, double sumXZ,
     double sumSqZ, double numSamples,
-    double ridge
 ) noexcept:
 
     cdef double loss = 0.0
+
     loss = (
         sumSqZ
         - 2.0*slope*sumXZ
@@ -1355,10 +1355,10 @@ cdef inline double ridgeLoss(
         + 2.0*slope*intercept*sumX
         + (intercept*intercept)*numSamples
     )
-    return loss + (ridge*(slope*slope))
+    return loss
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double ridge=1.0e-3, double refitWeight = 1.0):
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double refitWeight = 1.0):
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
     cdef cnp.ndarray[cnp.float32_t, ndim=1] yArr = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
@@ -1406,7 +1406,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         sumSqZ += z*z
 
     numSamples = <double>n
-    invert22(sumSqX + ridge, sumX, sumX, numSamples,
+    invert22(sumSqX, sumX, sumX, numSamples,
         sumXZ,
         sumZ,
         &slopeUnconstrained,
@@ -1414,15 +1414,15 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
 
     optimalSlope = <double>0.0
     optimalIntercept = <double>0.0
-    optimalObjective = ridgeLoss(
+    optimalObjective = _loss(
         optimalSlope, optimalIntercept,
-        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples, ridge
+        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples,
     )
 
     if slopeUnconstrained >= 0.0 and (slopeUnconstrained*xMin + interceptUnconstrained) >= 0.0:
-        currentObjective = ridgeLoss(
+        currentObjective = _loss(
             slopeUnconstrained, interceptUnconstrained,
-            sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples, ridge
+            sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples,
         )
         if currentObjective < optimalObjective:
             optimalObjective = currentObjective
@@ -1434,9 +1434,9 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     if interceptZero < 0.0:
         interceptZero = 0.0
 
-    currentObjective = ridgeLoss(
+    currentObjective = _loss(
         slopeZero, interceptZero,
-        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples, ridge
+        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples,
     )
     if currentObjective < optimalObjective:
         optimalObjective = currentObjective
@@ -1453,20 +1453,20 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         sumSqShiftX += (xShift*xShift)
         sumShiftXZ += (xShift*z) # z*x - z*xMin
 
-    if sumSqShiftX + ridge > 0.0:
+    if sumSqShiftX > 0.0:
         # regularized slope fitting the offset vals
-        slopeBound = sumShiftXZ/(sumSqShiftX + ridge)
+        slopeBound = sumShiftXZ/(sumSqShiftX)
     else:
         slopeBound = 0.0
     if slopeBound < 0.0:
         slopeBound = 0.0
 
-    # since 0 <= slope <= slopeBound = sumShiftXZ/(sumSqShiftX + ridge),
+    # since 0 <= slope <= slopeBound = sumShiftXZ/(sumSqShiftX),
     # ... intercept >= -slopeBound*xMin --> nonnegative estimates
     interceptBound = -slopeBound*xMin
-    currentObjective = ridgeLoss(
+    currentObjective = _loss(
         slopeBound, interceptBound,
-        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples, ridge
+        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples,
     )
     if currentObjective < optimalObjective:
         optimalObjective = currentObjective
@@ -1516,7 +1516,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
                     sumWXZ += refitWeight*x*penTarget
 
             # new WLS fit
-            invert22(sumWXX + ridge, sumWX, sumWX, sumW,
+            invert22(sumWXX, sumWX, sumWX, sumW,
                 sumWXZ,
                 sumWZ,
                 &penSlope,
@@ -1743,7 +1743,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
             # ... This gives us a decent --local-- background estimate that does not induce
             # ... too much autocorrelation (~ 1/blockLength ~) and keeps things fairly smooth
 
-            edgeWeight = 1.0 - pow(0.01, 2.0 / (<double>(blockLength + 1)))
+            edgeWeight = 1.0 - pow(0.01, 1.0 / (<double>(blockLength + 1)))
             emaView_F32 = cEMA(valuesArr_F32, edgeWeight).astype(np.float32)
             blockMeans_F32 = np.empty(blockCount, dtype=np.float32)
             valuesPtr_F32 = &valuesView_F32[0]
@@ -1785,7 +1785,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                         #                  (c < 1/2)|(c > 1/2)
                         carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                         bgroundEstimate = ((1.0 - carryOver)*(<double>blockPtr_F32[k])) + (carryOver*(<double>blockPtr_F32[k+1]))
-                        interpolatedBackground_F32 = fmaxf(<float>bgroundEstimate, eps_F32)
+                        interpolatedBackground_F32 = <float>(bgroundEstimate + eps_F32)
 
                     # finally, we take ~log-scale~ difference currentValue - background
                     logDiff_F32 = carsinh_F32(valuesPtr_F32[i]) - carsinh_F32(interpolatedBackground_F32)
@@ -1844,7 +1844,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
 
                     carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                     bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
-                    interpolatedBackground_F64 = fmax(bgroundEstimate, eps_F64)
+                    interpolatedBackground_F64 = <double>(bgroundEstimate + eps_F64)
                 logDiff_F64 = carsinh_F64(valuesPtr_F64[i]) - carsinh_F64(interpolatedBackground_F64)
                 outputPtr_F64[i] = logDiff_F64
 

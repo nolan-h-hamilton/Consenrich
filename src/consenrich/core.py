@@ -22,7 +22,7 @@ import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
-from scipy import ndimage, signal
+from scipy import ndimage, signal, optimize
 from tqdm import tqdm
 from . import cconsenrich
 
@@ -122,15 +122,11 @@ class observationParams(NamedTuple):
     :param numNearest: Optional. The number of nearest 'sparse' features in ``consenrich.core.genomeParams.sparseBedFile``
       to use at each interval during the ALV/local measurement uncertainty calculation. See :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.getAverageLocalVarianceTrack`.
     :type numNearest: int
-    :param refitWeight: Weight of the 'monotonicity/inequality hint' used during refitting of the mean-variance trend. Higher values more strictly penalize instances where :math:`\hat{f}(\mu) < \mu`. Smaller values
-        tend toward the initial unpenalized linear fit. See :func:`consenrich.cconsenrich.cmonotonicFit`.
-    :type refitWeight: float
     """
 
-    minR: float|None
-    maxR: float|None
-    numNearest: int|None
-    refitWeight: float|None
+    minR: float | None
+    maxR: float | None
+    numNearest: int | None
 
 
 class stateParams(NamedTuple):
@@ -277,14 +273,14 @@ class countingParams(NamedTuple):
 
     """
 
-    stepSize: int|None
-    backgroundWindowSizeBP: int|None
-    scaleFactors: List[float]|None
-    scaleFactorsControl: List[float]|None
-    normMethod: str|None
-    fragmentLengths: List[int]|None
-    fragmentLengthsControl: List[int]|None
-    useTreatmentFragmentLengths: bool|None
+    stepSize: int | None
+    backgroundWindowSizeBP: int | None
+    scaleFactors: List[float] | None
+    scaleFactorsControl: List[float] | None
+    normMethod: str | None
+    fragmentLengths: List[int] | None
+    fragmentLengthsControl: List[int] | None
+    useTreatmentFragmentLengths: bool | None
 
 
 class matchingParams(NamedTuple):
@@ -633,7 +629,6 @@ def readBamSegments(
         fragmentLengths = [-1] * len(bamFiles)
 
     if isinstance(countEndsOnly, bool) and countEndsOnly:
-
         # No fragment length extension, just count 5' ends
         # ... May be preferred for high-resolution analyses in deeply-sequenced HTS
         # ...  data but note the drift in interpretation for processParams.deltaF,
@@ -642,7 +637,12 @@ def readBamSegments(
         pairedEndMode = 0
         fragmentLengths = [0] * len(bamFiles)
 
-    for j, bam in tqdm(enumerate(bamFiles), desc='Building count matrix', unit=' bam files', total=len(bamFiles)):
+    for j, bam in tqdm(
+        enumerate(bamFiles),
+        desc="Building count matrix",
+        unit=" bam files",
+        total=len(bamFiles),
+    ):
         arr = cconsenrich.creadBamSegment(
             bam,
             chromosome,
@@ -665,7 +665,9 @@ def readBamSegments(
 
         counts[j, :] = arr
         np.multiply(
-            counts[j, :], np.float32(scaleFactors[j]), out=counts[j, :]
+            counts[j, :],
+            np.float32(scaleFactors[j]),
+            out=counts[j, :],
         )
     return counts
 
@@ -945,7 +947,16 @@ def runConsenrich(
             collectD_: bool = True,
             isInitialPass: bool = False,
         ) -> tuple[float, int]:
-            nonlocal inflatedQ, matrixQ, matrixQCopy, matrixP, vectorX, vectorY, countAdjustments, vectorD, pad_
+            nonlocal \
+                inflatedQ, \
+                matrixQ, \
+                matrixQCopy, \
+                matrixP, \
+                vectorX, \
+                vectorY, \
+                countAdjustments, \
+                vectorD, \
+                pad_
             inflatedQ = False
             countAdjustments = 0
             matrixQ = constructMatrixQ(minQ, offDiagQ=offDiagQ)
@@ -1016,7 +1027,9 @@ def runConsenrich(
 
         logger.info("Running forward pass...\n")
         phiHat__, countAdjustments__ = _forwardPass(
-            phiScale=1.0, collectD_=True, isInitialPass=False,
+            phiScale=1.0,
+            collectD_=True,
+            isInitialPass=False,
         )
 
         stateForwardArr = stateForward
@@ -1057,26 +1070,30 @@ def runConsenrich(
         if (progressIter is not None) and (progressIter > 0):
             progressBarBack = tqdm(total=(n - 1), unit=" intervals ")
 
-            stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr = cconsenrich.cbackwardPass(
-            matrixData=matrixData,
-            matrixF=matrixF,
-            stateForward=stateForwardArr,
-            stateCovarForward=stateCovarForwardArr,
-            pNoiseForward=pNoiseForwardArr,
-            coefficientsH=coefficientsH,
-            projectStateDuringFiltering=bool(
-                projectStateDuringFiltering
-            ),
-            stateLowerBound=float(stateLowerBound),
-            stateUpperBound=float(stateUpperBound),
-            covarClip=float(covarClip),
-            chunkSize=int(chunkSize),
-            stateSmoothed=stateSmoothed,
-            stateCovarSmoothed=stateCovarSmoothed,
-            postFitResiduals=postFitResiduals,
-            progressBar=progressBarBack,
-            progressIter=int(progressIter),
-        )
+            (
+                stateSmoothedArr,
+                stateCovarSmoothedArr,
+                postFitResidualsArr,
+            ) = cconsenrich.cbackwardPass(
+                matrixData=matrixData,
+                matrixF=matrixF,
+                stateForward=stateForwardArr,
+                stateCovarForward=stateCovarForwardArr,
+                pNoiseForward=pNoiseForwardArr,
+                coefficientsH=coefficientsH,
+                projectStateDuringFiltering=bool(
+                    projectStateDuringFiltering
+                ),
+                stateLowerBound=float(stateLowerBound),
+                stateUpperBound=float(stateUpperBound),
+                covarClip=float(covarClip),
+                chunkSize=int(chunkSize),
+                stateSmoothed=stateSmoothed,
+                stateCovarSmoothed=stateCovarSmoothed,
+                postFitResiduals=postFitResiduals,
+                progressBar=progressBarBack,
+                progressIter=int(progressIter),
+            )
 
         if progressBarBack is not None:
             progressBarBack.close()
@@ -1123,11 +1140,9 @@ def getPrimaryState(
     out_ = np.ascontiguousarray(stateVectors[:, 0], dtype=np.float32)
     if boundState:
         if stateLowerBound is not None:
-            np.maximum(
-                out_, np.float32(stateLowerBound), out=out_)
+            np.maximum(out_, np.float32(stateLowerBound), out=out_)
         if stateUpperBound is not None:
-            np.minimum(
-                out_, np.float32(stateUpperBound), out=out_)
+            np.minimum(out_, np.float32(stateUpperBound), out=out_)
     np.round(out_, decimals=roundPrecision, out=out_)
     return out_
 
@@ -1175,7 +1190,8 @@ def getPrecisionWeightedResidual(
 
     n, m = postFitResiduals.shape
     postFitResiduals_CContig = np.ascontiguousarray(
-        postFitResiduals, dtype=np.float32)
+        postFitResiduals, dtype=np.float32
+    )
 
     if matrixMunc is None:
         return np.mean(postFitResiduals_CContig, axis=1)
@@ -1224,7 +1240,7 @@ def getMuncTrack(
     minR: float,
     maxR: float,
     sparseMap: Optional[dict] = None,
-    blockSizeBP: Optional[int] = 500,
+    blockSizeBP: Optional[int] = 1000,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     fitFunc: Optional[Callable] = None,
@@ -1232,7 +1248,6 @@ def getMuncTrack(
     evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
     textPlotMeanVarianceTrend: bool = False,
-    refitWeight: float = 10.0,
 ) -> npt.NDArray[np.float32]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -1248,7 +1263,6 @@ def getMuncTrack(
         :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` using an AR(1) model (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
         The collection of pairs :math:`\{(\hat{\mu}_k, \hat{sigma}^2_k)\}_{k=1}^{\textsf{samplingIters}}` are then used to fit
         a global mean-variance trend :math:`\hat{f}_{\textsf{global}}\left(\,\mid\,\mu\right)` using the provided `fitFunc`
-        (See the default :func:`consenrich.cconsenrich.cmonotonicFit`).
 
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
@@ -1280,7 +1294,7 @@ def getMuncTrack(
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
     :param fitFunc: A *callable* function accepting input ``(arrayOfMeans,arrayOfVariances, **kwargs)``. Used to fit the global mean-variance model
-    given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``. Defaults to `consenrich.cconsenrich.cmonotonicFit`
+    given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``.
     :type fitFunc: Optional[Callable]
     :param fitFuncArgs: Additional keyword arguments to pass to `fitFunc`.
     :type fitFuncArgs: Optional[dict]
@@ -1295,11 +1309,8 @@ def getMuncTrack(
     if evalFunc is None:
         evalFunc = cconsenrich.cmonotonicFitEval
     if fitFuncArgs is None:
-        fitFuncArgs = {
-            "ridge": 1.0e-3,
-            'refitWeight': refitWeight,
-        }
-
+        fitFuncArgs = {}
+    dynRange = np.quantile(values, 1 - 0.005) - np.quantile(values, 0.005)
     if blockSizeBP is None:
         blockSizeBP = stepSize * 11
     blockSizeIntervals = int(blockSizeBP / stepSize)
@@ -1335,24 +1346,18 @@ def getMuncTrack(
         excludeMaskArr,
     )
 
-    #  (ii) Fit mean-variance trend to sampled blocks/pairs
+    # (ii) Fit mean-variance trend to sampled blocks/pairs
     sortIdx = np.argsort(blockMeans)
-    blockMeansSorted  = blockMeans[sortIdx]
+    blockMeansSorted = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
-
-    # ... internally, the default fitFunc `cmonotonicFit`
-    # ... penalizes |mu_k| < B_0 + B_1*mu_k = variance estimate at mu
-    opt = fitFunc(
-        blockMeansSorted,
-        blockVarsSorted,
-        **fitFuncArgs,
-    ).astype(np.float32)
+    opt = fitFunc(blockMeansSorted, blockVarsSorted, **fitFuncArgs)
 
     # (iii) At each genomic interval i = 1,2,...,n, sample j's observed value
     # ... is assigned a variance given its 'mean', which is calculated with a
     # ... moving average (EMA) that has span similar to block sizes used in (i)
     globalModelVariances = evalFunc(
-        opt, cconsenrich.cEMA(valuesArr, 2/(blockSizeIntervals+1)),
+        opt,
+        cconsenrich.cEMA(valuesArr, 2 / (blockSizeIntervals + 1)),
     ).astype(np.float32)
 
     _textplotMeanVarianceTrend(
@@ -1388,11 +1393,15 @@ def getMuncTrack(
         )
 
     # III: Combine local and global models
-    Nu_0: float = samplingIters + 2.0
+    Nu_0: float = (
+        sum([1.0 for (x,y) in enumerate(blockMeans) if max(abs(x),y) > (dynRange * 0.01)])
+    )
     muncTrack = cconsenrich.cgetPosteriorMunc(
         globalModelVariances,
         localModelVariances,
-        localWindow if sparseMap is None else len(next(iter(sparseMap.values()))),
+        localWindow
+        if sparseMap is None
+        else len(next(iter(sparseMap.values()))),
         Nu_0,
     )
 
@@ -1942,17 +1951,20 @@ def _textplotMeanVarianceTrend(
     blockVars: np.ndarray,
     blockMeansSorted: np.ndarray,
     opt: np.ndarray,
-    evalFunc: Callable = cconsenrich.cmonotonicFitEval,
+    evalFunc: Callable = None,
     enabled: bool = True,
     checkMod: Callable[[str], bool] = _checkMod,
     maxPoints: int = 10_000,
 ) -> None:
     if not enabled:
         return
+    if evalFunc is None:
+        evalFunc = _evalFunc
     try:
         if not checkMod("plotext"):
             return
         import plotext as textplt
+
         n = int(blockMeans.size)
         if n > maxPoints:
             idx = np.random.choice(n, size=maxPoints, replace=True)

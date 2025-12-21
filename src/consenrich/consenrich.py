@@ -433,7 +433,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
     boundState_ = _cfgGet(
         configData,
         "stateParams.boundState",
-        True,
+        False,
     )
     stateLowerBound_ = _cfgGet(
         configData,
@@ -466,7 +466,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
 
     stepSize = _cfgGet(configData, "countingParams.stepSize", 25)
     backgroundWindowSizeBP = _cfgGet(
-        configData, "countingParams.backgroundWindowSizeBP", 10_000,
+        configData, "countingParams.backgroundWindowSizeBP", 50_000,
     )
     scaleFactorList = _cfgGet(
         configData, "countingParams.scaleFactors", None
@@ -719,11 +719,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "observationParams.numNearest",
             50,
-        ),
-        refitWeight=_cfgGet(
-            configData,
-            "observationParams.refitWeight",
-            10.0,
         ),
     )
 
@@ -1460,7 +1455,6 @@ def main():
                 sparseMap,
                 randomSeed=42 + j,
                 textPlotMeanVarianceTrend=args.verbose2,
-                refitWeight=observationArgs.refitWeight,
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
