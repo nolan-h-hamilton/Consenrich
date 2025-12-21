@@ -92,8 +92,6 @@ def test_readConfigDottedAndNestedEquivalent(
     genomeParams.name: testGenome
     genomeParams.excludeChroms: [chrM]
     countingParams.stepSize: 50
-    countingParams.applyAsinh: true
-    countingParams.applySqrt: false
     """
 
     nestedYaml = """
@@ -108,8 +106,6 @@ def test_readConfigDottedAndNestedEquivalent(
         - chrM
     countingParams:
       stepSize: 50
-      applyAsinh: true
-      applySqrt: false
     """
 
     dottedPath = writeConfigFile(
@@ -161,13 +157,6 @@ def test_readConfigDottedAndNestedEquivalent(
     assert countingNested.stepSize == 50
     assert countingDotted.stepSize == countingNested.stepSize
 
-    assert countingDotted.applyAsinh is True
-    assert countingNested.applyAsinh is True
-    assert countingDotted.applyAsinh == countingNested.applyAsinh
-
-    assert countingDotted.applyLog is False
-    assert countingNested.applyLog is False
-
     observationDotted = configDotted["observationArgs"]
     observationNested = configNested["observationArgs"]
     processDotted = configDotted["processArgs"]
@@ -179,20 +168,13 @@ def test_readConfigDottedAndNestedEquivalent(
 
     samDotted = configDotted["samArgs"]
     samNested = configNested["samArgs"]
-    detrendDotted = configDotted["detrendArgs"]
-    detrendNested = configNested["detrendArgs"]
     matchingDotted = configDotted["matchingArgs"]
     matchingNested = configNested["matchingArgs"]
 
     assert type(samDotted) is type(samNested)
-    assert type(detrendDotted) is type(detrendNested)
     assert type(matchingDotted) is type(matchingNested)
 
     assert samDotted.samThreads == samNested.samThreads
-    assert (
-        detrendDotted.detrendWindowLengthBP
-        == detrendNested.detrendWindowLengthBP
-    )
     assert (
         matchingDotted.templateNames == matchingNested.templateNames
     )
@@ -306,14 +288,6 @@ def makeFakeConfig(useTreatmentFragmentLengths: bool):
         minTemplateLength=-1,
     )
 
-    detrendArgs = types.SimpleNamespace(
-        detrendWindowLengthBP=20000,
-        useOrderStatFilter=True,
-        usePolyFilter=False,
-        detrendTrackPercentile=75.0,
-        detrendSavitzkyGolayDegree=0,
-    )
-
     matchingArgs = types.SimpleNamespace(
         templateNames=[],
         cascadeLevels=[],
@@ -359,7 +333,6 @@ def makeFakeConfig(useTreatmentFragmentLengths: bool):
         "observationArgs": observationArgs,
         "stateArgs": stateArgs,
         "samArgs": samArgs,
-        "detrendArgs": detrendArgs,
         "matchingArgs": matchingArgs,
         "plotArgs": plotArgs,
     }

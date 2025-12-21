@@ -24,48 +24,6 @@ import consenrich.misc_util as misc_util
 
 
 @pytest.mark.correctness
-def testConstantGetAverageLocalVarianceTrack(constantValue=10):
-    # case: `values` is constant --> noise level should be zero, but due to clipping, `minR`
-    values = np.ones(100) * constantValue
-    stepSize = 1
-    approximationWindowLengthBP = 10
-    lowPassWindowLengthBP = 20
-    minR = 1.0
-    maxR = 100.0
-    out = core.getAverageLocalVarianceTrack(
-        values,
-        stepSize,
-        approximationWindowLengthBP,
-        lowPassWindowLengthBP,
-        minR,
-        maxR,
-    )
-    np.testing.assert_allclose(out, np.ones_like(values) * minR)
-
-
-@pytest.mark.correctness
-def testMaxVarGetAverageLocalVarianceTrack(maxVariance=20):
-    # case: values (length 1000) ~ Poisson(maxVariance*2) -->
-    # mode(all noise levels) ~=~ maxVariance
-    np.random.seed(42)
-    values = np.random.poisson(lam=20, size=1000)
-    stepSize = 1
-    approximationWindowLengthBP = 10
-    lowPassWindowLengthBP = 20
-    minR = 0.0
-    maxR = maxVariance
-    out = core.getAverageLocalVarianceTrack(
-        values,
-        stepSize,
-        approximationWindowLengthBP,
-        lowPassWindowLengthBP,
-        minR,
-        maxR,
-    )
-    np.testing.assert_allclose(stats.mode(out)[0], maxR, rtol=0.001)
-
-
-@pytest.mark.correctness
 def testMatrixConstruction(
     deltaF=0.50,
     coefficients=[0.1, 0.2, 0.3, 0.4],
@@ -81,16 +39,16 @@ def testMatrixConstruction(
     )
 
     # H
-    matrixH = core.constructMatrixH(m, coefficients)
+    matrixH = core.constructMatrixH(m)
     assert matrixH.shape == (m, 2)
-    np.testing.assert_allclose(matrixH[:, 0], coefficients)
+    np.testing.assert_allclose(matrixH[:, 0], np.ones(m))
     np.testing.assert_allclose(matrixH[:, 1], np.zeros(m))
 
     # Q
-    matrixQ = core.constructMatrixQ(minQ, offDiag)
+    matrixQ = core.constructMatrixQ(minQ)
     assert matrixQ.shape == (2, 2)
     np.testing.assert_allclose(
-        matrixQ, np.array([[minQ, offDiag], [offDiag, minQ]])
+        matrixQ, np.array([[minQ, 0.0], [0.0, minQ]])
     )
 
 
@@ -110,7 +68,10 @@ def testResidualCovarianceInversion():
     )
     # note: loosen criteria given padding
     np.testing.assert_allclose(
-        invertedMatrix @ residCovar, np.eye(m), atol=1e-2, rtol=1e-4,
+        invertedMatrix @ residCovar,
+        np.eye(m),
+        atol=1e-2,
+        rtol=1e-4,
     )
 
 
@@ -133,10 +94,7 @@ def testProcessNoiseAdjustment():
     matrixQCopy = matrixQ.copy()
     vectorY = (np.random.normal(0, 15, size=m)).astype(np.float32)
     dStat = np.mean(vectorY**2).astype(np.float32)
-    dStatDiff = np.float32(
-        np.sqrt(np.abs(dStat - dStatAlpha) * dStatd + dStatPC)
-    )
-
+    prevQ = minQ
     matrixQ, inflatedQ = cconsenrich.updateProcessNoiseCovariance(
         matrixQ,
         matrixQCopy,
@@ -148,9 +106,9 @@ def testProcessNoiseAdjustment():
         maxQ,
         minQ,
     )
-
+    assert matrixQ[0, 0] > prevQ
+    assert matrixQ[0, 0] <= 2 * prevQ
     assert inflatedQ is True
-    np.testing.assert_allclose(matrixQ, maxQ * np.eye(2), rtol=0.01)
 
 
 @pytest.mark.correctness
@@ -467,7 +425,6 @@ def testRunConsenrich1DInputShapes():
     assert resid.shape == (n, 1)
 
 
-
 @pytest.mark.correctness
 def testRunConsenrich2DInputShapes():
     np.random.seed(42)
@@ -530,7 +487,8 @@ def testRunConsenrichInvalidShapeRaises():
     matrixMunc = np.random.randn(2, 3, 4).astype(np.float32)
 
     with pytest.raises(
-        ValueError, match="`matrixData` must be 1D or 2D",
+        ValueError,
+        match="`matrixData` must be 1D or 2D",
     ):
         core.runConsenrich(
             matrixData=matrixData,
