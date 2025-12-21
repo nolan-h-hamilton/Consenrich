@@ -583,8 +583,8 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return out
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseAvg(cnp.float32_t[::1] trackALV, dict sparseMap):
-    r"""Fast access and average of `numNearest` sparse elements.
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseMax(cnp.float32_t[::1] trackALV, dict sparseMap):
+    r"""Fast access and max of `numNearest` sparse elements.
 
     See :func:`consenrich.core.getMuncTrack`
 
@@ -596,22 +596,20 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseAvg(cnp.float32_t[::1] trackALV,
     cdef Py_ssize_t n = <Py_ssize_t>trackALV.shape[0]
     cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
     cdef Py_ssize_t i, j, m
-    cdef float sumNearestVariances = 0.0
+    cdef float maxNearestVariances = 0.0
     cdef cnp.ndarray[cnp.intp_t, ndim=1] idxs
     cdef cnp.intp_t[::1] idx_view
     for i in range(n):
-        idxs = <cnp.ndarray[cnp.intp_t, ndim=1]> sparseMap[i] # FFR: to avoid the cast, create sparseMap as dict[intp, np.ndarray[intp]]
+        idxs = <cnp.ndarray[cnp.intp_t, ndim=1]> sparseMap[i]
         idx_view = idxs
-        m = idx_view.shape[0] # FFR: maybe enforce strict `m == numNearest` in future releases to avoid extra overhead
-        if m == 0:
-            # this case probably warrants an exception or np.nan
-            out[i] = 0.0
-            continue
-        sumNearestVariances = 0.0
+        m = idx_view.shape[0]
+        maxNearestVariances = 0.0
         with nogil:
+            # find max in numNearest sparse regions
             for j in range(m):
-                sumNearestVariances += trackALV[idx_view[j]]
-        out[i] = sumNearestVariances/m
+                if trackALV[idx_view[j]] > maxNearestVariances:
+                    maxNearestVariances = trackALV[idx_view[j]]
+        out[i] = maxNearestVariances
 
     return out
 
@@ -1613,7 +1611,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetPosteriorMunc(
     return outputArray
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredSOD(
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] caverageSquaredSOD(
         cnp.ndarray[cnp.float32_t, ndim=1] values,
         Py_ssize_t windowLength):
 
@@ -1624,29 +1622,39 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csumSquaredSOD(
     cdef Py_ssize_t i
     cdef double runningSum
     cdef double diff
-    cdef double diff_
     cdef double* valuesPtr
+    cdef double alpha
+    cdef double diff_
 
     valuesView = np.ascontiguousarray(values, dtype=np.float64)
     valuesLength = valuesView.shape[0]
     outputArray = np.zeros(valuesLength, dtype=np.float32)
     outputView = outputArray
     valuesPtr = &valuesView[0]
-
+    alpha = 1.0 - pow(0.01, 2.0 / (<double>(windowLength + 1)))
     with nogil:
+        # forward pass
         runningSum = 0.0
-        outputView[0] = <float>0.0
+        if valuesLength > 0:
+            outputView[0] = <float>0.0
         if valuesLength > 1:
             outputView[1] = <float>0.0
+
         for i in range(2, valuesLength):
             diff = (valuesPtr[i] - 2.0*valuesPtr[i - 1] + valuesPtr[i - 2])
-            runningSum += diff*diff
-            if i > windowLength + 1:
-                diff_ = (valuesPtr[i-windowLength] - 2.0*valuesPtr[i-windowLength-1] + valuesPtr[i-windowLength-2])
-                runningSum -= diff_*diff_
-            outputView[i] = <float>runningSum / (<double>(windowLength if i >= windowLength + 1 else i - 1))
+            diff_ = diff * diff
+            runningSum += alpha * (diff_ - runningSum)
+            outputView[i] = <float>runningSum
+
+        runningSum = 0.0
+        for i in range(valuesLength - 3, -1, -1):
+            diff = (valuesPtr[i] - 2.0*valuesPtr[i + 1] + valuesPtr[i + 2])
+            diff_ = diff * diff
+            runningSum += alpha * (diff_ - runningSum)
+            outputView[i] = <float>(outputView[i] + runningSum)
 
     return outputArray
+
 
 
 cdef bint _cEMA(const double* xPtr, double* outPtr,

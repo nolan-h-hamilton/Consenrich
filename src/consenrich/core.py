@@ -120,7 +120,7 @@ class observationParams(NamedTuple):
     :type minR: float
     :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels.
     :param numNearest: Optional. The number of nearest 'sparse' features in ``consenrich.core.genomeParams.sparseBedFile``
-      to use at each interval during the ALV/local measurement uncertainty calculation. See :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.getAverageLocalVarianceTrack`.
+      to use at each interval during the ALV/local measurement uncertainty calculation. See :func:`consenrich.core.getMuncTrack`
     :type numNearest: int
     """
 
@@ -1252,12 +1252,11 @@ def getMuncTrack(
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     Compute sample- and region-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
-    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, first- or second-order differences.
+    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, second-order differences.
 
-    * The global model treats over/under-dispersion by accounting for mean-variance trends observed in randomly-drawn
-        contiguous blocks. In each block, a simple autoregressive process is assumed to --on the average-- account for most of the
+    * The global model treats over/under-dispersion by accounting for mean-variance trends observed in distinct, randomly-drawn
+        contiguous blocks. In each block, a simple AR(1) process is assumed to --on the average-- account for most of the
         reliable structure/signal, such that large residual variances may be attributed to noise and prompt uncertainty.
-        [>FFR: try to use same language as deseq, etc. when discussing potential for bias/insensitive <]
 
         Specifically, in each of the sampled blocks :math:`k=1,2,\ldots,\textsf{samplingIters}`, we compute estimates
         :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` using an AR(1) model (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
@@ -1265,9 +1264,9 @@ def getMuncTrack(
         a global mean-variance trend :math:`\hat{f}_{\textsf{global}}\left(\,\mid\,\mu\right)` using the provided `fitFunc`
 
 
-    * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based rolling-window stats at each genomic
+    * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based on rolling-window stats local to each genomic
         *interval* :math:`i=1,2,\ldots,n`. The squared second-order differences are computed within
-        a local window about the curent interval. See :func:`consenrich.cconsenrich.csumSquaredSOD`.
+        a local window about the curent interval. See :func:`consenrich.cconsenrich.caverageSquaredSOD`.
 
         Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
         the local model restricts the calculation to the nearest 'sparse' genomic regions at each interval :math:`i=1,2,\ldots,n`
@@ -1310,7 +1309,6 @@ def getMuncTrack(
         evalFunc = cconsenrich.cmonotonicFitEval
     if fitFuncArgs is None:
         fitFuncArgs = {}
-    dynRange = np.quantile(values, 1 - 0.005) - np.quantile(values, 0.005)
     if blockSizeBP is None:
         blockSizeBP = stepSize * 11
     blockSizeIntervals = int(blockSizeBP / stepSize)
@@ -1319,7 +1317,7 @@ def getMuncTrack(
             f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 11*stepSize"
         )
         blockSizeIntervals = 11
-    localWindow = max(2, 2 * (blockSizeIntervals + 1))
+    localWindow = max(2, (blockSizeIntervals + 1))
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
     valuesArr = np.ascontiguousarray(values, dtype=np.float32)
 
@@ -1331,9 +1329,10 @@ def getMuncTrack(
         )
 
     # I: Global model (variance = f(mean))
-    # ... Variance as function of mean globally, as observed in randomly drawn contiguous
-    # ... blocks, in which an AR(1) process can --on the average-- account for a large
-    # ... fraction of real signal, and the residual variance is generally indicative of noise.
+    # ... Variance as function of mean globally, as observed in distinct, randomly drawn genomic
+    # ... blocks. Within each block, it is assumed that an AR(1) process can --on the average--
+    # ... account for a large fraction of real signal, and the residual variance would therefore
+    # ... indicate noise.
 
     # (i) For each block `k`, we get one (blockMean_k, blockVar_k) pair, where
     # ... `k=1,2,...,samplingIters`
@@ -1371,30 +1370,37 @@ def getMuncTrack(
 
     # II: Local model
     # ... (a) At each genomic interval i = 1,2,...,n,
-    # ... use rolling,squared second order differences to estimate a local variance (S_theta in Huff)
+    # ... use rolling, squared second order differences to estimate a local variance (S_theta in Huff)
     # ... (b) `sparseMap` is an optional mapping (implemented as a dictionary)
     # ...    sparseMap(i) --> {F_i1,F_i2,...,F_i{numNearest}}
     # ... where each F_ij is a 'sparse' genomic region devoid of or mutually exclusive with
     # ... the targeted signal
-    # ...      `locaModel(i) = average(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
+    # ...      `locaModel(i) = max(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
     # ... FFR: With enough replicates, the local model might be better fit with pointwise sample variances
-    localModelVariances = np.asarray(
-        cconsenrich.csumSquaredSOD(
+    localModelVariances = cconsenrich.caverageSquaredSOD(
             valuesArr,
             localWindow,
-        ),
-        dtype=np.float32,
-    )
+        ).astype(np.float32)
 
-    # if we get a sparse map, average local model variances over the nearest sparse regions
+    # if we get a sparse map, take the max of (EMW-averaged) squared second-order differences
+    # ... over features in each sparseMap(i)
     if sparseMap is not None:
-        localModelVariances = cconsenrich.cSparseAvg(
+        localModelVariances = cconsenrich.cSparseMax(
             localModelVariances.copy(), sparseMap
         )
 
     # III: Combine local and global models
+    # ... `Nu_0` is the 'effective' number of observations, or 'degrees of freedom' that
+    # ... contributed to the global model's estimate...since `samplingIters` (mean, var)
+    # ... pairs were drawn to fit the mean-variance trend, we set Nu_0 accordingly, with a small filter
+    # ... to ignore uninformative blocks
+    # ...
+    # ... The local model is given DF equal to the number of intervals spanning each local window
+    # ... (or the number of local 'sparse' regions, if `sparseMap` is provided`)
+    # ...
+    # ... See :func:`consenrich.cconsenrich.cgetPosteriorMunc` for details.
     Nu_0: float = (
-        sum([1.0 for (x,y) in enumerate(blockMeans) if max(abs(x),y) > (dynRange * 0.01)])
+        sum([1.0 for x in blockVars if x > 1.0e-2])
     )
     muncTrack = cconsenrich.cgetPosteriorMunc(
         globalModelVariances,
