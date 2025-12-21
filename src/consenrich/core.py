@@ -25,6 +25,7 @@ from numpy.lib.stride_tricks import as_strided
 from scipy import ndimage, signal, optimize
 from tqdm import tqdm
 from . import cconsenrich
+from . import __version__
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1721,7 +1722,7 @@ def plotStateEstimatesHistogram(
 
     plotFileName = os.path.join(
         plotDirectory,
-        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.png",
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.v{__version__}.png",
     )
     binnedStateEstimates = _forPlotsSampleBlockStats(
         values_=primaryStateValues,
@@ -1819,7 +1820,7 @@ def plotResidualsHistogram(
 
     plotFileName = os.path.join(
         plotDirectory,
-        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.png",
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.v{__version__}.png",
     )
 
     x = np.ascontiguousarray(residuals, dtype=np.float32)
@@ -1914,7 +1915,7 @@ def plotStateStdHistogram(
 
     plotFileName = os.path.join(
         plotDirectory,
-        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.png",
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.v{__version__}.png",
     )
 
     binnedStateStdEstimates = _forPlotsSampleBlockStats(
@@ -1980,7 +1981,6 @@ def _textplotMeanVarianceTrend(
 
         logger.info(
             "\tPlotting mean-variance trend via `plotext`..."
-            "(To disable these plots in the default CLI implementation, do not invoke `--verbose2` flag)"
         )
         textplt.scatter(x, y, label="(Block Mean, Block Var)")
         textplt.scatter(

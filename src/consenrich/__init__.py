@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+
+__version__ = "0.7.17rc1"
 from importlib import import_module
 
 cconsenrich = import_module(__name__ + ".cconsenrich")
@@ -9,4 +11,3 @@ from .misc_util import *
 from .constants import *
 from .detrorm import *
 from .matching import *
-__version__ = "0.7.17rc1"

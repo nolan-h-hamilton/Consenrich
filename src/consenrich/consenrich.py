@@ -894,7 +894,7 @@ def convertBedGraphToBigWig(
     logger.info(f"Using bedGraphToBigWig from {path_}")
     for suffix in suffixes:
         bedgraph = (
-            f"consenrichOutput_{experimentName}_{suffix}.bedGraph"
+            f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
         )
         if not os.path.exists(bedgraph):
             logger.warning(
@@ -1047,7 +1047,7 @@ def main():
     parser.add_argument(
         "--version",
         action="version",
-        version=f"Consenrich version {__version__}",
+        version=f"Consenrich v{__version__}",
     )
     args = parser.parse_args()
 
@@ -1133,7 +1133,9 @@ def main():
 
     if args.verbose:
         try:
-            logger.info(f"Initial Configuration ({__version__})\n")
+            logger.info(
+                f"Consenrich v{__version__}: Initial Configuration\n"
+            )
             config_truncated = {
                 k: v
                 for k, v in config.items()
@@ -1609,10 +1611,10 @@ def main():
 
         for col, suffix in zip(cols_[3:], suffixes):
             logger.info(
-                f"{chromosome}: writing/appending to: consenrichOutput_{experimentName}_{suffix}.bedGraph"
+                f"{chromosome}: writing/appending to: consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
             )
             df[["Chromosome", "Start", "End", col]].to_csv(
-                f"consenrichOutput_{experimentName}_{suffix}.bedGraph",
+                f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph",
                 sep="\t",
                 header=False,
                 index=False,
@@ -1641,20 +1643,20 @@ def main():
                     "statestd",
                     "p11",
                 ]:
-                    weightsBedGraph = f"consenrichOutput_{experimentName}_stdDevs.bedGraph"
+                    weightsBedGraph = f"consenrichOutput_{experimentName}_stdDevs.v{__version__}.bedGraph"
                 elif matchingArgs.penalizeBy.lower() in [
                     "munc",
                     "munctrace",
                     "avgmunctrace",
                 ]:
-                    weightsBedGraph = f"consenrichOutput_{experimentName}_muncTraces.bedGraph"
+                    weightsBedGraph = f"consenrichOutput_{experimentName}_muncTraces.v{__version__}.bedGraph"
                 elif matchingArgs.penalizeBy.lower() == "none":
                     weightsBedGraph = None
                 else:
                     weightsBedGraph = None
 
             outName = matching.runMatchingAlgorithm(
-                f"consenrichOutput_{experimentName}_state.bedGraph",
+                f"consenrichOutput_{experimentName}_state.v{__version__}.bedGraph",
                 matchingArgs.templateNames,
                 matchingArgs.cascadeLevels,
                 matchingArgs.iters,

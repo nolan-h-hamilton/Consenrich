@@ -6,7 +6,6 @@ import os
 import math
 from pybedtools import BedTool
 from typing import List, Optional
-
 import pandas as pd
 import pywt as pw
 import numpy as np
@@ -16,6 +15,7 @@ from scipy import signal, stats
 
 from . import cconsenrich
 from . import core as core
+from . import __version__
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,8 +60,6 @@ def autoMinLengthIntervals(
 
     # just consider stretches of positive signal
     nz = trValues[trValues > 0]
-    if len(nz) == 0:
-        return initLen
     # ... mask out < quantile
     thr = np.quantile(
         nz, cutoffQuantile, method="interpolated_inverted_cdf"
@@ -890,7 +888,7 @@ def runMatchingAlgorithm(
 
         signals = df__["signal"].to_numpy(dtype=np.float32)
 
-        massProxy = ((lengths * np.abs(signals)) / stepSize_).astype(
+        massProxy = ((lengths*signals) / stepSize_).astype(
             np.float32
         )
         massQuantileCutoff_ = min(massQuantileCutoff, 0.99)

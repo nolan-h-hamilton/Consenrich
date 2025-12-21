@@ -9,18 +9,20 @@ This module contains Cython implementations of core functions used in Consenrich
 cimport cython
 import os
 import numpy as np
+from numpy._core.multiarray import ndarray
 from scipy import ndimage
 cimport numpy as cnp
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
-from numpy.random import beta, default_rng
+from numpy.random import default_rng
 from cython.parallel import prange
 from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f
 cnp.import_array()
 
-cdef double __INVERSE_LOG2_DOUBLE = <double>(1.0/log(2.0))
-cdef float __INVERSE_LOG2_FLOAT = <float>(1.0/logf(<float>2.0))
+
+cdef const float __INV_LN2_FLOAT = <float>1.44269504
+cdef const double __INV_LN2_DOUBLE = <double>1.44269504
 
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
@@ -1615,6 +1617,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] caverageSquaredSOD(
         Py_ssize_t windowLength):
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1] outputArray
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] emptyArray = np.empty(0, dtype=np.float32)
     cdef double[::1] valuesView
     cdef float[::1] outputView
     cdef Py_ssize_t valuesLength
@@ -1630,26 +1633,38 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] caverageSquaredSOD(
     outputArray = np.zeros(valuesLength, dtype=np.float32)
     outputView = outputArray
     valuesPtr = &valuesView[0]
+
+    if valuesLength < 3:
+        # this should cause an exception in the caller
+        return emptyArray
+
     alpha = 1.0 - pow(0.01, 2.0 / (<double>(windowLength + 1)))
+
     with nogil:
         # forward pass
-        runningSum = 0.0
-        if valuesLength > 0:
-            outputView[0] = <float>0.0
-        if valuesLength > 1:
-            outputView[1] = <float>0.0
-
+        runningSum = <double>0.0
+        outputView[0] = <float>0.0
+        outputView[1] = <float>0.0
         for i in range(2, valuesLength):
+            # first order:
+            # ... z[i] - z[i - 1]
+            # second order (SOD) is the difference of first order diffs:
+            # ... = (z[i] - z[i - 1]) - (z[i - 1] - z[i - 2])
+            # ... = z[i] - z[i-1] - z[i-1] + z[i-2]
+            # ... = z[i] - 2*z[i-1] + z[i-2]
             diff = (valuesPtr[i] - 2.0*valuesPtr[i - 1] + valuesPtr[i - 2])
-            diff_ = diff * diff
-            runningSum += alpha * (diff_ - runningSum)
+            diff_ = diff * diff # squared SOD
+
+            # (alpha)*currentValue + (1 - alpha)*previousValue
+            runningSum = runningSum + (alpha * (diff_ - runningSum))
             outputView[i] = <float>runningSum
 
+        # backward pass
         runningSum = 0.0
         for i in range(valuesLength - 3, -1, -1):
             diff = (valuesPtr[i] - 2.0*valuesPtr[i + 1] + valuesPtr[i + 2])
             diff_ = diff * diff
-            runningSum += alpha * (diff_ - runningSum)
+            runningSum = runningSum + (alpha*(diff_ - runningSum))
             outputView[i] = <float>(outputView[i] + runningSum)
 
     return outputArray
@@ -1681,17 +1696,21 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 
 cdef inline float carsinh_F32(float x) nogil:
-    return asinhf(x/2.0)*__INVERSE_LOG2_FLOAT
+    # arsinh(x / 2) / ln(2) ~~> sign(x) * log2(|x|)
+    return asinhf(x/2.0) * __INV_LN2_FLOAT
 cdef inline double carsinh_F64(double x) nogil:
-    return asinh(x/2.0)*__INVERSE_LOG2_DOUBLE
+    return asinh(x/2.0) * __INV_LN2_DOUBLE
 
 cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
-                          float eps_F32=<float>1.0e-4, double eps_F64=<double>1.0e-4):
-    r"""Compute log-scale enrichment versus local background
+                          float eps_F32=<float>1.0e-2, double eps_F64=<double>1.0e-2):
+    r"""Compute log-scale enrichment versus locally computed backgrounds
 
-    The local background is at each *interval* computed by --interpolating-- means from each *block* midpoint.
-    where each *block* consists of multiple contiguous intervals. This is intended to prevent autocorrelation while
-    still providing a reasonably smooth, local background estimate
+    'blocks' are comprised of multiple, contiguous genomic intervals.
+
+    The local background at each genomic interval is obtained by linearly interpolating blocks' mean values between.
+
+    Note that a quickly-fading, two-way exponential moving average defines these block means such that autocorrelation
+    is tempered between neighboring blocks. Still, we can get a reasonably smooth + locally-informative background.
     """
 
     cdef cnp.ndarray finalArr__
@@ -1721,7 +1740,6 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
 
     cdef double blockCenterCurr,blockCenterNext,lastCenter, edgeWeight
     cdef double carryOver, bgroundEstimate
-
     if blockLength <= 0:
         return None
 
@@ -1747,8 +1765,6 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
             # ... edges has effectively decayed. Assign the mean for block `k`
             # ... as the EMA value at the center of block `k`. Then, interpolate
             # ... background estimates for each interval/index `i` within the larger blocks.
-            # ... This gives us a decent --local-- background estimate that does not induce
-            # ... too much autocorrelation (~ 1/blockLength ~) and keeps things fairly smooth
 
             edgeWeight = 1.0 - pow(0.01, 1.0 / (<double>(blockLength + 1)))
             emaView_F32 = cEMA(valuesArr_F32, edgeWeight).astype(np.float32)
@@ -1768,7 +1784,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                         endIndex = valuesLength
                     blockSize_F32 = endIndex - startIndex
                     centerIndex = startIndex + (blockSize_F32 // 2)
-                    blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
+                    blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex] + eps_F32
 
                 k = 0
                 blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
@@ -1786,16 +1802,17 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                             k += 1
                             blockCenterCurr = blockCenterNext
                             blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
-                        # interpolate based on position of the interval relative to block centers
+                        # interpolate based on position of the interval relative to neighboring blocks' midpoints
                         # [---------block_k---------|---------block_k+1---------]
                         #                <----------|---------->
                         #                  (c < 1/2)|(c > 1/2)
+                        # where c is `carryOver` to the subsequent block mean (see below)
                         carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                         bgroundEstimate = ((1.0 - carryOver)*(<double>blockPtr_F32[k])) + (carryOver*(<double>blockPtr_F32[k+1]))
-                        interpolatedBackground_F32 = <float>(bgroundEstimate + eps_F32)
+                        interpolatedBackground_F32 = <float>(bgroundEstimate)
 
                     # finally, we take ~log-scale~ difference currentValue - background
-                    logDiff_F32 = carsinh_F32(valuesPtr_F32[i]) - carsinh_F32(interpolatedBackground_F32)
+                    logDiff_F32 = carsinh_F32(valuesPtr_F32[i] + eps_F32) - carsinh_F32(interpolatedBackground_F32 + eps_F32)
                     outputPtr_F32[i] = logDiff_F32
 
             return finalArr__
@@ -1832,7 +1849,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     endIndex = valuesLength
                 blockSize_F64 = endIndex - startIndex
                 centerIndex = startIndex + (blockSize_F64 // 2)
-                blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
+                blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex] + eps_F64
 
             k = 0
             blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
@@ -1851,8 +1868,8 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
 
                     carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                     bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
-                    interpolatedBackground_F64 = <double>(bgroundEstimate + eps_F64)
-                logDiff_F64 = carsinh_F64(valuesPtr_F64[i]) - carsinh_F64(interpolatedBackground_F64)
+                    interpolatedBackground_F64 = <double>(bgroundEstimate)
+                logDiff_F64 = carsinh_F64(valuesPtr_F64[i] + eps_F64) - carsinh_F64(interpolatedBackground_F64 + eps_F64)
                 outputPtr_F64[i] = logDiff_F64
 
         return finalArr__
