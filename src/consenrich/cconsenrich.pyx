@@ -1393,7 +1393,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         x = <double>xArr[i]
         yVal = <double>yArr[i]
         if yVal < 0.0:
-            yVal = 0.0
             z = 0.0
         else:
             z = yVal
@@ -1472,23 +1471,22 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         optimalSlope = slopeBound
         optimalIntercept = interceptBound
 
-    # Soft constraint to impose overdispersion conservatism
-    # ... Assuming overdispersion, we'd want `varianceFit := B0 + B1*mean >= |mean|`,
-    # ... but this isn't guaranteed above. To exclusively penalize --underestimated--
-    # ... variances, those less than their respective means, the following mimics (Abu-mostafa, 1992 NeurIPS)
-    # ...  and refits data with a --one-sided-- penalty (svm/hinge) using a monotonicity/inequality 'hint' toward
-    # ... `varianceFit >= |mean|`
-    # ... FFR: revisit this
+    # FFR: revisit this
+    # ... Our dynamic ranges are practically restricted to 3-10. The following
+    # ... mimics (Abu-mostafa, 1992 NeurIPS) and refits data with a
+    # ... --one-sided-- penalty (svm/hinge) via a conservative inequality
+    # ... 'hint' --> floor of 0.25.
 
-
-    # set maxIters as number of points where |x| > (B0 + B1*x), up to 100
+    # set maxIters as number of points below the target variance
+    # ... this doesn't confer any strong guarantee but is natural
+    # ... and avoids a hyperparameter.
     maxIter = <int>0
     i = <Py_ssize_t>0
     for i in range(n):
         x = <double>xArr[i]
         # original estimate B0 + B1*x
         initialVar = optimalIntercept + optimalSlope*x
-        penTarget = fabs(x)
+        penTarget = <double>0.25
         if initialVar < penTarget:
             maxIter += 1
 
@@ -1505,7 +1503,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
             for i in range(n):
                 x = <double>xArr[i]
                 initialVar = optimalIntercept + optimalSlope*x
-                penTarget = fabs(x)
+                penTarget = <double>0.25
                 penLoss = penTarget - initialVar
                 if penLoss > 0.0:
                     sumW += refitWeight

@@ -796,7 +796,7 @@ def runConsenrich(
     :type stateInit: float
     :param stateCovarInit: See :class:`stateParams`.
     :type stateCovarInit: float
-    :param chunkSize: Number of genomic intervals' data to keep in memory before flushing to disk.
+    :param chunkSize: Number of genomic intervals' data to mask__ in memory before flushing to disk.
     :type chunkSize: int
     :param progressIter: The number of iterations after which to log progress.
     :type progressIter: int
@@ -1180,7 +1180,7 @@ def getPrecisionWeightedResidual(
     :param postFitResiduals: Post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray
     :param matrixMunc: An :math:`m \times n` sample-by-interval matrix -- At genomic intervals :math:`i = 1,2,\ldots,n`, the respective length-:math:`m` column is :math:`\mathbf{R}_{[i,11:mm]}`.
-        That is, the observation noise levels for each sample :math:`j=1,2,\ldots,m` at interval :math:`i`. To keep memory usage minimal `matrixMunc` is not returned in full or computed in
+        That is, the observation noise levels for each sample :math:`j=1,2,\ldots,m` at interval :math:`i`. To mask__ memory usage minimal `matrixMunc` is not returned in full or computed in
         in :func:`runConsenrich`. If using Consenrich programmatically, run :func:`consenrich.core.getMuncTrack` for each sample's count data (rows in the matrix output of :func:`readBamSegments`).
     :type matrixMunc: np.ndarray
     :param stateCovarSmoothed: Post-fit (forward/backward-smoothed) state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}` from :func:`runConsenrich`.
@@ -1347,7 +1347,7 @@ def getMuncTrack(
     )
 
     # (ii) Fit mean-variance trend to sampled blocks/pairs
-    sortIdx = np.argsort(blockMeans)
+    sortIdx = np.argsort(np.square(blockMeans, dtype=np.float64))
     blockMeansSorted = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
     opt = fitFunc(blockMeansSorted, blockVarsSorted, **fitFuncArgs)
@@ -1357,7 +1357,7 @@ def getMuncTrack(
     # ... moving average (EMA) that has span similar to block sizes used in (i)
     globalModelVariances = evalFunc(
         opt,
-        cconsenrich.cEMA(valuesArr, 2 / (blockSizeIntervals + 1)),
+        np.square(cconsenrich.cEMA(valuesArr, 2 / (blockSizeIntervals + 1))),
     ).astype(np.float32)
 
     _textplotMeanVarianceTrend(
@@ -1489,38 +1489,93 @@ def getSparseMap(
     intervals: np.ndarray,
     numNearest: int,
     sparseBedFile: str,
-) -> dict:
-    r"""Build a map between each genomic interval and numNearest sparse features
+    distThreshold: float = 1e6,
+) -> dict[int, np.ndarray]:
+    r"""Get a mapping of genomic intervals to nearest 'sparse' regions.
 
-    :param chromosome: The chromosome name. Note, this function only needs to be run once per chromosome.
+    :param chromosome: chromosome/contig ID
     :type chromosome: str
-    :param intervals: The genomic intervals to map.
-    :type intervals: np.ndarray
-    :param numNearest: The number of nearest sparse features to consider
+    numNearest: number of nearest sparse regions to consider
     :type numNearest: int
-    :param sparseBedFile: path to the sparse BED file.
+    sparseBedFile: path to sparse BED file. See :class:`observationParams`.
     :type sparseBedFile: str
-    :return: A dictionary mapping each interval index to the indices of the nearest sparse regions.
+    distThreshold: maximum distance (in bp) to consider a sparse region 'nearby'
+    :type distThreshold: float
+    :return: A dictionary mapping each interval index to an array of indices of the nearest sparse regions.
     :rtype: dict[int, np.ndarray]
 
+    .. todo::
+
+        This function could be an easy target for optimization w/ cython.
     """
-    numNearest = numNearest
-    sparseStarts = sparseIntersection(
-        chromosome, intervals, sparseBedFile
-    )
+    sparseStarts = np.asarray(
+        sparseIntersection(chromosome, intervals, sparseBedFile)
+    ).ravel()
+    intervals = np.asarray(intervals).ravel()
+
+    n = intervals.size
+    m = sparseStarts.size
+    numNearest = int(numNearest)
+
+    if n == 0:
+        return {}
+    if numNearest <= 0:
+        return {i: np.empty(0, dtype=np.uint32) for i in range(n)}
+    if m == 0:
+        return {
+            i: np.zeros(numNearest, dtype=np.uint32) for i in range(n)
+        }
+
     idxSparseInIntervals = np.searchsorted(
         intervals, sparseStarts, side="left"
     )
+    idxSparseInIntervals = np.clip(
+        idxSparseInIntervals, 0, n - 1
+    ).astype(np.uint32, copy=False)
+
     centers = np.searchsorted(sparseStarts, intervals, side="left")
-    sparseMap: dict = {}
-    for i, (interval, center) in enumerate(zip(intervals, centers)):
-        left = max(0, center - numNearest)
-        right = min(len(sparseStarts), center + numNearest)
-        candidates = np.arange(left, right)
-        dists = np.abs(sparseStarts[candidates] - interval)
-        take = np.argsort(dists)[:numNearest]
-        sparseMap[i] = idxSparseInIntervals[candidates[take]]
-    return sparseMap
+    centers = np.clip(centers, 0, m - 1).astype(np.int64, copy=False)
+    offsets = np.arange(-numNearest, numNearest, dtype=np.int64)
+    candidates = centers[:, None] + offsets[None, :]
+    valid = (candidates >= 0) & (candidates < m)
+    candidates = np.clip(candidates, 0, m - 1)
+
+    dists = np.abs(
+        sparseStarts[candidates] - intervals[:, None]
+    ).astype(np.float32)
+    dists[~valid] = np.inf
+
+    mask = np.argpartition(
+        dists, kth=min(numNearest - 1, dists.shape[1] - 1), axis=1
+    )[:, :numNearest]
+
+    chosenCandidates = candidates[np.arange(n)[:, None], mask]
+    chosenDists = dists[np.arange(n)[:, None], mask]
+    mapped = idxSparseInIntervals[chosenCandidates]
+    avgNumKept: float = 0.0
+    rows = []
+    for i in tqdm(range(n), desc="Building sparse map", unit=" intervals "):
+        keep = np.isfinite(chosenDists[i]) & (
+            chosenDists[i] <= distThreshold
+        )
+        kept = mapped[i, keep]
+        avgNumKept += kept.size
+        if kept.size >= numNearest:
+            outRow = kept[:numNearest]
+        elif kept.size > 0:
+            outRow = np.pad(
+                kept, (0, numNearest - kept.size), mode="edge"
+            )
+        else:
+            nearest = mapped[i, int(np.argmin(chosenDists[i]))]
+            outRow = np.full(numNearest, nearest, dtype=np.intp)
+
+        rows.append(outRow.astype(np.intp, copy=False))
+    avgNumKept /= n
+    logger.info(
+        f"Average number of unique sparse regions mapped per interval: {avgNumKept}"
+    )
+    return {i: rows[i] for i in range(n)}
 
 
 def getBedMask(
@@ -1969,6 +2024,7 @@ def _textplotMeanVarianceTrend(
         if not checkMod("plotext"):
             return
         import plotext as textplt
+        textplt.canvas_color("white")
 
         n = int(blockMeans.size)
         if n > maxPoints:
