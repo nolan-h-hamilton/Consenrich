@@ -722,7 +722,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         numNearest=_cfgGet(
             configData,
             "observationParams.numNearest",
-            50,
+            25,
         ),
     )
 
@@ -1429,9 +1429,10 @@ def main():
         sparseMap = None
         if (
             genomeArgs.sparseBedFile
-            and not genomeArgs.sparseBedFile.lower()
-            not in ["none", "false"]
-        ):
+            and (not genomeArgs.sparseBedFile.lower() in ["none", "false"])):
+            logger.info(
+                f"Building mapping from {genomeArgs.sparseBedFile}..."
+            )
             sparseMap = core.getSparseMap(
                 chromosome,
                 intervals,
