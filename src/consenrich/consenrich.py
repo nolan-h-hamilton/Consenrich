@@ -906,7 +906,7 @@ def convertBedGraphToBigWig(
                 f"{chromSizesFile} does not exist. Skipping bigWig conversion."
             )
             return
-        bigwig = f"{experimentName}_consenrich_{suffix}.bw"
+        bigwig = f"{experimentName}_consenrich_{suffix}.v{__version__}.bw"
         logger.info(f"Start: {bedgraph} --> {bigwig}...")
         try:
             subprocess.run(
