@@ -762,7 +762,7 @@ def runConsenrich(
     adjustProcessNoiseFunc: Optional[Callable] = None,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-    pad: float = 1e-3,
+    pad: float = 1e-2,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
