@@ -1877,7 +1877,8 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                           float boundaryEps = <float>0.1,
                           double leftQ_ = <double>0.75,
                           double rightQ_ = <double>0.99,
-                          bint disableLocalBackground = <bint>False):
+                          bint disableLocalBackground = <bint>False,
+                          bint disableBackground = <bint>False):
     r"""Compute log-scale enrichment versus locally computed backgrounds
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -1921,6 +1922,8 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
     cdef float boundaryEps_F32 = <float>boundaryEps
     if blockLength <= 0:
         return None
+    if <bint>disableBackground and not <bint>disableLocalBackground:
+        disableLocalBackground = <bint>True
 
     if isinstance(x, np.ndarray):
         # F32 case
@@ -1982,7 +1985,6 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                 lastCenter = (<double>blockLength)*(<double>(blockCount - 1) + 0.5)
 
                 for i in range(valuesLength):
-                    # (literal) edge cases
                     if (<double>i) <= blockCenterCurr:
                         interpolatedBackground_F32 = blockPtr_F32[0]
                     elif (<double>i) >= lastCenter:
@@ -2002,7 +2004,11 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                         interpolatedBackground_F32 = <float>(bgroundEstimate)
 
                     # finally, we take ~log-scale~ difference currentValue - background
-                    logDiff_F32 = _carsinh_F32(valuesPtr_F32[i]) - _carsinh_F32(interpolatedBackground_F32)
+                    if not <bint>disableBackground:
+                        logDiff_F32 = _carsinh_F32(valuesPtr_F32[i]) - _carsinh_F32(interpolatedBackground_F32)
+                    else:
+                        # case: ChIP w/ input, etc.
+                        logDiff_F32 = _carsinh_F32(valuesPtr_F32[i])
                     outputPtr_F32[i] = logDiff_F32
 
             return finalArr__
@@ -2069,8 +2075,14 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                     bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
                     interpolatedBackground_F64 = <double>(bgroundEstimate)
-                logDiff_F64 = _carsinh_F64(valuesPtr_F64[i]) - _carsinh_F64(interpolatedBackground_F64)
+
+                if not <bint>disableBackground:
+                    logDiff_F64 = _carsinh_F64(valuesPtr_F64[i]) - _carsinh_F64(interpolatedBackground_F64)
+                else:
+                    logDiff_F64 = _carsinh_F64(valuesPtr_F64[i])
+
                 outputPtr_F64[i] = logDiff_F64
+
 
         return finalArr__
 
@@ -2685,7 +2697,7 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.75, double righ
 
     if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
         vals_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
-        posVals_ = vals_F32[vals_F32 > 0]
+        posVals_ = vals_F32
         if posVals_.size == 0:
             return <float>0.0
 
@@ -2715,10 +2727,13 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.75, double righ
             # ... begin bisection: find a maximum in [leftQ, rightQ] in the quantile curve above y=x
                 for iteration in range(128):
                     midQuantile = 0.5 * (leftQuantile + rightQuantile)
+                    # check grad. at center
                     midGrad = _kneeGrad_F32(sortedView_F32, valueCount, midQuantile, inverseQuantileSpan, inverseValueSpan)
+                    # if increasing, look in right half
                     if midGrad > 1.0e-8:
                         leftQuantile = midQuantile
                     elif midGrad < -1.0e-8:
+                    # decreasing, look in left
                         rightQuantile = midQuantile
                     else:
                         break

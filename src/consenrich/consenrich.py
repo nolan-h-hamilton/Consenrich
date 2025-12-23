@@ -1376,6 +1376,7 @@ def main():
             for bamA, bamB in zip(bamFiles, bamFilesControl):
                 logger.info(
                     f"Counting (trt,ctrl) for {chromosome}: ({bamA}, {bamB})"
+                    "...Background will be estimated with control inputs."
                 )
                 pairMatrix: np.ndarray = core.readBamSegments(
                     [bamA, bamB],
@@ -1403,7 +1404,19 @@ def main():
                         fragmentLengthsControl[j_],
                     ],
                 )
-                chromMat[j_, :] = pairMatrix[0, :] - pairMatrix[1, :]
+                # local/interpolated EMA backgrounds disabled if control inputs present
+                chromMat[j_, :] = cconsenrich.carsinhRatio(
+                    pairMatrix[0, :],
+                    countingArgs.backgroundWindowSizeBP,
+                    countingArgs.backgroundWindowSizeBP,
+                    disableLocalBackground=True,
+                    disableBackground=True,
+                ) - cconsenrich.carsinhRatio(
+                    pairMatrix[1, :],
+                    countingArgs.backgroundWindowSizeBP,
+                    disableLocalBackground=True,
+                    disableBackground=True,
+                )
                 j_ += 1
         else:
             chromMat = core.readBamSegments(
@@ -1450,10 +1463,11 @@ def main():
 
         muncMat = np.empty_like(chromMat, dtype=np.float32)
         for j in range(numSamples):
-            chromMat[j, :] = cconsenrich.carsinhRatio(
-                chromMat[j, :],
-                countingArgs.backgroundWindowSizeBP,
-            )
+            if not controlsPresent:
+                chromMat[j, :] = cconsenrich.carsinhRatio(
+                    chromMat[j, :],
+                    countingArgs.backgroundWindowSizeBP,
+                )
 
             # compute munc track for each sample independently
             muncMat[j, :] = core.getMuncTrack(

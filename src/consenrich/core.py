@@ -251,7 +251,9 @@ class countingParams(NamedTuple):
         tuning, however. For very broad marks and/or low tag counts, consider increasing to 75, 100bp, etc.
     :type stepSize: int
     :param backgroundWindowSizeBP: Size of windows (bp) used for estimating+interpolating between-block background estimates.
-        Per-interval autocorrelation in the background estimates grows roughly as :math:`\frac{stepSize}{\textsf{backgroundWindowBP}}`. See :func:`consenrich.cconsenrich.carsinhRatio`.
+        Per-interval autocorrelation in the background estimates grows roughly as :math:`\frac{stepSize}{\textsf{backgroundWindowBP}}`.
+        Note that this parameter is inconsequential for datasets with treatment+control samples, where background is estimated from control inputs.
+        See :func:`consenrich.cconsenrich.carsinhRatio`.
     :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
     :type fragmentLengths: List[int], optional
     :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
