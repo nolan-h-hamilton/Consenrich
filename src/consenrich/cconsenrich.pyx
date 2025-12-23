@@ -17,7 +17,7 @@ from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from libc.float cimport DBL_EPSILON
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f
+from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor
 cnp.import_array()
 
 # ========
@@ -176,9 +176,8 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 float[::1] meanOutView,
                                 float[::1] varOutView,
                                 double zeroPenalty,
-                                double zeroThresh) noexcept nogil:
-    # CALLERS: `cmeanVarPairs`
-
+                                double zeroThresh,
+                                bint useInnovationVar) noexcept nogil:
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
     cdef double value
     cdef double sumX, sumSqX, sumY, sumXY
@@ -191,13 +190,11 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double meanValue
     cdef double pairCountDouble
     cdef double centeredPrev, centeredCurr, oneMinusBetaSq
-    cdef double* blockPtr # FFR: try to use this convention to avoid indexing as [start + idx]
+    cdef double denom
+    cdef double* blockPtr
     cdef double oneMinusZeroProp
     cdef double maxBeta = <double>0.99
 
-    # fit AR(1) to each block, take RSS/(N-1)/(1-beta^2) as var estimate
-    # ... block sizes should be sized such that AR(1) assumptions are plausible
-    # ... on the average...See caller
     for regionIndex in range(meanOutView.shape[0]):
         startIndex = blockStartIndices[regionIndex]
         blockLength = blockSizes[regionIndex]
@@ -236,7 +233,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             centeredPrev = centeredCurr
             previousValue = currentValue
 
-        pairCountDouble = <double>(blockLength-1)
+        pairCountDouble = <double>(blockLength - 1)
         scaleFac = sumSqX
 
         if fabs(scaleFac) > 1.0e-2:
@@ -245,8 +242,8 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             beta1 = 0.0
         beta0 = 0.0
 
-        if beta1 >  maxBeta:
-            beta1 =  maxBeta
+        if beta1 > maxBeta:
+            beta1 = maxBeta
         if beta1 < -maxBeta:
             beta1 = -maxBeta
 
@@ -257,15 +254,23 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         for elementIndex in range(1, blockLength):
             currentValue = blockPtr[elementIndex]
             centeredCurr = currentValue - meanValue
-            fitted = beta1*centeredPrev
+            fitted = beta1 * centeredPrev
             residual = centeredCurr - fitted
-            RSS += residual*residual
+            RSS += residual * residual
 
             centeredPrev = centeredCurr
             previousValue = currentValue
 
-        oneMinusBetaSq = (1.0 - (beta1*beta1))
-        varOutView[regionIndex] = <float>((RSS/pairCountDouble/oneMinusBetaSq))
+        oneMinusBetaSq = 1.0 - (beta1 * beta1)
+        if useInnovationVar:
+            denom = 1.0
+        else:
+            denom = oneMinusBetaSq
+
+        if denom <= 1.0e-8:
+            varOutView[regionIndex] = 0.0
+        else:
+            varOutView[regionIndex] = <float>(RSS / pairCountDouble / denom)
 
 
 cdef inline float _carsinh_F32(float x) nogil:
@@ -954,33 +959,49 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return out
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseMax(cnp.float32_t[::1] trackALV, dict sparseMap):
-    r"""Fast access and max of `numNearest` sparse elements.
-
-    See :func:`consenrich.core.getMuncTrack`
-
-    :param sparseMap: See :func:`consenrich.core.getSparseMap`
-    :type sparseMap: dict[int, np.ndarray]
-    :return: array of mena('nearest local variances') same length as `trackALV`
-    :rtype: cnp.ndarray[cnp.float32_t, ndim=1]
-    """
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseMax(
+        cnp.float32_t[::1] trackALV,
+        dict sparseMap,
+        double topFrac = <double>0.25):
     cdef Py_ssize_t n = <Py_ssize_t>trackALV.shape[0]
     cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
-    cdef Py_ssize_t i, j, m
-    cdef float maxNearestVariances = 0.0
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] idxs
-    cdef cnp.intp_t[::1] idx_view
+    cdef float[::1] outView = out
+    cdef Py_ssize_t i, j
+    cdef Py_ssize_t numNearest, numRetained, startIdx
+    cdef double sumTop
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] neighborIdxs
+    cdef cnp.intp_t[::1] neighborIdxView
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] exVals
+    cdef float[::1] exView
+
     for i in range(n):
-        idxs = <cnp.ndarray[cnp.intp_t, ndim=1]> sparseMap[i]
-        idx_view = idxs
-        m = idx_view.shape[0]
-        maxNearestVariances = 0.0
+        neighborIdxs = <cnp.ndarray[cnp.intp_t, ndim=1]> sparseMap[i]
+        neighborIdxView = neighborIdxs
+        numNearest = neighborIdxView.shape[0]
+        if numNearest <= 0:
+            outView[i] = <float>0.0
+            continue
+        exVals = np.empty(numNearest, dtype=np.float32)
+        exView = exVals
         with nogil:
-            # find max in numNearest sparse regions
-            for j in range(m):
-                if trackALV[idx_view[j]] > maxNearestVariances:
-                    maxNearestVariances = trackALV[idx_view[j]]
-        out[i] = maxNearestVariances
+            # FFR: depending on typical numNearest, might actually be faster without nogil
+            for j in range(numNearest):
+                exView[j] = trackALV[neighborIdxView[j]]
+        numRetained = <Py_ssize_t>ceil(topFrac * <double>numNearest)
+        if numRetained < 1:
+            numRetained = 1
+        if numRetained > numNearest:
+            numRetained = numNearest
+        startIdx = numNearest - numRetained
+        exVals = np.partition(exVals, startIdx).astype(np.float32, copy=False)
+        exView = exVals
+        sumTop = 0.0
+        with nogil:
+            # FFR: depending on typical numNearest, might actually be faster without nogil
+            for j in range(startIdx, numNearest):
+                sumTop += <double>exView[j]
+
+        outView[i] = <float>(sumTop / <double>numRetained)
 
     return out
 
@@ -1442,7 +1463,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           int randSeed,
                           cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
                           double zeroPenalty=0.0,
-                          double zeroThresh=0.0):
+                          double zeroThresh=0.0,
+                          bint useInnovationVar = <bint>True):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -1500,7 +1522,7 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     meansView = outMeans
     varsView = outVars
 
-    _regionMeanVar(valuesView, startsView, sizesView, meansView, varsView, zeroPenalty, zeroThresh)
+    _regionMeanVar(valuesView, startsView, sizesView, meansView, varsView, zeroPenalty, zeroThresh, useInnovationVar)
 
     return outMeans, outVars, starts_, ends
 
@@ -2663,7 +2685,8 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.75, double righ
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalAR1Var(
         object x,
-        Py_ssize_t windowLength):
+        Py_ssize_t windowLength,
+        bint useInnovationVar = <bint>True):
 
     cdef cnp.ndarray valuesArr64
     cdef double[::1] valuesView
@@ -2684,10 +2707,12 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalAR1Var(
     cdef double sumPrevSq, sumCurrSq
     cdef double sumLagProd
     cdef double sumSqX, sumXY
-    cdef double beta, maxBeta
+    cdef double beta
+    cdef double maxBeta = 0.99
     cdef double tmp0, tmp1, oneMinusBeta
     cdef double RSS
     cdef double oneMinusBetaSq
+    cdef double denom
     cdef double localVariance
 
     valuesArr64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
@@ -2695,32 +2720,34 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalAR1Var(
     n = valuesView.shape[0]
     varOut = np.zeros(n, dtype=np.float32)
     varOutView = varOut
+
+    if n <= 1:
+        return varOut
+
     sum_accumArray = np.empty(n + 1, dtype=np.float64)
     sumSq_accumArray = np.empty(n + 1, dtype=np.float64)
     prodWithLag_accumArray = np.empty(n + 1, dtype=np.float64)
-    # point memviews
+
     sumCum = sum_accumArray
     sumSqCum = sumSq_accumArray
     prodWithLag = prodWithLag_accumArray
+
     halfWindow = windowLength // 2
-    if maxBeta < 0.0:
-        maxBeta = -maxBeta
-    if maxBeta > 0.99:
-        maxBeta = 0.99
 
     with nogil:
         sumCum[0] = 0.0
         sumSqCum[0] = 0.0
         prodWithLag[0] = 0.0
-        prodWithLag[1] = 0.0
 
         for k in range(n):
             sumCum[k + 1] = sumCum[k] + valuesView[k]
-            sumSqCum[k + 1] = sumSqCum[k] + (valuesView[k]*valuesView[k])
+            sumSqCum[k + 1] = sumSqCum[k] + (valuesView[k] * valuesView[k])
+
+        prodWithLag[1] = 0.0
         for k in range(1, n):
             prodWithLag[k + 1] = prodWithLag[k] + (valuesView[k - 1] * valuesView[k])
+
         for i in range(n):
-            # no padding
             leftIndex = i - halfWindow
             if leftIndex < 0:
                 leftIndex = 0
@@ -2734,14 +2761,17 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalAR1Var(
                 continue
 
             pairCount = valueCount - 1
+
             sumValues = sumCum[rightIndex + 1] - sumCum[leftIndex]
             meanValue = sumValues / (<double>valueCount)
+
             sumPrev = sumCum[rightIndex] - sumCum[leftIndex]
             sumCurr = sumCum[rightIndex + 1] - sumCum[leftIndex + 1]
             sumPrevSq = sumSqCum[rightIndex] - sumSqCum[leftIndex]
             sumCurrSq = sumSqCum[rightIndex + 1] - sumSqCum[leftIndex + 1]
             sumLagProd = prodWithLag[rightIndex + 1] - prodWithLag[leftIndex + 1]
-            sumSqX = sumPrevSq - 2.0 * meanValue * sumPrev + (<double>pairCount) * (meanValue*meanValue)
+
+            sumSqX = sumPrevSq - 2.0 * meanValue * sumPrev + (<double>pairCount) * (meanValue * meanValue)
             sumXY = sumLagProd - meanValue * sumPrev - meanValue * sumCurr + (<double>pairCount) * meanValue * meanValue
 
             if fabs(sumSqX) > 1.0e-4:
@@ -2749,25 +2779,31 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalAR1Var(
             else:
                 beta = 0.0
 
-            if beta >  maxBeta:
-                beta =  maxBeta
+            if beta > maxBeta:
+                beta = maxBeta
             elif beta < -maxBeta:
                 beta = -maxBeta
 
-
-            tmp0 = sumCurrSq - 2.0*(beta*sumLagProd) + (beta*beta)*sumPrevSq
+            tmp0 = sumCurrSq - 2.0 * (beta * sumLagProd) + (beta * beta) * sumPrevSq
             tmp1 = sumCurr - beta * sumPrev
             oneMinusBeta = 1.0 - beta
-            RSS = tmp0 - (2.0*(oneMinusBeta * meanValue)*tmp1 + (<double>pairCount)*(oneMinusBeta*oneMinusBeta)*(meanValue*meanValue))
 
+            RSS = tmp0 - (2.0 * (oneMinusBeta * meanValue) * tmp1
+                          + (<double>pairCount) * (oneMinusBeta * oneMinusBeta) * (meanValue * meanValue))
             if RSS < 0.0:
                 RSS = 0.0
 
-            oneMinusBetaSq = 1.0 - (beta*beta)
-            if oneMinusBetaSq <= 1.0e-4:
+            oneMinusBetaSq = 1.0 - (beta * beta)
+
+            if useInnovationVar:
+                denom = 1.0
+            else:
+                denom = oneMinusBetaSq
+
+            if denom <= 1.0e-4:
                 varOutView[i] = <float>0.0
             else:
-                localVariance = (RSS / (<double>pairCount)) / oneMinusBetaSq
+                localVariance = (RSS / (<double>pairCount)) / denom
                 if localVariance < 0.0:
                     localVariance = 0.0
                 varOutView[i] = <float>localVariance

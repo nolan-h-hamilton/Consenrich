@@ -1348,7 +1348,7 @@ def getMuncTrack(
 
     # (ii) Fit mean-variance trend to sampled blocks/pairs
     sortIdx = np.argsort(np.square(blockMeans, dtype=np.float64))
-    blockMeansSorted = blockMeans[sortIdx]
+    blockMeansSorted = np.square(blockMeans[sortIdx])
     blockVarsSorted = blockVars[sortIdx]
     opt = fitFunc(blockMeansSorted, blockVarsSorted, **fitFuncArgs)
 
@@ -1357,17 +1357,8 @@ def getMuncTrack(
     # ... moving average (EMA) that has span similar to block sizes used in (i)
     globalModelVariances = evalFunc(
         opt,
-        np.square(cconsenrich.cEMA(valuesArr, 2 / (blockSizeIntervals + 1))),
+        np.square(valuesArr),
     ).astype(np.float32)
-
-    _textplotMeanVarianceTrend(
-        blockMeans=np.square(blockMeans),
-        blockVars=blockVars,
-        blockMeansSorted=blockMeansSorted,
-        opt=opt,
-        evalFunc=evalFunc,
-        enabled=textPlotMeanVarianceTrend,
-    )
 
     # II: Local model
     # ... (a) At each genomic interval i = 1,2,...,n, we reference a rolling AR(1)
@@ -1379,13 +1370,10 @@ def getMuncTrack(
     # ... the targeted signal
     # ...      `locaModel(i) = max(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
     # ... FFR: With enough replicates, the local model might be better fit with pointwise sample variances
-    localModelVariances = cconsenrich.cEMA(
-        cconsenrich.clocalAR1Var(
+    localModelVariances = cconsenrich.clocalAR1Var(
             valuesArr,
             localWindow,
-        ).astype(np.float32),
-        2 / (blockSizeIntervals + 1),
-    ).astype(np.float32)
+        ).astype(np.float32)
 
     # if we get a sparse map, we restrict aggregation for the local model to 'sparse features' in sparseMap(i)
     if sparseMap is not None:
@@ -1403,7 +1391,7 @@ def getMuncTrack(
     # ... (or the number of local 'sparse' regions, if `sparseMap` is provided`)
     # ...
     # ... See :func:`consenrich.cconsenrich.cgetPosteriorMunc` for details.
-    Nu_0: float = sum([1.0 for x in blockVars if x > 1.0e-2])
+    Nu_0: float = np.sqrt(samplingIters) + 2.0
     muncTrack = cconsenrich.cgetPosteriorMunc(
         globalModelVariances,
         localModelVariances,
