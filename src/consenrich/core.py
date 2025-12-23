@@ -247,8 +247,8 @@ class countingParams(NamedTuple):
     r"""Parameters related to counting aligned reads
 
     :param stepSize: Length (bp) of each genomic interval :math:`i=1\ldots n` used to index/partition contigs.
-        In the default implementation, 25bp is used, and this is generally robust. Sequencing depth and expected feature size may warrant
-        tuning, however. For very broad marks and/or low tag counts, consider increasing to 50, 100bp, etc.
+        In the default implementation, 50bp is used, and this is generally robust. Sequencing depth and expected feature size may warrant
+        tuning, however. For very broad marks and/or low tag counts, consider increasing to 75, 100bp, etc.
     :type stepSize: int
     :param backgroundWindowSizeBP: Size of windows (bp) used for estimating+interpolating between-block background estimates.
         Per-interval autocorrelation in the background estimates grows roughly as :math:`\frac{stepSize}{\textsf{backgroundWindowBP}}`. See :func:`consenrich.cconsenrich.carsinhRatio`.
@@ -1253,7 +1253,7 @@ def getMuncTrack(
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     Compute sample- and region-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
-    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of squared, second-order differences.
+    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of positional variances
 
     * The global model treats over/under-dispersion by accounting for mean-variance trends observed in distinct, randomly-drawn
         contiguous blocks. In each block, a simple AR(1) process is assumed to --on the average-- account for most of the
@@ -1266,7 +1266,7 @@ def getMuncTrack(
 
 
     * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based on rolling-window stats local to each genomic
-        *interval* :math:`i=1,2,\ldots,n`. The squared second-order differences are computed within
+        *interval* :math:`i=1,2,\ldots,n`. The positional variances are computed within
         a local window about the curent interval. See :func:`consenrich.cconsenrich.caverageSquaredSOD`.
 
         Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
@@ -1361,7 +1361,7 @@ def getMuncTrack(
     ).astype(np.float32)
 
     _textplotMeanVarianceTrend(
-        blockMeans=blockMeans,
+        blockMeans=np.square(blockMeans),
         blockVars=blockVars,
         blockMeansSorted=blockMeansSorted,
         opt=opt,
@@ -1370,24 +1370,27 @@ def getMuncTrack(
     )
 
     # II: Local model
-    # ... (a) At each genomic interval i = 1,2,...,n,
-    # ... use rolling, squared second order differences to estimate a local variance (S_theta in Huff)
+    # ... (a) At each genomic interval i = 1,2,...,n, we reference a rolling AR(1)
+    # ... variance approximation within a --local window-- about interval i. This is
+    # ... in contrast to the global model, which draws from distinct random blocks.
     # ... (b) `sparseMap` is an optional mapping (implemented as a dictionary)
     # ...    sparseMap(i) --> {F_i1,F_i2,...,F_i{numNearest}}
     # ... where each F_ij is a 'sparse' genomic region devoid of or mutually exclusive with
     # ... the targeted signal
     # ...      `locaModel(i) = max(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
     # ... FFR: With enough replicates, the local model might be better fit with pointwise sample variances
-    localModelVariances = cconsenrich.caverageSquaredSOD(
-        valuesArr,
-        localWindow,
+    localModelVariances = cconsenrich.cEMA(
+        cconsenrich.clocalAR1Var(
+            valuesArr,
+            localWindow,
+        ).astype(np.float32),
+        2 / (blockSizeIntervals + 1),
     ).astype(np.float32)
 
-    # if we get a sparse map, take the max of (EMW-averaged) squared second-order differences
-    # ... over features in each sparseMap(i)
+    # if we get a sparse map, we restrict aggregation for the local model to 'sparse features' in sparseMap(i)
     if sparseMap is not None:
         localModelVariances = cconsenrich.cSparseMax(
-            localModelVariances.copy(), sparseMap
+            localModelVariances.copy(), sparseMap,
         )
 
     # III: Combine local and global models
@@ -1396,7 +1399,7 @@ def getMuncTrack(
     # ... pairs were drawn to fit the mean-variance trend, we set Nu_0 accordingly, with a small filter
     # ... to ignore uninformative blocks
     # ...
-    # ... The local model is given DF equal to the number of intervals spanning each local window
+    # ... We set the local model DF equal to the number of intervals spanning local windows
     # ... (or the number of local 'sparse' regions, if `sparseMap` is provided`)
     # ...
     # ... See :func:`consenrich.cconsenrich.cgetPosteriorMunc` for details.

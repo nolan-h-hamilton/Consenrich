@@ -20,13 +20,380 @@ from cython.parallel import prange
 from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f
 cnp.import_array()
 
-
+# ========
+# constants
+# ========
 cdef const float __INV_LN2_FLOAT = <float>1.44269504
 cdef const double __INV_LN2_DOUBLE = <double>1.44269504
+
+# ===============
+# inline/helpers
+# ===============
+
+cdef inline Py_ssize_t _getInsertion(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:
+    # CALLERS: `_maskMembership`, `cbedMask`
+
+    cdef Py_ssize_t low = 0
+    cdef Py_ssize_t high = n
+    cdef Py_ssize_t midpt
+    while low < high:
+        # [low,x1,x2,x3,...,(high-low)//2,...,xn-2, high]
+        # ... --> [(high-low)//2 + 1,...,xn-2, high]
+        # ... FFR: hard to read, check if bitshift is indeed faster
+        midpt = low + ((high - low) >> 1)
+        if array_[midpt] <= x:
+            low = midpt + 1
+        # [low,x1,x2,x3,...,(high-low)//2,...,xn-2, high]
+        # ... --> [low,x1,x2,x3,...,(high-low)//2]
+        else:
+            high = midpt
+    # array_[low] <= x* < array_[low+1]
+    return low
+
+
+cdef inline int _maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, const uint32_t* mStarts, const uint32_t* mEnds, Py_ssize_t n, uint8_t* outMask) nogil:
+    # CALLERS: `cbedMask`
+
+    cdef Py_ssize_t i = 0
+    cdef Py_ssize_t k
+    cdef uint32_t p
+    while i < numIntervals:
+        p = pos[i]
+        k = _getInsertion(mStarts, n, p) - 1
+        if k >= 0 and p < mEnds[k]:
+            outMask[i] = <uint8_t>1
+        else:
+            outMask[i] = <uint8_t>0
+        i += 1
+    return 0
+
+
+cdef inline bint _projectToBox(
+    cnp.float32_t[::1] vectorX,
+    cnp.float32_t[:, ::1] matrixP,
+    cnp.float32_t stateLowerBound,
+    cnp.float32_t stateUpperBound,
+    cnp.float32_t eps
+) nogil:
+    # CALLERS: `projectToBox`
+
+    cdef cnp.float32_t initX_i0
+    cdef cnp.float32_t projectedX_i0
+    cdef cnp.float32_t P00
+    cdef cnp.float32_t P10
+    cdef cnp.float32_t P11
+    cdef cnp.float32_t padded_P00
+    cdef cnp.float32_t newP11
+
+    # Note, the following is straightforward algebraically, but some hand-waving here
+    # ... for future reference if I forget the intuition/context later on or somebody
+    # ... wants to change/debug. Essentially, finding a point in the feasible region
+    # ... that minimizes -weighted- distance to the unconstrained/infeasible solution.
+    # ... Weighting is determined by inverse state covariance P^{-1}_[i]
+    # ... So a WLS-like QP:
+    # ...   argmin (x^{*}_[i] - x^{unconstrained}_[i])^T (P^-1_{[i]}) (x^{*}_[i] - x^{unconstrained}_[i])
+    # ...   such that: lower <= x^{*}_[i,0] <= upper
+    # ... in our case (single-variable in box), solution is a simle truncation
+    # ... with a corresponding scaled-update to x_[i,1] based on their covariance
+    # ... REFERENCE: Simon, 2006 (IET survey paper on constrained linear filters)
+
+    initX_i0 = vectorX[0]
+
+    if initX_i0 >= stateLowerBound and initX_i0 <= stateUpperBound:
+        return <bint>0 # no change if in bounds
+
+    # projection in our case --> truncated box on first state variable
+    projectedX_i0 = initX_i0
+    if projectedX_i0 < stateLowerBound:
+        projectedX_i0 = stateLowerBound
+    if projectedX_i0 > stateUpperBound:
+        projectedX_i0 = stateUpperBound
+
+    P00 = matrixP[0, 0]
+    P10 = matrixP[1, 0]
+    P11 = matrixP[1, 1]
+    padded_P00 = P00 if P00 > eps else eps
+
+    # FIRST, adjust second state according to its original value + an update
+    # ... given the covariance between first,second variables that
+    # ... is scaled by the size of projection in the first state
+    vectorX[1] = <cnp.float32_t>(vectorX[1] + (P10 / padded_P00)*(projectedX_i0 - initX_i0))
+
+    # SECOND, now we set the projected first state variable
+    # ...  and the second state's variance
+    vectorX[0] = projectedX_i0
+    newP11 = <cnp.float32_t>(P11 - (P10*P10) / padded_P00)
+
+    matrixP[0, 0] = eps
+    matrixP[0, 1] = <cnp.float32_t>0.0 # first state fixed --> covar = 0
+    matrixP[1, 0] = <cnp.float32_t>0.0
+    matrixP[1, 1] = newP11 if newP11 > eps else eps
+
+    return <bint>1
+
+
+cdef inline bint _solveSystem22(
+    double a00, double a01, double a10, double a11,
+    double b0, double b1,
+    double* x0, double* x1
+) noexcept nogil:
+    # CALLERS: `cmonotonicFit`
+
+    cdef double det = (a00*a11) - (a01*a10)
+    if fabs(det) < 1.0e-4:
+        x0[0] = 0.0
+        x1[0] = b1 / a11 if fabs(a11) > 1.0e-8 else 0.0
+        return <bint>1
+    x0[0] = ( b0*a11 - a01*b1) / det
+    x1[0] = (-b0*a10 + a00*b1) / det
+    return <bint>0
+
+
+cdef inline double _loss(
+    double slope, double intercept,
+    double sumX, double sumSqX,
+    double sumZ, double sumXZ,
+    double sumSqZ, double numSamples,
+) noexcept:
+    # CALLERS: `cmonotonicFit`
+
+    cdef double loss = 0.0
+
+    loss = (
+        sumSqZ
+        - 2.0*slope*sumXZ
+        - 2.0*intercept*sumZ
+        + (slope*slope)*sumSqX
+        + 2.0*slope*intercept*sumX
+        + (intercept*intercept)*numSamples
+    )
+    return loss
+
+
+cdef inline void _regionMeanVar(double[::1] valuesView,
+                                Py_ssize_t[::1] blockStartIndices,
+                                Py_ssize_t[::1] blockSizes,
+                                float[::1] meanOutView,
+                                float[::1] varOutView,
+                                double zeroPenalty,
+                                double zeroThresh) noexcept nogil:
+    # CALLERS: `cmeanVarPairs`
+
+    cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
+    cdef double value
+    cdef double sumX, sumSqX, sumY, sumXY
+    cdef double beta0, beta1
+    cdef double fitted, residual, RSS
+    cdef double zeroCount, zeroProp, scaleFactor
+    cdef double blockLengthDouble
+    cdef double previousValue, currentValue
+    cdef double scaleFac
+    cdef double meanValue
+    cdef double pairCountDouble
+    cdef double centeredPrev, centeredCurr, oneMinusBetaSq
+    cdef double* blockPtr # FFR: try to use this convention to avoid indexing as [start + idx]
+    cdef double oneMinusZeroProp
+    cdef double maxBeta = <double>0.99
+
+    # fit AR(1) to each block, take RSS/(N-1)/(1-beta^2) as var estimate
+    # ... block sizes should be sized such that AR(1) assumptions are plausible
+    # ... on the average...See caller
+    for regionIndex in range(meanOutView.shape[0]):
+        startIndex = blockStartIndices[regionIndex]
+        blockLength = blockSizes[regionIndex]
+        blockPtr = &valuesView[startIndex]
+        blockLengthDouble = <double>blockLength
+
+        sumY = 0.0
+        zeroCount = 0.0
+        for elementIndex in range(blockLength):
+            value = blockPtr[elementIndex]
+            sumY += value
+            if fabs(value) < zeroThresh:
+                zeroCount += 1.0
+
+        meanValue = sumY / blockLengthDouble
+        meanOutView[regionIndex] = <float>meanValue
+
+        if blockLength <= 1:
+            varOutView[regionIndex] = 0.0
+            continue
+
+        sumX = 0.0
+        sumSqX = 0.0
+        sumXY = 0.0
+
+        previousValue = blockPtr[0]
+        centeredPrev = previousValue - meanValue
+        for elementIndex in range(1, blockLength):
+            currentValue = blockPtr[elementIndex]
+            centeredCurr = currentValue - meanValue
+
+            sumX += centeredPrev
+            sumSqX += centeredPrev*centeredPrev
+            sumXY += centeredPrev*centeredCurr
+
+            centeredPrev = centeredCurr
+            previousValue = currentValue
+
+        pairCountDouble = <double>(blockLength-1)
+        scaleFac = sumSqX
+
+        if fabs(scaleFac) > 1.0e-2:
+            beta1 = sumXY / scaleFac
+        else:
+            beta1 = 0.0
+        beta0 = 0.0
+
+        if beta1 >  maxBeta:
+            beta1 =  maxBeta
+        if beta1 < -maxBeta:
+            beta1 = -maxBeta
+
+        RSS = 0.0
+        previousValue = blockPtr[0]
+        centeredPrev = previousValue - meanValue
+
+        for elementIndex in range(1, blockLength):
+            currentValue = blockPtr[elementIndex]
+            centeredCurr = currentValue - meanValue
+            fitted = beta1*centeredPrev
+            residual = centeredCurr - fitted
+            RSS += residual*residual
+
+            centeredPrev = centeredCurr
+            previousValue = currentValue
+
+        oneMinusBetaSq = (1.0 - (beta1*beta1))
+        varOutView[regionIndex] = <float>((RSS/pairCountDouble/oneMinusBetaSq))
+
+
+cdef inline float _carsinh_F32(float x) nogil:
+    # CALLERS: `carsinhRatio`
+
+    # arsinh(x / 2) / ln(2) ~~> sign(x) * log2(|x|)
+    return asinhf(x/2.0) * __INV_LN2_FLOAT
+
+
+cdef inline double _carsinh_F64(double x) nogil:
+    # CALLERS: `carsinhRatio`
+
+    # arsinh(x / 2) / ln(2) ~~> sign(x) * log2(|x|)
+    return asinh(x/2.0) * __INV_LN2_DOUBLE
+
+
+cdef inline double _interpolateQuantile_F32(float[::1] sortedValues, Py_ssize_t valueCount, double quantile) nogil:
+    # CALLERS: `_kneeGrad_F32`
+
+    cdef double scaledIndex = quantile * (<double>(valueCount - 1))
+    cdef Py_ssize_t leftIndex = <Py_ssize_t>scaledIndex
+    cdef Py_ssize_t rightIndex = leftIndex + 1
+    cdef double fraction
+    if rightIndex >= valueCount:
+        rightIndex = leftIndex
+    fraction = scaledIndex - <double>leftIndex
+    return (<double>sortedValues[leftIndex]) * (1.0 - fraction) + (<double>sortedValues[rightIndex]) * fraction
+
+
+cdef inline double _interpolateQuantile_F64(double[::1] sortedValues, Py_ssize_t valueCount, double quantile) nogil:
+    # CALLERS: `_kneeGrad_F64`
+
+    cdef double scaledIndex = quantile * (<double>(valueCount - 1))
+    cdef Py_ssize_t leftIndex = <Py_ssize_t>scaledIndex
+    cdef Py_ssize_t rightIndex = leftIndex + 1
+    cdef double fraction
+    if rightIndex >= valueCount:
+        rightIndex = leftIndex
+    fraction = scaledIndex - <double>leftIndex
+    return sortedValues[leftIndex] * (1.0 - fraction) + sortedValues[rightIndex] * fraction
+
+
+cdef inline double _kneeGrad_F32(float[::1] sortedValues,
+                                    Py_ssize_t valueCount,
+                                    double quantile,
+                                    double inverseQuantileSpan,
+                                    double inverseValueSpan) nogil:
+    # CALLERS: `cgetGlobalBaseline`
+
+    cdef double quantileStep
+    cdef double halfWindow
+    cdef double leftQuantile
+    cdef double rightQuantile
+    cdef double leftValue
+    cdef double rightValue
+    cdef double valueSlope
+
+    if valueCount < 2:
+        return -inverseQuantileSpan
+
+    quantileStep = 1.0 / (<double>(valueCount - 1))
+    halfWindow = 4.0 * quantileStep
+    if halfWindow < 1e-4:
+        halfWindow = 1e-4
+    if halfWindow > 1e-2:
+        halfWindow = 1e-2
+
+    leftQuantile = quantile - halfWindow
+    rightQuantile = quantile + halfWindow
+    if leftQuantile < 0.0:
+        leftQuantile = 0.0
+    if rightQuantile > 1.0:
+        rightQuantile = 1.0
+    if rightQuantile <= leftQuantile:
+        return -inverseQuantileSpan
+
+    leftValue = _interpolateQuantile_F32(sortedValues, valueCount, leftQuantile)
+    rightValue = _interpolateQuantile_F32(sortedValues, valueCount, rightQuantile)
+    valueSlope = (rightValue - leftValue) / (rightQuantile - leftQuantile)
+
+    return (valueSlope * inverseValueSpan) - inverseQuantileSpan
+
+
+cdef inline double _kneeGrad_F64(double[::1] sortedValues,
+                                    Py_ssize_t valueCount,
+                                    double quantile,
+                                    double inverseQuantileSpan,
+                                    double inverseValueSpan) nogil:
+    # CALLERS: `cgetGlobalBaseline`
+
+    cdef double quantileStep
+    cdef double halfWindow
+    cdef double leftQuantile
+    cdef double rightQuantile
+    cdef double leftValue
+    cdef double rightValue
+    cdef double valueSlope
+
+    if valueCount < 2:
+        return -inverseQuantileSpan
+
+    quantileStep = 1.0 / (<double>(valueCount - 1))
+    halfWindow = 4.0 * quantileStep
+    if halfWindow < 1e-4:
+        halfWindow = 1e-4
+    if halfWindow > 1e-2:
+        halfWindow = 1e-2
+
+    leftQuantile = quantile - halfWindow
+    rightQuantile = quantile + halfWindow
+    if leftQuantile < 0.0:
+        leftQuantile = 0.0
+    if rightQuantile > 1.0:
+        rightQuantile = 1.0
+    if rightQuantile <= leftQuantile:
+        return -inverseQuantileSpan
+
+    leftValue = _interpolateQuantile_F64(sortedValues, valueCount, leftQuantile)
+    rightValue = _interpolateQuantile_F64(sortedValues, valueCount, rightQuantile)
+    valueSlope = (rightValue - leftValue) / (rightQuantile - leftQuantile)
+    return (valueSlope * inverseValueSpan) - inverseQuantileSpan
+
 
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
     r"""Adjusts a value to the nearest multiple of stepSize, optionally pushing it forward.
+
+    .. todo:: refactor caller + this function into one cython func
 
     :param value: The value to adjust.
     :type value: int
@@ -42,6 +409,9 @@ cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
 
 cpdef uint64_t cgetFirstChromRead(str bamFile, str chromosome, uint64_t chromLength, uint32_t samThreads, int samFlagExclude):
     r"""Get the start position of the first read in a BAM file for a given chromosome.
+
+
+    .. todo:: refactor caller + this function into one cython func
 
     :param bamFile: See :func:`consenrich.core.inputParams`.
     :type bamFile: str
@@ -69,6 +439,9 @@ cpdef uint64_t cgetFirstChromRead(str bamFile, str chromosome, uint64_t chromLen
 
 cpdef uint64_t cgetLastChromRead(str bamFile, str chromosome, uint64_t chromLength, uint32_t samThreads, int samFlagExclude):
     r"""Get the end position of the last read in a BAM file for a given chromosome.
+
+
+    .. todo:: refactor caller + this function into one cython func
 
     :param bamFile: See :func:`consenrich.core.inputParams`.
     :type bamFile: str
@@ -134,13 +507,6 @@ cpdef uint32_t cgetReadLength(str bamFile, uint32_t minReads, uint32_t samThread
     if observedReads < minReads:
         return 0
     return <uint32_t>np.median(readLengths[:observedReads])
-
-
-cdef inline Py_ssize_t floordiv64(int64_t a, int64_t b) nogil:
-    if a >= 0:
-        return <Py_ssize_t>(a // b)
-    else:
-        return <Py_ssize_t>(- ((-a + b - 1) // b))
 
 
 cpdef cnp.float32_t[:] creadBamSegment(
@@ -317,6 +683,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=2] cinvertMatrixE(
         cnp.float32_t innovationCovariancePadding=1.0e-2):
     r"""Invert the residual covariance matrix during the forward pass.
 
+    .. todo:: REMOVE (no longer used in the filter iteration)
+
     :param muncMatrixIter: The diagonal elements of the covariance matrix at a given genomic interval.
     :type muncMatrixIter: cnp.ndarray[cnp.float32_t, ndim=1]
     :param priorCovarianceOO: The a priori 'primary' state variance :math:`P_{[i|i-1,00]} = \left(\mathbf{F}\mathbf{P}_{[i-1\,|\,i-1]}\mathbf{F}^{\top} + Q_[i]\right)_{[00]}`.
@@ -424,7 +792,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetPrecisionWeightedResidual(
     return out
 
 
-
 cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matrixQ,
         cnp.ndarray[cnp.float32_t, ndim=2] matrixQCopy,
         float dStat,
@@ -484,6 +851,9 @@ cdef void _blockMax(double[::1] valuesView,
                     Py_ssize_t[::1] blockSizes,
                     double[::1] outputView,
                     double eps = 0.0) noexcept:
+
+    # FFR: can we inline/nogil this?
+
     cdef Py_ssize_t iterIndex, elementIndex, startIndex, blockLength
     cdef double currentMax, currentValue
     cdef Py_ssize_t firstIdx, lastIdx, centerIdx
@@ -975,40 +1345,6 @@ cpdef int64_t cgetFragmentLength(
     return <int64_t>med
 
 
-
-cdef inline Py_ssize_t getInsertion(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:
-    cdef Py_ssize_t low = 0
-    cdef Py_ssize_t high = n
-    cdef Py_ssize_t midpt
-    while low < high:
-        # [low,x1,x2,x3,...,(high-low)>>1,...,xn-2, high]
-        # ... --> [(high-low)>>1 + 1,...,xn-2, high]
-        midpt = low + ((high - low) >> 1)
-        if array_[midpt] <= x:
-            low = midpt + 1
-        # [low,x1,x2,x3,...,(high-low)>>1,...,xn-2, high]
-        # ... --> [low,x1,x2,x3,...,(high-low)>>1]
-        else:
-            high = midpt
-    # array_[low] <= x* < array_[low+1]
-    return low
-
-
-cdef inline int maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, const uint32_t* mStarts, const uint32_t* mEnds, Py_ssize_t n, uint8_t* outMask) nogil:
-    cdef Py_ssize_t i = 0
-    cdef Py_ssize_t k
-    cdef uint32_t p
-    while i < numIntervals:
-        p = pos[i]
-        k = getInsertion(mStarts, n, p) - 1
-        if k >= 0 and p < mEnds[k]:
-            outMask[i] = <uint8_t>1
-        else:
-            outMask[i] = <uint8_t>0
-        i += 1
-    return 0
-
-
 cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     str chromosome,
     str bedFile,
@@ -1085,70 +1421,8 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
 
     with nogil:
         if numIntervals > 0 and n > 0:
-            maskMembership(posPtr, numIntervals, svPtr, evPtr, n, outPtr)
+            _maskMembership(posPtr, numIntervals, svPtr, evPtr, n, outPtr)
     return mask
-
-
-cdef inline bint _projectToBox(
-    cnp.float32_t[::1] vectorX,
-    cnp.float32_t[:, ::1] matrixP,
-    cnp.float32_t stateLowerBound,
-    cnp.float32_t stateUpperBound,
-    cnp.float32_t eps
-) nogil:
-    cdef cnp.float32_t initX_i0
-    cdef cnp.float32_t projectedX_i0
-    cdef cnp.float32_t P00
-    cdef cnp.float32_t P10
-    cdef cnp.float32_t P11
-    cdef cnp.float32_t padded_P00
-    cdef cnp.float32_t newP11
-
-    # Note, the following is straightforward algebraically, but some hand-waving here
-    # ... for future reference if I forget the intuition/context later on or somebody
-    # ... wants to change/debug. Essentially, finding a point in the feasible region
-    # ... that minimizes -weighted- distance to the unconstrained/infeasible solution.
-    # ... Weighting is determined by inverse state covariance P^{-1}_[i]
-    # ... So a WLS-like QP:
-    # ...   argmin (x^{*}_[i] - x^{unconstrained}_[i])^T (P^-1_{[i]}) (x^{*}_[i] - x^{unconstrained}_[i])
-    # ...   such that: lower <= x^{*}_[i,0] <= upper
-    # ... in our case (single-variable in box), solution is a simle truncation
-    # ... with a corresponding scaled-update to x_[i,1] based on their covariance
-    # ... REFERENCE: Simon, 2006 (IET survey paper on constrained linear filters)
-
-    initX_i0 = vectorX[0]
-
-    if initX_i0 >= stateLowerBound and initX_i0 <= stateUpperBound:
-        return <bint>0 # no change if in bounds
-
-    # projection in our case --> truncated box on first state variable
-    projectedX_i0 = initX_i0
-    if projectedX_i0 < stateLowerBound:
-        projectedX_i0 = stateLowerBound
-    if projectedX_i0 > stateUpperBound:
-        projectedX_i0 = stateUpperBound
-
-    P00 = matrixP[0, 0]
-    P10 = matrixP[1, 0]
-    P11 = matrixP[1, 1]
-    padded_P00 = P00 if P00 > eps else eps
-
-    # FIRST, adjust second state according to its original value + an update
-    # ... given the covariance between first,second variables that
-    # ... is scaled by the size of projection in the first state
-    vectorX[1] = <cnp.float32_t>(vectorX[1] + (P10 / padded_P00)*(projectedX_i0 - initX_i0))
-
-    # SECOND, now we set the projected first state variable
-    # ...  and the second state's variance
-    vectorX[0] = projectedX_i0
-    newP11 = <cnp.float32_t>(P11 - (P10*P10) / padded_P00)
-
-    matrixP[0, 0] = eps
-    matrixP[0, 1] = <cnp.float32_t>0.0 # first state fixed --> covar = 0
-    matrixP[1, 0] = <cnp.float32_t>0.0
-    matrixP[1, 1] = newP11 if newP11 > eps else eps
-
-    return 1
 
 
 cpdef void projectToBox(
@@ -1159,97 +1433,6 @@ cpdef void projectToBox(
     cnp.float32_t eps
 ):
     _projectToBox(vectorX, matrixP, stateLowerBound, stateUpperBound, eps)
-
-
-cdef inline void _regionMeanVar(double[::1] valuesView,
-                                Py_ssize_t[::1] blockStartIndices,
-                                Py_ssize_t[::1] blockSizes,
-                                float[::1] meanOutView,
-                                float[::1] varOutView,
-                                double zeroPenalty,
-                                double zeroThresh) noexcept nogil:
-    cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
-    cdef double value
-    cdef double sumX, sumSqX, sumY, sumXY
-    cdef double beta0, beta1
-    cdef double fitted, residual, RSS
-    cdef double zeroCount, zeroProp, scaleFactor
-    cdef double blockLengthDouble
-    cdef double previousValue, currentValue
-    cdef double scaleFac
-    cdef double meanValue
-    cdef double pairCountDouble
-    cdef double centeredPrev, centeredCurr, oneMinusBetaSq
-    cdef double* blockPtr # FFR: try to use this convention to avoid indexing as [start + idx]
-    cdef double oneMinusZeroProp
-    cdef double maxBeta = <double>0.99
-
-    for regionIndex in range(meanOutView.shape[0]):
-        startIndex = blockStartIndices[regionIndex]
-        blockLength = blockSizes[regionIndex]
-        blockPtr = &valuesView[startIndex]
-        blockLengthDouble = <double>blockLength
-
-        sumY = 0.0
-        zeroCount = 0.0
-        for elementIndex in range(blockLength):
-            value = blockPtr[elementIndex]
-            sumY += value
-            if fabs(value) < zeroThresh:
-                zeroCount += 1.0
-
-        meanValue = sumY / blockLengthDouble
-        meanOutView[regionIndex] = <float>meanValue
-
-        if blockLength <= 1:
-            varOutView[regionIndex] = 0.0
-            continue
-
-        sumX = 0.0
-        sumSqX = 0.0
-        sumXY = 0.0
-
-        previousValue = blockPtr[0]
-        centeredPrev = previousValue - meanValue
-        for elementIndex in range(1, blockLength):
-            currentValue = blockPtr[elementIndex]
-            centeredCurr = currentValue - meanValue
-
-            sumX += centeredPrev
-            sumSqX += centeredPrev*centeredPrev
-            sumXY += centeredPrev*centeredCurr
-
-            centeredPrev = centeredCurr
-            previousValue = currentValue
-
-        pairCountDouble = <double>(blockLength-1)
-        scaleFac = sumSqX
-
-        if fabs(scaleFac) > 1.0e-2:
-            beta1 = sumXY / scaleFac
-        else:
-            beta1 = 0.0
-        beta0 = 0.0
-
-        if beta1 >  maxBeta: beta1 =  maxBeta
-        if beta1 < -maxBeta: beta1 = -maxBeta
-
-        RSS = 0.0
-        previousValue = blockPtr[0]
-        centeredPrev = previousValue - meanValue
-
-        for elementIndex in range(1, blockLength):
-            currentValue = blockPtr[elementIndex]
-            centeredCurr = currentValue - meanValue
-            fitted = beta1*centeredPrev
-            residual = centeredCurr-fitted
-            RSS += residual*residual
-
-            centeredPrev = centeredCurr
-            previousValue = currentValue
-
-        oneMinusBetaSq = (1.0 - (beta1*beta1))
-        varOutView[regionIndex] = <float>((RSS/pairCountDouble/oneMinusBetaSq))
 
 
 cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
@@ -1322,42 +1505,7 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return outMeans, outVars, starts_, ends
 
 
-cdef inline bint invert22(
-    double a00, double a01, double a10, double a11,
-    double b0, double b1,
-    double* x0, double* x1
-) noexcept nogil:
-    cdef double det = (a00*a11) - (a01*a10)
-    if fabs(det) < 1.0e-4:
-        x0[0] = 0.0
-        x1[0] = b1 / a11 if fabs(a11) > 1.0e-30 else 0.0
-        return <bint>1
-    x0[0] = ( b0*a11 - a01*b1) / det
-    x1[0] = (-b0*a10 + a00*b1) / det
-    return <bint>0
-
-
-cdef inline double _loss(
-    double slope, double intercept,
-    double sumX, double sumSqX,
-    double sumZ, double sumXZ,
-    double sumSqZ, double numSamples,
-) noexcept:
-
-    cdef double loss = 0.0
-
-    loss = (
-        sumSqZ
-        - 2.0*slope*sumXZ
-        - 2.0*intercept*sumZ
-        + (slope*slope)*sumSqX
-        + 2.0*slope*intercept*sumX
-        + (intercept*intercept)*numSamples
-    )
-    return loss
-
-
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double refitWeight = 1.0):
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double refitWeight = 1.0, double floorTarget = 0.1):
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
     cdef cnp.ndarray[cnp.float32_t, ndim=1] yArr = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
@@ -1404,7 +1552,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         sumSqZ += z*z
 
     numSamples = <double>n
-    invert22(sumSqX, sumX, sumX, numSamples,
+    _solveSystem22(sumSqX, sumX, sumX, numSamples,
         sumXZ,
         sumZ,
         &slopeUnconstrained,
@@ -1475,7 +1623,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     # ... Our dynamic ranges are practically restricted to 3-10. The following
     # ... mimics (Abu-mostafa, 1992 NeurIPS) and refits data with a
     # ... --one-sided-- penalty (svm/hinge) via a conservative inequality
-    # ... 'hint' --> floor of 0.25.
+    # ... 'hint' --> floor value
 
     # set maxIters as number of points below the target variance
     # ... this doesn't confer any strong guarantee but is natural
@@ -1486,7 +1634,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         x = <double>xArr[i]
         # original estimate B0 + B1*x
         initialVar = optimalIntercept + optimalSlope*x
-        penTarget = <double>0.25
+        penTarget = <double>floorTarget
         if initialVar < penTarget:
             maxIter += 1
 
@@ -1503,7 +1651,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
             for i in range(n):
                 x = <double>xArr[i]
                 initialVar = optimalIntercept + optimalSlope*x
-                penTarget = <double>0.25
+                penTarget = <double>floorTarget
                 penLoss = penTarget - initialVar
                 if penLoss > 0.0:
                     sumW += refitWeight
@@ -1513,7 +1661,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
                     sumWXZ += refitWeight*x*penTarget
 
             # new WLS fit
-            invert22(sumWXX, sumWX, sumWX, sumW,
+            _solveSystem22(sumWXX, sumWX, sumWX, sumW,
                 sumWXZ,
                 sumWZ,
                 &penSlope,
@@ -1532,7 +1680,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     out[0] = <cnp.float32_t>optimalSlope
     out[1] = <cnp.float32_t>optimalIntercept
     return out
-
 
 
 cpdef cmonotonicFitEval(
@@ -1610,65 +1757,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetPosteriorMunc(
     return outputArray
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] caverageSquaredSOD(
-        cnp.ndarray[cnp.float32_t, ndim=1] values,
-        Py_ssize_t windowLength):
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] outputArray
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] emptyArray = np.empty(0, dtype=np.float32)
-    cdef double[::1] valuesView
-    cdef float[::1] outputView
-    cdef Py_ssize_t valuesLength
-    cdef Py_ssize_t i
-    cdef double runningSum
-    cdef double diff
-    cdef double* valuesPtr
-    cdef double alpha
-    cdef double diff_
-
-    valuesView = np.ascontiguousarray(values, dtype=np.float64)
-    valuesLength = valuesView.shape[0]
-    outputArray = np.zeros(valuesLength, dtype=np.float32)
-    outputView = outputArray
-    valuesPtr = &valuesView[0]
-
-    if valuesLength < 3:
-        # this should cause an exception in the caller
-        return emptyArray
-
-    alpha = 1.0 - pow(0.01, 2.0 / (<double>(windowLength + 1)))
-
-    with nogil:
-        # forward pass
-        runningSum = <double>0.0
-        outputView[0] = <float>0.0
-        outputView[1] = <float>0.0
-        for i in range(2, valuesLength):
-            # first order:
-            # ... z[i] - z[i - 1]
-            # second order (SOD) is the difference of first order diffs:
-            # ... = (z[i] - z[i - 1]) - (z[i - 1] - z[i - 2])
-            # ... = z[i] - z[i-1] - z[i-1] + z[i-2]
-            # ... = z[i] - 2*z[i-1] + z[i-2]
-            diff = (valuesPtr[i] - 2.0*valuesPtr[i - 1] + valuesPtr[i - 2])
-            diff_ = diff * diff # squared SOD
-
-            # (alpha)*currentValue + (1 - alpha)*previousValue
-            runningSum = runningSum + (alpha * (diff_ - runningSum))
-            outputView[i] = <float>runningSum
-
-        # backward pass
-        runningSum = 0.0
-        for i in range(valuesLength - 3, -1, -1):
-            diff = (valuesPtr[i] - 2.0*valuesPtr[i + 1] + valuesPtr[i + 2])
-            diff_ = diff * diff
-            runningSum = runningSum + (alpha*(diff_ - runningSum))
-            outputView[i] = <float>(outputView[i] + runningSum)
-
-    return outputArray
-
-
-
 cdef bint _cEMA(const double* xPtr, double* outPtr,
                     Py_ssize_t n, double alpha) nogil:
     cdef Py_ssize_t i
@@ -1677,9 +1765,11 @@ cdef bint _cEMA(const double* xPtr, double* outPtr,
 
     outPtr[0] = xPtr[0]
 
+    # forward
     for i in range(1, n):
         outPtr[i] = alpha*xPtr[i] + (1.0 - alpha)*outPtr[i - 1]
 
+    # back
     for i in range(n - 2, -1, -1):
         outPtr[i] = alpha*outPtr[i] + (1.0 - alpha)*outPtr[i + 1]
 
@@ -1693,21 +1783,18 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cdef inline float carsinh_F32(float x) nogil:
-    # arsinh(x / 2) / ln(2) ~~> sign(x) * log2(|x|)
-    return asinhf(x/2.0) * __INV_LN2_FLOAT
-cdef inline double carsinh_F64(double x) nogil:
-    return asinh(x/2.0) * __INV_LN2_DOUBLE
-
 cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
-                          float eps_F32=<float>1.0e-2, double eps_F64=<double>1.0e-2):
+                          float eps_F32=<float>1.0e-4, double eps_F64=<double>1.0e-4,
+                          float boundaryEps = <float>0.1,
+                          double leftQ_ = <double>0.75,
+                          double rightQ_ = <double>0.99):
     r"""Compute log-scale enrichment versus locally computed backgrounds
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
 
     The local background at each genomic interval is obtained by linearly interpolating blocks' mean values between.
 
-    Note that a quickly-fading, two-way exponential moving average defines these block means such that autocorrelation
+    Note that a two-way exponential moving average defines these block means such that autocorrelation
     is tempered between neighboring blocks. Still, we can get a reasonably smooth + locally-informative background.
     """
 
@@ -1735,9 +1822,13 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
     cdef double* emaPtr_F64
     cdef double interpolatedBackground_F64
     cdef double logDiff_F64
-
+    cdef float trackWideMean_F32
+    cdef double trackWideMean_F64
+    cdef Py_ssize_t n, tw__, tw_
     cdef double blockCenterCurr,blockCenterNext,lastCenter, edgeWeight
     cdef double carryOver, bgroundEstimate
+    cdef double boundaryEps_F64 = <double>boundaryEps
+    cdef float boundaryEps_F32 = <float>boundaryEps
     if blockLength <= 0:
         return None
 
@@ -1757,14 +1848,20 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
             blockCount = (valuesLength + blockLength - 1) // blockLength
             if blockCount < 2:
                 return None
+            tw__ = <Py_ssize_t>0
+            # (bounded) kneedle on the quantile curve
+            # FFR: bound also by fraction of dynamic range
+            trackWideMean_F32 = <float>cgetGlobalBaseline(valuesArr_F32, leftQ=leftQ_, rightQ=rightQ_)
+            for tw__ in range(valuesLength):
+                valuesArr_F32[tw__] = valuesArr_F32[tw__] - trackWideMean_F32
 
             # run a two-way exponential moving average weighted such that,
             # ... at each block's --center--, the influence from values at the
-            # ... edges has effectively decayed. Assign the mean for block `k`
-            # ... as the EMA value at the center of block `k`. Then, interpolate
-            # ... background estimates for each interval/index `i` within the larger blocks.
+            # ... edges has decayed wrt ~boundaryEps~. Assign the mean for *block* `k`
+            # ... as the EMA-value at the center of *block* `k`. Then, interpolate
+            # ... background estimates for each *interval* `i` within the larger blocks.
 
-            edgeWeight = 1.0 - pow(0.01, 1.0 / (<double>(blockLength + 1)))
+            edgeWeight = 1.0 - pow(<double>boundaryEps_F32, 2.0 / (<double>(blockLength + 1)))
             emaView_F32 = cEMA(valuesArr_F32, edgeWeight).astype(np.float32)
             blockMeans_F32 = np.empty(blockCount, dtype=np.float32)
             valuesPtr_F32 = &valuesView_F32[0]
@@ -1773,8 +1870,6 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
             blockPtr_F32  = &blockMeans_F32[0]
 
             with nogil:
-                # FFR: should probably use an arithmetic progression for
-                # ...  the indices, up to the last block, now that we've precomputed
                 for blockIndex in range(blockCount):
                     startIndex = blockIndex*blockLength
                     endIndex = startIndex + blockLength
@@ -1782,7 +1877,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                         endIndex = valuesLength
                     blockSize_F32 = endIndex - startIndex
                     centerIndex = startIndex + (blockSize_F32 // 2)
-                    blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex] + eps_F32
+                    blockPtr_F32[blockIndex] = fmaxf(emaPtr_F32[centerIndex], eps_F32)
 
                 k = 0
                 blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
@@ -1810,7 +1905,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                         interpolatedBackground_F32 = <float>(bgroundEstimate)
 
                     # finally, we take ~log-scale~ difference currentValue - background
-                    logDiff_F32 = carsinh_F32(valuesPtr_F32[i] + eps_F32) - carsinh_F32(interpolatedBackground_F32 + eps_F32)
+                    logDiff_F32 = _carsinh_F32(valuesPtr_F32[i]) - _carsinh_F32(interpolatedBackground_F32)
                     outputPtr_F32[i] = logDiff_F32
 
             return finalArr__
@@ -1829,8 +1924,11 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
         blockCount = (valuesLength + blockLength - 1) // blockLength
         if blockCount < 2:
             return None
-
-        edgeWeight = 1.0 - pow(0.01, 2.0 / (<double>(blockLength + 1)))
+        tw__ = <Py_ssize_t>0
+        trackWideMean_F64 = <double>cgetGlobalBaseline(valuesArr_F64, leftQ=leftQ_, rightQ=rightQ_)
+        for tw__ in range(valuesLength):
+            valuesArr_F64[tw__] = valuesArr_F64[tw__] - trackWideMean_F64
+        edgeWeight = 1.0 - pow(<double>boundaryEps_F64, 2.0 / (<double>(blockLength + 1)))
         emaView_F64 = cEMA(valuesArr_F64, edgeWeight).astype(np.float64)
         blockMeans_F64 = np.empty(blockCount, dtype=np.float64)
 
@@ -1847,7 +1945,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     endIndex = valuesLength
                 blockSize_F64 = endIndex - startIndex
                 centerIndex = startIndex + (blockSize_F64 // 2)
-                blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex] + eps_F64
+                blockPtr_F64[blockIndex] = fmax(emaPtr_F64[centerIndex],  eps_F64)
 
             k = 0
             blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
@@ -1867,7 +1965,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                     bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
                     interpolatedBackground_F64 = <double>(bgroundEstimate)
-                logDiff_F64 = carsinh_F64(valuesPtr_F64[i] + eps_F64) - carsinh_F64(interpolatedBackground_F64 + eps_F64)
+                logDiff_F64 = _carsinh_F64(valuesPtr_F64[i]) - _carsinh_F64(interpolatedBackground_F64)
                 outputPtr_F64[i] = logDiff_F64
 
         return finalArr__
@@ -2296,7 +2394,7 @@ cpdef tuple cbackwardPass(
     cdef double smoothedState0, smoothedState1
     cdef double forwardP00, forwardP01, forwardP10, forwardP11
     cdef double processNoise00, processNoise01, processNoise10, processNoise11
-    cdef double priorP00, priorP01, priorP10, priorP11, detPrior, invPrior00, invPrior01, invPrior10, invPrior11, tmp00, tmp01, tmp10, tmp11,
+    cdef double priorP00, priorP01, priorP10, priorP11, detPrior, invPrior00, invPrior01, invPrior10, invPrior11, tmp00, tmp01, tmp10, tmp11
     cdef double cross00, cross01, cross10, cross11
     cdef double smootherGain00, smootherGain01, smootherGain10, smootherGain11
     cdef double deltaP00, deltaP01, deltaP10, deltaP11, retrCorrection00, retrCorrection01, retrCorrection10, retrCorrection11
@@ -2454,3 +2552,224 @@ cpdef tuple cbackwardPass(
             progressBar.update(progressRemainder)
 
     return (stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr)
+
+
+cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.75, double rightQ=<double>0.99):
+    cdef cnp.ndarray vals_F32
+    cdef cnp.ndarray vals_F64
+    cdef cnp.ndarray posVals_
+    cdef cnp.ndarray sortedPositive
+    cdef float[::1] sortedViewF32
+    cdef double[::1] sortedViewF64
+    cdef Py_ssize_t valueCount
+    cdef double minValue_
+    cdef double maxValue_
+    cdef double spanVals_
+    cdef double spanQuantile_
+    cdef double inverseQuantileSpan
+    cdef double inverseValueSpan
+    cdef double leftQuantile
+    cdef double rightQuantile
+    cdef double midQuantile
+    cdef double leftGrad
+    cdef double rightGrad
+    cdef double midGrad
+    cdef double elbowQuantile
+    cdef double elbow_
+    cdef Py_ssize_t iteration
+
+    if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
+        vals_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+        posVals_ = vals_F32[vals_F32 > 0]
+        if posVals_.size == 0:
+            return <float>0.0
+
+        sortedPositive = np.ascontiguousarray(np.sort(posVals_), dtype=np.float32)
+        sortedViewF32 = sortedPositive
+        valueCount = sortedViewF32.shape[0]
+        minValue_ = _interpolateQuantile_F32(sortedViewF32, valueCount, leftQ)
+        maxValue_ = _interpolateQuantile_F32(sortedViewF32, valueCount, rightQ)
+        spanVals_ = maxValue_ - minValue_
+        if spanVals_ <= 0.0: return <float>minValue_
+        spanQuantile_ = rightQ - leftQ
+        inverseQuantileSpan = 1.0 / spanQuantile_
+        inverseValueSpan = 1.0 / spanVals_
+        leftQuantile = leftQ
+        rightQuantile = rightQ
+
+        with nogil:
+            leftGrad = _kneeGrad_F32(sortedViewF32, valueCount, leftQuantile, inverseQuantileSpan, inverseValueSpan)
+            rightGrad = _kneeGrad_F32(sortedViewF32, valueCount, rightQuantile, inverseQuantileSpan, inverseValueSpan)
+
+            if leftGrad <= 0.0:
+                elbowQuantile = leftQuantile
+            elif rightGrad >= 0.0:
+                elbowQuantile = rightQuantile
+            else:
+            # bisect + kneedle: find a maximum in [leftQ, rightQ] in the quantile curve above y=x
+                for iteration in range(128):
+                    midQuantile = 0.5 * (leftQuantile + rightQuantile)
+                    midGrad = _kneeGrad_F32(sortedViewF32, valueCount, midQuantile, inverseQuantileSpan, inverseValueSpan)
+                    if midGrad > 1.0e-8:
+                        leftQuantile = midQuantile
+                    elif midGrad < -1.0e-8:
+                        rightQuantile = midQuantile
+                    else:
+                        break
+                elbowQuantile = 0.5 * (leftQuantile + rightQuantile)
+
+            elbow_ = _interpolateQuantile_F32(sortedViewF32, valueCount, elbowQuantile)
+
+        return <float>elbow_
+
+    vals_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
+    posVals_ = vals_F64[vals_F64 > 0]
+    sortedPositive = np.ascontiguousarray(np.sort(posVals_), dtype=np.float64)
+    sortedViewF64 = sortedPositive
+    valueCount = sortedViewF64.shape[0]
+
+    minValue_ = _interpolateQuantile_F64(sortedViewF64, valueCount, leftQ)
+    maxValue_ = _interpolateQuantile_F64(sortedViewF64, valueCount, rightQ)
+    spanVals_ = maxValue_ - minValue_
+    spanQuantile_ = rightQ - leftQ
+    inverseQuantileSpan = 1.0 / spanQuantile_
+    inverseValueSpan = 1.0 / spanVals_
+    leftQuantile = leftQ
+    rightQuantile = rightQ
+
+    with nogil:
+        leftGrad = _kneeGrad_F64(sortedViewF64, valueCount, leftQuantile, inverseQuantileSpan, inverseValueSpan)
+        rightGrad = _kneeGrad_F64(sortedViewF64, valueCount, rightQuantile, inverseQuantileSpan, inverseValueSpan)
+        if leftGrad <= 0.0:
+            elbowQuantile = leftQuantile
+        elif rightGrad >= 0.0:
+            elbowQuantile = rightQuantile
+        else:
+            for iteration in range(128):
+                midQuantile = 0.5 * (leftQuantile + rightQuantile)
+                midGrad = _kneeGrad_F32(sortedViewF32, valueCount, midQuantile, inverseQuantileSpan, inverseValueSpan)
+                if midGrad > 1.0e-8:
+                    leftQuantile = midQuantile
+                elif midGrad < -1.0e-8:
+                    rightQuantile = midQuantile
+                else:
+                    break
+            elbowQuantile = 0.5 * (leftQuantile + rightQuantile)
+
+        elbow_ = _interpolateQuantile_F64(sortedViewF64, valueCount, elbowQuantile)
+
+    return <double>elbow_
+
+
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalAR1Var(
+        object x,
+        Py_ssize_t windowLength):
+
+    cdef cnp.ndarray valuesArr64
+    cdef double[::1] valuesView
+    cdef Py_ssize_t n
+    cdef cnp.ndarray sum_accumArray
+    cdef cnp.ndarray sumSq_accumArray
+    cdef cnp.ndarray prodWithLag_accumArray
+    cdef double[::1] sumCum
+    cdef double[::1] sumSqCum
+    cdef double[::1] prodWithLag
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] varOut
+    cdef float[::1] varOutView
+    cdef Py_ssize_t i, k
+    cdef Py_ssize_t leftIndex, rightIndex, halfWindow
+    cdef Py_ssize_t valueCount, pairCount
+    cdef double sumValues, meanValue
+    cdef double sumPrev, sumCurr
+    cdef double sumPrevSq, sumCurrSq
+    cdef double sumLagProd
+    cdef double sumSqX, sumXY
+    cdef double beta, maxBeta
+    cdef double tmp0, tmp1, oneMinusBeta
+    cdef double RSS
+    cdef double oneMinusBetaSq
+    cdef double localVariance
+
+    valuesArr64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
+    valuesView = valuesArr64
+    n = valuesView.shape[0]
+    varOut = np.zeros(n, dtype=np.float32)
+    varOutView = varOut
+    sum_accumArray = np.empty(n + 1, dtype=np.float64)
+    sumSq_accumArray = np.empty(n + 1, dtype=np.float64)
+    prodWithLag_accumArray = np.empty(n + 1, dtype=np.float64)
+    # point memviews
+    sumCum = sum_accumArray
+    sumSqCum = sumSq_accumArray
+    prodWithLag = prodWithLag_accumArray
+    halfWindow = windowLength // 2
+    if maxBeta < 0.0:
+        maxBeta = -maxBeta
+    if maxBeta > 0.99:
+        maxBeta = 0.99
+
+    with nogil:
+        sumCum[0] = 0.0
+        sumSqCum[0] = 0.0
+        prodWithLag[0] = 0.0
+        prodWithLag[1] = 0.0
+
+        for k in range(n):
+            sumCum[k + 1] = sumCum[k] + valuesView[k]
+            sumSqCum[k + 1] = sumSqCum[k] + (valuesView[k]*valuesView[k])
+        for k in range(1, n):
+            prodWithLag[k + 1] = prodWithLag[k] + (valuesView[k - 1] * valuesView[k])
+        for i in range(n):
+            # no padding
+            leftIndex = i - halfWindow
+            if leftIndex < 0:
+                leftIndex = 0
+            rightIndex = i + halfWindow
+            if rightIndex >= n:
+                rightIndex = n - 1
+
+            valueCount = rightIndex - leftIndex + 1
+            if valueCount < 2:
+                varOutView[i] = <float>0.0
+                continue
+
+            pairCount = valueCount - 1
+            sumValues = sumCum[rightIndex + 1] - sumCum[leftIndex]
+            meanValue = sumValues / (<double>valueCount)
+            sumPrev = sumCum[rightIndex] - sumCum[leftIndex]
+            sumCurr = sumCum[rightIndex + 1] - sumCum[leftIndex + 1]
+            sumPrevSq = sumSqCum[rightIndex] - sumSqCum[leftIndex]
+            sumCurrSq = sumSqCum[rightIndex + 1] - sumSqCum[leftIndex + 1]
+            sumLagProd = prodWithLag[rightIndex + 1] - prodWithLag[leftIndex + 1]
+            sumSqX = sumPrevSq - 2.0 * meanValue * sumPrev + (<double>pairCount) * (meanValue*meanValue)
+            sumXY = sumLagProd - meanValue * sumPrev - meanValue * sumCurr + (<double>pairCount) * meanValue * meanValue
+
+            if fabs(sumSqX) > 1.0e-4:
+                beta = sumXY / sumSqX
+            else:
+                beta = 0.0
+
+            if beta >  maxBeta:
+                beta =  maxBeta
+            elif beta < -maxBeta:
+                beta = -maxBeta
+
+
+            tmp0 = sumCurrSq - 2.0*(beta*sumLagProd) + (beta*beta)*sumPrevSq
+            tmp1 = sumCurr - beta * sumPrev
+            oneMinusBeta = 1.0 - beta
+            RSS = tmp0 - (2.0*(oneMinusBeta * meanValue)*tmp1 + (<double>pairCount)*(oneMinusBeta*oneMinusBeta)*(meanValue*meanValue))
+
+            if RSS < 0.0:
+                RSS = 0.0
+
+            oneMinusBetaSq = 1.0 - (beta*beta)
+            if oneMinusBetaSq <= 1.0e-4:
+                varOutView[i] = <float>0.0
+            else:
+                localVariance = (RSS / (<double>pairCount)) / oneMinusBetaSq
+                if localVariance < 0.0:
+                    localVariance = 0.0
+                varOutView[i] = <float>localVariance
+
+    return varOut

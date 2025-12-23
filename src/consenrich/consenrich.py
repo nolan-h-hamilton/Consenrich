@@ -468,7 +468,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundWindowSizeBP = _cfgGet(
         configData,
         "countingParams.backgroundWindowSizeBP",
-        50_000,
+        min(max(1000*stepSize, 50_000), 250_000), # other values may work but haven't been tested
     )
     scaleFactorList = _cfgGet(
         configData, "countingParams.scaleFactors", None
@@ -738,7 +738,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         0,
     )
     oneReadPerBin = _cfgGet(configData, "samParams.oneReadPerBin", 0)
-    chunkSize = _cfgGet(configData, "samParams.chunkSize", 1_000_000)
+    chunkSize = _cfgGet(configData, "samParams.chunkSize", 500_000)
     offsetStr = _cfgGet(configData, "samParams.offsetStr", "0,0")
     maxInsertSize = _cfgGet(
         configData,
@@ -845,7 +845,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         massQuantileCutoff=_cfgGet(
             configData,
             "matchingParams.massQuantileCutoff",
-            0.25,
+            0.10,
         ),
     )
 
@@ -1033,7 +1033,7 @@ def main():
     parser.add_argument(
         "--match-mass-quantile-cutoff",
         type=float,
-        default=0.25,
+        default=0.10,
         dest="matchMassQuantileCutoff",
         help="Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' (average signal value * length). Set to < 0 to disable",
     )
