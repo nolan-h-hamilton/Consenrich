@@ -9,7 +9,6 @@ This module contains Cython implementations of core functions used in Consenrich
 cimport cython
 import os
 import numpy as np
-from numpy._core.multiarray import ndarray
 from scipy import ndimage
 cimport numpy as cnp
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
@@ -393,6 +392,47 @@ cdef inline double _kneeGrad_F64(double[::1] sortedValues,
     valueSlope = (rightValue - leftValue) / (rightQuantile - leftQuantile)
     return (valueSlope * inverseValueSpan) - inverseQuantileSpan
 
+
+cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
+    # CALLERS: `_partitionLt`, `_nthElement`, `cgetGlobalBaseline`
+
+    cdef float tmp = swapInArray_[i]
+    swapInArray_[i] = swapInArray_[j]
+    swapInArray_[j] = tmp
+    return <bint>0
+
+
+cdef inline Py_ssize_t _partitionLt(float* vals_, Py_ssize_t left, Py_ssize_t right, Py_ssize_t pivot) nogil:
+    # CALLERS: `_nthElement`, `cgetGlobalBaseline`
+
+    cdef float pv = vals_[pivot]
+    cdef Py_ssize_t store = left
+    cdef Py_ssize_t i
+    _fSwap(vals_, pivot, right)
+    for i in range(left, right):
+        if vals_[i] < pv:
+            _fSwap(vals_, store, i)
+            store += 1
+    _fSwap(vals_, store, right)
+    return store
+
+
+cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nogil:
+    # CALLERS: `cgetGlobalBaseline`
+    cdef Py_ssize_t left = 0
+    cdef Py_ssize_t right = n - 1
+    cdef Py_ssize_t pivot, idx
+    while left < right:
+        # FFR: check whether this avoids a cast
+        pivot = (left + right) >> 1
+        idx = _partitionLt(sortedVals_, left, right, pivot)
+        if k == idx:
+            return <bint>0
+        elif k < idx:
+            right = idx - 1
+        else:
+            left = idx + 1
+    return <bint>0
 
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
@@ -960,47 +1000,74 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseMax(
-        cnp.float32_t[::1] trackALV,
+        cnp.float32_t[::1] vals,
         dict sparseMap,
         double topFrac = <double>0.25):
-    cdef Py_ssize_t n = <Py_ssize_t>trackALV.shape[0]
+
+    cdef Py_ssize_t n = <Py_ssize_t>vals.shape[0]
     cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
     cdef float[::1] outView = out
-    cdef Py_ssize_t i, j
-    cdef Py_ssize_t numNearest, numRetained, startIdx
-    cdef double sumTop
+    cdef double sumTop, tmp
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] exBuf
+    cdef float[::1] exView
+    cdef list nearestList
+    cdef object k, v
+    cdef Py_ssize_t maxNearest = 0
     cdef cnp.ndarray[cnp.intp_t, ndim=1] neighborIdxs
     cdef cnp.intp_t[::1] neighborIdxView
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] exVals
-    cdef float[::1] exView
+    cdef Py_ssize_t i, j
+    cdef Py_ssize_t numNearest, numRetained, startIdx
+
+    nearestList = [None] * n
+    for k, v in sparseMap.items():
+        i = <Py_ssize_t>k
+        if 0 <= i < n:
+            nearestList[i] = v
+            numNearest = (<cnp.ndarray>v).shape[0]
+            if numNearest > maxNearest:
+                maxNearest = numNearest
+    if maxNearest < 1:
+        maxNearest = 1
+    exBuf = np.empty(maxNearest, dtype=np.float32)
+    exView = exBuf
+    cdef float* trackPtr = &vals[0]
+    cdef float* exPtr
+    cdef cnp.intp_t* nbPtr
 
     for i in range(n):
-        neighborIdxs = <cnp.ndarray[cnp.intp_t, ndim=1]> sparseMap[i]
+        v = nearestList[i]
+        if v is None:
+            outView[i] = <float>0.0
+            continue
+        neighborIdxs = <cnp.ndarray[cnp.intp_t, ndim=1]>v
         neighborIdxView = neighborIdxs
         numNearest = neighborIdxView.shape[0]
         if numNearest <= 0:
             outView[i] = <float>0.0
             continue
-        exVals = np.empty(numNearest, dtype=np.float32)
-        exView = exVals
+        if numNearest > exView.shape[0]:
+            exBuf = np.empty(numNearest, dtype=np.float32)
+            exView = exBuf
+        nbPtr = &neighborIdxView[0]
+        exPtr = &exView[0]
         with nogil:
-            # FFR: depending on typical numNearest, might actually be faster without nogil
             for j in range(numNearest):
-                exView[j] = trackALV[neighborIdxView[j]]
-        numRetained = <Py_ssize_t>ceil(topFrac * <double>numNearest)
+                exPtr[j] = trackPtr[nbPtr[j]]
+        tmp = topFrac*<double>numNearest
+        numRetained = <Py_ssize_t>tmp
+        if tmp > <double>numRetained:
+            numRetained += 1
         if numRetained < 1:
             numRetained = 1
-        if numRetained > numNearest:
+        elif numRetained > numNearest:
             numRetained = numNearest
         startIdx = numNearest - numRetained
-        exVals = np.partition(exVals, startIdx).astype(np.float32, copy=False)
-        exView = exVals
-        sumTop = 0.0
-        with nogil:
-            # FFR: depending on typical numNearest, might actually be faster without nogil
-            for j in range(startIdx, numNearest):
-                sumTop += <double>exView[j]
 
+        with nogil:
+            _nthElement(exPtr, numNearest, startIdx)
+            sumTop = 0.0
+            for j in range(startIdx, numNearest):
+                sumTop += <double>exPtr[j]
         outView[i] = <float>(sumTop / <double>numRetained)
 
     return out
@@ -1527,7 +1594,7 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return outMeans, outVars, starts_, ends
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double refitWeight = 1.0, double floorTarget = 0.1):
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double refitWeight = <double>1.0, double floorTarget = <double>0.1):
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
     cdef cnp.ndarray[cnp.float32_t, ndim=1] yArr = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
