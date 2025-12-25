@@ -2751,3 +2751,63 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.50, double righ
     return <double>elbow_
 
 
+cpdef double cNISMomentsLoss(
+    cnp.ndarray[cnp.float64_t, ndim=1] arrNIS,
+    int m_,
+    double upper=10.0,
+    double weightM1=1.0,
+    double weightM2=1.0,
+    double weightM3=0.1,
+):
+    cdef Py_ssize_t n = arrNIS.shape[0]
+    cdef const double[:] arrView = arrNIS
+
+    cdef Py_ssize_t i = 0
+    cdef Py_ssize_t k = 0
+    cdef double NISVal
+    cdef double sumNIS = 0.0
+    cdef double sumCenteredSq = 0.0
+    cdef double sumCenteredCubed = 0.0
+    cdef double meanNIS
+    cdef double varNIS
+    cdef double mu3
+    # wrt chisq
+    cdef double expectedMean = 1.0
+    cdef double expectedVar = 2.0 / (<double>m_)
+    cdef double expectedMu3 = 8.0 / ((<double>m_)*(<double>m_))
+    cdef double epsilon = 1e-8
+    cdef double dMean
+    cdef double dVar
+    cdef double dMu3
+    cdef double centeredNIS
+
+    with nogil:
+        while i < n:
+            NISVal = arrView[i]
+            if NISVal >= 0.0 and NISVal <= upper:
+                sumNIS += NISVal
+                k += 1
+            i += 1
+
+        if k > 0:
+            meanNIS = sumNIS / (<double>k)
+            i = 0
+            while i < n:
+                NISVal = arrView[i]
+                if NISVal >= 0.0 and NISVal <= upper:
+                    centeredNIS = NISVal - meanNIS
+                    sumCenteredSq += centeredNIS*centeredNIS
+                    sumCenteredCubed += centeredNIS*centeredNIS*centeredNIS
+                i += 1
+            varNIS = sumCenteredSq / (<double>k)
+            mu3 = sumCenteredCubed / (<double>k)
+        else:
+            meanNIS = 0.0
+            varNIS = 0.0
+            mu3 = 0.0
+
+    dMean = (meanNIS - expectedMean) / (expectedMean + epsilon)
+    dVar = (varNIS - expectedVar) / (expectedVar + epsilon)
+    dMu3 = (mu3 - expectedMu3) / (expectedMu3 + epsilon)
+
+    return weightM1*(dMean*dMean) + weightM2*(dVar*dVar) + weightM3*(dMu3*dMu3)

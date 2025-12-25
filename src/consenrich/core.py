@@ -759,8 +759,8 @@ def runConsenrich(
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
     pad: float = 1.0e-2,
-    EBUpdate: bool = True,
-    priorStrengths: Optional[np.ndarray] = None,
+    randSeed_: int = 42,
+    calibration_kwargs: Optional[dict[str, Any]] = None,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -827,7 +827,8 @@ def runConsenrich(
     pad_ = np.float32(pad)
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
-
+    if calibration_kwargs is None:
+        calibration_kwargs = {'numBlocks': 32, 'calibrateNIS_maxIters': 10}
     # -------
     # check edge cases
     if matrixData.ndim == 1:
@@ -868,8 +869,6 @@ def runConsenrich(
         )
         chunkSize = n
     # -------
-    if priorStrengths is None:
-        priorStrengths = np.ones(matrixData.shape[0])*1.0
     phiHat_: float = np.float32(1.0)
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
@@ -1003,49 +1002,99 @@ def runConsenrich(
             vectorD = vectorDOut
             return float(phiHat_), int(countAdjustments_), vectorD
 
-        dCpy = dStatAlpha # process noise held constant in initial pass
+        dCpy = dStatAlpha  # process noise held constant during this mode of NIS calibration
+        initialMuncBaseline = matrixMunc.copy()
+        calibrateNIS_maxIters = calibration_kwargs.get('calibrateNIS_maxIters', 10)
+        numBlocks = calibration_kwargs.get('numBlocks', int(min(16, n)))
+        blockSize = int(np.ceil(n / numBlocks))
+        blockId = (np.arange(n, dtype=np.int32) // blockSize).astype(np.int32)
+        blockId[blockId >= numBlocks] = numBlocks - 1
 
-        if EBUpdate:
-            # NIS: 'normalized innovation squared'
-            # ... = y[i]^T (E[i]^-1) y[i],
-            # ... where y[i] = forward-pass residuals at interval i
-            # ... E[i] = forward-pass residual covariance at interval i
+        dispersionFactor = np.ones(numBlocks, dtype=np.float32)
+        bestLoss = 1e8
+        bestDispersionFactor = dispersionFactor.copy()
+        dispMin = np.float32(1e-3)
+        dispMax = np.float32(1e3)
+        # no update for dead regions or clear outliers
+        NISUpper = np.float32(10.0)
+        NISFloor = np.float32(1e-6)
+        shrinkageRate = np.float32(0.20)
+        maxLogStep = np.float32(0.25)
+        numBlocksPerIter = int(max(1, numBlocks // 4))
 
-            # per-interval calibration: EB-like shrinkage around mean NIS[i] = 1.0
-            priorDF = 2.0
-            if priorStrengths is not None:
-                # prior strengths based on blockwise mean:variance fit (r^2)
-                priorStrengthsArr = np.asarray(
-                    priorStrengths, dtype=np.float32
-                ).ravel()
+        phiHat, adjustmentCount, firstNIS = _forwardPass(
+            phiScale=1.0, collectD_=True, isInitialPass=True
+        )
+        loss = cconsenrich.cNISMomentsLoss(
+            firstNIS.astype(np.float64, copy=False),
+            m_=int(m),
+        )
 
-            else:
-                priorStrengthsArr = np.ones(m, dtype=np.float32) * 1.0
-                logger.warning(
-                    "`priorStrengths` not supplied; defaulting to 1.0 for all samples"
-                )
-
-            phiHat, adjustmentCount, firstNIS = _forwardPass(
+        iterCt = 0
+        for iterCt in range(int(calibrateNIS_maxIters)):
+            intervalScale = dispersionFactor[blockId]
+            matrixMunc[:] = initialMuncBaseline * intervalScale[None, :]
+            phiHat, adjustmentCount, NIS = _forwardPass(
                 phiScale=1.0, collectD_=True, isInitialPass=True
             )
+            loss = cconsenrich.cNISMomentsLoss(
+                NIS.astype(np.float64, copy=False),
+                m_=int(m),
+            )
 
-            # Perform update wrt 'posterior sample size' (mimics Hoff 2009, 7.3)
-            # 'Nu_0`: -- prior strength
-            # 'S_theta': -- firstNIS[o_]
-            # `S_0`: -- global prior
-            priorDF = 2.0 + np.sum(priorStrengthsArr)
-            for o_ in range(n):
-                NIS_o = float(firstNIS[o_])
-                update = (priorDF + m*NIS_o) / (priorDF + m)
-                update = float(np.clip(update, 1/10.0, 10.0))
-                matrixMunc[:, o_] *= np.float32(update)
+            if loss < bestLoss:
+                bestLoss = loss
+                bestDispersionFactor = dispersionFactor.copy()
 
+            NISVec = NIS.astype(np.float32, copy=False)
+            inlierMask = (NISVec > 0.01) & (NISVec < float(NISUpper))
+            logNIS = np.log(np.clip(NISVec, float(NISFloor), float(NISUpper))).astype(
+                np.float64, copy=False
+            )
+            logNIS[~inlierMask] = 0.0
+
+            blockSum = np.bincount(
+                blockId,
+                weights=logNIS,
+                minlength=numBlocks,
+            )
+            blockCount = np.bincount(
+                blockId,
+                weights=inlierMask.astype(np.float64, copy=False),
+                minlength=numBlocks,
+            )
+
+            calibrationDiff = (blockSum / np.maximum(blockCount, 1.0)).astype(
+                np.float32, copy=False
+            )
+            # the top `numBlocksPerIter` blocks become active during calibration iter
+            priority = np.argsort(np.abs(calibrationDiff))[::-1]
+            activeBlocks = priority[:numBlocksPerIter]
+            stepScale = np.float32(1.0 / np.sqrt(iterCt + 1.0))
+            logDispersionStep = (shrinkageRate * calibrationDiff) * stepScale
+            logDispersionStep[activeBlocks] = np.clip(
+                logDispersionStep[activeBlocks],
+                -maxLogStep,
+                maxLogStep,
+            )
+
+            dispersionFactor[activeBlocks] *= np.exp(
+                logDispersionStep[activeBlocks]
+            ).astype(np.float32)
+            np.clip(dispersionFactor, dispMin, dispMax, out=dispersionFactor)
+
+            logger.info(
+                f"Current Objective={loss:.6g}, Best={bestLoss:.6g}, "
+            )
+
+        intervalScale = bestDispersionFactor[blockId]
+        matrixMunc[:] = initialMuncBaseline * intervalScale[None, :]
 
         dStatAlpha = dCpy
         phiHat, adjustmentCount, NIS = _forwardPass(
             phiScale=1.0, collectD_=True, isInitialPass=False
         )
-        meanNIS: float = stats.trim_mean(NIS, proportiontocut=0.25)
+        meanNIS: float = stats.trim_mean(NIS, proportiontocut=0.05)
         logger.info(
             f"Final nz NIS(m={m}): mean={round(meanNIS,4)}"
         )
@@ -1263,8 +1312,6 @@ def getMuncTrack(
     * The mean and variance of the observed values within each block are recorded as a pair :math:`\left(\mu_k, \sigma^2_k\right)`, where :math:`k=1,2,\ldots,\textsf{samplingIters}`.
     * The sampled pairs are then used to estimate the global mean-variance trend, :math:`\hat{f}\left(\sigma^2 \,\mid\,\mu\right)`, using default :func:`consenrich.cconsenrich.cmonotonicFit`.
     * Finally, at each genomic interval :math:`i=1,2,\ldots,n`, the observed value is assigned an uncertainty :math:`R_{[i]} = \hat{f}\left(\sigma^2 \,\mid\,\mu_i\right)`, where :math:`\mu_i` is the local mean estimated using an exponential moving average (EMA) with window size similar to ``blockSizeBP``.
-
-    * These uncertainty estimates are used as a prior for the routine in :func:`runConsenrich` at each genomic interval :math:`i`, updated according to the local 'normalized innovation squared' (NIS) statistic (average of squared, whitened residuals, expected df = 1)
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -1910,32 +1957,3 @@ def plotStateStdHistogram(
         return plotFileName
     logger.warning(f"Failed to create histogram. {plotFileName} not written.")
     return None
-
-
-def _NISMomentsLoss(
-    arrNIS: npt.NDArray[np.float64],
-    m_: int,
-    upperBound: float = 5.0,
-) -> float:
-    values = np.asarray(arrNIS, dtype=np.float64)
-    values = values[(values <= upperBound) & (values >= 0.0)]
-
-    meanNIS = float(np.mean(values))
-    centered: np.ndarray = values - meanNIS
-    secondMoment = float(np.mean(centered * centered))
-    thirdMoment = float(np.mean(centered * centered * centered))
-    _skew = thirdMoment / (secondMoment**1.5)
-    varianceNIS = float(np.var(values))
-
-    # expected moments are wrt chisq / df, where df = m_
-    expectedMean = 1.0
-    expectedVariance = 2.0 / m_
-    expected_skew = float(np.sqrt(8.0 / m_))
-    epsilon = 1e-4
-
-    return float(
-        ((meanNIS - expectedMean) / (expectedMean + epsilon)) ** 2
-        + ((varianceNIS - expectedVariance) / (expectedVariance + epsilon)) ** 2
-        + ((_skew - expected_skew) / (expected_skew + epsilon)) ** 2
-    )
-

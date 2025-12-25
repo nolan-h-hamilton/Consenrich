@@ -1301,7 +1301,6 @@ def main():
             (numSamples, numIntervals), dtype=np.float32
         )
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
-        priorStrengths = []
         sparseMap = None
 
         if controlsPresent:
@@ -1348,7 +1347,7 @@ def main():
                     disableLocalBackground=True,
                 )
 
-                trtMunc, trtDF = core.getMuncTrack(
+                trtMunc, _= core.getMuncTrack(
                     chromosome,
                     intervals,
                     pairMatrix[0, :],
@@ -1357,7 +1356,7 @@ def main():
                     maxR_,
                     randomSeed=42 + j_,
                 )
-                ctrlMunc, ctrlDF = core.getMuncTrack(
+                ctrlMunc, _ = core.getMuncTrack(
                     chromosome,
                     intervals,
                     pairMatrix[1, :],
@@ -1367,7 +1366,6 @@ def main():
                     randomSeed=42 + j_,
                 )
                 muncMat[j_, :] = trtMunc + ctrlMunc
-                priorStrengths.append(trtDF)
                 j_ += 1
         else:
             chromMat = core.readBamSegments(
@@ -1408,7 +1406,7 @@ def main():
                 )
 
                 # compute munc track for each sample independently
-                muncMat[j, :], pDF = core.getMuncTrack(
+                muncMat[j, :], _ = core.getMuncTrack(
                     chromosome,
                     intervals,
                     chromMat[j, :],
@@ -1418,7 +1416,6 @@ def main():
                     randomSeed=42 + j,
                     textPlotMeanVarianceTrend=args.verbose2,
                 )
-                priorStrengths.append(pDF)
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             kappa = 100.0  # conditioning given f32
@@ -1430,7 +1427,6 @@ def main():
             )
 
             np.clip(muncMat, colMin, colMax, out=muncMat)
-            muncMat += muncEps
             muncMat = muncMat.astype(np.float32, copy=False)
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
@@ -1470,7 +1466,6 @@ def main():
             stateArgs.stateUpperBound,
             samArgs.chunkSize,
             progressIter=25_000,
-            priorStrengths=np.array(priorStrengths, dtype=np.float32),
         )
         logger.info(f"minQ={minQ_}, minR={minR_}")
         x_ = core.getPrimaryState(
