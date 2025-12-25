@@ -22,7 +22,7 @@ import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
-from scipy import ndimage, signal, optimize
+from scipy import ndimage, signal, optimize, stats
 from tqdm import tqdm
 from . import cconsenrich
 from . import __version__
@@ -603,16 +603,12 @@ def readBamSegments(
     if len(bamFiles) == 0:
         raise ValueError("bamFiles list is empty")
 
-    if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(
-        bamFiles
-    ):
+    if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
         raise ValueError(
             "readLengths and scaleFactors must match bamFiles length"
         )
 
-    offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(
-        ","
-    )
+    offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
 
     numIntervals = ((end - start - 1) // stepSize) + 1
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
@@ -706,9 +702,7 @@ def constructMatrixQ(
     """
     minDiagQ = np.float32(minDiagQ)
     offDiagQ = np.float32(offDiagQ)
-    initMatrixQ: npt.NDArray[np.float32] = np.zeros(
-        (2, 2), dtype=np.float32
-    )
+    initMatrixQ: npt.NDArray[np.float32] = np.zeros((2, 2), dtype=np.float32)
     initMatrixQ[0, 0] = minDiagQ
     initMatrixQ[1, 1] = minDiagQ
     initMatrixQ[0, 1] = 0.0
@@ -764,7 +758,9 @@ def runConsenrich(
     adjustProcessNoiseFunc: Optional[Callable] = None,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-    pad: float = 1e-2,
+    pad: float = 1.0e-2,
+    EBUpdate: bool = True,
+    priorStrengths: Optional[np.ndarray] = None,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -798,7 +794,7 @@ def runConsenrich(
     :type stateInit: float
     :param stateCovarInit: See :class:`stateParams`.
     :type stateCovarInit: float
-    :param chunkSize: Number of genomic intervals' data to mask__ in memory before flushing to disk.
+    :param chunkSize: Number of genomic intervals' data to mask_ in memory before flushing to disk.
     :type chunkSize: int
     :param progressIter: The number of iterations after which to log progress.
     :type progressIter: int
@@ -838,15 +834,13 @@ def runConsenrich(
         matrixData = matrixData[None, :]
     elif matrixData.ndim != 2:
         raise ValueError(
-            "`matrixData` must be 1D or 2D (got ndim = "
-            f"{matrixData.ndim})"
+            f"`matrixData` must be 1D or 2D (got ndim = {matrixData.ndim})"
         )
     if matrixMunc.ndim == 1:
         matrixMunc = matrixMunc[None, :]
     elif matrixMunc.ndim != 2:
         raise ValueError(
-            "`matrixMunc` must be 1D or 2D (got ndim = "
-            f"{matrixMunc.ndim})"
+            f"`matrixMunc` must be 1D or 2D (got ndim = {matrixMunc.ndim})"
         )
     if matrixMunc.shape != matrixData.shape:
         raise ValueError(
@@ -865,9 +859,7 @@ def runConsenrich(
         )
 
     if chunkSize < 1:
-        logger.warning(
-            f"`chunkSize` must be positive, setting to 1000000"
-        )
+        logger.warning(f"`chunkSize` must be positive, setting to 1000000")
         chunkSize = 1_000_000
 
     if chunkSize > n:
@@ -876,7 +868,9 @@ def runConsenrich(
         )
         chunkSize = n
     # -------
-    phiHat__: float = np.float32(1.0)
+    if priorStrengths is None:
+        priorStrengths = np.ones(matrixData.shape[0])*1.0
+    phiHat_: float = np.float32(1.0)
     inflatedQ: bool = False
     dStat: float = np.float32(0.0)
     y64 = np.empty(m, dtype=np.float64)
@@ -899,29 +893,19 @@ def runConsenrich(
     clipBig: float = 10 ** (covarClip)
 
     if adjustProcessNoiseFunc is None:
-        adjustProcessNoiseFunc = (
-            cconsenrich.updateProcessNoiseCovariance
-        )
+        adjustProcessNoiseFunc = cconsenrich.updateProcessNoiseCovariance
 
     with TemporaryDirectory() as tempDir_:
-        stateForwardPathMM = os.path.join(
-            tempDir_, "stateForward.dat"
-        )
+        stateForwardPathMM = os.path.join(tempDir_, "stateForward.dat")
         stateCovarForwardPathMM = os.path.join(
             tempDir_, "stateCovarForward.dat"
         )
-        pNoiseForwardPathMM = os.path.join(
-            tempDir_, "pNoiseForward.dat"
-        )
-        stateBackwardPathMM = os.path.join(
-            tempDir_, "stateSmoothed.dat"
-        )
+        pNoiseForwardPathMM = os.path.join(tempDir_, "pNoiseForward.dat")
+        stateBackwardPathMM = os.path.join(tempDir_, "stateSmoothed.dat")
         stateCovarBackwardPathMM = os.path.join(
             tempDir_, "stateCovarSmoothed.dat"
         )
-        postFitResidualsPathMM = os.path.join(
-            tempDir_, "postFitResiduals.dat"
-        )
+        postFitResidualsPathMM = os.path.join(tempDir_, "postFitResiduals.dat")
 
         # ==========================
         # forward: 0,1,2,...,n-1
@@ -950,23 +934,12 @@ def runConsenrich(
             collectD_: bool = True,
             isInitialPass: bool = False,
         ) -> tuple[float, int]:
-            nonlocal \
-                inflatedQ, \
-                matrixQ, \
-                matrixQCopy, \
-                matrixP, \
-                vectorX, \
-                vectorY, \
-                countAdjustments, \
-                vectorD, \
-                pad_
+            nonlocal inflatedQ, matrixQ, matrixQCopy, matrixP, vectorX, vectorY, countAdjustments, vectorD, pad_, matrixMunc
             inflatedQ = False
             countAdjustments = 0
             matrixQ = constructMatrixQ(minQ, offDiagQ=offDiagQ)
             matrixQCopy = matrixQ.copy()
-            matrixP = np.eye(2, dtype=np.float32) * np.float32(
-                stateCovarInit
-            )
+            matrixP = np.eye(2, dtype=np.float32) * np.float32(stateCovarInit)
             vectorX = np.array([stateInit, 0.0], dtype=np.float32)
             vectorY = np.zeros(m, dtype=np.float32)
 
@@ -988,7 +961,7 @@ def runConsenrich(
                 progressBar = tqdm(total=n, unit=" intervals ")
 
             try:
-                phiHat__, countAdjustments__, vectorDOut = (
+                phiHat_, countAdjustments_, vectorDOut = (
                     cconsenrich.cforwardPass(
                         matrixData=matrixData,
                         matrixMunc=matrixMunc,
@@ -996,7 +969,9 @@ def runConsenrich(
                         matrixQ=matrixQ,
                         matrixQCopy=matrixQCopy,
                         phiScale=float(phiScale),
-                        dStatAlpha=float(dStatAlpha),
+                        dStatAlpha=float(
+                            dStatAlpha if isInitialPass else 1.0e6
+                        ),
                         dStatd=float(dStatd),
                         dStatPC=float(dStatPC),
                         maxQ=float(maxQ),
@@ -1026,15 +1001,54 @@ def runConsenrich(
                     progressBar.close()
 
             vectorD = vectorDOut
-            return float(phiHat__), int(countAdjustments__)
+            return float(phiHat_), int(countAdjustments_), vectorD
 
-        logger.info("Running forward pass...\n")
-        phiHat__, countAdjustments__ = _forwardPass(
-            phiScale=1.0,
-            collectD_=True,
-            isInitialPass=False,
+        dCpy = dStatAlpha # process noise held constant in initial pass
+
+        if EBUpdate:
+            # NIS: 'normalized innovation squared'
+            # ... = y[i]^T (E[i]^-1) y[i],
+            # ... where y[i] = forward-pass residuals at interval i
+            # ... E[i] = forward-pass residual covariance at interval i
+
+            # per-interval calibration: EB-like shrinkage around mean NIS[i] = 1.0
+            priorDF = 2.0
+            if priorStrengths is not None:
+                # prior strengths based on blockwise mean:variance fit (r^2)
+                priorStrengthsArr = np.asarray(
+                    priorStrengths, dtype=np.float32
+                ).ravel()
+
+            else:
+                priorStrengthsArr = np.ones(m, dtype=np.float32) * 1.0
+                logger.warning(
+                    "`priorStrengths` not supplied; defaulting to 1.0 for all samples"
+                )
+
+            phiHat, adjustmentCount, firstNIS = _forwardPass(
+                phiScale=1.0, collectD_=True, isInitialPass=True
+            )
+
+            # Perform update wrt 'posterior sample size' (mimics Hoff 2009, 7.3)
+            # 'Nu_0`: -- prior strength
+            # 'S_theta': -- firstNIS[o_]
+            # `S_0`: -- global prior
+            priorDF = 2.0 + np.sum(priorStrengthsArr)
+            for o_ in range(n):
+                NIS_o = float(firstNIS[o_])
+                update = (priorDF + m*NIS_o) / (priorDF + m)
+                update = float(np.clip(update, 1/10.0, 10.0))
+                matrixMunc[:, o_] *= np.float32(update)
+
+
+        dStatAlpha = dCpy
+        phiHat, adjustmentCount, NIS = _forwardPass(
+            phiScale=1.0, collectD_=True, isInitialPass=False
         )
-
+        meanNIS: float = stats.trim_mean(NIS, proportiontocut=0.25)
+        logger.info(
+            f"Final nz NIS(m={m}): mean={round(meanNIS,4)}"
+        )
         stateForwardArr = stateForward
         stateCovarForwardArr = stateCovarForward
         pNoiseForwardArr = pNoiseForward
@@ -1042,10 +1056,6 @@ def runConsenrich(
         stateCovarForward.flush()
         pNoiseForward.flush()
 
-        logger.info(
-            f"`D_[i] > α_D` triggered adjustments to Q_[i] at "
-            f"[{round(((1.0 * countAdjustments__) / n) * 100.0, 4)}%]"
-        )
 
         # ==========================
         # backward: n-1,n-2,...,0
@@ -1084,9 +1094,7 @@ def runConsenrich(
                 stateCovarForward=stateCovarForwardArr,
                 pNoiseForward=pNoiseForwardArr,
                 coefficientsH=coefficientsH,
-                projectStateDuringFiltering=bool(
-                    projectStateDuringFiltering
-                ),
+                projectStateDuringFiltering=bool(projectStateDuringFiltering),
                 stateLowerBound=float(stateLowerBound),
                 stateUpperBound=float(stateUpperBound),
                 covarClip=float(covarClip),
@@ -1107,9 +1115,7 @@ def runConsenrich(
 
         outStateSmoothed = np.array(stateSmoothedArr, copy=True)
         outPostFitResiduals = np.array(postFitResidualsArr, copy=True)
-        outStateCovarSmoothed = np.array(
-            stateCovarSmoothedArr, copy=True
-        )
+        outStateCovarSmoothed = np.array(stateCovarSmoothedArr, copy=True)
 
     if boundState:
         np.clip(
@@ -1123,6 +1129,7 @@ def runConsenrich(
         outStateSmoothed,
         outStateCovarSmoothed,
         outPostFitResiduals,
+        NIS.astype(np.float32, copy=False),
     )
 
 
@@ -1182,7 +1189,7 @@ def getPrecisionWeightedResidual(
     :param postFitResiduals: Post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` from :func:`runConsenrich`.
     :type postFitResiduals: np.ndarray
     :param matrixMunc: An :math:`m \times n` sample-by-interval matrix -- At genomic intervals :math:`i = 1,2,\ldots,n`, the respective length-:math:`m` column is :math:`\mathbf{R}_{[i,11:mm]}`.
-        That is, the observation noise levels for each sample :math:`j=1,2,\ldots,m` at interval :math:`i`. To mask__ memory usage minimal `matrixMunc` is not returned in full or computed in
+        That is, the observation noise levels for each sample :math:`j=1,2,\ldots,m` at interval :math:`i`. To mask_ memory usage minimal `matrixMunc` is not returned in full or computed in
         in :func:`runConsenrich`. If using Consenrich programmatically, run :func:`consenrich.core.getMuncTrack` for each sample's count data (rows in the matrix output of :func:`readBamSegments`).
     :type matrixMunc: np.ndarray
     :param stateCovarSmoothed: Post-fit (forward/backward-smoothed) state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}` from :func:`runConsenrich`.
@@ -1211,8 +1218,7 @@ def getPrecisionWeightedResidual(
             "stateCovarSmoothed must be shape (n) x (2,2) (if provided)"
         )
     needsCopy = (
-        (stateCovarSmoothed is not None)
-        and len(stateCovarSmoothed) == n
+        (stateCovarSmoothed is not None) and len(stateCovarSmoothed) == n
     ) or (not matrixMunc.flags.writeable)
 
     matrixMunc_CContig = np.array(
@@ -1225,9 +1231,7 @@ def getPrecisionWeightedResidual(
         )
         matrixMunc_CContig += stateCovarArr00
 
-    np.maximum(
-        matrixMunc_CContig, np.float32(1e-8), out=matrixMunc_CContig
-    )
+    np.maximum(matrixMunc_CContig, np.float32(1e-8), out=matrixMunc_CContig)
     out = cconsenrich.cgetPrecisionWeightedResidual(
         postFitResiduals_CContig, matrixMunc_CContig
     )
@@ -1242,7 +1246,6 @@ def getMuncTrack(
     stepSize: int,
     minR: float,
     maxR: float,
-    sparseMap: Optional[dict] = None,
     blockSizeBP: Optional[int] = 1000,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
@@ -1251,34 +1254,17 @@ def getMuncTrack(
     evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
     textPlotMeanVarianceTrend: bool = False,
-) -> npt.NDArray[np.float32]:
+) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
-    Compute sample- and region-specific measurement uncertainty track :math:`{R}_{[i:n]}` as a
-    weighted combination of (i) a global mean-variance trend and (ii) a rolling average of positional variances
+    Compute prior values for sample- and region-specific uncertainty :math:`{R}_{[i:n]}` as a function of mean, :math:`\hat{f}\left(\sigma^2 \,\mid\,\mu\right)`, where :math:`\mu` is the local mean
 
-    * The global model treats over/under-dispersion by accounting for mean-variance trends observed in distinct, randomly-drawn
-        contiguous blocks. In each block, a simple AR(1) process is assumed to --on the average-- account for most of the
-        reliable structure/signal, such that large residual variances may be attributed to noise and prompt uncertainty.
+    * We fit an AR(1) process model to randomly-sampled, contiguous genomic blocks. The length of blocks ``blockSizeBP`` is defined such that residual variances from the AR(1) fit reflect unwanted technical and/or biological sources of variation.
+    * The mean and variance of the observed values within each block are recorded as a pair :math:`\left(\mu_k, \sigma^2_k\right)`, where :math:`k=1,2,\ldots,\textsf{samplingIters}`.
+    * The sampled pairs are then used to estimate the global mean-variance trend, :math:`\hat{f}\left(\sigma^2 \,\mid\,\mu\right)`, using default :func:`consenrich.cconsenrich.cmonotonicFit`.
+    * Finally, at each genomic interval :math:`i=1,2,\ldots,n`, the observed value is assigned an uncertainty :math:`R_{[i]} = \hat{f}\left(\sigma^2 \,\mid\,\mu_i\right)`, where :math:`\mu_i` is the local mean estimated using an exponential moving average (EMA) with window size similar to ``blockSizeBP``.
 
-        Specifically, in each of the sampled blocks :math:`k=1,2,\ldots,\textsf{samplingIters}`, we compute estimates
-        :math:`(\hat{\mu}_k, \hat{sigma}^2_k)` using an AR(1) model (see :func:`consenrich.cconsenrich.cmeanVarPairs`).
-        The collection of pairs :math:`\{(\hat{\mu}_k, \hat{sigma}^2_k)\}_{k=1}^{\textsf{samplingIters}}` are then used to fit
-        a global mean-variance trend :math:`\hat{f}_{\textsf{global}}\left(\,\mid\,\mu\right)` using the provided `fitFunc`
-
-
-    * The local model, :math:`\hat{f}_{\textsf{local}}(i)`, is based on rolling-window stats local to each genomic
-        *interval* :math:`i=1,2,\ldots,n`. The positional variances are computed within
-        a local window about the curent interval. See :func:`consenrich.cconsenrich.caverageSquaredSOD`.
-
-        Optionally, if the ``dict`` mapping ``sparseMap`` is provided (built from ``genomeParams.sparseBedFile``),
-        the local model restricts the calculation to the nearest 'sparse' genomic regions at each interval :math:`i=1,2,\ldots,n`
-        defined as regions devoid of or mutually exclusive with the targeted signal (:func:`consenrich.cconsenrich.cSparseAvg`).
-        For instance, if targeting the histone PTM `H3K27ac`, sparse regions could be defined with a
-        BED annotation of broad `H3K27me3` domains.
-
-
-    The final quantity is a conservative weighted sum from both models.
+    * These uncertainty estimates are used as a prior for the routine in :func:`runConsenrich` at each genomic interval :math:`i`, updated according to the local 'normalized innovation squared' (NIS) statistic (average of squared, whitened residuals, expected df = 1)
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -1288,9 +1274,6 @@ def getMuncTrack(
     :type minR: float
     :param maxR: Maximum allowable uncertainty.
     :type maxR: float
-    :param sparseMap: Optional mapping of genomic intervals to sparse regions.
-        If provided, the local model estimates are averaged over these sparse regions.
-    :type sparseMap: Optional[dict]
     :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
     :type blockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
@@ -1302,8 +1285,8 @@ def getMuncTrack(
     :type fitFuncArgs: Optional[dict]
     :param evalFunc: A *callable* function with input (``outputFromFitFunc, arrayLengthN``) that evaluates the fitted :math:`\hat{f}(array[i])` at each genomic interval :math:`i=1,2,\ldots,n`.
     :type evalFunc: Optional[Callable]
-    :return: An uncertainty track with same length as input
-    :rtype: npt.NDArray[np.float32]
+    :return: Tuple (uncertainty track, prior strength), where prior strength is a scalar reflecting goodness-of-fit of the global mean-variance trend.
+    :rtype: tuple[npt.NDArray[np.float32], float]
     """
 
     if fitFunc is None:
@@ -1327,15 +1310,12 @@ def getMuncTrack(
     if excludeMask is None:
         excludeMaskArr = np.zeros_like(intervalsArr, dtype=np.uint8)
     else:
-        excludeMaskArr = np.ascontiguousarray(
-            excludeMask, dtype=np.uint8
-        )
+        excludeMaskArr = np.ascontiguousarray(excludeMask, dtype=np.uint8)
 
-    # I: Global model (variance = f(mean))
-    # ... Variance as function of mean globally, as observed in distinct, randomly drawn genomic
+    # Variance as function of mean, globally, as observed in distinct, randomly drawn genomic
     # ... blocks. Within each block, it is assumed that an AR(1) process can --on the average--
-    # ... account for a large fraction of real signal, and the residual variance would therefore
-    # ... indicate noise.
+    # ... account for a large fraction of real signal, and the associated fitRSS-based variance
+    # ... would therefore indicate noise.
 
     # (i) For each block `k`, we get one (blockMean_k, blockVar_k) pair, where
     # ... `k=1,2,...,samplingIters`
@@ -1346,64 +1326,38 @@ def getMuncTrack(
         samplingIters,
         randomSeed,
         excludeMaskArr,
+        useInnovationVar=False,
     )
 
     # (ii) Fit mean-variance trend to sampled blocks/pairs
-    sortIdx = np.argsort(np.square(blockMeans, dtype=np.float64))
-    blockMeansSorted = np.square(blockMeans[sortIdx])
+    sortIdx = np.argsort(blockMeans)
+    blockMeansSorted = blockMeans[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
     opt = fitFunc(blockMeansSorted, blockVarsSorted, **fitFuncArgs)
-
+    fittedBlockVars = evalFunc(opt, blockMeansSorted).astype(
+        np.float64, copy=False
+    )
+    fitResidual = blockVarsSorted.astype(np.float64, copy=False) - fittedBlockVars
+    fitRSS = float(np.sum(fitResidual*fitResidual))
+    y_ = blockVarsSorted.astype(np.float64, copy=False)
+    y_mean = float(np.mean(y_))
+    sumSq = float(np.sum((y_ - y_mean) * (y_ - y_mean))) + 1.0e-4
+    globalR2 = 1.0 - (fitRSS / sumSq)
+    Nu_00 = globalR2
+    logger.info(
+        f"Prior mean-variance trend fit: R^2={round(globalR2,4)}"
+    )
     # (iii) At each genomic interval i = 1,2,...,n, sample j's observed value
     # ... is assigned a variance given its 'mean', which is calculated with a
-    # ... moving average (EMA) that has span similar to block sizes used in (i)
+    # ... moving average (EMA) that has an effective window similar to block sizes used in (i)
     globalModelVariances = evalFunc(
-        opt,
-        np.square(valuesArr),
+        opt, cconsenrich.cEMA(valuesArr, localWindow)
     ).astype(np.float32)
 
-    # II: Local model
-    # ... (a) At each genomic interval i = 1,2,...,n, we reference a rolling AR(1)
-    # ... variance approximation within a --local window-- about interval i. This is
-    # ... in contrast to the global model, which draws from distinct random blocks.
-    # ... (b) `sparseMap` is an optional mapping (implemented as a dictionary)
-    # ...    sparseMap(i) --> {F_i1,F_i2,...,F_i{numNearest}}
-    # ... where each F_ij is a 'sparse' genomic region devoid of or mutually exclusive with
-    # ... the targeted signal
-    # ...      `locaModel(i) = max(localModel_{initial}(F_{i,1}, F_{i,2},..., F_{i,numNearest})`
-    # ... FFR: With enough replicates, the local model might be better fit with pointwise sample variances
-    localModelVariances = cconsenrich.clocalAR1Var(
-            valuesArr,
-            localWindow,
-        ).astype(np.float32)
-
-    # if we get a sparse map, we restrict aggregation for the local model to 'sparse features' in sparseMap(i)
-    if sparseMap is not None:
-        localModelVariances = cconsenrich.cSparseMax(
-            localModelVariances.copy(), sparseMap,
-        )
-
-    # III: Combine local and global models
-    # ... `Nu_0` is the 'effective' number of observations, or 'degrees of freedom' that
-    # ... contributed to the global model's estimate...since `samplingIters` (mean, var)
-    # ... pairs were drawn to fit the mean-variance trend, we set Nu_0 accordingly, with a small filter
-    # ... to ignore uninformative blocks
-    # ...
-    # ... We set the local model DF equal to the number of intervals spanning local windows
-    # ... (or the number of local 'sparse' regions, if `sparseMap` is provided`)
-    # ...
-    # ... See :func:`consenrich.cconsenrich.cgetPosteriorMunc` for details.
-    Nu_0: float = np.sqrt(samplingIters) + 2.0
-    muncTrack = cconsenrich.cgetPosteriorMunc(
-        globalModelVariances,
-        localModelVariances,
-        localWindow
-        if sparseMap is None
-        else len(next(iter(sparseMap.values()))),
-        Nu_0,
+    return (
+        np.clip(globalModelVariances, minR, maxR).astype(np.float32),
+        float(Nu_00),
     )
-
-    return np.clip(muncTrack, minR, maxR).astype(np.float32)
 
 
 def sparseIntersection(
@@ -1419,7 +1373,6 @@ def sparseIntersection(
     :type sparseBedFile: str
     :return: A numpy array of start positions of the sparse features that overlap with the intervals
     :rtype: np.ndarray[Tuple[Any], np.dtype[Any]]
-    :seealso: :func:`getSparseMap`, :class:`consenrich.core.observationParams`
     """
 
     stepSize: int = intervals[1] - intervals[0]
@@ -1466,9 +1419,7 @@ def sparseIntersection(
     return np.asarray(centeredStarts, dtype=np.int64)
 
 
-def adjustFeatureBounds(
-    feature: bed.Interval, stepSize: int
-) -> bed.Interval:
+def adjustFeatureBounds(feature: bed.Interval, stepSize: int) -> bed.Interval:
     r"""Adjust the start and end positions of a BED feature to be centered around a step."""
     feature.start = cconsenrich.stepAdjustment(
         (feature.start + feature.end) // 2, stepSize
@@ -1515,16 +1466,12 @@ def getSparseMap(
     if numNearest <= 0:
         return {i: np.empty(0, dtype=np.uint32) for i in range(n)}
     if m == 0:
-        return {
-            i: np.zeros(numNearest, dtype=np.uint32) for i in range(n)
-        }
+        return {i: np.zeros(numNearest, dtype=np.uint32) for i in range(n)}
 
-    idxSparseInIntervals = np.searchsorted(
-        intervals, sparseStarts, side="left"
+    idxSparseInIntervals = np.searchsorted(intervals, sparseStarts, side="left")
+    idxSparseInIntervals = np.clip(idxSparseInIntervals, 0, n - 1).astype(
+        np.uint32, copy=False
     )
-    idxSparseInIntervals = np.clip(
-        idxSparseInIntervals, 0, n - 1
-    ).astype(np.uint32, copy=False)
 
     centers = np.searchsorted(sparseStarts, intervals, side="left")
     centers = np.clip(centers, 0, m - 1).astype(np.int64, copy=False)
@@ -1533,9 +1480,9 @@ def getSparseMap(
     valid = (candidates >= 0) & (candidates < m)
     candidates = np.clip(candidates, 0, m - 1)
 
-    dists = np.abs(
-        sparseStarts[candidates] - intervals[:, None]
-    ).astype(np.float32)
+    dists = np.abs(sparseStarts[candidates] - intervals[:, None]).astype(
+        np.float32
+    )
     dists[~valid] = np.inf
 
     mask = np.argpartition(
@@ -1548,17 +1495,13 @@ def getSparseMap(
     avgNumKept: float = 0.0
     rows = []
     for i in tqdm(range(n), desc="Building sparse map", unit=" intervals "):
-        keep = np.isfinite(chosenDists[i]) & (
-            chosenDists[i] <= distThreshold
-        )
+        keep = np.isfinite(chosenDists[i]) & (chosenDists[i] <= distThreshold)
         kept = mapped[i, keep]
         avgNumKept += kept.size
         if kept.size >= numNearest:
             outRow = kept[:numNearest]
         elif kept.size > 0:
-            outRow = np.pad(
-                kept, (0, numNearest - kept.size), mode="edge"
-            )
+            outRow = np.pad(kept, (0, numNearest - kept.size), mode="edge")
         else:
             nearest = mapped[i, int(np.argmin(chosenDists[i]))]
             outRow = np.full(numNearest, nearest, dtype=np.intp)
@@ -1566,7 +1509,7 @@ def getSparseMap(
         rows.append(outRow.astype(np.intp, copy=False))
     avgNumKept /= n
     logger.info(
-        f"Average number of unique sparse regions mapped per interval: {avgNumKept}"
+        f"Avg. number of unique sparse regions within distThreshold={distThreshold} bp = {avgNumKept}"
     )
     return {i: rows[i] for i in range(n)}
 
@@ -1593,17 +1536,13 @@ def getBedMask(
     if not os.path.exists(bedFile):
         raise ValueError(f"Could not find {bedFile}")
     if len(intervals) < 2:
-        raise ValueError(
-            "intervals must contain at least two positions"
-        )
+        raise ValueError("intervals must contain at least two positions")
     bedFile_ = str(bedFile)
 
     # (possibly redundant) creation of uint32 version
     # + quick check for constant steps
     intervals_ = np.asarray(intervals, dtype=np.uint32)
-    if (intervals_[1] - intervals_[0]) != (
-        intervals_[-1] - intervals_[-2]
-    ):
+    if (intervals_[1] - intervals_[0]) != (intervals_[-1] - intervals_[-2]):
         raise ValueError("Intervals are not fixed in size")
 
     stepSize_: int = intervals[1] - intervals[0]
@@ -1670,9 +1609,7 @@ def autoDeltaF(
         logger.info(f"Setting `processParams.deltaF`={deltaF}")
         return np.float32(deltaF)
     else:
-        raise ValueError(
-            "Average cross-sample fraglen estimation failed"
-        )
+        raise ValueError("Average cross-sample fraglen estimation failed")
 
 
 def _forPlotsSampleBlockStats(
@@ -1760,13 +1697,9 @@ def plotStateEstimatesHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(
-            f"`plotDirectory` {plotDirectory} does not exist"
-        )
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(
-            f"`plotDirectory` {plotDirectory} is not a directory"
-        )
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
 
     plotFileName = os.path.join(
         plotDirectory,
@@ -1779,9 +1712,7 @@ def plotStateEstimatesHistogram(
         statFunction_=statFunction,
         randomSeed_=randomSeed,
     )
-    plt.figure(
-        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI
-    )
+    plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
     plt.hist(
         binnedStateEstimates,
         bins="doane",
@@ -1796,13 +1727,9 @@ def plotStateEstimatesHistogram(
     plt.savefig(plotFileName, dpi=plotDPI)
     plt.close()
     if os.path.exists(plotFileName):
-        logger.info(
-            f"Wrote state estimate histogram to {plotFileName}"
-        )
+        logger.info(f"Wrote state estimate histogram to {plotFileName}")
         return plotFileName
-    logger.warning(
-        f"Failed to create histogram. {plotFileName} not written."
-    )
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
     return None
 
 
@@ -1858,13 +1785,9 @@ def plotResidualsHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(
-            f"`plotDirectory` {plotDirectory} does not exist"
-        )
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(
-            f"`plotDirectory` {plotDirectory} is not a directory"
-        )
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
 
     plotFileName = os.path.join(
         plotDirectory,
@@ -1888,9 +1811,7 @@ def plotResidualsHistogram(
         statFunction_=statFunction,
         randomSeed_=randomSeed,
     )
-    plt.figure(
-        figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI
-    )
+    plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
     plt.hist(
         binnedResiduals,
         bins="doane",
@@ -1907,9 +1828,7 @@ def plotResidualsHistogram(
     if os.path.exists(plotFileName):
         logger.info(f"Wrote residuals histogram to {plotFileName}")
         return plotFileName
-    logger.warning(
-        f"Failed to create histogram. {plotFileName} not written."
-    )
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
     return None
 
 
@@ -1953,13 +1872,9 @@ def plotStateStdHistogram(
     if plotDirectory is None:
         plotDirectory = os.getcwd()
     elif not os.path.exists(plotDirectory):
-        raise ValueError(
-            f"`plotDirectory` {plotDirectory} does not exist"
-        )
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
     elif not os.path.isdir(plotDirectory):
-        raise ValueError(
-            f"`plotDirectory` {plotDirectory} is not a directory"
-        )
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
 
     plotFileName = os.path.join(
         plotDirectory,
@@ -1993,55 +1908,34 @@ def plotStateStdHistogram(
     if os.path.exists(plotFileName):
         logger.info(f"Wrote state std histogram to {plotFileName}")
         return plotFileName
-    logger.warning(
-        f"Failed to create histogram. {plotFileName} not written."
-    )
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
     return None
 
 
-def _textplotMeanVarianceTrend(
-    blockMeans: np.ndarray,
-    blockVars: np.ndarray,
-    blockMeansSorted: np.ndarray,
-    opt: np.ndarray,
-    evalFunc: Callable = None,
-    enabled: bool = True,
-    checkMod: Callable[[str], bool] = _checkMod,
-    maxPoints: int = 10_000,
-) -> None:
-    if not enabled:
-        return
-    if evalFunc is None:
-        evalFunc = _evalFunc
-    try:
-        if not checkMod("plotext"):
-            return
-        import plotext as textplt
-        textplt.canvas_color("white")
+def _NISMomentsLoss(
+    arrNIS: npt.NDArray[np.float64],
+    m_: int,
+    upperBound: float = 5.0,
+) -> float:
+    values = np.asarray(arrNIS, dtype=np.float64)
+    values = values[(values <= upperBound) & (values >= 0.0)]
 
-        n = int(blockMeans.size)
-        if n > maxPoints:
-            idx = np.random.choice(n, size=maxPoints, replace=True)
-            x = blockMeans[idx]
-            y = blockVars[idx]
-        else:
-            x = blockMeans
-            y = blockVars
+    meanNIS = float(np.mean(values))
+    centered: np.ndarray = values - meanNIS
+    secondMoment = float(np.mean(centered * centered))
+    thirdMoment = float(np.mean(centered * centered * centered))
+    _skew = thirdMoment / (secondMoment**1.5)
+    varianceNIS = float(np.var(values))
 
-        logger.info(
-            "\tPlotting mean-variance trend via `plotext`..."
-        )
-        textplt.scatter(x, y, label="(Block Mean, Block Var)")
-        textplt.scatter(
-            blockMeansSorted,
-            evalFunc(opt, blockMeansSorted),
-            label=f"`opt`: {opt}",
-            color="red",
-        )
-        textplt.limit_size(True, True)
-        textplt.show()
-        textplt.clf()
-    except Exception as e:
-        logger.warning(
-            f"Ignoring `textPlotMeanVarianceTrend`:\n{e}\n"
-        )
+    # expected moments are wrt chisq / df, where df = m_
+    expectedMean = 1.0
+    expectedVariance = 2.0 / m_
+    expected_skew = float(np.sqrt(8.0 / m_))
+    epsilon = 1e-4
+
+    return float(
+        ((meanNIS - expectedMean) / (expectedMean + epsilon)) ** 2
+        + ((varianceNIS - expectedVariance) / (expectedVariance + epsilon)) ** 2
+        + ((_skew - expected_skew) / (expected_skew + epsilon)) ** 2
+    )
+

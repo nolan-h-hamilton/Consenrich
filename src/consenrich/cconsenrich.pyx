@@ -176,7 +176,8 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 float[::1] varOutView,
                                 double zeroPenalty,
                                 double zeroThresh,
-                                bint useInnovationVar) noexcept nogil:
+                                bint useInnovationVar,
+                                bint useSampleVar) noexcept nogil:
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
     cdef double value
     cdef double sumX, sumSqX, sumY, sumXY
@@ -189,10 +190,11 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double meanValue
     cdef double pairCountDouble
     cdef double centeredPrev, centeredCurr, oneMinusBetaSq
-    cdef double denom
+    cdef double divRSS
     cdef double* blockPtr
     cdef double oneMinusZeroProp
     cdef double maxBeta = <double>0.99
+    cdef double sampleVar = <double>0.0
 
     for regionIndex in range(meanOutView.shape[0]):
         startIndex = blockStartIndices[regionIndex]
@@ -231,10 +233,14 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
             centeredPrev = centeredCurr
             previousValue = currentValue
-
         pairCountDouble = <double>(blockLength - 1)
-        scaleFac = sumSqX
 
+        if useSampleVar:
+            sumSqX += centeredPrev * centeredPrev # add last element now
+            varOutView[regionIndex] = <float>(sumSqX / (blockLengthDouble - 1.0))
+            continue
+
+        scaleFac = sumSqX
         if fabs(scaleFac) > 1.0e-2:
             beta1 = sumXY / scaleFac
         else:
@@ -262,14 +268,14 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
         oneMinusBetaSq = 1.0 - (beta1 * beta1)
         if useInnovationVar:
-            denom = 1.0
+            divRSS = 1.0
         else:
-            denom = oneMinusBetaSq
+            divRSS = oneMinusBetaSq
 
-        if denom <= 1.0e-8:
+        if divRSS <= 1.0e-8:
             varOutView[regionIndex] = 0.0
         else:
-            varOutView[regionIndex] = <float>(RSS / pairCountDouble / denom)
+            varOutView[regionIndex] = <float>(RSS / pairCountDouble / divRSS)
 
 
 cdef inline float _carsinh_F32(float x) nogil:
@@ -1087,7 +1093,8 @@ cpdef int64_t cgetFragmentLength(
     int64_t randSeed=42,
 ):
 
-    # FFR: standardize, across codebase, random seeding (e.g., np.random.seed vs default_rng)
+    # FFR: this function (as written) has enough python interaction to nearly void benefits of cython
+    # ... either rewrite with helpers for median filter, etc. or move to python for readability
     cdef object rng = default_rng(randSeed)
     cdef int64_t regionLen, numRollSteps
     cdef int numChunks
@@ -1531,7 +1538,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
                           double zeroPenalty=0.0,
                           double zeroThresh=0.0,
-                          bint useInnovationVar = <bint>True):
+                          bint useInnovationVar = <bint>True,
+                          bint useSampleVar = <bint>False):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -1589,7 +1597,7 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     meansView = outMeans
     varsView = outVars
 
-    _regionMeanVar(valuesView, startsView, sizesView, meansView, varsView, zeroPenalty, zeroThresh, useInnovationVar)
+    _regionMeanVar(valuesView, startsView, sizesView, meansView, varsView, zeroPenalty, zeroThresh, useInnovationVar, useSampleVar)
 
     return outMeans, outVars, starts_, ends
 
@@ -1602,7 +1610,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     cdef Py_ssize_t n = xArr.shape[0]
     cdef Py_ssize_t i
     cdef double xMin
-    cdef double x, z, yVal
+    cdef double mu, x, z, yVal
     cdef double sumX = 0.0
     cdef double sumSqX = 0.0
     cdef double sumZ = 0.0
@@ -1623,22 +1631,28 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     cdef double finalErr
     cdef int it, maxIter
     cdef double tol = 1.0e-4
-    xMin = <double>xArr[0] + 1.0e-4
+
+    xMin = 1.0e8
     maxIter = 0
 
     for i in range(n):
-        x = <double>xArr[i]
+        mu = <double>xArr[i]
+        x = mu*mu
         yVal = <double>yArr[i]
         if yVal < 0.0:
             z = 0.0
         else:
             z = yVal
+        if x < xMin:
+            xMin = x
 
         sumX += x
         sumSqX += x*x
         sumZ += z
         sumXZ += x*z
         sumSqZ += z*z
+
+    xMin = xMin + 1.0e-4
 
     numSamples = <double>n
     _solveSystem22(sumSqX, sumX, sumX, numSamples,
@@ -1679,7 +1693,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         optimalIntercept = interceptZero
 
     for i in range(n):
-        xShift = (<double>xArr[i]) - xMin
+        mu = <double>xArr[i]
+        x = mu*mu
+
+        xShift = x - xMin
         yVal = <double>yArr[i]
         if yVal < 0.0:
             yVal = 0.0
@@ -1708,11 +1725,9 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
         optimalSlope = slopeBound
         optimalIntercept = interceptBound
 
-    # FFR: revisit this
-    # ... Our dynamic ranges are practically restricted to 3-10. The following
-    # ... mimics (Abu-mostafa, 1992 NeurIPS) and refits data with a
+    # The following mimics (Abu-mostafa, 1992 NeurIPS) and refits data with a
     # ... --one-sided-- penalty (svm/hinge) via a conservative inequality
-    # ... 'hint' --> floor value
+    # ... 'hint' --> floor value. Note, our dynamic ranges are restricted to 3-10 in practice.
 
     # set maxIters as number of points below the target variance
     # ... this doesn't confer any strong guarantee but is natural
@@ -1720,8 +1735,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
     maxIter = <int>0
     i = <Py_ssize_t>0
     for i in range(n):
-        x = <double>xArr[i]
-        # original estimate B0 + B1*x
+        mu = <double>xArr[i]
+        x = mu*mu
+
+        # original estimate B0 + B1*x^2
         initialVar = optimalIntercept + optimalSlope*x
         penTarget = <double>floorTarget
         if initialVar < penTarget:
@@ -1738,7 +1755,9 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, joint
 
 
             for i in range(n):
-                x = <double>xArr[i]
+                mu = <double>xArr[i]
+                x = mu*mu
+
                 initialVar = optimalIntercept + optimalSlope*x
                 penTarget = <double>floorTarget
                 penLoss = penTarget - initialVar
@@ -1786,7 +1805,7 @@ cpdef cmonotonicFitEval(
     cdef cnp.ndarray[cnp.float32_t, ndim=1] cArr = np.ascontiguousarray(coeffs, dtype=np.float32).ravel()
     cdef double slope = <double>cArr[0]
     cdef double intercept = <double>cArr[1]
-    cdef double z
+    cdef double mu, z
 
     if slope < 0.0:
         slope = 0.0
@@ -1794,56 +1813,13 @@ cpdef cmonotonicFitEval(
         intercept = 0.0
 
     for i in range(n):
-        z = slope*(<double>xView[i]) + intercept
+        mu = <double>xView[i]
+        z = slope*(mu*mu) + intercept
         if z < 0.0:
             z = 0.0
         outView[i] = <float>z
 
     return out
-
-
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cgetPosteriorMunc(
-        float[::1] priorMeanVariances,
-        float[::1] localMeanSquaredSOD,
-        Py_ssize_t windowLength,
-        double prior_Nu):
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] outputArray
-    cdef float[::1] outputView
-
-    cdef Py_ssize_t n
-    cdef Py_ssize_t i
-    cdef double localDF = 0.0
-    cdef double S_theta
-    cdef double S_0
-    cdef double posteriorDF # the 'posterior sample size'
-    cdef double posteriorScale
-    cdef double priorMean
-    cdef double posteriorMean
-
-    n = priorMeanVariances.shape[0]
-    outputArray = np.zeros(n, dtype=np.float32)
-    outputView = outputArray
-
-    with nogil:
-        for i in range(n):
-            if i < 2:
-                localDF = <double>0.0
-            else:
-                localDF = <double>(windowLength if i >= windowLength + 1 else i - 1)
-            # Hoff's notation (chapter 7.3)
-            # ... S_theta is based on local mean-squared second order differences
-            # ... at proximal 'sparse' genomic regions, and S_0 is based the global/prior
-            # ... mean-variance fit
-            S_theta = (<double>localMeanSquaredSOD[i])*localDF
-            priorMean = <double>priorMeanVariances[i]
-            S_0 = (prior_Nu-2) * priorMean
-            posteriorDF = prior_Nu + localDF
-            posteriorScale = fmax(posteriorDF - 2.0, 1.0)
-            posteriorMean = (S_0 + S_theta) / posteriorScale
-            outputView[i] = <float>posteriorMean
-
-    return outputArray
 
 
 cdef bint _cEMA(const double* xPtr, double* outPtr,
@@ -1875,8 +1851,8 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                           float eps_F32=<float>1.0e-4, double eps_F64=<double>1.0e-4,
                           float boundaryEps = <float>0.1,
-                          double leftQ_ = <double>0.75,
-                          double rightQ_ = <double>0.99,
+                          double leftQ_ = <double>0.50,
+                          double rightQ_ = <double>0.995,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False):
     r"""Compute log-scale enrichment versus locally computed backgrounds
@@ -1994,7 +1970,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                             k += 1
                             blockCenterCurr = blockCenterNext
                             blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
-                        # interpolate based on position of the interval relative to neighboring blocks' midpoints
+                        # interpolate based on position of the interval relative to subsequent block's midpoints
                         # [---------block_k---------|---------block_k+1---------]
                         #                <----------|---------->
                         #                  (c < 1/2)|(c > 1/2)
@@ -2087,7 +2063,6 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
         return finalArr__
 
     return None
-
 
 
 cpdef protectCovariance22(object A, double eigFloor=1.0e-4):
@@ -2202,9 +2177,6 @@ cpdef protectCovariance22(object A, double eigFloor=1.0e-4):
                 ptr_F32[1] = <float>(LAM_F32*eigvecProd)
                 ptr_F32[2] = ptr_F32[1]
         return A
-
-    raise TypeError("A.dtype must be float32 or float64")
-
 
 
 cpdef tuple cforwardPass(
@@ -2356,7 +2328,7 @@ cpdef tuple cforwardPass(
         addP00Trace = 1.0 + (<double>stateCovarView[0,0])*sumWeightUU
         weightRank1 = (<double>stateCovarView[0,0]) / addP00Trace
         quadraticForm = sumWeightYY - weightRank1*(sumWeightUY*sumWeightUY)
-        # D stat ~=~ NIS, but possibly defined as median, etc.
+        # D stat ~=~ NIS
         dStatValue = quadraticForm / (<double>trackCount)
         if collectD:
             dStatVector[intervalIndex] = <cnp.float32_t>dStatValue
@@ -2459,9 +2431,6 @@ cpdef tuple cforwardPass(
             progressBar.update(progressRemainder)
 
     if collectD:
-        # currently unused (12162025) but potentially useful
-        # ... for covariance matching, EM-style updates based on
-        # ... NIS stats
         phiHat = float(np.mean(dStatVectorArr))
 
     return (phiHat, adjustmentCount, vectorD)
@@ -2671,7 +2640,7 @@ cpdef tuple cbackwardPass(
     return (stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr)
 
 
-cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.75, double rightQ=<double>0.99):
+cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.50, double rightQ=<double>0.995):
     cdef cnp.ndarray vals_F32
     cdef cnp.ndarray vals_F64
     cdef cnp.ndarray posVals_
@@ -2697,7 +2666,7 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.75, double righ
 
     if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
         vals_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
-        posVals_ = vals_F32
+        posVals_ = vals_F32[vals_F32 > 0.0]
         if posVals_.size == 0:
             return <float>0.0
 
@@ -2744,7 +2713,7 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.75, double righ
         return <float>elbow_
 
     vals_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
-    posVals_ = vals_F64[vals_F64 > 0]
+    posVals_ = vals_F64[vals_F64 > 0.0]
     sortedPositive = np.ascontiguousarray(np.sort(posVals_), dtype=np.float64)
     sortedView_F64 = sortedPositive
     valueCount = sortedView_F64.shape[0]
@@ -2782,129 +2751,3 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.75, double righ
     return <double>elbow_
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalAR1Var(
-        object x,
-        Py_ssize_t windowLength,
-        bint useInnovationVar = <bint>True):
-
-    cdef cnp.ndarray valuesArr64
-    cdef double[::1] valuesView
-    cdef Py_ssize_t n
-    cdef cnp.ndarray sum_accumArray
-    cdef cnp.ndarray sumSq_accumArray
-    cdef cnp.ndarray prodWithLag_accumArray
-    cdef double[::1] sumCum
-    cdef double[::1] sumSqCum
-    cdef double[::1] prodWithLag
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] varOut
-    cdef float[::1] varOutView
-    cdef Py_ssize_t i, k
-    cdef Py_ssize_t leftIndex, rightIndex, halfWindow
-    cdef Py_ssize_t valueCount, pairCount
-    cdef double sumValues, meanValue
-    cdef double sumPrev, sumCurr
-    cdef double sumPrevSq, sumCurrSq
-    cdef double sumLagProd
-    cdef double sumSqX, sumXY
-    cdef double beta
-    cdef double maxBeta = 0.99
-    cdef double tmp0, tmp1, oneMinusBeta
-    cdef double RSS
-    cdef double oneMinusBetaSq
-    cdef double denom
-    cdef double localVariance
-
-    valuesArr64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
-    valuesView = valuesArr64
-    n = valuesView.shape[0]
-    varOut = np.zeros(n, dtype=np.float32)
-    varOutView = varOut
-
-    if n <= 1:
-        return varOut
-
-    sum_accumArray = np.empty(n + 1, dtype=np.float64)
-    sumSq_accumArray = np.empty(n + 1, dtype=np.float64)
-    prodWithLag_accumArray = np.empty(n + 1, dtype=np.float64)
-
-    sumCum = sum_accumArray
-    sumSqCum = sumSq_accumArray
-    prodWithLag = prodWithLag_accumArray
-
-    halfWindow = windowLength // 2
-
-    with nogil:
-        sumCum[0] = 0.0
-        sumSqCum[0] = 0.0
-        prodWithLag[0] = 0.0
-
-        for k in range(n):
-            sumCum[k + 1] = sumCum[k] + valuesView[k]
-            sumSqCum[k + 1] = sumSqCum[k] + (valuesView[k] * valuesView[k])
-
-        prodWithLag[1] = 0.0
-        for k in range(1, n):
-            prodWithLag[k + 1] = prodWithLag[k] + (valuesView[k - 1] * valuesView[k])
-
-        for i in range(n):
-            leftIndex = i - halfWindow
-            if leftIndex < 0:
-                leftIndex = 0
-            rightIndex = i + halfWindow
-            if rightIndex >= n:
-                rightIndex = n - 1
-
-            valueCount = rightIndex - leftIndex + 1
-            if valueCount < 2:
-                varOutView[i] = <float>0.0
-                continue
-
-            pairCount = valueCount - 1
-
-            sumValues = sumCum[rightIndex + 1] - sumCum[leftIndex]
-            meanValue = sumValues / (<double>valueCount)
-
-            sumPrev = sumCum[rightIndex] - sumCum[leftIndex]
-            sumCurr = sumCum[rightIndex + 1] - sumCum[leftIndex + 1]
-            sumPrevSq = sumSqCum[rightIndex] - sumSqCum[leftIndex]
-            sumCurrSq = sumSqCum[rightIndex + 1] - sumSqCum[leftIndex + 1]
-            sumLagProd = prodWithLag[rightIndex + 1] - prodWithLag[leftIndex + 1]
-
-            sumSqX = sumPrevSq - 2.0 * meanValue * sumPrev + (<double>pairCount) * (meanValue * meanValue)
-            sumXY = sumLagProd - meanValue * sumPrev - meanValue * sumCurr + (<double>pairCount) * meanValue * meanValue
-
-            if fabs(sumSqX) > 1.0e-4:
-                beta = sumXY / sumSqX
-            else:
-                beta = 0.0
-
-            if beta > maxBeta:
-                beta = maxBeta
-            elif beta < -maxBeta:
-                beta = -maxBeta
-
-            tmp0 = sumCurrSq - 2.0 * (beta * sumLagProd) + (beta * beta) * sumPrevSq
-            tmp1 = sumCurr - beta * sumPrev
-            oneMinusBeta = 1.0 - beta
-
-            RSS = tmp0 - (2.0 * (oneMinusBeta * meanValue) * tmp1
-                          + (<double>pairCount) * (oneMinusBeta * oneMinusBeta) * (meanValue * meanValue))
-            if RSS < 0.0:
-                RSS = 0.0
-
-            oneMinusBetaSq = 1.0 - (beta * beta)
-
-            if useInnovationVar:
-                denom = 1.0
-            else:
-                denom = oneMinusBetaSq
-
-            if denom <= 1.0e-4:
-                varOutView[i] = <float>0.0
-            else:
-                localVariance = (RSS / (<double>pairCount)) / denom
-                if localVariance < 0.0:
-                    localVariance = 0.0
-                varOutView[i] = <float>localVariance
-
-    return varOut

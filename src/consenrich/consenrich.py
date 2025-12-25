@@ -59,9 +59,7 @@ def _resolveFragmentLengthPairs(
 
     if controlFragmentLengths:
         if len(controlFragmentLengths) == 1 and n_treat > 1:
-            controlFragmentLengths = (
-                list(controlFragmentLengths) * n_treat
-            )
+            controlFragmentLengths = list(controlFragmentLengths) * n_treat
             logger.info(
                 "Only one control fragment length provided: broadcasting this value for all control BAM files."
             )
@@ -158,14 +156,9 @@ def getReadLengths(
     :return: List of read lengths for each BAM file.
     """
     if not inputArgs.bamFiles:
-        raise ValueError(
-            "No BAM files provided in the input arguments."
-        )
+        raise ValueError("No BAM files provided in the input arguments.")
 
-    if (
-        not isinstance(inputArgs.bamFiles, list)
-        or len(inputArgs.bamFiles) == 0
-    ):
+    if not isinstance(inputArgs.bamFiles, list) or len(inputArgs.bamFiles) == 0:
         raise ValueError("bam files list is empty")
 
     return [
@@ -229,9 +222,7 @@ def getInputArgs(config_path: str) -> core.inputParams:
                 expandedList.append(bamEntry)
         return expandedList
 
-    bamFilesRaw = (
-        _cfgGet(configData, "inputParams.bamFiles", []) or []
-    )
+    bamFilesRaw = _cfgGet(configData, "inputParams.bamFiles", []) or []
     bamFilesControlRaw = (
         _cfgGet(configData, "inputParams.bamFilesControl", []) or []
     )
@@ -240,9 +231,7 @@ def getInputArgs(config_path: str) -> core.inputParams:
     bamFilesControl = expandWildCards(bamFilesControlRaw)
 
     if len(bamFiles) == 0:
-        raise ValueError(
-            "No BAM files provided in the configuration."
-        )
+        raise ValueError("No BAM files provided in the configuration.")
 
     if (
         len(bamFilesControl) > 0
@@ -342,15 +331,11 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
     )
 
     if genomeLabel:
-        chromSizesFile = constants.getGenomeResourceFile(
-            genomeLabel, "sizes"
-        )
+        chromSizesFile = constants.getGenomeResourceFile(genomeLabel, "sizes")
         blacklistFile = constants.getGenomeResourceFile(
             genomeLabel, "blacklist"
         )
-        sparseBedFile = constants.getGenomeResourceFile(
-            genomeLabel, "sparse"
-        )
+        sparseBedFile = constants.getGenomeResourceFile(genomeLabel, "sparse")
 
     chromSizesOverride = _cfgGet(
         configData, "genomeParams.chromSizesFile", None
@@ -358,15 +343,11 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
     if chromSizesOverride:
         chromSizesFile = chromSizesOverride
 
-    blacklistOverride = _cfgGet(
-        configData, "genomeParams.blacklistFile", None
-    )
+    blacklistOverride = _cfgGet(configData, "genomeParams.blacklistFile", None)
     if blacklistOverride:
         blacklistFile = blacklistOverride
 
-    sparseOverride = _cfgGet(
-        configData, "genomeParams.sparseBedFile", None
-    )
+    sparseOverride = _cfgGet(configData, "genomeParams.sparseBedFile", None)
     if sparseOverride:
         sparseBedFile = sparseOverride
 
@@ -375,9 +356,7 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
             f"Chromosome sizes file {chromSizesFile} does not exist."
         )
 
-    chromosomesConfig = _cfgGet(
-        configData, "genomeParams.chromosomes", None
-    )
+    chromosomesConfig = _cfgGet(configData, "genomeParams.chromosomes", None)
     if chromosomesConfig is not None:
         chromosomesList = chromosomesConfig
     else:
@@ -468,25 +447,21 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundWindowSizeBP = _cfgGet(
         configData,
         "countingParams.backgroundWindowSizeBP",
-        min(max(1000*stepSize, 50_000), 250_000), # other values may work but haven't been tested
+        min(
+            max(1000 * stepSize, 50_000), 250_000
+        ),  # other values may work but haven't been tested
     )
-    scaleFactorList = _cfgGet(
-        configData, "countingParams.scaleFactors", None
-    )
+    scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(
         configData, "countingParams.scaleFactorsControl", None
     )
-    if scaleFactorList is not None and not isinstance(
-        scaleFactorList, list
-    ):
+    if scaleFactorList is not None and not isinstance(scaleFactorList, list):
         raise ValueError("`scaleFactors` should be a list of floats.")
 
     if scaleFactorsControlList is not None and not isinstance(
         scaleFactorsControlList, list
     ):
-        raise ValueError(
-            "`scaleFactorsControl` should be a list of floats."
-        )
+        raise ValueError("`scaleFactorsControl` should be a list of floats.")
 
     if (
         scaleFactorList is not None
@@ -524,12 +499,8 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         None,
     )
 
-    if fragmentLengths is not None and not isinstance(
-        fragmentLengths, list
-    ):
-        raise ValueError(
-            "`fragmentLengths` should be a list of integers."
-        )
+    if fragmentLengths is not None and not isinstance(fragmentLengths, list):
+        raise ValueError("`fragmentLengths` should be a list of integers.")
     if fragmentLengthsControl is not None and not isinstance(
         fragmentLengthsControl, list
     ):
@@ -568,14 +539,10 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     )
 
 
-def getPlotArgs(
-    config_path: str, experimentName: str
-) -> core.plotParams:
+def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     configData = loadConfig(config_path)
 
-    plotPrefix_ = _cfgGet(
-        configData, "plotParams.plotPrefix", experimentName
-    )
+    plotPrefix_ = _cfgGet(configData, "plotParams.plotPrefix", experimentName)
 
     plotStateEstimatesHistogram_ = _cfgGet(
         configData,
@@ -616,9 +583,7 @@ def getPlotArgs(
     plotDirectory_ = _cfgGet(
         configData,
         "plotParams.plotDirectory",
-        os.path.join(
-            os.getcwd(), f"{experimentName}_consenrichPlots"
-        ),
+        os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
     )
 
     if (
@@ -641,12 +606,8 @@ def getPlotArgs(
         elif plotDirectory_ is None:
             plotDirectory_ = os.getcwd()
 
-        elif os.path.exists(plotDirectory_) and os.path.isdir(
-            plotDirectory_
-        ):
-            logger.warning(
-                f"Using existing plot directory: {plotDirectory_}"
-            )
+        elif os.path.exists(plotDirectory_) and os.path.isdir(plotDirectory_):
+            logger.warning(f"Using existing plot directory: {plotDirectory_}")
         else:
             logger.warning(
                 f"Failed creating/identifying {plotDirectory_}...Using CWD."
@@ -748,14 +709,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     pairedEndDefault = (
         1
-        if inputParams.pairedEnd is not None
-        and int(inputParams.pairedEnd) > 0
+        if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) > 0
         else 0
     )
     inferFragmentDefault = (
         1
-        if inputParams.pairedEnd is not None
-        and int(inputParams.pairedEnd) == 0
+        if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) == 0
         else 0
     )
 
@@ -776,9 +735,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "samParams.inferFragmentLength",
             inferFragmentDefault,
         ),
-        countEndsOnly=_cfgGet(
-            configData, "samParams.countEndsOnly", False
-        ),
+        countEndsOnly=_cfgGet(configData, "samParams.countEndsOnly", False),
         minMappingQuality=minMappingQuality,
         minTemplateLength=_cfgGet(
             configData,
@@ -788,12 +745,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     )
 
     matchingArgs = core.matchingParams(
-        templateNames=_cfgGet(
-            configData, "matchingParams.templateNames", []
-        ),
-        cascadeLevels=_cfgGet(
-            configData, "matchingParams.cascadeLevels", []
-        ),
+        templateNames=_cfgGet(configData, "matchingParams.templateNames", []),
+        cascadeLevels=_cfgGet(configData, "matchingParams.cascadeLevels", []),
         iters=_cfgGet(configData, "matchingParams.iters", 25_000),
         alpha=_cfgGet(configData, "matchingParams.alpha", 0.05),
         minMatchLengthBP=_cfgGet(
@@ -828,9 +781,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             matchingExcludeRegionsFileDefault,
         ),
         randSeed=_cfgGet(configData, "matchingParams.randSeed", 42),
-        penalizeBy=_cfgGet(
-            configData, "matchingParams.penalizeBy", None
-        ),
+        penalizeBy=_cfgGet(configData, "matchingParams.penalizeBy", None),
         eps=_cfgGet(configData, "matchingParams.eps", 1.0e-2),
         autoLengthQuantile=_cfgGet(
             configData,
@@ -880,9 +831,7 @@ def convertBedGraphToBigWig(
         "OR install via conda (conda install -c bioconda ucsc-bedgraphtobigwig)."
     )
 
-    logger.info(
-        "Attempting to generate bigWig files from bedGraph format..."
-    )
+    logger.info("Attempting to generate bigWig files from bedGraph format...")
     try:
         path_ = shutil.which("bedGraphToBigWig")
     except Exception as e:
@@ -893,9 +842,7 @@ def convertBedGraphToBigWig(
         return
     logger.info(f"Using bedGraphToBigWig from {path_}")
     for suffix in suffixes:
-        bedgraph = (
-            f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
-        )
+        bedgraph = f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
         if not os.path.exists(bedgraph):
             logger.warning(
                 f"bedGraph file {bedgraph} does not exist. Skipping bigWig conversion."
@@ -918,9 +865,7 @@ def convertBedGraphToBigWig(
             )
             continue
         if os.path.exists(bigwig) and os.path.getsize(bigwig) > 100:
-            logger.info(
-                f"Finished: converted {bedgraph} to {bigwig}."
-            )
+            logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
 
 
 def main():
@@ -1133,14 +1078,11 @@ def main():
 
     if args.verbose:
         try:
-            logger.info(
-                f"Consenrich v{__version__}: Initial Configuration\n"
-            )
+            logger.info(f"Consenrich v{__version__}: Initial Configuration\n")
             config_truncated = {
                 k: v
                 for k, v in config.items()
-                if k
-                not in ["inputArgs", "genomeArgs", "countingArgs"]
+                if k not in ["inputArgs", "genomeArgs", "countingArgs"]
             }
             config_truncated["experimentName"] = experimentName
             config_truncated["inputArgs"] = inputArgs
@@ -1165,9 +1107,7 @@ def main():
     controlsPresent = checkControlsPresent(inputArgs)
     if args.verbose:
         logger.info(f"controlsPresent: {controlsPresent}")
-    readLengthsBamFiles = getReadLengths(
-        inputArgs, countingArgs, samArgs
-    )
+    readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
     effectiveGenomeSizes = getEffectiveGenomeSizes(
         genomeArgs, readLengthsBamFiles
     )
@@ -1208,16 +1148,12 @@ def main():
             for bamFile in bamFilesControl
         ]
         effectiveGenomeSizesControl = [
-            constants.getEffectiveGenomeSize(
-                genomeArgs.genomeName, readLength
-            )
+            constants.getEffectiveGenomeSize(genomeArgs.genomeName, readLength)
             for readLength in readLengthsControlBamFiles
         ]
 
         if countingArgs.fragmentLengthsControl is not None:
-            fragmentLengthsControl = list(
-                countingArgs.fragmentLengthsControl
-            )
+            fragmentLengthsControl = list(countingArgs.fragmentLengthsControl)
         elif not countingArgs.useTreatmentFragmentLengths:
             for bamFile in bamFilesControl:
                 fragmentLengthsControl.append(
@@ -1242,10 +1178,7 @@ def main():
                 )
             )
 
-        if (
-            scaleFactors is not None
-            and scaleFactorsControl is not None
-        ):
+        if scaleFactors is not None and scaleFactorsControl is not None:
             treatScaleFactors = scaleFactors
             controlScaleFactors = scaleFactorsControl
             # still make sure this is accessible
@@ -1348,15 +1281,11 @@ def main():
         chromosomeStart = max(
             0, (chromosomeStart - (chromosomeStart % stepSize))
         )
-        chromosomeEnd = max(
-            0, (chromosomeEnd - (chromosomeEnd % stepSize))
-        )
+        chromosomeEnd = max(0, (chromosomeEnd - (chromosomeEnd % stepSize)))
         numIntervals = (
             ((chromosomeEnd - chromosomeStart) + stepSize) - 1
         ) // stepSize
-        intervals = np.arange(
-            chromosomeStart, chromosomeEnd, stepSize
-        )
+        intervals = np.arange(chromosomeStart, chromosomeEnd, stepSize)
 
         if c_ == 0 and deltaF_ < 0:
             logger.info(
@@ -1371,6 +1300,10 @@ def main():
         chromMat: np.ndarray = np.empty(
             (numSamples, numIntervals), dtype=np.float32
         )
+        muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
+        priorStrengths = []
+        sparseMap = None
+
         if controlsPresent:
             j_: int = 0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
@@ -1408,15 +1341,33 @@ def main():
                 chromMat[j_, :] = cconsenrich.carsinhRatio(
                     pairMatrix[0, :],
                     countingArgs.backgroundWindowSizeBP,
-                    countingArgs.backgroundWindowSizeBP,
                     disableLocalBackground=True,
-                    disableBackground=True,
                 ) - cconsenrich.carsinhRatio(
                     pairMatrix[1, :],
                     countingArgs.backgroundWindowSizeBP,
                     disableLocalBackground=True,
-                    disableBackground=True,
                 )
+
+                trtMunc, trtDF = core.getMuncTrack(
+                    chromosome,
+                    intervals,
+                    pairMatrix[0, :],
+                    stepSize,
+                    minR_,
+                    maxR_,
+                    randomSeed=42 + j_,
+                )
+                ctrlMunc, ctrlDF = core.getMuncTrack(
+                    chromosome,
+                    intervals,
+                    pairMatrix[1, :],
+                    stepSize,
+                    minR_,
+                    maxR_,
+                    randomSeed=42 + j_,
+                )
+                muncMat[j_, :] = trtMunc + ctrlMunc
+                priorStrengths.append(trtDF)
                 j_ += 1
         else:
             chromMat = core.readBamSegments(
@@ -1439,19 +1390,6 @@ def main():
                 minTemplateLength=samArgs.minTemplateLength,
                 fragmentLengths=fragmentLengthsTreatment,
             )
-        sparseMap = None
-        if (
-            genomeArgs.sparseBedFile
-            and (not genomeArgs.sparseBedFile.lower() in ["none", "false"])):
-            logger.info(
-                f"Building mapping from {genomeArgs.sparseBedFile}..."
-            )
-            sparseMap = core.getSparseMap(
-                chromosome,
-                intervals,
-                numNearest,
-                genomeArgs.sparseBedFile,
-            )
 
         # negative --> data-based
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
@@ -1461,37 +1399,35 @@ def main():
             minQ_ = 0.0
             maxQ_ = 1e4
 
-        muncMat = np.empty_like(chromMat, dtype=np.float32)
-        for j in range(numSamples):
+
+        for j in tqdm(range(numSamples), desc="Transforming data", unit=" sample "):
             if not controlsPresent:
                 chromMat[j, :] = cconsenrich.carsinhRatio(
                     chromMat[j, :],
                     countingArgs.backgroundWindowSizeBP,
                 )
 
-            # compute munc track for each sample independently
-            muncMat[j, :] = core.getMuncTrack(
-                chromosome,
-                intervals,
-                chromMat[j, :],
-                stepSize,
-                minR_,
-                maxR_,
-                sparseMap,
-                randomSeed=42 + j,
-                textPlotMeanVarianceTrend=args.verbose2,
-            )
+                # compute munc track for each sample independently
+                muncMat[j, :], pDF = core.getMuncTrack(
+                    chromosome,
+                    intervals,
+                    chromMat[j, :],
+                    stepSize,
+                    minR_,
+                    maxR_,
+                    randomSeed=42 + j,
+                    textPlotMeanVarianceTrend=args.verbose2,
+                )
+                priorStrengths.append(pDF)
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             kappa = 100.0  # conditioning given f32
-            minR_ = np.float32(
-                np.quantile(muncMat[muncMat > 0], 0.05)
-            )
+            minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.005) + 1.0e-3)
 
             colMax = muncMat.max(axis=0).astype(np.float32)
-            colMin = np.maximum(
-                muncMat.min(axis=0), (colMax / kappa)
-            ).astype(np.float32)
+            colMin = np.maximum(muncMat.min(axis=0), (colMax / kappa)).astype(
+                np.float32
+            )
 
             np.clip(muncMat, colMin, colMax, out=muncMat)
             muncMat += muncEps
@@ -1501,17 +1437,9 @@ def main():
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(
-                    np.quantile(muncMat[muncMat > 0], 0.05)
-                )
-            # heuristic to keep us PD, on scale, growing with model's deltaF
-            autoMinQ = min(
-                (minR_ * deltaF_) / numSamples
-                + 2.0 * offDiagQ_
-                + 1.0e-4,
-                0.01,
-            )
+                minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.005) + 1.0e-3)
 
+            autoMinQ = (minR_ * deltaF_)/numSamples + (2.0 * offDiagQ_) + 1.0e-3
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1524,7 +1452,7 @@ def main():
             maxQ_ = np.float32(max(maxQ_, minQ_))
 
         logger.info(f">>>Running consenrich: {chromosome}<<<")
-        x, P, y = core.runConsenrich(
+        x, P, y, _ = core.runConsenrich(
             chromMat,
             muncMat,
             deltaF_,
@@ -1542,8 +1470,8 @@ def main():
             stateArgs.stateUpperBound,
             samArgs.chunkSize,
             progressIter=25_000,
+            priorStrengths=np.array(priorStrengths, dtype=np.float32),
         )
-        logger.info("Done.")
         logger.info(f"minQ={minQ_}, minR={minR_}")
         x_ = core.getPrimaryState(
             x,
@@ -1611,15 +1539,10 @@ def main():
         if outputArgs.writeStateStd:
             suffixes.append("stdDevs")
 
-        if (c_ == 0 and len(chromosomes) > 1) or (
-            len(chromosomes) == 1
-        ):
+        if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):
-                if file_.startswith(
-                    f"consenrichOutput_{experimentName}"
-                ) and (
-                    file_.endswith(".bedGraph")
-                    or file_.endswith(".narrowPeak")
+                if file_.startswith(f"consenrichOutput_{experimentName}") and (
+                    file_.endswith(".bedGraph") or file_.endswith(".narrowPeak")
                 ):
                     logger.warning(f"Overwriting: {file_}")
                     os.remove(file_)
