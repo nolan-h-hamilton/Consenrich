@@ -527,6 +527,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         True,
     )
 
+    fixControl_ = _cfgGet(
+        configData,
+        "countingParams.fixControl",
+        True,
+    )
+
     return core.countingParams(
         stepSize=stepSize,
         backgroundWindowSizeBP=backgroundWindowSizeBP,
@@ -536,6 +542,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fragmentLengths=fragmentLengths,
         fragmentLengthsControl=fragmentLengthsControl,
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
+        fixControl=fixControl_,
     )
 
 
@@ -1215,8 +1222,8 @@ def main():
                     chromSizes,
                     samArgs.samThreads,
                     stepSize,
-                    False,
                     normMethod=countingArgs.normMethod,
+                    fixControl=countingArgs.fixControl,
                 )
                 for bamFileA, bamFileB, effectiveGenomeSizeA, effectiveGenomeSizeB, readLengthA, readLengthB in zip(
                     bamFiles,
@@ -1227,7 +1234,6 @@ def main():
                     fragmentLengthsControl,
                 )
             ]
-
             treatScaleFactors = []
             controlScaleFactors = []
             for scaleFactorA, scaleFactorB in pairScalingFactors:
@@ -1302,7 +1308,9 @@ def main():
         )
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
         sparseMap = None
-
+        backgroundWindowSizeIntervals: int = max(
+            2, int(countingArgs.backgroundWindowSizeBP // stepSize)
+        )
         if controlsPresent:
             j_: int = 0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
@@ -1310,6 +1318,7 @@ def main():
                     f"Counting (trt,ctrl) for {chromosome}: ({bamA}, {bamB})"
                     "...Background will be estimated with control inputs."
                 )
+
                 pairMatrix: np.ndarray = core.readBamSegments(
                     [bamA, bamB],
                     chromosome,
@@ -1336,36 +1345,37 @@ def main():
                         fragmentLengthsControl[j_],
                     ],
                 )
-                # local/interpolated EMA backgrounds disabled if control inputs present
+
                 chromMat[j_, :] = cconsenrich.carsinhRatio(
                     pairMatrix[0, :],
-                    countingArgs.backgroundWindowSizeBP,
-                    disableLocalBackground=True,
+                    backgroundWindowSizeIntervals,
+                    disableBackground=True,
                 ) - cconsenrich.carsinhRatio(
                     pairMatrix[1, :],
-                    countingArgs.backgroundWindowSizeBP,
-                    disableLocalBackground=True,
+                    backgroundWindowSizeIntervals,
+                    disableBackground=True,
                 )
 
-                trtMunc, _= core.getMuncTrack(
-                    chromosome,
-                    intervals,
-                    pairMatrix[0, :],
-                    stepSize,
-                    minR_,
-                    maxR_,
-                    randomSeed=42 + j_,
+                muncMat[j_, :] = (
+                    core.getMuncTrack(
+                        chromosome,
+                        intervals,
+                        pairMatrix[0, :],
+                        stepSize,
+                        minR_,
+                        maxR_,
+                        randomSeed=42 + j_,
+                    )[0]
+                    + core.getMuncTrack(
+                        chromosome,
+                        intervals,
+                        pairMatrix[1, :],
+                        stepSize,
+                        minR_,
+                        maxR_,
+                        randomSeed=52 + j_,
+                    )[0]
                 )
-                ctrlMunc, _ = core.getMuncTrack(
-                    chromosome,
-                    intervals,
-                    pairMatrix[1, :],
-                    stepSize,
-                    minR_,
-                    maxR_,
-                    randomSeed=42 + j_,
-                )
-                muncMat[j_, :] = trtMunc + ctrlMunc
                 j_ += 1
         else:
             chromMat = core.readBamSegments(
@@ -1397,12 +1407,14 @@ def main():
             minQ_ = 0.0
             maxQ_ = 1e4
 
-
-        for j in tqdm(range(numSamples), desc="Transforming data", unit=" sample "):
+        for j in tqdm(
+            range(numSamples), desc="Transforming data", unit=" sample "
+        ):
+            # if controlsPresent, already done above
             if not controlsPresent:
                 chromMat[j, :] = cconsenrich.carsinhRatio(
                     chromMat[j, :],
-                    countingArgs.backgroundWindowSizeBP,
+                    backgroundWindowSizeIntervals,
                 )
 
                 # compute munc track for each sample independently
@@ -1414,12 +1426,11 @@ def main():
                     minR_,
                     maxR_,
                     randomSeed=42 + j,
-                    textPlotMeanVarianceTrend=args.verbose2,
                 )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            kappa = 100.0  # conditioning given f32
-            minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.005) + 1.0e-3)
+            kappa = 1000.0  # conditioning given f32
+            minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.01))
 
             colMax = muncMat.max(axis=0).astype(np.float32)
             colMin = np.maximum(muncMat.min(axis=0), (colMax / kappa)).astype(
@@ -1433,9 +1444,9 @@ def main():
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.005) + 1.0e-3)
+                minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.01))
 
-            autoMinQ = (minR_ * deltaF_)/numSamples + (2.0 * offDiagQ_) + 1.0e-3
+            autoMinQ = (2.0 * offDiagQ_) + (0.01 * minR_)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:

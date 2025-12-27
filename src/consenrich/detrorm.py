@@ -122,35 +122,38 @@ def getPairScaleFactors(
     chromSizesFile: str,
     samThreads: int,
     stepSize: int,
-    scaleDown: bool = False,
     normMethod: str = "EGS",
+    fixControl: bool = True,
 ) -> Tuple[float, float]:
-    r"""Get scaling constants that normalize two alignment files to each other (e.g. ChIP-seq treatment and control) with respect to sequence coverage.
+    r"""Scale treatment:control data based on effective genome size or reads per million.
 
-    :param bamFileA: Path to the first BAM file.
+    :param bamFileA: Alignment file for the 'treatment' sample.
     :type bamFileA: str
-    :param bamFileB: Path to the second BAM file.
+    :param bamFileB: Alignment file for the 'control' sample (e.g., input).
     :type bamFileB: str
-    :param effectiveGenomeSizeA: Effective genome size for the first BAM file.
+    :param effectiveGenomeSizeA: Effective genome size for the treatment sample.
     :type effectiveGenomeSizeA: int
-    :param effectiveGenomeSizeB: Effective genome size for the second BAM file.
+    :param effectiveGenomeSizeB: Effective genome size for the control sample.
     :type effectiveGenomeSizeB: int
-    :param readLengthA: read length or fragment length for the first BAM file.
+    :param readLengthA: Read or fragment length for the treatment sample.
     :type readLengthA: int
-    :param readLengthB: read length or fragment length for the second BAM file.
+    :param readLengthB: Read or fragment length for the control sample.
     :type readLengthB: int
     :param excludeChroms: List of chromosomes to exclude from the analysis.
     :type excludeChroms: List[str]
     :param chromSizesFile: Path to the chromosome sizes file.
     :type chromSizesFile: str
-    :param samThreads: Number of threads to use for reading BAM files.
+    :param samThreads: See :class:`consenrich.core.samParams`.
     :type samThreads: int
-    :param normMethod: Normalization method to use ("RPKM" or "EGS").
+    :param stepSize: Step size for coverage calculation.
+    :param: normMethod: Normalization method to use ("EGS" or "RPKM").
     :type normMethod: str
-    :return: A tuple containing the scale factors for the first and second BAM files.
+    :param fixControl: If True, the treatment sample is 
+    :type fixControl: bool
+    :return: Tuple of scale factors for treatment and control samples.
     :rtype: Tuple[float, float]
     """
-    # RPKM
+
     if normMethod.upper() == "RPKM":
         scaleFactorA = getScaleFactorPerMillion(
             bamFileA,
@@ -162,72 +165,50 @@ def getPairScaleFactors(
             excludeChroms,
             stepSize,
         )
-        logger.info(
-            f"Initial scale factors (per million): {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
-        )
-
-        if not scaleDown:
-            return scaleFactorA, scaleFactorB
-        coverageA = 1 / scaleFactorA
-        coverageB = 1 / scaleFactorB
-        if coverageA < coverageB:
-            scaleFactorB *= coverageA / coverageB
-            scaleFactorA = 1.0
-        else:
-            scaleFactorA *= coverageB / coverageA
-            scaleFactorB = 1.0
-
-        logger.info(
-            f"Final scale factors (per million): {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
-        )
-
-        ratio = max(scaleFactorA, scaleFactorB) / min(
-            scaleFactorA, scaleFactorB
-        )
-        if ratio > 5.0:
-            logger.warning(
-                f"Scale factors differ > 5x....\n"
-                f"\n\tAre read/fragment lengths {readLengthA},{readLengthB} correct?"
-            )
-        return scaleFactorA, scaleFactorB
-
-    # EGS normalization
-    scaleFactorA = getScaleFactor1x(
-        bamFileA,
-        effectiveGenomeSizeA,
-        readLengthA,
-        excludeChroms,
-        chromSizesFile,
-        samThreads,
-    )
-    scaleFactorB = getScaleFactor1x(
-        bamFileB,
-        effectiveGenomeSizeB,
-        readLengthB,
-        excludeChroms,
-        chromSizesFile,
-        samThreads,
-    )
-    logger.info(
-        f"Initial scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
-    )
-    if not scaleDown:
-        return scaleFactorA, scaleFactorB
-    coverageA = 1 / scaleFactorA
-    coverageB = 1 / scaleFactorB
-    if coverageA < coverageB:
-        scaleFactorB *= coverageA / coverageB
-        scaleFactorA = 1.0
     else:
-        scaleFactorA *= coverageB / coverageA
+        scaleFactorA = getScaleFactor1x(
+            bamFileA,
+            effectiveGenomeSizeA,
+            readLengthA,
+            excludeChroms,
+            chromSizesFile,
+            samThreads,
+        )
+        scaleFactorB = getScaleFactor1x(
+            bamFileB,
+            effectiveGenomeSizeB,
+            readLengthB,
+            excludeChroms,
+            chromSizesFile,
+            samThreads,
+        )
+
+    coverageA = 1.0 / scaleFactorA if scaleFactorA > 0.0 else 0.0
+    coverageB = 1.0 / scaleFactorB if scaleFactorB > 0.0 else 0.0
+
+    if fixControl:
+        # keep control full depth, never scale it down, never scale it up
         scaleFactorB = 1.0
 
-    logger.info(
-        f"Final scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
-    )
+        # only downscale treatment to the (unscaled) control, never upscale treatment
+        if coverageA > coverageB and coverageA > 0.0:
+            scaleFactorA = scaleFactorA * (coverageB / coverageA)
+        else:
+            scaleFactorA = 1.0
+    else:
+        # downscale higher --> lower (regardless of treatment/control status)
+        if coverageA > coverageB and coverageA > 0.0:
+            scaleFactorA = scaleFactorA * (coverageB / coverageA)
+            scaleFactorB = 1.0
+        elif coverageB > coverageA and coverageB > 0.0:
+            scaleFactorB = scaleFactorB * (coverageA / coverageB)
+            scaleFactorA = 1.0
+        else:
+            scaleFactorA = 1.0
+            scaleFactorB = 1.0
 
-    ratio = max(scaleFactorA, scaleFactorB) / min(
-        scaleFactorA, scaleFactorB
+    ratio = max(scaleFactorA, scaleFactorB) / max(
+        1.0e-12, min(scaleFactorA, scaleFactorB)
     )
     if ratio > 5.0:
         logger.warning(
@@ -235,4 +216,5 @@ def getPairScaleFactors(
             f"\n\tAre effective genome sizes {effectiveGenomeSizeA} and {effectiveGenomeSizeB} correct?"
             f"\n\tAre read/fragment lengths {readLengthA},{readLengthB} correct?"
         )
+
     return scaleFactorA, scaleFactorB

@@ -13,7 +13,6 @@ from scipy import ndimage
 cimport numpy as cnp
 from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
-from libc.float cimport DBL_EPSILON
 from numpy.random import default_rng
 from cython.parallel import prange
 from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor
@@ -131,44 +130,6 @@ cdef inline bint _projectToBox(
     return <bint>1
 
 
-cdef inline bint _solveSystem22(
-    double a00, double a01, double a10, double a11,
-    double b0, double b1,
-    double* x0, double* x1
-) noexcept nogil:
-    # CALLERS: `cmonotonicFit`
-
-    cdef double det = (a00*a11) - (a01*a10)
-    if fabs(det) < 1.0e-4:
-        x0[0] = 0.0
-        x1[0] = b1 / a11 if fabs(a11) > 1.0e-8 else 0.0
-        return <bint>1
-    x0[0] = ( b0*a11 - a01*b1) / det
-    x1[0] = (-b0*a10 + a00*b1) / det
-    return <bint>0
-
-
-cdef inline double _loss(
-    double slope, double intercept,
-    double sumX, double sumSqX,
-    double sumZ, double sumXZ,
-    double sumSqZ, double numSamples,
-) noexcept:
-    # CALLERS: `cmonotonicFit`
-
-    cdef double loss = 0.0
-
-    loss = (
-        sumSqZ
-        - 2.0*slope*sumXZ
-        - 2.0*intercept*sumZ
-        + (slope*slope)*sumSqX
-        + 2.0*slope*intercept*sumX
-        + (intercept*intercept)*numSamples
-    )
-    return loss
-
-
 cdef inline void _regionMeanVar(double[::1] valuesView,
                                 Py_ssize_t[::1] blockStartIndices,
                                 Py_ssize_t[::1] blockSizes,
@@ -178,6 +139,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 double zeroThresh,
                                 bint useInnovationVar,
                                 bint useSampleVar) noexcept nogil:
+    # CALLERS: cmeanVarPairs
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
     cdef double value
     cdef double sumX, sumSqX, sumY, sumXY
@@ -439,6 +401,36 @@ cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nog
         else:
             left = idx + 1
     return <bint>0
+
+
+cdef inline double _lossAbsQuadIntercept(
+    double absSlope,
+    double quadSlope,
+    double intercept,
+    double sumAbsMu,
+    double sumMuSq,
+    double sumAbsMuSq,
+    double sumAbsMuMuSq,
+    double sumMuSqSq,
+    double sumZ,
+    double sumAbsMuZ,
+    double sumMuSqZ,
+    double sumSqZ,
+    double numSamples,
+) nogil:
+    # CALLERS: cmonotonicFit
+
+    # (Z - (absSlope*(|mu|) + quadSlope*(mu^2) + intercept*(1)))^2
+    cdef double lossVal
+    lossVal = sumSqZ
+    lossVal -= 2.0 * (absSlope*sumAbsMuZ + quadSlope*sumMuSqZ + intercept*sumZ)
+    lossVal += absSlope*absSlope*sumAbsMuSq
+    lossVal += 2.0*absSlope*quadSlope*sumAbsMuMuSq
+    lossVal += 2.0*absSlope*intercept*sumAbsMu
+    lossVal += quadSlope*quadSlope*sumMuSqSq
+    lossVal += 2.0*quadSlope*intercept*sumMuSq
+    lossVal += intercept*intercept*numSamples
+    return lossVal
 
 
 cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
@@ -1078,7 +1070,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseMax(
 
     return out
 
-
 cpdef int64_t cgetFragmentLength(
     str bamFile,
     uint16_t samThreads=0,
@@ -1102,23 +1093,22 @@ cpdef int64_t cgetFragmentLength(
     cdef cnp.ndarray[cnp.float64_t, ndim=1] medArr
     cdef AlignmentFile aln
     cdef AlignedSegment readSeg
-    cdef list coverageIdxTopK
     cdef list blockCenters
     cdef list bestLags
-    cdef int i, j, k, idxVal
+    cdef int i, j, idxVal
     cdef int startIdx, endIdx
     cdef int winSize, takeK
     cdef int blockHalf, readFlag
-    cdef int chosenLag, lag, maxValidLag
+    cdef int maxValidLag
     cdef int strand
-    cdef int expandedLen
     cdef int samThreadsInternal
+    cdef object cpuCountObj
     cdef int cpuCount
     cdef int64_t blockStartBP, blockEndBP, readStart, readEnd
     cdef int64_t med
     cdef double score
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] unsortedIdx, sortedIdx, expandedIdx
-    cdef cnp.intp_t[::1] expandedIdxView
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] topContigsIdx
+    cdef cnp.ndarray[cnp.intp_t, ndim=1] unsortedIdx, sortedIdx
     cdef cnp.ndarray[cnp.float64_t, ndim=1] unsortedVals
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] seen
     cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd
@@ -1134,16 +1124,17 @@ cpdef int64_t cgetFragmentLength(
     cdef int64_t numReadLengthSamples = <int64_t>0
     cdef int64_t minInsertSize
     cdef int64_t requiredSamplesPE
+    cdef int64_t tlen
 
     # rather than taking `chromosome`, `start`, `end`
     # ... we will just look at BAM contigs present and use
     # ... the three largest to estimate the fragment length
     cdef tuple contigs
     cdef tuple lengths
+    cdef cnp.ndarray[cnp.int64_t, ndim=1] lengthsArr
     cdef Py_ssize_t contigIdx
     cdef str contig
     cdef int64_t contigLen
-    cdef object top2ContigsIdx
 
     cdef double[::1] fwdView
     cdef double[::1] revView
@@ -1160,15 +1151,19 @@ cpdef int64_t cgetFragmentLength(
     cdef int localMinLag
     cdef int localMaxLag
     cdef int localLagStep
-
+    cdef int kTop
     earlyExit = min(earlyExit, iters)
-
     samThreadsInternal = <int>samThreads
-    cpuCount = <uint32_t>os.cpu_count()
-    if cpuCount is None:
+    cpuCountObj = os.cpu_count()
+    if cpuCountObj is None:
         cpuCount = 1
+    else:
+        cpuCount = <int>cpuCountObj
+        if cpuCount < 1:
+            cpuCount = 1
+
     if samThreads < 1:
-        samThreadsInternal = <int>min(max(1,cpuCount // 2), 4)
+        samThreadsInternal = <int>min(max(1, cpuCount // 2), 4)
 
     aln = AlignmentFile(bamFile, "rb", threads=samThreadsInternal)
     try:
@@ -1178,42 +1173,39 @@ cpdef int64_t cgetFragmentLength(
         if contigs is None or len(contigs) == 0:
             return <int64_t>fallBack
 
-        top2ContigsIdx = np.argsort(lengths)[-min(2, len(contigs)):]
-
-        for contigIdx in top2ContigsIdx:
+        lengthsArr = np.asarray(lengths, dtype=np.int64)
+        kTop = 2 if len(contigs) >= 2 else 1
+        topContigsIdx = np.argpartition(lengthsArr, -kTop)[-kTop:]
+        topContigsIdx = topContigsIdx[np.argsort(lengthsArr[topContigsIdx])]
+        for contigIdx in topContigsIdx:
             contig = contigs[contigIdx]
             for readSeg in aln.fetch(contig):
-                if (readSeg.flag & samFlagExclude) != 0:
+                readFlag = readSeg.flag
+                if (readFlag & samFlagExclude) != 0:
                     continue
+                if not isPairedEnd:
+                    if (readFlag & 1) != 0:
+                        isPairedEnd = <bint>1
                 if numReadLengthSamples < iters:
                     avgReadLength += readSeg.query_length
                     numReadLengthSamples += 1
                 else:
                     break
 
-        avgReadLength /= numReadLengthSamples if numReadLengthSamples > 0 else 1
-        minInsertSize = <int64_t>(avgReadLength + 0.5)
+        if numReadLengthSamples <= 0:
+            return <int64_t>fallBack
+        avgReadLength /= <double>numReadLengthSamples
+        minInsertSize = <int64_t>(avgReadLength / 2.0)
         if minInsertSize < 1:
             minInsertSize = 1
         if minInsertSize > maxInsertSize:
             minInsertSize = maxInsertSize
 
-        for contigIdx in top2ContigsIdx:
-            contig = contigs[contigIdx]
-            for readSeg in aln.fetch(contig):
-                if (readSeg.flag & samFlagExclude) != 0:
-                    continue
-                if readSeg.is_paired:
-                    # skip to the paired-end block below (no xCorr --> average template len)
-                    isPairedEnd = <bint>1
-                    break
-            if isPairedEnd:
-                break
-
         if isPairedEnd:
+            # skip to the paired-end block below (no xCorr --> average template len)
             requiredSamplesPE = max(iters, 1000)
 
-            for contigIdx in top2ContigsIdx:
+            for contigIdx in topContigsIdx:
                 if templateLenSamples >= requiredSamplesPE:
                     break
                 contig = contigs[contigIdx]
@@ -1221,13 +1213,22 @@ cpdef int64_t cgetFragmentLength(
                 for readSeg in aln.fetch(contig):
                     if templateLenSamples >= requiredSamplesPE:
                         break
-                    if (readSeg.flag & samFlagExclude) != 0 or (readSeg.flag & 2) == 0:
+
+                    readFlag = readSeg.flag
+                    if (readFlag & samFlagExclude) != 0 or (readFlag & 2) == 0:
                         # skip any excluded flags, only count proper pairs
                         continue
-                    if readSeg.template_length > 0 and readSeg.is_read1:
-                        # read1 only: otherwise each pair contributes to the mean twice
-                        # ...which might reduce breadth of the estimate
-                        avgTemplateLen += abs(readSeg.template_length)
+
+                    # read1 only: otherwise each pair contributes to the mean twice
+                    # ... which might reduce breadth of the estimate
+                    if (readFlag & 64) == 0:
+                        continue
+                    tlen = <int64_t>readSeg.template_length
+                    if tlen > 0:
+                        avgTemplateLen += <double>tlen
+                        templateLenSamples += 1
+                    elif tlen < 0:
+                        avgTemplateLen += <double>(-tlen)
                         templateLenSamples += 1
 
             if templateLenSamples < requiredSamplesPE:
@@ -1236,11 +1237,10 @@ cpdef int64_t cgetFragmentLength(
             avgTemplateLen /= <double>templateLenSamples
 
             if avgTemplateLen >= minInsertSize and avgTemplateLen <= maxInsertSize:
-                return <int64_t> (avgTemplateLen + 0.5)
+                return <int64_t>(avgTemplateLen + 0.5)
             else:
                 return <int64_t> fallBack
 
-        top2ContigsIdx = np.argsort(lengths)[-min(2, len(contigs)):]
         bestLags = []
         blockHalf = blockSize // 2
 
@@ -1254,9 +1254,9 @@ cpdef int64_t cgetFragmentLength(
         fwdDiffView = fwdDiff
         revDiffView = revDiff
 
-        for contigIdx in top2ContigsIdx:
+        for contigIdx in topContigsIdx:
             contig = contigs[contigIdx]
-            contigLen = <int64_t>lengths[contigIdx]
+            contigLen = <int64_t>lengthsArr[contigIdx]
             regionLen = contigLen
 
             if regionLen < blockSize or regionLen <= 0:
@@ -1275,9 +1275,10 @@ cpdef int64_t cgetFragmentLength(
             medArr = np.zeros(numChunks, dtype=np.float64)
 
             for readSeg in aln.fetch(contig):
-                if (readSeg.flag & samFlagExclude) != 0:
+                readFlag = readSeg.flag
+                if (readFlag & samFlagExclude) != 0:
                     continue
-                j = <int>((readSeg.reference_start) // rollingChunkSize)
+                j = <int>(readSeg.reference_start // rollingChunkSize)
                 if 0 <= j < numChunks:
                     rawArr[j] += 1.0
 
@@ -1296,14 +1297,13 @@ cpdef int64_t cgetFragmentLength(
             unsortedIdx = np.argpartition(medArr, -takeK)[-takeK:]
             unsortedVals = medArr[unsortedIdx]
             sortedIdx = unsortedIdx[np.argsort(unsortedVals)[::-1]]
-            coverageIdxTopK = sortedIdx[:takeK].tolist()
 
-            expandedLen = takeK*winSize
-            expandedIdx = np.empty(expandedLen, dtype=np.intp)
-            expandedIdxView = expandedIdx
-            k = 0
+            # expand each top-K center in-place into a "seen" mask,
+            # then gather unique block centers once.
+            seen = np.zeros(numChunks, dtype=np.uint8)
+            blockCenters = []
             for i in range(takeK):
-                idxVal = coverageIdxTopK[i]
+                idxVal = <int>sortedIdx[i]
                 startIdx = idxVal - (winSize // 2)
                 endIdx = startIdx + winSize
                 if startIdx < 0:
@@ -1313,19 +1313,9 @@ cpdef int64_t cgetFragmentLength(
                     endIdx = numChunks
                     startIdx = endIdx - winSize if winSize <= numChunks else 0
                 for j in range(startIdx, endIdx):
-                    expandedIdxView[k] = j
-                    k += 1
-            if k < expandedLen:
-                expandedIdx = expandedIdx[:k]
-                expandedIdxView = expandedIdx
-
-            seen = np.zeros(numChunks, dtype=np.uint8)
-            blockCenters = []
-            for i in range(expandedIdx.shape[0]):
-                j = <int>expandedIdxView[i]
-                if seen[j] == 0:
-                    seen[j] = 1
-                    blockCenters.append(j)
+                    if seen[j] == 0:
+                        seen[j] = 1
+                        blockCenters.append(j)
 
             if len(blockCenters) > 1:
                 rng.shuffle(blockCenters)
@@ -1352,12 +1342,13 @@ cpdef int64_t cgetFragmentLength(
 
                 for readSeg in aln.fetch(contig, blockStartBP, blockEndBP):
                     readFlag = readSeg.flag
-                    readStart = <int64_t>readSeg.reference_start
-                    readEnd = <int64_t>readSeg.reference_end
                     if (readFlag & samFlagExclude) != 0:
                         continue
+                    readStart = <int64_t>readSeg.reference_start
+                    readEnd = <int64_t>readSeg.reference_end
                     if readStart < blockStartBP or readEnd > blockEndBP:
                         continue
+
                     diffS = readStart - blockStartBP
                     diffE = readEnd - blockStartBP
                     strand = readFlag & 16
@@ -1413,15 +1404,13 @@ cpdef int64_t cgetFragmentLength(
                         score = 0.0
                         blockLen = blockSize - lag
                         for i from 0 <= i < blockLen:
-                            score += fwdView[i]*revView[i + lag]
+                            score += fwdView[i] * revView[i + lag]
                         if score > bestScore:
                             bestScore = score
                             bestLag = lag
 
-                chosenLag = bestLag
-
-                if chosenLag > 0 and bestScore != 0.0:
-                    bestLags.append(chosenLag)
+                if bestLag > 0 and bestScore != 0.0:
+                    bestLags.append(bestLag)
                 if len(bestLags) >= earlyExit:
                     break
 
@@ -1602,191 +1591,340 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return outMeans, outVars, starts_, ends
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(jointlySortedMeans, jointlySortedVariances, double refitWeight = <double>1.0, double floorTarget = <double>0.1):
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] yArr = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(2, dtype=np.float32)
-    cdef Py_ssize_t n = xArr.shape[0]
-    cdef Py_ssize_t i
-    cdef double xMin
-    cdef double mu, x, z, yVal
-    cdef double sumX = 0.0
-    cdef double sumSqX = 0.0
-    cdef double sumZ = 0.0
-    cdef double sumXZ = 0.0
-    cdef double sumSqZ = 0.0
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(
+    jointlySortedMeans,
+    jointlySortedVariances,
+    double floorTarget = <double>0.1,
+):
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] meanArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] varArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out
+    cdef Py_ssize_t i,n
+    cdef double mu
+    cdef double absMu
+    cdef double muSq
+    cdef double varVal
+    cdef double zVal
+    cdef double sumAbsMu
+    cdef double sumMuSq
+    cdef double sumAbsMuSq
+    cdef double sumAbsMuMuSq
+    cdef double sumMuSqSq
+    cdef double sumZ
+    cdef double sumAbsMuZ
+    cdef double sumMuSqZ
+    cdef double sumSqZ
     cdef double numSamples
-    cdef double slopeUnconstrained, interceptUnconstrained
-    cdef double slopeZero, interceptZero
-    cdef double slopeBound, interceptBound
-    cdef double optimalSlope, optimalIntercept
-    cdef double optimalObjective, currentObjective
-    cdef double sumSqShiftX = 0.0
-    cdef double sumShiftXZ = 0.0
-    cdef double xShift
-    cdef double sumW, sumWX, sumWXX, sumWZ, sumWXZ
-    cdef double penSlope, penIntercept
-    cdef double initialVar, penTarget, penLoss
-    cdef double finalErr
-    cdef int it, maxIter
-    cdef double tol = 1.0e-4
+    cdef double candAbsSlope, candQuadSlope, candIntercept
+    cdef double bestAbsSlope, bestQuadSlope, bestIntercept
+    cdef double bestObjective, currentObjective
+    cdef double solvedAbsSlope, solvedQuadSlope, solvedIntercept
+    cdef bint solved_
+    cdef double minAbsMu, maxAbsMu
+    cdef double muCut
+    cdef double reqIntercept
+    cdef double candReq
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] mat22
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] vec_b2
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] solveVec2
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] mat33
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] vec_b3
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] solveVec3
+    cdef double det22, det33
 
-    xMin = 1.0e8
-    maxIter = 0
+    meanArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
+    varArr  = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
+    out = np.empty(3, dtype=np.float32)
+    n = meanArr.shape[0]
+
+    if n <= 0:
+        out[0] = <cnp.float32_t>0.0
+        out[1] = <cnp.float32_t>0.0
+        out[2] = <cnp.float32_t>fmax(0.0, floorTarget)
+        return out
+
+    sumAbsMu = 0.0
+    sumMuSq = 0.0
+    sumAbsMuSq = 0.0
+    sumAbsMuMuSq = 0.0
+    sumMuSqSq = 0.0
+    sumZ = 0.0
+    sumAbsMuZ = 0.0
+    sumMuSqZ = 0.0
+    sumSqZ = 0.0
+    minAbsMu = 1.0e8
+    maxAbsMu = 0.0
 
     for i in range(n):
-        mu = <double>xArr[i]
-        x = mu*mu
-        yVal = <double>yArr[i]
-        if yVal < 0.0:
-            z = 0.0
+        mu = <double>meanArr[i]
+        absMu = fabs(mu)
+        muSq = mu*mu
+
+        varVal = <double>varArr[i]
+        if varVal < 0.0:
+            zVal = 0.0
         else:
-            z = yVal
-        if x < xMin:
-            xMin = x
+            zVal = varVal
 
-        sumX += x
-        sumSqX += x*x
-        sumZ += z
-        sumXZ += x*z
-        sumSqZ += z*z
+        if absMu < minAbsMu:
+            minAbsMu = absMu
+        if absMu > maxAbsMu:
+            maxAbsMu = absMu
 
-    xMin = xMin + 1.0e-4
+        sumAbsMu += absMu
+        sumMuSq += muSq
+        sumAbsMuSq += absMu*absMu
+        sumAbsMuMuSq += absMu*muSq
+        sumMuSqSq += muSq*muSq
+
+        sumZ += zVal
+        sumAbsMuZ += absMu*zVal
+        sumMuSqZ += muSq*zVal
+        sumSqZ += zVal*zVal
 
     numSamples = <double>n
-    _solveSystem22(sumSqX, sumX, sumX, numSamples,
-        sumXZ,
-        sumZ,
-        &slopeUnconstrained,
-        &interceptUnconstrained)
+    bestAbsSlope = 0.0
+    bestQuadSlope = 0.0
+    bestIntercept = 0.0
 
-    optimalSlope = <double>0.0
-    optimalIntercept = <double>0.0
-    optimalObjective = _loss(
-        optimalSlope, optimalIntercept,
-        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples,
+    mat22 = np.empty((2, 2), dtype=np.float64)
+    vec_b2 = np.empty(2, dtype=np.float64)
+
+    bestObjective = _lossAbsQuadIntercept(
+        0.0, 0.0, 0.0,
+        sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
+        sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
     )
 
-    if slopeUnconstrained >= 0.0 and (slopeUnconstrained*xMin + interceptUnconstrained) >= 0.0:
-        currentObjective = _loss(
-            slopeUnconstrained, interceptUnconstrained,
-            sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples,
-        )
-        if currentObjective < optimalObjective:
-            optimalObjective = currentObjective
-            optimalSlope = slopeUnconstrained
-            optimalIntercept = interceptUnconstrained
+    candAbsSlope = 0.0
+    candQuadSlope = 0.0
+    candIntercept = sumZ / numSamples
+    if candIntercept < 0.0:
+        candIntercept = 0.0
 
-    slopeZero = 0.0
-    interceptZero = sumZ / numSamples
-    if interceptZero < 0.0:
-        interceptZero = 0.0
-
-    currentObjective = _loss(
-        slopeZero, interceptZero,
-        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples,
+    currentObjective = _lossAbsQuadIntercept(
+        candAbsSlope, candQuadSlope, candIntercept,
+        sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
+        sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
     )
-    if currentObjective < optimalObjective:
-        optimalObjective = currentObjective
-        optimalSlope = slopeZero
-        optimalIntercept = interceptZero
+    if currentObjective < bestObjective:
+        bestObjective = currentObjective
+        bestAbsSlope = candAbsSlope
+        bestQuadSlope = candQuadSlope
+        bestIntercept = candIntercept
 
-    for i in range(n):
-        mu = <double>xArr[i]
-        x = mu*mu
-
-        xShift = x - xMin
-        yVal = <double>yArr[i]
-        if yVal < 0.0:
-            yVal = 0.0
-            z = 0.0
-        z = yVal
-        sumSqShiftX += (xShift*xShift)
-        sumShiftXZ += (xShift*z) # z*x - z*xMin
-
-    if sumSqShiftX > 0.0:
-        # regularized slope fitting the offset vals
-        slopeBound = sumShiftXZ/(sumSqShiftX)
+    if sumAbsMuSq > 0.0:
+        candAbsSlope = sumAbsMuZ / sumAbsMuSq
     else:
-        slopeBound = 0.0
-    if slopeBound < 0.0:
-        slopeBound = 0.0
+        candAbsSlope = 0.0
+    if candAbsSlope < 0.0:
+        candAbsSlope = 0.0
 
-    # since 0 <= slope <= slopeBound = sumShiftXZ/(sumSqShiftX),
-    # ... intercept >= -slopeBound*xMin --> nonnegative estimates
-    interceptBound = -slopeBound*xMin
-    currentObjective = _loss(
-        slopeBound, interceptBound,
-        sumX, sumSqX, sumZ, sumXZ, sumSqZ, numSamples,
+    candQuadSlope = 0.0
+    candIntercept = 0.0
+    currentObjective = _lossAbsQuadIntercept(
+        candAbsSlope, candQuadSlope, candIntercept,
+        sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
+        sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
     )
-    if currentObjective < optimalObjective:
-        optimalObjective = currentObjective
-        optimalSlope = slopeBound
-        optimalIntercept = interceptBound
+    if currentObjective < bestObjective:
+        bestObjective = currentObjective
+        bestAbsSlope = candAbsSlope
+        bestQuadSlope = 0.0
+        bestIntercept = 0.0
 
-    # The following mimics (Abu-mostafa, 1992 NeurIPS) and refits data with a
-    # ... --one-sided-- penalty (svm/hinge) via a conservative inequality
-    # ... 'hint' --> floor value. Note, our dynamic ranges are restricted to 3-10 in practice.
+    if sumMuSqSq > 0.0:
+        candQuadSlope = sumMuSqZ / sumMuSqSq
+    else:
+        candQuadSlope = 0.0
+    if candQuadSlope < 0.0:
+        candQuadSlope = 0.0
 
-    # set maxIters as number of points below the target variance
-    # ... this doesn't confer any strong guarantee but is natural
-    # ... and avoids a hyperparameter.
-    maxIter = <int>0
-    i = <Py_ssize_t>0
-    for i in range(n):
-        mu = <double>xArr[i]
-        x = mu*mu
+    candAbsSlope = 0.0
+    candIntercept = 0.0
+    currentObjective = _lossAbsQuadIntercept(
+        candAbsSlope, candQuadSlope, candIntercept,
+        sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
+        sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
+    )
+    if currentObjective < bestObjective:
+        bestObjective = currentObjective
+        bestAbsSlope = 0.0
+        bestQuadSlope = candQuadSlope
+        bestIntercept = 0.0
 
-        # original estimate B0 + B1*x^2
-        initialVar = optimalIntercept + optimalSlope*x
-        penTarget = <double>floorTarget
-        if initialVar < penTarget:
-            maxIter += 1
+    solvedAbsSlope = 0.0
+    solvedQuadSlope = 0.0
 
-    maxIter = <int>fmin(<double>100.0, <double>maxIter)
-    if refitWeight > 0.0:
-        for it in range(maxIter):
-            sumW = numSamples
-            sumWX = sumX
-            sumWXX = sumSqX
-            sumWZ = sumZ
-            sumWXZ = sumXZ
+    mat22[0, 0] = sumAbsMuSq
+    mat22[0, 1] = sumAbsMuMuSq
+    mat22[1, 0] = sumAbsMuMuSq
+    mat22[1, 1] = sumMuSqSq
+    det22 = (mat22[0, 0]*mat22[1, 1]) - (mat22[0, 1]*mat22[1, 0])
 
+    if fabs(det22) < 1.0e-4:
+        solvedAbsSlope = 0.0
+        solvedQuadSlope = (sumMuSqZ / sumMuSqSq) if fabs(sumMuSqSq) > 1.0e-4 else 0.0
+    else:
+        vec_b2[0] = sumAbsMuZ
+        vec_b2[1] = sumMuSqZ
+        solveVec2 = np.linalg.solve(mat22, vec_b2)
+        solvedAbsSlope = <double>solveVec2[0]
+        solvedQuadSlope = <double>solveVec2[1]
 
-            for i in range(n):
-                mu = <double>xArr[i]
-                x = mu*mu
+    if solvedAbsSlope >= 0.0 and solvedQuadSlope >= 0.0:
+        currentObjective = _lossAbsQuadIntercept(
+            solvedAbsSlope, solvedQuadSlope, 0.0,
+            sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
+            sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
+        )
+        if currentObjective < bestObjective:
+            bestObjective = currentObjective
+            bestAbsSlope = solvedAbsSlope
+            bestQuadSlope = solvedQuadSlope
+            bestIntercept = 0.0
 
-                initialVar = optimalIntercept + optimalSlope*x
-                penTarget = <double>floorTarget
-                penLoss = penTarget - initialVar
-                if penLoss > 0.0:
-                    sumW += refitWeight
-                    sumWX += refitWeight*x
-                    sumWXX += refitWeight*x*x
-                    sumWZ += refitWeight*penTarget
-                    sumWXZ += refitWeight*x*penTarget
+    solvedAbsSlope = 0.0
+    solvedIntercept = 0.0
 
-            # new WLS fit
-            _solveSystem22(sumWXX, sumWX, sumWX, sumW,
-                sumWXZ,
-                sumWZ,
-                &penSlope,
-                &penIntercept)
+    mat22[0, 0] = sumAbsMuSq
+    mat22[0, 1] = sumAbsMu
+    mat22[1, 0] = sumAbsMu
+    mat22[1, 1] = numSamples
+    det22 = (mat22[0, 0]*mat22[1, 1]) - (mat22[0, 1]*mat22[1, 0])
 
-            if penSlope < 0.0:
-                penSlope = 0.0
-                penIntercept = sumWZ / sumW
-                if penIntercept < 0.0:
-                    penIntercept = 0.0
-            if (penSlope*xMin + penIntercept) < 0.0:
-                penIntercept = -penSlope*xMin
-            optimalSlope = penSlope
-            optimalIntercept = penIntercept
+    if fabs(det22) < 1.0e-4:
+        solvedAbsSlope = 0.0
+        solvedIntercept = (sumZ / numSamples) if fabs(numSamples) > 1.0e-8 else 0.0
+    else:
+        vec_b2[0] = sumAbsMuZ
+        vec_b2[1] = sumZ
+        solveVec2 = np.linalg.solve(mat22, vec_b2)
+        solvedAbsSlope = <double>solveVec2[0]
+        solvedIntercept = <double>solveVec2[1]
 
-    out[0] = <cnp.float32_t>optimalSlope
-    out[1] = <cnp.float32_t>optimalIntercept
+    if solvedAbsSlope >= 0.0 and solvedIntercept >= 0.0:
+        currentObjective = _lossAbsQuadIntercept(
+            solvedAbsSlope, 0.0, solvedIntercept,
+            sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
+            sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
+        )
+        if currentObjective < bestObjective:
+            bestObjective = currentObjective
+            bestAbsSlope = solvedAbsSlope
+            bestQuadSlope = 0.0
+            bestIntercept = solvedIntercept
+
+    solvedQuadSlope = 0.0
+    solvedIntercept = 0.0
+
+    mat22[0, 0] = sumMuSqSq
+    mat22[0, 1] = sumMuSq
+    mat22[1, 0] = sumMuSq
+    mat22[1, 1] = numSamples
+    det22 = (mat22[0, 0]*mat22[1, 1]) - (mat22[0, 1]*mat22[1, 0])
+
+    if fabs(det22) < 1.0e-4:
+        solvedQuadSlope = 0.0
+        solvedIntercept = (sumZ / numSamples) if fabs(numSamples) > 1.0e-8 else 0.0
+    else:
+        vec_b2[0] = sumMuSqZ
+        vec_b2[1] = sumZ
+        solveVec2 = np.linalg.solve(mat22, vec_b2)
+        solvedQuadSlope = <double>solveVec2[0]
+        solvedIntercept = <double>solveVec2[1]
+
+    if solvedQuadSlope >= 0.0 and solvedIntercept >= 0.0:
+        currentObjective = _lossAbsQuadIntercept(
+            0.0, solvedQuadSlope, solvedIntercept,
+            sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
+            sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
+        )
+        if currentObjective < bestObjective:
+            bestObjective = currentObjective
+            bestAbsSlope = 0.0
+            bestQuadSlope = solvedQuadSlope
+            bestIntercept = solvedIntercept
+
+    solved_ = <bint>0
+    solvedAbsSlope = 0.0
+    solvedQuadSlope = 0.0
+    solvedIntercept = 0.0
+
+    mat33 = np.empty((3, 3), dtype=np.float64)
+    vec_b3 = np.empty(3, dtype=np.float64)
+    mat33[0, 0] = sumAbsMuSq
+    mat33[0, 1] = sumAbsMuMuSq
+    mat33[0, 2] = sumAbsMu
+    mat33[1, 0] = sumAbsMuMuSq
+    mat33[1, 1] = sumMuSqSq
+    mat33[1, 2] = sumMuSq
+    mat33[2, 0] = sumAbsMu
+    mat33[2, 1] = sumMuSq
+    mat33[2, 2] = numSamples
+
+    det33 = (
+        mat33[0, 0]*(mat33[1, 1]*mat33[2, 2] - mat33[1, 2]*mat33[2, 1])
+        - mat33[0, 1]*(mat33[1, 0]*mat33[2, 2] - mat33[1, 2]*mat33[2, 0])
+        + mat33[0, 2]*(mat33[1, 0]*mat33[2, 1] - mat33[1, 1]*mat33[2, 0])
+    )
+
+    if fabs(det33) >= 1.0e-4:
+        vec_b3[0] = sumAbsMuZ
+        vec_b3[1] = sumMuSqZ
+        vec_b3[2] = sumZ
+        solveVec3 = np.linalg.solve(mat33, vec_b3)
+        solvedAbsSlope = <double>solveVec3[0]
+        solvedQuadSlope = <double>solveVec3[1]
+        solvedIntercept = <double>solveVec3[2]
+        solved_ = <bint>1
+    else:
+        solved_ = <bint>0
+
+    if solved_ and solvedAbsSlope >= 0.0 and solvedQuadSlope >= 0.0 and solvedIntercept >= 0.0:
+        currentObjective = _lossAbsQuadIntercept(
+            solvedAbsSlope, solvedQuadSlope, solvedIntercept,
+            sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
+            sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
+        )
+        if currentObjective < bestObjective:
+            bestObjective = currentObjective
+            bestAbsSlope = solvedAbsSlope
+            bestQuadSlope = solvedQuadSlope
+            bestIntercept = solvedIntercept
+
+    if n > 0:
+        muCut = <double>floorTarget
+        if muCut < minAbsMu:
+            muCut = minAbsMu
+        if muCut > maxAbsMu:
+            muCut = maxAbsMu
+
+        reqIntercept = bestIntercept
+        for i in range(n):
+            mu = <double>meanArr[i]
+            absMu = fabs(mu)
+            if absMu > muCut:
+                continue
+
+            varVal = <double>varArr[i]
+            if varVal < 0.0:
+                varVal = 0.0
+
+            muSq = mu*mu
+            candReq = varVal - bestAbsSlope*absMu - bestQuadSlope*muSq
+            if candReq > reqIntercept:
+                reqIntercept = candReq
+
+        if reqIntercept > bestIntercept:
+            bestIntercept = reqIntercept
+
+        if bestIntercept < 0.0:
+            bestIntercept = 0.0
+
+    out[0] = <cnp.float32_t>bestAbsSlope
+    out[1] = <cnp.float32_t>bestQuadSlope
+    out[2] = <cnp.float32_t>fmax(bestIntercept, floorTarget)
     return out
 
 
@@ -1794,30 +1932,41 @@ cpdef cmonotonicFitEval(
     cnp.ndarray coeffs,
     cnp.ndarray meanTrack,
 ):
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] xArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
-    cdef Py_ssize_t n = xArr.shape[0]
-    cdef Py_ssize_t i
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] meanArr
+    cdef Py_ssize_t i,n
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out
+    cdef float[:] outView
+    cdef float[:] meanView
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] coeffArr
+    cdef double absSlope
+    cdef double quadSlope
+    cdef double intercept
+    cdef double mu
+    cdef double zVal
 
-    cdef float[:] outView = out
-    cdef float[:] xView = xArr
+    meanArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
+    n = meanArr.shape[0]
+    out = np.empty(n, dtype=np.float32)
+    outView = out
+    meanView = meanArr
+    coeffArr = np.ascontiguousarray(coeffs, dtype=np.float32).ravel()
+    absSlope = <double>coeffArr[0]
+    quadSlope = <double>coeffArr[1]
+    intercept = <double>coeffArr[2]
 
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] cArr = np.ascontiguousarray(coeffs, dtype=np.float32).ravel()
-    cdef double slope = <double>cArr[0]
-    cdef double intercept = <double>cArr[1]
-    cdef double mu, z
-
-    if slope < 0.0:
-        slope = 0.0
+    if absSlope < 0.0:
+        absSlope = 0.0
+    if quadSlope < 0.0:
+        quadSlope = 0.0
     if intercept < 0.0:
         intercept = 0.0
 
     for i in range(n):
-        mu = <double>xView[i]
-        z = slope*(mu*mu) + intercept
-        if z < 0.0:
-            z = 0.0
-        outView[i] = <float>z
+        mu = <double>meanView[i]
+        zVal = absSlope*fabs(mu) + quadSlope*(mu*mu) + intercept
+        if zVal < 0.0:
+            zVal = 0.0
+        outView[i] = <float>zVal
 
     return out
 
@@ -1840,6 +1989,7 @@ cdef bint _cEMA(const double* xPtr, double* outPtr,
 
     return <bint>0
 
+
 cpdef cEMA(cnp.ndarray x, double alpha):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] x1 = np.ascontiguousarray(x, dtype=np.float64)
     cdef Py_ssize_t n = x1.shape[0]
@@ -1849,7 +1999,6 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 
 cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
-                          float eps_F32=<float>1.0e-4, double eps_F64=<double>1.0e-4,
                           float boundaryEps = <float>0.1,
                           double leftQ_ = <double>0.50,
                           double rightQ_ = <double>0.995,
@@ -1953,7 +2102,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                 else:
                     for blockIndex in range(blockCount):
                         # FFR: we might be better off taking the maximum (exclusively)
-                        blockPtr_F32[blockIndex] += trackWideOffset_F32
+                        blockPtr_F32[blockIndex] = fmaxf(trackWideOffset_F32, blockPtr_F32[blockIndex])
 
                 k = <Py_ssize_t>0
                 blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
@@ -1977,7 +2126,11 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                         # where c is `carryOver` to the subsequent block mean (see below)
                         carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                         bgroundEstimate = ((1.0 - carryOver)*(<double>blockPtr_F32[k])) + (carryOver*(<double>blockPtr_F32[k+1]))
-                        interpolatedBackground_F32 = <float>(bgroundEstimate)
+                        interpolatedBackground_F32 = <float>(fmax(bgroundEstimate,0.0))
+
+                    if interpolatedBackground_F32 < 0.0:
+                        interpolatedBackground_F32 = 0.0
+
 
                     # finally, we take ~log-scale~ difference currentValue - background
                     if not <bint>disableBackground:
@@ -2031,7 +2184,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     blockPtr_F64[blockIndex] = trackWideOffset_F64
             else:
                 for blockIndex in range(blockCount):
-                    blockPtr_F64[blockIndex] += trackWideOffset_F64
+                    blockPtr_F64[blockIndex] = fmax(blockPtr_F64[blockIndex], trackWideOffset_F64)
 
             k = 0
             blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
@@ -2050,7 +2203,10 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
 
                     carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                     bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
-                    interpolatedBackground_F64 = <double>(bgroundEstimate)
+                    interpolatedBackground_F64 = <double>(fmax(bgroundEstimate, 0.0))
+
+                if interpolatedBackground_F64 < 0.0:
+                    interpolatedBackground_F64 = 0.0
 
                 if not <bint>disableBackground:
                     logDiff_F64 = _carsinh_F64(valuesPtr_F64[i]) - _carsinh_F64(interpolatedBackground_F64)
@@ -2699,9 +2855,9 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.50, double righ
                     # check grad. at center
                     midGrad = _kneeGrad_F32(sortedView_F32, valueCount, midQuantile, inverseQuantileSpan, inverseValueSpan)
                     # if increasing, look in right half
-                    if midGrad > 1.0e-8:
+                    if midGrad > 1.0e-3:
                         leftQuantile = midQuantile
-                    elif midGrad < -1.0e-8:
+                    elif midGrad < -1.0e-3:
                     # decreasing, look in left
                         rightQuantile = midQuantile
                     else:
@@ -2714,6 +2870,8 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.50, double righ
 
     vals_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
     posVals_ = vals_F64[vals_F64 > 0.0]
+    if posVals_.size == 0:
+        return <double>0.0
     sortedPositive = np.ascontiguousarray(np.sort(posVals_), dtype=np.float64)
     sortedView_F64 = sortedPositive
     valueCount = sortedView_F64.shape[0]
@@ -2721,6 +2879,8 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.50, double righ
     minValue_ = _interpolateQuantile_F64(sortedView_F64, valueCount, leftQ)
     maxValue_ = _interpolateQuantile_F64(sortedView_F64, valueCount, rightQ)
     spanVals_ = maxValue_ - minValue_
+    if spanVals_ <= 0.0:
+        return <double>minValue_
     spanQuantile_ = rightQ - leftQ
     inverseQuantileSpan = 1.0 / spanQuantile_
     inverseValueSpan = 1.0 / spanVals_
@@ -2754,10 +2914,10 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.50, double righ
 cpdef double cNISMomentsLoss(
     cnp.ndarray[cnp.float64_t, ndim=1] arrNIS,
     int m_,
-    double upper=10.0,
+    double upper=25.0,
     double weightM1=1.0,
     double weightM2=1.0,
-    double weightM3=0.1,
+    double weightM3=1.0,
 ):
     cdef Py_ssize_t n = arrNIS.shape[0]
     cdef const double[:] arrView = arrNIS
@@ -2771,11 +2931,11 @@ cpdef double cNISMomentsLoss(
     cdef double meanNIS
     cdef double varNIS
     cdef double mu3
-    # wrt chisq
+    # wrt chisq / m
     cdef double expectedMean = 1.0
     cdef double expectedVar = 2.0 / (<double>m_)
     cdef double expectedMu3 = 8.0 / ((<double>m_)*(<double>m_))
-    cdef double epsilon = 1e-8
+    cdef double epsilon = 1e-4
     cdef double dMean
     cdef double dVar
     cdef double dMu3
