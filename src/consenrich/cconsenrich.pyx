@@ -2000,8 +2000,8 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                           float boundaryEps = <float>0.1,
-                          double leftQ_ = <double>0.50,
-                          double rightQ_ = <double>0.995,
+                          double leftQ_ = <double>0.01,
+                          double rightQ_ = <double>0.99,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False):
     r"""Compute log-scale enrichment versus locally computed backgrounds
@@ -2101,7 +2101,6 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                         blockPtr_F32[blockIndex] = trackWideOffset_F32
                 else:
                     for blockIndex in range(blockCount):
-                        # FFR: we might be better off taking the maximum (exclusively)
                         blockPtr_F32[blockIndex] = fmaxf(trackWideOffset_F32, blockPtr_F32[blockIndex])
 
                 k = <Py_ssize_t>0
@@ -2362,7 +2361,9 @@ cpdef tuple cforwardPass(
     object pNoiseForward=None,
     object vectorD=None,
     object progressBar=None,
-    Py_ssize_t progressIter=10000
+    Py_ssize_t progressIter=25000,
+    bint returnNLL=False,
+    bint storeNLLInD=False,
 ):
     cdef cnp.float32_t[:, ::1] dataView = matrixData
     cdef cnp.float32_t[:, ::1] muncView = matrixMunc
@@ -2402,6 +2403,10 @@ cpdef tuple cforwardPass(
     cdef double tmp00, tmp01, tmp10, tmp11
     cdef double intermediate_, gainG, gainH, IKH00, IKH10
     cdef double posteriorNew00, posteriorNew01, posteriorNew11
+    cdef double sumLogR = 0.0
+    cdef double sumNLL = 0.0
+    cdef double intervalNLL = 0.0
+    cdef double sumDStat = 0.0
 
 
     if collectD and vectorD is None:
@@ -2468,13 +2473,19 @@ cpdef tuple cforwardPass(
         sumWeightUY = 0.0
         sumWeightYY = 0.0
         sumResidualUU = 0.0
+        if returnNLL:
+            sumLogR = 0.0
 
         for trackIndex in range(trackCount):
             # H is ones vec, zij + v, v ~ (0, Rij) with Ri diagonal
             innovationValue = (<double>dataView[trackIndex, intervalIndex]) - (<double>stateVectorView[0])
             measurementVariance = (<double>muncView[trackIndex, intervalIndex])*(<double>phiScale)
             paddedVariance = measurementVariance + (<double>pad)
+            if paddedVariance < clipSmall:
+                paddedVariance = clipSmall
             invVariance = 1.0 / paddedVariance
+            if returnNLL:
+                sumLogR += log(paddedVariance)
             sumWeightYY += invVariance*(innovationValue*innovationValue)
             sumWeightUY += invVariance*innovationValue
             sumResidualUU += measurementVariance*(invVariance*invVariance)
@@ -2482,12 +2493,28 @@ cpdef tuple cforwardPass(
 
         # sherman-morrison-based calculations [(H*P*H^T + R)^-1], R is diagonal PD, H is ones
         addP00Trace = 1.0 + (<double>stateCovarView[0,0])*sumWeightUU
+        if addP00Trace < clipSmall:
+            addP00Trace = clipSmall
         weightRank1 = (<double>stateCovarView[0,0]) / addP00Trace
         quadraticForm = sumWeightYY - weightRank1*(sumWeightUY*sumWeightUY)
+        if quadraticForm < 0.0:
+            quadraticForm = 0.0
+
+        if returnNLL:
+        # negative LL
+        # ... m*NIS (quadraticForm) + log det term
+            intervalNLL = (0.5 *(sumLogR + log(addP00Trace) + quadraticForm))
+            sumNLL += intervalNLL
+
         # D stat ~=~ NIS
         dStatValue = quadraticForm / (<double>trackCount)
+        sumDStat += dStatValue
         if collectD:
-            dStatVector[intervalIndex] = <cnp.float32_t>dStatValue
+            if returnNLL and storeNLLInD:
+                # FFR: remove one of or rename returnNLL, storeNLLInD
+                dStatVector[intervalIndex] = <cnp.float32_t>intervalNLL
+            else:
+                dStatVector[intervalIndex] = <cnp.float32_t>dStatValue
 
         # record number of process noise covariance updates
         adjustmentCount += <int>(dStatValue > (<double>dStatAlpha))
@@ -2502,7 +2529,7 @@ cpdef tuple cforwardPass(
             <float>maxQ,
             <float>minQ
         )
-        # inlining hell -- FFR: its really just the eigenvals assuming default offDiag
+
         if matrixQ[0,0] < <cnp.float32_t>clipSmall: matrixQ[0,0] = <cnp.float32_t>clipSmall
         elif matrixQ[0,0] > <cnp.float32_t>clipBig: matrixQ[0,0] = <cnp.float32_t>clipBig
         if matrixQ[0,1] < <cnp.float32_t>clipSmall: matrixQ[0,1] = <cnp.float32_t>clipSmall
@@ -2587,7 +2614,10 @@ cpdef tuple cforwardPass(
             progressBar.update(progressRemainder)
 
     if collectD:
-        phiHat = float(np.mean(dStatVectorArr))
+        phiHat = <float>(sumDStat / (<double>intervalCount))
+
+    if returnNLL:
+        return (phiHat, adjustmentCount, vectorD, sumNLL)
 
     return (phiHat, adjustmentCount, vectorD)
 
@@ -2796,7 +2826,7 @@ cpdef tuple cbackwardPass(
     return (stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr)
 
 
-cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.50, double rightQ=<double>0.995):
+cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.01, double rightQ=<double>0.99):
     cdef cnp.ndarray vals_F32
     cdef cnp.ndarray vals_F64
     cdef cnp.ndarray posVals_
@@ -2911,63 +2941,3 @@ cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.50, double righ
     return <double>elbow_
 
 
-cpdef double cNISMomentsLoss(
-    cnp.ndarray[cnp.float64_t, ndim=1] arrNIS,
-    int m_,
-    double upper=25.0,
-    double weightM1=1.0,
-    double weightM2=1.0,
-    double weightM3=1.0,
-):
-    cdef Py_ssize_t n = arrNIS.shape[0]
-    cdef const double[:] arrView = arrNIS
-
-    cdef Py_ssize_t i = 0
-    cdef Py_ssize_t k = 0
-    cdef double NISVal
-    cdef double sumNIS = 0.0
-    cdef double sumCenteredSq = 0.0
-    cdef double sumCenteredCubed = 0.0
-    cdef double meanNIS
-    cdef double varNIS
-    cdef double mu3
-    # wrt chisq / m
-    cdef double expectedMean = 1.0
-    cdef double expectedVar = 2.0 / (<double>m_)
-    cdef double expectedMu3 = 8.0 / ((<double>m_)*(<double>m_))
-    cdef double epsilon = 1e-4
-    cdef double dMean
-    cdef double dVar
-    cdef double dMu3
-    cdef double centeredNIS
-
-    with nogil:
-        while i < n:
-            NISVal = arrView[i]
-            if NISVal >= 0.0 and NISVal <= upper:
-                sumNIS += NISVal
-                k += 1
-            i += 1
-
-        if k > 0:
-            meanNIS = sumNIS / (<double>k)
-            i = 0
-            while i < n:
-                NISVal = arrView[i]
-                if NISVal >= 0.0 and NISVal <= upper:
-                    centeredNIS = NISVal - meanNIS
-                    sumCenteredSq += centeredNIS*centeredNIS
-                    sumCenteredCubed += centeredNIS*centeredNIS*centeredNIS
-                i += 1
-            varNIS = sumCenteredSq / (<double>k)
-            mu3 = sumCenteredCubed / (<double>k)
-        else:
-            meanNIS = 0.0
-            varNIS = 0.0
-            mu3 = 0.0
-
-    dMean = (meanNIS - expectedMean) / (expectedMean + epsilon)
-    dVar = (varNIS - expectedVar) / (expectedVar + epsilon)
-    dMu3 = (mu3 - expectedMu3) / (expectedMu3 + epsilon)
-
-    return weightM1*(dMean*dMean) + weightM2*(dVar*dVar) + weightM3*(dMu3*dMu3)
