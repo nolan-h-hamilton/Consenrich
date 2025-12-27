@@ -685,26 +685,62 @@ def constructMatrixF(deltaF: float) -> npt.NDArray[np.float32]:
 def constructMatrixQ(
     minDiagQ: float,
     offDiagQ: float = 0.0,
+    Q00: Optional[float] = None,
+    Q01: Optional[float] = None,
+    Q10: Optional[float] = None,
+    Q11: Optional[float] = None,
+    useIdentity: float = -1.0,
+    tol: float = 1.0e-8,  # conservative
 ) -> npt.NDArray[np.float32]:
-    r"""Build the initial process noise covariance matrix :math:`\mathbf{Q}_{[1]}`.
+    r"""Build the (base) process noise covariance matrix :math:`\mathbf{Q}`.
 
-    :param minDiagQ: See :class:`processParams`.
+    :param minDiagQ: Minimum value for diagonal entries of :math:`\mathbf{Q}`.
     :type minDiagQ: float
-    :param offDiagQ: See :class:`processParams`.
+    :param offDiagQ: Value for off-diagonal entries of :math:`\mathbf{Q}`.
     :type offDiagQ: float
-    :return: The initial process noise covariance matrix :math:`\mathbf{Q}_{[1]}`.
+    :param Q00: Optional value for entry (0,0) of :math:`\mathbf{Q}`.
+    :type Q00: Optional[float]
+    :param Q01: Optional value for entry (0,1) of :math:`\mathbf{Q}`.
+    :type Q01: Optional[float]
+    :param Q10: Optional value for entry (1,0) of :math:`\mathbf{Q}`.
+    :type Q10: Optional[float]
+    :param Q11: Optional value for entry (1,1) of :math:`\mathbf{Q}`.
+    :type Q11: Optional[float]
+    :param useIdentity: If > 0.0, use a scaled identity matrix for :math:`\mathbf{Q}`.
+        Overrides other parameters.
+    :type useIdentity: float
+    :param tol: Tolerance for positive definiteness check.
+    :type tol: float
+    :return: The process noise covariance matrix :math:`\mathbf{Q}`.
     :rtype: npt.NDArray[np.float32]
-
-    :seealso: :class:`processParams`
     """
-    minDiagQ = np.float32(minDiagQ)
-    offDiagQ = np.float32(offDiagQ)
-    initMatrixQ: npt.NDArray[np.float32] = np.zeros((2, 2), dtype=np.float32)
-    initMatrixQ[0, 0] = minDiagQ
-    initMatrixQ[1, 1] = minDiagQ
-    initMatrixQ[0, 1] = 0.0
-    initMatrixQ[1, 0] = 0.0
-    return initMatrixQ
+
+    if useIdentity > 0.0:
+        return np.eye(2, dtype=np.float32) * np.float32(useIdentity)
+
+    Q = np.empty((2, 2), dtype=np.float32)
+    Q[0, 0] = np.float32(minDiagQ if Q00 is None else Q00)
+    Q[1, 1] = np.float32(minDiagQ if Q11 is None else Q11)
+
+    if Q01 is not None and Q10 is None:
+        Q10 = Q01
+    elif Q10 is not None and Q01 is None:
+        Q01 = Q10
+
+    Q[0, 1] = np.float32(offDiagQ if Q01 is None else Q01)
+    Q[1, 0] = np.float32(offDiagQ if Q10 is None else Q10)
+
+    if not np.allclose(Q[0, 1], Q[1, 0], rtol=0.0, atol=1e-4):
+        raise ValueError(f"Matrix is not symmetric: Q=\n{Q}")
+
+    # raise if poorly-conditioned/non-SPD
+    try:
+        np.linalg.cholesky(Q.astype(np.float64, copy=False) + tol * np.eye(2))
+    except Exception as ex:
+        raise ValueError(
+            f"Process noise covariance Q is not positive definite:\n{Q}"
+        ) from ex
+    return Q
 
 
 def constructMatrixH(
@@ -819,7 +855,8 @@ def runConsenrich(
 
     matrixF: np.ndarray = constructMatrixF(deltaF)
     matrixQ: np.ndarray = constructMatrixQ(
-        minQ, offDiagQ=offDiagQ,
+        minQ,
+        offDiagQ=offDiagQ,
     )
     matrixQCopy: np.ndarray = matrixQ.copy()
 
@@ -861,7 +898,9 @@ def runConsenrich(
             phiScale: float,
             collectD_: bool = True,
             isInitialPass: bool = False,
-        ) -> tuple[float, int, np.ndarray]:
+            returnNLL_: bool = False,
+            storeNLLInD_: bool = False,
+        ):
             nonlocal \
                 matrixQ, \
                 matrixQCopy, \
@@ -892,44 +931,54 @@ def runConsenrich(
                 progressBar = tqdm(total=n, unit=" intervals ")
 
             try:
-                phiHatOut, countAdjustmentsOut, vectorDOut = (
-                    cconsenrich.cforwardPass(
-                        matrixData=matrixData,
-                        matrixMunc=matrixMunc,
-                        matrixF=matrixF,
-                        matrixQ=matrixQ,
-                        matrixQCopy=matrixQCopy,
-                        phiScale=float(phiScale),
-                        dStatAlpha=float(
-                            1.0e6 if isInitialPass else dStatAlpha
-                        ),
-                        dStatd=float(dStatd),
-                        dStatPC=float(dStatPC),
-                        maxQ=float(maxQ),
-                        minQ=float(minQ),
-                        stateInit=float(stateInit),
-                        stateCovarInit=float(stateCovarInit),
-                        collectD=bool(collectD_),
-                        covarClip=float(covarClip),
-                        pad=float(pad_),
-                        projectStateDuringFiltering=bool(
-                            projectStateDuringFiltering
-                        ),
-                        stateLowerBound=float(stateLowerBound),
-                        stateUpperBound=float(stateUpperBound),
-                        chunkSize=int(chunkSize),
-                        stateForward=stateForwardOut,
-                        stateCovarForward=stateCovarForwardOut,
-                        pNoiseForward=pNoiseForwardOut,
-                        vectorD=vectorD,
-                        progressBar=progressBar,
-                        progressIter=int(progressIter),
-                    )
+                out = cconsenrich.cforwardPass(
+                    matrixData=matrixData,
+                    matrixMunc=matrixMunc,
+                    matrixF=matrixF,
+                    matrixQ=matrixQ,
+                    matrixQCopy=matrixQCopy,
+                    phiScale=float(phiScale),
+                    dStatAlpha=float(1.0e6 if isInitialPass else dStatAlpha),
+                    dStatd=float(dStatd),
+                    dStatPC=float(dStatPC),
+                    maxQ=float(maxQ),
+                    minQ=float(minQ),
+                    stateInit=float(stateInit),
+                    stateCovarInit=float(stateCovarInit),
+                    collectD=bool(collectD_),
+                    covarClip=float(covarClip),
+                    pad=float(pad_),
+                    projectStateDuringFiltering=bool(
+                        projectStateDuringFiltering
+                    ),
+                    stateLowerBound=float(stateLowerBound),
+                    stateUpperBound=float(stateUpperBound),
+                    chunkSize=int(chunkSize),
+                    stateForward=stateForwardOut,
+                    stateCovarForward=stateCovarForwardOut,
+                    pNoiseForward=pNoiseForwardOut,
+                    vectorD=vectorD,
+                    progressBar=progressBar,
+                    progressIter=int(progressIter),
+                    returnNLL=bool(returnNLL_),
+                    storeNLLInD=bool(storeNLLInD_),
                 )
             finally:
                 if progressBar is not None:
                     progressBar.close()
 
+            if returnNLL_:
+                phiHatOut, countAdjustmentsOut, vectorDOut, nllOut = out
+                vectorD = vectorDOut
+                countAdjustments = int(countAdjustmentsOut)
+                return (
+                    float(phiHatOut),
+                    int(countAdjustmentsOut),
+                    vectorD,
+                    float(nllOut),
+                )
+
+            phiHatOut, countAdjustmentsOut, vectorDOut = out
             vectorD = vectorDOut
             countAdjustments = int(countAdjustmentsOut)
             return float(phiHatOut), int(countAdjustmentsOut), vectorD
@@ -937,113 +986,172 @@ def runConsenrich(
         if not disableCalibration:
             dCpy = dStatAlpha
             initialMuncBaseline = matrixMunc.copy()
-            calibrateNIS_maxIters = calibration_kwargs.get(
-                "calibrateNIS_maxIters", 10
+            calibration_maxIters = calibration_kwargs.get(
+                "calibration_maxIters", 10
             )
-            calibrateNIS_numBlocks = calibration_kwargs.get(
-                "calibrateNIS_numBlocks", 1000
+            calibration_numBlocks = calibration_kwargs.get(
+                "calibration_numBlocks", 1000
             )
-            calibrateNIS_updateScale = np.float32(
-                calibration_kwargs.get("calibrateNIS_updateScale", 0.50)
+            calibration_updateScale = np.float32(
+                calibration_kwargs.get("calibration_updateScale", 0.50)
             )
-            calibrateNIS_maxLogStep = np.float32(
-                calibration_kwargs.get("calibrateNIS_maxLogStep", 0.25)
+            calibration_maxLogStep = np.float32(
+                calibration_kwargs.get("calibration_maxLogStep", 0.25)
             )
-            numBlocksPerIter = int(max(1, calibrateNIS_numBlocks // 4))
-            blockSize = int(np.ceil(n / calibrateNIS_numBlocks))
+            numBlocksPerIter = int(max(1, calibration_numBlocks // 4))
+            blockSize = int(np.ceil(n / calibration_numBlocks))
             blockId = (np.arange(n, dtype=np.int32) // blockSize).astype(
                 np.int32
             )
-            blockId[blockId >= calibrateNIS_numBlocks] = (
-                calibrateNIS_numBlocks - 1
+            blockId[blockId >= calibration_numBlocks] = (
+                calibration_numBlocks - 1
             )
-
-            NISLower = np.float32(1e-6)
-            NISUpper = np.float32(10.0)
             dispMin = np.float32(1e-3)
             dispMax = np.float32(1e3)
 
-            dispersionFactor = np.ones(calibrateNIS_numBlocks, dtype=np.float32)
+            dispersionFactor = np.ones(calibration_numBlocks, dtype=np.float32)
             bestLoss = 1e8
             bestDispersionFactor = dispersionFactor.copy()
 
-            phiHat, adjustmentCount, firstNIS = _forwardPass(
-                phiScale=1.0, collectD_=True, isInitialPass=True
+            intervalScale = dispersionFactor[blockId]
+            matrixMunc[:] = initialMuncBaseline * intervalScale[None, :]
+            phiHat, adjustmentCount, nllVec, loss = _forwardPass(
+                phiScale=1.0,
+                collectD_=True,
+                isInitialPass=True,
+                returnNLL_=True,
+                storeNLLInD_=True,
             )
-            loss = cconsenrich.cNISMomentsLoss(
-                firstNIS.astype(np.float64, copy=False),
-                m_=int(m),
-            )
+            bestLoss = float(loss)
+            bestDispersionFactor = dispersionFactor.copy()
+            validMask = np.isfinite(nllVec)
+            blockSumNLL = np.bincount(blockId, weights=(nllVec * validMask), minlength=calibration_numBlocks).astype(np.float32, copy=False)
+            blockCnt = np.bincount(blockId, weights=validMask.astype(np.float32), minlength=calibration_numBlocks).astype(np.float32, copy=False)
+            blockMeanNLL = blockSumNLL / np.maximum(blockCnt, 1.0)
 
             for iterCt in tqdm(
-                range(int(calibrateNIS_maxIters)),
-                desc=" Running NIS-based calibration ",
+                range(int(calibration_maxIters)),
+                desc=" Calibrating R[:,:] ",
                 unit=" iters ",
             ):
                 intervalScale = dispersionFactor[blockId]
                 matrixMunc[:] = initialMuncBaseline * intervalScale[None, :]
-                phiHat, adjustmentCount, NIS = _forwardPass(
-                    phiScale=1.0, collectD_=True, isInitialPass=True
+                phiHat, adjustmentCount, nllVec, loss = _forwardPass(
+                    phiScale=1.0,
+                    collectD_=True,
+                    isInitialPass=True,
+                    returnNLL_=True,
+                    storeNLLInD_=True,
                 )
-                loss = cconsenrich.cNISMomentsLoss(
-                    NIS.astype(np.float64, copy=False),
-                    m_=int(m),
-                )
+                loss = float(loss)
 
                 if loss < bestLoss:
-                    bestLoss = loss
+                    bestLoss = float(loss)
                     bestDispersionFactor = dispersionFactor.copy()
 
-                NISVec = NIS.astype(np.float32, copy=False)
-                inlierMask = (NISVec > 0.0) & (NISVec < float(NISUpper))
-                logNIS = np.log(
-                    np.clip(NISVec, float(NISLower), float(NISUpper))
-                ).astype(np.float64, copy=False)
-                logNIS[~inlierMask] = 0.0
-
-                blockSum = np.bincount(
+                # restricted update wrt blocks contributing most to NLL
+                # ... to reduce overhead from less-informative intervals
+                blockSumNLL = np.bincount(
                     blockId,
-                    weights=logNIS,
-                    minlength=calibrateNIS_numBlocks,
-                )
-                blockCount = np.bincount(
-                    blockId,
-                    weights=inlierMask.astype(np.float64, copy=False),
-                    minlength=calibrateNIS_numBlocks,
-                )
-
-                calibrationDiff = (
-                    blockSum / np.maximum(blockCount, 1.0)
+                    weights=nllVec.astype(np.float32, copy=False),
+                    minlength=calibration_numBlocks,
                 ).astype(np.float32, copy=False)
-                priority = np.argsort(np.abs(calibrationDiff))[::-1]
-                activeBlocks = priority[:numBlocksPerIter]
-                # more stubborn as iterations progress
-                stepScale = np.float32(1.0 / np.sqrt(iterCt + 1.0))
-                logDispersionStep = (
-                    calibrateNIS_updateScale * calibrationDiff
-                ) * stepScale
-                logDispersionStep[activeBlocks] = np.clip(
-                    logDispersionStep[activeBlocks],
-                    -calibrateNIS_maxLogStep,
-                    calibrateNIS_maxLogStep,
-                )
+                blockMeanNLL = blockSumNLL / np.maximum(blockCnt, 1.0)
 
-                dispersionFactor[activeBlocks] *= np.exp(
-                    logDispersionStep[activeBlocks]
-                ).astype(np.float32)
-                np.clip(
-                    dispersionFactor, dispMin, dispMax, out=dispersionFactor
-                )
+                priority = np.argsort(blockMeanNLL)[::-1]
+                activeBlocks = priority[:numBlocksPerIter]
+
+                stepScale = 1.0
+                baseStep = np.float32(calibration_updateScale * stepScale)
+
+                # line search
+                accepted = False
+                for trialCt in tqdm(range(4), desc=" \tline search ", unit=" trials "):
+                    # halve step size until we find a good gradient
+                    trialStep = np.float32(
+                        baseStep * (np.float32(0.5) ** np.float32(trialCt))
+                    )
+                    trialStep = np.clip(
+                        trialStep, np.float32(0.0), calibration_maxLogStep
+                    )
+
+                    # try positive step
+                    dispersionCandP = dispersionFactor.copy()
+                    dispersionCandP[activeBlocks] *= np.exp(trialStep).astype(
+                        np.float32
+                    )
+                    np.clip(
+                        dispersionCandP, dispMin, dispMax, out=dispersionCandP
+                    )
+                    intervalScaleCandP = dispersionCandP[blockId]
+                    matrixMunc[:] = (
+                        initialMuncBaseline * intervalScaleCandP[None, :]
+                    )
+                    phiHatTryP, adjustmentCountTryP, nllVecTryP, lossTryP = (
+                        _forwardPass(
+                            phiScale=1.0,
+                            collectD_=True,
+                            isInitialPass=True,
+                            returnNLL_=True,
+                            storeNLLInD_=True,
+                        )
+                    )
+                    lossTryP = float(lossTryP)
+
+                    # negative step
+                    dispersionCandM = dispersionFactor.copy()
+                    dispersionCandM[activeBlocks] *= np.exp(-trialStep).astype(
+                        np.float32
+                    )
+
+                    np.clip(
+                        dispersionCandM, dispMin, dispMax, out=dispersionCandM
+                    )
+                    intervalScaleCandM = dispersionCandM[blockId]
+                    matrixMunc[:] = (
+                        initialMuncBaseline * intervalScaleCandM[None, :]
+                    )
+                    phiHatTryM, adjustmentCountTryM, nllVecTryM, lossTryM = (
+                        _forwardPass(
+                            phiScale=1.0,
+                            collectD_=True,
+                            isInitialPass=True,
+                            returnNLL_=True,
+                            storeNLLInD_=True,
+                        )
+                    )
+                    lossTryM = float(lossTryM)
+
+                    if (lossTryP <= loss) and (lossTryP <= lossTryM):
+                        # update per the accepted dispersion candidate
+                        dispersionFactor[:] = dispersionCandP
+                        loss = float(lossTryP)
+                        accepted = True
+                    elif lossTryM <= loss:
+                        # update per the accepted dispersion candidate
+                        dispersionFactor[:] = dispersionCandM
+                        loss = float(lossTryM)
+                        accepted = True
+
+                    if accepted:
+                        if loss < bestLoss:
+                            bestLoss = float(loss)
+                            bestDispersionFactor = dispersionFactor.copy()
+                        break
+
+                if not accepted:
+                    intervalScale = dispersionFactor[blockId]
+                    matrixMunc[:] = initialMuncBaseline * intervalScale[None, :]
 
             intervalScale = bestDispersionFactor[blockId]
             matrixMunc[:] = initialMuncBaseline * intervalScale[None, :]
             dStatAlpha = dCpy
 
-        phiHat, adjustmentCount, NIS = _forwardPass(
-            phiScale=1.0, collectD_=True, isInitialPass=False
+        phiHat, countAdjustments, NIS = _forwardPass(
+            phiScale=phiHat_, collectD_=True, isInitialPass=False
         )
         logger.info(
-            f"Done: {adjustmentCount} process noise adjustments, {phiHat:.4f}"
+            f"Forward pass completed: {countAdjustments} process noise adjustments, {phiHat:.4f}"
         )
 
         stateForwardArr = stateForward
@@ -1320,7 +1428,7 @@ def getMuncTrack(
         samplingIters,
         randomSeed,
         excludeMaskArr,
-        useInnovationVar=False,
+        useInnovationVar=True,
     )
 
     # (ii) Fit mean-variance trend to sampled blocks/pairs
@@ -1343,7 +1451,7 @@ def getMuncTrack(
     fitR2 = globalR2
     logger.info(
         f"Mean-variance fit over {len(blockMeans)} sampled blocks:"
-        f"coefficients = {opt}"
+        f"coefficients = {opt[::-1]}"
     )
     meanTrack = valuesArr.copy()
     globalModelVariances = evalFunc(
@@ -1446,7 +1554,7 @@ def getSparseMap(
 
     .. todo::
 
-        This function could be an easy target for optimization w/ cython.
+        This function could be an easy target for optimization
     """
     sparseStarts = np.asarray(
         sparseIntersection(chromosome, intervals, sparseBedFile)
