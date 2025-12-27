@@ -1594,7 +1594,7 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(
     jointlySortedMeans,
     jointlySortedVariances,
-    double floorTarget = <double>0.1,
+    double floorTarget = <double>0.01,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] meanArr
     cdef cnp.ndarray[cnp.float32_t, ndim=1] varArr
@@ -2000,7 +2000,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                           float boundaryEps = <float>0.1,
-                          double leftQ_ = <double>0.01,
+                          double leftQ_ = <double>0.51,
                           double rightQ_ = <double>0.99,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False):
@@ -2340,7 +2340,6 @@ cpdef tuple cforwardPass(
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixF,
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQ,
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQCopy,
-    float phiScale,
     float dStatAlpha,
     float dStatd,
     float dStatPC,
@@ -2348,7 +2347,6 @@ cpdef tuple cforwardPass(
     float minQ,
     float stateInit,
     float stateCovarInit,
-    bint collectD=True,
     object coefficientsH=None,
     float covarClip=3.0,
     float pad=1.0e-2,
@@ -2364,6 +2362,9 @@ cpdef tuple cforwardPass(
     Py_ssize_t progressIter=25000,
     bint returnNLL=False,
     bint storeNLLInD=False,
+    object intervalToBlockMap=None,
+    object blockGradLogScale=None,
+    object blockGradCount=None,
 ):
     cdef cnp.float32_t[:, ::1] dataView = matrixData
     cdef cnp.float32_t[:, ::1] muncView = matrixMunc
@@ -2371,8 +2372,10 @@ cpdef tuple cforwardPass(
     cdef Py_ssize_t trackCount = dataView.shape[0]
     cdef Py_ssize_t intervalCount = dataView.shape[1]
     cdef Py_ssize_t intervalIndex, trackIndex
+
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] dStatVectorArr
     cdef cnp.float32_t[::1] dStatVector
+
     cdef bint doStore = (stateForward is not None)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateForwardArr
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarForwardArr
@@ -2380,19 +2383,24 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[:, ::1] stateForwardView
     cdef cnp.float32_t[:, :, ::1] stateCovarForwardView
     cdef cnp.float32_t[:, :, ::1] pNoiseForwardView
+
     cdef bint doFlush = False
     cdef bint doProgress = False
     cdef Py_ssize_t stepsDone = 0
     cdef Py_ssize_t progressRemainder = 0
+
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] stateVector = np.array([stateInit, 0.0], dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateCovar = (np.eye(2, dtype=np.float32)*np.float32(stateCovarInit))
     cdef cnp.float32_t[::1] stateVectorView = stateVector
     cdef cnp.float32_t[:, ::1] stateCovarView = stateCovar
+
     cdef double clipSmall = pow(10.0, -covarClip)
     cdef double clipBig = pow(10.0, covarClip)
+
     cdef bint inflatedQ = False
     cdef int adjustmentCount = 0
     cdef float phiHat = 1.0
+
     cdef double stateTransition00, stateTransition01, stateTransition10, stateTransition11
     cdef double sumWeightUU, sumWeightUY, sumWeightYY, sumResidualUU
     cdef double innovationValue, measurementVariance, paddedVariance, invVariance
@@ -2408,15 +2416,28 @@ cpdef tuple cforwardPass(
     cdef double intervalNLL = 0.0
     cdef double sumDStat = 0.0
 
+    # score-gradient bits (optional)
+    cdef bint doBlockGrad = (intervalToBlockMap is not None and blockGradLogScale is not None and blockGradCount is not None)
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMapArr
+    cdef cnp.int32_t[::1] intervalToBlockMapView
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockGradLogScaleArr
+    cdef cnp.float32_t[::1] blockGradLogScaleView
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockGradCountArr
+    cdef cnp.float32_t[::1] blockGradCountView
+    cdef cnp.int32_t blockId = 0
 
-    if collectD and vectorD is None:
+    cdef double gradSumLogR, gradSumWUU, gradSumWUY, gradSumWYY
+    cdef double dAddTraceLog, dWeightRank1, dQuad, intervalGrad
+    cdef double dVar
+
+    if vectorD is None:
         dStatVectorArr = np.empty(intervalCount, dtype=np.float32)
         vectorD = dStatVectorArr
-    elif collectD:
+    else:
         dStatVectorArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> vectorD
 
-    if collectD:
-        dStatVector = dStatVectorArr
+    dStatVector = dStatVectorArr
+
     if doStore:
         stateForwardArr = <cnp.ndarray[cnp.float32_t, ndim=2, mode="c"]> stateForward
         stateCovarForwardArr = <cnp.ndarray[cnp.float32_t, ndim=3, mode="c"]> stateCovarForward
@@ -2425,10 +2446,16 @@ cpdef tuple cforwardPass(
         stateCovarForwardView = stateCovarForwardArr
         pNoiseForwardView = pNoiseForwardArr
 
-    doFlush = (doStore and chunkSize > 0)
-    # for tqdm
-    doProgress = (progressBar is not None and progressIter > 0)
+    if doBlockGrad:
+        intervalToBlockMapArr = <cnp.ndarray[cnp.int32_t, ndim=1, mode="c"]> intervalToBlockMap
+        intervalToBlockMapView = intervalToBlockMapArr
+        blockGradLogScaleArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> blockGradLogScale
+        blockGradLogScaleView = blockGradLogScaleArr
+        blockGradCountArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> blockGradCount
+        blockGradCountView = blockGradCountArr
 
+    doFlush = (doStore and chunkSize > 0)
+    doProgress = (progressBar is not None and progressIter > 0)
 
     stateTransition00 = <double>stateTransitionView[0,0]
     stateTransition01 = <double>stateTransitionView[0,1]
@@ -2443,22 +2470,21 @@ cpdef tuple cforwardPass(
 
     for intervalIndex in range(intervalCount):
         # 'PREDICT' (prior, state transition model)
-        # Fx
         priorState0 = stateTransition00*(<double>stateVectorView[0]) + stateTransition01*(<double>stateVectorView[1])
         priorState1 = stateTransition10*(<double>stateVectorView[0]) + stateTransition11*(<double>stateVectorView[1])
         stateVectorView[0] = <cnp.float32_t>priorState0
         stateVectorView[1] = <cnp.float32_t>priorState1
-        # confusing, but here, 'posterior' is wrt the last iteration and is the current prior
+
         posteriorP00 = <double>stateCovarView[0,0]
         posteriorP01 = <double>stateCovarView[0,1]
         posteriorP10 = <double>stateCovarView[1,0]
         posteriorP11 = <double>stateCovarView[1,1]
-        # intermediates, apparently faster this way per Simon
+
         tmp00 = stateTransition00*posteriorP00 + stateTransition01*posteriorP10
         tmp01 = stateTransition00*posteriorP01 + stateTransition01*posteriorP11
         tmp10 = stateTransition10*posteriorP00 + stateTransition11*posteriorP10
         tmp11 = stateTransition10*posteriorP01 + stateTransition11*posteriorP11
-        # the actual prior state covariance at the current iteration, FPF^t + Q
+
         priorP00 = tmp00*stateTransition00 + tmp01*stateTransition01 + (<double>matrixQ[0,0])
         priorP01 = tmp00*stateTransition10 + tmp01*stateTransition11 + (<double>matrixQ[0,1])
         priorP10 = tmp10*stateTransition00 + tmp11*stateTransition01 + (<double>matrixQ[1,0])
@@ -2476,10 +2502,15 @@ cpdef tuple cforwardPass(
         if returnNLL:
             sumLogR = 0.0
 
+        if doBlockGrad:
+            gradSumLogR = 0.0
+            gradSumWUU = 0.0
+            gradSumWUY = 0.0
+            gradSumWYY = 0.0
+
         for trackIndex in range(trackCount):
-            # H is ones vec, zij + v, v ~ (0, Rij) with Ri diagonal
             innovationValue = (<double>dataView[trackIndex, intervalIndex]) - (<double>stateVectorView[0])
-            measurementVariance = (<double>muncView[trackIndex, intervalIndex])*(<double>phiScale)
+            measurementVariance = (<double>muncView[trackIndex, intervalIndex])
             paddedVariance = measurementVariance + (<double>pad)
             if paddedVariance < clipSmall:
                 paddedVariance = clipSmall
@@ -2491,7 +2522,16 @@ cpdef tuple cforwardPass(
             sumResidualUU += measurementVariance*(invVariance*invVariance)
             sumWeightUU += invVariance
 
-        # sherman-morrison-based calculations [(H*P*H^T + R)^-1], R is diagonal PD, H is ones
+            if doBlockGrad:
+                if paddedVariance > clipSmall:
+                    dVar = measurementVariance
+                else:
+                    dVar = 0.0
+                gradSumLogR += dVar / paddedVariance
+                gradSumWUU += dVar / (paddedVariance*paddedVariance)
+                gradSumWUY += dVar * innovationValue / (paddedVariance*paddedVariance)
+                gradSumWYY += dVar * (innovationValue*innovationValue) / (paddedVariance*paddedVariance)
+
         addP00Trace = 1.0 + (<double>stateCovarView[0,0])*sumWeightUU
         if addP00Trace < clipSmall:
             addP00Trace = clipSmall
@@ -2501,22 +2541,29 @@ cpdef tuple cforwardPass(
             quadraticForm = 0.0
 
         if returnNLL:
-        # negative LL
-        # ... m*NIS (quadraticForm) + log det term
+        # Quadratic term rewards fit and log-determinant penalizes undue variance inflation.
             intervalNLL = (0.5 *(sumLogR + log(addP00Trace) + quadraticForm))
             sumNLL += intervalNLL
+
+        if doBlockGrad and returnNLL:
+            dAddTraceLog = -((<double>stateCovarView[0,0]) * gradSumWUU) / addP00Trace
+            dWeightRank1 = (weightRank1*weightRank1) * gradSumWUU
+            dQuad = (-gradSumWYY) - (dWeightRank1*(sumWeightUY*sumWeightUY)) + (2.0*weightRank1*sumWeightUY*gradSumWUY)
+            intervalGrad = 0.5 * (gradSumLogR + dAddTraceLog + dQuad)
+
+            if isfinite(intervalGrad):
+                blockId = intervalToBlockMapView[intervalIndex]
+                blockGradLogScaleView[blockId] += <cnp.float32_t>intervalGrad
+                blockGradCountView[blockId] += <cnp.float32_t>1.0
 
         # D stat ~=~ NIS
         dStatValue = quadraticForm / (<double>trackCount)
         sumDStat += dStatValue
-        if collectD:
-            if returnNLL and storeNLLInD:
-                # FFR: remove one of or rename returnNLL, storeNLLInD
-                dStatVector[intervalIndex] = <cnp.float32_t>intervalNLL
-            else:
-                dStatVector[intervalIndex] = <cnp.float32_t>dStatValue
+        if returnNLL and storeNLLInD:
+            dStatVector[intervalIndex] = <cnp.float32_t>intervalNLL
+        else:
+            dStatVector[intervalIndex] = <cnp.float32_t>dStatValue
 
-        # record number of process noise covariance updates
         adjustmentCount += <int>(dStatValue > (<double>dStatAlpha))
         matrixQ, inflatedQ = updateProcessNoiseCovariance(
             matrixQ,
@@ -2547,12 +2594,12 @@ cpdef tuple cforwardPass(
         gainH = sumResidualUU / (addP00Trace*addP00Trace)
         IKH00 = 1.0 - ((<double>stateCovarView[0,0])*gainG)
         IKH10 = -((<double>stateCovarView[1,0])*gainG)
-        # FFR: confusing, again, but 'posterior' here is i|i-1
+
         posteriorP00 = <double>stateCovarView[0,0]
         posteriorP01 = <double>stateCovarView[0,1]
         posteriorP10 = <double>stateCovarView[1,0]
         posteriorP11 = <double>stateCovarView[1,1]
-        # ... *this* is the updated posterior through sumResidualUU / (addP00Trace*addP00Trace)
+
         posteriorNew00 = (IKH00*IKH00*posteriorP00) + (gainH*(posteriorP00*posteriorP00))
         posteriorNew01 = (IKH00*(IKH10*posteriorP00 + posteriorP01)) + (gainH*(posteriorP00*posteriorP10))
         posteriorNew11 = ((IKH10*IKH10*posteriorP00) + 2.0*IKH10*posteriorP10 + posteriorP11) + (gainH*(posteriorP10*posteriorP10))
@@ -2564,8 +2611,7 @@ cpdef tuple cforwardPass(
         if posteriorNew11 < clipSmall: posteriorNew11 = clipSmall
         elif posteriorNew11 > clipBig: posteriorNew11 = clipBig
 
-
-        stateCovarView[0,0] = <cnp.float32_t>posteriorNew00 # next prior
+        stateCovarView[0,0] = <cnp.float32_t>posteriorNew00 # next iter's prior
         stateCovarView[0,1] = <cnp.float32_t>posteriorNew01
         stateCovarView[1,0] = <cnp.float32_t>posteriorNew01
         stateCovarView[1,1] = <cnp.float32_t>posteriorNew11
@@ -2592,7 +2638,7 @@ cpdef tuple cforwardPass(
             pNoiseForwardView[intervalIndex,0,1] = matrixQ[0,1]
             pNoiseForwardView[intervalIndex,1,0] = matrixQ[1,0]
             pNoiseForwardView[intervalIndex,1,1] = matrixQ[1,1]
-            # memmaps -- flush every `chunkSize`
+            # memmap flush every chunkSize intervals
             if doFlush and (intervalIndex % chunkSize == 0) and (intervalIndex > 0):
                 stateForwardArr.flush()
                 stateCovarForwardArr.flush()
@@ -2613,8 +2659,7 @@ cpdef tuple cforwardPass(
         if progressRemainder != 0:
             progressBar.update(progressRemainder)
 
-    if collectD:
-        phiHat = <float>(sumDStat / (<double>intervalCount))
+    phiHat = <float>(sumDStat / (<double>intervalCount))
 
     if returnNLL:
         return (phiHat, adjustmentCount, vectorD, sumNLL)
@@ -2826,7 +2871,7 @@ cpdef tuple cbackwardPass(
     return (stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr)
 
 
-cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.01, double rightQ=<double>0.99):
+cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.51, double rightQ=<double>0.99):
     cdef cnp.ndarray vals_F32
     cdef cnp.ndarray vals_F64
     cdef cnp.ndarray posVals_
