@@ -1099,7 +1099,7 @@ def runConsenrich(
                     logger.info(f" Iter {iterCt}: loss: {bestLoss:.4f} ")
                     bestBlockDispersionFactors = BlockDispersionFactors.copy()
 
-                # We form a smaller 'active set' of blocks to reduce overhead
+                # We form a smaller 'active set' of blocks to reduce overhead and to focus heterogeneous gradient updates
                 # ... The active set is chosen as the top `activeSetSize` blocks ranked by gradient magnitude
                 gradDenomAll = np.maximum(blockGradCount, 1.0).astype(
                     np.float32, copy=False
@@ -1112,10 +1112,12 @@ def runConsenrich(
                 activeBlocks = priority[:activeSetSize]
 
                 # Greedy Minimization
-                # ... Take a single joint step on  active blocks in log-space (others fixed),
-                # ... project to bounds, then do short backtracking line search on the step size. Repeat.
-                # ... Minimal guarantees: accepted steps give non-increasing loss, and the active set
-                # ... (largest |gradMean|) targets the steepest first-order decrease on the linearized loss.
+                # ... Take a single step on active blocks in log-space (others fixed),
+                # ... project up to `calibration_activeSetMaxLogStep`, then do short backtracking
+                # ... line search on the --step size--.
+                # ... Fast but only minimal guarantees: accepted steps give non-increasing loss,
+                # ... and the active set is chosen to target the steepest decrease for sufficiently
+                # ... small steps/linear approximation of loss.
 
                 accepted = False
                 acceptedIntervalNLL = perIntervalNLL
@@ -1133,6 +1135,7 @@ def runConsenrich(
                 )
                 eta = np.float32(calibration_activeSetLogStepSize)
 
+                # proposed step = - eta * gradient(active set)
                 deltaU = np.zeros_like(u, dtype=np.float32)
                 deltaU[activeBlocks] = (
                     -eta * gradMeansAll[activeBlocks]
@@ -1145,6 +1148,7 @@ def runConsenrich(
                 )
 
                 for retryCt in range(int(calibration_BGDMaxBacktracks)):
+                    # backtracking line search -- reduce step size as: (backtrackFactor) ** k
                     stepScale = np.float32(
                         calibration_BGDBacktrackFactor
                     ) ** np.float32(retryCt)
@@ -1194,7 +1198,7 @@ def runConsenrich(
                                 BlockDispersionFactors.copy()
                             )
                         logger.info(
-                            f" BGD step accepted, candidate loss: {candidateLoss:.4f}"
+                            f"Step: {stepScale:.4f}: loss={candidateLoss:.4f}"
                         )
                         break
 
@@ -1214,7 +1218,8 @@ def runConsenrich(
                         ).astype(np.float64, copy=False)
 
                         # compute mean and sd of per-interval NLL differences
-                        # ... use to assess whether current improvement is negligible
+                        # ... use as a reference to evaluate whether current
+                        # ... improvements have dwindled to a negligible level
                         # ... --> early stop
                         meanDiff = float(deltaNLL.mean())
                         if k > 1:
@@ -1255,7 +1260,7 @@ def runConsenrich(
             pNoiseForwardOut=pNoiseForward,
         )
         logger.info(
-            f"Forward pass completed: {countAdjustments} process noise adjustments, {phiHat:.4f}"
+            f"Process noise updated at {float(100 * (countAdjustments / NIS.size))}% intervals, NIS Φ≈{phiHat:.4f}",
         )
 
         stateForwardArr = stateForward
