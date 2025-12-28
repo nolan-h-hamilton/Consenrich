@@ -254,115 +254,8 @@ cdef inline double _carsinh_F64(double x) nogil:
     return asinh(x/2.0) * __INV_LN2_DOUBLE
 
 
-cdef inline double _interpolateQuantile_F32(float[::1] sortedValues, Py_ssize_t valueCount, double quantile) nogil:
-    # CALLERS: `_kneeGrad_F32`
-
-    cdef double scaledIndex = quantile * (<double>(valueCount - 1))
-    cdef Py_ssize_t leftIndex = <Py_ssize_t>scaledIndex
-    cdef Py_ssize_t rightIndex = leftIndex + 1
-    cdef double fraction
-    if rightIndex >= valueCount:
-        rightIndex = leftIndex
-    fraction = scaledIndex - <double>leftIndex
-    return (<double>sortedValues[leftIndex]) * (1.0 - fraction) + (<double>sortedValues[rightIndex]) * fraction
-
-
-cdef inline double _interpolateQuantile_F64(double[::1] sortedValues, Py_ssize_t valueCount, double quantile) nogil:
-    # CALLERS: `_kneeGrad_F64`
-
-    cdef double scaledIndex = quantile * (<double>(valueCount - 1))
-    cdef Py_ssize_t leftIndex = <Py_ssize_t>scaledIndex
-    cdef Py_ssize_t rightIndex = leftIndex + 1
-    cdef double fraction
-    if rightIndex >= valueCount:
-        rightIndex = leftIndex
-    fraction = scaledIndex - <double>leftIndex
-    return sortedValues[leftIndex] * (1.0 - fraction) + sortedValues[rightIndex] * fraction
-
-
-cdef inline double _kneeGrad_F32(float[::1] sortedValues,
-                                    Py_ssize_t valueCount,
-                                    double quantile,
-                                    double inverseQuantileSpan,
-                                    double inverseValueSpan) nogil:
-    # CALLERS: `cgetGlobalBaseline`
-
-    cdef double quantileStep
-    cdef double halfWindow
-    cdef double leftQuantile
-    cdef double rightQuantile
-    cdef double leftValue
-    cdef double rightValue
-    cdef double valueSlope
-
-    if valueCount < 2:
-        return -inverseQuantileSpan
-
-    quantileStep = 1.0 / (<double>(valueCount - 1))
-    halfWindow = 4.0 * quantileStep
-    if halfWindow < 1e-4:
-        halfWindow = 1e-4
-    if halfWindow > 1e-2:
-        halfWindow = 1e-2
-
-    leftQuantile = quantile - halfWindow
-    rightQuantile = quantile + halfWindow
-    if leftQuantile < 0.0:
-        leftQuantile = 0.0
-    if rightQuantile > 1.0:
-        rightQuantile = 1.0
-    if rightQuantile <= leftQuantile:
-        return -inverseQuantileSpan
-
-    leftValue = _interpolateQuantile_F32(sortedValues, valueCount, leftQuantile)
-    rightValue = _interpolateQuantile_F32(sortedValues, valueCount, rightQuantile)
-    valueSlope = (rightValue - leftValue) / (rightQuantile - leftQuantile)
-
-    return (valueSlope * inverseValueSpan) - inverseQuantileSpan
-
-
-cdef inline double _kneeGrad_F64(double[::1] sortedValues,
-                                    Py_ssize_t valueCount,
-                                    double quantile,
-                                    double inverseQuantileSpan,
-                                    double inverseValueSpan) nogil:
-    # CALLERS: `cgetGlobalBaseline`
-
-    cdef double quantileStep
-    cdef double halfWindow
-    cdef double leftQuantile
-    cdef double rightQuantile
-    cdef double leftValue
-    cdef double rightValue
-    cdef double valueSlope
-
-    if valueCount < 2:
-        return -inverseQuantileSpan
-
-    quantileStep = 1.0 / (<double>(valueCount - 1))
-    halfWindow = 4.0 * quantileStep
-    if halfWindow < 1e-4:
-        halfWindow = 1e-4
-    if halfWindow > 1e-2:
-        halfWindow = 1e-2
-
-    leftQuantile = quantile - halfWindow
-    rightQuantile = quantile + halfWindow
-    if leftQuantile < 0.0:
-        leftQuantile = 0.0
-    if rightQuantile > 1.0:
-        rightQuantile = 1.0
-    if rightQuantile <= leftQuantile:
-        return -inverseQuantileSpan
-
-    leftValue = _interpolateQuantile_F64(sortedValues, valueCount, leftQuantile)
-    rightValue = _interpolateQuantile_F64(sortedValues, valueCount, rightQuantile)
-    valueSlope = (rightValue - leftValue) / (rightQuantile - leftQuantile)
-    return (valueSlope * inverseValueSpan) - inverseQuantileSpan
-
-
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
-    # CALLERS: `_partitionLt`, `_nthElement`, `cgetGlobalBaseline`
+    # CALLERS: `_partitionLt`, `_nthElement`
 
     cdef float tmp = swapInArray_[i]
     swapInArray_[i] = swapInArray_[j]
@@ -371,7 +264,7 @@ cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
 
 
 cdef inline Py_ssize_t _partitionLt(float* vals_, Py_ssize_t left, Py_ssize_t right, Py_ssize_t pivot) nogil:
-    # CALLERS: `_nthElement`, `cgetGlobalBaseline`
+    # CALLERS: `_nthElement`
 
     cdef float pv = vals_[pivot]
     cdef Py_ssize_t store = left
@@ -386,7 +279,8 @@ cdef inline Py_ssize_t _partitionLt(float* vals_, Py_ssize_t left, Py_ssize_t ri
 
 
 cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nogil:
-    # CALLERS: `cgetGlobalBaseline`
+    # CALLERS: `cgetGlobalBaseline`, `csampleBlockStats`
+
     cdef Py_ssize_t left = 0
     cdef Py_ssize_t right = n - 1
     cdef Py_ssize_t pivot, idx
@@ -2000,8 +1894,6 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                           float boundaryEps = <float>0.1,
-                          double leftQ_ = <double>0.51,
-                          double rightQ_ = <double>0.99,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False):
     r"""Compute log-scale enrichment versus locally computed backgrounds
@@ -2093,7 +1985,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
 
             # can't call from nogil
-            trackWideOffset_F32 = <float>cgetGlobalBaseline(blockMeans_F32, leftQ=leftQ_, rightQ=rightQ_)
+            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32)
             with nogil:
                 # 'disable' local background --> use global baseline everywhere
                 if <bint>disableLocalBackground == <bint>True:
@@ -2175,7 +2067,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                 blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
 
 
-        trackWideOffset_F64 = <double>cgetGlobalBaseline(blockMeans_F64, leftQ=leftQ_, rightQ=rightQ_)
+        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64)
 
         with nogil:
             if <bint>disableLocalBackground == <bint>True:
@@ -2871,118 +2763,46 @@ cpdef tuple cbackwardPass(
     return (stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr)
 
 
-cpdef object cgetGlobalBaseline(object x, double leftQ=<double>0.51, double rightQ=<double>0.99):
-    cdef cnp.ndarray vals_F32
-    cdef cnp.ndarray vals_F64
-    cdef cnp.ndarray posVals_
-    cdef cnp.ndarray sortedPositive
-    cdef float[::1] sortedView_F32
-    cdef double[::1] sortedView_F64
-    cdef Py_ssize_t valueCount
-    cdef double minValue_
-    cdef double maxValue_
-    cdef double spanVals_
-    cdef double spanQuantile_
-    cdef double inverseQuantileSpan
-    cdef double inverseValueSpan
-    cdef double leftQuantile
-    cdef double rightQuantile
-    cdef double midQuantile
-    cdef double leftGrad
-    cdef double rightGrad
-    cdef double midGrad
-    cdef double elbowQuantile
-    cdef double elbow_
-    cdef Py_ssize_t iteration
+cpdef double cgetGlobalBaseline(
+    object x,
+    Py_ssize_t bootBlockSize=100,
+    Py_ssize_t numBoots=5000,
+    double criticalZ=1.645,
+    uint64_t seed=0,
+):
+    # FFR: can be updated to reduce python interaction, memory allocation
 
-    if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
-        vals_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
-        posVals_ = vals_F32[vals_F32 > 0.0]
-        if posVals_.size == 0:
-            return <float>0.0
+    cdef cnp.ndarray values
+    cdef Py_ssize_t numValues
+    cdef object rng
+    cdef cnp.ndarray blockSizes, blockStarts
+    cdef cnp.ndarray prefixSums, bootstrapMeans, posMeans
+    cdef double bootMean, bootStdErr
+    cdef double geomProb, upperBound
+    cdef double MADMultiplier = 1.4826
 
-        sortedPositive = np.ascontiguousarray(np.sort(posVals_), dtype=np.float32)
-        sortedView_F32 = sortedPositive
-        valueCount = sortedView_F32.shape[0]
-        minValue_ = _interpolateQuantile_F32(sortedView_F32, valueCount, leftQ)
-        maxValue_ = _interpolateQuantile_F32(sortedView_F32, valueCount, rightQ)
-        spanVals_ = maxValue_ - minValue_
-        if spanVals_ <= 0.0: return <float>minValue_
-        spanQuantile_ = rightQ - leftQ
-        inverseQuantileSpan = 1.0 / spanQuantile_
-        inverseValueSpan = 1.0 / spanVals_
-        leftQuantile = leftQ
-        rightQuantile = rightQ
+    # regardless of input dtype, f32 shouldd be sufficient for within-function
+    values = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+    rng = default_rng(seed)
+    numValues = values.size
 
-        with nogil:
-            leftGrad = _kneeGrad_F32(sortedView_F32, valueCount, leftQuantile, inverseQuantileSpan, inverseValueSpan)
-            rightGrad = _kneeGrad_F32(sortedView_F32, valueCount, rightQuantile, inverseQuantileSpan, inverseValueSpan)
+    # expected block length = 1/geomProb = bootBlockSize
+    geomProb = 1.0 / (<double>bootBlockSize)
+    blockSizes = rng.geometric(geomProb, size=numBoots).astype(np.intp, copy=False)
+    np.minimum(blockSizes, numValues, out=blockSizes)  # keep in-bounds
+    blockStarts = (rng.random(numBoots) * (numValues - blockSizes + 1)).astype(np.intp, copy=False)
 
-            if leftGrad <= 0.0:
-                elbowQuantile = leftQuantile
-            elif rightGrad >= 0.0:
-                elbowQuantile = rightQuantile
-            else:
-            # here, we've bounded a 'kneedle' (raghavan)
-            # ... begin bisection: find a maximum in [leftQ, rightQ] in the quantile curve above y=x
-                for iteration in range(128):
-                    midQuantile = 0.5 * (leftQuantile + rightQuantile)
-                    # check grad. at center
-                    midGrad = _kneeGrad_F32(sortedView_F32, valueCount, midQuantile, inverseQuantileSpan, inverseValueSpan)
-                    # if increasing, look in right half
-                    if midGrad > 1.0e-3:
-                        leftQuantile = midQuantile
-                    elif midGrad < -1.0e-3:
-                    # decreasing, look in left
-                        rightQuantile = midQuantile
-                    else:
-                        break
-                elbowQuantile = 0.5 * (leftQuantile + rightQuantile)
+    # after cumsum, prefix[start + size] - prefix[start] yields block's sum
+    prefixSums = np.empty(numValues + 1, dtype=np.float64)
+    prefixSums[0] = 0.0
+    np.cumsum(values, out=prefixSums[1:])
 
-            elbow_ = _interpolateQuantile_F32(sortedView_F32, valueCount, elbowQuantile)
+    bootstrapMeans = (prefixSums[blockStarts + blockSizes] - prefixSums[blockStarts]) / blockSizes
+    posMeans = bootstrapMeans[bootstrapMeans > 0.0]
 
-        return <float>elbow_
-
-    vals_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
-    posVals_ = vals_F64[vals_F64 > 0.0]
-    if posVals_.size == 0:
-        return <double>0.0
-    sortedPositive = np.ascontiguousarray(np.sort(posVals_), dtype=np.float64)
-    sortedView_F64 = sortedPositive
-    valueCount = sortedView_F64.shape[0]
-
-    minValue_ = _interpolateQuantile_F64(sortedView_F64, valueCount, leftQ)
-    maxValue_ = _interpolateQuantile_F64(sortedView_F64, valueCount, rightQ)
-    spanVals_ = maxValue_ - minValue_
-    if spanVals_ <= 0.0:
-        return <double>minValue_
-    spanQuantile_ = rightQ - leftQ
-    inverseQuantileSpan = 1.0 / spanQuantile_
-    inverseValueSpan = 1.0 / spanVals_
-    leftQuantile = leftQ
-    rightQuantile = rightQ
-
-    with nogil:
-        leftGrad = _kneeGrad_F64(sortedView_F64, valueCount, leftQuantile, inverseQuantileSpan, inverseValueSpan)
-        rightGrad = _kneeGrad_F64(sortedView_F64, valueCount, rightQuantile, inverseQuantileSpan, inverseValueSpan)
-        if leftGrad <= 0.0:
-            elbowQuantile = leftQuantile
-        elif rightGrad >= 0.0:
-            elbowQuantile = rightQuantile
-        else:
-            for iteration in range(128):
-                midQuantile = 0.5 * (leftQuantile + rightQuantile)
-                midGrad = _kneeGrad_F64(sortedView_F64, valueCount, midQuantile, inverseQuantileSpan, inverseValueSpan)
-                if midGrad > 1.0e-8:
-                    leftQuantile = midQuantile
-                elif midGrad < -1.0e-8:
-                    rightQuantile = midQuantile
-                else:
-                    break
-            elbowQuantile = 0.5 * (leftQuantile + rightQuantile)
-
-        elbow_ = _interpolateQuantile_F64(sortedView_F64, valueCount, elbowQuantile)
-
-    return <double>elbow_
-
-
+    # returned value is the median of bootstrap replicate means (positive),
+    # ... plus criticalZ * robust std.err. estimate
+    bootMean = <double>np.median(posMeans)
+    bootStdErr = <double>(MADMultiplier * np.median(np.abs(posMeans - bootMean)))
+    upperBound = bootMean + (criticalZ*bootStdErr)
+    return upperBound
