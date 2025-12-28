@@ -254,7 +254,8 @@ class countingParams(NamedTuple):
     :param useTreatmentFragmentLengths: If True, use fragment lengths estimated from treatment BAM files for control BAM files, too.
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
-
+    :type fixControl: bool, optional
+    :param globalBackgroundCushion: Add a multiple of the median dispersion observed during block-bootstrap estimation of global background (:math:` + \textsf{globalBackgroundCushion}\cdot \textsf{MAD}`)
 
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
     :class: tip
@@ -279,6 +280,7 @@ class countingParams(NamedTuple):
     fragmentLengthsControl: List[int] | None
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
+    globalBackgroundCushion: float | None
 
 
 class matchingParams(NamedTuple):
@@ -995,7 +997,7 @@ def runConsenrich(
                 calibration_kwargs.get("calibration_activeSetMaxLogStep", LN2)
             )
             calibration_BGDMaxBacktracks = int(
-                calibration_kwargs.get("calibration_BGDMaxBacktracks", 5)
+                calibration_kwargs.get("calibration_BGDMaxBacktracks", 3)
             )
             calibration_BGDBacktrackFactor = np.float32(
                 calibration_kwargs.get("calibration_BGDBacktrackFactor", 0.5)

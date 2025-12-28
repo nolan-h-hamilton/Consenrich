@@ -533,6 +533,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         True,
     )
 
+    globalBackgroundCushion_ = _cfgGet(
+        configData,
+        "countingParams.globalBackgroundCushion",
+        2.0,
+    )
+
     return core.countingParams(
         stepSize=stepSize,
         backgroundWindowSizeBP=backgroundWindowSizeBP,
@@ -543,6 +549,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fragmentLengthsControl=fragmentLengthsControl,
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
+        globalBackgroundCushion=globalBackgroundCushion_,
     )
 
 
@@ -1316,7 +1323,6 @@ def main():
             for bamA, bamB in zip(bamFiles, bamFilesControl):
                 logger.info(
                     f"Counting (trt,ctrl) for {chromosome}: ({bamA}, {bamB})"
-                    "...Background will be estimated with control inputs."
                 )
 
                 pairMatrix: np.ndarray = core.readBamSegments(
@@ -1347,34 +1353,18 @@ def main():
                 )
 
                 chromMat[j_, :] = cconsenrich.carsinhRatio(
-                    pairMatrix[0, :],
+                    np.maximum(pairMatrix[0, :] - pairMatrix[1, :],0.0),
                     backgroundWindowSizeIntervals,
-                    disableBackground=True,
-                ) - cconsenrich.carsinhRatio(
-                    pairMatrix[1, :],
-                    backgroundWindowSizeIntervals,
-                    disableBackground=True,
+                    globalBackgroundCushion=countingArgs.globalBackgroundCushion,
                 )
-
-                muncMat[j_, :] = (
-                    core.getMuncTrack(
-                        chromosome,
-                        intervals,
-                        pairMatrix[0, :],
-                        stepSize,
-                        minR_,
-                        maxR_,
-                        randomSeed=42 + j_,
-                    )[0]
-                    + core.getMuncTrack(
-                        chromosome,
-                        intervals,
-                        pairMatrix[1, :],
-                        stepSize,
-                        minR_,
-                        maxR_,
-                        randomSeed=52 + j_,
-                    )[0]
+                muncMat[j_, :], _ = core.getMuncTrack(
+                    chromosome,
+                    intervals,
+                    chromMat[j_, :],
+                    stepSize,
+                    minR_,
+                    maxR_,
+                    randomSeed=42 + j_,
                 )
                 j_ += 1
         else:
@@ -1415,6 +1405,7 @@ def main():
                 chromMat[j, :] = cconsenrich.carsinhRatio(
                     chromMat[j, :],
                     backgroundWindowSizeIntervals,
+                    globalBackgroundCushion=countingArgs.globalBackgroundCushion,
                 )
 
                 # compute munc track for each sample independently

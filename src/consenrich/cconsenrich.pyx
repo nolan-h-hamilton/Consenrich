@@ -1895,7 +1895,8 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                           float boundaryEps = <float>0.1,
                           bint disableLocalBackground = <bint>False,
-                          bint disableBackground = <bint>False):
+                          bint disableBackground = <bint>False,
+                          double globalBackgroundCushion = 1.648):
     r"""Compute log-scale enrichment versus locally computed backgrounds
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -1985,7 +1986,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
 
             # can't call from nogil
-            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32)
+            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, criticalZ=globalBackgroundCushion)
             with nogil:
                 # 'disable' local background --> use global baseline everywhere
                 if <bint>disableLocalBackground == <bint>True:
@@ -2067,7 +2068,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                 blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
 
 
-        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64)
+        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, criticalZ=globalBackgroundCushion)
 
         with nogil:
             if <bint>disableLocalBackground == <bint>True:
@@ -2767,7 +2768,7 @@ cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=100,
     Py_ssize_t numBoots=5000,
-    double criticalZ=1.645,
+    double criticalZ=1.648,
     uint64_t seed=0,
 ):
     # FFR: can be updated to reduce python interaction, memory allocation
