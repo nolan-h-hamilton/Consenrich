@@ -279,7 +279,7 @@ cdef inline Py_ssize_t _partitionLt(float* vals_, Py_ssize_t left, Py_ssize_t ri
 
 
 cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nogil:
-    # CALLERS: `cgetGlobalBaseline`, `csampleBlockStats`
+    # CALLERS: `csampleBlockStats`
 
     cdef Py_ssize_t left = 0
     cdef Py_ssize_t right = n - 1
@@ -1986,7 +1986,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
 
             # can't call from nogil
-            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, criticalZ=globalBackgroundCushion)
+            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, globalBackgroundCushion=globalBackgroundCushion)
             with nogil:
                 # 'disable' local background --> use global baseline everywhere
                 if <bint>disableLocalBackground == <bint>True:
@@ -2068,7 +2068,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                 blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
 
 
-        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, criticalZ=globalBackgroundCushion)
+        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, globalBackgroundCushion=globalBackgroundCushion)
 
         with nogil:
             if <bint>disableLocalBackground == <bint>True:
@@ -2768,42 +2768,73 @@ cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=100,
     Py_ssize_t numBoots=5000,
-    double criticalZ=1.648,
+    double globalBackgroundCushion=2.0,
     uint64_t seed=0,
 ):
     # FFR: can be updated to reduce python interaction, memory allocation
 
-    cdef cnp.ndarray values
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
+    cdef cnp.float32_t[::1] valuesView
     cdef Py_ssize_t numValues
     cdef object rng
-    cdef cnp.ndarray blockSizes, blockStarts
-    cdef cnp.ndarray prefixSums, bootstrapMeans, posMeans
+    cdef cnp.ndarray[cnp.intp_t, ndim=1, mode="c"] blockSizes
+    cdef cnp.ndarray[cnp.intp_t, ndim=1, mode="c"] blockStarts
+    cdef cnp.intp_t[::1] blockSizesView
+    cdef cnp.intp_t[::1] blockStartsView
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixSums
+    cdef cnp.float64_t[::1] prefixView
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] posMeans
+
     cdef double bootMean, bootStdErr
     cdef double geomProb, upperBound
     cdef double MADMultiplier = 1.4826
+    cdef double maxVal
+    cdef Py_ssize_t i
+    cdef Py_ssize_t numPos
+
+    if bootBlockSize <= 0:
+        bootBlockSize = 1
+    if numBoots <= 0:
+        return 0.0
 
     # regardless of input dtype, f32 shouldd be sufficient for within-function
     values = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
-    rng = default_rng(seed)
+    valuesView = values
     numValues = values.size
+
+    if numValues <= 0:
+        return 0.0
+
+    rng = default_rng(seed)
 
     # expected block length = 1/geomProb = bootBlockSize
     geomProb = 1.0 / (<double>bootBlockSize)
     blockSizes = rng.geometric(geomProb, size=numBoots).astype(np.intp, copy=False)
     np.minimum(blockSizes, numValues, out=blockSizes)  # keep in-bounds
+    blockSizesView = blockSizes
     blockStarts = (rng.random(numBoots) * (numValues - blockSizes + 1)).astype(np.intp, copy=False)
+    blockStartsView = blockStarts
 
-    # after cumsum, prefix[start + size] - prefix[start] yields block's sum
+    # prefix sum: prefix[start + size] - prefix[start] yields block's sum
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
-    prefixSums[0] = 0.0
-    np.cumsum(values, out=prefixSums[1:])
+    prefixView = prefixSums
+    prefixView[0] = 0.0
+    for i in range(numValues):
+        prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
 
     bootstrapMeans = (prefixSums[blockStarts + blockSizes] - prefixSums[blockStarts]) / blockSizes
     posMeans = bootstrapMeans[bootstrapMeans > 0.0]
 
+    numPos = posMeans.size
+    if numPos <= 0:
+        return 0.0
+
     # returned value is the median of bootstrap replicate means (positive),
-    # ... plus criticalZ * robust std.err. estimate
+    # ... plus globalBackgroundCushion * MAD-based std err proxy
     bootMean = <double>np.median(posMeans)
     bootStdErr = <double>(MADMultiplier * np.median(np.abs(posMeans - bootMean)))
-    upperBound = bootMean + (criticalZ*bootStdErr)
+
+    maxVal = <double>np.max(values)
+    upperBound = fmin(bootMean + (globalBackgroundCushion*bootStdErr), maxVal*0.995)
     return upperBound
