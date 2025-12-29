@@ -982,12 +982,12 @@ def runConsenrich(
         if not disableCalibration:
             initialMuncBaseline = matrixMunc.copy()
             calibration_maxIters = int(
-                calibration_kwargs.get("calibration_maxIters", 25)
+                calibration_kwargs.get("calibration_maxIters", 50)
             )
             calibration_numTotalBlocks = int(
                 calibration_kwargs.get(
                     "calibration_numTotalBlocks",
-                    max(min(50, n // 100), 1),
+                    max(min(100, n // 100), 1),
                 )
             )
             calibration_activeSetLogStepSize = np.float32(
@@ -997,58 +997,63 @@ def runConsenrich(
                 calibration_kwargs.get("calibration_activeSetMaxLogStep", LN2)
             )
             calibration_BGDMaxBacktracks = int(
-                calibration_kwargs.get("calibration_BGDMaxBacktracks", 3)
+                calibration_kwargs.get("calibration_BGDMaxBacktracks", 2)
             )
             calibration_BGDBacktrackFactor = np.float32(
                 calibration_kwargs.get("calibration_BGDBacktrackFactor", 0.5)
             )
-            calibration_earlyStopZ = np.float32(
-                calibration_kwargs.get("calibration_earlyStopZ", 1.0)
-            )
-            calibration_earlyStopCriteria = int(
-                calibration_kwargs.get(
-                    "calibration_earlyStopCriteria",
-                    2,
-                )
-            )
-            calibration_earlyStopMinValidIntervals = int(
-                calibration_kwargs.get(
-                    "calibration_earlyStopMinValidIntervals",
-                    max(n // 20, 256),
-                )
+
+            calibration_eps = np.float32(
+                calibration_kwargs.get("calibration_eps", 1.0e-3)
             )
 
-            earlyStopNoSigIters = 0
-            prevAcceptedIntervalNLL = None
+            calibration_minRelativeImprovement = np.float32(
+                calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-4)
+            )
 
-            # size of the active set (those being updated in each iter) << total blocks
-            activeSetSize = (calibration_numTotalBlocks // 10) + 1
+            # size of the active set (those being updated in each iter)
+            # ... default value is such that each block could be updated
+            # ... across `calibration_maxIters` iters
+            calibration_activeSetSize = calibration_kwargs.get(
+                "calibration_activeSetSize",
+                min(
+                    (calibration_numTotalBlocks // calibration_maxIters) + 1,
+                    calibration_numTotalBlocks,
+                ),
+            )
+
+            # --- initialize/allocate ---
+            activeSetSize = int(calibration_activeSetSize)
             numIntervalsPerBlock = int(np.ceil(n / calibration_numTotalBlocks))
 
-            # map intervals to their respective blocks through intervalIdx // numIntervalsPerBlock
+            # (I) Map intervals to (larger) blocks
+            # ... assign interval `i` to block `b = i // numIntervalsPerBlock`
             intervalToBlockMap = (
                 np.arange(n, dtype=np.int32) // numIntervalsPerBlock
             ).astype(np.int32)
-
-            # depending on divisibility, remaining intervals mapped to last block
             intervalToBlockMap[
                 intervalToBlockMap >= calibration_numTotalBlocks
             ] = calibration_numTotalBlocks - 1
 
-            # `lowerUpdateLimit` and `upperUpdateLimit` control scale of updates
-            # ... Since initial R[:,:] is not random as a 'prior' (getMuncTrack) updates are capped at 10x
+            # (II) Bound block-level updates
+            # ... Initial R[:,:] is not random as a 'prior' (getMuncTrack), and updates are constrained
+            # ... to `lowerUpdateLimit` and `upperUpdateLimit` (in scale)
             lowerUpdateLimit = np.float32(0.10)
             upperUpdateLimit = np.float32(10.0)
 
-            # 'dispersion factors' scale within-block uncertainty levels during calibration
+            logLowerUpdateLimit = np.float32(np.log(float(lowerUpdateLimit)))
+            logUpperUpdateLimit = np.float32(np.log(float(upperUpdateLimit)))
+
+            # (III) Inititialize block-level 'dispersion factors'
+            # ... Scales that will multiply `matrixMunc` over contiguous intervals of blocks
+            # ... All initialized at 1.0
             BlockDispersionFactors = np.ones(
                 calibration_numTotalBlocks, dtype=np.float32
             )
-            bestLoss = 1e8
             bestBlockDispersionFactors = BlockDispersionFactors.copy()
+            bestLoss = 1e8
 
-            # define block-level gradients as the sum
-            # ... of per-interval NLL gradients within each block
+            # (IV) Initialize block-level gradients to zero
             blockGradLogScales = np.zeros(
                 calibration_numTotalBlocks, dtype=np.float32
             )
@@ -1056,7 +1061,7 @@ def runConsenrich(
                 calibration_numTotalBlocks, dtype=np.float32
             )
 
-            # Each interval within a block gets the same scale factor (`BlockDispersionFactors[b]`)
+            # (V) Get initial loss using the origianl matrixMunc (all dispersion factors = 1.0)
             intervalDispersionFactors = BlockDispersionFactors[
                 intervalToBlockMap
             ]
@@ -1064,18 +1069,16 @@ def runConsenrich(
                 initialMuncBaseline * intervalDispersionFactors[None, :]
             )
 
-            # run the initial forward pass with baseline matrixMunc
-            # ... recall, all dispersion factors = 1.0, here
-            phiHat, adjustmentCount, perIntervalNLL, loss = _forwardPass(
+            # --- Descent ---
+            phiHat, adjustmentCount, vectorD_, loss = _forwardPass(
                 isInitialPass=True,
                 returnNLL_=True,
-                storeNLLInD_=True,
+                storeNLLInD_=False,
             )
 
             bestLoss = float(loss)  # initial loss with baseline matrixMunc
             bestBlockDispersionFactors = BlockDispersionFactors.copy()
-            prevAcceptedIntervalNLL = np.array(perIntervalNLL, copy=True)
-            acceptedLoss = float(loss)
+            prevAcceptedLoss = float(loss)
 
             for iterCt in range(int(calibration_maxIters)):
                 # Set interval-level scales, 'update' matrixMunc, and run forward pass
@@ -1085,86 +1088,98 @@ def runConsenrich(
                 matrixMunc[:] = (
                     initialMuncBaseline * intervalDispersionFactors[None, :]
                 )
-                phiHat, adjustmentCount, perIntervalNLL, loss = _forwardPass(
+                phiHat, adjustmentCount, vectorD_, loss = _forwardPass(
                     isInitialPass=True,
                     returnNLL_=True,
-                    storeNLLInD_=True,
+                    storeNLLInD_=False,
                     intervalToBlockMapOut=intervalToBlockMap,
                     blockGradLogScalesOut=blockGradLogScales,
                     blockGradCountOut=blockGradCount,
                 )
 
-                # loss after update
+                # Refresh best loss and scales if improved
                 loss = float(loss)
                 if loss < bestLoss:
                     bestLoss = float(loss)
-                    logger.info(f" Iter {iterCt}: loss: {bestLoss:.4f} ")
                     bestBlockDispersionFactors = BlockDispersionFactors.copy()
 
                 # We form a smaller 'active set' of blocks to reduce overhead and to focus heterogeneous gradient updates
                 # ... The active set is chosen as the top `activeSetSize` blocks ranked by gradient magnitude
+
+                # FFR: note that blocks are the same length (up to the last), so the 'mean' implies the same ranking as 'sum'
+                # ... but keeping mean here for now in case we want to change block sizes later
                 gradDenomAll = np.maximum(blockGradCount, 1.0).astype(
                     np.float32, copy=False
                 )
                 gradMeansAll = (blockGradLogScales / gradDenomAll).astype(
                     np.float32, copy=False
                 )
+
                 gradScore = np.abs(gradMeansAll).astype(np.float32, copy=False)
                 priority = np.argsort(gradScore)[::-1]
                 activeBlocks = priority[:activeSetSize]
 
-                # Greedy Minimization
-                # ... Take a single step on active blocks in log-space (others fixed),
-                # ... project up to `calibration_activeSetMaxLogStep`, then do short backtracking
-                # ... line search on the --step size--.
-                # ... Fast but only minimal guarantees: accepted steps give non-increasing loss,
-                # ... and the active set is chosen to target the steepest decrease for sufficiently
-                # ... small steps/linear approximation of loss.
+                # Check stopping criterion
+                # ... stop if maximum gradient magnitude in active set is below `calibration_eps`
+                maxActiveGrad = float(
+                    np.max(np.abs(gradMeansAll[activeBlocks]))
+                )
+                if (iterCt > 1) and (maxActiveGrad < float(calibration_eps)):
+                    logger.info(
+                        f"Stopping criteria met at {iterCt}: maxActiveGrad={maxActiveGrad:.4f}"
+                    )
+                    break
 
+                # Greedy Minimization: Truncated Descent and Backtracking Line Search
+                ######################################################################################
+                # Take a single R^a vector step wrt active blocks in log-space (others fixed).
+                # ... Bound step size wrt `calibration_activeSetMaxLogStep` and apply backtracking
+                # ... line search until a decrease is observed.
+                #
+                # Fast but only minimal guarantees: accepted steps give non-increasing loss,
+                # ... and the active set is chosen to target the steepest decrease for a
+                # ... first order approximation of the loss (Taylor)
+                #######################################################################################
                 accepted = False
-                acceptedIntervalNLL = perIntervalNLL
                 acceptedLoss = float(loss)
 
-                logLowerUpdateLimit = np.float32(
-                    np.log(float(lowerUpdateLimit))
-                )
-                logUpperUpdateLimit = np.float32(
-                    np.log(float(upperUpdateLimit))
-                )
-
-                u = np.log(BlockDispersionFactors).astype(
+                blockLogFactors = np.log(BlockDispersionFactors).astype(
                     np.float32, copy=False
                 )
                 eta = np.float32(calibration_activeSetLogStepSize)
 
-                # proposed step = - eta * gradient(active set)
-                deltaU = np.zeros_like(u, dtype=np.float32)
-                deltaU[activeBlocks] = (
+                # Propose initial direction and scale of the update
+                # ... = - eta * gradient(active set)
+                deltaBlockLogFactors = np.zeros_like(
+                    blockLogFactors, dtype=np.float32
+                )
+                deltaBlockLogFactors[activeBlocks] = (
                     -eta * gradMeansAll[activeBlocks]
                 ).astype(np.float32, copy=False)
                 np.clip(
-                    deltaU,
+                    deltaBlockLogFactors,
                     -np.float32(calibration_activeSetMaxLogStep),
                     np.float32(calibration_activeSetMaxLogStep),
-                    out=deltaU,
+                    out=deltaBlockLogFactors,
                 )
 
+                # backtracking line search: try full step, (step*decrease^1), (step*decrease^2), ...
+                # ... until a decrease in loss is observed or max backtracks reached
                 for retryCt in range(int(calibration_BGDMaxBacktracks)):
-                    # backtracking line search -- reduce step size as: (backtrackFactor) ** k
                     stepScale = np.float32(
                         calibration_BGDBacktrackFactor
                     ) ** np.float32(retryCt)
-                    candidateU = (u + (deltaU * stepScale)).astype(
-                        np.float32, copy=False
-                    )
+                    candidateLogFactors = (
+                        blockLogFactors + (deltaBlockLogFactors * stepScale)
+                    ).astype(np.float32, copy=False)
                     np.clip(
-                        candidateU,
+                        candidateLogFactors,
                         logLowerUpdateLimit,
                         logUpperUpdateLimit,
-                        out=candidateU,
+                        out=candidateLogFactors,
                     )
                     candidate_BlockDispersionFactors = np.exp(
-                        candidateU
+                        candidateLogFactors
                     ).astype(np.float32)
 
                     intervalDispersionFactors = (
@@ -1177,12 +1192,12 @@ def runConsenrich(
                     (
                         phiHatTry,
                         adjTry,
-                        candIntervalNLL,
+                        vectorD_try,
                         candidateLoss,
                     ) = _forwardPass(
                         isInitialPass=True,
                         returnNLL_=True,
-                        storeNLLInD_=True,
+                        storeNLLInD_=False,
                     )
                     candidateLoss = float(candidateLoss)
 
@@ -1190,7 +1205,6 @@ def runConsenrich(
                         BlockDispersionFactors[:] = (
                             candidate_BlockDispersionFactors
                         )
-                        acceptedIntervalNLL = candIntervalNLL
                         acceptedLoss = candidateLoss
                         accepted = True
 
@@ -1200,53 +1214,29 @@ def runConsenrich(
                                 BlockDispersionFactors.copy()
                             )
                         logger.info(
-                            f"Step: {stepScale:.4f}: loss={candidateLoss:.4f}"
+                            f"Line search iter={retryCt:.4f}, loss={candidateLoss:.4f}"
                         )
                         break
 
                 if not accepted:
-                    acceptedIntervalNLL = perIntervalNLL
-                    acceptedLoss = loss
+                    acceptedLoss = float(loss)
 
-                if prevAcceptedIntervalNLL is not None:
-                    isfiniteMask_ = np.isfinite(
-                        prevAcceptedIntervalNLL
-                    ) & np.isfinite(acceptedIntervalNLL)
-                    k = int(isfiniteMask_.sum())
-                    if k >= calibration_earlyStopMinValidIntervals:
-                        deltaNLL = (
-                            prevAcceptedIntervalNLL[isfiniteMask_]
-                            - acceptedIntervalNLL[isfiniteMask_]
-                        ).astype(np.float64, copy=False)
-
-                        # compute mean and sd of per-interval NLL differences
-                        # ... use as a reference to evaluate whether current
-                        # ... improvements have dwindled to a negligible level
-                        # ... --> early stop
-                        meanDiff = float(deltaNLL.mean())
-                        if k > 1:
-                            sd = float(deltaNLL.std(ddof=1))
-                        else:
-                            sd = 0.0
-                        if sd > 0.0:
-                            se = sd / float(np.sqrt(k))
-                            isNotNegligible = (
-                                meanDiff > float(calibration_earlyStopZ) * se
-                            )
-                        else:
-                            isNotNegligible = meanDiff > 0.0
-
-                        if isNotNegligible:
-                            earlyStopNoSigIters = 0
-                        else:
-                            earlyStopNoSigIters += 1
-
-                        if earlyStopNoSigIters >= calibration_earlyStopCriteria:
-                            break
-
-                prevAcceptedIntervalNLL = np.array(
-                    acceptedIntervalNLL, copy=True
+                # in addition to previous gradient-mag stopping criterion, check relative improvement
+                # ... for early stopping
+                relImprovement = float(
+                    (prevAcceptedLoss - acceptedLoss)
+                    / max(abs(prevAcceptedLoss), 1.0)
                 )
+                if (
+                    (iterCt > 1)
+                    and (relImprovement < calibration_minRelativeImprovement)
+                    and accepted
+                ):
+                    logger.info(
+                        f"Stopping criteria met at {iterCt}: relImprovement={relImprovement:.3e}"
+                    )
+                    break
+                prevAcceptedLoss = float(acceptedLoss)
 
             intervalDispersionFactors = bestBlockDispersionFactors[
                 intervalToBlockMap
@@ -1560,10 +1550,6 @@ def getMuncTrack(
     sumSq = float(np.sum((y_ - y_mean) * (y_ - y_mean))) + 1.0e-4
     globalR2 = 1.0 - (fitRSS / sumSq)
     fitR2 = globalR2
-    logger.info(
-        f"Mean-variance fit over {len(blockMeans)} sampled blocks:"
-        f"coefficients = {opt[::-1]}"
-    )
     meanTrack = valuesArr.copy()
     globalModelVariances = evalFunc(
         opt, cconsenrich.cEMA(meanTrack, localWindow)
