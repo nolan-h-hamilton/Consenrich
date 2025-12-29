@@ -1469,10 +1469,10 @@ def getMuncTrack(
     fitR2 = globalR2
 
 
-    meanTrack = valuesArr.copy()
+    meanTrack = np.abs(valuesArr).copy()
     if useEMA:
         meanTrack = cconsenrich.cEMA(
-            valuesArr,
+            meanTrack,
             localWindow_INTERVALS,
         )
     globalModelVariances = evalFunc(opt, meanTrack).astype(
