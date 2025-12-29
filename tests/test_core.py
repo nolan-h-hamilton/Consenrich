@@ -34,9 +34,7 @@ def testMatrixConstruction(
     m = len(coefficients)
     matrixF = core.constructMatrixF(deltaF)
     assert matrixF.shape == (2, 2)
-    np.testing.assert_allclose(
-        matrixF, np.array([[1.0, deltaF], [0.0, 1.0]])
-    )
+    np.testing.assert_allclose(matrixF, np.array([[1.0, deltaF], [0.0, 1.0]]))
 
     # H
     matrixH = core.constructMatrixH(m)
@@ -47,9 +45,7 @@ def testMatrixConstruction(
     # Q
     matrixQ = core.constructMatrixQ(minQ)
     assert matrixQ.shape == (2, 2)
-    np.testing.assert_allclose(
-        matrixQ, np.array([[minQ, 0.0], [0.0, minQ]])
-    )
+    np.testing.assert_allclose(matrixQ, np.array([[minQ, 0.0], [0.0, minQ]]))
 
 
 @pytest.mark.chelpers
@@ -58,9 +54,7 @@ def testResidualCovarianceInversion():
     m = 10
     muncMatrixIter = np.random.gamma(shape=2, scale=1.0, size=m) + 1
     priorCovarianceOO = 0.1
-    residCovar = np.diag(muncMatrixIter) + (
-        np.ones((m, m)) * priorCovarianceOO
-    )
+    residCovar = np.diag(muncMatrixIter) + (np.ones((m, m)) * priorCovarianceOO)
 
     invertedMatrix = cconsenrich.cinvertMatrixE(
         muncMatrixIter.astype(np.float32),
@@ -88,9 +82,7 @@ def testProcessNoiseAdjustment():
     dStatPC = 1.0
     inflatedQ = False
 
-    matrixQ = np.array(
-        [[minQ, offDiag], [offDiag, minQ]], dtype=np.float32
-    )
+    matrixQ = np.array([[minQ, offDiag], [offDiag, minQ]], dtype=np.float32)
     matrixQCopy = matrixQ.copy()
     vectorY = (np.random.normal(0, 15, size=m)).astype(np.float32)
     dStat = np.mean(vectorY**2).astype(np.float32)
@@ -114,9 +106,7 @@ def testProcessNoiseAdjustment():
 @pytest.mark.correctness
 def testbedMask(tmp_path):
     bedPath = tmp_path / "testTmp.bed"
-    bedPath.write_text(
-        "chr1\t50\t2000\nchr1\t3000\t5000\nchr1\t10000\t20000\n"
-    )
+    bedPath.write_text("chr1\t50\t2000\nchr1\t3000\t5000\nchr1\t10000\t20000\n")
     intervals = np.arange(500, 10_000, 25)
     mask = core.getBedMask("chr1", bedPath, intervals)
 
@@ -141,18 +131,14 @@ def testgetPrecisionWeightedResidualWithCovar():
     stateCovarSmoothed[:, 0, 0] = add_vec
     totalUnc = matrixMunc + add_vec
     weights = 1.0 / totalUnc
-    expected = (postFitResiduals * weights.T).sum(
-        axis=1
-    ) / weights.sum(axis=0)
+    expected = (postFitResiduals * weights.T).sum(axis=1) / weights.sum(axis=0)
     out = core.getPrecisionWeightedResidual(
         postFitResiduals=postFitResiduals,
         matrixMunc=matrixMunc,
         roundPrecision=6,
         stateCovarSmoothed=stateCovarSmoothed,
     )
-    np.testing.assert_allclose(
-        out, expected.astype(np.float32), rtol=1e-6, atol=1e-6
-    )
+    np.testing.assert_allclose(out, expected.astype(np.float32), rtol=1e-6, atol=1e-6)
 
 
 @pytest.mark.correctness
@@ -181,9 +167,7 @@ def testgetPrimaryStateF64():
 def testSingleEndDetection():
     # case: single-end BAM
     bamFiles = ["smallTest.bam"]
-    pairedEndStatus = misc_util.bamsArePairedEnd(
-        bamFiles, maxReads=1_000
-    )
+    pairedEndStatus = misc_util.bamsArePairedEnd(bamFiles, maxReads=1_000)
     assert isinstance(pairedEndStatus, list)
     assert len(pairedEndStatus) == 1
     assert isinstance(pairedEndStatus[0], bool)
@@ -194,9 +178,7 @@ def testSingleEndDetection():
 def testPairedEndDetection():
     # case: paired-end BAM
     bamFiles = ["smallTest2.bam"]
-    pairedEndStatus = misc_util.bamsArePairedEnd(
-        bamFiles, maxReads=1_000
-    )
+    pairedEndStatus = misc_util.bamsArePairedEnd(bamFiles, maxReads=1_000)
     assert isinstance(pairedEndStatus, list)
     assert len(pairedEndStatus) == 1
     assert isinstance(pairedEndStatus[0], bool)
@@ -209,9 +191,7 @@ def testmatchWaveletUnevenIntervals():
     intervals = np.random.randint(0, 1000, size=100, dtype=int)
     intervals = np.unique(intervals)
     intervals.sort()
-    values = np.random.poisson(lam=5, size=len(intervals)).astype(
-        float
-    )
+    values = np.random.poisson(lam=5, size=len(intervals)).astype(float)
     with pytest.raises(ValueError, match="spaced"):
         matching.matchWavelet(
             chromosome="chr1",
@@ -250,9 +230,7 @@ def testMatchExistingBedGraph():
                 ),
             }
         )
-        dataFrame.to_csv(
-            bedGraphPath, sep="\t", header=False, index=False
-        )
+        dataFrame.to_csv(bedGraphPath, sep="\t", header=False, index=False)
         outputPath = matching.runMatchingAlgorithm(
             bedGraphFile=str(bedGraphPath),
             templateNames=["haar"],
@@ -270,12 +248,8 @@ def testMatchExistingBedGraph():
         # Not really the point of this test but
         # makes sure we're somewhat calibrated
         # Updated 15,3 to account for now-default BH correction
-        assert (
-            len(lineStrings) <= 15
-        )  # more than 20 might indicate high FPR
-        assert (
-            len(lineStrings) >= 3
-        )  # fewer than 5 might indicate low power
+        assert len(lineStrings) <= 15  # more than 20 might indicate high FPR
+        assert len(lineStrings) >= 3  # fewer than 5 might indicate low power
 
 
 @pytest.mark.matching
@@ -283,9 +257,7 @@ def testMergeMatches():
     TEST_FILE = "unmerged.test.narrowPeak"
 
     outFile = matching.mergeMatches(TEST_FILE, mergeGapBP=75)
-    assert outFile and os.path.isfile(outFile), (
-        "No output 'merged' file found"
-    )
+    assert outFile and os.path.isfile(outFile), "No output 'merged' file found"
 
     name_re = re.compile(
         r"^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\.\d{3})$"
@@ -300,9 +272,7 @@ def testMergeMatches():
         idx += 1
         line_ = line.strip()
         fields = line_.split("\t")
-        assert len(fields) == 10, (
-            f"Line {idx}: fewer than 10 narrowPeak fields"
-        )
+        assert len(fields) == 10, f"Line {idx}: fewer than 10 narrowPeak fields"
         (
             chrom,
             start_,
@@ -320,12 +290,8 @@ def testMergeMatches():
 
         gap = int(record_["gap"])
         ct = int(record_["ct"])
-        assert gap == 75, (
-            "parsed mergeGapBP in feature name does not match expected"
-        )
-        assert ct >= 1, (
-            "parsed count of merged peaks should be at least 1"
-        )
+        assert gap == 75, "parsed mergeGapBP in feature name does not match expected"
+        assert ct >= 1, "parsed count of merged peaks should be at least 1"
 
         qMinLog10 = float(record_["qmin"])
         qMaxLog10 = float(record_["qmax"])
@@ -379,9 +345,7 @@ def testRunConsenrich1DInputShapes():
     matrixData = np.random.poisson(lam=5, size=n).astype(np.float32)
     matrixMunc = np.ones_like(matrixData, dtype=np.float32)
 
-    def invertMatrixE(
-        muncVec: np.ndarray, priorCov: np.float32
-    ) -> np.ndarray:
+    def invertMatrixE(muncVec: np.ndarray, priorCov: np.float32) -> np.ndarray:
         mLocal = muncVec.shape[0]
         return np.eye(mLocal, dtype=np.float32)
 
@@ -408,7 +372,6 @@ def testRunConsenrich1DInputShapes():
         dStatAlpha=1e9,
         dStatd=1.0,
         dStatPC=1.0,
-        dStatUseMean=False,
         stateInit=0.0,
         stateCovarInit=100.0,
         boundState=False,
@@ -429,14 +392,10 @@ def testRunConsenrich1DInputShapes():
 def testRunConsenrich2DInputShapes():
     np.random.seed(42)
     m, n = 3, 1000
-    matrixData = np.random.poisson(lam=5, size=(m, n)).astype(
-        np.float32
-    )
+    matrixData = np.random.poisson(lam=5, size=(m, n)).astype(np.float32)
     matrixMunc = np.ones_like(matrixData, dtype=np.float32)
 
-    def invertMatrixE(
-        muncVec: np.ndarray, priorCov: np.float32
-    ) -> np.ndarray:
+    def invertMatrixE(muncVec: np.ndarray, priorCov: np.float32) -> np.ndarray:
         mLocal = muncVec.shape[0]
         return np.eye(mLocal, dtype=np.float32)
 
@@ -463,7 +422,6 @@ def testRunConsenrich2DInputShapes():
         dStatAlpha=1e9,
         dStatd=1.0,
         dStatPC=1.0,
-        dStatUseMean=False,
         stateInit=0.0,
         stateCovarInit=100.0,
         boundState=False,
@@ -500,7 +458,6 @@ def testRunConsenrichInvalidShapeRaises():
             dStatAlpha=3.0,
             dStatd=10.0,
             dStatPC=1.0,
-            dStatUseMean=False,
             stateInit=0.0,
             stateCovarInit=1.0,
             boundState=False,

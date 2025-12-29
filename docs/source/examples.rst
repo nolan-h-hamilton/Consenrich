@@ -451,7 +451,7 @@ Broad, Heterochromatic and/or Repressive targets
 
 Several options are available for targeting broad, *domain-level* features:
 
-  * Decrease noise-vulnerability with larger genomic intervals (``countingParams.stepSize``). The default is 25bp, but increasing up to 250 bp or more may help stabilize estimates for very broad domains
+  * Decrease noise-vulnerability with larger genomic intervals (``countingParams.intervalSizeBP``). The default is 25bp, but increasing up to 250 bp or more may help stabilize estimates for very broad domains
   * Soften or disable background-removal/detrending (:class:`detrendParams`) to avoid removing important broad/low-frequency signal
   * Include larger/more symmetric wavelet/scaling templates (e.g., `sym3`, `sym4`) and larger ``matchingParams.mergeGapBP`` for the matching algorithm (:ref:`matching`)
 

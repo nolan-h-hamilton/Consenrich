@@ -13,7 +13,7 @@ Key Parameters
 
 Below, we list a few parameters that may warrant adjustment in specific scenarios:
 
-* `countingParams.stepSize`: - Sets the length (in base pairs) of contiguous, non-overlapping bins over which reads are counted.
+* `countingParams.intervalSizeBP`: - Sets the length (in base pairs) of contiguous, non-overlapping bins over which reads are counted.
    Increasing this value (default ``25 bp``) can improve performance given shallow sequencing depths and/or large domain-level targets (e.g., H3K27me3).
 * `processParams.minQ`: - Default is a small value to avoid singular Sets the lower bound on the process noise variance. If outputs look over-smoothed by the model, consider increasing this value to contribute more weight to the data. If output appears  unstable/high-frequency, consider reducing this value toward zero.
   The default is ``-1``, which lets Consenrich set a minimal data-driven value based on the input data.
@@ -185,7 +185,7 @@ To detect significant hits,
 
 **Generic Defaults**
 
-The following defaults should provide a strong starting point for many use cases. For broader marks, consider using higher-order wavelet-based templates or larger cascade levels, increasing ``matchingParams.mergeGapBP``, ``countingParams.stepSize``, etc. to prioritize larger-scale trends.
+The following defaults should provide a strong starting point for many use cases. For broader marks, consider using higher-order wavelet-based templates or larger cascade levels, increasing ``matchingParams.mergeGapBP``, ``countingParams.intervalSizeBP``, etc. to prioritize larger-scale trends.
 
 .. code-block:: yaml
 

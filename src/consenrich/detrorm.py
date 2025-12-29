@@ -80,7 +80,7 @@ def getScaleFactor1x(
 
 
 def getScaleFactorPerMillion(
-    bamFile: str, excludeChroms: List[str], stepSize: int
+    bamFile: str, excludeChroms: List[str], intervalSizeBP: int
 ) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
@@ -106,7 +106,7 @@ def getScaleFactorPerMillion(
             f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}."
         )
     scalePM = round(
-        (1_000_000 / totalMappedReads) * (1000 / stepSize), 5
+        (1_000_000 / totalMappedReads) * (1000 / intervalSizeBP), 5
     )
     return scalePM
 
@@ -121,7 +121,7 @@ def getPairScaleFactors(
     excludeChroms: List[str],
     chromSizesFile: str,
     samThreads: int,
-    stepSize: int,
+    intervalSizeBP: int,
     normMethod: str = "EGS",
     fixControl: bool = True,
 ) -> Tuple[float, float]:
@@ -145,11 +145,9 @@ def getPairScaleFactors(
     :type chromSizesFile: str
     :param samThreads: See :class:`consenrich.core.samParams`.
     :type samThreads: int
-    :param stepSize: Step size for coverage calculation.
+    :param intervalSizeBP: Step size for coverage calculation.
     :param: normMethod: Normalization method to use ("EGS" or "RPKM").
     :type normMethod: str
-    :param fixControl: If True, the treatment sample is 
-    :type fixControl: bool
     :return: Tuple of scale factors for treatment and control samples.
     :rtype: Tuple[float, float]
     """
@@ -158,12 +156,12 @@ def getPairScaleFactors(
         scaleFactorA = getScaleFactorPerMillion(
             bamFileA,
             excludeChroms,
-            stepSize,
+            intervalSizeBP,
         )
         scaleFactorB = getScaleFactorPerMillion(
             bamFileB,
             excludeChroms,
-            stepSize,
+            intervalSizeBP,
         )
     else:
         scaleFactorA = getScaleFactor1x(

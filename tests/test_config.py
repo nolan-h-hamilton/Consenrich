@@ -18,34 +18,24 @@ class stopOnFirstControlEstimate(Exception):
 
 def writeConfigFile(tmpPath, fileName, yamlText):
     filePath = tmpPath / fileName
-    filePath.write_text(
-        textwrap.dedent(yamlText).strip() + "\n", encoding="utf-8"
-    )
+    filePath.write_text(textwrap.dedent(yamlText).strip() + "\n", encoding="utf-8")
     return filePath
 
 
-def setupGenomeFiles(
-    tmpPath, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def setupGenomeFiles(tmpPath, monkeypatch: pytest.MonkeyPatch) -> None:
     chromSizesPath = tmpPath / "testGenome.sizes"
     chromSizesPath.write_text("chrTest\t100000\n", encoding="utf-8")
 
     def fakeResolveGenomeName(genomeName: str) -> str:
         return genomeName
 
-    def fakeGetGenomeResourceFile(
-        genomeLabel: str, resourceName: str
-    ) -> str:
+    def fakeGetGenomeResourceFile(genomeLabel: str, resourceName: str) -> str:
         if resourceName == "sizes":
             return str(chromSizesPath)
         return str(tmpPath / f"{genomeLabel}.{resourceName}.bed")
 
-    monkeypatch.setattr(
-        constants, "resolveGenomeName", fakeResolveGenomeName
-    )
-    monkeypatch.setattr(
-        constants, "getGenomeResourceFile", fakeGetGenomeResourceFile
-    )
+    monkeypatch.setattr(constants, "resolveGenomeName", fakeResolveGenomeName)
+    monkeypatch.setattr(constants, "getGenomeResourceFile", fakeGetGenomeResourceFile)
 
 
 def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,9 +46,7 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
         return [False] * len(bamList)
 
     monkeypatch.setattr(misc_util, "checkBamFile", fakeCheckBamFile)
-    monkeypatch.setattr(
-        misc_util, "bamsArePairedEnd", fakeBamsArePairedEnd
-    )
+    monkeypatch.setattr(misc_util, "bamsArePairedEnd", fakeBamsArePairedEnd)
 
 
 def test_ensureInput():
@@ -67,22 +55,16 @@ def test_ensureInput():
     genomeParams.name: hg38
     """
 
-    configPath = writeConfigFile(
-        Path("."), "config_no_input.yaml", configYaml
-    )
+    configPath = writeConfigFile(Path("."), "config_no_input.yaml", configYaml)
     try:
         readConfig(str(configPath))
     except ValueError as e:
         return
     else:
-        assert False, (
-            "Expected ValueError not raised given empty `consenrich.core.inputParams`"
-        )
+        assert False, "Expected ValueError not raised given empty `consenrich.core.inputParams`"
 
 
-def test_readConfigDottedAndNestedEquivalent(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
+def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
 
@@ -91,7 +73,7 @@ def test_readConfigDottedAndNestedEquivalent(
     inputParams.bamFiles: [smallTest.bam, smallTest2.bam]
     genomeParams.name: testGenome
     genomeParams.excludeChroms: [chrM]
-    countingParams.stepSize: 50
+    countingParams.intervalSizeBP: 50
     """
 
     nestedYaml = """
@@ -105,25 +87,18 @@ def test_readConfigDottedAndNestedEquivalent(
       excludeChroms:
         - chrM
     countingParams:
-      stepSize: 50
+      intervalSizeBP: 50
     """
 
-    dottedPath = writeConfigFile(
-        tmp_path, "config_dotted.yaml", dottedYaml
-    )
-    nestedPath = writeConfigFile(
-        tmp_path, "config_nested.yaml", nestedYaml
-    )
+    dottedPath = writeConfigFile(tmp_path, "config_dotted.yaml", dottedYaml)
+    nestedPath = writeConfigFile(tmp_path, "config_nested.yaml", nestedYaml)
 
     configDotted = readConfig(str(dottedPath))
     configNested = readConfig(str(nestedPath))
 
     assert configDotted["experimentName"] == "testExperiment"
     assert configNested["experimentName"] == "testExperiment"
-    assert (
-        configDotted["experimentName"]
-        == configNested["experimentName"]
-    )
+    assert configDotted["experimentName"] == configNested["experimentName"]
 
     inputDotted = configDotted["inputArgs"]
     inputNested = configNested["inputArgs"]
@@ -153,9 +128,9 @@ def test_readConfigDottedAndNestedEquivalent(
     countingDotted = configDotted["countingArgs"]
     countingNested = configNested["countingArgs"]
 
-    assert countingDotted.stepSize == 50
-    assert countingNested.stepSize == 50
-    assert countingDotted.stepSize == countingNested.stepSize
+    assert countingDotted.intervalSizeBP == 50
+    assert countingNested.intervalSizeBP == 50
+    assert countingDotted.intervalSizeBP == countingNested.intervalSizeBP
 
     observationDotted = configDotted["observationArgs"]
     observationNested = configNested["observationArgs"]
@@ -175,9 +150,7 @@ def test_readConfigDottedAndNestedEquivalent(
     assert type(matchingDotted) is type(matchingNested)
 
     assert samDotted.samThreads == samNested.samThreads
-    assert (
-        matchingDotted.templateNames == matchingNested.templateNames
-    )
+    assert matchingDotted.templateNames == matchingNested.templateNames
 
 
 def makeFakeArgs(config="dummy.yaml", verbose=False, verbose2=False):
@@ -220,7 +193,7 @@ def makeFakeConfig(useTreatmentFragmentLengths: bool):
     )
 
     countingArgs = types.SimpleNamespace(
-        stepSize=25,
+        intervalSizeBP=25,
         scaleDown=False,
         scaleFactors=None,
         scaleFactorsControl=None,
@@ -338,9 +311,7 @@ def makeFakeConfig(useTreatmentFragmentLengths: bool):
     }
 
 
-def patchMainEntry(
-    monkeypatch: pytest.MonkeyPatch, useTreatmentFragmentLengths: bool
-):
+def patchMainEntry(monkeypatch: pytest.MonkeyPatch, useTreatmentFragmentLengths: bool):
     monkeypatch.setattr(
         consenrich.argparse.ArgumentParser,
         "parse_args",
@@ -352,25 +323,19 @@ def patchMainEntry(
         "readConfig",
         lambda p: makeFakeConfig(useTreatmentFragmentLengths),
     )
-    monkeypatch.setattr(
-        consenrich, "getReadLengths", lambda *a, **k: [50, 50]
-    )
+    monkeypatch.setattr(consenrich, "getReadLengths", lambda *a, **k: [50, 50])
     monkeypatch.setattr(
         consenrich,
         "getEffectiveGenomeSizes",
         lambda *a, **k: [1000, 1000],
     )
-    monkeypatch.setattr(
-        consenrich.core, "getReadLength", lambda *a, **k: 50
-    )
+    monkeypatch.setattr(consenrich.core, "getReadLength", lambda *a, **k: 50)
     monkeypatch.setattr(
         consenrich.constants,
         "getEffectiveGenomeSize",
         lambda *a, **k: 1000,
     )
-    monkeypatch.setattr(
-        consenrich, "checkMatchingEnabled", lambda *a, **k: False
-    )
+    monkeypatch.setattr(consenrich, "checkMatchingEnabled", lambda *a, **k: False)
 
 
 def test_mainSkipsControlFraglenEstimationWhenFlagTrue(

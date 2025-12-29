@@ -327,21 +327,21 @@ cdef inline double _lossAbsQuadIntercept(
     return lossVal
 
 
-cpdef int stepAdjustment(int value, int stepSize, int pushForward=0):
-    r"""Adjusts a value to the nearest multiple of stepSize, optionally pushing it forward.
+cpdef int stepAdjustment(int value, int intervalSizeBP, int pushForward=0):
+    r"""Adjusts a value to the nearest multiple of intervalSizeBP, optionally pushing it forward.
 
     .. todo:: refactor caller + this function into one cython func
 
     :param value: The value to adjust.
     :type value: int
-    :param stepSize: The step size to adjust to.
-    :type stepSize: int
-    :param pushForward: If non-zero, pushes the value forward by stepSize
+    :param intervalSizeBP: The step size to adjust to.
+    :type intervalSizeBP: int
+    :param pushForward: If non-zero, pushes the value forward by intervalSizeBP
     :type pushForward: int
     :return: The adjusted value.
     :rtype: int
     """
-    return max(0, (value-(value % stepSize))) + pushForward*stepSize
+    return max(0, (value-(value % intervalSizeBP))) + pushForward*intervalSizeBP
 
 
 cpdef uint64_t cgetFirstChromRead(str bamFile, str chromosome, uint64_t chromLength, uint32_t samThreads, int samFlagExclude):
@@ -451,7 +451,7 @@ cpdef cnp.float32_t[:] creadBamSegment(
     str chromosome,
     uint32_t start,
     uint32_t end,
-    uint32_t stepSize,
+    uint32_t intervalSizeBP,
     int64_t readLength,
     uint8_t oneReadPerBin,
     uint16_t samThreads,
@@ -471,10 +471,10 @@ cpdef cnp.float32_t[:] creadBamSegment(
     cdef Py_ssize_t numIntervals
     cdef int64_t width = <int64_t>end - <int64_t>start
 
-    if stepSize <= 0 or width <= 0:
+    if intervalSizeBP <= 0 or width <= 0:
         numIntervals = 0
     else:
-        numIntervals = <Py_ssize_t>((width + stepSize - 1) // stepSize)
+        numIntervals = <Py_ssize_t>((width + intervalSizeBP - 1) // intervalSizeBP)
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.float32)
     cdef cnp.float32_t[::1] values = values_np
@@ -486,7 +486,7 @@ cpdef cnp.float32_t[:] creadBamSegment(
     cdef AlignedSegment read
     cdef int64_t start64 = start
     cdef int64_t end64 = end
-    cdef int64_t step64 = stepSize
+    cdef int64_t step64 = intervalSizeBP
     cdef Py_ssize_t i, index0, index1, b_, midIndex
     cdef Py_ssize_t lastIndex = numIntervals - 1
     cdef bint readIsForward
@@ -1327,7 +1327,7 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     str chromosome,
     str bedFile,
     cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
-    int stepSize
+    int intervalSizeBP
     ):
     r"""Return a 1/0 mask for intervals overlapping a sorted and merged BED file.
 
@@ -1336,10 +1336,10 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     :param bedFile: Path to a sorted and merged BED file.
     :type bedFile: str
     :param intervals: Array of sorted, non-overlapping start positions of genomic intervals.
-      Each interval is assumed `stepSize`.
+      Each interval is assumed `intervalSizeBP`.
     :type intervals: cnp.ndarray[cnp.uint32_t, ndim=1]
-    :param stepSize: Step size between genomic positions in `intervals`.
-    :type stepSize: int32_t
+    :param intervalSizeBP: Step size between genomic positions in `intervals`.
+    :type intervalSizeBP: int32_t
     :return: A mask s.t. `1` indicates the corresponding interval overlaps a BED region.
     :rtype: cnp.ndarray[cnp.uint8_t, ndim=1]
 
@@ -1896,7 +1896,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                           float boundaryEps = <float>0.1,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False,
-                          double globalBackgroundCushion = 1.648):
+                          double globalBackgroundCushion = 3.0):
     r"""Compute log-scale enrichment versus locally computed backgrounds
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -2766,13 +2766,11 @@ cpdef tuple cbackwardPass(
 
 cpdef double cgetGlobalBaseline(
     object x,
-    Py_ssize_t bootBlockSize=100,
+    Py_ssize_t bootBlockSize=50,
     Py_ssize_t numBoots=5000,
-    double globalBackgroundCushion=2.0,
+    double globalBackgroundCushion=3.0,
     uint64_t seed=0,
 ):
-    # FFR: can be updated to reduce python interaction, memory allocation
-
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
     cdef cnp.float32_t[::1] valuesView
     cdef Py_ssize_t numValues
@@ -2785,10 +2783,8 @@ cpdef double cgetGlobalBaseline(
     cdef cnp.float64_t[::1] prefixView
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] posMeans
-
     cdef double bootMean, bootStdErr
     cdef double geomProb, upperBound
-    cdef double MADMultiplier = 1.4826
     cdef double maxVal
     cdef Py_ssize_t i
     cdef Py_ssize_t numPos
@@ -2798,43 +2794,35 @@ cpdef double cgetGlobalBaseline(
     if numBoots <= 0:
         return 0.0
 
-    # regardless of input dtype, f32 shouldd be sufficient for within-function
+
     values = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     valuesView = values
     numValues = values.size
-
     if numValues <= 0:
         return 0.0
 
     rng = default_rng(seed)
-
-    # expected block length = 1/geomProb = bootBlockSize
     geomProb = 1.0 / (<double>bootBlockSize)
     blockSizes = rng.geometric(geomProb, size=numBoots).astype(np.intp, copy=False)
-    np.minimum(blockSizes, numValues, out=blockSizes)  # keep in-bounds
+    np.minimum(blockSizes, numValues, out=blockSizes)
     blockSizesView = blockSizes
     blockStarts = (rng.random(numBoots) * (numValues - blockSizes + 1)).astype(np.intp, copy=False)
     blockStartsView = blockStarts
-
-    # prefix sum: prefix[start + size] - prefix[start] yields block's sum
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
     prefixView[0] = 0.0
     for i in range(numValues):
         prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
 
+    # prefix[start + size] - prefix[start] yields block's sum
     bootstrapMeans = (prefixSums[blockStarts + blockSizes] - prefixSums[blockStarts]) / blockSizes
-    posMeans = bootstrapMeans[bootstrapMeans > 0.0]
-
+    posMeans = bootstrapMeans
     numPos = posMeans.size
     if numPos <= 0:
         return 0.0
 
-    # returned value is the median of bootstrap replicate means (positive),
-    # ... plus globalBackgroundCushion * MAD-based std err proxy
-    bootMean = <double>np.median(posMeans)
-    bootStdErr = <double>(MADMultiplier * np.median(np.abs(posMeans - bootMean)))
-
+    bootMean = <double>np.mean(posMeans)
+    bootStdErr = (<double>np.std(posMeans, ddof=1) / np.sqrt(<double>numPos))
     maxVal = <double>np.max(values)
-    upperBound = fmin(bootMean + (globalBackgroundCushion*bootStdErr), maxVal*0.995)
+    upperBound = fmin(bootMean + (globalBackgroundCushion * bootStdErr), maxVal * 0.995)
     return upperBound
