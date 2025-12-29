@@ -362,7 +362,7 @@ def testRunConsenrich1DInputShapes():
     ) -> Tuple[np.ndarray, bool]:
         return matrixQCopy, inflatedQ
 
-    state, stateCov, resid = core.runConsenrich(
+    state, stateCov, resid, _ = core.runConsenrich(
         matrixData=matrixData,
         matrixMunc=matrixMunc,
         deltaF=1.0,
@@ -379,8 +379,6 @@ def testRunConsenrich1DInputShapes():
         stateUpperBound=10000.0,
         chunkSize=25,
         progressIter=1000,
-        residualCovarInversionFunc=invertMatrixE,
-        adjustProcessNoiseFunc=adjustProcessNoise,
     )
 
     assert state.shape == (n, 2)
@@ -412,7 +410,7 @@ def testRunConsenrich2DInputShapes():
     ) -> Tuple[np.ndarray, bool]:
         return matrixQCopy, inflatedQ
 
-    state, stateCov, resid = core.runConsenrich(
+    state, stateCov, resid, _ = core.runConsenrich(
         matrixData=matrixData,
         matrixMunc=matrixMunc,
         deltaF=1.0,
@@ -429,8 +427,6 @@ def testRunConsenrich2DInputShapes():
         stateUpperBound=10000.0,
         chunkSize=25,
         progressIter=1000,
-        residualCovarInversionFunc=invertMatrixE,
-        adjustProcessNoiseFunc=adjustProcessNoise,
     )
 
     assert state.shape == (n, 2)
