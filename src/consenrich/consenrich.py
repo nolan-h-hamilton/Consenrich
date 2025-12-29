@@ -1398,7 +1398,7 @@ def main():
             maxQ_ = 1e4
 
         for j in tqdm(
-            range(numSamples), desc="Transforming data", unit=" sample "
+            range(numSamples), desc="Transforming data / Fitting R[j,:] ~ (μ, Σ)", unit=" sample "
         ):
             # if controlsPresent, already done above
             if not controlsPresent:
