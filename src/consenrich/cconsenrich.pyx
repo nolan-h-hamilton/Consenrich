@@ -761,6 +761,9 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
     minSlopeQ = minQ * baseSlopeToLevelRatio
     sqrtDiags = sqrtf(fmaxf(matrixQCopy[0, 0] * matrixQCopy[1, 1], eps))
     baseOffDiagProd = matrixQCopy[0, 1] / sqrtDiags
+    newLevelQ = matrixQ[0, 0]
+    newSlope_Qnoise = matrixQ[1, 1]
+    newOffDiagQ = matrixQ[0, 1]
 
     # ensure SPD wrt off-diagonals
     maxNoiseCorr = <float>0.999
