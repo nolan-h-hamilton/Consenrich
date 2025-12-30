@@ -1924,7 +1924,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                           float boundaryEps = <float>0.1,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False,
-                          double globalBackgroundCushion = 3.0):
+                          double scaleCB = 3.0):
     r"""Compute log-scale enrichment versus locally computed backgrounds
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -2014,7 +2014,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
 
             # can't call from nogil
-            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, globalBackgroundCushion=globalBackgroundCushion)
+            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, scaleCB=scaleCB)
             with nogil:
                 # 'disable' local background --> use global baseline everywhere
                 if <bint>disableLocalBackground == <bint>True:
@@ -2096,7 +2096,7 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                 blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
 
 
-        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, globalBackgroundCushion=globalBackgroundCushion)
+        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, scaleCB=scaleCB)
 
         with nogil:
             if <bint>disableLocalBackground == <bint>True:
@@ -2336,8 +2336,6 @@ cpdef tuple cforwardPass(
     cdef double sumNLL = 0.0
     cdef double intervalNLL = 0.0
     cdef double sumDStat = 0.0
-
-    # score-gradient bits (optional)
     cdef bint doBlockGrad = (intervalToBlockMap is not None and blockGradLogScale is not None and blockGradCount is not None)
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMapArr
     cdef cnp.int32_t[::1] intervalToBlockMapView
@@ -2486,17 +2484,18 @@ cpdef tuple cforwardPass(
             dStatVector[intervalIndex] = <cnp.float32_t>dStatValue
 
         adjustmentCount += <int>(dStatValue > (<double>dStatAlpha))
-        matrixQ, inflatedQ = updateProcessNoiseCovariance(
-            matrixQ,
-            matrixQCopy,
-            <float>dStatValue,
-            <float>dStatAlpha,
-            <float>dStatd,
-            <float>dStatPC,
-            inflatedQ,
-            <float>maxQ,
-            <float>minQ
-        )
+        if dStatAlpha < 1.0e6:
+            matrixQ, inflatedQ = updateProcessNoiseCovariance(
+                matrixQ,
+                matrixQCopy,
+                <float>dStatValue,
+                <float>dStatAlpha,
+                <float>dStatd,
+                <float>dStatPC,
+                inflatedQ,
+                <float>maxQ,
+                <float>minQ
+            )
 
         if matrixQ[0,0] < <cnp.float32_t>clipSmall: matrixQ[0,0] = <cnp.float32_t>clipSmall
         elif matrixQ[0,0] > <cnp.float32_t>clipBig: matrixQ[0,0] = <cnp.float32_t>clipBig
@@ -2794,9 +2793,9 @@ cpdef tuple cbackwardPass(
 
 cpdef double cgetGlobalBaseline(
     object x,
-    Py_ssize_t bootBlockSize=50,
+    Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=5000,
-    double globalBackgroundCushion=3.0,
+    double scaleCB=3.0,
     uint64_t seed=0,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
@@ -2852,7 +2851,7 @@ cpdef double cgetGlobalBaseline(
     bootMean = <double>np.mean(posMeans)
     bootStdErr = (<double>np.std(posMeans, ddof=1) / np.sqrt(<double>numPos))
     maxVal = <double>np.max(values)
-    upperBound = fmin(bootMean + (globalBackgroundCushion * bootStdErr), maxVal * 0.995)
+    upperBound = fmin(bootMean + (scaleCB * bootStdErr), maxVal * 0.995)
     return upperBound
 
 

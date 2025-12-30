@@ -257,7 +257,7 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param globalBackgroundCushion: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.carsinhRatio`: :math:` + \textsf{globalBackgroundCushion} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
+    :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.carsinhRatio`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
 
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
     :class: tip
@@ -282,7 +282,7 @@ class countingParams(NamedTuple):
     fragmentLengthsControl: List[int] | None
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
-    globalBackgroundCushion: float | None
+    scaleCB: float | None
 
 
 class matchingParams(NamedTuple):
@@ -417,12 +417,8 @@ def getChromRanges(
 
     :seealso: :func:`getChromRangesJoint`, :func:`cconsenrich.cgetFirstChromRead`, :func:`cconsenrich.cgetLastChromRead`
     """
-    start: int = cconsenrich.cgetFirstChromRead(
-        bamFile, chromosome, chromLength, samThreads, samFlagExclude
-    )
-    end: int = cconsenrich.cgetLastChromRead(
-        bamFile, chromosome, chromLength, samThreads, samFlagExclude
-    )
+    start: int = cconsenrich.cgetFirstChromRead(bamFile, chromosome, chromLength, samThreads, samFlagExclude)
+    end: int = cconsenrich.cgetLastChromRead(bamFile, chromosome, chromLength, samThreads, samFlagExclude)
     return start, end
 
 
@@ -495,9 +491,7 @@ def getReadLength(
 
     :seealso: :func:`cconsenrich.cgetReadLength`
     """
-    init_rlen = cconsenrich.cgetReadLength(
-        bamFile, numReads, samThreads, maxIterations, samFlagExclude
-    )
+    init_rlen = cconsenrich.cgetReadLength(bamFile, numReads, samThreads, maxIterations, samFlagExclude)
     if init_rlen == 0:
         raise ValueError(
             f"Failed to determine read length in {bamFile}. Revise `numReads`, and/or `samFlagExclude` parameters?"
@@ -688,7 +682,7 @@ def constructMatrixQ(
     Q11: Optional[float] = None,
     useIdentity: float = -1.0,
     tol: float = 1.0e-8,  # conservative
-    ratioDiagQ: float|None = None,
+    ratioDiagQ: float | None = None,
 ) -> npt.NDArray[np.float32]:
     r"""Build the (base) process noise covariance matrix :math:`\mathbf{Q}`.
 
@@ -719,7 +713,7 @@ def constructMatrixQ(
         return np.eye(2, dtype=np.float32) * np.float32(useIdentity)
 
     if ratioDiagQ is None:
-        ratioDiagQ = 2.5 # negligible for expected minQ
+        ratioDiagQ = 5.0  # negligible for expected minQ
 
     Q = np.empty((2, 2), dtype=np.float32)
     Q[0, 0] = np.float32(minDiagQ if Q00 is None else Q00)
@@ -798,7 +792,7 @@ def runConsenrich(
     pad: float = 1.0e-3,
     calibration_kwargs: Optional[dict[str, Any]] = None,
     disableCalibration: bool = False,
-    ratioDiagQ: float|None = None,
+    ratioDiagQ: float | None = None,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -833,9 +827,7 @@ def runConsenrich(
 
     m, n = matrixData.shape
     if m < 1 or n < 1:
-        raise ValueError(
-            f"`matrixData` and `matrixMunc` need positive m x n, shape={matrixData.shape})"
-        )
+        raise ValueError(f"`matrixData` and `matrixMunc` need positive m x n, shape={matrixData.shape})")
 
     if n <= 100:
         logger.warning(
@@ -978,11 +970,11 @@ def runConsenrich(
 
         if not disableCalibration:
             initialMuncBaseline = matrixMunc.copy()
-            calibration_maxIters = int(calibration_kwargs.get("calibration_maxIters", 25))
+            calibration_maxIters = int(calibration_kwargs.get("calibration_maxIters", 50))
             calibration_numTotalBlocks = int(
                 calibration_kwargs.get(
                     "calibration_numTotalBlocks",
-                    min(max(int(np.sqrt(n)), 1), 1000),
+                    min(max(int(np.sqrt(n/2)), 1), 1000),
                 )
             )
             calibration_activeSetLogStepSize = np.float32(
@@ -991,24 +983,23 @@ def runConsenrich(
             calibration_activeSetMaxLogStep = np.float32(
                 calibration_kwargs.get("calibration_activeSetMaxLogStep", LN2)
             )
-            calibration_BGDMaxBacktracks = int(
-                calibration_kwargs.get("calibration_BGDMaxBacktracks", 3)
-            )
+            calibration_BGDMaxBacktracks = int(calibration_kwargs.get("calibration_BGDMaxBacktracks", 2))
             calibration_BGDBacktrackFactor = np.float32(
-                calibration_kwargs.get("calibration_BGDBacktrackFactor", 0.5)
+                calibration_kwargs.get("calibration_BGDBacktrackFactor", 0.50)
             )
 
-            calibration_eps = np.float32(calibration_kwargs.get("calibration_eps", 1.0e-3))
+            calibration_eps = np.float32(calibration_kwargs.get("calibration_eps", 1.0e-2))
 
             calibration_minRelativeImprovement = np.float32(
-                calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-4)
+                calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-5)
             )
 
             # size of the active set (those being updated in each iter)
             # ... default value is such that each block could be updated
             # ... across `calibration_maxIters` iters
             calibration_activeSetSize = calibration_kwargs.get(
-                "calibration_activeSetSize", int(max(np.sqrt(calibration_numTotalBlocks/2.0), 1.0))
+                "calibration_activeSetSize",
+                int(max(np.sqrt(calibration_numTotalBlocks), 1.0)),
             )
 
             logger.info(
@@ -1021,9 +1012,7 @@ def runConsenrich(
 
             # (I) Map intervals to (larger) blocks
             # ... assign interval `i` to block `b = i // numIntervalsPerBlock`
-            intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(
-                np.int32
-            )
+            intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
             intervalToBlockMap[intervalToBlockMap >= calibration_numTotalBlocks] = (
                 calibration_numTotalBlocks - 1
             )
@@ -1091,18 +1080,18 @@ def runConsenrich(
                 gradMeansAll = (blockGradLogScales / gradDenomAll).astype(np.float32, copy=False)
 
                 gradScore = np.abs(gradMeansAll).astype(np.float32, copy=False)
-                priority = np.argsort(gradScore)[::-1]
+                priority = np.argpartition(-gradScore, activeSetSize)[:activeSetSize]
                 activeBlocks = priority[:activeSetSize]
 
                 # Check stopping criterion
                 # ... stop if maximum gradient magnitude in active set is below `calibration_eps`
                 maxActiveGrad = float(np.max(np.abs(gradMeansAll[activeBlocks])))
                 if (iterCt > 1) and (maxActiveGrad < float(calibration_eps)):
-                    logger.info(
-                        f"Stopping criteria met at {iterCt}: maxActiveGrad={maxActiveGrad:.4f}"
-                    )
+                    logger.info(f"Stopping criteria met at {iterCt}: maxActiveGrad={maxActiveGrad:.4f}")
                     break
-
+                logger.info(
+                    f"Max |∇| in Active Set: {maxActiveGrad:.4f}",
+                )
                 # Greedy Minimization: Truncated Descent and Backtracking Line Search
                 ######################################################################################
                 # Take a single R^a vector step wrt active blocks in log-space (others fixed).
@@ -1136,18 +1125,16 @@ def runConsenrich(
                 # ... until a decrease in loss is observed or max backtracks reached
                 for retryCt in range(int(calibration_BGDMaxBacktracks)):
                     stepScale = np.float32(calibration_BGDBacktrackFactor) ** np.float32(retryCt)
-                    candidateLogFactors = (
-                        blockLogFactors + (deltaBlockLogFactors * stepScale)
-                    ).astype(np.float32, copy=False)
+                    candidateLogFactors = (blockLogFactors + (deltaBlockLogFactors * stepScale)).astype(
+                        np.float32, copy=False
+                    )
                     np.clip(
                         candidateLogFactors,
                         logLowerUpdateLimit,
                         logUpperUpdateLimit,
                         out=candidateLogFactors,
                     )
-                    candidate_BlockDispersionFactors = np.exp(candidateLogFactors).astype(
-                        np.float32
-                    )
+                    candidate_BlockDispersionFactors = np.exp(candidateLogFactors).astype(np.float32)
 
                     intervalDispersionFactors = candidate_BlockDispersionFactors[intervalToBlockMap]
                     matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
@@ -1172,7 +1159,7 @@ def runConsenrich(
                         if candidateLoss < bestLoss:
                             bestLoss = float(candidateLoss)
                             bestBlockDispersionFactors = BlockDispersionFactors.copy()
-                        logger.info(f"Descent: loss={candidateLoss:.4f}")
+                        logger.info(f"loss={candidateLoss:.4f}")
                         break
 
                 if not accepted:
@@ -1180,17 +1167,12 @@ def runConsenrich(
 
                 # in addition to previous gradient-mag stopping criterion, check relative improvement
                 # ... for early stopping
-                relImprovement = float(
-                    (prevAcceptedLoss - acceptedLoss) / max(abs(prevAcceptedLoss), 1.0)
+                relImprovement = float((prevAcceptedLoss - acceptedLoss) / max(abs(prevAcceptedLoss), 1.0))
+                logger.info(
+                    f"relImprovement={relImprovement:.3e}\n",
                 )
-                if (
-                    (iterCt > 1)
-                    and (relImprovement < calibration_minRelativeImprovement)
-                    and accepted
-                ):
-                    logger.info(
-                        f"Stopping criteria met at {iterCt}: relImprovement={relImprovement:.3e}"
-                    )
+
+                if (iterCt > 1) and (relImprovement < calibration_minRelativeImprovement) and accepted:
                     break
                 prevAcceptedLoss = float(acceptedLoss)
 
@@ -1363,9 +1345,7 @@ def getPrecisionWeightedResidual(
     else:
         if matrixMunc.shape != (m, n):
             raise ValueError(f"matrixMunc should be (m,n)=({m}, {n}): observed {matrixMunc.shape}")
-    if stateCovarSmoothed is not None and (
-        stateCovarSmoothed.ndim < 3 or len(stateCovarSmoothed) != n
-    ):
+    if stateCovarSmoothed is not None and (stateCovarSmoothed.ndim < 3 or len(stateCovarSmoothed) != n):
         raise ValueError("stateCovarSmoothed must be shape (n) x (2,2) (if provided)")
     needsCopy = ((stateCovarSmoothed is not None) and len(stateCovarSmoothed) == n) or (
         not matrixMunc.flags.writeable
@@ -1545,10 +1525,10 @@ def getMuncTrack(
     validBlocks = (obsVars >= 0.0) & (predVars > minPredVar)
     usedBlocks = int(validBlocks.sum())
     Nu_ell = float(max(1, (localWindowIntervals - 1)))
-    blockPairDF = float(blockSizeIntervals - 2) # we lose df estimating AR(1)
+    blockPairDF = float(blockSizeIntervals - 2)  # we lose df estimating AR(1)
 
     if (usedBlocks <= 2) or (blockPairDF <= 1.0):
-        Nu_0 = 1.0e6 # fall back to prior
+        Nu_0 = 1.0e6  # fall back to prior
     else:
         # Estimate prior strength Nu_0 from relative global mean-variance trend fit
         # ... by checking -variance- of ratio(observed variance / predicted variance)
@@ -1564,7 +1544,7 @@ def getMuncTrack(
             Nu_0 = 1.0e6
         else:
             # chi^2-level variance + residual variance
-            Nu_0 = max(min((2.0 / (acrossBlockRatioVar - (2.0/blockPairDF))),1.0e6), 4)
+            Nu_0 = max(min((2.0 / (acrossBlockRatioVar - (2.0 / blockPairDF))), 1.0e6), 4)
 
     posteriorDF = float(Nu_0 + Nu_ell)
     updatedMuncTrack = priorTrack.copy()
@@ -1579,9 +1559,7 @@ def getMuncTrack(
     )
 
 
-def sparseIntersection(
-    chromosome: str, intervals: np.ndarray, sparseBedFile: str
-) -> npt.NDArray[np.int64]:
+def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: str) -> npt.NDArray[np.int64]:
     r"""Returns intervals in the chromosome that overlap with the 'sparse' features.
 
     :param chromosome: The chromosome name.
@@ -1692,9 +1670,7 @@ def getSparseMap(
     dists = np.abs(sparseStarts[candidates] - intervals[:, None]).astype(np.float32)
     dists[~valid] = np.inf
 
-    mask = np.argpartition(dists, kth=min(numNearest - 1, dists.shape[1] - 1), axis=1)[
-        :, :numNearest
-    ]
+    mask = np.argpartition(dists, kth=min(numNearest - 1, dists.shape[1] - 1), axis=1)[:, :numNearest]
 
     chosenCandidates = candidates[np.arange(n)[:, None], mask]
     chosenDists = dists[np.arange(n)[:, None], mask]

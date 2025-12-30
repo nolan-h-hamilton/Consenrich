@@ -16,8 +16,6 @@ import subprocess
 import sys
 import numpy as np
 import pandas as pd
-import pysam
-import pywt
 import yaml
 from tqdm import tqdm
 
@@ -197,9 +195,7 @@ def getEffectiveGenomeSizes(genomeArgs: core.genomeParams, readLengths: List[int
         raise ValueError("Genome name must be a non-empty string.")
 
     if not isinstance(readLengths, list) or len(readLengths) == 0:
-        raise ValueError(
-            "Read lengths must be a non-empty list. Try calling `getReadLengths` first."
-        )
+        raise ValueError("Read lengths must be a non-empty list. Try calling `getReadLengths` first.")
     return [constants.getEffectiveGenomeSize(genomeName, readLength) for readLength in readLengths]
 
 
@@ -224,14 +220,8 @@ def getInputArgs(config_path: str) -> core.inputParams:
     if len(bamFiles) == 0:
         raise ValueError("No BAM files provided in the configuration.")
 
-    if (
-        len(bamFilesControl) > 0
-        and len(bamFilesControl) != len(bamFiles)
-        and len(bamFilesControl) != 1
-    ):
-        raise ValueError(
-            "Number of control BAM files must be 0, 1, or the same as number of treatment files"
-        )
+    if len(bamFilesControl) > 0 and len(bamFilesControl) != len(bamFiles) and len(bamFilesControl) != 1:
+        raise ValueError("Number of control BAM files must be 0, 1, or the same as number of treatment files")
 
     if len(bamFilesControl) == 1:
         logger.info(f"Only one control given: Using {bamFilesControl[0]} for all treatment files.")
@@ -348,13 +338,9 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
                 "No chromosomes provided in the configuration and no chromosome sizes file specified."
             )
 
-    chromosomesList = [
-        chromName.strip() for chromName in chromosomesList if chromName and chromName.strip()
-    ]
+    chromosomesList = [chromName.strip() for chromName in chromosomesList if chromName and chromName.strip()]
     if excludeChromsList:
-        chromosomesList = [
-            chromName for chromName in chromosomesList if chromName not in excludeChromsList
-        ]
+        chromosomesList = [chromName for chromName in chromosomesList if chromName not in excludeChromsList]
     if not chromosomesList:
         raise ValueError("No valid chromosomes found after excluding specified chromosomes.")
 
@@ -414,9 +400,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundWindowSizeBP = _cfgGet(
         configData,
         "countingParams.backgroundWindowSizeBP",
-        min(
-            max(1000 * intervalSizeBP, 50_000), 500_000
-        ),  # other values may work but haven't been tested
+        min(max(1000 * intervalSizeBP, 50_000), 500_000),  # other values may work but haven't been tested
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -434,9 +418,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         if len(scaleFactorsControlList) == 1:
             scaleFactorsControlList = scaleFactorsControlList * len(scaleFactorList)
         else:
-            raise ValueError(
-                "control and treatment scale factors: must be equal length or 1 control"
-            )
+            raise ValueError("control and treatment scale factors: must be equal length or 1 control")
 
     normMethod_ = _cfgGet(
         configData,
@@ -472,9 +454,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         if len(fragmentLengthsControl) == 1:
             fragmentLengthsControl = fragmentLengthsControl * len(fragmentLengths)
         else:
-            raise ValueError(
-                "control and treatment fragment lengths: must be equal length or 1 control"
-            )
+            raise ValueError("control and treatment fragment lengths: must be equal length or 1 control")
 
     useTreatmentFragmentLengths_ = _cfgGet(
         configData,
@@ -490,7 +470,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
 
     globalBackgroundCushion_ = _cfgGet(
         configData,
-        "countingParams.globalBackgroundCushion",
+        "countingParams.scaleCB",
         3.0,
     )
 
@@ -504,7 +484,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fragmentLengthsControl=fragmentLengthsControl,
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
-        globalBackgroundCushion=globalBackgroundCushion_,
+        scaleCB=globalBackgroundCushion_,
     )
 
 
@@ -555,12 +535,7 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
     )
 
-    if (
-        int(plotStateEstimatesHistogram_)
-        + int(plotResidualsHistogram_)
-        + int(plotStateStdHistogram_)
-        >= 1
-    ):
+    if int(plotStateEstimatesHistogram_) + int(plotResidualsHistogram_) + int(plotStateStdHistogram_) >= 1:
         if plotDirectory_ is not None and (
             not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)
         ):
@@ -628,9 +603,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "processParams.scaleResidualsByP11",
             True,
         ),
-        ratioDiagQ =_cfgGet(
-            configData, "processParams.ratioDiagQ",
-            2.5),
+        ratioDiagQ=_cfgGet(configData, "processParams.ratioDiagQ", 5.0),
     )
 
     plotArgs = getPlotArgs(config_path, experimentName)
@@ -665,12 +638,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         1000,
     )
 
-    pairedEndDefault = (
-        1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) > 0 else 0
-    )
-    inferFragmentDefault = (
-        1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) == 0 else 0
-    )
+    pairedEndDefault = 1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) > 0 else 0
+    inferFragmentDefault = 1 if inputParams.pairedEnd is not None and int(inputParams.pairedEnd) == 0 else 0
 
     samArgs = core.samParams(
         samThreads=samThreads,
@@ -716,7 +685,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minSignalAtMaxima=_cfgGet(
             configData,
             "matchingParams.minSignalAtMaxima",
-            "q:0.75",
+            0.25,
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
@@ -745,7 +714,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         methodFDR=_cfgGet(
             configData,
             "matchingParams.methodFDR",
-            None,
+            'BH',
         ),
         massQuantileCutoff=_cfgGet(
             configData,
@@ -1011,9 +980,7 @@ def main():
         try:
             logger.info(f"Consenrich v{__version__}: Initial Configuration\n")
             config_truncated = {
-                k: v
-                for k, v in config.items()
-                if k not in ["inputArgs", "genomeArgs", "countingArgs"]
+                k: v for k, v in config.items() if k not in ["inputArgs", "genomeArgs", "countingArgs"]
             }
             config_truncated["experimentName"] = experimentName
             config_truncated["inputArgs"] = inputArgs
@@ -1091,9 +1058,7 @@ def main():
                         maxInsertSize=samArgs.maxInsertSize,
                     )
                 )
-                logger.info(
-                    f"Estimated fragment length for {bamFile}: {fragmentLengthsControl[-1]}"
-                )
+                logger.info(f"Estimated fragment length for {bamFile}: {fragmentLengthsControl[-1]}")
         if countingArgs.useTreatmentFragmentLengths:
             logger.info(
                 "`countingParams.useTreatmentFragmentLengths=True`"
@@ -1256,7 +1221,7 @@ def main():
                 chromMat[j_, :] = cconsenrich.carsinhRatio(
                     np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0),
                     backgroundWindowSizeIntervals,
-                    globalBackgroundCushion=countingArgs.globalBackgroundCushion,
+                    scaleCB=countingArgs.scaleCB,
                 )
                 muncMat[j_, :], _ = core.getMuncTrack(
                     chromosome,
@@ -1298,15 +1263,13 @@ def main():
             minQ_ = 0.0
             maxQ_ = 1e4
 
-        for j in tqdm(
-            range(numSamples), desc="Transforming data / Fitting R[j,:] ~ (μ, Σ)", unit=" sample "
-        ):
+        for j in tqdm(range(numSamples), desc="Transforming data / Fitting R[j,:] ~ (μ, Σ)", unit=" sample "):
             # if controlsPresent, already done above
             if not controlsPresent:
                 chromMat[j, :] = cconsenrich.carsinhRatio(
                     chromMat[j, :],
                     backgroundWindowSizeIntervals,
-                    globalBackgroundCushion=countingArgs.globalBackgroundCushion,
+                    scaleCB=countingArgs.scaleCB,
                 )
 
                 # compute munc track for each sample independently
@@ -1475,17 +1438,13 @@ def main():
                     "statestd",
                     "p11",
                 ]:
-                    weightsBedGraph = (
-                        f"consenrichOutput_{experimentName}_stdDevs.v{__version__}.bedGraph"
-                    )
+                    weightsBedGraph = f"consenrichOutput_{experimentName}_stdDevs.v{__version__}.bedGraph"
                 elif matchingArgs.penalizeBy.lower() in [
                     "munc",
                     "munctrace",
                     "avgmunctrace",
                 ]:
-                    weightsBedGraph = (
-                        f"consenrichOutput_{experimentName}_muncTraces.v{__version__}.bedGraph"
-                    )
+                    weightsBedGraph = f"consenrichOutput_{experimentName}_muncTraces.v{__version__}.bedGraph"
                 elif matchingArgs.penalizeBy.lower() == "none":
                     weightsBedGraph = None
                 else:
@@ -1507,9 +1466,7 @@ def main():
                 weightsBedGraph=weightsBedGraph,
                 eps=matchingArgs.eps,
                 autoLengthQuantile=matchingArgs.autoLengthQuantile,
-                methodFDR=matchingArgs.methodFDR.lower()
-                if matchingArgs.methodFDR is not None
-                else None,
+                methodFDR=matchingArgs.methodFDR.lower() if matchingArgs.methodFDR is not None else None,
                 merge=matchingArgs.merge,
                 massQuantileCutoff=matchingArgs.massQuantileCutoff,
             )
