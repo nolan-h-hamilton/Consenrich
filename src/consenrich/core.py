@@ -1456,12 +1456,11 @@ def getMuncTrack(
     """
 
     if fitFunc is None:
-        # FFR: Revisit, mixed |mu|, |mu|^2
-        fitFunc = cconsenrich.cmonotonicFit
+        fitFunc = cconsenrich.cfitPowerVarianceFunction
     if evalFunc is None:
-        evalFunc = cconsenrich.cmonotonicFitEval
+        evalFunc = cconsenrich.cevalPowerVarianceFunction
     if fitFuncArgs is None:
-        fitFuncArgs = {}
+        fitFuncArgs = {"minPower": 0.10, "maxPower": 3.0, "gridSizePower": int(((3.0 - 0.10)/0.25) + 1)}
     if blockSizeBP is None:
         blockSizeBP = intervalSizeBP * 25
     blockSizeIntervals = int(blockSizeBP / intervalSizeBP)
@@ -1519,9 +1518,11 @@ def getMuncTrack(
         excludeMaskArr,
     ).astype(np.float32, copy=False)
 
-    predVars = cconsenrich.cmonotonicFitEval(opt, blockMeansSorted).astype(np.float64, copy=False)
+    predVars = evalFunc(
+        opt,
+        blockMeansSorted).astype(np.float64, copy=False)
     obsVars = blockVarsSorted.astype(np.float64, copy=False)
-    minPredVar = 1.0e-8
+    minPredVar = 1.0e-3
     validBlocks = (obsVars >= 0.0) & (predVars > minPredVar)
     usedBlocks = int(validBlocks.sum())
     Nu_ell = float(max(1, (localWindowIntervals - 1)))
@@ -1546,9 +1547,12 @@ def getMuncTrack(
             # chi^2-level variance + residual variance
             Nu_0 = max(min((2.0 / (acrossBlockRatioVar - (2.0 / blockPairDF))), 1.0e6), 4)
 
+    logger.info(
+        f"Global model strength Nu_0={Nu_0:.2f}, Local model strength Nu_ell={Nu_ell:.2f}")
+
     posteriorDF = float(Nu_0 + Nu_ell)
     updatedMuncTrack = priorTrack.copy()
-    validMask = rollingInnovationVarTrack >= 0.0
+    validMask = (rollingInnovationVarTrack > 1.0e-3)
     updatedMuncTrack[validMask] = (
         (Nu_0 * priorTrack[validMask]) + (Nu_ell * rollingInnovationVarTrack[validMask])
     ) / posteriorDF
