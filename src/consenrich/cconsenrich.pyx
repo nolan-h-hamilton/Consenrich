@@ -15,7 +15,7 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor
+from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, exp, expf
 cnp.import_array()
 
 # ========
@@ -165,12 +165,9 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         blockLengthDouble = <double>blockLength
 
         sumY = 0.0
-        zeroCount = 0.0
         for elementIndex in range(blockLength):
             value = blockPtr[elementIndex]
             sumY += value
-            if fabs(value) < zeroThresh:
-                zeroCount += 1.0
 
         meanValue = sumY / blockLengthDouble
         meanOutView[regionIndex] = <float>meanValue
@@ -742,6 +739,11 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
         float maxMult=2.0):
 
     cdef float scaleQ, fac, dStatAlphaLow
+    cdef float baseSlopeToLevelRatio, maxSlopeQ, minSlopeQ
+    cdef float baseOffDiagProd, sqrtDiags, maxNoiseCorr
+    cdef float newLevelQ, newSlope_Qnoise, newOffDiagQ
+    cdef float eps = <float>1.0e-8
+
     if dStatAlphaLowMult <= 0:
         dStatAlphaLow = 1.0
     else:
@@ -749,36 +751,59 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
     if dStatAlphaLow >= dStatAlpha:
         dStatAlphaLow = dStatAlpha
 
+    if matrixQCopy[0, 0] > eps:
+        baseSlopeToLevelRatio = matrixQCopy[1, 1] / matrixQCopy[0, 0]
+    else:
+        baseSlopeToLevelRatio = 1.0
+
+    # preserve the baseline level:slope ratio
+    maxSlopeQ = maxQ * baseSlopeToLevelRatio
+    minSlopeQ = minQ * baseSlopeToLevelRatio
+    sqrtDiags = sqrtf(fmaxf(matrixQCopy[0, 0] * matrixQCopy[1, 1], eps))
+    baseOffDiagProd = matrixQCopy[0, 1] / sqrtDiags
+
+    # ensure SPD wrt off-diagonals
+    maxNoiseCorr = <float>0.999
+    if baseOffDiagProd > maxNoiseCorr:
+        baseOffDiagProd = maxNoiseCorr
+    elif baseOffDiagProd < -maxNoiseCorr:
+        baseOffDiagProd = -maxNoiseCorr
+
     if dStat > dStatAlpha:
         scaleQ = fminf(sqrtf(dStatd*fabsf(dStat - dStatAlpha) + dStatPC), maxMult)
-        if matrixQ[0, 0]*scaleQ <= maxQ:
+        if (matrixQ[0, 0]*scaleQ <= maxQ) and (matrixQ[1, 1]*scaleQ <= maxSlopeQ):
             matrixQ[0, 0] *= scaleQ
             matrixQ[0, 1] *= scaleQ
             matrixQ[1, 0] *= scaleQ
             matrixQ[1, 1] *= scaleQ
         else:
-            fac = maxQ/matrixQCopy[0, 0]
-            matrixQ[0, 0] = maxQ
-            matrixQ[0, 1] = matrixQCopy[0, 1]*fac
-            matrixQ[1, 0] = matrixQCopy[1, 0]*fac
-            matrixQ[1, 1] = maxQ
-        inflatedQ = True
+            newLevel_Qnoise= fminf(matrixQ[0, 0]*scaleQ, maxQ)
+            newSlope_Qnoise = fminf(matrixQ[1, 1]*scaleQ, maxSlopeQ)
+            newOffDiagQ = baseOffDiagProd * sqrtf(fmaxf(newLevel_Qnoise* newSlope_Qnoise, eps))
+            matrixQ[0, 0] = newLevelQ
+            matrixQ[0, 1] = newOffDiagQ
+            matrixQ[1, 0] = newOffDiagQ
+            matrixQ[1, 1] = newSlope_Qnoise
+        inflatedQ = <bint>True
 
     elif dStat <= dStatAlphaLow and inflatedQ:
         scaleQ = fminf(sqrtf(dStatd*fabsf(dStat - dStatAlphaLow) + dStatPC), maxMult)
-        if matrixQ[0, 0] / scaleQ >= minQ:
+        if (matrixQ[0, 0] / scaleQ >= minQ) and (matrixQ[1, 1] / scaleQ >= minSlopeQ):
             matrixQ[0, 0] /= scaleQ
             matrixQ[0, 1] /= scaleQ
             matrixQ[1, 0] /= scaleQ
             matrixQ[1, 1] /= scaleQ
         else:
             # we've hit the minimum, no longer 'inflated'
-            fac = minQ / matrixQCopy[0, 0]
-            matrixQ[0, 0] = minQ
-            matrixQ[0, 1] = matrixQCopy[0, 1]*fac
-            matrixQ[1, 0] = matrixQCopy[1, 0]*fac
-            matrixQ[1, 1] = minQ
-            inflatedQ = False
+            newLevel_Qnoise= fmaxf(matrixQ[0, 0] / scaleQ, minQ)
+            newSlope_Qnoise = fmaxf(matrixQ[1, 1] / scaleQ, minSlopeQ)
+            newOffDiagQ = baseOffDiagProd * sqrtf(fmaxf(newLevel_Qnoise* newSlope_Qnoise, eps))
+            matrixQ[0, 0] = newLevelQ
+            matrixQ[0, 1] = newOffDiagQ
+            matrixQ[1, 0] = newOffDiagQ
+            matrixQ[1, 1] = newSlope_Qnoise
+            if (newLevel_Qnoise<= minQ + eps) and (newSlope_Qnoise <= minSlopeQ + eps):
+                inflatedQ = <bint>False
 
     return matrixQ, inflatedQ
 
@@ -2826,3 +2851,115 @@ cpdef double cgetGlobalBaseline(
     maxVal = <double>np.max(values)
     upperBound = fmin(bootMean + (globalBackgroundCushion * bootStdErr), maxVal * 0.995)
     return upperBound
+
+
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
+    cnp.ndarray[cnp.float32_t, ndim=1] values,
+    int blockLength,
+    cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
+    double maxBeta=0.99,
+):
+    cdef Py_ssize_t numIntervals=values.shape[0]
+    cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex
+    cdef int halfBlockLength, maskSum
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] varAtStartIndex
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] varOut
+    cdef float[::1] valuesView=values
+    cdef cnp.uint8_t[::1] maskView=excludeMask
+    cdef double sumY
+    cdef double sumSqY
+    cdef double sumLagProd
+    cdef double meanValue
+    cdef double sumSqCenteredTotal
+    cdef double previousValue
+    cdef double currentValue
+    cdef double centeredFirst
+    cdef double centeredLast
+    cdef double sumSqX
+    cdef double sumSqNext
+    cdef double sumXY
+    cdef double beta1
+    cdef double RSS
+    cdef double pairCountDouble
+    varOut = np.empty(numIntervals,dtype=np.float32)
+
+    if numIntervals <= 0:
+        return varOut
+    if blockLength < 2:
+        varOut[:] = 0.0
+        return varOut
+    if blockLength > numIntervals:
+        blockLength = <int>numIntervals
+
+    halfBlockLength = (blockLength//2)
+    maxStartIndex = (numIntervals - blockLength)
+    varAtStartIndex = np.empty((maxStartIndex + 1),dtype=np.float32)
+
+    sumY=0.0
+    sumSqY=0.0
+    sumLagProd=0.0
+    maskSum=0
+
+    # initialize first block
+    for elementIndex in range(blockLength):
+        currentValue=valuesView[elementIndex]
+        sumY += currentValue
+        sumSqY += (currentValue*currentValue)
+        maskSum += <int>maskView[elementIndex]
+        if elementIndex < (blockLength - 1):
+            sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
+    pairCountDouble=<double>(blockLength - 1)
+
+
+    # sliding window until last block's start
+    for startIndex in range(maxStartIndex + 1):
+        if maskSum != 0:
+            varAtStartIndex[startIndex]=<cnp.float32_t>-1.0
+        else:
+            previousValue = valuesView[startIndex]
+            currentValue = valuesView[(startIndex + blockLength - 1)]
+            meanValue = (sumY/(<double>blockLength))
+            sumSqCenteredTotal = sumSqY - ((<double>blockLength)*meanValue*meanValue)
+            centeredFirst = (previousValue - meanValue)
+            centeredLast = (currentValue - meanValue)
+            sumSqNext = (sumSqCenteredTotal - (centeredFirst*centeredFirst))
+            sumSqX = sumSqCenteredTotal - (centeredLast*centeredLast)
+            sumXY=(
+                sumLagProd
+                - meanValue*(2.0*sumY - previousValue - currentValue)
+                + (<double>(blockLength - 1))*meanValue*meanValue
+            )
+
+            if fabs(sumSqX) > 1.0e-4:
+                # within-block AR(1) term
+                # centered x: (x[i+1]*x[i]) / x[i]^2
+                beta1=(sumXY/sumSqX)
+            else:
+                beta1=0.0
+
+            if beta1 > maxBeta:
+                beta1=maxBeta
+            elif beta1 < -maxBeta:
+                beta1=-maxBeta
+
+            RSS = sumSqNext + ((beta1*beta1)*sumSqX) - (2.0*(beta1*sumXY))
+            if RSS < 0.0:
+                RSS=0.0
+            varAtStartIndex[startIndex]=<cnp.float32_t>(RSS/pairCountDouble)
+
+        if startIndex < maxStartIndex:
+            # slide window forward --> (previousSum - leavingValue) + enteringValue
+            sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])
+            sumSqY = sumSqY + (-(valuesView[startIndex]*valuesView[startIndex]) + (valuesView[(startIndex + blockLength)]*valuesView[(startIndex + blockLength)]))
+            sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
+            maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
+
+    for regionIndex in range(numIntervals):
+        startIndex=(regionIndex - halfBlockLength)
+        if startIndex < 0:
+            startIndex=0
+        elif startIndex > maxStartIndex:
+            startIndex=maxStartIndex
+        varOut[regionIndex]=varAtStartIndex[startIndex]
+
+    return varOut

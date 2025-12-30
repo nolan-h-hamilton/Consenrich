@@ -623,16 +623,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
-        dStatUseMean=_cfgGet(
-            configData,
-            "processParams.dStatUseMean",
-            True,
-        ),
         scaleResidualsByP11=_cfgGet(
             configData,
             "processParams.scaleResidualsByP11",
             True,
         ),
+        ratioDiagQ =_cfgGet(
+            configData, "processParams.ratioDiagQ",
+            2.5),
     )
 
     plotArgs = getPlotArgs(config_path, experimentName)
@@ -1005,7 +1003,6 @@ def main():
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
     offDiagQ_ = processArgs.offDiagQ
-    muncEps: float = 10e-2
 
     if args.verbose2:
         args.verbose = True
@@ -1369,6 +1366,7 @@ def main():
             stateArgs.stateUpperBound,
             samArgs.chunkSize,
             progressIter=25_000,
+            ratioDiagQ=processArgs.ratioDiagQ,
         )
         logger.info(f"minQ={minQ_}, minR={minR_}")
         x_ = core.getPrimaryState(

@@ -78,10 +78,10 @@ class processParams(NamedTuple):
     :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), determined based on intervalSizeBP:fragmentLength ratio.
     :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
-        for each state variable. If `minQ < 0` (default), a value based on
-        the minimum observation noise level (``observationParams.minR``) is used that
-        enforces numerical stability and a worst-case balance between process and observation models
-        for the given number of samples.
+        on the primary state variable (signal level). If `minQ < 0` (default), a small
+        value scales the minimum observation noise level (``observationParams.minR``) and is used
+        for numerical stability.
+    :type minQ: float
     :param maxQ: Maximum process noise level.
     :type minQ: float
     :param dStatAlpha: Threshold on the (normalized) deviation between the data and estimated signal -- determines whether the process noise is scaled up.
@@ -89,6 +89,8 @@ class processParams(NamedTuple):
     :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
         If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (i.e., ``postFitResiduals`` from :func:`consenrich.consenrich.runConsenrich`).
     :type scaleResidualsByP11: Optional[bool]
+    :param ratioDiagQ: Ratio of diagonal entries in the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`. Larger values imply more process noise on the primary state relative to the secondary (slope) state. For increased robustness when tracking large, slowly varying signals, consider larger values (5-10).
+    :type ratioDiagQ: float or None
     """
 
     deltaF: float
@@ -98,8 +100,8 @@ class processParams(NamedTuple):
     dStatAlpha: float
     dStatd: float
     dStatPC: float
-    dStatUseMean: Optional[bool]  # deprecated
     scaleResidualsByP11: Optional[bool]
+    ratioDiagQ: float | None
 
 
 class observationParams(NamedTuple):
@@ -686,6 +688,7 @@ def constructMatrixQ(
     Q11: Optional[float] = None,
     useIdentity: float = -1.0,
     tol: float = 1.0e-8,  # conservative
+    ratioDiagQ: float|None = None,
 ) -> npt.NDArray[np.float32]:
     r"""Build the (base) process noise covariance matrix :math:`\mathbf{Q}`.
 
@@ -708,14 +711,22 @@ def constructMatrixQ(
     :type tol: float
     :return: The process noise covariance matrix :math:`\mathbf{Q}`.
     :rtype: npt.NDArray[np.float32]
+
+    :seealso: :class:`processParams`
     """
 
     if useIdentity > 0.0:
         return np.eye(2, dtype=np.float32) * np.float32(useIdentity)
 
+    if ratioDiagQ is None:
+        ratioDiagQ = 2.5 # negligible for expected minQ
+
     Q = np.empty((2, 2), dtype=np.float32)
     Q[0, 0] = np.float32(minDiagQ if Q00 is None else Q00)
     Q[1, 1] = np.float32(minDiagQ if Q11 is None else Q11)
+
+    if (Q11 is None) and (ratioDiagQ > 0.0):
+        Q[1, 1] = Q[0, 0] / np.float32(ratioDiagQ)
 
     if Q01 is not None and Q10 is None:
         Q10 = Q01
@@ -727,6 +738,12 @@ def constructMatrixQ(
 
     if not np.allclose(Q[0, 1], Q[1, 0], rtol=0.0, atol=1e-4):
         raise ValueError(f"Matrix is not symmetric: Q=\n{Q}")
+
+    # no perfect correlation between states' process noises
+    maxNoiseCorr = np.float32(0.999)
+    maxOffDiag = maxNoiseCorr * np.sqrt(Q[0, 0] * Q[1, 1]).astype(np.float32)
+    Q[0, 1] = np.clip(Q[0, 1], -maxOffDiag, maxOffDiag)
+    Q[1, 0] = Q[0, 1]
 
     # raise if poorly-conditioned/non-SPD
     try:
@@ -781,6 +798,7 @@ def runConsenrich(
     pad: float = 1.0e-3,
     calibration_kwargs: Optional[dict[str, Any]] = None,
     disableCalibration: bool = False,
+    ratioDiagQ: float|None = None,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -843,6 +861,7 @@ def runConsenrich(
     matrixQ0: np.ndarray = constructMatrixQ(
         minQ,
         offDiagQ=offDiagQ,
+        ratioDiagQ=ratioDiagQ,
     ).astype(np.float32, copy=False)
 
     with TemporaryDirectory() as tempDir_:
@@ -989,7 +1008,7 @@ def runConsenrich(
             # ... default value is such that each block could be updated
             # ... across `calibration_maxIters` iters
             calibration_activeSetSize = calibration_kwargs.get(
-                "calibration_activeSetSize", int(max(np.sqrt(calibration_numTotalBlocks), 1.0))
+                "calibration_activeSetSize", int(max(np.sqrt(calibration_numTotalBlocks/2.0), 1.0))
             )
 
             logger.info(
@@ -1371,7 +1390,7 @@ def getMuncTrack(
     intervalSizeBP: int,
     minR: float,
     maxR: float,
-    blockSizeBP: Optional[int]=None,
+    blockSizeBP: Optional[int] = None,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     fitFunc: Optional[Callable] = None,
@@ -1380,15 +1399,58 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = False,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
+    applyEBShrinkage: bool = False,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
-    Compute prior values for sample- and region-specific uncertainty :math:`{R}_{[i:n]}` as a function of mean, :math:`\hat{f}\left(\sigma^2 \,\mid\,\mu\right)`, where :math:`\mu` is the local mean
+    We estimate interval-specific uncertainty tracks for each sample/replicate using two models in an
+    empirical Bayes framework.
 
-    * We fit an AR(1) process model to randomly-sampled, contiguous genomic blocks. The length of blocks ``blockSizeBP`` is defined such that residual variances from the AR(1) fit reflect unwanted technical and/or biological sources of variation.
-    * The mean and variance of the observed values within each block are recorded as a pair :math:`\left(\mu_k, \sigma^2_k\right)`, where :math:`k=1,2,\ldots,\textsf{samplingIters}`.
-    * The sampled pairs are then used to estimate the global mean-variance trend, :math:`\hat{f}\left(\sigma^2 \,\mid\,\mu\right)`, default :func:`consenrich.cconsenrich.cmonotonicFit`.
-    * Finally, at each genomic interval :math:`i=1,2,\ldots,n`, the observed value is assigned an uncertainty :math:`R_{[i]} = \hat{f}\left(\sigma^2 \,\mid\,\mu_i\right)`, where :math:`\mu_i` a rolling local mean estimate.
+    * **Global**
+
+      In this model, uncertainty is treated as a function of the absolute mean signal level.
+
+      That is, the prior variance assigned to each genomic interval :math:`i=1,2,\ldots,n` depends only
+      on the absolute mean signal level :math:`|\mu_i|`.
+
+      Accordingly, we construct a global mean-variance trend :math:`\hat{f}(\cdot)` such that
+
+      .. math::
+
+         \sigma^2_{\text{prior},i} \approx \hat{f}(|\mu_i|).
+
+      To estimate :math:`\hat{f}`, we draw ``samplingIters`` contiguous genomic blocks of size
+      ``blockSizeBP`` at random positions in ``chromosome``. We model the signal within each block as
+      evolving linearly based on the previous interval (i.e. an AR(1) process), and quantify uncertainty
+      by deviations from this model (i.e. the innovation/residual variance).
+
+      For each block, we compute a pair :math:`(|\mu_{\mathcal{B}_b}|, s_{\mathcal{B}_b}^2)`,
+      where :math:`s_{\mathcal{B}_b}^2` is the AR(1) innovation variance estimate for block
+      :math:`\mathcal{B}_b`. We then fit :math:`\hat{f}` to the sampled pairs. The method used
+      to fit :math:`\hat{f}` can be specified via the ``fitFunc`` and ``evalFunc`` parameters.
+
+    * **Local**
+
+      (Only used if ``applyEBShrinkage=True``)
+
+      For each interval :math:`i`, we compute a rolling AR(1) innovation variance :math:`s_i^2` within a
+      window centered near interval :math:`i`. This captures local variation in uncertainty that may not
+      be reflected in the global mean-variance trend.
+
+    * **Shrinkage**
+
+      We compute the posterior uncertainty at each interval :math:`i` as a DF-weighted combination of
+      the global prior and local innovation-variance estimates:
+
+      .. math::
+
+         \sigma^2_{\text{post},i} =
+         \frac{\nu_0\,\sigma^2_{\text{prior},i} + \nu_{\ell}\,s_i^2}{\nu_0 + \nu_{\ell}}.
+
+      Here, :math:`\nu_{\ell}` is the local degrees of freedom implied by the rolling window
+      (typically :math:`\nu_{\ell} = W-1` for window length :math:`W`), and :math:`\nu_0` is the
+      empirical Bayes prior degrees of freedom (prior strength) estimated from block-level deviations
+      of :math:`s_{\mathcal{B}_b}^2` from :math:`\hat{f}(|\mu_{\mathcal{B}_b}|)`.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -1403,7 +1465,7 @@ def getMuncTrack(
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
     :param fitFunc: A *callable* function accepting input ``(arrayOfMeans,arrayOfVariances, **kwargs)``. Used to fit the global mean-variance model
-    given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``.
+        given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``.
     :type fitFunc: Optional[Callable]
     :param fitFuncArgs: Additional keyword arguments to pass to `fitFunc`.
     :type fitFuncArgs: Optional[dict]
@@ -1414,6 +1476,7 @@ def getMuncTrack(
     """
 
     if fitFunc is None:
+        # FFR: Revisit, mixed |mu|, |mu|^2
         fitFunc = cconsenrich.cmonotonicFit
     if evalFunc is None:
         evalFunc = cconsenrich.cmonotonicFitEval
@@ -1427,7 +1490,8 @@ def getMuncTrack(
             f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 11*intervalSizeBP"
         )
         blockSizeIntervals = 25
-    localWindow_INTERVALS = max(2, (blockSizeIntervals + 1))
+
+    localWindowIntervals = max(2, (blockSizeIntervals + 1))
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
     valuesArr = np.ascontiguousarray(values, dtype=np.float32)
 
@@ -1436,13 +1500,11 @@ def getMuncTrack(
     else:
         excludeMaskArr = np.ascontiguousarray(excludeMask, dtype=np.uint8)
 
-    # Variance as function of mean, globally, as observed in distinct, randomly drawn genomic
+    # Global:
+    # ... Variance as function of mean, globally, as observed in distinct, randomly drawn genomic
     # ... blocks. Within each block, it is assumed that an AR(1) process can --on the average--
     # ... account for a large fraction of desired signal, and the associated fit RSS
     # ... can be treated as unwanted technical/biological variation.
-
-    # (i) For each block `k`, we get one (blockMean_k, blockVar_k) pair, where
-    # ... `k=1,2,...,samplingIters`
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
         valuesArr,
@@ -1453,35 +1515,67 @@ def getMuncTrack(
         useInnovationVar=True,
     )
 
-    # (ii) Fit mean-variance trend (default: `cmonotonicfit`)
     predBlock = blockMeans
     sortIdx = np.argsort(np.abs(predBlock))
     blockMeansSorted = predBlock[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
     opt = fitFunc(blockMeansSorted, blockVarsSorted, **fitFuncArgs)
-    fittedBlockVars = evalFunc(opt, blockMeansSorted).astype(np.float64, copy=False)
-    fitResidual = blockVarsSorted.astype(np.float64, copy=False) - fittedBlockVars
-    fitRSS = float(np.sum(fitResidual * fitResidual))
-    y_ = blockVarsSorted.astype(np.float64, copy=False)
-    y_mean = float(np.mean(y_))
-    sumSq = float(np.sum((y_ - y_mean) * (y_ - y_mean))) + 1.0e-4
-    globalR2 = 1.0 - (fitRSS / sumSq)
-    fitR2 = globalR2
-
 
     meanTrack = np.abs(valuesArr).copy()
     if useEMA:
-        meanTrack = cconsenrich.cEMA(
-            meanTrack,
-            localWindow_INTERVALS,
-        )
-    globalModelVariances = evalFunc(opt, meanTrack).astype(
-        np.float32
-    )
+        meanTrack = cconsenrich.cEMA(meanTrack, localWindowIntervals)
+    priorTrack = evalFunc(opt, meanTrack).astype(np.float32, copy=False)
+
+    if not applyEBShrinkage:
+        return np.clip(priorTrack, minR, maxR).astype(np.float32), float(1.0e6)
+
+    # Local:
+    # ... 'Rolling' AR(1) innovation variance as local estimate of uncertainty
+    # ... at each genomic interval to capture positional variation unaccounted for
+    # ... in the mean-dependent global trend.
+    rollingInnovationVarTrack = cconsenrich.crolling_AR1_IVar(
+        valuesArr,
+        localWindowIntervals,
+        excludeMaskArr,
+    ).astype(np.float32, copy=False)
+
+    predVars = cconsenrich.cmonotonicFitEval(opt, blockMeansSorted).astype(np.float64, copy=False)
+    obsVars = blockVarsSorted.astype(np.float64, copy=False)
+    minPredVar = 1.0e-8
+    validBlocks = (obsVars >= 0.0) & (predVars > minPredVar)
+    usedBlocks = int(validBlocks.sum())
+    Nu_ell = float(max(1, (localWindowIntervals - 1)))
+    blockPairDF = float(blockSizeIntervals - 2) # we lose df estimating AR(1)
+
+    if (usedBlocks <= 2) or (blockPairDF <= 1.0):
+        Nu_0 = 1.0e6 # fall back to prior
+    else:
+        # Estimate prior strength Nu_0 from relative global mean-variance trend fit
+        # ... by checking -variance- of ratio(observed variance / predicted variance)
+        # ... over sampled blocks. Ideally, this is close to (chi^2)/df,
+        # ... in which case (acrossBlockRatioVar * blockPairDF) below is around 2.0 ((2.0 / df)*df)
+        #
+        # ... Analogous to Smyth 2004: a good fit will yield block estimates (gene estimates) that
+        # ... do not vary positionally (gene-to-gene) more than expected by chance (sampling).
+        ratioVar = obsVars[validBlocks] / predVars[validBlocks]
+        acrossBlockRatioVar = float(ratioVar.var())
+        Ratio_adjPairs = acrossBlockRatioVar * blockPairDF
+        if Ratio_adjPairs <= (2.0 + 1.0e-4):
+            Nu_0 = 1.0e6
+        else:
+            # chi^2-level variance + residual variance
+            Nu_0 = max(min((2.0 / (acrossBlockRatioVar - (2.0/blockPairDF))),1.0e6), 4)
+
+    posteriorDF = float(Nu_0 + Nu_ell)
+    updatedMuncTrack = priorTrack.copy()
+    validMask = rollingInnovationVarTrack >= 0.0
+    updatedMuncTrack[validMask] = (
+        (Nu_0 * priorTrack[validMask]) + (Nu_ell * rollingInnovationVarTrack[validMask])
+    ) / posteriorDF
 
     return (
-        np.clip(globalModelVariances, minR, maxR).astype(np.float32),
-        float(fitR2),
+        np.clip(updatedMuncTrack, minR, maxR).astype(np.float32),
+        float(posteriorDF),
     )
 
 
