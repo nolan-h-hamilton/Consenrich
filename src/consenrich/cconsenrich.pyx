@@ -1513,346 +1513,143 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return outMeans, outVars, starts_, ends
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cmonotonicFit(
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cfitPowerVarianceFunction(
     jointlySortedMeans,
     jointlySortedVariances,
     double floorTarget = <double>0.01,
+    double eps = <double>1.0e-8,
+    double minPower = <double>0.5,
+    double maxPower = <double>3.0,
+    int gridSizePower = 10,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] meanArr
     cdef cnp.ndarray[cnp.float32_t, ndim=1] varArr
     cdef cnp.ndarray[cnp.float32_t, ndim=1] out
     cdef Py_ssize_t i,n
+    cdef int k
     cdef double mu
     cdef double absMu
-    cdef double muSq
     cdef double varVal
     cdef double zVal
-    cdef double sumAbsMu
-    cdef double sumMuSq
-    cdef double sumAbsMuSq
-    cdef double sumAbsMuMuSq
-    cdef double sumMuSqSq
+    cdef double xVal
+    cdef double xPow
+    cdef double exponent_
     cdef double sumZ
-    cdef double sumAbsMuZ
-    cdef double sumMuSqZ
-    cdef double sumSqZ
-    cdef double numSamples
-    cdef double candAbsSlope, candQuadSlope, candIntercept
-    cdef double bestAbsSlope, bestQuadSlope, bestIntercept
+    cdef double sumSqX
+    cdef double sumX
+    cdef double sumXZ
+    cdef double det22
+    cdef double scale_
+    cdef double constant_
+    cdef double bestScale_, bestExponent_, bestConstant_
     cdef double bestObjective, currentObjective
-    cdef double solvedAbsSlope, solvedQuadSlope, solvedIntercept
-    cdef bint solved_
-    cdef double minAbsMu, maxAbsMu
-    cdef double muCut
-    cdef double reqIntercept
-    cdef double candReq
-    cdef cnp.ndarray[cnp.float64_t, ndim=2] mat22
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] vec_b2
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] solveVec2
-    cdef cnp.ndarray[cnp.float64_t, ndim=2] mat33
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] vec_b3
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] solveVec3
-    cdef double det22, det33
+    cdef double residual
+    cdef double n_F64
 
     meanArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
     varArr  = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
     out = np.empty(3, dtype=np.float32)
     n = meanArr.shape[0]
 
-    if n <= 0:
-        out[0] = <cnp.float32_t>0.0
-        out[1] = <cnp.float32_t>0.0
-        out[2] = <cnp.float32_t>fmax(0.0, floorTarget)
-        return out
-
-    sumAbsMu = 0.0
-    sumMuSq = 0.0
-    sumAbsMuSq = 0.0
-    sumAbsMuMuSq = 0.0
-    sumMuSqSq = 0.0
     sumZ = 0.0
-    sumAbsMuZ = 0.0
-    sumMuSqZ = 0.0
-    sumSqZ = 0.0
-    minAbsMu = 1.0e8
-    maxAbsMu = 0.0
-
     for i in range(n):
-        mu = <double>meanArr[i]
-        absMu = fabs(mu)
-        muSq = mu*mu
-
         varVal = <double>varArr[i]
         if varVal < 0.0:
             zVal = 0.0
         else:
             zVal = varVal
-
-        if absMu < minAbsMu:
-            minAbsMu = absMu
-        if absMu > maxAbsMu:
-            maxAbsMu = absMu
-
-        sumAbsMu += absMu
-        sumMuSq += muSq
-        sumAbsMuSq += absMu*absMu
-        sumAbsMuMuSq += absMu*muSq
-        sumMuSqSq += muSq*muSq
-
         sumZ += zVal
-        sumAbsMuZ += absMu*zVal
-        sumMuSqZ += muSq*zVal
-        sumSqZ += zVal*zVal
 
-    numSamples = <double>n
-    bestAbsSlope = 0.0
-    bestQuadSlope = 0.0
-    bestIntercept = 0.0
+    n_F64 = <double>n
+    bestScale_ = 0.0
+    bestExponent_ = 1.0
+    bestConstant_ = fmax(floorTarget, sumZ / n_F64)
+    bestObjective = 1.0e8
 
-    mat22 = np.empty((2, 2), dtype=np.float64)
-    vec_b2 = np.empty(2, dtype=np.float64)
+    for k in range(gridSizePower):
+        if gridSizePower == 1:
+            exponent_ = minPower
+        else:
+            exponent_ = minPower + (maxPower - minPower) * (<double>k) / (<double>(gridSizePower - 1))
+        if exponent_ <= 0.0:
+            continue
 
-    bestObjective = _lossAbsQuadIntercept(
-        0.0, 0.0, 0.0,
-        sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
-        sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
-    )
+        sumSqX = 0.0
+        sumX = 0.0
+        sumXZ = 0.0
 
-    candAbsSlope = 0.0
-    candQuadSlope = 0.0
-    candIntercept = sumZ / numSamples
-    if candIntercept < 0.0:
-        candIntercept = 0.0
-
-    currentObjective = _lossAbsQuadIntercept(
-        candAbsSlope, candQuadSlope, candIntercept,
-        sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
-        sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
-    )
-    if currentObjective < bestObjective:
-        bestObjective = currentObjective
-        bestAbsSlope = candAbsSlope
-        bestQuadSlope = candQuadSlope
-        bestIntercept = candIntercept
-
-    if sumAbsMuSq > 0.0:
-        candAbsSlope = sumAbsMuZ / sumAbsMuSq
-    else:
-        candAbsSlope = 0.0
-    if candAbsSlope < 0.0:
-        candAbsSlope = 0.0
-
-    candQuadSlope = 0.0
-    candIntercept = 0.0
-    currentObjective = _lossAbsQuadIntercept(
-        candAbsSlope, candQuadSlope, candIntercept,
-        sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
-        sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
-    )
-    if currentObjective < bestObjective:
-        bestObjective = currentObjective
-        bestAbsSlope = candAbsSlope
-        bestQuadSlope = 0.0
-        bestIntercept = 0.0
-
-    if sumMuSqSq > 0.0:
-        candQuadSlope = sumMuSqZ / sumMuSqSq
-    else:
-        candQuadSlope = 0.0
-    if candQuadSlope < 0.0:
-        candQuadSlope = 0.0
-
-    candAbsSlope = 0.0
-    candIntercept = 0.0
-    currentObjective = _lossAbsQuadIntercept(
-        candAbsSlope, candQuadSlope, candIntercept,
-        sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
-        sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
-    )
-    if currentObjective < bestObjective:
-        bestObjective = currentObjective
-        bestAbsSlope = 0.0
-        bestQuadSlope = candQuadSlope
-        bestIntercept = 0.0
-
-    solvedAbsSlope = 0.0
-    solvedQuadSlope = 0.0
-
-    mat22[0, 0] = sumAbsMuSq
-    mat22[0, 1] = sumAbsMuMuSq
-    mat22[1, 0] = sumAbsMuMuSq
-    mat22[1, 1] = sumMuSqSq
-    det22 = (mat22[0, 0]*mat22[1, 1]) - (mat22[0, 1]*mat22[1, 0])
-
-    if fabs(det22) < 1.0e-4:
-        solvedAbsSlope = 0.0
-        solvedQuadSlope = (sumMuSqZ / sumMuSqSq) if fabs(sumMuSqSq) > 1.0e-4 else 0.0
-    else:
-        vec_b2[0] = sumAbsMuZ
-        vec_b2[1] = sumMuSqZ
-        solveVec2 = np.linalg.solve(mat22, vec_b2)
-        solvedAbsSlope = <double>solveVec2[0]
-        solvedQuadSlope = <double>solveVec2[1]
-
-    if solvedAbsSlope >= 0.0 and solvedQuadSlope >= 0.0:
-        currentObjective = _lossAbsQuadIntercept(
-            solvedAbsSlope, solvedQuadSlope, 0.0,
-            sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
-            sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
-        )
-        if currentObjective < bestObjective:
-            bestObjective = currentObjective
-            bestAbsSlope = solvedAbsSlope
-            bestQuadSlope = solvedQuadSlope
-            bestIntercept = 0.0
-
-    solvedAbsSlope = 0.0
-    solvedIntercept = 0.0
-
-    mat22[0, 0] = sumAbsMuSq
-    mat22[0, 1] = sumAbsMu
-    mat22[1, 0] = sumAbsMu
-    mat22[1, 1] = numSamples
-    det22 = (mat22[0, 0]*mat22[1, 1]) - (mat22[0, 1]*mat22[1, 0])
-
-    if fabs(det22) < 1.0e-4:
-        solvedAbsSlope = 0.0
-        solvedIntercept = (sumZ / numSamples) if fabs(numSamples) > 1.0e-8 else 0.0
-    else:
-        vec_b2[0] = sumAbsMuZ
-        vec_b2[1] = sumZ
-        solveVec2 = np.linalg.solve(mat22, vec_b2)
-        solvedAbsSlope = <double>solveVec2[0]
-        solvedIntercept = <double>solveVec2[1]
-
-    if solvedAbsSlope >= 0.0 and solvedIntercept >= 0.0:
-        currentObjective = _lossAbsQuadIntercept(
-            solvedAbsSlope, 0.0, solvedIntercept,
-            sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
-            sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
-        )
-        if currentObjective < bestObjective:
-            bestObjective = currentObjective
-            bestAbsSlope = solvedAbsSlope
-            bestQuadSlope = 0.0
-            bestIntercept = solvedIntercept
-
-    solvedQuadSlope = 0.0
-    solvedIntercept = 0.0
-
-    mat22[0, 0] = sumMuSqSq
-    mat22[0, 1] = sumMuSq
-    mat22[1, 0] = sumMuSq
-    mat22[1, 1] = numSamples
-    det22 = (mat22[0, 0]*mat22[1, 1]) - (mat22[0, 1]*mat22[1, 0])
-
-    if fabs(det22) < 1.0e-4:
-        solvedQuadSlope = 0.0
-        solvedIntercept = (sumZ / numSamples) if fabs(numSamples) > 1.0e-8 else 0.0
-    else:
-        vec_b2[0] = sumMuSqZ
-        vec_b2[1] = sumZ
-        solveVec2 = np.linalg.solve(mat22, vec_b2)
-        solvedQuadSlope = <double>solveVec2[0]
-        solvedIntercept = <double>solveVec2[1]
-
-    if solvedQuadSlope >= 0.0 and solvedIntercept >= 0.0:
-        currentObjective = _lossAbsQuadIntercept(
-            0.0, solvedQuadSlope, solvedIntercept,
-            sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
-            sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
-        )
-        if currentObjective < bestObjective:
-            bestObjective = currentObjective
-            bestAbsSlope = 0.0
-            bestQuadSlope = solvedQuadSlope
-            bestIntercept = solvedIntercept
-
-    solved_ = <bint>0
-    solvedAbsSlope = 0.0
-    solvedQuadSlope = 0.0
-    solvedIntercept = 0.0
-
-    mat33 = np.empty((3, 3), dtype=np.float64)
-    vec_b3 = np.empty(3, dtype=np.float64)
-    mat33[0, 0] = sumAbsMuSq
-    mat33[0, 1] = sumAbsMuMuSq
-    mat33[0, 2] = sumAbsMu
-    mat33[1, 0] = sumAbsMuMuSq
-    mat33[1, 1] = sumMuSqSq
-    mat33[1, 2] = sumMuSq
-    mat33[2, 0] = sumAbsMu
-    mat33[2, 1] = sumMuSq
-    mat33[2, 2] = numSamples
-
-    det33 = (
-        mat33[0, 0]*(mat33[1, 1]*mat33[2, 2] - mat33[1, 2]*mat33[2, 1])
-        - mat33[0, 1]*(mat33[1, 0]*mat33[2, 2] - mat33[1, 2]*mat33[2, 0])
-        + mat33[0, 2]*(mat33[1, 0]*mat33[2, 1] - mat33[1, 1]*mat33[2, 0])
-    )
-
-    if fabs(det33) >= 1.0e-4:
-        vec_b3[0] = sumAbsMuZ
-        vec_b3[1] = sumMuSqZ
-        vec_b3[2] = sumZ
-        solveVec3 = np.linalg.solve(mat33, vec_b3)
-        solvedAbsSlope = <double>solveVec3[0]
-        solvedQuadSlope = <double>solveVec3[1]
-        solvedIntercept = <double>solveVec3[2]
-        solved_ = <bint>1
-    else:
-        solved_ = <bint>0
-
-    if solved_ and solvedAbsSlope >= 0.0 and solvedQuadSlope >= 0.0 and solvedIntercept >= 0.0:
-        currentObjective = _lossAbsQuadIntercept(
-            solvedAbsSlope, solvedQuadSlope, solvedIntercept,
-            sumAbsMu, sumMuSq, sumAbsMuSq, sumAbsMuMuSq, sumMuSqSq,
-            sumZ, sumAbsMuZ, sumMuSqZ, sumSqZ, numSamples,
-        )
-        if currentObjective < bestObjective:
-            bestObjective = currentObjective
-            bestAbsSlope = solvedAbsSlope
-            bestQuadSlope = solvedQuadSlope
-            bestIntercept = solvedIntercept
-
-    if n > 0:
-        muCut = <double>floorTarget
-        if muCut < minAbsMu:
-            muCut = minAbsMu
-        if muCut > maxAbsMu:
-            muCut = maxAbsMu
-
-        reqIntercept = bestIntercept
         for i in range(n):
             mu = <double>meanArr[i]
             absMu = fabs(mu)
-            if absMu > muCut:
-                continue
+            xVal = absMu + eps
+            xPow = pow(xVal, exponent_)
+            varVal = <double>varArr[i]
+            if varVal < 0.0:
+                zVal = 0.0
+            else:
+                zVal = varVal
+
+            sumSqX += xPow*xPow
+            sumX += xPow
+            sumXZ += xPow*zVal
+
+        det22 = (sumSqX*n_F64) - (sumX*sumX)
+
+        if fabs(det22) < 1.0e-12:
+            scale_ = 0.0
+            constant_ = sumZ / n_F64
+        else:
+            scale_ = (sumXZ*n_F64 - sumZ*sumX) / det22
+            constant_ = (-sumXZ*sumX + sumZ*sumSqX) / det22
+
+        if constant_ < floorTarget:
+            constant_ = floorTarget
+            if sumSqX > 1.0e-12:
+                scale_ = (sumXZ - constant_*sumX) / sumSqX
+            else:
+                scale_ = 0.0
+
+        if scale_ < 0.0:
+            scale_ = 0.0
+            constant_ = sumZ / n_F64
+            if constant_ < floorTarget:
+                constant_ = floorTarget
+
+        currentObjective = 0.0
+        for i in range(n):
+            mu = <double>meanArr[i]
+            absMu = fabs(mu)
+            xVal = absMu + eps
+            xPow = pow(xVal, exponent_)
 
             varVal = <double>varArr[i]
             if varVal < 0.0:
-                varVal = 0.0
+                zVal = 0.0
+            else:
+                zVal = varVal
 
-            muSq = mu*mu
-            candReq = varVal - bestAbsSlope*absMu - bestQuadSlope*muSq
-            if candReq > reqIntercept:
-                reqIntercept = candReq
+            residual = (scale_*xPow + constant_) - zVal
+            currentObjective += residual*residual
 
-        if reqIntercept > bestIntercept:
-            bestIntercept = reqIntercept
+        currentObjective /= n_F64
 
-        if bestIntercept < 0.0:
-            bestIntercept = 0.0
+        if currentObjective < bestObjective:
+            bestObjective = currentObjective
+            bestScale_ = scale_
+            bestExponent_ = exponent_
+            bestConstant_ = constant_
 
-    out[0] = <cnp.float32_t>bestAbsSlope
-    out[1] = <cnp.float32_t>bestQuadSlope
-    out[2] = <cnp.float32_t>fmax(bestIntercept, floorTarget)
+    out[0] = <cnp.float32_t>bestScale_
+    out[1] = <cnp.float32_t>bestExponent_
+    out[2] = <cnp.float32_t>fmax(bestConstant_, floorTarget)
     return out
 
 
-cpdef cmonotonicFitEval(
+cpdef cevalPowerVarianceFunction(
     cnp.ndarray coeffs,
     cnp.ndarray meanTrack,
+    double floorTarget = <double>0.01,
+    double eps = <double>1.0e-8,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] meanArr
     cdef Py_ssize_t i,n
@@ -1860,10 +1657,11 @@ cpdef cmonotonicFitEval(
     cdef float[:] outView
     cdef float[:] meanView
     cdef cnp.ndarray[cnp.float32_t, ndim=1] coeffArr
-    cdef double absSlope
-    cdef double quadSlope
-    cdef double intercept
+    cdef double scale_
+    cdef double exponent_
+    cdef double constant_
     cdef double mu
+    cdef double xVal
     cdef double zVal
 
     meanArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
@@ -1872,20 +1670,25 @@ cpdef cmonotonicFitEval(
     outView = out
     meanView = meanArr
     coeffArr = np.ascontiguousarray(coeffs, dtype=np.float32).ravel()
-    absSlope = <double>coeffArr[0]
-    quadSlope = <double>coeffArr[1]
-    intercept = <double>coeffArr[2]
+    scale_ = <double>coeffArr[0]
+    exponent_ = <double>coeffArr[1]
+    constant_ = <double>coeffArr[2]
 
-    if absSlope < 0.0:
-        absSlope = 0.0
-    if quadSlope < 0.0:
-        quadSlope = 0.0
-    if intercept < 0.0:
-        intercept = 0.0
+    if floorTarget < 0.0:
+        floorTarget = 0.0
+    if eps < 0.0:
+        eps = 0.0
+    if scale_ < 0.0:
+        scale_ = 0.0
+    if exponent_ <= 0.0:
+        exponent_ = 1.0
+    if constant_ < floorTarget:
+        constant_ = floorTarget
 
     for i in range(n):
         mu = <double>meanView[i]
-        zVal = absSlope*fabs(mu) + quadSlope*(mu*mu) + intercept
+        xVal = fabs(mu) + eps
+        zVal = scale_*pow(xVal, exponent_) + constant_
         if zVal < 0.0:
             zVal = 0.0
         outView[i] = <float>zVal
