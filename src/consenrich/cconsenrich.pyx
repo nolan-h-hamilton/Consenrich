@@ -15,7 +15,7 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, asinh, sinh, log, asinhf, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, exp, expf
+from libc.math cimport isfinite, fabs, log2, log, log2f, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, exp, expf
 cnp.import_array()
 
 # ========
@@ -237,18 +237,14 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             varOutView[regionIndex] = <float>(RSS / pairCountDouble / divRSS)
 
 
-cdef inline float _carsinh_F32(float x) nogil:
-    # CALLERS: `carsinhRatio`
-
-    # arsinh(x / 2) / ln(2) ~~> sign(x) * log2(|x|)
-    return asinhf(x/2.0) * __INV_LN2_FLOAT
+cdef inline float _clog_F32(float x) nogil:
+    # CALLERS: `clogRatio`
+    return log2f(x + 1.0) * __INV_LN2_FLOAT
 
 
-cdef inline double _carsinh_F64(double x) nogil:
-    # CALLERS: `carsinhRatio`
-
-    # arsinh(x / 2) / ln(2) ~~> sign(x) * log2(|x|)
-    return asinh(x/2.0) * __INV_LN2_DOUBLE
+cdef inline double _clog_F64(double x) nogil:
+    # CALLERS: `clogRatio`
+    return log2(x + 1.0) * __INV_LN2_DOUBLE
 
 
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
@@ -1513,189 +1509,6 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     return outMeans, outVars, starts_, ends
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cfitPowerVarianceFunction(
-    jointlySortedMeans,
-    jointlySortedVariances,
-    double floorTarget = <double>0.01,
-    double eps = <double>1.0e-8,
-    double minPower = <double>0.5,
-    double maxPower = <double>3.0,
-    int gridSizePower = 10,
-):
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] meanArr
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] varArr
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out
-    cdef Py_ssize_t i,n
-    cdef int k
-    cdef double mu
-    cdef double absMu
-    cdef double varVal
-    cdef double zVal
-    cdef double xVal
-    cdef double xPow
-    cdef double exponent_
-    cdef double sumZ
-    cdef double sumSqX
-    cdef double sumX
-    cdef double sumXZ
-    cdef double det22
-    cdef double scale_
-    cdef double constant_
-    cdef double bestScale_, bestExponent_, bestConstant_
-    cdef double bestObjective, currentObjective
-    cdef double residual
-    cdef double n_F64
-
-    meanArr = np.ascontiguousarray(jointlySortedMeans, dtype=np.float32).ravel()
-    varArr  = np.ascontiguousarray(jointlySortedVariances, dtype=np.float32).ravel()
-    out = np.empty(3, dtype=np.float32)
-    n = meanArr.shape[0]
-
-    sumZ = 0.0
-    for i in range(n):
-        varVal = <double>varArr[i]
-        if varVal < 0.0:
-            zVal = 0.0
-        else:
-            zVal = varVal
-        sumZ += zVal
-
-    n_F64 = <double>n
-    bestScale_ = 0.0
-    bestExponent_ = 1.0
-    bestConstant_ = fmax(floorTarget, sumZ / n_F64)
-    bestObjective = 1.0e8
-
-    for k in range(gridSizePower):
-        if gridSizePower == 1:
-            exponent_ = minPower
-        else:
-            exponent_ = minPower + (maxPower - minPower) * (<double>k) / (<double>(gridSizePower - 1))
-        if exponent_ <= 0.0:
-            continue
-
-        sumSqX = 0.0
-        sumX = 0.0
-        sumXZ = 0.0
-
-        for i in range(n):
-            mu = <double>meanArr[i]
-            absMu = fabs(mu)
-            xVal = absMu + eps
-            xPow = pow(xVal, exponent_)
-            varVal = <double>varArr[i]
-            if varVal < 0.0:
-                zVal = 0.0
-            else:
-                zVal = varVal
-
-            sumSqX += xPow*xPow
-            sumX += xPow
-            sumXZ += xPow*zVal
-
-        det22 = (sumSqX*n_F64) - (sumX*sumX)
-
-        if fabs(det22) < 1.0e-12:
-            scale_ = 0.0
-            constant_ = sumZ / n_F64
-        else:
-            scale_ = (sumXZ*n_F64 - sumZ*sumX) / det22
-            constant_ = (-sumXZ*sumX + sumZ*sumSqX) / det22
-
-        if constant_ < floorTarget:
-            constant_ = floorTarget
-            if sumSqX > 1.0e-12:
-                scale_ = (sumXZ - constant_*sumX) / sumSqX
-            else:
-                scale_ = 0.0
-
-        if scale_ < 0.0:
-            scale_ = 0.0
-            constant_ = sumZ / n_F64
-            if constant_ < floorTarget:
-                constant_ = floorTarget
-
-        currentObjective = 0.0
-        for i in range(n):
-            mu = <double>meanArr[i]
-            absMu = fabs(mu)
-            xVal = absMu + eps
-            xPow = pow(xVal, exponent_)
-
-            varVal = <double>varArr[i]
-            if varVal < 0.0:
-                zVal = 0.0
-            else:
-                zVal = varVal
-
-            residual = (scale_*xPow + constant_) - zVal
-            currentObjective += residual*residual
-
-        currentObjective /= n_F64
-
-        if currentObjective < bestObjective:
-            bestObjective = currentObjective
-            bestScale_ = scale_
-            bestExponent_ = exponent_
-            bestConstant_ = constant_
-
-    out[0] = <cnp.float32_t>bestScale_
-    out[1] = <cnp.float32_t>bestExponent_
-    out[2] = <cnp.float32_t>fmax(bestConstant_, floorTarget)
-    return out
-
-
-cpdef cevalPowerVarianceFunction(
-    cnp.ndarray coeffs,
-    cnp.ndarray meanTrack,
-    double floorTarget = <double>0.01,
-    double eps = <double>1.0e-8,
-):
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] meanArr
-    cdef Py_ssize_t i,n
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out
-    cdef float[:] outView
-    cdef float[:] meanView
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] coeffArr
-    cdef double scale_
-    cdef double exponent_
-    cdef double constant_
-    cdef double mu
-    cdef double xVal
-    cdef double zVal
-
-    meanArr = np.ascontiguousarray(meanTrack, dtype=np.float32).ravel()
-    n = meanArr.shape[0]
-    out = np.empty(n, dtype=np.float32)
-    outView = out
-    meanView = meanArr
-    coeffArr = np.ascontiguousarray(coeffs, dtype=np.float32).ravel()
-    scale_ = <double>coeffArr[0]
-    exponent_ = <double>coeffArr[1]
-    constant_ = <double>coeffArr[2]
-
-    if floorTarget < 0.0:
-        floorTarget = 0.0
-    if eps < 0.0:
-        eps = 0.0
-    if scale_ < 0.0:
-        scale_ = 0.0
-    if exponent_ <= 0.0:
-        exponent_ = 1.0
-    if constant_ < floorTarget:
-        constant_ = floorTarget
-
-    for i in range(n):
-        mu = <double>meanView[i]
-        xVal = fabs(mu) + eps
-        zVal = scale_*pow(xVal, exponent_) + constant_
-        if zVal < 0.0:
-            zVal = 0.0
-        outView[i] = <float>zVal
-
-    return out
-
-
 cdef bint _cEMA(const double* xPtr, double* outPtr,
                     Py_ssize_t n, double alpha) nogil:
     cdef Py_ssize_t i
@@ -1723,7 +1536,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
+cpdef object clogRatio(object x, Py_ssize_t blockLength,
                           float boundaryEps = <float>0.1,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False,
@@ -1857,10 +1670,10 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
 
                     # finally, we take ~log-scale~ difference currentValue - background
                     if not <bint>disableBackground:
-                        logDiff_F32 = _carsinh_F32(valuesPtr_F32[i]) - _carsinh_F32(interpolatedBackground_F32)
+                        logDiff_F32 = _clog_F32(valuesPtr_F32[i]) - _clog_F32(interpolatedBackground_F32)
                     else:
                         # case: ChIP w/ input, etc.
-                        logDiff_F32 = _carsinh_F32(valuesPtr_F32[i])
+                        logDiff_F32 = _clog_F32(valuesPtr_F32[i])
                     outputPtr_F32[i] = logDiff_F32
 
             return finalArr__
@@ -1932,9 +1745,9 @@ cpdef object carsinhRatio(object x, Py_ssize_t blockLength,
                     interpolatedBackground_F64 = 0.0
 
                 if not <bint>disableBackground:
-                    logDiff_F64 = _carsinh_F64(valuesPtr_F64[i]) - _carsinh_F64(interpolatedBackground_F64)
+                    logDiff_F64 = _clog_F64(valuesPtr_F64[i]) - _clog_F64(interpolatedBackground_F64)
                 else:
-                    logDiff_F64 = _carsinh_F64(valuesPtr_F64[i])
+                    logDiff_F64 = _clog_F64(valuesPtr_F64[i])
 
                 outputPtr_F64[i] = logDiff_F64
 
@@ -2768,3 +2581,107 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
         varOut[regionIndex]=varAtStartIndex[startIndex]
 
     return varOut
+
+
+cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
+    cnp.ndarray x,
+    cnp.ndarray w):
+    r"""PAVA for isotonic regression
+
+    This code aims for the notation and algorithm of Busing 2022 (JSS, DOI: 10.18637/jss.v102.c01).
+
+    Key algorithmic insight:
+
+        > Observe that the violation 8 = x3 > x4 = 2 is solved by combining two values, 8 and 2, resulting
+        > in a (new) block value of 5, i.e., (8 + 2)/2 = 5. Instead of immediately turning
+        > around and start solving down block violation, we may first look ahead for the next
+        > value in the sequence, k-up, for if this element is smaller than or equal to 5, the
+        > next value can immediately be pooled into the current block, i.e., (8 + 2 + 2)/3 = 4.
+        > Looking ahead can be continued until the next element is larger than the current block
+        > value or if we reach the end of the sequence.
+
+    :param x: 1D array to be fitted as nondecreasing
+    :type x: cnp.ndarray, (either f32 or f64)
+    :param w: 1D array of weights corresponding to each observed value.
+      These are the number of 'observations' associated to each 'unique' value in `x`. Intuition: more weight to values with more observations.
+    :type w: cnp.ndarray
+    :return: PAVA-fitted values
+    :rtype: cnp.ndarray, (either f32 or f64)
+    """
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] xArr = np.ascontiguousarray(x, dtype=np.float64).ravel()
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr = np.ascontiguousarray(w, dtype=np.float64).ravel()
+    cdef Py_ssize_t n = xArr.shape[0]
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] xBlock = np.empty(n, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] wBlock = np.empty(n, dtype=np.float64)
+    # right boundaries for each block
+    cdef cnp.ndarray[cnp.int64_t,  ndim=1] rBlock = np.empty(n, dtype=np.int64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] predicted = np.empty(n, dtype=np.float64)
+    cdef double[:] xV = xArr
+    cdef double[:] wV = wArr
+    cdef double[:] xB = xBlock
+    cdef double[:] wB = wBlock
+    cdef long[:]   rB = rBlock
+    cdef double[:] predicted_ = predicted
+    cdef Py_ssize_t i, k, j, f, t, b
+    cdef double xCur, W, S
+
+    b = 1
+    xB[0] = xV[0]
+    wB[0] = wV[0]
+    rB[0] = 0
+
+    i = 1 # index over elements
+    while i < n:
+        # proceed assuming monotonic+unique: new block at each index
+        b += 1
+        xCur = xV[i]
+        W = wV[i]
+
+        # not monotonic -- discard 'new' block, element goes to a previously existing block
+        if xB[b - 2] > xCur:
+            # reset
+            b -= 1
+            S = wB[b - 1]*xB[b - 1] + W*xCur
+            W = W + wB[b - 1]
+            # update the level/weighted average
+            xCur = S / W
+
+            # Busing: until the current pooled level does not break monotonicity, keep merging elements into the block
+            while i < n - 1 and xCur >= xV[i + 1]:
+                i += 1
+                S = S + (wV[i]*xV[i])
+                W = W + wV[i]
+                xCur = S / W
+
+            # if the now-current block level may break monotonicity with previous block(s) merge backwards
+            # ... note that this should only happen once, as we have already ensured monotonicity when creating previous blocks
+            while b > 1 and xB[b - 2] > xCur:
+                b -= 1
+                S = S + (wB[b - 1]*xB[b - 1])
+                W = W + wB[b - 1]
+                xCur = S / W
+
+        # update block-level stats, boundaries
+        xB[b - 1] = xCur
+        wB[b - 1] = W
+        rB[b - 1] = i
+        i += 1
+
+    # We have monotonicity at the --block level-- and right boundaries, xB stored
+    # ... now we expand blocks back to get predicted values for all original elements
+    f = n - 1
+    for k in range(b - 1, -1, -1):
+        # case: we hit the first block
+        if k == 0:
+            # ... so 'next' block starts at index 0
+            t = 0
+        else:
+            # current block's first element is previous block's right boundary + 1
+            t = rB[k - 1] + 1
+        for j in range(f, t - 1, -1):
+            predicted_[j] = xB[k]
+        f = t - 1
+
+    return predicted
