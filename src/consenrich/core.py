@@ -1458,7 +1458,7 @@ def getMuncTrack(
     if evalFunc is None:
         evalFunc = cconsenrich.cevalPowerVarianceFunction
     if fitFuncArgs is None:
-        fitFuncArgs = {"minPower": 0.10, "maxPower": 3.0, "gridSizePower": int(((3.0 - 0.10)/0.25) + 1)}
+        fitFuncArgs = {"minPower": 0.10, "maxPower": 3.0, "gridSizePower": int(((3.0 - 0.10)/0.10) + 1)}
     if blockSizeBP is None:
         blockSizeBP = intervalSizeBP * 25
     blockSizeIntervals = int(blockSizeBP / intervalSizeBP)
@@ -1497,6 +1497,7 @@ def getMuncTrack(
     blockMeansSorted = predBlock[sortIdx]
     blockVarsSorted = blockVars[sortIdx]
     opt = fitFunc(blockMeansSorted, blockVarsSorted, **fitFuncArgs)
+    logger.info(f"Fitted θ: {opt}")
 
     meanTrack = np.abs(valuesArr).copy()
     if useEMA:
