@@ -1379,7 +1379,7 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = False,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    applyEBShrinkage: bool = False,
+    useEB: bool = False,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -1411,7 +1411,7 @@ def getMuncTrack(
 
     * **Local**
 
-      (Only used if ``applyEBShrinkage=True``)
+      (Only used if ``useEB=True``)
 
       For each interval :math:`i`, we compute a rolling AR(1) innovation variance :math:`s_i^2` within a
       window centered near interval :math:`i`. This captures local variation in uncertainty that may not
@@ -1428,9 +1428,7 @@ def getMuncTrack(
          \frac{\nu_0\,\sigma^2_{\text{prior},i} + \nu_{\ell}\,s_i^2}{\nu_0 + \nu_{\ell}}.
 
       Here, :math:`\nu_{\ell}` is the local degrees of freedom implied by the rolling window
-      (typically :math:`\nu_{\ell} = W-1` for window length :math:`W`), and :math:`\nu_0` is the
-      empirical Bayes prior degrees of freedom (prior strength) estimated from block-level deviations
-      of :math:`s_{\mathcal{B}_b}^2` from :math:`\hat{f}(|\mu_{\mathcal{B}_b}|)`.
+      (typically :math:`\nu_{\ell} = W-1` for window length :math:`W`).
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -1505,7 +1503,7 @@ def getMuncTrack(
         meanTrack = cconsenrich.cEMA(meanTrack, localWindowIntervals)
     priorTrack = evalFunc(opt, meanTrack).astype(np.float32, copy=False)
 
-    if not applyEBShrinkage:
+    if not useEB:
         return np.clip(priorTrack, minR, maxR).astype(np.float32), float(1.0e6)
 
     # Local:
@@ -1531,20 +1529,15 @@ def getMuncTrack(
     if (usedBlocks <= 2) or (blockPairDF <= 1.0):
         Nu_0 = 1.0e6  # fall back to prior
     else:
-        # Estimate prior strength Nu_0 from relative global mean-variance trend fit
-        # ... by checking -variance- of ratio(observed variance / predicted variance)
-        # ... over sampled blocks. Ideally, this is close to (chi^2)/df,
-        # ... in which case (acrossBlockRatioVar * blockPairDF) below is around 2.0 ((2.0 / df)*df)
-        #
-        # ... Analogous to Smyth 2004: a good fit will yield block estimates (gene estimates) that
-        # ... do not vary positionally (gene-to-gene) more than expected by chance (sampling).
+        # Estimate prior strength Nu_0 from global mean-variance trend fit.
+        # ... Check -variance- of ratio(observed variance / predicted variance)
+        # ... across sampled blocks against the variance of a scaled chi2
         ratioVar = obsVars[validBlocks] / predVars[validBlocks]
         acrossBlockRatioVar = float(ratioVar.var())
         Ratio_adjPairs = acrossBlockRatioVar * blockPairDF
         if Ratio_adjPairs <= (2.0 + 1.0e-4):
             Nu_0 = 1.0e6
         else:
-            # chi^2-level variance + residual variance
             Nu_0 = max(min((2.0 / (acrossBlockRatioVar - (2.0 / blockPairDF))), 1.0e6), 4)
 
     logger.info(
