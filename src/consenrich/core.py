@@ -1312,7 +1312,7 @@ def getMuncTrack(
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     excludeMask: Optional[np.ndarray] = None,
-    useEMA: Optional[bool] = False,
+    useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     minValid: float = 1.0e-3,
     forceLinearFactor: float = 0.25,
