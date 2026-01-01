@@ -714,7 +714,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         methodFDR=_cfgGet(
             configData,
             "matchingParams.methodFDR",
-            'BH',
+            "BH",
         ),
         massQuantileCutoff=_cfgGet(
             configData,
@@ -844,7 +844,7 @@ def main():
     parser.add_argument(
         "--match-min-signal",
         type=str,
-        default="q:0.75",
+        default=0.25,
         dest="matchMinSignalAtMaxima",
         help="Minimum signal at local maxima in the response sequence that qualifies candidate matches\
             Can be an absolute value (e.g., `50.0`) or a quantile (e.g., `q:0.75` for 75th percentile).",
@@ -1218,7 +1218,7 @@ def main():
                     ],
                 )
 
-                chromMat[j_, :] = cconsenrich.carsinhRatio(
+                chromMat[j_, :] = cconsenrich.clogRatio(
                     np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0),
                     backgroundWindowSizeIntervals,
                     scaleCB=countingArgs.scaleCB,
@@ -1228,8 +1228,6 @@ def main():
                     intervals,
                     chromMat[j_, :],
                     intervalSizeBP,
-                    minR_,
-                    maxR_,
                     randomSeed=42 + j_,
                 )
                 j_ += 1
@@ -1263,10 +1261,12 @@ def main():
             minQ_ = 0.0
             maxQ_ = 1e4
 
-        for j in tqdm(range(numSamples), desc="Transforming data / Fitting R[j,:] ~ (μ, Σ)", unit=" sample "):
+        for j in tqdm(
+            range(numSamples), desc="Transforming data / Fitting variance function f(μ;Θ)", unit=" sample "
+        ):
             # if controlsPresent, already done above
             if not controlsPresent:
-                chromMat[j, :] = cconsenrich.carsinhRatio(
+                chromMat[j, :] = cconsenrich.clogRatio(
                     chromMat[j, :],
                     backgroundWindowSizeIntervals,
                     scaleCB=countingArgs.scaleCB,
@@ -1278,8 +1278,6 @@ def main():
                     intervals,
                     chromMat[j, :],
                     intervalSizeBP,
-                    minR_,
-                    maxR_,
                     randomSeed=42 + j,
                 )
 

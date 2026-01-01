@@ -248,7 +248,7 @@ class countingParams(NamedTuple):
     :param backgroundWindowSizeBP: Size of windows (bp) used for estimating+interpolating between-block background estimates.
         Per-interval autocorrelation in the background estimates grows roughly as :math:`\frac{intervalSizeBP}{\textsf{backgroundWindowBP}}`.
         Note that this parameter is inconsequential for datasets with treatment+control samples, where background is estimated from control inputs.
-        See :func:`consenrich.cconsenrich.carsinhRatio`.
+        See :func:`consenrich.cconsenrich.clogRatio`.
     :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
     :type fragmentLengths: List[int], optional
     :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
@@ -257,7 +257,7 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.carsinhRatio`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
+    :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.clogRatio`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
 
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
     :class: tip
@@ -810,16 +810,19 @@ def runConsenrich(
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
     if calibration_kwargs is None:
         calibration_kwargs = {}
+
     # -------
     # check edge cases
     if matrixData.ndim == 1:
         matrixData = matrixData[None, :]
     elif matrixData.ndim != 2:
         raise ValueError(f"`matrixData` must be 1D or 2D (got ndim = {matrixData.ndim})")
+
     if matrixMunc.ndim == 1:
         matrixMunc = matrixMunc[None, :]
     elif matrixMunc.ndim != 2:
         raise ValueError(f"`matrixMunc` must be 1D or 2D (got ndim = {matrixMunc.ndim})")
+
     if matrixMunc.shape != matrixData.shape:
         raise ValueError(
             f"`matrixMunc` shape {matrixMunc.shape} not equal to `matrixData` shape {matrixData.shape}"
@@ -835,7 +838,7 @@ def runConsenrich(
         )
 
     if chunkSize < 1:
-        logger.warning(f"`chunkSize` must be positive, setting to 1000000")
+        logger.warning("`chunkSize` must be positive, setting to 1000000")
         chunkSize = 1_000_000
 
     if chunkSize > n:
@@ -847,7 +850,7 @@ def runConsenrich(
     # -------
     vectorD = np.zeros(n, dtype=np.float32)
     countAdjustments: int = 0
-    LN2: np.float32 = np.log(2.0, dtype=np.float32)
+    LN2: np.float32 = np.float32(np.log(2.0))
 
     matrixF: np.ndarray = constructMatrixF(deltaF)
     matrixQ0: np.ndarray = constructMatrixQ(
@@ -955,12 +958,7 @@ def runConsenrich(
                 vectorD = vectorDOut
                 countAdjustments = int(countAdjustmentsOut)
                 fwdPassArgs["vectorD"] = vectorD
-                return (
-                    float(phiHatOut),
-                    int(countAdjustmentsOut),
-                    vectorD,
-                    float(NLLOut),
-                )
+                return (float(phiHatOut), int(countAdjustmentsOut), vectorD, float(NLLOut))
 
             phiHatOut, countAdjustmentsOut, vectorDOut = out
             vectorD = vectorDOut
@@ -970,92 +968,99 @@ def runConsenrich(
 
         if not disableCalibration:
             initialMuncBaseline = matrixMunc.copy()
-            calibration_maxIters = int(calibration_kwargs.get("calibration_maxIters", 50))
+
+            # --- calibration hyperparameters ---
+            calibration_maxIters = int(calibration_kwargs.get("calibration_maxIters", 100))
+            calibration_minIters = int(calibration_kwargs.get("calibration_minIters", 25))
             calibration_numTotalBlocks = int(
-                calibration_kwargs.get(
-                    "calibration_numTotalBlocks",
-                    min(max(int(np.sqrt(n/2)), 1), 1000),
-                )
-            )
-            calibration_activeSetLogStepSize = np.float32(
-                calibration_kwargs.get("calibration_activeSetLogStepSize", LN2)
-            )
-            calibration_activeSetMaxLogStep = np.float32(
-                calibration_kwargs.get("calibration_activeSetMaxLogStep", LN2)
-            )
-            calibration_BGDMaxBacktracks = int(calibration_kwargs.get("calibration_BGDMaxBacktracks", 2))
-            calibration_BGDBacktrackFactor = np.float32(
-                calibration_kwargs.get("calibration_BGDBacktrackFactor", 0.50)
+                calibration_kwargs.get("calibration_numTotalBlocks", max(int(np.sqrt(n / 10)), 1))
             )
 
-            calibration_eps = np.float32(calibration_kwargs.get("calibration_eps", 1.0e-2))
+            # gradient magnitude, relative to gradient magnitude @ starting point
+            calibration_relEps = np.float32(calibration_kwargs.get("calibration_relEps", 0.01))
 
+            # near-zero gradient magnitude
+            calibration_absEps = np.float32(calibration_kwargs.get("calibration_absEps", 0.01))
+
+            # loss versus previous accepted step
             calibration_minRelativeImprovement = np.float32(
-                calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-5)
+                calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-4)
             )
 
-            # size of the active set (those being updated in each iter)
-            # ... default value is such that each block could be updated
-            # ... across `calibration_maxIters` iters
-            calibration_activeSetSize = calibration_kwargs.get(
-                "calibration_activeSetSize",
-                int(max(np.sqrt(calibration_numTotalBlocks), 1.0)),
+            # innovations are well calibrated overall
+            calibration_phiEps = np.float32(calibration_kwargs.get("calibration_phiEps", 0.10))
+
+            # Trust region args
+            calibration_trustRadius = np.float32(calibration_kwargs.get("calibration_trustRadius", 2.0 * LN2))
+            calibration_trustRadiusMin = np.float32(
+                calibration_kwargs.get("calibration_trustRadiusMin", 1.0e-4)
             )
+            calibration_trustRadiusMax = np.float32(
+                calibration_kwargs.get("calibration_trustRadiusMax", 10 * LN2)
+            )
+            calibration_trustRhoThresh = np.float32(
+                calibration_kwargs.get("calibration_trustRhoThresh", 1.0 - 1.0 / 4.0)
+            )
+            calibration_NOT_TrustRhoThresh = np.float32(
+                calibration_kwargs.get("calibration_NOT_TrustRhoThresh", 1.0 / 4.0)
+            )
+            calibration_trustGrow = np.float32(calibration_kwargs.get("calibration_trustGrow", 2.0))
+            calibration_trustShrink = np.float32(calibration_kwargs.get("calibration_trustShrink", 1 / 2.0))
 
             logger.info(
-                f"Scaling covariances\n\tcalibration_maxIters={calibration_maxIters}, _activeSetSize={calibration_activeSetSize}, _numTotalBlocks={calibration_numTotalBlocks}\n",
+                f"\nScaling covariances\n\tcalibration_maxIters={calibration_maxIters}, _numTotalBlocks={calibration_numTotalBlocks}\n",
             )
 
             # --- initialize/allocate ---
-            activeSetSize = int(calibration_activeSetSize)
+            calibration_numTotalBlocks = int(max(1, min(calibration_numTotalBlocks, n)))
             numIntervalsPerBlock = int(np.ceil(n / calibration_numTotalBlocks))
+            init_maxGrad = np.float32(0.0)
 
-            # (I) Map intervals to (larger) blocks
-            # ... assign interval `i` to block `b = i // numIntervalsPerBlock`
+            # (I) Map intervals to blocks: interval i -> block b = i // numIntervalsPerBlock
             intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
             intervalToBlockMap[intervalToBlockMap >= calibration_numTotalBlocks] = (
                 calibration_numTotalBlocks - 1
             )
 
-            # (II) Bound block-level updates
-            # ... Initial R[:,:] is not random as a 'prior' (getMuncTrack), and updates are constrained
-            # ... to `lowerUpdateLimit` and `upperUpdateLimit` (in scale)
+            # (II) Bound block-level updates (in scale)
             lowerUpdateLimit = np.float32(0.10)
             upperUpdateLimit = np.float32(10.0)
-
             logLowerUpdateLimit = np.float32(np.log(float(lowerUpdateLimit)))
             logUpperUpdateLimit = np.float32(np.log(float(upperUpdateLimit)))
 
-            # (III) Inititialize block-level 'dispersion factors'
-            # ... Scales that will multiply `matrixMunc` over contiguous intervals of blocks
-            # ... All initialized at 1.0
+            # (III) Initialize block-level dispersion factors
             BlockDispersionFactors = np.ones(calibration_numTotalBlocks, dtype=np.float32)
             bestBlockDispersionFactors = BlockDispersionFactors.copy()
-            bestLoss = 1.0e9
+            bestLoss = 1.0e16
 
-            # (IV) Initialize block-level gradients to zero
+            # (IV) Initialize block-level gradients
             blockGradLogScales = np.zeros(calibration_numTotalBlocks, dtype=np.float32)
             blockGradCount = np.zeros(calibration_numTotalBlocks, dtype=np.float32)
 
-            # (V) Get initial loss using the origianl matrixMunc (all dispersion factors = 1.0)
+            # (V) Initial loss at baseline
             intervalDispersionFactors = BlockDispersionFactors[intervalToBlockMap]
             matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
 
-            # --- Descent ---
             phiHat, adjustmentCount, vectorD_, loss = _forwardPass(
                 isInitialPass=True,
                 returnNLL_=True,
                 storeNLLInD_=False,
             )
 
-            bestLoss = float(loss)  # initial loss with baseline matrixMunc
+            bestLoss = float(loss)
             bestBlockDispersionFactors = BlockDispersionFactors.copy()
             prevAcceptedLoss = float(loss)
+            acceptedPhiHat = float(phiHat)
+
+            calibration_trustRadius = np.clip(
+                calibration_trustRadius, calibration_trustRadiusMin, calibration_trustRadiusMax
+            ).astype(np.float32, copy=False)
 
             for iterCt in range(int(calibration_maxIters)):
-                # Set interval-level scales, 'update' matrixMunc, and run forward pass
+                # Run forward pass with current factors and collect block gradients
                 intervalDispersionFactors = BlockDispersionFactors[intervalToBlockMap]
                 matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
+
                 phiHat, adjustmentCount, vectorD_, loss = _forwardPass(
                     isInitialPass=True,
                     returnNLL_=True,
@@ -1065,114 +1070,124 @@ def runConsenrich(
                     blockGradCountOut=blockGradCount,
                 )
 
-                # Refresh best loss and scales if improved
                 loss = float(loss)
                 if loss < bestLoss:
                     bestLoss = float(loss)
                     bestBlockDispersionFactors = BlockDispersionFactors.copy()
 
-                # We form a smaller 'active set' of blocks to reduce overhead and to focus heterogeneous gradient updates
-                # ... The active set is chosen as the top `activeSetSize` blocks ranked by gradient magnitude
-
-                # FFR: note that blocks are the same length (up to the last), so the 'mean' implies the same ranking as 'sum'
-                # ... but keeping mean here for now in case we want to change block sizes later
-                gradDenomAll = np.maximum(blockGradCount, 1.0).astype(np.float32, copy=False)
-                gradMeansAll = (blockGradLogScales / gradDenomAll).astype(np.float32, copy=False)
-
-                gradScore = np.abs(gradMeansAll).astype(np.float32, copy=False)
-                priority = np.argpartition(-gradScore, activeSetSize)[:activeSetSize]
-                activeBlocks = priority[:activeSetSize]
-
-                # Check stopping criterion
-                # ... stop if maximum gradient magnitude in active set is below `calibration_eps`
-                maxActiveGrad = float(np.max(np.abs(gradMeansAll[activeBlocks])))
-                if (iterCt > 1) and (maxActiveGrad < float(calibration_eps)):
-                    logger.info(f"Stopping criteria met at {iterCt}: maxActiveGrad={maxActiveGrad:.4f}")
-                    break
-                logger.info(
-                    f"Max |∇| in Active Set: {maxActiveGrad:.4f}",
-                )
-                # Greedy Minimization: Truncated Descent and Backtracking Line Search
-                ######################################################################################
-                # Take a single R^a vector step wrt active blocks in log-space (others fixed).
-                # ... Bound step size wrt `calibration_activeSetMaxLogStep` and apply backtracking
-                # ... line search until a decrease is observed.
-                #
-                # Fast but only minimal guarantees: accepted steps give non-increasing loss,
-                # ... and the active set is chosen to target the steepest decrease for a
-                # ... first order approximation of the loss (Taylor)
-                #######################################################################################
-                accepted = False
-                acceptedLoss = float(loss)
-
-                blockLogFactors = np.log(BlockDispersionFactors).astype(np.float32, copy=False)
-                eta = np.float32(calibration_activeSetLogStepSize)
-
-                # Propose initial direction and scale of the update
-                # ... = - eta * gradient(active set)
-                deltaBlockLogFactors = np.zeros_like(blockLogFactors, dtype=np.float32)
-                deltaBlockLogFactors[activeBlocks] = (-eta * gradMeansAll[activeBlocks]).astype(
+                # mask to prevent undue influence from empty blocks
+                mask = blockGradCount > 0
+                gradMeansAll = np.zeros_like(blockGradLogScales, dtype=np.float32)
+                gradMeansAll[mask] = (blockGradLogScales[mask] / blockGradCount[mask]).astype(
                     np.float32, copy=False
                 )
+
+                maxGradAll = float(np.max(np.abs(gradMeansAll[mask]))) if np.any(mask) else 0.0
+                if iterCt == 0:
+                    init_maxGrad = np.float32(maxGradAll)
+
+                phiNearOne = abs(acceptedPhiHat - 1.0) < float(calibration_phiEps)
+                gradSmall = (maxGradAll < float(calibration_relEps) * float(init_maxGrad)) or (
+                    maxGradAll < float(calibration_absEps)
+                )
+
+                if (iterCt >= calibration_minIters) and phiNearOne and gradSmall:
+                    logger.info(
+                        f"Stopping criteria met at {iterCt}: Final max |∇|={maxGradAll:.4f} vs. Original max |∇|={float(init_maxGrad):.4f}",
+                    )
+                    break
+
+                # Trust-Region Step in Log-Space
+                blockLogFactors = np.log(BlockDispersionFactors).astype(np.float32, copy=False)
+
+                # direction uses MEAN gradient so step doesn't depend on block length
+                deltaBlockLogFactors = (-gradMeansAll).astype(np.float32, copy=False)
                 np.clip(
                     deltaBlockLogFactors,
-                    -np.float32(calibration_activeSetMaxLogStep),
-                    np.float32(calibration_activeSetMaxLogStep),
+                    -calibration_trustRadius,
+                    calibration_trustRadius,
                     out=deltaBlockLogFactors,
                 )
 
-                # backtracking line search: try full step, (step*decrease^1), (step*decrease^2), ...
-                # ... until a decrease in loss is observed or max backtracks reached
-                for retryCt in range(int(calibration_BGDMaxBacktracks)):
-                    stepScale = np.float32(calibration_BGDBacktrackFactor) ** np.float32(retryCt)
-                    candidateLogFactors = (blockLogFactors + (deltaBlockLogFactors * stepScale)).astype(
-                        np.float32, copy=False
-                    )
-                    np.clip(
-                        candidateLogFactors,
-                        logLowerUpdateLimit,
-                        logUpperUpdateLimit,
-                        out=candidateLogFactors,
-                    )
-                    candidate_BlockDispersionFactors = np.exp(candidateLogFactors).astype(np.float32)
+                candidateLogFactors = (blockLogFactors + deltaBlockLogFactors).astype(np.float32, copy=False)
+                np.clip(
+                    candidateLogFactors, logLowerUpdateLimit, logUpperUpdateLimit, out=candidateLogFactors
+                )
+                candidate_BlockDispersionFactors = np.exp(candidateLogFactors).astype(np.float32, copy=False)
 
-                    intervalDispersionFactors = candidate_BlockDispersionFactors[intervalToBlockMap]
-                    matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
+                intervalDispersionFactors = candidate_BlockDispersionFactors[intervalToBlockMap]
+                matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
 
-                    (
-                        phiHatTry,
-                        adjTry,
-                        vectorD_try,
-                        candidateLoss,
-                    ) = _forwardPass(
-                        isInitialPass=True,
-                        returnNLL_=True,
-                        storeNLLInD_=False,
-                    )
-                    candidateLoss = float(candidateLoss)
-
-                    if candidateLoss <= acceptedLoss:
-                        BlockDispersionFactors[:] = candidate_BlockDispersionFactors
-                        acceptedLoss = candidateLoss
-                        accepted = True
-
-                        if candidateLoss < bestLoss:
-                            bestLoss = float(candidateLoss)
-                            bestBlockDispersionFactors = BlockDispersionFactors.copy()
-                        logger.info(f"loss={candidateLoss:.4f}")
-                        break
-
-                if not accepted:
-                    acceptedLoss = float(loss)
-
-                # in addition to previous gradient-mag stopping criterion, check relative improvement
-                # ... for early stopping
-                relImprovement = float((prevAcceptedLoss - acceptedLoss) / max(abs(prevAcceptedLoss), 1.0))
-                logger.info(
-                    f"relImprovement={relImprovement:.3e}\n",
+                phiHatTry, adjTry, vectorD_try, candidateLoss = _forwardPass(
+                    isInitialPass=True,
+                    returnNLL_=True,
+                    storeNLLInD_=False,
                 )
 
-                if (iterCt > 1) and (relImprovement < calibration_minRelativeImprovement) and accepted:
+                candidateLoss = float(candidateLoss)
+                observedReduction = float(loss) - float(candidateLoss)
+
+                # predicted reduction for SUM loss must use SUM gradients
+                gradSumAll = np.zeros_like(blockGradLogScales, dtype=np.float32)
+                gradSumAll[mask] = blockGradLogScales[mask]
+
+                localLinReduction = float(
+                    -np.dot(
+                        gradSumAll.astype(np.float64, copy=False),
+                        deltaBlockLogFactors.astype(np.float64, copy=False),
+                    )
+                )
+
+                if localLinReduction < 1.0e-4 and calibration_trustRadius >= 2.0 * calibration_trustRadiusMin:
+                    localLinReduction = 1.0e-4  # stable
+                elif calibration_trustRadius < max(2.0 * calibration_trustRadiusMin, 1.0e-4):
+                    logger.info("Early stop: trust radius negligible")
+                    break
+
+                rho = float(observedReduction / localLinReduction)
+                accepted = (observedReduction > 0.0) and (rho > 0.0)
+
+                if accepted:
+                    BlockDispersionFactors[:] = candidate_BlockDispersionFactors
+                    acceptedPhiHat = float(phiHatTry)
+                    acceptedLoss = float(candidateLoss)
+
+                    if acceptedLoss < bestLoss:
+                        bestLoss = float(acceptedLoss)
+                        bestBlockDispersionFactors = BlockDispersionFactors.copy()
+
+                    if rho > float(calibration_trustRhoThresh):
+                        calibration_trustRadius = np.minimum(
+                            calibration_trustRadiusMax,
+                            np.float32(calibration_trustGrow) * calibration_trustRadius,
+                        )
+                    elif rho < float(calibration_NOT_TrustRhoThresh):
+                        calibration_trustRadius = np.maximum(
+                            calibration_trustRadiusMin,
+                            np.float32(calibration_trustShrink) * calibration_trustRadius,
+                        )
+                else:
+                    acceptedPhiHat = float(phiHat)
+                    acceptedLoss = float(loss)
+
+                    calibration_trustRadius = np.maximum(
+                        calibration_trustRadiusMin,
+                        np.float32(calibration_trustShrink) * calibration_trustRadius,
+                    )
+
+                    intervalDispersionFactors = BlockDispersionFactors[intervalToBlockMap]
+                    matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
+
+                relImprovement = float((prevAcceptedLoss - acceptedLoss) / max(abs(prevAcceptedLoss), 1.0))
+                logger.info(
+                    f"\niter={iterCt}\tL={bestLoss:.4f}\tΦ_0={acceptedPhiHat:.4f}\tmax|∇|={maxGradAll:.4f}\tΔRel={relImprovement:.3e}\tλTrust={float(calibration_trustRadius):.4f}"
+                )
+
+                if (iterCt > calibration_minIters) and (
+                    (accepted or (calibration_trustRadius <= float(calibration_trustRadiusMin) * 1.01))
+                    and relImprovement <= float(calibration_minRelativeImprovement)
+                    and abs(acceptedPhiHat - 1.0) < float(calibration_phiEps)
+                ):
                     break
                 prevAcceptedLoss = float(acceptedLoss)
 
@@ -1245,7 +1260,6 @@ def runConsenrich(
                 progressIter=int(progressIter),
             )
         finally:
-            # close in any case
             if progressBarBack is not None:
                 progressBarBack.close()
 
@@ -1368,18 +1382,15 @@ def getMuncTrack(
     intervals: np.ndarray,
     values: np.ndarray,
     intervalSizeBP: int,
-    minR: float,
-    maxR: float,
     blockSizeBP: Optional[int] = None,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
-    fitFunc: Optional[Callable] = None,
-    fitFuncArgs: Optional[dict] = None,
-    evalFunc: Optional[Callable] = None,
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = False,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     useEB: bool = False,
+    minValid: float = 1.0e-3,
+    forceLinearFactor: float = 0.25,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -1406,8 +1417,7 @@ def getMuncTrack(
 
       For each block, we compute a pair :math:`(|\mu_{\mathcal{B}_b}|, s_{\mathcal{B}_b}^2)`,
       where :math:`s_{\mathcal{B}_b}^2` is the AR(1) innovation variance estimate for block
-      :math:`\mathcal{B}_b`. We then fit :math:`\hat{f}` to the sampled pairs. The method used
-      to fit :math:`\hat{f}` can be specified via the ``fitFunc`` and ``evalFunc`` parameters.
+      :math:`\mathcal{B}_b`. We then fit :math:`\hat{f}` to the sampled pairs.
 
     * **Local**
 
@@ -1434,31 +1444,18 @@ def getMuncTrack(
     :type chromosome: str
     :param intervals: genomic intervals positions (start positions)
     :type intervals: npt.NDArray[np.uint32]
-    :param minR: Minimum allowable uncertainty.
-    :type minR: float
-    :param maxR: Maximum allowable uncertainty.
-    :type maxR: float
     :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend. Note, this value should, at the least, span several fragment lengths.
     :type blockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
-    :param fitFunc: A *callable* function accepting input ``(arrayOfMeans,arrayOfVariances, **kwargs)``. Used to fit the global mean-variance model
-        given sampled blocks from :func:``consenrich.cconsenrich.cmeanVarPairs``.
-    :type fitFunc: Optional[Callable]
-    :param fitFuncArgs: Additional keyword arguments to pass to `fitFunc`.
-    :type fitFuncArgs: Optional[dict]
-    :param evalFunc: A *callable* function with input (``outputFromFitFunc, arrayLengthN``) that evaluates the fitted :math:`\hat{f}(array[i])` at each genomic interval :math:`i=1,2,\ldots,n`.
-    :type evalFunc: Optional[Callable]
+    :param minValid: Minimum valid mean/variance value when fitting global mean-variance trend.
+    :type minValid: float
+    :param forceLinearFactor: Require fitted variances be at least ``forceLinearFactor * |mean|``.
+    :type forceLinearFactor: float
     :return: Tuple (uncertainty track, prior strength), where prior strength is a scalar reflecting goodness-of-fit of the global mean-variance trend.
     :rtype: tuple[npt.NDArray[np.float32], float]
     """
 
-    if fitFunc is None:
-        fitFunc = cconsenrich.cfitPowerVarianceFunction
-    if evalFunc is None:
-        evalFunc = cconsenrich.cevalPowerVarianceFunction
-    if fitFuncArgs is None:
-        fitFuncArgs = {"minPower": 0.10, "maxPower": 3.0, "gridSizePower": int(((3.0 - 0.10)/0.10) + 1)}
     if blockSizeBP is None:
         blockSizeBP = intervalSizeBP * 25
     blockSizeIntervals = int(blockSizeBP / intervalSizeBP)
@@ -1478,7 +1475,7 @@ def getMuncTrack(
         excludeMaskArr = np.ascontiguousarray(excludeMask, dtype=np.uint8)
 
     # Global:
-    # ... Variance as function of mean, globally, as observed in distinct, randomly drawn genomic
+    # ... Variance as function of |mean|, globally, as observed in distinct, randomly drawn genomic
     # ... blocks. Within each block, it is assumed that an AR(1) process can --on the average--
     # ... account for a large fraction of desired signal, and the associated fit RSS
     # ... can be treated as unwanted technical/biological variation.
@@ -1492,20 +1489,25 @@ def getMuncTrack(
         useInnovationVar=True,
     )
 
-    predBlock = blockMeans
-    sortIdx = np.argsort(np.abs(predBlock))
-    blockMeansSorted = predBlock[sortIdx]
-    blockVarsSorted = blockVars[sortIdx]
-    opt = fitFunc(blockMeansSorted, blockVarsSorted, **fitFuncArgs)
-    logger.info(f"Fitted θ: {opt}")
+    meanAbs = np.abs(blockMeans)
+    mask = (meanAbs >= minValid) & (blockVars >= minValid)
+    meanAbs_Masked = meanAbs[mask]
+    var_Masked = blockVars[mask]
+    order = np.argsort(meanAbs_Masked)
+    meanAbs_Sorted = meanAbs_Masked[order]
+    var_Sorted = var_Masked[order]
+    opt = fitVarianceFunction(meanAbs_Sorted, var_Sorted, forceLinearFactor=forceLinearFactor)
+    logger.info(
+        f"\n\tFit: |μ| --> σ^2\n\t[{opt[0][0]:.6g}, {opt[0][-1]:.6g}] --> [{opt[1].min():.3f}, {opt[1].max():.3f}]\n",
+    )
 
     meanTrack = np.abs(valuesArr).copy()
     if useEMA:
         meanTrack = cconsenrich.cEMA(meanTrack, localWindowIntervals)
-    priorTrack = evalFunc(opt, meanTrack).astype(np.float32, copy=False)
+    priorTrack = evalVarianceFunction(opt, meanTrack).astype(np.float32, copy=False)
 
     if not useEB:
-        return np.clip(priorTrack, minR, maxR).astype(np.float32), float(1.0e6)
+        return priorTrack.astype(np.float32), float(1.0e6)
 
     # Local:
     # ... 'Rolling' AR(1) innovation variance as local estimate of uncertainty
@@ -1517,15 +1519,15 @@ def getMuncTrack(
         excludeMaskArr,
     ).astype(np.float32, copy=False)
 
-    predVars = evalFunc(
-        opt,
-        blockMeansSorted).astype(np.float64, copy=False)
-    obsVars = blockVarsSorted.astype(np.float64, copy=False)
-    minPredVar = 1.0e-3
+    predVars = evalVarianceFunction(opt, meanAbs_Sorted, forceLinearFactor=forceLinearFactor).astype(
+        np.float64, copy=False
+    )
+    obsVars = var_Sorted.astype(np.float64, copy=False)
+    minPredVar = 1.0e-4
     validBlocks = (obsVars >= 0.0) & (predVars > minPredVar)
     usedBlocks = int(validBlocks.sum())
     Nu_ell = float(max(1, (localWindowIntervals - 1)))
-    blockPairDF = float(blockSizeIntervals - 2)  # we lose df estimating AR(1)
+    blockPairDF = float(blockSizeIntervals - 2)
 
     if (usedBlocks <= 2) or (blockPairDF <= 1.0):
         Nu_0 = 1.0e6  # fall back to prior
@@ -1541,18 +1543,17 @@ def getMuncTrack(
         else:
             Nu_0 = max(min((2.0 / (acrossBlockRatioVar - (2.0 / blockPairDF))), 1.0e6), 4)
 
-    logger.info(
-        f"Global model strength Nu_0={Nu_0:.2f}, Local model strength Nu_ell={Nu_ell:.2f}")
+    logger.info(f"Global model strength Nu_0={Nu_0:.2f}, Local model strength Nu_ell={Nu_ell:.2f}")
 
     posteriorDF = float(Nu_0 + Nu_ell)
     updatedMuncTrack = priorTrack.copy()
-    validMask = (rollingInnovationVarTrack > 1.0e-3)
+    validMask = rollingInnovationVarTrack > minPredVar
     updatedMuncTrack[validMask] = (
         (Nu_0 * priorTrack[validMask]) + (Nu_ell * rollingInnovationVarTrack[validMask])
     ) / posteriorDF
 
     return (
-        np.clip(updatedMuncTrack, minR, maxR).astype(np.float32),
+        updatedMuncTrack.astype(np.float32),
         float(posteriorDF),
     )
 
@@ -2087,3 +2088,99 @@ def plotStateStdHistogram(
         return plotFileName
     logger.warning(f"Failed to create histogram. {plotFileName} not written.")
     return None
+
+
+def fitVarianceFunction(
+    jointlySortedMeans: np.ndarray,
+    jointlySortedVariances: np.ndarray,
+    eps: float = 1.0e-8,
+    forceLinearFactor: float = 0.25,
+) -> np.ndarray:
+    means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
+    variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
+    eps = max(float(eps), 0.0)
+
+    # `forceLinearFactor` predicted variance is above an envelope = (forceLinearFactor*|mean| + eps)
+    # ... conservative wrt overdispersion, accounted for by
+    # ... eventual calibration in runConsenrich and local model
+    forceLinearFactor = max(float(forceLinearFactor), 0.0)
+    absMeans = np.abs(means)
+    nonnegVariances = np.where(variances < 0.0, 0.0, variances)
+
+    valid = np.isfinite(absMeans) & np.isfinite(nonnegVariances)
+    absMeans = absMeans[valid]
+    nonnegVariances = nonnegVariances[valid]
+
+    if absMeans.size == 0:
+        return np.array([[0.0], [eps]], dtype=np.float32)
+
+    order = np.argsort(absMeans)
+    absMeans = absMeans[order]
+    nonnegVariances = nonnegVariances[order]
+
+    # piecewise fit to each of A = [eps, 1), B = [1, inf)
+    splitValue = 1.0
+    splitIdx = int(np.searchsorted(absMeans, splitValue, side="left"))
+
+    def _fitSegment(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if absMeansSeg.size == 0:
+            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
+
+        linearFloor = forceLinearFactor * absMeansSeg + eps
+        nonnegVariancesSeg = np.maximum(variancesSeg, linearFloor)
+        # weight is initially 1 (each 'block' is a single observation)
+        monoVariancesSeg = cconsenrich.cPAVA(
+            nonnegVariancesSeg, np.ones_like(nonnegVariancesSeg, dtype=np.float64)
+        )
+        monoVariancesSeg = np.maximum(monoVariancesSeg, linearFloor)
+
+        absMeanGridSeg, firstIdxSeg, countsSeg = np.unique(absMeansSeg, return_index=True, return_counts=True)
+        varGridSeg = np.empty_like(absMeanGridSeg, dtype=np.float64)
+        for j in range(absMeanGridSeg.size):
+            start = firstIdxSeg[j]
+            end = start + countsSeg[j]
+            varGridSeg[j] = float(np.mean(monoVariancesSeg[start:end]))
+
+        linearFloorGridSeg = forceLinearFactor * absMeanGridSeg + eps
+        varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
+        varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
+        varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
+        return absMeanGridSeg, varGridSeg
+
+    absMeanGridLeft, varGridLeft = _fitSegment(absMeans[:splitIdx], nonnegVariances[:splitIdx])
+    absMeanGridRight, varGridRight = _fitSegment(absMeans[splitIdx:], nonnegVariances[splitIdx:])
+
+    # reconcile variance at boundary to preserve monotonicity
+    if varGridLeft.size > 0 and varGridRight.size > 0:
+        varGridRight = np.maximum(varGridRight, float(varGridLeft[-1]))
+        # final PAVA
+        varGridRight = cconsenrich.cPAVA(varGridRight, np.ones_like(varGridRight, dtype=np.float64))
+
+    absMeanGrid = np.concatenate([absMeanGridLeft, absMeanGridRight])
+    varGrid = np.concatenate([varGridLeft, varGridRight])
+    return np.vstack([absMeanGrid.astype(np.float32), varGrid.astype(np.float32)])
+
+
+def evalVarianceFunction(
+    coeffs: np.ndarray,
+    meanTrack: np.ndarray,
+    eps: float = 1.0e-8,
+    forceLinearFactor: float = 0.25,
+) -> np.ndarray:
+    varianceTrend = np.asarray(coeffs, dtype=np.float32)
+    absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
+    varGrid = varianceTrend[1].astype(np.float64, copy=False)
+    eps = max(float(eps), 0.0)
+    forceLinearFactor = max(float(forceLinearFactor), 0.0)
+
+    linearFloorGrid = forceLinearFactor * absMeanGrid + eps
+    varGrid = np.maximum(varGrid, linearFloorGrid)
+    varGrid = cconsenrich.cPAVA(varGrid, np.ones_like(varGrid, dtype=np.float64))
+    varGrid = np.maximum(varGrid, linearFloorGrid)
+
+    means = np.asarray(meanTrack, dtype=np.float64).ravel()
+    absMeans = np.abs(means)
+
+    predicted = np.interp(absMeans, absMeanGrid, varGrid, left=varGrid[0], right=varGrid[-1])
+    predicted = np.maximum(predicted, forceLinearFactor * absMeans + eps)
+    return predicted.astype(np.float32, copy=False)
