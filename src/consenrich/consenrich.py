@@ -263,27 +263,16 @@ def getOutputArgs(config_path: str) -> core.outputParams:
     )
 
     roundDigits_ = _cfgGet(configData, "outputParams.roundDigits", 3)
-
-    writeResiduals_ = _cfgGet(
+    writeNIS_ = _cfgGet(
         configData,
-        "outputParams.writeResiduals",
-        True,
-    )
-
-    writeMuncTrace: bool = _cfgGet(configData, "outputParams.writeMuncTrace", False)
-
-    writeStateStd: bool = _cfgGet(
-        configData,
-        "outputParams.writeStateStd",
+        "outputParams.writeNIS",
         True,
     )
 
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
-        writeResiduals=writeResiduals_,
-        writeMuncTrace=writeMuncTrace,
-        writeStateStd=writeStateStd,
+        writeNIS=writeNIS_,
     )
 
 
@@ -499,16 +488,10 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         False,
     )
 
-    plotResidualsHistogram_ = _cfgGet(
+    plotNISHistogram_ = _cfgGet(
         configData,
-        "plotParams.plotResidualsHistogram",
-        False,
-    )
-
-    plotStateStdHistogram_ = _cfgGet(
-        configData,
-        "plotParams.plotStateStdHistogram",
-        False,
+        "plotParams.plotNIS",
+        True,
     )
 
     plotHeightInches_ = _cfgGet(
@@ -535,7 +518,7 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
     )
 
-    if int(plotStateEstimatesHistogram_) + int(plotResidualsHistogram_) + int(plotStateStdHistogram_) >= 1:
+    if int(plotStateEstimatesHistogram_) + int(plotNISHistogram_)  >= 1:
         if plotDirectory_ is not None and (
             not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)
         ):
@@ -556,8 +539,7 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     return core.plotParams(
         plotPrefix=plotPrefix_,
         plotStateEstimatesHistogram=plotStateEstimatesHistogram_,
-        plotResidualsHistogram=plotResidualsHistogram_,
-        plotStateStdHistogram=plotStateStdHistogram_,
+        plotNISHistogram=plotNISHistogram_,
         plotHeightInches=plotHeightInches_,
         plotWidthInches=plotWidthInches_,
         plotDPI=plotDPI_,
@@ -598,11 +580,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
-        scaleResidualsByP11=_cfgGet(
-            configData,
-            "processParams.scaleResidualsByP11",
-            True,
-        ),
         ratioDiagQ=_cfgGet(configData, "processParams.ratioDiagQ", 5.0),
     )
 
@@ -1325,7 +1302,7 @@ def main():
             maxQ_ = np.float32(max(maxQ_, minQ_))
 
         logger.info(f">>>Running consenrich: {chromosome}<<<")
-        x, P, y, _ = core.runConsenrich(
+        x, P, _, NIS = core.runConsenrich(
             chromMat,
             muncMat,
             deltaF_,
@@ -1351,7 +1328,7 @@ def main():
             stateUpperBound=stateArgs.stateUpperBound,
             boundState=stateArgs.boundState,
         )
-        y_ = core.getPrecisionWeightedResidual(y, muncMat, P)
+
 
         if plotArgs.plotStateEstimatesHistogram:
             core.plotStateEstimatesHistogram(
@@ -1361,19 +1338,11 @@ def main():
                 plotDirectory=plotArgs.plotDirectory,
             )
 
-        if plotArgs.plotResidualsHistogram:
-            core.plotResidualsHistogram(
+        if plotArgs.plotNISHistogram:
+            core.plotNISHistogram(
                 chromosome,
                 plotArgs.plotPrefix,
-                y,
-                plotDirectory=plotArgs.plotDirectory,
-            )
-
-        if plotArgs.plotStateStdHistogram:
-            core.plotStateStdHistogram(
-                chromosome,
-                plotArgs.plotPrefix,
-                np.sqrt(P[:, 0, 0]),
+                NIS,
                 plotDirectory=plotArgs.plotDirectory,
             )
 
@@ -1386,28 +1355,15 @@ def main():
             }
         )
 
-        if outputArgs.writeResiduals:
-            df["Res"] = y_.astype(np.float32)  # FFR: cast necessary?
-        if outputArgs.writeMuncTrace:
-            munc_std = np.sqrt(np.mean(muncMat.astype(np.float64), axis=0)).astype(np.float32)
-            df["Munc"] = munc_std
-        if outputArgs.writeStateStd:
-            df["StateStd"] = np.sqrt(P[:, 0, 0]).astype(np.float32)
+        if outputArgs.writeNIS:
+            df["nis"] = NIS.astype(np.float32, copy=False)
         cols_ = ["Chromosome", "Start", "End", "State"]
-        if outputArgs.writeResiduals:
-            cols_.append("Res")
-        if outputArgs.writeMuncTrace:
-            cols_.append("Munc")
-        if outputArgs.writeStateStd:
-            cols_.append("StateStd")
+        if outputArgs.writeNIS:
+            cols_.append("nis")
         df = df[cols_]
         suffixes = ["state"]
-        if outputArgs.writeResiduals:
-            suffixes.append("residuals")
-        if outputArgs.writeMuncTrace:
-            suffixes.append("muncTraces")
-        if outputArgs.writeStateStd:
-            suffixes.append("stdDevs")
+        if outputArgs.writeNIS:
+            suffixes.append("nis")
 
         if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):
@@ -1442,27 +1398,7 @@ def main():
 
     if matchingEnabled:
         try:
-            weightsBedGraph: str | None = None
             logger.info("Running matching algorithm...")
-            if matchingArgs.penalizeBy is not None:
-                if matchingArgs.penalizeBy.lower() in [
-                    "stateuncertainty",
-                    "statestddev",
-                    "statestd",
-                    "p11",
-                ]:
-                    weightsBedGraph = f"consenrichOutput_{experimentName}_stdDevs.v{__version__}.bedGraph"
-                elif matchingArgs.penalizeBy.lower() in [
-                    "munc",
-                    "munctrace",
-                    "avgmunctrace",
-                ]:
-                    weightsBedGraph = f"consenrichOutput_{experimentName}_muncTraces.v{__version__}.bedGraph"
-                elif matchingArgs.penalizeBy.lower() == "none":
-                    weightsBedGraph = None
-                else:
-                    weightsBedGraph = None
-
             outName = matching.runMatchingAlgorithm(
                 f"consenrichOutput_{experimentName}_state.v{__version__}.bedGraph",
                 matchingArgs.templateNames,
@@ -1476,7 +1412,6 @@ def main():
                 mergeGapBP=matchingArgs.mergeGapBP,
                 excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
                 randSeed=matchingArgs.randSeed,
-                weightsBedGraph=weightsBedGraph,
                 eps=matchingArgs.eps,
                 autoLengthQuantile=matchingArgs.autoLengthQuantile,
                 methodFDR=matchingArgs.methodFDR.lower() if matchingArgs.methodFDR is not None else None,

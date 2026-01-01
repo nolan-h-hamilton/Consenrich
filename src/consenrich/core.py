@@ -22,7 +22,7 @@ import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
-from scipy import ndimage, signal, optimize, stats
+from scipy import ndimage, signal, stats
 from tqdm import tqdm
 from . import cconsenrich
 from . import __version__
@@ -41,10 +41,8 @@ class plotParams(NamedTuple):
     :type plotPrefix: str or None
     :param plotStateEstimatesHistogram: If True, plot a histogram of post-fit primary state estimates
     :type plotStateEstimatesHistogram: bool
-    :param plotResidualsHistogram: If True, plot a histogram of post-fit residuals
-    :type plotResidualsHistogram: bool
-    :param plotStateStdHistogram: If True, plot a histogram of the posterior state standard deviations.
-    :type plotStateStdHistogram: bool
+    :param plotNISHistogram: If True, plot a histogram of normalized innovation squared (NIS) statistics.
+    :type plotNISHistogram: bool
     :param plotHeightInches: Height of output plots in inches.
     :type plotHeightInches: float
     :param plotWidthInches: Width of output plots in inches.
@@ -54,13 +52,12 @@ class plotParams(NamedTuple):
     :param plotDirectory: Directory where plots will be written.
     :type plotDirectory: str or None
 
-    :seealso: :func:`plotStateEstimatesHistogram`, :func:`plotResidualsHistogram`, :func:`plotStateStdHistogram`
+    :seealso: :func:`plotStateEstimatesHistogram`, :func:`plotNISHistogram`
     """
 
     plotPrefix: str | None = None
     plotStateEstimatesHistogram: bool = False
-    plotResidualsHistogram: bool = False
-    plotStateStdHistogram: bool = False
+    plotNISHistogram: bool = False
     plotHeightInches: float = 6.0
     plotWidthInches: float = 8.0
     plotDPI: int = 300
@@ -86,9 +83,6 @@ class processParams(NamedTuple):
     :type minQ: float
     :param dStatAlpha: Threshold on the (normalized) deviation between the data and estimated signal -- determines whether the process noise is scaled up.
     :type dStatAlpha: float
-    :param scaleResidualsByP11: If `True`, the primary state variances (posterior) :math:`\widetilde{P}_{[i], (11)}, i=1\ldots n` are included in the inverse-variance (precision) weighting of residuals :math:`\widetilde{\mathbf{y}}_{[i]}, i=1\ldots n`.
-        If `False`, only the per-sample *observation noise levels* will be used in the precision-weighting. Note that this does not affect `raw` residuals output (i.e., ``postFitResiduals`` from :func:`consenrich.consenrich.runConsenrich`).
-    :type scaleResidualsByP11: Optional[bool]
     :param ratioDiagQ: Ratio of diagonal entries in the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`. Larger values imply more process noise on the primary state relative to the secondary (slope) state. For increased robustness when tracking large, slowly varying signals, consider larger values (5-10).
     :type ratioDiagQ: float or None
     """
@@ -100,7 +94,6 @@ class processParams(NamedTuple):
     dStatAlpha: float
     dStatd: float
     dStatPC: float
-    scaleResidualsByP11: Optional[bool]
     ratioDiagQ: float | None
 
 
@@ -371,20 +364,13 @@ class outputParams(NamedTuple):
     :type convertToBigWig: bool
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
-    :param writeResiduals: If True, write to a separate bedGraph the pointwise avg. of precision-weighted residuals at each interval. These may be interpreted as
-        a measure of model mismatch. Where these quantities are larger (+-), there may be more unexplained deviation between the data and fitted model.
-    :type writeResiduals: bool
-    :param writeMuncTrace: If True, write to a separate bedGraph :math:`\sqrt{\frac{\textsf{Trace}\left(\mathbf{R}_{[i]}\right)}{m}}` -- that is, square root of the 'average' measurement uncertainty level at each interval :math:`i=1\ldots n`, where :math:`m` is the number of samples/tracks.
-    :type writeMuncTrace: bool
-    :param writeStateStd: If True, write to a separate bedGraph the estimated pointwise uncertainty in the primary state, :math:`\sqrt{\widetilde{P}_{i,(11)}}`, on a scale comparable to the estimated signal.
-    :type writeStateStd: bool
+    :param writeNIS: If True, write per-interval NIS (normalized innovation squared) values to bedGraph.
+    :type writeNIS: bool
     """
 
     convertToBigWig: bool
     roundDigits: int
-    writeResiduals: bool
-    writeMuncTrace: bool
-    writeStateStd: bool
+    writeNIS: bool
 
 
 def _checkMod(name: str) -> bool:
@@ -1106,8 +1092,6 @@ def runConsenrich(
 
                 # Trust-Region Step in Log-Space
                 blockLogFactors = np.log(BlockDispersionFactors).astype(np.float32, copy=False)
-
-                # direction uses MEAN gradient so step doesn't depend on block length
                 deltaBlockLogFactors = (-gradMeansAll).astype(np.float32, copy=False)
                 np.clip(
                     deltaBlockLogFactors,
@@ -1133,11 +1117,10 @@ def runConsenrich(
 
                 candidateLoss = float(candidateLoss)
                 observedReduction = float(loss) - float(candidateLoss)
-
-                # predicted reduction for SUM loss must use SUM gradients
                 gradSumAll = np.zeros_like(blockGradLogScales, dtype=np.float32)
                 gradSumAll[mask] = blockGradLogScales[mask]
 
+                # compute predicted reduction under trust-region model
                 localLinReduction = float(
                     -np.dot(
                         gradSumAll.astype(np.float64, copy=False),
@@ -1148,7 +1131,7 @@ def runConsenrich(
                 if localLinReduction < 1.0e-4 and calibration_trustRadius >= 2.0 * calibration_trustRadiusMin:
                     localLinReduction = 1.0e-4  # stable
                 elif calibration_trustRadius < max(2.0 * calibration_trustRadiusMin, 1.0e-4):
-                    logger.info("Early stop: trust radius negligible")
+                    logger.info("Early stop: Trust radius below limit.\n")
                     break
 
                 rho = float(observedReduction / localLinReduction)
@@ -1164,11 +1147,13 @@ def runConsenrich(
                         bestBlockDispersionFactors = BlockDispersionFactors.copy()
 
                     if rho > float(calibration_trustRhoThresh):
+                        # if trust-region step was calibrated, expand trust region for next step
                         calibration_trustRadius = np.minimum(
                             calibration_trustRadiusMax,
                             np.float32(calibration_trustGrow) * calibration_trustRadius,
                         )
                     elif rho < float(calibration_NOT_TrustRhoThresh):
+                        # if trust-region step was poorly calibrated, shrink trust region for next step
                         calibration_trustRadius = np.maximum(
                             calibration_trustRadiusMin,
                             np.float32(calibration_trustShrink) * calibration_trustRadius,
@@ -1318,72 +1303,6 @@ def getPrimaryState(
     return out_
 
 
-def getStateCovarTrace(
-    stateCovarMatrices: np.ndarray,
-    roundPrecision: int = 4,
-) -> npt.NDArray[np.float32]:
-    r"""Get a one-dimensional array of state covariance traces after running Consenrich
-
-    :param stateCovarMatrices: Estimated state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}`
-    :type stateCovarMatrices: np.ndarray
-    :return: A one-dimensional numpy array of the traces of the state covariance matrices.
-    :rtype: npt.NDArray[np.float32]
-    """
-    stateCovarMatrices = np.ascontiguousarray(stateCovarMatrices, dtype=np.float32)
-    out_ = cconsenrich.cgetStateCovarTrace(stateCovarMatrices)
-    np.round(out_, decimals=roundPrecision, out=out_)
-    return out_
-
-
-def getPrecisionWeightedResidual(
-    postFitResiduals: np.ndarray,
-    matrixMunc: Optional[np.ndarray] = None,
-    stateCovarSmoothed: Optional[np.ndarray] = None,
-    roundPrecision: int = 4,
-) -> npt.NDArray[np.float32]:
-    r"""Get a one-dimensional representation of average residuals after running Consenrich.
-
-    Optionally, if `matrixMunc` is provided, residuals are precision-weighted by the respective covariances.
-
-    :param postFitResiduals: Post-fit residuals :math:`\widetilde{\mathbf{y}}_{[i]}` from :func:`runConsenrich`.
-    :type postFitResiduals: np.ndarray
-    :param matrixMunc: An :math:`m \times n` sample-by-interval matrix -- At genomic intervals :math:`i = 1,2,\ldots,n`, the respective length-:math:`m` column is :math:`\mathbf{R}_{[i,11:mm]}`.
-        That is, the observation noise levels for each sample :math:`j=1,2,\ldots,m` at interval :math:`i`. To mask_ memory usage minimal `matrixMunc` is not returned in full or computed in
-        in :func:`runConsenrich`. If using Consenrich programmatically, run :func:`consenrich.core.getMuncTrack` for each sample's count data (rows in the matrix output of :func:`readBamSegments`).
-    :type matrixMunc: np.ndarray
-    :param stateCovarSmoothed: Post-fit (forward/backward-smoothed) state covariance matrices :math:`\widetilde{\mathbf{P}}_{[i]}` from :func:`runConsenrich`.
-    :type stateCovarSmoothed: Optional[np.ndarray]
-    :return: A one-dimensional array of "precision-weighted residuals"
-    :rtype: npt.NDArray[np.float32]
-    """
-
-    n, m = postFitResiduals.shape
-    postFitResiduals_CContig = np.ascontiguousarray(postFitResiduals, dtype=np.float32)
-
-    if matrixMunc is None:
-        return np.mean(postFitResiduals_CContig, axis=1)
-
-    else:
-        if matrixMunc.shape != (m, n):
-            raise ValueError(f"matrixMunc should be (m,n)=({m}, {n}): observed {matrixMunc.shape}")
-    if stateCovarSmoothed is not None and (stateCovarSmoothed.ndim < 3 or len(stateCovarSmoothed) != n):
-        raise ValueError("stateCovarSmoothed must be shape (n) x (2,2) (if provided)")
-    needsCopy = ((stateCovarSmoothed is not None) and len(stateCovarSmoothed) == n) or (
-        not matrixMunc.flags.writeable
-    )
-
-    matrixMunc_CContig = np.array(matrixMunc, dtype=np.float32, order="C", copy=needsCopy)
-
-    if needsCopy:
-        stateCovarArr00 = np.asarray(stateCovarSmoothed[:, 0, 0], dtype=np.float32)
-        matrixMunc_CContig += stateCovarArr00
-
-    np.maximum(matrixMunc_CContig, np.float32(1e-8), out=matrixMunc_CContig)
-    out = cconsenrich.cgetPrecisionWeightedResidual(postFitResiduals_CContig, matrixMunc_CContig)
-    np.round(out, decimals=roundPrecision, out=out)
-    return out
-
-
 def getMuncTrack(
     chromosome: str,
     intervals: np.ndarray,
@@ -1395,57 +1314,10 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = False,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    useEB: bool = False,
     minValid: float = 1.0e-3,
     forceLinearFactor: float = 0.25,
 ) -> tuple[npt.NDArray[np.float32], float]:
-    r"""Approximate region- and sample-specific (**M**)easurement (**unc**)ertainty tracks
-
-    We estimate interval-specific uncertainty tracks for each sample/replicate using two models in an
-    empirical Bayes framework.
-
-    * **Global**
-
-      In this model, uncertainty is treated as a function of the absolute mean signal level.
-
-      That is, the prior variance assigned to each genomic interval :math:`i=1,2,\ldots,n` depends only
-      on the absolute mean signal level :math:`|\mu_i|`.
-
-      Accordingly, we construct a global mean-variance trend :math:`\hat{f}(\cdot)` such that
-
-      .. math::
-
-         \sigma^2_{\text{prior},i} \approx \hat{f}(|\mu_i|).
-
-      To estimate :math:`\hat{f}`, we draw ``samplingIters`` contiguous genomic blocks of size
-      ``blockSizeBP`` at random positions in ``chromosome``. We model the signal within each block as
-      evolving linearly based on the previous interval (i.e. an AR(1) process), and quantify uncertainty
-      by deviations from this model (i.e. the innovation/residual variance).
-
-      For each block, we compute a pair :math:`(|\mu_{\mathcal{B}_b}|, s_{\mathcal{B}_b}^2)`,
-      where :math:`s_{\mathcal{B}_b}^2` is the AR(1) innovation variance estimate for block
-      :math:`\mathcal{B}_b`. We then fit :math:`\hat{f}` to the sampled pairs.
-
-    * **Local**
-
-      (Experimental,``useEB=True``)
-
-      For each interval :math:`i`, we compute a rolling AR(1) innovation variance :math:`s_i^2` within a
-      window centered near interval :math:`i`. This captures local variation in uncertainty that may not
-      be reflected in the global mean-variance trend.
-
-    * **Shrinkage**
-
-      We compute the posterior uncertainty at each interval :math:`i` as a DF-weighted combination of
-      the global prior and local innovation-variance estimates:
-
-      .. math::
-
-         \sigma^2_{\text{post},i} =
-         \frac{\nu_0\,\sigma^2_{\text{prior},i} + \nu_{\ell}\,s_i^2}{\nu_0 + \nu_{\ell}}.
-
-      Here, :math:`\nu_{\ell}` is the local degrees of freedom implied by the rolling window
-      (typically :math:`\nu_{\ell} = W-1` for window length :math:`W`).
+    r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks according to a fitted |mean|-variance trend.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -1459,7 +1331,7 @@ def getMuncTrack(
     :type minValid: float
     :param forceLinearFactor: Require fitted variances be at least ``forceLinearFactor * |mean|``.
     :type forceLinearFactor: float
-    :return: Tuple (uncertainty track, prior strength), where prior strength is a scalar reflecting goodness-of-fit of the global mean-variance trend.
+    :return: Uncertainty track and fraction of valid (mean, variance) pairs used in fitting.
     :rtype: tuple[npt.NDArray[np.float32], float]
     """
 
@@ -1513,56 +1385,7 @@ def getMuncTrack(
         meanTrack = cconsenrich.cEMA(meanTrack, localWindowIntervals)
     priorTrack = evalVarianceFunction(opt, meanTrack).astype(np.float32, copy=False)
 
-    if not useEB:
-        return priorTrack.astype(np.float32), float(1.0e6)
-
-    # Local:
-    # ... 'Rolling' AR(1) innovation variance as local estimate of uncertainty
-    # ... at each genomic interval to capture positional variation unaccounted for
-    # ... in the mean-dependent global trend.
-    rollingInnovationVarTrack = cconsenrich.crolling_AR1_IVar(
-        valuesArr,
-        localWindowIntervals,
-        excludeMaskArr,
-    ).astype(np.float32, copy=False)
-
-    predVars = evalVarianceFunction(opt, meanAbs_Sorted, forceLinearFactor=forceLinearFactor).astype(
-        np.float64, copy=False
-    )
-    obsVars = var_Sorted.astype(np.float64, copy=False)
-    minPredVar = 1.0e-4
-    validBlocks = (obsVars >= 0.0) & (predVars > minPredVar)
-    usedBlocks = int(validBlocks.sum())
-    Nu_ell = float(max(1, (localWindowIntervals - 1)))
-    blockPairDF = float(blockSizeIntervals - 2)
-
-    if (usedBlocks <= 2) or (blockPairDF <= 1.0):
-        Nu_0 = 1.0e6  # fall back to prior
-    else:
-        # Estimate prior strength Nu_0 from global mean-variance trend fit.
-        # ... Check -variance- of ratio(observed variance / predicted variance)
-        # ... across sampled blocks against the variance of a scaled chi2
-        ratioVar = obsVars[validBlocks] / predVars[validBlocks]
-        acrossBlockRatioVar = float(ratioVar.var())
-        Ratio_adjPairs = acrossBlockRatioVar * blockPairDF
-        if Ratio_adjPairs <= (2.0 + 1.0e-4):
-            Nu_0 = 1.0e6
-        else:
-            Nu_0 = max(min((2.0 / (acrossBlockRatioVar - (2.0 / blockPairDF))), 1.0e6), 4)
-
-    logger.info(f"Global model strength Nu_0={Nu_0:.2f}, Local model strength Nu_ell={Nu_ell:.2f}")
-
-    posteriorDF = float(Nu_0 + Nu_ell)
-    updatedMuncTrack = priorTrack.copy()
-    validMask = rollingInnovationVarTrack > minPredVar
-    updatedMuncTrack[validMask] = (
-        (Nu_0 * priorTrack[validMask]) + (Nu_ell * rollingInnovationVarTrack[validMask])
-    ) / posteriorDF
-
-    return (
-        updatedMuncTrack.astype(np.float32),
-        float(posteriorDF),
-    )
+    return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
 
 
 def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: str) -> npt.NDArray[np.int64]:
@@ -1770,7 +1593,7 @@ def plotStateEstimatesHistogram(
     primaryStateValues: npt.NDArray[np.float32],
     blockSize: int = 10,
     numBlocks: int = 10_000,
-    statFunction: Callable = np.mean,
+    statFunction: Callable = np.median,
     randomSeed: int = 42,
     roundPrecision: int = 4,
     plotHeightInches: float = 8.0,
@@ -1840,112 +1663,13 @@ def plotStateEstimatesHistogram(
     return None
 
 
-def plotResidualsHistogram(
+def plotNISHistogram(
     chromosome: str,
     plotPrefix: str,
-    residuals: npt.NDArray[np.float32],
+    NISArray: npt.NDArray[np.float32],
     blockSize: int = 10,
     numBlocks: int = 10_000,
-    statFunction: Callable = np.mean,
-    randomSeed: int = 42,
-    roundPrecision: int = 4,
-    plotHeightInches: float = 8.0,
-    plotWidthInches: float = 10.0,
-    plotDPI: int = 300,
-    flattenResiduals: bool = False,
-    plotDirectory: str | None = None,
-) -> str | None:
-    r"""(Experimental) Plot a histogram of within-chromosome post-fit residuals.
-
-    .. note::
-
-      To economically represent residuals across multiple samples, at each genomic interval :math:`i`,
-      we randomly select a single sample's residual in vector :math:`\mathbf{y}_{[i]} = \mathbf{Z}_{[:,i]} - \mathbf{H}\widetilde{\mathbf{x}}_{[i]}`
-      to obtain a 1D array, :math:`\mathbf{a} \in \mathbb{R}^{1 \times n}`. Then, contiguous blocks :math:`\mathbf{a}_{[k:k+blockSize]}` are sampled
-      to compute the desired statistic (e.g., mean, median). These block statistics comprise the empirical distribution plotted in the histogram.
-
-    :param plotPrefix: Prefixes the output filename
-    :type plotPrefix: str
-    :param residuals: :math:`m \times n` (sample-by-interval) 32bit float array of post-fit residuals.
-    :type residuals: npt.NDArray[np.float32]
-    :param blockSize: Number of contiguous intervals to sample per block.
-    :type blockSize: int
-    :param numBlocks: Number of samples to draw
-    :type numBlocks: int
-    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
-    :type statFunction: Callable
-    :param flattenResiduals: If True, flattens the :math:`m \times n` (sample-by-interval) residuals
-        array to 1D (via `np.flatten`) before sampling blocks. If False, a random row (sample) is
-        selected for each column (interval) prior to the block sampling.
-        in each iteration.
-    :type flattenResiduals: bool
-    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
-    :type plotDirectory: str | None
-    """
-
-    if _checkMod("matplotlib"):
-        import matplotlib.pyplot as plt
-    else:
-        logger.warning("matplotlib not found...returning None")
-        return None
-
-    if plotDirectory is None:
-        plotDirectory = os.getcwd()
-    elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
-    elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
-
-    plotFileName = os.path.join(
-        plotDirectory,
-        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_residuals.v{__version__}.png",
-    )
-
-    x = np.ascontiguousarray(residuals, dtype=np.float32)
-
-    if not flattenResiduals:
-        n, m = x.shape
-        rng = np.random.default_rng(randomSeed)
-        sample_idx = rng.integers(0, m, size=n)
-        x = x[np.arange(n), sample_idx]
-    else:
-        x = x.ravel()
-
-    binnedResiduals = _forPlotsSampleBlockStats(
-        values_=x,
-        blockSize_=blockSize,
-        numBlocks_=numBlocks,
-        statFunction_=statFunction,
-        randomSeed_=randomSeed,
-    )
-    plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
-    plt.hist(
-        binnedResiduals,
-        bins="doane",
-        color="blue",
-        alpha=0.85,
-        edgecolor="black",
-        fill=True,
-    )
-    plt.title(
-        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Post-Fit Residuals $\widetilde{{y}}_{{[1 : m,  1 : n]}}$",
-    )
-    plt.savefig(plotFileName, dpi=plotDPI)
-    plt.close()
-    if os.path.exists(plotFileName):
-        logger.info(f"Wrote residuals histogram to {plotFileName}")
-        return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
-    return None
-
-
-def plotStateStdHistogram(
-    chromosome: str,
-    plotPrefix: str,
-    stateStd: npt.NDArray[np.float32],
-    blockSize: int = 10,
-    numBlocks: int = 10_000,
-    statFunction: Callable = np.mean,
+    statFunction: Callable = np.median,
     randomSeed: int = 42,
     roundPrecision: int = 4,
     plotHeightInches: float = 8.0,
@@ -1953,13 +1677,12 @@ def plotStateStdHistogram(
     plotDPI: int = 300,
     plotDirectory: str | None = None,
 ) -> str | None:
-    r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state standard deviations, i.e., :math:`\sqrt{\widetilde{\mathbf{P}}_{[i,11]}}`.
+    r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) normalized innovation squared (NIS) values.
 
     :param plotPrefix: Prefixes the output filename
     :type plotPrefix: str
-    :param stateStd: 1D numpy 32bit float array of primary state standard deviations, i.e., :math:`\sqrt{\widetilde{\mathbf{P}}_{[i,11]}}`,
-        that is, the first diagonal elements in the :math:`n \times (2 \times 2)` numpy array `stateCovarSmoothed`. Access as ``(stateCovarSmoothed[:, 0, 0]``.
-    :type stateStd: npt.NDArray[np.float32]
+    :param NISArray: 1D 32bit float array of normalized innovation squared (NIS) values from :func:`runConsenrich`.
+    :type NISArray: npt.NDArray[np.float32]
     :param blockSize: Number of contiguous intervals to sample per block.
     :type blockSize: int
     :param numBlocks: Number of samples to draw
@@ -1985,35 +1708,37 @@ def plotStateStdHistogram(
 
     plotFileName = os.path.join(
         plotDirectory,
-        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_stateStd.v{__version__}.png",
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_NIS.v{__version__}.png",
     )
 
-    binnedStateStdEstimates = _forPlotsSampleBlockStats(
-        values_=stateStd,
+    binnedNISEstimates = _forPlotsSampleBlockStats(
+        values_=NISArray,
         blockSize_=blockSize,
         numBlocks_=numBlocks,
         statFunction_=statFunction,
         randomSeed_=randomSeed,
     )
+
     plt.figure(
         figsize=(plotWidthInches, plotHeightInches),
         dpi=plotDPI,
     )
     plt.hist(
-        binnedStateStdEstimates,
+        binnedNISEstimates,
         bins="doane",
-        color="blue",
-        alpha=0.85,
+        color="green",
+        alpha=0.75,
         edgecolor="black",
         fill=True,
     )
-    plt.title(
-        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior State StdDev $\sqrt{{\widetilde{{P}}_{{[1:n,11]}}}}$",
-    )
+
+    plt.title(r"Histogram: NIS Statistics (Forward Pass) $\mathbf{y}^{T}\mathbf{E}^{-1}\mathbf{y}$")
+    plt.tight_layout()
     plt.savefig(plotFileName, dpi=plotDPI)
     plt.close()
+
     if os.path.exists(plotFileName):
-        logger.info(f"Wrote state std histogram to {plotFileName}")
+        logger.info(f"Wrote NIS histogram to {plotFileName}")
         return plotFileName
     logger.warning(f"Failed to create histogram. {plotFileName} not written.")
     return None
@@ -2024,6 +1749,7 @@ def fitVarianceFunction(
     jointlySortedVariances: np.ndarray,
     eps: float = 1.0e-8,
     forceLinearFactor: float = 0.25,
+    splitValue: float = 1.0,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -2048,7 +1774,6 @@ def fitVarianceFunction(
     nonnegVariances = nonnegVariances[order]
 
     # piecewise fit to each of A = [eps, 1), B = [1, inf)
-    splitValue = 1.0
     splitIdx = int(np.searchsorted(absMeans, splitValue, side="left"))
 
     def _fitSegment(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
