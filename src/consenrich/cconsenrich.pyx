@@ -1537,7 +1537,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 
 cpdef object clogRatio(object x, Py_ssize_t blockLength,
-                          float boundaryEps = <float>0.1,
+                          float boundaryEps = <float>0.25,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False,
                           double scaleCB = 3.0):

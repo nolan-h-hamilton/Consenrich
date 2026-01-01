@@ -112,17 +112,24 @@ class observationParams(NamedTuple):
     uncertainty arising from biological and/or technical sources of noise.
 
 
-    :param minR: Genome-wide lower bound for sample-specific measurement uncertainty levels.
+    :param minR: Genome-wide lower bound for sample-specific measurement uncertainty levels. In the default implementation, this clip is applied after initial calculation of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
     :type minR: float
-    :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels.
-    :param numNearest: Optional. The number of nearest 'sparse' features in ``consenrich.core.genomeParams.sparseBedFile``
-      to use at each interval during the ALV/local measurement uncertainty calculation. See :func:`consenrich.core.getMuncTrack`
-    :type numNearest: int
+    :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels. In the default implementation, this clip is applied after initial calculation of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
+    :type max: float
+    :param samplingIters: Number of blocks (within-contig) to sample while building the empirical |mean|-variance trend in :func:`consenrich.core.fitVarianceFunction`.
+    :type samplingIters: int
+    :param minValid: Sampled blocks `b` with ``|mean|_b, variance_b < minValid`` are ignored during fitting in :func:`consenrich.core.fitVarianceFunction`.
+    :type minValid: float
+    :param forceLinearFactor: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{forceLinearFactor} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
+    :type forceLinearFactor: float
     """
 
     minR: float | None
     maxR: float | None
-    numNearest: int | None
+    samplingIters: int | None
+    minValid: float | None
+    forceLinearFactor: float | None
+
 
 
 class stateParams(NamedTuple):
@@ -1421,7 +1428,7 @@ def getMuncTrack(
 
     * **Local**
 
-      (Only used if ``useEB=True``)
+      (Experimental,``useEB=True``)
 
       For each interval :math:`i`, we compute a rolling AR(1) innovation variance :math:`s_i^2` within a
       window centered near interval :math:`i`. This captures local variation in uncertainty that may not
@@ -1476,9 +1483,9 @@ def getMuncTrack(
 
     # Global:
     # ... Variance as function of |mean|, globally, as observed in distinct, randomly drawn genomic
-    # ... blocks. Within each block, it is assumed that an AR(1) process can --on the average--
-    # ... account for a large fraction of desired signal, and the associated fit RSS
-    # ... can be treated as unwanted technical/biological variation.
+    # ... blocks. Within fixed-size blocks, it's assumed that an AR(1) process can, on average,
+    # ... account for a large fraction of desired signal, and the (residual) innovation variance
+    # ... reflects noise
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
         valuesArr,
@@ -1616,84 +1623,6 @@ def adjustFeatureBounds(feature: bed.Interval, intervalSizeBP: int) -> bed.Inter
     feature.start = cconsenrich.stepAdjustment((feature.start + feature.end) // 2, intervalSizeBP)
     feature.end = feature.start + intervalSizeBP
     return feature
-
-
-def getSparseMap(
-    chromosome: str,
-    intervals: np.ndarray,
-    numNearest: int,
-    sparseBedFile: str,
-    distThreshold: float = 1e6,
-) -> dict[int, np.ndarray]:
-    r"""Get a mapping of genomic intervals to nearest 'sparse' regions.
-
-    :param chromosome: chromosome/contig ID
-    :type chromosome: str
-    numNearest: number of nearest sparse regions to consider
-    :type numNearest: int
-    sparseBedFile: path to sparse BED file. See :class:`observationParams`.
-    :type sparseBedFile: str
-    distThreshold: maximum distance (in bp) to consider a sparse region 'nearby'
-    :type distThreshold: float
-    :return: A dictionary mapping each interval index to an array of indices of the nearest sparse regions.
-    :rtype: dict[int, np.ndarray]
-
-    .. todo::
-
-        This function could be an easy target for optimization
-    """
-    sparseStarts = np.asarray(sparseIntersection(chromosome, intervals, sparseBedFile)).ravel()
-    intervals = np.asarray(intervals).ravel()
-
-    n = intervals.size
-    m = sparseStarts.size
-    numNearest = int(numNearest)
-
-    if n == 0:
-        return {}
-    if numNearest <= 0:
-        return {i: np.empty(0, dtype=np.uint32) for i in range(n)}
-    if m == 0:
-        return {i: np.zeros(numNearest, dtype=np.uint32) for i in range(n)}
-
-    idxSparseInIntervals = np.searchsorted(intervals, sparseStarts, side="left")
-    idxSparseInIntervals = np.clip(idxSparseInIntervals, 0, n - 1).astype(np.uint32, copy=False)
-
-    centers = np.searchsorted(sparseStarts, intervals, side="left")
-    centers = np.clip(centers, 0, m - 1).astype(np.int64, copy=False)
-    offsets = np.arange(-numNearest, numNearest, dtype=np.int64)
-    candidates = centers[:, None] + offsets[None, :]
-    valid = (candidates >= 0) & (candidates < m)
-    candidates = np.clip(candidates, 0, m - 1)
-
-    dists = np.abs(sparseStarts[candidates] - intervals[:, None]).astype(np.float32)
-    dists[~valid] = np.inf
-
-    mask = np.argpartition(dists, kth=min(numNearest - 1, dists.shape[1] - 1), axis=1)[:, :numNearest]
-
-    chosenCandidates = candidates[np.arange(n)[:, None], mask]
-    chosenDists = dists[np.arange(n)[:, None], mask]
-    mapped = idxSparseInIntervals[chosenCandidates]
-    avgNumKept: float = 0.0
-    rows = []
-    for i in tqdm(range(n), desc="Building sparse map", unit=" intervals "):
-        keep = np.isfinite(chosenDists[i]) & (chosenDists[i] <= distThreshold)
-        kept = mapped[i, keep]
-        avgNumKept += kept.size
-        if kept.size >= numNearest:
-            outRow = kept[:numNearest]
-        elif kept.size > 0:
-            outRow = np.pad(kept, (0, numNearest - kept.size), mode="edge")
-        else:
-            nearest = mapped[i, int(np.argmin(chosenDists[i]))]
-            outRow = np.full(numNearest, nearest, dtype=np.intp)
-
-        rows.append(outRow.astype(np.intp, copy=False))
-    avgNumKept /= n
-    logger.info(
-        f"Avg. number of unique sparse regions within distThreshold={distThreshold} bp = {avgNumKept}"
-    )
-    return {i: rows[i] for i in range(n)}
 
 
 def getBedMask(

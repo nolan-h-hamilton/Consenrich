@@ -400,7 +400,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundWindowSizeBP = _cfgGet(
         configData,
         "countingParams.backgroundWindowSizeBP",
-        min(max(1000 * intervalSizeBP, 50_000), 500_000),  # other values may work but haven't been tested
+        min(max(1000 * intervalSizeBP, 100_000), 500_000),  # other values may work but haven't been tested
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -611,10 +611,20 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
         maxR=_cfgGet(configData, "observationParams.maxR", 1000.0),
-        numNearest=_cfgGet(
+        samplingIters=_cfgGet(
             configData,
-            "observationParams.numNearest",
-            25,
+            "observationParams.samplingIters",
+            25_000,
+        ),
+        minValid=_cfgGet(
+            configData,
+            "observationParams.minValid",
+            1.0e-3,
+        ),
+        forceLinearFactor=_cfgGet(
+            configData,
+            "observationParams.forceLinearFactor",
+            0.25,
         ),
     )
 
@@ -960,7 +970,6 @@ def main():
     bamFiles = inputArgs.bamFiles
     bamFilesControl = inputArgs.bamFilesControl
     numSamples = len(bamFiles)
-    numNearest = observationArgs.numNearest
     intervalSizeBP = countingArgs.intervalSizeBP
     excludeForNorm = genomeArgs.excludeForNorm
     chromSizes = genomeArgs.chromSizesFile
@@ -1228,6 +1237,9 @@ def main():
                     intervals,
                     chromMat[j_, :],
                     intervalSizeBP,
+                    samplingIters=observationArgs.samplingIters,
+                    minValid=observationArgs.minValid,
+                    forceLinearFactor=observationArgs.forceLinearFactor,
                     randomSeed=42 + j_,
                 )
                 j_ += 1
@@ -1278,6 +1290,9 @@ def main():
                     intervals,
                     chromMat[j, :],
                     intervalSizeBP,
+                    samplingIters=observationArgs.samplingIters,
+                    minValid=observationArgs.minValid,
+                    forceLinearFactor=observationArgs.forceLinearFactor,
                     randomSeed=42 + j,
                 )
 
