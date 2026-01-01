@@ -22,7 +22,7 @@ import numpy as np
 import numpy.typing as npt
 import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
-from scipy import ndimage, signal, stats
+from scipy import ndimage, signal, stats, optimize, special
 from tqdm import tqdm
 from . import cconsenrich
 from . import __version__
@@ -1303,91 +1303,6 @@ def getPrimaryState(
     return out_
 
 
-def getMuncTrack(
-    chromosome: str,
-    intervals: np.ndarray,
-    values: np.ndarray,
-    intervalSizeBP: int,
-    blockSizeBP: Optional[int] = None,
-    samplingIters: int = 25_000,
-    randomSeed: int = 42,
-    excludeMask: Optional[np.ndarray] = None,
-    useEMA: Optional[bool] = True,
-    excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    minValid: float = 1.0e-3,
-    forceLinearFactor: float = 0.25,
-) -> tuple[npt.NDArray[np.float32], float]:
-    r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks according to a fitted |mean|-variance trend.
-
-    :param chromosome: chromosome/contig name
-    :type chromosome: str
-    :param intervals: genomic intervals positions (start positions)
-    :type intervals: npt.NDArray[np.uint32]
-    :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend. Note, this value should, at the least, span several fragment lengths.
-    :type blockSizeBP: int
-    :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
-    :type samplingIters: int
-    :param minValid: Minimum valid mean/variance value when fitting global mean-variance trend.
-    :type minValid: float
-    :param forceLinearFactor: Require fitted variances be at least ``forceLinearFactor * |mean|``.
-    :type forceLinearFactor: float
-    :return: Uncertainty track and fraction of valid (mean, variance) pairs used in fitting.
-    :rtype: tuple[npt.NDArray[np.float32], float]
-    """
-
-    if blockSizeBP is None:
-        blockSizeBP = intervalSizeBP * 25
-    blockSizeIntervals = int(blockSizeBP / intervalSizeBP)
-    if blockSizeIntervals < 10:
-        logger.warning(
-            f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 11*intervalSizeBP"
-        )
-        blockSizeIntervals = 25
-
-    localWindowIntervals = max(2, (blockSizeIntervals + 1))
-    intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
-    valuesArr = np.ascontiguousarray(values, dtype=np.float32)
-
-    if excludeMask is None:
-        excludeMaskArr = np.zeros_like(intervalsArr, dtype=np.uint8)
-    else:
-        excludeMaskArr = np.ascontiguousarray(excludeMask, dtype=np.uint8)
-
-    # Global:
-    # ... Variance as function of |mean|, globally, as observed in distinct, randomly drawn genomic
-    # ... blocks. Within fixed-size blocks, it's assumed that an AR(1) process can, on average,
-    # ... account for a large fraction of desired signal, and the (residual) innovation variance
-    # ... reflects noise
-    blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
-        intervalsArr,
-        valuesArr,
-        blockSizeIntervals,
-        samplingIters,
-        randomSeed,
-        excludeMaskArr,
-        useInnovationVar=True,
-    )
-
-    meanAbs = np.abs(blockMeans)
-    mask = (meanAbs >= minValid) & (blockVars >= minValid)
-    meanAbs_Masked = meanAbs[mask]
-    var_Masked = blockVars[mask]
-    order = np.argsort(meanAbs_Masked)
-    meanAbs_Sorted = meanAbs_Masked[order]
-    var_Sorted = var_Masked[order]
-    opt = fitVarianceFunction(meanAbs_Sorted, var_Sorted, forceLinearFactor=forceLinearFactor)
-    logger.info(
-        f"\n\tFit: |μ| --> σ^2\n\t[{opt[0][0]:.6g}, {opt[0][-1]:.6g}] --> [{opt[1].min():.3f}, {opt[1].max():.3f}]\n",
-    )
-
-    meanTrack = np.abs(valuesArr).copy()
-    if useEMA:
-        meanTrack = cconsenrich.cEMA(meanTrack, localWindowIntervals)
-    priorTrack = evalVarianceFunction(opt, meanTrack).astype(np.float32, copy=False)
-
-    return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
-
-
 def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: str) -> npt.NDArray[np.int64]:
     r"""Returns intervals in the chromosome that overlap with the 'sparse' features.
 
@@ -1748,8 +1663,9 @@ def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
     eps: float = 1.0e-8,
-    forceLinearFactor: float = 0.25,
+    forceLinearFactor: float = 0.10,
     splitValue: float = 1.0,
+    numBins: int | None = 256,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -1780,22 +1696,60 @@ def fitVarianceFunction(
         if absMeansSeg.size == 0:
             return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
 
-        linearFloor = forceLinearFactor * absMeansSeg + eps
+        linearFloor = forceLinearFactor*absMeansSeg + eps
         nonnegVariancesSeg = np.maximum(variancesSeg, linearFloor)
-        # weight is initially 1 (each 'block' is a single observation)
+        # cconsenrich.cPAVA: we assign a weight of 1 to every element (each 'block' is a single observation)
         monoVariancesSeg = cconsenrich.cPAVA(
             nonnegVariancesSeg, np.ones_like(nonnegVariancesSeg, dtype=np.float64)
         )
         monoVariancesSeg = np.maximum(monoVariancesSeg, linearFloor)
 
-        absMeanGridSeg, firstIdxSeg, countsSeg = np.unique(absMeansSeg, return_index=True, return_counts=True)
-        varGridSeg = np.empty_like(absMeanGridSeg, dtype=np.float64)
-        for j in range(absMeanGridSeg.size):
-            start = firstIdxSeg[j]
-            end = start + countsSeg[j]
-            varGridSeg[j] = float(np.mean(monoVariancesSeg[start:end]))
+        if numBins is None or int(numBins) <= 0:
+            absMeanGridSeg, firstIdxSeg, countsSeg = np.unique(
+                absMeansSeg, return_index=True, return_counts=True
+            )
+            varGridSeg = np.empty_like(absMeanGridSeg, dtype=np.float64)
+            for j in range(absMeanGridSeg.size):
+                start = firstIdxSeg[j]
+                end = start + countsSeg[j]
+                varGridSeg[j] = float(np.mean(monoVariancesSeg[start:end]))
 
-        linearFloorGridSeg = forceLinearFactor * absMeanGridSeg + eps
+            linearFloorGridSeg = forceLinearFactor*absMeanGridSeg + eps
+            varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
+            # final PAVA if not binning
+            varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
+            varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
+            return absMeanGridSeg, varGridSeg
+
+        numBinsSeg = int(max(4, min(int(numBins), absMeansSeg.size)))
+        quantileGrid = np.linspace(0.0, 1.0, numBinsSeg + 1, dtype=np.float64)
+        edgeGrid = np.quantile(absMeansSeg, quantileGrid)
+        edgeGrid[0] = -np.inf
+        edgeGrid[-1] = np.inf
+        binIndex = np.searchsorted(edgeGrid, absMeansSeg, side="right") - 1
+        binIndex = np.clip(binIndex, 0, numBinsSeg - 1)
+        absMeanGridSeg = np.empty(numBinsSeg, dtype=np.float64)
+        varGridSeg = np.empty(numBinsSeg, dtype=np.float64)
+        countsSeg = np.empty(numBinsSeg, dtype=np.float64)
+
+        for j in range(numBinsSeg):
+            inBin = binIndex == j
+            binCount = int(np.count_nonzero(inBin))
+            if binCount <= 0:
+                absMeanGridSeg[j] = np.nan
+                varGridSeg[j] = np.nan
+                countsSeg[j] = 0.0
+                continue
+            absMeanGridSeg[j] = float(np.mean(absMeansSeg[inBin]))
+            varGridSeg[j] = float(np.mean(monoVariancesSeg[inBin]))
+            countsSeg[j] = float(binCount)
+
+        keepMask = (countsSeg > 0.0)
+        absMeanGridSeg = absMeanGridSeg[keepMask]
+        varGridSeg = varGridSeg[keepMask]
+        countsSeg = countsSeg[keepMask]
+
+        linearFloorGridSeg = forceLinearFactor*absMeanGridSeg + eps
         varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
         varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
         varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
@@ -1827,7 +1781,7 @@ def evalVarianceFunction(
     eps = max(float(eps), 0.0)
     forceLinearFactor = max(float(forceLinearFactor), 0.0)
 
-    linearFloorGrid = forceLinearFactor * absMeanGrid + eps
+    linearFloorGrid = forceLinearFactor*absMeanGrid + eps
     varGrid = np.maximum(varGrid, linearFloorGrid)
     varGrid = cconsenrich.cPAVA(varGrid, np.ones_like(varGrid, dtype=np.float64))
     varGrid = np.maximum(varGrid, linearFloorGrid)
@@ -1836,5 +1790,252 @@ def evalVarianceFunction(
     absMeans = np.abs(means)
 
     predicted = np.interp(absMeans, absMeanGrid, varGrid, left=varGrid[0], right=varGrid[-1])
-    predicted = np.maximum(predicted, forceLinearFactor * absMeans + eps)
+    predicted = np.maximum(predicted, forceLinearFactor*absMeans + eps)
     return predicted.astype(np.float32, copy=False)
+
+
+def getMuncTrack(
+    chromosome: str,
+    intervals: np.ndarray,
+    values: np.ndarray,
+    intervalSizeBP: int,
+    blockSizeBP: Optional[int] = None,
+    samplingIters: int = 50_000,
+    randomSeed: int = 42,
+    excludeMask: Optional[np.ndarray] = None,
+    useEMA: Optional[bool] = True,
+    excludeFitCoefs: Optional[Tuple[int, ...]] = None,
+    minValid: float = 1.0e-3,
+    forceLinearFactor: float = 0.25,
+    useEB: bool = True,
+) -> tuple[npt.NDArray[np.float32], float]:
+    r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks according to a fitted |mean|-variance trend.
+
+    :param chromosome: chromosome/contig name
+    :type chromosome: str
+    :param intervals: genomic intervals positions (start positions)
+    :type intervals: npt.NDArray[np.uint32]
+    :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend. Note, this value should, at the least, span several fragment lengths.
+    :type blockSizeBP: int
+    :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
+    :type samplingIters: int
+    :param minValid: Minimum valid mean/variance value when fitting global mean-variance trend.
+    :type minValid: float
+    :param forceLinearFactor: Require fitted variances be at least ``forceLinearFactor*|mean|``.
+    :type forceLinearFactor: float
+    :return: Uncertainty track and fraction of valid (mean, variance) pairs used in fitting.
+    :rtype: tuple[npt.NDArray[np.float32], float]
+    """
+
+    if blockSizeBP is None:
+        blockSizeBP = intervalSizeBP * 25
+    blockSizeIntervals = int(blockSizeBP / intervalSizeBP)
+    if blockSizeIntervals < 10:
+        logger.warning(
+            f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 11*intervalSizeBP"
+        )
+        blockSizeIntervals = 25
+
+    localWindowIntervals = max(2, (blockSizeIntervals + 1))
+    intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
+    valuesArr = np.ascontiguousarray(values, dtype=np.float32)
+
+    if excludeMask is None:
+        excludeMaskArr = np.zeros_like(intervalsArr, dtype=np.uint8)
+    else:
+        excludeMaskArr = np.ascontiguousarray(excludeMask, dtype=np.uint8)
+
+    # Global:
+    # ... Variance as function of |mean|, globally, as observed in distinct, randomly drawn genomic
+    # ... blocks. Within fixed-size blocks, it's assumed that an AR(1) process can, on average,
+    # ... account for a large fraction of desired signal, and the (residual) innovation variance
+    # ... reflects noise
+    blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
+        intervalsArr,
+        valuesArr,
+        blockSizeIntervals,
+        samplingIters,
+        randomSeed,
+        excludeMaskArr,
+        useInnovationVar=True,
+    )
+
+    meanAbs = np.abs(blockMeans)
+    mask = (meanAbs >= minValid) & (blockVars >= minValid)
+    meanAbs_Masked = meanAbs[mask]
+    var_Masked = blockVars[mask]
+    order = np.argsort(meanAbs_Masked)
+    meanAbs_Sorted = meanAbs_Masked[order]
+    var_Sorted = var_Masked[order]
+    opt = fitVarianceFunction(meanAbs_Sorted, var_Sorted, forceLinearFactor=forceLinearFactor)
+    meanTrack = np.abs(valuesArr).copy()
+    if useEMA:
+        meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
+    priorTrack = evalVarianceFunction(opt, meanTrack).astype(np.float32, copy=False)
+
+    if not useEB:
+        return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
+
+    # 'Local'
+    obsVarTrack = cconsenrich.crolling_AR1_IVar(
+        valuesArr,
+        localWindowIntervals,
+        excludeMaskArr,
+        maxBeta=0.99,
+    ).astype(np.float64, copy=False)
+
+    Nu_L = float(max(2, localWindowIntervals - 1))
+    Nu_0 = _EB_computePriorStrength(
+        obsVarTrack,
+        priorTrack.astype(np.float64, copy=False),
+        Nu_L,
+    )
+    logger.info(f"Nu_0={Nu_0:.2f}, Nu_L={Nu_L:.2f}")
+    posteriorSampleSize: float = Nu_L + Nu_0
+    posteriorVarTrack = np.empty_like(priorTrack, dtype=np.float32)
+
+    obsVarTrackF32 = obsVarTrack.astype(np.float32, copy=False)
+    np.divide(
+        (Nu_L * np.nan_to_num(obsVarTrackF32, nan=0.0) + Nu_0*priorTrack),
+        posteriorSampleSize,
+        out=posteriorVarTrack,
+    )
+
+    # go to prior for missing local estimates
+    missingMask = ~np.isfinite(obsVarTrack)
+    posteriorVarTrack[missingMask] = priorTrack[missingMask]
+    return posteriorVarTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
+
+
+def _EB_computePriorStrength(
+    localModelVariances: np.ndarray, globalModelVariances: np.ndarray, Nu_local: float
+) -> float:
+    r"""Compute :math:`\nu_0` to determine 'prior strength' for EB variance shrinkage.
+
+    The prior strength is determing by the excess variance beyond sampling noise, having assumed a scaled
+    inverse :math:`\chi^2` distribution.
+
+    .. math::
+
+        \mathbb{V}\left[\log\left(\frac{s^2_{\textsf{local}}}{\sigma^2_{\textsf{prior}}}\right)\right]
+        =
+        \textsf{trigamma}\left(\frac{\nu_{\textsf{local}}}{2}\right)
+        +
+        \textsf{trigamma}\left(\frac{\nu_{0}}{2}\right)
+
+    If there is no heterogeneity beyond sampling noise, then
+
+    .. math::
+
+        \mathbb{V}\left[\log\left(\frac{s^2_{\textsf{local}}}{\sigma^2_{\textsf{prior}}}\right)\right]
+        \approx
+        \textsf{trigamma}\left(\frac{\nu_{\textsf{local}}}{2}\right)
+
+    i.e., :math:`\textsf{trigamma}(\nu_{0}/2) \approx 0 \implies \nu_{0} \to \infty`.
+
+    Or, intuitively, the prior is sufficiently capturing variance (up to noise in sampling), such that
+    it can be relied upon exclusively.
+
+    With :math:`\nu_{\textsf{local}}` fixed, estimate :math:`\nu_{0}` by solving
+
+    .. math::
+
+        \textsf{trigamma}\left(\frac{\nu_{0}}{2}\right)
+        =
+        \mathbb{V}\left[\log\left(\frac{s^2_{\textsf{local}}}{\sigma^2_{\textsf{prior}}}\right)\right]
+        -
+        \textsf{trigamma}\left(\frac{\nu_{\textsf{local}}}{2}\right)
+
+    .. math::
+
+        \nu_{0}
+        \approx
+        2 \cdot \textsf{trigamma}^{-1}\left(
+            \mathbb{V}\left[\log\left(\frac{s^2_{\textsf{local}}}{\sigma^2_{\textsf{prior}}}\right)\right]
+            -
+            \textsf{trigamma}\left(\frac{\nu_{\textsf{local}}}{2}\right)
+        \right)
+
+
+    :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) innovation variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
+    :type localModelVariances: np.ndarray
+    :param globalModelVariances: Global model variance estimates from the |mean|-variance trend fit (:func:`consenrich.core.fitVarianceFunction`).
+    :type globalModelVariances: np.ndarray
+    :param Nu_local: Effective sample size/degrees of freedom for the local model.
+    :type Nu_local: float
+    :return: Estimated prior strength :math:`\nu_{0}`.
+    :rtype: float
+    """
+
+    localModelVariancesArr = np.asarray(localModelVariances, dtype=np.float64)
+    globalModelVariancesArr = np.asarray(globalModelVariances, dtype=np.float64)
+
+    ratioMask = (
+        np.isfinite(localModelVariancesArr)
+        & np.isfinite(globalModelVariancesArr)
+        & (localModelVariancesArr > 0.0)
+        & (globalModelVariancesArr > 0.0)
+    )
+    if np.count_nonzero(ratioMask) < (0.10) * localModelVariancesArr.size:
+        return float(1.0e6)
+
+    varRatioArr = localModelVariancesArr[ratioMask] / globalModelVariancesArr[ratioMask]
+    varRatioArr = varRatioArr[np.isfinite(varRatioArr) & (varRatioArr > 0.0)]
+    if varRatioArr.size < (0.10) * localModelVariancesArr.size:
+        return float(1.0e6)
+
+    logVarRatioArr = np.log(varRatioArr)
+    clipSmall = np.quantile(logVarRatioArr, 0.01)
+    clipBig = np.quantile(logVarRatioArr, 0.99)
+    np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
+
+    varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
+    trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))
+    gap = varLogVarRatio - trigammaLocal
+
+    def _objective(x_: float) -> float:
+        if x_ <= 1.0e-12:
+            x_ = 1.0e-12
+        return float(special.polygamma(1, x_) - gap)
+
+    def d_objective(x_: float) -> float:
+        if x_ <= 1.0e-12:
+            x_ = 1.0e-12
+        return float(special.polygamma(2, x_))  # tetragamma
+
+    if (not np.isfinite(gap)) or gap <= 1.0e-8:
+        return 1.0e6
+
+    # warm start
+    if gap < 0.5:
+        # Set x' = 1/x and take first two terms of the AE for trigamma:
+        # ...   x' + x'^2 / 2  = gap
+        # ... quadratic formula gives -1 + sqrt(1 - 4/2 * -gap) = 1/x,
+        # ... x = 1 / ( -1 + sqrt(1 + 2*gap) )
+        invRootApprox = -1.0 + np.sqrt(1.0 + (2.0 * gap))
+        if invRootApprox <= 1.0e-12:
+            return 1.0e6
+        x0_ = float(np.maximum(1.0 / invRootApprox, 1.0e-8))
+    else:
+        # set lower bound at 1 / sqrt -- larger than first terms (1/x + 1/(2x^2))
+        x0_ = float(np.maximum(1.0 / np.sqrt(gap), 1.0e-8))
+
+    try:
+        inverseTrigamma, root_ = optimize.newton(
+            _objective,
+            x0=x0_,
+            fprime=d_objective,
+            full_output=True,
+            tol=1.0e-8,
+            maxiter=100,
+        )
+        if not root_.converged:
+            return float(1.0e6)
+    except Exception:
+        return float(1.0e6)
+
+    Nu_0 = 2.0 * float(inverseTrigamma)
+    if Nu_0 < 4.0:
+        Nu_0 = 4.0
+
+    return float(Nu_0)
