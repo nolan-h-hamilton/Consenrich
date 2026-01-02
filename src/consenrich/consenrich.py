@@ -263,16 +263,15 @@ def getOutputArgs(config_path: str) -> core.outputParams:
     )
 
     roundDigits_ = _cfgGet(configData, "outputParams.roundDigits", 3)
-    writeNIS_ = _cfgGet(
+    writeUncertainty_ = _cfgGet(
         configData,
-        "outputParams.writeNIS",
+        "outputParams.writeUncertainty",
         True,
     )
-
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
-        writeNIS=writeNIS_,
+        writeUncertainty=writeUncertainty_,
     )
 
 
@@ -488,12 +487,6 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         False,
     )
 
-    plotNISHistogram_ = _cfgGet(
-        configData,
-        "plotParams.plotNIS",
-        True,
-    )
-
     plotHeightInches_ = _cfgGet(
         configData,
         "plotParams.plotHeightInches",
@@ -518,7 +511,7 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
     )
 
-    if int(plotStateEstimatesHistogram_) + int(plotNISHistogram_)  >= 1:
+    if int(plotStateEstimatesHistogram_)  >= 1:
         if plotDirectory_ is not None and (
             not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)
         ):
@@ -539,7 +532,6 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     return core.plotParams(
         plotPrefix=plotPrefix_,
         plotStateEstimatesHistogram=plotStateEstimatesHistogram_,
-        plotNISHistogram=plotNISHistogram_,
         plotHeightInches=plotHeightInches_,
         plotWidthInches=plotWidthInches_,
         plotDPI=plotDPI_,
@@ -601,7 +593,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         forceLinearFactor=_cfgGet(
             configData,
             "observationParams.forceLinearFactor",
-            0.25,
+            0.1,
+        ),
+        EB_use=_cfgGet(
+            configData,
+            "observationParams.EB_use", True,
         ),
     )
 
@@ -1218,6 +1214,7 @@ def main():
                     minValid=observationArgs.minValid,
                     forceLinearFactor=observationArgs.forceLinearFactor,
                     randomSeed=42 + j_,
+                    EB_use=observationArgs.EB_use,
                 )
                 j_ += 1
         else:
@@ -1251,7 +1248,7 @@ def main():
             maxQ_ = 1e4
 
         for j in tqdm(
-            range(numSamples), desc="Transforming data / Fitting variance function f(μ;Θ)", unit=" sample "
+            range(numSamples), desc="Transforming data / Fitting variance function f(|μ|;Θ)", unit=" sample "
         ):
             # if controlsPresent, already done above
             if not controlsPresent:
@@ -1271,6 +1268,7 @@ def main():
                     minValid=observationArgs.minValid,
                     forceLinearFactor=observationArgs.forceLinearFactor,
                     randomSeed=42 + j,
+                    EB_use=observationArgs.EB_use,
                 )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
@@ -1302,7 +1300,7 @@ def main():
             maxQ_ = np.float32(max(maxQ_, minQ_))
 
         logger.info(f">>>Running consenrich: {chromosome}<<<")
-        x, P, _, NIS = core.runConsenrich(
+        x, P, _, _ = core.runConsenrich(
             chromMat,
             muncMat,
             deltaF_,
@@ -1328,21 +1326,13 @@ def main():
             stateUpperBound=stateArgs.stateUpperBound,
             boundState=stateArgs.boundState,
         )
-
+        P00_ = np.sqrt(P[:, 0, 0]).astype(np.float32, copy=False)
 
         if plotArgs.plotStateEstimatesHistogram:
             core.plotStateEstimatesHistogram(
                 chromosome,
                 plotArgs.plotPrefix,
                 x_,
-                plotDirectory=plotArgs.plotDirectory,
-            )
-
-        if plotArgs.plotNISHistogram:
-            core.plotNISHistogram(
-                chromosome,
-                plotArgs.plotPrefix,
-                NIS,
                 plotDirectory=plotArgs.plotDirectory,
             )
 
@@ -1355,15 +1345,18 @@ def main():
             }
         )
 
-        if outputArgs.writeNIS:
-            df["nis"] = NIS.astype(np.float32, copy=False)
+
+        if outputArgs.writeUncertainty:
+            df["uncertainty"] = P00_.astype(np.float32, copy=False)
+
         cols_ = ["Chromosome", "Start", "End", "State"]
-        if outputArgs.writeNIS:
-            cols_.append("nis")
+
+        if outputArgs.writeUncertainty:
+            cols_.append("uncertainty")
         df = df[cols_]
         suffixes = ["state"]
-        if outputArgs.writeNIS:
-            suffixes.append("nis")
+        if outputArgs.writeUncertainty:
+            suffixes.append("uncertainty")
 
         if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):

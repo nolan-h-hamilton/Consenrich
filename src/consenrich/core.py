@@ -41,8 +41,6 @@ class plotParams(NamedTuple):
     :type plotPrefix: str or None
     :param plotStateEstimatesHistogram: If True, plot a histogram of post-fit primary state estimates
     :type plotStateEstimatesHistogram: bool
-    :param plotNISHistogram: If True, plot a histogram of normalized innovation squared (NIS) statistics.
-    :type plotNISHistogram: bool
     :param plotHeightInches: Height of output plots in inches.
     :type plotHeightInches: float
     :param plotWidthInches: Width of output plots in inches.
@@ -52,12 +50,11 @@ class plotParams(NamedTuple):
     :param plotDirectory: Directory where plots will be written.
     :type plotDirectory: str or None
 
-    :seealso: :func:`plotStateEstimatesHistogram`, :func:`plotNISHistogram`
+    :seealso: :func:`plotStateEstimatesHistogram`
     """
 
     plotPrefix: str | None = None
     plotStateEstimatesHistogram: bool = False
-    plotNISHistogram: bool = False
     plotHeightInches: float = 6.0
     plotWidthInches: float = 8.0
     plotDPI: int = 300
@@ -115,6 +112,7 @@ class observationParams(NamedTuple):
     :type minValid: float
     :param forceLinearFactor: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{forceLinearFactor} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type forceLinearFactor: float
+    :param EB_use: If True, apply empirical Bayes shrinkage in :func:`consenrich.core.getMuncTrack`.
     """
 
     minR: float | None
@@ -122,6 +120,7 @@ class observationParams(NamedTuple):
     samplingIters: int | None
     minValid: float | None
     forceLinearFactor: float | None
+    EB_use: bool | None
 
 
 
@@ -364,13 +363,13 @@ class outputParams(NamedTuple):
     :type convertToBigWig: bool
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
-    :param writeNIS: If True, write per-interval NIS (normalized innovation squared) values to bedGraph.
-    :type writeNIS: bool
+    :param writeUncertainty: If True, write the posterior conditional uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
+    :type writeUncertainty: bool
     """
 
     convertToBigWig: bool
     roundDigits: int
-    writeNIS: bool
+    writeUncertainty: bool
 
 
 def _checkMod(name: str) -> bool:
@@ -1090,7 +1089,7 @@ def runConsenrich(
                     )
                     break
 
-                # Trust-Region Step in Log-Space
+                # Gradient step
                 blockLogFactors = np.log(BlockDispersionFactors).astype(np.float32, copy=False)
                 deltaBlockLogFactors = (-gradMeansAll).astype(np.float32, copy=False)
                 np.clip(
@@ -1131,9 +1130,11 @@ def runConsenrich(
                 if localLinReduction < 1.0e-4 and calibration_trustRadius >= 2.0 * calibration_trustRadiusMin:
                     localLinReduction = 1.0e-4  # stable
                 elif calibration_trustRadius < max(2.0 * calibration_trustRadiusMin, 1.0e-4):
-                    logger.info("Early stop: Trust radius below limit.\n")
+                    logger.info("Early stop criterion: Trust region shrunk to threshold...")
                     break
 
+                # trust-radius feedback: compute "rho" = (actual reduction) / (predicted reduction)
+                # ... where local linear model accurately predicts reductions, increase trust radius
                 rho = float(observedReduction / localLinReduction)
                 accepted = (observedReduction > 0.0) and (rho > 0.0)
 
@@ -1578,94 +1579,13 @@ def plotStateEstimatesHistogram(
     return None
 
 
-def plotNISHistogram(
-    chromosome: str,
-    plotPrefix: str,
-    NISArray: npt.NDArray[np.float32],
-    blockSize: int = 10,
-    numBlocks: int = 10_000,
-    statFunction: Callable = np.median,
-    randomSeed: int = 42,
-    roundPrecision: int = 4,
-    plotHeightInches: float = 8.0,
-    plotWidthInches: float = 10.0,
-    plotDPI: int = 300,
-    plotDirectory: str | None = None,
-) -> str | None:
-    r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) normalized innovation squared (NIS) values.
-
-    :param plotPrefix: Prefixes the output filename
-    :type plotPrefix: str
-    :param NISArray: 1D 32bit float array of normalized innovation squared (NIS) values from :func:`runConsenrich`.
-    :type NISArray: npt.NDArray[np.float32]
-    :param blockSize: Number of contiguous intervals to sample per block.
-    :type blockSize: int
-    :param numBlocks: Number of samples to draw
-    :type numBlocks: int
-    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
-    :type statFunction: Callable
-    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
-    :type plotDirectory: str | None
-    """
-
-    if _checkMod("matplotlib"):
-        import matplotlib.pyplot as plt
-    else:
-        logger.warning("matplotlib not found...returning None")
-        return None
-
-    if plotDirectory is None:
-        plotDirectory = os.getcwd()
-    elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
-    elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
-
-    plotFileName = os.path.join(
-        plotDirectory,
-        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_NIS.v{__version__}.png",
-    )
-
-    binnedNISEstimates = _forPlotsSampleBlockStats(
-        values_=NISArray,
-        blockSize_=blockSize,
-        numBlocks_=numBlocks,
-        statFunction_=statFunction,
-        randomSeed_=randomSeed,
-    )
-
-    plt.figure(
-        figsize=(plotWidthInches, plotHeightInches),
-        dpi=plotDPI,
-    )
-    plt.hist(
-        binnedNISEstimates,
-        bins="doane",
-        color="green",
-        alpha=0.75,
-        edgecolor="black",
-        fill=True,
-    )
-
-    plt.title(r"Histogram: NIS Statistics (Forward Pass) $\mathbf{y}^{T}\mathbf{E}^{-1}\mathbf{y}$")
-    plt.tight_layout()
-    plt.savefig(plotFileName, dpi=plotDPI)
-    plt.close()
-
-    if os.path.exists(plotFileName):
-        logger.info(f"Wrote NIS histogram to {plotFileName}")
-        return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
-    return None
-
-
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
     eps: float = 1.0e-8,
-    forceLinearFactor: float = 0.10,
+    forceLinearFactor: float = 0.1,
     splitValue: float = 1.0,
-    numBins: int | None = 256,
+    numBins: int | None = 50,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -1773,7 +1693,7 @@ def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
     eps: float = 1.0e-8,
-    forceLinearFactor: float = 0.25,
+    forceLinearFactor: float = 0.1,
 ) -> np.ndarray:
     varianceTrend = np.asarray(coeffs, dtype=np.float32)
     absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
@@ -1800,14 +1720,14 @@ def getMuncTrack(
     values: np.ndarray,
     intervalSizeBP: int,
     blockSizeBP: Optional[int] = None,
-    samplingIters: int = 50_000,
+    samplingIters: int = 25_000,
     randomSeed: int = 42,
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     minValid: float = 1.0e-3,
-    forceLinearFactor: float = 0.25,
-    useEB: bool = True,
+    forceLinearFactor: float = 0.1,
+    EB_use: bool = True,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks according to a fitted |mean|-variance trend.
 
@@ -1836,7 +1756,7 @@ def getMuncTrack(
         )
         blockSizeIntervals = 25
 
-    localWindowIntervals = max(2, (blockSizeIntervals + 1))
+    localWindowIntervals = max(4, (blockSizeIntervals + 1))
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
     valuesArr = np.ascontiguousarray(values, dtype=np.float32)
 
@@ -1868,23 +1788,28 @@ def getMuncTrack(
     meanAbs_Sorted = meanAbs_Masked[order]
     var_Sorted = var_Masked[order]
     opt = fitVarianceFunction(meanAbs_Sorted, var_Sorted, forceLinearFactor=forceLinearFactor)
+
     meanTrack = np.abs(valuesArr).copy()
     if useEMA:
         meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
     priorTrack = evalVarianceFunction(opt, meanTrack).astype(np.float32, copy=False)
 
-    if not useEB:
+    if not EB_use:
         return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
 
-    # 'Local'
+    # Local:
+    # ... Rolling AR(1) innovation variance estimates over local windows
     obsVarTrack = cconsenrich.crolling_AR1_IVar(
         valuesArr,
         localWindowIntervals,
         excludeMaskArr,
         maxBeta=0.99,
     ).astype(np.float64, copy=False)
+    # negative value is a flag from `cconsenrich.crolling_AR1_IVar` -- set as NaN
+    obsVarTrack[obsVarTrack < 0.0] = np.nan
 
-    Nu_L = float(max(2, localWindowIntervals - 1))
+    # df = n-3 (intercept + slope on n-1 pairs)
+    Nu_L = float(max(2, localWindowIntervals - 3))
     Nu_0 = _EB_computePriorStrength(
         obsVarTrack,
         priorTrack.astype(np.float64, copy=False),
@@ -1893,16 +1818,16 @@ def getMuncTrack(
     logger.info(f"Nu_0={Nu_0:.2f}, Nu_L={Nu_L:.2f}")
     posteriorSampleSize: float = Nu_L + Nu_0
     posteriorVarTrack = np.empty_like(priorTrack, dtype=np.float32)
+    posteriorVarTrack[:] = priorTrack
 
     obsVarTrackF32 = obsVarTrack.astype(np.float32, copy=False)
-    np.divide(
-        (Nu_L * np.nan_to_num(obsVarTrackF32, nan=0.0) + Nu_0*priorTrack),
-        posteriorSampleSize,
-        out=posteriorVarTrack,
-    )
+    noFlag = np.isfinite(obsVarTrackF32) & (obsVarTrackF32 >= minValid) & (priorTrack >= minValid)
+    posteriorVarTrack[noFlag] = (
+        Nu_L * obsVarTrackF32[noFlag] + Nu_0 * priorTrack[noFlag]
+    ) / posteriorSampleSize
 
     # go to prior for missing local estimates
-    missingMask = ~np.isfinite(obsVarTrack)
+    missingMask = (~np.isfinite(obsVarTrack)) | (obsVarTrack < minValid) | (priorTrack < minValid)
     posteriorVarTrack[missingMask] = priorTrack[missingMask]
     return posteriorVarTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
 

@@ -142,21 +142,30 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     # CALLERS: cmeanVarPairs
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
     cdef double value
-    cdef double sumX, sumSqX, sumY, sumXY
-    cdef double beta0, beta1
-    cdef double fitted, residual, RSS
-    cdef double zeroCount, zeroProp, scaleFactor
+    cdef double sumY
+    cdef double sumSqX
     cdef double blockLengthDouble
-    cdef double previousValue, currentValue
-    cdef double scaleFac
     cdef double meanValue
-    cdef double pairCountDouble
-    cdef double centeredPrev, centeredCurr, oneMinusBetaSq
-    cdef double divRSS
     cdef double* blockPtr
-    cdef double oneMinusZeroProp
     cdef double maxBeta = <double>0.99
-    cdef double sampleVar = <double>0.0
+    cdef double eps
+    cdef double nPairsDouble
+    cdef double sumXSeq
+    cdef double sumYSeq
+    cdef double meanX
+    cdef double meanYp
+    cdef double sumSqXSeq
+    cdef double sumSqYSeq
+    cdef double sumXYc
+    cdef double xDev
+    cdef double yDev
+    cdef double beta1
+    cdef double RSS
+    cdef double pairCountDouble
+    cdef double oneMinusBetaSq
+    cdef double divRSS
+    zeroPenalty = zeroPenalty
+    zeroThresh = zeroThresh
 
     for regionIndex in range(meanOutView.shape[0]):
         startIndex = blockStartIndices[regionIndex]
@@ -164,66 +173,59 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         blockPtr = &valuesView[startIndex]
         blockLengthDouble = <double>blockLength
 
+        # mean over full block
         sumY = 0.0
         for elementIndex in range(blockLength):
-            value = blockPtr[elementIndex]
-            sumY += value
-
+            sumY += blockPtr[elementIndex]
         meanValue = sumY / blockLengthDouble
         meanOutView[regionIndex] = <float>meanValue
-
-        if blockLength <= 1:
-            varOutView[regionIndex] = 0.0
-            continue
-
-        sumX = 0.0
-        sumSqX = 0.0
-        sumXY = 0.0
-
-        previousValue = blockPtr[0]
-        centeredPrev = previousValue - meanValue
-        for elementIndex in range(1, blockLength):
-            currentValue = blockPtr[elementIndex]
-            centeredCurr = currentValue - meanValue
-
-            sumX += centeredPrev
-            sumSqX += centeredPrev*centeredPrev
-            sumXY += centeredPrev*centeredCurr
-
-            centeredPrev = centeredCurr
-            previousValue = currentValue
-        pairCountDouble = <double>(blockLength - 1)
-
         if useSampleVar:
-            sumSqX += centeredPrev * centeredPrev # add last element now
+            # sample variance over full block around meanValue
+            sumSqX = 0.0
+            for elementIndex in range(blockLength):
+                value = blockPtr[elementIndex] - meanValue
+                sumSqX += value*value
             varOutView[regionIndex] = <float>(sumSqX / (blockLengthDouble - 1.0))
             continue
 
-        scaleFac = sumSqX
-        if fabs(scaleFac) > 1.0e-2:
-            beta1 = sumXY / scaleFac
+        # df = n-3
+        if blockLength < 4:
+            varOutView[regionIndex] = 0.0
+            continue
+
+        nPairsDouble = <double>(blockLength - 1)
+        sumXSeq = sumY - blockPtr[blockLength - 1] # drop last
+        sumYSeq = sumY - blockPtr[0] # drop first
+
+        meanX = sumXSeq / nPairsDouble
+        meanYp = sumYSeq / nPairsDouble
+        sumSqXSeq = 0.0
+        sumSqYSeq = 0.0
+        sumXYc = 0.0
+
+        for elementIndex in range(0, blockLength - 1):
+            xDev = blockPtr[elementIndex]     - meanX
+            yDev = blockPtr[elementIndex + 1] - meanYp
+            sumSqXSeq += xDev*xDev
+            sumSqYSeq += yDev*yDev
+            sumXYc += xDev*yDev
+
+        eps = 1.0e-12*(sumSqXSeq + 1.0)
+        if sumSqXSeq > eps:
+            beta1 = sumXYc / sumSqXSeq
         else:
             beta1 = 0.0
-        beta0 = 0.0
 
         if beta1 > maxBeta:
             beta1 = maxBeta
         if beta1 < -maxBeta:
             beta1 = -maxBeta
 
-        RSS = 0.0
-        previousValue = blockPtr[0]
-        centeredPrev = previousValue - meanValue
+        RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
+        if RSS < 0.0:
+            RSS = 0.0
 
-        for elementIndex in range(1, blockLength):
-            currentValue = blockPtr[elementIndex]
-            centeredCurr = currentValue - meanValue
-            fitted = beta1 * centeredPrev
-            residual = centeredCurr - fitted
-            RSS += residual * residual
-
-            centeredPrev = centeredCurr
-            previousValue = currentValue
+        pairCountDouble = <double>(blockLength - 3)
 
         oneMinusBetaSq = 1.0 - (beta1 * beta1)
         if useInnovationVar:
@@ -232,9 +234,9 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             divRSS = oneMinusBetaSq
 
         if divRSS <= 1.0e-8:
-            varOutView[regionIndex] = 0.0
-        else:
-            varOutView[regionIndex] = <float>(RSS / pairCountDouble / divRSS)
+            divRSS = <double>1.0e-8
+        varOutView[regionIndex] = <float>(RSS / pairCountDouble / divRSS)
+
 
 
 cdef inline float _clog_F32(float x) nogil:
@@ -1548,7 +1550,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
     The local background at each genomic interval is obtained by linearly interpolating blocks' mean values between.
 
     Note that a two-way exponential moving average defines these block means such that autocorrelation
-    is tempered between neighboring blocks. Still, we can get a reasonably smooth + locally-informative background.
+    is tempered between neighboring blocks but we can still get a reasonably smooth local background. Disable with `disableLocalBackground=True`
     """
 
     cdef cnp.ndarray finalArr__
@@ -2483,27 +2485,29 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef double sumY
     cdef double sumSqY
     cdef double sumLagProd
-    cdef double meanValue
-    cdef double sumSqCenteredTotal
+    cdef double nPairsDouble
+    cdef double sumXSeq
+    cdef double sumYSeq
+    cdef double meanX
+    cdef double meanYp
+    cdef double sumSqXSeq
+    cdef double sumSqYSeq
+    cdef double sumXYc
     cdef double previousValue
     cdef double currentValue
-    cdef double centeredFirst
-    cdef double centeredLast
-    cdef double sumSqX
-    cdef double sumSqNext
-    cdef double sumXY
     cdef double beta1
     cdef double RSS
     cdef double pairCountDouble
+    cdef double eps
     varOut = np.empty(numIntervals,dtype=np.float32)
 
-    if numIntervals <= 0:
-        return varOut
-    if blockLength < 2:
-        varOut[:] = 0.0
-        return varOut
     if blockLength > numIntervals:
         blockLength = <int>numIntervals
+
+    # FFR: add check in callers!
+    if blockLength < 4:
+        varOut[:] = 0.0
+        return varOut
 
     halfBlockLength = (blockLength//2)
     maxStartIndex = (numIntervals - blockLength)
@@ -2522,7 +2526,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
         maskSum += <int>maskView[elementIndex]
         if elementIndex < (blockLength - 1):
             sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
-    pairCountDouble=<double>(blockLength - 1)
 
 
     # sliding window until last block's start
@@ -2530,35 +2533,45 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
         if maskSum != 0:
             varAtStartIndex[startIndex]=<cnp.float32_t>-1.0
         else:
+            nPairsDouble = <double>(blockLength - 1)
             previousValue = valuesView[startIndex]
             currentValue = valuesView[(startIndex + blockLength - 1)]
-            meanValue = (sumY/(<double>blockLength))
-            sumSqCenteredTotal = sumSqY - ((<double>blockLength)*meanValue*meanValue)
-            centeredFirst = (previousValue - meanValue)
-            centeredLast = (currentValue - meanValue)
-            sumSqNext = (sumSqCenteredTotal - (centeredFirst*centeredFirst))
-            sumSqX = sumSqCenteredTotal - (centeredLast*centeredLast)
-            sumXY=(
-                sumLagProd
-                - meanValue*(2.0*sumY - previousValue - currentValue)
-                + (<double>(blockLength - 1))*meanValue*meanValue
-            )
 
-            if fabs(sumSqX) > 1.0e-4:
-                # within-block AR(1) term
-                # centered x: (x[i+1]*x[i]) / x[i]^2
-                beta1=(sumXY/sumSqX)
+            # x[i] = values[startIndex+i] i=0,1,...n-2
+            # y[i] = values[startIndex+i+1] i=0,1,...n-2
+            sumXSeq = sumY - currentValue
+            sumYSeq = sumY - previousValue
+
+            # these are distinct now, so means must be computed separately
+            meanX = sumXSeq / nPairsDouble
+            meanYp = sumYSeq / nPairsDouble
+            sumSqXSeq = (sumSqY - (currentValue*currentValue)) - (nPairsDouble*meanX*meanX)
+            sumSqYSeq = (sumSqY - (previousValue*previousValue)) - (nPairsDouble*meanYp*meanYp)
+            if sumSqXSeq < 0.0:
+                sumSqXSeq = 0.0
+            if sumSqYSeq < 0.0:
+                sumSqYSeq = 0.0
+
+            # sum (x[i] - meanX)*(y[i] - meanYp) i = 0..n-2
+            sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
+            eps = 1.0e-12*(sumSqXSeq + 1.0)
+            if sumSqXSeq > eps:
+                # AR(1) coefficient estimate
+                beta1 = (sumXYc / sumSqXSeq)
             else:
-                beta1=0.0
+                beta1 = 0.0
 
             if beta1 > maxBeta:
                 beta1=maxBeta
             elif beta1 < -maxBeta:
                 beta1=-maxBeta
 
-            RSS = sumSqNext + ((beta1*beta1)*sumSqX) - (2.0*(beta1*sumXY))
+            RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
             if RSS < 0.0:
-                RSS=0.0
+                RSS = 0.0
+
+            # n-1 pairs, slope and intercept estimated --> use df = n-3
+            pairCountDouble = <double>(blockLength - 3)
             varAtStartIndex[startIndex]=<cnp.float32_t>(RSS/pairCountDouble)
 
         if startIndex < maxStartIndex:
