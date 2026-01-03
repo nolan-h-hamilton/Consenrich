@@ -15,7 +15,7 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, log2, log, log2f, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, exp, expf
+from libc.math cimport isfinite, fabs, log2, log, log2f, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf
 cnp.import_array()
 
 # ========
@@ -275,7 +275,7 @@ cdef inline Py_ssize_t _partitionLt(float* vals_, Py_ssize_t left, Py_ssize_t ri
 
 
 cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nogil:
-    # CALLERS: `csampleBlockStats`
+    # CALLERS: `csampleBlockStats`, `_quantileInPlaceF32`
 
     cdef Py_ssize_t left = 0
     cdef Py_ssize_t right = n - 1
@@ -293,54 +293,20 @@ cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nog
     return <bint>0
 
 
-cdef inline float _medianInplaceF32(float* vals_, Py_ssize_t n) nogil:
-    cdef Py_ssize_t k0, k1
-    cdef float v0, v1
+cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) nogil:
+    #CALLERS: ccalibrateStateCovarScalesRobust
+
+    cdef Py_ssize_t k
     if n <= 0:
         return 1.0
-
-    if (n & 1) == 1:
-        k1 = n >> 1
-        _nthElement(vals_, n, k1)
-        return vals_[k1]
-
-    k1 = n >> 1
-    k0 = k1 - 1
-    _nthElement(vals_, n, k0)
-    v0 = vals_[k0]
-    _nthElement(vals_, n, k1)
-    v1 = vals_[k1]
-    return 0.5 * (v0 + v1)
-
-
-cdef inline double _lossAbsQuadIntercept(
-    double absSlope,
-    double quadSlope,
-    double intercept,
-    double sumAbsMu,
-    double sumMuSq,
-    double sumAbsMuSq,
-    double sumAbsMuMuSq,
-    double sumMuSqSq,
-    double sumZ,
-    double sumAbsMuZ,
-    double sumMuSqZ,
-    double sumSqZ,
-    double numSamples,
-) nogil:
-    # CALLERS: cmonotonicFit
-
-    # (Z - (absSlope*(|mu|) + quadSlope*(mu^2) + intercept*(1)))^2
-    cdef double lossVal
-    lossVal = sumSqZ
-    lossVal -= 2.0 * (absSlope*sumAbsMuZ + quadSlope*sumMuSqZ + intercept*sumZ)
-    lossVal += absSlope*absSlope*sumAbsMuSq
-    lossVal += 2.0*absSlope*quadSlope*sumAbsMuMuSq
-    lossVal += 2.0*absSlope*intercept*sumAbsMu
-    lossVal += quadSlope*quadSlope*sumMuSqSq
-    lossVal += 2.0*quadSlope*intercept*sumMuSq
-    lossVal += intercept*intercept*numSamples
-    return lossVal
+    if q <= 0.0:
+        k = 0
+    elif q >= 1.0:
+        k = n - 1
+    else:
+        k = <Py_ssize_t>floorf(q * <float>(n - 1))
+    _nthElement(vals_, n, k)
+    return vals_[k]
 
 
 cpdef int stepAdjustment(int value, int intervalSizeBP, int pushForward=0):
@@ -2728,3 +2694,166 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
         f = t - 1
 
     return predicted
+
+
+cpdef tuple cscaleStateCovar(
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals, # (n,m)
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc, # (m,n)
+    cnp.ndarray[cnp.float32_t, ndim=1] stateVar0, # (n,)
+    cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap, # (n,)
+    Py_ssize_t blockCount,
+    float pad=1.0e-3,
+    float scaleFactorLow_=1.0,
+    float scaleFactorUpper_=10.0,
+    float sqResClip=100.0,
+    bint allowDeflate=False,
+    float clipSmall=1.0e-8,
+    double smoothAlpha=0.1,
+):
+    cdef cnp.float32_t[:, ::1] resView = postFitResiduals
+    cdef cnp.float32_t[:, ::1] muncView = matrixMunc
+    cdef cnp.float32_t[:] stateVarView = stateVar0
+    cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
+    cdef Py_ssize_t n = resView.shape[0]
+    cdef Py_ssize_t m = resView.shape[1]
+    cdef Py_ssize_t i, t
+    cdef Py_ssize_t currBlock = 0
+    cdef Py_ssize_t nextBlock
+    cdef Py_ssize_t bufferLen = 0
+    cdef Py_ssize_t expectedLen = 0
+    cdef Py_ssize_t blockIntervals = 0
+    cdef double chi2Interval
+    cdef double residual
+    cdef double mVariance
+    cdef double totalVariance
+    cdef double invVar
+    cdef double studentizedResidual
+    cdef double sqRes
+    cdef float scaleFactor
+    cdef float median_
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockscaleFactorArr = np.ones(blockCount, dtype=np.float32)
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] blockNArr = np.zeros(blockCount, dtype=np.int32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockChi2Arr = np.zeros(blockCount, dtype=np.float32)
+    cdef cnp.float32_t[::1] blockscaleFactorView = blockscaleFactorArr
+    cdef cnp.int32_t[::1] blockNView = blockNArr
+    cdef cnp.float32_t[::1] blockChi2View = blockChi2Arr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] logScale = np.empty(blockCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] logScaleSm = np.empty(blockCount, dtype=np.float64)
+    cdef double[::1] logScaleView = logScale
+    cdef double[::1] logScaleSmView = logScaleSm
+    cdef double s_
+
+    expectedLen = 0
+    currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
+    blockIntervals = 0
+    for i in range(n):
+        nextBlock = <Py_ssize_t>blockMapView[i]
+        if nextBlock != currBlock:
+            if blockIntervals > expectedLen:
+                expectedLen = blockIntervals
+            blockIntervals = 0
+            currBlock = nextBlock
+        blockIntervals += 1
+    if blockIntervals > expectedLen:
+        expectedLen = blockIntervals
+    if expectedLen <= 0:
+        expectedLen = 1
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] calcBuffer = np.empty(expectedLen, dtype=np.float32)
+    cdef float[::1] bufferView = calcBuffer
+
+    currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
+    bufferLen = 0
+
+    # track position wrt blocks and i, sum up residuals within each block, then
+    # ... scales are the median of the per-interval robust variance estimates within each block
+    # ... each scale is used to inflate the state covariance for all intervals in the block to
+    # ... better match expected chi2-like res distribution
+    with nogil:
+        for i in range(n):
+            nextBlock = <Py_ssize_t>blockMapView[i]
+            if nextBlock != currBlock:
+                if bufferLen > 0 and currBlock >= 0 and currBlock < blockCount:
+                    median_ = _quantileInplaceF32(&bufferView[0], bufferLen, <float>0.5)
+                    scaleFactor = median_
+                    if (not allowDeflate) and (scaleFactor < 1.0):
+                        scaleFactor = 1.0
+                    if scaleFactor < scaleFactorLow_:
+                        scaleFactor = scaleFactorLow_
+                    elif scaleFactor > scaleFactorUpper_:
+                        scaleFactor = scaleFactorUpper_
+                    blockscaleFactorView[currBlock] = scaleFactor
+                    blockNView[currBlock] = <cnp.int32_t>bufferLen
+                bufferLen = 0
+                currBlock = nextBlock
+
+            chi2Interval = 0.0
+            # sum over tracks/samples
+            # ... precision is given by each sample's munc track
+            # ... add state covariance term for 'studentized' residuals
+            for t in range(m):
+                residual = <double>resView[i, t]
+                mVariance = <double>muncView[t, i]
+                totalVariance = mVariance + (<double>stateVarView[i]) + (<double>pad)
+                if totalVariance < (<double>clipSmall):
+                    totalVariance = <double>clipSmall
+                invVar = 1.0 / totalVariance
+                studentizedResidual = residual * sqrt(invVar)
+                sqRes = studentizedResidual * studentizedResidual
+                if sqRes > (<double>sqResClip):
+                    sqRes = <double>sqResClip
+                chi2Interval = chi2Interval + sqRes
+
+            if currBlock >= 0 and currBlock < blockCount:
+                scaleFactor = <float>(chi2Interval / (<double>m))
+                if bufferLen < expectedLen:
+                    bufferView[bufferLen] = scaleFactor
+                    bufferLen += 1
+                blockChi2View[currBlock] = blockChi2View[currBlock] + <cnp.float32_t>chi2Interval
+
+        if bufferLen > 0 and currBlock >= 0 and currBlock < blockCount:
+            median_ = _quantileInplaceF32(&bufferView[0], bufferLen, <float>0.5)
+            scaleFactor = median_
+            if (not allowDeflate) and (scaleFactor < 1.0):
+                scaleFactor = 1.0
+            if scaleFactor < scaleFactorLow_:
+                scaleFactor = scaleFactorLow_
+            elif scaleFactor > scaleFactorUpper_:
+                scaleFactor = scaleFactorUpper_
+            blockscaleFactorView[currBlock] = scaleFactor
+            blockNView[currBlock] = <cnp.int32_t>bufferLen
+
+    if blockCount > 1 and smoothAlpha > 0.0:
+        # smooth over blocks in log-space to prevent kinks
+        if smoothAlpha > 1.0:
+            smoothAlpha = 1.0
+
+        with nogil:
+            for i in range(blockCount):
+                scaleFactor = blockscaleFactorView[i]
+                if (not allowDeflate) and (scaleFactor < 1.0):
+                    scaleFactor = 1.0
+                if scaleFactor < scaleFactorLow_:
+                    scaleFactor = scaleFactorLow_
+                elif scaleFactor > scaleFactorUpper_:
+                    scaleFactor = scaleFactorUpper_
+                if scaleFactor < clipSmall:
+                    scaleFactor = clipSmall
+                logScaleView[i] = log(<double>scaleFactor)
+
+            _cEMA(<const double*>&logScaleView[0], <double*>&logScaleSmView[0], blockCount, smoothAlpha)
+
+            for i in range(blockCount):
+                # make sure our bounds are still in check AFTER cEMA
+                s_ = exp(logScaleSmView[i])
+                scaleFactor = <float>s_
+                if (not allowDeflate) and (scaleFactor < 1.0):
+                    scaleFactor = 1.0
+                if scaleFactor < scaleFactorLow_:
+                    scaleFactor = scaleFactorLow_
+                elif scaleFactor > scaleFactorUpper_:
+                    scaleFactor = scaleFactorUpper_
+                blockscaleFactorView[i] = scaleFactor
+
+    return (blockscaleFactorArr, blockNArr, blockChi2Arr)

@@ -345,8 +345,8 @@ def matchWavelet(
         )
         if len(vals) == 0:
             return vals
-        low = np.quantile(vals, 0.001)
-        high = np.quantile(vals, 0.999)
+        low = np.quantile(vals, 0.0001)
+        high = np.quantile(vals, 0.9999)
         return vals[(vals > low) & (vals < high)]
 
     for templateName, cascadeLevel in zip(

@@ -668,7 +668,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minSignalAtMaxima=_cfgGet(
             configData,
             "matchingParams.minSignalAtMaxima",
-            0.25,
+            0.05,
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
@@ -688,7 +688,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         randSeed=_cfgGet(configData, "matchingParams.randSeed", 42),
         penalizeBy=_cfgGet(configData, "matchingParams.penalizeBy", None),
-        eps=_cfgGet(configData, "matchingParams.eps", 1.0e-2),
+        eps=_cfgGet(configData, "matchingParams.eps", 1.0e-3),
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
@@ -697,7 +697,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         methodFDR=_cfgGet(
             configData,
             "matchingParams.methodFDR",
-            "BH",
+            None,
         ),
         massQuantileCutoff=_cfgGet(
             configData,

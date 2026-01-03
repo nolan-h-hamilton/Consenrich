@@ -1260,9 +1260,30 @@ def runConsenrich(
         stateCovarSmoothedArr.flush()
         postFitResidualsArr.flush()
 
-        outStateSmoothed = np.array(stateSmoothedArr, copy=True)
-        outPostFitResiduals = np.array(postFitResidualsArr, copy=True)
-        outStateCovarSmoothed = np.array(stateCovarSmoothedArr, copy=True)
+    outStateSmoothed_mm = stateSmoothedArr
+    outPostFitResiduals_mm = postFitResidualsArr
+    outStateCovarSmoothed_mm = stateCovarSmoothedArr
+
+    numIntervalsPerBlock = int(np.ceil(np.sqrt(n)))
+    blockCount = int(np.ceil(n / numIntervalsPerBlock))
+    intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
+    intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
+    stateVar0_mm = np.asarray(outStateCovarSmoothed_mm[:, 0, 0])
+
+    updatedScale, blockN, blockChi2 = cconsenrich.cscaleStateCovar(
+    postFitResiduals=outPostFitResiduals_mm,
+    matrixMunc=matrixMunc,
+    stateVar0=stateVar0_mm,
+    intervalToBlockMap=intervalToBlockMap,
+    blockCount=blockCount,
+    pad=float(pad),
+    )
+
+    newScale_Intervals = updatedScale[intervalToBlockMap].astype(np.float32, copy=False)
+    outStateCovarSmoothed_mm *= newScale_Intervals[:, None, None]
+    outStateSmoothed = np.array(outStateSmoothed_mm, copy=True)
+    outPostFitResiduals = np.array(outPostFitResiduals_mm, copy=True)
+    outStateCovarSmoothed = np.array(outStateCovarSmoothed_mm, copy=True)
 
     if boundState:
         np.clip(
@@ -1273,10 +1294,10 @@ def runConsenrich(
         )
 
     return (
-        outStateSmoothed,
-        outStateCovarSmoothed,
-        outPostFitResiduals,
-        NIS.astype(np.float32, copy=False),
+    outStateSmoothed,
+    outStateCovarSmoothed,
+    outPostFitResiduals,
+    NIS.astype(np.float32, copy=False),
     )
 
 
