@@ -108,20 +108,23 @@ class observationParams(NamedTuple):
     :type max: float
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical |mean|-variance trend in :func:`consenrich.core.fitVarianceFunction`.
     :type samplingIters: int
+    :param samplingBlockSizeBP: Length (BP) of blocks sampled when building the empirical mean-variance trend in :func:`consenrich.core.getMuncTrack`.
+    :type samplingBlockSizeBP: int
     :param minValid: Sampled blocks `b` with ``|mean|_b, variance_b < minValid`` are ignored during fitting in :func:`consenrich.core.fitVarianceFunction`.
     :type minValid: float
     :param forceLinearFactor: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{forceLinearFactor} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type forceLinearFactor: float
     :param EB_use: If True, apply empirical Bayes shrinkage in :func:`consenrich.core.getMuncTrack`.
+    :type EB_use: bool
     """
 
     minR: float | None
     maxR: float | None
     samplingIters: int | None
+    samplingBlockSizeBP: int | None
     minValid: float | None
     forceLinearFactor: float | None
     EB_use: bool | None
-
 
 
 class stateParams(NamedTuple):
@@ -137,6 +140,9 @@ class stateParams(NamedTuple):
     :type stateLowerBound: float
     :param stateUpperBound: Upper bound for the state estimate.
     :type stateUpperBound: float
+    :param rescaleStateCovar: If True, the state covariance :math:`\mathbf{P}_{[i]}` is rescaled (in segments) after filtering such that observed
+      studentized residuals are consistent with expected values. See :func:`consenrich.cconsenrich.crescaleStateCovar`.
+    :type rescaleStateCovar: bool
     """
 
     stateInit: float
@@ -144,6 +150,7 @@ class stateParams(NamedTuple):
     boundState: bool
     stateLowerBound: float
     stateUpperBound: float
+    rescaleStateCovar: bool|None
 
 
 class samParams(NamedTuple):
@@ -785,6 +792,7 @@ def runConsenrich(
     calibration_kwargs: Optional[dict[str, Any]] = None,
     disableCalibration: bool = False,
     ratioDiagQ: float | None = None,
+    rescaleStateCovar: bool = False,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -1264,23 +1272,24 @@ def runConsenrich(
     outPostFitResiduals_mm = postFitResidualsArr
     outStateCovarSmoothed_mm = stateCovarSmoothedArr
 
-    numIntervalsPerBlock = int(np.ceil(np.sqrt(n)))
-    blockCount = int(np.ceil(n / numIntervalsPerBlock))
-    intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
-    intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
-    stateVar0_mm = np.asarray(outStateCovarSmoothed_mm[:, 0, 0])
+    if rescaleStateCovar:
+        numIntervalsPerBlock = int(np.ceil(np.sqrt(n)))
+        blockCount = int(np.ceil(n / numIntervalsPerBlock))
+        intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
+        intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
+        stateVar0_mm = np.asarray(outStateCovarSmoothed_mm[:, 0, 0])
 
-    updatedScale, blockN, blockChi2 = cconsenrich.cscaleStateCovar(
-    postFitResiduals=outPostFitResiduals_mm,
-    matrixMunc=matrixMunc,
-    stateVar0=stateVar0_mm,
-    intervalToBlockMap=intervalToBlockMap,
-    blockCount=blockCount,
-    pad=float(pad),
-    )
+        updatedScale, blockN, blockChi2 = cconsenrich.cscaleStateCovar(
+        postFitResiduals=outPostFitResiduals_mm,
+        matrixMunc=matrixMunc,
+        stateVar0=stateVar0_mm,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=blockCount,
+        pad=float(pad),
+        )
 
-    newScale_Intervals = updatedScale[intervalToBlockMap].astype(np.float32, copy=False)
-    outStateCovarSmoothed_mm *= newScale_Intervals[:, None, None]
+        newScale_Intervals = updatedScale[intervalToBlockMap].astype(np.float32, copy=False)
+        outStateCovarSmoothed_mm *= newScale_Intervals[:, None, None]
     outStateSmoothed = np.array(outStateSmoothed_mm, copy=True)
     outPostFitResiduals = np.array(outPostFitResiduals_mm, copy=True)
     outStateCovarSmoothed = np.array(outStateCovarSmoothed_mm, copy=True)
@@ -1740,7 +1749,7 @@ def getMuncTrack(
     intervals: np.ndarray,
     values: np.ndarray,
     intervalSizeBP: int,
-    blockSizeBP: Optional[int] = None,
+    samplingBlockSizeBP: int|None = None,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     excludeMask: Optional[np.ndarray] = None,
@@ -1756,8 +1765,8 @@ def getMuncTrack(
     :type chromosome: str
     :param intervals: genomic intervals positions (start positions)
     :type intervals: npt.NDArray[np.uint32]
-    :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
-    :type blockSizeBP: int
+    :param samplingBlockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
+    :type samplingBlockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
     :param minValid: Minimum valid mean/variance value when fitting global mean-variance trend.
@@ -1768,12 +1777,12 @@ def getMuncTrack(
     :rtype: tuple[npt.NDArray[np.float32], float]
     """
 
-    if blockSizeBP is None:
-        blockSizeBP = intervalSizeBP * 15
-    blockSizeIntervals = int(blockSizeBP / intervalSizeBP)
+    if samplingBlockSizeBP is None:
+        samplingBlockSizeBP = intervalSizeBP * 15
+    blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
     if blockSizeIntervals < 15:
         logger.warning(
-            f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 15*intervalSizeBP"
+            f"`samplingBlockSizeBP` is small for sampling (mean, variance) pairs...trying 15*intervalSizeBP"
         )
         blockSizeIntervals = 15
 

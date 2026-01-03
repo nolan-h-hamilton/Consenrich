@@ -2697,10 +2697,10 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
 
 
 cpdef tuple cscaleStateCovar(
-    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals, # (n,m)
-    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc, # (m,n)
-    cnp.ndarray[cnp.float32_t, ndim=1] stateVar0, # (n,)
-    cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap, # (n,)
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals,
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc,
+    cnp.ndarray[cnp.float32_t, ndim=1] stateVar0,
+    cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap,
     Py_ssize_t blockCount,
     float pad=1.0e-3,
     float scaleFactorLow_=1.0,
@@ -2719,8 +2719,8 @@ cpdef tuple cscaleStateCovar(
     cdef Py_ssize_t i, t
     cdef Py_ssize_t currBlock = 0
     cdef Py_ssize_t nextBlock
-    cdef Py_ssize_t bufferLen = 0
-    cdef Py_ssize_t expectedLen = 0
+    cdef Py_ssize_t numScalesInBlock = 0
+    cdef Py_ssize_t maxBlockLength = 0
     cdef Py_ssize_t blockIntervals = 0
     cdef double chi2Interval
     cdef double residual
@@ -2744,38 +2744,39 @@ cpdef tuple cscaleStateCovar(
     cdef double[::1] logScaleSmView = logScaleSm
     cdef double s_
 
-    expectedLen = 0
+    maxBlockLength = 0
     currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
     blockIntervals = 0
     for i in range(n):
         nextBlock = <Py_ssize_t>blockMapView[i]
         if nextBlock != currBlock:
-            if blockIntervals > expectedLen:
-                expectedLen = blockIntervals
+            if blockIntervals > maxBlockLength:
+                maxBlockLength = blockIntervals
             blockIntervals = 0
             currBlock = nextBlock
         blockIntervals += 1
-    if blockIntervals > expectedLen:
-        expectedLen = blockIntervals
-    if expectedLen <= 0:
-        expectedLen = 1
+    if blockIntervals > maxBlockLength:
+        maxBlockLength = blockIntervals
+    if maxBlockLength <= 0:
+        maxBlockLength = 1
 
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] calcBuffer = np.empty(expectedLen, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] calcBuffer = np.empty(maxBlockLength, dtype=np.float32)
     cdef float[::1] bufferView = calcBuffer
 
     currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
-    bufferLen = 0
 
-    # track position wrt blocks and i, sum up residuals within each block, then
-    # ... scales are the median of the per-interval robust variance estimates within each block
-    # ... each scale is used to inflate the state covariance for all intervals in the block to
-    # ... better match expected chi2-like res distribution
+
+    # numScalesInBlock is both the number of interval-level scale estimates in the current block
+    # ... and the index into bufferView to store them before computing the median
+    numScalesInBlock = 0
+
     with nogil:
         for i in range(n):
             nextBlock = <Py_ssize_t>blockMapView[i]
             if nextBlock != currBlock:
-                if bufferLen > 0 and currBlock >= 0 and currBlock < blockCount:
-                    median_ = _quantileInplaceF32(&bufferView[0], bufferLen, <float>0.5)
+                if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:
+                    median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)
+                    # block-level scale factor is the median of interval-level scale factors (over all tracks)
                     scaleFactor = median_
                     if (not allowDeflate) and (scaleFactor < 1.0):
                         scaleFactor = 1.0
@@ -2784,36 +2785,38 @@ cpdef tuple cscaleStateCovar(
                     elif scaleFactor > scaleFactorUpper_:
                         scaleFactor = scaleFactorUpper_
                     blockscaleFactorView[currBlock] = scaleFactor
-                    blockNView[currBlock] = <cnp.int32_t>bufferLen
-                bufferLen = 0
+                    blockNView[currBlock] = <cnp.int32_t>numScalesInBlock
+                numScalesInBlock = 0
                 currBlock = nextBlock
 
+
             chi2Interval = 0.0
-            # sum over tracks/samples
-            # ... precision is given by each sample's munc track
-            # ... add state covariance term for 'studentized' residuals
             for t in range(m):
                 residual = <double>resView[i, t]
                 mVariance = <double>muncView[t, i]
+                # P_[i,00] + R_[i,jj] + pad
                 totalVariance = mVariance + (<double>stateVarView[i]) + (<double>pad)
                 if totalVariance < (<double>clipSmall):
                     totalVariance = <double>clipSmall
                 invVar = 1.0 / totalVariance
-                studentizedResidual = residual * sqrt(invVar)
-                sqRes = studentizedResidual * studentizedResidual
+                studentizedResidual = residual*sqrt(invVar)
+                sqRes = studentizedResidual*studentizedResidual
                 if sqRes > (<double>sqResClip):
                     sqRes = <double>sqResClip
                 chi2Interval = chi2Interval + sqRes
 
+            #  check bounds in case interval-->block map from optimization ends up here
             if currBlock >= 0 and currBlock < blockCount:
                 scaleFactor = <float>(chi2Interval / (<double>m))
-                if bufferLen < expectedLen:
-                    bufferView[bufferLen] = scaleFactor
-                    bufferLen += 1
-                blockChi2View[currBlock] = blockChi2View[currBlock] + <cnp.float32_t>chi2Interval
+                if numScalesInBlock >= maxBlockLength:
+                    with gil:
+                        raise RuntimeError("Overflow: is intervalToBlockMap correct?")
+                bufferView[numScalesInBlock] = scaleFactor
+                numScalesInBlock += 1
+                blockChi2View[currBlock] += <cnp.float32_t>chi2Interval
 
-        if bufferLen > 0 and currBlock >= 0 and currBlock < blockCount:
-            median_ = _quantileInplaceF32(&bufferView[0], bufferLen, <float>0.5)
+        if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:
+            median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)
             scaleFactor = median_
             if (not allowDeflate) and (scaleFactor < 1.0):
                 scaleFactor = 1.0
@@ -2822,7 +2825,7 @@ cpdef tuple cscaleStateCovar(
             elif scaleFactor > scaleFactorUpper_:
                 scaleFactor = scaleFactorUpper_
             blockscaleFactorView[currBlock] = scaleFactor
-            blockNView[currBlock] = <cnp.int32_t>bufferLen
+            blockNView[currBlock] = <cnp.int32_t>numScalesInBlock
 
     if blockCount > 1 and smoothAlpha > 0.0:
         # smooth over blocks in log-space to prevent kinks
@@ -2830,6 +2833,7 @@ cpdef tuple cscaleStateCovar(
             smoothAlpha = 1.0
 
         with nogil:
+            # log-scale
             for i in range(blockCount):
                 scaleFactor = blockscaleFactorView[i]
                 if (not allowDeflate) and (scaleFactor < 1.0):

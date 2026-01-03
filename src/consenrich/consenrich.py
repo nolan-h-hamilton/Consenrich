@@ -367,7 +367,11 @@ def getStateArgs(config_path: str) -> core.stateParams:
         "stateParams.stateUpperBound",
         10000.0,
     )
-
+    rescaleStateCovar_ = _cfgGet(
+        configData,
+        "stateParams.rescaleStateCovar",
+        True,
+    )
     if boundState_:
         if stateLowerBound_ > stateUpperBound_:
             raise ValueError("`stateLowerBound` is greater than `stateUpperBound`.")
@@ -378,6 +382,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
         boundState=boundState_,
         stateLowerBound=stateLowerBound_,
         stateUpperBound=stateUpperBound_,
+        rescaleStateCovar=rescaleStateCovar_,
     )
 
 
@@ -585,19 +590,27 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.samplingIters",
             25_000,
         ),
+        samplingBlockSizeBP=_cfgGet(
+            configData,
+            "observationParams.samplingBlockLengthBP",
+            500,
+        ),
         minValid=_cfgGet(
             configData,
             "observationParams.minValid",
             1.0e-3,
         ),
-        forceLinearFactor=float(_cfgGet(
-            configData,
-            "observationParams.forceLinearFactor",
-            1/4.0,
-        )),
+        forceLinearFactor=float(
+            _cfgGet(
+                configData,
+                "observationParams.forceLinearFactor",
+                1 / 4.0,
+            )
+        ),
         EB_use=_cfgGet(
             configData,
-            "observationParams.EB_use", True,
+            "observationParams.EB_use",
+            True,
         ),
     )
 
@@ -1211,6 +1224,7 @@ def main():
                     chromMat[j_, :],
                     intervalSizeBP,
                     samplingIters=observationArgs.samplingIters,
+                    samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
                     minValid=observationArgs.minValid,
                     forceLinearFactor=observationArgs.forceLinearFactor,
                     randomSeed=42 + j_,
@@ -1265,6 +1279,7 @@ def main():
                     chromMat[j, :],
                     intervalSizeBP,
                     samplingIters=observationArgs.samplingIters,
+                    samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
                     minValid=observationArgs.minValid,
                     forceLinearFactor=observationArgs.forceLinearFactor,
                     randomSeed=42 + j,
@@ -1318,6 +1333,7 @@ def main():
             samArgs.chunkSize,
             progressIter=25_000,
             ratioDiagQ=processArgs.ratioDiagQ,
+            rescaleStateCovar=stateArgs.rescaleStateCovar,
         )
         logger.info(f"minQ={minQ_}, minR={minR_}")
         x_ = core.getPrimaryState(
