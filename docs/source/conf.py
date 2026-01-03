@@ -22,6 +22,7 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx.ext.viewcode',
     'sphinx.ext.intersphinx',
+    'sphinx_design', # https://pypi.org/project/sphinx_design/
 ]
 autodoc_typehints = "description"
 

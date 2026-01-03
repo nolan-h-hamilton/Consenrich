@@ -106,16 +106,18 @@ class observationParams(NamedTuple):
     :type minR: float
     :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels. In the default implementation, this clip is applied after initial calculation of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
     :type max: float
-    :param samplingIters: Number of blocks (within-contig) to sample while building the empirical |mean|-variance trend in :func:`consenrich.core.fitVarianceFunction`.
+    :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
     :type samplingIters: int
     :param samplingBlockSizeBP: Length (BP) of blocks sampled when building the empirical mean-variance trend in :func:`consenrich.core.getMuncTrack`.
     :type samplingBlockSizeBP: int
-    :param minValid: Sampled blocks `b` with ``|mean|_b, variance_b < minValid`` are ignored during fitting in :func:`consenrich.core.fitVarianceFunction`.
+    :param minValid: Sampled blocks `b` with ``absMean_b, variance_b < minValid`` are ignored during fitting in :func:`consenrich.core.fitVarianceFunction`.
     :type minValid: float
     :param forceLinearFactor: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{forceLinearFactor} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type forceLinearFactor: float
     :param EB_use: If True, apply empirical Bayes shrinkage in :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool
+    :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
+    :type EB_setNu0: int or None
     """
 
     minR: float | None
@@ -125,6 +127,8 @@ class observationParams(NamedTuple):
     minValid: float | None
     forceLinearFactor: float | None
     EB_use: bool | None
+    EB_setNu0: int | None
+    EB_setNuL: int | None
 
 
 class stateParams(NamedTuple):
@@ -150,7 +154,7 @@ class stateParams(NamedTuple):
     boundState: bool
     stateLowerBound: float
     stateUpperBound: float
-    rescaleStateCovar: bool|None
+    rescaleStateCovar: bool | None
 
 
 class samParams(NamedTuple):
@@ -247,9 +251,9 @@ class genomeParams(NamedTuple):
 class countingParams(NamedTuple):
     r"""Parameters related to counting aligned reads
 
-    :param intervalSizeBP: Length (bp) of each genomic interval :math:`i=1\ldots n` used to index/partition contigs.
-        In the default implementation, 50bp is used, and this is generally robust. Sequencing depth and expected feature size may warrant
-        tuning, however. For very broad marks and/or low tag counts, consider increasing to 75, 100bp, etc.
+    :param intervalSizeBP: Length (bp) of each genomic interval :math:`i=1\ldots n` that comprise the larger genomic region (contig, chromosome, etc.)
+        The default is generally robust, but consider increasing this value when expected feature size is large and/or sequencing depth
+        is low (less than :math:`\approx 5 \textsf{million}`, depending on assay).
     :type intervalSizeBP: int
     :param backgroundWindowSizeBP: Size of windows (bp) used for estimating+interpolating between-block background estimates.
         Per-interval autocorrelation in the background estimates grows roughly as :math:`\frac{intervalSizeBP}{\textsf{backgroundWindowBP}}`.
@@ -266,8 +270,8 @@ class countingParams(NamedTuple):
     :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.clogRatio`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
 
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
-    :class: tip
-    :collapsible: closed
+      :class: tip
+      :collapsible: closed
 
       For single-end data, cross-correlation-based estimates for fragment length
       in control inputs can be biased due to a comparative lack of structure in
@@ -1280,14 +1284,16 @@ def runConsenrich(
         stateVar0_mm = np.asarray(outStateCovarSmoothed_mm[:, 0, 0])
 
         updatedScale, blockN, blockChi2 = cconsenrich.cscaleStateCovar(
-        postFitResiduals=outPostFitResiduals_mm,
-        matrixMunc=matrixMunc,
-        stateVar0=stateVar0_mm,
-        intervalToBlockMap=intervalToBlockMap,
-        blockCount=blockCount,
-        pad=float(pad),
+            postFitResiduals=outPostFitResiduals_mm,
+            matrixMunc=matrixMunc,
+            stateVar0=stateVar0_mm,
+            intervalToBlockMap=intervalToBlockMap,
+            blockCount=blockCount,
+            pad=float(pad),
         )
-
+        # upscale state covariances per observed residuals
+        # ... typically very small adjustments, but prevents
+        # ... overconfident uncertainty estimates in some cases
         newScale_Intervals = updatedScale[intervalToBlockMap].astype(np.float32, copy=False)
         outStateCovarSmoothed_mm *= newScale_Intervals[:, None, None]
     outStateSmoothed = np.array(outStateSmoothed_mm, copy=True)
@@ -1303,10 +1309,10 @@ def runConsenrich(
         )
 
     return (
-    outStateSmoothed,
-    outStateCovarSmoothed,
-    outPostFitResiduals,
-    NIS.astype(np.float32, copy=False),
+        outStateSmoothed,
+        outStateCovarSmoothed,
+        outPostFitResiduals,
+        NIS.astype(np.float32, copy=False),
     )
 
 
@@ -1646,7 +1652,7 @@ def fitVarianceFunction(
         if absMeansSeg.size == 0:
             return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
 
-        linearFloor = forceLinearFactor*absMeansSeg + eps
+        linearFloor = forceLinearFactor * absMeansSeg + eps
         nonnegVariancesSeg = np.maximum(variancesSeg, linearFloor)
         # cconsenrich.cPAVA: we assign a weight of 1 to every element (each 'block' is a single observation)
         monoVariancesSeg = cconsenrich.cPAVA(
@@ -1664,7 +1670,7 @@ def fitVarianceFunction(
                 end = start + countsSeg[j]
                 varGridSeg[j] = float(np.mean(monoVariancesSeg[start:end]))
 
-            linearFloorGridSeg = forceLinearFactor*absMeanGridSeg + eps
+            linearFloorGridSeg = forceLinearFactor * absMeanGridSeg + eps
             varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
             # final PAVA if not binning
             varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
@@ -1694,12 +1700,12 @@ def fitVarianceFunction(
             varGridSeg[j] = float(np.mean(monoVariancesSeg[inBin]))
             countsSeg[j] = float(binCount)
 
-        keepMask = (countsSeg > 0.0)
+        keepMask = countsSeg > 0.0
         absMeanGridSeg = absMeanGridSeg[keepMask]
         varGridSeg = varGridSeg[keepMask]
         countsSeg = countsSeg[keepMask]
 
-        linearFloorGridSeg = forceLinearFactor*absMeanGridSeg + eps
+        linearFloorGridSeg = forceLinearFactor * absMeanGridSeg + eps
         varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
         varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
         varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
@@ -1723,7 +1729,7 @@ def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
     eps: float = 1.0e-8,
-    forceLinearFactor: float = 1/4,
+    forceLinearFactor: float = 1 / 4,
 ) -> np.ndarray:
     varianceTrend = np.asarray(coeffs, dtype=np.float32)
     absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
@@ -1731,7 +1737,7 @@ def evalVarianceFunction(
     eps = max(float(eps), 0.0)
     forceLinearFactor = max(float(forceLinearFactor), 0.0)
 
-    linearFloorGrid = forceLinearFactor*absMeanGrid + eps
+    linearFloorGrid = forceLinearFactor * absMeanGrid + eps
     varGrid = np.maximum(varGrid, linearFloorGrid)
     varGrid = cconsenrich.cPAVA(varGrid, np.ones_like(varGrid, dtype=np.float64))
     varGrid = np.maximum(varGrid, linearFloorGrid)
@@ -1740,7 +1746,7 @@ def evalVarianceFunction(
     absMeans = np.abs(means)
 
     predicted = np.interp(absMeans, absMeanGrid, varGrid, left=varGrid[0], right=varGrid[-1])
-    predicted = np.maximum(predicted, forceLinearFactor*absMeans + eps)
+    predicted = np.maximum(predicted, forceLinearFactor * absMeans + eps)
     return predicted.astype(np.float32, copy=False)
 
 
@@ -1749,31 +1755,47 @@ def getMuncTrack(
     intervals: np.ndarray,
     values: np.ndarray,
     intervalSizeBP: int,
-    samplingBlockSizeBP: int|None = None,
+    samplingBlockSizeBP: int | None = None,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     minValid: float = 1.0e-3,
-    forceLinearFactor: float = 1/4,
+    forceLinearFactor: float = 1 / 4,
     EB_use: bool = True,
+    EB_setNu0: int|None = None,
+    EB_setNuL: int|None = None,
 ) -> tuple[npt.NDArray[np.float32], float]:
-    r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks according to a fitted |mean|-variance trend.
+    r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
+
+    For an individual experimental sample (replicate), quantify *positional* data uncertainty over genomic intervals :math:`i=1,2,\ldots n` spanning ``chromosome``.
+    These tracks (per-sample) comprise the ``matrixMunc`` input to :func:`runConsenrich`, :math:`\mathbf{R}[:,:] \in \mathbb{R}^{m \times n}`.
+
+    Variance is modeled as a function of the absolute mean signal level. For ``EB_use=True``, local variance estimates are also
+    are integrated with shrinkage using a plug-in empirical Bayes approach.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
+    :param values: normalized/transformed signal values over genomic intervals (e.g., :func:`consenrich.cconsenrich.clogRatio` output)
+    :type values: np.ndarray
     :param intervals: genomic intervals positions (start positions)
-    :type intervals: npt.NDArray[np.uint32]
+    :type intervals: np.ndarray
     :param samplingBlockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingBlockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
     :param minValid: Minimum valid mean/variance value when fitting global mean-variance trend.
     :type minValid: float
-    :param forceLinearFactor: Require fitted variances be at least ``forceLinearFactor*|mean|``.
+    :param forceLinearFactor: Require prior-model fitted variances satisfy ``var >= forceLinearFactor*absMean``
     :type forceLinearFactor: float
-    :return: Uncertainty track and fraction of valid (mean, variance) pairs used in fitting.
+    :param EB_use: If `False`, only return the global prior variance track.
+    :type EB_use: bool
+    :param EB_setNu0: If provided, sets :math:`\nu_0` to this value instead of estimating from data.
+    :type EB_setNu0: int | None
+    :param EB_setNuL: If provided, sets :math:`\nu_{\mathcal{L}}` to this value, overriding the local window size - 3.
+    :type EB_setNuL: int | None
+    :return: Munc track, fraction of valid (mean, variance) pairs used in fitting.
     :rtype: tuple[npt.NDArray[np.float32], float]
     """
 
@@ -1838,13 +1860,20 @@ def getMuncTrack(
     # negative value is a flag from `cconsenrich.crolling_AR1_IVar` -- set as NaN
     obsVarTrack[obsVarTrack < 0.0] = np.nan
 
-    # df = n-3 (intercept + slope on n-1 pairs)
-    Nu_L = float(max(2, localWindowIntervals - 3))
-    Nu_0 = _EB_computePriorStrength(
-        obsVarTrack,
-        priorTrack.astype(np.float64, copy=False),
-        Nu_L,
-    )
+    if EB_setNuL is not None and EB_setNuL > 3:
+        Nu_L = float(EB_setNuL)
+    else:
+        # df = n-3 (intercept + slope on n-1 pairs)
+        Nu_L = float(max(2, localWindowIntervals - 3))
+    Nu_0: float
+    if EB_setNu0 is not None and EB_setNu0 > 0:
+        Nu_0 = float(EB_setNu0)
+    else:
+        Nu_0 = EB_computePriorStrength(
+            obsVarTrack,
+            priorTrack.astype(np.float64, copy=False),
+            Nu_L,
+        )
     logger.info(f"Nu_0={Nu_0:.2f}, Nu_L={Nu_L:.2f}")
     posteriorSampleSize: float = Nu_L + Nu_0
     posteriorVarTrack = np.empty_like(priorTrack, dtype=np.float32)
@@ -1862,64 +1891,68 @@ def getMuncTrack(
     return posteriorVarTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
 
 
-def _EB_computePriorStrength(
+def EB_computePriorStrength(
     localModelVariances: np.ndarray, globalModelVariances: np.ndarray, Nu_local: float
 ) -> float:
-    r"""Compute :math:`\nu_0` to determine 'prior strength' for EB variance shrinkage.
+    r"""Compute :math:`\nu_0` to determine 'prior strength'
 
-    The prior strength is determing by the excess variance beyond sampling noise, having assumed a scaled
-    inverse :math:`\chi^2` distribution.
+    The prior model strength is determined by its 'excess' dispersion beyond sampling noise  (at the local level)
+
+    For a :math:`\chi^2_{\nu_0}` random variable,
 
     .. math::
 
-        \mathbb{V}\left[\log\left(\frac{s^2_{\textsf{local}}}{\sigma^2_{\textsf{prior}}}\right)\right]
+        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
         =
-        \textsf{trigamma}\left(\frac{\nu_{\textsf{local}}}{2}\right)
+        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
         +
         \textsf{trigamma}\left(\frac{\nu_{0}}{2}\right)
 
-    If there is no heterogeneity beyond sampling noise, then
+    If there is little heterogeneity beyond sampling noise, then
 
     .. math::
 
-        \mathbb{V}\left[\log\left(\frac{s^2_{\textsf{local}}}{\sigma^2_{\textsf{prior}}}\right)\right]
+        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
         \approx
-        \textsf{trigamma}\left(\frac{\nu_{\textsf{local}}}{2}\right)
+        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
 
     i.e., :math:`\textsf{trigamma}(\nu_{0}/2) \approx 0 \implies \nu_{0} \to \infty`.
 
-    Or, intuitively, the prior is sufficiently capturing variance (up to noise in sampling), such that
-    it can be relied upon exclusively.
+    Or, the prior is sufficiently capturing local heterogeneity/dispersion (up to noise in sampling), such that
+    in principle, it can be relied upon exclusively.
 
-    With :math:`\nu_{\textsf{local}}` fixed, estimate :math:`\nu_{0}` by solving
+    With :math:`\nu_{\mathcal{L}}` fixed, estimate :math:`\nu_{0}` by solving
 
     .. math::
 
         \textsf{trigamma}\left(\frac{\nu_{0}}{2}\right)
         =
-        \mathbb{V}\left[\log\left(\frac{s^2_{\textsf{local}}}{\sigma^2_{\textsf{prior}}}\right)\right]
+        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
         -
-        \textsf{trigamma}\left(\frac{\nu_{\textsf{local}}}{2}\right)
+        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
 
     .. math::
 
         \nu_{0}
         \approx
         2 \cdot \textsf{trigamma}^{-1}\left(
-            \mathbb{V}\left[\log\left(\frac{s^2_{\textsf{local}}}{\sigma^2_{\textsf{prior}}}\right)\right]
+            \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
             -
-            \textsf{trigamma}\left(\frac{\nu_{\textsf{local}}}{2}\right)
+            \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
         \right)
 
+    We solve for :math:`\nu_0` with warm-started Newton (no closed-form, no numpy/scipy inverse trigamma function).
 
     :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) innovation variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
     :type localModelVariances: np.ndarray
-    :param globalModelVariances: Global model variance estimates from the |mean|-variance trend fit (:func:`consenrich.core.fitVarianceFunction`).
+    :param globalModelVariances: Global model variance estimates from the absMean-variance trend fit (:func:`consenrich.core.fitVarianceFunction`).
     :type globalModelVariances: np.ndarray
     :param Nu_local: Effective sample size/degrees of freedom for the local model.
     :type Nu_local: float
     :return: Estimated prior strength :math:`\nu_{0}`.
     :rtype: float
+
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
     """
 
     localModelVariancesArr = np.asarray(localModelVariances, dtype=np.float64)
@@ -1932,11 +1965,17 @@ def _EB_computePriorStrength(
         & (globalModelVariancesArr > 0.0)
     )
     if np.count_nonzero(ratioMask) < (0.10) * localModelVariancesArr.size:
+        logger.warning(
+            f"Insufficient prior/local variance pairs...setting nu_0 = 1.0e6",
+        )
         return float(1.0e6)
 
     varRatioArr = localModelVariancesArr[ratioMask] / globalModelVariancesArr[ratioMask]
     varRatioArr = varRatioArr[np.isfinite(varRatioArr) & (varRatioArr > 0.0)]
     if varRatioArr.size < (0.10) * localModelVariancesArr.size:
+        logger.warning(
+            f"After masking, insufficient prior/local variance pairs...setting nu_0 = 1.0e6",
+        )
         return float(1.0e6)
 
     logVarRatioArr = np.log(varRatioArr)
@@ -1948,6 +1987,7 @@ def _EB_computePriorStrength(
     trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))
     gap = varLogVarRatio - trigammaLocal
 
+    # FFR: not technically efficient
     def _objective(x_: float) -> float:
         if x_ <= 1.0e-12:
             x_ = 1.0e-12
@@ -1956,15 +1996,16 @@ def _EB_computePriorStrength(
     def d_objective(x_: float) -> float:
         if x_ <= 1.0e-12:
             x_ = 1.0e-12
-        return float(special.polygamma(2, x_))  # tetragamma
+        return float(special.polygamma(2, x_))
 
     if (not np.isfinite(gap)) or gap <= 1.0e-8:
         return 1.0e6
 
     # warm start
     if gap < 0.5:
-        # Set x' = 1/x and take first two terms of the AE for trigamma:
-        # ...   x' + x'^2 / 2  = gap
+        # (Abramowitz and Stegun Eqn. 6.4.12 (psi'), 1964)
+        # set x' = 1/x and take the first two terms of the asymptotic expansion to solve
+        # ...   x' + x'^2 / 2 = gap
         # ... quadratic formula gives -1 + sqrt(1 - 4/2 * -gap) = 1/x,
         # ... x = 1 / ( -1 + sqrt(1 + 2*gap) )
         invRootApprox = -1.0 + np.sqrt(1.0 + (2.0 * gap))
@@ -1972,7 +2013,6 @@ def _EB_computePriorStrength(
             return 1.0e6
         x0_ = float(np.maximum(1.0 / invRootApprox, 1.0e-8))
     else:
-        # set lower bound at 1 / sqrt -- larger than first terms (1/x + 1/(2x^2))
         x0_ = float(np.maximum(1.0 / np.sqrt(gap), 1.0e-8))
 
     try:

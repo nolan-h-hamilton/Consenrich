@@ -84,7 +84,6 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 .. code-block:: yaml
   :name: demoHistoneChIPSeq.yaml
 
-  # v0.8.0rc1
   experimentName: demoHistoneChIPSeq
   genomeParams.name: hg38
   genomeParams.chromosomes: [chr21, chr22] # remove this line to run genome-wide
@@ -103,7 +102,7 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   # Optional: call 'structured peaks'
   matchingParams.templateNames: [haar,haar,db2,db2]
   matchingParams.cascadeLevels: [2,3,2,3]
-
+  outputParams.writeUncertainty: true
 
 
 .. admonition:: Control Inputs
@@ -115,15 +114,6 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
 Run Consenrich
 """""""""""""""""""""
 
-.. admonition:: Guidance: Command-line vs. Programmatic Usage
-  :class: tip
-  :collapsible: closed
-
-  The command-line interface is a convenience wrapper that may not expose all available objects or more niche features.
-  Some users may find it beneficial to run Consenrich programmatically (e.g., in a Jupyter notebook, Python script), as the :ref:`API` enables
-  greater flexibility to apply custom preprocessing steps and various context-specific protocols within existing workflows.
-
-
 .. code-block:: console
   :name: Run Consenrich
 
@@ -132,12 +122,8 @@ Run Consenrich
 Results
 """"""""""""""""""""""""""
 
-* We display Consenrich results (blue) at ``APOL2 <--| |--> APOL1``
+* We display Consenrich results (blue) over a 100 kb locus in human chromosome 22
 
-
-* For reference, ENCODE peaks (label: `rep1 pseudoreplicated peaks`) for the same `Experiments` and donor samples are included (black):
-
-  * `ENCODE Histone ChIP-seq pipeline (unreplicated) <https://www.encodeproject.org/pipelines/ENCPL841HGV/>`_ (MACS peak calls, partition concordance)
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
   :alt: Output Consenrich Signal Estimates
@@ -174,5 +160,5 @@ In general, for workflows of the form ``Consenrich Signal Track --> Peak Caller 
 Broad Features / Shallow Sequencing Depth
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
-Default value is 25 bp (``countingParams.intervalSizeBP``), which may be too fine for very broad marks and/or samples with less than :math:`\approx 5\textsf{M}` tags. Consider using larger interval sizes, e.g., 50-200 bp in these cases.
+The default for (``countingParams.intervalSizeBP``) is 25 base pairs, which may be too fine for very broad marks and/or samples with less than :math:`\approx 5\textsf{M}` tags. Consider using larger interval sizes, e.g., 50-200 bp in these cases.
 

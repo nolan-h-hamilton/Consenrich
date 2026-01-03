@@ -28,16 +28,14 @@ The core module implements the main aspects of Consenrich and defines key parame
 .. autoclass:: consenrich.core.countingParams
 .. autoclass:: consenrich.core.samParams
 .. autoclass:: consenrich.core.matchingParams
-.. autofunction:: consenrich.core.getChromRanges
-.. autofunction:: consenrich.core.getChromRangesJoint
-.. autofunction:: consenrich.core.getReadLength
 .. autofunction:: consenrich.core.readBamSegments
+.. autofunction:: consenrich.core.getMuncTrack
+.. autofunction:: consenrich.core.fitVarianceFunction
+.. autofunction:: consenrich.core.EB_computePriorStrength
+.. autofunction:: consenrich.core.runConsenrich
 .. autofunction:: consenrich.core.constructMatrixF
 .. autofunction:: consenrich.core.constructMatrixQ
 .. autofunction:: consenrich.core.constructMatrixH
-.. autofunction:: consenrich.core.runConsenrich
-.. autofunction:: consenrich.core.getPrimaryState
-.. autofunction:: consenrich.core.fitVarianceFunction
 
 ``consenrich.detrorm``
 ~~~~~~~~~~~~~~~~~~~~~~

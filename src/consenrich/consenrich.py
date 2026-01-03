@@ -612,6 +612,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.EB_use",
             True,
         ),
+        EB_setNu0=_cfgGet(
+            configData,
+            "observationParams.EB_setNu0",
+            None),
+        EB_setNuL=_cfgGet(
+            configData,
+            "observationParams.EB_setNuL",
+            None),
     )
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
@@ -1229,6 +1237,8 @@ def main():
                     forceLinearFactor=observationArgs.forceLinearFactor,
                     randomSeed=42 + j_,
                     EB_use=observationArgs.EB_use,
+                    EB_setNu0=observationArgs.EB_setNu0,
+                    EB_setNuL=observationArgs.EB_setNuL,
                 )
                 j_ += 1
         else:
@@ -1284,6 +1294,8 @@ def main():
                     forceLinearFactor=observationArgs.forceLinearFactor,
                     randomSeed=42 + j,
                     EB_use=observationArgs.EB_use,
+                    EB_setNu0=observationArgs.EB_setNu0,
+                    EB_setNuL=observationArgs.EB_setNuL,
                 )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
