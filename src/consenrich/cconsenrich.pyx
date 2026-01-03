@@ -293,6 +293,26 @@ cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nog
     return <bint>0
 
 
+cdef inline float _medianInplaceF32(float* vals_, Py_ssize_t n) nogil:
+    cdef Py_ssize_t k0, k1
+    cdef float v0, v1
+    if n <= 0:
+        return 1.0
+
+    if (n & 1) == 1:
+        k1 = n >> 1
+        _nthElement(vals_, n, k1)
+        return vals_[k1]
+
+    k1 = n >> 1
+    k0 = k1 - 1
+    _nthElement(vals_, n, k0)
+    v0 = vals_[k0]
+    _nthElement(vals_, n, k1)
+    v1 = vals_[k1]
+    return 0.5 * (v0 + v1)
+
+
 cdef inline double _lossAbsQuadIntercept(
     double absSlope,
     double quadSlope,
@@ -741,6 +761,7 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
     cdef float baseSlopeToLevelRatio, maxSlopeQ, minSlopeQ
     cdef float baseOffDiagProd, sqrtDiags, maxNoiseCorr
     cdef float newLevelQ, newSlope_Qnoise, newOffDiagQ
+    cdef float newLevel_Qnoise # fix (was python-level before)
     cdef float eps = <float>1.0e-8
 
     if dStatAlphaLowMult <= 0:
@@ -779,10 +800,10 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
             matrixQ[1, 0] *= scaleQ
             matrixQ[1, 1] *= scaleQ
         else:
-            newLevel_Qnoise= fminf(matrixQ[0, 0]*scaleQ, maxQ)
+            newLevel_Qnoise = fminf(matrixQ[0, 0]*scaleQ, maxQ)
             newSlope_Qnoise = fminf(matrixQ[1, 1]*scaleQ, maxSlopeQ)
             newOffDiagQ = baseOffDiagProd * sqrtf(fmaxf(newLevel_Qnoise* newSlope_Qnoise, eps))
-            matrixQ[0, 0] = newLevelQ
+            matrixQ[0, 0] = newLevel_Qnoise
             matrixQ[0, 1] = newOffDiagQ
             matrixQ[1, 0] = newOffDiagQ
             matrixQ[1, 1] = newSlope_Qnoise
@@ -797,10 +818,10 @@ cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matr
             matrixQ[1, 1] /= scaleQ
         else:
             # we've hit the minimum, no longer 'inflated'
-            newLevel_Qnoise= fmaxf(matrixQ[0, 0] / scaleQ, minQ)
+            newLevel_Qnoise = fmaxf(matrixQ[0, 0] / scaleQ, minQ)
             newSlope_Qnoise = fmaxf(matrixQ[1, 1] / scaleQ, minSlopeQ)
             newOffDiagQ = baseOffDiagProd * sqrtf(fmaxf(newLevel_Qnoise* newSlope_Qnoise, eps))
-            matrixQ[0, 0] = newLevelQ
+            matrixQ[0, 0] = newLevel_Qnoise
             matrixQ[0, 1] = newOffDiagQ
             matrixQ[1, 0] = newOffDiagQ
             matrixQ[1, 1] = newSlope_Qnoise
