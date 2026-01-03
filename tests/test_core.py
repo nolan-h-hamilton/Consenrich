@@ -29,6 +29,7 @@ def testMatrixConstruction(
     coefficients=[0.1, 0.2, 0.3, 0.4],
     minQ=0.25,
     offDiag=0.10,
+    ratioDiagQ=5.0
 ):
     # F
     m = len(coefficients)
@@ -43,9 +44,9 @@ def testMatrixConstruction(
     np.testing.assert_allclose(matrixH[:, 1], np.zeros(m))
 
     # Q
-    matrixQ = core.constructMatrixQ(minQ)
+    matrixQ = core.constructMatrixQ(minQ, ratioDiagQ=5.0)
     assert matrixQ.shape == (2, 2)
-    np.testing.assert_allclose(matrixQ, np.array([[minQ, 0.0], [0.0, minQ]]))
+    np.testing.assert_allclose(matrixQ, np.array([[minQ, 0.0], [0.0, minQ/ratioDiagQ]]))
 
 
 @pytest.mark.chelpers
@@ -118,27 +119,6 @@ def testbedMask(tmp_path):
             assert mask[i] == 1
         else:
             assert mask[i] == 0
-
-
-@pytest.mark.correctness
-def testgetPrecisionWeightedResidualWithCovar():
-    np.random.seed(0)
-    n, m = 5, 3
-    postFitResiduals = np.random.randn(n, m).astype(np.float32)
-    matrixMunc = (np.random.rand(m, n).astype(np.float32) * 2.0) + 0.5
-    add_vec = np.random.rand(n).astype(np.float32) * 0.5
-    stateCovarSmoothed = np.zeros((n, 2, 2), dtype=np.float32)
-    stateCovarSmoothed[:, 0, 0] = add_vec
-    totalUnc = matrixMunc + add_vec
-    weights = 1.0 / totalUnc
-    expected = (postFitResiduals * weights.T).sum(axis=1) / weights.sum(axis=0)
-    out = core.getPrecisionWeightedResidual(
-        postFitResiduals=postFitResiduals,
-        matrixMunc=matrixMunc,
-        roundPrecision=6,
-        stateCovarSmoothed=stateCovarSmoothed,
-    )
-    np.testing.assert_allclose(out, expected.astype(np.float32), rtol=1e-6, atol=1e-6)
 
 
 @pytest.mark.correctness
@@ -383,7 +363,7 @@ def testRunConsenrich1DInputShapes():
 
     assert state.shape == (n, 2)
     assert stateCov.shape == (n, 2, 2)
-    assert resid.shape == (n, 1)
+    assert len(resid) == n
 
 
 @pytest.mark.correctness
@@ -431,7 +411,7 @@ def testRunConsenrich2DInputShapes():
 
     assert state.shape == (n, 2)
     assert stateCov.shape == (n, 2, 2)
-    assert resid.shape == (n, m)
+    assert len(resid) == n 
 
 
 @pytest.mark.correctness

@@ -8,19 +8,6 @@ API Reference
    :name: API
 
 
-Key Parameters
-~~~~~~~~~~~~~~~~~~~
-
-Below, we list a few parameters that may warrant adjustment in specific scenarios:
-
-* `countingParams.intervalSizeBP`: - Sets the length (in base pairs) of contiguous, non-overlapping bins over which reads are counted.
-   Increasing this value (default ``25 bp``) can improve performance given shallow sequencing depths and/or large domain-level targets (e.g., H3K27me3).
-* `processParams.minQ`: - Default is a small value to avoid singular Sets the lower bound on the process noise variance. If outputs look over-smoothed by the model, consider increasing this value to contribute more weight to the data. If output appears  unstable/high-frequency, consider reducing this value toward zero.
-  The default is ``-1``, which lets Consenrich set a minimal data-driven value based on the input data.
-* `observationParams.minR`: - Sets the lower bound on the measurement uncertainty tracks. Default is ``-1.0``, which lets Consenrich set a minimal data-driven value based on the input data.
-* `observationParams.localWeight`: - Sets the weight given to the local, ALV-based component of the measurement uncertainty calculations (:func:`consenrich.core.getMuncTrack`). Default is ``0.25``.
-   Decreasing this value (toward ``0.0``) will give more influence to a 'global' fitted mean-variance trend.
-
 ``consenrich.core``
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -35,7 +22,6 @@ The core module implements the main aspects of Consenrich and defines key parame
 .. autoclass:: consenrich.core.plotParams
 .. autoclass:: consenrich.core.observationParams
 .. autoclass:: consenrich.core.stateParams
-.. autoclass:: consenrich.core.detrendParams
 .. autoclass:: consenrich.core.inputParams
 .. autoclass:: consenrich.core.outputParams
 .. autoclass:: consenrich.core.genomeParams
@@ -46,19 +32,12 @@ The core module implements the main aspects of Consenrich and defines key parame
 .. autofunction:: consenrich.core.getChromRangesJoint
 .. autofunction:: consenrich.core.getReadLength
 .. autofunction:: consenrich.core.readBamSegments
-.. autofunction:: consenrich.core.getAverageLocalVarianceTrack
 .. autofunction:: consenrich.core.constructMatrixF
 .. autofunction:: consenrich.core.constructMatrixQ
 .. autofunction:: consenrich.core.constructMatrixH
 .. autofunction:: consenrich.core.runConsenrich
 .. autofunction:: consenrich.core.getPrimaryState
-.. autofunction:: consenrich.core.getStateCovarTrace
-.. autofunction:: consenrich.core.getPrecisionWeightedResidual
-.. autofunction:: consenrich.core.getMuncTrack
-.. autofunction:: consenrich.core.sparseIntersection
-.. autofunction:: consenrich.core.adjustFeatureBounds
-.. autofunction:: consenrich.core.getSparseMap
-.. autofunction:: consenrich.core.getBedMask
+.. autofunction:: consenrich.core.fitVarianceFunction
 
 ``consenrich.detrorm``
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -71,7 +50,6 @@ The core module implements the main aspects of Consenrich and defines key parame
 .. autofunction:: consenrich.detrorm.getScaleFactor1x
 .. autofunction:: consenrich.detrorm.getScaleFactorPerMillion
 .. autofunction:: consenrich.detrorm.getPairScaleFactors
-.. autofunction:: consenrich.detrorm.detrendTrack
 
 
 ``consenrich.constants``
@@ -84,7 +62,7 @@ The core module implements the main aspects of Consenrich and defines key parame
 
 .. important::
 
-    This module is provided for *convenience*. If a genome is not listed here, users can still specify resources (e.g., sizes file, blacklist) manually.
+    This module is provided for *convenience*. Users may directly specify effective genome sizes, resource file paths, etc.
 
 .. autofunction:: consenrich.constants.getEffectiveGenomeSize
 .. autofunction:: consenrich.constants.getGenomeResourceFile
@@ -189,26 +167,12 @@ The following defaults should provide a strong starting point for many use cases
 
 .. code-block:: yaml
 
-  matchingParams.templateNames: [haar, db2]
-  matchingParams.cascadeLevels: [2, 2]
+  matchingParams.templateNames: [haar, haar, db2, db2]
+  matchingParams.cascadeLevels: [2,3,2,3]
   matchingParams.minMatchLengthBP: -1 # auto-select based on data
-  matchingParams.mergeGapBP: -1 # half of `minMatchLengthBP`
+  matchingParams.mergeGapBP: -1 # selects half of `minMatchLengthBP`
   matchingParams.alpha: 0.05
-  matchingParams.minSignalAtMaxima: 'q:0.75'
 
-
-**Note**, the matching algorithm can be run at the command-line on *existing* bedGraph files from previous Consenrich runs.
-This avoids re-running Consenrich (in full) when only matching/peak-calling is desired. For instance,
-
-.. code-block:: console
-
-  % consenrich \
-    --match-bedGraph consenrichOutput_<experimentName>_state.bedGraph \
-    --match-template haar db2 \
-    --match-level 3 3 \
-    --match-alpha 0.01
-
-This will return structured peaks detected using Haar and db2 templates, level 3 and significance threshold :math:`\alpha=0.01`. Run ``consenrich -h`` for additional options.
 
 ---
 
@@ -228,9 +192,15 @@ Cython functions: ``consenrich.cconsenrich``
 Several computationally burdensome tasks are written in `Cython <https://cython.org/>`_ for improved efficiency.
 
 .. autofunction:: consenrich.cconsenrich.creadBamSegment
-.. autofunction:: consenrich.cconsenrich.cinvertMatrixE
 .. autofunction:: consenrich.cconsenrich.updateProcessNoiseCovariance
 .. autofunction:: consenrich.cconsenrich.csampleBlockStats
-.. autofunction:: consenrich.cconsenrich.cSparseAvg
 .. autofunction:: consenrich.cconsenrich.cgetFragmentLength
-.. autofunction:: consenrich.cconsenrich.cbedMask
+.. autofunction:: consenrich.cconsenrich.clogRatio
+.. autofunction:: consenrich.cconsenrich.cgetGlobalBaseline
+.. autofunction:: consenrich.cconsenrich.cPAVA
+.. autofunction:: consenrich.cconsenrich.cforwardPass
+.. autofunction:: consenrich.cconsenrich.cbackwardPass
+.. autofunction:: consenrich.cconsenrich.cEMA
+.. autofunction:: consenrich.cconsenrich.cmeanVarPairs
+.. autofunction:: consenrich.cconsenrich.projectToBox
+
