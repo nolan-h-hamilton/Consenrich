@@ -229,9 +229,10 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
         oneMinusBetaSq = 1.0 - (beta1 * beta1)
         if useInnovationVar:
-            divRSS = 1.0
+            divRSS = <double>1.0
         else:
-            divRSS = oneMinusBetaSq
+            # marginal variance
+            divRSS = <double>oneMinusBetaSq
 
         if divRSS <= 1.0e-8:
             divRSS = <double>1.0e-8
@@ -2474,6 +2475,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     double maxBeta=0.99,
+    bint centered = <bint>False,
 ):
     cdef Py_ssize_t numIntervals=values.shape[0]
     cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex
@@ -2581,13 +2583,24 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
             maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
 
-    for regionIndex in range(numIntervals):
-        startIndex=(regionIndex - halfBlockLength)
-        if startIndex < 0:
-            startIndex=0
-        elif startIndex > maxStartIndex:
-            startIndex=maxStartIndex
-        varOut[regionIndex]=varAtStartIndex[startIndex]
+    if centered:
+        for regionIndex in range(numIntervals):
+            startIndex=(regionIndex - halfBlockLength)
+            if startIndex < 0:
+                startIndex=0
+            elif startIndex > maxStartIndex:
+                startIndex=maxStartIndex
+            varOut[regionIndex]=varAtStartIndex[startIndex]
+    else:
+        for regionIndex in range(numIntervals):
+            startIndex = regionIndex - blockLength + 1
+            if startIndex < 0:
+                # flag as invalid (i.e., divert to prior model until full window)
+                varOut[regionIndex] = <cnp.float32_t>-1.0
+                continue
+            if startIndex > maxStartIndex:
+                startIndex = maxStartIndex
+            varOut[regionIndex] = varAtStartIndex[startIndex]
 
     return varOut
 

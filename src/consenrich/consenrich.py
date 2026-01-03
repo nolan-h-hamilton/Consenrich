@@ -590,11 +590,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.minValid",
             1.0e-3,
         ),
-        forceLinearFactor=_cfgGet(
+        forceLinearFactor=float(_cfgGet(
             configData,
             "observationParams.forceLinearFactor",
-            0.1,
-        ),
+            1/4.0,
+        )),
         EB_use=_cfgGet(
             configData,
             "observationParams.EB_use", True,

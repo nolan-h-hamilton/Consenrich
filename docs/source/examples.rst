@@ -8,8 +8,6 @@ Quickstart + Usage
 
 After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
 
-See also :ref:`files` and :ref:`tips` for more information.
-
 
 .. _getting-started:
 
@@ -145,50 +143,6 @@ Results
   :alt: Output Consenrich Signal Estimates
     :width: 600px
     :align: left
-
-
-.. _files:
-
-File Formats
-~~~~~~~~~~~~~~~~~~~~~~
-
-* Input
-
-  * Per-sample sequence alignment files (BAM format)
-
-    * *Optional*: Control/input alignment files (e.g., ChIP-seq)
-
-  * Note, if using Consenrich programmatically, users can provide preprocessed sample-by-interval count matrices directly instead of BAM files (see :func:`consenrich.core.runConsenrich`)
-
-
-* Output
-
-  * *Posterior Signal estimate track*: ``<experimentName>_consenrich_state.bw``
-
-    * This track records genome-wide Consenrich estimates for the targeted signal of interest
-    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_state.bedGraph``
-
-  * *Posterior state uncertainty track*: ``<experimentName>_consenrich_stateStdDev.bw``
-
-    * Pointwise conditional uncertainty in the primary state estimate, :math:`\sqrt{\widetilde{P}_{i,(11)}}` under the assumed model.
-    * Invoke ``consenrich.core.outputParams.writeStateStdDev`` (YAML: ``outputParams.writeWRMS: true``)
-    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_stateStd.bedGraph``
-
-  * *Weighted RMS of Post-Fit Residuals (Optional)*: ``<experimentName>_consenrich_WRMS.bw``
-
-    * Pointwise root-mean-square wrt post-fit residuals (WRMS) to bedGraph, whitened with respect to
-      observation uncertainty (variance). Values are computed as the RMS across input samples: :math:`(y_{[j,i]}-\hat{x}_{[0,i]})/\sqrt{R_{j,i}}`,
-      where :math:`R_{j,i}` is the observation variance from :math:`\mathbf{R}` (``matrixMunc``).
-    * Invoke ``consenrich.core.outputParams.writeWRMS`` (YAML: ``outputParams.writeWRMS: true``)
-    * A human-readable bedGraph file is also generated: ``consenrichOutput_<experimentName>_consenrich_WRMS.bedGraph``
-
-  * *Structured peak calls* (Optional): ``<experimentName>_matches.mergedMatches.narrowPeak``
-
-    * BED-like annotation of enriched signal regions showing a regular structure. Only generated if the matching algorithm is invoked.
-    * See :ref:`matching` and :func:`consenrich.matching.matchWavelet`
-
-
-See :class:`outputParams` in the :ref:`API` for full documentation of output options.
 
 
 .. _tips:

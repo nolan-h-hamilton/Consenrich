@@ -1583,9 +1583,9 @@ def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
     eps: float = 1.0e-8,
-    forceLinearFactor: float = 0.1,
+    forceLinearFactor: float = 0.25,
     splitValue: float = 1.0,
-    numBins: int | None = 50,
+    numBins: int | None = 25,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -1693,7 +1693,7 @@ def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
     eps: float = 1.0e-8,
-    forceLinearFactor: float = 0.1,
+    forceLinearFactor: float = 1/4,
 ) -> np.ndarray:
     varianceTrend = np.asarray(coeffs, dtype=np.float32)
     absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
@@ -1726,7 +1726,7 @@ def getMuncTrack(
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     minValid: float = 1.0e-3,
-    forceLinearFactor: float = 0.1,
+    forceLinearFactor: float = 1/4,
     EB_use: bool = True,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks according to a fitted |mean|-variance trend.
@@ -1735,7 +1735,7 @@ def getMuncTrack(
     :type chromosome: str
     :param intervals: genomic intervals positions (start positions)
     :type intervals: npt.NDArray[np.uint32]
-    :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend. Note, this value should, at the least, span several fragment lengths.
+    :param blockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
     :type blockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
@@ -1748,13 +1748,13 @@ def getMuncTrack(
     """
 
     if blockSizeBP is None:
-        blockSizeBP = intervalSizeBP * 25
+        blockSizeBP = intervalSizeBP * 15
     blockSizeIntervals = int(blockSizeBP / intervalSizeBP)
-    if blockSizeIntervals < 10:
+    if blockSizeIntervals < 15:
         logger.warning(
-            f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 11*intervalSizeBP"
+            f"`blockSizeBP` is small for sampling (mean, variance) pairs...trying 15*intervalSizeBP"
         )
-        blockSizeIntervals = 25
+        blockSizeIntervals = 15
 
     localWindowIntervals = max(4, (blockSizeIntervals + 1))
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
