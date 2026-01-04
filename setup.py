@@ -48,7 +48,7 @@ extensions = [
 
 setup(
     name="consenrich",
-    version="0.7.11b2",
+    version="0.8.1rc1",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     include_package_data=True,
@@ -62,8 +62,11 @@ setup(
         "pybedtools>=0.11.2",
         "PyYAML>=6.0.2",
         "PyWavelets>=1.9.0",
-        "matplotlib",
+        "tqdm",
     ],
+    extras_require={
+        "plot": ["plotext", "matplotlib", "seaborn"],
+    },
     python_requires=">=3.11",
     zip_safe=False,
 )

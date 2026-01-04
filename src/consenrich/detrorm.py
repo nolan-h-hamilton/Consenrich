@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 from .misc_util import getChromSizesDict
 from .constants import EFFECTIVE_GENOME_SIZES
-from .cconsenrich import cgetFragmentLength
+from .cconsenrich import cgetFragmentLength, cEMA
 
 
 def getScaleFactor1x(
@@ -80,7 +80,7 @@ def getScaleFactor1x(
 
 
 def getScaleFactorPerMillion(
-    bamFile: str, excludeChroms: List[str], stepSize: int
+    bamFile: str, excludeChroms: List[str], intervalSizeBP: int
 ) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
@@ -105,7 +105,9 @@ def getScaleFactorPerMillion(
         raise ValueError(
             f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}."
         )
-    scalePM = round((1_000_000 / totalMappedReads)*(1000/stepSize), 5)
+    scalePM = round(
+        (1_000_000 / totalMappedReads) * (1000 / intervalSizeBP), 5
+    )
     return scalePM
 
 
@@ -119,113 +121,92 @@ def getPairScaleFactors(
     excludeChroms: List[str],
     chromSizesFile: str,
     samThreads: int,
-    stepSize: int,
-    scaleDown: bool = False,
+    intervalSizeBP: int,
     normMethod: str = "EGS",
+    fixControl: bool = True,
 ) -> Tuple[float, float]:
-    r"""Get scaling constants that normalize two alignment files to each other (e.g. ChIP-seq treatment and control) with respect to sequence coverage.
+    r"""Scale treatment:control data based on effective genome size or reads per million.
 
-    :param bamFileA: Path to the first BAM file.
+    :param bamFileA: Alignment file for the 'treatment' sample.
     :type bamFileA: str
-    :param bamFileB: Path to the second BAM file.
+    :param bamFileB: Alignment file for the 'control' sample (e.g., input).
     :type bamFileB: str
-    :param effectiveGenomeSizeA: Effective genome size for the first BAM file.
+    :param effectiveGenomeSizeA: Effective genome size for the treatment sample.
     :type effectiveGenomeSizeA: int
-    :param effectiveGenomeSizeB: Effective genome size for the second BAM file.
+    :param effectiveGenomeSizeB: Effective genome size for the control sample.
     :type effectiveGenomeSizeB: int
-    :param readLengthA: read length or fragment length for the first BAM file.
+    :param readLengthA: Read or fragment length for the treatment sample.
     :type readLengthA: int
-    :param readLengthB: read length or fragment length for the second BAM file.
+    :param readLengthB: Read or fragment length for the control sample.
     :type readLengthB: int
     :param excludeChroms: List of chromosomes to exclude from the analysis.
     :type excludeChroms: List[str]
     :param chromSizesFile: Path to the chromosome sizes file.
     :type chromSizesFile: str
-    :param samThreads: Number of threads to use for reading BAM files.
+    :param samThreads: See :class:`consenrich.core.samParams`.
     :type samThreads: int
-    :param normMethod: Normalization method to use ("RPKM" or "EGS").
+    :param intervalSizeBP: Step size for coverage calculation.
+    :param: normMethod: Normalization method to use ("EGS" or "RPKM").
     :type normMethod: str
-    :return: A tuple containing the scale factors for the first and second BAM files.
+    :return: Tuple of scale factors for treatment and control samples.
     :rtype: Tuple[float, float]
     """
-    # RPKM
+
     if normMethod.upper() == "RPKM":
         scaleFactorA = getScaleFactorPerMillion(
             bamFileA,
             excludeChroms,
-            stepSize,
+            intervalSizeBP,
         )
         scaleFactorB = getScaleFactorPerMillion(
             bamFileB,
             excludeChroms,
-            stepSize,
+            intervalSizeBP,
         )
-        logger.info(
-            f"Initial scale factors (per million): {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
-        )
-
-        if not scaleDown:
-            return scaleFactorA, scaleFactorB
-        coverageA = 1 / scaleFactorA
-        coverageB = 1 / scaleFactorB
-        if coverageA < coverageB:
-            scaleFactorB *= coverageA / coverageB
-            scaleFactorA = 1.0
-        else:
-            scaleFactorA *= coverageB / coverageA
-            scaleFactorB = 1.0
-
-        logger.info(
-            f"Final scale factors (per million): {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
-        )
-
-        ratio = max(scaleFactorA, scaleFactorB) / min(
-            scaleFactorA, scaleFactorB
-        )
-        if ratio > 5.0:
-            logger.warning(
-                f"Scale factors differ > 5x....\n"
-                f"\n\tAre read/fragment lengths {readLengthA},{readLengthB} correct?"
-            )
-        return scaleFactorA, scaleFactorB
-
-    # EGS normalization
-    scaleFactorA = getScaleFactor1x(
-        bamFileA,
-        effectiveGenomeSizeA,
-        readLengthA,
-        excludeChroms,
-        chromSizesFile,
-        samThreads,
-    )
-    scaleFactorB = getScaleFactor1x(
-        bamFileB,
-        effectiveGenomeSizeB,
-        readLengthB,
-        excludeChroms,
-        chromSizesFile,
-        samThreads,
-    )
-    logger.info(
-        f"Initial scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
-    )
-    if not scaleDown:
-        return scaleFactorA, scaleFactorB
-    coverageA = 1 / scaleFactorA
-    coverageB = 1 / scaleFactorB
-    if coverageA < coverageB:
-        scaleFactorB *= coverageA / coverageB
-        scaleFactorA = 1.0
     else:
-        scaleFactorA *= coverageB / coverageA
+        scaleFactorA = getScaleFactor1x(
+            bamFileA,
+            effectiveGenomeSizeA,
+            readLengthA,
+            excludeChroms,
+            chromSizesFile,
+            samThreads,
+        )
+        scaleFactorB = getScaleFactor1x(
+            bamFileB,
+            effectiveGenomeSizeB,
+            readLengthB,
+            excludeChroms,
+            chromSizesFile,
+            samThreads,
+        )
+
+    coverageA = 1.0 / scaleFactorA if scaleFactorA > 0.0 else 0.0
+    coverageB = 1.0 / scaleFactorB if scaleFactorB > 0.0 else 0.0
+
+    if fixControl:
+        # keep control full depth, never scale it down, never scale it up
         scaleFactorB = 1.0
 
-    logger.info(
-        f"Final scale factors: {bamFileA}: {scaleFactorA}, {bamFileB}: {scaleFactorB}"
-    )
+        # only downscale treatment to the (unscaled) control, never upscale treatment
+        if coverageA > coverageB and coverageA > 0.0:
+            scaleFactorA = scaleFactorA * (coverageB / coverageA)
+        else:
+            scaleFactorA = 1.0
+    else:
+        # downscale higher --> lower (regardless of treatment/control status)
+        if coverageA > coverageB and coverageA > 0.0:
+            scaleFactorA = scaleFactorA * (coverageB / coverageA)
+            scaleFactorB = 1.0
+        elif coverageB > coverageA and coverageB > 0.0:
+            scaleFactorB = scaleFactorB * (coverageA / coverageB)
+            scaleFactorA = 1.0
+        else:
+            scaleFactorA = 1.0
+            scaleFactorB = 1.0
 
-    ratio = max(scaleFactorA, scaleFactorB) / min(
-        scaleFactorA, scaleFactorB
+    ratio = max(scaleFactorA, scaleFactorB) / max(
+        1.0e-12, min(scaleFactorA, scaleFactorB)
     )
     if ratio > 5.0:
         logger.warning(
@@ -233,65 +214,5 @@ def getPairScaleFactors(
             f"\n\tAre effective genome sizes {effectiveGenomeSizeA} and {effectiveGenomeSizeB} correct?"
             f"\n\tAre read/fragment lengths {readLengthA},{readLengthB} correct?"
         )
+
     return scaleFactorA, scaleFactorB
-
-
-def detrendTrack(
-    values: np.ndarray,
-    stepSize: int,
-    detrendWindowLengthBP: int,
-    useOrderStatFilter: bool,
-    usePolyFilter: bool,
-    detrendTrackPercentile: float,
-    detrendSavitzkyGolayDegree: int,
-) -> np.ndarray:
-    r"""Detrend tracks using either an order statistic filter or a polynomial filter.
-
-    :param values: Values to detrend.
-    :type values: np.ndarray
-    :param stepSize: see :class:`consenrich.core.countingParams`.
-    :type stepSize: int
-    :param detrendWindowLengthBP: See :class:`consenrich.core.detrendParams`.
-    :type detrendWindowLengthBP: int
-    :param useOrderStatFilter: Whether to use a sliding order statistic filter.
-    :type useOrderStatFilter: bool
-    :param usePolyFilter: Whether to use a sliding polynomial/least squares filter.
-    :type usePolyFilter: bool
-    :param detrendTrackPercentile: Percentile to use for the order statistic filter.
-    :type detrendTrackPercentile: float
-    :param detrendSavitzkyGolayDegree: Degree of the polynomial for the Savitzky-Golay/Polynomial filter.
-    :type detrendSavitzkyGolayDegree: int
-    :return: Detrended values.
-    :rtype: np.ndarray
-    :raises ValueError: If the detrend window length is not greater than 3 times the step size
-        or if the values length is less than the detrend window length.
-    """
-    bothSpecified: bool = False
-    size = int(detrendWindowLengthBP / stepSize)
-    if size % 2 == 0:
-        size += 1
-    if size < 3:
-        raise ValueError("Required: windowLengthBP > 3*stepSize.")
-    if len(values) < size:
-        raise ValueError(
-            "values length must be greater than windowLength."
-        )
-
-    if useOrderStatFilter and usePolyFilter:
-        logger.warning(
-            "Both order statistic and polynomial filters specified...using order statistic filter."
-        )
-        bothSpecified = True
-
-    if useOrderStatFilter or bothSpecified:
-        return values - ndimage.percentile_filter(
-            values, detrendTrackPercentile, size=size
-        )
-    elif usePolyFilter:
-        return values - signal.savgol_filter(
-            values, size, detrendSavitzkyGolayDegree
-        )
-
-    return values - ndimage.uniform_filter1d(
-        values, size=size, mode="nearest"
-    )

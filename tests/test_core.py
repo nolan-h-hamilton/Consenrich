@@ -24,74 +24,29 @@ import consenrich.misc_util as misc_util
 
 
 @pytest.mark.correctness
-def testConstantGetAverageLocalVarianceTrack(constantValue=10):
-    # case: `values` is constant --> noise level should be zero, but due to clipping, `minR`
-    values = np.ones(100) * constantValue
-    stepSize = 1
-    approximationWindowLengthBP = 10
-    lowPassWindowLengthBP = 20
-    minR = 1.0
-    maxR = 100.0
-    out = core.getAverageLocalVarianceTrack(
-        values,
-        stepSize,
-        approximationWindowLengthBP,
-        lowPassWindowLengthBP,
-        minR,
-        maxR,
-    )
-    np.testing.assert_allclose(out, np.ones_like(values) * minR)
-
-
-@pytest.mark.correctness
-def testMaxVarGetAverageLocalVarianceTrack(maxVariance=20):
-    # case: values (length 1000) ~ Poisson(maxVariance*2) -->
-    # mode(all noise levels) ~=~ maxVariance
-    np.random.seed(42)
-    values = np.random.poisson(lam=20, size=1000)
-    stepSize = 1
-    approximationWindowLengthBP = 10
-    lowPassWindowLengthBP = 20
-    minR = 0.0
-    maxR = maxVariance
-    out = core.getAverageLocalVarianceTrack(
-        values,
-        stepSize,
-        approximationWindowLengthBP,
-        lowPassWindowLengthBP,
-        minR,
-        maxR,
-    )
-    np.testing.assert_allclose(stats.mode(out)[0], maxR, rtol=0.001)
-
-
-@pytest.mark.correctness
 def testMatrixConstruction(
     deltaF=0.50,
     coefficients=[0.1, 0.2, 0.3, 0.4],
     minQ=0.25,
     offDiag=0.10,
+    ratioDiagQ=5.0
 ):
     # F
     m = len(coefficients)
     matrixF = core.constructMatrixF(deltaF)
     assert matrixF.shape == (2, 2)
-    np.testing.assert_allclose(
-        matrixF, np.array([[1.0, deltaF], [0.0, 1.0]])
-    )
+    np.testing.assert_allclose(matrixF, np.array([[1.0, deltaF], [0.0, 1.0]]))
 
     # H
-    matrixH = core.constructMatrixH(m, coefficients)
+    matrixH = core.constructMatrixH(m)
     assert matrixH.shape == (m, 2)
-    np.testing.assert_allclose(matrixH[:, 0], coefficients)
+    np.testing.assert_allclose(matrixH[:, 0], np.ones(m))
     np.testing.assert_allclose(matrixH[:, 1], np.zeros(m))
 
     # Q
-    matrixQ = core.constructMatrixQ(minQ, offDiag)
+    matrixQ = core.constructMatrixQ(minQ, ratioDiagQ=5.0)
     assert matrixQ.shape == (2, 2)
-    np.testing.assert_allclose(
-        matrixQ, np.array([[minQ, offDiag], [offDiag, minQ]])
-    )
+    np.testing.assert_allclose(matrixQ, np.array([[minQ, 0.0], [0.0, minQ/ratioDiagQ]]))
 
 
 @pytest.mark.chelpers
@@ -100,9 +55,7 @@ def testResidualCovarianceInversion():
     m = 10
     muncMatrixIter = np.random.gamma(shape=2, scale=1.0, size=m) + 1
     priorCovarianceOO = 0.1
-    residCovar = np.diag(muncMatrixIter) + (
-        np.ones((m, m)) * priorCovarianceOO
-    )
+    residCovar = np.diag(muncMatrixIter) + (np.ones((m, m)) * priorCovarianceOO)
 
     invertedMatrix = cconsenrich.cinvertMatrixE(
         muncMatrixIter.astype(np.float32),
@@ -110,7 +63,10 @@ def testResidualCovarianceInversion():
     )
     # note: loosen criteria given padding
     np.testing.assert_allclose(
-        invertedMatrix @ residCovar, np.eye(m), atol=1e-2, rtol=1e-4,
+        invertedMatrix @ residCovar,
+        np.eye(m),
+        atol=1e-2,
+        rtol=1e-4,
     )
 
 
@@ -127,16 +83,11 @@ def testProcessNoiseAdjustment():
     dStatPC = 1.0
     inflatedQ = False
 
-    matrixQ = np.array(
-        [[minQ, offDiag], [offDiag, minQ]], dtype=np.float32
-    )
+    matrixQ = np.array([[minQ, offDiag], [offDiag, minQ]], dtype=np.float32)
     matrixQCopy = matrixQ.copy()
     vectorY = (np.random.normal(0, 15, size=m)).astype(np.float32)
     dStat = np.mean(vectorY**2).astype(np.float32)
-    dStatDiff = np.float32(
-        np.sqrt(np.abs(dStat - dStatAlpha) * dStatd + dStatPC)
-    )
-
+    prevQ = minQ
     matrixQ, inflatedQ = cconsenrich.updateProcessNoiseCovariance(
         matrixQ,
         matrixQCopy,
@@ -148,17 +99,15 @@ def testProcessNoiseAdjustment():
         maxQ,
         minQ,
     )
-
+    assert matrixQ[0, 0] > prevQ
+    assert matrixQ[0, 0] <= 2 * prevQ
     assert inflatedQ is True
-    np.testing.assert_allclose(matrixQ, maxQ * np.eye(2), rtol=0.01)
 
 
 @pytest.mark.correctness
 def testbedMask(tmp_path):
     bedPath = tmp_path / "testTmp.bed"
-    bedPath.write_text(
-        "chr1\t50\t2000\nchr1\t3000\t5000\nchr1\t10000\t20000\n"
-    )
+    bedPath.write_text("chr1\t50\t2000\nchr1\t3000\t5000\nchr1\t10000\t20000\n")
     intervals = np.arange(500, 10_000, 25)
     mask = core.getBedMask("chr1", bedPath, intervals)
 
@@ -170,31 +119,6 @@ def testbedMask(tmp_path):
             assert mask[i] == 1
         else:
             assert mask[i] == 0
-
-
-@pytest.mark.correctness
-def testgetPrecisionWeightedResidualWithCovar():
-    np.random.seed(0)
-    n, m = 5, 3
-    postFitResiduals = np.random.randn(n, m).astype(np.float32)
-    matrixMunc = (np.random.rand(m, n).astype(np.float32) * 2.0) + 0.5
-    add_vec = np.random.rand(n).astype(np.float32) * 0.5
-    stateCovarSmoothed = np.zeros((n, 2, 2), dtype=np.float32)
-    stateCovarSmoothed[:, 0, 0] = add_vec
-    totalUnc = matrixMunc + add_vec
-    weights = 1.0 / totalUnc
-    expected = (postFitResiduals * weights.T).sum(
-        axis=1
-    ) / weights.sum(axis=0)
-    out = core.getPrecisionWeightedResidual(
-        postFitResiduals=postFitResiduals,
-        matrixMunc=matrixMunc,
-        roundPrecision=6,
-        stateCovarSmoothed=stateCovarSmoothed,
-    )
-    np.testing.assert_allclose(
-        out, expected.astype(np.float32), rtol=1e-6, atol=1e-6
-    )
 
 
 @pytest.mark.correctness
@@ -223,9 +147,7 @@ def testgetPrimaryStateF64():
 def testSingleEndDetection():
     # case: single-end BAM
     bamFiles = ["smallTest.bam"]
-    pairedEndStatus = misc_util.bamsArePairedEnd(
-        bamFiles, maxReads=1_000
-    )
+    pairedEndStatus = misc_util.bamsArePairedEnd(bamFiles, maxReads=1_000)
     assert isinstance(pairedEndStatus, list)
     assert len(pairedEndStatus) == 1
     assert isinstance(pairedEndStatus[0], bool)
@@ -236,9 +158,7 @@ def testSingleEndDetection():
 def testPairedEndDetection():
     # case: paired-end BAM
     bamFiles = ["smallTest2.bam"]
-    pairedEndStatus = misc_util.bamsArePairedEnd(
-        bamFiles, maxReads=1_000
-    )
+    pairedEndStatus = misc_util.bamsArePairedEnd(bamFiles, maxReads=1_000)
     assert isinstance(pairedEndStatus, list)
     assert len(pairedEndStatus) == 1
     assert isinstance(pairedEndStatus[0], bool)
@@ -251,9 +171,7 @@ def testmatchWaveletUnevenIntervals():
     intervals = np.random.randint(0, 1000, size=100, dtype=int)
     intervals = np.unique(intervals)
     intervals.sort()
-    values = np.random.poisson(lam=5, size=len(intervals)).astype(
-        float
-    )
+    values = np.random.poisson(lam=5, size=len(intervals)).astype(float)
     with pytest.raises(ValueError, match="spaced"):
         matching.matchWavelet(
             chromosome="chr1",
@@ -292,9 +210,7 @@ def testMatchExistingBedGraph():
                 ),
             }
         )
-        dataFrame.to_csv(
-            bedGraphPath, sep="\t", header=False, index=False
-        )
+        dataFrame.to_csv(bedGraphPath, sep="\t", header=False, index=False)
         outputPath = matching.runMatchingAlgorithm(
             bedGraphFile=str(bedGraphPath),
             templateNames=["haar"],
@@ -312,12 +228,8 @@ def testMatchExistingBedGraph():
         # Not really the point of this test but
         # makes sure we're somewhat calibrated
         # Updated 15,3 to account for now-default BH correction
-        assert (
-            len(lineStrings) <= 15
-        )  # more than 20 might indicate high FPR
-        assert (
-            len(lineStrings) >= 3
-        )  # fewer than 5 might indicate low power
+        assert len(lineStrings) <= 15  # more than 20 might indicate high FPR
+        assert len(lineStrings) >= 3  # fewer than 5 might indicate low power
 
 
 @pytest.mark.matching
@@ -325,9 +237,7 @@ def testMergeMatches():
     TEST_FILE = "unmerged.test.narrowPeak"
 
     outFile = matching.mergeMatches(TEST_FILE, mergeGapBP=75)
-    assert outFile and os.path.isfile(outFile), (
-        "No output 'merged' file found"
-    )
+    assert outFile and os.path.isfile(outFile), "No output 'merged' file found"
 
     name_re = re.compile(
         r"^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\.\d{3})$"
@@ -342,9 +252,7 @@ def testMergeMatches():
         idx += 1
         line_ = line.strip()
         fields = line_.split("\t")
-        assert len(fields) == 10, (
-            f"Line {idx}: fewer than 10 narrowPeak fields"
-        )
+        assert len(fields) == 10, f"Line {idx}: fewer than 10 narrowPeak fields"
         (
             chrom,
             start_,
@@ -362,12 +270,8 @@ def testMergeMatches():
 
         gap = int(record_["gap"])
         ct = int(record_["ct"])
-        assert gap == 75, (
-            "parsed mergeGapBP in feature name does not match expected"
-        )
-        assert ct >= 1, (
-            "parsed count of merged peaks should be at least 1"
-        )
+        assert gap == 75, "parsed mergeGapBP in feature name does not match expected"
+        assert ct >= 1, "parsed count of merged peaks should be at least 1"
 
         qMinLog10 = float(record_["qmin"])
         qMaxLog10 = float(record_["qmax"])
@@ -421,9 +325,7 @@ def testRunConsenrich1DInputShapes():
     matrixData = np.random.poisson(lam=5, size=n).astype(np.float32)
     matrixMunc = np.ones_like(matrixData, dtype=np.float32)
 
-    def invertMatrixE(
-        muncVec: np.ndarray, priorCov: np.float32
-    ) -> np.ndarray:
+    def invertMatrixE(muncVec: np.ndarray, priorCov: np.float32) -> np.ndarray:
         mLocal = muncVec.shape[0]
         return np.eye(mLocal, dtype=np.float32)
 
@@ -440,7 +342,7 @@ def testRunConsenrich1DInputShapes():
     ) -> Tuple[np.ndarray, bool]:
         return matrixQCopy, inflatedQ
 
-    state, stateCov, resid = core.runConsenrich(
+    state, stateCov, resid, _ = core.runConsenrich(
         matrixData=matrixData,
         matrixMunc=matrixMunc,
         deltaF=1.0,
@@ -450,7 +352,6 @@ def testRunConsenrich1DInputShapes():
         dStatAlpha=1e9,
         dStatd=1.0,
         dStatPC=1.0,
-        dStatUseMean=False,
         stateInit=0.0,
         stateCovarInit=100.0,
         boundState=False,
@@ -458,28 +359,21 @@ def testRunConsenrich1DInputShapes():
         stateUpperBound=10000.0,
         chunkSize=25,
         progressIter=1000,
-        residualCovarInversionFunc=invertMatrixE,
-        adjustProcessNoiseFunc=adjustProcessNoise,
     )
 
     assert state.shape == (n, 2)
     assert stateCov.shape == (n, 2, 2)
-    assert resid.shape == (n, 1)
-
+    assert len(resid) == n
 
 
 @pytest.mark.correctness
 def testRunConsenrich2DInputShapes():
     np.random.seed(42)
     m, n = 3, 1000
-    matrixData = np.random.poisson(lam=5, size=(m, n)).astype(
-        np.float32
-    )
+    matrixData = np.random.poisson(lam=5, size=(m, n)).astype(np.float32)
     matrixMunc = np.ones_like(matrixData, dtype=np.float32)
 
-    def invertMatrixE(
-        muncVec: np.ndarray, priorCov: np.float32
-    ) -> np.ndarray:
+    def invertMatrixE(muncVec: np.ndarray, priorCov: np.float32) -> np.ndarray:
         mLocal = muncVec.shape[0]
         return np.eye(mLocal, dtype=np.float32)
 
@@ -496,7 +390,7 @@ def testRunConsenrich2DInputShapes():
     ) -> Tuple[np.ndarray, bool]:
         return matrixQCopy, inflatedQ
 
-    state, stateCov, resid = core.runConsenrich(
+    state, stateCov, resid, _ = core.runConsenrich(
         matrixData=matrixData,
         matrixMunc=matrixMunc,
         deltaF=1.0,
@@ -506,7 +400,6 @@ def testRunConsenrich2DInputShapes():
         dStatAlpha=1e9,
         dStatd=1.0,
         dStatPC=1.0,
-        dStatUseMean=False,
         stateInit=0.0,
         stateCovarInit=100.0,
         boundState=False,
@@ -514,13 +407,11 @@ def testRunConsenrich2DInputShapes():
         stateUpperBound=10000.0,
         chunkSize=25,
         progressIter=1000,
-        residualCovarInversionFunc=invertMatrixE,
-        adjustProcessNoiseFunc=adjustProcessNoise,
     )
 
     assert state.shape == (n, 2)
     assert stateCov.shape == (n, 2, 2)
-    assert resid.shape == (n, m)
+    assert len(resid) == n 
 
 
 @pytest.mark.correctness
@@ -530,7 +421,8 @@ def testRunConsenrichInvalidShapeRaises():
     matrixMunc = np.random.randn(2, 3, 4).astype(np.float32)
 
     with pytest.raises(
-        ValueError, match="`matrixData` must be 1D or 2D",
+        ValueError,
+        match="`matrixData` must be 1D or 2D",
     ):
         core.runConsenrich(
             matrixData=matrixData,
@@ -542,7 +434,6 @@ def testRunConsenrichInvalidShapeRaises():
             dStatAlpha=3.0,
             dStatd=10.0,
             dStatPC=1.0,
-            dStatUseMean=False,
             stateInit=0.0,
             stateCovarInit=1.0,
             boundState=False,
