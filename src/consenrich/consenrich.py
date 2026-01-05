@@ -604,8 +604,13 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.forceLinearFactor",
-                1 / 4.0,
+                1 / 10,
             )
+        ),
+        numFitBins = _cfgGet(
+            configData,
+            "observationParams.numFitBins",
+            10,
         ),
         EB_use=_cfgGet(
             configData,
@@ -1235,6 +1240,7 @@ def main():
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
                     minValid=observationArgs.minValid,
                     forceLinearFactor=observationArgs.forceLinearFactor,
+                    numFitBins=observationArgs.numFitBins,
                     randomSeed=42 + j_,
                     EB_use=observationArgs.EB_use,
                     EB_setNu0=observationArgs.EB_setNu0,
@@ -1292,6 +1298,7 @@ def main():
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
                     minValid=observationArgs.minValid,
                     forceLinearFactor=observationArgs.forceLinearFactor,
+                    numFitBins=observationArgs.numFitBins,
                     randomSeed=42 + j,
                     EB_use=observationArgs.EB_use,
                     EB_setNu0=observationArgs.EB_setNu0,

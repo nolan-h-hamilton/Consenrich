@@ -231,7 +231,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         if useInnovationVar:
             divRSS = <double>1.0
         else:
-            # marginal variance
             divRSS = <double>oneMinusBetaSq
 
         if divRSS <= 1.0e-8:

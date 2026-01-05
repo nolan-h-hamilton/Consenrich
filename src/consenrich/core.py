@@ -114,6 +114,8 @@ class observationParams(NamedTuple):
     :type minValid: float
     :param forceLinearFactor: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{forceLinearFactor} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type forceLinearFactor: float
+    :param numFitBins: Number of bins used to partition :math:`\lvert \mu_{b=1\ldots B} \rvert` when fitting global mean-variance trend.
+    :type numFitBins: int | None
     :param EB_use: If True, apply empirical Bayes shrinkage in :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool
     :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
@@ -126,6 +128,7 @@ class observationParams(NamedTuple):
     samplingBlockSizeBP: int | None
     minValid: float | None
     forceLinearFactor: float | None
+    numFitBins: int | None
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
@@ -1618,10 +1621,10 @@ def plotStateEstimatesHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-8,
-    forceLinearFactor: float = 0.25,
+    eps: float = 1 / 100,
+    forceLinearFactor: float = 1 / 10,
     splitValue: float = 1.0,
-    numBins: int | None = 25,
+    numFitBins: int | None = 10,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -1660,7 +1663,7 @@ def fitVarianceFunction(
         )
         monoVariancesSeg = np.maximum(monoVariancesSeg, linearFloor)
 
-        if numBins is None or int(numBins) <= 0:
+        if numFitBins is None or int(numFitBins) <= 0:
             absMeanGridSeg, firstIdxSeg, countsSeg = np.unique(
                 absMeansSeg, return_index=True, return_counts=True
             )
@@ -1677,7 +1680,7 @@ def fitVarianceFunction(
             varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
             return absMeanGridSeg, varGridSeg
 
-        numBinsSeg = int(max(4, min(int(numBins), absMeansSeg.size)))
+        numBinsSeg = int(max(4, min(int(numFitBins), absMeansSeg.size)))
         quantileGrid = np.linspace(0.0, 1.0, numBinsSeg + 1, dtype=np.float64)
         edgeGrid = np.quantile(absMeansSeg, quantileGrid)
         edgeGrid[0] = -np.inf
@@ -1728,8 +1731,8 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1.0e-8,
-    forceLinearFactor: float = 1 / 4,
+    eps: float = 1 / 100,
+    forceLinearFactor: float = 1 / 10,
 ) -> np.ndarray:
     varianceTrend = np.asarray(coeffs, dtype=np.float32)
     absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
@@ -1762,7 +1765,8 @@ def getMuncTrack(
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     minValid: float = 1.0e-3,
-    forceLinearFactor: float = 1 / 4,
+    forceLinearFactor: float = 1 / 10,
+    numFitBins: int | None = 10,
     EB_use: bool = True,
     EB_setNu0: int|None = None,
     EB_setNuL: int|None = None,
@@ -1789,6 +1793,8 @@ def getMuncTrack(
     :type minValid: float
     :param forceLinearFactor: Require prior-model fitted variances satisfy ``var >= forceLinearFactor*absMean``
     :type forceLinearFactor: float
+    :param numFitBins: Number of bins used to partition :math:`\lvert \mu_{b=1\ldots B} \rvert` when fitting global mean-variance trend.
+    :type numFitBins: int | None
     :param EB_use: If `False`, only return the global prior variance track.
     :type EB_use: bool
     :param EB_setNu0: If provided, sets :math:`\nu_0` to this value instead of estimating from data.
@@ -1897,51 +1903,6 @@ def EB_computePriorStrength(
     r"""Compute :math:`\nu_0` to determine 'prior strength'
 
     The prior model strength is determined by its 'excess' dispersion beyond sampling noise  (at the local level)
-
-    For a :math:`\chi^2_{\nu_0}` random variable,
-
-    .. math::
-
-        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
-        =
-        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
-        +
-        \textsf{trigamma}\left(\frac{\nu_{0}}{2}\right)
-
-    If there is little heterogeneity beyond sampling noise, then
-
-    .. math::
-
-        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
-        \approx
-        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
-
-    i.e., :math:`\textsf{trigamma}(\nu_{0}/2) \approx 0 \implies \nu_{0} \to \infty`.
-
-    Or, the prior is sufficiently capturing local heterogeneity/dispersion (up to noise in sampling), such that
-    in principle, it can be relied upon exclusively.
-
-    With :math:`\nu_{\mathcal{L}}` fixed, estimate :math:`\nu_{0}` by solving
-
-    .. math::
-
-        \textsf{trigamma}\left(\frac{\nu_{0}}{2}\right)
-        =
-        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
-        -
-        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
-
-    .. math::
-
-        \nu_{0}
-        \approx
-        2 \cdot \textsf{trigamma}^{-1}\left(
-            \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
-            -
-            \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
-        \right)
-
-    We solve for :math:`\nu_0` with warm-started Newton (no closed-form, no numpy/scipy inverse trigamma function).
 
     :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) innovation variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
     :type localModelVariances: np.ndarray
