@@ -393,7 +393,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundWindowSizeBP = _cfgGet(
         configData,
         "countingParams.backgroundWindowSizeBP",
-        min(max(1000 * intervalSizeBP, 100_000), 500_000),  # other values may work but haven't been tested
+        min(max(1000 * intervalSizeBP, 50_000), 500_000),  # other values may work but haven't been tested
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -461,10 +461,28 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         True,
     )
 
-    globalBackgroundCushion_ = _cfgGet(
+    scaleCB_ = _cfgGet(
         configData,
         "countingParams.scaleCB",
         3.0,
+    )
+
+    globalLocalRatio_ = _cfgGet(
+        configData,
+        "countingParams.globalLocalRatio",
+        4.0,
+    )
+
+    c0_ = _cfgGet(
+        configData,
+        "countingParams.c0",
+        0.50,
+    )
+
+    c1_ = _cfgGet(
+        configData,
+        "countingParams.c1",
+        1.0 / math.log(2.0), # log2
     )
 
     return core.countingParams(
@@ -477,7 +495,10 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fragmentLengthsControl=fragmentLengthsControl,
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
-        scaleCB=globalBackgroundCushion_,
+        scaleCB=scaleCB_,
+        globalLocalRatio=globalLocalRatio_,
+        c0=c0_,
+        c1=c1_,
     )
 
 
@@ -593,19 +614,24 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockLengthBP",
-            500,
+            None,
         ),
         minValid=_cfgGet(
             configData,
             "observationParams.minValid",
             1.0e-3,
         ),
-        forceLinearFactor=float(
+        EB_minLin=float(
             _cfgGet(
                 configData,
-                "observationParams.forceLinearFactor",
-                1 / 4.0,
+                "observationParams.EB_minLin",
+                1 / 50,
             )
+        ),
+        EB_numFitBins = _cfgGet(
+            configData,
+            "observationParams.EB_numFitBins",
+            10,
         ),
         EB_use=_cfgGet(
             configData,
@@ -689,7 +715,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minSignalAtMaxima=_cfgGet(
             configData,
             "matchingParams.minSignalAtMaxima",
-            0.05,
+            0.01,
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
@@ -713,7 +739,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.50,
+            0.75,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -723,7 +749,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         massQuantileCutoff=_cfgGet(
             configData,
             "matchingParams.massQuantileCutoff",
-            0.10,
+            -1.0,
         ),
     )
 
@@ -848,10 +874,10 @@ def main():
     parser.add_argument(
         "--match-min-signal",
         type=str,
-        default=0.25,
+        default=0.01,
         dest="matchMinSignalAtMaxima",
         help="Minimum signal at local maxima in the response sequence that qualifies candidate matches\
-            Can be an absolute value (e.g., `50.0`) or a quantile (e.g., `q:0.75` for 75th percentile).",
+            Can be a numeric value (e.g., `50.0`) or a quantile (e.g., `q:0.75` for 75th percentile).",
     )
     parser.add_argument(
         "--match-max-matches",
@@ -883,7 +909,7 @@ def main():
     parser.add_argument(
         "--match-auto-length-quantile",
         type=float,
-        default=0.90,
+        default=0.75,
         dest="matchAutoLengthQuantile",
         help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )
@@ -897,7 +923,7 @@ def main():
     parser.add_argument(
         "--match-mass-quantile-cutoff",
         type=float,
-        default=0.10,
+        default=-1.0,
         dest="matchMassQuantileCutoff",
         help="Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' (average signal value * length). Set to < 0 to disable",
     )
@@ -1225,6 +1251,9 @@ def main():
                     np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0),
                     backgroundWindowSizeIntervals,
                     scaleCB=countingArgs.scaleCB,
+                    globalLocalRatio=countingArgs.globalLocalRatio,
+                    c0=countingArgs.c0,
+                    c1=countingArgs.c1,
                 )
                 muncMat[j_, :], _ = core.getMuncTrack(
                     chromosome,
@@ -1234,7 +1263,8 @@ def main():
                     samplingIters=observationArgs.samplingIters,
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
                     minValid=observationArgs.minValid,
-                    forceLinearFactor=observationArgs.forceLinearFactor,
+                    EB_minLin=observationArgs.EB_minLin,
+                    EB_numFitBins=observationArgs.EB_numFitBins,
                     randomSeed=42 + j_,
                     EB_use=observationArgs.EB_use,
                     EB_setNu0=observationArgs.EB_setNu0,
@@ -1280,6 +1310,9 @@ def main():
                     chromMat[j, :],
                     backgroundWindowSizeIntervals,
                     scaleCB=countingArgs.scaleCB,
+                    globalLocalRatio=countingArgs.globalLocalRatio,
+                    c0=countingArgs.c0,
+                    c1=countingArgs.c1,
                 )
 
                 # compute munc track for each sample independently
@@ -1291,7 +1324,8 @@ def main():
                     samplingIters=observationArgs.samplingIters,
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
                     minValid=observationArgs.minValid,
-                    forceLinearFactor=observationArgs.forceLinearFactor,
+                    EB_minLin=observationArgs.EB_minLin,
+                    EB_numFitBins=observationArgs.EB_numFitBins,
                     randomSeed=42 + j,
                     EB_use=observationArgs.EB_use,
                     EB_setNu0=observationArgs.EB_setNu0,
@@ -1404,7 +1438,7 @@ def main():
                 header=False,
                 index=False,
                 mode="a",
-                float_format="%.3f",
+                float_format="%.4f",
                 lineterminator="\n",
             )
 

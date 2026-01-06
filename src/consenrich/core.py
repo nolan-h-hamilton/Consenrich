@@ -112,12 +112,15 @@ class observationParams(NamedTuple):
     :type samplingBlockSizeBP: int
     :param minValid: Sampled blocks `b` with ``absMean_b, variance_b < minValid`` are ignored during fitting in :func:`consenrich.core.fitVarianceFunction`.
     :type minValid: float
-    :param forceLinearFactor: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{forceLinearFactor} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
-    :type forceLinearFactor: float
+    :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{EB_minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
+    :type EB_minLin: float
+    :param EB_numFitBins: Number of bins used to partition :math:`\lvert \mu_{b=1\ldots B} \rvert` when fitting global mean-variance trend.
+    :type EB_numFitBins: int | None
     :param EB_use: If True, apply empirical Bayes shrinkage in :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool
     :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
     :type EB_setNu0: int or None
+    :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
     """
 
     minR: float | None
@@ -125,7 +128,8 @@ class observationParams(NamedTuple):
     samplingIters: int | None
     samplingBlockSizeBP: int | None
     minValid: float | None
-    forceLinearFactor: float | None
+    EB_minLin: float | None
+    EB_numFitBins: int | None
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
@@ -268,6 +272,14 @@ class countingParams(NamedTuple):
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
     :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.clogRatio`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
+    :type scaleCB: float, optional
+    :param globalLocalRatio: Ratio between global and local background estimates in :func:`consenrich.cconsenrich.clogRatio`. Larger values give more weight to the global background estimate (block-bootstrapped mean + se).
+      For instance, a value `3.0` yields :math:`\frac{3.0 \times \mathcal{B}_\textsf{global} + 1.0 \times \mathcal{B}_\textsf{local}}{3.0 + 1.0}`.
+    :type globalLocalRatio: float, optional
+    :param c0: Additive constant in :math:`c_1 \log(x + c_0)`. See :func:`consenrich.cconsenrich.clogRatio`.
+    :type c0: float, optional
+    :param c1: Scaling constant in :math:`c_1 \log(x + c_0)`. See :func:`consenrich.cconsenrich.clogRatio`.
+    :type c1: float, optional
 
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
       :class: tip
@@ -293,6 +305,9 @@ class countingParams(NamedTuple):
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
     scaleCB: float | None
+    globalLocalRatio: float | None
+    c0: float | None
+    c1: float | None
 
 
 class matchingParams(NamedTuple):
@@ -979,29 +994,29 @@ def runConsenrich(
             calibration_numTotalBlocks = int(
                 calibration_kwargs.get("calibration_numTotalBlocks", max(int(np.sqrt(n / 10)), 1))
             )
-
             # gradient magnitude, relative to gradient magnitude @ starting point
             calibration_relEps = np.float32(calibration_kwargs.get("calibration_relEps", 0.01))
-
             # near-zero gradient magnitude
             calibration_absEps = np.float32(calibration_kwargs.get("calibration_absEps", 0.01))
-
             # loss versus previous accepted step
             calibration_minRelativeImprovement = np.float32(
                 calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-4)
             )
-
-            # innovations are well calibrated overall
+            # don't early-stop unless mean NIS matches up with expectation within this tolerance
             calibration_phiEps = np.float32(calibration_kwargs.get("calibration_phiEps", 0.10))
-
-            # Trust region args
+            # starting trust-region radius (in log-scale)
             calibration_trustRadius = np.float32(calibration_kwargs.get("calibration_trustRadius", 2.0 * LN2))
+
+            # bound the size of the trust-region (prevent huge steps/premature convergence)
             calibration_trustRadiusMin = np.float32(
                 calibration_kwargs.get("calibration_trustRadiusMin", 1.0e-4)
             )
             calibration_trustRadiusMax = np.float32(
                 calibration_kwargs.get("calibration_trustRadiusMax", 10 * LN2)
             )
+
+            # if rho (actual vs. predicted reduction) is above/below these thresholds,
+            # grow/shrink the trust-region radius accordingly
             calibration_trustRhoThresh = np.float32(
                 calibration_kwargs.get("calibration_trustRhoThresh", 1.0 - 1.0 / 4.0)
             )
@@ -1010,6 +1025,19 @@ def runConsenrich(
             )
             calibration_trustGrow = np.float32(calibration_kwargs.get("calibration_trustGrow", 2.0))
             calibration_trustShrink = np.float32(calibration_kwargs.get("calibration_trustShrink", 1 / 2.0))
+
+            # mild smoothing for nearby block-gradients
+            calibration_gradSmooth = float(calibration_kwargs.get("calibration_gradSmooth", 0.25))
+            calibration_gradSmooth = max(0.0, min(0.5, calibration_gradSmooth))
+            gradKernel = np.array(
+                [calibration_gradSmooth, 1.0 - 2.0 * calibration_gradSmooth, calibration_gradSmooth],
+                dtype=np.float32,
+            )
+
+            calibration_scoreWmin = np.float32(calibration_kwargs.get("calibration_scoreWMin", 0.5))
+            calibration_scoreWmax = np.float32(calibration_kwargs.get("calibration_scoreWMax", 2.0))
+            calibration_scoreExponent = np.float32(calibration_kwargs.get("calibration_scorePow", 1.0))
+            calibration_topKBlocks = int(calibration_kwargs.get("calibration_topKBlocks", 0))
 
             logger.info(
                 f"\nScaling covariances\n\tcalibration_maxIters={calibration_maxIters}, _numTotalBlocks={calibration_numTotalBlocks}\n",
@@ -1044,7 +1072,6 @@ def runConsenrich(
             # (V) Initial loss at baseline
             intervalDispersionFactors = BlockDispersionFactors[intervalToBlockMap]
             matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
-
             phiHat, adjustmentCount, vectorD_, loss = _forwardPass(
                 isInitialPass=True,
                 returnNLL_=True,
@@ -1101,7 +1128,53 @@ def runConsenrich(
                     )
                     break
 
-                # Gradient step
+                # regularize across-block gradients
+                if calibration_gradSmooth > 0.0:
+                    maskF = mask.astype(np.float32, copy=False)
+                    conv_ = np.convolve(gradMeansAll * maskF, gradKernel, mode="same").astype(
+                        np.float32, copy=False
+                    )
+                    convAll_ = np.convolve(maskF, gradKernel, mode="same").astype(np.float32, copy=False)
+                    gradMeansSm = np.zeros_like(gradMeansAll, dtype=np.float32)
+                    validMask = convAll_ > 0
+                    gradMeansSm[validMask] = (conv_[validMask] / convAll_[validMask]).astype(
+                        np.float32, copy=False
+                    )
+                    gradMeansAll = gradMeansSm
+
+                score = np.zeros_like(gradMeansAll, dtype=np.float32)
+                if np.any(mask):
+                    score[mask] = (np.abs(blockGradLogScales[mask]) / np.sqrt(blockGradCount[mask])).astype(
+                        np.float32, copy=False
+                    )
+
+                weights = np.ones_like(score, dtype=np.float32)
+                if np.any(mask):
+                    scoreVals = score[mask].astype(np.float64, copy=False)
+                    scoreMedian = np.median(scoreVals)
+                    scoreMean = float(np.mean(scoreVals)) if scoreVals.size > 0 else 0.0
+                    # prevent division by zero/blowup near stationary points
+                    scoreScale_ = np.float32(
+                        scoreMedian if scoreMedian > 0 else (scoreMean if scoreMean > 0 else 1.0)
+                    )
+                    weights[mask] = ((score[mask] / scoreScale_) ** calibration_scoreExponent).astype(
+                        np.float32, copy=False
+                    )
+                    weights[~mask] = 0.0
+                    np.clip(weights, calibration_scoreWmin, calibration_scoreWmax, out=weights)
+
+                gradMeansAll = (gradMeansAll * weights).astype(np.float32, copy=False)
+
+                # optional active-set selection of top-K blocks by score
+                if calibration_topKBlocks > 0 and np.any(mask):
+                    eligibleIdx = np.flatnonzero(mask)
+                    k = int(min(calibration_topKBlocks, eligibleIdx.size))
+                    rankedEligible = eligibleIdx[np.argsort(-score[eligibleIdx], kind="stable")[:k]]
+                    keep = np.zeros_like(mask, dtype=bool)
+                    keep[rankedEligible] = True
+                    gradMeansAll[~keep] = np.float32(0.0)
+
+                # build the candidate step within trust region
                 blockLogFactors = np.log(BlockDispersionFactors).astype(np.float32, copy=False)
                 deltaBlockLogFactors = (-gradMeansAll).astype(np.float32, copy=False)
                 np.clip(
@@ -1120,6 +1193,7 @@ def runConsenrich(
                 intervalDispersionFactors = candidate_BlockDispersionFactors[intervalToBlockMap]
                 matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
 
+                # evaluate candidate step
                 phiHatTry, adjTry, vectorD_try, candidateLoss = _forwardPass(
                     isInitialPass=True,
                     returnNLL_=True,
@@ -1185,7 +1259,7 @@ def runConsenrich(
 
                 relImprovement = float((prevAcceptedLoss - acceptedLoss) / max(abs(prevAcceptedLoss), 1.0))
                 logger.info(
-                    f"\niter={iterCt}\tL={bestLoss:.4f}\tΦ_0={acceptedPhiHat:.4f}\tmax|∇|={maxGradAll:.4f}\tΔRel={relImprovement:.3e}\tλTrust={float(calibration_trustRadius):.4f}"
+                    f"\niter={iterCt}\tL={bestLoss:.4f}\tΦ_0={acceptedPhiHat:.4f}\tmax|∇|={maxGradAll:.4f}\tΔRel={relImprovement:.3e}\tTrust-Radius={float(calibration_trustRadius):.4f}"
                 )
 
                 if (iterCt > calibration_minIters) and (
@@ -1277,7 +1351,7 @@ def runConsenrich(
     outStateCovarSmoothed_mm = stateCovarSmoothedArr
 
     if rescaleStateCovar:
-        numIntervalsPerBlock = int(np.ceil(np.sqrt(n)))
+        numIntervalsPerBlock = int(np.ceil(np.sqrt(n/2)))
         blockCount = int(np.ceil(n / numIntervalsPerBlock))
         intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
         intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
@@ -1292,8 +1366,8 @@ def runConsenrich(
             pad=float(pad),
         )
         # upscale state covariances per observed residuals
-        # ... typically very small adjustments, but prevents
-        # ... overconfident uncertainty estimates in some cases
+        # ... adjustments are usually mild, but may help avoid
+        # ... overconfident uncertainty estimates more generally
         newScale_Intervals = updatedScale[intervalToBlockMap].astype(np.float32, copy=False)
         outStateCovarSmoothed_mm *= newScale_Intervals[:, None, None]
     outStateSmoothed = np.array(outStateSmoothed_mm, copy=True)
@@ -1618,19 +1692,20 @@ def plotStateEstimatesHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-8,
-    forceLinearFactor: float = 0.25,
-    splitValue: float = 1.0,
-    numBins: int | None = 25,
+    eps: float = 1 / 100,
+    EB_minLin: float = 1 / 50,
+    EB_numFitBins: int | None = 10,
+    minPairs: int = 10,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
     eps = max(float(eps), 0.0)
+    minPairs = int(max(1, int(minPairs)))
 
-    # `forceLinearFactor` predicted variance is above an envelope = (forceLinearFactor*|mean| + eps)
+    # `EB_minLin` predicted variance is above an envelope = (EB_minLin*|mean| + eps)
     # ... conservative wrt overdispersion, accounted for by
     # ... eventual calibration in runConsenrich and local model
-    forceLinearFactor = max(float(forceLinearFactor), 0.0)
+    EB_minLin = max(float(EB_minLin), 0.0)
     absMeans = np.abs(means)
     nonnegVariances = np.where(variances < 0.0, 0.0, variances)
 
@@ -1645,14 +1720,28 @@ def fitVarianceFunction(
     absMeans = absMeans[order]
     nonnegVariances = nonnegVariances[order]
 
-    # piecewise fit to each of A = [eps, 1), B = [1, inf)
-    splitIdx = int(np.searchsorted(absMeans, splitValue, side="left"))
+    def _medPlusMAD(values: np.ndarray) -> float:
+        median_ = float(np.median(values))
+        mad_ = float(np.median(np.abs(values - median_)))
+        return median_ + (1.482 * mad_) # normal approx for consistency
 
-    def _fitSegment(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _fitBinless(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if absMeansSeg.size == 0:
             return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
 
-        linearFloor = forceLinearFactor * absMeansSeg + eps
+        linearFloor = EB_minLin * absMeansSeg + eps
+        # Compute the threshold on max(variance, floor)
+        flooredVariancesSeg = np.maximum(variancesSeg, linearFloor)
+
+        # consider pairs with var >= (median + ~mad~)
+        threshold_ = _medPlusMAD(flooredVariancesSeg)
+        keepMask = flooredVariancesSeg >= threshold_
+        absMeansSeg = absMeansSeg[keepMask]
+        variancesSeg = variancesSeg[keepMask]
+        if absMeansSeg.size == 0:
+            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
+
+        linearFloor = EB_minLin * absMeansSeg + eps
         nonnegVariancesSeg = np.maximum(variancesSeg, linearFloor)
         # cconsenrich.cPAVA: we assign a weight of 1 to every element (each 'block' is a single observation)
         monoVariancesSeg = cconsenrich.cPAVA(
@@ -1660,30 +1749,85 @@ def fitVarianceFunction(
         )
         monoVariancesSeg = np.maximum(monoVariancesSeg, linearFloor)
 
-        if numBins is None or int(numBins) <= 0:
-            absMeanGridSeg, firstIdxSeg, countsSeg = np.unique(
-                absMeansSeg, return_index=True, return_counts=True
-            )
-            varGridSeg = np.empty_like(absMeanGridSeg, dtype=np.float64)
-            for j in range(absMeanGridSeg.size):
-                start = firstIdxSeg[j]
-                end = start + countsSeg[j]
-                varGridSeg[j] = float(np.mean(monoVariancesSeg[start:end]))
+        absMeanGridSeg, firstIdxSeg, countsSeg = np.unique(absMeansSeg, return_index=True, return_counts=True)
+        varGridSeg = np.empty_like(absMeanGridSeg, dtype=np.float64)
+        for j in range(absMeanGridSeg.size):
+            start = firstIdxSeg[j]
+            end = start + countsSeg[j]
+            varGridSeg[j] = float(np.mean(monoVariancesSeg[start:end]))
 
-            linearFloorGridSeg = forceLinearFactor * absMeanGridSeg + eps
-            varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
-            # final PAVA if not binning
-            varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
-            varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
-            return absMeanGridSeg, varGridSeg
+        linearFloorGridSeg = EB_minLin * absMeanGridSeg + eps
+        varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
+        # final PAVA if not binning
+        varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
+        varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
+        return absMeanGridSeg, varGridSeg
 
-        numBinsSeg = int(max(4, min(int(numBins), absMeansSeg.size)))
+    def _fitBinned(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if absMeansSeg.size == 0:
+            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
+
+        numBinsSeg = int(max(4, min(int(EB_numFitBins), absMeansSeg.size)))
         quantileGrid = np.linspace(0.0, 1.0, numBinsSeg + 1, dtype=np.float64)
         edgeGrid = np.quantile(absMeansSeg, quantileGrid)
         edgeGrid[0] = -np.inf
         edgeGrid[-1] = np.inf
         binIndex = np.searchsorted(edgeGrid, absMeansSeg, side="right") - 1
         binIndex = np.clip(binIndex, 0, numBinsSeg - 1)
+        # Compute the threshold on max(variance, floor), and require at least minPairs per bin
+        # If a bin has < minPairs valid |mu|,var pairs, carry forward from the previous
+        linearFloorAll = EB_minLin * absMeansSeg + eps
+        flooredVariancesAll = np.maximum(variancesSeg, linearFloorAll)
+        thresholds = np.full(numBinsSeg, np.nan, dtype=np.float64)
+        lastThreshold_ = np.nan
+        numGoodBins = 0
+
+        for j in range(numBinsSeg):
+            inBin = (binIndex == j)
+            binCount = int(np.count_nonzero(inBin))
+            if binCount <= 0:
+                continue
+
+            thresholdCandidate_ = _medPlusMAD(flooredVariancesAll[inBin])
+            keptCount = int(np.count_nonzero(flooredVariancesAll[inBin] >= thresholdCandidate_))
+            if keptCount >= minPairs:
+                thresholds[j] = float(thresholdCandidate_)
+                lastThreshold_ = float(thresholdCandidate_)
+                numGoodBins += 1
+            else:
+                if np.isfinite(lastThreshold_):
+                    thresholds[j] = float(lastThreshold_)
+
+        # If no bins satisfy we fall back to 'binless' fit
+        if numGoodBins <= 0:
+            logger.warning("No bins with > `minPairs` threshold...falling back to binless variance fit.")
+            return _fitBinless(absMeansSeg, variancesSeg)
+
+        keepMask = np.zeros(absMeansSeg.size, dtype=bool)
+        for j in range(numBinsSeg):
+            threshold_ = float(thresholds[j]) if np.isfinite(thresholds[j]) else np.inf
+            inBin = binIndex == j
+            if not np.any(inBin):
+                continue
+            keepMask[inBin] = flooredVariancesAll[inBin] >= threshold_
+
+        absMeansSeg = absMeansSeg[keepMask]
+        variancesSeg = variancesSeg[keepMask]
+        if absMeansSeg.size == 0:
+            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
+
+        linearFloor = EB_minLin * absMeansSeg + eps
+        nonnegVariancesSeg = np.maximum(variancesSeg, linearFloor)
+        # cconsenrich.cPAVA: we assign a weight of 1 to every element (each 'block' is a single observation)
+        monoVariancesSeg = cconsenrich.cPAVA(
+            nonnegVariancesSeg, np.ones_like(nonnegVariancesSeg, dtype=np.float64)
+        )
+        monoVariancesSeg = np.maximum(monoVariancesSeg, linearFloor)
+
+        # compute bin summaries using only the filtered pairs (same bin edges)
+        binIndex = np.searchsorted(edgeGrid, absMeansSeg, side="right") - 1
+        binIndex = np.clip(binIndex, 0, numBinsSeg - 1)
+
         absMeanGridSeg = np.empty(numBinsSeg, dtype=np.float64)
         varGridSeg = np.empty(numBinsSeg, dtype=np.float64)
         countsSeg = np.empty(numBinsSeg, dtype=np.float64)
@@ -1705,39 +1849,41 @@ def fitVarianceFunction(
         varGridSeg = varGridSeg[keepMask]
         countsSeg = countsSeg[keepMask]
 
-        linearFloorGridSeg = forceLinearFactor * absMeanGridSeg + eps
+        linearFloorGridSeg = EB_minLin * absMeanGridSeg + eps
         varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
         varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
         varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
         return absMeanGridSeg, varGridSeg
 
-    absMeanGridLeft, varGridLeft = _fitSegment(absMeans[:splitIdx], nonnegVariances[:splitIdx])
-    absMeanGridRight, varGridRight = _fitSegment(absMeans[splitIdx:], nonnegVariances[splitIdx:])
+    useBinning = not (EB_numFitBins is None or int(EB_numFitBins) <= 0)
+    if useBinning:
+        numBins__ = int(max(4, int(EB_numFitBins)))
+        if absMeans.size < numBins__:
+            useBinning = False
 
-    # reconcile variance at boundary to preserve monotonicity
-    if varGridLeft.size > 0 and varGridRight.size > 0:
-        varGridRight = np.maximum(varGridRight, float(varGridLeft[-1]))
-        # final PAVA
-        varGridRight = cconsenrich.cPAVA(varGridRight, np.ones_like(varGridRight, dtype=np.float64))
+    if useBinning:
+        absMeanGrid, varGrid = _fitBinned(absMeans, nonnegVariances)
+        if absMeanGrid.size == 0:
+            absMeanGrid, varGrid = _fitBinless(absMeans, nonnegVariances)
+    else:
+        absMeanGrid, varGrid = _fitBinless(absMeans, nonnegVariances)
 
-    absMeanGrid = np.concatenate([absMeanGridLeft, absMeanGridRight])
-    varGrid = np.concatenate([varGridLeft, varGridRight])
     return np.vstack([absMeanGrid.astype(np.float32), varGrid.astype(np.float32)])
 
 
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1.0e-8,
-    forceLinearFactor: float = 1 / 4,
+    eps: float = 1 / 100,
+    EB_minLin: float = 1 / 50,
 ) -> np.ndarray:
     varianceTrend = np.asarray(coeffs, dtype=np.float32)
     absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
     varGrid = varianceTrend[1].astype(np.float64, copy=False)
     eps = max(float(eps), 0.0)
-    forceLinearFactor = max(float(forceLinearFactor), 0.0)
+    EB_minLin = max(float(EB_minLin), 0.0)
 
-    linearFloorGrid = forceLinearFactor * absMeanGrid + eps
+    linearFloorGrid = EB_minLin * absMeanGrid + eps
     varGrid = np.maximum(varGrid, linearFloorGrid)
     varGrid = cconsenrich.cPAVA(varGrid, np.ones_like(varGrid, dtype=np.float64))
     varGrid = np.maximum(varGrid, linearFloorGrid)
@@ -1746,7 +1892,7 @@ def evalVarianceFunction(
     absMeans = np.abs(means)
 
     predicted = np.interp(absMeans, absMeanGrid, varGrid, left=varGrid[0], right=varGrid[-1])
-    predicted = np.maximum(predicted, forceLinearFactor * absMeans + eps)
+    predicted = np.maximum(predicted, EB_minLin * absMeans + eps)
     return predicted.astype(np.float32, copy=False)
 
 
@@ -1762,7 +1908,8 @@ def getMuncTrack(
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     minValid: float = 1.0e-3,
-    forceLinearFactor: float = 1 / 4,
+    EB_minLin: float = 1 / 50,
+    EB_numFitBins: int | None = 10,
     EB_use: bool = True,
     EB_setNu0: int|None = None,
     EB_setNuL: int|None = None,
@@ -1787,8 +1934,10 @@ def getMuncTrack(
     :type samplingIters: int
     :param minValid: Minimum valid mean/variance value when fitting global mean-variance trend.
     :type minValid: float
-    :param forceLinearFactor: Require prior-model fitted variances satisfy ``var >= forceLinearFactor*absMean``
-    :type forceLinearFactor: float
+    :param EB_minLin: Require prior-model fitted variances satisfy ``var >= EB_minLin*absMean``
+    :type EB_minLin: float
+    :param EB_numFitBins: Number of bins used to partition :math:`\lvert \mu_{b=1\ldots B} \rvert` when fitting global mean-variance trend.
+    :type EB_numFitBins: int | None
     :param EB_use: If `False`, only return the global prior variance track.
     :type EB_use: bool
     :param EB_setNu0: If provided, sets :math:`\nu_0` to this value instead of estimating from data.
@@ -1839,7 +1988,7 @@ def getMuncTrack(
     order = np.argsort(meanAbs_Masked)
     meanAbs_Sorted = meanAbs_Masked[order]
     var_Sorted = var_Masked[order]
-    opt = fitVarianceFunction(meanAbs_Sorted, var_Sorted, forceLinearFactor=forceLinearFactor)
+    opt = fitVarianceFunction(meanAbs_Sorted, var_Sorted, EB_minLin=EB_minLin)
 
     meanTrack = np.abs(valuesArr).copy()
     if useEMA:
@@ -1855,7 +2004,6 @@ def getMuncTrack(
         valuesArr,
         localWindowIntervals,
         excludeMaskArr,
-        maxBeta=0.99,
     ).astype(np.float64, copy=False)
     # negative value is a flag from `cconsenrich.crolling_AR1_IVar` -- set as NaN
     obsVarTrack[obsVarTrack < 0.0] = np.nan
@@ -1897,51 +2045,6 @@ def EB_computePriorStrength(
     r"""Compute :math:`\nu_0` to determine 'prior strength'
 
     The prior model strength is determined by its 'excess' dispersion beyond sampling noise  (at the local level)
-
-    For a :math:`\chi^2_{\nu_0}` random variable,
-
-    .. math::
-
-        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
-        =
-        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
-        +
-        \textsf{trigamma}\left(\frac{\nu_{0}}{2}\right)
-
-    If there is little heterogeneity beyond sampling noise, then
-
-    .. math::
-
-        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
-        \approx
-        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
-
-    i.e., :math:`\textsf{trigamma}(\nu_{0}/2) \approx 0 \implies \nu_{0} \to \infty`.
-
-    Or, the prior is sufficiently capturing local heterogeneity/dispersion (up to noise in sampling), such that
-    in principle, it can be relied upon exclusively.
-
-    With :math:`\nu_{\mathcal{L}}` fixed, estimate :math:`\nu_{0}` by solving
-
-    .. math::
-
-        \textsf{trigamma}\left(\frac{\nu_{0}}{2}\right)
-        =
-        \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
-        -
-        \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
-
-    .. math::
-
-        \nu_{0}
-        \approx
-        2 \cdot \textsf{trigamma}^{-1}\left(
-            \mathbb{V}\left[\log\left(\frac{s^2_{\mathcal{L}}}{\sigma^2_{\textsf{prior}}}\right)\right]
-            -
-            \textsf{trigamma}\left(\frac{\nu_{\mathcal{L}}}{2}\right)
-        \right)
-
-    We solve for :math:`\nu_0` with warm-started Newton (no closed-form, no numpy/scipy inverse trigamma function).
 
     :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) innovation variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
     :type localModelVariances: np.ndarray

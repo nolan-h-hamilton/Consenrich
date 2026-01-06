@@ -212,7 +212,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
         eps = 1.0e-12*(sumSqXSeq + 1.0)
         if sumSqXSeq > eps:
-            beta1 = sumXYc / sumSqXSeq
+            beta1 = sumXYc / (sumSqXSeq + <double>1.0e-2)
         else:
             beta1 = 0.0
 
@@ -231,7 +231,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         if useInnovationVar:
             divRSS = <double>1.0
         else:
-            # marginal variance
             divRSS = <double>oneMinusBetaSq
 
         if divRSS <= 1.0e-8:
@@ -240,14 +239,14 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
 
 
-cdef inline float _clog_F32(float x) nogil:
+cdef inline float _clog_F32(float x, float c0, float c1) nogil:
     # CALLERS: `clogRatio`
-    return log2f(x + 1.0) * __INV_LN2_FLOAT
+    return c1*logf(x + c0)
 
 
-cdef inline double _clog_F64(double x) nogil:
+cdef inline double _clog_F64(double x, double c0, double c1) nogil:
     # CALLERS: `clogRatio`
-    return log2(x + 1.0) * __INV_LN2_DOUBLE
+    return c1*log(x + c0)
 
 
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
@@ -846,7 +845,7 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                         int iters,
                         int randSeed,
                         cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
-                        double eps = 0.0):
+                        double eps = <double>0.0):
     r"""Sample contiguous blocks in the response sequence (xCorr), record maxima, and repeat.
 
     Used to build an empirical null distribution and determine significance of response outputs.
@@ -1527,18 +1526,42 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 
 cpdef object clogRatio(object x, Py_ssize_t blockLength,
-                          float boundaryEps = <float>0.25,
+                          float boundaryEps = <float>0.5,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False,
-                          double scaleCB = 3.0):
-    r"""Compute log-scale enrichment versus locally computed backgrounds
+                          double scaleCB = <double>3.0,
+                          double globalLocalRatio = <double>4.0,
+                          double c0=<double>0.50, double c1=<double> (1.0 / log(2.0)) ):
+    r"""Compute log-scale enrichment versus local+global weighted background
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
 
     The local background at each genomic interval is obtained by linearly interpolating blocks' mean values between.
 
-    Note that a two-way exponential moving average defines these block means such that autocorrelation
-    is tempered between neighboring blocks but we can still get a reasonably smooth local background. Disable with `disableLocalBackground=True`
+    Block means are taken at their centers, from a two-way exponential moving average with span such that autocorrelation
+    is tempered between neighboring blocks, but we can still get a reasonably smooth local component.
+
+    :param x: a floating-point numpy vector of possibly-scaled, *nonnegative* data from HTS alignment counts.
+    :type x: np.ndarray
+    :param blockSize: Defines the length of blocks used to compute local background.
+    :type blockSize: Py_ssize_t
+    :param boundaryEps: The mean at each block's center is computed with an exponential weighted average that decays to *this* proportion at the blocks edges.
+    :type boundaryEps: float
+    :param disableLocalBackground: If `True`, use only global background estimates.
+    :type disableLocalBackground: bool
+    :param disableBackground: If `True`, disable both local and global background estimates.
+    :type disableBackground: bool
+    :param scaleCB: Scaling factor on the *standard error* for global background estimate.
+    :type scaleCB: float
+    :param globalLocalRatio: Weighting factor between global and local background estimates.
+      A value of `1.0` indicates equal weighting. A value > `1.0` indicates more weight on the global estimate.
+    :type globalLocalRatio: float
+    :param c0: additive value in :math:`c_1\log(x + c_0)`.
+    :type c0: float
+    :param c1: Scaling value in :math:`c_1\log(x + c_0)`.
+    :type c1: float
+    :return: A numpy vector of log-enrichment values.
+    :rtype: np.ndarray
     """
 
     cdef cnp.ndarray finalArr__
@@ -1620,7 +1643,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                     blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
 
             # can't call from nogil
-            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, scaleCB=scaleCB)
+            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, bootBlockSize=<Py_ssize_t>max(min(blockLength,500),3), scaleCB=scaleCB)
             with nogil:
                 # 'disable' local background --> use global baseline everywhere
                 if <bint>disableLocalBackground == <bint>True:
@@ -1628,7 +1651,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                         blockPtr_F32[blockIndex] = trackWideOffset_F32
                 else:
                     for blockIndex in range(blockCount):
-                        blockPtr_F32[blockIndex] = fmaxf(trackWideOffset_F32, blockPtr_F32[blockIndex])
+                        blockPtr_F32[blockIndex] = (<float>globalLocalRatio*trackWideOffset_F32 + blockPtr_F32[blockIndex]) * (1.0 / <float>(globalLocalRatio + 1.0))
 
                 k = <Py_ssize_t>0
                 blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
@@ -1652,7 +1675,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                         # where c is `carryOver` to the subsequent block mean (see below)
                         carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                         bgroundEstimate = ((1.0 - carryOver)*(<double>blockPtr_F32[k])) + (carryOver*(<double>blockPtr_F32[k+1]))
-                        interpolatedBackground_F32 = <float>(fmax(bgroundEstimate,0.0))
+                        interpolatedBackground_F32 = <float>(fmaxf(bgroundEstimate,0.0))
 
                     if interpolatedBackground_F32 < 0.0:
                         interpolatedBackground_F32 = 0.0
@@ -1660,10 +1683,10 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
 
                     # finally, we take ~log-scale~ difference currentValue - background
                     if not <bint>disableBackground:
-                        logDiff_F32 = _clog_F32(valuesPtr_F32[i]) - _clog_F32(interpolatedBackground_F32)
+                        logDiff_F32 = _clog_F32(valuesPtr_F32[i], <float>c0, <float>c1) - _clog_F32(interpolatedBackground_F32, <float>c0, <float>c1)
                     else:
                         # case: ChIP w/ input, etc.
-                        logDiff_F32 = _clog_F32(valuesPtr_F32[i])
+                        logDiff_F32 = _clog_F32(valuesPtr_F32[i], <float>c0, <float>c1)
                     outputPtr_F32[i] = logDiff_F32
 
             return finalArr__
@@ -1702,7 +1725,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                 blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
 
 
-        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, scaleCB=scaleCB)
+        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, bootBlockSize=<Py_ssize_t>max(min(blockLength,500),3), scaleCB=scaleCB)
 
         with nogil:
             if <bint>disableLocalBackground == <bint>True:
@@ -1710,7 +1733,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                     blockPtr_F64[blockIndex] = trackWideOffset_F64
             else:
                 for blockIndex in range(blockCount):
-                    blockPtr_F64[blockIndex] = fmax(blockPtr_F64[blockIndex], trackWideOffset_F64)
+                    blockPtr_F64[blockIndex] = (blockPtr_F64[blockIndex] + globalLocalRatio*trackWideOffset_F64) * (1.0 / <double>(globalLocalRatio + 1.0))
 
             k = 0
             blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
@@ -1735,9 +1758,9 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                     interpolatedBackground_F64 = 0.0
 
                 if not <bint>disableBackground:
-                    logDiff_F64 = _clog_F64(valuesPtr_F64[i]) - _clog_F64(interpolatedBackground_F64)
+                    logDiff_F64 = _clog_F64(valuesPtr_F64[i],c0, c1) - _clog_F64(interpolatedBackground_F64, c0, c1)
                 else:
-                    logDiff_F64 = _clog_F64(valuesPtr_F64[i])
+                    logDiff_F64 = _clog_F64(valuesPtr_F64[i], c0, c1)
 
                 outputPtr_F64[i] = logDiff_F64
 
@@ -2399,6 +2422,7 @@ cpdef double cgetGlobalBaseline(
     Py_ssize_t numBoots=5000,
     double scaleCB=3.0,
     uint64_t seed=0,
+    double lowClip=<double>5.0e-2,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
     cdef cnp.float32_t[::1] valuesView
@@ -2424,7 +2448,7 @@ cpdef double cgetGlobalBaseline(
         return 0.0
 
 
-    values = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+    values = np.clip(np.ascontiguousarray(x, dtype=np.float32).reshape(-1), lowClip, np.finfo(np.float32).max)
     valuesView = values
     numValues = values.size
     if numValues <= 0:
@@ -2445,11 +2469,8 @@ cpdef double cgetGlobalBaseline(
 
     # prefix[start + size] - prefix[start] yields block's sum
     bootstrapMeans = (prefixSums[blockStarts + blockSizes] - prefixSums[blockStarts]) / blockSizes
-    posMeans = bootstrapMeans
+    posMeans = bootstrapMeans[bootstrapMeans >= lowClip]
     numPos = posMeans.size
-    if numPos <= 0:
-        return 0.0
-
     bootMean = <double>np.mean(posMeans)
     bootStdErr = (<double>np.std(posMeans, ddof=1) / np.sqrt(<double>numPos))
     maxVal = <double>np.max(values)
@@ -2546,7 +2567,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             eps = 1.0e-12*(sumSqXSeq + 1.0)
             if sumSqXSeq > eps:
                 # AR(1) coefficient estimate
-                beta1 = (sumXYc / sumSqXSeq)
+                beta1 = (sumXYc / (sumSqXSeq + <double>1.0e-2))
             else:
                 beta1 = 0.0
 
