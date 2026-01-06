@@ -35,7 +35,7 @@ def _FDR(pVals: np.ndarray, method: str | None = "bh") -> np.ndarray:
 def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 3,
-    cutoffQuantile: float = 0.90,
+    cutoffQuantile: float = 0.75,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
 
@@ -122,16 +122,16 @@ def matchWavelet(
     cascadeLevels: List[int],
     iters: int,
     alpha: float = 0.05,
-    minMatchLengthBP: Optional[int] = 250,
+    minMatchLengthBP: Optional[int] = -1,
     maxNumMatches: Optional[int] = 100_000,
-    minSignalAtMaxima: Optional[float | str] = "q:0.75",
+    minSignalAtMaxima: Optional[float | str] = 0.01,
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
-    eps: float = 1.0e-2,
-    autoLengthQuantile: float = 0.90,
+    eps: float = 1.0e-3,
+    autoLengthQuantile: float = 0.75,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -159,12 +159,7 @@ def matchWavelet(
         If set to `None`, defaults to 250 bp.
     :type minMatchLengthBP: Optional[int]
     :param minSignalAtMaxima: Secondary significance threshold coupled with :math:`\alpha`. Requires the *signal value*
-        at relative maxima in the response sequence to be greater than a threshold :math:`\pm \epsilon`. Comparisons are
-        made in log-scale (arsinh). If a `float` value is provided, then we require minimum signal value must be greater
-        than this value.
-        If a `str` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The
-        threshold is then set to the corresponding quantile of the non-zero signal estimates.
-        Defaults to str value 'q:0.75' --- the 75th percentile of signal values.
+        at relative maxima in the response sequence to be greater than a threshold :math:`\pm \epsilon`.
     :type minSignalAtMaxima: Optional[str | float]
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
         If False, use (only) the wavelet function.
@@ -489,6 +484,9 @@ def matchWavelet(
                         "signal": float(values[idxVal]),
                         "p_raw": float(pEmp[i]),
                         "pointSource": int(pointSourcesRel[i]),
+                        "templateName": str(templateName),
+                        "cascadeLevel": int(cascadeLevel),
+                        "tag": str(tag),
                     }
                 )
 
@@ -513,32 +511,37 @@ def matchWavelet(
         )
 
     df = pd.DataFrame(allRows)
-    qVals = _FDR(df["p_raw"].values.astype(float))
-    df["pValue"] = -np.log10(
-        np.clip(df["p_raw"].values, np.finfo(np.float32).tiny, 1.0)
-    )
-    df["qValue"] = -np.log10(
-        np.clip(qVals, np.finfo(np.float32).tiny, 1.0)
-    )
+
+    groupCols = ["templateName", "cascadeLevel"]
+    if "tag" in df.columns:
+        groupCols = ["templateName", "cascadeLevel", "tag"]
+    qVals = np.empty(len(df), dtype=float)
+    for _, groupIdx in df.groupby(groupCols, sort=False).groups.items():
+        p = df.loc[groupIdx, "p_raw"].values.astype(float, copy=False)
+        qVals[groupIdx] = _FDR(p)
+
+    df["pValue"] = -np.log10(np.clip(df["p_raw"].values.astype(float), np.finfo(np.float32).tiny, 1.0))
+    df["qValue"] = -np.log10(np.clip(qVals, np.finfo(np.float32).tiny, 1.0))
     df.drop(columns=["p_raw"], inplace=True)
     df = df[qVals <= alpha].copy()
+
     df["chromosome"] = df["chromosome"].astype(str)
     df.sort_values(by=["chromosome", "start", "end"], inplace=True)
     df.reset_index(drop=True, inplace=True)
-    df = df[
-        [
-            "chromosome",
-            "start",
-            "end",
-            "name",
-            "score",
-            "strand",
-            "signal",
-            "pValue",
-            "qValue",
-            "pointSource",
-        ]
+
+    keepCols = [
+        "chromosome",
+        "start",
+        "end",
+        "name",
+        "score",
+        "strand",
+        "signal",
+        "pValue",
+        "qValue",
+        "pointSource",
     ]
+    df = df[keepCols]
     return df
 
 
@@ -761,16 +764,16 @@ def runMatchingAlgorithm(
     cascadeLevels: List[int],
     iters: int,
     alpha: float = 0.05,
-    minMatchLengthBP: Optional[int] = 250,
+    minMatchLengthBP: Optional[int] = -1,
     maxNumMatches: Optional[int] = 100_000,
-    minSignalAtMaxima: Optional[float | str] = "q:0.75",
+    minSignalAtMaxima: Optional[float | str] = 0.01,
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
     weightsBedGraph: str | None = None,
     eps: float = 1.0e-2,
-    autoLengthQuantile: float = 0.90,
+    autoLengthQuantile: float = 0.75,
     mergeGapBP: int | None = -1,
     methodFDR: str | None = None,
     merge: bool = True,
@@ -891,7 +894,7 @@ def runMatchingAlgorithm(
         massProxy = ((lengths*signals) / stepSize_).astype(
             np.float32
         )
-        massQuantileCutoff_ = min(massQuantileCutoff, 0.99)
+        massQuantileCutoff_ = min(massQuantileCutoff, 0.995)
         if massQuantileCutoff_ > 0 and massProxy.size > 0:
             cutoff = np.quantile(
                 massProxy,
@@ -905,7 +908,10 @@ def runMatchingAlgorithm(
             df__ = df__[massProxy >= cutoff].copy()
         else:
             df__ = df__.copy()
+
+
         gwideDF = pd.concat([gwideDF, df__], ignore_index=True)
+
 
     if gwideDF.empty:
         logger.warning("Empty matching results over `chromosomes`.")
