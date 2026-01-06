@@ -470,19 +470,19 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     globalLocalRatio_ = _cfgGet(
         configData,
         "countingParams.globalLocalRatio",
-        4.0,
+        2.0,
     )
 
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        0.50,
+        -1.0,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0 / math.log(2.0), # log2
+        1.0 / math.log(2.0),  # log2
     )
 
     return core.countingParams(
@@ -537,7 +537,7 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
         os.path.join(os.getcwd(), f"{experimentName}_consenrichPlots"),
     )
 
-    if int(plotStateEstimatesHistogram_)  >= 1:
+    if int(plotStateEstimatesHistogram_) >= 1:
         if plotDirectory_ is not None and (
             not os.path.exists(plotDirectory_) or not os.path.isdir(plotDirectory_)
         ):
@@ -614,7 +614,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockLengthBP",
-            None,
+            500,
         ),
         minValid=_cfgGet(
             configData,
@@ -625,10 +625,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                1 / 50,
+                1 / 10,
             )
         ),
-        EB_numFitBins = _cfgGet(
+        EB_numFitBins=_cfgGet(
             configData,
             "observationParams.EB_numFitBins",
             10,
@@ -638,14 +638,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.EB_use",
             True,
         ),
-        EB_setNu0=_cfgGet(
-            configData,
-            "observationParams.EB_setNu0",
-            None),
-        EB_setNuL=_cfgGet(
-            configData,
-            "observationParams.EB_setNuL",
-            None),
+        EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
+        EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
     )
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
@@ -1269,6 +1263,7 @@ def main():
                     EB_use=observationArgs.EB_use,
                     EB_setNu0=observationArgs.EB_setNu0,
                     EB_setNuL=observationArgs.EB_setNuL,
+                    verbose=args.verbose2,
                 )
                 j_ += 1
         else:
@@ -1330,6 +1325,7 @@ def main():
                     EB_use=observationArgs.EB_use,
                     EB_setNu0=observationArgs.EB_setNu0,
                     EB_setNuL=observationArgs.EB_setNuL,
+                    verbose=args.verbose2,
                 )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
@@ -1406,7 +1402,6 @@ def main():
                 "State": x_,
             }
         )
-
 
         if outputArgs.writeUncertainty:
             df["uncertainty"] = P00_.astype(np.float32, copy=False)

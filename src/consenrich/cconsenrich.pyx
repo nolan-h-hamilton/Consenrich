@@ -140,6 +140,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 bint useInnovationVar,
                                 bint useSampleVar) noexcept nogil:
     # CALLERS: cmeanVarPairs
+
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
     cdef double value
     cdef double sumY
@@ -241,11 +242,13 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
 cdef inline float _clog_F32(float x, float c0, float c1) nogil:
     # CALLERS: `clogRatio`
+
     return c1*logf(x + c0)
 
 
 cdef inline double _clog_F64(double x, double c0, double c1) nogil:
     # CALLERS: `clogRatio`
+
     return c1*log(x + c0)
 
 
@@ -1455,8 +1458,10 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     cdef float[::1] varsView
     cdef cnp.ndarray[cnp.intp_t, ndim=1] emptyStarts
     cdef cnp.ndarray[cnp.intp_t, ndim=1] emptyEnds
+    cdef double geomProb
 
-    np.random.seed(randSeed)
+
+    rng = default_rng(randSeed)
     valuesArray = np.ascontiguousarray(values, dtype=np.float64)
     valuesView = valuesArray
     sizesArray = np.full(iters, blockSize, dtype=np.intp)
@@ -1464,7 +1469,7 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     outVars = np.empty(iters, dtype=np.float32)
     valuesLength = <Py_ssize_t>valuesArray.size
     maxBlockLength = <Py_ssize_t>blockSize
-
+    geomProb = 1.0 / (<double>maxBlockLength)
     supportList = []
     scanIndex = 0
 
@@ -1475,8 +1480,6 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
         supportList.append(scanIndex)
         scanIndex = scanIndex + 1
 
-    # in case we want to put a distribution on block sizes later,
-    # ... e.g., `_blockMax`
     if len(supportList) == 0:
         outMeans[:] = 0.0
         outVars[:] = 0.0
@@ -1485,8 +1488,13 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
         return outMeans, outVars, emptyStarts, emptyEnds
 
     supportArr = np.asarray(supportList, dtype=np.intp)
-    starts_ = np.random.choice(supportArr, size=iters, replace=True).astype(np.intp)
-    ends = starts_ + maxBlockLength
+    starts_ = rng.choice(supportArr, size=iters, replace=True).astype(np.intp)
+    sizesArray = rng.geometric(geomProb, size=<int>starts_.size).astype(np.intp, copy=False)
+    np.maximum(sizesArray, <cnp.intp_t>3, out=sizesArray)
+    np.minimum(sizesArray, maxBlockLength, out=sizesArray)
+    ends = starts_ + sizesArray
+    np.minimum(sizesArray, maxBlockLength, out=sizesArray)
+    ends = starts_ + sizesArray
 
     startsView = starts_
     sizesView = sizesArray
@@ -1526,12 +1534,12 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 
 cpdef object clogRatio(object x, Py_ssize_t blockLength,
-                          float boundaryEps = <float>0.5,
+                          float boundaryEps = <float>0.25,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False,
                           double scaleCB = <double>3.0,
-                          double globalLocalRatio = <double>4.0,
-                          double c0=<double>0.50, double c1=<double> (1.0 / log(2.0)) ):
+                          double globalLocalRatio = <double>2.0,
+                          double c0=<double>-1.0, double c1=<double> (1.0 / log(2.0)) ):
     r"""Compute log-scale enrichment versus local+global weighted background
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -1553,12 +1561,11 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
     :type disableBackground: bool
     :param scaleCB: Scaling factor on the *standard error* for global background estimate.
     :type scaleCB: float
-    :param globalLocalRatio: Weighting factor between global and local background estimates.
-      A value of `1.0` indicates equal weighting. A value > `1.0` indicates more weight on the global estimate.
+    :param globalLocalRatio: Weighting between global/local background estimates.
     :type globalLocalRatio: float
-    :param c0: additive value in :math:`c_1\log(x + c_0)`.
+    :param c0: additive value in :math:`c_1\log(x + c_0)`. Determined empirically if negative.
     :type c0: float
-    :param c1: Scaling value in :math:`c_1\log(x + c_0)`.
+    :param c1: Scaling value in :math:`c_1\log(x + c_0)`. Default yields log2-scale.
     :type c1: float
     :return: A numpy vector of log-enrichment values.
     :rtype: np.ndarray
@@ -1577,6 +1584,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
     cdef float* emaPtr_F32
     cdef float interpolatedBackground_F32
     cdef float logDiff_F32
+    cdef float effectiveC0_F32
     cdef cnp.ndarray valuesArr_F64
     cdef double[::1] valuesView_F64
     cdef double[::1] outputView_F64
@@ -1588,6 +1596,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
     cdef double* emaPtr_F64
     cdef double interpolatedBackground_F64
     cdef double logDiff_F64
+    cdef double effectiveC0_F64
     cdef float trackWideOffset_F32
     cdef double trackWideOffset_F64
     cdef Py_ssize_t n, tw__, tw_
@@ -1643,7 +1652,12 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                     blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
 
             # can't call from nogil
-            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, bootBlockSize=<Py_ssize_t>max(min(blockLength,500),3), scaleCB=scaleCB)
+            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, bootBlockSize=<Py_ssize_t>max(min(blockLength,1000),3), scaleCB=scaleCB)
+            if c0 < 0.0:
+                effectiveC0_F32 = fmaxf(trackWideOffset_F32, <float>5.0e-2)
+            else:
+                effectiveC0_F32 = <float>c0
+
             with nogil:
                 # 'disable' local background --> use global baseline everywhere
                 if <bint>disableLocalBackground == <bint>True:
@@ -1683,10 +1697,10 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
 
                     # finally, we take ~log-scale~ difference currentValue - background
                     if not <bint>disableBackground:
-                        logDiff_F32 = _clog_F32(valuesPtr_F32[i], <float>c0, <float>c1) - _clog_F32(interpolatedBackground_F32, <float>c0, <float>c1)
+                        logDiff_F32 = _clog_F32(valuesPtr_F32[i], effectiveC0_F32, <float>c1) - _clog_F32(interpolatedBackground_F32, effectiveC0_F32, <float>c1)
                     else:
                         # case: ChIP w/ input, etc.
-                        logDiff_F32 = _clog_F32(valuesPtr_F32[i], <float>c0, <float>c1)
+                        logDiff_F32 = _clog_F32(valuesPtr_F32[i], effectiveC0_F32, <float>c1)
                     outputPtr_F32[i] = logDiff_F32
 
             return finalArr__
@@ -1725,7 +1739,12 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                 blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
 
 
-        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, bootBlockSize=<Py_ssize_t>max(min(blockLength,500),3), scaleCB=scaleCB)
+        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, bootBlockSize=<Py_ssize_t>max(min(blockLength,1000),3), scaleCB=scaleCB)
+        # c0 < 0.0 -- set based on the global baseline, capped below by 0.05
+        if c0 < 0.0:
+            effectiveC0_F64 = fmax(trackWideOffset_F64, <double>5.0e-2)
+        else:
+            effectiveC0_F64 = c0
 
         with nogil:
             if <bint>disableLocalBackground == <bint>True:
@@ -1758,9 +1777,9 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                     interpolatedBackground_F64 = 0.0
 
                 if not <bint>disableBackground:
-                    logDiff_F64 = _clog_F64(valuesPtr_F64[i],c0, c1) - _clog_F64(interpolatedBackground_F64, c0, c1)
+                    logDiff_F64 = _clog_F64(valuesPtr_F64[i], effectiveC0_F64, c1) - _clog_F64(interpolatedBackground_F64, effectiveC0_F64, c1)
                 else:
-                    logDiff_F64 = _clog_F64(valuesPtr_F64[i], c0, c1)
+                    logDiff_F64 = _clog_F64(valuesPtr_F64[i], effectiveC0_F64, c1)
 
                 outputPtr_F64[i] = logDiff_F64
 
@@ -2419,7 +2438,7 @@ cpdef tuple cbackwardPass(
 cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
-    Py_ssize_t numBoots=5000,
+    Py_ssize_t numBoots=1000,
     double scaleCB=3.0,
     uint64_t seed=0,
     double lowClip=<double>5.0e-2,
@@ -2469,7 +2488,7 @@ cpdef double cgetGlobalBaseline(
 
     # prefix[start + size] - prefix[start] yields block's sum
     bootstrapMeans = (prefixSums[blockStarts + blockSizes] - prefixSums[blockStarts]) / blockSizes
-    posMeans = bootstrapMeans[bootstrapMeans >= lowClip]
+    posMeans = bootstrapMeans[bootstrapMeans > lowClip]
     numPos = posMeans.size
     bootMean = <double>np.mean(posMeans)
     bootStdErr = (<double>np.std(posMeans, ddof=1) / np.sqrt(<double>numPos))

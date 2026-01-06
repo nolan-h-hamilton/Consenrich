@@ -274,13 +274,14 @@ class countingParams(NamedTuple):
     :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.clogRatio`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
     :type scaleCB: float, optional
     :param globalLocalRatio: Ratio between global and local background estimates in :func:`consenrich.cconsenrich.clogRatio`. Larger values give more weight to the global background estimate (block-bootstrapped mean + se).
-      For instance, a value `3.0` yields :math:`\frac{3.0 \times \mathcal{B}_\textsf{global} + 1.0 \times \mathcal{B}_\textsf{local}}{3.0 + 1.0}`.
+      For instance, a value `4.0` yields :math:`\frac{4.0 \times \mathcal{B}_\textsf{global} + 1.0 \times \mathcal{B}_\textsf{local}}{4.0 + 1}`.
     :type globalLocalRatio: float, optional
-    :param c0: Additive constant in :math:`c_1 \log(x + c_0)`. See :func:`consenrich.cconsenrich.clogRatio`.
+    :param c0: Additive constant in :math:`c_1 \log(x + c_0)`. If ``< -1.0``, this is determined empirically.
     :type c0: float, optional
-    :param c1: Scaling constant in :math:`c_1 \log(x + c_0)`. See :func:`consenrich.cconsenrich.clogRatio`.
+    :param c1: Scaling constant in :math:`c_1 \log(x + c_0)`. Default is ``INV_LN2`` so that the logarithm is in base 2.
     :type c1: float, optional
 
+    :seealso: :func:`consenrich.cconsenrich.clogRatio`
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
       :class: tip
       :collapsible: closed
@@ -1351,7 +1352,7 @@ def runConsenrich(
     outStateCovarSmoothed_mm = stateCovarSmoothedArr
 
     if rescaleStateCovar:
-        numIntervalsPerBlock = int(np.ceil(np.sqrt(n/2)))
+        numIntervalsPerBlock = int(np.ceil(np.sqrt(n / 2)))
         blockCount = int(np.ceil(n / numIntervalsPerBlock))
         intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
         intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
@@ -1693,7 +1694,7 @@ def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
     eps: float = 1 / 100,
-    EB_minLin: float = 1 / 50,
+    EB_minLin: float = 1 / 10,
     EB_numFitBins: int | None = 10,
     minPairs: int = 10,
 ) -> np.ndarray:
@@ -1723,7 +1724,7 @@ def fitVarianceFunction(
     def _medPlusMAD(values: np.ndarray) -> float:
         median_ = float(np.median(values))
         mad_ = float(np.median(np.abs(values - median_)))
-        return median_ + (1.482 * mad_) # normal approx for consistency
+        return median_ + (1.482 * mad_)  # normal approx for consistency
 
     def _fitBinless(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if absMeansSeg.size == 0:
@@ -1783,7 +1784,7 @@ def fitVarianceFunction(
         numGoodBins = 0
 
         for j in range(numBinsSeg):
-            inBin = (binIndex == j)
+            inBin = binIndex == j
             binCount = int(np.count_nonzero(inBin))
             if binCount <= 0:
                 continue
@@ -1875,7 +1876,7 @@ def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
     eps: float = 1 / 100,
-    EB_minLin: float = 1 / 50,
+    EB_minLin: float = 1 / 10,
 ) -> np.ndarray:
     varianceTrend = np.asarray(coeffs, dtype=np.float32)
     absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
@@ -1908,11 +1909,12 @@ def getMuncTrack(
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     minValid: float = 1.0e-3,
-    EB_minLin: float = 1 / 50,
+    EB_minLin: float = 1 / 10,
     EB_numFitBins: int | None = 10,
     EB_use: bool = True,
-    EB_setNu0: int|None = None,
-    EB_setNuL: int|None = None,
+    EB_setNu0: int | None = None,
+    EB_setNuL: int | None = None,
+    verbose: bool = False,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -1944,6 +1946,8 @@ def getMuncTrack(
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, sets :math:`\nu_{\mathcal{L}}` to this value, overriding the local window size - 3.
     :type EB_setNuL: int | None
+    :param verbose: If `True`, print fit details.
+    :type verbose: bool
     :return: Munc track, fraction of valid (mean, variance) pairs used in fitting.
     :rtype: tuple[npt.NDArray[np.float32], float]
     """
@@ -2036,6 +2040,23 @@ def getMuncTrack(
     # go to prior for missing local estimates
     missingMask = (~np.isfinite(obsVarTrack)) | (obsVarTrack < minValid) | (priorTrack < minValid)
     posteriorVarTrack[missingMask] = priorTrack[missingMask]
+    if verbose:
+        _reportMunc(
+            chromosome=chromosome,
+            blockMeans=blockMeans,
+            blockVars=blockVars,
+            meanAbs=meanAbs,
+            passedMask=mask,
+            blockSizeIntervals=blockSizeIntervals,
+            localWindowIntervals=localWindowIntervals,
+            priorTrack=priorTrack,
+            obsVarTrack=obsVarTrack,
+            minValid=minValid,
+            Nu0=Nu_0,
+            NuL=Nu_L,
+            noFlag=noFlag,
+            posteriorVarTrack=posteriorVarTrack,
+        )
     return posteriorVarTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
 
 
@@ -2069,7 +2090,7 @@ def EB_computePriorStrength(
     )
     if np.count_nonzero(ratioMask) < (0.10) * localModelVariancesArr.size:
         logger.warning(
-            f"Insufficient prior/local variance pairs...setting nu_0 = 1.0e6",
+            f"Insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
         )
         return float(1.0e6)
 
@@ -2077,13 +2098,13 @@ def EB_computePriorStrength(
     varRatioArr = varRatioArr[np.isfinite(varRatioArr) & (varRatioArr > 0.0)]
     if varRatioArr.size < (0.10) * localModelVariancesArr.size:
         logger.warning(
-            f"After masking, insufficient prior/local variance pairs...setting nu_0 = 1.0e6",
+            f"After masking, insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
         )
         return float(1.0e6)
 
     logVarRatioArr = np.log(varRatioArr)
-    clipSmall = np.quantile(logVarRatioArr, 0.01)
-    clipBig = np.quantile(logVarRatioArr, 0.99)
+    clipSmall = np.quantile(logVarRatioArr, 0.005)
+    clipBig = np.quantile(logVarRatioArr, 0.995)
     np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
 
     varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
@@ -2124,8 +2145,8 @@ def EB_computePriorStrength(
             x0=x0_,
             fprime=d_objective,
             full_output=True,
-            tol=1.0e-8,
-            maxiter=100,
+            tol=1.0e-6,
+            maxiter=50,
         )
         if not root_.converged:
             return float(1.0e6)
@@ -2137,3 +2158,64 @@ def EB_computePriorStrength(
         Nu_0 = 4.0
 
     return float(Nu_0)
+
+
+def _reportMunc(
+    chromosome: str,
+    blockMeans: np.ndarray,
+    blockVars: np.ndarray,
+    meanAbs: np.ndarray,
+    passedMask: np.ndarray,
+    blockSizeIntervals: int,
+    localWindowIntervals: int,
+    priorTrack: np.ndarray,
+    obsVarTrack: np.ndarray,
+    minValid: float,
+    Nu0: float | None = None,
+    NuL: float | None = None,
+    noFlag: np.ndarray | None = None,
+    posteriorVarTrack: np.ndarray | None = None,
+) -> None:
+    totalBlocks = int(len(blockMeans))
+    passedBlocks = int(np.sum(passedMask))
+    passedFrac = passedBlocks / float(totalBlocks) if totalBlocks else 0.0
+    updatedCount = int(np.sum(noFlag)) if noFlag is not None else 0
+
+    priorFiniteMask = np.isfinite(priorTrack)
+    priorPassedMask = priorFiniteMask & (priorTrack >= minValid)
+    priorFiniteCount = int(np.sum(priorFiniteMask))
+    priorPassedCount = int(np.sum(priorPassedMask))
+    if priorFiniteCount:
+        priorFiniteVals = priorTrack[priorFiniteMask]
+        logger.info(
+            f"munc__prior min,median,max = "
+            f"{float(np.min(priorFiniteVals)):>10.3g}\t"
+            f"{float(np.median(priorFiniteVals)):>10.3g}\t"
+            f"{float(np.max(priorFiniteVals)):>10.3g}"
+        )
+
+    obsFiniteMask = np.isfinite(obsVarTrack)
+    obsPassedMask = obsFiniteMask & (obsVarTrack >= minValid)
+    obsFiniteCount = int(np.sum(obsFiniteMask))
+    obsPassedCount = int(np.sum(obsPassedMask))
+    if obsFiniteCount:
+        obsFiniteVals = obsVarTrack[obsFiniteMask]
+        logger.info(
+            f"munc__local min,median,max = "
+            f"{float(np.min(obsFiniteVals)):>10.3g}\t"
+            f"{float(np.median(obsFiniteVals)):>10.3g}\t"
+            f"{float(np.max(obsFiniteVals)):>10.3g}"
+        )
+
+    if Nu0 is not None and NuL is not None:
+        posteriorSampleSize = NuL + Nu0
+        localWeight = NuL / posteriorSampleSize
+        priorWeight = Nu0 / posteriorSampleSize
+        if updatedCount and posteriorVarTrack is not None and noFlag is not None:
+            post_ = posteriorVarTrack[noFlag].astype(np.float64)
+            logger.info(
+                f"munc__post min,median,max  = "
+                f"{float(np.min(post_)):>10.3g}\t"
+                f"{float(np.median(post_)):>10.3g}\t"
+                f"{float(np.max(post_)):>10.3g}\n"
+            )
