@@ -61,9 +61,7 @@ def autoMinLengthIntervals(
     # just consider stretches of positive signal
     nz = trValues[trValues > 0]
     # ... mask out < quantile
-    thr = np.quantile(
-        nz, cutoffQuantile, method="interpolated_inverted_cdf"
-    )
+    thr = np.quantile(nz, cutoffQuantile, method="interpolated_inverted_cdf")
     mask = nz >= thr
     if not np.any(mask):
         return initLen
@@ -77,9 +75,7 @@ def autoMinLengthIntervals(
         return initLen
     # changed from previous...trim right tail
     return max(
-        int(
-            stats.tmean(widths, limits=(0, np.quantile(widths, 0.95)))
-        ),
+        int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.95)))),
         initLen,
     )
 
@@ -183,9 +179,7 @@ def matchWavelet(
         raise ValueError("`intervals` must be at least length 5")
 
     if len(values) != len(intervals):
-        raise ValueError(
-            "`values` must have the same length as `intervals`"
-        )
+        raise ValueError("`values` must have the same length as `intervals`")
 
     if len(templateNames) != len(cascadeLevels):
         raise ValueError(
@@ -229,9 +223,7 @@ def matchWavelet(
     halfRightMask = ~halfLeftMask
     excludeMaskGlobal = np.zeros(len(intervals), dtype=np.uint8)
     if excludeRegionsBedFile is not None:
-        excludeMaskGlobal = core.getBedMask(
-            chromosome, excludeRegionsBedFile, intervals
-        ).astype(np.uint8)
+        excludeMaskGlobal = core.getBedMask(chromosome, excludeRegionsBedFile, intervals).astype(np.uint8)
     allRows = []
 
     def parseMinSignalThreshold(val):
@@ -241,9 +233,7 @@ def matchWavelet(
             if val.startswith("q:"):
                 qVal = float(val.split("q:")[-1])
                 if not (0 <= qVal <= 1):
-                    raise ValueError(
-                        f"Quantile {qVal} is out of range"
-                    )
+                    raise ValueError(f"Quantile {qVal} is out of range")
                 return float(
                     np.quantile(
                         asinhNonZeroValues,
@@ -273,9 +263,7 @@ def matchWavelet(
             )
         )
 
-    def relativeMaxima(
-        resp: np.ndarray, orderBins: int, eps: float = None
-    ) -> np.ndarray:
+    def relativeMaxima(resp: np.ndarray, orderBins: int, eps: float = None) -> np.ndarray:
         order_: int = max(int(orderBins), 1)
         if eps is None:
             eps = np.finfo(resp.dtype).eps * 10
@@ -284,9 +272,7 @@ def matchWavelet(
             return a > (b - eps)
 
         # get initial set using loosened criterion
-        idx = signal.argrelextrema(
-            resp, comparator=ge_with_tol, order=order_
-        )[0]
+        idx = signal.argrelextrema(resp, comparator=ge_with_tol, order=order_)[0]
         if idx.size == 0:
             return idx
 
@@ -344,19 +330,13 @@ def matchWavelet(
         high = np.quantile(vals, 0.9999)
         return vals[(vals > low) & (vals < high)]
 
-    for templateName, cascadeLevel in zip(
-        templateNames, cascadeLevels
-    ):
+    for templateName, cascadeLevel in zip(templateNames, cascadeLevels):
         if templateName not in pw.wavelist(kind="discrete"):
-            logger.warning(
-                f"Skipping unknown wavelet template: {templateName}"
-            )
+            logger.warning(f"Skipping unknown wavelet template: {templateName}")
             continue
 
         wav = pw.Wavelet(str(templateName))
-        scalingFunc, waveletFunc, _ = wav.wavefun(
-            level=int(cascadeLevel)
-        )
+        scalingFunc, waveletFunc, _ = wav.wavefun(level=int(cascadeLevel))
         template = np.array(
             scalingFunc if useScalingFunction else waveletFunc,
             dtype=np.float64,
@@ -371,19 +351,13 @@ def matchWavelet(
 
         # efficient FFT-based cross-correlation
         # (OA may be better for smaller templates, TODO add a check)
-        response = signal.fftconvolve(
-            values, template[::-1], mode="same"
-        )
+        response = signal.fftconvolve(values, template[::-1], mode="same")
         thisMinMatchBp = minMatchLengthBP
         if thisMinMatchBp is None or thisMinMatchBp < 1:
             thisMinMatchBp = len(template) * intervalLengthBp
         if thisMinMatchBp % intervalLengthBp != 0:
-            thisMinMatchBp += intervalLengthBp - (
-                thisMinMatchBp % intervalLengthBp
-            )
-        relWindowBins = int(
-            ((thisMinMatchBp / intervalLengthBp) / 2) + 1
-        )
+            thisMinMatchBp += intervalLengthBp - (thisMinMatchBp % intervalLengthBp)
+        relWindowBins = int(((thisMinMatchBp / intervalLengthBp) / 2) + 1)
         relWindowBins = max(relWindowBins, 1)
         asinhThreshold = parseMinSignalThreshold(minSignalAtMaxima)
         for nullMask, testMask, tag in [
@@ -409,9 +383,7 @@ def matchWavelet(
                     eps=eps,
                 )
             ecdfSf = stats.ecdf(blockMaxima).sf
-            candidateIdx = relativeMaxima(
-                response, relWindowBins, eps=eps
-            )
+            candidateIdx = relativeMaxima(response, relWindowBins, eps=eps)
 
             candidateMask = (
                 (candidateIdx >= relWindowBins)
@@ -424,54 +396,33 @@ def matchWavelet(
             candidateIdx = candidateIdx[candidateMask]
             if len(candidateIdx) == 0:
                 continue
-            if (
-                maxNumMatches is not None
-                and len(candidateIdx) > maxNumMatches
-            ):
-                candidateIdx = candidateIdx[
-                    np.argsort(asinhValues[candidateIdx])[
-                        -maxNumMatches:
-                    ]
-                ]
+            if maxNumMatches is not None and len(candidateIdx) > maxNumMatches:
+                candidateIdx = candidateIdx[np.argsort(asinhValues[candidateIdx])[-maxNumMatches:]]
             pEmp = np.clip(
                 ecdfSf.evaluate(response[candidateIdx]),
                 np.finfo(np.float32).tiny,
                 1.0,
             )
             startsIdx = np.maximum(candidateIdx - relWindowBins, 0)
-            endsIdx = np.minimum(
-                len(values) - 1, candidateIdx + relWindowBins
-            )
+            endsIdx = np.minimum(len(values) - 1, candidateIdx + relWindowBins)
             pointSourcesIdx = []
             for s, e in zip(startsIdx, endsIdx):
-                pointSourcesIdx.append(
-                    np.argmax(values[s : e + 1]) + s
-                )
+                pointSourcesIdx.append(np.argmax(values[s : e + 1]) + s)
             pointSourcesIdx = np.array(pointSourcesIdx)
             starts = intervals[startsIdx]
             ends = intervals[endsIdx]
-            pointSourcesAbs = (intervals[pointSourcesIdx]) + max(
-                1, intervalLengthBp // 2
-            )
+            pointSourcesAbs = (intervals[pointSourcesIdx]) + max(1, intervalLengthBp // 2)
             if recenterAtPointSource:
-                starts = pointSourcesAbs - (
-                    relWindowBins * intervalLengthBp
-                )
-                ends = pointSourcesAbs + (
-                    relWindowBins * intervalLengthBp
-                )
-            pointSourcesRel = (
-                intervals[pointSourcesIdx] - starts
-            ) + max(1, intervalLengthBp // 2)
+                starts = pointSourcesAbs - (relWindowBins * intervalLengthBp)
+                ends = pointSourcesAbs + (relWindowBins * intervalLengthBp)
+            pointSourcesRel = (intervals[pointSourcesIdx] - starts) + max(1, intervalLengthBp // 2)
             sqScores = (1 + response[candidateIdx]) ** 2
             minR, maxR = (
                 float(np.min(sqScores)),
                 float(np.max(sqScores)),
             )
             rangeR = max(maxR - minR, 1.0)
-            scores = (250 + 750 * (sqScores - minR) / rangeR).astype(
-                int
-            )
+            scores = (250 + 750 * (sqScores - minR) / rangeR).astype(int)
             for i, idxVal in enumerate(candidateIdx):
                 allRows.append(
                     {
@@ -491,9 +442,7 @@ def matchWavelet(
                 )
 
     if not allRows:
-        logger.warning(
-            "No matches detected, returning empty DataFrame."
-        )
+        logger.warning("No matches detected, returning empty DataFrame.")
 
         return pd.DataFrame(
             columns=[
@@ -579,14 +528,10 @@ def mergeMatches(
     try:
         bed = BedTool(filePath)
     except Exception as ex:
-        logger.warning(
-            f"Couldn't create BedTool for {filePath}:\n{ex}\n\nskipping merge..."
-        )
+        logger.warning(f"Couldn't create BedTool for {filePath}:\n{ex}\n\nskipping merge...")
         return None
     if bed is None:
-        logger.warning(
-            f"Couldn't create BedTool for {filePath}...skipping merge"
-        )
+        logger.warning(f"Couldn't create BedTool for {filePath}...skipping merge")
         return None
 
     bed = bed.sort()
@@ -637,19 +582,12 @@ def mergeMatches(
                 if g["pMax"] == float("-inf"):
                     g["pTail"] = 1.0
                 else:
-                    g["pTail"] = (
-                        g["pTail"] * (10 ** (g["pMax"] - pLog10))
-                        + 1.0
-                    )
+                    g["pTail"] = g["pTail"] * (10 ** (g["pMax"] - pLog10)) + 1.0
                 g["pMax"] = pLog10
             else:
                 g["pTail"] += 10 ** (pLog10 - g["pMax"])
 
-        if (
-            math.isinf(qLog10)
-            or qLog10 >= MAX_NEGLOGP
-            or qLog10 <= MIN_NEGLOGP
-        ):
+        if math.isinf(qLog10) or qLog10 >= MAX_NEGLOGP or qLog10 <= MIN_NEGLOGP:
             g["qHasInf"] = True
         else:
             if qLog10 < g["qMin"]:
@@ -662,10 +600,7 @@ def mergeMatches(
                 if g["qMax"] == float("-inf"):
                     g["qTail"] = 1.0
                 else:
-                    g["qTail"] = (
-                        g["qTail"] * (10 ** (g["qMax"] - qLog10))
-                        + 1.0
-                    )
+                    g["qTail"] = g["qTail"] * (10 ** (g["qMax"] - qLog10)) + 1.0
                 g["qMax"] = qLog10
             else:
                 g["qTail"] += 10 ** (qLog10 - g["qMax"])
@@ -695,42 +630,22 @@ def mergeMatches(
         if g["pHasInf"]:
             pHMLog10 = MAX_NEGLOGP
         else:
-            if (
-                g["pMax"] == float("-inf")
-                or not (g["pTail"] > 0.0)
-                or math.isnan(g["pTail"])
-            ):
+            if g["pMax"] == float("-inf") or not (g["pTail"] > 0.0) or math.isnan(g["pTail"]):
                 pHMLog10 = MIN_NEGLOGP
             else:
-                pHMLog10 = -math.log10(g["n"]) + (
-                    g["pMax"] + math.log10(g["pTail"])
-                )
-                pHMLog10 = max(
-                    MIN_NEGLOGP, min(pHMLog10, MAX_NEGLOGP)
-                )
+                pHMLog10 = -math.log10(g["n"]) + (g["pMax"] + math.log10(g["pTail"]))
+                pHMLog10 = max(MIN_NEGLOGP, min(pHMLog10, MAX_NEGLOGP))
 
         if g["qHasInf"]:
             qHMLog10 = MAX_NEGLOGP
         else:
-            if (
-                g["qMax"] == float("-inf")
-                or not (g["qTail"] > 0.0)
-                or math.isnan(g["qTail"])
-            ):
+            if g["qMax"] == float("-inf") or not (g["qTail"] > 0.0) or math.isnan(g["qTail"]):
                 qHMLog10 = MIN_NEGLOGP
             else:
-                qHMLog10 = -math.log10(g["n"]) + (
-                    g["qMax"] + math.log10(g["qTail"])
-                )
-                qHMLog10 = max(
-                    MIN_NEGLOGP, min(qHMLog10, MAX_NEGLOGP)
-                )
+                qHMLog10 = -math.log10(g["n"]) + (g["qMax"] + math.log10(g["qTail"]))
+                qHMLog10 = max(MIN_NEGLOGP, min(qHMLog10, MAX_NEGLOGP))
 
-        pointSource = (
-            g["peakAbs"] - sMin
-            if g["peakAbs"] >= 0
-            else (eMax - sMin) // 2
-        )
+        pointSource = g["peakAbs"] - sMin if g["peakAbs"] >= 0 else (eMax - sMin) // 2
 
         qMinLog10 = g["qMin"]
         qMaxLog10 = g["qMax"]
@@ -738,10 +653,7 @@ def mergeMatches(
             qMinLog10 = MIN_NEGLOGP
         if math.isfinite(qMaxLog10) and qMaxLog10 > MAX_NEGLOGP:
             qMaxLog10 = MAX_NEGLOGP
-        elif (
-            not math.isfinite(qMaxLog10)
-            or not math.isfinite(qMinLog10)
-        ) or (qMaxLog10 < MIN_NEGLOGP):
+        elif (not math.isfinite(qMaxLog10) or not math.isfinite(qMinLog10)) or (qMaxLog10 < MIN_NEGLOGP):
             qMinLog10 = 0.0
             qMaxLog10 = 0.0
 
@@ -814,18 +726,14 @@ def runMatchingAlgorithm(
                 "value": np.float64,
             },
         )
-        chromBedGraphDF = chromBedGraphDF[
-            chromBedGraphDF["chromosome"] == chromosome_
-        ]
+        chromBedGraphDF = chromBedGraphDF[chromBedGraphDF["chromosome"] == chromosome_]
         chromIntervals = chromBedGraphDF["start"].to_numpy()
         chromValues = chromBedGraphDF["value"].to_numpy()
         del chromBedGraphDF
 
         weightsDF = pd.DataFrame()
         weights = np.ones_like(chromValues, dtype=np.float64)
-        if weightsBedGraph is not None and os.path.exists(
-            weightsBedGraph
-        ):
+        if weightsBedGraph is not None and os.path.exists(weightsBedGraph):
             try:
                 weightsDF = pd.read_csv(
                     weightsBedGraph,
@@ -839,16 +747,10 @@ def runMatchingAlgorithm(
                         "value": np.float64,
                     },
                 )
-                weights = weightsDF[
-                    weightsDF["chromosome"] == chromosome_
-                ]
-                weights = 1 / np.sqrt(
-                    weights["value"].to_numpy() + 1.0
-                )
+                weights = weightsDF[weightsDF["chromosome"] == chromosome_]
+                weights = 1 / np.sqrt(weights["value"].to_numpy() + 1.0)
             except Exception as ex:
-                logger.warning(
-                    "Failed to parse weights from {weightsBedGraph}. Ignoring weights...."
-                )
+                logger.warning("Failed to parse weights from {weightsBedGraph}. Ignoring weights....")
         del weightsDF
 
         if minMatchLengthBP is not None and minMatchLengthBP < 1:
@@ -884,16 +786,13 @@ def runMatchingAlgorithm(
             continue
 
         stepSize_ = np.float32(chromIntervals[1] - chromIntervals[0])
-        lengths = (
-            df__["end"].to_numpy(dtype=np.int64)
-            - df__["start"].to_numpy(dtype=np.int64)
-        ).astype(np.float32)
+        lengths = (df__["end"].to_numpy(dtype=np.int64) - df__["start"].to_numpy(dtype=np.int64)).astype(
+            np.float32
+        )
 
         signals = df__["signal"].to_numpy(dtype=np.float32)
 
-        massProxy = ((lengths*signals) / stepSize_).astype(
-            np.float32
-        )
+        massProxy = ((lengths * signals) / stepSize_).astype(np.float32)
         massQuantileCutoff_ = min(massQuantileCutoff, 0.995)
         if massQuantileCutoff_ > 0 and massProxy.size > 0:
             cutoff = np.quantile(
@@ -902,34 +801,22 @@ def runMatchingAlgorithm(
                 method="interpolated_inverted_cdf",
             )
 
-            logger.info(
-                f"Applying mass cutoff: {cutoff:.3f} on chromosome {chromosome_}"
-            )
+            logger.info(f"Applying mass cutoff: {cutoff:.3f} on chromosome {chromosome_}")
             df__ = df__[massProxy >= cutoff].copy()
         else:
             df__ = df__.copy()
 
-
         gwideDF = pd.concat([gwideDF, df__], ignore_index=True)
-
 
     if gwideDF.empty:
         logger.warning("Empty matching results over `chromosomes`.")
         return gwideDF
-    naturalScalePValues = 10 ** (
-        -gwideDF["pValue"].values.astype(float)
-    )
+    naturalScalePValues = 10 ** (-gwideDF["pValue"].values.astype(float))
     qVals = _FDR(naturalScalePValues, method=methodFDR)
-    gwideDF["qValue"] = -np.log10(
-        np.clip(qVals, np.finfo(np.float32).tiny, 1.0)
-    )
+    gwideDF["qValue"] = -np.log10(np.clip(qVals, np.finfo(np.float32).tiny, 1.0))
     gwideDF = gwideDF[qVals <= alpha].copy()
-    gwideDF.sort_values(
-        by=["chromosome", "start", "end"], inplace=True
-    )
-    tempNarrowPeak = f"{bedGraphFile}_matches.narrowPeak".replace(
-        ".bedGraph", ""
-    )
+    gwideDF.sort_values(by=["chromosome", "start", "end"], inplace=True)
+    tempNarrowPeak = f"{bedGraphFile}_matches.narrowPeak".replace(".bedGraph", "")
     gwideDF.to_csv(
         tempNarrowPeak,
         sep="\t",
@@ -938,15 +825,11 @@ def runMatchingAlgorithm(
     )
 
     if mergeGapBP is None or mergeGapBP < 1:
-        mergeGapBP = max(
-            (np.median(avgMinMatchLengths).astype(int) // 2), 147
-        )
+        mergeGapBP = max((np.median(avgMinMatchLengths).astype(int) // 2), 147)
 
     mergedPath = None
     if merge:
-        mergedPath = mergeMatches(
-            tempNarrowPeak, mergeGapBP=mergeGapBP
-        )
+        mergedPath = mergeMatches(tempNarrowPeak, mergeGapBP=mergeGapBP)
         if mergedPath is not None and os.path.isfile(mergedPath):
             logger.info(f"Merged matches written to {mergedPath}")
 

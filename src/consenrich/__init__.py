@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "0.8.2rc2"
+__version__ = "0.8.3rc1"
 from importlib import import_module
 
 cconsenrich = import_module(__name__ + ".cconsenrich")

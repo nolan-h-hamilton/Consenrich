@@ -1538,8 +1538,8 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                           bint disableLocalBackground = <bint>False,
                           bint disableBackground = <bint>False,
                           double scaleCB = <double>3.0,
-                          double globalLocalRatio = <double>2.0,
-                          double c0=<double>-1.0, double c1=<double> (1.0 / log(2.0)) ):
+                          double globalLocalRatio = <double>4.0,
+                          double c0=<double>0.25, double c1=<double> (1.0 / log(2.0)) ):
     r"""Compute log-scale enrichment versus local+global weighted background
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -2438,7 +2438,7 @@ cpdef tuple cbackwardPass(
 cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
-    Py_ssize_t numBoots=1000,
+    Py_ssize_t numBoots=5000,
     double scaleCB=3.0,
     uint64_t seed=0,
     double lowClip=<double>5.0e-2,
@@ -2488,7 +2488,7 @@ cpdef double cgetGlobalBaseline(
 
     # prefix[start + size] - prefix[start] yields block's sum
     bootstrapMeans = (prefixSums[blockStarts + blockSizes] - prefixSums[blockStarts]) / blockSizes
-    posMeans = bootstrapMeans[bootstrapMeans > lowClip]
+    posMeans = bootstrapMeans[bootstrapMeans >= lowClip]
     numPos = posMeans.size
     bootMean = <double>np.mean(posMeans)
     bootStdErr = (<double>np.std(posMeans, ddof=1) / np.sqrt(<double>numPos))

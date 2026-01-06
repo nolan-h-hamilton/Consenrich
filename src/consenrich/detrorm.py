@@ -53,9 +53,7 @@ def getScaleFactor1x(
     """
     if excludeChroms is not None:
         if chromSizesFile is None:
-            raise ValueError(
-                "`excludeChroms` is provided...so must be `chromSizesFile`."
-            )
+            raise ValueError("`excludeChroms` is provided...so must be `chromSizesFile`.")
         chromSizes: dict = getChromSizesDict(chromSizesFile)
         for chrom in excludeChroms:
             if chrom not in chromSizes:
@@ -74,14 +72,10 @@ def getScaleFactor1x(
             f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}."
         )
 
-    return round(
-        effectiveGenomeSize / (totalMappedReads * readLength), 5
-    )
+    return round(effectiveGenomeSize / (totalMappedReads * readLength), 5)
 
 
-def getScaleFactorPerMillion(
-    bamFile: str, excludeChroms: List[str], intervalSizeBP: int
-) -> float:
+def getScaleFactorPerMillion(bamFile: str, excludeChroms: List[str], intervalSizeBP: int) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
     :param bamFile: See :class:`consenrich.core.inputParams`.
@@ -105,9 +99,7 @@ def getScaleFactorPerMillion(
         raise ValueError(
             f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}."
         )
-    scalePM = round(
-        (1_000_000 / totalMappedReads) * (1000 / intervalSizeBP), 5
-    )
+    scalePM = round((1_000_000 / totalMappedReads) * (1000 / intervalSizeBP), 5)
     return scalePM
 
 
@@ -205,9 +197,7 @@ def getPairScaleFactors(
             scaleFactorA = 1.0
             scaleFactorB = 1.0
 
-    ratio = max(scaleFactorA, scaleFactorB) / max(
-        1.0e-12, min(scaleFactorA, scaleFactorB)
-    )
+    ratio = max(scaleFactorA, scaleFactorB) / max(1.0e-12, min(scaleFactorA, scaleFactorB))
     if ratio > 5.0:
         logger.warning(
             f"Scale factors differ > 5x....\n"

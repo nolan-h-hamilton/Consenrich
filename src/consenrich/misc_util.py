@@ -49,9 +49,7 @@ def checkBamFile(bamFile: str) -> bool:
 
     if not has_index:
         try:
-            logger.info(
-                f"Could not find index file for {bamFile}. Calling pysam.index()"
-            )
+            logger.info(f"Could not find index file for {bamFile}. Calling pysam.index()")
             sam.index(bamFile)
             has_index = True
         except Exception as ex:
@@ -62,9 +60,7 @@ def checkBamFile(bamFile: str) -> bool:
     return has_index
 
 
-def bamsArePairedEnd(
-    bamFiles: List[str], maxReads: int = 1_000
-) -> List[bool]:
+def bamsArePairedEnd(bamFiles: List[str], maxReads: int = 1_000) -> List[bool]:
     """
     Take a list of BAM files, return a list (bool) indicating whether
     each BAM contains paired-end reads (True) or only single-end reads (False).
@@ -117,6 +113,5 @@ def getChromSizesDict(
         )["size"]
         .to_dict()
         .items()
-        if re.search(excludeRegex, k) is not None
-        and k not in excludeChroms
+        if re.search(excludeRegex, k) is not None and k not in excludeChroms
     }

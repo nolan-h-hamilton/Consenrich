@@ -393,7 +393,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundWindowSizeBP = _cfgGet(
         configData,
         "countingParams.backgroundWindowSizeBP",
-        min(max(1000 * intervalSizeBP, 50_000), 500_000),  # other values may work but haven't been tested
+        min(max(1000 * intervalSizeBP, 100_000), 500_000),  # other values may work but haven't been tested
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -470,13 +470,13 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     globalLocalRatio_ = _cfgGet(
         configData,
         "countingParams.globalLocalRatio",
-        2.0,
+        4.0,
     )
 
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        -1.0,
+        0.25,
     )
 
     c1_ = _cfgGet(
@@ -614,7 +614,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockLengthBP",
-            500,
+            1000,
         ),
         minValid=_cfgGet(
             configData,
