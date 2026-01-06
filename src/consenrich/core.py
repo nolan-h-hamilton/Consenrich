@@ -1723,7 +1723,7 @@ def fitVarianceFunction(
     def _medPlusMAD(values: np.ndarray) -> float:
         median_ = float(np.median(values))
         mad_ = float(np.median(np.abs(values - median_)))
-        return median_ + (1.482 * mad_)
+        return median_ + (1.482 * mad_) # normal approx for consistency
 
     def _fitBinless(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if absMeansSeg.size == 0:
@@ -1733,6 +1733,7 @@ def fitVarianceFunction(
         # Compute the threshold on max(variance, floor)
         flooredVariancesSeg = np.maximum(variancesSeg, linearFloor)
 
+        # consider pairs with var >= (median + ~mad~)
         threshold_ = _medPlusMAD(flooredVariancesSeg)
         keepMask = flooredVariancesSeg >= threshold_
         absMeansSeg = absMeansSeg[keepMask]
@@ -1773,18 +1774,16 @@ def fitVarianceFunction(
         edgeGrid[-1] = np.inf
         binIndex = np.searchsorted(edgeGrid, absMeansSeg, side="right") - 1
         binIndex = np.clip(binIndex, 0, numBinsSeg - 1)
-
-        # Compute the threshold on max(variance, floor), and require at least minPairs per bin.
-        # If a bin has < minPairs, we just carry forward the previous
+        # Compute the threshold on max(variance, floor), and require at least minPairs per bin
+        # If a bin has < minPairs valid |mu|,var pairs, carry forward from the previous
         linearFloorAll = EB_minLin * absMeansSeg + eps
         flooredVariancesAll = np.maximum(variancesSeg, linearFloorAll)
-
         thresholds = np.full(numBinsSeg, np.nan, dtype=np.float64)
         lastThreshold_ = np.nan
         numGoodBins = 0
 
         for j in range(numBinsSeg):
-            inBin = binIndex == j
+            inBin = (binIndex == j)
             binCount = int(np.count_nonzero(inBin))
             if binCount <= 0:
                 continue

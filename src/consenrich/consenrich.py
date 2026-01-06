@@ -393,7 +393,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundWindowSizeBP = _cfgGet(
         configData,
         "countingParams.backgroundWindowSizeBP",
-        min(max(1000 * intervalSizeBP, 100_000), 500_000),  # other values may work but haven't been tested
+        min(max(1000 * intervalSizeBP, 50_000), 500_000),  # other values may work but haven't been tested
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -476,7 +476,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        0.25,
+        0.50,
     )
 
     c1_ = _cfgGet(

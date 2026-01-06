@@ -1531,7 +1531,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                           bint disableBackground = <bint>False,
                           double scaleCB = <double>3.0,
                           double globalLocalRatio = <double>4.0,
-                          double c0=<double>0.25, double c1=<double> (1.0 / log(2.0)) ):
+                          double c0=<double>0.50, double c1=<double> (1.0 / log(2.0)) ):
     r"""Compute log-scale enrichment versus local+global weighted background
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -2422,7 +2422,7 @@ cpdef double cgetGlobalBaseline(
     Py_ssize_t numBoots=5000,
     double scaleCB=3.0,
     uint64_t seed=0,
-    double lowClip=<double>1.0e-2,
+    double lowClip=<double>5.0e-2,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
     cdef cnp.float32_t[::1] valuesView
