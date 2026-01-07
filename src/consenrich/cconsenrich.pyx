@@ -219,8 +219,8 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
         if beta1 > maxBeta:
             beta1 = maxBeta
-        if beta1 < -maxBeta:
-            beta1 = -maxBeta
+        elif beta1 < 0.0:
+            beta1 = 0.0
 
         RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
         if RSS < 0.0:
@@ -2591,9 +2591,11 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
                 beta1 = 0.0
 
             if beta1 > maxBeta:
-                beta1=maxBeta
-            elif beta1 < -maxBeta:
-                beta1=-maxBeta
+                beta1 = maxBeta
+
+            # AR(1) negative autocorrelation hides noise here
+            elif beta1 < 0.0:
+                beta1 = 0.0
 
             RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
             if RSS < 0.0:

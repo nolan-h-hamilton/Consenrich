@@ -808,7 +808,7 @@ def runConsenrich(
     progressIter: int,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-    pad: float = 1.0e-3,
+    pad: float = 5.0e-3,
     calibration_kwargs: Optional[dict[str, Any]] = None,
     disableCalibration: bool = False,
     ratioDiagQ: float | None = None,
