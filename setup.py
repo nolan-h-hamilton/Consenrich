@@ -48,7 +48,7 @@ extensions = [
 
 setup(
     name="consenrich",
-    version="0.8.5rc1",
+    version="0.8.6rc1",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     include_package_data=True,
@@ -63,6 +63,7 @@ setup(
         "PyYAML>=6.0.2",
         "PyWavelets>=1.9.0",
         "tqdm",
+        "itrigamma>=0.0.1a",
     ],
     extras_require={
         "plot": ["plotext", "matplotlib", "seaborn"],

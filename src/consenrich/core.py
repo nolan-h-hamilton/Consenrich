@@ -276,9 +276,9 @@ class countingParams(NamedTuple):
     :param globalLocalRatio: Ratio between global and local background estimates in :func:`consenrich.cconsenrich.clogRatio`. Larger values give more weight to the global background estimate (block-bootstrapped mean + se).
       For instance, a value `4.0` yields :math:`\frac{4.0 \times \mathcal{B}_\textsf{global} + 1.0 \times \mathcal{B}_\textsf{local}}{4.0 + 1}`.
     :type globalLocalRatio: float, optional
-    :param c0: Additive constant in :math:`c_1 \log(x + c_0)`. If ``< -1.0``, this is determined empirically.
+    :param c0: Additive constant in :math:`c_1 \log(x + c_0)`.
     :type c0: float, optional
-    :param c1: Scaling constant in :math:`c_1 \log(x + c_0)`. Default is ``INV_LN2`` so that the logarithm is in base 2.
+    :param c1: Scaling constant in :math:`c_1 \log(x + c_0)`, e.g., :math:`\frac{1}{\log(2)}` for log2 scale.
     :type c1: float, optional
 
     :seealso: :func:`consenrich.cconsenrich.clogRatio`
@@ -390,13 +390,23 @@ class outputParams(NamedTuple):
     :type convertToBigWig: bool
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
-    :param writeUncertainty: If True, write the posterior conditional uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
+    :param writeUncertainty: If True, write the model's posterior uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
     :type writeUncertainty: bool
+    :param writeMWSE: If True, write the per-interval mean weighted squared error (MWSE),
+        where the weighting is with respect to measurement uncertainty
+
+        .. math::
+
+        \mathrm{MWSE}_{[i]} = \frac{1}{m}\sum_{j=1}^{m}\frac{\left(Z_{[i,j]} - (\mathbf{H}\widetilde{x}_{[i]})_{j}\right)^{2}}{R_{[i,j]}}
+
+        Here, m = numSamples and R_{[i,j]} is the (diagonal) measurement variance for sample j.
+    :type writeMWSE: bool
     """
 
     convertToBigWig: bool
     roundDigits: int
     writeUncertainty: bool
+    writeMWSE: bool
 
 
 def _checkMod(name: str) -> bool:
@@ -1694,7 +1704,7 @@ def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
     eps: float = 1 / 100,
-    EB_minLin: float = 1 / 10,
+    EB_minLin: float = 1 / 5,
     EB_numFitBins: int | None = 10,
     minPairs: int = 10,
 ) -> np.ndarray:
@@ -1876,7 +1886,7 @@ def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
     eps: float = 1 / 100,
-    EB_minLin: float = 1 / 10,
+    EB_minLin: float = 1 / 5,
 ) -> np.ndarray:
     varianceTrend = np.asarray(coeffs, dtype=np.float32)
     absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
@@ -1909,7 +1919,7 @@ def getMuncTrack(
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     minValid: float = 1.0e-3,
-    EB_minLin: float = 1 / 10,
+    EB_minLin: float = 1 / 5,
     EB_numFitBins: int | None = 10,
     EB_use: bool = True,
     EB_setNu0: int | None = None,

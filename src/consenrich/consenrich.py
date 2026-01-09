@@ -268,10 +268,16 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.writeUncertainty",
         True,
     )
+    writeMWSE_ = _cfgGet(
+        configData,
+        "outputParams.writeMWSE",
+        True,
+    )
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
+        writeMWSE=writeMWSE_,
     )
 
 
@@ -614,7 +620,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockLengthBP",
-            1000,
+            500,
         ),
         minValid=_cfgGet(
             configData,
@@ -625,7 +631,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                1 / 10,
+                1 / 5,
             )
         ),
         EB_numFitBins=_cfgGet(
@@ -733,7 +739,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.75,
+            0.50,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -903,7 +909,7 @@ def main():
     parser.add_argument(
         "--match-auto-length-quantile",
         type=float,
-        default=0.75,
+        default=0.50,
         dest="matchAutoLengthQuantile",
         help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )
@@ -1344,7 +1350,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.01))
 
-            autoMinQ = max((0.01 * minR_), 0.001)
+            autoMinQ = max((0.01 * minR_), 0.005)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1410,10 +1416,18 @@ def main():
 
         if outputArgs.writeUncertainty:
             cols_.append("uncertainty")
+        if outputArgs.writeMWSE:
+            cols_.append("MWSE")
+            srs_ = np.sum(((chromMat - x_[None, :])**2) / (muncMat + 1e-8), axis=0, dtype=np.float64).astype(np.float32)
+            if numSamples > 1:
+                    srs_ /= (numSamples)
+            df["MWSE"] = srs_.astype(np.float32, copy=False)
         df = df[cols_]
         suffixes = ["state"]
         if outputArgs.writeUncertainty:
             suffixes.append("uncertainty")
+        if outputArgs.writeMWSE:
+            suffixes.append("MWSE")
 
         if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):
