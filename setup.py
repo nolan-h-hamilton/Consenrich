@@ -63,6 +63,7 @@ setup(
         "PyYAML>=6.0.2",
         "PyWavelets>=1.9.0",
         "tqdm",
+        "itrigamma>=0.0.1a",
     ],
     extras_require={
         "plot": ["plotext", "matplotlib", "seaborn"],

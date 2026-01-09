@@ -27,6 +27,7 @@ dependencies = [
     "PyWavelets>=1.9.0",
     "matplotlib",
     "tqdm",
+    "itrigamma>=0.0.1a",
 ]
 
 [project.optional-dependencies]
