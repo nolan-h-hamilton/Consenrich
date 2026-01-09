@@ -35,7 +35,7 @@ def _FDR(pVals: np.ndarray, method: str | None = "bh") -> np.ndarray:
 def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 3,
-    cutoffQuantile: float = 0.75,
+    cutoffQuantile: float = 0.50,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
 
@@ -60,7 +60,8 @@ def autoMinLengthIntervals(
 
     # just consider stretches of positive signal
     nz = trValues[trValues > 0]
-    # ... mask out < quantile
+    if nz.size == 0:
+        return initLen
     thr = np.quantile(nz, cutoffQuantile, method="interpolated_inverted_cdf")
     mask = nz >= thr
     if not np.any(mask):
@@ -211,8 +212,8 @@ def matchWavelet(
         else:
             values = values * weights
 
-    asinhValues = values.astype(np.float32)
-    asinhNonZeroValues = asinhValues[asinhValues > 0]
+    values_ = values.astype(np.float32)
+    nz_values_ = values_
 
     iters = max(int(iters), 1000)
     defQuantile = 0.75
@@ -236,28 +237,28 @@ def matchWavelet(
                     raise ValueError(f"Quantile {qVal} is out of range")
                 return float(
                     np.quantile(
-                        asinhNonZeroValues,
+                        nz_values_,
                         qVal,
                         method="interpolated_inverted_cdf",
                     )
                 )
             elif castableToFloat(val):
                 v = float(val)
-                return -1e6 if v < 0 else float(np.asinh(v))
+                return -1e6 if v < 0 else v
             else:
                 return float(
                     np.quantile(
-                        asinhNonZeroValues,
+                        nz_values_,
                         defQuantile,
                         method="interpolated_inverted_cdf",
                     )
                 )
         if isinstance(val, (float, int)):
             v = float(val)
-            return -1e6 if v < 0 else float(np.asinh(v))
+            return -1e6 if v < 0 else v
         return float(
             np.quantile(
-                asinhNonZeroValues,
+                nz_values_,
                 defQuantile,
                 method="interpolated_inverted_cdf",
             )
@@ -359,7 +360,7 @@ def matchWavelet(
             thisMinMatchBp += intervalLengthBp - (thisMinMatchBp % intervalLengthBp)
         relWindowBins = int(((thisMinMatchBp / intervalLengthBp) / 2) + 1)
         relWindowBins = max(relWindowBins, 1)
-        asinhThreshold = parseMinSignalThreshold(minSignalAtMaxima)
+        natThreshold = parseMinSignalThreshold(minSignalAtMaxima)
         for nullMask, testMask, tag in [
             (halfLeftMask, halfRightMask, "R"),
             (halfRightMask, halfLeftMask, "L"),
@@ -390,14 +391,14 @@ def matchWavelet(
                 & (candidateIdx < len(response) - relWindowBins)
                 & (testMask[candidateIdx])
                 & (excludeMaskGlobal[candidateIdx] == 0)
-                & (asinhValues[candidateIdx] > asinhThreshold)
+                & (values_[candidateIdx] >= natThreshold)
             )
 
             candidateIdx = candidateIdx[candidateMask]
             if len(candidateIdx) == 0:
                 continue
             if maxNumMatches is not None and len(candidateIdx) > maxNumMatches:
-                candidateIdx = candidateIdx[np.argsort(asinhValues[candidateIdx])[-maxNumMatches:]]
+                candidateIdx = candidateIdx[np.argsort(values_[candidateIdx])[-maxNumMatches:]]
             pEmp = np.clip(
                 ecdfSf.evaluate(response[candidateIdx]),
                 np.finfo(np.float32).tiny,
@@ -461,11 +462,10 @@ def matchWavelet(
 
     df = pd.DataFrame(allRows)
 
-    groupCols = ["templateName", "cascadeLevel"]
-    if "tag" in df.columns:
-        groupCols = ["templateName", "cascadeLevel", "tag"]
+    groupCols = ["chromosome", "templateName"]
     qVals = np.empty(len(df), dtype=float)
     for _, groupIdx in df.groupby(groupCols, sort=False).groups.items():
+        # FDR is wrt chromosome and the wavelet/scaling function template
         p = df.loc[groupIdx, "p_raw"].values.astype(float, copy=False)
         qVals[groupIdx] = _FDR(p)
 
