@@ -15,7 +15,9 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, log2, log, log2f, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf
+from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf
+from libc.stdlib cimport rand, srand, RAND_MAX
+from libc.string cimport memcpy
 cnp.import_array()
 
 # ========
@@ -148,7 +150,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double blockLengthDouble
     cdef double meanValue
     cdef double* blockPtr
-    cdef double maxBeta = <double>0.99
+    cdef double maxBeta = <double>0.975
     cdef double eps
     cdef double nPairsDouble
     cdef double sumXSeq
@@ -309,6 +311,25 @@ cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) nogil
         k = <Py_ssize_t>floorf(q * <float>(n - 1))
     _nthElement(vals_, n, k)
     return vals_[k]
+
+
+cdef inline double _U01() nogil:
+    # CALLERS: cgetGlobalBaseline
+
+    return (<double>rand()) / (<double>RAND_MAX + 1.0)
+
+cdef inline Py_ssize_t _rand_int(Py_ssize_t n) nogil:
+    # CALLERS: cgetGlobalBaseline
+
+    return <Py_ssize_t>(rand() % n)
+
+cdef inline Py_ssize_t _geometricDraw(double log1m_p) nogil:
+    # CALLERS: cgetGlobalBaseline
+
+    cdef double u = _U01()
+    if u <= 0.0:
+        u = 1.0 / ((<double>RAND_MAX) + 1.0)
+    return <Py_ssize_t>(floor(log(u) / log1m_p) + 1.0)
 
 
 cpdef int stepAdjustment(int value, int intervalSizeBP, int pushForward=0):
@@ -1539,7 +1560,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                           bint disableBackground = <bint>False,
                           double scaleCB = <double>3.0,
                           double globalLocalRatio = <double>4.0,
-                          double c0=<double>0.25, double c1=<double> (1.0 / log(2.0)) ):
+                          double c0=<double>1.0, double c1=<double> (1.0 / log(2.0)) ):
     r"""Compute log-scale enrichment versus local+global weighted background
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -1563,7 +1584,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
     :type scaleCB: float
     :param globalLocalRatio: Weighting between global/local background estimates.
     :type globalLocalRatio: float
-    :param c0: additive value in :math:`c_1\log(x + c_0)`. Determined empirically if negative.
+    :param c0: additive value in :math:`c_1\log(x + c_0)`.
     :type c0: float
     :param c1: Scaling value in :math:`c_1\log(x + c_0)`. Default yields log2-scale.
     :type c1: float
@@ -1697,10 +1718,10 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
 
                     # finally, we take ~log-scale~ difference currentValue - background
                     if not <bint>disableBackground:
-                        logDiff_F32 = _clog_F32(valuesPtr_F32[i], effectiveC0_F32, <float>c1) - _clog_F32(interpolatedBackground_F32, effectiveC0_F32, <float>c1)
+                        logDiff_F32 = _clog_F32(fmaxf(valuesPtr_F32[i],0.0), effectiveC0_F32, <float>c1) - _clog_F32(interpolatedBackground_F32, effectiveC0_F32, <float>c1)
                     else:
                         # case: ChIP w/ input, etc.
-                        logDiff_F32 = _clog_F32(valuesPtr_F32[i], effectiveC0_F32, <float>c1)
+                        logDiff_F32 = _clog_F32(fmaxf(valuesPtr_F32[i],0.0), effectiveC0_F32, <float>c1)
                     outputPtr_F32[i] = logDiff_F32
 
             return finalArr__
@@ -1772,14 +1793,13 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                     carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
                     bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
                     interpolatedBackground_F64 = <double>(fmax(bgroundEstimate, 0.0))
-
                 if interpolatedBackground_F64 < 0.0:
                     interpolatedBackground_F64 = 0.0
 
                 if not <bint>disableBackground:
-                    logDiff_F64 = _clog_F64(valuesPtr_F64[i], effectiveC0_F64, c1) - _clog_F64(interpolatedBackground_F64, effectiveC0_F64, c1)
+                    logDiff_F64 = _clog_F64(fmax(valuesPtr_F64[i],0.0), effectiveC0_F64, c1) - _clog_F64(interpolatedBackground_F64, effectiveC0_F64, c1)
                 else:
-                    logDiff_F64 = _clog_F64(valuesPtr_F64[i], effectiveC0_F64, c1)
+                    logDiff_F64 = _clog_F64(fmax(valuesPtr_F64[i],0.0), effectiveC0_F64, c1)
 
                 outputPtr_F64[i] = logDiff_F64
 
@@ -2439,61 +2459,90 @@ cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=5000,
-    double scaleCB=3.0,
+    double scaleCB=<double>3.0,
     uint64_t seed=0,
-    double lowClip=<double>5.0e-2,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
     cdef cnp.float32_t[::1] valuesView
     cdef Py_ssize_t numValues
-    cdef object rng
-    cdef cnp.ndarray[cnp.intp_t, ndim=1, mode="c"] blockSizes
-    cdef cnp.ndarray[cnp.intp_t, ndim=1, mode="c"] blockStarts
-    cdef cnp.intp_t[::1] blockSizesView
-    cdef cnp.intp_t[::1] blockStartsView
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixSums
     cdef cnp.float64_t[::1] prefixView
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] posMeans
-    cdef double bootMean, bootStdErr
-    cdef double geomProb, upperBound
-    cdef double maxVal
-    cdef Py_ssize_t i
-    cdef Py_ssize_t numPos
+    cdef cnp.float64_t[::1] bootView
+    cdef double p, log1m_p
+    cdef Py_ssize_t i, b
+    cdef Py_ssize_t remaining, L, start, end
+    cdef double sumInReplicate
+    cdef double sumMeans, sumSq, bootMean, bootVar, bootStd, upperBound
 
     if bootBlockSize <= 0:
         bootBlockSize = 1
     if numBoots <= 0:
         return 0.0
 
-
-    values = np.clip(np.ascontiguousarray(x, dtype=np.float32).reshape(-1), lowClip, np.finfo(np.float32).max)
+    values = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     valuesView = values
     numValues = values.size
     if numValues <= 0:
         return 0.0
 
-    rng = default_rng(seed)
-    geomProb = 1.0 / (<double>bootBlockSize)
-    blockSizes = rng.geometric(geomProb, size=numBoots).astype(np.intp, copy=False)
-    np.minimum(blockSizes, numValues, out=blockSizes)
-    blockSizesView = blockSizes
-    blockStarts = (rng.random(numBoots) * (numValues - blockSizes + 1)).astype(np.intp, copy=False)
-    blockStartsView = blockStarts
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
-    prefixView[0] = 0.0
-    for i in range(numValues):
-        prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
+    bootstrapMeans = np.empty(numBoots, dtype=np.float64)
+    bootView = bootstrapMeans
 
-    # prefix[start + size] - prefix[start] yields block's sum
-    bootstrapMeans = (prefixSums[blockStarts + blockSizes] - prefixSums[blockStarts]) / blockSizes
-    posMeans = bootstrapMeans[bootstrapMeans >= lowClip]
-    numPos = posMeans.size
-    bootMean = <double>np.mean(posMeans)
-    bootStdErr = (<double>np.std(posMeans, ddof=1) / np.sqrt(<double>numPos))
-    maxVal = <double>np.max(values)
-    upperBound = fmin(bootMean + (scaleCB * bootStdErr), maxVal * 0.995)
+    # length L ~ Geometric(p) with E[L] = 1/p = bootBlockSize.
+    p = 1.0 / (<double>bootBlockSize)
+    log1m_p = log1p(-p)
+    srand(seed)
+
+    with nogil:
+        prefixView[0] = 0.0
+        for i in range(numValues):
+            prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
+
+        for b in range(numBoots):
+            # each bootstrap rep: draw random blocks until
+            # the total drawn length reaches `numValues`.
+            remaining = numValues
+            sumInReplicate = 0.0
+
+            while remaining > 0:
+                # pick a random start index and block length
+                L = _geometricDraw(log1m_p)
+                if L > remaining:
+                    L = remaining
+                start = _rand_int(numValues)
+                end = start + L
+
+                if end <= numValues:
+                    # No wraparound: sum values[start:end].
+                    sumInReplicate += prefixView[end] - prefixView[start]
+                else:
+                    # circular: we've hit the end of the input array but we dont (necessarily) stop here
+                    # ... sum both (values[start:numValues]) and (values[0:(end - numValues)])
+                    end -= numValues
+                    sumInReplicate += (prefixView[numValues] - prefixView[start]) + prefixView[end]
+                # update the number of remaining values to draw.
+                remaining -= L
+            bootView[b] = sumInReplicate / (<double>numValues)
+
+        sumMeans = 0.0
+        sumSq = 0.0
+        for b in range(numBoots):
+            sumMeans += bootView[b]
+            sumSq += bootView[b] * bootView[b]
+
+    bootMean = sumMeans / (<double>numBoots)
+    if numBoots > 1:
+        bootVar = (sumSq - (sumMeans * sumMeans) / (<double>numBoots)) / (<double>(numBoots - 1))
+        if bootVar < 0.0:
+            bootVar = 0.0
+        bootStd = sqrt(bootVar)
+    else:
+        bootStd = 0.0
+
+    upperBound = bootMean + (scaleCB * bootStd)
     return upperBound
 
 
@@ -2501,7 +2550,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.99,
+    double maxBeta=0.975,
     bint centered = <bint>False,
 ):
     cdef Py_ssize_t numIntervals=values.shape[0]
