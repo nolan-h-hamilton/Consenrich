@@ -2480,7 +2480,7 @@ cpdef double cgetGlobalBaseline(
     if numBoots <= 0:
         return 0.0
 
-    values = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+    values = np.clip(np.ascontiguousarray(x, dtype=np.float32).reshape(-1), 1.0e-2, None)
     valuesView = values
     numValues = values.size
     if numValues <= 0:
@@ -2550,10 +2550,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.99,
+    double maxBeta=0.95,
     bint centered = <bint>False,
-    double lam=1.01,
-    double FOD_Penalty=1/2,
+    double lam=1.05,
+    double FOD_Penalty=0.10, # only triggers in windows st AR(1) Ivar < Var first-order diffs
 ):
     cdef Py_ssize_t numIntervals=values.shape[0]
     cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex

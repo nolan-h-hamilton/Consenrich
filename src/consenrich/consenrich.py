@@ -620,7 +620,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockLengthBP",
-            1000,
+            500,
         ),
         minValid=_cfgGet(
             configData,
