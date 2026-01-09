@@ -140,7 +140,9 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 double zeroPenalty,
                                 double zeroThresh,
                                 bint useInnovationVar,
-                                bint useSampleVar) noexcept nogil:
+                                bint useSampleVar,
+                                double maxBeta=<double>0.99,
+                                double lam=<double>1.01,) noexcept nogil:
     # CALLERS: cmeanVarPairs
 
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
@@ -150,7 +152,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double blockLengthDouble
     cdef double meanValue
     cdef double* blockPtr
-    cdef double maxBeta = <double>0.975
     cdef double eps
     cdef double nPairsDouble
     cdef double sumXSeq
@@ -213,9 +214,9 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             sumSqYSeq += yDev*yDev
             sumXYc += xDev*yDev
 
-        eps = 1.0e-12*(sumSqXSeq + 1.0)
+        eps = 1.0e-8*(sumSqXSeq + 1.0)
         if sumSqXSeq > eps:
-            beta1 = sumXYc / (sumSqXSeq + <double>1.0e-2)
+            beta1 = sumXYc / (sumSqXSeq*lam)
         else:
             beta1 = 0.0
 
@@ -1560,7 +1561,7 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                           bint disableBackground = <bint>False,
                           double scaleCB = <double>3.0,
                           double globalLocalRatio = <double>4.0,
-                          double c0=<double>1.0, double c1=<double> (1.0 / log(2.0)) ):
+                          double c0=<double>0.25, double c1=<double> (1.0 / log(2.0)) ):
     r"""Compute log-scale enrichment versus local+global weighted background
 
     'blocks' are comprised of multiple, contiguous genomic intervals.
@@ -1669,7 +1670,6 @@ cpdef object clogRatio(object x, Py_ssize_t blockLength,
                         endIndex = valuesLength
                     blockSize_F32 = endIndex - startIndex
                     centerIndex = startIndex + (blockSize_F32 // 2)
-                    # local-only block mean (clamped)
                     blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
 
             # can't call from nogil
@@ -2550,8 +2550,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.975,
+    double maxBeta=0.99,
     bint centered = <bint>False,
+    double lam=1.01,
+    double FOD_Penalty=1/2,
 ):
     cdef Py_ssize_t numIntervals=values.shape[0]
     cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex
@@ -2577,6 +2579,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef double RSS
     cdef double pairCountDouble
     cdef double eps
+    cdef double sumFOD, sumSqFOD, FODLeaving, FODEntering
+    cdef double nFODDouble, varFOD
     varOut = np.empty(numIntervals,dtype=np.float32)
 
     if blockLength > numIntervals:
@@ -2595,6 +2599,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     sumSqY=0.0
     sumLagProd=0.0
     maskSum=0
+    sumFOD = 0.0
+    sumSqFOD = 0.0
 
     # initialize first block
     for elementIndex in range(blockLength):
@@ -2605,6 +2611,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
         if elementIndex < (blockLength - 1):
             sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
 
+    for elementIndex in range(blockLength - 1):
+        FODEntering = valuesView[elementIndex + 1] - valuesView[elementIndex]
+        sumFOD += FODEntering
+        sumSqFOD += FODEntering * FODEntering
 
     # sliding window until last block's start
     for startIndex in range(maxStartIndex + 1):
@@ -2632,10 +2642,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
 
             # sum (x[i] - meanX)*(y[i] - meanYp) i = 0..n-2
             sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
-            eps = 1.0e-12*(sumSqXSeq + 1.0)
+            eps = 1.0e-8*(sumSqXSeq + 1.0)
             if sumSqXSeq > eps:
-                # AR(1) coefficient estimate
-                beta1 = (sumXYc / (sumSqXSeq + <double>1.0e-2))
+                # reg. AR(1) coefficient estimate
+                beta1 = (sumXYc / (sumSqXSeq*lam))
             else:
                 beta1 = 0.0
 
@@ -2654,12 +2664,33 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             pairCountDouble = <double>(blockLength - 3)
             varAtStartIndex[startIndex]=<cnp.float32_t>(RSS/pairCountDouble)
 
+            if FOD_Penalty != 0.0:
+                nFODDouble = <double>(blockLength - 1)
+                # rolling first-order differences variance
+                varFOD = sumSqFOD - (sumFOD * sumFOD) / nFODDouble
+                if varFOD < 0.0:
+                    varFOD = 0.0
+                if nFODDouble > 1.0:
+                    varFOD = varFOD / (nFODDouble - 1.0)
+                else:
+                    varFOD = 0.0
+
+                varAtStartIndex[startIndex] = <cnp.float32_t>(
+                    (<double>varAtStartIndex[startIndex]))
+                if varFOD > varAtStartIndex[startIndex]:
+                    varAtStartIndex[startIndex] = <cnp.float32_t>(
+                        varAtStartIndex[startIndex] + FOD_Penalty*(varFOD - varAtStartIndex[startIndex])
+                    )
         if startIndex < maxStartIndex:
             # slide window forward --> (previousSum - leavingValue) + enteringValue
             sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])
             sumSqY = sumSqY + (-(valuesView[startIndex]*valuesView[startIndex]) + (valuesView[(startIndex + blockLength)]*valuesView[(startIndex + blockLength)]))
             sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
             maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
+            FODLeaving = valuesView[startIndex + 1] - valuesView[startIndex]
+            FODEntering = valuesView[startIndex + blockLength] - valuesView[startIndex + blockLength - 1]
+            sumFOD += (FODEntering - FODLeaving)
+            sumSqFOD += (FODEntering * FODEntering) - (FODLeaving * FODLeaving)
 
     if centered:
         for regionIndex in range(numIntervals):
