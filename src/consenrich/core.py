@@ -24,6 +24,7 @@ import pybedtools as bed
 from numpy.lib.stride_tricks import as_strided
 from scipy import ndimage, signal, stats, optimize, special
 from tqdm import tqdm
+from itrigamma import itrigamma
 from . import cconsenrich
 from . import __version__
 
@@ -2120,50 +2121,7 @@ def EB_computePriorStrength(
     varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
     trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))
     gap = varLogVarRatio - trigammaLocal
-
-    # FFR: not technically efficient
-    def _objective(x_: float) -> float:
-        if x_ <= 1.0e-12:
-            x_ = 1.0e-12
-        return float(special.polygamma(1, x_) - gap)
-
-    def d_objective(x_: float) -> float:
-        if x_ <= 1.0e-12:
-            x_ = 1.0e-12
-        return float(special.polygamma(2, x_))
-
-    if (not np.isfinite(gap)) or gap <= 1.0e-8:
-        return 1.0e6
-
-    # warm start
-    if gap < 0.5:
-        # (Abramowitz and Stegun Eqn. 6.4.12 (psi'), 1964)
-        # set x' = 1/x and take the first two terms of the asymptotic expansion to solve
-        # ...   x' + x'^2 / 2 = gap
-        # ... quadratic formula gives -1 + sqrt(1 - 4/2 * -gap) = 1/x,
-        # ... x = 1 / ( -1 + sqrt(1 + 2*gap) )
-        invRootApprox = -1.0 + np.sqrt(1.0 + (2.0 * gap))
-        if invRootApprox <= 1.0e-12:
-            return 1.0e6
-        x0_ = float(np.maximum(1.0 / invRootApprox, 1.0e-8))
-    else:
-        x0_ = float(np.maximum(1.0 / np.sqrt(gap), 1.0e-8))
-
-    try:
-        inverseTrigamma, root_ = optimize.newton(
-            _objective,
-            x0=x0_,
-            fprime=d_objective,
-            full_output=True,
-            tol=1.0e-6,
-            maxiter=50,
-        )
-        if not root_.converged:
-            return float(1.0e6)
-    except Exception:
-        return float(1.0e6)
-
-    Nu_0 = 2.0 * float(inverseTrigamma)
+    Nu_0 = 2.0*itrigamma(gap)
     if Nu_0 < 4.0:
         Nu_0 = 4.0
 
