@@ -2550,10 +2550,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.95,
+    double maxBeta=0.99,
     bint centered = <bint>False,
-    double lam=1.05,
-    double FOD_Penalty=0.10, # only triggers in windows st AR(1) Ivar < Var first-order diffs
+    double lam=1.01,
+    double FOD_Penalty=1/2, # only triggers in windows st AR(1) Ivar < Var first-order diffs
 ):
     cdef Py_ssize_t numIntervals=values.shape[0]
     cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex
