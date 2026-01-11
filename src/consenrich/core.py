@@ -15,6 +15,7 @@ from typing import (
     NamedTuple,
     Optional,
     Tuple,
+    Literal,
 )
 
 from importlib.util import find_spec
@@ -130,7 +131,7 @@ class observationParams(NamedTuple):
     samplingBlockSizeBP: int | None
     minValid: float | None
     EB_minLin: float | None
-    EB_numFitBins: int | None
+    EB_numFitBins: int | Literal["auto"] | None
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
@@ -260,10 +261,6 @@ class countingParams(NamedTuple):
         The default is generally robust, but consider increasing this value when expected feature size is large and/or sequencing depth
         is low (less than :math:`\approx 5 \textsf{million}`, depending on assay).
     :type intervalSizeBP: int
-    :param backgroundWindowSizeBP: Size of windows (bp) used for estimating+interpolating between-block background estimates.
-        Per-interval autocorrelation in the background estimates grows roughly as :math:`\frac{intervalSizeBP}{\textsf{backgroundWindowBP}}`.
-        Note that this parameter is inconsequential for datasets with treatment+control samples, where background is estimated from control inputs.
-        See :func:`consenrich.cconsenrich.clogRatio`.
     :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
     :type fragmentLengths: List[int], optional
     :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
@@ -274,15 +271,9 @@ class countingParams(NamedTuple):
     :type fixControl: bool, optional
     :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.clogRatio`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
     :type scaleCB: float, optional
-    :param globalLocalRatio: Ratio between global and local background estimates in :func:`consenrich.cconsenrich.clogRatio`. Larger values give more weight to the global background estimate (block-bootstrapped mean + se).
-      For instance, a value `4.0` yields :math:`\frac{4.0 \times \mathcal{B}_\textsf{global} + 1.0 \times \mathcal{B}_\textsf{local}}{4.0 + 1}`.
-    :type globalLocalRatio: float, optional
-    :param c0: Additive constant in :math:`c_1 \log(x + c_0)`.
-    :type c0: float, optional
-    :param c1: Scaling constant in :math:`c_1 \log(x + c_0)`, e.g., :math:`\frac{1}{\log(2)}` for log2 scale.
-    :type c1: float, optional
 
     :seealso: :func:`consenrich.cconsenrich.clogRatio`
+
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
       :class: tip
       :collapsible: closed
@@ -298,7 +289,8 @@ class countingParams(NamedTuple):
     """
 
     intervalSizeBP: int | None
-    backgroundWindowSizeBP: int | None
+    backgroundBlockSizeBP: int | None
+    smoothSpanBP: int | None
     scaleFactors: List[float] | None
     scaleFactorsControl: List[float] | None
     normMethod: str | None
@@ -307,7 +299,6 @@ class countingParams(NamedTuple):
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
     scaleCB: float | None
-    globalLocalRatio: float | None
     c0: float | None
     c1: float | None
 
@@ -819,7 +810,7 @@ def runConsenrich(
     progressIter: int,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-    pad: float = 5.0e-3,
+    pad: float = 1.0e-3,
     calibration_kwargs: Optional[dict[str, Any]] = None,
     disableCalibration: bool = False,
     ratioDiagQ: float | None = None,
@@ -1012,7 +1003,7 @@ def runConsenrich(
             calibration_absEps = np.float32(calibration_kwargs.get("calibration_absEps", 0.01))
             # loss versus previous accepted step
             calibration_minRelativeImprovement = np.float32(
-                calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-4)
+                calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-6)
             )
             # don't early-stop unless mean NIS matches up with expectation within this tolerance
             calibration_phiEps = np.float32(calibration_kwargs.get("calibration_phiEps", 0.10))
@@ -1706,7 +1697,7 @@ def fitVarianceFunction(
     jointlySortedVariances: np.ndarray,
     eps: float = 1 / 100,
     EB_minLin: float = 1 / 5,
-    EB_numFitBins: int | None = 10,
+    EB_numFitBins: int | Literal["auto"] | None = 10,
     minPairs: int = 10,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
@@ -1867,7 +1858,17 @@ def fitVarianceFunction(
         varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
         return absMeanGridSeg, varGridSeg
 
-    useBinning = not (EB_numFitBins is None or int(EB_numFitBins) <= 0)
+    # 'auto': select as many bins as possible while ensuring each bin has >= minPairs *after* filtering
+    if isinstance(EB_numFitBins, str) and EB_numFitBins.lower() == "auto":
+        linearFloorAll = EB_minLin * absMeans + eps
+        flooredAll = np.maximum(nonnegVariances, linearFloorAll)
+        # cut out < median+mad pairs
+        n_keep = int(np.count_nonzero(flooredAll >= _medPlusMAD(flooredAll)))
+        maxBins = min(np.unique(absMeans).size, n_keep // minPairs, 16)
+        EB_numFitBins = int(maxBins) if maxBins >= 4 else None
+        logger.info(f"Auto: EB_numFitBins={maxBins}")
+
+    useBinning = EB_numFitBins is not None and int(EB_numFitBins) > 0
     if useBinning:
         numBins__ = int(max(4, int(EB_numFitBins)))
         if absMeans.size < numBins__:
@@ -2121,7 +2122,7 @@ def EB_computePriorStrength(
     varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
     trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))
     gap = varLogVarRatio - trigammaLocal
-    Nu_0 = 2.0*itrigamma(gap)
+    Nu_0 = 2.0 * itrigamma(gap)
     if Nu_0 < 4.0:
         Nu_0 = 4.0
 

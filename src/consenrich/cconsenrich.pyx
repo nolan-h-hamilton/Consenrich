@@ -15,7 +15,7 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf
+from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf
 from libc.stdlib cimport rand, srand, RAND_MAX
 from libc.string cimport memcpy
 cnp.import_array()
@@ -142,7 +142,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 bint useInnovationVar,
                                 bint useSampleVar,
                                 double maxBeta=<double>0.99,
-                                double lam=<double>1.01,) noexcept nogil:
+                                double ridgeLambda=<double>0.1) noexcept nogil:
     # CALLERS: cmeanVarPairs
 
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
@@ -216,7 +216,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
         eps = 1.0e-8*(sumSqXSeq + 1.0)
         if sumSqXSeq > eps:
-            beta1 = sumXYc / (sumSqXSeq*lam)
+            beta1 = sumXYc / (sumSqXSeq + (ridgeLambda*nPairsDouble))
         else:
             beta1 = 0.0
 
@@ -230,7 +230,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             RSS = 0.0
 
         pairCountDouble = <double>(blockLength - 3)
-
         oneMinusBetaSq = 1.0 - (beta1 * beta1)
         if useInnovationVar:
             divRSS = <double>1.0
@@ -324,13 +323,13 @@ cdef inline Py_ssize_t _rand_int(Py_ssize_t n) nogil:
 
     return <Py_ssize_t>(rand() % n)
 
-cdef inline Py_ssize_t _geometricDraw(double log1m_p) nogil:
+cdef inline Py_ssize_t _geometricDraw(double logq_) nogil:
     # CALLERS: cgetGlobalBaseline
 
     cdef double u = _U01()
     if u <= 0.0:
         u = 1.0 / ((<double>RAND_MAX) + 1.0)
-    return <Py_ssize_t>(floor(log(u) / log1m_p) + 1.0)
+    return <Py_ssize_t>(floor(log(u) / logq_) + 1.0)
 
 
 cpdef int stepAdjustment(int value, int intervalSizeBP, int pushForward=0):
@@ -1555,258 +1554,117 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef object clogRatio(object x, Py_ssize_t blockLength,
-                          float boundaryEps = <float>0.25,
-                          bint disableLocalBackground = <bint>False,
-                          bint disableBackground = <bint>False,
-                          double scaleCB = <double>3.0,
-                          double globalLocalRatio = <double>4.0,
-                          double c0=<double>0.25, double c1=<double> (1.0 / log(2.0)) ):
-    r"""Compute log-scale enrichment versus local+global weighted background
-
-    'blocks' are comprised of multiple, contiguous genomic intervals.
-
-    The local background at each genomic interval is obtained by linearly interpolating blocks' mean values between.
-
-    Block means are taken at their centers, from a two-way exponential moving average with span such that autocorrelation
-    is tempered between neighboring blocks, but we can still get a reasonably smooth local component.
-
-    :param x: a floating-point numpy vector of possibly-scaled, *nonnegative* data from HTS alignment counts.
-    :type x: np.ndarray
-    :param blockSize: Defines the length of blocks used to compute local background.
-    :type blockSize: Py_ssize_t
-    :param boundaryEps: The mean at each block's center is computed with an exponential weighted average that decays to *this* proportion at the blocks edges.
-    :type boundaryEps: float
-    :param disableLocalBackground: If `True`, use only global background estimates.
-    :type disableLocalBackground: bool
-    :param disableBackground: If `True`, disable both local and global background estimates.
-    :type disableBackground: bool
-    :param scaleCB: Scaling factor on the *standard error* for global background estimate.
-    :type scaleCB: float
-    :param globalLocalRatio: Weighting between global/local background estimates.
-    :type globalLocalRatio: float
-    :param c0: additive value in :math:`c_1\log(x + c_0)`.
-    :type c0: float
-    :param c1: Scaling value in :math:`c_1\log(x + c_0)`. Default yields log2-scale.
-    :type c1: float
-    :return: A numpy vector of log-enrichment values.
-    :rtype: np.ndarray
-    """
-
+cpdef object clogRatio(
+    object x,
+    Py_ssize_t blockLength,
+    bint disableBackground = <bint>False,
+    double scaleCB = <double>3.0,
+    double c0 = <double>1.0,
+    double c1 = <double>(1.0/log(2)),
+):
     cdef cnp.ndarray finalArr__
-    cdef Py_ssize_t valuesLength, blockCount, blockIndex, startIndex, endIndex, i, k, blockSize_F32, blockSize_F64, centerIndex
+    cdef Py_ssize_t valuesLength, i, bootBlockSize
+    cdef double alpha_
+    cdef bint doSmooth = <bint>False
+
     cdef cnp.ndarray valuesArr_F32
     cdef float[::1] valuesView_F32
     cdef float[::1] outputView_F32
-    cdef float[::1] blockMeans_F32
-    cdef float[::1] emaView_F32
     cdef float* valuesPtr_F32
     cdef float* outputPtr_F32
-    cdef float* blockPtr_F32
-    cdef float* emaPtr_F32
-    cdef float interpolatedBackground_F32
-    cdef float logDiff_F32
     cdef float effectiveC0_F32
+    cdef float trackWideOffset_F32
+    cdef float logGlobal_F32
     cdef cnp.ndarray valuesArr_F64
     cdef double[::1] valuesView_F64
     cdef double[::1] outputView_F64
-    cdef double[::1] blockMeans_F64
-    cdef double[::1] emaView_F64
     cdef double* valuesPtr_F64
     cdef double* outputPtr_F64
-    cdef double* blockPtr_F64
-    cdef double* emaPtr_F64
-    cdef double interpolatedBackground_F64
-    cdef double logDiff_F64
     cdef double effectiveC0_F64
-    cdef float trackWideOffset_F32
     cdef double trackWideOffset_F64
-    cdef Py_ssize_t n, tw__, tw_
-    cdef double blockCenterCurr,blockCenterNext,lastCenter, edgeWeight
-    cdef double carryOver, bgroundEstimate
-    cdef double boundaryEps_F64 = <double>boundaryEps
-    cdef float boundaryEps_F32 = <float>boundaryEps
+    cdef double logGlobal_F64
+
     if blockLength <= 0:
         return None
-    if <bint>disableBackground and not <bint>disableLocalBackground:
-        disableLocalBackground = <bint>True
+    if not isinstance(x, np.ndarray):
+        return None
 
-    if isinstance(x, np.ndarray):
-        # F32 case
-        if (<cnp.ndarray>x).dtype == np.float32:
-            valuesArr_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
-            valuesView_F32 = valuesArr_F32
-            valuesLength = valuesView_F32.shape[0]
-            finalArr__ = np.zeros(valuesLength, dtype=np.float32)
-            outputView_F32 = finalArr__
-
-            if valuesLength == 0:
-                return None
-
-            # note last block may have length < blockLength
-            blockCount = (valuesLength + blockLength - 1) // blockLength
-            if blockCount < 2:
-                return None
-
-            # run a two-way exponential moving average weighted such that,
-            # ... at each block's --center--, the influence from values at the
-            # ... edges has decayed wrt ~boundaryEps~. Assign the mean for *block* `k`
-            # ... as the EMA-value at the center of *block* `k`. Then, interpolate
-            # ... background estimates for each *interval* `i` within the larger blocks.
-
-            edgeWeight = 1.0 - pow(<double>boundaryEps_F32, 2.0 / (<double>(blockLength + 1)))
-            emaView_F32 = cEMA(valuesArr_F32, edgeWeight).astype(np.float32)
-            blockMeans_F32 = np.empty(blockCount, dtype=np.float32)
-            valuesPtr_F32 = &valuesView_F32[0]
-            outputPtr_F32 = &outputView_F32[0]
-            emaPtr_F32 = &emaView_F32[0]
-            blockPtr_F32  = &blockMeans_F32[0]
-
-            with nogil:
-                for blockIndex in range(blockCount):
-                    startIndex = blockIndex*blockLength
-                    endIndex = startIndex + blockLength
-                    if endIndex > valuesLength:
-                        endIndex = valuesLength
-                    blockSize_F32 = endIndex - startIndex
-                    centerIndex = startIndex + (blockSize_F32 // 2)
-                    blockPtr_F32[blockIndex] = emaPtr_F32[centerIndex]
-
-            # can't call from nogil
-            trackWideOffset_F32 = <float>cgetGlobalBaseline(valuesArr_F32, bootBlockSize=<Py_ssize_t>max(min(blockLength,1000),3), scaleCB=scaleCB)
-            if c0 < 0.0:
-                effectiveC0_F32 = fmaxf(trackWideOffset_F32, <float>5.0e-2)
-            else:
-                effectiveC0_F32 = <float>c0
-
-            with nogil:
-                # 'disable' local background --> use global baseline everywhere
-                if <bint>disableLocalBackground == <bint>True:
-                    for blockIndex in range(blockCount):
-                        blockPtr_F32[blockIndex] = trackWideOffset_F32
-                else:
-                    for blockIndex in range(blockCount):
-                        blockPtr_F32[blockIndex] = (<float>globalLocalRatio*trackWideOffset_F32 + blockPtr_F32[blockIndex]) * (1.0 / <float>(globalLocalRatio + 1.0))
-
-                k = <Py_ssize_t>0
-                blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
-                blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
-                lastCenter = (<double>blockLength)*(<double>(blockCount - 1) + 0.5)
-
-                for i in range(valuesLength):
-                    if (<double>i) <= blockCenterCurr:
-                        interpolatedBackground_F32 = blockPtr_F32[0]
-                    elif (<double>i) >= lastCenter:
-                        interpolatedBackground_F32 = blockPtr_F32[blockCount - 1]
-                    else:
-                        while (<double>i) > blockCenterNext and k < blockCount - 2:
-                            k += 1
-                            blockCenterCurr = blockCenterNext
-                            blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
-                        # interpolate based on position of the interval relative to subsequent block's midpoints
-                        # [---------block_k---------|---------block_k+1---------]
-                        #                <----------|---------->
-                        #                  (c < 1/2)|(c > 1/2)
-                        # where c is `carryOver` to the subsequent block mean (see below)
-                        carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
-                        bgroundEstimate = ((1.0 - carryOver)*(<double>blockPtr_F32[k])) + (carryOver*(<double>blockPtr_F32[k+1]))
-                        interpolatedBackground_F32 = <float>(fmaxf(bgroundEstimate,0.0))
-
-                    if interpolatedBackground_F32 < 0.0:
-                        interpolatedBackground_F32 = 0.0
-
-
-                    # finally, we take ~log-scale~ difference currentValue - background
-                    if not <bint>disableBackground:
-                        logDiff_F32 = _clog_F32(fmaxf(valuesPtr_F32[i],0.0), effectiveC0_F32, <float>c1) - _clog_F32(interpolatedBackground_F32, effectiveC0_F32, <float>c1)
-                    else:
-                        # case: ChIP w/ input, etc.
-                        logDiff_F32 = _clog_F32(fmaxf(valuesPtr_F32[i],0.0), effectiveC0_F32, <float>c1)
-                    outputPtr_F32[i] = logDiff_F32
-
-            return finalArr__
-
-
-        # F64 case, same logic as above
-        valuesArr_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
-        valuesView_F64 = valuesArr_F64
-        valuesLength = valuesView_F64.shape[0]
-        finalArr__ = np.zeros(valuesLength, dtype=np.float64)
-        outputView_F64 = finalArr__
-
+    bootBlockSize = <Py_ssize_t>max(min(blockLength, 1000), 3)
+    if (<cnp.ndarray>x).dtype == np.float32:
+        valuesArr_F32 = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+        valuesView_F32 = valuesArr_F32
+        valuesLength = valuesView_F32.shape[0]
         if valuesLength == 0:
             return None
 
-        blockCount = (valuesLength + blockLength - 1) // blockLength
-        if blockCount < 2:
-            return None
-        edgeWeight = 1.0 - pow(<double>boundaryEps_F64, 2.0 / (<double>(blockLength + 1)))
-        emaView_F64 = cEMA(valuesArr_F64, edgeWeight).astype(np.float64)
-        blockMeans_F64 = np.empty(blockCount, dtype=np.float64)
+        finalArr__ = np.empty(valuesLength, dtype=np.float32)
+        outputView_F32 = finalArr__
+        valuesPtr_F32 = &valuesView_F32[0]
+        outputPtr_F32 = &outputView_F32[0]
 
-        valuesPtr_F64 = &valuesView_F64[0]
-        outputPtr_F64 = &outputView_F64[0]
-        emaPtr_F64 = &emaView_F64[0]
-        blockPtr_F64  = &blockMeans_F64[0]
+        trackWideOffset_F32 = <float>cgetGlobalBaseline(
+            valuesArr_F32,
+            bootBlockSize=bootBlockSize,
+            scaleCB=scaleCB,
+        )
 
-        with nogil:
-            for blockIndex in range(blockCount):
-                startIndex = blockIndex*blockLength
-                endIndex = startIndex + blockLength
-                if endIndex > valuesLength:
-                    endIndex = valuesLength
-                blockSize_F64 = endIndex - startIndex
-                centerIndex = startIndex + (blockSize_F64 // 2)
-                blockPtr_F64[blockIndex] = emaPtr_F64[centerIndex]
-
-
-        trackWideOffset_F64 = <double>cgetGlobalBaseline(valuesArr_F64, bootBlockSize=<Py_ssize_t>max(min(blockLength,1000),3), scaleCB=scaleCB)
-        # c0 < 0.0 -- set based on the global baseline, capped below by 0.05
         if c0 < 0.0:
-            effectiveC0_F64 = fmax(trackWideOffset_F64, <double>5.0e-2)
+            effectiveC0_F32 = fmaxf(trackWideOffset_F32, <float>1.0e-4)
         else:
-            effectiveC0_F64 = c0
+            effectiveC0_F32 = <float>c0
+
+        logGlobal_F32 = _clog_F32(fmaxf(trackWideOffset_F32, 0.0), effectiveC0_F32, <float>c1)
 
         with nogil:
-            if <bint>disableLocalBackground == <bint>True:
-                for blockIndex in range(blockCount):
-                    blockPtr_F64[blockIndex] = trackWideOffset_F64
+            if not <bint>disableBackground:
+                for i in range(valuesLength):
+                    outputPtr_F32[i] = _clog_F32(
+                        fmaxf(valuesPtr_F32[i], 0.0), effectiveC0_F32, <float>c1
+                    ) - logGlobal_F32
             else:
-                for blockIndex in range(blockCount):
-                    blockPtr_F64[blockIndex] = (blockPtr_F64[blockIndex] + globalLocalRatio*trackWideOffset_F64) * (1.0 / <double>(globalLocalRatio + 1.0))
-
-            k = 0
-            blockCenterCurr = (<double>blockLength)*(<double>k + 0.5)
-            blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
-            lastCenter = (<double>blockLength)*(<double>(blockCount - 1) + 0.5)
-            for i in range(valuesLength):
-                if (<double>i) <= blockCenterCurr:
-                    interpolatedBackground_F64 = blockPtr_F64[0]
-                elif (<double>i) >= lastCenter:
-                    interpolatedBackground_F64 = blockPtr_F64[blockCount - 1]
-                else:
-                    while (<double>i) > blockCenterNext and k < blockCount - 2:
-                        k += 1
-                        blockCenterCurr = blockCenterNext
-                        blockCenterNext = (<double>blockLength)*(<double>(k + 1) + 0.5)
-
-                    carryOver = ((<double>i) - blockCenterCurr) / (blockCenterNext - blockCenterCurr)
-                    bgroundEstimate = ((1.0 - carryOver)*blockPtr_F64[k]) + (carryOver*blockPtr_F64[k+1])
-                    interpolatedBackground_F64 = <double>(fmax(bgroundEstimate, 0.0))
-                if interpolatedBackground_F64 < 0.0:
-                    interpolatedBackground_F64 = 0.0
-
-                if not <bint>disableBackground:
-                    logDiff_F64 = _clog_F64(fmax(valuesPtr_F64[i],0.0), effectiveC0_F64, c1) - _clog_F64(interpolatedBackground_F64, effectiveC0_F64, c1)
-                else:
-                    logDiff_F64 = _clog_F64(fmax(valuesPtr_F64[i],0.0), effectiveC0_F64, c1)
-
-                outputPtr_F64[i] = logDiff_F64
-
+                for i in range(valuesLength):
+                    outputPtr_F32[i] = _clog_F32(
+                        fmaxf(valuesPtr_F32[i], 0.0), effectiveC0_F32, <float>c1
+                    )
 
         return finalArr__
 
-    return None
+    valuesArr_F64 = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
+    valuesView_F64 = valuesArr_F64
+    valuesLength = valuesView_F64.shape[0]
+    if valuesLength == 0:
+        return None
+
+    finalArr__ = np.empty(valuesLength, dtype=np.float64)
+    outputView_F64 = finalArr__
+    valuesPtr_F64 = &valuesView_F64[0]
+    outputPtr_F64 = &outputView_F64[0]
+
+    trackWideOffset_F64 = <double>cgetGlobalBaseline(
+        valuesArr_F64,
+        bootBlockSize=bootBlockSize,
+        scaleCB=scaleCB,
+    )
+
+    if c0 < 0.0:
+        effectiveC0_F64 = fmax(trackWideOffset_F64, <double>1.0e-4)
+    else:
+        effectiveC0_F64 = c0
+
+    logGlobal_F64 = _clog_F64(fmax(trackWideOffset_F64, 0.0), effectiveC0_F64, c1)
+
+    with nogil:
+        if not <bint>disableBackground:
+            for i in range(valuesLength):
+                outputPtr_F64[i] = _clog_F64(
+                    fmax(valuesPtr_F64[i], 0.0), effectiveC0_F64, c1
+                ) - logGlobal_F64
+        else:
+            for i in range(valuesLength):
+                outputPtr_F64[i] = _clog_F64(
+                    fmax(valuesPtr_F64[i], 0.0), effectiveC0_F64, c1
+                )
+    return finalArr__
 
 
 cpdef protectCovariance22(object A, double eigFloor=1.0e-4):
@@ -2461,6 +2319,8 @@ cpdef double cgetGlobalBaseline(
     Py_ssize_t numBoots=5000,
     double scaleCB=<double>3.0,
     uint64_t seed=0,
+    double lowerQuantile=<double>0.05,
+    double upperQuantile=<double>0.95,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
     cdef cnp.float32_t[::1] valuesView
@@ -2469,7 +2329,7 @@ cpdef double cgetGlobalBaseline(
     cdef cnp.float64_t[::1] prefixView
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
     cdef cnp.float64_t[::1] bootView
-    cdef double p, log1m_p
+    cdef double p, logq_
     cdef Py_ssize_t i, b
     cdef Py_ssize_t remaining, L, start, end
     cdef double sumInReplicate
@@ -2480,12 +2340,11 @@ cpdef double cgetGlobalBaseline(
     if numBoots <= 0:
         return 0.0
 
-    values = np.clip(np.ascontiguousarray(x, dtype=np.float32).reshape(-1), 1.0e-2, None)
+    cdef double lower__ = np.quantile(x[x>0], lowerQuantile)
+    cdef double upper__ = np.quantile(x[x>0], upperQuantile)
+    values = np.clip(np.ascontiguousarray(x, dtype=np.float32).reshape(-1), lower__, upper__)
     valuesView = values
     numValues = values.size
-    if numValues <= 0:
-        return 0.0
-
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
     bootstrapMeans = np.empty(numBoots, dtype=np.float64)
@@ -2493,7 +2352,7 @@ cpdef double cgetGlobalBaseline(
 
     # length L ~ Geometric(p) with E[L] = 1/p = bootBlockSize.
     p = 1.0 / (<double>bootBlockSize)
-    log1m_p = log1p(-p)
+    logq_ = log(1.0 - p)
     srand(seed)
 
     with nogil:
@@ -2509,7 +2368,7 @@ cpdef double cgetGlobalBaseline(
 
             while remaining > 0:
                 # pick a random start index and block length
-                L = _geometricDraw(log1m_p)
+                L = _geometricDraw(logq_)
                 if L > remaining:
                     L = remaining
                 start = _rand_int(numValues)
@@ -2552,8 +2411,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     double maxBeta=0.99,
     bint centered = <bint>False,
-    double lam=1.01,
-    double FOD_Penalty=1/2, # only triggers in windows st AR(1) Ivar < Var first-order diffs
+    double ridgeLambda = 0.1,
 ):
     cdef Py_ssize_t numIntervals=values.shape[0]
     cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex
@@ -2575,10 +2433,9 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef double sumXYc
     cdef double previousValue
     cdef double currentValue
-    cdef double beta1
+    cdef double beta1, eps
     cdef double RSS
     cdef double pairCountDouble
-    cdef double eps
     cdef double sumFOD, sumSqFOD, FODLeaving, FODEntering
     cdef double nFODDouble, varFOD
     varOut = np.empty(numIntervals,dtype=np.float32)
@@ -2602,7 +2459,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     sumFOD = 0.0
     sumSqFOD = 0.0
 
-    # initialize first block
+    # initialize first
     for elementIndex in range(blockLength):
         currentValue=valuesView[elementIndex]
         sumY += currentValue
@@ -2645,7 +2502,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             eps = 1.0e-8*(sumSqXSeq + 1.0)
             if sumSqXSeq > eps:
                 # reg. AR(1) coefficient estimate
-                beta1 = (sumXYc / (sumSqXSeq*lam))
+                beta1 = (sumXYc / (sumSqXSeq + (ridgeLambda*nPairsDouble)))
             else:
                 beta1 = 0.0
 
@@ -2655,7 +2512,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             # AR(1) negative autocorrelation hides noise here
             elif beta1 < 0.0:
                 beta1 = 0.0
-
             RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
             if RSS < 0.0:
                 RSS = 0.0
@@ -2664,23 +2520,23 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             pairCountDouble = <double>(blockLength - 3)
             varAtStartIndex[startIndex]=<cnp.float32_t>(RSS/pairCountDouble)
 
-            if FOD_Penalty != 0.0:
-                nFODDouble = <double>(blockLength - 1)
-                # rolling first-order differences variance
-                varFOD = sumSqFOD - (sumFOD * sumFOD) / nFODDouble
-                if varFOD < 0.0:
-                    varFOD = 0.0
-                if nFODDouble > 1.0:
-                    varFOD = varFOD / (nFODDouble - 1.0)
-                else:
-                    varFOD = 0.0
 
+            nFODDouble = <double>(blockLength - 1)
+            # rolling first-order differences variance
+            varFOD = sumSqFOD - (sumFOD * sumFOD) / nFODDouble
+            if varFOD < 0.0:
+                varFOD = 0.0
+            if nFODDouble > 1.0:
+                varFOD = varFOD / (nFODDouble - 1.0)
+            else:
+                varFOD = 0.0
+
+            varAtStartIndex[startIndex] = <cnp.float32_t>(
+                (<double>varAtStartIndex[startIndex]))
+            if varFOD > varAtStartIndex[startIndex]:
                 varAtStartIndex[startIndex] = <cnp.float32_t>(
-                    (<double>varAtStartIndex[startIndex]))
-                if varFOD > varAtStartIndex[startIndex]:
-                    varAtStartIndex[startIndex] = <cnp.float32_t>(
-                        varAtStartIndex[startIndex] + FOD_Penalty*(varFOD - varAtStartIndex[startIndex])
-                    )
+                    varAtStartIndex[startIndex] + 0.5*(varFOD - varAtStartIndex[startIndex])
+                )
         if startIndex < maxStartIndex:
             # slide window forward --> (previousSum - leavingValue) + enteringValue
             sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])

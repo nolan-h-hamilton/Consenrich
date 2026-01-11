@@ -396,10 +396,15 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
     intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
-    backgroundWindowSizeBP = _cfgGet(
+    backgroundBlockSizeBP_ = _cfgGet(
         configData,
-        "countingParams.backgroundWindowSizeBP",
-        min(max(1000 * intervalSizeBP, 100_000), 500_000),  # other values may work but haven't been tested
+        "countingParams.backgroundBlockSizeBP",
+        intervalSizeBP * 100,
+    )
+    postSmoothHalfLifeBP_ = _cfgGet(
+        configData,
+        "countingParams.smoothSpanBP",
+        intervalSizeBP * 5,
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -473,27 +478,22 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         3.0,
     )
 
-    globalLocalRatio_ = _cfgGet(
-        configData,
-        "countingParams.globalLocalRatio",
-        4.0,
-    )
-
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        0.25,
+        1.0,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0 / math.log(2.0),  # log2
+        1.0 / math.log(2.0),
     )
 
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
-        backgroundWindowSizeBP=backgroundWindowSizeBP,
+        backgroundBlockSizeBP=backgroundBlockSizeBP_,
+        smoothSpanBP=postSmoothHalfLifeBP_,
         scaleFactors=scaleFactorList,
         scaleFactorsControl=scaleFactorsControlList,
         normMethod=normMethod_,
@@ -502,7 +502,6 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
         scaleCB=scaleCB_,
-        globalLocalRatio=globalLocalRatio_,
         c0=c0_,
         c1=c1_,
     )
@@ -620,7 +619,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockLengthBP",
-            500,
+            None,
         ),
         minValid=_cfgGet(
             configData,
@@ -637,7 +636,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EB_numFitBins=_cfgGet(
             configData,
             "observationParams.EB_numFitBins",
-            10,
+            "auto",
         ),
         EB_use=_cfgGet(
             configData,
@@ -1212,9 +1211,7 @@ def main():
         chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
         sparseMap = None
-        backgroundWindowSizeIntervals: int = max(
-            2, int(countingArgs.backgroundWindowSizeBP // intervalSizeBP)
-        )
+        backgroundBlockSizeIntervals: int = max(2, int(countingArgs.backgroundBlockSizeBP // intervalSizeBP))
         if controlsPresent:
             j_: int = 0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
@@ -1249,12 +1246,16 @@ def main():
 
                 chromMat[j_, :] = cconsenrich.clogRatio(
                     np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0),
-                    backgroundWindowSizeIntervals,
+                    blockLength=backgroundBlockSizeIntervals,
                     scaleCB=countingArgs.scaleCB,
-                    globalLocalRatio=countingArgs.globalLocalRatio,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
                 )
+                if countingArgs.smoothSpanBP > 0:
+                    chromMat[j_, :] = cconsenrich.cEMA(
+                        chromMat[j_, :],
+                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
+                    )
                 muncMat[j_, :], _ = core.getMuncTrack(
                     chromosome,
                     intervals,
@@ -1309,13 +1310,16 @@ def main():
             if not controlsPresent:
                 chromMat[j, :] = cconsenrich.clogRatio(
                     chromMat[j, :],
-                    backgroundWindowSizeIntervals,
+                    blockLength=backgroundBlockSizeIntervals,
                     scaleCB=countingArgs.scaleCB,
-                    globalLocalRatio=countingArgs.globalLocalRatio,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
                 )
-
+                if countingArgs.smoothSpanBP > 0:
+                    chromMat[j, :] = cconsenrich.cEMA(
+                        chromMat[j, :],
+                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
+                    )
                 # compute munc track for each sample independently
                 muncMat[j, :], _ = core.getMuncTrack(
                     chromosome,
@@ -1335,22 +1339,16 @@ def main():
                 )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            kappa = 1000.0  # conditioning given f32
-            minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.01))
-
-            colMax = muncMat.max(axis=0).astype(np.float32)
-            colMin = np.maximum(muncMat.min(axis=0), (colMax / kappa)).astype(np.float32)
-
-            np.clip(muncMat, colMin, colMax, out=muncMat)
+            minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-4))
             muncMat = muncMat.astype(np.float32, copy=False)
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.01))
+                minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-4))
 
-            autoMinQ = max((0.01 * minR_), 0.005)
+            autoMinQ = max((0.01 * minR_), 0.001)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1418,9 +1416,11 @@ def main():
             cols_.append("uncertainty")
         if outputArgs.writeMWSE:
             cols_.append("MWSE")
-            srs_ = np.sum(((chromMat - x_[None, :])**2) / (muncMat + 1e-8), axis=0, dtype=np.float64).astype(np.float32)
+            srs_ = np.sum(
+                ((chromMat - x_[None, :]) ** 2) / (muncMat + 1e-8), axis=0, dtype=np.float64
+            ).astype(np.float32)
             if numSamples > 1:
-                    srs_ /= (numSamples)
+                srs_ /= numSamples
             df["MWSE"] = srs_.astype(np.float32, copy=False)
         df = df[cols_]
         suffixes = ["state"]
