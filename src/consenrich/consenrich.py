@@ -399,12 +399,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        intervalSizeBP * 100,
+        min(max(2*(intervalSizeBP * 25)+ 1, 500), 500_000),
     )
-    postSmoothHalfLifeBP_ = _cfgGet(
+    smoothSpanBP_ = _cfgGet(
         configData,
         "countingParams.smoothSpanBP",
-        intervalSizeBP * 5,
+        3*intervalSizeBP,
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -481,19 +481,19 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        0.0,
+        1.0,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0,
+        1 / math.log(2.0),
     )
 
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
         backgroundBlockSizeBP=backgroundBlockSizeBP_,
-        smoothSpanBP=postSmoothHalfLifeBP_,
+        smoothSpanBP=smoothSpanBP_,
         scaleFactors=scaleFactorList,
         scaleFactorsControl=scaleFactorsControlList,
         normMethod=normMethod_,
@@ -614,7 +614,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
-            25_000,
+            10_000,
         ),
         samplingBlockSizeBP=_cfgGet(
             configData,
@@ -1251,6 +1251,7 @@ def main():
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
                 )
+
                 if countingArgs.smoothSpanBP > 0:
                     chromMat[j_, :] = cconsenrich.cEMA(
                         chromMat[j_, :],

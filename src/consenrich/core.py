@@ -1915,7 +1915,7 @@ def getMuncTrack(
     values: np.ndarray,
     intervalSizeBP: int,
     samplingBlockSizeBP: int | None = None,
-    samplingIters: int = 25_000,
+    samplingIters: int = 10_000,
     randomSeed: int = 42,
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
@@ -1965,13 +1965,13 @@ def getMuncTrack(
     """
 
     if samplingBlockSizeBP is None:
-        samplingBlockSizeBP = intervalSizeBP * 15
+        samplingBlockSizeBP = intervalSizeBP * 21
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
-    if blockSizeIntervals < 15:
+    if blockSizeIntervals < 21:
         logger.warning(
-            f"`samplingBlockSizeBP` is small for sampling (mean, variance) pairs...trying 15*intervalSizeBP"
+            f"`samplingBlockSizeBP` is small for sampling (mean, variance) pairs...trying 21*intervalSizeBP"
         )
-        blockSizeIntervals = 15
+        blockSizeIntervals = 21
 
     localWindowIntervals = max(4, (blockSizeIntervals + 1))
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
