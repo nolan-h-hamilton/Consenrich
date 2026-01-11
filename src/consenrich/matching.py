@@ -34,7 +34,8 @@ def _FDR(pVals: np.ndarray, method: str | None = "bh") -> np.ndarray:
 
 def autoMinLengthIntervals(
     values: np.ndarray,
-    initLen: int = 3,
+    initLen: int = 5,
+    maxLen: int = 5000,
     cutoffQuantile: float = 0.50,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
@@ -43,12 +44,15 @@ def autoMinLengthIntervals(
 
     :param values: A 1D array of signal-like values.
     :type values: np.ndarray
-    :param initLen: Initial minimum length (in intervals). Defaults to 3.
+    :param initLen: Initial minimum length (in intervals). Defaults to 5.
     :type initLen: int
     :return: Estimated minimum matching length (in intervals)
     :rtype: int
 
     """
+    if cutoffQuantile <= 0.0 or cutoffQuantile >= 1.0:
+        raise ValueError("cutoffQuantile is not a valid quantile value (0,1)")
+
     values_ = values.astype(np.float64).copy()
     trValues = values_ - signal.medfilt(
         values_,
@@ -62,10 +66,14 @@ def autoMinLengthIntervals(
     nz = trValues[trValues > 0]
     if nz.size == 0:
         return initLen
+
     thr = np.quantile(nz, cutoffQuantile, method="interpolated_inverted_cdf")
-    mask = nz >= thr
+
+    mask = (trValues > 0) & (trValues >= thr)
     if not np.any(mask):
         return initLen
+    if np.all(mask):
+        return maxLen
 
     idx = np.flatnonzero(np.diff(np.r_[False, mask, False]))
     runs = idx.reshape(-1, 2)
