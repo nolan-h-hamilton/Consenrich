@@ -427,13 +427,13 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "EGS",
+        "RPKM",
     )
     if normMethod_.upper() not in ["EGS", "RPKM"]:
         logger.warning(
-            f"Unknown `countingParams.normMethod`...Using `EGS`...",
+            f"Unknown `countingParams.normMethod`...Using `RPKM`...",
         )
-        normMethod_ = "EGS"
+        normMethod_ = "RPKM"
 
     fragmentLengths: Optional[List[int]] = _cfgGet(
         configData,
@@ -481,13 +481,13 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        1.0,
+        0.0,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0 / math.log(2.0),
+        1.0,
     )
 
     return core.countingParams(
@@ -1244,7 +1244,7 @@ def main():
                     ],
                 )
 
-                chromMat[j_, :] = cconsenrich.clogRatio(
+                chromMat[j_, :] = cconsenrich.cTransform(
                     np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0),
                     blockLength=backgroundBlockSizeIntervals,
                     scaleCB=countingArgs.scaleCB,
@@ -1256,6 +1256,7 @@ def main():
                         chromMat[j_, :],
                         1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
                     )
+
                 muncMat[j_, :], _ = core.getMuncTrack(
                     chromosome,
                     intervals,
@@ -1308,7 +1309,7 @@ def main():
         ):
             # if controlsPresent, already done above
             if not controlsPresent:
-                chromMat[j, :] = cconsenrich.clogRatio(
+                chromMat[j, :] = cconsenrich.cTransform(
                     chromMat[j, :],
                     blockLength=backgroundBlockSizeIntervals,
                     scaleCB=countingArgs.scaleCB,

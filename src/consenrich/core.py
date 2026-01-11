@@ -269,10 +269,10 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.clogRatio`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
+    :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.cTransform`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
     :type scaleCB: float, optional
 
-    :seealso: :func:`consenrich.cconsenrich.clogRatio`
+    :seealso: :func:`consenrich.cconsenrich.cTransform`
 
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
       :class: tip
@@ -1938,7 +1938,7 @@ def getMuncTrack(
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
-    :param values: normalized/transformed signal values over genomic intervals (e.g., :func:`consenrich.cconsenrich.clogRatio` output)
+    :param values: normalized/transformed signal values over genomic intervals (e.g., :func:`consenrich.cconsenrich.cTransform` output)
     :type values: np.ndarray
     :param intervals: genomic intervals positions (start positions)
     :type intervals: np.ndarray

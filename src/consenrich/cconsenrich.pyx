@@ -242,16 +242,16 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
 
 
-cdef inline float _clog_F32(float x, float c0, float c1) nogil:
-    # CALLERS: `clogRatio`
+cdef inline float _ctrans_F32(float x, float c0, float c1) nogil:
+    # CALLERS: `cTransform`
 
-    return c1*logf(x + c0)
+    return c1*sqrtf(x + c0)
 
 
-cdef inline double _clog_F64(double x, double c0, double c1) nogil:
-    # CALLERS: `clogRatio`
+cdef inline double _ctrans_F64(double x, double c0, double c1) nogil:
+    # CALLERS: `cTransform`
 
-    return c1*log(x + c0)
+    return c1*sqrt(x + c0)
 
 
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
@@ -1554,13 +1554,13 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef object clogRatio(
+cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
     bint disableBackground = <bint>False,
     double scaleCB = <double>3.0,
-    double c0 = <double>1.0,
-    double c1 = <double>(1.0/log(2)),
+    double c0 = <double>0,
+    double c1 = <double>1,
 ):
     cdef cnp.ndarray finalArr__
     cdef Py_ssize_t valuesLength, i, bootBlockSize
@@ -1613,17 +1613,17 @@ cpdef object clogRatio(
         else:
             effectiveC0_F32 = <float>c0
 
-        logGlobal_F32 = _clog_F32(fmaxf(trackWideOffset_F32, 0.0), effectiveC0_F32, <float>c1)
+        logGlobal_F32 = _ctrans_F32(fmaxf(trackWideOffset_F32, 0.0), effectiveC0_F32, <float>c1)
 
         with nogil:
             if not <bint>disableBackground:
                 for i in range(valuesLength):
-                    outputPtr_F32[i] = _clog_F32(
+                    outputPtr_F32[i] = _ctrans_F32(
                         fmaxf(valuesPtr_F32[i], 0.0), effectiveC0_F32, <float>c1
                     ) - logGlobal_F32
             else:
                 for i in range(valuesLength):
-                    outputPtr_F32[i] = _clog_F32(
+                    outputPtr_F32[i] = _ctrans_F32(
                         fmaxf(valuesPtr_F32[i], 0.0), effectiveC0_F32, <float>c1
                     )
 
@@ -1651,17 +1651,17 @@ cpdef object clogRatio(
     else:
         effectiveC0_F64 = c0
 
-    logGlobal_F64 = _clog_F64(fmax(trackWideOffset_F64, 0.0), effectiveC0_F64, c1)
+    logGlobal_F64 = _ctrans_F64(fmax(trackWideOffset_F64, 0.0), effectiveC0_F64, c1)
 
     with nogil:
         if not <bint>disableBackground:
             for i in range(valuesLength):
-                outputPtr_F64[i] = _clog_F64(
+                outputPtr_F64[i] = _ctrans_F64(
                     fmax(valuesPtr_F64[i], 0.0), effectiveC0_F64, c1
                 ) - logGlobal_F64
         else:
             for i in range(valuesLength):
-                outputPtr_F64[i] = _clog_F64(
+                outputPtr_F64[i] = _ctrans_F64(
                     fmax(valuesPtr_F64[i], 0.0), effectiveC0_F64, c1
                 )
     return finalArr__
@@ -2319,8 +2319,8 @@ cpdef double cgetGlobalBaseline(
     Py_ssize_t numBoots=5000,
     double scaleCB=<double>3.0,
     uint64_t seed=0,
-    double lowerQuantile=<double>0.05,
-    double upperQuantile=<double>0.95,
+    double lowerQuantile=<double>0.25,
+    double upperQuantile=<double>(-1.0),
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
     cdef cnp.float32_t[::1] valuesView
@@ -2333,15 +2333,23 @@ cpdef double cgetGlobalBaseline(
     cdef Py_ssize_t i, b
     cdef Py_ssize_t remaining, L, start, end
     cdef double sumInReplicate
+    cdef double lowEPS = 1.0e-2
     cdef double sumMeans, sumSq, bootMean, bootVar, bootStd, upperBound
-
+    cdef double lower__, upper__
     if bootBlockSize <= 0:
         bootBlockSize = 1
     if numBoots <= 0:
         return 0.0
 
-    cdef double lower__ = np.quantile(x[x>0], lowerQuantile)
-    cdef double upper__ = np.quantile(x[x>0], upperQuantile)
+    if lowerQuantile > 0.0:
+        lower__ = np.quantile(x[x>lowEPS], lowerQuantile)
+    else:
+        lower__ = 0.0
+    if upperQuantile > 0.0:
+        upper__ = np.quantile(x[x>lowEPS], upperQuantile)
+    else:
+        upper__ = 1.0e8
+
     values = np.clip(np.ascontiguousarray(x, dtype=np.float32).reshape(-1), lower__, upper__)
     valuesView = values
     numValues = values.size
