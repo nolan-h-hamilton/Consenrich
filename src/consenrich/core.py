@@ -110,14 +110,11 @@ class observationParams(NamedTuple):
     :type max: float
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
     :type samplingIters: int
-    :param samplingBlockSizeBP: Length (BP) of blocks sampled when building the empirical mean-variance trend in :func:`consenrich.core.getMuncTrack`.
+    :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
+      Note, block sizes are drawn as :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSizeBP})` to avoid fixed block artifacts.
     :type samplingBlockSizeBP: int
-    :param minValid: Sampled blocks `b` with ``absMean_b, variance_b < minValid`` are ignored during fitting in :func:`consenrich.core.fitVarianceFunction`.
-    :type minValid: float
     :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{EB_minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type EB_minLin: float
-    :param EB_numFitBins: Number of bins used to partition :math:`\lvert \mu_{b=1\ldots B} \rvert` when fitting global mean-variance trend.
-    :type EB_numFitBins: int | None
     :param EB_use: If True, apply empirical Bayes shrinkage in :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool
     :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
@@ -129,9 +126,7 @@ class observationParams(NamedTuple):
     maxR: float | None
     samplingIters: int | None
     samplingBlockSizeBP: int | None
-    minValid: float | None
     EB_minLin: float | None
-    EB_numFitBins: int | Literal["auto"] | None
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
@@ -269,8 +264,8 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param scaleCB: Multiply/add the bootstrap standard error to the global background estimate in :func:`consenrich.cconsenrich.cTransform`: :math:` + \textsf{scaleCB} \cdot \frac{\hat{\sigma}_{\textsf{boot}}}{\sqrt{B}}`
-    :type scaleCB: float, optional
+    :param rtailProp: Quantile of bootstrap *means* used to define global baseline.
+    :type rtailProp: float, optional
 
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
@@ -298,7 +293,7 @@ class countingParams(NamedTuple):
     fragmentLengthsControl: List[int] | None
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
-    scaleCB: float | None
+    rtailProp: float | None
     c0: float | None
     c1: float | None
 
@@ -314,8 +309,8 @@ class matchingParams(NamedTuple):
         Must have the same length as `templateNames`, with each entry aligned to the
         corresponding template. e.g., given templateNames `[haar, db2]`, then `[2,2]` would use 2 cascade levels for both templates.
     :type cascadeLevels: List[int]
-    :param iters: Number of random blocks to sample in the response sequence while building
-        an empirical null to test significance. See :func:`cconsenrich.csampleBlockStats`.
+    :param iters: Number of randomly drawn contiguous blocks used to build
+        an empirical null for significance evaluation. See :func:`cconsenrich.csampleBlockStats`.
     :type iters: int
     :param alpha: Primary significance threshold on detected matches. Specifically, the
         minimum corrected empirical p-value approximated from randomly sampled blocks in the
@@ -563,12 +558,7 @@ def readBamSegments(
     minTemplateLength: Optional[int] = -1,
     fragmentLengths: Optional[List[int]] = None,
 ) -> npt.NDArray[np.float32]:
-    r"""Calculate tracks of read counts (or a function thereof) for each BAM file.
-
-    See :func:`cconsenrich.creadBamSegment` for the underlying implementation in Cython.
-    Note that read counts are scaled by `scaleFactors` and possibly transformed if
-    any of `applyAsinh`, `applyLog`, `applySqrt`. Note that these transformations are mutually
-    exclusive and may affect interpretation of results.
+    r"""Calculate coverage tracks for each BAM file.
 
     :param bamFiles: See :class:`inputParams`.
     :type bamFiles: List[str]
@@ -1529,7 +1519,7 @@ def autoDeltaF(
     Computes average fragment length across samples and sets `processParams.deltaF = countingArgs.intervalSizeBP / medianFragmentLength`.
 
     Where `intervalSizeBP` is small, adjacent genomic intervals may share information from the same fragments. This motivates
-    a smaller `deltaF` (i.e., less state change between neighboring intervals).
+    a smaller `deltaF` (i.e., less state breaks_ between neighboring intervals).
 
     :param intervalSizeBP: Length of genomic intervals/bins. See :class:`countingParams`.
     :type intervalSizeBP: int
@@ -1622,7 +1612,7 @@ def plotStateEstimatesHistogram(
     primaryStateValues: npt.NDArray[np.float32],
     blockSize: int = 10,
     numBlocks: int = 10_000,
-    statFunction: Callable = np.median,
+    statFunction: Callable = np.mean,
     randomSeed: int = 42,
     roundPrecision: int = 4,
     plotHeightInches: float = 8.0,
@@ -1674,11 +1664,11 @@ def plotStateEstimatesHistogram(
     plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
     plt.hist(
         binnedStateEstimates,
-        bins="doane",
         color="blue",
+        bins='doane',
         alpha=0.85,
         edgecolor="black",
-        fill=True,
+        fill=False,
     )
     plt.title(
         rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior Signal Estimates $\widetilde{{x}}_{{[1 : n]}}$",
@@ -1695,218 +1685,61 @@ def plotStateEstimatesHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1 / 100,
-    EB_minLin: float = 1 / 5,
-    EB_numFitBins: int | Literal["auto"] | None = 10,
-    minPairs: int = 10,
+    eps: float = 1.0e-2,
+    EB_minLin: float = 0.1,
 ) -> np.ndarray:
+
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
-    eps = max(float(eps), 0.0)
-    minPairs = int(max(1, int(minPairs)))
-
-    # `EB_minLin` predicted variance is above an envelope = (EB_minLin*|mean| + eps)
-    # ... conservative wrt overdispersion, accounted for by
-    # ... eventual calibration in runConsenrich and local model
-    EB_minLin = max(float(EB_minLin), 0.0)
     absMeans = np.abs(means)
-    nonnegVariances = np.where(variances < 0.0, 0.0, variances)
 
-    valid = np.isfinite(absMeans) & np.isfinite(nonnegVariances)
-    absMeans = absMeans[valid]
-    nonnegVariances = nonnegVariances[valid]
+    # filter/mask |mean| values before fit
+    upper__ = np.quantile(absMeans, 0.999)
+    filterMask = (absMeans >= 0.0) & (absMeans < upper__)
+    absMeans = absMeans[filterMask]
+    variances = variances[filterMask]
 
-    if absMeans.size == 0:
-        return np.array([[0.0], [eps]], dtype=np.float32)
+    sortIdx = np.argsort(absMeans)
+    absMeans = absMeans[sortIdx]
+    variances = variances[sortIdx]
+    weights = np.ones_like(variances, dtype=np.float64)
 
-    order = np.argsort(absMeans)
-    absMeans = absMeans[order]
-    nonnegVariances = nonnegVariances[order]
+    # PAVA (isotonic regr), then minLin lower envelope
+    varsFit = cconsenrich.cPAVA(variances, weights)
+    varsFit = np.maximum(varsFit, EB_minLin * absMeans + eps)
+    breaks_ = np.empty(varsFit.size, dtype=bool)
+    breaks_[0] = True
+    breaks_[1:] = varsFit[1:] != varsFit[:-1]
 
-    def _medPlusMAD(values: np.ndarray) -> float:
-        median_ = float(np.median(values))
-        mad_ = float(np.median(np.abs(values - median_)))
-        return median_ + (1.482 * mad_)  # normal approx for consistency
+    coef_aMu = absMeans[breaks_]
+    coef_Var = varsFit[breaks_]
 
-    def _fitBinless(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if absMeansSeg.size == 0:
-            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
-
-        linearFloor = EB_minLin * absMeansSeg + eps
-        # Compute the threshold on max(variance, floor)
-        flooredVariancesSeg = np.maximum(variancesSeg, linearFloor)
-
-        # consider pairs with var >= (median + ~mad~)
-        threshold_ = _medPlusMAD(flooredVariancesSeg)
-        keepMask = flooredVariancesSeg >= threshold_
-        absMeansSeg = absMeansSeg[keepMask]
-        variancesSeg = variancesSeg[keepMask]
-        if absMeansSeg.size == 0:
-            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
-
-        linearFloor = EB_minLin * absMeansSeg + eps
-        nonnegVariancesSeg = np.maximum(variancesSeg, linearFloor)
-        # cconsenrich.cPAVA: we assign a weight of 1 to every element (each 'block' is a single observation)
-        monoVariancesSeg = cconsenrich.cPAVA(
-            nonnegVariancesSeg, np.ones_like(nonnegVariancesSeg, dtype=np.float64)
-        )
-        monoVariancesSeg = np.maximum(monoVariancesSeg, linearFloor)
-
-        absMeanGridSeg, firstIdxSeg, countsSeg = np.unique(absMeansSeg, return_index=True, return_counts=True)
-        varGridSeg = np.empty_like(absMeanGridSeg, dtype=np.float64)
-        for j in range(absMeanGridSeg.size):
-            start = firstIdxSeg[j]
-            end = start + countsSeg[j]
-            varGridSeg[j] = float(np.mean(monoVariancesSeg[start:end]))
-
-        linearFloorGridSeg = EB_minLin * absMeanGridSeg + eps
-        varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
-        # final PAVA if not binning
-        varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
-        varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
-        return absMeanGridSeg, varGridSeg
-
-    def _fitBinned(absMeansSeg: np.ndarray, variancesSeg: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        if absMeansSeg.size == 0:
-            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
-
-        numBinsSeg = int(max(4, min(int(EB_numFitBins), absMeansSeg.size)))
-        quantileGrid = np.linspace(0.0, 1.0, numBinsSeg + 1, dtype=np.float64)
-        edgeGrid = np.quantile(absMeansSeg, quantileGrid)
-        edgeGrid[0] = -np.inf
-        edgeGrid[-1] = np.inf
-        binIndex = np.searchsorted(edgeGrid, absMeansSeg, side="right") - 1
-        binIndex = np.clip(binIndex, 0, numBinsSeg - 1)
-        # Compute the threshold on max(variance, floor), and require at least minPairs per bin
-        # If a bin has < minPairs valid |mu|,var pairs, carry forward from the previous
-        linearFloorAll = EB_minLin * absMeansSeg + eps
-        flooredVariancesAll = np.maximum(variancesSeg, linearFloorAll)
-        thresholds = np.full(numBinsSeg, np.nan, dtype=np.float64)
-        lastThreshold_ = np.nan
-        numGoodBins = 0
-
-        for j in range(numBinsSeg):
-            inBin = binIndex == j
-            binCount = int(np.count_nonzero(inBin))
-            if binCount <= 0:
-                continue
-
-            thresholdCandidate_ = _medPlusMAD(flooredVariancesAll[inBin])
-            keptCount = int(np.count_nonzero(flooredVariancesAll[inBin] >= thresholdCandidate_))
-            if keptCount >= minPairs:
-                thresholds[j] = float(thresholdCandidate_)
-                lastThreshold_ = float(thresholdCandidate_)
-                numGoodBins += 1
-            else:
-                if np.isfinite(lastThreshold_):
-                    thresholds[j] = float(lastThreshold_)
-
-        # If no bins satisfy we fall back to 'binless' fit
-        if numGoodBins <= 0:
-            logger.warning("No bins with > `minPairs` threshold...falling back to binless variance fit.")
-            return _fitBinless(absMeansSeg, variancesSeg)
-
-        keepMask = np.zeros(absMeansSeg.size, dtype=bool)
-        for j in range(numBinsSeg):
-            threshold_ = float(thresholds[j]) if np.isfinite(thresholds[j]) else np.inf
-            inBin = binIndex == j
-            if not np.any(inBin):
-                continue
-            keepMask[inBin] = flooredVariancesAll[inBin] >= threshold_
-
-        absMeansSeg = absMeansSeg[keepMask]
-        variancesSeg = variancesSeg[keepMask]
-        if absMeansSeg.size == 0:
-            return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
-
-        linearFloor = EB_minLin * absMeansSeg + eps
-        nonnegVariancesSeg = np.maximum(variancesSeg, linearFloor)
-        # cconsenrich.cPAVA: we assign a weight of 1 to every element (each 'block' is a single observation)
-        monoVariancesSeg = cconsenrich.cPAVA(
-            nonnegVariancesSeg, np.ones_like(nonnegVariancesSeg, dtype=np.float64)
-        )
-        monoVariancesSeg = np.maximum(monoVariancesSeg, linearFloor)
-
-        # compute bin summaries using only the filtered pairs (same bin edges)
-        binIndex = np.searchsorted(edgeGrid, absMeansSeg, side="right") - 1
-        binIndex = np.clip(binIndex, 0, numBinsSeg - 1)
-
-        absMeanGridSeg = np.empty(numBinsSeg, dtype=np.float64)
-        varGridSeg = np.empty(numBinsSeg, dtype=np.float64)
-        countsSeg = np.empty(numBinsSeg, dtype=np.float64)
-
-        for j in range(numBinsSeg):
-            inBin = binIndex == j
-            binCount = int(np.count_nonzero(inBin))
-            if binCount <= 0:
-                absMeanGridSeg[j] = np.nan
-                varGridSeg[j] = np.nan
-                countsSeg[j] = 0.0
-                continue
-            absMeanGridSeg[j] = float(np.mean(absMeansSeg[inBin]))
-            varGridSeg[j] = float(np.mean(monoVariancesSeg[inBin]))
-            countsSeg[j] = float(binCount)
-
-        keepMask = countsSeg > 0.0
-        absMeanGridSeg = absMeanGridSeg[keepMask]
-        varGridSeg = varGridSeg[keepMask]
-        countsSeg = countsSeg[keepMask]
-
-        linearFloorGridSeg = EB_minLin * absMeanGridSeg + eps
-        varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
-        varGridSeg = cconsenrich.cPAVA(varGridSeg, countsSeg.astype(np.float64))
-        varGridSeg = np.maximum(varGridSeg, linearFloorGridSeg)
-        return absMeanGridSeg, varGridSeg
-
-    # 'auto': select as many bins as possible while ensuring each bin has >= minPairs *after* filtering
-    if isinstance(EB_numFitBins, str) and EB_numFitBins.lower() == "auto":
-        linearFloorAll = EB_minLin * absMeans + eps
-        flooredAll = np.maximum(nonnegVariances, linearFloorAll)
-        # cut out < median+mad pairs
-        n_keep = int(np.count_nonzero(flooredAll >= _medPlusMAD(flooredAll)))
-        maxBins = min(np.unique(absMeans).size, n_keep // minPairs, 16)
-        EB_numFitBins = int(maxBins) if maxBins >= 4 else None
-        logger.info(f"Auto: EB_numFitBins={maxBins}")
-
-    useBinning = EB_numFitBins is not None and int(EB_numFitBins) > 0
-    if useBinning:
-        numBins__ = int(max(4, int(EB_numFitBins)))
-        if absMeans.size < numBins__:
-            useBinning = False
-
-    if useBinning:
-        absMeanGrid, varGrid = _fitBinned(absMeans, nonnegVariances)
-        if absMeanGrid.size == 0:
-            absMeanGrid, varGrid = _fitBinless(absMeans, nonnegVariances)
-    else:
-        absMeanGrid, varGrid = _fitBinless(absMeans, nonnegVariances)
-
-    return np.vstack([absMeanGrid.astype(np.float32), varGrid.astype(np.float32)])
+    return np.vstack([coef_aMu.astype(np.float32), coef_Var.astype(np.float32)])
 
 
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1 / 100,
-    EB_minLin: float = 1 / 5,
+    eps: float = 1.0e-2,
+    EB_minLin: float = 0.1,
 ) -> np.ndarray:
-    varianceTrend = np.asarray(coeffs, dtype=np.float32)
-    absMeanGrid = varianceTrend[0].astype(np.float64, copy=False)
-    varGrid = varianceTrend[1].astype(np.float64, copy=False)
-    eps = max(float(eps), 0.0)
-    EB_minLin = max(float(EB_minLin), 0.0)
 
-    linearFloorGrid = EB_minLin * absMeanGrid + eps
-    varGrid = np.maximum(varGrid, linearFloorGrid)
-    varGrid = cconsenrich.cPAVA(varGrid, np.ones_like(varGrid, dtype=np.float64))
-    varGrid = np.maximum(varGrid, linearFloorGrid)
+    absMeans_ = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
+    if coeffs is None or np.asarray(coeffs).size == 0:
+        return np.full(absMeans_.shape, np.nan, dtype=np.float32)
 
-    means = np.asarray(meanTrack, dtype=np.float64).ravel()
-    absMeans = np.abs(means)
+    coef_aMu = np.asarray(coeffs[0], dtype=np.float64).ravel()
+    coef_Var = np.asarray(coeffs[1], dtype=np.float64).ravel()
+    if coef_aMu.size == 0:
+        return np.full(absMeans_.shape, np.nan, dtype=np.float32)
 
-    predicted = np.interp(absMeans, absMeanGrid, varGrid, left=varGrid[0], right=varGrid[-1])
-    predicted = np.maximum(predicted, EB_minLin * absMeans + eps)
-    return predicted.astype(np.float32, copy=False)
+    # keep in range used to fit
+    x = np.clip(absMeans_, coef_aMu[0], coef_aMu[-1])
+    idx = np.searchsorted(coef_aMu, x, side="right") - 1
+    varsEval_ = coef_Var[idx]
+
+    varsEval_ = np.maximum(varsEval_, EB_minLin * absMeans_ + eps)
+    return varsEval_.astype(np.float32)
 
 
 def getMuncTrack(
@@ -1915,14 +1748,12 @@ def getMuncTrack(
     values: np.ndarray,
     intervalSizeBP: int,
     samplingBlockSizeBP: int | None = None,
-    samplingIters: int = 10_000,
+    samplingIters: int = 25_000,
     randomSeed: int = 42,
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    minValid: float = 1.0e-3,
-    EB_minLin: float = 1 / 5,
-    EB_numFitBins: int | None = 10,
+    EB_minLin: float = 0.1,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
@@ -1942,16 +1773,14 @@ def getMuncTrack(
     :type values: np.ndarray
     :param intervals: genomic intervals positions (start positions)
     :type intervals: np.ndarray
-    :param samplingBlockSizeBP: Size (in bp) of contiguous blocks to sample when estimating global mean-variance trend.
+    :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
+      Note, block sizes are drawn as :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSizeBP})`, truncated to :math:`\{3, \ldots, 3 \times \textsf{samplingBlockSizeBP}\}`, to
+      avoid fixed-size block artifacts when estimating mean-variance trend.
     :type samplingBlockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
-    :param minValid: Minimum valid mean/variance value when fitting global mean-variance trend.
-    :type minValid: float
     :param EB_minLin: Require prior-model fitted variances satisfy ``var >= EB_minLin*absMean``
     :type EB_minLin: float
-    :param EB_numFitBins: Number of bins used to partition :math:`\lvert \mu_{b=1\ldots B} \rvert` when fitting global mean-variance trend.
-    :type EB_numFitBins: int | None
     :param EB_use: If `False`, only return the global prior variance track.
     :type EB_use: bool
     :param EB_setNu0: If provided, sets :math:`\nu_0` to this value instead of estimating from data.
@@ -1963,15 +1792,17 @@ def getMuncTrack(
     :return: Munc track, fraction of valid (mean, variance) pairs used in fitting.
     :rtype: tuple[npt.NDArray[np.float32], float]
     """
-
+    AR1_PARAMCT = 3
     if samplingBlockSizeBP is None:
-        samplingBlockSizeBP = intervalSizeBP * 21
+        samplingBlockSizeBP = intervalSizeBP * (5 * AR1_PARAMCT)
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
-    if blockSizeIntervals < 21:
+    if blockSizeIntervals < (5 * AR1_PARAMCT):
         logger.warning(
-            f"`samplingBlockSizeBP` is small for sampling (mean, variance) pairs...trying 21*intervalSizeBP"
+            f"`observationParams.samplingBlockSizeBP`={samplingBlockSizeBP}bp spans "
+            f"only {blockSizeIntervals} genomic intervals for estimating "
+            f"AR1 per (|mean|, variance) pair...consider increasing to at least "
+            f"{(5 * AR1_PARAMCT) * intervalSizeBP}bp to control AR1 estimate variance",
         )
-        blockSizeIntervals = 21
 
     localWindowIntervals = max(4, (blockSizeIntervals + 1))
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
@@ -1998,7 +1829,7 @@ def getMuncTrack(
     )
 
     meanAbs = np.abs(blockMeans)
-    mask = (meanAbs >= minValid) & (blockVars >= minValid)
+    mask = (meanAbs >= 0) & (blockVars >= 1.0e-4)
     meanAbs_Masked = meanAbs[mask]
     var_Masked = blockVars[mask]
     order = np.argsort(meanAbs_Masked)
@@ -2009,7 +1840,7 @@ def getMuncTrack(
     meanTrack = np.abs(valuesArr).copy()
     if useEMA:
         meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
-    priorTrack = evalVarianceFunction(opt, meanTrack).astype(np.float32, copy=False)
+    priorTrack = evalVarianceFunction(opt, meanTrack, EB_minLin=EB_minLin).astype(np.float32, copy=False)
 
     if not EB_use:
         return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
@@ -2044,14 +1875,13 @@ def getMuncTrack(
     posteriorVarTrack[:] = priorTrack
 
     obsVarTrackF32 = obsVarTrack.astype(np.float32, copy=False)
-    noFlag = np.isfinite(obsVarTrackF32) & (obsVarTrackF32 >= minValid) & (priorTrack >= minValid)
+    noFlag = (obsVarTrackF32 > 1.0e-4)
     posteriorVarTrack[noFlag] = (
         Nu_L * obsVarTrackF32[noFlag] + Nu_0 * priorTrack[noFlag]
     ) / posteriorSampleSize
 
-    # go to prior for missing local estimates
-    missingMask = (~np.isfinite(obsVarTrack)) | (obsVarTrack < minValid) | (priorTrack < minValid)
-    posteriorVarTrack[missingMask] = priorTrack[missingMask]
+    # go to prior for 'missing' local estimates
+    posteriorVarTrack[~noFlag] = priorTrack[~noFlag]
     if verbose:
         _reportMunc(
             chromosome=chromosome,
@@ -2063,7 +1893,6 @@ def getMuncTrack(
             localWindowIntervals=localWindowIntervals,
             priorTrack=priorTrack,
             obsVarTrack=obsVarTrack,
-            minValid=minValid,
             Nu0=Nu_0,
             NuL=Nu_L,
             noFlag=noFlag,
@@ -2094,11 +1923,7 @@ def EB_computePriorStrength(
     localModelVariancesArr = np.asarray(localModelVariances, dtype=np.float64)
     globalModelVariancesArr = np.asarray(globalModelVariances, dtype=np.float64)
 
-    ratioMask = (
-        np.isfinite(localModelVariancesArr)
-        & np.isfinite(globalModelVariancesArr)
-        & (localModelVariancesArr > 0.0)
-        & (globalModelVariancesArr > 0.0)
+    ratioMask = ((localModelVariancesArr > 0.0) & (globalModelVariancesArr > 0.0)
     )
     if np.count_nonzero(ratioMask) < (0.10) * localModelVariancesArr.size:
         logger.warning(
@@ -2139,7 +1964,6 @@ def _reportMunc(
     localWindowIntervals: int,
     priorTrack: np.ndarray,
     obsVarTrack: np.ndarray,
-    minValid: float,
     Nu0: float | None = None,
     NuL: float | None = None,
     noFlag: np.ndarray | None = None,
@@ -2150,41 +1974,34 @@ def _reportMunc(
     passedFrac = passedBlocks / float(totalBlocks) if totalBlocks else 0.0
     updatedCount = int(np.sum(noFlag)) if noFlag is not None else 0
 
-    priorFiniteMask = np.isfinite(priorTrack)
-    priorPassedMask = priorFiniteMask & (priorTrack >= minValid)
-    priorFiniteCount = int(np.sum(priorFiniteMask))
-    priorPassedCount = int(np.sum(priorPassedMask))
-    if priorFiniteCount:
-        priorFiniteVals = priorTrack[priorFiniteMask]
-        logger.info(
-            f"munc__prior min,median,max = "
-            f"{float(np.min(priorFiniteVals)):>10.3g}\t"
-            f"{float(np.median(priorFiniteVals)):>10.3g}\t"
-            f"{float(np.max(priorFiniteVals)):>10.3g}"
-        )
+    if priorTrack.size > 0:
+        x = np.asarray(priorTrack, dtype=np.float64)
+        try:
+            Q25, Q75 = np.nanquantile(x, [0.25, 0.75])
+        except ValueError:
+            Q25 = np.nan
+            Q75 = np.nan
+        logger.info(f"munc__prior Q25,Q75 = {float(Q25):>10.3g}\t{float(Q75):>10.3g}")
 
-    obsFiniteMask = np.isfinite(obsVarTrack)
-    obsPassedMask = obsFiniteMask & (obsVarTrack >= minValid)
-    obsFiniteCount = int(np.sum(obsFiniteMask))
-    obsPassedCount = int(np.sum(obsPassedMask))
-    if obsFiniteCount:
-        obsFiniteVals = obsVarTrack[obsFiniteMask]
-        logger.info(
-            f"munc__local min,median,max = "
-            f"{float(np.min(obsFiniteVals)):>10.3g}\t"
-            f"{float(np.median(obsFiniteVals)):>10.3g}\t"
-            f"{float(np.max(obsFiniteVals)):>10.3g}"
-        )
+
+    if obsVarTrack.size > 0:
+        x = np.asarray(obsVarTrack, dtype=np.float64)
+        try:
+            Q25, Q75 = np.nanquantile(x, [0.25, 0.75])
+        except ValueError:
+            Q25 = np.nan
+            Q75 = np.nan
+        logger.info(f"munc__local Q25,Q75 = {float(Q25):>10.3g}\t{float(Q75):>10.3g}")
 
     if Nu0 is not None and NuL is not None:
         posteriorSampleSize = NuL + Nu0
         localWeight = NuL / posteriorSampleSize
         priorWeight = Nu0 / posteriorSampleSize
         if updatedCount and posteriorVarTrack is not None and noFlag is not None:
-            post_ = posteriorVarTrack[noFlag].astype(np.float64)
-            logger.info(
-                f"munc__post min,median,max  = "
-                f"{float(np.min(post_)):>10.3g}\t"
-                f"{float(np.median(post_)):>10.3g}\t"
-                f"{float(np.max(post_)):>10.3g}\n"
-            )
+            post_ = np.asarray(posteriorVarTrack[noFlag], dtype=np.float64)
+            try:
+                Q25, Q75 = np.nanquantile(post_, [0.25, 0.75])
+            except ValueError:
+                Q25 = np.nan
+                Q75 = np.nan
+            logger.info(f"munc__post Q25,Q75  = {float(Q25):>10.3g}\t{float(Q75):>10.3g}\n")

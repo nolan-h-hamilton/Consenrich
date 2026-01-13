@@ -15,7 +15,7 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf
+from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
 from libc.stdlib cimport rand, srand, RAND_MAX
 from libc.string cimport memcpy
 cnp.import_array()
@@ -38,13 +38,12 @@ cdef inline Py_ssize_t _getInsertion(const uint32_t* array_, Py_ssize_t n, uint3
     cdef Py_ssize_t midpt
     while low < high:
         # [low,x1,x2,x3,...,(high-low)//2,...,xn-2, high]
-        # ... --> [(high-low)//2 + 1,...,xn-2, high]
-        # ... FFR: hard to read, check if bitshift is indeed faster
+        # [(high-low)//2 + 1,...,xn-2, high]
         midpt = low + ((high - low) >> 1)
         if array_[midpt] <= x:
             low = midpt + 1
         # [low,x1,x2,x3,...,(high-low)//2,...,xn-2, high]
-        # ... --> [low,x1,x2,x3,...,(high-low)//2]
+        # [low,x1,x2,x3,...,(high-low)//2]
         else:
             high = midpt
     # array_[low] <= x* < array_[low+1]
@@ -288,6 +287,48 @@ cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nog
         # FFR: check whether this avoids a cast
         pivot = (left + right) >> 1
         idx = _partitionLt(sortedVals_, left, right, pivot)
+        if k == idx:
+            return <bint>0
+        elif k < idx:
+            right = idx - 1
+        else:
+            left = idx + 1
+    return <bint>0
+
+
+cdef inline bint _dSwap(double* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
+    # CALLERS: `_partitionLt_F64`, `_nthElement_F64`
+
+    cdef double tmp = swapInArray_[i]
+    swapInArray_[i] = swapInArray_[j]
+    swapInArray_[j] = tmp
+    return <bint>0
+
+
+cdef inline Py_ssize_t _partitionLt_F64(double* vals_, Py_ssize_t left, Py_ssize_t right, Py_ssize_t pivot) nogil:
+    # CALLERS: `_nthElement_F64`
+
+    cdef double pv = vals_[pivot]
+    cdef Py_ssize_t store = left
+    cdef Py_ssize_t i
+    _dSwap(vals_, pivot, right)
+    for i in range(left, right):
+        if vals_[i] < pv:
+            _dSwap(vals_, store, i)
+            store += 1
+    _dSwap(vals_, store, right)
+    return store
+
+
+cdef inline bint _nthElement_F64(double* sortedVals_, Py_ssize_t n, Py_ssize_t k) nogil:
+    # CALLERS: `cSF`
+
+    cdef Py_ssize_t left = 0
+    cdef Py_ssize_t right = n - 1
+    cdef Py_ssize_t pivot, idx
+    while left < right:
+        pivot = (left + right) >> 1
+        idx = _partitionLt_F64(sortedVals_, left, right, pivot)
         if k == idx:
             return <bint>0
         elif k < idx:
@@ -1443,9 +1484,9 @@ cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
     bint disableBackground = <bint>False,
-    double scaleCB = <double>3.0,
-    double c0 = <double>1.0,
-    double c1 = <double>(1/log(2.0)),
+    double rtailProp = <double>0.50,
+    double c0 = <double>1/2,
+    double c1 = <double>1/log(2.0),
     double w_local=<double>1.0,
     double w_global=<double>4.0,
 ):
@@ -1477,7 +1518,7 @@ cpdef object cTransform(
         trackWideOffset_F32 = <float>cgetGlobalBaseline(
             valuesArr_F32,
             bootBlockSize=bootBlockSize,
-            scaleCB=scaleCB,
+            rtailProp=rtailProp,
         )
 
         if c0 < 0.0:
@@ -1535,7 +1576,7 @@ cpdef object cTransform(
     trackWideOffset_F64 = <double>cgetGlobalBaseline(
         valuesArr_F64,
         bootBlockSize=bootBlockSize,
-        scaleCB=scaleCB,
+        rtailProp=rtailProp,
     )
 
     if c0 < 0.0:
@@ -2232,57 +2273,83 @@ cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=1000,
-    double scaleCB=<double>3.0,
+    double rtailProp=<double>0.50,
     uint64_t seed=0,
-    double lowerQuantile=<double>0.1,
-    double upperQuantile=<double>(-1.0),
 ):
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] values
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
+    cdef cnp.float32_t[::1] rawView
     cdef cnp.float32_t[::1] valuesView
     cdef Py_ssize_t numValues
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixSums
     cdef cnp.float64_t[::1] prefixView
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] prefixZeros
+    cdef cnp.int32_t[::1] zerosView
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
     cdef cnp.float64_t[::1] bootView
     cdef double p, logq_
     cdef Py_ssize_t i, b
     cdef Py_ssize_t remaining, L, start, end
     cdef double sumInReplicate
-    cdef double lowEPS = 1.0e-2
-    cdef double sumMeans, sumSq, bootMean, bootVar, bootStd, upperBound
+    cdef double lowEPS = 1.0 # values below `lowEPS` are treated as zeros in the bootstrap
     cdef double lower__, upper__
+    cdef double upperBound
+    lower__ = 1.0e-4
+    upper__ = 1.0e8
+
+    cdef double p0, mu0, sd0, stdCutoff
+    cdef Py_ssize_t allowedZeros, zeroCount, tries
+    cdef Py_ssize_t maxTries = 25
+    cdef bint useGeom
+
     if bootBlockSize <= 0:
         bootBlockSize = 1
     if numBoots <= 0:
         return 0.0
 
-    if lowerQuantile > 0.0:
-        lower__ = np.quantile(x[x>lowEPS], lowerQuantile)
-    else:
-        lower__ = 0.0
-    if upperQuantile > 0.0:
-        upper__ = np.quantile(x[x>lowEPS], upperQuantile)
-    else:
-        upper__ = 1.0e8
+    if rtailProp <= 0.0:
+        rtailProp = 0.0
+    elif rtailProp >= 1.0:
+        rtailProp = 1.0
 
-    values = np.clip(np.ascontiguousarray(x, dtype=np.float32).reshape(-1), lower__, upper__)
+    raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
+    rawView = raw
+
+    values = np.clip(raw, lower__, upper__)
     valuesView = values
     numValues = values.size
+    stdCutoff = <double>3.0
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
+    prefixZeros = np.empty(numValues + 1, dtype=np.int32)
+    zerosView = prefixZeros
     bootstrapMeans = np.empty(numBoots, dtype=np.float64)
     bootView = bootstrapMeans
 
     # length L ~ Geometric(p) with E[L] = 1/p = bootBlockSize.
-    p = 1.0 / (<double>bootBlockSize)
-    logq_ = log(1.0 - p)
+    useGeom = bootBlockSize > 1
+    if useGeom:
+        p = 1.0 / (<double>bootBlockSize)
+        logq_ = log(1.0 - p)
+    else:
+        logq_ = 0.0
+
+    # ---------DO NOT CALL THIS FUNCTION IN PARALLEL-------
     srand(seed)
+    # ------------------------------------------------------
 
     with nogil:
+        # first pass through to build prefix sums and count zeros
         prefixView[0] = 0.0
+        zerosView[0] = 0
         for i in range(numValues):
             prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
+            zerosView[i + 1] = zerosView[i] + (1 if rawView[i] <= lowEPS else 0)
 
+
+    p0 = (<double>zerosView[numValues]) / (<double>numValues)
+
+    # Now, start drawing bootstrap replicates
+    with nogil:
         for b in range(numBoots):
             # each bootstrap rep: draw random blocks until
             # the total drawn length reaches `numValues`.
@@ -2291,40 +2358,57 @@ cpdef double cgetGlobalBaseline(
 
             while remaining > 0:
                 # pick a random start index and block length
-                L = _geometricDraw(logq_)
+                if useGeom:
+                    L = _geometricDraw(logq_)
+                else:
+                    L = 1
                 if L > remaining:
                     L = remaining
-                start = _rand_int(numValues)
-                end = start + L
+                if L <= 0:
+                    L = 1
 
+                # using binomial(blockLength, p0)
+                mu0 = p0 * (<double>L)
+                sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
+                # we REJECT blocks with more than the expected num zeros + 3*sd
+                allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)
+                if allowedZeros < 0:
+                    allowedZeros = 0
+                elif allowedZeros > L:
+                    allowedZeros = L
+
+                # try to sample a dense block: no success --> take the last try
+                # ... this is less than ideal, but should be rare for reasonable
+                # ... thresholds, and we need the algorithm to actually terminate
+                for tries in range(maxTries):
+                    start = _rand_int(numValues)
+                    end = start + L
+
+                    if end <= numValues:
+                        zeroCount = zerosView[end] - zerosView[start]
+                    else:
+                        end -= numValues
+                        zeroCount = (zerosView[numValues] - zerosView[start]) + zerosView[end]
+
+                    if zeroCount <= allowedZeros:
+                        # ACCEPT
+                        break
+
+                end = start + L
                 if end <= numValues:
                     # No wraparound: sum values[start:end].
                     sumInReplicate += prefixView[end] - prefixView[start]
                 else:
-                    # circular: we've hit the end of the input array but we dont (necessarily) stop here
-                    # ... sum both (values[start:numValues]) and (values[0:(end - numValues)])
+                    # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
                     end -= numValues
                     sumInReplicate += (prefixView[numValues] - prefixView[start]) + prefixView[end]
+
                 # update the number of remaining values to draw.
                 remaining -= L
             bootView[b] = sumInReplicate / (<double>numValues)
 
-        sumMeans = 0.0
-        sumSq = 0.0
-        for b in range(numBoots):
-            sumMeans += bootView[b]
-            sumSq += bootView[b] * bootView[b]
-
-    bootMean = sumMeans / (<double>numBoots)
-    if numBoots > 1:
-        bootVar = (sumSq - (sumMeans * sumMeans) / (<double>numBoots)) / (<double>(numBoots - 1))
-        if bootVar < 0.0:
-            bootVar = 0.0
-        bootStd = sqrt(bootVar)
-    else:
-        bootStd = 0.0
-
-    upperBound = bootMean + (scaleCB * bootStd)
+    # conservative: we take the upper (1 - rtailProp) quantile from the distribution of bootstrap means
+    upperBound = <double>np.quantile(bootstrapMeans, 1-rtailProp)
     return upperBound
 
 
@@ -2333,7 +2417,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     double maxBeta=0.99,
-    bint centered = <bint>False,
     double ridgeLambda = 0.1,
 ):
     cdef Py_ssize_t numIntervals=values.shape[0]
@@ -2366,7 +2449,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     if blockLength > numIntervals:
         blockLength = <int>numIntervals
 
-    # FFR: add check in callers!
     if blockLength < 4:
         varOut[:] = 0.0
         return varOut
@@ -2471,24 +2553,15 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             sumFOD += (FODEntering - FODLeaving)
             sumSqFOD += (FODEntering * FODEntering) - (FODLeaving * FODLeaving)
 
-    if centered:
-        for regionIndex in range(numIntervals):
-            startIndex=(regionIndex - halfBlockLength)
-            if startIndex < 0:
-                startIndex=0
-            elif startIndex > maxStartIndex:
-                startIndex=maxStartIndex
-            varOut[regionIndex]=varAtStartIndex[startIndex]
-    else:
-        for regionIndex in range(numIntervals):
-            startIndex = regionIndex - blockLength + 1
-            if startIndex < 0:
-                # flag as invalid (i.e., divert to prior model until full window)
-                varOut[regionIndex] = <cnp.float32_t>-1.0
-                continue
-            if startIndex > maxStartIndex:
-                startIndex = maxStartIndex
-            varOut[regionIndex] = varAtStartIndex[startIndex]
+    for regionIndex in range(numIntervals):
+        startIndex = regionIndex - blockLength + 1
+        if startIndex < 0:
+            # flag as invalid (i.e., divert to prior model until full window)
+            varOut[regionIndex] = <cnp.float32_t>-1.0
+            continue
+        if startIndex > maxStartIndex:
+            startIndex = maxStartIndex
+        varOut[regionIndex] = varAtStartIndex[startIndex]
 
     return varOut
 
@@ -2929,3 +3002,79 @@ cpdef clocalBaseline(object x, int blockSize=101):
     if arr.dtype == np.float32:
         return clocalBaseline_F32(arr, <int>blockSize)
     raise TypeError("x must be np.float32 or np.float64")
+
+
+cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
+    object chromMat,
+    float minCount=<float>1.0,
+    double nonzeroFrac=0.5,
+    bint centerGeoMean=True,
+):
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
+    cdef Py_ssize_t m = chromMat_.shape[0]
+    cdef Py_ssize_t n = chromMat_.shape[1]
+    cdef cnp.float32_t[:, ::1] chromMatView = chromMat_
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] refLog = np.empty(n, dtype=np.float64)
+    cdef double[::1] refLogView = refLog
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scaleFactors = np.empty(m, dtype=np.float64)
+    cdef double[::1] scaleFactorsView = scaleFactors
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logRatioBuf = np.empty(n, dtype=np.float64)
+    cdef double[::1] logRatioBufView = logRatioBuf
+
+    cdef Py_ssize_t s, i, k, needNonzero
+    cdef Py_ssize_t presentCount
+    cdef double sumLog, v, medLog, geoMean, eps
+    eps = 1e-300
+
+    if m < 2:
+        raise ValueError("`countingParams.normMethod` SF requires at least two samples.")
+
+    if n <= 0:
+        scaleFactors.fill(1.0)
+        return scaleFactors
+
+    needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + 0.999999)
+    if needNonzero < 1:
+        needNonzero = 1
+    elif needNonzero > m:
+        needNonzero = m
+
+    with nogil:
+        for i in range(n):
+            sumLog = 0.0
+            presentCount = 0
+            for s in range(m):
+                v = <double>chromMatView[s, i]
+                if v > <double>minCount:
+                    sumLog += log(v)
+                    presentCount += 1
+            refLogView[i] = (sumLog / (<double>presentCount)) if presentCount >= needNonzero else NAN
+
+        for s in range(m):
+            k = 0
+            for i in range(n):
+                if not isnan(refLogView[i]):
+                    v = <double>chromMatView[s, i]
+                    if v > <double>minCount:
+                        logRatioBufView[k] = log(v) - refLogView[i]
+                        k += 1
+
+            if k == 0:
+                scaleFactorsView[s] = 1.0
+            else:
+                _nthElement_F64(&logRatioBufView[0], k, k >> 1)
+                medLog = logRatioBufView[k >> 1]
+                scaleFactorsView[s] = exp(medLog)
+
+        if centerGeoMean and m > 0:
+            sumLog = 0.0
+            for s in range(m):
+                sumLog += log(scaleFactorsView[s] + eps)
+            geoMean = exp(sumLog / (<double>m))
+            for s in range(m):
+                scaleFactorsView[s] /= geoMean
+
+    return scaleFactors
