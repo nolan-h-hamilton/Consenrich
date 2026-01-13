@@ -380,13 +380,13 @@ class outputParams(NamedTuple):
     :param writeUncertainty: If True, write the model's posterior uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
     :type writeUncertainty: bool
     :param writeMWSE: If True, write the per-interval mean weighted squared error (MWSE),
-        where the weighting is with respect to measurement uncertainty
+        where the weighting is with respect to measurement uncertainty and the positional state uncertainty
 
         .. math::
 
-        \mathrm{MWSE}_{[i]} = \frac{1}{m}\sum_{j=1}^{m}\frac{\left(Z_{[i,j]} - (\mathbf{H}\widetilde{x}_{[i]})_{j}\right)^{2}}{R_{[i,j]}}
+        \mathrm{MWSE}_{[i]} = \frac{1}{m}\sum_{j=1}^{m}\frac{\left(Z_{[i,j]} - (\mathbf{H}\widetilde{x}_{[i]})_{j}\right)^{2}}{R_{[i,j]} + P_{[i,(11)]}}
 
-        Here, m = numSamples and R_{[i,j]} is the (diagonal) measurement variance for sample j.
+        Here, :math:`m` = ``numSamples``, :math:`R_{[i,j]}` is the (diagonal) measurement variance for sample j, and :math:`P_{[i,(11)]}` is the primary state variance at interval i.
     :type writeMWSE: bool
     """
 

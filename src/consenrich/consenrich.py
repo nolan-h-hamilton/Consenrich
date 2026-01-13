@@ -399,12 +399,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 11) + 1, 500), 500_000),
+        min(max(2 * (intervalSizeBP * 11) + 1, 1000), 500_000),
     )
     smoothSpanBP_ = _cfgGet(
         configData,
         "countingParams.smoothSpanBP",
-        3 * intervalSizeBP,
+        5 * intervalSizeBP,
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -990,7 +990,9 @@ def main():
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
     offDiagQ_ = processArgs.offDiagQ
+
     waitForMatrix: bool = False
+    normMethod_: Optional[str] = countingArgs.normMethod.upper()
 
     if args.verbose2:
         args.verbose = True
@@ -1020,6 +1022,13 @@ def main():
             logger.info(f"\n{pretty}\n")
         except Exception as e:
             logger.warning(f"Failed to print parsed config:\n{e}\n")
+
+    if normMethod_ in ["SF"] and (len(bamFilesControl) > 0 or numSamples < 3):
+        logger.warning(
+            "`countingParams.normMethod` `SF` is not available when control inputs are present or < 3 treatment samples are given. Use EGS or RPKM instead."
+            "\n\t--> switching to `EGS` normalization..."
+        )
+        normMethod_ = "EGS"
 
     controlsPresent = checkControlsPresent(inputArgs)
     if args.verbose:
@@ -1052,11 +1061,6 @@ def main():
 
 
     if controlsPresent:
-        if countingArgs.normMethod.upper() not in ["EGS", "RPKM"]:
-            raise ValueError(
-                "`countingParams.normMethod` must be one of `EGS`, `RPKM` if control inputs are present."
-            )
-
         readLengthsControlBamFiles = [
             core.getReadLength(
                 bamFile,
@@ -1131,7 +1135,7 @@ def main():
                     chromSizes,
                     samArgs.samThreads,
                     intervalSizeBP,
-                    normMethod=countingArgs.normMethod,
+                    normMethod=normMethod_,
                     fixControl=countingArgs.fixControl,
                 )
                 for bamFileA, bamFileB, effectiveGenomeSizeA, effectiveGenomeSizeB, readLengthA, readLengthB in zip(
@@ -1154,7 +1158,7 @@ def main():
         controlScaleFactors = scaleFactorsControl
 
     if scaleFactors is None and not controlsPresent:
-        if countingArgs.normMethod.upper() in ["RPKM", "CPM"]:
+        if normMethod_ in ["RPKM", "CPM"]:
             scaleFactors = [
                 detrorm.getScaleFactorPerMillion(
                     bamFile,
@@ -1163,7 +1167,7 @@ def main():
                 )
                 for bamFile in bamFiles
             ]
-        elif countingArgs.normMethod.upper() in ["EGS", 'RPGC']:
+        elif normMethod_ in ["EGS", 'RPGC']:
             scaleFactors = [
                 detrorm.getScaleFactor1x(
                     bamFile,
@@ -1178,11 +1182,7 @@ def main():
                     effectiveGenomeSizes,
                     fragmentLengthsTreatment,
                 )]
-        else:
-            if controlsPresent:
-                raise ValueError(
-                    "`countingParams.normMethod` must be one of `EGS`, `RPKM` if control inputs are present."
-                )
+        elif normMethod_ in ["SF"]:
             waitForMatrix = True
 
 
@@ -1287,7 +1287,7 @@ def main():
                 chromosomeEnd,
                 intervalSizeBP,
                 readLengthsBamFiles,
-                np.ones(numSamples) if waitForMatrix else scaleFactors,
+                np.ones(numSamples) if waitForMatrix else scaleFactors, # for SF, wait until matrix is built
                 samArgs.oneReadPerBin,
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
@@ -1399,7 +1399,7 @@ def main():
             stateUpperBound=stateArgs.stateUpperBound,
             boundState=stateArgs.boundState,
         )
-        P00_ = np.sqrt(P[:, 0, 0]).astype(np.float32, copy=False)
+        P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
 
         if plotArgs.plotStateEstimatesHistogram:
             core.plotStateEstimatesHistogram(
@@ -1419,7 +1419,7 @@ def main():
         )
 
         if outputArgs.writeUncertainty:
-            df["uncertainty"] = P00_.astype(np.float32, copy=False)
+            df["uncertainty"] = np.sqrt(P00_).astype(np.float32, copy=False)
 
         cols_ = ["Chromosome", "Start", "End", "State"]
 
@@ -1428,7 +1428,8 @@ def main():
         if outputArgs.writeMWSE:
             cols_.append("MWSE")
             srs_ = np.sum(
-                ((chromMat - x_[None, :]) ** 2) / (muncMat + 1e-8), axis=0, dtype=np.float64
+                np.square(chromMat.astype(np.float64) - x_[None, :].astype(np.float64))
+                / (muncMat.astype(np.float64) + P00_.astype(np.float64) + 1e-8)
             ).astype(np.float32)
             if numSamples > 1:
                 srs_ /= numSamples

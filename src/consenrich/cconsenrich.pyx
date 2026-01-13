@@ -2378,8 +2378,9 @@ cpdef double cgetGlobalBaseline(
                     allowedZeros = L
 
                 # try to sample a dense block: no success --> take the last try
-                # ... this is less than ideal, but should be rare for reasonable
-                # ... thresholds, and we need the algorithm to actually terminate
+                # ... this is less than ideal (breaks the sampling distribution),
+                # ... but should be uncommon for reasonable thresholds, and we need
+                # ... the algorithm to actually terminate
                 for tries in range(maxTries):
                     start = _rand_int(numValues)
                     end = start + L
@@ -3027,16 +3028,9 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     cdef Py_ssize_t s, i, k, needNonzero
     cdef Py_ssize_t presentCount
     cdef double sumLog, v, medLog, geoMean, eps
-    eps = 1e-300
+    eps = 1e-8
 
-    if m < 2:
-        raise ValueError("`countingParams.normMethod` SF requires at least two samples.")
-
-    if n <= 0:
-        scaleFactors.fill(1.0)
-        return scaleFactors
-
-    needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + 0.999999)
+    needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + (1.0 - 1e-8))
     if needNonzero < 1:
         needNonzero = 1
     elif needNonzero > m:
