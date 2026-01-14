@@ -1484,7 +1484,7 @@ cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
     bint disableBackground = <bint>False,
-    double rtailProp = <double>0.50,
+    double rtailProp = <double>0.75,
     double c0 = <double>1/2,
     double c1 = <double>1/log(2.0),
     double w_local=<double>1.0,
@@ -2298,7 +2298,7 @@ cpdef double cgetGlobalBaseline(
 
     cdef double p0, mu0, sd0, stdCutoff
     cdef Py_ssize_t allowedZeros, zeroCount, tries
-    cdef Py_ssize_t maxTries = 25
+    cdef Py_ssize_t maxTries = 100
     cdef bint useGeom
 
     if bootBlockSize <= 0:
@@ -2604,7 +2604,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
     cdef double[:] wV = wArr
     cdef double[:] xB = xBlock
     cdef double[:] wB = wBlock
-    cdef long[:]   rB = rBlock
+    cdef long[:] rB = rBlock
     cdef double[:] predicted_ = predicted
     cdef Py_ssize_t i, k, j, f, t, b
     cdef double xCur, W, S

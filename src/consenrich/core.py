@@ -1674,11 +1674,20 @@ def plotStateEstimatesHistogram(
     )
     with mpl.rc_context(MATHFONT):
         plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
+        x = np.asarray(binnedStateEstimates, dtype=np.float64).ravel()
+        if x.size:
+            q1, q3 = np.quantile(x, [0.25, 0.75])
+            iqr = q3 - q1
+            lowerLim = q1 - (5.0 * iqr)
+            upperLim = q3 + (5.0 * iqr)
+            x = x[(x >= lowerLim) & (x <= upperLim)]
+        binnedStateEstimates = x.astype(np.float32, copy=False)
+
         plt.hist(
             binnedStateEstimates,
             color="blue",
-            bins='doane',
-            alpha=0.85,
+            bins="doane",
+            alpha=1.0,
             edgecolor="black",
             fill=False,
         )
@@ -1751,11 +1760,20 @@ def plotMWSRHistogram(
     )
     with mpl.rc_context(MATHFONT):
         plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
+        x = np.asarray(binnedMWSR, dtype=np.float64).ravel()
+        if x.size:
+            q1, q3 = np.quantile(x, [0.25, 0.75])
+            iqr = q3 - q1
+            lowerLim = q1 - (5.0 * iqr)
+            upperLim = q3 + (5.0 * iqr)
+            x = x[(x >= lowerLim) & (x <= upperLim)]
+        binnedMWSR = x.astype(np.float32, copy=False)
+
         plt.hist(
             binnedMWSR,
             color="blue",
             bins="doane",
-            alpha=0.85,
+            alpha=1.0,
             edgecolor="black",
             fill=False,
         )
@@ -1777,7 +1795,6 @@ def fitVarianceFunction(
     eps: float = 1.0e-2,
     EB_minLin: float = 0.1,
 ) -> np.ndarray:
-
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
     absMeans = np.abs(means)
@@ -1791,18 +1808,22 @@ def fitVarianceFunction(
     sortIdx = np.argsort(absMeans)
     absMeans = absMeans[sortIdx]
     variances = variances[sortIdx]
-    weights = np.ones_like(variances, dtype=np.float64)
 
-    # PAVA (isotonic regr), then minLin lower envelope
+    # weights increasing wrt variance
+    weights = np.power(variances + 1e-4, 0.5)
+    weights /= np.mean(weights)
+
+    # weighted isotonic regression
     varsFit = cconsenrich.cPAVA(variances, weights)
+
+    # lower envelope
     varsFit = np.maximum(varsFit, EB_minLin * absMeans + eps)
     breaks_ = np.empty(varsFit.size, dtype=bool)
     breaks_[0] = True
-    breaks_[1:] = varsFit[1:] != varsFit[:-1]
+    breaks_[1:] = (varsFit[1:] != varsFit[:-1])
 
     coef_aMu = absMeans[breaks_]
     coef_Var = varsFit[breaks_]
-
     return np.vstack([coef_aMu.astype(np.float32), coef_Var.astype(np.float32)])
 
 
