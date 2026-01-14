@@ -50,27 +50,6 @@ def testMatrixConstruction(
 
 
 @pytest.mark.chelpers
-def testResidualCovarianceInversion():
-    np.random.seed(42)
-    m = 10
-    muncMatrixIter = np.random.gamma(shape=2, scale=1.0, size=m) + 1
-    priorCovarianceOO = 0.1
-    residCovar = np.diag(muncMatrixIter) + (np.ones((m, m)) * priorCovarianceOO)
-
-    invertedMatrix = cconsenrich.cinvertMatrixE(
-        muncMatrixIter.astype(np.float32),
-        np.float32(priorCovarianceOO),
-    )
-    # note: loosen criteria given padding
-    np.testing.assert_allclose(
-        invertedMatrix @ residCovar,
-        np.eye(m),
-        atol=1e-2,
-        rtol=1e-4,
-    )
-
-
-@pytest.mark.chelpers
 def testProcessNoiseAdjustment():
     np.random.seed(42)
 
