@@ -268,16 +268,16 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.writeUncertainty",
         True,
     )
-    writeMWSE_ = _cfgGet(
+    writeMWSR_ = _cfgGet(
         configData,
-        "outputParams.writeMWSE",
+        "outputParams.writeMWSR",
         True,
     )
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
-        writeMWSE=writeMWSE_,
+        writeMWSR=writeMWSR_,
     )
 
 
@@ -396,10 +396,15 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
     intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
-    backgroundWindowSizeBP = _cfgGet(
+    backgroundBlockSizeBP_ = _cfgGet(
         configData,
-        "countingParams.backgroundWindowSizeBP",
-        min(max(1000 * intervalSizeBP, 100_000), 500_000),  # other values may work but haven't been tested
+        "countingParams.backgroundBlockSizeBP",
+        min(max(2 * (intervalSizeBP * 50) + 1, 1000), 500_000),
+    )
+    smoothSpanBP_ = _cfgGet(
+        configData,
+        "countingParams.smoothSpanBP",
+        5 * intervalSizeBP,
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -422,9 +427,9 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "EGS",
+        "SF",
     )
-    if normMethod_.upper() not in ["EGS", "RPKM"]:
+    if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
             f"Unknown `countingParams.normMethod`...Using `EGS`...",
         )
@@ -467,33 +472,28 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         True,
     )
 
-    scaleCB_ = _cfgGet(
+    rtailProp_ = _cfgGet(
         configData,
-        "countingParams.scaleCB",
-        3.0,
-    )
-
-    globalLocalRatio_ = _cfgGet(
-        configData,
-        "countingParams.globalLocalRatio",
-        4.0,
+        "countingParams.rtailProp",
+        0.75,
     )
 
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        0.25,
+        1.0,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0 / math.log(2.0),  # log2
+        1.0 / math.log(2.0),
     )
 
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
-        backgroundWindowSizeBP=backgroundWindowSizeBP,
+        backgroundBlockSizeBP=backgroundBlockSizeBP_,
+        smoothSpanBP=smoothSpanBP_,
         scaleFactors=scaleFactorList,
         scaleFactorsControl=scaleFactorsControlList,
         normMethod=normMethod_,
@@ -501,8 +501,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fragmentLengthsControl=fragmentLengthsControl,
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
-        scaleCB=scaleCB_,
-        globalLocalRatio=globalLocalRatio_,
+        rtailProp=rtailProp_,
         c0=c0_,
         c1=c1_,
     )
@@ -516,7 +515,12 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     plotStateEstimatesHistogram_ = _cfgGet(
         configData,
         "plotParams.plotStateEstimatesHistogram",
-        False,
+        True,
+    )
+    plotMWSRHistogram_ = _cfgGet(
+        configData,
+        "plotParams.plotMWSRHistogram",
+        True,
     )
 
     plotHeightInches_ = _cfgGet(
@@ -564,6 +568,7 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     return core.plotParams(
         plotPrefix=plotPrefix_,
         plotStateEstimatesHistogram=plotStateEstimatesHistogram_,
+        plotMWSRHistogram=plotMWSRHistogram_,
         plotHeightInches=plotHeightInches_,
         plotWidthInches=plotWidthInches_,
         plotDPI=plotDPI_,
@@ -615,29 +620,19 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
-            25_000,
+            10_000,
         ),
         samplingBlockSizeBP=_cfgGet(
             configData,
-            "observationParams.samplingBlockLengthBP",
-            500,
-        ),
-        minValid=_cfgGet(
-            configData,
-            "observationParams.minValid",
-            1.0e-3,
+            "observationParams.samplingBlockSizeBP",
+            None,
         ),
         EB_minLin=float(
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                1 / 5,
+                0.1,
             )
-        ),
-        EB_numFitBins=_cfgGet(
-            configData,
-            "observationParams.EB_numFitBins",
-            10,
         ),
         EB_use=_cfgGet(
             configData,
@@ -1002,6 +997,9 @@ def main():
     maxQ_ = processArgs.maxQ
     offDiagQ_ = processArgs.offDiagQ
 
+    waitForMatrix: bool = False
+    normMethod_: Optional[str] = countingArgs.normMethod.upper()
+
     if args.verbose2:
         args.verbose = True
 
@@ -1031,6 +1029,13 @@ def main():
         except Exception as e:
             logger.warning(f"Failed to print parsed config:\n{e}\n")
 
+    if normMethod_ in ["SF"] and (len(bamFilesControl) > 0 or numSamples < 3):
+        logger.warning(
+            "`countingParams.normMethod` `SF` is not available when control inputs are present or < 3 treatment samples are given."
+            "  --> defaulting to 1x-coverage normalization (EGS) ..."
+        )
+        normMethod_ = "EGS"
+
     controlsPresent = checkControlsPresent(inputArgs)
     if args.verbose:
         logger.info(f"controlsPresent: {controlsPresent}")
@@ -1059,6 +1064,7 @@ def main():
                 )
             )
             logger.info(f"Estimated fragment length for {bamFile}: {fragmentLengthsTreatment[-1]}")
+
     if controlsPresent:
         readLengthsControlBamFiles = [
             core.getReadLength(
@@ -1134,7 +1140,7 @@ def main():
                     chromSizes,
                     samArgs.samThreads,
                     intervalSizeBP,
-                    normMethod=countingArgs.normMethod,
+                    normMethod=normMethod_,
                     fixControl=countingArgs.fixControl,
                 )
                 for bamFileA, bamFileB, effectiveGenomeSizeA, effectiveGenomeSizeB, readLengthA, readLengthB in zip(
@@ -1157,7 +1163,7 @@ def main():
         controlScaleFactors = scaleFactorsControl
 
     if scaleFactors is None and not controlsPresent:
-        if countingArgs.normMethod.upper() == "RPKM":
+        if normMethod_ in ["RPKM", "CPM"]:
             scaleFactors = [
                 detrorm.getScaleFactorPerMillion(
                     bamFile,
@@ -1166,7 +1172,7 @@ def main():
                 )
                 for bamFile in bamFiles
             ]
-        else:
+        elif normMethod_ in ["EGS", "RPGC"]:
             scaleFactors = [
                 detrorm.getScaleFactor1x(
                     bamFile,
@@ -1182,6 +1188,9 @@ def main():
                     fragmentLengthsTreatment,
                 )
             ]
+        elif normMethod_ in ["SF"]:
+            waitForMatrix = True
+
     chromSizesDict = misc_util.getChromSizesDict(
         genomeArgs.chromSizesFile,
         excludeChroms=genomeArgs.excludeChroms,
@@ -1212,9 +1221,7 @@ def main():
         chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
         sparseMap = None
-        backgroundWindowSizeIntervals: int = max(
-            2, int(countingArgs.backgroundWindowSizeBP // intervalSizeBP)
-        )
+        backgroundBlockSizeIntervals: int = max(2, int(countingArgs.backgroundBlockSizeBP // intervalSizeBP))
         if controlsPresent:
             j_: int = 0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
@@ -1247,14 +1254,14 @@ def main():
                     ],
                 )
 
-                chromMat[j_, :] = cconsenrich.clogRatio(
+                chromMat[j_, :] = cconsenrich.cTransform(
                     np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0),
-                    backgroundWindowSizeIntervals,
-                    scaleCB=countingArgs.scaleCB,
-                    globalLocalRatio=countingArgs.globalLocalRatio,
+                    blockLength=backgroundBlockSizeIntervals,
+                    rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
                 )
+
                 muncMat[j_, :], _ = core.getMuncTrack(
                     chromosome,
                     intervals,
@@ -1262,15 +1269,20 @@ def main():
                     intervalSizeBP,
                     samplingIters=observationArgs.samplingIters,
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
-                    minValid=observationArgs.minValid,
                     EB_minLin=observationArgs.EB_minLin,
-                    EB_numFitBins=observationArgs.EB_numFitBins,
                     randomSeed=42 + j_,
                     EB_use=observationArgs.EB_use,
                     EB_setNu0=observationArgs.EB_setNu0,
                     EB_setNuL=observationArgs.EB_setNuL,
                     verbose=args.verbose2,
                 )
+
+                if countingArgs.smoothSpanBP > 0:
+                    chromMat[j_, :] = cconsenrich.cEMA(
+                        chromMat[j_, :],
+                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
+                    )
+
                 j_ += 1
         else:
             chromMat = core.readBamSegments(
@@ -1280,7 +1292,7 @@ def main():
                 chromosomeEnd,
                 intervalSizeBP,
                 readLengthsBamFiles,
-                scaleFactors,
+                np.ones(numSamples) if waitForMatrix else scaleFactors,  # for SF, wait until matrix is built
                 samArgs.oneReadPerBin,
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
@@ -1293,6 +1305,11 @@ def main():
                 minTemplateLength=samArgs.minTemplateLength,
                 fragmentLengths=fragmentLengthsTreatment,
             )
+
+        if waitForMatrix:
+            sf = cconsenrich.cSF(chromMat)
+            np.multiply(chromMat, sf[:, None], out=chromMat)
+            logger.info(f"Calculated scaleFactors: {sf}")
 
         # negative --> data-based
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
@@ -1307,11 +1324,10 @@ def main():
         ):
             # if controlsPresent, already done above
             if not controlsPresent:
-                chromMat[j, :] = cconsenrich.clogRatio(
+                chromMat[j, :] = cconsenrich.cTransform(
                     chromMat[j, :],
-                    backgroundWindowSizeIntervals,
-                    scaleCB=countingArgs.scaleCB,
-                    globalLocalRatio=countingArgs.globalLocalRatio,
+                    blockLength=backgroundBlockSizeIntervals,
+                    rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
                 )
@@ -1324,9 +1340,7 @@ def main():
                     intervalSizeBP,
                     samplingIters=observationArgs.samplingIters,
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
-                    minValid=observationArgs.minValid,
                     EB_minLin=observationArgs.EB_minLin,
-                    EB_numFitBins=observationArgs.EB_numFitBins,
                     randomSeed=42 + j,
                     EB_use=observationArgs.EB_use,
                     EB_setNu0=observationArgs.EB_setNu0,
@@ -1334,23 +1348,23 @@ def main():
                     verbose=args.verbose2,
                 )
 
+                if countingArgs.smoothSpanBP > 0:
+                    chromMat[j, :] = cconsenrich.cEMA(
+                        chromMat[j, :],
+                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
+                    )
+
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            kappa = 1000.0  # conditioning given f32
-            minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.01))
-
-            colMax = muncMat.max(axis=0).astype(np.float32)
-            colMin = np.maximum(muncMat.min(axis=0), (colMax / kappa)).astype(np.float32)
-
-            np.clip(muncMat, colMin, colMax, out=muncMat)
+            minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-4))
             muncMat = muncMat.astype(np.float32, copy=False)
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(np.quantile(muncMat[muncMat > 0], 0.01))
+                minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-4))
 
-            autoMinQ = max((0.01 * minR_), 0.005)
+            autoMinQ = max((0.01 * minR_), 0.001)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1390,15 +1404,7 @@ def main():
             stateUpperBound=stateArgs.stateUpperBound,
             boundState=stateArgs.boundState,
         )
-        P00_ = np.sqrt(P[:, 0, 0]).astype(np.float32, copy=False)
-
-        if plotArgs.plotStateEstimatesHistogram:
-            core.plotStateEstimatesHistogram(
-                chromosome,
-                plotArgs.plotPrefix,
-                x_,
-                plotDirectory=plotArgs.plotDirectory,
-            )
+        P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
 
         df = pd.DataFrame(
             {
@@ -1410,24 +1416,26 @@ def main():
         )
 
         if outputArgs.writeUncertainty:
-            df["uncertainty"] = P00_.astype(np.float32, copy=False)
+            df["uncertainty"] = np.sqrt(P00_).astype(np.float32, copy=False)
 
         cols_ = ["Chromosome", "Start", "End", "State"]
 
         if outputArgs.writeUncertainty:
             cols_.append("uncertainty")
-        if outputArgs.writeMWSE:
-            cols_.append("MWSE")
-            srs_ = np.sum(((chromMat - x_[None, :])**2) / (muncMat + 1e-8), axis=0, dtype=np.float64).astype(np.float32)
+        if outputArgs.writeMWSR:
+            cols_.append("MWSR")
+            srs_ = np.sum(
+                ((chromMat - x_[None, :]) ** 2) / muncMat + P00_[None, :], axis=0, dtype=np.float64
+            ).astype(np.float32)
             if numSamples > 1:
-                    srs_ /= (numSamples)
-            df["MWSE"] = srs_.astype(np.float32, copy=False)
+                srs_ /= numSamples
+            df["MWSR"] = srs_.astype(np.float32, copy=False)
         df = df[cols_]
         suffixes = ["state"]
         if outputArgs.writeUncertainty:
             suffixes.append("uncertainty")
-        if outputArgs.writeMWSE:
-            suffixes.append("MWSE")
+        if outputArgs.writeMWSR:
+            suffixes.append("MWSR")
 
         if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):
@@ -1449,6 +1457,22 @@ def main():
                 mode="a",
                 float_format="%.4f",
                 lineterminator="\n",
+            )
+
+        if plotArgs.plotStateEstimatesHistogram:
+            core.plotStateEstimatesHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                x_,
+                plotDirectory=plotArgs.plotDirectory,
+            )
+
+        if plotArgs.plotMWSRHistogram:
+            core.plotMWSRHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                srs_,
+                plotDirectory=plotArgs.plotDirectory,
             )
 
     logger.info("Finished: output in human-readable format")
