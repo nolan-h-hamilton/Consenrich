@@ -29,6 +29,13 @@ from itrigamma import itrigamma
 from . import cconsenrich
 from . import __version__
 
+MATHFONT = {
+    "text.usetex": False,
+    "mathtext.fontset": "cm",
+    "font.family": "serif",
+    "font.serif": ["DejaVu Serif"],
+}
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
@@ -43,6 +50,8 @@ class plotParams(NamedTuple):
     :type plotPrefix: str or None
     :param plotStateEstimatesHistogram: If True, plot a histogram of post-fit primary state estimates
     :type plotStateEstimatesHistogram: bool
+    :param plotMWSRHistogram: If True, plot a histogram of post-fit weighted squared residuals (MWSR).
+    :type plotMWSRHistogram: bool
     :param plotHeightInches: Height of output plots in inches.
     :type plotHeightInches: float
     :param plotWidthInches: Width of output plots in inches.
@@ -52,11 +61,12 @@ class plotParams(NamedTuple):
     :param plotDirectory: Directory where plots will be written.
     :type plotDirectory: str or None
 
-    :seealso: :func:`plotStateEstimatesHistogram`
+    :seealso: :func:`plotStateEstimatesHistogram`, :func:`plotMWSRHistogram`, :class:`outputParams`
     """
 
     plotPrefix: str | None = None
     plotStateEstimatesHistogram: bool = False
+    plotMWSRHistogram: bool = False
     plotHeightInches: float = 6.0
     plotWidthInches: float = 8.0
     plotDPI: int = 300
@@ -379,21 +389,21 @@ class outputParams(NamedTuple):
     :type roundDigits: int
     :param writeUncertainty: If True, write the model's posterior uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
     :type writeUncertainty: bool
-    :param writeMWSE: If True, write the per-interval mean weighted squared error (MWSE),
-        where the weighting is with respect to measurement uncertainty and the positional state uncertainty
+    :param writeMWSR: If True, write the per-interval average of weighted squared residuals (MWSR),
+        where the weighting is with respect to measurement uncertainty and the *estimated* positional state uncertainty after running the filter/smoother.
 
         .. math::
 
-        \mathrm{MWSE}_{[i]} = \frac{1}{m}\sum_{j=1}^{m}\frac{\left(Z_{[i,j]} - (\mathbf{H}\widetilde{x}_{[i]})_{j}\right)^{2}}{R_{[i,j]} + P_{[i,(11)]}}
+        \mathrm{MWSR}_{[i]} = \frac{1}{m}\sum_{j=1}^{m}\frac{\left(Z_{[i,j]} - (\mathbf{H}\widetilde{x}_{[i]})_{j}\right)^{2}}{R_{[i,j]} + \widetilde{P}_{[i,(11)]}}
 
-        Here, :math:`m` = ``numSamples``, :math:`R_{[i,j]}` is the (diagonal) measurement variance for sample j, and :math:`P_{[i,(11)]}` is the primary state variance at interval i.
-    :type writeMWSE: bool
+        Here, :math:`m` = ``numSamples``, :math:`R_{[i,j]}` is the (diagonal) measurement variance for sample j, and :math:`\widetilde{P}_{[i,(11)]}` is the estimated primary state variance at interval i.
+    :type writeMWSR: bool
     """
 
     convertToBigWig: bool
     roundDigits: int
     writeUncertainty: bool
-    writeMWSE: bool
+    writeMWSR: bool
 
 
 def _checkMod(name: str) -> bool:
@@ -1639,6 +1649,7 @@ def plotStateEstimatesHistogram(
 
     if _checkMod("matplotlib"):
         import matplotlib.pyplot as plt
+        import matplotlib as mpl
     else:
         logger.warning("matplotlib not found...returning None")
         return None
@@ -1661,22 +1672,100 @@ def plotStateEstimatesHistogram(
         statFunction_=statFunction,
         randomSeed_=randomSeed,
     )
-    plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
-    plt.hist(
-        binnedStateEstimates,
-        color="blue",
-        bins='doane',
-        alpha=0.85,
-        edgecolor="black",
-        fill=False,
-    )
-    plt.title(
-        rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior Signal Estimates $\widetilde{{x}}_{{[1 : n]}}$",
-    )
-    plt.savefig(plotFileName, dpi=plotDPI)
-    plt.close()
+    with mpl.rc_context(MATHFONT):
+        plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
+        plt.hist(
+            binnedStateEstimates,
+            color="blue",
+            bins='doane',
+            alpha=0.85,
+            edgecolor="black",
+            fill=False,
+        )
+        plt.title(
+            rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior Signal Estimates $\widetilde{{x}}_{{[1 : n]}}$",
+        )
+        plt.savefig(plotFileName, dpi=plotDPI)
+        plt.close()
     if os.path.exists(plotFileName):
         logger.info(f"Wrote state estimate histogram to {plotFileName}")
+        return plotFileName
+    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
+    return None
+
+
+def plotMWSRHistogram(
+    chromosome: str,
+    plotPrefix: str,
+    MWSR: npt.NDArray[np.float32],
+    blockSize: int = 10,
+    numBlocks: int = 10_000,
+    statFunction: Callable = np.mean,
+    randomSeed: int = 42,
+    roundPrecision: int = 4,
+    plotHeightInches: float = 8.0,
+    plotWidthInches: float = 10.0,
+    plotDPI: int = 300,
+    plotDirectory: str | None = None,
+) -> str | None:
+    r"""(Experimental) Plot a histogram of block-sampled weighted squared residuals (post-fit MWSR).
+
+    :param plotPrefix: Prefixes the output filename
+    :type plotPrefix: str
+    :param blockSize: Number of contiguous intervals to sample per block.
+    :type blockSize: int
+    :param numBlocks: Number of samples to draw
+    :type numBlocks: int
+    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
+    :type statFunction: Callable
+    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
+    :type plotDirectory: str | None
+
+    :seealso: :func:`runConsenrich`, :class:`outputParams`
+    """
+
+    if _checkMod("matplotlib"):
+        import matplotlib.pyplot as plt
+        import matplotlib as mpl
+    else:
+        logger.warning("matplotlib not found...returning None")
+        return None
+
+    if plotDirectory is None:
+        plotDirectory = os.getcwd()
+    elif not os.path.exists(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
+    elif not os.path.isdir(plotDirectory):
+        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
+
+    plotFileName = os.path.join(
+        plotDirectory,
+        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_MWSR.v{__version__}.png",
+    )
+    binnedMWSR = _forPlotsSampleBlockStats(
+        values_=MWSR,
+        blockSize_=blockSize,
+        numBlocks_=numBlocks,
+        statFunction_=statFunction,
+        randomSeed_=randomSeed,
+    )
+    with mpl.rc_context(MATHFONT):
+        plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
+        plt.hist(
+            binnedMWSR,
+            color="blue",
+            bins="doane",
+            alpha=0.85,
+            edgecolor="black",
+            fill=False,
+        )
+        plt.title(
+            rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Weighted Squared Residuals (MWSR)",
+        )
+        plt.savefig(plotFileName, dpi=plotDPI)
+        plt.close()
+    if os.path.exists(plotFileName):
+        logger.info(f"Wrote MWSR histogram to {plotFileName}")
         return plotFileName
     logger.warning(f"Failed to create histogram. {plotFileName} not written.")
     return None
@@ -1883,20 +1972,8 @@ def getMuncTrack(
     # go to prior for 'missing' local estimates
     posteriorVarTrack[~noFlag] = priorTrack[~noFlag]
     if verbose:
-        _reportMunc(
-            chromosome=chromosome,
-            blockMeans=blockMeans,
-            blockVars=blockVars,
-            meanAbs=meanAbs,
-            passedMask=mask,
-            blockSizeIntervals=blockSizeIntervals,
-            localWindowIntervals=localWindowIntervals,
-            priorTrack=priorTrack,
-            obsVarTrack=obsVarTrack,
-            Nu0=Nu_0,
-            NuL=Nu_L,
-            noFlag=noFlag,
-            posteriorVarTrack=posteriorVarTrack,
+        logger.info(
+            f"Median variance after shrinkage: {float(np.median(posteriorVarTrack)):.4f}",
         )
     return posteriorVarTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
 
@@ -1953,55 +2030,3 @@ def EB_computePriorStrength(
 
     return float(Nu_0)
 
-
-def _reportMunc(
-    chromosome: str,
-    blockMeans: np.ndarray,
-    blockVars: np.ndarray,
-    meanAbs: np.ndarray,
-    passedMask: np.ndarray,
-    blockSizeIntervals: int,
-    localWindowIntervals: int,
-    priorTrack: np.ndarray,
-    obsVarTrack: np.ndarray,
-    Nu0: float | None = None,
-    NuL: float | None = None,
-    noFlag: np.ndarray | None = None,
-    posteriorVarTrack: np.ndarray | None = None,
-) -> None:
-    totalBlocks = int(len(blockMeans))
-    passedBlocks = int(np.sum(passedMask))
-    passedFrac = passedBlocks / float(totalBlocks) if totalBlocks else 0.0
-    updatedCount = int(np.sum(noFlag)) if noFlag is not None else 0
-
-    if priorTrack.size > 0:
-        x = np.asarray(priorTrack, dtype=np.float64)
-        try:
-            Q25, Q75 = np.nanquantile(x, [0.25, 0.75])
-        except ValueError:
-            Q25 = np.nan
-            Q75 = np.nan
-        logger.info(f"munc__prior Q25,Q75 = {float(Q25):>10.3g}\t{float(Q75):>10.3g}")
-
-
-    if obsVarTrack.size > 0:
-        x = np.asarray(obsVarTrack, dtype=np.float64)
-        try:
-            Q25, Q75 = np.nanquantile(x, [0.25, 0.75])
-        except ValueError:
-            Q25 = np.nan
-            Q75 = np.nan
-        logger.info(f"munc__local Q25,Q75 = {float(Q25):>10.3g}\t{float(Q75):>10.3g}")
-
-    if Nu0 is not None and NuL is not None:
-        posteriorSampleSize = NuL + Nu0
-        localWeight = NuL / posteriorSampleSize
-        priorWeight = Nu0 / posteriorSampleSize
-        if updatedCount and posteriorVarTrack is not None and noFlag is not None:
-            post_ = np.asarray(posteriorVarTrack[noFlag], dtype=np.float64)
-            try:
-                Q25, Q75 = np.nanquantile(post_, [0.25, 0.75])
-            except ValueError:
-                Q25 = np.nan
-                Q75 = np.nan
-            logger.info(f"munc__post Q25,Q75  = {float(Q25):>10.3g}\t{float(Q75):>10.3g}\n")

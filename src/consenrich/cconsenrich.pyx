@@ -2273,7 +2273,7 @@ cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=1000,
-    double rtailProp=<double>0.50,
+    double rtailProp=<double>0.75,
     uint64_t seed=0,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
@@ -2314,10 +2314,10 @@ cpdef double cgetGlobalBaseline(
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
 
-    values = np.clip(raw, lower__, upper__)
+    values = raw
     valuesView = values
     numValues = values.size
-    stdCutoff = <double>3.0
+    stdCutoff = <double>5.0
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
     prefixZeros = np.empty(numValues + 1, dtype=np.int32)
@@ -2367,13 +2367,11 @@ cpdef double cgetGlobalBaseline(
                 if L <= 0:
                     L = 1
 
-                # using binomial(blockLength, p0)
                 mu0 = p0 * (<double>L)
                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
-                # we REJECT blocks with more than the expected num zeros + 3*sd
-                allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)
-                if allowedZeros < 0:
-                    allowedZeros = 0
+                allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)
+                if allowedZeros < 1:
+                    allowedZeros = 1
                 elif allowedZeros > L:
                     allowedZeros = L
 

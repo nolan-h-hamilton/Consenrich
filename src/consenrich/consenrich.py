@@ -268,16 +268,16 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.writeUncertainty",
         True,
     )
-    writeMWSE_ = _cfgGet(
+    writeMWSR_ = _cfgGet(
         configData,
-        "outputParams.writeMWSE",
+        "outputParams.writeMWSR",
         True,
     )
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
-        writeMWSE=writeMWSE_,
+        writeMWSR=writeMWSR_,
     )
 
 
@@ -399,7 +399,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 11) + 1, 1000), 500_000),
+        min(max(2 * (intervalSizeBP * 50) + 1, 1000), 500_000),
     )
     smoothSpanBP_ = _cfgGet(
         configData,
@@ -475,7 +475,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     rtailProp_ = _cfgGet(
         configData,
         "countingParams.rtailProp",
-        0.50,
+        0.75,
     )
 
     c0_ = _cfgGet(
@@ -515,7 +515,12 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     plotStateEstimatesHistogram_ = _cfgGet(
         configData,
         "plotParams.plotStateEstimatesHistogram",
-        False,
+        True,
+    )
+    plotMWSRHistogram_ = _cfgGet(
+        configData,
+        "plotParams.plotMWSRHistogram",
+        True,
     )
 
     plotHeightInches_ = _cfgGet(
@@ -563,6 +568,7 @@ def getPlotArgs(config_path: str, experimentName: str) -> core.plotParams:
     return core.plotParams(
         plotPrefix=plotPrefix_,
         plotStateEstimatesHistogram=plotStateEstimatesHistogram_,
+        plotMWSRHistogram=plotMWSRHistogram_,
         plotHeightInches=plotHeightInches_,
         plotWidthInches=plotWidthInches_,
         plotDPI=plotDPI_,
@@ -1025,8 +1031,8 @@ def main():
 
     if normMethod_ in ["SF"] and (len(bamFilesControl) > 0 or numSamples < 3):
         logger.warning(
-            "`countingParams.normMethod` `SF` is not available when control inputs are present or < 3 treatment samples are given. Use EGS or RPKM instead."
-            "\n\t--> switching to `EGS` normalization..."
+            "`countingParams.normMethod` `SF` is not available when control inputs are present or < 3 treatment samples are given."
+            "  --> defaulting to 1x-coverage normalization (EGS) ..."
         )
         normMethod_ = "EGS"
 
@@ -1058,7 +1064,6 @@ def main():
                 )
             )
             logger.info(f"Estimated fragment length for {bamFile}: {fragmentLengthsTreatment[-1]}")
-
 
     if controlsPresent:
         readLengthsControlBamFiles = [
@@ -1167,7 +1172,7 @@ def main():
                 )
                 for bamFile in bamFiles
             ]
-        elif normMethod_ in ["EGS", 'RPGC']:
+        elif normMethod_ in ["EGS", "RPGC"]:
             scaleFactors = [
                 detrorm.getScaleFactor1x(
                     bamFile,
@@ -1181,10 +1186,10 @@ def main():
                     bamFiles,
                     effectiveGenomeSizes,
                     fragmentLengthsTreatment,
-                )]
+                )
+            ]
         elif normMethod_ in ["SF"]:
             waitForMatrix = True
-
 
     chromSizesDict = misc_util.getChromSizesDict(
         genomeArgs.chromSizesFile,
@@ -1287,7 +1292,7 @@ def main():
                 chromosomeEnd,
                 intervalSizeBP,
                 readLengthsBamFiles,
-                np.ones(numSamples) if waitForMatrix else scaleFactors, # for SF, wait until matrix is built
+                np.ones(numSamples) if waitForMatrix else scaleFactors,  # for SF, wait until matrix is built
                 samArgs.oneReadPerBin,
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
@@ -1401,14 +1406,6 @@ def main():
         )
         P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
 
-        if plotArgs.plotStateEstimatesHistogram:
-            core.plotStateEstimatesHistogram(
-                chromosome,
-                plotArgs.plotPrefix,
-                x_,
-                plotDirectory=plotArgs.plotDirectory,
-            )
-
         df = pd.DataFrame(
             {
                 "Chromosome": chromosome,
@@ -1425,21 +1422,20 @@ def main():
 
         if outputArgs.writeUncertainty:
             cols_.append("uncertainty")
-        if outputArgs.writeMWSE:
-            cols_.append("MWSE")
+        if outputArgs.writeMWSR:
+            cols_.append("MWSR")
             srs_ = np.sum(
-                np.square(chromMat.astype(np.float64) - x_[None, :].astype(np.float64))
-                / (muncMat.astype(np.float64) + P00_.astype(np.float64) + 1e-8)
+                ((chromMat - x_[None, :]) ** 2) / muncMat + P00_[None, :], axis=0, dtype=np.float64
             ).astype(np.float32)
             if numSamples > 1:
                 srs_ /= numSamples
-            df["MWSE"] = srs_.astype(np.float32, copy=False)
+            df["MWSR"] = srs_.astype(np.float32, copy=False)
         df = df[cols_]
         suffixes = ["state"]
         if outputArgs.writeUncertainty:
             suffixes.append("uncertainty")
-        if outputArgs.writeMWSE:
-            suffixes.append("MWSE")
+        if outputArgs.writeMWSR:
+            suffixes.append("MWSR")
 
         if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):
@@ -1461,6 +1457,22 @@ def main():
                 mode="a",
                 float_format="%.4f",
                 lineterminator="\n",
+            )
+
+        if plotArgs.plotStateEstimatesHistogram:
+            core.plotStateEstimatesHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                x_,
+                plotDirectory=plotArgs.plotDirectory,
+            )
+
+        if plotArgs.plotMWSRHistogram:
+            core.plotMWSRHistogram(
+                chromosome,
+                plotArgs.plotPrefix,
+                srs_,
+                plotDirectory=plotArgs.plotDirectory,
             )
 
     logger.info("Finished: output in human-readable format")
