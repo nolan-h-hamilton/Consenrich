@@ -4,23 +4,23 @@
 {
     "distutils": {
         "depends": [
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayobject.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayscalars.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarrayobject.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarraytypes.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ufuncobject.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/htslib_util.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/bgzf.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/cram.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/faidx.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/hfile.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/hts.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/kstring.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/sam.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/tbx.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/vcf.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/vcfutils.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/pysam_stream.h"
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayscalars.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarrayobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarraytypes.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ufuncobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/htslib_util.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/bgzf.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/cram.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/faidx.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/hfile.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/hts.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/kstring.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/sam.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/tbx.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/vcf.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/vcfutils.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/pysam_stream.h"
         ],
         "extra_compile_args": [
             "-O3",
@@ -34,20 +34,20 @@
             "-lomp"
         ],
         "include_dirs": [
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/htslib",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/include/samtools",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/_core/include"
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/htslib",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/include/samtools",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/_core/include"
         ],
         "language": "c",
         "libraries": [
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/libctabixproxies.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/libcfaidx.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/libcsamfile.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/libcvcf.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/libcbcf.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/libctabix.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/pysam/libchtslib.cpython-312-darwin.so"
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/libctabixproxies.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/libcfaidx.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/libcsamfile.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/libcvcf.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/libcbcf.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/libctabix.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/pysam/libchtslib.cpython-312-darwin.so"
         ],
         "name": "consenrich.cconsenrich",
         "sources": [
@@ -1581,7 +1581,7 @@ static const char *__pyx_filename;
 static const char* const __pyx_f[] = {
   "src/consenrich/cconsenrich.pyx",
   "<stringsource>",
-  "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd",
+  "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd",
   "cpython/contextvars.pxd",
   "array.pxd",
   "cpython/type.pxd",
@@ -1842,7 +1842,7 @@ typedef struct {
 
 /* #### Code section: numeric_typedefs ### */
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":744
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":744
  * # in Cython to enable them only on the right systems.
  * 
  * ctypedef npy_int8       int8_t             # <<<<<<<<<<<<<<
@@ -1851,7 +1851,7 @@ typedef struct {
 */
 typedef npy_int8 __pyx_t_5numpy_int8_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":745
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":745
  * 
  * ctypedef npy_int8       int8_t
  * ctypedef npy_int16      int16_t             # <<<<<<<<<<<<<<
@@ -1860,7 +1860,7 @@ typedef npy_int8 __pyx_t_5numpy_int8_t;
 */
 typedef npy_int16 __pyx_t_5numpy_int16_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":746
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":746
  * ctypedef npy_int8       int8_t
  * ctypedef npy_int16      int16_t
  * ctypedef npy_int32      int32_t             # <<<<<<<<<<<<<<
@@ -1869,7 +1869,7 @@ typedef npy_int16 __pyx_t_5numpy_int16_t;
 */
 typedef npy_int32 __pyx_t_5numpy_int32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":747
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":747
  * ctypedef npy_int16      int16_t
  * ctypedef npy_int32      int32_t
  * ctypedef npy_int64      int64_t             # <<<<<<<<<<<<<<
@@ -1878,7 +1878,7 @@ typedef npy_int32 __pyx_t_5numpy_int32_t;
 */
 typedef npy_int64 __pyx_t_5numpy_int64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":749
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":749
  * ctypedef npy_int64      int64_t
  * 
  * ctypedef npy_uint8      uint8_t             # <<<<<<<<<<<<<<
@@ -1887,7 +1887,7 @@ typedef npy_int64 __pyx_t_5numpy_int64_t;
 */
 typedef npy_uint8 __pyx_t_5numpy_uint8_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":750
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":750
  * 
  * ctypedef npy_uint8      uint8_t
  * ctypedef npy_uint16     uint16_t             # <<<<<<<<<<<<<<
@@ -1896,7 +1896,7 @@ typedef npy_uint8 __pyx_t_5numpy_uint8_t;
 */
 typedef npy_uint16 __pyx_t_5numpy_uint16_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":751
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":751
  * ctypedef npy_uint8      uint8_t
  * ctypedef npy_uint16     uint16_t
  * ctypedef npy_uint32     uint32_t             # <<<<<<<<<<<<<<
@@ -1905,7 +1905,7 @@ typedef npy_uint16 __pyx_t_5numpy_uint16_t;
 */
 typedef npy_uint32 __pyx_t_5numpy_uint32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":752
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":752
  * ctypedef npy_uint16     uint16_t
  * ctypedef npy_uint32     uint32_t
  * ctypedef npy_uint64     uint64_t             # <<<<<<<<<<<<<<
@@ -1914,7 +1914,7 @@ typedef npy_uint32 __pyx_t_5numpy_uint32_t;
 */
 typedef npy_uint64 __pyx_t_5numpy_uint64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":754
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":754
  * ctypedef npy_uint64     uint64_t
  * 
  * ctypedef npy_float32    float32_t             # <<<<<<<<<<<<<<
@@ -1923,7 +1923,7 @@ typedef npy_uint64 __pyx_t_5numpy_uint64_t;
 */
 typedef npy_float32 __pyx_t_5numpy_float32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":755
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":755
  * 
  * ctypedef npy_float32    float32_t
  * ctypedef npy_float64    float64_t             # <<<<<<<<<<<<<<
@@ -1932,7 +1932,7 @@ typedef npy_float32 __pyx_t_5numpy_float32_t;
 */
 typedef npy_float64 __pyx_t_5numpy_float64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":762
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":762
  * ctypedef double complex complex128_t
  * 
  * ctypedef npy_longlong   longlong_t             # <<<<<<<<<<<<<<
@@ -1941,7 +1941,7 @@ typedef npy_float64 __pyx_t_5numpy_float64_t;
 */
 typedef npy_longlong __pyx_t_5numpy_longlong_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":763
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":763
  * 
  * ctypedef npy_longlong   longlong_t
  * ctypedef npy_ulonglong  ulonglong_t             # <<<<<<<<<<<<<<
@@ -1950,7 +1950,7 @@ typedef npy_longlong __pyx_t_5numpy_longlong_t;
 */
 typedef npy_ulonglong __pyx_t_5numpy_ulonglong_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":765
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":765
  * ctypedef npy_ulonglong  ulonglong_t
  * 
  * ctypedef npy_intp       intp_t             # <<<<<<<<<<<<<<
@@ -1959,7 +1959,7 @@ typedef npy_ulonglong __pyx_t_5numpy_ulonglong_t;
 */
 typedef npy_intp __pyx_t_5numpy_intp_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":766
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":766
  * 
  * ctypedef npy_intp       intp_t
  * ctypedef npy_uintp      uintp_t             # <<<<<<<<<<<<<<
@@ -1968,7 +1968,7 @@ typedef npy_intp __pyx_t_5numpy_intp_t;
 */
 typedef npy_uintp __pyx_t_5numpy_uintp_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":768
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":768
  * ctypedef npy_uintp      uintp_t
  * 
  * ctypedef npy_double     float_t             # <<<<<<<<<<<<<<
@@ -1977,7 +1977,7 @@ typedef npy_uintp __pyx_t_5numpy_uintp_t;
 */
 typedef npy_double __pyx_t_5numpy_float_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":769
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":769
  * 
  * ctypedef npy_double     float_t
  * ctypedef npy_double     double_t             # <<<<<<<<<<<<<<
@@ -1986,7 +1986,7 @@ typedef npy_double __pyx_t_5numpy_float_t;
 */
 typedef npy_double __pyx_t_5numpy_double_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":770
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":770
  * ctypedef npy_double     float_t
  * ctypedef npy_double     double_t
  * ctypedef npy_longdouble longdouble_t             # <<<<<<<<<<<<<<
@@ -2450,7 +2450,7 @@ struct __pyx_opt_args_10consenrich_11cconsenrich_cgetGlobalBaseline {
   uint64_t seed;
 };
 
-/* "consenrich/cconsenrich.pyx":2416
+/* "consenrich/cconsenrich.pyx":2414
  * 
  * 
  * cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(             # <<<<<<<<<<<<<<
@@ -2463,7 +2463,7 @@ struct __pyx_opt_args_10consenrich_11cconsenrich_crolling_AR1_IVar {
   double ridgeLambda;
 };
 
-/* "consenrich/cconsenrich.pyx":2674
+/* "consenrich/cconsenrich.pyx":2672
  * 
  * 
  * cpdef tuple cscaleStateCovar(             # <<<<<<<<<<<<<<
@@ -2481,7 +2481,7 @@ struct __pyx_opt_args_10consenrich_11cconsenrich_cscaleStateCovar {
   double smoothAlpha;
 };
 
-/* "consenrich/cconsenrich.pyx":2999
+/* "consenrich/cconsenrich.pyx":2997
  * 
  * 
  * cpdef clocalBaseline(object x, int blockSize=101):             # <<<<<<<<<<<<<<
@@ -2493,7 +2493,7 @@ struct __pyx_opt_args_10consenrich_11cconsenrich_clocalBaseline {
   int blockSize;
 };
 
-/* "consenrich/cconsenrich.pyx":3008
+/* "consenrich/cconsenrich.pyx":3006
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(             # <<<<<<<<<<<<<<
@@ -19169,7 +19169,7 @@ static PyObject *__pyx_unpickle_Enum__set_state(struct __pyx_MemviewEnum_obj *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
  *         cdef int type_num
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19180,7 +19180,7 @@ static PyObject *__pyx_unpickle_Enum__set_state(struct __pyx_MemviewEnum_obj *__
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_Descr *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":245
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":245
  *         @property
  *         cdef inline npy_intp itemsize(self) noexcept nogil:
  *             return PyDataType_ELSIZE(self)             # <<<<<<<<<<<<<<
@@ -19190,7 +19190,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_D
   __pyx_r = PyDataType_ELSIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
  *         cdef int type_num
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19203,7 +19203,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_D
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
  *             return PyDataType_ELSIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19214,7 +19214,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_D
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_9alignment_alignment(PyArray_Descr *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":249
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":249
  *         @property
  *         cdef inline npy_intp alignment(self) noexcept nogil:
  *             return PyDataType_ALIGNMENT(self)             # <<<<<<<<<<<<<<
@@ -19224,7 +19224,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_9alignment_alignment(PyArray
   __pyx_r = PyDataType_ALIGNMENT(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
  *             return PyDataType_ELSIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19237,7 +19237,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_9alignment_alignment(PyArray
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
  *         # Use fields/names with care as they may be NULL.  You must check
  *         # for this using PyDataType_HASFIELDS.
  *         @property             # <<<<<<<<<<<<<<
@@ -19251,7 +19251,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   PyObject *__pyx_t_1;
   __Pyx_RefNannySetupContext("fields", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":255
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":255
  *         @property
  *         cdef inline object fields(self):
  *             return <object>PyDataType_FIELDS(self)             # <<<<<<<<<<<<<<
@@ -19264,7 +19264,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   __pyx_r = ((PyObject *)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
  *         # Use fields/names with care as they may be NULL.  You must check
  *         # for this using PyDataType_HASFIELDS.
  *         @property             # <<<<<<<<<<<<<<
@@ -19279,7 +19279,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
  *             return <object>PyDataType_FIELDS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19293,7 +19293,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   PyObject *__pyx_t_1;
   __Pyx_RefNannySetupContext("names", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":259
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":259
  *         @property
  *         cdef inline tuple names(self):
  *             return <tuple>PyDataType_NAMES(self)             # <<<<<<<<<<<<<<
@@ -19306,7 +19306,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   __pyx_r = ((PyObject*)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
  *             return <object>PyDataType_FIELDS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19321,7 +19321,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
  *         # valid (the pointer can be NULL). Most users should access
  *         # this field via the inline helper method PyDataType_SHAPE.
  *         @property             # <<<<<<<<<<<<<<
@@ -19332,7 +19332,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
 static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarray(PyArray_Descr *__pyx_v_self) {
   PyArray_ArrayDescr *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":266
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":266
  *         @property
  *         cdef inline PyArray_ArrayDescr* subarray(self) noexcept nogil:
  *             return PyDataType_SUBARRAY(self)             # <<<<<<<<<<<<<<
@@ -19342,7 +19342,7 @@ static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarra
   __pyx_r = PyDataType_SUBARRAY(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
  *         # valid (the pointer can be NULL). Most users should access
  *         # this field via the inline helper method PyDataType_SHAPE.
  *         @property             # <<<<<<<<<<<<<<
@@ -19355,7 +19355,7 @@ static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarra
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
  *             return PyDataType_SUBARRAY(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19366,7 +19366,7 @@ static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarra
 static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr *__pyx_v_self) {
   npy_uint64 __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":271
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":271
  *         cdef inline npy_uint64 flags(self) noexcept nogil:
  *             """The data types flags."""
  *             return PyDataType_FLAGS(self)             # <<<<<<<<<<<<<<
@@ -19376,7 +19376,7 @@ static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr
   __pyx_r = PyDataType_FLAGS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
  *             return PyDataType_SUBARRAY(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19389,7 +19389,7 @@ static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
  *     ctypedef class numpy.broadcast [object PyArrayMultiIterObject, check_size ignore]:
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19400,7 +19400,7 @@ static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr
 static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMultiIterObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":283
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":283
  *         cdef inline int numiter(self) noexcept nogil:
  *             """The number of arrays that need to be broadcast to the same shape."""
  *             return PyArray_MultiIter_NUMITER(self)             # <<<<<<<<<<<<<<
@@ -19410,7 +19410,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMulti
   __pyx_r = PyArray_MultiIter_NUMITER(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
  *     ctypedef class numpy.broadcast [object PyArrayMultiIterObject, check_size ignore]:
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19423,7 +19423,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMulti
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
  *             return PyArray_MultiIter_NUMITER(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19434,7 +19434,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMulti
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":288
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":288
  *         cdef inline npy_intp size(self) noexcept nogil:
  *             """The total broadcasted size."""
  *             return PyArray_MultiIter_SIZE(self)             # <<<<<<<<<<<<<<
@@ -19444,7 +19444,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiI
   __pyx_r = PyArray_MultiIter_SIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
  *             return PyArray_MultiIter_NUMITER(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19457,7 +19457,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiI
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
  *             return PyArray_MultiIter_SIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19468,7 +19468,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiI
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":293
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":293
  *         cdef inline npy_intp index(self) noexcept nogil:
  *             """The current (1-d) index into the broadcasted result."""
  *             return PyArray_MultiIter_INDEX(self)             # <<<<<<<<<<<<<<
@@ -19478,7 +19478,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMult
   __pyx_r = PyArray_MultiIter_INDEX(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
  *             return PyArray_MultiIter_SIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19491,7 +19491,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMult
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
  *             return PyArray_MultiIter_INDEX(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19502,7 +19502,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMult
 static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":298
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":298
  *         cdef inline int nd(self) noexcept nogil:
  *             """The number of dimensions in the broadcasted result."""
  *             return PyArray_MultiIter_NDIM(self)             # <<<<<<<<<<<<<<
@@ -19512,7 +19512,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject
   __pyx_r = PyArray_MultiIter_NDIM(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
  *             return PyArray_MultiIter_INDEX(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19525,7 +19525,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
  *             return PyArray_MultiIter_NDIM(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19536,7 +19536,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":303
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":303
  *         cdef inline npy_intp* dimensions(self) noexcept nogil:
  *             """The shape of the broadcasted result."""
  *             return PyArray_MultiIter_DIMS(self)             # <<<<<<<<<<<<<<
@@ -19546,7 +19546,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions
   __pyx_r = PyArray_MultiIter_DIMS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
  *             return PyArray_MultiIter_NDIM(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19559,7 +19559,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
  *             return PyArray_MultiIter_DIMS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19570,7 +19570,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions
 static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiIterObject *__pyx_v_self) {
   void **__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":309
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":309
  *             """An array of iterator objects that holds the iterators for the arrays to be broadcast together.
  *             On return, the iterators are adjusted for broadcasting."""
  *             return PyArray_MultiIter_ITERS(self)             # <<<<<<<<<<<<<<
@@ -19580,7 +19580,7 @@ static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiI
   __pyx_r = PyArray_MultiIter_ITERS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
  *             return PyArray_MultiIter_DIMS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19593,7 +19593,7 @@ static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiI
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
  *         # Instead, we use properties that map to the corresponding C-API functions.
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19604,7 +19604,7 @@ static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiI
 static CYTHON_INLINE PyObject *__pyx_f_5numpy_7ndarray_4base_base(PyArrayObject *__pyx_v_self) {
   PyObject *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":327
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":327
  *             """Returns a borrowed reference to the object owning the data/memory.
  *             """
  *             return PyArray_BASE(self)             # <<<<<<<<<<<<<<
@@ -19614,7 +19614,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_7ndarray_4base_base(PyArrayObject 
   __pyx_r = PyArray_BASE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
  *         # Instead, we use properties that map to the corresponding C-API functions.
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19627,7 +19627,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_7ndarray_4base_base(PyArrayObject 
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
  *             return PyArray_BASE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19641,7 +19641,7 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   PyArray_Descr *__pyx_t_1;
   __Pyx_RefNannySetupContext("descr", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":333
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":333
  *             """Returns an owned reference to the dtype of the array.
  *             """
  *             return <dtype>PyArray_DESCR(self)             # <<<<<<<<<<<<<<
@@ -19654,7 +19654,7 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   __pyx_r = ((PyArray_Descr *)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
  *             return PyArray_BASE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19669,7 +19669,7 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
  *             return <dtype>PyArray_DESCR(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19680,7 +19680,7 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
 static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":339
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":339
  *             """Returns the number of dimensions in the array.
  *             """
  *             return PyArray_NDIM(self)             # <<<<<<<<<<<<<<
@@ -19690,7 +19690,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx
   __pyx_r = PyArray_NDIM(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
  *             return <dtype>PyArray_DESCR(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19703,7 +19703,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
  *             return PyArray_NDIM(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19714,7 +19714,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":347
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":347
  *             Can return NULL for 0-dimensional arrays.
  *             """
  *             return PyArray_DIMS(self)             # <<<<<<<<<<<<<<
@@ -19724,7 +19724,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObjec
   __pyx_r = PyArray_DIMS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
  *             return PyArray_NDIM(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19737,7 +19737,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObjec
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
  *             return PyArray_DIMS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19748,7 +19748,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObjec
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":354
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":354
  *             The number of elements matches the number of dimensions of the array (ndim).
  *             """
  *             return PyArray_STRIDES(self)             # <<<<<<<<<<<<<<
@@ -19758,7 +19758,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayO
   __pyx_r = PyArray_STRIDES(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
  *             return PyArray_DIMS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19771,7 +19771,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayO
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
  *             return PyArray_STRIDES(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19782,7 +19782,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayO
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":360
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":360
  *             """Returns the total size (in number of elements) of the array.
  *             """
  *             return PyArray_SIZE(self)             # <<<<<<<<<<<<<<
@@ -19792,7 +19792,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *
   __pyx_r = PyArray_SIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
  *             return PyArray_STRIDES(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19805,7 +19805,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
  *             return PyArray_SIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19816,7 +19816,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *
 static CYTHON_INLINE char *__pyx_f_5numpy_7ndarray_4data_data(PyArrayObject *__pyx_v_self) {
   char *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":369
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":369
  *             of `PyArray_DATA()` instead, which returns a 'void*'.
  *             """
  *             return PyArray_BYTES(self)             # <<<<<<<<<<<<<<
@@ -19826,7 +19826,7 @@ static CYTHON_INLINE char *__pyx_f_5numpy_7ndarray_4data_data(PyArrayObject *__p
   __pyx_r = PyArray_BYTES(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
  *             return PyArray_SIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19839,7 +19839,7 @@ static CYTHON_INLINE char *__pyx_f_5numpy_7ndarray_4data_data(PyArrayObject *__p
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
  * ctypedef long double complex clongdouble_t
  * 
  * cdef inline object PyArray_MultiIterNew1(a):             # <<<<<<<<<<<<<<
@@ -19856,7 +19856,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew1", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":778
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":778
  * 
  * cdef inline object PyArray_MultiIterNew1(a):
  *     return PyArray_MultiIterNew(1, <void*>a)             # <<<<<<<<<<<<<<
@@ -19870,7 +19870,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
  * ctypedef long double complex clongdouble_t
  * 
  * cdef inline object PyArray_MultiIterNew1(a):             # <<<<<<<<<<<<<<
@@ -19889,7 +19889,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
  *     return PyArray_MultiIterNew(1, <void*>a)
  * 
  * cdef inline object PyArray_MultiIterNew2(a, b):             # <<<<<<<<<<<<<<
@@ -19906,7 +19906,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew2", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":781
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":781
  * 
  * cdef inline object PyArray_MultiIterNew2(a, b):
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)             # <<<<<<<<<<<<<<
@@ -19920,7 +19920,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
  *     return PyArray_MultiIterNew(1, <void*>a)
  * 
  * cdef inline object PyArray_MultiIterNew2(a, b):             # <<<<<<<<<<<<<<
@@ -19939,7 +19939,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)
  * 
  * cdef inline object PyArray_MultiIterNew3(a, b, c):             # <<<<<<<<<<<<<<
@@ -19956,7 +19956,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew3", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":784
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":784
  * 
  * cdef inline object PyArray_MultiIterNew3(a, b, c):
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)             # <<<<<<<<<<<<<<
@@ -19970,7 +19970,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)
  * 
  * cdef inline object PyArray_MultiIterNew3(a, b, c):             # <<<<<<<<<<<<<<
@@ -19989,7 +19989,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)
  * 
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):             # <<<<<<<<<<<<<<
@@ -20006,7 +20006,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew4", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":787
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":787
  * 
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)             # <<<<<<<<<<<<<<
@@ -20020,7 +20020,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)
  * 
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):             # <<<<<<<<<<<<<<
@@ -20039,7 +20039,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)
  * 
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):             # <<<<<<<<<<<<<<
@@ -20056,7 +20056,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew5", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":790
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":790
  * 
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)             # <<<<<<<<<<<<<<
@@ -20070,7 +20070,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)
  * 
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):             # <<<<<<<<<<<<<<
@@ -20089,7 +20089,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)
  * 
  * cdef inline tuple PyDataType_SHAPE(dtype d):             # <<<<<<<<<<<<<<
@@ -20104,7 +20104,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   PyObject *__pyx_t_2;
   __Pyx_RefNannySetupContext("PyDataType_SHAPE", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
  * 
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):             # <<<<<<<<<<<<<<
@@ -20114,7 +20114,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   __pyx_t_1 = PyDataType_HASSUBARRAY(__pyx_v_d);
   if (__pyx_t_1) {
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":794
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":794
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):
  *         return <tuple>d.subarray.shape             # <<<<<<<<<<<<<<
@@ -20127,7 +20127,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
     __pyx_r = ((PyObject*)__pyx_t_2);
     goto __pyx_L0;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
  * 
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):             # <<<<<<<<<<<<<<
@@ -20136,7 +20136,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
 */
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":796
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":796
  *         return <tuple>d.subarray.shape
  *     else:
  *         return ()             # <<<<<<<<<<<<<<
@@ -20150,7 +20150,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
     goto __pyx_L0;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)
  * 
  * cdef inline tuple PyDataType_SHAPE(dtype d):             # <<<<<<<<<<<<<<
@@ -20165,7 +20165,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
  *     int _import_umath() except -1
  * 
  * cdef inline void set_array_base(ndarray arr, object base) except *:             # <<<<<<<<<<<<<<
@@ -20179,7 +20179,7 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":996
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":996
  * 
  * cdef inline void set_array_base(ndarray arr, object base) except *:
  *     Py_INCREF(base) # important to do this before stealing the reference below!             # <<<<<<<<<<<<<<
@@ -20188,7 +20188,7 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
 */
   Py_INCREF(__pyx_v_base);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":997
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":997
  * cdef inline void set_array_base(ndarray arr, object base) except *:
  *     Py_INCREF(base) # important to do this before stealing the reference below!
  *     PyArray_SetBaseObject(arr, base)             # <<<<<<<<<<<<<<
@@ -20197,7 +20197,7 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
 */
   __pyx_t_1 = PyArray_SetBaseObject(__pyx_v_arr, __pyx_v_base); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(2, 997, __pyx_L1_error)
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
  *     int _import_umath() except -1
  * 
  * cdef inline void set_array_base(ndarray arr, object base) except *:             # <<<<<<<<<<<<<<
@@ -20212,7 +20212,7 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
   __pyx_L0:;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
  *     PyArray_SetBaseObject(arr, base)
  * 
  * cdef inline object get_array_base(ndarray arr):             # <<<<<<<<<<<<<<
@@ -20227,7 +20227,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   int __pyx_t_1;
   __Pyx_RefNannySetupContext("get_array_base", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1000
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1000
  * 
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)             # <<<<<<<<<<<<<<
@@ -20236,7 +20236,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
 */
   __pyx_v_base = PyArray_BASE(__pyx_v_arr);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)
  *     if base is NULL:             # <<<<<<<<<<<<<<
@@ -20246,7 +20246,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   __pyx_t_1 = (__pyx_v_base == NULL);
   if (__pyx_t_1) {
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1002
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1002
  *     base = PyArray_BASE(arr)
  *     if base is NULL:
  *         return None             # <<<<<<<<<<<<<<
@@ -20257,7 +20257,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
     __pyx_r = Py_None; __Pyx_INCREF(Py_None);
     goto __pyx_L0;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)
  *     if base is NULL:             # <<<<<<<<<<<<<<
@@ -20266,7 +20266,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
 */
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1003
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1003
  *     if base is NULL:
  *         return None
  *     return <object>base             # <<<<<<<<<<<<<<
@@ -20278,7 +20278,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   __pyx_r = ((PyObject *)__pyx_v_base);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
  *     PyArray_SetBaseObject(arr, base)
  * 
  * cdef inline object get_array_base(ndarray arr):             # <<<<<<<<<<<<<<
@@ -20293,7 +20293,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
  * # Versions of the import_* functions which are more suitable for
  * # Cython code.
  * cdef inline int import_array() except -1:             # <<<<<<<<<<<<<<
@@ -20319,7 +20319,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_array", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20335,7 +20335,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1009
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1009
  * cdef inline int import_array() except -1:
  *     try:
  *         __pyx_import_array()             # <<<<<<<<<<<<<<
@@ -20344,7 +20344,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
 */
       __pyx_t_4 = _import_array(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(2, 1009, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20358,7 +20358,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1010
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1010
  *     try:
  *         __pyx_import_array()
  *     except Exception:             # <<<<<<<<<<<<<<
@@ -20373,7 +20373,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1011
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1011
  *         __pyx_import_array()
  *     except Exception:
  *         raise ImportError("numpy._core.multiarray failed to import")             # <<<<<<<<<<<<<<
@@ -20395,7 +20395,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20411,7 +20411,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
  * # Versions of the import_* functions which are more suitable for
  * # Cython code.
  * cdef inline int import_array() except -1:             # <<<<<<<<<<<<<<
@@ -20435,7 +20435,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
  *         raise ImportError("numpy._core.multiarray failed to import")
  * 
  * cdef inline int import_umath() except -1:             # <<<<<<<<<<<<<<
@@ -20461,7 +20461,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_umath", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
  * 
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20477,7 +20477,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1015
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1015
  * cdef inline int import_umath() except -1:
  *     try:
  *         _import_umath()             # <<<<<<<<<<<<<<
@@ -20486,7 +20486,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
 */
       __pyx_t_4 = _import_umath(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(2, 1015, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
  * 
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20500,7 +20500,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1016
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1016
  *     try:
  *         _import_umath()
  *     except Exception:             # <<<<<<<<<<<<<<
@@ -20515,7 +20515,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1017
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1017
  *         _import_umath()
  *     except Exception:
  *         raise ImportError("numpy._core.umath failed to import")             # <<<<<<<<<<<<<<
@@ -20537,7 +20537,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
  * 
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20553,7 +20553,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
  *         raise ImportError("numpy._core.multiarray failed to import")
  * 
  * cdef inline int import_umath() except -1:             # <<<<<<<<<<<<<<
@@ -20577,7 +20577,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
  *         raise ImportError("numpy._core.umath failed to import")
  * 
  * cdef inline int import_ufunc() except -1:             # <<<<<<<<<<<<<<
@@ -20603,7 +20603,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_ufunc", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
  * 
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20619,7 +20619,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1021
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1021
  * cdef inline int import_ufunc() except -1:
  *     try:
  *         _import_umath()             # <<<<<<<<<<<<<<
@@ -20628,7 +20628,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
 */
       __pyx_t_4 = _import_umath(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(2, 1021, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
  * 
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20642,7 +20642,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1022
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1022
  *     try:
  *         _import_umath()
  *     except Exception:             # <<<<<<<<<<<<<<
@@ -20657,7 +20657,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1023
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1023
  *         _import_umath()
  *     except Exception:
  *         raise ImportError("numpy._core.umath failed to import")             # <<<<<<<<<<<<<<
@@ -20679,7 +20679,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
  * 
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20695,7 +20695,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
  *         raise ImportError("numpy._core.umath failed to import")
  * 
  * cdef inline int import_ufunc() except -1:             # <<<<<<<<<<<<<<
@@ -20719,7 +20719,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
  * 
  * 
  * cdef inline bint is_timedelta64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
@@ -20730,7 +20730,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
 static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_obj) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1038
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1038
  *     bool
  *     """
  *     return PyObject_TypeCheck(obj, &PyTimedeltaArrType_Type)             # <<<<<<<<<<<<<<
@@ -20740,7 +20740,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_
   __pyx_r = PyObject_TypeCheck(__pyx_v_obj, (&PyTimedeltaArrType_Type));
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
  * 
  * 
  * cdef inline bint is_timedelta64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
@@ -20753,7 +20753,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
  * 
  * 
  * cdef inline bint is_datetime64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
@@ -20764,7 +20764,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_
 static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_obj) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1053
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1053
  *     bool
  *     """
  *     return PyObject_TypeCheck(obj, &PyDatetimeArrType_Type)             # <<<<<<<<<<<<<<
@@ -20774,7 +20774,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_o
   __pyx_r = PyObject_TypeCheck(__pyx_v_obj, (&PyDatetimeArrType_Type));
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
  * 
  * 
  * cdef inline bint is_datetime64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
@@ -20787,7 +20787,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_o
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
  * 
  * 
  * cdef inline npy_datetime get_datetime64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20798,7 +20798,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_o
 static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *__pyx_v_obj) {
   npy_datetime __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1063
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1063
  *     also needed.  That can be found using `get_datetime64_unit`.
  *     """
  *     return (<PyDatetimeScalarObject*>obj).obval             # <<<<<<<<<<<<<<
@@ -20808,7 +20808,7 @@ static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *
   __pyx_r = ((PyDatetimeScalarObject *)__pyx_v_obj)->obval;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
  * 
  * 
  * cdef inline npy_datetime get_datetime64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20821,7 +20821,7 @@ static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
  * 
  * 
  * cdef inline npy_timedelta get_timedelta64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20832,7 +20832,7 @@ static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *
 static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject *__pyx_v_obj) {
   npy_timedelta __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1070
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1070
  *     returns the int64 value underlying scalar numpy timedelta64 object
  *     """
  *     return (<PyTimedeltaScalarObject*>obj).obval             # <<<<<<<<<<<<<<
@@ -20842,7 +20842,7 @@ static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject
   __pyx_r = ((PyTimedeltaScalarObject *)__pyx_v_obj)->obval;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
  * 
  * 
  * cdef inline npy_timedelta get_timedelta64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20855,7 +20855,7 @@ static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
  * 
  * 
  * cdef inline NPY_DATETIMEUNIT get_datetime64_unit(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20866,7 +20866,7 @@ static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject
 static CYTHON_INLINE NPY_DATETIMEUNIT __pyx_f_5numpy_get_datetime64_unit(PyObject *__pyx_v_obj) {
   NPY_DATETIMEUNIT __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1077
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1077
  *     returns the unit part of the dtype for a numpy datetime64 object.
  *     """
  *     return <NPY_DATETIMEUNIT>(<PyDatetimeScalarObject*>obj).obmeta.base             # <<<<<<<<<<<<<<
@@ -20876,7 +20876,7 @@ static CYTHON_INLINE NPY_DATETIMEUNIT __pyx_f_5numpy_get_datetime64_unit(PyObjec
   __pyx_r = ((NPY_DATETIMEUNIT)((PyDatetimeScalarObject *)__pyx_v_obj)->obmeta.base);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-7ceneopn/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-d9pafwc8/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
  * 
  * 
  * cdef inline NPY_DATETIMEUNIT get_datetime64_unit(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -40252,7 +40252,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cTransform(PyObject *__pyx_v
  *     object x,
  *     Py_ssize_t blockLength,
  *     bint disableBackground = <bint>False,             # <<<<<<<<<<<<<<
- *     double rtailProp = <double>0.50,
+ *     double rtailProp = <double>0.75,
  *     double c0 = <double>1/2,
 */
   int __pyx_v_disableBackground = ((int)0);
@@ -41820,7 +41820,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
  *     object x,
  *     Py_ssize_t blockLength,
  *     bint disableBackground = <bint>False,             # <<<<<<<<<<<<<<
- *     double rtailProp = <double>0.50,
+ *     double rtailProp = <double>0.75,
  *     double c0 = <double>1/2,
 */
       __pyx_v_disableBackground = ((int)0);
@@ -49801,8 +49801,8 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
   Py_ssize_t __pyx_v_end;
   double __pyx_v_sumInReplicate;
   double __pyx_v_lowEPS;
-  double __pyx_v_lower__;
-  double __pyx_v_upper__;
+  CYTHON_UNUSED double __pyx_v_lower__;
+  CYTHON_UNUSED double __pyx_v_upper__;
   double __pyx_v_upperBound;
   double __pyx_v_p0;
   double __pyx_v_mu0;
@@ -49922,11 +49922,11 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
   /* "consenrich/cconsenrich.pyx":2301
  *     cdef double p0, mu0, sd0, stdCutoff
  *     cdef Py_ssize_t allowedZeros, zeroCount, tries
- *     cdef Py_ssize_t maxTries = 25             # <<<<<<<<<<<<<<
+ *     cdef Py_ssize_t maxTries = 100             # <<<<<<<<<<<<<<
  *     cdef bint useGeom
  * 
 */
-  __pyx_v_maxTries = 25;
+  __pyx_v_maxTries = 0x64;
 
   /* "consenrich/cconsenrich.pyx":2304
  *     cdef bint useGeom
@@ -50123,7 +50123,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
  *     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
  *     rawView = raw             # <<<<<<<<<<<<<<
  * 
- *     values = np.clip(raw, lower__, upper__)
+ *     values = raw
 */
   __pyx_t_14 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_raw), PyBUF_WRITABLE); if (unlikely(!__pyx_t_14.memview)) __PYX_ERR(0, 2315, __pyx_L1_error)
   __pyx_v_rawView = __pyx_t_14;
@@ -50133,47 +50133,14 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
   /* "consenrich/cconsenrich.pyx":2317
  *     rawView = raw
  * 
- *     values = np.clip(raw, lower__, upper__)             # <<<<<<<<<<<<<<
+ *     values = raw             # <<<<<<<<<<<<<<
  *     valuesView = values
  *     numValues = values.size
 */
-  __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2317, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_clip); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2317, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_7);
-  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_t_3 = PyFloat_FromDouble(__pyx_v_lower__); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2317, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_6 = PyFloat_FromDouble(__pyx_v_upper__); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2317, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_9 = 1;
-  #if CYTHON_UNPACK_METHODS
-  if (unlikely(PyMethod_Check(__pyx_t_7))) {
-    __pyx_t_4 = PyMethod_GET_SELF(__pyx_t_7);
-    assert(__pyx_t_4);
-    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_7);
-    __Pyx_INCREF(__pyx_t_4);
-    __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_7, __pyx__function);
-    __pyx_t_9 = 0;
-  }
-  #endif
-  {
-    PyObject *__pyx_callargs[4] = {__pyx_t_4, ((PyObject *)__pyx_v_raw), __pyx_t_3, __pyx_t_6};
-    __pyx_t_2 = __Pyx_PyObject_FastCall((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_9, (4-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-    __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
-    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2317, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_2);
-  }
-  if (!(likely(((__pyx_t_2) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_2, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2317, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     __Pyx_SafeReleaseBuffer(&__pyx_pybuffernd_values.rcbuffer->pybuffer);
-    __pyx_t_10 = __Pyx_GetBufferAndValidate(&__pyx_pybuffernd_values.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_2), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack);
+    __pyx_t_10 = __Pyx_GetBufferAndValidate(&__pyx_pybuffernd_values.rcbuffer->pybuffer, (PyObject*)__pyx_v_raw, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack);
     if (unlikely(__pyx_t_10 < 0)) {
       PyErr_Fetch(&__pyx_t_13, &__pyx_t_12, &__pyx_t_11);
       if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_values.rcbuffer->pybuffer, (PyObject*)__pyx_v_values, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) {
@@ -50187,15 +50154,15 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
     __pyx_pybuffernd_values.diminfo[0].strides = __pyx_pybuffernd_values.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_values.diminfo[0].shape = __pyx_pybuffernd_values.rcbuffer->pybuffer.shape[0];
     if (unlikely((__pyx_t_10 < 0))) __PYX_ERR(0, 2317, __pyx_L1_error)
   }
-  __pyx_v_values = ((PyArrayObject *)__pyx_t_2);
-  __pyx_t_2 = 0;
+  __Pyx_INCREF((PyObject *)__pyx_v_raw);
+  __pyx_v_values = __pyx_v_raw;
 
   /* "consenrich/cconsenrich.pyx":2318
  * 
- *     values = np.clip(raw, lower__, upper__)
+ *     values = raw
  *     valuesView = values             # <<<<<<<<<<<<<<
  *     numValues = values.size
- *     stdCutoff = <double>3.0
+ *     stdCutoff = <double>5.0
 */
   __pyx_t_14 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_values), PyBUF_WRITABLE); if (unlikely(!__pyx_t_14.memview)) __PYX_ERR(0, 2318, __pyx_L1_error)
   __pyx_v_valuesView = __pyx_t_14;
@@ -50203,10 +50170,10 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
   __pyx_t_14.data = NULL;
 
   /* "consenrich/cconsenrich.pyx":2319
- *     values = np.clip(raw, lower__, upper__)
+ *     values = raw
  *     valuesView = values
  *     numValues = values.size             # <<<<<<<<<<<<<<
- *     stdCutoff = <double>3.0
+ *     stdCutoff = <double>5.0
  *     prefixSums = np.empty(numValues + 1, dtype=np.float64)
 */
   __pyx_v_numValues = __pyx_f_5numpy_7ndarray_4size_size(((PyArrayObject *)__pyx_v_values));
@@ -50214,55 +50181,55 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
   /* "consenrich/cconsenrich.pyx":2320
  *     valuesView = values
  *     numValues = values.size
- *     stdCutoff = <double>3.0             # <<<<<<<<<<<<<<
+ *     stdCutoff = <double>5.0             # <<<<<<<<<<<<<<
  *     prefixSums = np.empty(numValues + 1, dtype=np.float64)
  *     prefixView = prefixSums
 */
-  __pyx_v_stdCutoff = ((double)3.0);
+  __pyx_v_stdCutoff = ((double)5.0);
 
   /* "consenrich/cconsenrich.pyx":2321
  *     numValues = values.size
- *     stdCutoff = <double>3.0
+ *     stdCutoff = <double>5.0
  *     prefixSums = np.empty(numValues + 1, dtype=np.float64)             # <<<<<<<<<<<<<<
  *     prefixView = prefixSums
  *     prefixZeros = np.empty(numValues + 1, dtype=np.int32)
 */
-  __pyx_t_7 = NULL;
+  __pyx_t_4 = NULL;
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2321, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2321, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_7);
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __pyx_t_3 = PyLong_FromSsize_t((__pyx_v_numValues + 1)); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2321, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
   __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2321, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_3 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2321, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_3);
-  __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = PyLong_FromSsize_t((__pyx_v_numValues + 1)); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2321, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2321, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_4);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2321, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2321, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+  __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_9 = 1;
   #if CYTHON_UNPACK_METHODS
-  if (unlikely(PyMethod_Check(__pyx_t_3))) {
-    __pyx_t_7 = PyMethod_GET_SELF(__pyx_t_3);
-    assert(__pyx_t_7);
-    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_3);
-    __Pyx_INCREF(__pyx_t_7);
+  if (unlikely(PyMethod_Check(__pyx_t_7))) {
+    __pyx_t_4 = PyMethod_GET_SELF(__pyx_t_7);
+    assert(__pyx_t_4);
+    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_7);
+    __Pyx_INCREF(__pyx_t_4);
     __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
+    __Pyx_DECREF_SET(__pyx_t_7, __pyx__function);
     __pyx_t_9 = 0;
   }
   #endif
   {
-    PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_7, __pyx_t_6};
-    __pyx_t_4 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2321, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_4);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_4, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2321, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_3, __pyx_callargs+__pyx_t_9, (2-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_4);
-    __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
-    __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-    __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+    PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, __pyx_t_3};
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2321, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_6);
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2321, __pyx_L1_error)
+    __pyx_t_2 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_9, (2-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
+    __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+    __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
+    __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2321, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
   }
@@ -50288,7 +50255,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
   __pyx_t_2 = 0;
 
   /* "consenrich/cconsenrich.pyx":2322
- *     stdCutoff = <double>3.0
+ *     stdCutoff = <double>5.0
  *     prefixSums = np.empty(numValues + 1, dtype=np.float64)
  *     prefixView = prefixSums             # <<<<<<<<<<<<<<
  *     prefixZeros = np.empty(numValues + 1, dtype=np.int32)
@@ -50306,41 +50273,41 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
  *     zerosView = prefixZeros
  *     bootstrapMeans = np.empty(numBoots, dtype=np.float64)
 */
-  __pyx_t_3 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2323, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_4);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2323, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_8);
-  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-  __pyx_t_4 = PyLong_FromSsize_t((__pyx_v_numValues + 1)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2323, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_4);
+  __pyx_t_7 = NULL;
   __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2323, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2323, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_7);
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2323, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+  __pyx_t_6 = PyLong_FromSsize_t((__pyx_v_numValues + 1)); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2323, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_6);
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2323, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2323, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __pyx_t_9 = 1;
   #if CYTHON_UNPACK_METHODS
   if (unlikely(PyMethod_Check(__pyx_t_8))) {
-    __pyx_t_3 = PyMethod_GET_SELF(__pyx_t_8);
-    assert(__pyx_t_3);
+    __pyx_t_7 = PyMethod_GET_SELF(__pyx_t_8);
+    assert(__pyx_t_7);
     PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_8);
-    __Pyx_INCREF(__pyx_t_3);
+    __Pyx_INCREF(__pyx_t_7);
     __Pyx_INCREF(__pyx__function);
     __Pyx_DECREF_SET(__pyx_t_8, __pyx__function);
     __pyx_t_9 = 0;
   }
   #endif
   {
-    PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_3, __pyx_t_4};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2323, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2323, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_9, (2-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
-    __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
+    PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_7, __pyx_t_6};
+    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2323, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_3);
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2323, __pyx_L1_error)
+    __pyx_t_2 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_9, (2-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_3);
+    __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2323, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
@@ -50386,41 +50353,41 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
  * 
 */
   __pyx_t_8 = NULL;
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2325, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2325, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
+  __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
+  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_numBoots); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2325, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_3);
   __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2325, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2325, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2325, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = PyLong_FromSsize_t(__pyx_v_numBoots); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2325, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2325, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_4);
-  __pyx_t_3 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2325, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_3);
-  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   __pyx_t_9 = 1;
   #if CYTHON_UNPACK_METHODS
-  if (unlikely(PyMethod_Check(__pyx_t_7))) {
-    __pyx_t_8 = PyMethod_GET_SELF(__pyx_t_7);
+  if (unlikely(PyMethod_Check(__pyx_t_4))) {
+    __pyx_t_8 = PyMethod_GET_SELF(__pyx_t_4);
     assert(__pyx_t_8);
-    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_7);
+    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_4);
     __Pyx_INCREF(__pyx_t_8);
     __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_7, __pyx__function);
+    __Pyx_DECREF_SET(__pyx_t_4, __pyx__function);
     __pyx_t_9 = 0;
   }
   #endif
   {
-    PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_8, __pyx_t_6};
-    __pyx_t_4 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2325, __pyx_L1_error)
-    __Pyx_GOTREF(__pyx_t_4);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_3, __pyx_t_4, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2325, __pyx_L1_error)
-    __pyx_t_2 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_9, (2-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_4);
+    PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_8, __pyx_t_3};
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2325, __pyx_L1_error)
+    __Pyx_GOTREF(__pyx_t_6);
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2325, __pyx_L1_error)
+    __pyx_t_2 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_9, (2-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
-    __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
+    __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2325, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
   }
@@ -50766,7 +50733,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
  *                 if L <= 0:
  *                     L = 1             # <<<<<<<<<<<<<<
  * 
- *                 # using binomial(blockLength, p0)
+ *                 mu0 = p0 * (<double>L)
 */
               __pyx_v_L = 1;
 
@@ -50779,65 +50746,65 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
 */
             }
 
-            /* "consenrich/cconsenrich.pyx":2371
+            /* "consenrich/cconsenrich.pyx":2370
+ *                     L = 1
  * 
- *                 # using binomial(blockLength, p0)
  *                 mu0 = p0 * (<double>L)             # <<<<<<<<<<<<<<
  *                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
- *                 # we REJECT blocks with more than the expected num zeros + 3*sd
+ *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)
 */
             __pyx_v_mu0 = (__pyx_v_p0 * ((double)__pyx_v_L));
 
-            /* "consenrich/cconsenrich.pyx":2372
- *                 # using binomial(blockLength, p0)
+            /* "consenrich/cconsenrich.pyx":2371
+ * 
  *                 mu0 = p0 * (<double>L)
  *                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)             # <<<<<<<<<<<<<<
- *                 # we REJECT blocks with more than the expected num zeros + 3*sd
- *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)
+ *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)
+ *                 if allowedZeros < 1:
 */
             __pyx_v_sd0 = sqrt(((__pyx_v_mu0 * (1.0 - __pyx_v_p0)) + 1.0e-8));
 
-            /* "consenrich/cconsenrich.pyx":2374
+            /* "consenrich/cconsenrich.pyx":2372
+ *                 mu0 = p0 * (<double>L)
  *                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
- *                 # we REJECT blocks with more than the expected num zeros + 3*sd
- *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)             # <<<<<<<<<<<<<<
- *                 if allowedZeros < 0:
- *                     allowedZeros = 0
+ *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)             # <<<<<<<<<<<<<<
+ *                 if allowedZeros < 1:
+ *                     allowedZeros = 1
 */
-            __pyx_v_allowedZeros = ((Py_ssize_t)((__pyx_v_mu0 + (__pyx_v_stdCutoff * __pyx_v_sd0)) + 0.5));
+            __pyx_v_allowedZeros = ((Py_ssize_t)(__pyx_v_mu0 + (__pyx_v_stdCutoff * __pyx_v_sd0)));
 
-            /* "consenrich/cconsenrich.pyx":2375
- *                 # we REJECT blocks with more than the expected num zeros + 3*sd
- *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)
- *                 if allowedZeros < 0:             # <<<<<<<<<<<<<<
- *                     allowedZeros = 0
+            /* "consenrich/cconsenrich.pyx":2373
+ *                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
+ *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)
+ *                 if allowedZeros < 1:             # <<<<<<<<<<<<<<
+ *                     allowedZeros = 1
  *                 elif allowedZeros > L:
 */
-            __pyx_t_1 = (__pyx_v_allowedZeros < 0);
+            __pyx_t_1 = (__pyx_v_allowedZeros < 1);
             if (__pyx_t_1) {
 
-              /* "consenrich/cconsenrich.pyx":2376
- *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)
- *                 if allowedZeros < 0:
- *                     allowedZeros = 0             # <<<<<<<<<<<<<<
+              /* "consenrich/cconsenrich.pyx":2374
+ *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)
+ *                 if allowedZeros < 1:
+ *                     allowedZeros = 1             # <<<<<<<<<<<<<<
  *                 elif allowedZeros > L:
  *                     allowedZeros = L
 */
-              __pyx_v_allowedZeros = 0;
+              __pyx_v_allowedZeros = 1;
 
-              /* "consenrich/cconsenrich.pyx":2375
- *                 # we REJECT blocks with more than the expected num zeros + 3*sd
- *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)
- *                 if allowedZeros < 0:             # <<<<<<<<<<<<<<
- *                     allowedZeros = 0
+              /* "consenrich/cconsenrich.pyx":2373
+ *                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
+ *                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)
+ *                 if allowedZeros < 1:             # <<<<<<<<<<<<<<
+ *                     allowedZeros = 1
  *                 elif allowedZeros > L:
 */
               goto __pyx_L22;
             }
 
-            /* "consenrich/cconsenrich.pyx":2377
- *                 if allowedZeros < 0:
- *                     allowedZeros = 0
+            /* "consenrich/cconsenrich.pyx":2375
+ *                 if allowedZeros < 1:
+ *                     allowedZeros = 1
  *                 elif allowedZeros > L:             # <<<<<<<<<<<<<<
  *                     allowedZeros = L
  * 
@@ -50845,8 +50812,8 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
             __pyx_t_1 = (__pyx_v_allowedZeros > __pyx_v_L);
             if (__pyx_t_1) {
 
-              /* "consenrich/cconsenrich.pyx":2378
- *                     allowedZeros = 0
+              /* "consenrich/cconsenrich.pyx":2376
+ *                     allowedZeros = 1
  *                 elif allowedZeros > L:
  *                     allowedZeros = L             # <<<<<<<<<<<<<<
  * 
@@ -50854,9 +50821,9 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
 */
               __pyx_v_allowedZeros = __pyx_v_L;
 
-              /* "consenrich/cconsenrich.pyx":2377
- *                 if allowedZeros < 0:
- *                     allowedZeros = 0
+              /* "consenrich/cconsenrich.pyx":2375
+ *                 if allowedZeros < 1:
+ *                     allowedZeros = 1
  *                 elif allowedZeros > L:             # <<<<<<<<<<<<<<
  *                     allowedZeros = L
  * 
@@ -50864,7 +50831,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
             }
             __pyx_L22:;
 
-            /* "consenrich/cconsenrich.pyx":2384
+            /* "consenrich/cconsenrich.pyx":2382
  *                 # ... but should be uncommon for reasonable thresholds, and we need
  *                 # ... the algorithm to actually terminate
  *                 for tries in range(maxTries):             # <<<<<<<<<<<<<<
@@ -50876,17 +50843,17 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
             for (__pyx_t_26 = 0; __pyx_t_26 < __pyx_t_25; __pyx_t_26+=1) {
               __pyx_v_tries = __pyx_t_26;
 
-              /* "consenrich/cconsenrich.pyx":2385
+              /* "consenrich/cconsenrich.pyx":2383
  *                 # ... the algorithm to actually terminate
  *                 for tries in range(maxTries):
  *                     start = _rand_int(numValues)             # <<<<<<<<<<<<<<
  *                     end = start + L
  * 
 */
-              __pyx_t_27 = __pyx_f_10consenrich_11cconsenrich__rand_int(__pyx_v_numValues); if (unlikely(__pyx_t_27 == ((Py_ssize_t)-1L) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 2385, __pyx_L13_error)
+              __pyx_t_27 = __pyx_f_10consenrich_11cconsenrich__rand_int(__pyx_v_numValues); if (unlikely(__pyx_t_27 == ((Py_ssize_t)-1L) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 2383, __pyx_L13_error)
               __pyx_v_start = __pyx_t_27;
 
-              /* "consenrich/cconsenrich.pyx":2386
+              /* "consenrich/cconsenrich.pyx":2384
  *                 for tries in range(maxTries):
  *                     start = _rand_int(numValues)
  *                     end = start + L             # <<<<<<<<<<<<<<
@@ -50895,7 +50862,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
 */
               __pyx_v_end = (__pyx_v_start + __pyx_v_L);
 
-              /* "consenrich/cconsenrich.pyx":2388
+              /* "consenrich/cconsenrich.pyx":2386
  *                     end = start + L
  * 
  *                     if end <= numValues:             # <<<<<<<<<<<<<<
@@ -50905,7 +50872,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
               __pyx_t_1 = (__pyx_v_end <= __pyx_v_numValues);
               if (__pyx_t_1) {
 
-                /* "consenrich/cconsenrich.pyx":2389
+                /* "consenrich/cconsenrich.pyx":2387
  * 
  *                     if end <= numValues:
  *                         zeroCount = zerosView[end] - zerosView[start]             # <<<<<<<<<<<<<<
@@ -50916,7 +50883,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
                 __pyx_t_17 = __pyx_v_start;
                 __pyx_v_zeroCount = ((*((__pyx_t_5numpy_int32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_int32_t *) __pyx_v_zerosView.data) + __pyx_t_21)) ))) - (*((__pyx_t_5numpy_int32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_int32_t *) __pyx_v_zerosView.data) + __pyx_t_17)) ))));
 
-                /* "consenrich/cconsenrich.pyx":2388
+                /* "consenrich/cconsenrich.pyx":2386
  *                     end = start + L
  * 
  *                     if end <= numValues:             # <<<<<<<<<<<<<<
@@ -50926,7 +50893,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
                 goto __pyx_L25;
               }
 
-              /* "consenrich/cconsenrich.pyx":2391
+              /* "consenrich/cconsenrich.pyx":2389
  *                         zeroCount = zerosView[end] - zerosView[start]
  *                     else:
  *                         end -= numValues             # <<<<<<<<<<<<<<
@@ -50936,7 +50903,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
               /*else*/ {
                 __pyx_v_end = (__pyx_v_end - __pyx_v_numValues);
 
-                /* "consenrich/cconsenrich.pyx":2392
+                /* "consenrich/cconsenrich.pyx":2390
  *                     else:
  *                         end -= numValues
  *                         zeroCount = (zerosView[numValues] - zerosView[start]) + zerosView[end]             # <<<<<<<<<<<<<<
@@ -50950,7 +50917,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
               }
               __pyx_L25:;
 
-              /* "consenrich/cconsenrich.pyx":2394
+              /* "consenrich/cconsenrich.pyx":2392
  *                         zeroCount = (zerosView[numValues] - zerosView[start]) + zerosView[end]
  * 
  *                     if zeroCount <= allowedZeros:             # <<<<<<<<<<<<<<
@@ -50960,7 +50927,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
               __pyx_t_1 = (__pyx_v_zeroCount <= __pyx_v_allowedZeros);
               if (__pyx_t_1) {
 
-                /* "consenrich/cconsenrich.pyx":2396
+                /* "consenrich/cconsenrich.pyx":2394
  *                     if zeroCount <= allowedZeros:
  *                         # ACCEPT
  *                         break             # <<<<<<<<<<<<<<
@@ -50969,7 +50936,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
 */
                 goto __pyx_L24_break;
 
-                /* "consenrich/cconsenrich.pyx":2394
+                /* "consenrich/cconsenrich.pyx":2392
  *                         zeroCount = (zerosView[numValues] - zerosView[start]) + zerosView[end]
  * 
  *                     if zeroCount <= allowedZeros:             # <<<<<<<<<<<<<<
@@ -50980,7 +50947,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
             }
             __pyx_L24_break:;
 
-            /* "consenrich/cconsenrich.pyx":2398
+            /* "consenrich/cconsenrich.pyx":2396
  *                         break
  * 
  *                 end = start + L             # <<<<<<<<<<<<<<
@@ -50989,7 +50956,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
 */
             __pyx_v_end = (__pyx_v_start + __pyx_v_L);
 
-            /* "consenrich/cconsenrich.pyx":2399
+            /* "consenrich/cconsenrich.pyx":2397
  * 
  *                 end = start + L
  *                 if end <= numValues:             # <<<<<<<<<<<<<<
@@ -50999,7 +50966,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
             __pyx_t_1 = (__pyx_v_end <= __pyx_v_numValues);
             if (__pyx_t_1) {
 
-              /* "consenrich/cconsenrich.pyx":2401
+              /* "consenrich/cconsenrich.pyx":2399
  *                 if end <= numValues:
  *                     # No wraparound: sum values[start:end].
  *                     sumInReplicate += prefixView[end] - prefixView[start]             # <<<<<<<<<<<<<<
@@ -51010,7 +50977,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
               __pyx_t_21 = __pyx_v_start;
               __pyx_v_sumInReplicate = (__pyx_v_sumInReplicate + ((*((__pyx_t_5numpy_float64_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_float64_t *) __pyx_v_prefixView.data) + __pyx_t_22)) ))) - (*((__pyx_t_5numpy_float64_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_float64_t *) __pyx_v_prefixView.data) + __pyx_t_21)) )))));
 
-              /* "consenrich/cconsenrich.pyx":2399
+              /* "consenrich/cconsenrich.pyx":2397
  * 
  *                 end = start + L
  *                 if end <= numValues:             # <<<<<<<<<<<<<<
@@ -51020,7 +50987,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
               goto __pyx_L27;
             }
 
-            /* "consenrich/cconsenrich.pyx":2404
+            /* "consenrich/cconsenrich.pyx":2402
  *                 else:
  *                     # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
  *                     end -= numValues             # <<<<<<<<<<<<<<
@@ -51030,7 +50997,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
             /*else*/ {
               __pyx_v_end = (__pyx_v_end - __pyx_v_numValues);
 
-              /* "consenrich/cconsenrich.pyx":2405
+              /* "consenrich/cconsenrich.pyx":2403
  *                     # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
  *                     end -= numValues
  *                     sumInReplicate += (prefixView[numValues] - prefixView[start]) + prefixView[end]             # <<<<<<<<<<<<<<
@@ -51044,7 +51011,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
             }
             __pyx_L27:;
 
-            /* "consenrich/cconsenrich.pyx":2408
+            /* "consenrich/cconsenrich.pyx":2406
  * 
  *                 # update the number of remaining values to draw.
  *                 remaining -= L             # <<<<<<<<<<<<<<
@@ -51054,7 +51021,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
             __pyx_v_remaining = (__pyx_v_remaining - __pyx_v_L);
           }
 
-          /* "consenrich/cconsenrich.pyx":2409
+          /* "consenrich/cconsenrich.pyx":2407
  *                 # update the number of remaining values to draw.
  *                 remaining -= L
  *             bootView[b] = sumInReplicate / (<double>numValues)             # <<<<<<<<<<<<<<
@@ -51088,47 +51055,47 @@ static double __pyx_f_10consenrich_11cconsenrich_cgetGlobalBaseline(PyObject *__
       }
   }
 
-  /* "consenrich/cconsenrich.pyx":2412
+  /* "consenrich/cconsenrich.pyx":2410
  * 
  *     # conservative: we take the upper (1 - rtailProp) quantile from the distribution of bootstrap means
  *     upperBound = <double>np.quantile(bootstrapMeans, 1-rtailProp)             # <<<<<<<<<<<<<<
  *     return upperBound
  * 
 */
-  __pyx_t_7 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2412, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_4);
-  __pyx_t_3 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_quantile); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2412, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_3);
-  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-  __pyx_t_4 = PyFloat_FromDouble((1.0 - __pyx_v_rtailProp)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2412, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_4);
+  __pyx_t_4 = NULL;
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2410, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_6);
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_quantile); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2410, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_7);
+  __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+  __pyx_t_6 = PyFloat_FromDouble((1.0 - __pyx_v_rtailProp)); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2410, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_6);
   __pyx_t_9 = 1;
   #if CYTHON_UNPACK_METHODS
-  if (unlikely(PyMethod_Check(__pyx_t_3))) {
-    __pyx_t_7 = PyMethod_GET_SELF(__pyx_t_3);
-    assert(__pyx_t_7);
-    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_3);
-    __Pyx_INCREF(__pyx_t_7);
+  if (unlikely(PyMethod_Check(__pyx_t_7))) {
+    __pyx_t_4 = PyMethod_GET_SELF(__pyx_t_7);
+    assert(__pyx_t_4);
+    PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_7);
+    __Pyx_INCREF(__pyx_t_4);
     __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
+    __Pyx_DECREF_SET(__pyx_t_7, __pyx__function);
     __pyx_t_9 = 0;
   }
   #endif
   {
-    PyObject *__pyx_callargs[3] = {__pyx_t_7, ((PyObject *)__pyx_v_bootstrapMeans), __pyx_t_4};
-    __pyx_t_2 = __Pyx_PyObject_FastCall((PyObject*)__pyx_t_3, __pyx_callargs+__pyx_t_9, (3-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
-    __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
-    __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2412, __pyx_L1_error)
+    PyObject *__pyx_callargs[3] = {__pyx_t_4, ((PyObject *)__pyx_v_bootstrapMeans), __pyx_t_6};
+    __pyx_t_2 = __Pyx_PyObject_FastCall((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_9, (3-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
+    __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
+    __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
+    __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
+    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2410, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
   }
-  __pyx_t_28 = __Pyx_PyFloat_AsDouble(__pyx_t_2); if (unlikely((__pyx_t_28 == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2412, __pyx_L1_error)
+  __pyx_t_28 = __Pyx_PyFloat_AsDouble(__pyx_t_2); if (unlikely((__pyx_t_28 == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2410, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __pyx_v_upperBound = ((double)__pyx_t_28);
 
-  /* "consenrich/cconsenrich.pyx":2413
+  /* "consenrich/cconsenrich.pyx":2411
  *     # conservative: we take the upper (1 - rtailProp) quantile from the distribution of bootstrap means
  *     upperBound = <double>np.quantile(bootstrapMeans, 1-rtailProp)
  *     return upperBound             # <<<<<<<<<<<<<<
@@ -51370,7 +51337,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_34cgetGlobalBaseline(CYTHON
   return __pyx_r;
 }
 
-/* "consenrich/cconsenrich.pyx":2416
+/* "consenrich/cconsenrich.pyx":2414
  * 
  * 
  * cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(             # <<<<<<<<<<<<<<
@@ -51486,16 +51453,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   __pyx_pybuffernd_excludeMask.rcbuffer = &__pyx_pybuffer_excludeMask;
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_values.rcbuffer->pybuffer, (PyObject*)__pyx_v_values, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2416, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_values.rcbuffer->pybuffer, (PyObject*)__pyx_v_values, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2414, __pyx_L1_error)
   }
   __pyx_pybuffernd_values.diminfo[0].strides = __pyx_pybuffernd_values.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_values.diminfo[0].shape = __pyx_pybuffernd_values.rcbuffer->pybuffer.shape[0];
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_excludeMask.rcbuffer->pybuffer, (PyObject*)__pyx_v_excludeMask, &__Pyx_TypeInfo_nn___pyx_t_5numpy_uint8_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2416, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_excludeMask.rcbuffer->pybuffer, (PyObject*)__pyx_v_excludeMask, &__Pyx_TypeInfo_nn___pyx_t_5numpy_uint8_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2414, __pyx_L1_error)
   }
   __pyx_pybuffernd_excludeMask.diminfo[0].strides = __pyx_pybuffernd_excludeMask.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_excludeMask.diminfo[0].shape = __pyx_pybuffernd_excludeMask.rcbuffer->pybuffer.shape[0];
 
-  /* "consenrich/cconsenrich.pyx":2423
+  /* "consenrich/cconsenrich.pyx":2421
  *     double ridgeLambda = 0.1,
  * ):
  *     cdef Py_ssize_t numIntervals=values.shape[0]             # <<<<<<<<<<<<<<
@@ -51504,31 +51471,31 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_numIntervals = (__pyx_f_5numpy_7ndarray_5shape_shape(((PyArrayObject *)__pyx_v_values))[0]);
 
-  /* "consenrich/cconsenrich.pyx":2428
+  /* "consenrich/cconsenrich.pyx":2426
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1] varAtStartIndex
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1] varOut
  *     cdef float[::1] valuesView=values             # <<<<<<<<<<<<<<
  *     cdef cnp.uint8_t[::1] maskView=excludeMask
  *     cdef double sumY
 */
-  __pyx_t_1 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_values), PyBUF_WRITABLE); if (unlikely(!__pyx_t_1.memview)) __PYX_ERR(0, 2428, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_values), PyBUF_WRITABLE); if (unlikely(!__pyx_t_1.memview)) __PYX_ERR(0, 2426, __pyx_L1_error)
   __pyx_v_valuesView = __pyx_t_1;
   __pyx_t_1.memview = NULL;
   __pyx_t_1.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2429
+  /* "consenrich/cconsenrich.pyx":2427
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1] varOut
  *     cdef float[::1] valuesView=values
  *     cdef cnp.uint8_t[::1] maskView=excludeMask             # <<<<<<<<<<<<<<
  *     cdef double sumY
  *     cdef double sumSqY
 */
-  __pyx_t_2 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_uint8_t(((PyObject *)__pyx_v_excludeMask), PyBUF_WRITABLE); if (unlikely(!__pyx_t_2.memview)) __PYX_ERR(0, 2429, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_uint8_t(((PyObject *)__pyx_v_excludeMask), PyBUF_WRITABLE); if (unlikely(!__pyx_t_2.memview)) __PYX_ERR(0, 2427, __pyx_L1_error)
   __pyx_v_maskView = __pyx_t_2;
   __pyx_t_2.memview = NULL;
   __pyx_t_2.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2448
+  /* "consenrich/cconsenrich.pyx":2446
  *     cdef double sumFOD, sumSqFOD, FODLeaving, FODEntering
  *     cdef double nFODDouble, varFOD
  *     varOut = np.empty(numIntervals,dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -51536,16 +51503,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
  *     if blockLength > numIntervals:
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2448, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2446, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_6 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2448, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2446, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  __pyx_t_5 = PyLong_FromSsize_t(__pyx_v_numIntervals); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2448, __pyx_L1_error)
+  __pyx_t_5 = PyLong_FromSsize_t(__pyx_v_numIntervals); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2446, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2448, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2446, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2448, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2446, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_9 = 1;
@@ -51562,19 +51529,19 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, __pyx_t_5};
-    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2448, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2446, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2448, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2446, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_6, __pyx_callargs+__pyx_t_9, (2-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_7);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2448, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2446, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2448, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2446, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     __Pyx_SafeReleaseBuffer(&__pyx_pybuffernd_varOut.rcbuffer->pybuffer);
@@ -51590,12 +51557,12 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_11 = __pyx_t_12 = __pyx_t_13 = 0;
     }
     __pyx_pybuffernd_varOut.diminfo[0].strides = __pyx_pybuffernd_varOut.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_varOut.diminfo[0].shape = __pyx_pybuffernd_varOut.rcbuffer->pybuffer.shape[0];
-    if (unlikely((__pyx_t_10 < 0))) __PYX_ERR(0, 2448, __pyx_L1_error)
+    if (unlikely((__pyx_t_10 < 0))) __PYX_ERR(0, 2446, __pyx_L1_error)
   }
   __pyx_v_varOut = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2450
+  /* "consenrich/cconsenrich.pyx":2448
  *     varOut = np.empty(numIntervals,dtype=np.float32)
  * 
  *     if blockLength > numIntervals:             # <<<<<<<<<<<<<<
@@ -51605,7 +51572,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   __pyx_t_14 = (__pyx_v_blockLength > __pyx_v_numIntervals);
   if (__pyx_t_14) {
 
-    /* "consenrich/cconsenrich.pyx":2451
+    /* "consenrich/cconsenrich.pyx":2449
  * 
  *     if blockLength > numIntervals:
  *         blockLength = <int>numIntervals             # <<<<<<<<<<<<<<
@@ -51614,7 +51581,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
     __pyx_v_blockLength = ((int)__pyx_v_numIntervals);
 
-    /* "consenrich/cconsenrich.pyx":2450
+    /* "consenrich/cconsenrich.pyx":2448
  *     varOut = np.empty(numIntervals,dtype=np.float32)
  * 
  *     if blockLength > numIntervals:             # <<<<<<<<<<<<<<
@@ -51623,7 +51590,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2453
+  /* "consenrich/cconsenrich.pyx":2451
  *         blockLength = <int>numIntervals
  * 
  *     if blockLength < 4:             # <<<<<<<<<<<<<<
@@ -51633,16 +51600,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   __pyx_t_14 = (__pyx_v_blockLength < 4);
   if (__pyx_t_14) {
 
-    /* "consenrich/cconsenrich.pyx":2454
+    /* "consenrich/cconsenrich.pyx":2452
  * 
  *     if blockLength < 4:
  *         varOut[:] = 0.0             # <<<<<<<<<<<<<<
  *         return varOut
  * 
 */
-    if (unlikely((PyObject_SetItem(((PyObject *)__pyx_v_varOut), __pyx_mstate_global->__pyx_slice[0], __pyx_mstate_global->__pyx_float_0_0) < 0))) __PYX_ERR(0, 2454, __pyx_L1_error)
+    if (unlikely((PyObject_SetItem(((PyObject *)__pyx_v_varOut), __pyx_mstate_global->__pyx_slice[0], __pyx_mstate_global->__pyx_float_0_0) < 0))) __PYX_ERR(0, 2452, __pyx_L1_error)
 
-    /* "consenrich/cconsenrich.pyx":2455
+    /* "consenrich/cconsenrich.pyx":2453
  *     if blockLength < 4:
  *         varOut[:] = 0.0
  *         return varOut             # <<<<<<<<<<<<<<
@@ -51654,7 +51621,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_r = ((PyArrayObject *)__pyx_v_varOut);
     goto __pyx_L0;
 
-    /* "consenrich/cconsenrich.pyx":2453
+    /* "consenrich/cconsenrich.pyx":2451
  *         blockLength = <int>numIntervals
  * 
  *     if blockLength < 4:             # <<<<<<<<<<<<<<
@@ -51663,7 +51630,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2457
+  /* "consenrich/cconsenrich.pyx":2455
  *         return varOut
  * 
  *     halfBlockLength = (blockLength//2)             # <<<<<<<<<<<<<<
@@ -51672,7 +51639,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_halfBlockLength = (__pyx_v_blockLength / 2);
 
-  /* "consenrich/cconsenrich.pyx":2458
+  /* "consenrich/cconsenrich.pyx":2456
  * 
  *     halfBlockLength = (blockLength//2)
  *     maxStartIndex = (numIntervals - blockLength)             # <<<<<<<<<<<<<<
@@ -51681,7 +51648,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_maxStartIndex = (__pyx_v_numIntervals - __pyx_v_blockLength);
 
-  /* "consenrich/cconsenrich.pyx":2459
+  /* "consenrich/cconsenrich.pyx":2457
  *     halfBlockLength = (blockLength//2)
  *     maxStartIndex = (numIntervals - blockLength)
  *     varAtStartIndex = np.empty((maxStartIndex + 1),dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -51689,16 +51656,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
  *     sumY=0.0
 */
   __pyx_t_6 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2459, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2457, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2459, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2457, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-  __pyx_t_7 = PyLong_FromSsize_t((__pyx_v_maxStartIndex + 1)); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2459, __pyx_L1_error)
+  __pyx_t_7 = PyLong_FromSsize_t((__pyx_v_maxStartIndex + 1)); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2457, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2459, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2457, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2459, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2457, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
   __pyx_t_9 = 1;
@@ -51715,19 +51682,19 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_6, __pyx_t_7};
-    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2459, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2457, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2459, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2457, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_9, (2-__pyx_t_9) | (__pyx_t_9*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_5);
     __Pyx_XDECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2459, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2457, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2459, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2457, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     __Pyx_SafeReleaseBuffer(&__pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer);
@@ -51743,12 +51710,12 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_13 = __pyx_t_12 = __pyx_t_11 = 0;
     }
     __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides = __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_varAtStartIndex.diminfo[0].shape = __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.shape[0];
-    if (unlikely((__pyx_t_10 < 0))) __PYX_ERR(0, 2459, __pyx_L1_error)
+    if (unlikely((__pyx_t_10 < 0))) __PYX_ERR(0, 2457, __pyx_L1_error)
   }
   __pyx_v_varAtStartIndex = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2461
+  /* "consenrich/cconsenrich.pyx":2459
  *     varAtStartIndex = np.empty((maxStartIndex + 1),dtype=np.float32)
  * 
  *     sumY=0.0             # <<<<<<<<<<<<<<
@@ -51757,7 +51724,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_sumY = 0.0;
 
-  /* "consenrich/cconsenrich.pyx":2462
+  /* "consenrich/cconsenrich.pyx":2460
  * 
  *     sumY=0.0
  *     sumSqY=0.0             # <<<<<<<<<<<<<<
@@ -51766,7 +51733,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_sumSqY = 0.0;
 
-  /* "consenrich/cconsenrich.pyx":2463
+  /* "consenrich/cconsenrich.pyx":2461
  *     sumY=0.0
  *     sumSqY=0.0
  *     sumLagProd=0.0             # <<<<<<<<<<<<<<
@@ -51775,7 +51742,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_sumLagProd = 0.0;
 
-  /* "consenrich/cconsenrich.pyx":2464
+  /* "consenrich/cconsenrich.pyx":2462
  *     sumSqY=0.0
  *     sumLagProd=0.0
  *     maskSum=0             # <<<<<<<<<<<<<<
@@ -51784,7 +51751,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_maskSum = 0;
 
-  /* "consenrich/cconsenrich.pyx":2465
+  /* "consenrich/cconsenrich.pyx":2463
  *     sumLagProd=0.0
  *     maskSum=0
  *     sumFOD = 0.0             # <<<<<<<<<<<<<<
@@ -51793,7 +51760,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_sumFOD = 0.0;
 
-  /* "consenrich/cconsenrich.pyx":2466
+  /* "consenrich/cconsenrich.pyx":2464
  *     maskSum=0
  *     sumFOD = 0.0
  *     sumSqFOD = 0.0             # <<<<<<<<<<<<<<
@@ -51802,7 +51769,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
   __pyx_v_sumSqFOD = 0.0;
 
-  /* "consenrich/cconsenrich.pyx":2469
+  /* "consenrich/cconsenrich.pyx":2467
  * 
  *     # initialize first
  *     for elementIndex in range(blockLength):             # <<<<<<<<<<<<<<
@@ -51814,7 +51781,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   for (__pyx_t_16 = 0; __pyx_t_16 < __pyx_t_15; __pyx_t_16+=1) {
     __pyx_v_elementIndex = __pyx_t_16;
 
-    /* "consenrich/cconsenrich.pyx":2470
+    /* "consenrich/cconsenrich.pyx":2468
  *     # initialize first
  *     for elementIndex in range(blockLength):
  *         currentValue=valuesView[elementIndex]             # <<<<<<<<<<<<<<
@@ -51824,7 +51791,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_t_17 = __pyx_v_elementIndex;
     __pyx_v_currentValue = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_17)) )));
 
-    /* "consenrich/cconsenrich.pyx":2471
+    /* "consenrich/cconsenrich.pyx":2469
  *     for elementIndex in range(blockLength):
  *         currentValue=valuesView[elementIndex]
  *         sumY += currentValue             # <<<<<<<<<<<<<<
@@ -51833,7 +51800,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
     __pyx_v_sumY = (__pyx_v_sumY + __pyx_v_currentValue);
 
-    /* "consenrich/cconsenrich.pyx":2472
+    /* "consenrich/cconsenrich.pyx":2470
  *         currentValue=valuesView[elementIndex]
  *         sumY += currentValue
  *         sumSqY += (currentValue*currentValue)             # <<<<<<<<<<<<<<
@@ -51842,7 +51809,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
     __pyx_v_sumSqY = (__pyx_v_sumSqY + (__pyx_v_currentValue * __pyx_v_currentValue));
 
-    /* "consenrich/cconsenrich.pyx":2473
+    /* "consenrich/cconsenrich.pyx":2471
  *         sumY += currentValue
  *         sumSqY += (currentValue*currentValue)
  *         maskSum += <int>maskView[elementIndex]             # <<<<<<<<<<<<<<
@@ -51852,7 +51819,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_t_17 = __pyx_v_elementIndex;
     __pyx_v_maskSum = (__pyx_v_maskSum + ((int)(*((__pyx_t_5numpy_uint8_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_uint8_t *) __pyx_v_maskView.data) + __pyx_t_17)) )))));
 
-    /* "consenrich/cconsenrich.pyx":2474
+    /* "consenrich/cconsenrich.pyx":2472
  *         sumSqY += (currentValue*currentValue)
  *         maskSum += <int>maskView[elementIndex]
  *         if elementIndex < (blockLength - 1):             # <<<<<<<<<<<<<<
@@ -51862,7 +51829,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_t_14 = (__pyx_v_elementIndex < (__pyx_v_blockLength - 1));
     if (__pyx_t_14) {
 
-      /* "consenrich/cconsenrich.pyx":2475
+      /* "consenrich/cconsenrich.pyx":2473
  *         maskSum += <int>maskView[elementIndex]
  *         if elementIndex < (blockLength - 1):
  *             sumLagProd += (currentValue*valuesView[(elementIndex + 1)])             # <<<<<<<<<<<<<<
@@ -51872,7 +51839,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_17 = (__pyx_v_elementIndex + 1);
       __pyx_v_sumLagProd = (__pyx_v_sumLagProd + (__pyx_v_currentValue * (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_17)) )))));
 
-      /* "consenrich/cconsenrich.pyx":2474
+      /* "consenrich/cconsenrich.pyx":2472
  *         sumSqY += (currentValue*currentValue)
  *         maskSum += <int>maskView[elementIndex]
  *         if elementIndex < (blockLength - 1):             # <<<<<<<<<<<<<<
@@ -51882,7 +51849,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     }
   }
 
-  /* "consenrich/cconsenrich.pyx":2477
+  /* "consenrich/cconsenrich.pyx":2475
  *             sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
  * 
  *     for elementIndex in range(blockLength - 1):             # <<<<<<<<<<<<<<
@@ -51894,7 +51861,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   for (__pyx_t_16 = 0; __pyx_t_16 < __pyx_t_19; __pyx_t_16+=1) {
     __pyx_v_elementIndex = __pyx_t_16;
 
-    /* "consenrich/cconsenrich.pyx":2478
+    /* "consenrich/cconsenrich.pyx":2476
  * 
  *     for elementIndex in range(blockLength - 1):
  *         FODEntering = valuesView[elementIndex + 1] - valuesView[elementIndex]             # <<<<<<<<<<<<<<
@@ -51905,7 +51872,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_t_20 = __pyx_v_elementIndex;
     __pyx_v_FODEntering = ((*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_17)) ))) - (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_20)) ))));
 
-    /* "consenrich/cconsenrich.pyx":2479
+    /* "consenrich/cconsenrich.pyx":2477
  *     for elementIndex in range(blockLength - 1):
  *         FODEntering = valuesView[elementIndex + 1] - valuesView[elementIndex]
  *         sumFOD += FODEntering             # <<<<<<<<<<<<<<
@@ -51914,7 +51881,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
     __pyx_v_sumFOD = (__pyx_v_sumFOD + __pyx_v_FODEntering);
 
-    /* "consenrich/cconsenrich.pyx":2480
+    /* "consenrich/cconsenrich.pyx":2478
  *         FODEntering = valuesView[elementIndex + 1] - valuesView[elementIndex]
  *         sumFOD += FODEntering
  *         sumSqFOD += FODEntering * FODEntering             # <<<<<<<<<<<<<<
@@ -51924,7 +51891,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_v_sumSqFOD = (__pyx_v_sumSqFOD + (__pyx_v_FODEntering * __pyx_v_FODEntering));
   }
 
-  /* "consenrich/cconsenrich.pyx":2483
+  /* "consenrich/cconsenrich.pyx":2481
  * 
  *     # sliding window until last block's start
  *     for startIndex in range(maxStartIndex + 1):             # <<<<<<<<<<<<<<
@@ -51936,7 +51903,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   for (__pyx_t_22 = 0; __pyx_t_22 < __pyx_t_21; __pyx_t_22+=1) {
     __pyx_v_startIndex = __pyx_t_22;
 
-    /* "consenrich/cconsenrich.pyx":2484
+    /* "consenrich/cconsenrich.pyx":2482
  *     # sliding window until last block's start
  *     for startIndex in range(maxStartIndex + 1):
  *         if maskSum != 0:             # <<<<<<<<<<<<<<
@@ -51946,7 +51913,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_t_14 = (__pyx_v_maskSum != 0);
     if (__pyx_t_14) {
 
-      /* "consenrich/cconsenrich.pyx":2485
+      /* "consenrich/cconsenrich.pyx":2483
  *     for startIndex in range(maxStartIndex + 1):
  *         if maskSum != 0:
  *             varAtStartIndex[startIndex]=<cnp.float32_t>-1.0             # <<<<<<<<<<<<<<
@@ -51956,7 +51923,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_20 = __pyx_v_startIndex;
       *__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.buf, __pyx_t_20, __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides) = ((__pyx_t_5numpy_float32_t)-1.0);
 
-      /* "consenrich/cconsenrich.pyx":2484
+      /* "consenrich/cconsenrich.pyx":2482
  *     # sliding window until last block's start
  *     for startIndex in range(maxStartIndex + 1):
  *         if maskSum != 0:             # <<<<<<<<<<<<<<
@@ -51966,7 +51933,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       goto __pyx_L12;
     }
 
-    /* "consenrich/cconsenrich.pyx":2487
+    /* "consenrich/cconsenrich.pyx":2485
  *             varAtStartIndex[startIndex]=<cnp.float32_t>-1.0
  *         else:
  *             nPairsDouble = <double>(blockLength - 1)             # <<<<<<<<<<<<<<
@@ -51976,7 +51943,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     /*else*/ {
       __pyx_v_nPairsDouble = ((double)(__pyx_v_blockLength - 1));
 
-      /* "consenrich/cconsenrich.pyx":2488
+      /* "consenrich/cconsenrich.pyx":2486
  *         else:
  *             nPairsDouble = <double>(blockLength - 1)
  *             previousValue = valuesView[startIndex]             # <<<<<<<<<<<<<<
@@ -51986,7 +51953,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_20 = __pyx_v_startIndex;
       __pyx_v_previousValue = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_20)) )));
 
-      /* "consenrich/cconsenrich.pyx":2489
+      /* "consenrich/cconsenrich.pyx":2487
  *             nPairsDouble = <double>(blockLength - 1)
  *             previousValue = valuesView[startIndex]
  *             currentValue = valuesView[(startIndex + blockLength - 1)]             # <<<<<<<<<<<<<<
@@ -51996,7 +51963,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_20 = ((__pyx_v_startIndex + __pyx_v_blockLength) - 1);
       __pyx_v_currentValue = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_20)) )));
 
-      /* "consenrich/cconsenrich.pyx":2493
+      /* "consenrich/cconsenrich.pyx":2491
  *             # x[i] = values[startIndex+i] i=0,1,...n-2
  *             # y[i] = values[startIndex+i+1] i=0,1,...n-2
  *             sumXSeq = sumY - currentValue             # <<<<<<<<<<<<<<
@@ -52005,7 +51972,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_sumXSeq = (__pyx_v_sumY - __pyx_v_currentValue);
 
-      /* "consenrich/cconsenrich.pyx":2494
+      /* "consenrich/cconsenrich.pyx":2492
  *             # y[i] = values[startIndex+i+1] i=0,1,...n-2
  *             sumXSeq = sumY - currentValue
  *             sumYSeq = sumY - previousValue             # <<<<<<<<<<<<<<
@@ -52014,7 +51981,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_sumYSeq = (__pyx_v_sumY - __pyx_v_previousValue);
 
-      /* "consenrich/cconsenrich.pyx":2497
+      /* "consenrich/cconsenrich.pyx":2495
  * 
  *             # these are distinct now, so means must be computed separately
  *             meanX = sumXSeq / nPairsDouble             # <<<<<<<<<<<<<<
@@ -52023,7 +51990,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_meanX = (__pyx_v_sumXSeq / __pyx_v_nPairsDouble);
 
-      /* "consenrich/cconsenrich.pyx":2498
+      /* "consenrich/cconsenrich.pyx":2496
  *             # these are distinct now, so means must be computed separately
  *             meanX = sumXSeq / nPairsDouble
  *             meanYp = sumYSeq / nPairsDouble             # <<<<<<<<<<<<<<
@@ -52032,7 +51999,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_meanYp = (__pyx_v_sumYSeq / __pyx_v_nPairsDouble);
 
-      /* "consenrich/cconsenrich.pyx":2499
+      /* "consenrich/cconsenrich.pyx":2497
  *             meanX = sumXSeq / nPairsDouble
  *             meanYp = sumYSeq / nPairsDouble
  *             sumSqXSeq = (sumSqY - (currentValue*currentValue)) - (nPairsDouble*meanX*meanX)             # <<<<<<<<<<<<<<
@@ -52041,7 +52008,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_sumSqXSeq = ((__pyx_v_sumSqY - (__pyx_v_currentValue * __pyx_v_currentValue)) - ((__pyx_v_nPairsDouble * __pyx_v_meanX) * __pyx_v_meanX));
 
-      /* "consenrich/cconsenrich.pyx":2500
+      /* "consenrich/cconsenrich.pyx":2498
  *             meanYp = sumYSeq / nPairsDouble
  *             sumSqXSeq = (sumSqY - (currentValue*currentValue)) - (nPairsDouble*meanX*meanX)
  *             sumSqYSeq = (sumSqY - (previousValue*previousValue)) - (nPairsDouble*meanYp*meanYp)             # <<<<<<<<<<<<<<
@@ -52050,7 +52017,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_sumSqYSeq = ((__pyx_v_sumSqY - (__pyx_v_previousValue * __pyx_v_previousValue)) - ((__pyx_v_nPairsDouble * __pyx_v_meanYp) * __pyx_v_meanYp));
 
-      /* "consenrich/cconsenrich.pyx":2501
+      /* "consenrich/cconsenrich.pyx":2499
  *             sumSqXSeq = (sumSqY - (currentValue*currentValue)) - (nPairsDouble*meanX*meanX)
  *             sumSqYSeq = (sumSqY - (previousValue*previousValue)) - (nPairsDouble*meanYp*meanYp)
  *             if sumSqXSeq < 0.0:             # <<<<<<<<<<<<<<
@@ -52060,7 +52027,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_sumSqXSeq < 0.0);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2502
+        /* "consenrich/cconsenrich.pyx":2500
  *             sumSqYSeq = (sumSqY - (previousValue*previousValue)) - (nPairsDouble*meanYp*meanYp)
  *             if sumSqXSeq < 0.0:
  *                 sumSqXSeq = 0.0             # <<<<<<<<<<<<<<
@@ -52069,7 +52036,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
         __pyx_v_sumSqXSeq = 0.0;
 
-        /* "consenrich/cconsenrich.pyx":2501
+        /* "consenrich/cconsenrich.pyx":2499
  *             sumSqXSeq = (sumSqY - (currentValue*currentValue)) - (nPairsDouble*meanX*meanX)
  *             sumSqYSeq = (sumSqY - (previousValue*previousValue)) - (nPairsDouble*meanYp*meanYp)
  *             if sumSqXSeq < 0.0:             # <<<<<<<<<<<<<<
@@ -52078,7 +52045,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       }
 
-      /* "consenrich/cconsenrich.pyx":2503
+      /* "consenrich/cconsenrich.pyx":2501
  *             if sumSqXSeq < 0.0:
  *                 sumSqXSeq = 0.0
  *             if sumSqYSeq < 0.0:             # <<<<<<<<<<<<<<
@@ -52088,7 +52055,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_sumSqYSeq < 0.0);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2504
+        /* "consenrich/cconsenrich.pyx":2502
  *                 sumSqXSeq = 0.0
  *             if sumSqYSeq < 0.0:
  *                 sumSqYSeq = 0.0             # <<<<<<<<<<<<<<
@@ -52097,7 +52064,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
         __pyx_v_sumSqYSeq = 0.0;
 
-        /* "consenrich/cconsenrich.pyx":2503
+        /* "consenrich/cconsenrich.pyx":2501
  *             if sumSqXSeq < 0.0:
  *                 sumSqXSeq = 0.0
  *             if sumSqYSeq < 0.0:             # <<<<<<<<<<<<<<
@@ -52106,7 +52073,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       }
 
-      /* "consenrich/cconsenrich.pyx":2507
+      /* "consenrich/cconsenrich.pyx":2505
  * 
  *             # sum (x[i] - meanX)*(y[i] - meanYp) i = 0..n-2
  *             sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))             # <<<<<<<<<<<<<<
@@ -52115,7 +52082,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_sumXYc = (((__pyx_v_sumLagProd - (__pyx_v_meanYp * __pyx_v_sumXSeq)) - (__pyx_v_meanX * __pyx_v_sumYSeq)) + ((__pyx_v_nPairsDouble * __pyx_v_meanX) * __pyx_v_meanYp));
 
-      /* "consenrich/cconsenrich.pyx":2508
+      /* "consenrich/cconsenrich.pyx":2506
  *             # sum (x[i] - meanX)*(y[i] - meanYp) i = 0..n-2
  *             sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
  *             eps = 1.0e-8*(sumSqXSeq + 1.0)             # <<<<<<<<<<<<<<
@@ -52124,7 +52091,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_eps = (1.0e-8 * (__pyx_v_sumSqXSeq + 1.0));
 
-      /* "consenrich/cconsenrich.pyx":2509
+      /* "consenrich/cconsenrich.pyx":2507
  *             sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
  *             eps = 1.0e-8*(sumSqXSeq + 1.0)
  *             if sumSqXSeq > eps:             # <<<<<<<<<<<<<<
@@ -52134,7 +52101,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_sumSqXSeq > __pyx_v_eps);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2511
+        /* "consenrich/cconsenrich.pyx":2509
  *             if sumSqXSeq > eps:
  *                 # reg. AR(1) coefficient estimate
  *                 beta1 = (sumXYc / (sumSqXSeq + (ridgeLambda*nPairsDouble)))             # <<<<<<<<<<<<<<
@@ -52143,7 +52110,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
         __pyx_v_beta1 = (__pyx_v_sumXYc / (__pyx_v_sumSqXSeq + (__pyx_v_ridgeLambda * __pyx_v_nPairsDouble)));
 
-        /* "consenrich/cconsenrich.pyx":2509
+        /* "consenrich/cconsenrich.pyx":2507
  *             sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
  *             eps = 1.0e-8*(sumSqXSeq + 1.0)
  *             if sumSqXSeq > eps:             # <<<<<<<<<<<<<<
@@ -52153,7 +52120,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
         goto __pyx_L15;
       }
 
-      /* "consenrich/cconsenrich.pyx":2513
+      /* "consenrich/cconsenrich.pyx":2511
  *                 beta1 = (sumXYc / (sumSqXSeq + (ridgeLambda*nPairsDouble)))
  *             else:
  *                 beta1 = 0.0             # <<<<<<<<<<<<<<
@@ -52165,7 +52132,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       }
       __pyx_L15:;
 
-      /* "consenrich/cconsenrich.pyx":2515
+      /* "consenrich/cconsenrich.pyx":2513
  *                 beta1 = 0.0
  * 
  *             if beta1 > maxBeta:             # <<<<<<<<<<<<<<
@@ -52175,7 +52142,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_beta1 > __pyx_v_maxBeta);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2516
+        /* "consenrich/cconsenrich.pyx":2514
  * 
  *             if beta1 > maxBeta:
  *                 beta1 = maxBeta             # <<<<<<<<<<<<<<
@@ -52184,7 +52151,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
         __pyx_v_beta1 = __pyx_v_maxBeta;
 
-        /* "consenrich/cconsenrich.pyx":2515
+        /* "consenrich/cconsenrich.pyx":2513
  *                 beta1 = 0.0
  * 
  *             if beta1 > maxBeta:             # <<<<<<<<<<<<<<
@@ -52194,7 +52161,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
         goto __pyx_L16;
       }
 
-      /* "consenrich/cconsenrich.pyx":2519
+      /* "consenrich/cconsenrich.pyx":2517
  * 
  *             # AR(1) negative autocorrelation hides noise here
  *             elif beta1 < 0.0:             # <<<<<<<<<<<<<<
@@ -52204,7 +52171,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_beta1 < 0.0);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2520
+        /* "consenrich/cconsenrich.pyx":2518
  *             # AR(1) negative autocorrelation hides noise here
  *             elif beta1 < 0.0:
  *                 beta1 = 0.0             # <<<<<<<<<<<<<<
@@ -52213,7 +52180,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
         __pyx_v_beta1 = 0.0;
 
-        /* "consenrich/cconsenrich.pyx":2519
+        /* "consenrich/cconsenrich.pyx":2517
  * 
  *             # AR(1) negative autocorrelation hides noise here
  *             elif beta1 < 0.0:             # <<<<<<<<<<<<<<
@@ -52223,7 +52190,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       }
       __pyx_L16:;
 
-      /* "consenrich/cconsenrich.pyx":2521
+      /* "consenrich/cconsenrich.pyx":2519
  *             elif beta1 < 0.0:
  *                 beta1 = 0.0
  *             RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))             # <<<<<<<<<<<<<<
@@ -52232,7 +52199,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_RSS = ((__pyx_v_sumSqYSeq + ((__pyx_v_beta1 * __pyx_v_beta1) * __pyx_v_sumSqXSeq)) - (2.0 * (__pyx_v_beta1 * __pyx_v_sumXYc)));
 
-      /* "consenrich/cconsenrich.pyx":2522
+      /* "consenrich/cconsenrich.pyx":2520
  *                 beta1 = 0.0
  *             RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
  *             if RSS < 0.0:             # <<<<<<<<<<<<<<
@@ -52242,7 +52209,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_RSS < 0.0);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2523
+        /* "consenrich/cconsenrich.pyx":2521
  *             RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
  *             if RSS < 0.0:
  *                 RSS = 0.0             # <<<<<<<<<<<<<<
@@ -52251,7 +52218,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
         __pyx_v_RSS = 0.0;
 
-        /* "consenrich/cconsenrich.pyx":2522
+        /* "consenrich/cconsenrich.pyx":2520
  *                 beta1 = 0.0
  *             RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
  *             if RSS < 0.0:             # <<<<<<<<<<<<<<
@@ -52260,7 +52227,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       }
 
-      /* "consenrich/cconsenrich.pyx":2526
+      /* "consenrich/cconsenrich.pyx":2524
  * 
  *             # n-1 pairs, slope and intercept estimated --> use df = n-3
  *             pairCountDouble = <double>(blockLength - 3)             # <<<<<<<<<<<<<<
@@ -52269,7 +52236,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_pairCountDouble = ((double)(__pyx_v_blockLength - 3));
 
-      /* "consenrich/cconsenrich.pyx":2527
+      /* "consenrich/cconsenrich.pyx":2525
  *             # n-1 pairs, slope and intercept estimated --> use df = n-3
  *             pairCountDouble = <double>(blockLength - 3)
  *             varAtStartIndex[startIndex]=<cnp.float32_t>(RSS/pairCountDouble)             # <<<<<<<<<<<<<<
@@ -52279,7 +52246,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_20 = __pyx_v_startIndex;
       *__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.buf, __pyx_t_20, __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides) = ((__pyx_t_5numpy_float32_t)(__pyx_v_RSS / __pyx_v_pairCountDouble));
 
-      /* "consenrich/cconsenrich.pyx":2530
+      /* "consenrich/cconsenrich.pyx":2528
  * 
  * 
  *             nFODDouble = <double>(blockLength - 1)             # <<<<<<<<<<<<<<
@@ -52288,7 +52255,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_nFODDouble = ((double)(__pyx_v_blockLength - 1));
 
-      /* "consenrich/cconsenrich.pyx":2532
+      /* "consenrich/cconsenrich.pyx":2530
  *             nFODDouble = <double>(blockLength - 1)
  *             # rolling first-order differences variance
  *             varFOD = sumSqFOD - (sumFOD * sumFOD) / nFODDouble             # <<<<<<<<<<<<<<
@@ -52297,7 +52264,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_varFOD = (__pyx_v_sumSqFOD - ((__pyx_v_sumFOD * __pyx_v_sumFOD) / __pyx_v_nFODDouble));
 
-      /* "consenrich/cconsenrich.pyx":2533
+      /* "consenrich/cconsenrich.pyx":2531
  *             # rolling first-order differences variance
  *             varFOD = sumSqFOD - (sumFOD * sumFOD) / nFODDouble
  *             if varFOD < 0.0:             # <<<<<<<<<<<<<<
@@ -52307,7 +52274,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_varFOD < 0.0);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2534
+        /* "consenrich/cconsenrich.pyx":2532
  *             varFOD = sumSqFOD - (sumFOD * sumFOD) / nFODDouble
  *             if varFOD < 0.0:
  *                 varFOD = 0.0             # <<<<<<<<<<<<<<
@@ -52316,7 +52283,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
         __pyx_v_varFOD = 0.0;
 
-        /* "consenrich/cconsenrich.pyx":2533
+        /* "consenrich/cconsenrich.pyx":2531
  *             # rolling first-order differences variance
  *             varFOD = sumSqFOD - (sumFOD * sumFOD) / nFODDouble
  *             if varFOD < 0.0:             # <<<<<<<<<<<<<<
@@ -52325,7 +52292,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       }
 
-      /* "consenrich/cconsenrich.pyx":2535
+      /* "consenrich/cconsenrich.pyx":2533
  *             if varFOD < 0.0:
  *                 varFOD = 0.0
  *             if nFODDouble > 1.0:             # <<<<<<<<<<<<<<
@@ -52335,7 +52302,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_nFODDouble > 1.0);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2536
+        /* "consenrich/cconsenrich.pyx":2534
  *                 varFOD = 0.0
  *             if nFODDouble > 1.0:
  *                 varFOD = varFOD / (nFODDouble - 1.0)             # <<<<<<<<<<<<<<
@@ -52344,7 +52311,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
         __pyx_v_varFOD = (__pyx_v_varFOD / (__pyx_v_nFODDouble - 1.0));
 
-        /* "consenrich/cconsenrich.pyx":2535
+        /* "consenrich/cconsenrich.pyx":2533
  *             if varFOD < 0.0:
  *                 varFOD = 0.0
  *             if nFODDouble > 1.0:             # <<<<<<<<<<<<<<
@@ -52354,7 +52321,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
         goto __pyx_L19;
       }
 
-      /* "consenrich/cconsenrich.pyx":2538
+      /* "consenrich/cconsenrich.pyx":2536
  *                 varFOD = varFOD / (nFODDouble - 1.0)
  *             else:
  *                 varFOD = 0.0             # <<<<<<<<<<<<<<
@@ -52366,7 +52333,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       }
       __pyx_L19:;
 
-      /* "consenrich/cconsenrich.pyx":2541
+      /* "consenrich/cconsenrich.pyx":2539
  * 
  *             varAtStartIndex[startIndex] = <cnp.float32_t>(
  *                 (<double>varAtStartIndex[startIndex]))             # <<<<<<<<<<<<<<
@@ -52375,7 +52342,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_t_20 = __pyx_v_startIndex;
 
-      /* "consenrich/cconsenrich.pyx":2540
+      /* "consenrich/cconsenrich.pyx":2538
  *                 varFOD = 0.0
  * 
  *             varAtStartIndex[startIndex] = <cnp.float32_t>(             # <<<<<<<<<<<<<<
@@ -52385,7 +52352,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_17 = __pyx_v_startIndex;
       *__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.buf, __pyx_t_17, __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides) = ((__pyx_t_5numpy_float32_t)((double)(*__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.buf, __pyx_t_20, __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides))));
 
-      /* "consenrich/cconsenrich.pyx":2542
+      /* "consenrich/cconsenrich.pyx":2540
  *             varAtStartIndex[startIndex] = <cnp.float32_t>(
  *                 (<double>varAtStartIndex[startIndex]))
  *             if varFOD > varAtStartIndex[startIndex]:             # <<<<<<<<<<<<<<
@@ -52396,7 +52363,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_14 = (__pyx_v_varFOD > (*__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.buf, __pyx_t_20, __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides)));
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2544
+        /* "consenrich/cconsenrich.pyx":2542
  *             if varFOD > varAtStartIndex[startIndex]:
  *                 varAtStartIndex[startIndex] = <cnp.float32_t>(
  *                     varAtStartIndex[startIndex] + 0.5*(varFOD - varAtStartIndex[startIndex])             # <<<<<<<<<<<<<<
@@ -52406,7 +52373,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
         __pyx_t_20 = __pyx_v_startIndex;
         __pyx_t_17 = __pyx_v_startIndex;
 
-        /* "consenrich/cconsenrich.pyx":2543
+        /* "consenrich/cconsenrich.pyx":2541
  *                 (<double>varAtStartIndex[startIndex]))
  *             if varFOD > varAtStartIndex[startIndex]:
  *                 varAtStartIndex[startIndex] = <cnp.float32_t>(             # <<<<<<<<<<<<<<
@@ -52416,7 +52383,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
         __pyx_t_23 = __pyx_v_startIndex;
         *__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.buf, __pyx_t_23, __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides) = ((__pyx_t_5numpy_float32_t)((*__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.buf, __pyx_t_20, __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides)) + (0.5 * (__pyx_v_varFOD - (*__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varAtStartIndex.rcbuffer->pybuffer.buf, __pyx_t_17, __pyx_pybuffernd_varAtStartIndex.diminfo[0].strides))))));
 
-        /* "consenrich/cconsenrich.pyx":2542
+        /* "consenrich/cconsenrich.pyx":2540
  *             varAtStartIndex[startIndex] = <cnp.float32_t>(
  *                 (<double>varAtStartIndex[startIndex]))
  *             if varFOD > varAtStartIndex[startIndex]:             # <<<<<<<<<<<<<<
@@ -52427,7 +52394,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     }
     __pyx_L12:;
 
-    /* "consenrich/cconsenrich.pyx":2546
+    /* "consenrich/cconsenrich.pyx":2544
  *                     varAtStartIndex[startIndex] + 0.5*(varFOD - varAtStartIndex[startIndex])
  *                 )
  *         if startIndex < maxStartIndex:             # <<<<<<<<<<<<<<
@@ -52437,7 +52404,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_t_14 = (__pyx_v_startIndex < __pyx_v_maxStartIndex);
     if (__pyx_t_14) {
 
-      /* "consenrich/cconsenrich.pyx":2548
+      /* "consenrich/cconsenrich.pyx":2546
  *         if startIndex < maxStartIndex:
  *             # slide window forward --> (previousSum - leavingValue) + enteringValue
  *             sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])             # <<<<<<<<<<<<<<
@@ -52448,7 +52415,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_20 = (__pyx_v_startIndex + __pyx_v_blockLength);
       __pyx_v_sumY = ((__pyx_v_sumY - (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_17)) )))) + (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_20)) ))));
 
-      /* "consenrich/cconsenrich.pyx":2549
+      /* "consenrich/cconsenrich.pyx":2547
  *             # slide window forward --> (previousSum - leavingValue) + enteringValue
  *             sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])
  *             sumSqY = sumSqY + (-(valuesView[startIndex]*valuesView[startIndex]) + (valuesView[(startIndex + blockLength)]*valuesView[(startIndex + blockLength)]))             # <<<<<<<<<<<<<<
@@ -52461,7 +52428,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_24 = (__pyx_v_startIndex + __pyx_v_blockLength);
       __pyx_v_sumSqY = (__pyx_v_sumSqY + ((-((*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_20)) ))) * (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_17)) ))))) + ((*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_23)) ))) * (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_24)) ))))));
 
-      /* "consenrich/cconsenrich.pyx":2550
+      /* "consenrich/cconsenrich.pyx":2548
  *             sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])
  *             sumSqY = sumSqY + (-(valuesView[startIndex]*valuesView[startIndex]) + (valuesView[(startIndex + blockLength)]*valuesView[(startIndex + blockLength)]))
  *             sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))             # <<<<<<<<<<<<<<
@@ -52474,7 +52441,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_20 = (__pyx_v_startIndex + __pyx_v_blockLength);
       __pyx_v_sumLagProd = (__pyx_v_sumLagProd + ((-((*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_24)) ))) * (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_23)) ))))) + ((*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_17)) ))) * (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_20)) ))))));
 
-      /* "consenrich/cconsenrich.pyx":2551
+      /* "consenrich/cconsenrich.pyx":2549
  *             sumSqY = sumSqY + (-(valuesView[startIndex]*valuesView[startIndex]) + (valuesView[(startIndex + blockLength)]*valuesView[(startIndex + blockLength)]))
  *             sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
  *             maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])             # <<<<<<<<<<<<<<
@@ -52485,7 +52452,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_17 = (__pyx_v_startIndex + __pyx_v_blockLength);
       __pyx_v_maskSum = (__pyx_v_maskSum + ((-((int)(*((__pyx_t_5numpy_uint8_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_uint8_t *) __pyx_v_maskView.data) + __pyx_t_20)) ))))) + ((int)(*((__pyx_t_5numpy_uint8_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_uint8_t *) __pyx_v_maskView.data) + __pyx_t_17)) ))))));
 
-      /* "consenrich/cconsenrich.pyx":2552
+      /* "consenrich/cconsenrich.pyx":2550
  *             sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
  *             maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
  *             FODLeaving = valuesView[startIndex + 1] - valuesView[startIndex]             # <<<<<<<<<<<<<<
@@ -52496,7 +52463,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_20 = __pyx_v_startIndex;
       __pyx_v_FODLeaving = ((*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_17)) ))) - (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_20)) ))));
 
-      /* "consenrich/cconsenrich.pyx":2553
+      /* "consenrich/cconsenrich.pyx":2551
  *             maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
  *             FODLeaving = valuesView[startIndex + 1] - valuesView[startIndex]
  *             FODEntering = valuesView[startIndex + blockLength] - valuesView[startIndex + blockLength - 1]             # <<<<<<<<<<<<<<
@@ -52507,7 +52474,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_17 = ((__pyx_v_startIndex + __pyx_v_blockLength) - 1);
       __pyx_v_FODEntering = ((*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_20)) ))) - (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_valuesView.data) + __pyx_t_17)) ))));
 
-      /* "consenrich/cconsenrich.pyx":2554
+      /* "consenrich/cconsenrich.pyx":2552
  *             FODLeaving = valuesView[startIndex + 1] - valuesView[startIndex]
  *             FODEntering = valuesView[startIndex + blockLength] - valuesView[startIndex + blockLength - 1]
  *             sumFOD += (FODEntering - FODLeaving)             # <<<<<<<<<<<<<<
@@ -52516,7 +52483,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_sumFOD = (__pyx_v_sumFOD + (__pyx_v_FODEntering - __pyx_v_FODLeaving));
 
-      /* "consenrich/cconsenrich.pyx":2555
+      /* "consenrich/cconsenrich.pyx":2553
  *             FODEntering = valuesView[startIndex + blockLength] - valuesView[startIndex + blockLength - 1]
  *             sumFOD += (FODEntering - FODLeaving)
  *             sumSqFOD += (FODEntering * FODEntering) - (FODLeaving * FODLeaving)             # <<<<<<<<<<<<<<
@@ -52525,7 +52492,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_sumSqFOD = (__pyx_v_sumSqFOD + ((__pyx_v_FODEntering * __pyx_v_FODEntering) - (__pyx_v_FODLeaving * __pyx_v_FODLeaving)));
 
-      /* "consenrich/cconsenrich.pyx":2546
+      /* "consenrich/cconsenrich.pyx":2544
  *                     varAtStartIndex[startIndex] + 0.5*(varFOD - varAtStartIndex[startIndex])
  *                 )
  *         if startIndex < maxStartIndex:             # <<<<<<<<<<<<<<
@@ -52535,7 +52502,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     }
   }
 
-  /* "consenrich/cconsenrich.pyx":2557
+  /* "consenrich/cconsenrich.pyx":2555
  *             sumSqFOD += (FODEntering * FODEntering) - (FODLeaving * FODLeaving)
  * 
  *     for regionIndex in range(numIntervals):             # <<<<<<<<<<<<<<
@@ -52547,7 +52514,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   for (__pyx_t_22 = 0; __pyx_t_22 < __pyx_t_21; __pyx_t_22+=1) {
     __pyx_v_regionIndex = __pyx_t_22;
 
-    /* "consenrich/cconsenrich.pyx":2558
+    /* "consenrich/cconsenrich.pyx":2556
  * 
  *     for regionIndex in range(numIntervals):
  *         startIndex = regionIndex - blockLength + 1             # <<<<<<<<<<<<<<
@@ -52556,7 +52523,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
     __pyx_v_startIndex = ((__pyx_v_regionIndex - __pyx_v_blockLength) + 1);
 
-    /* "consenrich/cconsenrich.pyx":2559
+    /* "consenrich/cconsenrich.pyx":2557
  *     for regionIndex in range(numIntervals):
  *         startIndex = regionIndex - blockLength + 1
  *         if startIndex < 0:             # <<<<<<<<<<<<<<
@@ -52566,7 +52533,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_t_14 = (__pyx_v_startIndex < 0);
     if (__pyx_t_14) {
 
-      /* "consenrich/cconsenrich.pyx":2561
+      /* "consenrich/cconsenrich.pyx":2559
  *         if startIndex < 0:
  *             # flag as invalid (i.e., divert to prior model until full window)
  *             varOut[regionIndex] = <cnp.float32_t>-1.0             # <<<<<<<<<<<<<<
@@ -52576,7 +52543,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
       __pyx_t_17 = __pyx_v_regionIndex;
       *__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_varOut.rcbuffer->pybuffer.buf, __pyx_t_17, __pyx_pybuffernd_varOut.diminfo[0].strides) = ((__pyx_t_5numpy_float32_t)-1.0);
 
-      /* "consenrich/cconsenrich.pyx":2562
+      /* "consenrich/cconsenrich.pyx":2560
  *             # flag as invalid (i.e., divert to prior model until full window)
  *             varOut[regionIndex] = <cnp.float32_t>-1.0
  *             continue             # <<<<<<<<<<<<<<
@@ -52585,7 +52552,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       goto __pyx_L22_continue;
 
-      /* "consenrich/cconsenrich.pyx":2559
+      /* "consenrich/cconsenrich.pyx":2557
  *     for regionIndex in range(numIntervals):
  *         startIndex = regionIndex - blockLength + 1
  *         if startIndex < 0:             # <<<<<<<<<<<<<<
@@ -52594,7 +52561,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2563
+    /* "consenrich/cconsenrich.pyx":2561
  *             varOut[regionIndex] = <cnp.float32_t>-1.0
  *             continue
  *         if startIndex > maxStartIndex:             # <<<<<<<<<<<<<<
@@ -52604,7 +52571,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_t_14 = (__pyx_v_startIndex > __pyx_v_maxStartIndex);
     if (__pyx_t_14) {
 
-      /* "consenrich/cconsenrich.pyx":2564
+      /* "consenrich/cconsenrich.pyx":2562
  *             continue
  *         if startIndex > maxStartIndex:
  *             startIndex = maxStartIndex             # <<<<<<<<<<<<<<
@@ -52613,7 +52580,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
       __pyx_v_startIndex = __pyx_v_maxStartIndex;
 
-      /* "consenrich/cconsenrich.pyx":2563
+      /* "consenrich/cconsenrich.pyx":2561
  *             varOut[regionIndex] = <cnp.float32_t>-1.0
  *             continue
  *         if startIndex > maxStartIndex:             # <<<<<<<<<<<<<<
@@ -52622,7 +52589,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2565
+    /* "consenrich/cconsenrich.pyx":2563
  *         if startIndex > maxStartIndex:
  *             startIndex = maxStartIndex
  *         varOut[regionIndex] = varAtStartIndex[startIndex]             # <<<<<<<<<<<<<<
@@ -52635,7 +52602,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
     __pyx_L22_continue:;
   }
 
-  /* "consenrich/cconsenrich.pyx":2567
+  /* "consenrich/cconsenrich.pyx":2565
  *         varOut[regionIndex] = varAtStartIndex[startIndex]
  * 
  *     return varOut             # <<<<<<<<<<<<<<
@@ -52647,7 +52614,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(PyArr
   __pyx_r = ((PyArrayObject *)__pyx_v_varOut);
   goto __pyx_L0;
 
-  /* "consenrich/cconsenrich.pyx":2416
+  /* "consenrich/cconsenrich.pyx":2414
  * 
  * 
  * cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(             # <<<<<<<<<<<<<<
@@ -52735,75 +52702,75 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_values,&__pyx_mstate_global->__pyx_n_u_blockLength,&__pyx_mstate_global->__pyx_n_u_excludeMask,&__pyx_mstate_global->__pyx_n_u_maxBeta,&__pyx_mstate_global->__pyx_n_u_ridgeLambda,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2416, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2414, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 2414, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 2414, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 2414, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2414, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2414, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "crolling_AR1_IVar", 0) < (0)) __PYX_ERR(0, 2416, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "crolling_AR1_IVar", 0) < (0)) __PYX_ERR(0, 2414, __pyx_L3_error)
       for (Py_ssize_t i = __pyx_nargs; i < 3; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("crolling_AR1_IVar", 0, 3, 5, i); __PYX_ERR(0, 2416, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("crolling_AR1_IVar", 0, 3, 5, i); __PYX_ERR(0, 2414, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 2414, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 2414, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 2414, __pyx_L3_error)
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2414, __pyx_L3_error)
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2416, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2414, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
     }
     __pyx_v_values = ((PyArrayObject *)values[0]);
-    __pyx_v_blockLength = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_blockLength == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2418, __pyx_L3_error)
+    __pyx_v_blockLength = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_blockLength == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2416, __pyx_L3_error)
     __pyx_v_excludeMask = ((PyArrayObject *)values[2]);
     if (values[3]) {
-      __pyx_v_maxBeta = __Pyx_PyFloat_AsDouble(values[3]); if (unlikely((__pyx_v_maxBeta == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2420, __pyx_L3_error)
+      __pyx_v_maxBeta = __Pyx_PyFloat_AsDouble(values[3]); if (unlikely((__pyx_v_maxBeta == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2418, __pyx_L3_error)
     } else {
       __pyx_v_maxBeta = ((double)0.99);
     }
     if (values[4]) {
-      __pyx_v_ridgeLambda = __Pyx_PyFloat_AsDouble(values[4]); if (unlikely((__pyx_v_ridgeLambda == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2421, __pyx_L3_error)
+      __pyx_v_ridgeLambda = __Pyx_PyFloat_AsDouble(values[4]); if (unlikely((__pyx_v_ridgeLambda == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2419, __pyx_L3_error)
     } else {
       __pyx_v_ridgeLambda = ((double)0.1);
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("crolling_AR1_IVar", 0, 3, 5, __pyx_nargs); __PYX_ERR(0, 2416, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("crolling_AR1_IVar", 0, 3, 5, __pyx_nargs); __PYX_ERR(0, 2414, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -52814,8 +52781,8 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_values), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "values", 0))) __PYX_ERR(0, 2417, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_excludeMask), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "excludeMask", 0))) __PYX_ERR(0, 2419, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_values), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "values", 0))) __PYX_ERR(0, 2415, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_excludeMask), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "excludeMask", 0))) __PYX_ERR(0, 2417, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_11cconsenrich_36crolling_AR1_IVar(__pyx_self, __pyx_v_values, __pyx_v_blockLength, __pyx_v_excludeMask, __pyx_v_maxBeta, __pyx_v_ridgeLambda);
 
   /* function exit code */
@@ -52858,19 +52825,19 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_36crolling_AR1_IVar(CYTHON_
   __pyx_pybuffernd_excludeMask.rcbuffer = &__pyx_pybuffer_excludeMask;
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_values.rcbuffer->pybuffer, (PyObject*)__pyx_v_values, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2416, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_values.rcbuffer->pybuffer, (PyObject*)__pyx_v_values, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2414, __pyx_L1_error)
   }
   __pyx_pybuffernd_values.diminfo[0].strides = __pyx_pybuffernd_values.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_values.diminfo[0].shape = __pyx_pybuffernd_values.rcbuffer->pybuffer.shape[0];
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_excludeMask.rcbuffer->pybuffer, (PyObject*)__pyx_v_excludeMask, &__Pyx_TypeInfo_nn___pyx_t_5numpy_uint8_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2416, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_excludeMask.rcbuffer->pybuffer, (PyObject*)__pyx_v_excludeMask, &__Pyx_TypeInfo_nn___pyx_t_5numpy_uint8_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2414, __pyx_L1_error)
   }
   __pyx_pybuffernd_excludeMask.diminfo[0].strides = __pyx_pybuffernd_excludeMask.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_excludeMask.diminfo[0].shape = __pyx_pybuffernd_excludeMask.rcbuffer->pybuffer.shape[0];
   __Pyx_XDECREF(__pyx_r);
   __pyx_t_2.__pyx_n = 2;
   __pyx_t_2.maxBeta = __pyx_v_maxBeta;
   __pyx_t_2.ridgeLambda = __pyx_v_ridgeLambda;
-  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(__pyx_v_values, __pyx_v_blockLength, __pyx_v_excludeMask, 1, &__pyx_t_2)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2416, __pyx_L1_error)
+  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_crolling_AR1_IVar(__pyx_v_values, __pyx_v_blockLength, __pyx_v_excludeMask, 1, &__pyx_t_2)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2414, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -52898,7 +52865,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_36crolling_AR1_IVar(CYTHON_
   return __pyx_r;
 }
 
-/* "consenrich/cconsenrich.pyx":2570
+/* "consenrich/cconsenrich.pyx":2568
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(             # <<<<<<<<<<<<<<
@@ -52997,7 +52964,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   __pyx_pybuffernd_predicted.data = NULL;
   __pyx_pybuffernd_predicted.rcbuffer = &__pyx_pybuffer_predicted;
 
-  /* "consenrich/cconsenrich.pyx":2596
+  /* "consenrich/cconsenrich.pyx":2594
  *     """
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] xArr = np.ascontiguousarray(x, dtype=np.float64).ravel()             # <<<<<<<<<<<<<<
@@ -53005,14 +52972,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
  *     cdef Py_ssize_t n = xArr.shape[0]
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2596, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2594, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_6 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2596, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2594, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2596, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2594, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2596, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2594, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
   __pyx_t_8 = 1;
@@ -53029,15 +52996,15 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, ((PyObject *)__pyx_v_x)};
-    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2596, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2594, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2596, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2594, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_6, __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_5);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2596, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2594, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
   __pyx_t_2 = __pyx_t_3;
@@ -53048,22 +53015,22 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_1 = __Pyx_PyObject_FastCallMethod((PyObject*)__pyx_mstate_global->__pyx_n_u_ravel, __pyx_callargs+__pyx_t_8, (1-__pyx_t_8) | (1*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2596, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2594, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2596, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2594, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_xArr.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_xArr = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_xArr.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2596, __pyx_L1_error)
+      __PYX_ERR(0, 2594, __pyx_L1_error)
     } else {__pyx_pybuffernd_xArr.diminfo[0].strides = __pyx_pybuffernd_xArr.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_xArr.diminfo[0].shape = __pyx_pybuffernd_xArr.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_xArr = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2597
+  /* "consenrich/cconsenrich.pyx":2595
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] xArr = np.ascontiguousarray(x, dtype=np.float64).ravel()
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr = np.ascontiguousarray(w, dtype=np.float64).ravel()             # <<<<<<<<<<<<<<
@@ -53071,14 +53038,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
  * 
 */
   __pyx_t_6 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2597, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2595, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2597, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2595, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2597, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2595, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2597, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2595, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
   __pyx_t_8 = 1;
@@ -53095,15 +53062,15 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_6, ((PyObject *)__pyx_v_w)};
-    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2597, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2595, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2597, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2595, __pyx_L1_error)
     __pyx_t_2 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_5);
     __Pyx_XDECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2597, __pyx_L1_error)
+    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2595, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
   }
   __pyx_t_3 = __pyx_t_2;
@@ -53114,22 +53081,22 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_1 = __Pyx_PyObject_FastCallMethod((PyObject*)__pyx_mstate_global->__pyx_n_u_ravel, __pyx_callargs+__pyx_t_8, (1-__pyx_t_8) | (1*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2597, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2595, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2597, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2595, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_wArr.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_wArr = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_wArr.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2597, __pyx_L1_error)
+      __PYX_ERR(0, 2595, __pyx_L1_error)
     } else {__pyx_pybuffernd_wArr.diminfo[0].strides = __pyx_pybuffernd_wArr.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_wArr.diminfo[0].shape = __pyx_pybuffernd_wArr.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_wArr = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2598
+  /* "consenrich/cconsenrich.pyx":2596
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] xArr = np.ascontiguousarray(x, dtype=np.float64).ravel()
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr = np.ascontiguousarray(w, dtype=np.float64).ravel()
  *     cdef Py_ssize_t n = xArr.shape[0]             # <<<<<<<<<<<<<<
@@ -53138,7 +53105,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
   __pyx_v_n = (__pyx_f_5numpy_7ndarray_5shape_shape(((PyArrayObject *)__pyx_v_xArr))[0]);
 
-  /* "consenrich/cconsenrich.pyx":2600
+  /* "consenrich/cconsenrich.pyx":2598
  *     cdef Py_ssize_t n = xArr.shape[0]
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] xBlock = np.empty(n, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -53146,16 +53113,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
  *     # right boundaries for each block
 */
   __pyx_t_2 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2600, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2598, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2600, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2598, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2600, __pyx_L1_error)
+  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2598, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2600, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2598, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2600, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2598, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
   __pyx_t_8 = 1;
@@ -53172,31 +53139,31 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_2, __pyx_t_3};
-    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2600, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2598, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2600, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2598, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_5);
     __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2600, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2598, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2600, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2598, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_xBlock.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_xBlock = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_xBlock.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2600, __pyx_L1_error)
+      __PYX_ERR(0, 2598, __pyx_L1_error)
     } else {__pyx_pybuffernd_xBlock.diminfo[0].strides = __pyx_pybuffernd_xBlock.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_xBlock.diminfo[0].shape = __pyx_pybuffernd_xBlock.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_xBlock = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2601
+  /* "consenrich/cconsenrich.pyx":2599
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] xBlock = np.empty(n, dtype=np.float64)
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] wBlock = np.empty(n, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -53204,16 +53171,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
  *     cdef cnp.ndarray[cnp.int64_t,  ndim=1] rBlock = np.empty(n, dtype=np.int64)
 */
   __pyx_t_7 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2601, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2599, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2601, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2599, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  __pyx_t_5 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2601, __pyx_L1_error)
+  __pyx_t_5 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2599, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2601, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2599, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_2 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2601, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2599, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __pyx_t_8 = 1;
@@ -53230,31 +53197,31 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_7, __pyx_t_5};
-    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2601, __pyx_L1_error)
+    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2599, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_2, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2601, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_2, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2599, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_3);
     __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2601, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2599, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2601, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2599, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_wBlock.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_wBlock = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_wBlock.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2601, __pyx_L1_error)
+      __PYX_ERR(0, 2599, __pyx_L1_error)
     } else {__pyx_pybuffernd_wBlock.diminfo[0].strides = __pyx_pybuffernd_wBlock.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_wBlock.diminfo[0].shape = __pyx_pybuffernd_wBlock.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_wBlock = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2603
+  /* "consenrich/cconsenrich.pyx":2601
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] wBlock = np.empty(n, dtype=np.float64)
  *     # right boundaries for each block
  *     cdef cnp.ndarray[cnp.int64_t,  ndim=1] rBlock = np.empty(n, dtype=np.int64)             # <<<<<<<<<<<<<<
@@ -53262,16 +53229,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
  *     cdef double[:] xV = xArr
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2603, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2601, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_2 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2603, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2601, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2603, __pyx_L1_error)
+  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2601, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2603, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2601, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_int64); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2603, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_int64); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2601, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
   __pyx_t_8 = 1;
@@ -53288,31 +53255,31 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, __pyx_t_3};
-    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2603, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2601, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2603, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_5, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2601, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_2, __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_5);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2603, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2601, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2603, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2601, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_rBlock.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_int64_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_rBlock = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_rBlock.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2603, __pyx_L1_error)
+      __PYX_ERR(0, 2601, __pyx_L1_error)
     } else {__pyx_pybuffernd_rBlock.diminfo[0].strides = __pyx_pybuffernd_rBlock.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_rBlock.diminfo[0].shape = __pyx_pybuffernd_rBlock.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_rBlock = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2604
+  /* "consenrich/cconsenrich.pyx":2602
  *     # right boundaries for each block
  *     cdef cnp.ndarray[cnp.int64_t,  ndim=1] rBlock = np.empty(n, dtype=np.int64)
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] predicted = np.empty(n, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -53320,16 +53287,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
  *     cdef double[:] wV = wArr
 */
   __pyx_t_2 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2604, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2602, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2604, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_5, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2602, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-  __pyx_t_5 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2604, __pyx_L1_error)
+  __pyx_t_5 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2602, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2604, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2602, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2604, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2602, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __pyx_t_8 = 1;
@@ -53346,103 +53313,103 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_2, __pyx_t_5};
-    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2604, __pyx_L1_error)
+    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2602, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2604, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2602, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_3);
     __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2604, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2602, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2604, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2602, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_predicted.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_predicted = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_predicted.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2604, __pyx_L1_error)
+      __PYX_ERR(0, 2602, __pyx_L1_error)
     } else {__pyx_pybuffernd_predicted.diminfo[0].strides = __pyx_pybuffernd_predicted.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_predicted.diminfo[0].shape = __pyx_pybuffernd_predicted.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_predicted = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2605
+  /* "consenrich/cconsenrich.pyx":2603
  *     cdef cnp.ndarray[cnp.int64_t,  ndim=1] rBlock = np.empty(n, dtype=np.int64)
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] predicted = np.empty(n, dtype=np.float64)
  *     cdef double[:] xV = xArr             # <<<<<<<<<<<<<<
  *     cdef double[:] wV = wArr
  *     cdef double[:] xB = xBlock
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_xArr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2605, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_xArr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2603, __pyx_L1_error)
   __pyx_v_xV = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2606
+  /* "consenrich/cconsenrich.pyx":2604
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] predicted = np.empty(n, dtype=np.float64)
  *     cdef double[:] xV = xArr
  *     cdef double[:] wV = wArr             # <<<<<<<<<<<<<<
  *     cdef double[:] xB = xBlock
  *     cdef double[:] wB = wBlock
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_wArr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2606, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_wArr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2604, __pyx_L1_error)
   __pyx_v_wV = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2607
+  /* "consenrich/cconsenrich.pyx":2605
  *     cdef double[:] xV = xArr
  *     cdef double[:] wV = wArr
  *     cdef double[:] xB = xBlock             # <<<<<<<<<<<<<<
  *     cdef double[:] wB = wBlock
- *     cdef long[:]   rB = rBlock
+ *     cdef long[:] rB = rBlock
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_xBlock), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2607, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_xBlock), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2605, __pyx_L1_error)
   __pyx_v_xB = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2608
+  /* "consenrich/cconsenrich.pyx":2606
  *     cdef double[:] wV = wArr
  *     cdef double[:] xB = xBlock
  *     cdef double[:] wB = wBlock             # <<<<<<<<<<<<<<
- *     cdef long[:]   rB = rBlock
+ *     cdef long[:] rB = rBlock
  *     cdef double[:] predicted_ = predicted
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_wBlock), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2608, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_wBlock), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2606, __pyx_L1_error)
   __pyx_v_wB = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2609
+  /* "consenrich/cconsenrich.pyx":2607
  *     cdef double[:] xB = xBlock
  *     cdef double[:] wB = wBlock
- *     cdef long[:]   rB = rBlock             # <<<<<<<<<<<<<<
+ *     cdef long[:] rB = rBlock             # <<<<<<<<<<<<<<
  *     cdef double[:] predicted_ = predicted
  *     cdef Py_ssize_t i, k, j, f, t, b
 */
-  __pyx_t_10 = __Pyx_PyObject_to_MemoryviewSlice_ds_long(((PyObject *)__pyx_v_rBlock), PyBUF_WRITABLE); if (unlikely(!__pyx_t_10.memview)) __PYX_ERR(0, 2609, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_to_MemoryviewSlice_ds_long(((PyObject *)__pyx_v_rBlock), PyBUF_WRITABLE); if (unlikely(!__pyx_t_10.memview)) __PYX_ERR(0, 2607, __pyx_L1_error)
   __pyx_v_rB = __pyx_t_10;
   __pyx_t_10.memview = NULL;
   __pyx_t_10.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2610
+  /* "consenrich/cconsenrich.pyx":2608
  *     cdef double[:] wB = wBlock
- *     cdef long[:]   rB = rBlock
+ *     cdef long[:] rB = rBlock
  *     cdef double[:] predicted_ = predicted             # <<<<<<<<<<<<<<
  *     cdef Py_ssize_t i, k, j, f, t, b
  *     cdef double xCur, W, S
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_predicted), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2610, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_ds_double(((PyObject *)__pyx_v_predicted), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2608, __pyx_L1_error)
   __pyx_v_predicted_ = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2614
+  /* "consenrich/cconsenrich.pyx":2612
  *     cdef double xCur, W, S
  * 
  *     b = 1             # <<<<<<<<<<<<<<
@@ -53451,7 +53418,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
   __pyx_v_b = 1;
 
-  /* "consenrich/cconsenrich.pyx":2615
+  /* "consenrich/cconsenrich.pyx":2613
  * 
  *     b = 1
  *     xB[0] = xV[0]             # <<<<<<<<<<<<<<
@@ -53462,7 +53429,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   __pyx_t_12 = 0;
   *((double *) ( /* dim=0 */ (__pyx_v_xB.data + __pyx_t_12 * __pyx_v_xB.strides[0]) )) = (*((double *) ( /* dim=0 */ (__pyx_v_xV.data + __pyx_t_11 * __pyx_v_xV.strides[0]) )));
 
-  /* "consenrich/cconsenrich.pyx":2616
+  /* "consenrich/cconsenrich.pyx":2614
  *     b = 1
  *     xB[0] = xV[0]
  *     wB[0] = wV[0]             # <<<<<<<<<<<<<<
@@ -53473,7 +53440,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   __pyx_t_12 = 0;
   *((double *) ( /* dim=0 */ (__pyx_v_wB.data + __pyx_t_12 * __pyx_v_wB.strides[0]) )) = (*((double *) ( /* dim=0 */ (__pyx_v_wV.data + __pyx_t_11 * __pyx_v_wV.strides[0]) )));
 
-  /* "consenrich/cconsenrich.pyx":2617
+  /* "consenrich/cconsenrich.pyx":2615
  *     xB[0] = xV[0]
  *     wB[0] = wV[0]
  *     rB[0] = 0             # <<<<<<<<<<<<<<
@@ -53483,7 +53450,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   __pyx_t_11 = 0;
   *((long *) ( /* dim=0 */ (__pyx_v_rB.data + __pyx_t_11 * __pyx_v_rB.strides[0]) )) = 0;
 
-  /* "consenrich/cconsenrich.pyx":2619
+  /* "consenrich/cconsenrich.pyx":2617
  *     rB[0] = 0
  * 
  *     i = 1 # index over elements             # <<<<<<<<<<<<<<
@@ -53492,7 +53459,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
   __pyx_v_i = 1;
 
-  /* "consenrich/cconsenrich.pyx":2620
+  /* "consenrich/cconsenrich.pyx":2618
  * 
  *     i = 1 # index over elements
  *     while i < n:             # <<<<<<<<<<<<<<
@@ -53503,7 +53470,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_13 = (__pyx_v_i < __pyx_v_n);
     if (!__pyx_t_13) break;
 
-    /* "consenrich/cconsenrich.pyx":2622
+    /* "consenrich/cconsenrich.pyx":2620
  *     while i < n:
  *         # proceed assuming monotonic+unique: new block at each index
  *         b += 1             # <<<<<<<<<<<<<<
@@ -53512,7 +53479,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
     __pyx_v_b = (__pyx_v_b + 1);
 
-    /* "consenrich/cconsenrich.pyx":2623
+    /* "consenrich/cconsenrich.pyx":2621
  *         # proceed assuming monotonic+unique: new block at each index
  *         b += 1
  *         xCur = xV[i]             # <<<<<<<<<<<<<<
@@ -53522,7 +53489,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_11 = __pyx_v_i;
     __pyx_v_xCur = (*((double *) ( /* dim=0 */ (__pyx_v_xV.data + __pyx_t_11 * __pyx_v_xV.strides[0]) )));
 
-    /* "consenrich/cconsenrich.pyx":2624
+    /* "consenrich/cconsenrich.pyx":2622
  *         b += 1
  *         xCur = xV[i]
  *         W = wV[i]             # <<<<<<<<<<<<<<
@@ -53532,7 +53499,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_11 = __pyx_v_i;
     __pyx_v_W = (*((double *) ( /* dim=0 */ (__pyx_v_wV.data + __pyx_t_11 * __pyx_v_wV.strides[0]) )));
 
-    /* "consenrich/cconsenrich.pyx":2627
+    /* "consenrich/cconsenrich.pyx":2625
  * 
  *         # not monotonic -- discard 'new' block, element goes to a previously existing block
  *         if xB[b - 2] > xCur:             # <<<<<<<<<<<<<<
@@ -53543,7 +53510,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_13 = ((*((double *) ( /* dim=0 */ (__pyx_v_xB.data + __pyx_t_11 * __pyx_v_xB.strides[0]) ))) > __pyx_v_xCur);
     if (__pyx_t_13) {
 
-      /* "consenrich/cconsenrich.pyx":2629
+      /* "consenrich/cconsenrich.pyx":2627
  *         if xB[b - 2] > xCur:
  *             # reset
  *             b -= 1             # <<<<<<<<<<<<<<
@@ -53552,7 +53519,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
       __pyx_v_b = (__pyx_v_b - 1);
 
-      /* "consenrich/cconsenrich.pyx":2630
+      /* "consenrich/cconsenrich.pyx":2628
  *             # reset
  *             b -= 1
  *             S = wB[b - 1]*xB[b - 1] + W*xCur             # <<<<<<<<<<<<<<
@@ -53563,7 +53530,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
       __pyx_t_12 = (__pyx_v_b - 1);
       __pyx_v_S = (((*((double *) ( /* dim=0 */ (__pyx_v_wB.data + __pyx_t_11 * __pyx_v_wB.strides[0]) ))) * (*((double *) ( /* dim=0 */ (__pyx_v_xB.data + __pyx_t_12 * __pyx_v_xB.strides[0]) )))) + (__pyx_v_W * __pyx_v_xCur));
 
-      /* "consenrich/cconsenrich.pyx":2631
+      /* "consenrich/cconsenrich.pyx":2629
  *             b -= 1
  *             S = wB[b - 1]*xB[b - 1] + W*xCur
  *             W = W + wB[b - 1]             # <<<<<<<<<<<<<<
@@ -53573,7 +53540,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
       __pyx_t_12 = (__pyx_v_b - 1);
       __pyx_v_W = (__pyx_v_W + (*((double *) ( /* dim=0 */ (__pyx_v_wB.data + __pyx_t_12 * __pyx_v_wB.strides[0]) ))));
 
-      /* "consenrich/cconsenrich.pyx":2633
+      /* "consenrich/cconsenrich.pyx":2631
  *             W = W + wB[b - 1]
  *             # update the level/weighted average
  *             xCur = S / W             # <<<<<<<<<<<<<<
@@ -53582,7 +53549,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
       __pyx_v_xCur = (__pyx_v_S / __pyx_v_W);
 
-      /* "consenrich/cconsenrich.pyx":2636
+      /* "consenrich/cconsenrich.pyx":2634
  * 
  *             # Busing: until the current pooled level does not break monotonicity, keep merging elements into the block
  *             while i < n - 1 and xCur >= xV[i + 1]:             # <<<<<<<<<<<<<<
@@ -53602,7 +53569,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
         __pyx_L8_bool_binop_done:;
         if (!__pyx_t_13) break;
 
-        /* "consenrich/cconsenrich.pyx":2637
+        /* "consenrich/cconsenrich.pyx":2635
  *             # Busing: until the current pooled level does not break monotonicity, keep merging elements into the block
  *             while i < n - 1 and xCur >= xV[i + 1]:
  *                 i += 1             # <<<<<<<<<<<<<<
@@ -53611,7 +53578,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
         __pyx_v_i = (__pyx_v_i + 1);
 
-        /* "consenrich/cconsenrich.pyx":2638
+        /* "consenrich/cconsenrich.pyx":2636
  *             while i < n - 1 and xCur >= xV[i + 1]:
  *                 i += 1
  *                 S = S + (wV[i]*xV[i])             # <<<<<<<<<<<<<<
@@ -53622,7 +53589,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
         __pyx_t_11 = __pyx_v_i;
         __pyx_v_S = (__pyx_v_S + ((*((double *) ( /* dim=0 */ (__pyx_v_wV.data + __pyx_t_12 * __pyx_v_wV.strides[0]) ))) * (*((double *) ( /* dim=0 */ (__pyx_v_xV.data + __pyx_t_11 * __pyx_v_xV.strides[0]) )))));
 
-        /* "consenrich/cconsenrich.pyx":2639
+        /* "consenrich/cconsenrich.pyx":2637
  *                 i += 1
  *                 S = S + (wV[i]*xV[i])
  *                 W = W + wV[i]             # <<<<<<<<<<<<<<
@@ -53632,7 +53599,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
         __pyx_t_11 = __pyx_v_i;
         __pyx_v_W = (__pyx_v_W + (*((double *) ( /* dim=0 */ (__pyx_v_wV.data + __pyx_t_11 * __pyx_v_wV.strides[0]) ))));
 
-        /* "consenrich/cconsenrich.pyx":2640
+        /* "consenrich/cconsenrich.pyx":2638
  *                 S = S + (wV[i]*xV[i])
  *                 W = W + wV[i]
  *                 xCur = S / W             # <<<<<<<<<<<<<<
@@ -53642,7 +53609,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
         __pyx_v_xCur = (__pyx_v_S / __pyx_v_W);
       }
 
-      /* "consenrich/cconsenrich.pyx":2644
+      /* "consenrich/cconsenrich.pyx":2642
  *             # if the now-current block level may break monotonicity with previous block(s) merge backwards
  *             # ... note that this should only happen once, as we have already ensured monotonicity when creating previous blocks
  *             while b > 1 and xB[b - 2] > xCur:             # <<<<<<<<<<<<<<
@@ -53662,7 +53629,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
         __pyx_L12_bool_binop_done:;
         if (!__pyx_t_13) break;
 
-        /* "consenrich/cconsenrich.pyx":2645
+        /* "consenrich/cconsenrich.pyx":2643
  *             # ... note that this should only happen once, as we have already ensured monotonicity when creating previous blocks
  *             while b > 1 and xB[b - 2] > xCur:
  *                 b -= 1             # <<<<<<<<<<<<<<
@@ -53671,7 +53638,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
         __pyx_v_b = (__pyx_v_b - 1);
 
-        /* "consenrich/cconsenrich.pyx":2646
+        /* "consenrich/cconsenrich.pyx":2644
  *             while b > 1 and xB[b - 2] > xCur:
  *                 b -= 1
  *                 S = S + (wB[b - 1]*xB[b - 1])             # <<<<<<<<<<<<<<
@@ -53682,7 +53649,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
         __pyx_t_12 = (__pyx_v_b - 1);
         __pyx_v_S = (__pyx_v_S + ((*((double *) ( /* dim=0 */ (__pyx_v_wB.data + __pyx_t_11 * __pyx_v_wB.strides[0]) ))) * (*((double *) ( /* dim=0 */ (__pyx_v_xB.data + __pyx_t_12 * __pyx_v_xB.strides[0]) )))));
 
-        /* "consenrich/cconsenrich.pyx":2647
+        /* "consenrich/cconsenrich.pyx":2645
  *                 b -= 1
  *                 S = S + (wB[b - 1]*xB[b - 1])
  *                 W = W + wB[b - 1]             # <<<<<<<<<<<<<<
@@ -53692,7 +53659,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
         __pyx_t_12 = (__pyx_v_b - 1);
         __pyx_v_W = (__pyx_v_W + (*((double *) ( /* dim=0 */ (__pyx_v_wB.data + __pyx_t_12 * __pyx_v_wB.strides[0]) ))));
 
-        /* "consenrich/cconsenrich.pyx":2648
+        /* "consenrich/cconsenrich.pyx":2646
  *                 S = S + (wB[b - 1]*xB[b - 1])
  *                 W = W + wB[b - 1]
  *                 xCur = S / W             # <<<<<<<<<<<<<<
@@ -53702,7 +53669,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
         __pyx_v_xCur = (__pyx_v_S / __pyx_v_W);
       }
 
-      /* "consenrich/cconsenrich.pyx":2627
+      /* "consenrich/cconsenrich.pyx":2625
  * 
  *         # not monotonic -- discard 'new' block, element goes to a previously existing block
  *         if xB[b - 2] > xCur:             # <<<<<<<<<<<<<<
@@ -53711,7 +53678,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2651
+    /* "consenrich/cconsenrich.pyx":2649
  * 
  *         # update block-level stats, boundaries
  *         xB[b - 1] = xCur             # <<<<<<<<<<<<<<
@@ -53721,7 +53688,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_12 = (__pyx_v_b - 1);
     *((double *) ( /* dim=0 */ (__pyx_v_xB.data + __pyx_t_12 * __pyx_v_xB.strides[0]) )) = __pyx_v_xCur;
 
-    /* "consenrich/cconsenrich.pyx":2652
+    /* "consenrich/cconsenrich.pyx":2650
  *         # update block-level stats, boundaries
  *         xB[b - 1] = xCur
  *         wB[b - 1] = W             # <<<<<<<<<<<<<<
@@ -53731,7 +53698,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_12 = (__pyx_v_b - 1);
     *((double *) ( /* dim=0 */ (__pyx_v_wB.data + __pyx_t_12 * __pyx_v_wB.strides[0]) )) = __pyx_v_W;
 
-    /* "consenrich/cconsenrich.pyx":2653
+    /* "consenrich/cconsenrich.pyx":2651
  *         xB[b - 1] = xCur
  *         wB[b - 1] = W
  *         rB[b - 1] = i             # <<<<<<<<<<<<<<
@@ -53741,7 +53708,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_12 = (__pyx_v_b - 1);
     *((long *) ( /* dim=0 */ (__pyx_v_rB.data + __pyx_t_12 * __pyx_v_rB.strides[0]) )) = __pyx_v_i;
 
-    /* "consenrich/cconsenrich.pyx":2654
+    /* "consenrich/cconsenrich.pyx":2652
  *         wB[b - 1] = W
  *         rB[b - 1] = i
  *         i += 1             # <<<<<<<<<<<<<<
@@ -53751,7 +53718,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_v_i = (__pyx_v_i + 1);
   }
 
-  /* "consenrich/cconsenrich.pyx":2658
+  /* "consenrich/cconsenrich.pyx":2656
  *     # We have monotonicity at the --block level-- and right boundaries, xB stored
  *     # ... now we expand blocks back to get predicted values for all original elements
  *     f = n - 1             # <<<<<<<<<<<<<<
@@ -53760,7 +53727,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
   __pyx_v_f = (__pyx_v_n - 1);
 
-  /* "consenrich/cconsenrich.pyx":2659
+  /* "consenrich/cconsenrich.pyx":2657
  *     # ... now we expand blocks back to get predicted values for all original elements
  *     f = n - 1
  *     for k in range(b - 1, -1, -1):             # <<<<<<<<<<<<<<
@@ -53770,7 +53737,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   for (__pyx_t_15 = (__pyx_v_b - 1); __pyx_t_15 > -1L; __pyx_t_15-=1) {
     __pyx_v_k = __pyx_t_15;
 
-    /* "consenrich/cconsenrich.pyx":2661
+    /* "consenrich/cconsenrich.pyx":2659
  *     for k in range(b - 1, -1, -1):
  *         # case: we hit the first block
  *         if k == 0:             # <<<<<<<<<<<<<<
@@ -53780,7 +53747,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_t_13 = (__pyx_v_k == 0);
     if (__pyx_t_13) {
 
-      /* "consenrich/cconsenrich.pyx":2663
+      /* "consenrich/cconsenrich.pyx":2661
  *         if k == 0:
  *             # ... so 'next' block starts at index 0
  *             t = 0             # <<<<<<<<<<<<<<
@@ -53789,7 +53756,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
 */
       __pyx_v_t = 0;
 
-      /* "consenrich/cconsenrich.pyx":2661
+      /* "consenrich/cconsenrich.pyx":2659
  *     for k in range(b - 1, -1, -1):
  *         # case: we hit the first block
  *         if k == 0:             # <<<<<<<<<<<<<<
@@ -53799,7 +53766,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
       goto __pyx_L16;
     }
 
-    /* "consenrich/cconsenrich.pyx":2666
+    /* "consenrich/cconsenrich.pyx":2664
  *         else:
  *             # current block's first element is previous block's right boundary + 1
  *             t = rB[k - 1] + 1             # <<<<<<<<<<<<<<
@@ -53812,7 +53779,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     }
     __pyx_L16:;
 
-    /* "consenrich/cconsenrich.pyx":2667
+    /* "consenrich/cconsenrich.pyx":2665
  *             # current block's first element is previous block's right boundary + 1
  *             t = rB[k - 1] + 1
  *         for j in range(f, t - 1, -1):             # <<<<<<<<<<<<<<
@@ -53824,7 +53791,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     for (__pyx_t_18 = __pyx_v_f; __pyx_t_18 > __pyx_t_17; __pyx_t_18-=1) {
       __pyx_v_j = __pyx_t_18;
 
-      /* "consenrich/cconsenrich.pyx":2668
+      /* "consenrich/cconsenrich.pyx":2666
  *             t = rB[k - 1] + 1
  *         for j in range(f, t - 1, -1):
  *             predicted_[j] = xB[k]             # <<<<<<<<<<<<<<
@@ -53836,7 +53803,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
       *((double *) ( /* dim=0 */ (__pyx_v_predicted_.data + __pyx_t_11 * __pyx_v_predicted_.strides[0]) )) = (*((double *) ( /* dim=0 */ (__pyx_v_xB.data + __pyx_t_12 * __pyx_v_xB.strides[0]) )));
     }
 
-    /* "consenrich/cconsenrich.pyx":2669
+    /* "consenrich/cconsenrich.pyx":2667
  *         for j in range(f, t - 1, -1):
  *             predicted_[j] = xB[k]
  *         f = t - 1             # <<<<<<<<<<<<<<
@@ -53846,7 +53813,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
     __pyx_v_f = (__pyx_v_t - 1);
   }
 
-  /* "consenrich/cconsenrich.pyx":2671
+  /* "consenrich/cconsenrich.pyx":2669
  *         f = t - 1
  * 
  *     return predicted             # <<<<<<<<<<<<<<
@@ -53858,7 +53825,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cPAVA(PyArrayObject *__
   __pyx_r = ((PyArrayObject *)__pyx_v_predicted);
   goto __pyx_L0;
 
-  /* "consenrich/cconsenrich.pyx":2570
+  /* "consenrich/cconsenrich.pyx":2568
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(             # <<<<<<<<<<<<<<
@@ -53957,39 +53924,39 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_x,&__pyx_mstate_global->__pyx_n_u_w,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2570, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2568, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2570, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2568, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2570, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2568, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "cPAVA", 0) < (0)) __PYX_ERR(0, 2570, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "cPAVA", 0) < (0)) __PYX_ERR(0, 2568, __pyx_L3_error)
       for (Py_ssize_t i = __pyx_nargs; i < 2; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("cPAVA", 1, 2, 2, i); __PYX_ERR(0, 2570, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("cPAVA", 1, 2, 2, i); __PYX_ERR(0, 2568, __pyx_L3_error) }
       }
     } else if (unlikely(__pyx_nargs != 2)) {
       goto __pyx_L5_argtuple_error;
     } else {
       values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2570, __pyx_L3_error)
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2568, __pyx_L3_error)
       values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2570, __pyx_L3_error)
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2568, __pyx_L3_error)
     }
     __pyx_v_x = ((PyArrayObject *)values[0]);
     __pyx_v_w = ((PyArrayObject *)values[1]);
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("cPAVA", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 2570, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("cPAVA", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 2568, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -54000,8 +53967,8 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_x), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "x", 0))) __PYX_ERR(0, 2571, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_w), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "w", 0))) __PYX_ERR(0, 2572, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_x), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "x", 0))) __PYX_ERR(0, 2569, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_w), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "w", 0))) __PYX_ERR(0, 2570, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_11cconsenrich_38cPAVA(__pyx_self, __pyx_v_x, __pyx_v_w);
 
   /* function exit code */
@@ -54030,7 +53997,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_38cPAVA(CYTHON_UNUSED PyObj
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("cPAVA", 0);
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_cPAVA(__pyx_v_x, __pyx_v_w, 1)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2570, __pyx_L1_error)
+  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_cPAVA(__pyx_v_x, __pyx_v_w, 1)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2568, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -54047,7 +54014,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_38cPAVA(CYTHON_UNUSED PyObj
   return __pyx_r;
 }
 
-/* "consenrich/cconsenrich.pyx":2674
+/* "consenrich/cconsenrich.pyx":2672
  * 
  * 
  * cpdef tuple cscaleStateCovar(             # <<<<<<<<<<<<<<
@@ -54068,7 +54035,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   float __pyx_v_scaleFactorUpper_ = ((float)10.0);
   float __pyx_v_sqResClip = ((float)100.0);
 
-  /* "consenrich/cconsenrich.pyx":2684
+  /* "consenrich/cconsenrich.pyx":2682
  *     float scaleFactorUpper_=10.0,
  *     float sqResClip=100.0,
  *     bint allowDeflate=False,             # <<<<<<<<<<<<<<
@@ -54228,74 +54195,74 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   __pyx_pybuffernd_intervalToBlockMap.rcbuffer = &__pyx_pybuffer_intervalToBlockMap;
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer, (PyObject*)__pyx_v_postFitResiduals, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer, (PyObject*)__pyx_v_postFitResiduals, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   }
   __pyx_pybuffernd_postFitResiduals.diminfo[0].strides = __pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_postFitResiduals.diminfo[0].shape = __pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer.shape[0]; __pyx_pybuffernd_postFitResiduals.diminfo[1].strides = __pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer.strides[1]; __pyx_pybuffernd_postFitResiduals.diminfo[1].shape = __pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer.shape[1];
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer, (PyObject*)__pyx_v_matrixMunc, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer, (PyObject*)__pyx_v_matrixMunc, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   }
   __pyx_pybuffernd_matrixMunc.diminfo[0].strides = __pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_matrixMunc.diminfo[0].shape = __pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer.shape[0]; __pyx_pybuffernd_matrixMunc.diminfo[1].strides = __pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer.strides[1]; __pyx_pybuffernd_matrixMunc.diminfo[1].shape = __pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer.shape[1];
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_stateVar0.rcbuffer->pybuffer, (PyObject*)__pyx_v_stateVar0, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_stateVar0.rcbuffer->pybuffer, (PyObject*)__pyx_v_stateVar0, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   }
   __pyx_pybuffernd_stateVar0.diminfo[0].strides = __pyx_pybuffernd_stateVar0.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_stateVar0.diminfo[0].shape = __pyx_pybuffernd_stateVar0.rcbuffer->pybuffer.shape[0];
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_intervalToBlockMap.rcbuffer->pybuffer, (PyObject*)__pyx_v_intervalToBlockMap, &__Pyx_TypeInfo_nn___pyx_t_5numpy_int32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_intervalToBlockMap.rcbuffer->pybuffer, (PyObject*)__pyx_v_intervalToBlockMap, &__Pyx_TypeInfo_nn___pyx_t_5numpy_int32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   }
   __pyx_pybuffernd_intervalToBlockMap.diminfo[0].strides = __pyx_pybuffernd_intervalToBlockMap.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_intervalToBlockMap.diminfo[0].shape = __pyx_pybuffernd_intervalToBlockMap.rcbuffer->pybuffer.shape[0];
 
-  /* "consenrich/cconsenrich.pyx":2688
+  /* "consenrich/cconsenrich.pyx":2686
  *     double smoothAlpha=0.1,
  * ):
  *     cdef cnp.float32_t[:, ::1] resView = postFitResiduals             # <<<<<<<<<<<<<<
  *     cdef cnp.float32_t[:, ::1] muncView = matrixMunc
  *     cdef cnp.float32_t[:] stateVarView = stateVar0
 */
-  __pyx_t_1 = __Pyx_PyObject_to_MemoryviewSlice_d_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_postFitResiduals), PyBUF_WRITABLE); if (unlikely(!__pyx_t_1.memview)) __PYX_ERR(0, 2688, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyObject_to_MemoryviewSlice_d_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_postFitResiduals), PyBUF_WRITABLE); if (unlikely(!__pyx_t_1.memview)) __PYX_ERR(0, 2686, __pyx_L1_error)
   __pyx_v_resView = __pyx_t_1;
   __pyx_t_1.memview = NULL;
   __pyx_t_1.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2689
+  /* "consenrich/cconsenrich.pyx":2687
  * ):
  *     cdef cnp.float32_t[:, ::1] resView = postFitResiduals
  *     cdef cnp.float32_t[:, ::1] muncView = matrixMunc             # <<<<<<<<<<<<<<
  *     cdef cnp.float32_t[:] stateVarView = stateVar0
  *     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
 */
-  __pyx_t_1 = __Pyx_PyObject_to_MemoryviewSlice_d_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_matrixMunc), PyBUF_WRITABLE); if (unlikely(!__pyx_t_1.memview)) __PYX_ERR(0, 2689, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyObject_to_MemoryviewSlice_d_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_matrixMunc), PyBUF_WRITABLE); if (unlikely(!__pyx_t_1.memview)) __PYX_ERR(0, 2687, __pyx_L1_error)
   __pyx_v_muncView = __pyx_t_1;
   __pyx_t_1.memview = NULL;
   __pyx_t_1.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2690
+  /* "consenrich/cconsenrich.pyx":2688
  *     cdef cnp.float32_t[:, ::1] resView = postFitResiduals
  *     cdef cnp.float32_t[:, ::1] muncView = matrixMunc
  *     cdef cnp.float32_t[:] stateVarView = stateVar0             # <<<<<<<<<<<<<<
  *     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
  *     cdef Py_ssize_t n = resView.shape[0]
 */
-  __pyx_t_2 = __Pyx_PyObject_to_MemoryviewSlice_ds_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_stateVar0), PyBUF_WRITABLE); if (unlikely(!__pyx_t_2.memview)) __PYX_ERR(0, 2690, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyObject_to_MemoryviewSlice_ds_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_stateVar0), PyBUF_WRITABLE); if (unlikely(!__pyx_t_2.memview)) __PYX_ERR(0, 2688, __pyx_L1_error)
   __pyx_v_stateVarView = __pyx_t_2;
   __pyx_t_2.memview = NULL;
   __pyx_t_2.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2691
+  /* "consenrich/cconsenrich.pyx":2689
  *     cdef cnp.float32_t[:, ::1] muncView = matrixMunc
  *     cdef cnp.float32_t[:] stateVarView = stateVar0
  *     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap             # <<<<<<<<<<<<<<
  *     cdef Py_ssize_t n = resView.shape[0]
  *     cdef Py_ssize_t m = resView.shape[1]
 */
-  __pyx_t_3 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_int32_t(((PyObject *)__pyx_v_intervalToBlockMap), PyBUF_WRITABLE); if (unlikely(!__pyx_t_3.memview)) __PYX_ERR(0, 2691, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_int32_t(((PyObject *)__pyx_v_intervalToBlockMap), PyBUF_WRITABLE); if (unlikely(!__pyx_t_3.memview)) __PYX_ERR(0, 2689, __pyx_L1_error)
   __pyx_v_blockMapView = __pyx_t_3;
   __pyx_t_3.memview = NULL;
   __pyx_t_3.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2692
+  /* "consenrich/cconsenrich.pyx":2690
  *     cdef cnp.float32_t[:] stateVarView = stateVar0
  *     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
  *     cdef Py_ssize_t n = resView.shape[0]             # <<<<<<<<<<<<<<
@@ -54304,7 +54271,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_n = (__pyx_v_resView.shape[0]);
 
-  /* "consenrich/cconsenrich.pyx":2693
+  /* "consenrich/cconsenrich.pyx":2691
  *     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
  *     cdef Py_ssize_t n = resView.shape[0]
  *     cdef Py_ssize_t m = resView.shape[1]             # <<<<<<<<<<<<<<
@@ -54313,7 +54280,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_m = (__pyx_v_resView.shape[1]);
 
-  /* "consenrich/cconsenrich.pyx":2695
+  /* "consenrich/cconsenrich.pyx":2693
  *     cdef Py_ssize_t m = resView.shape[1]
  *     cdef Py_ssize_t i, t
  *     cdef Py_ssize_t currBlock = 0             # <<<<<<<<<<<<<<
@@ -54322,7 +54289,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_currBlock = 0;
 
-  /* "consenrich/cconsenrich.pyx":2697
+  /* "consenrich/cconsenrich.pyx":2695
  *     cdef Py_ssize_t currBlock = 0
  *     cdef Py_ssize_t nextBlock
  *     cdef Py_ssize_t numScalesInBlock = 0             # <<<<<<<<<<<<<<
@@ -54331,7 +54298,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_numScalesInBlock = 0;
 
-  /* "consenrich/cconsenrich.pyx":2698
+  /* "consenrich/cconsenrich.pyx":2696
  *     cdef Py_ssize_t nextBlock
  *     cdef Py_ssize_t numScalesInBlock = 0
  *     cdef Py_ssize_t maxBlockLength = 0             # <<<<<<<<<<<<<<
@@ -54340,7 +54307,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_maxBlockLength = 0;
 
-  /* "consenrich/cconsenrich.pyx":2699
+  /* "consenrich/cconsenrich.pyx":2697
  *     cdef Py_ssize_t numScalesInBlock = 0
  *     cdef Py_ssize_t maxBlockLength = 0
  *     cdef Py_ssize_t blockIntervals = 0             # <<<<<<<<<<<<<<
@@ -54349,7 +54316,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_blockIntervals = 0;
 
-  /* "consenrich/cconsenrich.pyx":2710
+  /* "consenrich/cconsenrich.pyx":2708
  *     cdef float median_
  * 
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockscaleFactorArr = np.ones(blockCount, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -54357,16 +54324,16 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockChi2Arr = np.zeros(blockCount, dtype=np.float32)
 */
   __pyx_t_5 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2710, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2708, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_ones); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2710, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_ones); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2708, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2710, __pyx_L1_error)
+  __pyx_t_6 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2708, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2710, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2708, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 2710, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 2708, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_9);
   __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
   __pyx_t_10 = 1;
@@ -54383,31 +54350,31 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_5, __pyx_t_6};
-    __pyx_t_8 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2710, __pyx_L1_error)
+    __pyx_t_8 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2708, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_8);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_9, __pyx_t_8, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2710, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_9, __pyx_t_8, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2708, __pyx_L1_error)
     __pyx_t_4 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_10, (2-__pyx_t_10) | (__pyx_t_10*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_8);
     __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2710, __pyx_L1_error)
+    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2708, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
   }
-  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2710, __pyx_L1_error)
+  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2708, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_blockscaleFactorArr.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_4), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_blockscaleFactorArr = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_blockscaleFactorArr.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2710, __pyx_L1_error)
+      __PYX_ERR(0, 2708, __pyx_L1_error)
     } else {__pyx_pybuffernd_blockscaleFactorArr.diminfo[0].strides = __pyx_pybuffernd_blockscaleFactorArr.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_blockscaleFactorArr.diminfo[0].shape = __pyx_pybuffernd_blockscaleFactorArr.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_blockscaleFactorArr = ((PyArrayObject *)__pyx_t_4);
   __pyx_t_4 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2711
+  /* "consenrich/cconsenrich.pyx":2709
  * 
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockscaleFactorArr = np.ones(blockCount, dtype=np.float32)
  *     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] blockNArr = np.zeros(blockCount, dtype=np.int32)             # <<<<<<<<<<<<<<
@@ -54415,16 +54382,16 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  *     cdef cnp.float32_t[::1] blockscaleFactorView = blockscaleFactorArr
 */
   __pyx_t_7 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2711, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2709, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_zeros); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 2711, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_zeros); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 2709, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_9);
   __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-  __pyx_t_8 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2711, __pyx_L1_error)
+  __pyx_t_8 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2709, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2711, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2709, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2711, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2709, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_10 = 1;
@@ -54441,31 +54408,31 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_7, __pyx_t_8};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2711, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2709, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_5, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2711, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_5, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2709, __pyx_L1_error)
     __pyx_t_4 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_9, __pyx_callargs+__pyx_t_10, (2-__pyx_t_10) | (__pyx_t_10*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2711, __pyx_L1_error)
+    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2709, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
   }
-  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2711, __pyx_L1_error)
+  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2709, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_blockNArr.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_4), &__Pyx_TypeInfo_nn___pyx_t_5numpy_int32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_blockNArr = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_blockNArr.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2711, __pyx_L1_error)
+      __PYX_ERR(0, 2709, __pyx_L1_error)
     } else {__pyx_pybuffernd_blockNArr.diminfo[0].strides = __pyx_pybuffernd_blockNArr.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_blockNArr.diminfo[0].shape = __pyx_pybuffernd_blockNArr.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_blockNArr = ((PyArrayObject *)__pyx_t_4);
   __pyx_t_4 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2712
+  /* "consenrich/cconsenrich.pyx":2710
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockscaleFactorArr = np.ones(blockCount, dtype=np.float32)
  *     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] blockNArr = np.zeros(blockCount, dtype=np.int32)
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockChi2Arr = np.zeros(blockCount, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -54473,16 +54440,16 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  *     cdef cnp.int32_t[::1] blockNView = blockNArr
 */
   __pyx_t_9 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2712, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2710, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_zeros); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2712, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_zeros); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2710, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2712, __pyx_L1_error)
+  __pyx_t_6 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2710, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2712, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2710, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2712, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2710, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
   __pyx_t_10 = 1;
@@ -54499,67 +54466,67 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_9, __pyx_t_6};
-    __pyx_t_8 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2712, __pyx_L1_error)
+    __pyx_t_8 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2710, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_8);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_8, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2712, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_8, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2710, __pyx_L1_error)
     __pyx_t_4 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_5, __pyx_callargs+__pyx_t_10, (2-__pyx_t_10) | (__pyx_t_10*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_8);
     __Pyx_XDECREF(__pyx_t_9); __pyx_t_9 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2712, __pyx_L1_error)
+    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2710, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
   }
-  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2712, __pyx_L1_error)
+  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2710, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_blockChi2Arr.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_4), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_blockChi2Arr = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_blockChi2Arr.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2712, __pyx_L1_error)
+      __PYX_ERR(0, 2710, __pyx_L1_error)
     } else {__pyx_pybuffernd_blockChi2Arr.diminfo[0].strides = __pyx_pybuffernd_blockChi2Arr.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_blockChi2Arr.diminfo[0].shape = __pyx_pybuffernd_blockChi2Arr.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_blockChi2Arr = ((PyArrayObject *)__pyx_t_4);
   __pyx_t_4 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2713
+  /* "consenrich/cconsenrich.pyx":2711
  *     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] blockNArr = np.zeros(blockCount, dtype=np.int32)
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockChi2Arr = np.zeros(blockCount, dtype=np.float32)
  *     cdef cnp.float32_t[::1] blockscaleFactorView = blockscaleFactorArr             # <<<<<<<<<<<<<<
  *     cdef cnp.int32_t[::1] blockNView = blockNArr
  *     cdef cnp.float32_t[::1] blockChi2View = blockChi2Arr
 */
-  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_blockscaleFactorArr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2713, __pyx_L1_error)
+  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_blockscaleFactorArr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2711, __pyx_L1_error)
   __pyx_v_blockscaleFactorView = __pyx_t_11;
   __pyx_t_11.memview = NULL;
   __pyx_t_11.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2714
+  /* "consenrich/cconsenrich.pyx":2712
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockChi2Arr = np.zeros(blockCount, dtype=np.float32)
  *     cdef cnp.float32_t[::1] blockscaleFactorView = blockscaleFactorArr
  *     cdef cnp.int32_t[::1] blockNView = blockNArr             # <<<<<<<<<<<<<<
  *     cdef cnp.float32_t[::1] blockChi2View = blockChi2Arr
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScale = np.empty(blockCount, dtype=np.float64)
 */
-  __pyx_t_3 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_int32_t(((PyObject *)__pyx_v_blockNArr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_3.memview)) __PYX_ERR(0, 2714, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_int32_t(((PyObject *)__pyx_v_blockNArr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_3.memview)) __PYX_ERR(0, 2712, __pyx_L1_error)
   __pyx_v_blockNView = __pyx_t_3;
   __pyx_t_3.memview = NULL;
   __pyx_t_3.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2715
+  /* "consenrich/cconsenrich.pyx":2713
  *     cdef cnp.float32_t[::1] blockscaleFactorView = blockscaleFactorArr
  *     cdef cnp.int32_t[::1] blockNView = blockNArr
  *     cdef cnp.float32_t[::1] blockChi2View = blockChi2Arr             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScale = np.empty(blockCount, dtype=np.float64)
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScaleSm = np.empty(blockCount, dtype=np.float64)
 */
-  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_blockChi2Arr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2715, __pyx_L1_error)
+  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_blockChi2Arr), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2713, __pyx_L1_error)
   __pyx_v_blockChi2View = __pyx_t_11;
   __pyx_t_11.memview = NULL;
   __pyx_t_11.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2716
+  /* "consenrich/cconsenrich.pyx":2714
  *     cdef cnp.int32_t[::1] blockNView = blockNArr
  *     cdef cnp.float32_t[::1] blockChi2View = blockChi2Arr
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScale = np.empty(blockCount, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -54567,16 +54534,16 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  *     cdef double[::1] logScaleView = logScale
 */
   __pyx_t_5 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2716, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2714, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2716, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2714, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-  __pyx_t_8 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2716, __pyx_L1_error)
+  __pyx_t_8 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2714, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2716, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2714, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 2716, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 2714, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_9);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_10 = 1;
@@ -54593,31 +54560,31 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_5, __pyx_t_8};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2716, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2714, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_9, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2716, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_9, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2714, __pyx_L1_error)
     __pyx_t_4 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_10, (2-__pyx_t_10) | (__pyx_t_10*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2716, __pyx_L1_error)
+    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2714, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
   }
-  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2716, __pyx_L1_error)
+  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2714, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_logScale.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_4), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_logScale = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_logScale.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2716, __pyx_L1_error)
+      __PYX_ERR(0, 2714, __pyx_L1_error)
     } else {__pyx_pybuffernd_logScale.diminfo[0].strides = __pyx_pybuffernd_logScale.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_logScale.diminfo[0].shape = __pyx_pybuffernd_logScale.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_logScale = ((PyArrayObject *)__pyx_t_4);
   __pyx_t_4 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2717
+  /* "consenrich/cconsenrich.pyx":2715
  *     cdef cnp.float32_t[::1] blockChi2View = blockChi2Arr
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScale = np.empty(blockCount, dtype=np.float64)
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScaleSm = np.empty(blockCount, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -54625,16 +54592,16 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  *     cdef double[::1] logScaleSmView = logScaleSm
 */
   __pyx_t_7 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2717, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2715, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 2717, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 2715, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_9);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2717, __pyx_L1_error)
+  __pyx_t_6 = PyLong_FromSsize_t(__pyx_v_blockCount); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2715, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2717, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2715, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2717, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2715, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
   __pyx_t_10 = 1;
@@ -54651,55 +54618,55 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_7, __pyx_t_6};
-    __pyx_t_8 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2717, __pyx_L1_error)
+    __pyx_t_8 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2715, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_8);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_5, __pyx_t_8, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2717, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_5, __pyx_t_8, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2715, __pyx_L1_error)
     __pyx_t_4 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_9, __pyx_callargs+__pyx_t_10, (2-__pyx_t_10) | (__pyx_t_10*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_8);
     __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2717, __pyx_L1_error)
+    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2715, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
   }
-  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2717, __pyx_L1_error)
+  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2715, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_logScaleSm.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_4), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_logScaleSm = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_logScaleSm.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2717, __pyx_L1_error)
+      __PYX_ERR(0, 2715, __pyx_L1_error)
     } else {__pyx_pybuffernd_logScaleSm.diminfo[0].strides = __pyx_pybuffernd_logScaleSm.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_logScaleSm.diminfo[0].shape = __pyx_pybuffernd_logScaleSm.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_logScaleSm = ((PyArrayObject *)__pyx_t_4);
   __pyx_t_4 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2718
+  /* "consenrich/cconsenrich.pyx":2716
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScale = np.empty(blockCount, dtype=np.float64)
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScaleSm = np.empty(blockCount, dtype=np.float64)
  *     cdef double[::1] logScaleView = logScale             # <<<<<<<<<<<<<<
  *     cdef double[::1] logScaleSmView = logScaleSm
  *     cdef double s_
 */
-  __pyx_t_12 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_logScale), PyBUF_WRITABLE); if (unlikely(!__pyx_t_12.memview)) __PYX_ERR(0, 2718, __pyx_L1_error)
+  __pyx_t_12 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_logScale), PyBUF_WRITABLE); if (unlikely(!__pyx_t_12.memview)) __PYX_ERR(0, 2716, __pyx_L1_error)
   __pyx_v_logScaleView = __pyx_t_12;
   __pyx_t_12.memview = NULL;
   __pyx_t_12.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2719
+  /* "consenrich/cconsenrich.pyx":2717
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] logScaleSm = np.empty(blockCount, dtype=np.float64)
  *     cdef double[::1] logScaleView = logScale
  *     cdef double[::1] logScaleSmView = logScaleSm             # <<<<<<<<<<<<<<
  *     cdef double s_
  * 
 */
-  __pyx_t_12 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_logScaleSm), PyBUF_WRITABLE); if (unlikely(!__pyx_t_12.memview)) __PYX_ERR(0, 2719, __pyx_L1_error)
+  __pyx_t_12 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_logScaleSm), PyBUF_WRITABLE); if (unlikely(!__pyx_t_12.memview)) __PYX_ERR(0, 2717, __pyx_L1_error)
   __pyx_v_logScaleSmView = __pyx_t_12;
   __pyx_t_12.memview = NULL;
   __pyx_t_12.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2722
+  /* "consenrich/cconsenrich.pyx":2720
  *     cdef double s_
  * 
  *     maxBlockLength = 0             # <<<<<<<<<<<<<<
@@ -54708,7 +54675,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_maxBlockLength = 0;
 
-  /* "consenrich/cconsenrich.pyx":2723
+  /* "consenrich/cconsenrich.pyx":2721
  * 
  *     maxBlockLength = 0
  *     currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0             # <<<<<<<<<<<<<<
@@ -54724,7 +54691,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   }
   __pyx_v_currBlock = __pyx_t_13;
 
-  /* "consenrich/cconsenrich.pyx":2724
+  /* "consenrich/cconsenrich.pyx":2722
  *     maxBlockLength = 0
  *     currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
  *     blockIntervals = 0             # <<<<<<<<<<<<<<
@@ -54733,7 +54700,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_blockIntervals = 0;
 
-  /* "consenrich/cconsenrich.pyx":2725
+  /* "consenrich/cconsenrich.pyx":2723
  *     currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
  *     blockIntervals = 0
  *     for i in range(n):             # <<<<<<<<<<<<<<
@@ -54745,7 +54712,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   for (__pyx_t_17 = 0; __pyx_t_17 < __pyx_t_16; __pyx_t_17+=1) {
     __pyx_v_i = __pyx_t_17;
 
-    /* "consenrich/cconsenrich.pyx":2726
+    /* "consenrich/cconsenrich.pyx":2724
  *     blockIntervals = 0
  *     for i in range(n):
  *         nextBlock = <Py_ssize_t>blockMapView[i]             # <<<<<<<<<<<<<<
@@ -54755,7 +54722,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
     __pyx_t_15 = __pyx_v_i;
     __pyx_v_nextBlock = ((Py_ssize_t)(*((__pyx_t_5numpy_int32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_int32_t *) __pyx_v_blockMapView.data) + __pyx_t_15)) ))));
 
-    /* "consenrich/cconsenrich.pyx":2727
+    /* "consenrich/cconsenrich.pyx":2725
  *     for i in range(n):
  *         nextBlock = <Py_ssize_t>blockMapView[i]
  *         if nextBlock != currBlock:             # <<<<<<<<<<<<<<
@@ -54765,7 +54732,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
     __pyx_t_14 = (__pyx_v_nextBlock != __pyx_v_currBlock);
     if (__pyx_t_14) {
 
-      /* "consenrich/cconsenrich.pyx":2728
+      /* "consenrich/cconsenrich.pyx":2726
  *         nextBlock = <Py_ssize_t>blockMapView[i]
  *         if nextBlock != currBlock:
  *             if blockIntervals > maxBlockLength:             # <<<<<<<<<<<<<<
@@ -54775,7 +54742,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
       __pyx_t_14 = (__pyx_v_blockIntervals > __pyx_v_maxBlockLength);
       if (__pyx_t_14) {
 
-        /* "consenrich/cconsenrich.pyx":2729
+        /* "consenrich/cconsenrich.pyx":2727
  *         if nextBlock != currBlock:
  *             if blockIntervals > maxBlockLength:
  *                 maxBlockLength = blockIntervals             # <<<<<<<<<<<<<<
@@ -54784,7 +54751,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
         __pyx_v_maxBlockLength = __pyx_v_blockIntervals;
 
-        /* "consenrich/cconsenrich.pyx":2728
+        /* "consenrich/cconsenrich.pyx":2726
  *         nextBlock = <Py_ssize_t>blockMapView[i]
  *         if nextBlock != currBlock:
  *             if blockIntervals > maxBlockLength:             # <<<<<<<<<<<<<<
@@ -54793,7 +54760,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
       }
 
-      /* "consenrich/cconsenrich.pyx":2730
+      /* "consenrich/cconsenrich.pyx":2728
  *             if blockIntervals > maxBlockLength:
  *                 maxBlockLength = blockIntervals
  *             blockIntervals = 0             # <<<<<<<<<<<<<<
@@ -54802,7 +54769,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
       __pyx_v_blockIntervals = 0;
 
-      /* "consenrich/cconsenrich.pyx":2731
+      /* "consenrich/cconsenrich.pyx":2729
  *                 maxBlockLength = blockIntervals
  *             blockIntervals = 0
  *             currBlock = nextBlock             # <<<<<<<<<<<<<<
@@ -54811,7 +54778,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
       __pyx_v_currBlock = __pyx_v_nextBlock;
 
-      /* "consenrich/cconsenrich.pyx":2727
+      /* "consenrich/cconsenrich.pyx":2725
  *     for i in range(n):
  *         nextBlock = <Py_ssize_t>blockMapView[i]
  *         if nextBlock != currBlock:             # <<<<<<<<<<<<<<
@@ -54820,7 +54787,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2732
+    /* "consenrich/cconsenrich.pyx":2730
  *             blockIntervals = 0
  *             currBlock = nextBlock
  *         blockIntervals += 1             # <<<<<<<<<<<<<<
@@ -54830,7 +54797,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
     __pyx_v_blockIntervals = (__pyx_v_blockIntervals + 1);
   }
 
-  /* "consenrich/cconsenrich.pyx":2733
+  /* "consenrich/cconsenrich.pyx":2731
  *             currBlock = nextBlock
  *         blockIntervals += 1
  *     if blockIntervals > maxBlockLength:             # <<<<<<<<<<<<<<
@@ -54840,7 +54807,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   __pyx_t_14 = (__pyx_v_blockIntervals > __pyx_v_maxBlockLength);
   if (__pyx_t_14) {
 
-    /* "consenrich/cconsenrich.pyx":2734
+    /* "consenrich/cconsenrich.pyx":2732
  *         blockIntervals += 1
  *     if blockIntervals > maxBlockLength:
  *         maxBlockLength = blockIntervals             # <<<<<<<<<<<<<<
@@ -54849,7 +54816,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
     __pyx_v_maxBlockLength = __pyx_v_blockIntervals;
 
-    /* "consenrich/cconsenrich.pyx":2733
+    /* "consenrich/cconsenrich.pyx":2731
  *             currBlock = nextBlock
  *         blockIntervals += 1
  *     if blockIntervals > maxBlockLength:             # <<<<<<<<<<<<<<
@@ -54858,7 +54825,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2735
+  /* "consenrich/cconsenrich.pyx":2733
  *     if blockIntervals > maxBlockLength:
  *         maxBlockLength = blockIntervals
  *     if maxBlockLength <= 0:             # <<<<<<<<<<<<<<
@@ -54868,7 +54835,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   __pyx_t_14 = (__pyx_v_maxBlockLength <= 0);
   if (__pyx_t_14) {
 
-    /* "consenrich/cconsenrich.pyx":2736
+    /* "consenrich/cconsenrich.pyx":2734
  *         maxBlockLength = blockIntervals
  *     if maxBlockLength <= 0:
  *         maxBlockLength = 1             # <<<<<<<<<<<<<<
@@ -54877,7 +54844,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
     __pyx_v_maxBlockLength = 1;
 
-    /* "consenrich/cconsenrich.pyx":2735
+    /* "consenrich/cconsenrich.pyx":2733
  *     if blockIntervals > maxBlockLength:
  *         maxBlockLength = blockIntervals
  *     if maxBlockLength <= 0:             # <<<<<<<<<<<<<<
@@ -54886,7 +54853,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2738
+  /* "consenrich/cconsenrich.pyx":2736
  *         maxBlockLength = 1
  * 
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] calcBuffer = np.empty(maxBlockLength, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -54894,16 +54861,16 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  * 
 */
   __pyx_t_9 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2738, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2736, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2738, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 2736, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-  __pyx_t_8 = PyLong_FromSsize_t(__pyx_v_maxBlockLength); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2738, __pyx_L1_error)
+  __pyx_t_8 = PyLong_FromSsize_t(__pyx_v_maxBlockLength); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2736, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2738, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2736, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2738, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2736, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_10 = 1;
@@ -54920,43 +54887,43 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_9, __pyx_t_8};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2738, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2736, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2738, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_7, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2736, __pyx_L1_error)
     __pyx_t_4 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_5, __pyx_callargs+__pyx_t_10, (2-__pyx_t_10) | (__pyx_t_10*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_9); __pyx_t_9 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2738, __pyx_L1_error)
+    if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2736, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
   }
-  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2738, __pyx_L1_error)
+  if (!(likely(((__pyx_t_4) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_4, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2736, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_calcBuffer.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_4), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_calcBuffer = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_calcBuffer.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 2738, __pyx_L1_error)
+      __PYX_ERR(0, 2736, __pyx_L1_error)
     } else {__pyx_pybuffernd_calcBuffer.diminfo[0].strides = __pyx_pybuffernd_calcBuffer.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_calcBuffer.diminfo[0].shape = __pyx_pybuffernd_calcBuffer.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_calcBuffer = ((PyArrayObject *)__pyx_t_4);
   __pyx_t_4 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2739
+  /* "consenrich/cconsenrich.pyx":2737
  * 
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] calcBuffer = np.empty(maxBlockLength, dtype=np.float32)
  *     cdef float[::1] bufferView = calcBuffer             # <<<<<<<<<<<<<<
  * 
  *     currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
 */
-  __pyx_t_18 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_calcBuffer), PyBUF_WRITABLE); if (unlikely(!__pyx_t_18.memview)) __PYX_ERR(0, 2739, __pyx_L1_error)
+  __pyx_t_18 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_calcBuffer), PyBUF_WRITABLE); if (unlikely(!__pyx_t_18.memview)) __PYX_ERR(0, 2737, __pyx_L1_error)
   __pyx_v_bufferView = __pyx_t_18;
   __pyx_t_18.memview = NULL;
   __pyx_t_18.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2741
+  /* "consenrich/cconsenrich.pyx":2739
  *     cdef float[::1] bufferView = calcBuffer
  * 
  *     currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0             # <<<<<<<<<<<<<<
@@ -54972,7 +54939,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   }
   __pyx_v_currBlock = __pyx_t_13;
 
-  /* "consenrich/cconsenrich.pyx":2746
+  /* "consenrich/cconsenrich.pyx":2744
  *     # numScalesInBlock is both the number of interval-level scale estimates in the current block
  *     # ... and the index into bufferView to store them before computing the median
  *     numScalesInBlock = 0             # <<<<<<<<<<<<<<
@@ -54981,7 +54948,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   __pyx_v_numScalesInBlock = 0;
 
-  /* "consenrich/cconsenrich.pyx":2748
+  /* "consenrich/cconsenrich.pyx":2746
  *     numScalesInBlock = 0
  * 
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -54994,7 +54961,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/cconsenrich.pyx":2749
+        /* "consenrich/cconsenrich.pyx":2747
  * 
  *     with nogil:
  *         for i in range(n):             # <<<<<<<<<<<<<<
@@ -55006,7 +54973,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
         for (__pyx_t_17 = 0; __pyx_t_17 < __pyx_t_16; __pyx_t_17+=1) {
           __pyx_v_i = __pyx_t_17;
 
-          /* "consenrich/cconsenrich.pyx":2750
+          /* "consenrich/cconsenrich.pyx":2748
  *     with nogil:
  *         for i in range(n):
  *             nextBlock = <Py_ssize_t>blockMapView[i]             # <<<<<<<<<<<<<<
@@ -55016,7 +54983,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           __pyx_t_15 = __pyx_v_i;
           __pyx_v_nextBlock = ((Py_ssize_t)(*((__pyx_t_5numpy_int32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_int32_t *) __pyx_v_blockMapView.data) + __pyx_t_15)) ))));
 
-          /* "consenrich/cconsenrich.pyx":2751
+          /* "consenrich/cconsenrich.pyx":2749
  *         for i in range(n):
  *             nextBlock = <Py_ssize_t>blockMapView[i]
  *             if nextBlock != currBlock:             # <<<<<<<<<<<<<<
@@ -55026,7 +54993,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           __pyx_t_14 = (__pyx_v_nextBlock != __pyx_v_currBlock);
           if (__pyx_t_14) {
 
-            /* "consenrich/cconsenrich.pyx":2752
+            /* "consenrich/cconsenrich.pyx":2750
  *             nextBlock = <Py_ssize_t>blockMapView[i]
  *             if nextBlock != currBlock:
  *                 if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:             # <<<<<<<<<<<<<<
@@ -55050,7 +55017,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_L16_bool_binop_done:;
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2753
+              /* "consenrich/cconsenrich.pyx":2751
  *             if nextBlock != currBlock:
  *                 if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:
  *                     median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)             # <<<<<<<<<<<<<<
@@ -55058,10 +55025,10 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  *                     scaleFactor = median_
 */
               __pyx_t_15 = 0;
-              __pyx_t_20 = __pyx_f_10consenrich_11cconsenrich__quantileInplaceF32((&(*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_bufferView.data) + __pyx_t_15)) )))), __pyx_v_numScalesInBlock, ((float)0.5)); if (unlikely(__pyx_t_20 == ((float)-1) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 2753, __pyx_L10_error)
+              __pyx_t_20 = __pyx_f_10consenrich_11cconsenrich__quantileInplaceF32((&(*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_bufferView.data) + __pyx_t_15)) )))), __pyx_v_numScalesInBlock, ((float)0.5)); if (unlikely(__pyx_t_20 == ((float)-1) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 2751, __pyx_L10_error)
               __pyx_v_median_ = __pyx_t_20;
 
-              /* "consenrich/cconsenrich.pyx":2755
+              /* "consenrich/cconsenrich.pyx":2753
  *                     median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)
  *                     # block-level scale factor is the median of interval-level scale factors (over all tracks)
  *                     scaleFactor = median_             # <<<<<<<<<<<<<<
@@ -55070,7 +55037,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_scaleFactor = __pyx_v_median_;
 
-              /* "consenrich/cconsenrich.pyx":2756
+              /* "consenrich/cconsenrich.pyx":2754
  *                     # block-level scale factor is the median of interval-level scale factors (over all tracks)
  *                     scaleFactor = median_
  *                     if (not allowDeflate) and (scaleFactor < 1.0):             # <<<<<<<<<<<<<<
@@ -55088,7 +55055,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
               __pyx_L20_bool_binop_done:;
               if (__pyx_t_14) {
 
-                /* "consenrich/cconsenrich.pyx":2757
+                /* "consenrich/cconsenrich.pyx":2755
  *                     scaleFactor = median_
  *                     if (not allowDeflate) and (scaleFactor < 1.0):
  *                         scaleFactor = 1.0             # <<<<<<<<<<<<<<
@@ -55097,7 +55064,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
                 __pyx_v_scaleFactor = 1.0;
 
-                /* "consenrich/cconsenrich.pyx":2756
+                /* "consenrich/cconsenrich.pyx":2754
  *                     # block-level scale factor is the median of interval-level scale factors (over all tracks)
  *                     scaleFactor = median_
  *                     if (not allowDeflate) and (scaleFactor < 1.0):             # <<<<<<<<<<<<<<
@@ -55106,7 +55073,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               }
 
-              /* "consenrich/cconsenrich.pyx":2758
+              /* "consenrich/cconsenrich.pyx":2756
  *                     if (not allowDeflate) and (scaleFactor < 1.0):
  *                         scaleFactor = 1.0
  *                     if scaleFactor < scaleFactorLow_:             # <<<<<<<<<<<<<<
@@ -55116,7 +55083,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
               __pyx_t_14 = (__pyx_v_scaleFactor < __pyx_v_scaleFactorLow_);
               if (__pyx_t_14) {
 
-                /* "consenrich/cconsenrich.pyx":2759
+                /* "consenrich/cconsenrich.pyx":2757
  *                         scaleFactor = 1.0
  *                     if scaleFactor < scaleFactorLow_:
  *                         scaleFactor = scaleFactorLow_             # <<<<<<<<<<<<<<
@@ -55125,7 +55092,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
                 __pyx_v_scaleFactor = __pyx_v_scaleFactorLow_;
 
-                /* "consenrich/cconsenrich.pyx":2758
+                /* "consenrich/cconsenrich.pyx":2756
  *                     if (not allowDeflate) and (scaleFactor < 1.0):
  *                         scaleFactor = 1.0
  *                     if scaleFactor < scaleFactorLow_:             # <<<<<<<<<<<<<<
@@ -55135,7 +55102,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
                 goto __pyx_L22;
               }
 
-              /* "consenrich/cconsenrich.pyx":2760
+              /* "consenrich/cconsenrich.pyx":2758
  *                     if scaleFactor < scaleFactorLow_:
  *                         scaleFactor = scaleFactorLow_
  *                     elif scaleFactor > scaleFactorUpper_:             # <<<<<<<<<<<<<<
@@ -55145,7 +55112,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
               __pyx_t_14 = (__pyx_v_scaleFactor > __pyx_v_scaleFactorUpper_);
               if (__pyx_t_14) {
 
-                /* "consenrich/cconsenrich.pyx":2761
+                /* "consenrich/cconsenrich.pyx":2759
  *                         scaleFactor = scaleFactorLow_
  *                     elif scaleFactor > scaleFactorUpper_:
  *                         scaleFactor = scaleFactorUpper_             # <<<<<<<<<<<<<<
@@ -55154,7 +55121,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
                 __pyx_v_scaleFactor = __pyx_v_scaleFactorUpper_;
 
-                /* "consenrich/cconsenrich.pyx":2760
+                /* "consenrich/cconsenrich.pyx":2758
  *                     if scaleFactor < scaleFactorLow_:
  *                         scaleFactor = scaleFactorLow_
  *                     elif scaleFactor > scaleFactorUpper_:             # <<<<<<<<<<<<<<
@@ -55164,7 +55131,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
               }
               __pyx_L22:;
 
-              /* "consenrich/cconsenrich.pyx":2762
+              /* "consenrich/cconsenrich.pyx":2760
  *                     elif scaleFactor > scaleFactorUpper_:
  *                         scaleFactor = scaleFactorUpper_
  *                     blockscaleFactorView[currBlock] = scaleFactor             # <<<<<<<<<<<<<<
@@ -55174,7 +55141,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
               __pyx_t_15 = __pyx_v_currBlock;
               *((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_float32_t *) __pyx_v_blockscaleFactorView.data) + __pyx_t_15)) )) = __pyx_v_scaleFactor;
 
-              /* "consenrich/cconsenrich.pyx":2763
+              /* "consenrich/cconsenrich.pyx":2761
  *                         scaleFactor = scaleFactorUpper_
  *                     blockscaleFactorView[currBlock] = scaleFactor
  *                     blockNView[currBlock] = <cnp.int32_t>numScalesInBlock             # <<<<<<<<<<<<<<
@@ -55184,7 +55151,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
               __pyx_t_15 = __pyx_v_currBlock;
               *((__pyx_t_5numpy_int32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_int32_t *) __pyx_v_blockNView.data) + __pyx_t_15)) )) = ((__pyx_t_5numpy_int32_t)__pyx_v_numScalesInBlock);
 
-              /* "consenrich/cconsenrich.pyx":2752
+              /* "consenrich/cconsenrich.pyx":2750
  *             nextBlock = <Py_ssize_t>blockMapView[i]
  *             if nextBlock != currBlock:
  *                 if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:             # <<<<<<<<<<<<<<
@@ -55193,7 +55160,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             }
 
-            /* "consenrich/cconsenrich.pyx":2764
+            /* "consenrich/cconsenrich.pyx":2762
  *                     blockscaleFactorView[currBlock] = scaleFactor
  *                     blockNView[currBlock] = <cnp.int32_t>numScalesInBlock
  *                 numScalesInBlock = 0             # <<<<<<<<<<<<<<
@@ -55202,7 +55169,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_numScalesInBlock = 0;
 
-            /* "consenrich/cconsenrich.pyx":2765
+            /* "consenrich/cconsenrich.pyx":2763
  *                     blockNView[currBlock] = <cnp.int32_t>numScalesInBlock
  *                 numScalesInBlock = 0
  *                 currBlock = nextBlock             # <<<<<<<<<<<<<<
@@ -55211,7 +55178,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_currBlock = __pyx_v_nextBlock;
 
-            /* "consenrich/cconsenrich.pyx":2751
+            /* "consenrich/cconsenrich.pyx":2749
  *         for i in range(n):
  *             nextBlock = <Py_ssize_t>blockMapView[i]
  *             if nextBlock != currBlock:             # <<<<<<<<<<<<<<
@@ -55220,7 +55187,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
           }
 
-          /* "consenrich/cconsenrich.pyx":2768
+          /* "consenrich/cconsenrich.pyx":2766
  * 
  * 
  *             chi2Interval = 0.0             # <<<<<<<<<<<<<<
@@ -55229,7 +55196,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
           __pyx_v_chi2Interval = 0.0;
 
-          /* "consenrich/cconsenrich.pyx":2769
+          /* "consenrich/cconsenrich.pyx":2767
  * 
  *             chi2Interval = 0.0
  *             for t in range(m):             # <<<<<<<<<<<<<<
@@ -55241,7 +55208,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           for (__pyx_t_23 = 0; __pyx_t_23 < __pyx_t_22; __pyx_t_23+=1) {
             __pyx_v_t = __pyx_t_23;
 
-            /* "consenrich/cconsenrich.pyx":2770
+            /* "consenrich/cconsenrich.pyx":2768
  *             chi2Interval = 0.0
  *             for t in range(m):
  *                 residual = <double>resView[i, t]             # <<<<<<<<<<<<<<
@@ -55252,7 +55219,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_24 = __pyx_v_t;
             __pyx_v_residual = ((double)(*((__pyx_t_5numpy_float32_t *) ( /* dim=1 */ ((char *) (((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ (__pyx_v_resView.data + __pyx_t_15 * __pyx_v_resView.strides[0]) )) + __pyx_t_24)) ))));
 
-            /* "consenrich/cconsenrich.pyx":2771
+            /* "consenrich/cconsenrich.pyx":2769
  *             for t in range(m):
  *                 residual = <double>resView[i, t]
  *                 mVariance = <double>muncView[t, i]             # <<<<<<<<<<<<<<
@@ -55263,7 +55230,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_15 = __pyx_v_i;
             __pyx_v_mVariance = ((double)(*((__pyx_t_5numpy_float32_t *) ( /* dim=1 */ ((char *) (((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ (__pyx_v_muncView.data + __pyx_t_24 * __pyx_v_muncView.strides[0]) )) + __pyx_t_15)) ))));
 
-            /* "consenrich/cconsenrich.pyx":2773
+            /* "consenrich/cconsenrich.pyx":2771
  *                 mVariance = <double>muncView[t, i]
  *                 # P_[i,00] + R_[i,jj] + pad
  *                 totalVariance = mVariance + (<double>stateVarView[i]) + (<double>pad)             # <<<<<<<<<<<<<<
@@ -55273,7 +55240,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_15 = __pyx_v_i;
             __pyx_v_totalVariance = ((__pyx_v_mVariance + ((double)(*((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ (__pyx_v_stateVarView.data + __pyx_t_15 * __pyx_v_stateVarView.strides[0]) ))))) + ((double)__pyx_v_pad));
 
-            /* "consenrich/cconsenrich.pyx":2774
+            /* "consenrich/cconsenrich.pyx":2772
  *                 # P_[i,00] + R_[i,jj] + pad
  *                 totalVariance = mVariance + (<double>stateVarView[i]) + (<double>pad)
  *                 if totalVariance < (<double>clipSmall):             # <<<<<<<<<<<<<<
@@ -55283,7 +55250,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_14 = (__pyx_v_totalVariance < ((double)__pyx_v_clipSmall));
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2775
+              /* "consenrich/cconsenrich.pyx":2773
  *                 totalVariance = mVariance + (<double>stateVarView[i]) + (<double>pad)
  *                 if totalVariance < (<double>clipSmall):
  *                     totalVariance = <double>clipSmall             # <<<<<<<<<<<<<<
@@ -55292,7 +55259,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_totalVariance = ((double)__pyx_v_clipSmall);
 
-              /* "consenrich/cconsenrich.pyx":2774
+              /* "consenrich/cconsenrich.pyx":2772
  *                 # P_[i,00] + R_[i,jj] + pad
  *                 totalVariance = mVariance + (<double>stateVarView[i]) + (<double>pad)
  *                 if totalVariance < (<double>clipSmall):             # <<<<<<<<<<<<<<
@@ -55301,7 +55268,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             }
 
-            /* "consenrich/cconsenrich.pyx":2776
+            /* "consenrich/cconsenrich.pyx":2774
  *                 if totalVariance < (<double>clipSmall):
  *                     totalVariance = <double>clipSmall
  *                 invVar = 1.0 / totalVariance             # <<<<<<<<<<<<<<
@@ -55310,7 +55277,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_invVar = (1.0 / __pyx_v_totalVariance);
 
-            /* "consenrich/cconsenrich.pyx":2777
+            /* "consenrich/cconsenrich.pyx":2775
  *                     totalVariance = <double>clipSmall
  *                 invVar = 1.0 / totalVariance
  *                 studentizedResidual = residual*sqrt(invVar)             # <<<<<<<<<<<<<<
@@ -55319,7 +55286,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_studentizedResidual = (__pyx_v_residual * sqrt(__pyx_v_invVar));
 
-            /* "consenrich/cconsenrich.pyx":2778
+            /* "consenrich/cconsenrich.pyx":2776
  *                 invVar = 1.0 / totalVariance
  *                 studentizedResidual = residual*sqrt(invVar)
  *                 sqRes = studentizedResidual*studentizedResidual             # <<<<<<<<<<<<<<
@@ -55328,7 +55295,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_sqRes = (__pyx_v_studentizedResidual * __pyx_v_studentizedResidual);
 
-            /* "consenrich/cconsenrich.pyx":2779
+            /* "consenrich/cconsenrich.pyx":2777
  *                 studentizedResidual = residual*sqrt(invVar)
  *                 sqRes = studentizedResidual*studentizedResidual
  *                 if sqRes > (<double>sqResClip):             # <<<<<<<<<<<<<<
@@ -55338,7 +55305,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_14 = (__pyx_v_sqRes > ((double)__pyx_v_sqResClip));
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2780
+              /* "consenrich/cconsenrich.pyx":2778
  *                 sqRes = studentizedResidual*studentizedResidual
  *                 if sqRes > (<double>sqResClip):
  *                     sqRes = <double>sqResClip             # <<<<<<<<<<<<<<
@@ -55347,7 +55314,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_sqRes = ((double)__pyx_v_sqResClip);
 
-              /* "consenrich/cconsenrich.pyx":2779
+              /* "consenrich/cconsenrich.pyx":2777
  *                 studentizedResidual = residual*sqrt(invVar)
  *                 sqRes = studentizedResidual*studentizedResidual
  *                 if sqRes > (<double>sqResClip):             # <<<<<<<<<<<<<<
@@ -55356,7 +55323,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             }
 
-            /* "consenrich/cconsenrich.pyx":2781
+            /* "consenrich/cconsenrich.pyx":2779
  *                 if sqRes > (<double>sqResClip):
  *                     sqRes = <double>sqResClip
  *                 chi2Interval = chi2Interval + sqRes             # <<<<<<<<<<<<<<
@@ -55366,7 +55333,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_v_chi2Interval = (__pyx_v_chi2Interval + __pyx_v_sqRes);
           }
 
-          /* "consenrich/cconsenrich.pyx":2784
+          /* "consenrich/cconsenrich.pyx":2782
  * 
  *             #  check bounds in case interval-->block map from optimization ends up here
  *             if currBlock >= 0 and currBlock < blockCount:             # <<<<<<<<<<<<<<
@@ -55384,7 +55351,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           __pyx_L28_bool_binop_done:;
           if (__pyx_t_14) {
 
-            /* "consenrich/cconsenrich.pyx":2785
+            /* "consenrich/cconsenrich.pyx":2783
  *             #  check bounds in case interval-->block map from optimization ends up here
  *             if currBlock >= 0 and currBlock < blockCount:
  *                 scaleFactor = <float>(chi2Interval / (<double>m))             # <<<<<<<<<<<<<<
@@ -55393,7 +55360,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_scaleFactor = ((float)(__pyx_v_chi2Interval / ((double)__pyx_v_m)));
 
-            /* "consenrich/cconsenrich.pyx":2786
+            /* "consenrich/cconsenrich.pyx":2784
  *             if currBlock >= 0 and currBlock < blockCount:
  *                 scaleFactor = <float>(chi2Interval / (<double>m))
  *                 if numScalesInBlock >= maxBlockLength:             # <<<<<<<<<<<<<<
@@ -55403,7 +55370,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_14 = (__pyx_v_numScalesInBlock >= __pyx_v_maxBlockLength);
             if (unlikely(__pyx_t_14)) {
 
-              /* "consenrich/cconsenrich.pyx":2787
+              /* "consenrich/cconsenrich.pyx":2785
  *                 scaleFactor = <float>(chi2Interval / (<double>m))
  *                 if numScalesInBlock >= maxBlockLength:
  *                     with gil:             # <<<<<<<<<<<<<<
@@ -55414,7 +55381,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
                   PyGILState_STATE __pyx_gilstate_save = __Pyx_PyGILState_Ensure();
                   /*try:*/ {
 
-                    /* "consenrich/cconsenrich.pyx":2788
+                    /* "consenrich/cconsenrich.pyx":2786
  *                 if numScalesInBlock >= maxBlockLength:
  *                     with gil:
  *                         raise RuntimeError("Overflow: is intervalToBlockMap correct?")             # <<<<<<<<<<<<<<
@@ -55427,15 +55394,15 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
                       PyObject *__pyx_callargs[2] = {__pyx_t_5, __pyx_mstate_global->__pyx_kp_u_Overflow_is_intervalToBlockMap_c};
                       __pyx_t_4 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_RuntimeError)), __pyx_callargs+__pyx_t_10, (2-__pyx_t_10) | (__pyx_t_10*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
                       __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
-                      if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2788, __pyx_L34_error)
+                      if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2786, __pyx_L34_error)
                       __Pyx_GOTREF(__pyx_t_4);
                     }
                     __Pyx_Raise(__pyx_t_4, 0, 0, 0);
                     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-                    __PYX_ERR(0, 2788, __pyx_L34_error)
+                    __PYX_ERR(0, 2786, __pyx_L34_error)
                   }
 
-                  /* "consenrich/cconsenrich.pyx":2787
+                  /* "consenrich/cconsenrich.pyx":2785
  *                 scaleFactor = <float>(chi2Interval / (<double>m))
  *                 if numScalesInBlock >= maxBlockLength:
  *                     with gil:             # <<<<<<<<<<<<<<
@@ -55450,7 +55417,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
                   }
               }
 
-              /* "consenrich/cconsenrich.pyx":2786
+              /* "consenrich/cconsenrich.pyx":2784
  *             if currBlock >= 0 and currBlock < blockCount:
  *                 scaleFactor = <float>(chi2Interval / (<double>m))
  *                 if numScalesInBlock >= maxBlockLength:             # <<<<<<<<<<<<<<
@@ -55459,7 +55426,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             }
 
-            /* "consenrich/cconsenrich.pyx":2789
+            /* "consenrich/cconsenrich.pyx":2787
  *                     with gil:
  *                         raise RuntimeError("Overflow: is intervalToBlockMap correct?")
  *                 bufferView[numScalesInBlock] = scaleFactor             # <<<<<<<<<<<<<<
@@ -55469,7 +55436,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_15 = __pyx_v_numScalesInBlock;
             *((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_bufferView.data) + __pyx_t_15)) )) = __pyx_v_scaleFactor;
 
-            /* "consenrich/cconsenrich.pyx":2790
+            /* "consenrich/cconsenrich.pyx":2788
  *                         raise RuntimeError("Overflow: is intervalToBlockMap correct?")
  *                 bufferView[numScalesInBlock] = scaleFactor
  *                 numScalesInBlock += 1             # <<<<<<<<<<<<<<
@@ -55478,7 +55445,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_numScalesInBlock = (__pyx_v_numScalesInBlock + 1);
 
-            /* "consenrich/cconsenrich.pyx":2791
+            /* "consenrich/cconsenrich.pyx":2789
  *                 bufferView[numScalesInBlock] = scaleFactor
  *                 numScalesInBlock += 1
  *                 blockChi2View[currBlock] += <cnp.float32_t>chi2Interval             # <<<<<<<<<<<<<<
@@ -55488,7 +55455,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_15 = __pyx_v_currBlock;
             *((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_float32_t *) __pyx_v_blockChi2View.data) + __pyx_t_15)) )) += ((__pyx_t_5numpy_float32_t)__pyx_v_chi2Interval);
 
-            /* "consenrich/cconsenrich.pyx":2784
+            /* "consenrich/cconsenrich.pyx":2782
  * 
  *             #  check bounds in case interval-->block map from optimization ends up here
  *             if currBlock >= 0 and currBlock < blockCount:             # <<<<<<<<<<<<<<
@@ -55498,7 +55465,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           }
         }
 
-        /* "consenrich/cconsenrich.pyx":2793
+        /* "consenrich/cconsenrich.pyx":2791
  *                 blockChi2View[currBlock] += <cnp.float32_t>chi2Interval
  * 
  *         if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:             # <<<<<<<<<<<<<<
@@ -55522,7 +55489,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
         __pyx_L37_bool_binop_done:;
         if (__pyx_t_14) {
 
-          /* "consenrich/cconsenrich.pyx":2794
+          /* "consenrich/cconsenrich.pyx":2792
  * 
  *         if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:
  *             median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)             # <<<<<<<<<<<<<<
@@ -55530,10 +55497,10 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  *             if (not allowDeflate) and (scaleFactor < 1.0):
 */
           __pyx_t_15 = 0;
-          __pyx_t_20 = __pyx_f_10consenrich_11cconsenrich__quantileInplaceF32((&(*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_bufferView.data) + __pyx_t_15)) )))), __pyx_v_numScalesInBlock, ((float)0.5)); if (unlikely(__pyx_t_20 == ((float)-1) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 2794, __pyx_L10_error)
+          __pyx_t_20 = __pyx_f_10consenrich_11cconsenrich__quantileInplaceF32((&(*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_bufferView.data) + __pyx_t_15)) )))), __pyx_v_numScalesInBlock, ((float)0.5)); if (unlikely(__pyx_t_20 == ((float)-1) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 2792, __pyx_L10_error)
           __pyx_v_median_ = __pyx_t_20;
 
-          /* "consenrich/cconsenrich.pyx":2795
+          /* "consenrich/cconsenrich.pyx":2793
  *         if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:
  *             median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)
  *             scaleFactor = median_             # <<<<<<<<<<<<<<
@@ -55542,7 +55509,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
           __pyx_v_scaleFactor = __pyx_v_median_;
 
-          /* "consenrich/cconsenrich.pyx":2796
+          /* "consenrich/cconsenrich.pyx":2794
  *             median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)
  *             scaleFactor = median_
  *             if (not allowDeflate) and (scaleFactor < 1.0):             # <<<<<<<<<<<<<<
@@ -55560,7 +55527,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           __pyx_L41_bool_binop_done:;
           if (__pyx_t_14) {
 
-            /* "consenrich/cconsenrich.pyx":2797
+            /* "consenrich/cconsenrich.pyx":2795
  *             scaleFactor = median_
  *             if (not allowDeflate) and (scaleFactor < 1.0):
  *                 scaleFactor = 1.0             # <<<<<<<<<<<<<<
@@ -55569,7 +55536,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_scaleFactor = 1.0;
 
-            /* "consenrich/cconsenrich.pyx":2796
+            /* "consenrich/cconsenrich.pyx":2794
  *             median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)
  *             scaleFactor = median_
  *             if (not allowDeflate) and (scaleFactor < 1.0):             # <<<<<<<<<<<<<<
@@ -55578,7 +55545,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
           }
 
-          /* "consenrich/cconsenrich.pyx":2798
+          /* "consenrich/cconsenrich.pyx":2796
  *             if (not allowDeflate) and (scaleFactor < 1.0):
  *                 scaleFactor = 1.0
  *             if scaleFactor < scaleFactorLow_:             # <<<<<<<<<<<<<<
@@ -55588,7 +55555,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           __pyx_t_14 = (__pyx_v_scaleFactor < __pyx_v_scaleFactorLow_);
           if (__pyx_t_14) {
 
-            /* "consenrich/cconsenrich.pyx":2799
+            /* "consenrich/cconsenrich.pyx":2797
  *                 scaleFactor = 1.0
  *             if scaleFactor < scaleFactorLow_:
  *                 scaleFactor = scaleFactorLow_             # <<<<<<<<<<<<<<
@@ -55597,7 +55564,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_scaleFactor = __pyx_v_scaleFactorLow_;
 
-            /* "consenrich/cconsenrich.pyx":2798
+            /* "consenrich/cconsenrich.pyx":2796
  *             if (not allowDeflate) and (scaleFactor < 1.0):
  *                 scaleFactor = 1.0
  *             if scaleFactor < scaleFactorLow_:             # <<<<<<<<<<<<<<
@@ -55607,7 +55574,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             goto __pyx_L43;
           }
 
-          /* "consenrich/cconsenrich.pyx":2800
+          /* "consenrich/cconsenrich.pyx":2798
  *             if scaleFactor < scaleFactorLow_:
  *                 scaleFactor = scaleFactorLow_
  *             elif scaleFactor > scaleFactorUpper_:             # <<<<<<<<<<<<<<
@@ -55617,7 +55584,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           __pyx_t_14 = (__pyx_v_scaleFactor > __pyx_v_scaleFactorUpper_);
           if (__pyx_t_14) {
 
-            /* "consenrich/cconsenrich.pyx":2801
+            /* "consenrich/cconsenrich.pyx":2799
  *                 scaleFactor = scaleFactorLow_
  *             elif scaleFactor > scaleFactorUpper_:
  *                 scaleFactor = scaleFactorUpper_             # <<<<<<<<<<<<<<
@@ -55626,7 +55593,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_scaleFactor = __pyx_v_scaleFactorUpper_;
 
-            /* "consenrich/cconsenrich.pyx":2800
+            /* "consenrich/cconsenrich.pyx":2798
  *             if scaleFactor < scaleFactorLow_:
  *                 scaleFactor = scaleFactorLow_
  *             elif scaleFactor > scaleFactorUpper_:             # <<<<<<<<<<<<<<
@@ -55636,7 +55603,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           }
           __pyx_L43:;
 
-          /* "consenrich/cconsenrich.pyx":2802
+          /* "consenrich/cconsenrich.pyx":2800
  *             elif scaleFactor > scaleFactorUpper_:
  *                 scaleFactor = scaleFactorUpper_
  *             blockscaleFactorView[currBlock] = scaleFactor             # <<<<<<<<<<<<<<
@@ -55646,7 +55613,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           __pyx_t_15 = __pyx_v_currBlock;
           *((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_float32_t *) __pyx_v_blockscaleFactorView.data) + __pyx_t_15)) )) = __pyx_v_scaleFactor;
 
-          /* "consenrich/cconsenrich.pyx":2803
+          /* "consenrich/cconsenrich.pyx":2801
  *                 scaleFactor = scaleFactorUpper_
  *             blockscaleFactorView[currBlock] = scaleFactor
  *             blockNView[currBlock] = <cnp.int32_t>numScalesInBlock             # <<<<<<<<<<<<<<
@@ -55656,7 +55623,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           __pyx_t_15 = __pyx_v_currBlock;
           *((__pyx_t_5numpy_int32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_int32_t *) __pyx_v_blockNView.data) + __pyx_t_15)) )) = ((__pyx_t_5numpy_int32_t)__pyx_v_numScalesInBlock);
 
-          /* "consenrich/cconsenrich.pyx":2793
+          /* "consenrich/cconsenrich.pyx":2791
  *                 blockChi2View[currBlock] += <cnp.float32_t>chi2Interval
  * 
  *         if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:             # <<<<<<<<<<<<<<
@@ -55666,7 +55633,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
         }
       }
 
-      /* "consenrich/cconsenrich.pyx":2748
+      /* "consenrich/cconsenrich.pyx":2746
  *     numScalesInBlock = 0
  * 
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -55688,7 +55655,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
       }
   }
 
-  /* "consenrich/cconsenrich.pyx":2805
+  /* "consenrich/cconsenrich.pyx":2803
  *             blockNView[currBlock] = <cnp.int32_t>numScalesInBlock
  * 
  *     if blockCount > 1 and smoothAlpha > 0.0:             # <<<<<<<<<<<<<<
@@ -55706,7 +55673,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
   __pyx_L45_bool_binop_done:;
   if (__pyx_t_14) {
 
-    /* "consenrich/cconsenrich.pyx":2807
+    /* "consenrich/cconsenrich.pyx":2805
  *     if blockCount > 1 and smoothAlpha > 0.0:
  *         # smooth over blocks in log-space to prevent kinks
  *         if smoothAlpha > 1.0:             # <<<<<<<<<<<<<<
@@ -55716,7 +55683,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
     __pyx_t_14 = (__pyx_v_smoothAlpha > 1.0);
     if (__pyx_t_14) {
 
-      /* "consenrich/cconsenrich.pyx":2808
+      /* "consenrich/cconsenrich.pyx":2806
  *         # smooth over blocks in log-space to prevent kinks
  *         if smoothAlpha > 1.0:
  *             smoothAlpha = 1.0             # <<<<<<<<<<<<<<
@@ -55725,7 +55692,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
       __pyx_v_smoothAlpha = 1.0;
 
-      /* "consenrich/cconsenrich.pyx":2807
+      /* "consenrich/cconsenrich.pyx":2805
  *     if blockCount > 1 and smoothAlpha > 0.0:
  *         # smooth over blocks in log-space to prevent kinks
  *         if smoothAlpha > 1.0:             # <<<<<<<<<<<<<<
@@ -55734,7 +55701,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2810
+    /* "consenrich/cconsenrich.pyx":2808
  *             smoothAlpha = 1.0
  * 
  *         with nogil:             # <<<<<<<<<<<<<<
@@ -55747,7 +55714,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
         __Pyx_FastGIL_Remember();
         /*try:*/ {
 
-          /* "consenrich/cconsenrich.pyx":2812
+          /* "consenrich/cconsenrich.pyx":2810
  *         with nogil:
  *             # log-scale
  *             for i in range(blockCount):             # <<<<<<<<<<<<<<
@@ -55759,7 +55726,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           for (__pyx_t_17 = 0; __pyx_t_17 < __pyx_t_16; __pyx_t_17+=1) {
             __pyx_v_i = __pyx_t_17;
 
-            /* "consenrich/cconsenrich.pyx":2813
+            /* "consenrich/cconsenrich.pyx":2811
  *             # log-scale
  *             for i in range(blockCount):
  *                 scaleFactor = blockscaleFactorView[i]             # <<<<<<<<<<<<<<
@@ -55769,7 +55736,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_15 = __pyx_v_i;
             __pyx_v_scaleFactor = (*((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ ((char *) (((__pyx_t_5numpy_float32_t *) __pyx_v_blockscaleFactorView.data) + __pyx_t_15)) )));
 
-            /* "consenrich/cconsenrich.pyx":2814
+            /* "consenrich/cconsenrich.pyx":2812
  *             for i in range(blockCount):
  *                 scaleFactor = blockscaleFactorView[i]
  *                 if (not allowDeflate) and (scaleFactor < 1.0):             # <<<<<<<<<<<<<<
@@ -55787,7 +55754,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_L54_bool_binop_done:;
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2815
+              /* "consenrich/cconsenrich.pyx":2813
  *                 scaleFactor = blockscaleFactorView[i]
  *                 if (not allowDeflate) and (scaleFactor < 1.0):
  *                     scaleFactor = 1.0             # <<<<<<<<<<<<<<
@@ -55796,7 +55763,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_scaleFactor = 1.0;
 
-              /* "consenrich/cconsenrich.pyx":2814
+              /* "consenrich/cconsenrich.pyx":2812
  *             for i in range(blockCount):
  *                 scaleFactor = blockscaleFactorView[i]
  *                 if (not allowDeflate) and (scaleFactor < 1.0):             # <<<<<<<<<<<<<<
@@ -55805,7 +55772,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             }
 
-            /* "consenrich/cconsenrich.pyx":2816
+            /* "consenrich/cconsenrich.pyx":2814
  *                 if (not allowDeflate) and (scaleFactor < 1.0):
  *                     scaleFactor = 1.0
  *                 if scaleFactor < scaleFactorLow_:             # <<<<<<<<<<<<<<
@@ -55815,7 +55782,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_14 = (__pyx_v_scaleFactor < __pyx_v_scaleFactorLow_);
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2817
+              /* "consenrich/cconsenrich.pyx":2815
  *                     scaleFactor = 1.0
  *                 if scaleFactor < scaleFactorLow_:
  *                     scaleFactor = scaleFactorLow_             # <<<<<<<<<<<<<<
@@ -55824,7 +55791,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_scaleFactor = __pyx_v_scaleFactorLow_;
 
-              /* "consenrich/cconsenrich.pyx":2816
+              /* "consenrich/cconsenrich.pyx":2814
  *                 if (not allowDeflate) and (scaleFactor < 1.0):
  *                     scaleFactor = 1.0
  *                 if scaleFactor < scaleFactorLow_:             # <<<<<<<<<<<<<<
@@ -55834,7 +55801,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
               goto __pyx_L56;
             }
 
-            /* "consenrich/cconsenrich.pyx":2818
+            /* "consenrich/cconsenrich.pyx":2816
  *                 if scaleFactor < scaleFactorLow_:
  *                     scaleFactor = scaleFactorLow_
  *                 elif scaleFactor > scaleFactorUpper_:             # <<<<<<<<<<<<<<
@@ -55844,7 +55811,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_14 = (__pyx_v_scaleFactor > __pyx_v_scaleFactorUpper_);
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2819
+              /* "consenrich/cconsenrich.pyx":2817
  *                     scaleFactor = scaleFactorLow_
  *                 elif scaleFactor > scaleFactorUpper_:
  *                     scaleFactor = scaleFactorUpper_             # <<<<<<<<<<<<<<
@@ -55853,7 +55820,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_scaleFactor = __pyx_v_scaleFactorUpper_;
 
-              /* "consenrich/cconsenrich.pyx":2818
+              /* "consenrich/cconsenrich.pyx":2816
  *                 if scaleFactor < scaleFactorLow_:
  *                     scaleFactor = scaleFactorLow_
  *                 elif scaleFactor > scaleFactorUpper_:             # <<<<<<<<<<<<<<
@@ -55863,7 +55830,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             }
             __pyx_L56:;
 
-            /* "consenrich/cconsenrich.pyx":2820
+            /* "consenrich/cconsenrich.pyx":2818
  *                 elif scaleFactor > scaleFactorUpper_:
  *                     scaleFactor = scaleFactorUpper_
  *                 if scaleFactor < clipSmall:             # <<<<<<<<<<<<<<
@@ -55873,7 +55840,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_14 = (__pyx_v_scaleFactor < __pyx_v_clipSmall);
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2821
+              /* "consenrich/cconsenrich.pyx":2819
  *                     scaleFactor = scaleFactorUpper_
  *                 if scaleFactor < clipSmall:
  *                     scaleFactor = clipSmall             # <<<<<<<<<<<<<<
@@ -55882,7 +55849,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_scaleFactor = __pyx_v_clipSmall;
 
-              /* "consenrich/cconsenrich.pyx":2820
+              /* "consenrich/cconsenrich.pyx":2818
  *                 elif scaleFactor > scaleFactorUpper_:
  *                     scaleFactor = scaleFactorUpper_
  *                 if scaleFactor < clipSmall:             # <<<<<<<<<<<<<<
@@ -55891,7 +55858,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             }
 
-            /* "consenrich/cconsenrich.pyx":2822
+            /* "consenrich/cconsenrich.pyx":2820
  *                 if scaleFactor < clipSmall:
  *                     scaleFactor = clipSmall
  *                 logScaleView[i] = log(<double>scaleFactor)             # <<<<<<<<<<<<<<
@@ -55902,7 +55869,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             *((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logScaleView.data) + __pyx_t_15)) )) = log(((double)__pyx_v_scaleFactor));
           }
 
-          /* "consenrich/cconsenrich.pyx":2824
+          /* "consenrich/cconsenrich.pyx":2822
  *                 logScaleView[i] = log(<double>scaleFactor)
  * 
  *             _cEMA(<const double*>&logScaleView[0], <double*>&logScaleSmView[0], blockCount, smoothAlpha)             # <<<<<<<<<<<<<<
@@ -55911,9 +55878,9 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
           __pyx_t_15 = 0;
           __pyx_t_24 = 0;
-          __pyx_t_14 = __pyx_f_10consenrich_11cconsenrich__cEMA(((double const *)(&(*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logScaleView.data) + __pyx_t_15)) ))))), ((double *)(&(*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logScaleSmView.data) + __pyx_t_24)) ))))), __pyx_v_blockCount, __pyx_v_smoothAlpha); if (unlikely(__pyx_t_14 == ((int)-1) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 2824, __pyx_L49_error)
+          __pyx_t_14 = __pyx_f_10consenrich_11cconsenrich__cEMA(((double const *)(&(*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logScaleView.data) + __pyx_t_15)) ))))), ((double *)(&(*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logScaleSmView.data) + __pyx_t_24)) ))))), __pyx_v_blockCount, __pyx_v_smoothAlpha); if (unlikely(__pyx_t_14 == ((int)-1) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 2822, __pyx_L49_error)
 
-          /* "consenrich/cconsenrich.pyx":2826
+          /* "consenrich/cconsenrich.pyx":2824
  *             _cEMA(<const double*>&logScaleView[0], <double*>&logScaleSmView[0], blockCount, smoothAlpha)
  * 
  *             for i in range(blockCount):             # <<<<<<<<<<<<<<
@@ -55925,7 +55892,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           for (__pyx_t_17 = 0; __pyx_t_17 < __pyx_t_16; __pyx_t_17+=1) {
             __pyx_v_i = __pyx_t_17;
 
-            /* "consenrich/cconsenrich.pyx":2828
+            /* "consenrich/cconsenrich.pyx":2826
  *             for i in range(blockCount):
  *                 # make sure our bounds are still in check AFTER cEMA
  *                 s_ = exp(logScaleSmView[i])             # <<<<<<<<<<<<<<
@@ -55935,7 +55902,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_24 = __pyx_v_i;
             __pyx_v_s_ = exp((*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logScaleSmView.data) + __pyx_t_24)) ))));
 
-            /* "consenrich/cconsenrich.pyx":2829
+            /* "consenrich/cconsenrich.pyx":2827
  *                 # make sure our bounds are still in check AFTER cEMA
  *                 s_ = exp(logScaleSmView[i])
  *                 scaleFactor = <float>s_             # <<<<<<<<<<<<<<
@@ -55944,7 +55911,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             __pyx_v_scaleFactor = ((float)__pyx_v_s_);
 
-            /* "consenrich/cconsenrich.pyx":2830
+            /* "consenrich/cconsenrich.pyx":2828
  *                 s_ = exp(logScaleSmView[i])
  *                 scaleFactor = <float>s_
  *                 if (not allowDeflate) and (scaleFactor < 1.0):             # <<<<<<<<<<<<<<
@@ -55962,7 +55929,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_L61_bool_binop_done:;
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2831
+              /* "consenrich/cconsenrich.pyx":2829
  *                 scaleFactor = <float>s_
  *                 if (not allowDeflate) and (scaleFactor < 1.0):
  *                     scaleFactor = 1.0             # <<<<<<<<<<<<<<
@@ -55971,7 +55938,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_scaleFactor = 1.0;
 
-              /* "consenrich/cconsenrich.pyx":2830
+              /* "consenrich/cconsenrich.pyx":2828
  *                 s_ = exp(logScaleSmView[i])
  *                 scaleFactor = <float>s_
  *                 if (not allowDeflate) and (scaleFactor < 1.0):             # <<<<<<<<<<<<<<
@@ -55980,7 +55947,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
             }
 
-            /* "consenrich/cconsenrich.pyx":2832
+            /* "consenrich/cconsenrich.pyx":2830
  *                 if (not allowDeflate) and (scaleFactor < 1.0):
  *                     scaleFactor = 1.0
  *                 if scaleFactor < scaleFactorLow_:             # <<<<<<<<<<<<<<
@@ -55990,7 +55957,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_14 = (__pyx_v_scaleFactor < __pyx_v_scaleFactorLow_);
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2833
+              /* "consenrich/cconsenrich.pyx":2831
  *                     scaleFactor = 1.0
  *                 if scaleFactor < scaleFactorLow_:
  *                     scaleFactor = scaleFactorLow_             # <<<<<<<<<<<<<<
@@ -55999,7 +55966,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_scaleFactor = __pyx_v_scaleFactorLow_;
 
-              /* "consenrich/cconsenrich.pyx":2832
+              /* "consenrich/cconsenrich.pyx":2830
  *                 if (not allowDeflate) and (scaleFactor < 1.0):
  *                     scaleFactor = 1.0
  *                 if scaleFactor < scaleFactorLow_:             # <<<<<<<<<<<<<<
@@ -56009,7 +55976,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
               goto __pyx_L63;
             }
 
-            /* "consenrich/cconsenrich.pyx":2834
+            /* "consenrich/cconsenrich.pyx":2832
  *                 if scaleFactor < scaleFactorLow_:
  *                     scaleFactor = scaleFactorLow_
  *                 elif scaleFactor > scaleFactorUpper_:             # <<<<<<<<<<<<<<
@@ -56019,7 +55986,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             __pyx_t_14 = (__pyx_v_scaleFactor > __pyx_v_scaleFactorUpper_);
             if (__pyx_t_14) {
 
-              /* "consenrich/cconsenrich.pyx":2835
+              /* "consenrich/cconsenrich.pyx":2833
  *                     scaleFactor = scaleFactorLow_
  *                 elif scaleFactor > scaleFactorUpper_:
  *                     scaleFactor = scaleFactorUpper_             # <<<<<<<<<<<<<<
@@ -56028,7 +55995,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
               __pyx_v_scaleFactor = __pyx_v_scaleFactorUpper_;
 
-              /* "consenrich/cconsenrich.pyx":2834
+              /* "consenrich/cconsenrich.pyx":2832
  *                 if scaleFactor < scaleFactorLow_:
  *                     scaleFactor = scaleFactorLow_
  *                 elif scaleFactor > scaleFactorUpper_:             # <<<<<<<<<<<<<<
@@ -56038,7 +56005,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
             }
             __pyx_L63:;
 
-            /* "consenrich/cconsenrich.pyx":2836
+            /* "consenrich/cconsenrich.pyx":2834
  *                 elif scaleFactor > scaleFactorUpper_:
  *                     scaleFactor = scaleFactorUpper_
  *                 blockscaleFactorView[i] = scaleFactor             # <<<<<<<<<<<<<<
@@ -56050,7 +56017,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
           }
         }
 
-        /* "consenrich/cconsenrich.pyx":2810
+        /* "consenrich/cconsenrich.pyx":2808
  *             smoothAlpha = 1.0
  * 
  *         with nogil:             # <<<<<<<<<<<<<<
@@ -56072,7 +56039,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
         }
     }
 
-    /* "consenrich/cconsenrich.pyx":2805
+    /* "consenrich/cconsenrich.pyx":2803
  *             blockNView[currBlock] = <cnp.int32_t>numScalesInBlock
  * 
  *     if blockCount > 1 and smoothAlpha > 0.0:             # <<<<<<<<<<<<<<
@@ -56081,7 +56048,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2838
+  /* "consenrich/cconsenrich.pyx":2836
  *                 blockscaleFactorView[i] = scaleFactor
  * 
  *     return (blockscaleFactorArr, blockNArr, blockChi2Arr)             # <<<<<<<<<<<<<<
@@ -56089,22 +56056,22 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(PyArrayObje
  * 
 */
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_4 = PyTuple_New(3); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2838, __pyx_L1_error)
+  __pyx_t_4 = PyTuple_New(3); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2836, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_INCREF((PyObject *)__pyx_v_blockscaleFactorArr);
   __Pyx_GIVEREF((PyObject *)__pyx_v_blockscaleFactorArr);
-  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_4, 0, ((PyObject *)__pyx_v_blockscaleFactorArr)) != (0)) __PYX_ERR(0, 2838, __pyx_L1_error);
+  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_4, 0, ((PyObject *)__pyx_v_blockscaleFactorArr)) != (0)) __PYX_ERR(0, 2836, __pyx_L1_error);
   __Pyx_INCREF((PyObject *)__pyx_v_blockNArr);
   __Pyx_GIVEREF((PyObject *)__pyx_v_blockNArr);
-  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_4, 1, ((PyObject *)__pyx_v_blockNArr)) != (0)) __PYX_ERR(0, 2838, __pyx_L1_error);
+  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_4, 1, ((PyObject *)__pyx_v_blockNArr)) != (0)) __PYX_ERR(0, 2836, __pyx_L1_error);
   __Pyx_INCREF((PyObject *)__pyx_v_blockChi2Arr);
   __Pyx_GIVEREF((PyObject *)__pyx_v_blockChi2Arr);
-  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_4, 2, ((PyObject *)__pyx_v_blockChi2Arr)) != (0)) __PYX_ERR(0, 2838, __pyx_L1_error);
+  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_4, 2, ((PyObject *)__pyx_v_blockChi2Arr)) != (0)) __PYX_ERR(0, 2836, __pyx_L1_error);
   __pyx_r = ((PyObject*)__pyx_t_4);
   __pyx_t_4 = 0;
   goto __pyx_L0;
 
-  /* "consenrich/cconsenrich.pyx":2674
+  /* "consenrich/cconsenrich.pyx":2672
  * 
  * 
  * cpdef tuple cscaleStateCovar(             # <<<<<<<<<<<<<<
@@ -56227,106 +56194,106 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_postFitResiduals,&__pyx_mstate_global->__pyx_n_u_matrixMunc,&__pyx_mstate_global->__pyx_n_u_stateVar0,&__pyx_mstate_global->__pyx_n_u_intervalToBlockMap,&__pyx_mstate_global->__pyx_n_u_blockCount,&__pyx_mstate_global->__pyx_n_u_pad,&__pyx_mstate_global->__pyx_n_u_scaleFactorLow,&__pyx_mstate_global->__pyx_n_u_scaleFactorUpper,&__pyx_mstate_global->__pyx_n_u_sqResClip,&__pyx_mstate_global->__pyx_n_u_allowDeflate,&__pyx_mstate_global->__pyx_n_u_clipSmall,&__pyx_mstate_global->__pyx_n_u_smoothAlpha,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2674, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2672, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case 12:
         values[11] = __Pyx_ArgRef_FASTCALL(__pyx_args, 11);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[11])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[11])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 11:
         values[10] = __Pyx_ArgRef_FASTCALL(__pyx_args, 10);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[10])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[10])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 10:
         values[9] = __Pyx_ArgRef_FASTCALL(__pyx_args, 9);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[9])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[9])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  9:
         values[8] = __Pyx_ArgRef_FASTCALL(__pyx_args, 8);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[8])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[8])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  8:
         values[7] = __Pyx_ArgRef_FASTCALL(__pyx_args, 7);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[7])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[7])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  7:
         values[6] = __Pyx_ArgRef_FASTCALL(__pyx_args, 6);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "cscaleStateCovar", 0) < (0)) __PYX_ERR(0, 2674, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "cscaleStateCovar", 0) < (0)) __PYX_ERR(0, 2672, __pyx_L3_error)
       for (Py_ssize_t i = __pyx_nargs; i < 5; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("cscaleStateCovar", 0, 5, 12, i); __PYX_ERR(0, 2674, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("cscaleStateCovar", 0, 5, 12, i); __PYX_ERR(0, 2672, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case 12:
         values[11] = __Pyx_ArgRef_FASTCALL(__pyx_args, 11);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[11])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[11])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 11:
         values[10] = __Pyx_ArgRef_FASTCALL(__pyx_args, 10);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[10])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[10])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 10:
         values[9] = __Pyx_ArgRef_FASTCALL(__pyx_args, 9);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[9])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[9])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  9:
         values[8] = __Pyx_ArgRef_FASTCALL(__pyx_args, 8);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[8])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[8])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  8:
         values[7] = __Pyx_ArgRef_FASTCALL(__pyx_args, 7);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[7])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[7])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  7:
         values[6] = __Pyx_ArgRef_FASTCALL(__pyx_args, 6);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 2672, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 2672, __pyx_L3_error)
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 2672, __pyx_L3_error)
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 2672, __pyx_L3_error)
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2672, __pyx_L3_error)
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2674, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2672, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -56335,32 +56302,32 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     __pyx_v_matrixMunc = ((PyArrayObject *)values[1]);
     __pyx_v_stateVar0 = ((PyArrayObject *)values[2]);
     __pyx_v_intervalToBlockMap = ((PyArrayObject *)values[3]);
-    __pyx_v_blockCount = __Pyx_PyIndex_AsSsize_t(values[4]); if (unlikely((__pyx_v_blockCount == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 2679, __pyx_L3_error)
+    __pyx_v_blockCount = __Pyx_PyIndex_AsSsize_t(values[4]); if (unlikely((__pyx_v_blockCount == (Py_ssize_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 2677, __pyx_L3_error)
     if (values[5]) {
-      __pyx_v_pad = __Pyx_PyFloat_AsFloat(values[5]); if (unlikely((__pyx_v_pad == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2680, __pyx_L3_error)
+      __pyx_v_pad = __Pyx_PyFloat_AsFloat(values[5]); if (unlikely((__pyx_v_pad == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2678, __pyx_L3_error)
     } else {
       __pyx_v_pad = ((float)1.0e-3);
     }
     if (values[6]) {
-      __pyx_v_scaleFactorLow_ = __Pyx_PyFloat_AsFloat(values[6]); if (unlikely((__pyx_v_scaleFactorLow_ == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2681, __pyx_L3_error)
+      __pyx_v_scaleFactorLow_ = __Pyx_PyFloat_AsFloat(values[6]); if (unlikely((__pyx_v_scaleFactorLow_ == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2679, __pyx_L3_error)
     } else {
       __pyx_v_scaleFactorLow_ = ((float)1.0);
     }
     if (values[7]) {
-      __pyx_v_scaleFactorUpper_ = __Pyx_PyFloat_AsFloat(values[7]); if (unlikely((__pyx_v_scaleFactorUpper_ == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2682, __pyx_L3_error)
+      __pyx_v_scaleFactorUpper_ = __Pyx_PyFloat_AsFloat(values[7]); if (unlikely((__pyx_v_scaleFactorUpper_ == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2680, __pyx_L3_error)
     } else {
       __pyx_v_scaleFactorUpper_ = ((float)10.0);
     }
     if (values[8]) {
-      __pyx_v_sqResClip = __Pyx_PyFloat_AsFloat(values[8]); if (unlikely((__pyx_v_sqResClip == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2683, __pyx_L3_error)
+      __pyx_v_sqResClip = __Pyx_PyFloat_AsFloat(values[8]); if (unlikely((__pyx_v_sqResClip == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2681, __pyx_L3_error)
     } else {
       __pyx_v_sqResClip = ((float)100.0);
     }
     if (values[9]) {
-      __pyx_v_allowDeflate = __Pyx_PyObject_IsTrue(values[9]); if (unlikely((__pyx_v_allowDeflate == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2684, __pyx_L3_error)
+      __pyx_v_allowDeflate = __Pyx_PyObject_IsTrue(values[9]); if (unlikely((__pyx_v_allowDeflate == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2682, __pyx_L3_error)
     } else {
 
-      /* "consenrich/cconsenrich.pyx":2684
+      /* "consenrich/cconsenrich.pyx":2682
  *     float scaleFactorUpper_=10.0,
  *     float sqResClip=100.0,
  *     bint allowDeflate=False,             # <<<<<<<<<<<<<<
@@ -56370,19 +56337,19 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       __pyx_v_allowDeflate = ((int)0);
     }
     if (values[10]) {
-      __pyx_v_clipSmall = __Pyx_PyFloat_AsFloat(values[10]); if (unlikely((__pyx_v_clipSmall == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2685, __pyx_L3_error)
+      __pyx_v_clipSmall = __Pyx_PyFloat_AsFloat(values[10]); if (unlikely((__pyx_v_clipSmall == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2683, __pyx_L3_error)
     } else {
       __pyx_v_clipSmall = ((float)1.0e-8);
     }
     if (values[11]) {
-      __pyx_v_smoothAlpha = __Pyx_PyFloat_AsDouble(values[11]); if (unlikely((__pyx_v_smoothAlpha == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2686, __pyx_L3_error)
+      __pyx_v_smoothAlpha = __Pyx_PyFloat_AsDouble(values[11]); if (unlikely((__pyx_v_smoothAlpha == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2684, __pyx_L3_error)
     } else {
       __pyx_v_smoothAlpha = ((double)0.1);
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("cscaleStateCovar", 0, 5, 12, __pyx_nargs); __PYX_ERR(0, 2674, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("cscaleStateCovar", 0, 5, 12, __pyx_nargs); __PYX_ERR(0, 2672, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -56393,13 +56360,13 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_postFitResiduals), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "postFitResiduals", 0))) __PYX_ERR(0, 2675, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_matrixMunc), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "matrixMunc", 0))) __PYX_ERR(0, 2676, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_stateVar0), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "stateVar0", 0))) __PYX_ERR(0, 2677, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_intervalToBlockMap), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "intervalToBlockMap", 0))) __PYX_ERR(0, 2678, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_postFitResiduals), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "postFitResiduals", 0))) __PYX_ERR(0, 2673, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_matrixMunc), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "matrixMunc", 0))) __PYX_ERR(0, 2674, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_stateVar0), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "stateVar0", 0))) __PYX_ERR(0, 2675, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_intervalToBlockMap), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "intervalToBlockMap", 0))) __PYX_ERR(0, 2676, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_11cconsenrich_40cscaleStateCovar(__pyx_self, __pyx_v_postFitResiduals, __pyx_v_matrixMunc, __pyx_v_stateVar0, __pyx_v_intervalToBlockMap, __pyx_v_blockCount, __pyx_v_pad, __pyx_v_scaleFactorLow_, __pyx_v_scaleFactorUpper_, __pyx_v_sqResClip, __pyx_v_allowDeflate, __pyx_v_clipSmall, __pyx_v_smoothAlpha);
 
-  /* "consenrich/cconsenrich.pyx":2674
+  /* "consenrich/cconsenrich.pyx":2672
  * 
  * 
  * cpdef tuple cscaleStateCovar(             # <<<<<<<<<<<<<<
@@ -56459,22 +56426,22 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_40cscaleStateCovar(CYTHON_U
   __pyx_pybuffernd_intervalToBlockMap.rcbuffer = &__pyx_pybuffer_intervalToBlockMap;
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer, (PyObject*)__pyx_v_postFitResiduals, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer, (PyObject*)__pyx_v_postFitResiduals, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   }
   __pyx_pybuffernd_postFitResiduals.diminfo[0].strides = __pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_postFitResiduals.diminfo[0].shape = __pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer.shape[0]; __pyx_pybuffernd_postFitResiduals.diminfo[1].strides = __pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer.strides[1]; __pyx_pybuffernd_postFitResiduals.diminfo[1].shape = __pyx_pybuffernd_postFitResiduals.rcbuffer->pybuffer.shape[1];
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer, (PyObject*)__pyx_v_matrixMunc, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer, (PyObject*)__pyx_v_matrixMunc, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   }
   __pyx_pybuffernd_matrixMunc.diminfo[0].strides = __pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_matrixMunc.diminfo[0].shape = __pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer.shape[0]; __pyx_pybuffernd_matrixMunc.diminfo[1].strides = __pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer.strides[1]; __pyx_pybuffernd_matrixMunc.diminfo[1].shape = __pyx_pybuffernd_matrixMunc.rcbuffer->pybuffer.shape[1];
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_stateVar0.rcbuffer->pybuffer, (PyObject*)__pyx_v_stateVar0, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_stateVar0.rcbuffer->pybuffer, (PyObject*)__pyx_v_stateVar0, &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_STRIDES, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   }
   __pyx_pybuffernd_stateVar0.diminfo[0].strides = __pyx_pybuffernd_stateVar0.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_stateVar0.diminfo[0].shape = __pyx_pybuffernd_stateVar0.rcbuffer->pybuffer.shape[0];
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
-    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_intervalToBlockMap.rcbuffer->pybuffer, (PyObject*)__pyx_v_intervalToBlockMap, &__Pyx_TypeInfo_nn___pyx_t_5numpy_int32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+    if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_intervalToBlockMap.rcbuffer->pybuffer, (PyObject*)__pyx_v_intervalToBlockMap, &__Pyx_TypeInfo_nn___pyx_t_5numpy_int32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   }
   __pyx_pybuffernd_intervalToBlockMap.diminfo[0].strides = __pyx_pybuffernd_intervalToBlockMap.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_intervalToBlockMap.diminfo[0].shape = __pyx_pybuffernd_intervalToBlockMap.rcbuffer->pybuffer.shape[0];
   __Pyx_XDECREF(__pyx_r);
@@ -56486,7 +56453,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_40cscaleStateCovar(CYTHON_U
   __pyx_t_2.allowDeflate = __pyx_v_allowDeflate;
   __pyx_t_2.clipSmall = __pyx_v_clipSmall;
   __pyx_t_2.smoothAlpha = __pyx_v_smoothAlpha;
-  __pyx_t_1 = __pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(__pyx_v_postFitResiduals, __pyx_v_matrixMunc, __pyx_v_stateVar0, __pyx_v_intervalToBlockMap, __pyx_v_blockCount, 1, &__pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2674, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_10consenrich_11cconsenrich_cscaleStateCovar(__pyx_v_postFitResiduals, __pyx_v_matrixMunc, __pyx_v_stateVar0, __pyx_v_intervalToBlockMap, __pyx_v_blockCount, 1, &__pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2672, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -56518,7 +56485,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_40cscaleStateCovar(CYTHON_U
   return __pyx_r;
 }
 
-/* "consenrich/cconsenrich.pyx":2841
+/* "consenrich/cconsenrich.pyx":2839
  * 
  * 
  * cdef void _rmin_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -56542,7 +56509,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
   Py_ssize_t __pyx_t_7;
   Py_ssize_t __pyx_t_8;
 
-  /* "consenrich/cconsenrich.pyx":2842
+  /* "consenrich/cconsenrich.pyx":2840
  * 
  * cdef void _rmin_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:
  *     cdef int m = <int>x.shape[0]             # <<<<<<<<<<<<<<
@@ -56551,7 +56518,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
 */
   __pyx_v_m = ((int)(__pyx_v_x.shape[0]));
 
-  /* "consenrich/cconsenrich.pyx":2843
+  /* "consenrich/cconsenrich.pyx":2841
  * cdef void _rmin_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:
  *     cdef int m = <int>x.shape[0]
  *     cdef int i, first_ = 0, end_ = 0             # <<<<<<<<<<<<<<
@@ -56561,7 +56528,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
   __pyx_v_first_ = 0;
   __pyx_v_end_ = 0;
 
-  /* "consenrich/cconsenrich.pyx":2846
+  /* "consenrich/cconsenrich.pyx":2844
  *     cdef int idxDrop
  *     cdef double xi
  *     for i in range(m):             # <<<<<<<<<<<<<<
@@ -56573,7 +56540,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
   for (__pyx_t_3 = 0; __pyx_t_3 < __pyx_t_2; __pyx_t_3+=1) {
     __pyx_v_i = __pyx_t_3;
 
-    /* "consenrich/cconsenrich.pyx":2847
+    /* "consenrich/cconsenrich.pyx":2845
  *     cdef double xi
  *     for i in range(m):
  *         xi = x[i]             # <<<<<<<<<<<<<<
@@ -56583,7 +56550,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
     __pyx_t_4 = __pyx_v_i;
     __pyx_v_xi = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_x.data) + __pyx_t_4)) )));
 
-    /* "consenrich/cconsenrich.pyx":2848
+    /* "consenrich/cconsenrich.pyx":2846
  *     for i in range(m):
  *         xi = x[i]
  *         while end_ > first_ and xi <= x[sliding[end_ - 1]]:             # <<<<<<<<<<<<<<
@@ -56604,7 +56571,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
       __pyx_L7_bool_binop_done:;
       if (!__pyx_t_5) break;
 
-      /* "consenrich/cconsenrich.pyx":2849
+      /* "consenrich/cconsenrich.pyx":2847
  *         xi = x[i]
  *         while end_ > first_ and xi <= x[sliding[end_ - 1]]:
  *             end_ -= 1             # <<<<<<<<<<<<<<
@@ -56614,7 +56581,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
       __pyx_v_end_ = (__pyx_v_end_ - 1);
     }
 
-    /* "consenrich/cconsenrich.pyx":2850
+    /* "consenrich/cconsenrich.pyx":2848
  *         while end_ > first_ and xi <= x[sliding[end_ - 1]]:
  *             end_ -= 1
  *         sliding[end_] = i             # <<<<<<<<<<<<<<
@@ -56624,7 +56591,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
     __pyx_t_4 = __pyx_v_end_;
     *((int *) ( /* dim=0 */ ((char *) (((int *) __pyx_v_sliding.data) + __pyx_t_4)) )) = __pyx_v_i;
 
-    /* "consenrich/cconsenrich.pyx":2851
+    /* "consenrich/cconsenrich.pyx":2849
  *             end_ -= 1
  *         sliding[end_] = i
  *         end_ += 1             # <<<<<<<<<<<<<<
@@ -56633,7 +56600,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
 */
     __pyx_v_end_ = (__pyx_v_end_ + 1);
 
-    /* "consenrich/cconsenrich.pyx":2852
+    /* "consenrich/cconsenrich.pyx":2850
  *         sliding[end_] = i
  *         end_ += 1
  *         idxDrop = i - blockSize             # <<<<<<<<<<<<<<
@@ -56642,7 +56609,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
 */
     __pyx_v_idxDrop = (__pyx_v_i - __pyx_v_blockSize);
 
-    /* "consenrich/cconsenrich.pyx":2853
+    /* "consenrich/cconsenrich.pyx":2851
  *         end_ += 1
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:             # <<<<<<<<<<<<<<
@@ -56653,7 +56620,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
     __pyx_t_5 = ((*((int *) ( /* dim=0 */ ((char *) (((int *) __pyx_v_sliding.data) + __pyx_t_4)) ))) <= __pyx_v_idxDrop);
     if (__pyx_t_5) {
 
-      /* "consenrich/cconsenrich.pyx":2854
+      /* "consenrich/cconsenrich.pyx":2852
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1             # <<<<<<<<<<<<<<
@@ -56662,7 +56629,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
 */
       __pyx_v_first_ = (__pyx_v_first_ + 1);
 
-      /* "consenrich/cconsenrich.pyx":2853
+      /* "consenrich/cconsenrich.pyx":2851
  *         end_ += 1
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:             # <<<<<<<<<<<<<<
@@ -56671,7 +56638,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2855
+    /* "consenrich/cconsenrich.pyx":2853
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1
  *         if i >= blockSize - 1:             # <<<<<<<<<<<<<<
@@ -56681,7 +56648,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
     __pyx_t_5 = (__pyx_v_i >= (__pyx_v_blockSize - 1));
     if (__pyx_t_5) {
 
-      /* "consenrich/cconsenrich.pyx":2856
+      /* "consenrich/cconsenrich.pyx":2854
  *             first_ += 1
  *         if i >= blockSize - 1:
  *             out[i - (blockSize - 1)] = x[sliding[first_]]             # <<<<<<<<<<<<<<
@@ -56693,7 +56660,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
       __pyx_t_8 = (__pyx_v_i - (__pyx_v_blockSize - 1));
       *((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_out.data) + __pyx_t_8)) )) = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_x.data) + __pyx_t_7)) )));
 
-      /* "consenrich/cconsenrich.pyx":2855
+      /* "consenrich/cconsenrich.pyx":2853
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1
  *         if i >= blockSize - 1:             # <<<<<<<<<<<<<<
@@ -56703,7 +56670,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
     }
   }
 
-  /* "consenrich/cconsenrich.pyx":2841
+  /* "consenrich/cconsenrich.pyx":2839
  * 
  * 
  * cdef void _rmin_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -56714,7 +56681,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F64(__Pyx_memviewslice __py
   /* function exit code */
 }
 
-/* "consenrich/cconsenrich.pyx":2859
+/* "consenrich/cconsenrich.pyx":2857
  * 
  * 
  * cdef void _rmax_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -56738,7 +56705,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
   Py_ssize_t __pyx_t_7;
   Py_ssize_t __pyx_t_8;
 
-  /* "consenrich/cconsenrich.pyx":2860
+  /* "consenrich/cconsenrich.pyx":2858
  * 
  * cdef void _rmax_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:
  *     cdef int m = <int>x.shape[0]             # <<<<<<<<<<<<<<
@@ -56747,7 +56714,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
 */
   __pyx_v_m = ((int)(__pyx_v_x.shape[0]));
 
-  /* "consenrich/cconsenrich.pyx":2861
+  /* "consenrich/cconsenrich.pyx":2859
  * cdef void _rmax_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:
  *     cdef int m = <int>x.shape[0]
  *     cdef int i, first_ = 0, end_ = 0             # <<<<<<<<<<<<<<
@@ -56757,7 +56724,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
   __pyx_v_first_ = 0;
   __pyx_v_end_ = 0;
 
-  /* "consenrich/cconsenrich.pyx":2864
+  /* "consenrich/cconsenrich.pyx":2862
  *     cdef int idxDrop
  *     cdef double xi
  *     for i in range(m):             # <<<<<<<<<<<<<<
@@ -56769,7 +56736,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
   for (__pyx_t_3 = 0; __pyx_t_3 < __pyx_t_2; __pyx_t_3+=1) {
     __pyx_v_i = __pyx_t_3;
 
-    /* "consenrich/cconsenrich.pyx":2865
+    /* "consenrich/cconsenrich.pyx":2863
  *     cdef double xi
  *     for i in range(m):
  *         xi = x[i]             # <<<<<<<<<<<<<<
@@ -56779,7 +56746,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
     __pyx_t_4 = __pyx_v_i;
     __pyx_v_xi = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_x.data) + __pyx_t_4)) )));
 
-    /* "consenrich/cconsenrich.pyx":2866
+    /* "consenrich/cconsenrich.pyx":2864
  *     for i in range(m):
  *         xi = x[i]
  *         while end_ > first_ and xi >= x[sliding[end_ - 1]]:             # <<<<<<<<<<<<<<
@@ -56800,7 +56767,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
       __pyx_L7_bool_binop_done:;
       if (!__pyx_t_5) break;
 
-      /* "consenrich/cconsenrich.pyx":2867
+      /* "consenrich/cconsenrich.pyx":2865
  *         xi = x[i]
  *         while end_ > first_ and xi >= x[sliding[end_ - 1]]:
  *             end_ -= 1             # <<<<<<<<<<<<<<
@@ -56810,7 +56777,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
       __pyx_v_end_ = (__pyx_v_end_ - 1);
     }
 
-    /* "consenrich/cconsenrich.pyx":2868
+    /* "consenrich/cconsenrich.pyx":2866
  *         while end_ > first_ and xi >= x[sliding[end_ - 1]]:
  *             end_ -= 1
  *         sliding[end_] = i             # <<<<<<<<<<<<<<
@@ -56820,7 +56787,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
     __pyx_t_4 = __pyx_v_end_;
     *((int *) ( /* dim=0 */ ((char *) (((int *) __pyx_v_sliding.data) + __pyx_t_4)) )) = __pyx_v_i;
 
-    /* "consenrich/cconsenrich.pyx":2869
+    /* "consenrich/cconsenrich.pyx":2867
  *             end_ -= 1
  *         sliding[end_] = i
  *         end_ += 1             # <<<<<<<<<<<<<<
@@ -56829,7 +56796,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
 */
     __pyx_v_end_ = (__pyx_v_end_ + 1);
 
-    /* "consenrich/cconsenrich.pyx":2870
+    /* "consenrich/cconsenrich.pyx":2868
  *         sliding[end_] = i
  *         end_ += 1
  *         idxDrop = i - blockSize             # <<<<<<<<<<<<<<
@@ -56838,7 +56805,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
 */
     __pyx_v_idxDrop = (__pyx_v_i - __pyx_v_blockSize);
 
-    /* "consenrich/cconsenrich.pyx":2871
+    /* "consenrich/cconsenrich.pyx":2869
  *         end_ += 1
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:             # <<<<<<<<<<<<<<
@@ -56849,7 +56816,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
     __pyx_t_5 = ((*((int *) ( /* dim=0 */ ((char *) (((int *) __pyx_v_sliding.data) + __pyx_t_4)) ))) <= __pyx_v_idxDrop);
     if (__pyx_t_5) {
 
-      /* "consenrich/cconsenrich.pyx":2872
+      /* "consenrich/cconsenrich.pyx":2870
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1             # <<<<<<<<<<<<<<
@@ -56858,7 +56825,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
 */
       __pyx_v_first_ = (__pyx_v_first_ + 1);
 
-      /* "consenrich/cconsenrich.pyx":2871
+      /* "consenrich/cconsenrich.pyx":2869
  *         end_ += 1
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:             # <<<<<<<<<<<<<<
@@ -56867,7 +56834,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2873
+    /* "consenrich/cconsenrich.pyx":2871
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1
  *         if i >= blockSize - 1:             # <<<<<<<<<<<<<<
@@ -56877,7 +56844,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
     __pyx_t_5 = (__pyx_v_i >= (__pyx_v_blockSize - 1));
     if (__pyx_t_5) {
 
-      /* "consenrich/cconsenrich.pyx":2874
+      /* "consenrich/cconsenrich.pyx":2872
  *             first_ += 1
  *         if i >= blockSize - 1:
  *             out[i - (blockSize - 1)] = x[sliding[first_]]             # <<<<<<<<<<<<<<
@@ -56889,7 +56856,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
       __pyx_t_8 = (__pyx_v_i - (__pyx_v_blockSize - 1));
       *((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_out.data) + __pyx_t_8)) )) = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_x.data) + __pyx_t_7)) )));
 
-      /* "consenrich/cconsenrich.pyx":2873
+      /* "consenrich/cconsenrich.pyx":2871
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1
  *         if i >= blockSize - 1:             # <<<<<<<<<<<<<<
@@ -56899,7 +56866,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
     }
   }
 
-  /* "consenrich/cconsenrich.pyx":2859
+  /* "consenrich/cconsenrich.pyx":2857
  * 
  * 
  * cdef void _rmax_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -56910,7 +56877,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F64(__Pyx_memviewslice __py
   /* function exit code */
 }
 
-/* "consenrich/cconsenrich.pyx":2877
+/* "consenrich/cconsenrich.pyx":2875
  * 
  * 
  * cdef void _rmin_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -56934,7 +56901,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
   Py_ssize_t __pyx_t_7;
   Py_ssize_t __pyx_t_8;
 
-  /* "consenrich/cconsenrich.pyx":2878
+  /* "consenrich/cconsenrich.pyx":2876
  * 
  * cdef void _rmin_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:
  *     cdef int m = <int>x.shape[0]             # <<<<<<<<<<<<<<
@@ -56943,7 +56910,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
 */
   __pyx_v_m = ((int)(__pyx_v_x.shape[0]));
 
-  /* "consenrich/cconsenrich.pyx":2879
+  /* "consenrich/cconsenrich.pyx":2877
  * cdef void _rmin_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:
  *     cdef int m = <int>x.shape[0]
  *     cdef int i, first_ = 0, end_ = 0             # <<<<<<<<<<<<<<
@@ -56953,7 +56920,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
   __pyx_v_first_ = 0;
   __pyx_v_end_ = 0;
 
-  /* "consenrich/cconsenrich.pyx":2882
+  /* "consenrich/cconsenrich.pyx":2880
  *     cdef int idxDrop
  *     cdef float xi
  *     for i in range(m):             # <<<<<<<<<<<<<<
@@ -56965,7 +56932,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
   for (__pyx_t_3 = 0; __pyx_t_3 < __pyx_t_2; __pyx_t_3+=1) {
     __pyx_v_i = __pyx_t_3;
 
-    /* "consenrich/cconsenrich.pyx":2883
+    /* "consenrich/cconsenrich.pyx":2881
  *     cdef float xi
  *     for i in range(m):
  *         xi = x[i]             # <<<<<<<<<<<<<<
@@ -56975,7 +56942,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
     __pyx_t_4 = __pyx_v_i;
     __pyx_v_xi = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_x.data) + __pyx_t_4)) )));
 
-    /* "consenrich/cconsenrich.pyx":2884
+    /* "consenrich/cconsenrich.pyx":2882
  *     for i in range(m):
  *         xi = x[i]
  *         while end_ > first_ and xi <= x[sliding[end_ - 1]]:             # <<<<<<<<<<<<<<
@@ -56996,7 +56963,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
       __pyx_L7_bool_binop_done:;
       if (!__pyx_t_5) break;
 
-      /* "consenrich/cconsenrich.pyx":2885
+      /* "consenrich/cconsenrich.pyx":2883
  *         xi = x[i]
  *         while end_ > first_ and xi <= x[sliding[end_ - 1]]:
  *             end_ -= 1             # <<<<<<<<<<<<<<
@@ -57006,7 +56973,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
       __pyx_v_end_ = (__pyx_v_end_ - 1);
     }
 
-    /* "consenrich/cconsenrich.pyx":2886
+    /* "consenrich/cconsenrich.pyx":2884
  *         while end_ > first_ and xi <= x[sliding[end_ - 1]]:
  *             end_ -= 1
  *         sliding[end_] = i             # <<<<<<<<<<<<<<
@@ -57016,7 +56983,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
     __pyx_t_4 = __pyx_v_end_;
     *((int *) ( /* dim=0 */ ((char *) (((int *) __pyx_v_sliding.data) + __pyx_t_4)) )) = __pyx_v_i;
 
-    /* "consenrich/cconsenrich.pyx":2887
+    /* "consenrich/cconsenrich.pyx":2885
  *             end_ -= 1
  *         sliding[end_] = i
  *         end_ += 1             # <<<<<<<<<<<<<<
@@ -57025,7 +56992,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
 */
     __pyx_v_end_ = (__pyx_v_end_ + 1);
 
-    /* "consenrich/cconsenrich.pyx":2888
+    /* "consenrich/cconsenrich.pyx":2886
  *         sliding[end_] = i
  *         end_ += 1
  *         idxDrop = i - blockSize             # <<<<<<<<<<<<<<
@@ -57034,7 +57001,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
 */
     __pyx_v_idxDrop = (__pyx_v_i - __pyx_v_blockSize);
 
-    /* "consenrich/cconsenrich.pyx":2889
+    /* "consenrich/cconsenrich.pyx":2887
  *         end_ += 1
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:             # <<<<<<<<<<<<<<
@@ -57045,7 +57012,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
     __pyx_t_5 = ((*((int *) ( /* dim=0 */ ((char *) (((int *) __pyx_v_sliding.data) + __pyx_t_4)) ))) <= __pyx_v_idxDrop);
     if (__pyx_t_5) {
 
-      /* "consenrich/cconsenrich.pyx":2890
+      /* "consenrich/cconsenrich.pyx":2888
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1             # <<<<<<<<<<<<<<
@@ -57054,7 +57021,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
 */
       __pyx_v_first_ = (__pyx_v_first_ + 1);
 
-      /* "consenrich/cconsenrich.pyx":2889
+      /* "consenrich/cconsenrich.pyx":2887
  *         end_ += 1
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:             # <<<<<<<<<<<<<<
@@ -57063,7 +57030,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2891
+    /* "consenrich/cconsenrich.pyx":2889
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1
  *         if i >= blockSize - 1:             # <<<<<<<<<<<<<<
@@ -57073,7 +57040,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
     __pyx_t_5 = (__pyx_v_i >= (__pyx_v_blockSize - 1));
     if (__pyx_t_5) {
 
-      /* "consenrich/cconsenrich.pyx":2892
+      /* "consenrich/cconsenrich.pyx":2890
  *             first_ += 1
  *         if i >= blockSize - 1:
  *             out[i - (blockSize - 1)] = x[sliding[first_]]             # <<<<<<<<<<<<<<
@@ -57085,7 +57052,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
       __pyx_t_8 = (__pyx_v_i - (__pyx_v_blockSize - 1));
       *((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_out.data) + __pyx_t_8)) )) = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_x.data) + __pyx_t_7)) )));
 
-      /* "consenrich/cconsenrich.pyx":2891
+      /* "consenrich/cconsenrich.pyx":2889
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1
  *         if i >= blockSize - 1:             # <<<<<<<<<<<<<<
@@ -57095,7 +57062,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
     }
   }
 
-  /* "consenrich/cconsenrich.pyx":2877
+  /* "consenrich/cconsenrich.pyx":2875
  * 
  * 
  * cdef void _rmin_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -57106,7 +57073,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmin_F32(__Pyx_memviewslice __py
   /* function exit code */
 }
 
-/* "consenrich/cconsenrich.pyx":2895
+/* "consenrich/cconsenrich.pyx":2893
  * 
  * 
  * cdef void _rmax_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -57130,7 +57097,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
   Py_ssize_t __pyx_t_7;
   Py_ssize_t __pyx_t_8;
 
-  /* "consenrich/cconsenrich.pyx":2896
+  /* "consenrich/cconsenrich.pyx":2894
  * 
  * cdef void _rmax_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:
  *     cdef int m = <int>x.shape[0]             # <<<<<<<<<<<<<<
@@ -57139,7 +57106,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
 */
   __pyx_v_m = ((int)(__pyx_v_x.shape[0]));
 
-  /* "consenrich/cconsenrich.pyx":2897
+  /* "consenrich/cconsenrich.pyx":2895
  * cdef void _rmax_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:
  *     cdef int m = <int>x.shape[0]
  *     cdef int i, first_ = 0, end_ = 0             # <<<<<<<<<<<<<<
@@ -57149,7 +57116,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
   __pyx_v_first_ = 0;
   __pyx_v_end_ = 0;
 
-  /* "consenrich/cconsenrich.pyx":2900
+  /* "consenrich/cconsenrich.pyx":2898
  *     cdef int idxDrop
  *     cdef float xi
  *     for i in range(m):             # <<<<<<<<<<<<<<
@@ -57161,7 +57128,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
   for (__pyx_t_3 = 0; __pyx_t_3 < __pyx_t_2; __pyx_t_3+=1) {
     __pyx_v_i = __pyx_t_3;
 
-    /* "consenrich/cconsenrich.pyx":2901
+    /* "consenrich/cconsenrich.pyx":2899
  *     cdef float xi
  *     for i in range(m):
  *         xi = x[i]             # <<<<<<<<<<<<<<
@@ -57171,7 +57138,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
     __pyx_t_4 = __pyx_v_i;
     __pyx_v_xi = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_x.data) + __pyx_t_4)) )));
 
-    /* "consenrich/cconsenrich.pyx":2902
+    /* "consenrich/cconsenrich.pyx":2900
  *     for i in range(m):
  *         xi = x[i]
  *         while end_ > first_ and xi >= x[sliding[end_ - 1]]:             # <<<<<<<<<<<<<<
@@ -57192,7 +57159,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
       __pyx_L7_bool_binop_done:;
       if (!__pyx_t_5) break;
 
-      /* "consenrich/cconsenrich.pyx":2903
+      /* "consenrich/cconsenrich.pyx":2901
  *         xi = x[i]
  *         while end_ > first_ and xi >= x[sliding[end_ - 1]]:
  *             end_ -= 1             # <<<<<<<<<<<<<<
@@ -57202,7 +57169,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
       __pyx_v_end_ = (__pyx_v_end_ - 1);
     }
 
-    /* "consenrich/cconsenrich.pyx":2904
+    /* "consenrich/cconsenrich.pyx":2902
  *         while end_ > first_ and xi >= x[sliding[end_ - 1]]:
  *             end_ -= 1
  *         sliding[end_] = i             # <<<<<<<<<<<<<<
@@ -57212,7 +57179,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
     __pyx_t_4 = __pyx_v_end_;
     *((int *) ( /* dim=0 */ ((char *) (((int *) __pyx_v_sliding.data) + __pyx_t_4)) )) = __pyx_v_i;
 
-    /* "consenrich/cconsenrich.pyx":2905
+    /* "consenrich/cconsenrich.pyx":2903
  *             end_ -= 1
  *         sliding[end_] = i
  *         end_ += 1             # <<<<<<<<<<<<<<
@@ -57221,7 +57188,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
 */
     __pyx_v_end_ = (__pyx_v_end_ + 1);
 
-    /* "consenrich/cconsenrich.pyx":2906
+    /* "consenrich/cconsenrich.pyx":2904
  *         sliding[end_] = i
  *         end_ += 1
  *         idxDrop = i - blockSize             # <<<<<<<<<<<<<<
@@ -57230,7 +57197,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
 */
     __pyx_v_idxDrop = (__pyx_v_i - __pyx_v_blockSize);
 
-    /* "consenrich/cconsenrich.pyx":2907
+    /* "consenrich/cconsenrich.pyx":2905
  *         end_ += 1
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:             # <<<<<<<<<<<<<<
@@ -57241,7 +57208,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
     __pyx_t_5 = ((*((int *) ( /* dim=0 */ ((char *) (((int *) __pyx_v_sliding.data) + __pyx_t_4)) ))) <= __pyx_v_idxDrop);
     if (__pyx_t_5) {
 
-      /* "consenrich/cconsenrich.pyx":2908
+      /* "consenrich/cconsenrich.pyx":2906
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1             # <<<<<<<<<<<<<<
@@ -57250,7 +57217,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
 */
       __pyx_v_first_ = (__pyx_v_first_ + 1);
 
-      /* "consenrich/cconsenrich.pyx":2907
+      /* "consenrich/cconsenrich.pyx":2905
  *         end_ += 1
  *         idxDrop = i - blockSize
  *         if sliding[first_] <= idxDrop:             # <<<<<<<<<<<<<<
@@ -57259,7 +57226,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
 */
     }
 
-    /* "consenrich/cconsenrich.pyx":2909
+    /* "consenrich/cconsenrich.pyx":2907
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1
  *         if i >= blockSize - 1:             # <<<<<<<<<<<<<<
@@ -57269,7 +57236,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
     __pyx_t_5 = (__pyx_v_i >= (__pyx_v_blockSize - 1));
     if (__pyx_t_5) {
 
-      /* "consenrich/cconsenrich.pyx":2910
+      /* "consenrich/cconsenrich.pyx":2908
  *             first_ += 1
  *         if i >= blockSize - 1:
  *             out[i - (blockSize - 1)] = x[sliding[first_]]             # <<<<<<<<<<<<<<
@@ -57281,7 +57248,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
       __pyx_t_8 = (__pyx_v_i - (__pyx_v_blockSize - 1));
       *((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_out.data) + __pyx_t_8)) )) = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_x.data) + __pyx_t_7)) )));
 
-      /* "consenrich/cconsenrich.pyx":2909
+      /* "consenrich/cconsenrich.pyx":2907
  *         if sliding[first_] <= idxDrop:
  *             first_ += 1
  *         if i >= blockSize - 1:             # <<<<<<<<<<<<<<
@@ -57291,7 +57258,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
     }
   }
 
-  /* "consenrich/cconsenrich.pyx":2895
+  /* "consenrich/cconsenrich.pyx":2893
  * 
  * 
  * cdef void _rmax_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -57302,7 +57269,7 @@ static void __pyx_f_10consenrich_11cconsenrich__rmax_F32(__Pyx_memviewslice __py
   /* function exit code */
 }
 
-/* "consenrich/cconsenrich.pyx":2913
+/* "consenrich/cconsenrich.pyx":2911
  * 
  * 
  * cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):             # <<<<<<<<<<<<<<
@@ -57355,7 +57322,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("clocalBaseline_F64", 0);
 
-  /* "consenrich/cconsenrich.pyx":2914
+  /* "consenrich/cconsenrich.pyx":2912
  * 
  * cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):
  *     if blockSize < 3 or (blockSize & 1) == 0:             # <<<<<<<<<<<<<<
@@ -57373,7 +57340,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   __pyx_L4_bool_binop_done:;
   if (unlikely(__pyx_t_1)) {
 
-    /* "consenrich/cconsenrich.pyx":2915
+    /* "consenrich/cconsenrich.pyx":2913
  * cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):
  *     if blockSize < 3 or (blockSize & 1) == 0:
  *         raise ValueError("need an odd-length block")             # <<<<<<<<<<<<<<
@@ -57386,14 +57353,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
       PyObject *__pyx_callargs[2] = {__pyx_t_4, __pyx_mstate_global->__pyx_kp_u_need_an_odd_length_block};
       __pyx_t_3 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_ValueError)), __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
       __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2915, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2913, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
     __Pyx_Raise(__pyx_t_3, 0, 0, 0);
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __PYX_ERR(0, 2915, __pyx_L1_error)
+    __PYX_ERR(0, 2913, __pyx_L1_error)
 
-    /* "consenrich/cconsenrich.pyx":2914
+    /* "consenrich/cconsenrich.pyx":2912
  * 
  * cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):
  *     if blockSize < 3 or (blockSize & 1) == 0:             # <<<<<<<<<<<<<<
@@ -57402,7 +57369,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2917
+  /* "consenrich/cconsenrich.pyx":2915
  *         raise ValueError("need an odd-length block")
  * 
  *     cdef cnp.ndarray y_vec = np.ascontiguousarray(data, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -57410,14 +57377,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
  *     cdef int n = <int>y.shape[0]
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2917, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2915, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2917, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2915, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2917, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2915, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2917, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2915, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_5 = 1;
@@ -57434,34 +57401,34 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, ((PyObject *)__pyx_v_data)};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2917, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2915, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2917, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2915, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2917, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2915, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2917, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2915, __pyx_L1_error)
   __pyx_v_y_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2918
+  /* "consenrich/cconsenrich.pyx":2916
  * 
  *     cdef cnp.ndarray y_vec = np.ascontiguousarray(data, dtype=np.float64)
  *     cdef double[::1] y = y_vec             # <<<<<<<<<<<<<<
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_y_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2918, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_y_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2916, __pyx_L1_error)
   __pyx_v_y = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2919
+  /* "consenrich/cconsenrich.pyx":2917
  *     cdef cnp.ndarray y_vec = np.ascontiguousarray(data, dtype=np.float64)
  *     cdef double[::1] y = y_vec
  *     cdef int n = <int>y.shape[0]             # <<<<<<<<<<<<<<
@@ -57470,7 +57437,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
 */
   __pyx_v_n = ((int)(__pyx_v_y.shape[0]));
 
-  /* "consenrich/cconsenrich.pyx":2920
+  /* "consenrich/cconsenrich.pyx":2918
  *     cdef double[::1] y = y_vec
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:             # <<<<<<<<<<<<<<
@@ -57480,7 +57447,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   __pyx_t_1 = (__pyx_v_n == 0);
   if (__pyx_t_1) {
 
-    /* "consenrich/cconsenrich.pyx":2921
+    /* "consenrich/cconsenrich.pyx":2919
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:
  *         return np.empty((0,), dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -57489,14 +57456,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
 */
     __Pyx_XDECREF((PyObject *)__pyx_r);
     __pyx_t_7 = NULL;
-    __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2921, __pyx_L1_error)
+    __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2919, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2921, __pyx_L1_error)
+    __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2919, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_8);
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-    __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2921, __pyx_L1_error)
+    __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2919, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2921, __pyx_L1_error)
+    __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2919, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __pyx_t_5 = 1;
@@ -57513,23 +57480,23 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
     #endif
     {
       PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_7, __pyx_mstate_global->__pyx_tuple[2]};
-      __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2921, __pyx_L1_error)
+      __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2919, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_6);
-      if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2921, __pyx_L1_error)
+      if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2919, __pyx_L1_error)
       __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
       __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
       __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
       __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
       __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2921, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2919, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
-    if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2921, __pyx_L1_error)
+    if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2919, __pyx_L1_error)
     __pyx_r = ((PyArrayObject *)__pyx_t_3);
     __pyx_t_3 = 0;
     goto __pyx_L0;
 
-    /* "consenrich/cconsenrich.pyx":2920
+    /* "consenrich/cconsenrich.pyx":2918
  *     cdef double[::1] y = y_vec
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:             # <<<<<<<<<<<<<<
@@ -57538,7 +57505,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2923
+  /* "consenrich/cconsenrich.pyx":2921
  *         return np.empty((0,), dtype=np.float64)
  * 
  *     cdef int radius = blockSize // 2             # <<<<<<<<<<<<<<
@@ -57547,7 +57514,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
 */
   __pyx_v_radius = (__pyx_v_blockSize / 2);
 
-  /* "consenrich/cconsenrich.pyx":2924
+  /* "consenrich/cconsenrich.pyx":2922
  * 
  *     cdef int radius = blockSize // 2
  *     cdef int m = n + 2 * radius             # <<<<<<<<<<<<<<
@@ -57556,7 +57523,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
 */
   __pyx_v_m = (__pyx_v_n + (2 * __pyx_v_radius));
 
-  /* "consenrich/cconsenrich.pyx":2927
+  /* "consenrich/cconsenrich.pyx":2925
  * 
  *     # divisbility -- pad the input on both ends with edge values
  *     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -57564,16 +57531,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
 */
   __pyx_t_8 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2927, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2925, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2927, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2925, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2927, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2925, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2927, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2925, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2927, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2925, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_5 = 1;
@@ -57590,35 +57557,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_8, __pyx_t_6};
-    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2927, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2925, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_10, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2927, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_10, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2925, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_7);
     __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2927, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2925, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2927, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2925, __pyx_L1_error)
   __pyx_v_pad_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2928
+  /* "consenrich/cconsenrich.pyx":2926
  *     # divisbility -- pad the input on both ends with edge values
  *     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float64)
  *     cdef double[::1] padView= pad_vec             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
  *     cdef double[::1] sw_ = sw__vec
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_pad_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2928, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_pad_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2926, __pyx_L1_error)
   __pyx_v_padView = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2929
+  /* "consenrich/cconsenrich.pyx":2927
  *     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float64)
  *     cdef double[::1] padView= pad_vec
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -57626,16 +57593,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float64)
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2929, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2927, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2929, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2927, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_n); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2929, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_n); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2927, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2929, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2927, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2929, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2927, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_5 = 1;
@@ -57652,35 +57619,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, __pyx_t_7};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2929, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2927, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2929, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2927, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_10, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2929, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2927, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2929, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2927, __pyx_L1_error)
   __pyx_v_sw__vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2930
+  /* "consenrich/cconsenrich.pyx":2928
  *     cdef double[::1] padView= pad_vec
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
  *     cdef double[::1] sw_ = sw__vec             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float64)
  *     cdef double[::1] pad2View = pad2_vec
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_sw__vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2930, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_sw__vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2928, __pyx_L1_error)
   __pyx_v_sw_ = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2931
+  /* "consenrich/cconsenrich.pyx":2929
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
  *     cdef double[::1] sw_ = sw__vec
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -57688,16 +57655,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
  *     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float64)
 */
   __pyx_t_10 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2931, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2929, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2931, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2929, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2931, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2929, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2931, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2929, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2931, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2929, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_5 = 1;
@@ -57714,35 +57681,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_10, __pyx_t_6};
-    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2931, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2929, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2931, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2929, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_7);
     __Pyx_XDECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2931, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2929, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2931, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2929, __pyx_L1_error)
   __pyx_v_pad2_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2932
+  /* "consenrich/cconsenrich.pyx":2930
  *     cdef double[::1] sw_ = sw__vec
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float64)
  *     cdef double[::1] pad2View = pad2_vec             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float64)
  *     cdef double[::1] baselineView = baseline_vec
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_pad2_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2932, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_pad2_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2930, __pyx_L1_error)
   __pyx_v_pad2View = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2933
+  /* "consenrich/cconsenrich.pyx":2931
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float64)
  *     cdef double[::1] pad2View = pad2_vec
  *     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -57750,16 +57717,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
  * 
 */
   __pyx_t_8 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2933, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2931, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2933, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2931, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_n); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2933, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_n); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2931, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2933, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2931, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2933, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2931, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_5 = 1;
@@ -57776,35 +57743,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_8, __pyx_t_7};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2933, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2931, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_10, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2933, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_10, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2931, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2933, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2931, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2933, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2931, __pyx_L1_error)
   __pyx_v_baseline_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2934
+  /* "consenrich/cconsenrich.pyx":2932
  *     cdef double[::1] pad2View = pad2_vec
  *     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float64)
  *     cdef double[::1] baselineView = baseline_vec             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_baseline_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2934, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_baseline_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2932, __pyx_L1_error)
   __pyx_v_baselineView = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2936
+  /* "consenrich/cconsenrich.pyx":2934
  *     cdef double[::1] baselineView = baseline_vec
  * 
  *     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)             # <<<<<<<<<<<<<<
@@ -57812,16 +57779,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2936, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2934, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2936, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2934, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2936, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2934, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2936, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2934, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2936, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2934, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_5 = 1;
@@ -57838,35 +57805,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, __pyx_t_6};
-    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2936, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2934, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2936, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2934, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_10, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_7);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2936, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2934, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2936, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2934, __pyx_L1_error)
   __pyx_v_sliding1_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2937
+  /* "consenrich/cconsenrich.pyx":2935
  * 
  *     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding1 = sliding1_vec             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding2View = sliding2_vec
 */
-  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_int(((PyObject *)__pyx_v_sliding1_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2937, __pyx_L1_error)
+  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_int(((PyObject *)__pyx_v_sliding1_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2935, __pyx_L1_error)
   __pyx_v_sliding1 = __pyx_t_11;
   __pyx_t_11.memview = NULL;
   __pyx_t_11.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2938
+  /* "consenrich/cconsenrich.pyx":2936
  *     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding1 = sliding1_vec
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)             # <<<<<<<<<<<<<<
@@ -57874,16 +57841,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
  * 
 */
   __pyx_t_10 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2938, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2936, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2938, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2936, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2938, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2936, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2938, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2936, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2938, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2936, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_5 = 1;
@@ -57900,35 +57867,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_10, __pyx_t_7};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2938, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2936, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2938, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2936, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2938, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2936, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2938, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2936, __pyx_L1_error)
   __pyx_v_sliding2_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2939
+  /* "consenrich/cconsenrich.pyx":2937
  *     cdef int[::1] sliding1 = sliding1_vec
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding2View = sliding2_vec             # <<<<<<<<<<<<<<
  * 
  *     padView[0:radius] = y[0]
 */
-  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_int(((PyObject *)__pyx_v_sliding2_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2939, __pyx_L1_error)
+  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_int(((PyObject *)__pyx_v_sliding2_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2937, __pyx_L1_error)
   __pyx_v_sliding2View = __pyx_t_11;
   __pyx_t_11.memview = NULL;
   __pyx_t_11.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2941
+  /* "consenrich/cconsenrich.pyx":2939
  *     cdef int[::1] sliding2View = sliding2_vec
  * 
  *     padView[0:radius] = y[0]             # <<<<<<<<<<<<<<
@@ -57948,6 +57915,84 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
     &__pyx_t_13,
     0,
     __pyx_v_radius,
+    0,
+    1,
+    1,
+    0,
+    1) < 0))
+{
+    __PYX_ERR(0, 2939, __pyx_L1_error)
+}
+
+{
+      double __pyx_temp_scalar = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_y.data) + __pyx_t_12)) )));
+      {
+          Py_ssize_t __pyx_temp_extent_0 = __pyx_t_9.shape[0];
+          Py_ssize_t __pyx_temp_stride_0 = __pyx_t_9.strides[0];
+          char *__pyx_temp_pointer_0;
+          Py_ssize_t __pyx_temp_idx_0;
+          __pyx_temp_pointer_0 = __pyx_t_9.data;
+          for (__pyx_temp_idx_0 = 0; __pyx_temp_idx_0 < __pyx_temp_extent_0; __pyx_temp_idx_0++) {
+            *((double *) __pyx_temp_pointer_0) = __pyx_temp_scalar;
+            __pyx_temp_pointer_0 += __pyx_temp_stride_0;
+          }
+      }
+  }
+  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
+
+  /* "consenrich/cconsenrich.pyx":2940
+ * 
+ *     padView[0:radius] = y[0]
+ *     padView[radius:radius + n] = y             # <<<<<<<<<<<<<<
+ *     padView[radius + n:m] = y[n - 1]
+ * 
+*/
+  __pyx_t_9.data = __pyx_v_padView.data;
+  __pyx_t_9.memview = __pyx_v_padView.memview;
+  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_13 = -1;
+  if (unlikely(__pyx_memoryview_slice_memviewslice(
+    &__pyx_t_9,
+    __pyx_v_padView.shape[0], __pyx_v_padView.strides[0], __pyx_v_padView.suboffsets[0],
+    0,
+    0,
+    &__pyx_t_13,
+    __pyx_v_radius,
+    (__pyx_v_radius + __pyx_v_n),
+    0,
+    1,
+    1,
+    0,
+    1) < 0))
+{
+    __PYX_ERR(0, 2940, __pyx_L1_error)
+}
+
+if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0))) __PYX_ERR(0, 2940, __pyx_L1_error)
+  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
+
+  /* "consenrich/cconsenrich.pyx":2941
+ *     padView[0:radius] = y[0]
+ *     padView[radius:radius + n] = y
+ *     padView[radius + n:m] = y[n - 1]             # <<<<<<<<<<<<<<
+ * 
+ *     with nogil:
+*/
+  __pyx_t_12 = (__pyx_v_n - 1);
+  __pyx_t_9.data = __pyx_v_padView.data;
+  __pyx_t_9.memview = __pyx_v_padView.memview;
+  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_13 = -1;
+  if (unlikely(__pyx_memoryview_slice_memviewslice(
+    &__pyx_t_9,
+    __pyx_v_padView.shape[0], __pyx_v_padView.strides[0], __pyx_v_padView.suboffsets[0],
+    0,
+    0,
+    &__pyx_t_13,
+    (__pyx_v_radius + __pyx_v_n),
+    __pyx_v_m,
     0,
     1,
     1,
@@ -57974,85 +58019,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(PyAr
   __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
   __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2942
- * 
- *     padView[0:radius] = y[0]
- *     padView[radius:radius + n] = y             # <<<<<<<<<<<<<<
- *     padView[radius + n:m] = y[n - 1]
- * 
-*/
-  __pyx_t_9.data = __pyx_v_padView.data;
-  __pyx_t_9.memview = __pyx_v_padView.memview;
-  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_13 = -1;
-  if (unlikely(__pyx_memoryview_slice_memviewslice(
-    &__pyx_t_9,
-    __pyx_v_padView.shape[0], __pyx_v_padView.strides[0], __pyx_v_padView.suboffsets[0],
-    0,
-    0,
-    &__pyx_t_13,
-    __pyx_v_radius,
-    (__pyx_v_radius + __pyx_v_n),
-    0,
-    1,
-    1,
-    0,
-    1) < 0))
-{
-    __PYX_ERR(0, 2942, __pyx_L1_error)
-}
-
-if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0))) __PYX_ERR(0, 2942, __pyx_L1_error)
-  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
-
   /* "consenrich/cconsenrich.pyx":2943
- *     padView[0:radius] = y[0]
- *     padView[radius:radius + n] = y
- *     padView[radius + n:m] = y[n - 1]             # <<<<<<<<<<<<<<
- * 
- *     with nogil:
-*/
-  __pyx_t_12 = (__pyx_v_n - 1);
-  __pyx_t_9.data = __pyx_v_padView.data;
-  __pyx_t_9.memview = __pyx_v_padView.memview;
-  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_13 = -1;
-  if (unlikely(__pyx_memoryview_slice_memviewslice(
-    &__pyx_t_9,
-    __pyx_v_padView.shape[0], __pyx_v_padView.strides[0], __pyx_v_padView.suboffsets[0],
-    0,
-    0,
-    &__pyx_t_13,
-    (__pyx_v_radius + __pyx_v_n),
-    __pyx_v_m,
-    0,
-    1,
-    1,
-    0,
-    1) < 0))
-{
-    __PYX_ERR(0, 2943, __pyx_L1_error)
-}
-
-{
-      double __pyx_temp_scalar = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_y.data) + __pyx_t_12)) )));
-      {
-          Py_ssize_t __pyx_temp_extent_0 = __pyx_t_9.shape[0];
-          Py_ssize_t __pyx_temp_stride_0 = __pyx_t_9.strides[0];
-          char *__pyx_temp_pointer_0;
-          Py_ssize_t __pyx_temp_idx_0;
-          __pyx_temp_pointer_0 = __pyx_t_9.data;
-          for (__pyx_temp_idx_0 = 0; __pyx_temp_idx_0 < __pyx_temp_extent_0; __pyx_temp_idx_0++) {
-            *((double *) __pyx_temp_pointer_0) = __pyx_temp_scalar;
-            __pyx_temp_pointer_0 += __pyx_temp_stride_0;
-          }
-      }
-  }
-  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
-
-  /* "consenrich/cconsenrich.pyx":2945
  *     padView[radius + n:m] = y[n - 1]
  * 
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -58065,7 +58032,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/cconsenrich.pyx":2946
+        /* "consenrich/cconsenrich.pyx":2944
  * 
  *     with nogil:
  *         _rmin_F64(padView, blockSize, sw_, sliding1)             # <<<<<<<<<<<<<<
@@ -58075,7 +58042,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
         __pyx_f_10consenrich_11cconsenrich__rmin_F64(__pyx_v_padView, __pyx_v_blockSize, __pyx_v_sw_, __pyx_v_sliding1);
       }
 
-      /* "consenrich/cconsenrich.pyx":2945
+      /* "consenrich/cconsenrich.pyx":2943
  *     padView[radius + n:m] = y[n - 1]
  * 
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -58092,7 +58059,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
       }
   }
 
-  /* "consenrich/cconsenrich.pyx":2948
+  /* "consenrich/cconsenrich.pyx":2946
  *         _rmin_F64(padView, blockSize, sw_, sliding1)
  * 
  *     pad2View[0:radius] = sw_[0]             # <<<<<<<<<<<<<<
@@ -58112,6 +58079,84 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
     &__pyx_t_13,
     0,
     __pyx_v_radius,
+    0,
+    1,
+    1,
+    0,
+    1) < 0))
+{
+    __PYX_ERR(0, 2946, __pyx_L1_error)
+}
+
+{
+      double __pyx_temp_scalar = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_sw_.data) + __pyx_t_12)) )));
+      {
+          Py_ssize_t __pyx_temp_extent_0 = __pyx_t_9.shape[0];
+          Py_ssize_t __pyx_temp_stride_0 = __pyx_t_9.strides[0];
+          char *__pyx_temp_pointer_0;
+          Py_ssize_t __pyx_temp_idx_0;
+          __pyx_temp_pointer_0 = __pyx_t_9.data;
+          for (__pyx_temp_idx_0 = 0; __pyx_temp_idx_0 < __pyx_temp_extent_0; __pyx_temp_idx_0++) {
+            *((double *) __pyx_temp_pointer_0) = __pyx_temp_scalar;
+            __pyx_temp_pointer_0 += __pyx_temp_stride_0;
+          }
+      }
+  }
+  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
+
+  /* "consenrich/cconsenrich.pyx":2947
+ * 
+ *     pad2View[0:radius] = sw_[0]
+ *     pad2View[radius:radius + n] = sw_             # <<<<<<<<<<<<<<
+ *     pad2View[radius + n:m] = sw_[n - 1]
+ *     with nogil:
+*/
+  __pyx_t_9.data = __pyx_v_pad2View.data;
+  __pyx_t_9.memview = __pyx_v_pad2View.memview;
+  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_13 = -1;
+  if (unlikely(__pyx_memoryview_slice_memviewslice(
+    &__pyx_t_9,
+    __pyx_v_pad2View.shape[0], __pyx_v_pad2View.strides[0], __pyx_v_pad2View.suboffsets[0],
+    0,
+    0,
+    &__pyx_t_13,
+    __pyx_v_radius,
+    (__pyx_v_radius + __pyx_v_n),
+    0,
+    1,
+    1,
+    0,
+    1) < 0))
+{
+    __PYX_ERR(0, 2947, __pyx_L1_error)
+}
+
+if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 0))) __PYX_ERR(0, 2947, __pyx_L1_error)
+  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
+
+  /* "consenrich/cconsenrich.pyx":2948
+ *     pad2View[0:radius] = sw_[0]
+ *     pad2View[radius:radius + n] = sw_
+ *     pad2View[radius + n:m] = sw_[n - 1]             # <<<<<<<<<<<<<<
+ *     with nogil:
+ *         _rmax_F64(pad2View, blockSize, baselineView, sliding2View)
+*/
+  __pyx_t_12 = (__pyx_v_n - 1);
+  __pyx_t_9.data = __pyx_v_pad2View.data;
+  __pyx_t_9.memview = __pyx_v_pad2View.memview;
+  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_13 = -1;
+  if (unlikely(__pyx_memoryview_slice_memviewslice(
+    &__pyx_t_9,
+    __pyx_v_pad2View.shape[0], __pyx_v_pad2View.strides[0], __pyx_v_pad2View.suboffsets[0],
+    0,
+    0,
+    &__pyx_t_13,
+    (__pyx_v_radius + __pyx_v_n),
+    __pyx_v_m,
     0,
     1,
     1,
@@ -58139,84 +58184,6 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
   __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
 
   /* "consenrich/cconsenrich.pyx":2949
- * 
- *     pad2View[0:radius] = sw_[0]
- *     pad2View[radius:radius + n] = sw_             # <<<<<<<<<<<<<<
- *     pad2View[radius + n:m] = sw_[n - 1]
- *     with nogil:
-*/
-  __pyx_t_9.data = __pyx_v_pad2View.data;
-  __pyx_t_9.memview = __pyx_v_pad2View.memview;
-  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_13 = -1;
-  if (unlikely(__pyx_memoryview_slice_memviewslice(
-    &__pyx_t_9,
-    __pyx_v_pad2View.shape[0], __pyx_v_pad2View.strides[0], __pyx_v_pad2View.suboffsets[0],
-    0,
-    0,
-    &__pyx_t_13,
-    __pyx_v_radius,
-    (__pyx_v_radius + __pyx_v_n),
-    0,
-    1,
-    1,
-    0,
-    1) < 0))
-{
-    __PYX_ERR(0, 2949, __pyx_L1_error)
-}
-
-if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 0))) __PYX_ERR(0, 2949, __pyx_L1_error)
-  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
-
-  /* "consenrich/cconsenrich.pyx":2950
- *     pad2View[0:radius] = sw_[0]
- *     pad2View[radius:radius + n] = sw_
- *     pad2View[radius + n:m] = sw_[n - 1]             # <<<<<<<<<<<<<<
- *     with nogil:
- *         _rmax_F64(pad2View, blockSize, baselineView, sliding2View)
-*/
-  __pyx_t_12 = (__pyx_v_n - 1);
-  __pyx_t_9.data = __pyx_v_pad2View.data;
-  __pyx_t_9.memview = __pyx_v_pad2View.memview;
-  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_13 = -1;
-  if (unlikely(__pyx_memoryview_slice_memviewslice(
-    &__pyx_t_9,
-    __pyx_v_pad2View.shape[0], __pyx_v_pad2View.strides[0], __pyx_v_pad2View.suboffsets[0],
-    0,
-    0,
-    &__pyx_t_13,
-    (__pyx_v_radius + __pyx_v_n),
-    __pyx_v_m,
-    0,
-    1,
-    1,
-    0,
-    1) < 0))
-{
-    __PYX_ERR(0, 2950, __pyx_L1_error)
-}
-
-{
-      double __pyx_temp_scalar = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_sw_.data) + __pyx_t_12)) )));
-      {
-          Py_ssize_t __pyx_temp_extent_0 = __pyx_t_9.shape[0];
-          Py_ssize_t __pyx_temp_stride_0 = __pyx_t_9.strides[0];
-          char *__pyx_temp_pointer_0;
-          Py_ssize_t __pyx_temp_idx_0;
-          __pyx_temp_pointer_0 = __pyx_t_9.data;
-          for (__pyx_temp_idx_0 = 0; __pyx_temp_idx_0 < __pyx_temp_extent_0; __pyx_temp_idx_0++) {
-            *((double *) __pyx_temp_pointer_0) = __pyx_temp_scalar;
-            __pyx_temp_pointer_0 += __pyx_temp_stride_0;
-          }
-      }
-  }
-  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
-
-  /* "consenrich/cconsenrich.pyx":2951
  *     pad2View[radius:radius + n] = sw_
  *     pad2View[radius + n:m] = sw_[n - 1]
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -58229,7 +58196,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/cconsenrich.pyx":2952
+        /* "consenrich/cconsenrich.pyx":2950
  *     pad2View[radius + n:m] = sw_[n - 1]
  *     with nogil:
  *         _rmax_F64(pad2View, blockSize, baselineView, sliding2View)             # <<<<<<<<<<<<<<
@@ -58239,7 +58206,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 
         __pyx_f_10consenrich_11cconsenrich__rmax_F64(__pyx_v_pad2View, __pyx_v_blockSize, __pyx_v_baselineView, __pyx_v_sliding2View);
       }
 
-      /* "consenrich/cconsenrich.pyx":2951
+      /* "consenrich/cconsenrich.pyx":2949
  *     pad2View[radius:radius + n] = sw_
  *     pad2View[radius + n:m] = sw_[n - 1]
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -58256,7 +58223,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 
       }
   }
 
-  /* "consenrich/cconsenrich.pyx":2954
+  /* "consenrich/cconsenrich.pyx":2952
  *         _rmax_F64(pad2View, blockSize, baselineView, sliding2View)
  * 
  *     return baseline_vec             # <<<<<<<<<<<<<<
@@ -58268,7 +58235,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 
   __pyx_r = __pyx_v_baseline_vec;
   goto __pyx_L0;
 
-  /* "consenrich/cconsenrich.pyx":2913
+  /* "consenrich/cconsenrich.pyx":2911
  * 
  * 
  * cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):             # <<<<<<<<<<<<<<
@@ -58348,39 +58315,39 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_data,&__pyx_mstate_global->__pyx_n_u_blockSize,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2913, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2911, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2913, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2911, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2913, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2911, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "clocalBaseline_F64", 0) < (0)) __PYX_ERR(0, 2913, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "clocalBaseline_F64", 0) < (0)) __PYX_ERR(0, 2911, __pyx_L3_error)
       for (Py_ssize_t i = __pyx_nargs; i < 2; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("clocalBaseline_F64", 1, 2, 2, i); __PYX_ERR(0, 2913, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("clocalBaseline_F64", 1, 2, 2, i); __PYX_ERR(0, 2911, __pyx_L3_error) }
       }
     } else if (unlikely(__pyx_nargs != 2)) {
       goto __pyx_L5_argtuple_error;
     } else {
       values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2913, __pyx_L3_error)
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2911, __pyx_L3_error)
       values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2913, __pyx_L3_error)
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2911, __pyx_L3_error)
     }
     __pyx_v_data = ((PyArrayObject *)values[0]);
-    __pyx_v_blockSize = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_blockSize == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2913, __pyx_L3_error)
+    __pyx_v_blockSize = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_blockSize == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2911, __pyx_L3_error)
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("clocalBaseline_F64", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 2913, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("clocalBaseline_F64", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 2911, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -58391,7 +58358,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_data), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "data", 0))) __PYX_ERR(0, 2913, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_data), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "data", 0))) __PYX_ERR(0, 2911, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_11cconsenrich_42clocalBaseline_F64(__pyx_self, __pyx_v_data, __pyx_v_blockSize);
 
   /* function exit code */
@@ -58420,7 +58387,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_42clocalBaseline_F64(CYTHON
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("clocalBaseline_F64", 0);
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(__pyx_v_data, __pyx_v_blockSize, 1)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2913, __pyx_L1_error)
+  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(__pyx_v_data, __pyx_v_blockSize, 1)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2911, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -58437,7 +58404,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_42clocalBaseline_F64(CYTHON
   return __pyx_r;
 }
 
-/* "consenrich/cconsenrich.pyx":2957
+/* "consenrich/cconsenrich.pyx":2955
  * 
  * 
  * cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize):             # <<<<<<<<<<<<<<
@@ -58490,7 +58457,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("clocalBaseline_F32", 0);
 
-  /* "consenrich/cconsenrich.pyx":2958
+  /* "consenrich/cconsenrich.pyx":2956
  * 
  * cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize):
  *     if blockSize < 3 or (blockSize & 1) == 0:             # <<<<<<<<<<<<<<
@@ -58508,7 +58475,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   __pyx_L4_bool_binop_done:;
   if (unlikely(__pyx_t_1)) {
 
-    /* "consenrich/cconsenrich.pyx":2959
+    /* "consenrich/cconsenrich.pyx":2957
  * cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize):
  *     if blockSize < 3 or (blockSize & 1) == 0:
  *         raise ValueError("need an odd-length block")             # <<<<<<<<<<<<<<
@@ -58521,14 +58488,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
       PyObject *__pyx_callargs[2] = {__pyx_t_4, __pyx_mstate_global->__pyx_kp_u_need_an_odd_length_block};
       __pyx_t_3 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_ValueError)), __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
       __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2959, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2957, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
     __Pyx_Raise(__pyx_t_3, 0, 0, 0);
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    __PYX_ERR(0, 2959, __pyx_L1_error)
+    __PYX_ERR(0, 2957, __pyx_L1_error)
 
-    /* "consenrich/cconsenrich.pyx":2958
+    /* "consenrich/cconsenrich.pyx":2956
  * 
  * cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize):
  *     if blockSize < 3 or (blockSize & 1) == 0:             # <<<<<<<<<<<<<<
@@ -58537,7 +58504,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2961
+  /* "consenrich/cconsenrich.pyx":2959
  *         raise ValueError("need an odd-length block")
  * 
  *     cdef cnp.ndarray y_vec = np.ascontiguousarray(data, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -58545,14 +58512,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
  *     cdef int n = <int>y.shape[0]
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2961, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2959, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2961, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2959, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2961, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2959, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2961, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2959, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_5 = 1;
@@ -58569,34 +58536,34 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, ((PyObject *)__pyx_v_data)};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2961, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2959, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2961, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2959, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_7, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2961, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2959, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2961, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2959, __pyx_L1_error)
   __pyx_v_y_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2962
+  /* "consenrich/cconsenrich.pyx":2960
  * 
  *     cdef cnp.ndarray y_vec = np.ascontiguousarray(data, dtype=np.float32)
  *     cdef float[::1] y = y_vec             # <<<<<<<<<<<<<<
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_y_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2962, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_y_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2960, __pyx_L1_error)
   __pyx_v_y = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2963
+  /* "consenrich/cconsenrich.pyx":2961
  *     cdef cnp.ndarray y_vec = np.ascontiguousarray(data, dtype=np.float32)
  *     cdef float[::1] y = y_vec
  *     cdef int n = <int>y.shape[0]             # <<<<<<<<<<<<<<
@@ -58605,7 +58572,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
 */
   __pyx_v_n = ((int)(__pyx_v_y.shape[0]));
 
-  /* "consenrich/cconsenrich.pyx":2964
+  /* "consenrich/cconsenrich.pyx":2962
  *     cdef float[::1] y = y_vec
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:             # <<<<<<<<<<<<<<
@@ -58615,7 +58582,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   __pyx_t_1 = (__pyx_v_n == 0);
   if (__pyx_t_1) {
 
-    /* "consenrich/cconsenrich.pyx":2965
+    /* "consenrich/cconsenrich.pyx":2963
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:
  *         return np.empty((0,), dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -58624,14 +58591,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
 */
     __Pyx_XDECREF((PyObject *)__pyx_r);
     __pyx_t_7 = NULL;
-    __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2965, __pyx_L1_error)
+    __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2963, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2965, __pyx_L1_error)
+    __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2963, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_8);
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-    __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2965, __pyx_L1_error)
+    __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2963, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2965, __pyx_L1_error)
+    __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2963, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __pyx_t_5 = 1;
@@ -58648,23 +58615,23 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
     #endif
     {
       PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_7, __pyx_mstate_global->__pyx_tuple[2]};
-      __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2965, __pyx_L1_error)
+      __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2963, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_6);
-      if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2965, __pyx_L1_error)
+      if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2963, __pyx_L1_error)
       __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
       __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
       __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
       __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
       __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2965, __pyx_L1_error)
+      if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2963, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_3);
     }
-    if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2965, __pyx_L1_error)
+    if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2963, __pyx_L1_error)
     __pyx_r = ((PyArrayObject *)__pyx_t_3);
     __pyx_t_3 = 0;
     goto __pyx_L0;
 
-    /* "consenrich/cconsenrich.pyx":2964
+    /* "consenrich/cconsenrich.pyx":2962
  *     cdef float[::1] y = y_vec
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:             # <<<<<<<<<<<<<<
@@ -58673,7 +58640,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":2967
+  /* "consenrich/cconsenrich.pyx":2965
  *         return np.empty((0,), dtype=np.float32)
  * 
  *     cdef int radius = blockSize // 2             # <<<<<<<<<<<<<<
@@ -58682,7 +58649,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
 */
   __pyx_v_radius = (__pyx_v_blockSize / 2);
 
-  /* "consenrich/cconsenrich.pyx":2968
+  /* "consenrich/cconsenrich.pyx":2966
  * 
  *     cdef int radius = blockSize // 2
  *     cdef int m = n + 2 * radius             # <<<<<<<<<<<<<<
@@ -58691,7 +58658,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
 */
   __pyx_v_m = (__pyx_v_n + (2 * __pyx_v_radius));
 
-  /* "consenrich/cconsenrich.pyx":2970
+  /* "consenrich/cconsenrich.pyx":2968
  *     cdef int m = n + 2 * radius
  * 
  *     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -58699,16 +58666,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float32)
 */
   __pyx_t_8 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2970, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2968, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2970, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2968, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2970, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2968, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2970, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2968, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2970, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2968, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_5 = 1;
@@ -58725,35 +58692,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_8, __pyx_t_6};
-    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2970, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2968, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_10, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2970, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_10, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2968, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_7);
     __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2970, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2968, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2970, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2968, __pyx_L1_error)
   __pyx_v_pad_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2971
+  /* "consenrich/cconsenrich.pyx":2969
  * 
  *     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float32)
  *     cdef float[::1] padView = pad_vec             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float32)
  *     cdef float[::1] sw_ = sw__vec
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_pad_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2971, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_pad_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2969, __pyx_L1_error)
   __pyx_v_padView = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2972
+  /* "consenrich/cconsenrich.pyx":2970
  *     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float32)
  *     cdef float[::1] padView = pad_vec
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -58761,16 +58728,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float32)
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2972, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2970, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2972, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2970, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_n); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2972, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_n); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2970, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2972, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2970, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2972, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2970, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_5 = 1;
@@ -58787,35 +58754,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, __pyx_t_7};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2972, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2970, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2972, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2970, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_10, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2972, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2970, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2972, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2970, __pyx_L1_error)
   __pyx_v_sw__vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2973
+  /* "consenrich/cconsenrich.pyx":2971
  *     cdef float[::1] padView = pad_vec
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float32)
  *     cdef float[::1] sw_ = sw__vec             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float32)
  *     cdef float[::1] pad2View = pad2_vec
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_sw__vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2973, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_sw__vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2971, __pyx_L1_error)
   __pyx_v_sw_ = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2974
+  /* "consenrich/cconsenrich.pyx":2972
  *     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float32)
  *     cdef float[::1] sw_ = sw__vec
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -58823,16 +58790,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
  *     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float32)
 */
   __pyx_t_10 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2974, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2972, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2974, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2972, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2974, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2972, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2974, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2972, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2974, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2972, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_5 = 1;
@@ -58849,35 +58816,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_10, __pyx_t_6};
-    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2974, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2972, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2974, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2972, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_7);
     __Pyx_XDECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2974, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2972, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2974, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2972, __pyx_L1_error)
   __pyx_v_pad2_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2975
+  /* "consenrich/cconsenrich.pyx":2973
  *     cdef float[::1] sw_ = sw__vec
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float32)
  *     cdef float[::1] pad2View = pad2_vec             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float32)
  *     cdef float[::1] baselineView = baseline_vec
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_pad2_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2975, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_pad2_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2973, __pyx_L1_error)
   __pyx_v_pad2View = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2976
+  /* "consenrich/cconsenrich.pyx":2974
  *     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float32)
  *     cdef float[::1] pad2View = pad2_vec
  *     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -58885,16 +58852,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
  * 
 */
   __pyx_t_8 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2976, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2974, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2976, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2974, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_n); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2976, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_n); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2974, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2976, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2974, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2976, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2974, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_5 = 1;
@@ -58911,35 +58878,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_8, __pyx_t_7};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2976, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2974, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_10, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2976, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_10, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2974, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2976, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2974, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2976, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2974, __pyx_L1_error)
   __pyx_v_baseline_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2977
+  /* "consenrich/cconsenrich.pyx":2975
  *     cdef float[::1] pad2View = pad2_vec
  *     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float32)
  *     cdef float[::1] baselineView = baseline_vec             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_baseline_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2977, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_float(((PyObject *)__pyx_v_baseline_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 2975, __pyx_L1_error)
   __pyx_v_baselineView = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2979
+  /* "consenrich/cconsenrich.pyx":2977
  *     cdef float[::1] baselineView = baseline_vec
  * 
  *     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)             # <<<<<<<<<<<<<<
@@ -58947,16 +58914,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2979, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2977, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2979, __pyx_L1_error)
+  __pyx_t_10 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 2977, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
-  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2979, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2977, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2979, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2977, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2979, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2977, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_5 = 1;
@@ -58973,35 +58940,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, __pyx_t_6};
-    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2979, __pyx_L1_error)
+    __pyx_t_7 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2977, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_7);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2979, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_7, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2977, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_10, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_7);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2979, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2977, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2979, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2977, __pyx_L1_error)
   __pyx_v_sliding1_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2980
+  /* "consenrich/cconsenrich.pyx":2978
  * 
  *     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding1 = sliding1_vec             # <<<<<<<<<<<<<<
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding2View = sliding2_vec
 */
-  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_int(((PyObject *)__pyx_v_sliding1_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2980, __pyx_L1_error)
+  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_int(((PyObject *)__pyx_v_sliding1_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2978, __pyx_L1_error)
   __pyx_v_sliding1 = __pyx_t_11;
   __pyx_t_11.memview = NULL;
   __pyx_t_11.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2981
+  /* "consenrich/cconsenrich.pyx":2979
  *     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding1 = sliding1_vec
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)             # <<<<<<<<<<<<<<
@@ -59009,16 +58976,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
  *     padView[0:radius] = y[0]
 */
   __pyx_t_10 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2981, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2979, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2981, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 2979, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2981, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyLong_From_int(__pyx_v_m); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 2979, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
-  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2981, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2979, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_6);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2981, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_6, __pyx_mstate_global->__pyx_n_u_int32); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2979, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
   __pyx_t_5 = 1;
@@ -59035,35 +59002,35 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_10, __pyx_t_7};
-    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2981, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 2979, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_6);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2981, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_6, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 2979, __pyx_L1_error)
     __pyx_t_3 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_6);
     __Pyx_XDECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2981, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2979, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
-  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2981, __pyx_L1_error)
+  if (!(likely(((__pyx_t_3) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_3, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 2979, __pyx_L1_error)
   __pyx_v_sliding2_vec = ((PyArrayObject *)__pyx_t_3);
   __pyx_t_3 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2982
+  /* "consenrich/cconsenrich.pyx":2980
  *     cdef int[::1] sliding1 = sliding1_vec
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding2View = sliding2_vec             # <<<<<<<<<<<<<<
  *     padView[0:radius] = y[0]
  *     padView[radius:radius + n] = y
 */
-  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_int(((PyObject *)__pyx_v_sliding2_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2982, __pyx_L1_error)
+  __pyx_t_11 = __Pyx_PyObject_to_MemoryviewSlice_dc_int(((PyObject *)__pyx_v_sliding2_vec), PyBUF_WRITABLE); if (unlikely(!__pyx_t_11.memview)) __PYX_ERR(0, 2980, __pyx_L1_error)
   __pyx_v_sliding2View = __pyx_t_11;
   __pyx_t_11.memview = NULL;
   __pyx_t_11.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2983
+  /* "consenrich/cconsenrich.pyx":2981
  *     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
  *     cdef int[::1] sliding2View = sliding2_vec
  *     padView[0:radius] = y[0]             # <<<<<<<<<<<<<<
@@ -59083,6 +59050,84 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
     &__pyx_t_13,
     0,
     __pyx_v_radius,
+    0,
+    1,
+    1,
+    0,
+    1) < 0))
+{
+    __PYX_ERR(0, 2981, __pyx_L1_error)
+}
+
+{
+      float __pyx_temp_scalar = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_y.data) + __pyx_t_12)) )));
+      {
+          Py_ssize_t __pyx_temp_extent_0 = __pyx_t_9.shape[0];
+          Py_ssize_t __pyx_temp_stride_0 = __pyx_t_9.strides[0];
+          char *__pyx_temp_pointer_0;
+          Py_ssize_t __pyx_temp_idx_0;
+          __pyx_temp_pointer_0 = __pyx_t_9.data;
+          for (__pyx_temp_idx_0 = 0; __pyx_temp_idx_0 < __pyx_temp_extent_0; __pyx_temp_idx_0++) {
+            *((float *) __pyx_temp_pointer_0) = __pyx_temp_scalar;
+            __pyx_temp_pointer_0 += __pyx_temp_stride_0;
+          }
+      }
+  }
+  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
+
+  /* "consenrich/cconsenrich.pyx":2982
+ *     cdef int[::1] sliding2View = sliding2_vec
+ *     padView[0:radius] = y[0]
+ *     padView[radius:radius + n] = y             # <<<<<<<<<<<<<<
+ *     padView[radius + n:m] = y[n - 1]
+ * 
+*/
+  __pyx_t_9.data = __pyx_v_padView.data;
+  __pyx_t_9.memview = __pyx_v_padView.memview;
+  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_13 = -1;
+  if (unlikely(__pyx_memoryview_slice_memviewslice(
+    &__pyx_t_9,
+    __pyx_v_padView.shape[0], __pyx_v_padView.strides[0], __pyx_v_padView.suboffsets[0],
+    0,
+    0,
+    &__pyx_t_13,
+    __pyx_v_radius,
+    (__pyx_v_radius + __pyx_v_n),
+    0,
+    1,
+    1,
+    0,
+    1) < 0))
+{
+    __PYX_ERR(0, 2982, __pyx_L1_error)
+}
+
+if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0))) __PYX_ERR(0, 2982, __pyx_L1_error)
+  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
+
+  /* "consenrich/cconsenrich.pyx":2983
+ *     padView[0:radius] = y[0]
+ *     padView[radius:radius + n] = y
+ *     padView[radius + n:m] = y[n - 1]             # <<<<<<<<<<<<<<
+ * 
+ *     with nogil:
+*/
+  __pyx_t_12 = (__pyx_v_n - 1);
+  __pyx_t_9.data = __pyx_v_padView.data;
+  __pyx_t_9.memview = __pyx_v_padView.memview;
+  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_13 = -1;
+  if (unlikely(__pyx_memoryview_slice_memviewslice(
+    &__pyx_t_9,
+    __pyx_v_padView.shape[0], __pyx_v_padView.strides[0], __pyx_v_padView.suboffsets[0],
+    0,
+    0,
+    &__pyx_t_13,
+    (__pyx_v_radius + __pyx_v_n),
+    __pyx_v_m,
     0,
     1,
     1,
@@ -59109,85 +59154,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(PyAr
   __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
   __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":2984
- *     cdef int[::1] sliding2View = sliding2_vec
- *     padView[0:radius] = y[0]
- *     padView[radius:radius + n] = y             # <<<<<<<<<<<<<<
- *     padView[radius + n:m] = y[n - 1]
- * 
-*/
-  __pyx_t_9.data = __pyx_v_padView.data;
-  __pyx_t_9.memview = __pyx_v_padView.memview;
-  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_13 = -1;
-  if (unlikely(__pyx_memoryview_slice_memviewslice(
-    &__pyx_t_9,
-    __pyx_v_padView.shape[0], __pyx_v_padView.strides[0], __pyx_v_padView.suboffsets[0],
-    0,
-    0,
-    &__pyx_t_13,
-    __pyx_v_radius,
-    (__pyx_v_radius + __pyx_v_n),
-    0,
-    1,
-    1,
-    0,
-    1) < 0))
-{
-    __PYX_ERR(0, 2984, __pyx_L1_error)
-}
-
-if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0))) __PYX_ERR(0, 2984, __pyx_L1_error)
-  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
-
   /* "consenrich/cconsenrich.pyx":2985
- *     padView[0:radius] = y[0]
- *     padView[radius:radius + n] = y
- *     padView[radius + n:m] = y[n - 1]             # <<<<<<<<<<<<<<
- * 
- *     with nogil:
-*/
-  __pyx_t_12 = (__pyx_v_n - 1);
-  __pyx_t_9.data = __pyx_v_padView.data;
-  __pyx_t_9.memview = __pyx_v_padView.memview;
-  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_13 = -1;
-  if (unlikely(__pyx_memoryview_slice_memviewslice(
-    &__pyx_t_9,
-    __pyx_v_padView.shape[0], __pyx_v_padView.strides[0], __pyx_v_padView.suboffsets[0],
-    0,
-    0,
-    &__pyx_t_13,
-    (__pyx_v_radius + __pyx_v_n),
-    __pyx_v_m,
-    0,
-    1,
-    1,
-    0,
-    1) < 0))
-{
-    __PYX_ERR(0, 2985, __pyx_L1_error)
-}
-
-{
-      float __pyx_temp_scalar = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_y.data) + __pyx_t_12)) )));
-      {
-          Py_ssize_t __pyx_temp_extent_0 = __pyx_t_9.shape[0];
-          Py_ssize_t __pyx_temp_stride_0 = __pyx_t_9.strides[0];
-          char *__pyx_temp_pointer_0;
-          Py_ssize_t __pyx_temp_idx_0;
-          __pyx_temp_pointer_0 = __pyx_t_9.data;
-          for (__pyx_temp_idx_0 = 0; __pyx_temp_idx_0 < __pyx_temp_extent_0; __pyx_temp_idx_0++) {
-            *((float *) __pyx_temp_pointer_0) = __pyx_temp_scalar;
-            __pyx_temp_pointer_0 += __pyx_temp_stride_0;
-          }
-      }
-  }
-  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
-
-  /* "consenrich/cconsenrich.pyx":2987
  *     padView[radius + n:m] = y[n - 1]
  * 
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -59200,7 +59167,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/cconsenrich.pyx":2988
+        /* "consenrich/cconsenrich.pyx":2986
  * 
  *     with nogil:
  *         _rmin_F32(padView, blockSize, sw_, sliding1)             # <<<<<<<<<<<<<<
@@ -59210,7 +59177,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
         __pyx_f_10consenrich_11cconsenrich__rmin_F32(__pyx_v_padView, __pyx_v_blockSize, __pyx_v_sw_, __pyx_v_sliding1);
       }
 
-      /* "consenrich/cconsenrich.pyx":2987
+      /* "consenrich/cconsenrich.pyx":2985
  *     padView[radius + n:m] = y[n - 1]
  * 
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -59227,7 +59194,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
       }
   }
 
-  /* "consenrich/cconsenrich.pyx":2990
+  /* "consenrich/cconsenrich.pyx":2988
  *         _rmin_F32(padView, blockSize, sw_, sliding1)
  * 
  *     pad2View[0:radius] = sw_[0]             # <<<<<<<<<<<<<<
@@ -59247,6 +59214,84 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
     &__pyx_t_13,
     0,
     __pyx_v_radius,
+    0,
+    1,
+    1,
+    0,
+    1) < 0))
+{
+    __PYX_ERR(0, 2988, __pyx_L1_error)
+}
+
+{
+      float __pyx_temp_scalar = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_sw_.data) + __pyx_t_12)) )));
+      {
+          Py_ssize_t __pyx_temp_extent_0 = __pyx_t_9.shape[0];
+          Py_ssize_t __pyx_temp_stride_0 = __pyx_t_9.strides[0];
+          char *__pyx_temp_pointer_0;
+          Py_ssize_t __pyx_temp_idx_0;
+          __pyx_temp_pointer_0 = __pyx_t_9.data;
+          for (__pyx_temp_idx_0 = 0; __pyx_temp_idx_0 < __pyx_temp_extent_0; __pyx_temp_idx_0++) {
+            *((float *) __pyx_temp_pointer_0) = __pyx_temp_scalar;
+            __pyx_temp_pointer_0 += __pyx_temp_stride_0;
+          }
+      }
+  }
+  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
+
+  /* "consenrich/cconsenrich.pyx":2989
+ * 
+ *     pad2View[0:radius] = sw_[0]
+ *     pad2View[radius:radius + n] = sw_             # <<<<<<<<<<<<<<
+ *     pad2View[radius + n:m] = sw_[n - 1]
+ *     with nogil:
+*/
+  __pyx_t_9.data = __pyx_v_pad2View.data;
+  __pyx_t_9.memview = __pyx_v_pad2View.memview;
+  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_13 = -1;
+  if (unlikely(__pyx_memoryview_slice_memviewslice(
+    &__pyx_t_9,
+    __pyx_v_pad2View.shape[0], __pyx_v_pad2View.strides[0], __pyx_v_pad2View.suboffsets[0],
+    0,
+    0,
+    &__pyx_t_13,
+    __pyx_v_radius,
+    (__pyx_v_radius + __pyx_v_n),
+    0,
+    1,
+    1,
+    0,
+    1) < 0))
+{
+    __PYX_ERR(0, 2989, __pyx_L1_error)
+}
+
+if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 0))) __PYX_ERR(0, 2989, __pyx_L1_error)
+  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
+
+  /* "consenrich/cconsenrich.pyx":2990
+ *     pad2View[0:radius] = sw_[0]
+ *     pad2View[radius:radius + n] = sw_
+ *     pad2View[radius + n:m] = sw_[n - 1]             # <<<<<<<<<<<<<<
+ *     with nogil:
+ *         _rmax_F32(pad2View, blockSize, baselineView, sliding2View)
+*/
+  __pyx_t_12 = (__pyx_v_n - 1);
+  __pyx_t_9.data = __pyx_v_pad2View.data;
+  __pyx_t_9.memview = __pyx_v_pad2View.memview;
+  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
+  __pyx_t_13 = -1;
+  if (unlikely(__pyx_memoryview_slice_memviewslice(
+    &__pyx_t_9,
+    __pyx_v_pad2View.shape[0], __pyx_v_pad2View.strides[0], __pyx_v_pad2View.suboffsets[0],
+    0,
+    0,
+    &__pyx_t_13,
+    (__pyx_v_radius + __pyx_v_n),
+    __pyx_v_m,
     0,
     1,
     1,
@@ -59274,84 +59319,6 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_y, __pyx_t_9, 1, 1, 0) < 0)
   __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
 
   /* "consenrich/cconsenrich.pyx":2991
- * 
- *     pad2View[0:radius] = sw_[0]
- *     pad2View[radius:radius + n] = sw_             # <<<<<<<<<<<<<<
- *     pad2View[radius + n:m] = sw_[n - 1]
- *     with nogil:
-*/
-  __pyx_t_9.data = __pyx_v_pad2View.data;
-  __pyx_t_9.memview = __pyx_v_pad2View.memview;
-  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_13 = -1;
-  if (unlikely(__pyx_memoryview_slice_memviewslice(
-    &__pyx_t_9,
-    __pyx_v_pad2View.shape[0], __pyx_v_pad2View.strides[0], __pyx_v_pad2View.suboffsets[0],
-    0,
-    0,
-    &__pyx_t_13,
-    __pyx_v_radius,
-    (__pyx_v_radius + __pyx_v_n),
-    0,
-    1,
-    1,
-    0,
-    1) < 0))
-{
-    __PYX_ERR(0, 2991, __pyx_L1_error)
-}
-
-if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 0))) __PYX_ERR(0, 2991, __pyx_L1_error)
-  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
-
-  /* "consenrich/cconsenrich.pyx":2992
- *     pad2View[0:radius] = sw_[0]
- *     pad2View[radius:radius + n] = sw_
- *     pad2View[radius + n:m] = sw_[n - 1]             # <<<<<<<<<<<<<<
- *     with nogil:
- *         _rmax_F32(pad2View, blockSize, baselineView, sliding2View)
-*/
-  __pyx_t_12 = (__pyx_v_n - 1);
-  __pyx_t_9.data = __pyx_v_pad2View.data;
-  __pyx_t_9.memview = __pyx_v_pad2View.memview;
-  __PYX_INC_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_13 = -1;
-  if (unlikely(__pyx_memoryview_slice_memviewslice(
-    &__pyx_t_9,
-    __pyx_v_pad2View.shape[0], __pyx_v_pad2View.strides[0], __pyx_v_pad2View.suboffsets[0],
-    0,
-    0,
-    &__pyx_t_13,
-    (__pyx_v_radius + __pyx_v_n),
-    __pyx_v_m,
-    0,
-    1,
-    1,
-    0,
-    1) < 0))
-{
-    __PYX_ERR(0, 2992, __pyx_L1_error)
-}
-
-{
-      float __pyx_temp_scalar = (*((float *) ( /* dim=0 */ ((char *) (((float *) __pyx_v_sw_.data) + __pyx_t_12)) )));
-      {
-          Py_ssize_t __pyx_temp_extent_0 = __pyx_t_9.shape[0];
-          Py_ssize_t __pyx_temp_stride_0 = __pyx_t_9.strides[0];
-          char *__pyx_temp_pointer_0;
-          Py_ssize_t __pyx_temp_idx_0;
-          __pyx_temp_pointer_0 = __pyx_t_9.data;
-          for (__pyx_temp_idx_0 = 0; __pyx_temp_idx_0 < __pyx_temp_extent_0; __pyx_temp_idx_0++) {
-            *((float *) __pyx_temp_pointer_0) = __pyx_temp_scalar;
-            __pyx_temp_pointer_0 += __pyx_temp_stride_0;
-          }
-      }
-  }
-  __PYX_XCLEAR_MEMVIEW(&__pyx_t_9, 1);
-  __pyx_t_9.memview = NULL; __pyx_t_9.data = NULL;
-
-  /* "consenrich/cconsenrich.pyx":2993
  *     pad2View[radius:radius + n] = sw_
  *     pad2View[radius + n:m] = sw_[n - 1]
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -59364,7 +59331,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/cconsenrich.pyx":2994
+        /* "consenrich/cconsenrich.pyx":2992
  *     pad2View[radius + n:m] = sw_[n - 1]
  *     with nogil:
  *         _rmax_F32(pad2View, blockSize, baselineView, sliding2View)             # <<<<<<<<<<<<<<
@@ -59374,7 +59341,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 
         __pyx_f_10consenrich_11cconsenrich__rmax_F32(__pyx_v_pad2View, __pyx_v_blockSize, __pyx_v_baselineView, __pyx_v_sliding2View);
       }
 
-      /* "consenrich/cconsenrich.pyx":2993
+      /* "consenrich/cconsenrich.pyx":2991
  *     pad2View[radius:radius + n] = sw_
  *     pad2View[radius + n:m] = sw_[n - 1]
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -59391,7 +59358,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 
       }
   }
 
-  /* "consenrich/cconsenrich.pyx":2996
+  /* "consenrich/cconsenrich.pyx":2994
  *         _rmax_F32(pad2View, blockSize, baselineView, sliding2View)
  * 
  *     return baseline_vec             # <<<<<<<<<<<<<<
@@ -59403,7 +59370,7 @@ if (unlikely((__pyx_memoryview_copy_contents(__pyx_v_sw_, __pyx_t_9, 1, 1, 0) < 
   __pyx_r = __pyx_v_baseline_vec;
   goto __pyx_L0;
 
-  /* "consenrich/cconsenrich.pyx":2957
+  /* "consenrich/cconsenrich.pyx":2955
  * 
  * 
  * cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize):             # <<<<<<<<<<<<<<
@@ -59483,39 +59450,39 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_data,&__pyx_mstate_global->__pyx_n_u_blockSize,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2957, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2955, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2957, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2955, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2957, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2955, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "clocalBaseline_F32", 0) < (0)) __PYX_ERR(0, 2957, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "clocalBaseline_F32", 0) < (0)) __PYX_ERR(0, 2955, __pyx_L3_error)
       for (Py_ssize_t i = __pyx_nargs; i < 2; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("clocalBaseline_F32", 1, 2, 2, i); __PYX_ERR(0, 2957, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("clocalBaseline_F32", 1, 2, 2, i); __PYX_ERR(0, 2955, __pyx_L3_error) }
       }
     } else if (unlikely(__pyx_nargs != 2)) {
       goto __pyx_L5_argtuple_error;
     } else {
       values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2957, __pyx_L3_error)
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2955, __pyx_L3_error)
       values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2957, __pyx_L3_error)
+      if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2955, __pyx_L3_error)
     }
     __pyx_v_data = ((PyArrayObject *)values[0]);
-    __pyx_v_blockSize = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_blockSize == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2957, __pyx_L3_error)
+    __pyx_v_blockSize = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_blockSize == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2955, __pyx_L3_error)
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("clocalBaseline_F32", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 2957, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("clocalBaseline_F32", 1, 2, 2, __pyx_nargs); __PYX_ERR(0, 2955, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -59526,7 +59493,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_data), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "data", 0))) __PYX_ERR(0, 2957, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_data), __pyx_mstate_global->__pyx_ptype_5numpy_ndarray, 1, "data", 0))) __PYX_ERR(0, 2955, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_11cconsenrich_44clocalBaseline_F32(__pyx_self, __pyx_v_data, __pyx_v_blockSize);
 
   /* function exit code */
@@ -59555,7 +59522,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_44clocalBaseline_F32(CYTHON
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("clocalBaseline_F32", 0);
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(__pyx_v_data, __pyx_v_blockSize, 1)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2957, __pyx_L1_error)
+  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(__pyx_v_data, __pyx_v_blockSize, 1)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2955, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -59572,7 +59539,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_44clocalBaseline_F32(CYTHON
   return __pyx_r;
 }
 
-/* "consenrich/cconsenrich.pyx":2999
+/* "consenrich/cconsenrich.pyx":2997
  * 
  * 
  * cpdef clocalBaseline(object x, int blockSize=101):             # <<<<<<<<<<<<<<
@@ -59608,7 +59575,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject *__p
     }
   }
 
-  /* "consenrich/cconsenrich.pyx":3000
+  /* "consenrich/cconsenrich.pyx":2998
  * 
  * cpdef clocalBaseline(object x, int blockSize=101):
  *     arr = np.asarray(x)             # <<<<<<<<<<<<<<
@@ -59616,9 +59583,9 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject *__p
  *         return clocalBaseline_F64(arr, <int>blockSize)
 */
   __pyx_t_2 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3000, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 2998, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_asarray); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3000, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_asarray); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2998, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __pyx_t_5 = 1;
@@ -59638,34 +59605,34 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject *__p
     __pyx_t_1 = __Pyx_PyObject_FastCall((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3000, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2998, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
   __pyx_v_arr = __pyx_t_1;
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":3001
+  /* "consenrich/cconsenrich.pyx":2999
  * cpdef clocalBaseline(object x, int blockSize=101):
  *     arr = np.asarray(x)
  *     if arr.dtype == np.float64:             # <<<<<<<<<<<<<<
  *         return clocalBaseline_F64(arr, <int>blockSize)
  *     if arr.dtype == np.float32:
 */
-  __pyx_t_1 = __Pyx_PyObject_GetAttrStr(__pyx_v_arr, __pyx_mstate_global->__pyx_n_u_dtype); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3001, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyObject_GetAttrStr(__pyx_v_arr, __pyx_mstate_global->__pyx_n_u_dtype); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2999, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
-  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3001, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2999, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
-  __pyx_t_2 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3001, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyObject_GetAttrStr(__pyx_t_4, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 2999, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-  __pyx_t_4 = PyObject_RichCompare(__pyx_t_1, __pyx_t_2, Py_EQ); __Pyx_XGOTREF(__pyx_t_4); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3001, __pyx_L1_error)
+  __pyx_t_4 = PyObject_RichCompare(__pyx_t_1, __pyx_t_2, Py_EQ); __Pyx_XGOTREF(__pyx_t_4); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 2999, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-  __pyx_t_6 = __Pyx_PyObject_IsTrue(__pyx_t_4); if (unlikely((__pyx_t_6 < 0))) __PYX_ERR(0, 3001, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyObject_IsTrue(__pyx_t_4); if (unlikely((__pyx_t_6 < 0))) __PYX_ERR(0, 2999, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   if (__pyx_t_6) {
 
-    /* "consenrich/cconsenrich.pyx":3002
+    /* "consenrich/cconsenrich.pyx":3000
  *     arr = np.asarray(x)
  *     if arr.dtype == np.float64:
  *         return clocalBaseline_F64(arr, <int>blockSize)             # <<<<<<<<<<<<<<
@@ -59673,14 +59640,14 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject *__p
  *         return clocalBaseline_F32(arr, <int>blockSize)
 */
     __Pyx_XDECREF(__pyx_r);
-    if (!(likely(((__pyx_v_arr) == Py_None) || likely(__Pyx_TypeTest(__pyx_v_arr, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3002, __pyx_L1_error)
-    __pyx_t_4 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(((PyArrayObject *)__pyx_v_arr), ((int)__pyx_v_blockSize), 0)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3002, __pyx_L1_error)
+    if (!(likely(((__pyx_v_arr) == Py_None) || likely(__Pyx_TypeTest(__pyx_v_arr, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3000, __pyx_L1_error)
+    __pyx_t_4 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F64(((PyArrayObject *)__pyx_v_arr), ((int)__pyx_v_blockSize), 0)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3000, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
     __pyx_r = __pyx_t_4;
     __pyx_t_4 = 0;
     goto __pyx_L0;
 
-    /* "consenrich/cconsenrich.pyx":3001
+    /* "consenrich/cconsenrich.pyx":2999
  * cpdef clocalBaseline(object x, int blockSize=101):
  *     arr = np.asarray(x)
  *     if arr.dtype == np.float64:             # <<<<<<<<<<<<<<
@@ -59689,28 +59656,28 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject *__p
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":3003
+  /* "consenrich/cconsenrich.pyx":3001
  *     if arr.dtype == np.float64:
  *         return clocalBaseline_F64(arr, <int>blockSize)
  *     if arr.dtype == np.float32:             # <<<<<<<<<<<<<<
  *         return clocalBaseline_F32(arr, <int>blockSize)
  *     raise TypeError("x must be np.float32 or np.float64")
 */
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_v_arr, __pyx_mstate_global->__pyx_n_u_dtype); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3003, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_v_arr, __pyx_mstate_global->__pyx_n_u_dtype); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3001, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
-  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3003, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3001, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_1 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3003, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3001, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-  __pyx_t_2 = PyObject_RichCompare(__pyx_t_4, __pyx_t_1, Py_EQ); __Pyx_XGOTREF(__pyx_t_2); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3003, __pyx_L1_error)
+  __pyx_t_2 = PyObject_RichCompare(__pyx_t_4, __pyx_t_1, Py_EQ); __Pyx_XGOTREF(__pyx_t_2); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3001, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-  __pyx_t_6 = __Pyx_PyObject_IsTrue(__pyx_t_2); if (unlikely((__pyx_t_6 < 0))) __PYX_ERR(0, 3003, __pyx_L1_error)
+  __pyx_t_6 = __Pyx_PyObject_IsTrue(__pyx_t_2); if (unlikely((__pyx_t_6 < 0))) __PYX_ERR(0, 3001, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   if (__pyx_t_6) {
 
-    /* "consenrich/cconsenrich.pyx":3004
+    /* "consenrich/cconsenrich.pyx":3002
  *         return clocalBaseline_F64(arr, <int>blockSize)
  *     if arr.dtype == np.float32:
  *         return clocalBaseline_F32(arr, <int>blockSize)             # <<<<<<<<<<<<<<
@@ -59718,14 +59685,14 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject *__p
  * 
 */
     __Pyx_XDECREF(__pyx_r);
-    if (!(likely(((__pyx_v_arr) == Py_None) || likely(__Pyx_TypeTest(__pyx_v_arr, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3004, __pyx_L1_error)
-    __pyx_t_2 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(((PyArrayObject *)__pyx_v_arr), ((int)__pyx_v_blockSize), 0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3004, __pyx_L1_error)
+    if (!(likely(((__pyx_v_arr) == Py_None) || likely(__Pyx_TypeTest(__pyx_v_arr, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3002, __pyx_L1_error)
+    __pyx_t_2 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_clocalBaseline_F32(((PyArrayObject *)__pyx_v_arr), ((int)__pyx_v_blockSize), 0)); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3002, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
     __pyx_r = __pyx_t_2;
     __pyx_t_2 = 0;
     goto __pyx_L0;
 
-    /* "consenrich/cconsenrich.pyx":3003
+    /* "consenrich/cconsenrich.pyx":3001
  *     if arr.dtype == np.float64:
  *         return clocalBaseline_F64(arr, <int>blockSize)
  *     if arr.dtype == np.float32:             # <<<<<<<<<<<<<<
@@ -59734,7 +59701,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject *__p
 */
   }
 
-  /* "consenrich/cconsenrich.pyx":3005
+  /* "consenrich/cconsenrich.pyx":3003
  *     if arr.dtype == np.float32:
  *         return clocalBaseline_F32(arr, <int>blockSize)
  *     raise TypeError("x must be np.float32 or np.float64")             # <<<<<<<<<<<<<<
@@ -59747,14 +59714,14 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject *__p
     PyObject *__pyx_callargs[2] = {__pyx_t_1, __pyx_mstate_global->__pyx_kp_u_x_must_be_np_float32_or_np_float};
     __pyx_t_2 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_TypeError)), __pyx_callargs+__pyx_t_5, (2-__pyx_t_5) | (__pyx_t_5*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_1); __pyx_t_1 = 0;
-    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3005, __pyx_L1_error)
+    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3003, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
   }
   __Pyx_Raise(__pyx_t_2, 0, 0, 0);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-  __PYX_ERR(0, 3005, __pyx_L1_error)
+  __PYX_ERR(0, 3003, __pyx_L1_error)
 
-  /* "consenrich/cconsenrich.pyx":2999
+  /* "consenrich/cconsenrich.pyx":2997
  * 
  * 
  * cpdef clocalBaseline(object x, int blockSize=101):             # <<<<<<<<<<<<<<
@@ -59817,48 +59784,48 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_x,&__pyx_mstate_global->__pyx_n_u_blockSize,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2999, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 2997, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2999, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2997, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2999, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2997, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "clocalBaseline", 0) < (0)) __PYX_ERR(0, 2999, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "clocalBaseline", 0) < (0)) __PYX_ERR(0, 2997, __pyx_L3_error)
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("clocalBaseline", 0, 1, 2, i); __PYX_ERR(0, 2999, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("clocalBaseline", 0, 1, 2, i); __PYX_ERR(0, 2997, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2999, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 2997, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2999, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 2997, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
     }
     __pyx_v_x = values[0];
     if (values[1]) {
-      __pyx_v_blockSize = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_blockSize == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2999, __pyx_L3_error)
+      __pyx_v_blockSize = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_blockSize == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 2997, __pyx_L3_error)
     } else {
       __pyx_v_blockSize = ((int)0x65);
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("clocalBaseline", 0, 1, 2, __pyx_nargs); __PYX_ERR(0, 2999, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("clocalBaseline", 0, 1, 2, __pyx_nargs); __PYX_ERR(0, 2997, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -59891,7 +59858,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_46clocalBaseline(CYTHON_UNU
   __Pyx_XDECREF(__pyx_r);
   __pyx_t_2.__pyx_n = 1;
   __pyx_t_2.blockSize = __pyx_v_blockSize;
-  __pyx_t_1 = __pyx_f_10consenrich_11cconsenrich_clocalBaseline(__pyx_v_x, 1, &__pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2999, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_10consenrich_11cconsenrich_clocalBaseline(__pyx_v_x, 1, &__pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 2997, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -59908,7 +59875,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_46clocalBaseline(CYTHON_UNU
   return __pyx_r;
 }
 
-/* "consenrich/cconsenrich.pyx":3008
+/* "consenrich/cconsenrich.pyx":3006
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(             # <<<<<<<<<<<<<<
@@ -59927,7 +59894,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   float __pyx_v_minCount = __pyx_mstate_global->__pyx_k__17;
   double __pyx_v_nonzeroFrac = ((double)0.5);
 
-  /* "consenrich/cconsenrich.pyx":3012
+  /* "consenrich/cconsenrich.pyx":3010
  *     float minCount=<float>1.0,
  *     double nonzeroFrac=0.5,
  *     bint centerGeoMean=True,             # <<<<<<<<<<<<<<
@@ -60017,7 +59984,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   __pyx_pybuffernd_logRatioBuf.data = NULL;
   __pyx_pybuffernd_logRatioBuf.rcbuffer = &__pyx_pybuffer_logRatioBuf;
 
-  /* "consenrich/cconsenrich.pyx":3014
+  /* "consenrich/cconsenrich.pyx":3012
  *     bint centerGeoMean=True,
  * ):
  *     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)             # <<<<<<<<<<<<<<
@@ -60025,14 +59992,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
  *     cdef Py_ssize_t n = chromMat_.shape[1]
 */
   __pyx_t_2 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3014, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3012, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3014, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_ascontiguousarray); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3012, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3014, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3012, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 3014, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 3012, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __pyx_t_6 = 1;
@@ -60049,30 +60016,30 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_2, __pyx_v_chromMat};
-    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3014, __pyx_L1_error)
+    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3012, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_5, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 3014, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_5, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 3012, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_3);
     __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3014, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3012, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3014, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3012, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_chromMat_.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float32_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 2, 0, __pyx_stack) == -1)) {
       __pyx_v_chromMat_ = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_chromMat_.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 3014, __pyx_L1_error)
+      __PYX_ERR(0, 3012, __pyx_L1_error)
     } else {__pyx_pybuffernd_chromMat_.diminfo[0].strides = __pyx_pybuffernd_chromMat_.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_chromMat_.diminfo[0].shape = __pyx_pybuffernd_chromMat_.rcbuffer->pybuffer.shape[0]; __pyx_pybuffernd_chromMat_.diminfo[1].strides = __pyx_pybuffernd_chromMat_.rcbuffer->pybuffer.strides[1]; __pyx_pybuffernd_chromMat_.diminfo[1].shape = __pyx_pybuffernd_chromMat_.rcbuffer->pybuffer.shape[1];
     }
   }
   __pyx_v_chromMat_ = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":3015
+  /* "consenrich/cconsenrich.pyx":3013
  * ):
  *     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
  *     cdef Py_ssize_t m = chromMat_.shape[0]             # <<<<<<<<<<<<<<
@@ -60081,7 +60048,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
   __pyx_v_m = (__pyx_f_5numpy_7ndarray_5shape_shape(((PyArrayObject *)__pyx_v_chromMat_))[0]);
 
-  /* "consenrich/cconsenrich.pyx":3016
+  /* "consenrich/cconsenrich.pyx":3014
  *     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
  *     cdef Py_ssize_t m = chromMat_.shape[0]
  *     cdef Py_ssize_t n = chromMat_.shape[1]             # <<<<<<<<<<<<<<
@@ -60090,19 +60057,19 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
   __pyx_v_n = (__pyx_f_5numpy_7ndarray_5shape_shape(((PyArrayObject *)__pyx_v_chromMat_))[1]);
 
-  /* "consenrich/cconsenrich.pyx":3017
+  /* "consenrich/cconsenrich.pyx":3015
  *     cdef Py_ssize_t m = chromMat_.shape[0]
  *     cdef Py_ssize_t n = chromMat_.shape[1]
  *     cdef cnp.float32_t[:, ::1] chromMatView = chromMat_             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] refLog = np.empty(n, dtype=np.float64)
 */
-  __pyx_t_7 = __Pyx_PyObject_to_MemoryviewSlice_d_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_chromMat_), PyBUF_WRITABLE); if (unlikely(!__pyx_t_7.memview)) __PYX_ERR(0, 3017, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyObject_to_MemoryviewSlice_d_dc_nn___pyx_t_5numpy_float32_t(((PyObject *)__pyx_v_chromMat_), PyBUF_WRITABLE); if (unlikely(!__pyx_t_7.memview)) __PYX_ERR(0, 3015, __pyx_L1_error)
   __pyx_v_chromMatView = __pyx_t_7;
   __pyx_t_7.memview = NULL;
   __pyx_t_7.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":3019
+  /* "consenrich/cconsenrich.pyx":3017
  *     cdef cnp.float32_t[:, ::1] chromMatView = chromMat_
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] refLog = np.empty(n, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -60110,16 +60077,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
  * 
 */
   __pyx_t_4 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3019, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3017, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 3019, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 3017, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3019, __pyx_L1_error)
+  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3017, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3019, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3017, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 3019, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 3017, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __pyx_t_6 = 1;
@@ -60136,43 +60103,43 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_4, __pyx_t_3};
-    __pyx_t_2 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3019, __pyx_L1_error)
+    __pyx_t_2 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3017, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_2, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 3019, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_8, __pyx_t_2, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 3017, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_5, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_2);
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3019, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3017, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3019, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3017, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_refLog.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_refLog = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_refLog.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 3019, __pyx_L1_error)
+      __PYX_ERR(0, 3017, __pyx_L1_error)
     } else {__pyx_pybuffernd_refLog.diminfo[0].strides = __pyx_pybuffernd_refLog.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_refLog.diminfo[0].shape = __pyx_pybuffernd_refLog.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_refLog = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":3020
+  /* "consenrich/cconsenrich.pyx":3018
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] refLog = np.empty(n, dtype=np.float64)
  *     cdef double[::1] refLogView = refLog             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scaleFactors = np.empty(m, dtype=np.float64)
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_refLog), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 3020, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_refLog), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 3018, __pyx_L1_error)
   __pyx_v_refLogView = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":3022
+  /* "consenrich/cconsenrich.pyx":3020
  *     cdef double[::1] refLogView = refLog
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scaleFactors = np.empty(m, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -60180,16 +60147,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
  * 
 */
   __pyx_t_5 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3022, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3020, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 3022, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 3020, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-  __pyx_t_2 = PyLong_FromSsize_t(__pyx_v_m); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3022, __pyx_L1_error)
+  __pyx_t_2 = PyLong_FromSsize_t(__pyx_v_m); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3020, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3022, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3020, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3022, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3020, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
   __pyx_t_6 = 1;
@@ -60206,43 +60173,43 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_5, __pyx_t_2};
-    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3022, __pyx_L1_error)
+    __pyx_t_3 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3020, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 3022, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_4, __pyx_t_3, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 3020, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_8, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_3);
     __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3022, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3020, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3022, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3020, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_scaleFactors.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_scaleFactors = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_scaleFactors.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 3022, __pyx_L1_error)
+      __PYX_ERR(0, 3020, __pyx_L1_error)
     } else {__pyx_pybuffernd_scaleFactors.diminfo[0].strides = __pyx_pybuffernd_scaleFactors.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_scaleFactors.diminfo[0].shape = __pyx_pybuffernd_scaleFactors.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_scaleFactors = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":3023
+  /* "consenrich/cconsenrich.pyx":3021
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scaleFactors = np.empty(m, dtype=np.float64)
  *     cdef double[::1] scaleFactorsView = scaleFactors             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logRatioBuf = np.empty(n, dtype=np.float64)
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_scaleFactors), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 3023, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_scaleFactors), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 3021, __pyx_L1_error)
   __pyx_v_scaleFactorsView = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":3025
+  /* "consenrich/cconsenrich.pyx":3023
  *     cdef double[::1] scaleFactorsView = scaleFactors
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logRatioBuf = np.empty(n, dtype=np.float64)             # <<<<<<<<<<<<<<
@@ -60250,16 +60217,16 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
  * 
 */
   __pyx_t_8 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3025, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3023, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3025, __pyx_L1_error)
+  __pyx_t_4 = __Pyx_PyObject_GetAttrStr(__pyx_t_3, __pyx_mstate_global->__pyx_n_u_empty); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 3023, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
   __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3025, __pyx_L1_error)
+  __pyx_t_3 = PyLong_FromSsize_t(__pyx_v_n); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 3023, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
-  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3025, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3023, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
-  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 3025, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyObject_GetAttrStr(__pyx_t_2, __pyx_mstate_global->__pyx_n_u_float64); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 3023, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __pyx_t_6 = 1;
@@ -60276,43 +60243,43 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_8, __pyx_t_3};
-    __pyx_t_2 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3025, __pyx_L1_error)
+    __pyx_t_2 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 3023, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_5, __pyx_t_2, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 3025, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_5, __pyx_t_2, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 3023, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_4, __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_2);
     __Pyx_XDECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3025, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3023, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3025, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 3023, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     if (unlikely(__Pyx_GetBufferAndValidate(&__pyx_pybuffernd_logRatioBuf.rcbuffer->pybuffer, (PyObject*)((PyArrayObject *)__pyx_t_1), &__Pyx_TypeInfo_nn___pyx_t_5numpy_float64_t, PyBUF_FORMAT| PyBUF_C_CONTIGUOUS, 1, 0, __pyx_stack) == -1)) {
       __pyx_v_logRatioBuf = ((PyArrayObject *)Py_None); __Pyx_INCREF(Py_None); __pyx_pybuffernd_logRatioBuf.rcbuffer->pybuffer.buf = NULL;
-      __PYX_ERR(0, 3025, __pyx_L1_error)
+      __PYX_ERR(0, 3023, __pyx_L1_error)
     } else {__pyx_pybuffernd_logRatioBuf.diminfo[0].strides = __pyx_pybuffernd_logRatioBuf.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_logRatioBuf.diminfo[0].shape = __pyx_pybuffernd_logRatioBuf.rcbuffer->pybuffer.shape[0];
     }
   }
   __pyx_v_logRatioBuf = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/cconsenrich.pyx":3026
+  /* "consenrich/cconsenrich.pyx":3024
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logRatioBuf = np.empty(n, dtype=np.float64)
  *     cdef double[::1] logRatioBufView = logRatioBuf             # <<<<<<<<<<<<<<
  * 
  *     cdef Py_ssize_t s, i, k, needNonzero
 */
-  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_logRatioBuf), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 3026, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_to_MemoryviewSlice_dc_double(((PyObject *)__pyx_v_logRatioBuf), PyBUF_WRITABLE); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 3024, __pyx_L1_error)
   __pyx_v_logRatioBufView = __pyx_t_9;
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
 
-  /* "consenrich/cconsenrich.pyx":3031
+  /* "consenrich/cconsenrich.pyx":3029
  *     cdef Py_ssize_t presentCount
  *     cdef double sumLog, v, medLog, geoMean, eps
  *     eps = 1e-8             # <<<<<<<<<<<<<<
@@ -60321,7 +60288,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
   __pyx_v_eps = 1e-8;
 
-  /* "consenrich/cconsenrich.pyx":3033
+  /* "consenrich/cconsenrich.pyx":3031
  *     eps = 1e-8
  * 
  *     needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + (1.0 - 1e-8))             # <<<<<<<<<<<<<<
@@ -60330,7 +60297,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
   __pyx_v_needNonzero = ((Py_ssize_t)((__pyx_v_nonzeroFrac * ((double)__pyx_v_m)) + (1.0 - 1e-8)));
 
-  /* "consenrich/cconsenrich.pyx":3034
+  /* "consenrich/cconsenrich.pyx":3032
  * 
  *     needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + (1.0 - 1e-8))
  *     if needNonzero < 1:             # <<<<<<<<<<<<<<
@@ -60340,7 +60307,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   __pyx_t_10 = (__pyx_v_needNonzero < 1);
   if (__pyx_t_10) {
 
-    /* "consenrich/cconsenrich.pyx":3035
+    /* "consenrich/cconsenrich.pyx":3033
  *     needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + (1.0 - 1e-8))
  *     if needNonzero < 1:
  *         needNonzero = 1             # <<<<<<<<<<<<<<
@@ -60349,7 +60316,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
     __pyx_v_needNonzero = 1;
 
-    /* "consenrich/cconsenrich.pyx":3034
+    /* "consenrich/cconsenrich.pyx":3032
  * 
  *     needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + (1.0 - 1e-8))
  *     if needNonzero < 1:             # <<<<<<<<<<<<<<
@@ -60359,7 +60326,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
     goto __pyx_L3;
   }
 
-  /* "consenrich/cconsenrich.pyx":3036
+  /* "consenrich/cconsenrich.pyx":3034
  *     if needNonzero < 1:
  *         needNonzero = 1
  *     elif needNonzero > m:             # <<<<<<<<<<<<<<
@@ -60369,7 +60336,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   __pyx_t_10 = (__pyx_v_needNonzero > __pyx_v_m);
   if (__pyx_t_10) {
 
-    /* "consenrich/cconsenrich.pyx":3037
+    /* "consenrich/cconsenrich.pyx":3035
  *         needNonzero = 1
  *     elif needNonzero > m:
  *         needNonzero = m             # <<<<<<<<<<<<<<
@@ -60378,7 +60345,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
     __pyx_v_needNonzero = __pyx_v_m;
 
-    /* "consenrich/cconsenrich.pyx":3036
+    /* "consenrich/cconsenrich.pyx":3034
  *     if needNonzero < 1:
  *         needNonzero = 1
  *     elif needNonzero > m:             # <<<<<<<<<<<<<<
@@ -60388,7 +60355,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   }
   __pyx_L3:;
 
-  /* "consenrich/cconsenrich.pyx":3039
+  /* "consenrich/cconsenrich.pyx":3037
  *         needNonzero = m
  * 
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -60401,7 +60368,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/cconsenrich.pyx":3040
+        /* "consenrich/cconsenrich.pyx":3038
  * 
  *     with nogil:
  *         for i in range(n):             # <<<<<<<<<<<<<<
@@ -60413,7 +60380,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
         for (__pyx_t_13 = 0; __pyx_t_13 < __pyx_t_12; __pyx_t_13+=1) {
           __pyx_v_i = __pyx_t_13;
 
-          /* "consenrich/cconsenrich.pyx":3041
+          /* "consenrich/cconsenrich.pyx":3039
  *     with nogil:
  *         for i in range(n):
  *             sumLog = 0.0             # <<<<<<<<<<<<<<
@@ -60422,7 +60389,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
           __pyx_v_sumLog = 0.0;
 
-          /* "consenrich/cconsenrich.pyx":3042
+          /* "consenrich/cconsenrich.pyx":3040
  *         for i in range(n):
  *             sumLog = 0.0
  *             presentCount = 0             # <<<<<<<<<<<<<<
@@ -60431,7 +60398,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
           __pyx_v_presentCount = 0;
 
-          /* "consenrich/cconsenrich.pyx":3043
+          /* "consenrich/cconsenrich.pyx":3041
  *             sumLog = 0.0
  *             presentCount = 0
  *             for s in range(m):             # <<<<<<<<<<<<<<
@@ -60443,7 +60410,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
           for (__pyx_t_16 = 0; __pyx_t_16 < __pyx_t_15; __pyx_t_16+=1) {
             __pyx_v_s = __pyx_t_16;
 
-            /* "consenrich/cconsenrich.pyx":3044
+            /* "consenrich/cconsenrich.pyx":3042
  *             presentCount = 0
  *             for s in range(m):
  *                 v = <double>chromMatView[s, i]             # <<<<<<<<<<<<<<
@@ -60454,7 +60421,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             __pyx_t_18 = __pyx_v_i;
             __pyx_v_v = ((double)(*((__pyx_t_5numpy_float32_t *) ( /* dim=1 */ ((char *) (((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ (__pyx_v_chromMatView.data + __pyx_t_17 * __pyx_v_chromMatView.strides[0]) )) + __pyx_t_18)) ))));
 
-            /* "consenrich/cconsenrich.pyx":3045
+            /* "consenrich/cconsenrich.pyx":3043
  *             for s in range(m):
  *                 v = <double>chromMatView[s, i]
  *                 if v > <double>minCount:             # <<<<<<<<<<<<<<
@@ -60464,7 +60431,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             __pyx_t_10 = (__pyx_v_v > ((double)__pyx_v_minCount));
             if (__pyx_t_10) {
 
-              /* "consenrich/cconsenrich.pyx":3046
+              /* "consenrich/cconsenrich.pyx":3044
  *                 v = <double>chromMatView[s, i]
  *                 if v > <double>minCount:
  *                     sumLog += log(v)             # <<<<<<<<<<<<<<
@@ -60473,7 +60440,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
               __pyx_v_sumLog = (__pyx_v_sumLog + log(__pyx_v_v));
 
-              /* "consenrich/cconsenrich.pyx":3047
+              /* "consenrich/cconsenrich.pyx":3045
  *                 if v > <double>minCount:
  *                     sumLog += log(v)
  *                     presentCount += 1             # <<<<<<<<<<<<<<
@@ -60482,7 +60449,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
               __pyx_v_presentCount = (__pyx_v_presentCount + 1);
 
-              /* "consenrich/cconsenrich.pyx":3045
+              /* "consenrich/cconsenrich.pyx":3043
  *             for s in range(m):
  *                 v = <double>chromMatView[s, i]
  *                 if v > <double>minCount:             # <<<<<<<<<<<<<<
@@ -60492,7 +60459,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             }
           }
 
-          /* "consenrich/cconsenrich.pyx":3048
+          /* "consenrich/cconsenrich.pyx":3046
  *                     sumLog += log(v)
  *                     presentCount += 1
  *             refLogView[i] = (sumLog / (<double>presentCount)) if presentCount >= needNonzero else NAN             # <<<<<<<<<<<<<<
@@ -60509,7 +60476,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
           *((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_refLogView.data) + __pyx_t_18)) )) = __pyx_t_19;
         }
 
-        /* "consenrich/cconsenrich.pyx":3050
+        /* "consenrich/cconsenrich.pyx":3048
  *             refLogView[i] = (sumLog / (<double>presentCount)) if presentCount >= needNonzero else NAN
  * 
  *         for s in range(m):             # <<<<<<<<<<<<<<
@@ -60521,7 +60488,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
         for (__pyx_t_13 = 0; __pyx_t_13 < __pyx_t_12; __pyx_t_13+=1) {
           __pyx_v_s = __pyx_t_13;
 
-          /* "consenrich/cconsenrich.pyx":3051
+          /* "consenrich/cconsenrich.pyx":3049
  * 
  *         for s in range(m):
  *             k = 0             # <<<<<<<<<<<<<<
@@ -60530,7 +60497,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
           __pyx_v_k = 0;
 
-          /* "consenrich/cconsenrich.pyx":3052
+          /* "consenrich/cconsenrich.pyx":3050
  *         for s in range(m):
  *             k = 0
  *             for i in range(n):             # <<<<<<<<<<<<<<
@@ -60542,7 +60509,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
           for (__pyx_t_16 = 0; __pyx_t_16 < __pyx_t_15; __pyx_t_16+=1) {
             __pyx_v_i = __pyx_t_16;
 
-            /* "consenrich/cconsenrich.pyx":3053
+            /* "consenrich/cconsenrich.pyx":3051
  *             k = 0
  *             for i in range(n):
  *                 if not isnan(refLogView[i]):             # <<<<<<<<<<<<<<
@@ -60553,7 +60520,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             __pyx_t_10 = (!isnan((*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_refLogView.data) + __pyx_t_18)) )))));
             if (__pyx_t_10) {
 
-              /* "consenrich/cconsenrich.pyx":3054
+              /* "consenrich/cconsenrich.pyx":3052
  *             for i in range(n):
  *                 if not isnan(refLogView[i]):
  *                     v = <double>chromMatView[s, i]             # <<<<<<<<<<<<<<
@@ -60564,7 +60531,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
               __pyx_t_17 = __pyx_v_i;
               __pyx_v_v = ((double)(*((__pyx_t_5numpy_float32_t *) ( /* dim=1 */ ((char *) (((__pyx_t_5numpy_float32_t *) ( /* dim=0 */ (__pyx_v_chromMatView.data + __pyx_t_18 * __pyx_v_chromMatView.strides[0]) )) + __pyx_t_17)) ))));
 
-              /* "consenrich/cconsenrich.pyx":3055
+              /* "consenrich/cconsenrich.pyx":3053
  *                 if not isnan(refLogView[i]):
  *                     v = <double>chromMatView[s, i]
  *                     if v > <double>minCount:             # <<<<<<<<<<<<<<
@@ -60574,7 +60541,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
               __pyx_t_10 = (__pyx_v_v > ((double)__pyx_v_minCount));
               if (__pyx_t_10) {
 
-                /* "consenrich/cconsenrich.pyx":3056
+                /* "consenrich/cconsenrich.pyx":3054
  *                     v = <double>chromMatView[s, i]
  *                     if v > <double>minCount:
  *                         logRatioBufView[k] = log(v) - refLogView[i]             # <<<<<<<<<<<<<<
@@ -60585,7 +60552,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
                 __pyx_t_18 = __pyx_v_k;
                 *((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logRatioBufView.data) + __pyx_t_18)) )) = (log(__pyx_v_v) - (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_refLogView.data) + __pyx_t_17)) ))));
 
-                /* "consenrich/cconsenrich.pyx":3057
+                /* "consenrich/cconsenrich.pyx":3055
  *                     if v > <double>minCount:
  *                         logRatioBufView[k] = log(v) - refLogView[i]
  *                         k += 1             # <<<<<<<<<<<<<<
@@ -60594,7 +60561,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
                 __pyx_v_k = (__pyx_v_k + 1);
 
-                /* "consenrich/cconsenrich.pyx":3055
+                /* "consenrich/cconsenrich.pyx":3053
  *                 if not isnan(refLogView[i]):
  *                     v = <double>chromMatView[s, i]
  *                     if v > <double>minCount:             # <<<<<<<<<<<<<<
@@ -60603,7 +60570,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
               }
 
-              /* "consenrich/cconsenrich.pyx":3053
+              /* "consenrich/cconsenrich.pyx":3051
  *             k = 0
  *             for i in range(n):
  *                 if not isnan(refLogView[i]):             # <<<<<<<<<<<<<<
@@ -60613,7 +60580,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             }
           }
 
-          /* "consenrich/cconsenrich.pyx":3059
+          /* "consenrich/cconsenrich.pyx":3057
  *                         k += 1
  * 
  *             if k == 0:             # <<<<<<<<<<<<<<
@@ -60623,7 +60590,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
           __pyx_t_10 = (__pyx_v_k == 0);
           if (__pyx_t_10) {
 
-            /* "consenrich/cconsenrich.pyx":3060
+            /* "consenrich/cconsenrich.pyx":3058
  * 
  *             if k == 0:
  *                 scaleFactorsView[s] = 1.0             # <<<<<<<<<<<<<<
@@ -60633,7 +60600,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             __pyx_t_17 = __pyx_v_s;
             *((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_scaleFactorsView.data) + __pyx_t_17)) )) = 1.0;
 
-            /* "consenrich/cconsenrich.pyx":3059
+            /* "consenrich/cconsenrich.pyx":3057
  *                         k += 1
  * 
  *             if k == 0:             # <<<<<<<<<<<<<<
@@ -60643,7 +60610,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             goto __pyx_L18;
           }
 
-          /* "consenrich/cconsenrich.pyx":3062
+          /* "consenrich/cconsenrich.pyx":3060
  *                 scaleFactorsView[s] = 1.0
  *             else:
  *                 _nthElement_F64(&logRatioBufView[0], k, k >> 1)             # <<<<<<<<<<<<<<
@@ -60652,9 +60619,9 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
           /*else*/ {
             __pyx_t_17 = 0;
-            __pyx_t_10 = __pyx_f_10consenrich_11cconsenrich__nthElement_F64((&(*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logRatioBufView.data) + __pyx_t_17)) )))), __pyx_v_k, (__pyx_v_k >> 1)); if (unlikely(__pyx_t_10 == ((int)-1) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 3062, __pyx_L5_error)
+            __pyx_t_10 = __pyx_f_10consenrich_11cconsenrich__nthElement_F64((&(*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logRatioBufView.data) + __pyx_t_17)) )))), __pyx_v_k, (__pyx_v_k >> 1)); if (unlikely(__pyx_t_10 == ((int)-1) && __Pyx_ErrOccurredWithGIL())) __PYX_ERR(0, 3060, __pyx_L5_error)
 
-            /* "consenrich/cconsenrich.pyx":3063
+            /* "consenrich/cconsenrich.pyx":3061
  *             else:
  *                 _nthElement_F64(&logRatioBufView[0], k, k >> 1)
  *                 medLog = logRatioBufView[k >> 1]             # <<<<<<<<<<<<<<
@@ -60664,7 +60631,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             __pyx_t_17 = (__pyx_v_k >> 1);
             __pyx_v_medLog = (*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_logRatioBufView.data) + __pyx_t_17)) )));
 
-            /* "consenrich/cconsenrich.pyx":3064
+            /* "consenrich/cconsenrich.pyx":3062
  *                 _nthElement_F64(&logRatioBufView[0], k, k >> 1)
  *                 medLog = logRatioBufView[k >> 1]
  *                 scaleFactorsView[s] = exp(medLog)             # <<<<<<<<<<<<<<
@@ -60677,7 +60644,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
           __pyx_L18:;
         }
 
-        /* "consenrich/cconsenrich.pyx":3066
+        /* "consenrich/cconsenrich.pyx":3064
  *                 scaleFactorsView[s] = exp(medLog)
  * 
  *         if centerGeoMean and m > 0:             # <<<<<<<<<<<<<<
@@ -60694,7 +60661,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
         __pyx_L20_bool_binop_done:;
         if (__pyx_t_10) {
 
-          /* "consenrich/cconsenrich.pyx":3067
+          /* "consenrich/cconsenrich.pyx":3065
  * 
  *         if centerGeoMean and m > 0:
  *             sumLog = 0.0             # <<<<<<<<<<<<<<
@@ -60703,7 +60670,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
           __pyx_v_sumLog = 0.0;
 
-          /* "consenrich/cconsenrich.pyx":3068
+          /* "consenrich/cconsenrich.pyx":3066
  *         if centerGeoMean and m > 0:
  *             sumLog = 0.0
  *             for s in range(m):             # <<<<<<<<<<<<<<
@@ -60715,7 +60682,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
           for (__pyx_t_13 = 0; __pyx_t_13 < __pyx_t_12; __pyx_t_13+=1) {
             __pyx_v_s = __pyx_t_13;
 
-            /* "consenrich/cconsenrich.pyx":3069
+            /* "consenrich/cconsenrich.pyx":3067
  *             sumLog = 0.0
  *             for s in range(m):
  *                 sumLog += log(scaleFactorsView[s] + eps)             # <<<<<<<<<<<<<<
@@ -60726,7 +60693,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             __pyx_v_sumLog = (__pyx_v_sumLog + log(((*((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_scaleFactorsView.data) + __pyx_t_17)) ))) + __pyx_v_eps)));
           }
 
-          /* "consenrich/cconsenrich.pyx":3070
+          /* "consenrich/cconsenrich.pyx":3068
  *             for s in range(m):
  *                 sumLog += log(scaleFactorsView[s] + eps)
  *             geoMean = exp(sumLog / (<double>m))             # <<<<<<<<<<<<<<
@@ -60735,7 +60702,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
 */
           __pyx_v_geoMean = exp((__pyx_v_sumLog / ((double)__pyx_v_m)));
 
-          /* "consenrich/cconsenrich.pyx":3071
+          /* "consenrich/cconsenrich.pyx":3069
  *                 sumLog += log(scaleFactorsView[s] + eps)
  *             geoMean = exp(sumLog / (<double>m))
  *             for s in range(m):             # <<<<<<<<<<<<<<
@@ -60747,7 +60714,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
           for (__pyx_t_13 = 0; __pyx_t_13 < __pyx_t_12; __pyx_t_13+=1) {
             __pyx_v_s = __pyx_t_13;
 
-            /* "consenrich/cconsenrich.pyx":3072
+            /* "consenrich/cconsenrich.pyx":3070
  *             geoMean = exp(sumLog / (<double>m))
  *             for s in range(m):
  *                 scaleFactorsView[s] /= geoMean             # <<<<<<<<<<<<<<
@@ -60758,7 +60725,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
             *((double *) ( /* dim=0 */ ((char *) (((double *) __pyx_v_scaleFactorsView.data) + __pyx_t_17)) )) /= __pyx_v_geoMean;
           }
 
-          /* "consenrich/cconsenrich.pyx":3066
+          /* "consenrich/cconsenrich.pyx":3064
  *                 scaleFactorsView[s] = exp(medLog)
  * 
  *         if centerGeoMean and m > 0:             # <<<<<<<<<<<<<<
@@ -60768,7 +60735,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
         }
       }
 
-      /* "consenrich/cconsenrich.pyx":3039
+      /* "consenrich/cconsenrich.pyx":3037
  *         needNonzero = m
  * 
  *     with nogil:             # <<<<<<<<<<<<<<
@@ -60790,7 +60757,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
       }
   }
 
-  /* "consenrich/cconsenrich.pyx":3074
+  /* "consenrich/cconsenrich.pyx":3072
  *                 scaleFactorsView[s] /= geoMean
  * 
  *     return scaleFactors             # <<<<<<<<<<<<<<
@@ -60800,7 +60767,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_c
   __pyx_r = ((PyArrayObject *)__pyx_v_scaleFactors);
   goto __pyx_L0;
 
-  /* "consenrich/cconsenrich.pyx":3008
+  /* "consenrich/cconsenrich.pyx":3006
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(             # <<<<<<<<<<<<<<
@@ -60891,70 +60858,70 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_chromMat,&__pyx_mstate_global->__pyx_n_u_minCount,&__pyx_mstate_global->__pyx_n_u_nonzeroFrac,&__pyx_mstate_global->__pyx_n_u_centerGeoMean,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 3008, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 3006, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 3008, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 3006, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 3008, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 3006, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 3008, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 3006, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 3008, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 3006, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "cSF", 0) < (0)) __PYX_ERR(0, 3008, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "cSF", 0) < (0)) __PYX_ERR(0, 3006, __pyx_L3_error)
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("cSF", 0, 1, 4, i); __PYX_ERR(0, 3008, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("cSF", 0, 1, 4, i); __PYX_ERR(0, 3006, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 3008, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 3006, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 3008, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 3006, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 3008, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 3006, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 3008, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 3006, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
     }
     __pyx_v_chromMat = values[0];
     if (values[1]) {
-      __pyx_v_minCount = __Pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_minCount == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 3010, __pyx_L3_error)
+      __pyx_v_minCount = __Pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_minCount == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 3008, __pyx_L3_error)
     } else {
       __pyx_v_minCount = __pyx_mstate_global->__pyx_k__17;
     }
     if (values[2]) {
-      __pyx_v_nonzeroFrac = __Pyx_PyFloat_AsDouble(values[2]); if (unlikely((__pyx_v_nonzeroFrac == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 3011, __pyx_L3_error)
+      __pyx_v_nonzeroFrac = __Pyx_PyFloat_AsDouble(values[2]); if (unlikely((__pyx_v_nonzeroFrac == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 3009, __pyx_L3_error)
     } else {
       __pyx_v_nonzeroFrac = ((double)0.5);
     }
     if (values[3]) {
-      __pyx_v_centerGeoMean = __Pyx_PyObject_IsTrue(values[3]); if (unlikely((__pyx_v_centerGeoMean == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 3012, __pyx_L3_error)
+      __pyx_v_centerGeoMean = __Pyx_PyObject_IsTrue(values[3]); if (unlikely((__pyx_v_centerGeoMean == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 3010, __pyx_L3_error)
     } else {
 
-      /* "consenrich/cconsenrich.pyx":3012
+      /* "consenrich/cconsenrich.pyx":3010
  *     float minCount=<float>1.0,
  *     double nonzeroFrac=0.5,
  *     bint centerGeoMean=True,             # <<<<<<<<<<<<<<
@@ -60966,7 +60933,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("cSF", 0, 1, 4, __pyx_nargs); __PYX_ERR(0, 3008, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("cSF", 0, 1, 4, __pyx_nargs); __PYX_ERR(0, 3006, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -60979,7 +60946,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __pyx_L4_argument_unpacking_done:;
   __pyx_r = __pyx_pf_10consenrich_11cconsenrich_48cSF(__pyx_self, __pyx_v_chromMat, __pyx_v_minCount, __pyx_v_nonzeroFrac, __pyx_v_centerGeoMean);
 
-  /* "consenrich/cconsenrich.pyx":3008
+  /* "consenrich/cconsenrich.pyx":3006
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(             # <<<<<<<<<<<<<<
@@ -61009,7 +60976,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_48cSF(CYTHON_UNUSED PyObjec
   __pyx_t_2.minCount = __pyx_v_minCount;
   __pyx_t_2.nonzeroFrac = __pyx_v_nonzeroFrac;
   __pyx_t_2.centerGeoMean = __pyx_v_centerGeoMean;
-  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_cSF(__pyx_v_chromMat, 1, &__pyx_t_2)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3008, __pyx_L1_error)
+  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_11cconsenrich_cSF(__pyx_v_chromMat, 1, &__pyx_t_2)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3006, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -63640,15 +63607,15 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   /* "consenrich/cconsenrich.pyx":1487
  *     Py_ssize_t blockLength,
  *     bint disableBackground = <bint>False,
- *     double rtailProp = <double>0.50,             # <<<<<<<<<<<<<<
+ *     double rtailProp = <double>0.75,             # <<<<<<<<<<<<<<
  *     double c0 = <double>1/2,
  *     double c1 = <double>1/log(2.0),
 */
-  __pyx_mstate_global->__pyx_k__11 = ((double)0.50);
+  __pyx_mstate_global->__pyx_k__11 = ((double)0.75);
 
   /* "consenrich/cconsenrich.pyx":1488
  *     bint disableBackground = <bint>False,
- *     double rtailProp = <double>0.50,
+ *     double rtailProp = <double>0.75,
  *     double c0 = <double>1/2,             # <<<<<<<<<<<<<<
  *     double c1 = <double>1/log(2.0),
  *     double w_local=<double>1.0,
@@ -63656,7 +63623,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   __pyx_mstate_global->__pyx_k__12 = (((double)1) / 2.0);
 
   /* "consenrich/cconsenrich.pyx":1489
- *     double rtailProp = <double>0.50,
+ *     double rtailProp = <double>0.75,
  *     double c0 = <double>1/2,
  *     double c1 = <double>1/log(2.0),             # <<<<<<<<<<<<<<
  *     double w_local=<double>1.0,
@@ -63685,16 +63652,16 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   /* "consenrich/cconsenrich.pyx":1487
  *     Py_ssize_t blockLength,
  *     bint disableBackground = <bint>False,
- *     double rtailProp = <double>0.50,             # <<<<<<<<<<<<<<
+ *     double rtailProp = <double>0.75,             # <<<<<<<<<<<<<<
  *     double c0 = <double>1/2,
  *     double c1 = <double>1/log(2.0),
 */
-  __pyx_t_4 = PyFloat_FromDouble(((double)0.50)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 1487, __pyx_L1_error)
+  __pyx_t_4 = PyFloat_FromDouble(((double)0.75)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 1487, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
 
   /* "consenrich/cconsenrich.pyx":1488
  *     bint disableBackground = <bint>False,
- *     double rtailProp = <double>0.50,
+ *     double rtailProp = <double>0.75,
  *     double c0 = <double>1/2,             # <<<<<<<<<<<<<<
  *     double c1 = <double>1/log(2.0),
  *     double w_local=<double>1.0,
@@ -63703,7 +63670,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   __Pyx_GOTREF(__pyx_t_5);
 
   /* "consenrich/cconsenrich.pyx":1489
- *     double rtailProp = <double>0.50,
+ *     double rtailProp = <double>0.75,
  *     double c0 = <double>1/2,
  *     double c1 = <double>1/log(2.0),             # <<<<<<<<<<<<<<
  *     double w_local=<double>1.0,
@@ -63807,11 +63774,11 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   /* "consenrich/cconsenrich.pyx":2276
  *     Py_ssize_t bootBlockSize=250,
  *     Py_ssize_t numBoots=1000,
- *     double rtailProp=<double>0.50,             # <<<<<<<<<<<<<<
+ *     double rtailProp=<double>0.75,             # <<<<<<<<<<<<<<
  *     uint64_t seed=0,
  * ):
 */
-  __pyx_mstate_global->__pyx_k__16 = ((double)0.50);
+  __pyx_mstate_global->__pyx_k__16 = ((double)0.75);
 
   /* "consenrich/cconsenrich.pyx":2272
  * 
@@ -63820,7 +63787,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     object x,
  *     Py_ssize_t bootBlockSize=250,
 */
-  __pyx_t_13 = PyFloat_FromDouble(((double)0.50)); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2276, __pyx_L1_error)
+  __pyx_t_13 = PyFloat_FromDouble(((double)0.75)); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2276, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   __pyx_t_14 = PyTuple_Pack(4, __pyx_mstate_global->__pyx_int_250, __pyx_mstate_global->__pyx_int_1000, __pyx_t_13, __pyx_mstate_global->__pyx_int_0); if (unlikely(!__pyx_t_14)) __PYX_ERR(0, 2272, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_14);
@@ -63835,100 +63802,100 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cgetGlobalBaseline, __pyx_t_13) < (0)) __PYX_ERR(0, 2272, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2416
+  /* "consenrich/cconsenrich.pyx":2414
  * 
  * 
  * cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(             # <<<<<<<<<<<<<<
  *     cnp.ndarray[cnp.float32_t, ndim=1] values,
  *     int blockLength,
 */
-  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_37crolling_AR1_IVar, 0, __pyx_mstate_global->__pyx_n_u_crolling_AR1_IVar, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[18])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2416, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_37crolling_AR1_IVar, 0, __pyx_mstate_global->__pyx_n_u_crolling_AR1_IVar, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[18])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2414, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_13);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_13, __pyx_mstate_global->__pyx_tuple[10]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_crolling_AR1_IVar, __pyx_t_13) < (0)) __PYX_ERR(0, 2416, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_crolling_AR1_IVar, __pyx_t_13) < (0)) __PYX_ERR(0, 2414, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2570
+  /* "consenrich/cconsenrich.pyx":2568
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(             # <<<<<<<<<<<<<<
  *     cnp.ndarray x,
  *     cnp.ndarray w):
 */
-  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_39cPAVA, 0, __pyx_mstate_global->__pyx_n_u_cPAVA, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[19])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2570, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_39cPAVA, 0, __pyx_mstate_global->__pyx_n_u_cPAVA, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[19])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2568, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_13);
   #endif
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cPAVA, __pyx_t_13) < (0)) __PYX_ERR(0, 2570, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cPAVA, __pyx_t_13) < (0)) __PYX_ERR(0, 2568, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2674
+  /* "consenrich/cconsenrich.pyx":2672
  * 
  * 
  * cpdef tuple cscaleStateCovar(             # <<<<<<<<<<<<<<
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals,
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc,
 */
-  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_41cscaleStateCovar, 0, __pyx_mstate_global->__pyx_n_u_cscaleStateCovar, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[20])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2674, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_41cscaleStateCovar, 0, __pyx_mstate_global->__pyx_n_u_cscaleStateCovar, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[20])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2672, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_13);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_13, __pyx_mstate_global->__pyx_tuple[11]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cscaleStateCovar, __pyx_t_13) < (0)) __PYX_ERR(0, 2674, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cscaleStateCovar, __pyx_t_13) < (0)) __PYX_ERR(0, 2672, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2913
+  /* "consenrich/cconsenrich.pyx":2911
  * 
  * 
  * cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):             # <<<<<<<<<<<<<<
  *     if blockSize < 3 or (blockSize & 1) == 0:
  *         raise ValueError("need an odd-length block")
 */
-  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_43clocalBaseline_F64, 0, __pyx_mstate_global->__pyx_n_u_clocalBaseline_F64, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[21])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2913, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_43clocalBaseline_F64, 0, __pyx_mstate_global->__pyx_n_u_clocalBaseline_F64, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[21])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2911, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_13);
   #endif
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_clocalBaseline_F64, __pyx_t_13) < (0)) __PYX_ERR(0, 2913, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_clocalBaseline_F64, __pyx_t_13) < (0)) __PYX_ERR(0, 2911, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2957
+  /* "consenrich/cconsenrich.pyx":2955
  * 
  * 
  * cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize):             # <<<<<<<<<<<<<<
  *     if blockSize < 3 or (blockSize & 1) == 0:
  *         raise ValueError("need an odd-length block")
 */
-  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_45clocalBaseline_F32, 0, __pyx_mstate_global->__pyx_n_u_clocalBaseline_F32, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[22])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2957, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_45clocalBaseline_F32, 0, __pyx_mstate_global->__pyx_n_u_clocalBaseline_F32, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[22])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2955, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_13);
   #endif
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_clocalBaseline_F32, __pyx_t_13) < (0)) __PYX_ERR(0, 2957, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_clocalBaseline_F32, __pyx_t_13) < (0)) __PYX_ERR(0, 2955, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
-  /* "consenrich/cconsenrich.pyx":2999
+  /* "consenrich/cconsenrich.pyx":2997
  * 
  * 
  * cpdef clocalBaseline(object x, int blockSize=101):             # <<<<<<<<<<<<<<
  *     arr = np.asarray(x)
  *     if arr.dtype == np.float64:
 */
-  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_47clocalBaseline, 0, __pyx_mstate_global->__pyx_n_u_clocalBaseline, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[23])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2999, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_47clocalBaseline, 0, __pyx_mstate_global->__pyx_n_u_clocalBaseline, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[23])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 2997, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_13);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_13, __pyx_mstate_global->__pyx_tuple[12]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_clocalBaseline, __pyx_t_13) < (0)) __PYX_ERR(0, 2999, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_clocalBaseline, __pyx_t_13) < (0)) __PYX_ERR(0, 2997, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
-  /* "consenrich/cconsenrich.pyx":3010
+  /* "consenrich/cconsenrich.pyx":3008
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
  *     object chromMat,
  *     float minCount=<float>1.0,             # <<<<<<<<<<<<<<
@@ -63937,42 +63904,42 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
 */
   __pyx_mstate_global->__pyx_k__17 = ((float)1.0);
 
-  /* "consenrich/cconsenrich.pyx":3008
+  /* "consenrich/cconsenrich.pyx":3006
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(             # <<<<<<<<<<<<<<
  *     object chromMat,
  *     float minCount=<float>1.0,
 */
-  __pyx_t_13 = PyFloat_FromDouble(((float)1.0)); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 3010, __pyx_L1_error)
+  __pyx_t_13 = PyFloat_FromDouble(((float)1.0)); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 3008, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
 
-  /* "consenrich/cconsenrich.pyx":3012
+  /* "consenrich/cconsenrich.pyx":3010
  *     float minCount=<float>1.0,
  *     double nonzeroFrac=0.5,
  *     bint centerGeoMean=True,             # <<<<<<<<<<<<<<
  * ):
  *     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
 */
-  __pyx_t_14 = PyTuple_Pack(3, __pyx_t_13, __pyx_mstate_global->__pyx_float_0_5, Py_True); if (unlikely(!__pyx_t_14)) __PYX_ERR(0, 3008, __pyx_L1_error)
+  __pyx_t_14 = PyTuple_Pack(3, __pyx_t_13, __pyx_mstate_global->__pyx_float_0_5, Py_True); if (unlikely(!__pyx_t_14)) __PYX_ERR(0, 3006, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_14);
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
-  /* "consenrich/cconsenrich.pyx":3008
+  /* "consenrich/cconsenrich.pyx":3006
  * 
  * 
  * cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(             # <<<<<<<<<<<<<<
  *     object chromMat,
  *     float minCount=<float>1.0,
 */
-  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_49cSF, 0, __pyx_mstate_global->__pyx_n_u_cSF, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[24])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 3008, __pyx_L1_error)
+  __pyx_t_13 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_49cSF, 0, __pyx_mstate_global->__pyx_n_u_cSF, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[24])); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 3006, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_13);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_13, __pyx_t_14);
   __Pyx_DECREF(__pyx_t_14); __pyx_t_14 = 0;
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cSF, __pyx_t_13) < (0)) __PYX_ERR(0, 3008, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cSF, __pyx_t_13) < (0)) __PYX_ERR(0, 3006, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_13); __pyx_t_13 = 0;
 
   /* "consenrich/cconsenrich.pyx":1
@@ -64099,14 +64066,14 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_slice[1]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_slice[1]);
 
-  /* "consenrich/cconsenrich.pyx":2921
+  /* "consenrich/cconsenrich.pyx":2919
  *     cdef int n = <int>y.shape[0]
  *     if n == 0:
  *         return np.empty((0,), dtype=np.float64)             # <<<<<<<<<<<<<<
  * 
  *     cdef int radius = blockSize // 2
 */
-  __pyx_mstate_global->__pyx_tuple[2] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_int_0); if (unlikely(!__pyx_mstate_global->__pyx_tuple[2])) __PYX_ERR(0, 2921, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[2] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_int_0); if (unlikely(!__pyx_mstate_global->__pyx_tuple[2])) __PYX_ERR(0, 2919, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[2]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[2]);
 
@@ -64187,36 +64154,36 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[9]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[9]);
 
-  /* "consenrich/cconsenrich.pyx":2416
+  /* "consenrich/cconsenrich.pyx":2414
  * 
  * 
  * cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(             # <<<<<<<<<<<<<<
  *     cnp.ndarray[cnp.float32_t, ndim=1] values,
  *     int blockLength,
 */
-  __pyx_mstate_global->__pyx_tuple[10] = PyTuple_Pack(2, __pyx_mstate_global->__pyx_float_0_99, __pyx_mstate_global->__pyx_float_0_1); if (unlikely(!__pyx_mstate_global->__pyx_tuple[10])) __PYX_ERR(0, 2416, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[10] = PyTuple_Pack(2, __pyx_mstate_global->__pyx_float_0_99, __pyx_mstate_global->__pyx_float_0_1); if (unlikely(!__pyx_mstate_global->__pyx_tuple[10])) __PYX_ERR(0, 2414, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[10]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[10]);
 
-  /* "consenrich/cconsenrich.pyx":2674
+  /* "consenrich/cconsenrich.pyx":2672
  * 
  * 
  * cpdef tuple cscaleStateCovar(             # <<<<<<<<<<<<<<
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals,
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc,
 */
-  __pyx_mstate_global->__pyx_tuple[11] = PyTuple_Pack(7, __pyx_mstate_global->__pyx_float_1_0eneg_3, __pyx_mstate_global->__pyx_float_1_0, __pyx_mstate_global->__pyx_float_10_0, __pyx_mstate_global->__pyx_float_100_0, Py_False, __pyx_mstate_global->__pyx_float_1_0eneg_8, __pyx_mstate_global->__pyx_float_0_1); if (unlikely(!__pyx_mstate_global->__pyx_tuple[11])) __PYX_ERR(0, 2674, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[11] = PyTuple_Pack(7, __pyx_mstate_global->__pyx_float_1_0eneg_3, __pyx_mstate_global->__pyx_float_1_0, __pyx_mstate_global->__pyx_float_10_0, __pyx_mstate_global->__pyx_float_100_0, Py_False, __pyx_mstate_global->__pyx_float_1_0eneg_8, __pyx_mstate_global->__pyx_float_0_1); if (unlikely(!__pyx_mstate_global->__pyx_tuple[11])) __PYX_ERR(0, 2672, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[11]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[11]);
 
-  /* "consenrich/cconsenrich.pyx":2999
+  /* "consenrich/cconsenrich.pyx":2997
  * 
  * 
  * cpdef clocalBaseline(object x, int blockSize=101):             # <<<<<<<<<<<<<<
  *     arr = np.asarray(x)
  *     if arr.dtype == np.float64:
 */
-  __pyx_mstate_global->__pyx_tuple[12] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_int_101); if (unlikely(!__pyx_mstate_global->__pyx_tuple[12])) __PYX_ERR(0, 2999, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[12] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_int_101); if (unlikely(!__pyx_mstate_global->__pyx_tuple[12])) __PYX_ERR(0, 2997, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[12]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[12]);
   #if CYTHON_IMMORTAL_CONSTANTS
@@ -64268,25 +64235,25 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
 static int __Pyx_InitConstants(__pyx_mstatetype *__pyx_mstate) {
   CYTHON_UNUSED_VAR(__pyx_mstate);
   {
-    const struct { const unsigned int length: 12; } index[] = {{2},{68},{35},{54},{37},{60},{24},{52},{26},{34},{29},{33},{45},{22},{15},{179},{37},{40},{30},{32},{1},{1},{1},{1},{1},{1},{8},{5},{6},{15},{23},{25},{7},{6},{2},{6},{35},{9},{30},{24},{50},{39},{34},{8},{30},{20},{32},{22},{30},{37},{34},{1},{5},{1},{8},{20},{8},{15},{3},{15},{12},{5},{3},{12},{7},{5},{7},{17},{6},{18},{7},{4},{7},{10},{14},{17},{11},{9},{13},{1},{2},{2},{4},{5},{3},{10},{10},{13},{8},{13},{12},{18},{18},{18},{17},{14},{6},{11},{8},{10},{9},{9},{17},{18},{4},{9},{14},{18},{18},{5},{13},{13},{22},{6},{4},{5},{9},{9},{15},{17},{17},{16},{5},{10},{17},{7},{6},{4},{11},{8},{17},{5},{15},{9},{8},{5},{6},{3},{9},{9},{3},{5},{14},{11},{8},{17},{8},{3},{8},{5},{4},{4},{5},{7},{7},{5},{6},{7},{4},{8},{9},{12},{2},{10},{5},{19},{9},{5},{5},{14},{18},{9},{4},{13},{5},{8},{5},{7},{7},{8},{6},{15},{10},{7},{10},{7},{7},{11},{3},{7},{13},{13},{7},{4},{7},{6},{13},{7},{8},{17},{4},{8},{17},{7},{4},{10},{4},{8},{4},{7},{7},{7},{17},{11},{2},{8},{5},{12},{3},{13},{4},{4},{5},{2},{3},{1},{13},{4},{3},{13},{3},{16},{11},{12},{27},{12},{19},{11},{14},{11},{10},{19},{14},{12},{8},{12},{1},{8},{6},{5},{2},{10},{10},{17},{13},{13},{12},{15},{10},{8},{7},{7},{9},{11},{16},{9},{14},{10},{15},{17},{5},{4},{12},{10},{12},{19},{5},{20},{20},{7},{4},{11},{9},{9},{5},{17},{14},{18},{12},{9},{15},{13},{15},{9},{4},{14},{4},{11},{5},{6},{15},{8},{7},{7},{6},{5},{6},{6},{28},{16},{12},{4},{5},{6},{7},{7},{1},{8},{7},{15},{1},{11},{10},{5},{75},{405},{984},{648},{2059},{2645},{479},{84},{21},{536},{494},{34},{79},{193},{336},{756},{1016},{2116},{790},{891},{1216},{1153},{97},{393},{391},{1}};
-    #if (CYTHON_COMPRESS_STRINGS) == 2 /* compression: bz2 (9530 bytes) */
-const char* const cstring = "BZh91AY&SY\246\217&\355\000\rT\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\300@@@@@@@@@@@@\000@\000`)\237w\245s\007!\022\022\256&\250$\000w\213x\200i\217n\202\367\214\352\203\031\220\271\201\367\215\274\327\227\267t\211E\ni\242\2566\225\326vw\r.\370\001UU\355\224-B\022\265@\000\320\000\000=B\235\000>\363\324\244H\224RT$\220\211\240\003F\232\0100)\221\2652\ny\352&\233M4\232\236D\362\236\215\017M\0324\23214\032)\237\244\215O\32544\001\240\032h\020\022\"$\362\004\312yC2d\233)\352zM0\206\217Q\3524\365\017(<S\3621&\331OL`\221\024\364\215\r46(\003L!\024\212\247\243\325\001\264\2324\017D\320\r\244hd\321\24044h\000zF\321\242\000\000\003@\000oT\004\232\210\220\222OH\367\244\243\324z\203\3124h\000\365\036\243\312\031\017(\036\232\236\024\033\324A\243\020\361\250\324\365\032=OPzh\321<\247\224= \312\210\2324\310\007\242i\240=F\200\032?T\315L\032A\240\000\000\r\000h\320\001\240\000\000\000\022$@\000F\212zM\240\246\002O\021\224e<\324i\352\236M4\217(\321\240h\003C@h\r4\0324\006\200\007\377\t\025y\032\305\366^\2401~\326\370<\214\355{;=q\315\315\330\335t\370%\035\224\321\346\310g\251}\347\227\207\360|\320\032h\000A\007\212\253YL\206I\007\322W\255j\003\214\327\305\305\257\275\000\364\221F'd\356\035\342w\340\037\356Hx\000<$?\363\350U\017O\261\240\014\031\351~\221\037<gV\364\307\030\032Q\254\005\240<`!\327y\315\003E\214|\n\370*\001\222\203\310m\023\001\274\326\256\304\253\306c\2422\2125:b\"Z\335R6`\262\205F\312\232\027o4c7\224\257V\224\206\220\334\3068\226#\205!\002\264\000{I\007\0371\364pp\361p\036r\037W\327/\253\355\376\034\227m\242P\013I+\242&B.\242\350]\010\343\205s\335\354\234\270Op\236y\247)O<\363\317<\351[Am\004\342'S.!\304\017\027\270\200\221\021\005\212\214Ub\252\240\254\030\212\240\250\261\005Q\221A\020Q\211\030\304A@D\2022#\025V\n*\204D\026E\200\214\021 \240\253\005\004VAUH\261a\021\010\242\200\252E\"\254PQU\026;\005`X\254\025\205\235I\t\\\252@T\220\252J\252n\272\203\337=\324$\232U\242IV\225h\271+\025\205\236\256\362\035\240\221ih\212\321T\321r'""\217\343\310\200\251\004dPDX\010\212((D\020X\000\244F\013\010\306H\240\261H,\202*DdY\024\212\0022(\262l\022\225!EP\013\005R(\240\013\021\202!\260\231\220\340\315\311\2718&!A9\201\200X\225\206Bq\020\333l\033\017\303pV{6X\221r\271iQ:VIZNJ\300,T\201`X\264-4>\004\032\203\270-I\027\002\030\323\030\330\330\205p\\\\\\\213\213i\017)\210\214\300\367\212\t\024U\213\005\021R\010\213\026\"\242\310\242\302\013\"\310\260Y\"\251\010,\024Y!\213\2062 C\210\300\305\030\212\266\306\322\033\026+\024bc\2165\020]si\231\242\0066\014\032i\230P\256W\304=\330`a\201\177\214\014\303\013\314\357\2751\261^\257/\013\325\313Z\217X\031\334\256.\n\036#!\203\034D\016\026mC$1\260\206\r\220\300\303\0143X\006\006\265\232\370|\215\263i\r\321\200\210,\025E\200\244D\005\2021AI\024\004AH\242\202\305\220\213 *\30466'\240\020C\023m\213=7E\241\252e\321\004&\234\014#IE1\021\242\251d\373{\241\254wM{4\223Q\254\021#N\006@A\274F\360F\310\026\300\266B\331\006\302\333J\352\254b\365;\327a\033-\030\270U><x\301o)\365\213$'\220^|\036\005\3155\204\233\214\260\310\247\213\030\202$%\030\210S\2310\220HA\204\002Q\307\n\017`A\021\265\302\020<\264\353\003,s,q\252v\325k\266\246z\352\3416\206\014\202 PB\314F)\n\344\226@^\200\3002B\311P\247\211\263\305-L\267\231\0103\3348!\260\336\311LF\300b\254(aB\034&\013\302\220\341\001\301\t\302\003$\265\rQ\252\254\265\205\036\321\266\344-\266\201\264\306\003m\211\260hE\204U\221dQV\002\220\341\255QM\t\r\335\337\207iH\332\374\023\007\033\016H\223\210\206\014f\023\221#y\277y\241\277y\274'\361\032-\351\266\262\325\347\216$d\241\300H\215\\\211\223\205\005\0219(p\342#\202F\210\r\005\200h\2157H\220{h\016&z4q\027r\263S<\200k8\024\014z\304\245!\310p99Ba\240i\240,\32234\340\034+V\375E\242Z,\370p!\272tCb+\010P\216\020KR\177\023(H\245\320a\310\205H8\004Lb\314\033Ci&\323n\331\264\333\273\260\331\311'\023t\016*,\021\005\010\240\244R(\0340F1\355\303n\356\305\305\333 {M\314r%\016Nd\310\211H\234A\302d\220\300i\230\321*!\266L\210\227\004p\340\216\013\201\265\353\242\220\240\237/\214[%H\366\001\275\335\017nY""\350\267!\356y\300CqErki\310\246\010\006RB\"\027\030\325\032\356)\372B\016\2155i6\365F\246N\2552\014%\006P\333\223\\\347\003%92\215\"c(\202\203\270h\035\305\250\265GO\"\242\273~\250\264F|Lj\006\016\226U\236\234\0254RPk\025MCt\271!\203(Nh\327P\325-J\217y#\217\024.\246\003i\267\25245\\z\034i\236w\263s\226\263\221)1\375Z\325%4\323QSd6\334\241\317SR9\231\346\314\322V\225\205\265;\224\214\257QE1.\357MFeT\022VH\226Y\033t\027WY\036\261p\321h,v\326\252\314u\314/SO\273*)\n\004\340\224JT\350\2649\255\niuW\300\372\301\246\210;\205X\003\311;z\340 \231\334r(]\370\014)8\267\004\346CRRUx\266Jo\253\346\315\277\362?\324w\367\220\370a\375[\337\037\247o\010\024c\372\341'\306\350\371\361\273O\321\026\322\303S\032\222G\362\260\237f\312\237\351\220\337\235m\177\323\364\327@\257\017\354\331u\235h{_G\265\334z\361g\255\361V\224\324#Pe\256\275\004F\276\313\253q\325\216\202\007\323\364e\356 \316\"\366\324\242Cu\233\2234\223\372\261\\.lU\250\037,U\230\007\006\213H~&\245t\304\366\033\244\033!\3144,\3073\232\375\270F\367\260\3750y\033\235\006c\212<\251vQ\270%\270\220\276\241`\030\005\266\310\300\2759\216\357QET\005\021\351\005\351\005\351\004|)\037\010W\302\007\333J\240Q\020\214\023\333\355\233\253\010\007l \200\275w\221\246\3213\032\036\211P\223\232[tP\032C\2218ba\360\200\332\026\323\244\227\333t`\222\370\373|\3253\267W\234\301\002+\033b\310\3478\315\302\230P\221H\013\327\307q\357k\352\220\033\227\035\2661\021\250\215@4\026\253r\327Y~\267\273\262\240\241\033\010\336`q\327]\360L\224\016'\021-\005\240\264F\2134h\273\206k\023\3401\300\276#\342bq\214\346A\210b,\014\027\354o0Gt7\344\213\361\307\020\313\242\206f5\230,\326\341ig\332>\226\375\00335\206\231\254\226D=%|\351\221Fh3Y\231\243ya\373'\273\360~\227\316\334\226\201\3147\255\350\323q\253\372\301\370\3226f\306\333\026n\347\311g\230g\235K<\261\316\343%\007q9\344\031\035\300\265g\220{g\271\236h\245ez\310\323M\031\270\314\314\314\335\206\000`+\303\302}K\213\256.\262{\327X\037h\205\225h\250\362\357\366332\316\320\315\253B\336\305\367\371\034\227=""\345Z\245\274t\321O\255?N/\316\251\321\350\316\342:\347K\251\326#|n\336\241j\322\343\355\340\270\315\213\270]FN\3775\343\340\215|\274\363\314^\033\303\3360X\035k\017\223\311\216\037\004\274V\233^p\255->\305\260\204j\002\324\021\240\221\240\212\354..#D\226\311-M\205z\266\035\323\276\215\272\273 0H!\253\213\316\342\030\203\027ET\315\272(\330\263L\262\2570\202D'\211V\021y\302y\000\204\010\010$\r\344\226-i\n\r/\013\004\020M@\211 \230f\260\346\231l\030,\036\tZ\212\024\306j\357K\325\201]\377\202\316c\270\006\300&\242M$7$Y{\341\347\014\203\355\232\004\361\005\222Fz+\246|_y\256)/\270k\252F\242$J\320\227\303c\000\026WX\254\026Qe+)\372=\275\037\273\361\266\312RP%\024\241(n\335\350\334G^f\345\363\314V\010\301\010\300\300\301s\372x\003\267\327\365\372y\263\001`\030%\202X`\2176\270\343\242\310\350\013\357/J\361^\0356[\177]\340^i\321\206\230\243\024b\006:/Q\352a\222\375\314C\262\320\264V\244ZZ\203^?\303q\026\232\327\331\367\375\375\313\024P,\003\0167\341~u\2131X\026\026YQ\337\270\177;\342>grW%p\\\256\\1>\355AR\244\351\317\253\306zy\212\264\253\014\021aA\270\017\263\276\272\325g.\355\004\252\205\003\332\021E\217\303\311\277\347\367\357j\330:\330l\332\023%0\na\020\020[\003\366\002p\036\361\372\335\237).+\214\001\200\301\256\253\205p\364\230\016!h\024\227&X\321\222TF\302x\206\021`\263-UNnIo,\264I\305\215P\264\344V\261\340\301\022l\020W\001\325n\353\227\271\243&P\\\005\004W\035\266B\214\302\213\365\307\361\017_\341\373\257\326O\360\330\036\367\342\3760\372\214\337\324\261r\355\202\266\010\256\222+\240V\222,\202-\010\2301\\\002j-1\371\036\257}\336V\341\243-\263\303=\017W\374^\357\352\004\215\232T\013\002X\022\300#\000`E\376\336\014\006<S\367\366\327N\035\232\213P\325k\256\253U\252\324\242z\365\367\375\316\237\271\313\243\317\325\334\336\226\364o7\201\230X-\"Q\202Zd\306\034Y\354X\262=\332\217\345\311\201\271\\\310\241l\013i[\013b\324A\362n:\272\216\257\037x\277\016\371\314Y,\226B22G<\317\223<;\367\027\"\340.\0252\232)\367\273\362H\022Kk\231\227\025u\177\027\2637V\374F\276J\016\273`,""\027K\267n\235\374\347Jz(\242\250\205\022\217\357#\214#Dj8\315@\3577\2365\254jj^\377\003\004\371/ds\271n\203\376mG\321\271p\256+\212\331~_v\360\350\366|\023M\370\334:6Kx\356\277\233[L}*\004\305\202\341\2576\177\005Z\372\274\275\216u\n\206\245T\252\210\371N\356`\353\\\243\315\220\221\022\220\301\325\345>\322\003=\363\013{L\027\272\367\214f2*@\0228\303\324\265\255\205aH\231!@D\311(\205\260\200\367\202\207\272\254\301\177}\375\235\n\307\207\341\006\037\206\206\251\314\2144\373ya n\336\370\256AR\243\225\316\r\230\010DR.*FI\225\014\020;:\303\305\000\233\270\301\n\035E\240$%\364\307ak\006f\247]tNUT\302M\222\234\252e\216TDi\242\370\365H\350\341\3427K\376\031x\215\004+\3220H\300F\2424Y\201\240\024\205\001#]\337\243\360\255\335{\320o\343\312oN\035\240\272\333\030\250\323\242\207G\035jqEx/\001q\005\344\023$\027\221zt^/N\206\341KWV\370\226\256\014x\t\357J\245D\244\252\323\253W1\273\262+\026\004|\023\352^\014RX\201xb\007/\345Gm\311[\307\351\270\221\344\207}\367\242\365z\347\375\274\361\341\367`\030um\220\006\001\2020\003\004`n9a\200_\007\312\256Ip\276\361^\213\302\373\302\372\003\261[\374\350\373\246\037\335%\256\271\210\261c\210c\216:\332\177\203\352\031\005\240\026\332\255,\263\273Rc>\363\032\255*\252\277v\356<M\377\342\202\301\031+m\312\274?\314\226@\304n\302\222#\244+PQ\377U\032##EJez\222\257\364\016\210\264dZ~\327\257\001\037\360*\002\243\320?\272}KW\325\364=f\365}QY|a\300o\304c\016\t\317\365\353\207\232\302\371\0009\002x\223\360\014\365HpH$M\224A\321\326\001'\357+\037Z!\005\315`\353h\336\302e\033\344\025\343\005\360\331\317\232\346y>\177\223\257\360\370;\301\333Go\020\361gc9\355\314\347\306[.Q\020\355\253\271\331\376\336\361\326D\377t|\323cx\263\337\302\251+\255;\316\261\312\237\244QW\216\203\375\374F/\376S\006x\313,\324\243\n1\322\271=\314\266\247\277{\320\363\324\022\363p\307\354e\226\251\315\004\205)\207\331\221\237\315\372v!\357m\362\355\3316\372Hh\307\317\254\311y\370k\257_\036\004u)\030\027\234\254\014\326\265hu\014\303\242\314\345Q\360\206\013C\361o\221W1\302W:X""\246\344\272\t\367\016\024NB\216\265)\"\307\366\314\\1\t$Eoq\210J\010%\004\022\202\n\001\017\313\342e!\006Lk\336\303x\2336@4=\363l\037?\004\212j\320lcWH\200M\304\301\2575o\031\251^l\314\331\245\223\226\013\006%\031\246-:\033\003l\264\2672\306ZC\216\221\345>-\2261\004y\2132\323\327\276\257\253\365#\326~\370}\220\373p\007\323\237qTW\344\260(\255\005\035#\355\256\031B\350pry\245\252H\314A\250\203T\"\240!B[\222\222M\313\326\207\3414\327M\202\302|6\200\205\034\350\273^\350>]eU.\213\366l\001\226\030\354\371zyU3\224\231\231EP\241\327|%\250\342\236\346\304\216\242\032\2731D\316t!B\204\202)(\234\350\330\217\265hwN\264\177\207G\202uZ*n\255\017\333-\326\227\300nPlvU\367\365\037=\266\200\375\212\364Ir\032mj3\273\025\026\036\217@\036\204/@\036\200^\204z\021\350A\316\017\237\266d\003/w\024\242dz\3563\2073\323\315\213\204\023@fL\231\323\217{/\220\037\370\313\325f\230\361\327\312\027\036\211\305\333\312\007\010k\022\255\210\023@>\320F\310\362\353\005\001b\025\n\020\335\367\373\206bE\261\r\0040w,\245\227T(\023\234~O1\032\246\023\016\024\347\\\316\273\252\357+\376\357\017m\016\240\354\316\203\233z\013\014p\216j\027\212\224\250\224\002\312\ta^\371\004\316\277r\326$\027\014\t\027\303\263\337\207\344\202\302@\327f\260\036\322\002\032\177\035\032\220)\\\021\200\364\213q5>\251D$\\\252\\]\270\304\350\351\311z*%<+\326M\317\022\212n\236$V\030\230\373\225avz\371\346\254GW\307\\\254\353)wj\324\216\225P\232\202\212R\350\313\344\204\214\237,\226\373\230(\"\334\221la\267\334f\023\027\251\206\010:*\263\3039}{h0{a\034\260\374y3^Y\312dF\035S\2223\243\224\247\017\220`\340\3358q)\007\016s+\250\352};\246\347\245\264`P7u\326\357C\371r\211i\020\324(I%I\322\246\305ry>\027\217\345\263t(_}\356\356\221m \332\021\2444\213A\241\016\323[\271`\323\247\030t-Z\0305\225\266r\032k\341z\016\346\204[U\336e\305B\225\016\2566\335\327\335\260U\217\1776h\255\026\n\266q\030\203\022\014H1\030\216\231\210\356\367{\237\006P\311\\\036\364}\351B\352\2353\327d2'\274)a9\222\236\307\313\323m\307z\271\315\"\240\361\362\344\271%""\313\306\216\216\211\346{\006\032\374\3070\340\237[=\264\341\021\002\223m9(\356\014\366F\226g\035\201\236r\242\216\021:\332\225WR\212TJK\217\025\262\260t5\260\rkf]Q\001W\017\243T\3509@\231\277\205\307&\330\335^#\247\027T\007@\272~A\222\316O\313fl]\374\237\301\336\205g\320E\324\314l7\242\202\254\354\337\2651\020\342\335\275\317g?;\363\343\363\355\343cY\2466\360F\023\342d#q\307p^\026\357);\244\372j\253\215\361Ek\364i\273I\t\013\003\250\245^\207Q\014\303gY\303>s;\326\"Rn\373\214GT\234{\362\010\333\312\031+\326X\236:\274\307K9\213\223M\3546\326\000\333\013\205qp\256=>\237]\334\034\021\3220\223Q\333\333\217A\317 \240\221LnC\255?D\274\027\024S\004\327\355\360+\235\224\364aa\005\354\231\007\242\034\317\211\340\371\332\317\315\220t;\303\327\333z\317\005\250y\206\323\341Etek4\200\3143\033qReL\352T\361\317\263\254\326Z\331z\032\372\272\314`\251f\270\360a\357-O\235\262\332\213zK\327v\364h\212\256NdttGQ\202\335:}\272QN\341w\225\332W\347\225\370c\346\250\262\273\257\332\256\006\251R\315J\327\212V\205\020\275T\027\022\366;{;\016~\013L-\206\307\005\234e)\250\372/\223S\231\016\"2>J\326\361s\021H\010G\216\314\310\200\365\325[\027N\305\231\200\2212\005\235\030\213u\324=H*i`\312\222\031aaR\244R\312\312{+\351\233cc.{H\270\347H^\005\327\310R\213\202E \324\004\3219\312k\313\244_\317N\355\305\327?\017B\360\201\201n)\256\324\t\230V\272\212\026X\276+\244\267\336\224\031\"\017'\337s\260@7\352=\217\204\202\226\227+\353\223\304\262\270\316\010c<\222\237\244\230Z\r\212y{Y/o~]\231J\317N\036\330\311\205\364\021\325U$\325e\214\222\363\242\364\244c\025I\370\256M\215\205\254\3419\007z4442\037\2005\244\322\212\005vG%goj\016\337\031\364\022\347\024s\353\270kwp\341\327\217+\255\355a\236B\361\202\262e\266Uug\020{N\025\237\002\026:\213\031\024\270(x\333-+\362\214\262\374k\346gm\027\347c\211F\007?\304\246J\201\321\347\361\242\2474wa\251\217\320\265\320\006\270\006\270\013]\006\270\265\305\241\020\214\207C:\241\321-6B\035\333\026\271\002\030\260\276\031;\247\007\304\3526@k\265\332\235\261\261\r3\231\316I+""\t\354MQ!db\001\035\247q\341\024\217P\260\353b\247\0220C\221@\354\320Yh\364\326\236o\021\022E:\026U(Q\0252\n\242\234\215\3310k{N\034\016\030\3109\371\017ta\357Xn\346~\343D\257\306\226l\025\005Q\223-sW\006\330\343-\340)2\326-\214Y3\302\353\363E\216\377`\312T8\n\374\000\305\354\317\300\345\364\032QMDQ\214\007\271\250S\273\332\305\024eQVW\026N\250JR7\310\202<$M\266\311\264\314\\\201\310C\231g2\001\215\tb\0221\202\306\204d\021\224Y\310@\034g^\0233\257\256\016\350\315b\r:\2351E3$\341\221)\024=\242\032\343Ow\205\262\247\246\210\027\311\233\370\343\317\300\274\202f=%\0025\001\241\300\363\262\236\177\231\031\204\342\226_\204\021]t\to\201Q\202\316\352w\321\256\261\224WM\327}j\212\032e\215\031\027\305\224\031\327}m\215\246=\237\336\226\224qE_\343Ln\276\243\316{X\253\014\325\363%\231\031\222\314\203 d\0032\314\263\021?1\313\300e\256V\262\330\206P\030!\021|\204\tZ#Xa\210$\341\371\270 \305\366*\264j\373\217w~\\\001\256/5\272\371\177\025i\305\243\340P4A\0240\213\312)\204\354rt1\264\"\350er-l\354j\362\333\233\252\343\325x\347T\303\277i\341s0\221\326\2308\034\036\312)\202\332\304\367\226\026_\032i*p\256y\010\030@\005\355\211\326\r\r\250\211\367\260\021mr\332\351\240\252D\331\274\344\375q!\364\317Q\236\373\031\026@2%\254\262\031\003\026D\343X\327\232\316\327Y\254\265\241\301=\224\350\0162\0356\244\327\272T*\341_\0075\265k7\354h\014\033o\241\034\250\252}\032\217F`\307\243\227[\232\350\302)\357\317h\353G\366\262\345,\31323\000\263\006c&e\267eXZ\203\026\255\326\003a\3275\255\021\311\036\301\264\246\3014\310\230&\020L\224\312i\215\305w&\205i\027Xa\272X_.\256\350\247=\212\037\315\242\321\006\210\32044\323\323\341\270\356t\364\014\331\3009M\242\034n\376\307=\230\031\356r\264\301|\310\330\024\241()T\251K\271\001\370K\033z\327\354\0146Wa,-/\213r%\221\352;r\016l\360~\274\022w_p(\247\324dE<\366\325\321v\351\356\233\001\216\262\352\363P]pt\210\275+\316\205\207t\341u\376\371hZZ\255-\347\345\361\364\r\0326\264o\235\217\253\332[[CF\216\340\031\203(V\001`r\262h\031\rFzG\007\213P\346}j*\253\217""\355\207u\214\207m\021\232\242JH\n\263\255J\240/\265G\034{\226x\303]\336\2361\0041B\270a\333`\260>J\036C\002\353\261.[\016\362Q\206\210a (J\223\372\275\262\271r\351\335\005\022\010U\024\223\233\332\366yQ-\226\333s\332\342\224[\314\353M2\031\344\317\2375\367[z5\307\270\262\240\210\225\203\320x\303=\206\317\317D\366\030e\372L0\322\0130\231\005d\210\322\031\214\037\221r\035>\2255A\306\252\267\352y3\314\274\275\230\315L&\275r\242\206\031\005>Vg\262\220\355z\330\262\245\321\312\020q\351\205\313~\374\210g2\216m[\257\005\243\372\247\321\037X\377Z|\307\220\232\331I\2512VJ\27108\315\010\237\271\250\221\031\212\353\372<\207`\007\323N\357'\222cs7\253-\230g\237\377z\211\233\301\270\010\360\030@\261\341i\302\005\255`\0138\220\002\342\242\r\370\030\016ph\232\304\316iI\270\010\0321A\360u\365\234\267\365\274\274\340\267\032\276\2717\347\307\020\364\221\310 \375\360\202\"\003\334\031\342\250\013\377\254\017\252\202\034\244\342l\033\323\277r%]\315\030i\341\323\354\276S<\244\362\374\2729M\217\332\254\266R\301\014\025\243\377~|\314\303C\200\324\002\377\0053\2420\t\034\241X\025\213\331D\315Pz:\252jG\025\351\244\373\227\002\242';\232\226<\3072\323\002\240\222\025\377\336\221\302.\267\361Ug\374\233\340\032\3710[\313\002o\013\204d\262\360\225\214Zx\252eP\262\223>\346?\007GHs\231\336a2\337\245\330\323\006=\241\363\373KBJ\242\221\010\030B\330\200KUV\014\267\004\234@\230\004\214\005\000eor42\315-#\3441\225\272\000l\201\210L\002+\000*\264\034%\334\002\320D\246\223\260n\024s\213\036\201}\014\230\001\350\244\357\241\322\376\2314:y\246\2154\260\272\305\205\210&\317\025lq\257\302\224\352\013\232\024\303\263%\201\200\022H@\200\001\035a\003L\200y\307\323\003\032QH\241\300u\0030\303\016\232\031\347\23575\320\272\354\337K\362K\340R\002\313\305M\013\354\235\254\031\2334(F\303\301U\250\326\326\300\363L\250\342\261\334\255\2273\024\316\254\343V\361JX\240z\032\313\206\0048\014\027\200nU\370\305k\215\345\224oy\323y\003-\1772\377\301\206\241nw\217\005\224\300\363\352\207\020\327\362\356\030>H\340OC\034\177""\355]\350c\256\277]p\363\312\307\367\202,\022`\014(M\n;\220g\203;\350ZT(\367\375\357\242\235\267\035\277\202\342i\334\356\270\251z\374\255\251B\337\312vE\230\372@\272\242\rB\r\232\371\317\211\371\234\"\322$\305{\312\"\363qM\003\n\214\305p)3\026bC\227Ub\210\262\240)\014\025P\024\243I|\302\210\006\230\214P\016\340\355\003\333\004v\373\324F\003\274\031\223\270\001\021\231\257w\273s4\224E\222\033\270\241^e\201\241\206A\r<3\310t\260\240\322\253k\345RD(\374\263\243\212T\246\206\201\t\261$\010\004\013\252\231\020\230\310\245\3245\236\030\351\036\310\366\007\311^\317\311\037.\220u/\322)\230F\003E\202\220\257\373\371\216n/j\3455`\007\251d\206q/k\347\016pX\377!\201\321\035\351\314\356!\244F\010\033$\025w\216\216:'\311\nT\240~\307\354|\321\355\002\375\240\017\315\345e\374\315\201\332\003\350o\264&\376\356\355`\312\235\327vbMS0\316~\310\306\003\341\246\300\207\344\2334c\013i\013\377\002\270\270\262}D&.*-\2506$\017\375\005\031\362\326\272X\202\030\204\030\220\004}\035\377\220|\177\225`\005\035\365O\007\371*\362ss\2774H\236 \020#\220(P\360WM\024\007\367\r\363\001\205\236{Z\370-s\350*\032\220\2040\310T+\226D\273\201\230\031-\320\322\216(\200B\261A\313\277}S\254\365(\352\355\014\003\352\357\320\"Y\277\241\201\243\014QX>\244#\033\272qJ!\213\206\245\256\001\375\rVB@\213\213C\002\353\226T\25651\230\337\375\276\247\266<\361\020\353\346\200z\272K\337<:\263\2774=]_\307\006/-\335\003\021eQ\354W\2444\261\230w\332\024<\nmI\315\230]D\ry\203\206H\213\014\021\024\016\003\275\225\305\324\302\206Uc\000b\341C\341nz;\376\001\315\310\374`4\017`7\310\374\334\312\350\266\n\226FQ\321i\350y\003iQM\277S\304n6\032\315qL\352|\305\327A`\036\023r\330\024\324\027\"1\257FA\232\252\220.@\325e\331\263\352\346\336=\261\330\033\200;\311\200\033\315\333\264N\353a\332\220\n\320\206r*\316\030\224*7\013\\o\300\275\3505jqW\271#\364\256\2329\251c\213\251\023*\256\333\006\304\345\334:\373W\177\232\034A^\223\321\272\350\320\333YN\036!\211\337\277KY\340V\231\024`\230\276\230\310\264\343\205+Z\252A\003\365f\244\260\013""\2122\313\301)IX\327\254Veu\232\243\014\241\276\250\003\334\331\261Wf\376\237&\027\204\260\332(\t\337\036'\023\022\315\017A\017?\362\262\345\307\213\013LX\\xa\264\210\260\267\211\315l0\201\310`E\031\2549\367\217/w\207\251\272\276\001\322+\265\221S\201X\016\314\252\244-\374/B\214\224\352\315\2746\305\260\315\231\323\024\266sp$T(K\304x\225\330\271`*W/\252J\257\004\361\276N\003g\213\253\303\341\250\016=\333\r\374&\335C\"\203,\311u\260\004<?\206a\336\363\341\245q@!\304\327K\212\213\266m\223Y\310\243\324aR\365\2445\201^A\325\357vW\237k\007\336\341\233c\364\016\221\020\357\361\257\344j\204\t\027\337\000]B\016\017\t\370`A\310\010\033\250j\032\360\305D}R\026\316\305\247\250\025q\013s\355\357\354x\016\336a\317\003\346\331^\004M\235M\033c\253\314\246\325\210\270\n:\212aj\333\356\316(*\033-<:\205\203\031\003C\200\026\341\324o\341\273\300z\037\250\016\210\341\333\001\230GR\357~\004R\006-\210\270\2048\020\342\315`\330\2440uZ`\224\275\327\247g\370\364 \336\334\335\001\367\2262\235;\203\270\265[~\323P\004W\307\225\030 +b\264\022\rFX\r\316\245\352\203\351\006\272\204w\371\371\266\2572\246\340\236\336\360\263\263h\3357\330F\3746\362\367z\006\\\357\025\245\200\363\253\235@j\003\017AB\232E\026Di\240qb1\noK\332\207\373wn\347@6\035\360\335\002BvW\240s\227\013\267\3727d:\354\033\316\254\001\271\263&\204\022\000U\226\n\000]\343\213RDl\334:u\370<\235\376\006\230]\357\264\354\330\257z=\024\031\r\277!Bo\256r\343H\246\231\215*.\026\264\316\213\363\201\010+\250\016\000\200\301\214\212\266\275b\203\227\241::Sa}\303oK\003>\346\300\376\214*@\270\271M\273\224\2215\233\001`\010{:e\230\357\320Da\332\030\214\307\307\337\3729\370s\363\360\201\363\3248!\r\002\236\245H.Q\317W\230\330\334\271!\234\005\341jp\321n4\"\210\2048\225\014r\205[\031\021\037\211>A\310\024r\216^\225\003\353\262\203<\354:9\324\035\250\"\242\364\027\240\335;\035\355\271r\371m\034\\\000\263\214\r\361\232\n\201\275A\034?\016\320\275\014\0216\246\320\007C0T(\343he\006~haTy\024\037|\250s\325\300=\002\334(\004\033*K\005)\300\333\243~""\306\000s\357\331\271\003\364\356.\242\004\"\225b\343~\355\303\026`7oo\341\"\237.x\216\r*\002\214\257\023\353\265iR\n R\234\334\243\207\245\3148\212s\264\357Q\323\006Y\023\247z\311\244\007P\273%\360\327\272o\020\203x<\036\344\\\251\300#\360\215\240x7z.9W\230\363\002\334\351\273v\371x\250lZ\314\361WD\333\361\374~\310\344D%\223\245}&^p\205\227\221\274\034\347\242^\227\226\272\254\02060\260\r\362\376a\315\337\036.nS\310\313\323U\375\236e\350\036\0019\025\213\205Z\007T\232\275\260\0059\276.\340Oa;\245\010p\275\341\037#\005#\226\201\376\243\326\362\214\030\303\344\361\364\216&t\030\372\231\037S\343\210\362\272\014yc\212G\371~\236\244\301\344<M\360\263\374\363\003\270\025\"\224e\356?m\376\002\267#\270\"\340a\347\337\003\334\365W\373\375\336\332\005\201\356\371\014\257\\.\342\342!\343\212\223\310\3118\236\342\016\177;\335\340\360\3711\371\"\371\321\004\303F\343\205\334<<Q\005*\\/*Qy\023\335R\221\304\337\274=\334\0363?\207\3102\373\270]\342c\306\313\206\024\242sq1\023{\266~\217\027\323\352!\302\034\r\311\023\337\311\345Ty<\336j<\224h\216s\231\024\016:O||\234\007\234\343\362y\274\234_\305\376f\376o\032\036\357E7\214\324\n2\007\366_\240\334~\203\326\347\371\3167\267\350\317\177\247\353\"\1773\322\235\372U\234\223\277\305\311\351\203\325\312\235\363\312\010\345\373\211\362\327\231\220LPRHV\036'{\236\352\261G\033\266C\320y\270\375>\260w\243\354\365I\313D\214G\024\204\036\313\354\342\342\343\373<\312\000\366ft\034\355\036q\340\3567A\301\346\361\374\354\307\007\031\262/\023\316&\342n\367\213\363\r~\003\346\360\252\212\376\214\006\023\3163A\346\371=O3\3109\375\027\241_\225\007\363`/\361\357&\253\021\303\227\267\301\312?/\334\031\376GDw\207F\307\206\037\027h_\033l\231\310v\373\214\273\237\223\003\273{\331\033\027\343\361\305\022\355%\276\307\337\331\355n\234,\333\003\367\242\"\336\177'g\304\034\233\333\317\337y\370\320\373\242#\217\360b\217d\311\277\330Mu\353\265\354t\036\217W\300\336\257\017\\\335\035\331\213x7\317\211\250\221\022}^\217q\272\356\327k\370\303}\321\357\320\212#w""\256\217\313\257\365\366`3\267\307\337\224f\352\346\177\304\216\017\3446\320b\310Q\371\013+\235\357I\266\022\370\244\365\334;M\201\234\273\026-\216[@\177\r\263K\034\362\367\350W\017\327h\272\031\321\362\206\\h\304w\3062\372K\200{\313\201\374\262\3678\315\346\237\037ax\256\363&\350\267\007\341t\371O\274\337Mk{1\351\371wjh5C[\347\302Q\220<\273\nv\003\214\347\373'&\254\035l\373\230\361w\272\207\337\303r\032g!vc&\235X\270k\375\376?\316\003\267\002:\355N\243}\307\013\031\357\373!\023\334Nz\325\266\341\347\274\257\231\217;\007\352r6\216\003\364p\273\037\314>\236\303\330\362\240\366#\2622\323\373\231\335#\025\004~\254\226O\265/k\037j\016\000\364\270\357H/\332#\336\217\261\027R?\260iB\270\023PV&\224Q\000/\000\032\006\354\200\360\006\304N\016\307K\033\000\356!\2535*\236M\336W\306\367>\267\253\360\r\037\3078~2\233FD\337\337\317\220S\335;\262m\266v\354R\032\254\"\305\204N[\330\346n\024a:0%\271\227h\034\243d\203\325\r.\276\265b\202\314~\311\2706Xb\226e\247\257\347F\021<\251J\014W5G\253\217.\362\335\260<\256\341\n\373l\031\221^\312\372\313\233\367>\216w\235\031\350|\021T_\266\367jf\336\235\207X\275\tZy\213\203y\215\\Aj\034\346\231\375\307\363\274\376\264=\022\200s\260\277\317\215}\212\326\334MZ\324\305\211\027\230\027z;\330;:\221$\216\343\275\376;\322?D\257\032\264,\013\305\334\004a\260\204\362\363\324\036\345N\266\017=\356\355J\327}\000\246\004=\004\253{\367t\2244OU'J\254\t,\264\242`9\213\311\224c\004&\214\305\215\024K~\360?g\362\027\342zc!.3\243I\254\212R\223\031\373\025z\316l\245\347t\260b{\275&\375{\355C\243\236\"\334\314\274\243b\354\267)\3631X\335\325mOf\013\321\007\273Q\214E\235\213\207\275=8\366c\320\346&H\204\370\234\301_F;8+\230\375I6yA\260\330\264\252^\314\362z\025a4\325/\227\245l<\213TV\031\256\322\301\252\037\255\246kI\372\372\231\206\010\213\260\321\234\341\247\355\226\320\311f)5Vd\200\315\006*\254E}\005\0025\257f/\345\005\200]~_d\313\363\264\232\362)\021\006\357\234&\367&DO+\3331\357qw\250\340#I<L\034\361c.:\200\370wP*`\214C\035\234.\005\226\322\315Oe\222\265A""\260\005k1\262<\273\270%\244\023+\314Xz\254+Y\324\013\306,!\204b\242\241Z\314\255\037c]\003\327\265k\366\273q\023\007!R\177\203\341\235#\032\252\343\341\2148\225\005ZQ\261:Hx\2405z\271\343z\205\013a\013\214g:\220\314h\274\357|\262\306\335\0227\225\326\221\221\302Z\273\262S\3366\200\370\367M=\314N\353\361\323\372\273\\w\315\227\257\326\0367\037Z\225\024\014k\254@\353\332\320\024\365\305\030H.\242\224w\207\026& L,\333\0365\265\344\324W\212Ghq\367\232\354\275\3366\356\333\213\217\211G\020p\025\301N\267z\327\3537]\264\255\276\263{_\331\336\371\263]X\354\267\031\315\206}\014\307^\205,\352\"}\333\314+.\267\217\021\347\355p,6\263oTG2L\205\254\t\206e\227\020|\212G\215k\032\366:\3176\226j\314P>\000\201)\206H\364\342}K\371|Q\211U\\\033\037\272\257Q\223*\377\265\247\337x\213\262\303\335\225T\267{\200\352\027N\365^\345\255\201|O\177\353\367;\275\347bG\016K\271%/\033pfMb|;\217\334k\034+\266\317l\317G\002\316a^\333\310vx\304W\307T\025.\337\317V1u\312\257\256\020\002?\030\250T'\236\224\271\254;\332\030E4\244kA\332\233\353\330\200\355\362f\365\221%\257\216W\006\272\265\014\234\366\350\261\337y~mkiX\244YH\036\224\375\335-2\031\225\027\324g/s\361\025\307\377\213\271\"\234(HSG\223v\200";
-    PyObject *data = __Pyx_DecompressString(cstring, 9530, 2);
+    const struct { const unsigned int length: 12; } index[] = {{2},{68},{35},{54},{37},{60},{24},{52},{26},{34},{29},{33},{45},{22},{15},{179},{37},{40},{30},{32},{1},{1},{1},{1},{1},{1},{8},{5},{6},{15},{23},{25},{7},{6},{2},{6},{35},{9},{30},{24},{50},{39},{34},{8},{30},{20},{32},{22},{30},{37},{34},{1},{5},{1},{8},{20},{8},{15},{3},{15},{12},{5},{3},{12},{7},{5},{7},{17},{6},{18},{7},{4},{7},{10},{14},{17},{11},{9},{13},{1},{2},{2},{4},{5},{3},{10},{10},{13},{8},{13},{12},{18},{18},{18},{17},{14},{6},{11},{8},{10},{9},{9},{17},{18},{4},{9},{14},{18},{18},{5},{13},{13},{22},{6},{4},{5},{9},{9},{15},{17},{17},{16},{5},{10},{17},{7},{6},{4},{11},{8},{17},{5},{15},{9},{8},{5},{6},{3},{9},{9},{3},{5},{14},{11},{8},{17},{8},{3},{8},{5},{4},{4},{5},{7},{7},{5},{6},{7},{4},{8},{9},{12},{2},{10},{5},{19},{9},{5},{5},{14},{18},{9},{4},{13},{5},{8},{5},{7},{7},{8},{6},{15},{10},{7},{10},{7},{7},{11},{3},{7},{13},{13},{7},{4},{7},{6},{13},{7},{8},{17},{4},{8},{17},{7},{4},{10},{4},{8},{4},{7},{7},{7},{17},{11},{2},{8},{5},{12},{3},{13},{4},{4},{5},{2},{3},{1},{13},{4},{3},{13},{3},{16},{11},{12},{27},{12},{19},{11},{14},{11},{10},{19},{14},{12},{8},{12},{1},{8},{6},{5},{2},{10},{10},{17},{13},{13},{12},{15},{10},{8},{7},{7},{9},{11},{16},{9},{14},{10},{15},{17},{5},{4},{12},{10},{12},{19},{5},{20},{20},{7},{4},{11},{9},{9},{5},{17},{14},{18},{12},{9},{15},{13},{15},{9},{4},{14},{4},{11},{5},{6},{15},{8},{7},{7},{6},{5},{6},{6},{28},{16},{12},{4},{5},{6},{7},{7},{1},{8},{7},{15},{1},{11},{10},{5},{75},{405},{984},{648},{2059},{2645},{479},{84},{21},{536},{494},{34},{79},{193},{336},{756},{1016},{2116},{774},{891},{1216},{1153},{97},{393},{391},{1}};
+    #if (CYTHON_COMPRESS_STRINGS) == 2 /* compression: bz2 (9543 bytes) */
+const char* const cstring = "BZh91AY&SYZ\022\303H\000\rQ\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\300@@@@@@@@@@@@\000@\000`)\237w\245s\007!\022\022\256!\240P\001\336-\343b\212g\233\240\275\347\270z\0166 \367\260>\371\356\373Z\335\254\343\205E\nt\321u\307k\355\274\313\273p\322\334\000\365UR\245 \310Ui\250\000J\200]\262\250\360D\000\023\024H\211EH\t$\"\020a\211\246\202\014\nh`\200h\236\246\323M\003Jl\230L\323L!S\324\374\2154h\246\336\2256S\365\020\000\000h\001\004\202E<)\350\312\237\245\0332\215\023\362\246i\242i\243 z\232yCj\014\217\325\036\215#e?O\030\324\205M44\r\014\312\000\224\310\"D\241\023\324h\032z\200\320\3652d\310z\207\251\220\036\243@i\2404{Q\342`h\t\264\251\342\231\032\000='\265 I\250\210\221\251O\312\207\264\246\207\244<\240\310\000\364\236\243\3654\2313(\321\3526\024\017B\032=\0206\243\324\365\030\321\007\251\215#\312zC!\n\204\310\365\031\032h\320d4\323FM\032\033D\301\003!\221\220\3010@\001\200\206\206\0020\0010\020H\221\000\001\032)\3516\211\251\246\tO\304zAO\023'\252y\rOSj4h\032\000\320\315@\006\324\320h\001\240\001\377\302E^F\261}\353\324\006/\327\337\007\221\235\217gg\2469\271\273\033\256\237\004\243\275M\036l\214\364\357\215\363\345>\307C\r(\001\010[q\032\2252JH^\204\376U\272\016C_\037\026\277\000\003\317E\030\235\223\327;\204\356\300?\334\220\357\000{d?\347\305\020z=\275\001\206z'\320T\357\226p\365\302\251t\243I\250\302Pr\301\023\034oz\r\026d\354w\262(2\240\234\245m*\025\346\245\335\225\023Y\216\210\312(\325\323\021\022\326\352\221\263\005\224*6T\321\273\234\321\222\257!\336\236\223f\2213YTn^5I\272\035\260%S\203\217!\346\336\337\341\336=d=\237l\276\357\277\370\362Z\231\022\200H\222\264\"t\"\322-\005\240\2168V>^\372\013%\026J(\236\203*\212(\242\212(Jd\023 \240E\nuA\360C\334\367P\022\" \261Q\212\254UT\025\203\021T\025\026 \2522(\"\n1#\021T\024\004H#\"1U`\242\254\" \262(\010\301\022\n\n\260PEd\025T\213\026\021\020\212(\n\244R*\305\005\025Qc`\254\013\025\202\260\263\251!+\225H\n\222\025IUM\327P{\307\270\t&\225h\222U\245Z.J\305ag\277\337C\264\022--""\021Z*\232.B\337\337\221\001R\010\310\240\210\260\021\024PP\210 \260\001H\214\026\021\214\221Ab\220Y\004T\210\310\262)\024\004dQd\334\022\225!EP\013\005R(\240\013\021\202!\270L\310oM\331\2737\214B\202s\003\000\261+\014\204\342!\266\3306\037\206\340\254\365\254\261\"\345r\322\242t\254\222\264\234\225\200X\251\002\300\261hZh|(5\007pZ\222.\0041\2461\261\261\n\340\270\270\271\027\026\322\036S\021\031\201\357\224\022(\253\026\n\"\244\021\026,EE\221E\204\026E\221`\262ER\020X(\262C\027\014d@\207\021\201\2121\025m\215\2446,V(\304\307\034j \272\346\3233D\014l\0304\3230\240.W\270\335\206\006\030\027\370\300\3140\274\316\373\323\033\025\352\362\360\275\\\265\250\364\201\235\312\342\340\241\3422\0301\304@\341f\3242C\033\010`\331\014\0140\3035\200`kY_\033\225\305\234R\034\003\001\020X*\213\001H\210\013\004b\254RE\001\020R(\240\261d\"\310\n\261\r\240z\001\00416\330\263\323tZ\032\246]\020Bi\300\321\032J)\210\215\025K'\217\3016\017\001\263sI56\002$c\003  \336#x#d\013`[!l\203am\245uV1ce\223cV\245\252{N's\223\222)\234\211\342KHs\224^{\033\036\364\243\022WR\244\224D\343\311(\246\312\205M\016\267\225\211\t\014\221\203u54\231:\241\215\032\215\241\213v\3460\225&\362\315\250\315\265Z\355\251\236\272\270M\241\203 \210\024\020\263\021\212B\271%\220\027\2400\014\220\262T)\342l\361KS-\346B\014\367\016\010l7\261CLr\001\246\333D\r\0200\325\241\275R5\003\020Z\201\222Z\206\250\325VZ\302\217\\\333r\026\333@\332c\001\266\304\3306\021a\025dY\024U\200\2448\313TSBC\203\203\310\343\\\215\257\3010q\260\344\2118\210`\306a9\0227\233\367\232\033\367\233\302\177\031\242\336\233k-^x\342FJ\034\004\210\325\310\2318PQ\023\222\207\016\"8$h\200\320X\006\210\323t\211\007\260\200\342g\243G\021w+53\310\006\263 P1\353\022\224\223\220\340rr\204\303@\323@Y\244fi\3008V\255\372\213D\264Y\3546\350\315\r\210\250!B6\202Z\023\370\331Bcd\240&\350\030BC\2301\223\234\211\232\206\242Z\232\352\2655\335ag,\235\367\024\016:,\021\005\010\240\244R(\034\000\210\217\227\r\273\273\027\027l\003\332nc\221(\224\023&DJD\342\016\023$\206""\003L\306\211Q\r\262dD\270#\207\004p\\\r\257]\024\205\004\371}Ql\225#\330\006\367t=\271g\242\334\207\271\347\001\r\305\025\311\255\247\"\230 \031I\010\210\\cTk\270\247\340\020ti\253I\267\25252ui\220a(2\206\334\232\3478\031)\311\224i\023\031D\024\035\303@\356-E\252:y\025\025\333\365\205\2423\342cP0t\262\254\364\340\251\242\222\203X\252j\033\245\311\014\031BsF\272\206\251jT{\251\034x\241u0\033M\275Q\241\252\343\320\343L\363\275\233\234\265\234\211I\217\353V\251)\246\232\212\233!\266\345\016z\232\221\314\3176f\222\264\254-\251\334\244ez\212)\211wzj3*\240\222\262D\262\310\333\240\272\272\310\364\213\206\213Ac\266\265Vc\256az\232}\331QHP'\004\242R\247E\241\315hSK\252\276\007\343\206\232 \356\025`\017$\355\353\200\202gq\310\241z\260\030Rqn\t\314\2379IU\262bSq\\9s\177\201\376\203\277\270\207\323\017\362o\234~\335k\300T\217\355\205>\373\243\347\306\354\337\361\212\332XlS\2433\037\272\242=\253!\177\236B\376D\265\377/\307Z\004goj\311\264\366\221\371\077\077\271\367\232\267g\233\360T\316\300\373\002\245m\320;\355\354\262.\372S\3208\370\377>Z\341\3160\367\266\304\020\027\231~\014\314\037\346\305a3cE\220\331SEP\030\034\244\273nY\2551\035\203\372`\345\2074\324X\316n\253\365\241\033\336\303\366 \3627:\014\307\014x\222\354\243\\K]!n\026\001\200[l\214\013\323\230\356\367\312*\240(\217@/@/@#\342H\367\305\354\213\324\250\2014R0\257\215\253W\0260\233\221\214/SyR\346ZU\222\317\217QI,\322\231\230L4\211\252sJ\234\223\264\023,\271s\r\277\233\301\205U\356x\275\351\326qqy\274(i\344\314\226\215\357rz\242\200D\221\030\013j\324\246\304\235g\201*\265f\311TD\202$\000\260)\tV\272\313\365\375\315\225\005\010\330F\363\003\216\272\357\202d\240q8\211h-\005\2424Y\243E\3343X\237\t\216\005\361\037\033\023\214g2\014C\021``\277gy\202;\241\277$_\2168\206]\02431\254\301f\267\013K>\331\360o\32033Xi\232\311dC\321\371\220\215\344U\320WU\312\350\230\250{\016\237\323\277\315\225+\001\234\023)\221bRF\356\207\313#flm\261f\356|\226y\206y\324\263\313\034\3562Pw\023\236A\221\334\013Vy\007\260{y\346\212L\257Y\032i\2437""\031\231\231\233\260\300\014\005xxO\251qu\305\326Oz\353\003\355\220\262\255\025\036]\376\246ffY\332\031\265h[\336_\203\221\311s\336a\2016\014\264e\354\321\324\213\364\315:=\032\034GX\351\365vH\337\033\266\351I\"\365w.\331f\277\336-#\016,\345\343\340\215|\274\363\314^\033\303\3350X\035k\017\223\311\216\037\014\274V\233^p\255->\315\260\204j\002\324\021\240\221\240\212\354..#D\226\311-M\205z\266\035\323\276\212\250.\320H\220\211wO\242\351\230\311.\023\212\315\\&\254\265\022\245;\314BE%\266\343\021y\264\267AH(BA\255\325YoH\254\032\267\243b\"\314\024\250\270q\255\227\215\\f\307\006G`\225\251B\230\315]\351z\340W\255\337\263\232\356\201\270\004\324\223I\r\331&\377\206\036p\310>\341\240O\020Y$g\242\272g\307\367\332\342\222\376\023]R5\021ZR\t}5\356\201al\225B\302,%a?S\343\321\374?)\231JJ\004\242\224%\twv\356#\2573r\366LV\010\301\010\300\300\301s\372x\003\267\323\366:y\263\001`\030%\202X`\2176\270\343\242\310\350\013\357/J\361^\0356[\177]\340^i\321\206\230\243\024b\006:/|\367\330d\276\356!\336\264-\025\251\026\226\240\327\217\360\\E\246\265\367\277\007\275\271b\212\005\200a\306\374/\316\261f+\002\302\313*=[\207\370\237\031\363;\222\271+\202\345r\341\211\364T\025*N\234\372\274g\243\230\253J\260\301\026\024\033\200\373[\353\255Vz\334i%\232\024\217\210E\026\017/&\347\257\347\267\237\\\331\275bA0\247\001N\"\002\t\203\020.\241\367O\345v{\205qX\300\030\n\026\350\230F\r0\341\203\244\2043c8Q&UE5c\234f\"\305*\255\304V\365\225W9jZI[pS\234\247o'\014)\271\221\t\354Zw7\033\275f\214\254\201\354L\246\266^n\322\261n\032o\224v\016W\211\337\371\265|\353\017\007\307\362N\373M|\274\231\306x\002L\010\254\222+ R$X\004H\"p\277d\t\3524\347\346{\276v\271Z\346\246)\217-\024\275\337\357o\303\234\024\333\034\250\025\324\256\245tE\320\272\213\235\313\267L\027\350\360\331\222\304\3722\n@\221I$\212E\"\220\212\022hb\351^\370[\271\253\237D\311L\211\211\200\256\025\311\021(\301.Y9z\376J\365\354\017vs\371\224\356\267+\233\024&\002d\246\t\205\234\203\271)\325\324ux\373\345\370z\2471d\262Y\010\310\311\034\363>L""\360\365n.E\300\\+\213\221\227\340\360\323\246\024\345\223\233\212\375er\377\277\037Z\344F\216\032N\265\\+\226\213V\255\036\034\207N\212\210\250\252\005B\247\326G\030F\210\324q\231\301\340o\\k@\316\316\267\374\313\264a\267\205\316\346:\017\362g>\245\233%aYS\027%\371m\216\217\227\342\236\177\312\311\321\260M\202\323\365j\354G\323\244NW,\2323\344\361f\326\317\346is\251f\031\331\251f\210\361\233\270\303f\315MZe4JB\357[\224\371\020\031.\027\233\342]\267\327\266`0\021e\000Sq{\253&\205\345y\"t\205\001\023\244\242\026\222\014\204\037&3\013\372?g\201\331\312y2I\345--:\336T\222\347\213\313\033\025\334\353\224n\210\250\251\250\336\315V\010h\206\246\2345UY\024\250\242mjI\307AZ\326H\207KMK\n\244\247\205Sc\324\212\263Nw\273\234\252\251\204\233%9T\313\034\250\210\323E\365uH\350\341\3427K\376\031z\r\004+\3223R3DH\"\302\256\005\200#\010\201\344\222\3726\324\272\023 \232\325\271\375\267\264\302\323i_\251\227Q\016\216:\271qEl-\201e\005\264\023\244\026\321n\204[-\320\206\337K?>\340\226}\334\027J-\312\245D\244\252GU\254`wdU\353\210\372(\316\266\025D\261\002\360\304\016_\312\216\313\222\267\217\323q#\311\016\373\357E\352\365\317\3739\343\303\350\200a\325\266@\030\006\010\300\014\021\201\270\345\206\001|\037]\\\222\341}\342\275\027\205\367\205\364\007y[\367\221\364\030\177l\226\272\346\"\305\216!\2168\353i\376\017\250d\026\200[j\264\262\316\355I\214\373\354j\264\252\252\375\333\270\3617\377\212\013\004d\255\267,\247\376F\352\303\260\364\316\324Sh\265\232\247\374\325(\244\245\027\334e~\345\376\201\355\013\315\337^\357\255\355\320\t\276\262\0204\036\003\366O\305j\361\370>\212\370\374b\241\261\206\001~\271\276\030\031\347\370\266\273E:| \302\032{\331\342\034OOC\002\212i\271F_y\212\310\257\r[\341g0\332\314\035m\033\330L\243|\202\274`\276\0339\363\\\317'\263\344\353\374>\016\370vQ\331\304<Y\330\316{s9\361\226\313\224D;j\356w\277\333\335:\310\237\316>i\261\274Y\357aT\225\326\235\367X\345O\300QW\216\203\375\374F/\376S\006x\313,\324\243\n1\322\271=\314\266\247\277{\320\363\324\022\363p\307\354""\345\226\251\315\004\205)\207\332\221\237\315\372\226!\357m\362\354\3316\372Hh\307\317\254\311y\370k\257_\036\004u)\030\027\234\254\014\326\265hu\014\303\242\314\345Q\361\006\013C\361\257\221W1\302W:X\246\344\272\t\367\016\024NB\216\265)\"\307\367\014\\Le\0045\350\017\020\211\"\002$\210\010\222 $\200\202\321X#\205\272\006066\367\324\225 \300\006!B\014\314\213\243\222DK\266UQ\224\352\032\004\256\234\212:\035\316J\212\216\211U\232\255)K,R*l\251A%\271\203TL\312\226\365\231f[AJHtKI,\342\020\252\022\"\021eg\267\333\356\017\230\276\021\363G\351\200;\007\332'\257%\201Eh(\351\037ep\312\027C\203\223\315-RFb\rD\032\241-\342&Jt\231\247]\034\265\377\016v\313\237\322.\226z\274\351\256qj\354\366\316\246\317J\375\365\211lTxboS\177\275\354\376\221`z\304fd\371\023\372\352\335l\240\307\213\301I`;\276\027sDf\231\240B\352':6#\355H;\251V?\307\243\275B\253\026[\252\303\273-\246\227\304k\322l\026\025\307\365_D\315\001\260W\242K\220\323kQ\235\330\250\260\355\355\003\265\013\264\016\320]\250\355Gj\016\320\373;\206\0201n\337\224L\217\272\3138s=<\322\262A4\006d\311\235@\367\275\335\260\337\264mI\023\216\322w\005\307\204\361u\356\003\301\035<\"\341\304H\0374\022\344zT\347\002\2248P\211\356W\316Yxq\316\346\321%R\226\245\372v\303:9\377\027\255\006yx\272\232\365\234\213uZ\345\177\325\261\355\250\352N\306\3509\266\340\257G\010\347\245l\314\312\250R\010\231\303x\237\256\307+S\370R\361\261\355P\332\235\255W\317'\233\036$\032\251\233\001\356\0200\261\366ee\304\326\014`4\275\267,\374\220Df.hW\027]\341\237\322\332^9\n\332W2\231\266\300\361\206\330\022\200\3306{\023\2467s}\006+\020\356\376\335-\273\302\377k\013\351\267\000\341R\243q\304k\346\235mKu{\376^\355H\337]\036>\235\377+bg+\203\004\035\025Y\341\234\276\305\264\030=\260\216X~D\231\257,\3452#\016\251\311\031\321\312S\207\3100pn\2348\224\203\2079\225\324u>\235\323s\322\3320(\033\272\353w\241\375|\242ZD:\252\247O2\204\262\330\254QO\351x\376c7B\225\307\333\335\330\026\232\r1\033\001\260-CQ\016\330\253\336\256ll`\016\204\222\014\032\nfr\032{\201n\016""\325\010\264\353<\305~\226U.\266\006\332\321\332\256f\307\271\217\034R\025\314\333\027\313\341}\005\364\027\313\347P\276n\356\367\276\214A\206\260=\2546\027\271g\3028Ie\014:\023\004l\020\200\370Y;\367\262\262\3144\341\004\212A\245n\332\266\227/\032::'\231\352\030k\363\034\303\202}l\366\023\204D\nM\264\344\243\27094l38\354\014\363\225\024p\211\323)Ue(\245D\244\270/\314U\016\206\205\321\244\345\277=\320\025p\372UN\203\224\t\233\370\\rm\215\325\342:qu@t\013\247\344\031,\344\374\266f\305\352\344\376\036\374+=\244]L\306\303z(*\316\315\373S\021\016-\333\333\365\263\363\277>>\315\274lk4\306\336\010\302|L\204n8\356\013\302\335\345't\237MUq\276(\307\242\314\267l\020\246W\035Q*\324\272\250f\033\"\310\0312\031\036\257\222\223\370\\_:\305\003MX#o(d\257Ybx\352\363\035,\346.M7\260\333X\003l.\025\305\302\270\364z=7ppGH\302MGgf=\007<\202\202E1\271\016\264\373e\340\270\242\230&\277s\201\\\354\247\243\013\010/d\310;a\314\370\336\017\235\254\374\351\007C\274==\227\254\360Z\207\230m>\024WFV\263H\014\3031\267\025&T\316\245O\034\373\335gZ\320\305\320\321\317\320b\356e\212\303\301\207\274\222\214\215\212H\266\351\333\265\255\251\251\026n\036lu5#\314`\312\261{\330\245\024\356\027}]\245~y_\206>j\213+\272\375\252\340j\225,\324\255x\245hQ\013\337\240\270\227\251\331\336\357\034\374\026\230[\r\216\0138\312SQ\364\237&\2472\034Dd|\225\255\345\256\357VB?\002fb\005\352\267<\371G\310\342d0\314\016*%\034z\254\255\214\251\245\203*He\205\205J\221K+)\357W\3236\306\306\\\366\221q\316\220\274\013\257\220\245\027\004\212A\250\t\242s\224\327\227H\277\236\235\333\213\256~\036\205\341\002\352\327S\332\314\t\330RuT,1pV\211n=(2D\036Q\270\347]\200nR0|D\024\264\271_\\\236%\225\306pC\031\344\224\375\004\302\320lS\313\327\311{\033\362\357e+=\030{\003&\027\320GUT\223U\2262K\316\213\322\221\214U'\342\27166\026\263\204\344\035\370\320\320\320\310~\000\326\223J(\025\331\034\225\235\235\210;<g\264\227iS&\213\206\232\325\353\3321\342t\332w\250\246[.\325L\265\214\327Uq\007\265\001U\360!_<\250a \3209\354\272\357\257""\\\030\266vW\2467]\363\272\306\212\232\017O\331\205'\006\377C\300C:\243\273\r\226?Qh\240\r\020\r\020\026\212\r\021h\213Q\020\214\207C\"\245P\205\271\2243\215Yot3\036)\332\252\343K\017\245\303V\202_\021\304W\026j\231\245[\315\356\252\243\022\342\234\270HyRPT\333\233\251\304C\\2\311\215S\211\246\325\024\262\235\023j\007\226\327\n4\267\255\264T\231\241eR\205\021S \252)\310\335\223\006\267\264\341\300\341\214\203\237\220\367\006I\352\365\254o\327h\225\310\322\307w0Y\214\231h\231\367u\207\030\255\201\224\313@\230b\301_6\353\363E\216\377P\312T8\n\374\000\305\353O\300\345\3554\242\232\210\243\030\017oP\247w\257\275\014\357\352k\277\264\334\306\265%\331\301e\025\340\025\205S\014M\346\301\262\016e\220\302\006\004%|H\300\013\002\021\204F!d!\000q\221yJ\346\207\\\035\321\232\304\032u:b\212fI\303\"R({D5\306\236\357\013eOM\020GE7\355\017S\002\360\014\341\376r\000\373\000\320\360;\371/S\272\371r\335\n\236\3601[d\025\376a>\205\273\021\327~nd\332\225\030\307\265!\314\214X\310m\031K8\335Y\2430fF\024\337\340\227*8\242\255\337Lm?1\347=\253\346\303\035licF4\261\240\302\030@\306\261\254dO\306s.\230\253\025l5\361\224\006\010D\\!\002V\210\320\030b\t8~:d\004'\201\nD\247\213\274\370\240\025)2\223+O\366\022N\022G\321 d`\301\r\023&t\250\3566\345\026\020\333I\262\315\3259\014\342\033\273W]\2473\2108\327\001\352\332x\\\314$u\246\016\007\007\254\212`\266\261=\345\205\227\306\232J\234+\235\342\n\034\003kb6\203\223\264\221}L\002K\\\327l\350(\236,\275\362\375\021\001\264\365ro}|+\010\030R\320XL!\177\nq\240h\317cOe\2544\203\202\213\t\320\034a:\215\224\326\372t\263o/\243U\263\352\267I\2400k>\224r\2434\363g=\030\303\006\2472\256\253\243\010\250\271D\206\314\177{.R\306\261\2060\0260\306a\306\265\254*\3538bI\252\201\244\353:\022\021\323\217H\323S\335\236tN\023\210'Ju<\346\272\265\207QH\213L0\335;\317~}\321N{\024?\233E\242\r\021\240hi\247\243\303q\334\351\350\031\263\200r\233DA\351\3519\354\300\317s\224\214\027\014-uJ\022\202\225J\224\272\360\037x\257\255\241r\270\303bu\342\272\330|Z\361,/Q\315Lsd\203""\364`\223\272\372\341Q?1\221\025\024L\255\n\375\217p\330\014u\227W\232\202\353\203\244E\351^t,;\247\013\257\367\213B\322\325io;\276j\200\221\"JD\345\307vI$\244\204\211\026\200\"\004\020(\001\300\242\202\200d53\3227\270\365\016o\327\242\252\271?\344;ld;H\214\326$\244\200\253=\032U\001}\2529#\353\331\304\032\355\364\361\210!\212\025\303\016\323\005\201\362\320\371,\013\256\304\271l;\211F\032!\204\200\241*OU\355\025\341\313\247\200\024H!TRNw\255\354\360\306[-\273\236\327\034\243\0177\321\232d3\313\237Fl\355\266\364k\223qeA\021+\007\234\362\006{\r\236m\023\330a\227\3520\303H,\302f+$F\220\314`\370\027!\323\351ST\034\212\253~\257\203>\365\345\354\306j\302l\331*(a\220S\346f{)\017[\322\305\225.\216\021\007\036\200\\\267\311\221\014\346Q\316\253v`\264\177<\372c\351\037\353O\234\362\223c)5L\225\222\256L\0163B'\353j$Fb\272\375^S\270\001\341'o\227\3131\273\233\327-\230g\231\377\177jf\360k\240\234\211\030\244\344\364\261\005\275H\026\261\260.\234!_#\005tb6\t\234\322\223t\0204b\203\336\353\354\237\241\341\3070\267\032\363\014k\332\305\342\217B7E\036!\215\024.0\316Q\001\177\016\023\303\201\233\2070\216\005:wnD\253\271\243\r=\275>\303\342\263\305O\033\306\243\205\261\3735\226\312lK\027\243\356\377\225fb\203b\212\013\375\267+EH$n\010\307e\360\310\266\303\253\255MQ\305z\t<\213\201Q\023\237\316K\036mVe&\n\205U\021\377\336\203h\270\327\3578\317\374W\260\324\356\260\271\250'[S\264eY4\207Ui\356T\312\241e&}\334}\316\216\220\347\263\270\302e\277?\261\246\014yG\365\362\253UN\032.\t-\360\201)\333v\262z\2439\331\226$s\030\031\032\343*Y\226\241\351\037RL\215h\t\224\030\312\300\247`8\224\n\221w\000\264\021)\244\354\033\245\034\362\307\240_C&\000z);\254\351z\226a\365m\246fHK\251\t\020#\217\272\370U\277\270\206\264=\350u\213\\i\214\206\200\252P\200&\345\2242\320vl\275\306\0064\242\221Ck\2503\0140\351\241\237\276t\334\327B\353\263}/\303/m ,\274T\302}\343\340\242\343\214\030\205!\360\267\243i\360\037\326ZB\247_\346\370\230\270I\235s\215z\205)b\201\347l.\030\020\332\301v\233\265|B\266F\362\312:\236""\\\352 e\257L\277\354a\250[\236\241\336\262\230\036eQ\262\215o\253\234*:\306\307:$\334\377\314q\301'\023\037]\355o\235\237lE\211+\016n\002e\n\372\246\253\241O\246\306\177o\326\370u\326\243\255\365\371\031\256\277b\215\252\337_QP\\\365\346\321j\247\204\027\020\205\024\205j;\223\267=\013\021m\244\257}\226_,\344k\322$\331\321{\346k2\370\224\212T\334\250\207\214\032$n\005\032\234U\321l\261k\235\363\320u\317l]a\035n\316\242C\262L\307\\\021}\031\276\307c\222\311\202$\203\013\367\220#D(97R\016\261\325\237\200\364\260\221\245%\257\224(\016\203\372\343F\023FZ\034\2023\261\231\200\340\300\272!\300r\306D\2711\224]E\214\354\036\331\326}\216\261\331\206LU\372\010\225H\301B\2216G\334\367&\265\217\265u\022\354\t\323yT\253m\366\273\206\366Y\376\246\023\010\343\205\231\3063H\251\020j\252\210\273\311\205\223\tsd8tO\267\366;ghS\332\005\333\334e\373\232\242m\207\305\256\321Z\360kQ\206Eq\251\273T\334\270\225J\267\3359\363+\234\347\002\033\340\213+\343\th\t\377\002\261qb\371\014\026.([`\\@\037\372\014\225\262\266\271Y\010\224A\317\000\277\207\271\337;}\247`\316\343\217\007\370\267\335\351\360\327M6\226\3300\3050F4\0274\261\221\240\037\342' (H\314\224\255\007N}\005\005\227#\022t\016\023\350\230\216T\035\026t)\361NE\032\200\267*\016\367\202{\347J\3573\277\352\206\001\376\035j\004K:\332\030\0320\305\025\203\373\342m\376]}\272\353\034\362'\\r\005\376\323\271\204\202\371\034\\\212\237D\270\337?NV_\203\267\341\377\201\177\030\204\036;`.\376D\370\017\271\253\360F\036-{\264T\332\231`\241\0346{[\361\223\212p\354\334B\006q<J3e\027@\343n\\\360\244\357a\203\017!\200f\262Q\311\253d\267*\303\237!\225\315\362^.\347\200\351\356\327\307\t\263\332'\277]=.\241\330!X\225\007E\243\241\240\016&\202x\374\214\357\310\3546\235bs\261\262\367M\005\200g.I`e\260&C\343n\212C4\210`\\\300\331d\341\303\344\362\352>\330\354\016@\036\246n\002\367\270\007\345We\207\006\220aX\304\253\0053#A\304r\270\327\002\367\221\263c\nk\231\217\312\232h\307F\247\213\241\210\204F^\003\201|<\207[\212k\336\014\034\323\244\3729\\\225\327""\212\241\341\235\324\317]t\265\231\305ND\250,_LdZ1\3255T\204\346\007\346\315\031\250\t\211T\206s2\230G\333\264TBm:%\031#\276\307\003\335\341\301\023\206\275?-\323\252\024q\022\014\365\177C\010xUv\220\355\037\362\220\306\303\321\204\234X\\y\335tw\260\267\241\216\2540A\214(1*\266\034\372\217K\227\237\314\276o\352\035\"\270\251!u\0328eTD0\227\363\264\231)O\2336\363\333\026\302\256cLM\263\233\201\002\202\002\273\277\241\031M\215@\243L\266\3104N\242\353\377oP\341\350\363y\374\364\003\017\271a\257T[\3142$eT\256\226\000\303;y\341\331\257\036y\254H\016\302+K\212\027\\\333'Q\221-C\010W\251u\2604\370\007\233\356\366S\237\212\206\325\202\257\006\350\035!\220[\222j\250B\206\324\361\310.)\013\016NyHQ\272\020kL\324-\365s\331\177\373\203\342\245Ny\304\350\267\311}_7\310\360//I\341\263\340\362o\251\031\3055\251\362S\254\310\362\273{\200\203\314e\204\245\326\352\302E\005\312\307W\230X)\300\032\036\000K\206A\257W/\002\361W\234<W\325\326\t\222\374\357\315]H\325\234\370\347|\213\205\314\2728\236\t\347\253\220\310\223\2032\275\323\247\207\367\364\020\325|\275\001\26558.\236A\230Z\227^'@\007\256\324 \301\200\213\212\221\000\350e@\344\310mD>0u\260?\341\347\362\361O*\027 _oP\221\303\210\345\027\340c\\.\246\327i\n\231\324T\330\016\375g`\033\000\303H\223-\036R\003\351\240ac\030t;\315\355'\374\234\271s\220\034\017W^\201\000\273)\3209\315\202q\366\371d2p\032\236\314\001\311s\007&\014\300\010\220\241\000\t\250\335\260\235\370r\035;~/\227\257\304\260\351\253q>\034\r\032\362\362\200\341u\310@Z\326r\303G\2352\372P\270J\234\350\237\214\007![\000\352\006\002\2058\024\273v\211\037\017Att\227\003nC\217J\203\217w\200o\013\2418\270\271\227\036Hf\"\242\300X\003\rf,\252\236\272\007|2\272\230\350\276\337s\341\360\365x|=V}\235\224\"\026\206\274\356-R\212^\177Zy\373\257\241\023@\372\254\253\357a\026\2302\244\2312\230$\357N%u\345\024|+\367O\272A\363\237?\361@s\224\003\216u\035\034\350\017\211\007\241y\027\221\31283[\222e\262\2720\270\001#\030\032\276tl<\314GW\321\362\217\305$G\226<\240x\246G\n(\362\222\305""\237\005\311\270\2544{)\224\274\375Eh|\206\010\\8\311\032\216\245\307\213\315\344\220<>o'\273\003t\3626@\341\311\r\024\330k\313\220\305\224\016Z\257\3301?\335\235\307\203\232\001\006Ssz\234o[B\210\032\216\236\361\325\362\372O\214\243\3039\346g\216\326LG\217\314\361j\312c\362Caor\3249\rA\3655\314\\\320\360\014~\260\342\007\305\313\302\303\341O)\371A\2579r\345\346\312\275\223\317\216&\257u\021\345\355\366\376\231\335\210Jc\306\376\\\277\t\n_v|\036\025\342\312\327,\236M\332\017$\234\004\373\377h\351\356\036\367Oywe\370\366\376WK\361\036\003:\r\337!\275\024\3437\\s\rt\373\235r=\250\354(E\017\262_~F\216\366\211\357\035\3718\244|\236\267\247\246p\263\240\307\261\221\354|q\034N\203\034Q\305M\374^~\254\341\300z\033\211\360\375\243\210\343\034\242\245I\356\343\207\0048Y\331Lq\221e\006\\#\364\007\217\234\3577\237\201\016\210\363\360\030\236\267\335\303\302C\323\026S\310\312|/q\007?\235\362\361yx0pE\366\"\t\206\215\306\377\241\373\3741\006VV\373\314\312\217\"{\263*\034-\365\207\313{\322d\362\360\014\277\r\367z\030\364\262\337\206TNn\026\"o\227/\315\350\363\373\210o\206\363r:&\177'\022\251\311\307\307S\222\245A\314\344R=YO||\233\307\254\365pq\360p\376\257\343o\331\342\257\177\265\316D\264q\260\370\243\340\027c\264w\334\366N\304\257\201L\367{e\347\332\255k\271\255\315$\274\336\367w\346\013\317\336\216\342\357\010\357|\350\367\367\3230e\350\326!\311\357?~_\245y\217\327\016\321\327\354w{\340\373\235\355z\360i\027z*Tv\372\335n\277o\354E\004\244\2357\363;\004\203\270\335\007\007\026\371\345<\374f\220\267\236p7\003}[\337\240hy\317\037\221936\374\002\014y\310\234\037fOv\356#\277\340o\251\336F\006\362\300\037\342\3631I\343\r\007/\217\327\312\077\077\340\031;\356\210\372\207F\307\222\035\255\301n\267,\310C\267\335e\335\374\330\035\333\354ak\377\226\354Q-\304\273,|>\035\255\243}\233H~\334D[o\344\354\372\003\223om\373\217?*_\204Dq\376,T\354\230w;\t\255=v\275\356\203\321\356\372\033\335\345\353\233C\2731m\206\341\333j\204E?g\365|\215\247v\273_\2547\035\036\345(\2426\272\350\374\372\377of""\003;p}\311Fn\2667\366\321\275\374\206\323\013\370J\237\300\260\271\3374\233I.\335?\272\311\332k\254\345\330\2570\345\246\007\361\3266\030\347\226\377\264\254\037\276\231h2#\306\030\260\"\371\341\030\305\355,\201\363,\207\362\305\336\365\033mF\016\302\364Z\346\317\321m\357\306\321\343>\006\342i6\361\236\337\036\326f\241\236\032\037e\342\2450\342\322T0\036\243\237\357\240\236\250l\344\327\301\177\301\325>\033\366a\261A\013S\230v3\342\337\255\360\364\376\220\035\256\021\326l\274\306\374\r\3662\\\367\302'\270\240\373\224\315\277\317y[\033\036\266\017\334\344mM\343\344\341v?`\363\366\036\307\022\017z;#-\217\251\235\323/\322G\356\311a\373\322\370\261\367\240\336\017k\217\0051wD|\321\375h\264\221\377a\260\2151,\213\244\226\003<\016\350\034+\270\203\240\026Q)\363\305\322Z\306\257er\327*\372\375~\024\327v\346;}\006M\336h\333\351\272\324*\2473\373\025\365\023\235ikUZ\271\225\253\262\031\247cRX\322\313\235T\326k\023T\226\214\033\326\025X,\205i\013\317s\224\377Gw\243\211?YR\340\354\212\002\331g\330\357\266\010\273\224R1Y\242ja\213S\253\250\030wc\010\366u\006\310\250\323%\372\016\321\364\267\325\252\3027\255\006Bd\371\355u\234\333\327\260\3466\2234\236\352`\357\017\263pJ\014y\234\375&\357\372\234\316\322R\007:\213\376<m\354U[r\325m_\t\034\262\316U\252\256\n\232h\304\216\275W.\337-_\365'\313OC\301\362\267`b\r\302\006\306e\002\314\023YT\035z\323$\305+}\000\234\007i\020\213\374\367b\2029/\031F\224\216 \325&K\001\215\357\007\004\246\346\013ESS\224\020\277T\037\255\373\346\333\232q\220W\031\321`\352\004\314\303\347\325\246\250\211bL\271$\010E\326\270J\376\205\361\024\264o\225=fe\344+.\324\315D\3571\331\255i\334\272\354Qz(\374WRcR\265Ok\216\027\013'U\223\242k\034\244R\\\253p\013\230Y\250\025B\354f\226\303\tcp\350\204\317-\030i4Q\023\262\033-5a\333\265\nu[\254(Z\r\315\246jc\323\330\2520a\356\243Ec\302\307\3175\320\340\325L\242\221T\234*\271\275\"\230\257\002\000\373S\262\367\356\004\200\034\277\202\314\320\371\266\345\363M\242\215k\242\222\275ee4\267\036\246\353\3634\347\206\260F\222[""r,\345f]LP\271M\305\016$F3&\326)\241\345\313y\247:\253I\351\321\252\007o2e\034\370\326\025m\216S\365\235\326\335\271\342\230]\361g3P\370\241A\026\312\212\376\256\331\r^K_\311\375.\360\347\220\205\037\261\357F\217\215\224\303\336|0\204\006\213\004\270\215 3\310:jc\336\324\020$\261\204\245\021Vl\314\226\2478\343\236Y\253\204\215n8\226\325T\322R\352\2465\365\227\026W?\270s\356\3429_|\377\017\223}\363d\353s\016\276\376i\241!N\266\207\035kY\302\037XJ\210\006\310&Y\235\205\214\335\304:E\261\327\266\334\235\n\335\003\3107\373\353uO\277\275~\375\267o\334\203p`\021\201\2277\277k\363/Yt\253|\245\367?\217\337\374Y\255\230\354\256\363\313\205=\352l\245\275\032\326\232+\365'1<\270\326\347\032\337{c\305o5zu\024\261,\036\354\307UH`\347\333\227\353\332\307]\216f\213B\255C\310l\000\342\013\nO\353\274x\257\351n~x\333\346\270^\303\255\235\013\035|\337K\331\253\276R\356\271KmO\034`\264\313\211\275;\326[\325\017\351|\377\241\306q\2567\3056\261e]\325T>Z\2723+RW\353\335-v\251\205\215\031\324\354\355\276\202E9\246\334\0135\341\r=\264\221F\313\366\251M\356\231D\366\001\000c\354\212\010F|\3637:vk:\207\235%\366\240WF\237\324p\300\345\351\242l\246\031\237\333T\241*N\214l\325\271\rE\275W\357UZ\021\345\354\206\007\316\217\247\245\242\002\252\022x\225\215\256\177\200\323\037\376.\344\212p\241 \264%\206\220";
+    PyObject *data = __Pyx_DecompressString(cstring, 9543, 2);
     if (unlikely(!data)) __PYX_ERR(0, 1, __pyx_L1_error)
     const char* const bytes = __Pyx_PyBytes_AsString(data);
     #if !CYTHON_ASSUME_SAFE_MACROS
     if (likely(bytes)); else { Py_DECREF(data); __PYX_ERR(0, 1, __pyx_L1_error) }
     #endif
-    #elif (CYTHON_COMPRESS_STRINGS) != 0 /* compression: zlib (10908 bytes) */
-const char* const cstring = "x\332\315\\K[\023\331\272\006\014\n\032\224@\200p\021\022\020Q[\261\003xm\333\336\001D\351V[\300kwo\263\213\244\200hH \027.vk;\3140\303\032\326\260\2065\3140\303\014k\230a~\202?\341\274\357\267*\\\324\336\273\365\354\347<\347y$\265jU\325\252\265\276\365]\336\357R\336\014F\222\311`<\261\256\247\262\211t*\033\334\310\3501=\236H\255\356w\006G\343\301\365|6\027\\\326\203\211T\\\337\321\343A-\025\017\246\322\271`6\231\300\355\323\371\225\025=\023\334J\350\333\301xZ\317\312%}g#\235\325\203\331\\&\021\327\2633Z*\230N%w\203\261\214\256\345\364\240\026\\V\017\345\326\264\\0\221\r\306\322\251\\b5\237\316g\361\222\340\272\276\236\316\354\216\343)\016\245e\263\211\325T0\227\016\342\341\370%\031G\335\301W\2727\271\003og\0229m9\251\2737\250I\255d\322\353\377\356YYVp;\221[\013\346v7\364\340\230\333\237\313h\251\254,c\377\021u\033\236H\200T\271\003\264\233=H\260\204\"\202\272\351\316\372Fn7\230]\3230t.\277\201\311\255\2443\301\330nn-\235\032\3272\031mw^&\220\316\347\202\351\225\340r:\237\212g\203\347\264\035\2142\032\077\077\377\351\273\024\361\363\033\033\351LN\217\317\247\266\264d\002\273\224\216\353\027Ix\334\214M\032\213\215\005\361\2361\274\214\013\031\273\030\\\305S\365\233\325t@ky\315\255\007\262\300\247\\ \246\3600\rR\312\326\314\310,\271\236\270\236L,\353\031\020\031$\344\266\342%\262\177\251\340\243;\217.M]\237\022\266\310\350\257\360\372,f\267\034Kb\347\300\016\\S>\221\314\341e$ov<8\277\022\334M\347\203)\035\323\304\266n\340\276\203\017\344\326\364T0\253\347\330\010\216\311^h9\254;\212\307\301\233c.]\023[:\237\236\323\222Y}\374\347C\304\303\224]\006\323b1=[\247\346\317[zf%\231\336\276\311\005%RX\000\210\3618=\235L\307^?\3206\300\205\031\016\374\303RN\337\010\256k\273Bg\360\375\033=\223\336\337\220')\3410\274\032\\\213\021\301@9}\235\347\351e.\276\365\207\361\333c\347\265x<\232\"\035I\225 H\371\355N,\235Lr\336\330\301qm9v\353\000\323\363&\265\252\333\037w\327y\355v<\221\345\213uy\375j,x\216\373\271*l\306\245Rj\365\235\234\236\312\211\014\355\013p\"\253\036\211s\232\331""\304\033=x\353\373\340\267\2370\241\354\006\3454\036\277\224\324S\253`\363e\022&\225\306\336\257h\371d.\030\215f\364x>\246G\243\301x^(\220J\247.\201\027\266\022Z\022Wc\211T\"\027\215\246\362\353\033\273\343QPS\037_\307s\t\031?\270\242%\222j\303\023\353\344\334\203\267\345\3275\274\357\343;\\\202\336\316fb\227A\025\254\003l\267v9\266\337\036\337\330\335\271\245\224L\374\020\021?\355\2430\354\321\362\320\365\275\336\374\336\316jI,]4\225L=\256\345\264\361\317\\UR\3041\\E7\276\263\247,S\033\343\3405-79\3017\327\317\256NE\"K3\363\3633w\222\311\304F6\221\215F\037\355\356\340o\026\002\025}\210\r\\\324W\226\364\315\274\236\212\351\224\307\361}\321\004\317\324\337\034U\354\315\323\355Y}%\211.-\271\261\246i\251]-\263\272\241er\t\362\031\332Y\320Q\026\241e\335\303>\177\271\035\224J-\273\233\212%\322\343\330\r\350\241DJ\317.k\353s\330\216e-\253/\353qi\222\035f a9i\335\315h\361\303g\367\323\253K\230\242\272\361\276\360\2204\227\300t\313\351tn\272~\022\213}\033\013\307\356<\210\304\036E\236FbKs\261%\3149\253?\320vb\217\251u\301\234\353\261e-\366z[\313\304\037A-\3040\207\007Z\366uL\247\330\336\325\323\017t-\025\303m{7\254\352\271\271D&\233\233Y\203\272_\204\266\227\236\214\266\n9\310\251\311\260\347n2\275\254%\247\261\252$V\311\236\373\332G\017\361\350>\260\226\206\205\213\361b\275\003\315\007ZN\216\351lz\035\027\363)Y\023\330\237\372+\032\25570\022%\216\247xS4\001\375\225\321b:W\205\236\r\376-\255c\007c\334\322\375\031\035:\213\316MN|\334su\n=Y=\266\016\n<\3252\2174\254:\226\326WV\022\261\004\245\377\336\001\3618 *j\333c\351\215\335\0307-\226\336\32223\234\307F>\252zh\"\247\265\365%]H\026\313@]A\251D#\213\341\350<^\024\313j\353\260^j\023\241\221\263\261,7\233M}\206\243\305\331\224\237\010yq\277u?\275\375\000z@:\036\315\250\333(R\256^\211f\360\226h\234\002\020u\225\3344\210\264\232\2412\217\223;\345'\naQ\nA\3272\311\335;;\240nbu.\231\206\002\241\211\205\304\300\002\352\251x4*L\302C~]L\226\276\221\3253\031\334\267\023K\346\343\372||\207\274\344\236\261\211{w\250\272\352\326s\217SE""\243\306\247\037\351\273\230k2\311y\255\350\330\376\225D2\t\261[\345_\326\225sW\300W\222\371\354\032\031X\313\271\266w%\237LF\243+\371T,\n\256\000\323\320|\262\231\313\222x\321h\002sV*\017G\202\201D\n\322}\230y\321E1\217/\300pMN\340\347\352T\335\204q\242\323\217>5h\365\236,\032\033$\337\236t+S\340\332\003\0343Y\254\203fOi~p\361\272\006\206\305\357\006\250\317_r\302f\036\330!\267\213\205e\022;\263\330@\325\232S\207\007X\237j=R\207\005\3670\003\236[\327v\360oZ\3473;\363\340\311L\216\263\346I\216[D\243\210\023\262\t\016xr'\261\236__\207\321\322R\3527\n\222\343V@1\342\260\365DJt\017\216\017\324\354\026\334\311%R\013\370\243\014gq|\014\326 \331\024\r\321!\303\202O\260\266t<\237\3041\245\255\357\377\302l\362O[\325S\3402=Ks\246o\363g\007|\252cW\250\230\261a\260|\204\005\330\243Xj\003|6\r\375\226\025\223\246\354\032\266=\016\025\261\374*\235\3229\231Gzf:\201\207\364lzCO\2453q<\234\305fll<L\303B\317)M\266\001\376\332\320p\200A\212\337I\305\037`\246\033i\000\275,\224\033\024S6\021\3072\263\033\231\364*&\227\235\3262\365&\311\2106\305C$r6OD0'4C\303\275\004\336H\357\240\235C[d\026\204\215\351\023\023\033`Yw\n\321(lj4\266\246\307^g\363\353\352\314eS6E\022\245\225Om$b\257A\301;\251\372}[\002\276\251\002\311*\212\244hA\361$i\3222\273Q\305_\031Rg\t\200CQ)\243m\351\311\314rfO\357\356\003\215\275\226\202*\007:\364\235\350\201\r\201\220\036\334\235\3756\246\016\031\254\237f3\372j\"\013\222d\300\352P\306\240\034MxF\317\3453\251\207\367\357\303\210\257\352\367\265\365\345\270\346\252\277\231\272~\207\031M$\037e\322\033P\203s\220\226;J{\340\354\361\032g\236\025m8\247\305r\351\014\024^\364\300\351\023\010Q\006\035\211\215\335,\026\035\215\002\334\272\014\207V]\013\262\355\022\372@\273\276n\231gv-\261\222s\367i\211\232%~eR\372\026u\000\321\254\276\337\007x\220\324)\334\331u0\346\232\250\341\254kc7\262\233\340$\352~!NvO\201\273#\357w\314\003\317\355\237-\311P\272\272~\360\336\275\333\260n\260\271`p\236\036z@\210\260\177\r\006\345[l\304\006\377\"\361W\000MTu\331\034\350\013\212\351\330\213""\371\324,Q\025\3163\371X.\347\n\262\313A\321hN\2043\247h\217\307(\211y\321\215\374\275\016\356\204,\3457`gt\365\213\275\243/ \342\266\317\373\371,\246\237\302)U\020&\205\363%\261shSu\342/\257\313OvK\347f\316\252\303\363\355\355\350\252`\211\355\250\030\350m\030\243\265\334\364.\235\214\244\266\261C\355\360\010\310;\231\333e\223L\222]c+\373\276\261\352\t\333\035\316\344\235\362B9V\351\256d\234\205\305\252'`4\031g\315F\323W\365L\330\303\366\\)T\232,\255\224\247\313Z\325\323Z\360\025.\033\035\3065\363\2745i\255\332K%\214q\242\020~\337\370\341BC\363\200\021\256zz\r<\350/\316\032\215F\257\031\372p\264\241\371h\265\305[\270W\214T\275\235\305\251\342\226\261P\365\236*\344\212W\214#\306\224\261i\0361'M\255\332\356\333\273lh\3737L\032\232\261e.\232\233r\003{\303\305\231b\326\010\311ywq\025\267\307L\237y\306\324p\217\327_\274k\204\215\031\214\3521#\346B\255\245\265\320]\330\254zF\314\033V\244\306\325\332WK\276\322x\345he\331y\264P\365\034{\237+\204\253-\247x\323\224=m\257\225\264\322\037\225\253\316\302\222\263\364X\021\340^)R\372\245\274UY\254\340\236\263\230\252\347\214\031\341\220X\3540V\350mh\3565\216b\322\030l\253\360\2648Q\\\250\266\264\027\033\213}\230J\244\206\346\t#\\\2237]-v\024\303\352b\300\360\031\241\003\027\337\026\247\213Z\265\305W\364\025\307x\351@\263\206f\277\021a\017\206\254\265\036\257\266\234(|\217]\0326f\315&s\030\263\361\366\343]\367\314\207\366X\251\247|\244\034\226Mq\032\246\354\310\207\366\206\346\023\205K\305M\356D\313\373la\254\330\251^\325Q<O\362V\333NV\275\276b\017\366\313w\250\301\333\024y;\314kV\310\n\327@\377lq\004\313k\357,N\026\227\215\343\346(7\346\320IOq\323h\306\026\377u\243\326\036\300\306N\260\247\273\0307B`\202\214\331iN\2331\253\003L\265l{\354\031;\203]\n\361\221]\363\250\271l5Z>\353\214\245Y\233\237\351\252a\002W@\215\013\346]+\\=x\302+S\362\322E#gN\230\217\361\310\250\225\261}U\3777\326\025\273\311\016U\375\027\301\0278\013\263u\007\354\301\207\234\316s\326\021k\312\3129\223\363\225\316J\204\267_\267\345\226{v\244\206)\3440\377\307f""\2073r\315\336t\256?\254\304\234\205\025ge\325Y]\253\266\237\263\032\253\355\347-_\255\375\254s\366&\244\007\223\032s\306n\201\215\260\344\323\316\351\260\355\303\233\261x\235T\370p\274\301\027\220I>\301V\316\230\233|\274\347\363\035K\"\226\356\3113r\270\260\356g\266\366\2341\002\002\253\255\r\030=\362\334\341f'\344h\307\330\206\334\344@\3655{\265\264P\322\276`\213\361\372\377\330\254\265\017\200+g\314\214\205Y\367\031\347DLs\326\204\265\004\342\217\330\213\262\315gJ\261rG9\\\306\203\375\306\r\363Gp@#(t\2764Az\365\033\327\315\233\326\242\265\211\316\336\322p)\302M\275aL\033\257\254\023\266l\367\336I}\273[\301\260Sx\247\337Z\260\022|\005\367\357\006\204[;\274\335\363\230\300\346_lwX\335\272\267\325>g\370\252\2559\327\356W\246\235\2071'\026w\342\372\301\255\036uFo(\226\305\246\177W\n\227\"\007\267\272\3178\017\366[\250\271\224yn\276\300\"\217\331\233\245\275\235\375l\3273+b-|\272\335P\266S\r\315S\366\204s\345ny\263r\304UW\2779\277-;\313\261\252g\362/\257\004\014\2171g\206Lh\234+X\374\026\266<V\356.g*P\331\037u\324D\035\256\200i\227\312G\313\313\025\350\371\353\245\246\322\331rc\271\263<W\031\006\2310\\\343\347\177\202f\343\207\226\206\346\326\002\332G\337k\357\363\205\351\202F\025\373\231\023\250\345\026\336w\2740\314\013\265\226\266\202,3\003\365\027\242\345\220\273\301\342\255\336\302Da\241\260\\l\002\203.\0267k`bpr;\316CP\272\213\305\014\224\345\260\021\201\260+}\242\211\350\310\r\303\224\013\334\320\001\375\t3\303\2739d[\247\\Yvui\263\271d5A\323M\220\337\252\355]\024\003?\256\307\370\034\270L\303\300>3\244:\371P\010\006\017\333#\343b\301{\303y\334\233;`\332\226\311#\237\014\265\014\305\035\"O\340:^yp\310\t,`s\177X,\374D!\204\245/\026\362\260\241-\307\377\362\004\204STo\002)\261=-\205\346\302\023\22769\232\332\032\354\306Da\251\330X\003Q\032\271~\337\036\361\262$\035\311}\247\330\005R\361t\332\210c\2610\262Z1/\013\332T\333\261\214\001\\\243\357m\350\353\257\216\236\255\342\027\377\374]\325\336>\376\033\034\252\016\234\256\366\004\360[#3T=\224\024\317\005,\024|\266@""\273\212\026tc\325\003\251\252zBf\300\352\246\210\323\266\336\263\346\354\220\035\246\341\022@!\0345 F\375\250XyO\037\225\233\261bF>\014R\361\275+>\343\324\373\235\376\037+0\226\375\240\340S\2206j\317\226\216\226\226\313\230\3541\347X\2371\006\275\327\022t\202?W@\210 \350\177\026\224\277\\\352,\315*\006\227\333\002\3061.s\320\031|P\001|\030\304F\321\330\234\262\337*\246\257\251\351\234\206r\365\364\323r\237*\274\3016QE\014Z\333\266^\232r~Xt\026_8/^:/!tY'\373\306y\363{\325\323Q\274h\254\232O`\262\326\251\3308N\213\023\234\264\303\242\227\276\340\014\254TL\211\265\354r\306o\003\256\274\0032\311:\213K\377\366R\037\030\353\266\330\327\230\335\345\\\375\251\022\256<t~\201b\210:Q\245\033\376/\356\240\250\237\204\331\013s\277\006 \252/\305\026\234,\001\205t\025\237cS\223\3268\264\014MB\300\231\377\305\371\345W\347\327\204\223x\355\274N9\2514\355\\\253\323\322kt\201\031\337AHs\366\224-\252\241\273\370\3349\r\246\262\177(\217\224\241>\272\276\350\234#\3648\335c\260\031\001'\034)\373\312\343\316\243\307\316\343\247\316S\230t\274\177\363CCC\246q\272\t\207\351\246\031\036f\232\026xXhZl\252\266t\377/\236\3555\002N\2103\271M#\370\245\347\234\271\317i\017A-}c-:\227\377\001\365\014.o\377\272.\216\346\007|jtz\277\301\306<\261C\364\r\026\313\020\210\316\377}w\255\305_\274\207=\377\305\314Z\347(\341\204\2617\200B\200\333a\342j-\212\0034\356\316B1A]\373Q\323\275\334Q\274`D\234\323\227\201\344\372\304\322~UO\r\244$\030\352\267\246\341\310,@\264\276\274\243\326\322S\334q\206\276\0056\031,e`\030g+M\025\030\255\317\367\002\0009\303\212\351\316\300\337\032t\236=w\236\003H\0009\346\234\\\336\311o\375\275{\340a\031\227\255.+\r|t\370\004\004v\006\352\3141\211\347\375\342\265\374\327\372\t\306\302\346\317\366\204\375\234h\361\253:\272\213\257a\235\037\222-f\341T\246\234\307O\234'O\277\264\237\246\354\026,d?\257T\333z\241\203oH\363\013\373\251\3425\343O\352+;M\315\360\005\247\234C\270\352\245Ah\0178\201stI\244u\t\300\023\036\355\020\315x\375\207\2625@'\3159#@\261\006S\372\320\030\205Q\003D\0312v""\314\035\330?\257s\353~e\246\262\343<[s\326\240;v\234\235\335\252\027\006\324\034\202\222LW\344\225\327!\\'a\223\216\003A/\225\232K/+\023\025\270\324\003DvUo\310\354\246#<\004\257\271>Az\3440\370\307a\322\037Z#\226\200\352k\n\005\036{\217]\r\210\367\332r\032V3\314\r\273j\372\334+\247]\005\335$\004tN\234\246\007Bi\335&\032\250y\274\216\027\226\022\026\035P\240\257A!\200\223\247\366\001\001\240@\240\267zz\220\215N\277\002\004ltu\023\"\240\277\257\277\246P\301>4\370,\026\200\217\335g\2346W\255\005\302\202^\232\340~b\203:\266\250y\310\033+\225He\241\362\332y\001s\243;\272\270cr!^\tU&++\242\225q\355_\316\277`\215^9\257`W\222U\31786\313\003i\255\375\005\312\250\321\256U=\334IZ\377\017\201\206\346~vH\244c\220\216\277\314\005p\377[ \370|i\326\371\307A\010\260\351lr\037?\234lh\016\202\017\274\204,;\360\262B\024\336\016R\333\274lw\213\237\002%\005\306\350uz\357\021\216\360D\355C\237\3237\017\214\3362\344\014=\254hu\250\303\275\302\206\221\0064\246\356\275@8\200.\325\226\220y\340\001u\2173\000\213\314]] n\331\001(\274)\241\225\377\0268\241}\366\026\302\200\210z\361;\205\226%\020\361e\035\000\tu\033\017\243P\267\255\366\020,\224\277\274\350\334\205B\0040P\204\3158\231l\365o\335\243\234\250\250\0259\320\024\365\r \261@\227\263\372\367Nju\263y\311\3128\341\351r\210F\371+\273j\2371\224K\225\026\347\3213Q\373\204?\325\377\253[@i\361\220\272\21444\304\337;\221g\252\007~\250\n\225\316\301\251\253}(;J\005\325\177\376\203\352\253\007R\274#\346u\206]\354\373e\334'\316t'\203q\014\003\376\t\\\016\255K\036\307\013\316\310\231\227A<\250\266I\361T\274\375\306w\002\334\351Q\313\211\004\010EH\233\354o\304\0261jVS\217u\026\177\220@\232\237]\374\241\322\316\323\211\254\266\017\032:\374\270\224\035\201z\222\223\tg\364\nT\357\311\262\006\260\343^N\333\013\316\325\273\345le\334y\016\321\377\205\264\211C\203<7_\212p\304$:\340Z!\237\"\313\001\276\362\2104\201\200^\274\363\265\335a\177\007\370\276\311\373o\323\013\244z\217\010Ak\2304\003f\001\201\331\232\365\2664\315\225\270\364\276\005\231\016s]\223""\306\232\314x\321\316A\242\177\253tTd\214\237\340\022\2671\354Q\365\022Y%\315\021\3637\367e\357*K\316#F=\235\307JER9:\311\365\252\2740k^\304,\333J\213\245MRl\007\"\004\372C/\021\345\300\352\215\302\223M\332\227\001+\333\207aZnY\177\2264\005\314_\2028k\320\260\000\025\021\256\347f\3611\327\017!t\002\347\255\241\022\234\321\003m1?\375\326\214\265c\313\352\277\203S\334\310\311\376\346\204\276g<\310'\377\360\304'?\007\272U\264\340\232\270\266Kp\252/[\375\366]\200\276\351\222^\376\201\376P\033&\343:\275?[7\016_\303[\277\356I\276\265W6Ps\225\214sz\334Z#T\200\005\032\251<w\236\250\310\0218\034\306\235\366\347\357\337\327^\364\322\007g\343\244\021\003\211\030\032\302\211\2478k\264\230'\301\t\031\210\007Y\024\235G\212\327\341\207\371\254a\020r\223:\353k\364\\\237\210h366e\317\300\254M\227\2220\243\341\252\\\310\230]\020\250\267\340\33244I3\340\341\037\316\257p\364\376I\243t\005\200\205\227\337\201\323\262\245P\351\n\324\362i\006\334a\0205G\303\262\000o\\8K\256\375\001\304\374\311\031\273\016Im\033\300*\023\252\375\025W\276N\213\355\3038\305]\237\005n\021\367>\345\266^\261O\2256\251\227>:\245\202\037\207\202\031\265\337a7\0316\373\372.\330i#\005WC\267\257\201\210\214\206~m\227\022\331<\340\337\260\365#TQg\351NyP\245{\332\005)V\333\317\230s\014C\005\211~\376\016n\334a*\206\034\303|N\213\002\237\nI\2728d@\336\026\371,nl+</\276\000\027\007\254:\322l/\266P\005\364\002\221{\274\205{\216\037\nE\342K\343\227\253\027/U\257\337\250N]\3710\316T\3067\320[\032!\313\260\343?\013&\333\261\266D\241y\030\r\304O\007-\035\334\264\023\326U\206\363\253\036\206\022\273!e\307\334D\222\347da\271x\024\373\277\rpGY\365t\026o\031\277\023\200B\315\020\2200\3154Y\\3\3445\350ng\300\353x\341\002|\325\267J\272\251\226}\306\005\tV\237*\345\312\302?\307aA\350\350`\007\332hq\257I|\020z\357G\332'.4[\010\025\2767\216\030\222\003:J\213y\252\260U\024v\\&\351\240f\317J8\260\205\341\300\025\260\326\222\312u\360\3067F/\260\003\250\3075^\007G>\000Nf2\003\013\212I\332f\000\020n\314\016\224\272J\253.\017y\030\347\377""\021\003\277\201\213Hv8[>V\336\204;:\346,\000\013?c\020v\255\240\025\3760n\301+?C \354v8\375\337XS\326&\321\331uIi\375\325\205\232\"<h\344\376\300\236\nv\005Q\377\260\276\263_\227\373*\337\213\017\273\345lm3px\023{\23707\235\006\360\374\207s\r\315\203\306?\255\020t\351\\\351\\9\304\020Q\013\024\330U\320w\314\034\260\236\332\223v\\Y\316+Pvs\022\246\364*\262I\302pS\345\335\026\352yH\300\354\216\242\257x\336\270\341\234\271\342\\\231+k\357\033k\2354\267p?z\0025\317ty\330\231\345\342\235gPF*H\363\212@\266\225\256\223\325x\250\t\337\240\346\371\001^|\367\201x\372cI\374\325<\014kl\301\343\2109\013\030\214V\377#g\004\026\025/\002\302zQ\365\214\231\233\037\216\223\201C\244\316%\320\206Y\227\230\304\037\233\312!\256\342\017\225;$\224j\355b\210Z\332\222\360\253\307e\225\341\026\344B\331l.>QAh\206V\356\303\001\355\204\304\265\253\000\367\016\024\230\177P\262\243\241\252\2379K7\224\0331\236\2313\346\216s9\002\255\214\271Kd\356\340\033\270\215\007\007'\231\363\022\271!M\374\200\374\246\027\366g\t&\303\257\302\324\360\361\253\001\254\320jf/\014\321\264\375J\202L\001:\033^\212`'\314\177{PY\206\032\025\253x\265\215\266\037H\252\2514B\333\336k\014a\t\202k\352\267\306`\305B5\2217\277\004\366}.\001\016LO\0345g\020[ee\355a[\326\031\023\366\351\204\003\0319t/G\305\326\326\343\327G\033\372\206\351q\020w\315ZG%\303\370i\326\033>\036\3356\334\311C'X\373\252\2002\260\352\021pe\253\321\255B\343\367\025\374e\210\335\303tw=\363\t\260w\t\376\211\362jA\214\337\205\211\333%\210|\354\375\357\305a\"#\256\312\303\360\372\n\000\306o\230$\223f\036&C\350^\032\263\314\333\251\360\276\212\352\207\371\306\237\004\207\325\303\372\024\210p\361\016cT\242\202z\234\036\261\226\2025\273\212Q\252x+\254`U\314\360}|\273B[G\351\362\302\"x\353*\3507W\315\010\335%w=$9Div\313\004\230g<@dBK]\342>w\270}\325\226\223\205UtQ\241\202\241\223\246H\363\024x\"\300I\210\023{\010\027Kx\306u\035\240G\277\023\365\311w\364\210\032\377\003k8\314\0047i\301\230_\034\025\016e\222\014W\236\203\317\247\211=k*\033\036p\002\360\253?\01444""\267Ku\001\313\034\232\234a\346\271^\227}\345\220\323p\tFN\022Q\367\260\007\2629\007\222\252\247\234S4\322\243f\036<\365\357.\035/\234\007]#N\0036\370C\260\241y\004\013V\205\003\247\017k\272\033\245\216\322U\274\371\362\001\375A\341\307\340o0\364=\005\370N\024\256B\301\252\022\205=\335\250\364\341IP\246\325\362;\227\250\241|\356&\356\251\311\232\313\200\217)4d6I\230\265\270l'*\363\330\373wJ\317\310\350T\315\213b\243\177\247\351\026\373{v\334Z\240\222>\366~\325e;\346\001\235\233\367\241\336\000T\177u~\375\247\363\317\227\252\022\002\356\377\244+;\327\312g\031\364T\2225O\262\006\315\026KR\203\307ag\0100='\235\223CF\326\031f\364\000d\223\323\267V\304\271\364\217r\2432\333=\260\251!\346r\235\363\267\000Y\272\313\333\025\215\260\005\032U\275\365\350{\275\020.\374XL\030\273\226\207\264g\220\230\353Ui\032\211\320\034/\214\024\026\301\020\215E_\335p\217\300\2566\231\227\241{\026\352\225\016i\301\006\244\340\251\302\266\250\301\2266\310T\023c0\2230\352\317Jw\351\303\267VU~\222*\222\331\267j+\245\240\243\010L$;\014\330\342F\212p[!i\\\2043\327\313<\227\3227\035\r\241\341jw\017\215T7\263V\222s\3525:\231\017\301\214k-\001YqX\355\314\022e\233\335\242%B\300$\222>d8\347\204\025\006\266\247\272\373\t\300\363\010c\tL\272b\007|\340|n\251\247\375`cA\262.t\377\216H\215\305\t\370-3\002\\<\014\260\372\340\010J\356\223w\037\003\327\020\243x\366\312k\210\203\306\204n\314\2254\373\tm\252\234z\217\010\255(\230V\021Z.\204Y \301\210[\244;\313V\272\\\273\363\324U\tg\001t/\226\226\313\307+\222\341\275+E=\031We\317Y\243\326\266\255\301s\030.EJ\317\3123p\262ES\315\250\332\241\377\320\254y\351\220\207Y\377\001\nAq\331\347@\377\317w\302\177\275\000N\277\203\363Q{\263t\252\234QI\247\372py#\362\237\233\300jsF\250\326\312\312\211q\326\035\375\325\212/\227;\3127\031\232\253\257\230N\344]\270\307+\230AO\251\021P`\006r\334\003\234\021\376\222\0253\221;t`yYU\264tx\315{\235\377\2255C\363\236\002X\035\205\221\002\256t&g\312\223\345W\316\243Ez\310\355\342\014P\347\336(R\207\370\033\316\214VG\316\020~\251\250p0""\304\350\357P\260:p\232\210\250\017\270\366\014@n\253-\316\300\237\302\344\223\260B3\020\310\026\311\014\365\024\337\231O\255\t+\n'4V\356,Cn\352\305\010\203\225-\347\t\303X\"{\252\222j\306\325h\265\217\025n\377^\201\032x\224\231\3516f\372)\215\222i\356\341\332\224s\223)\272\321Xry\277\344\344s\346m\0016\361\322y\254\026\212\271\323\351d\330C\203@W\003\2755O\263k\007[ =\214\352^\264\022\266\304#\336\230~s\241^\231t\031\030m\326\3716\"\351<\177W\255=\004\230\263\014\3555\303\232\203\001c\236eJ\252dd\312\224\342\246\333f\0074\202\277G\262\360\313\346\021b\255\336\232{\2561\302\016H\306\032\247,\244\3701U\245\222l^`E\315,A\033\013q\356\340\325wE\331\372\351\267Q\007\216\010]\027\344^\0168\003\325\025`i[ d\366\361J-\300 \033\272\256\2117\347\007\246\270(\"\324\351L\251j\231\000\251:\300\004\377\000T`m\257\005\266\354\n`'\002gTMO-0j>\007\275\005\243q\372\273\254\201\250\251\307\201\035\253\003\243\346/\224\315Z\275\301\356m\211L\364\216[1xs\223\314)OV\264j\375\2417\342\342\r\250\2017k\237\366\324\327\342#!\257I<n\t\234\326I\032t\325\253\207\264\252_\274}\336Ad\346'h\305YX\321\217\030\"\306\242\261!\343\235\365\030\343\337\000\2017\025\364\355$\352\256\006\230\027zk\375\\bB\266k\320x)\345F\211R\026\270\036\203EA\365\t\201\271\212s\374t\204\031\262\024\332~\366\3548\034\356g\030c\271t\004\266t\270\034q\267\034\344\244x\021\347\264\330\307$i\200E\357\200\250\347\201W\0312\304\322_\010\315\006\206\214m\361\035\203\254P\032\370\306\272e\357\302\323\030g\335\343\300y\253\017\336\340p\351~E6\353\265\242\032\203\261\204\235A\345X\377YZ+/;\367`m\243N\024\276\322r\355\323\2273\332w\315\272\\\"6m\365\022\252\270h\013\346\250\006\256\0328M\221\357\350\244\220tu3\347\003\272K\233\262\337#\266'\364\341\266\213\222\230\374\361\021,%\010\304]\310p\216\252\201\267\370\241\177~\242m\225\354\200\304\000\350\334*\327i\222@\014{\346\006\325Ur\231\350L\222\313\3738\233*a\304z\001\317\313\317L\307q\326F\212\277\267\303W6S\352Y\377\246\016*\3376\t\3439)\216\324y\361M\274d\233\010\023\326\342e""\001\202)\204\014\235\223\247\362\301p\235R\214\330\302Z\332K \227\327\216\330OX\nX\022C\337&u?-\360~\334\344\264\267\360\300\020\204\rL`\010\260=!*\220@\\E]\350\342\315\033\213\316\320e\354u\310e^z\277\376\200\024\274M\322U\252\006\316\302\230\320\003dM\033\315\271\177\224Udn\335[W\215\301\230\240h\020\265\006\251' \226'\356\030w\363|\007B\316\237\r@\217(\243\302\"\2426Vq\342eg\345\355\234\224\312\220C\334\374\330*\2063\230\024\245\326\270 !$r1\371Rs\347\355\214L\302\301_.yJ\363p\246\263\225\221\n4N/x\251\253\327\255\343\313b\025uMF\232\356\353\275\013,#\250\006\230\276\353\035T\022t\301:/\372\215\235p;\235S\303\022\325\027\035\354#2X3\245\306\361O\354\346\240\225s\313A\344\362\020W_s\357$#\251\310M\214g\365\210\321\357\022\236\271@\204[\375|'Y\022h\000s\215@\321\034\205 \036\247\231\372\313\0135\032\231\252\372\251\347Qj\237\260\003I\325\0073\036\2210%\027\300\242\243\233\030\210I`F\305\331\367N\025\216)\034\3306 \327\305\337|+j]\"\232\336\200\224\340z\311\272,\265~\275\357\334\035\352\250\375=\026$\364\031c=\212\314\242S\202\346\036jPb@\330@\310x[\017\274\310\037\205?$\nI\300\330.I!Z\312&\301\342\215|\003x\254\243x\026\376\035#\320k\266^\272Q\276SaMJ[\027^\253*\272\210_\240\242\037\000Q\261\204\204\265\334\254\257\365J\322\232\351\357\200q\002\334)^\237\365\2664[f\035b\233\037\363z*\360wK*\373>\211\236P\237$T\241-W:\002\343\301\340\006\372{\025\377\034\262\023\320\350\277Bx\233T\272\343\240\321\250\372\225\316=a_\2076NW\244\350\357\216\2442\337\210\0300=\203\315\310b\252\001F\216\237\260qF ZD\325\336\206\\s\217q\257K\324Y\"\260\241\232\212\323:g\257\331Y\347&\215`\314\rE\341\306\357iH\253~\232\272v\252\267a\025\004\022\277\271\352\027\2532b~'F\001SP!L\0212\237T\373\030\2229\311\013\253\tH9\334C\301? \315\001{\220\306\357S!VH$\010m\330\303\027\r\202\242\333\226\030\2737X\321\367\366\021\020\205\341i\252\200\001p\304r\035\226p:\240\336\013\325C\373\007\241\303\276\367\236\021\360\334\007\313D3\256\232\230\365g\373k\355\203\316\340\267\366\311\322\262\363\217\005g""\241\356\227Jv.\274w`\244\2271$\362.\363{\221\303\344\303\3400M\212b\254\004\334\245m\247ud\025o`H\245Cj\377\361\272p\202\374\354\3354l\216I(\244\336\250\201>\253\342r\326\033\265\375\233\325@\317$\304\326\264?\362^G\315\317|\276\342El\200\023\272f\377\tX\021`/(\"\345\322\344\257\273\374\352\201\200\240\376\344\030\344eX\022\206\001J\014\371l\037\270\t\307)\240{S\305\3668BX\321\010\326\025\333\330\311\014i\227\312\256\211\245W!\355\233{1\204\232\330dU\345\245dM\334oV\355\322\253l\303B\337\251h=?\207\230\240'}\262\240C\327\266\266)_Q\235)\337\301i\300\nk@\014\340\253.\222\263\243\223\341\224>\203\314\321|\252\2401\362\2551&\0264\334\032\370}\237\231o\330-\036)\206\335y\251\220JD\245![;\025\\@\233\010`\330\361\016\356\005\337\317\273l\312\261\231\251\220\342Z(\212\363\364\312\335P7C\367\036\252\257F\225q\270*\311\000\026^\272\021y\271\257\256\362Yd\221\025\0170\344\206\310\353\312\366\225\030\002\0253WkJ\211\232Q9\021oaV2ya\225\322\013\027gY\037\314oF\304\321?^\360\025\030s9~B\214\210\002=\374hd\264\270y(`\334\355\226>_\001\252\014Imf\240\324'\005\367\222\004f\325\361(\031\017\336\301\214\225\227\224\346\014\240\353\305\212\024t\234(\234+\236\207&\272o\035a6^^x`x\352g\326\343x%\320\313\";,\300\005\317\001\343$\263\356\344\354\306zTZX\266\261n+$\232\314\325\370z\340\366uB\031D\366\277\n\311\212[\350\261\246-\t\030\277\265fA\302\013`\337\270\000\342\303\212\257KYz\221bo\203\217&\343\211DR\374t\251\350\245\301&\235\025\217C\3240\277|\201\346\235\207\255\321\001\316_\020;\327(h\325\000\001\264f\375\016I\231//\224\327\230\270dl\216E\022\242\314 \005\300(5\314sEvK\200X\026;\343?k\276\002\246\353\002\2369\316\372\016:\003t,\375tK|\3667\245\305\322\233\212\257r\316Y|\354<~\351\274d\236\235k\0374$\334J.\243wx\317\216\220\360\035\305\200T\251EXm\260`k\366fu/j\r\217\272G\\\226\000\2255\277\206R\215\021\251\220\354\244}\303\272#\037\272\033\232\273\034\3779\253\315~V\222\212\360\223\330n\371\252J*\007\017\300;)\nj)\264I\0000&\252\201\350\325\351\273(\272\343(\326\324Z\016H\035""\201zR\371\344a\311\360\271I-\257\300\357:s\247\2549\211\306\267H\311\007\264\2343z\315\226\020\233\252\t\001[*M2\311\212r7Z\301\352\270\036\300\"/\265\342\002\343a'\010V\301\326N\307\230\330\023>\217\367\360\321~\030^~\316p\273^>\305\342\215\217b\321*\215\360\232\356\033K%\307\301\346~xV\342\376\261\316C\215\203n\347\374\315\322his\177\020\371\330l\337\200\203q\351\353\\\221\317N\002*\305\032\201;\330Sj\244\202\022\326\351\2469\354\341X\254\361\033\301~\357\2247+\247$\266\013\377IU2'k_2&\347\327N\005\346/N;\335\347DJI\327\371\322s\251\265\365H\336\200A\0027cu8\000R\327N\343uM\323\305\214\235T\231NqoZ]\330\t\005R\377\212\210\337\016\264\260\250Fs\206\246\0303b)\3009Ft\374\342}A\366#N\3330\243\370\255\325\2722\352q\023\230\357\254\247\222\001\365\320\351\372(q\245\000\3177\226\240\242H\361%l\013C\023\314\270+%\200QRd\367\253\374\356d\177\010\346\n6\017m*\265u\336\374\311R\312\304\030\304\312\031\375\345\226\322i\351 p_%Z\272\352\306\021\357\225#\345h\275\374\317M\371\325\376\376\210na\333{\242I\371\310\241\346a\235\345\026\353<\351\306\006\r\371\3060\374\341lC\363IX\214-\250\325u\363\252\325aI\034t/\257\247\033\007\317O2\325\343\356S\017\334\010\352/\354\317?UC\245\204\227\315\223\330\267#@\272\035%<\333ZP\365rb1\230.\212\270)\"\327\200\264:-\002\360U\025\365/Rb\245b\325D>rF\200\327\242\0228Jno\211\313\017L|\013\213>\016\326z\300\320\224T\341\251\261\222*\217\337]|\205\307N\313t&\354_\244\336A9.\376\342}*V\231\200[\337_\317\375\213\367\254*\255`AN\331\233\254_\272a\336\027c\350%\014\224\262\254~1\222\277\343\345\367\231\014%h\357Q\237\307QO\250\357\344\304\021P9\021/\303\374tv\274t7\217\230\267\254M\373\2242Y\225\274[8\354^\372\336ndY~g\371\276\363hA\362,\222\216u]\250\260\300\333\303g|Q\217\024\035\317I\354\220\265/\221\322\213r\2542\200q\235\247\277\272\205.\342\2554\211\335\327\366F\250\265\253\327\022A\235\2202\363v\327c\333\022\343\347rzG@\371A4\205b4g\245\320\006\276\273\365k\351\010|\207\345r3l\217\373!,\271\245]\251\313\266!\300\352?T\221\201\320\3249w\035""\017\340E\274\310P\352E\211\265\201B,\260\350\001\2409\247r\242Lk\260\226\252]\312:\366\222\220j\272\342\034p\356\276\232\014\373\020P\325\247\322\261\276\372\243\247\224\203D,z\222\270\236\320\373\276\373\035\3376&|\252\262\t\022\327\352E[5\257\372\010\270\017\267=\260;\355\037q\313\tU\252L\277v\0068\234.\355O\366\246\030\313\357\245\370\014\230\035\002\372\312y\225t\222\273\316\356\233\017\r\r\2777\336\341\327\022w\232\356\362p\267i\221\207\305\246\307<<nz\322\304\215\356\227o\014\341\005H6\344xe\270\362\223\350\\Uo\004\235\273\356\254\3578;j8w\234y\036\346\233\356\363p\277\351\001\017\017\232\236\361\360\254\351\005\017/\232\342<\304\233VxXiZm\"/\256I\034hT\325,J\351\327u,\352W\267\316\022s\341z\177\222b\254z\016\034\346\356\002\334\350_A\253K\245L\271\257\022v\247W\257Q\366\366\024\377\340\267`||\000r\360\026<\367;1\016-\362)\327\017kaqJ\007X]\"M{D&\362\373\301\274l\373\016\244p\033U\355\016\024\214V\370\223%Nn\nT\022z\247\332\031\220\0338\355\306\341\360\313\242\210\363\014\273I\021\266\264\344' %3\204N\373M\371\234\253\306b\0067\327\205\037\242\214\007\215\225\351\212.\325\203\377r\376\245*\274\022U\317? \315g+\215\224\234\275La\275j\"\351\374\242\n\261\345\223\305pU\rz\221Y\274k0\347\335\330IoeN\260\322\223\352^\256\364\242[\306\375\314\375\014[\005\232\233\273i\005Y#\307\"\010\202\360\016\326>\271\326\261e?eNU\345U\265s\314v\022\201~TNzZ\005\\\334\264\271$$HQ\001=nz\302\2470\215g\246<Q~Z\t;\367\325\007\226\362M\250\207\261\346OgB+\021\370\324$2;z_*(E\2010\017\310p\332\031\350\024\"_\326ju\224\246\200\032\211\273\374\360p\345\203R\373fi\241\024w\246A\031*\243\032A\004\355\226\007r;j\375\241\274l\246#\375u\306\222\263\336Qq8\325\025\"\211\323\374\"V\205\256\037\000>\265K\000\301\325\200\003\037\205H\370\035\3075q\037\264\252|\325{OU\200\324\332\203\022\254~n\377\206\335\3417+\001)+#\"Q\345\027\3763r\200r\361\253\000\325Y\211\316\344$P\307\317%\276\021\024\211'\256\272\036\200D\005\"U\301\374\000\377\234N\273P\207_$^`\027\r\366\232\271nO\362\203}\227dL\027\361""\203\203A\030,\22690\310\344\364_fV\205\234\322\256\340\325\3170\243\214\202\016H.\305c\376(\211\205)\373\215\344c\274\335N\367y\372\347\326M@\3568\323\334w\031d\361\272\001+O\361!d_\351_b\006n\333\037\352[v\236\371N\253\025\312\225\240XKU\233[|\013\035\350\253G\241\247\341\340\\d\264\243v\250\356\001\250\3630&q\006'\344;\251vj\322\223\246n\335R_3s\273\367C\031<\353\n\251\034\321\247W\332\025\352\032\201\360\262\022\202H\272xY\222S\334\202\033\260l/\241\217f\235G\264i\007^_k\357\242t\010\022j\344\212V\315\205/\235\010\310n>\261B\362\235H\210%\253\222\025`5\301\000\300\306\266\225\004D~\014\005\351\241\r\3768W\367q\031\330u\310\301\346Ge`\342)\036\256\377R\305\023\035\260\231\217\241\212'\314%\270\255a\252\302Wt\220\230\021\\t\206(Eg\325\307\241n>Pel\325\177>\201\0212\205\316BD}\205\334-u\242R)X\363\020\003\035Q\201\200\216\3727\307T?AP\240[\222\353n\321\241|\0262\364q\257\373\315J\223\004\322:]\377H}\304B\221_\331s\265\244\003\352\377\223^)\336\370\244Wt\216\372\214\342\225\353\020\312\351]\211M\336\251\177dqW\246,\346D}\200,\352\310'\325r\337aW\303\254\275\214\000\277\212&2\244\036)RxV\274\013\016g\244\322=\345\207\312\352\377\"\350\020\345R\037\344\202\361\223\371\316^\250}\355F\004T8\345\2537\242\366)\301?\277\r\242\330?\331\006\251\332\370\204\264#,w\375\373\333P\375\377\265\r?\377\017V\225\0023";
-    PyObject *data = __Pyx_DecompressString(cstring, 10908, 1);
+    #elif (CYTHON_COMPRESS_STRINGS) != 0 /* compression: zlib (10902 bytes) */
+const char* const cstring = "x\332\315\\K[\023\331\272\006\014\n\032\224@\200p\021\022\020Q[\261\003xm\333\336\001D\351V[\300kwo\263\213\244\200hH \027.vk;\3140\303\032\326\260\2065\3140\303\014k\230a~\202?\341\274\357\267*\\\324\336\273\365\354\347<\347y$\265jU\325\252\265\276\365]\336\357R\336\014F\222\311`<\261\256\247\262\211t*\033\334\310\3501=\236H\255\356w\006G\343\301\365|6\027\\\326\203\211T\\\337\321\343A-\025\017\246\322\271`6\231\300\355\323\371\225\025=\023\334J\350\333\301xZ\317\312%}g#\235\325\203\331\\&\021\327\2633Z*\230N%w\203\261\214\256\345\364\240\026\\V\017\345\326\264\\0\221\r\306\322\251\\b5\237\316g\361\222\340\272\276\236\316\354\216\343)\016\245e\263\211\325T0\227\016\342\341\370%\031G\335\301W\2727\271\003og\0229m9\251\2737\250I\255d\322\353\377\356YYVp;\221[\013\346v7\364\340\230\333\237\313h\251\254,c\377\021u\033\236H\200T\271\003\264\233=H\260\204\"\202\272\351\316\372Fn7\230]\3230t.\277\201\311\255\2443\301\330nn-\235\032\3272\031mw^&\220\316\347\202\351\225\340r:\237\212g\203\347\264\035\2142\032\077\077\377\351\273\024\361\363\033\033\351LN\217\317\247\266\264d\002\273\224\216\353\027Ix\334\214M\032\213\215\005\361\2361\274\214\013\031\273\030\\\305S\365\233\325t@ky\315\255\007\262\300\247\\ \246\3600\rR\312\326\314\310,\271\236\270\236L,\353\031\020\031$\344\266\342%\262\177\251\340\243;\217.M]\237\022\266\310\350\257\360\372,f\267\034Kb\347\300\016\\S>\221\314\341e$ov<8\277\022\334M\347\203)\035\323\304\266n\340\276\203\017\344\326\364T0\253\347\330\010\216\311^h9\254;\212\307\301\233c.]\023[:\237\236\323\222Y}\374\347C\304\303\224]\006\323b1=[\247\346\317[zf%\231\336\276\311\005%RX\000\210\3618=\235L\307^?\3206\300\205\031\016\374\303RN\337\010\256k\273Bg\360\375\033=\223\336\337\220')\3410\274\032\\\213\021\301@9}\235\347\351e.\276\365\207\361\333c\347\265x<\232\"\035I\225 H\371\355N,\235Lr\336\330\301qm9v\353\000\323\363&\265\252\333\037w\327y\355v<\221\345\213uy\375j,x\216\373\271*l\306\245Rj\365\235\234\236\312\211\014\355\013p\"\253\036\211s\232\331""\304\033=x\353\373\340\267\2370\241\354\006\3454\036\277\224\324S\253`\363e\022&\225\306\336\257h\371d.\030\215f\364x>\246G\243\301x^(\220J\247.\201\027\266\022Z\022Wc\211T\"\027\215\246\362\353\033\273\343QPS\037_\307s\t\031?\270\242%\222j\303\023\353\344\334\203\267\345\3275\274\357\343;\\\202\336\316fb\227A\025\254\003l\267v9\266\337\036\337\330\335\271\245\224L\374\020\021?\355\2430\354\321\362\320\365\275\336\374\336\316jI,]4\225L=\256\345\264\361\317\\UR\3041\\E7\276\263\247,S\033\343\3405-79\3017\327\317\256NE\"K3\363\3633w\222\311\304F6\221\215F\037\355\356\340o\026\002\025}\210\r\\\324W\226\364\315\274\236\212\351\224\307\361}\321\004\317\324\337\034U\354\315\323\355Y}%\211.-\271\261\246i\251]-\263\272\241er\t\362\031\332Y\320Q\026\241e\335\303>\177\271\035\224J-\273\233\212%\322\343\330\r\350\241DJ\317.k\353s\330\216e-\253/\353qi\222\035f a9i\335\315h\361\303g\367\323\253K\230\242\272\361\276\360\2204\227\300t\313\351tn\272~\022\213}\033\013\307\356<\210\304\036E\236FbKs\261%\3149\253?\320vb\217\251u\301\234\353\261e-\366z[\313\304\037A-\3040\207\007Z\366uL\247\330\336\325\323\017t-\025\303m{7\254\352\271\271D&\233\233Y\203\272_\204\266\227\236\214\266\n9\310\251\311\260\347n2\275\254%\247\261\252$V\311\236\373\332G\017\361\350>\260\226\206\205\213\361b\275\003\315\007ZN\216\351lz\035\027\363)Y\023\330\237\372+\032\25570\022%\216\247xS4\001\375\225\321b:W\205\236\r\376-\255c\007c\334\322\375\031\035:\213\316MN|\334su\n=Y=\266\016\n<\3252\2174\254:\226\326WV\022\261\004\245\377\336\001\3618 *j\333c\351\215\335\0307-\226\336\32223\234\307F>\252zh\"\247\265\365%]H\026\313@]A\251D#\213\341\350<^\024\313j\353\260^j\023\241\221\263\261,7\233M}\206\243\305\331\224\237\010yq\277u?\275\375\000z@:\036\315\250\333(R\256^\211f\360\226h\234\002\020u\225\3344\210\264\232\2412\217\223;\345'\naQ\nA\3272\311\335;;\240nbu.\231\206\002\241\211\205\304\300\002\352\251x4*L\302C~]L\226\276\221\3253\031\334\267\023K\346\343\372||\207\274\344\236\261\211{w\250\272\352\326s\217SE""\243\306\247\037\351\273\230k2\311y\255\350\330\376\225D2\t\261[\345_\326\225sW\300W\222\371\354\032\031X\313\271\266w%\237LF\243+\371T,\n\256\000\323\320|\262\231\313\222x\321h\002sV*\017G\202\201D\n\322}\230y\321E1\217/\300pMN\340\347\352T\335\204q\242\323\217>5h\365\236,\032\033$\337\236t+S\340\332\003\0343Y\254\203fOi~p\361\272\006\206\305\357\006\250\317_r\302f\036\330!\267\213\205e\022;\263\330@\325\232S\207\007X\237j=R\207\005\3670\003\236[\327v\360oZ\3473;\363\340\311L\216\263\346I\216[D\243\210\023\262\t\016xr'\261\236__\207\321\322R\3527\n\222\343V@1\342\260\365DJt\017\216\017\324\354\026\334\311%R\013\370\243\014gq|\014\326 \331\024\r\321!\303\202O\260\266t<\237\3041\245\255\357\377\302l\362O[\325S\3402=Ks\246o\363g\007|\252cW\250\230\261a\260|\204\005\330\243Xj\003|6\r\375\226\025\223\246\354\032\266=\016\025\261\374*\235\3229\231Gzf:\201\207\364lzCO\2453q<\234\305fll<L\303B\317)M\266\001\376\332\320p\200A\212\337I\305\037`\246\033i\000\275,\224\033\024S6\021\3072\263\033\231\364*&\227\235\3262\365&\311\2106\305C$r6OD0'4C\303\275\004\336H\357\240\235C[d\026\204\215\351\023\023\033`Yw\n\321(lj4\266\246\307^g\363\353\352\314eS6E\022\245\225Om$b\257A\301;\251\372}[\002\276\251\002\311*\212\244hA\361$i\3222\273Q\305_\031Rg\t\200CQ)\243m\351\311\314rfO\357\356\003\215\275\226\202*\007:\364\235\350\201\r\201\220\036\334\235\3756\246\016\031\254\237f3\372j\"\013\222d\300\352P\306\240\034MxF\317\3453\251\207\367\357\303\210\257\352\367\265\365\345\270\346\252\277\231\272~\207\031M$\037e\322\033P\203s\220\226;J{\340\354\361\032g\236\025m8\247\305r\351\014\024^\364\300\351\023\010Q\006\035\211\215\335,\026\035\215\002\334\272\014\207V]\013\262\355\022\372@\273\276n\231gv-\261\222s\367i\211\232%~eR\372\026u\000\321\254\276\337\007x\220\324)\334\331u0\346\232\250\341\254kc7\262\233\340$\352~!NvO\201\273#\357w\314\003\317\355\237-\311P\272\272~\360\336\275\333\260n\260\271`p\236\036z@\210\260\177\r\006\345[l\304\006\377\"\361W\000MTu\331\034\350\013\212\351\330\213""\371\324,Q\025\3163\371X.\347\n\262\313A\321hN\2043\247h\217\307(\211y\321\215\374\275\016\356\204,\3457`gt\365\213\275\243/ \342\266\317\373\371,\246\237\302)U\020&\205\363%\261shSu\342/\257\313OvK\347f\316\252\303\363\355\355\350\252`\211\355\250\030\350m\030\243\265\334\364.\235\214\244\266\261C\355\360\010\310;\231\333e\223L\222]c+\373\276\261\352\t\333\035\316\344\235\362B9V\351\256d\234\205\305\252'`4\031g\315F\323W\365L\330\303\366\\)T\232,\255\224\247\313Z\325\323Z\360\025.\033\035\3065\363\2745i\255\332K%\214q\242\020~\337\370\341BC\363\200\021\256zz\r<\350/\316\032\215F\257\031\372p\264\241\371h\265\305[\270W\214T\275\235\305\251\342\226\261P\365\236*\344\212W\214#\306\224\261i\0361'M\255\332\356\333\273lh\3737L\032\232\261e.\232\233r\003{\303\305\231b\326\010\311ywq\025\267\307L\237y\306\324p\217\327_\274k\204\215\031\214\3521#\346B\255\245\265\320]\330\254zF\314\033V\244\306\325\332WK\276\322x\345he\331y\264P\365\034{\237+\204\253-\247x\323\224=m\257\225\264\322\037\225\253\316\302\222\263\364X\021\340^)R\372\245\274UY\254\340\236\263\230\252\347\214\031\341\220X\3540V\350mh\3565\216b\322\030l\253\360\2648Q\\\250\266\264\027\033\213}\230J\244\206\346\t#\\\2237]-v\024\303\352b\300\360\031\241\003\027\337\026\247\213Z\265\305W\364\025\307x\351@\263\206f\277\021a\017\206\254\265\036\257\266\234(|\217]\0326f\315&s\030\263\361\366\343]\367\314\207\366X\251\247|\244\034\226Mq\032\246\354\310\207\366\206\346\023\205K\305M\356D\313\373la\254\330\251^\325Q<O\362V\333NV\275\276b\017\366\313w\250\301\333\024y;\314kV\310\n\327@\377lq\004\313k\357,N\026\227\215\343\346(7\346\320IOq\323h\306\026\377u\243\326\036\300\306N\260\247\273\0307B`\202\214\331iN\2331\253\003L\265l{\354\031;\203]\n\361\221]\363\250\271l5Z>\353\214\245Y\233\237\351\252a\002W@\215\013\346]+\\=x\302+S\362\322E#gN\230\217\361\310\250\225\261}U\3777\326\025\273\311\016U\375\027\301\0278\013\263u\007\354\301\207\234\316s\326\021k\312\3129\223\363\225\316J\204\267_\267\345\226{v\244\206)\3440\377\307f""\2073r\315\336t\256?\254\304\234\205\025ge\325Y]\253\266\237\263\032\253\355\347-_\255\375\254s\366&\244\007\223\032s\306n\201\215\260\344\323\316\351\260\355\303\233\261x\235T\370p\274\301\027\220I>\301V\316\230\233|\274\347\363\035K\"\226\356\3113r\270\260\356g\266\366\2341\002\002\253\255\r\030=\362\334\341f'\344h\307\330\206\334\344@\3655{\265\264P\322\276`\213\361\372\377\330\254\265\017\200+g\314\214\205Y\367\031\347DLs\326\204\265\004\342\217\330\213\262\315gJ\261rG9\\\306\203\375\306\r\363Gp@#(t\2764Az\365\033\327\315\233\326\242\265\211\316\336\322p)\302M\275aL\033\257\254\023\266l\367\336I}\273[\301\260Sx\247\337Z\260\022|\005\367\357\006\204[;\274\335\363\230\300\346_lwX\335\272\267\325>g\370\252\2559\327\356W\246\235\2071'\026w\342\372\301\255\036uFo(\226\305\246\177W\n\227\"\007\267\272\3178\017\366[\250\271\224yn\276\300\"\217\331\233\245\275\235\375l\3273+b-|\272\335P\266S\r\315S\366\204s\345ny\263r\304UW\2779\277-;\313\261\252g\362/\257\004\014\2171g\206Lh\234+X\374\026\266<V\356.g*P\331\037u\324D\035\256\200i\227\312G\313\313\025\350\371\353\245\246\322\331rc\271\263<W\031\006\2310\\\343'?\335\340?O\320l\374\320\322\320\334Z@\307\321\367\332\373|a\272\240Q\305~\346\004j\271\205\367\035/\014\363B\255\245\255 \313\314@\375\205h9\344n\260x\253\2670QX(,\027\233\300\240\213\305\315\032\230\030\234\334\216\363\020\224\356b1\003e9lD \354J\237h\":r\3030\345\0027t@\177\302\314\360n\016\331\326)W\226]]\332l.YM\320t\023\344\267j{\027\305\300\217\3531>\007.\3230\260\317\014\251N>\024\202\301\303\366\310\270X\360\336p\036\367\346\016\230\266e\362\310'C-Cq\207\310\023\270\216W\036\034r\002\013\330\334\037\026\013?Q\010a\351\213\205<lh\313\361\277<\001\341\024\325\233@JlOK\241\271\360\304\245M\216\246\266\006\2731QX*6\326@\224F\256\337\267G\274,IGr\337)v\201T<\2356\342X,\214\254V\314\313\2026\325v,c\000\327\350{\033\372\372\253\243g\253\370\305?\177W\265\267\217\377\006\207\252\003\247\253=\001\374\326\310\014U\017%\305s\001\013\005\237-\320\256\242\005\335X\365@""\252\252\236\220\031\260\272)\342\264\255\367\2549;d\207i\270\004P\010[\r\210Q?*V\336\323G\345f\254\230\221\017\203T|\357\212\3178\365~\247\377\307\n\214e?(\370\024\244\215\332\263\245\243\245\3452&{\3149\326g\214A\357\265\004\235\340\317\025\020\"\010\372\237\005\345/\227:K\263\212\301\345\266\200q\214\313\034t\006\037T\000\037\006\261Q46\247\354\267\212\351kj:\247\241\\=\375\264\334\247\no\260MT\021\203\326\266\255\227\246\234\037\026\235\305\027\316\213\227\316K\010]\326\311\276q\336\374^\365t\024/\032\253\346\023\230\254u*6\216\323\342\004'\355\260\350\245/8\003+\025Sb-\273\234\361\333\200+\357\200L\262\316\342\322\277\275\324\007\306\272-\3665fw9W\177\252\204+\017\235_\240\030\242NT\351\206\377\213;(\352'a\366\302\334\257\001\210\352K\261\005'K@!]\305\347\330\324\2445\016-C\223\020p\346\177q~\371\325\3715\341$^;\257SN*M;\327\352\264\364\032]`\306w\020\322\234=e\213j\350.>wN\203\251\354\037\312#e\250\217\256/:\347\010=N\367\030lF\300\tG\312\276\362\270\363\350\261\363\370\251\363\024&\035\357\337\374\320\320\220i\234n\302a\272i\206\207\231\246\005\036\026\232\026\233\252-\335\377\213g{\215\200\023\342Ln\323\010~\3519g\356s\332CPK\337X\213\316\345\177@=\203\313\333\277\256\213\243\371\001\237\032\235\336o\2601O\354\020}\203\3052\004\242\363\177\337]k\361\027\357a\317\1771\263\3269J8a\354\r\240\020\340v\230\270Z\213\342\000\215\273\263PLP\327~\324t/w\024/\030\021\347\364e \271>\261\264_\325S\003)\t\206\372\255i82\013\020\255/\357\250\265\364\024w\234\241o\201M\006K\031\030\306\331JS\005F\353\363\275\000@\316\260b\2723\360\267\006\235g\317\235\347\000\022@\2169'\227w\362[\177\357\036xX\306e\253\313J\003\037\035>\001\201\235\201:sL\342y\277x-\377\265~\202\261\260\371\263=a?'Z\374\252\216\356\342kX\347\207d\213Y8\225)\347\361\023\347\311\323/\355\247)\273\005\013\331\317+\325\266^\350\340\033\322\374\302~\252x\315\370\223\372\312NS3|\301)\347\020\256zi\020\332\003N\340\034]\022i]\002\360\204G;D3^\377\241l\r\320Is\316\010P\254\301\224>4Fa\324\000Q\206\214\035s\007""\366\317\353\334\272_\231\251\3548\317\326\2345\350\216\035gg\267\352\205\0015\207\240$\323\025y\345u\010\327I\330\244\343@\320K\245\346\322\313\312D\005.\365\000\221]\325\0332\273\351\010\017\301k\256O\220\0369\014\376q\230\364\207\326\210%\240\372\232B\201\307\336cW\003\342\275\266\234\206\325\014s\303\256\232>\367\312iWA7\t\001\235\023\247\351\201PZ\267\211\006j\036\257\343\205\245\204E\007\024\350kP\010\340\344\251}@\000(\020\350\255\236\036d\243\323\257\000\001\033]\335\204\010\350\357\353\257)T\260\017\r>\213\005\340c\367\031\247\315Uk\201\260\240\227&\270\237\330\240\216-j\036\362\306J%RY\250\274v^\300\334\350\216.\356\230\\\210WB\225\311\312\212he\\\373\227\363/X\243W\316+\330\225d\3253\216\315\362@Zk\177\2012j\264kU\017w\222\326\377C\240\241\271\237\035\022\351\030\244\343/s\001\334\377\026\010>_\232u\376q\020\002l:\233\334\307\017'\033\232\203\340\003/!\313\016\274\254\020\205\267\203\3246/\333\335\342\247@I\2011z\235\336{\204#<Q\373\320\347\364\315\003\243\267\0149C\017+Z\035\352p\257\260a\244\001\215\251{/\020\016\240K\265%d\036x@\335\343\014\300\"sW\027\210[v\000\noJh\345\277\005Nh\237\275\2050 \242^\374N\241e\tD|Y\007@B\335\306\303(\324m\253=\004\013\345//:w\241\020\001\014\024a3N&[\375[\367('*jE\0164E}\003H,\320\345\254\376\275\223Z\335l^\2622Nx\272\034\242Q\376\312\256\332g\014\345R\245\305y\364L\324>\341O\365\377\352\026PZ<\244.#\r\r\361\367N\344\231\352\201\037\252B\245sp\352j\037\312\216RA\365\237\377\240\372\352\201\024\357\210y\235a\027\373~\031\367\2113\335\311`\034\303\200\177\002\227C\353\222\307\361\2023r\346e\020\017\252mR<\025o\277\361\235\000wz\324r\"\001B\021\322&\373\033\261E\214\232\325\324c\235\305\037$\220\346g\027\177\250\264\363t\"\253\355\203\206\016?.eG\240\236\344d\302\031\275\002\325{\262\254\001\354\270\227\323\366\202s\365n9[\031w\236C\364\177!m\342\320 \317\315\227\"\0341\211\016\270V\310\247\310r\200\257<\"M \240\027\357|mw\330\337\001\276o\362\376\333\364\002\251\336#B\320\032&\315\200Y@`\266f\275-Ms%.\275oA\246\303\\\327""\244\261&3^\264s\220\350\337*\035\025\031\343'\270\304m\014{T\275DVIs\304\374\315}\331\273\312\222\363\210QO\347\261R\221T\216Nr\275*/\314\232\0271\313\266\322bi\223\024\333\201\010\201\376\320KD9\260z\243\360d\223\366e\300\312\366a\230\226[\326\237%M\001\363\227 \316\0324,@E\204\353\271Y|\314\365C\010\235\300yk\250\004g\364@[\314O\2775c\355\330\262\372\357\340\0247r\262\2779\241\357\031\017\362\311?<\361\311\317\201n\025-\270&\256\355\022\234\352\313V\277}\027\240o\272\244\227\177\240?\324\206\311\270N\357\317\326\215\303\327\360\326\257{\222o\355\225\r\324\\%\343\234\036\267\326\010\025`\201F*\317\235'*r\004\016\207q\247\375\371\373\367\265\027\275\364\301\3318i\304@\"\206\206p\342)\316\032-\346IpB\006\342A\026E\347\221\342u\370a>k\030\204\334\244\316\372\032=\327'\"\332\214\215M\33130k\323\245$\314h\270*\0272f\027\004\352-\2706\rM\322\014x\370\207\363+\034\275\177\322(]\001`\341\345w\340\264l)T\272\002\265|\232\001w\030D\315\321\260,\300\033\027\316\222k\177\0001\177r\306\256CR\333\006\260\312\204j\177\305\225\257\323b\3730Nq\327g\201[\304\275O\271\255W\354S\245M\352\245\217N\251\340\307\241`F\355w\330M\206\315\276\276\013v\332H\301\325\320\355k \"\243\241_\333\245D6\017\3707l\375\010U\324Y\272S\036T\351\236vA\212\325\3663\346\034\303PA\242\237\277\203\033w\230\212!\3070\237\323\242\300\247B\222.\016\031\220\267E>\213\033\333\n\317\213/\300\305\001\253\2164\333\213-T\001\275@\344\036o\341\236\343\207B\221\370\322\370\345\352\305K\325\3537\252SW>\2143\225\361\r\364\226F\3102\354\370\317\202\311v\254-Qh\036F\003\361\323AK\0077\355\204u\225\341\374\252\207\241\304nH\33117\221\3449YX.\036\305\376o\003\334QV=\235\305[\306\357\004\240P3\004$L3M\026\327\014y\r\272\333\031\360:^\270\000_\365\255\222n\252e\237qA\202\325\247J\271\262\360\317qX\020::\330\2016Z\334k\022\037\204\336\373\221\366\211\013\315\026B\205\357\215#\206\344\200\216\322b\236*l\025\205\035\227I:\250\331\263\022\016la8p\005\254\265\244r\035\274\361\215\321\013\354\000\352q\215\327\301\221\017\200\223""\231\314\300\202b\222\266\031\000\204\033\263\003\245\256\322\252\313C\036\306\371\177\304\300o\340\"\222\035\316\226\217\2257\341\216\2169\013\300\302\317\030\204]+h\205?\214[\360\312\317\020\010\273\035N\3777\326\224\265Itv]RZ\177u\241\246\010\017\032\271?\260\247\202]A\324?\254\357\354\327\345\276\312\367\342\303n9[\333\014\034\336\304\336'\314M\247\001<\377\341\\C\363\240\361O+\004]:W:W\0161D\324\002\005v\025\364\0353\007\254\247\366\244\035W\226\363\n\224\335\234\204)\275\212l\2220\334Ty\267\205z\036\0220\273\243\350+\2367n8g\2568W\346\312\332\373\306Z'\315-\334\217\236@\3153]\036vf\271x\347\031\224\221\n\322\274\"\220m\245\353d5\036j\3027\250y~\200\027\337} \236\376X\022\1775\017\303\032[\3608b\316\002\006\243\325\377\310\031\201E\305\213\200\260^T=c\346\346\207\343d\340\020\251s\t\264a\326%&\361\307\246r\210\253\370C\345\016\t\245Z\273\030\242\226\266$\374\352qYe\270\005\271P6\233\213OT\020\232\241\225\373p@;!q\355*\300\275\003\005\346\037\224\354h\250\352g\316\322\r\345F\214g\346\214\271\343\\\216@+c\356\022\231;\370\006n\343\301\301I\346\274DnH\023? \277\351\205\375Y\202\311\360\25305|\374j\000+\264\232\331\013C4m\277\222 S\200\316\206\227\"\330\t\363\337\036T\226\241F\305*^m\243\355\007\222j*\215\320\266\367\032CX\202\340\232\372\2551X\261PM\344\315/\201}\237K\200\003\323\023G\315\031\304VYY{\330\226u\306\204}:\341@F\016\335\313Q\261\265\365\370\365\321\206\276az\034\304]\263\326Q\3110~\232\365\206\217G\267\rw\362\320\t\326\276*\240\014\254z\004\\\331jt\253\320\370}\005\177\031b\3670\335]\317|\002\354]\202\177\242\274Z\020\343wa\342v\t\"\037{\377{q\230\310\210\253\3620\274\276\002\200\361\033&\311\244\231\207\311\020\272\227\306,\363v*\274\257\242\372a\276\361'\301a\365\260>\005\"\\\274\303\030\225\250\240\036\247G\254\245`\315\256b\224*\336\n+X\0253|\037\337\256\320\326Q\272\274\260\010\336\272\n\372\315U3Bw\311]\017I\016Q\232\3352\001\346\031\017\020\231\320R\227\270\317\035n_\265\345da\025]T\250`\350\244)\322<\005\236\010p\022\342\304\036\302\305\022""\236q]\007\350\321\357D}\362\035=\242\306\377\300\032\0163\301MZ0\346\027G\205C\231$\303\225\347\340\363ib\317\232\312\206\007\234\000\374\352\017\003\r\315\355R]\3002\207&g\230y\256\327e_9\3444\\\202\221\223D\324=\354\201l\316\201\244\352)\347\024\215\364\250\231\007O\375\273K\307\013\347A\327\210\323\200\r\376\020lh\036\301\202U\341\300\351\303\232\356F\251\243t\025o\276|@\177H\376\354\330\3737\030\372\236\002|'\nW\241`U\211\302\236nT\372\360$(\323j\371\235K\324P>w\023\367\324d\315e\300\307\024\0322\233$\314Z\\\266\023\225y\354\375;\245gdt\252\346E\261\321\277\323t\213\375=;n-PI\037{\277\352\262\035\363\200\316\315\373Po\000\252\277:\277\376\323\371\347KU\t\001\367\177\322\225\235k\345\263\014z*\311\232'Y\203f\013\025j\320<\016;C\200\3519\351\234\0342\262\3160\243\007 \233\234\276\265\"\316\245\177\224\033\225\331\356\201M\r1\227\353\234\277\005\310\322]\336\256h\204-\320\250\352\255G\337\353\205p\341\307b\302\330\265<\244=\203\304\\\257J\323H\204\346xa\244\260\010\206h,\372\352\206{\004v\265\311\274\014\335\263P\257tH\0136 \005O\025\266E\r\266\264A\246\232\030\203\231\204Q\177V\272K\037\276\265\252\362\223T\221\314\276U[)\005\035E`\"\331a\300\0267R\204\333\nI\343\"\234\271^\346\271\224\276\351h\010\rW\273{h\244\272\231\265\222\234S\257\321\311|\010f\\k\t\310\212\303jg\226(\333\354\026-\021\002&\221\364!\3039'\2540\260=\325\335O\000\236G\030K`\322\025;\340\003\347sK=\355\007\033\013\222u\241\373wDj,N\300o\231\021\340\342a\200\325\007GPr\237\274\373\030\270\206\030\305\263W^C\0344&tc\256\244\331OhS\345\324{DhE\301\264\212\320r!\314\002\tF\334\"\335Y\266\322\345\332\235\247\256J8\013\240{\261\264\\>^\221\014\357])\352\311\270*{\316\032\265\266m\r\236\303p)RzV\236\201\223-\232jF\325\016\375\207f\315K\207<\314\372\017P\010\212\313>\007\372\177\276\023\376\353\005p\372\035\234\217\332\233\245S\345\214J:\325\207\313\033\221\377\334\004V\2333B\265VVN\214\263\356\350\257V|\271\334Q\276\311\320\\}\305t\"\357\302=^\301\014zJ\215\200\0023\220\343\036\340\214\360\227\254\230""\211\334\241\003\313\313\252\242\245\303k\336\353\374\257\254\031\232\367\024\300\352(\214\024p\24539S\236,\277r\036-\322Cn\027g\200:\367F\221:\304\337pf\264:r\206\360KE\205\203!F\177\207\202\325\201\323DD}\300\265g\000r[mq\006\376\024&\237\204\025\232\201@\266Hf\250\247\370\316|jMXQ8\241\261rg\031rS/F\030\254l9O\030\306\022\331S\225T3\256F\253}\254p\373\367\n\324\300\243\314L\2671\323Oi\224Ls\017\327\246\234\233L\321\215\306\222\313\373%'\2373o\013\260\211\227\316c\265P\314\235N'\303\036\032\004\272\032\350\255y\232];\330\002\351aT\367\242\225\260%\036\361\306\364\233\013\365\312\244\313\300h\263\316\267\021I\347\371\273j\355!\300\234eh\257\031\326\034\014\030\363,SR%#S\246\0247\3356;\240\021\374=\222\205_6\217\020k\365\326\334s\215\021v@2\3268e!\305\217\251*\225d\363\002+jf\t\332X\210s\007\257\276+\312\326O\277\215:pD\350\272 \367r\300\031\250\256\000K\333\002!\263\217Wj\001\006\331\320uM\2749?0\305E\021\241NgJU\313\004H\325\001&\370\007\240\002k{-\260eW\000;\0218\243jzj\201Q\3639\350-\030\215\323\337e\rDM=\016\354X\035\0305\177\241l\326\352\rvoKd\242w\334\212\301\233\233dNy\262\242U\353\017\275\021\027o@\r\274Y\373\264\247\276\026\037\tyM\342qK\340\264N\322\240\253^=\244U\375\342\355\363\016\"3?A+\316\302\212~\304\0201\026\215\r\031\357\254\307\030\377\006\010\274\251\240o'Qw5\300\274\320[\353\347\022\023\262]\203\306K)7J\224\262\300\365\030,\n\252O\010\314U\234\343\247#\314\220\245\320\366\263g\307\341p?\303\030\313\245#\260\245\303\345\210\273\345 '\305\2138\247\305>&I\003,z\007D=\017\274\312\220!\226\376Bh60dl\213\357\030d\205\322\3007\326-{\027\236\3068\353\036\007\316[}\360\006\207K\367+\262Y\257\025\325\030\214%\354\014*\307\372\317\322Zy\331\271\007k\033u\242\360\225\226k\237\276\234\321\276k\326\345\022\261i\253\227P\305E[0G5p\325\300i\212|G'\205\244\253\2339\037\320]\332\224\375\036\261=\241\017\267]\224\304\344\217\217`)A \356B\206sT\r\274\305\017\375\363\023m\253d\007$\006@\347V\271N\223\004b\33037\250\256\222\313Dg\222\\\336\307\331T\t#\326\013x^~f:""\216\2636R\374\275\035\276\262\231R\317\3727uP\371\266I\030\317Iq\244\316\213o\342%\333D\230\260\026/\013\020L!d\350\234<\225\017\206\353\224b\304\026\326\322^\002\271\274v\304~\302R\300\222\030\3726\251\373i\201\367\343&\247\275\205\007\206 l`\002C\200\355\tQ\201\004\342*\352B\027o\336Xt\206.c\257C.\363\322\373\365\007\244\340m\222\256R5p\026\306\204\036 k\332h\316\375\243\254\"s\353\336\272j\014\306\004E\203\2505H=\001\261<q\307\270\233\347;\020r\376l\000zD\031\025\026\021\265\261\212\023/;+o\347\244T\206\034\342\346\307V1\234\301\244(\265\306\005\t!\221\213\311\227\232;ogd\022\016\376r\311S\232\2073\235\255\214T\240qz\301K]\275n\035_\026\253\250k2\322t_\357]`\031A5\300\364]\357\240\222\240\013\326y\321o\354\204\333\351\234\032\226\250\276\350`\037\221\301\232)5\216\177b7\007\255\234[\016\"\227\207\270\372\232{'\031IEnb<\253G\214~\227\360\314\005\"\334\352\347;\311\222@\003\230k\004\212\346(\004\3618\315\324_^\250\321\310T\325O=\217R\373\204\035H\252>\230\361\210\204)\271\000\026\035\335\304@L\0023*\316\276w\252pL\341\300\266\001\271.\376\346[Q\353\022\321\364\006\244\004\327K\326e\251\365\353}\347\356PG\355\357\261 \241\317\030\353Qd\026\235\0224\367P\203\022\003\302\006B\306\333z\340E\376(\374!QH\002\306vI\n\321R6\t\026o\344\033\300c\035\305\263\360\357\030\201^\263\365\322\215\362\235\nkR\332\272\360ZU\321E\374\002\025\375\000\210\212%$\254\345f}\255W\222\326L\177\007\214\023\340N\361\372\254\267\245\3312\353\020\333\374\230\327S\201\277[R\331\367I\364\204\372$\241\nm\271\322\021\030\017\0067\320\337\253\370\347\220\235\200F\377\025\302\333\244\322\035\007\215F\325\257t\356\t\373:\264q\272\"E\177w$\225\371F\304\200\351\031lF\026S\r0r\374\204\2153\002\321\"\252\3666\344\232{\214{]\242\316\022\201\r\325T\234\3269{\315\316:7i\004cn(\n7~OCZ\365\323\324\265S\275\r\253 \220\370\315U\277X\225\021\363;1\n\230\202\na\212\220\371\244\332\307\220\314I^XM@\312\341\036\n\376\001i\016\330\2034~\237\n\261B\"Ah\303\036\276h\020\024\335\266\304\330\275\301\212\276\267\217\200(""\014OS\005\014\200#\226\353\260\204\323\001\365^\250\036\332?\010\035\366\275\367\214\200\347>X&\232q\325\304\254?\333_k\037t\006\277\265O\226\226\235\177,8\013u\277T\262s\341\275\003#\275\214!\221w\231\337\213\034&\037\006\207iR\024c%\340.m;\255#\253x\003C*\035R\373\217\327\205\023\344g\357\246asLB!\365F\r\364Y\025\227\263\336\250\355\337\254\006z&!\266\246\375\221\367:j~\346\363\025/b\003\234\3205\373O\300\212\000{A\021)\227&\177\335\345W\017\004\004\365'\307 /\303\2220\014Pb\310g\373\300M8N\001\335\233*\266\307\021\302\212F\260\256\330\306NfH\273TvM,\275\ni\337\334\213!\324\304&\253*/%k\342~\263j\227^e\033\026\372NE\353\3719\304\004=\351\223\005\035\272\266\265M\371\212\352L\371\016N\003VX\003b\000_u\221\234\035\235\014\247\364\031d\216\346S\005\215\221o\2151\261\240\341\326\300\357\373\314|\303n\361H1\354\316K\205T\"*\r\331\332\251\340\002\332D\000\303\216wp/\370~\336eS\216]S\36177\300\315\200\275\207J\253Q\345\031\256J\n\200\345\226n\034^\356\253+z\226Vd\305\357\013\271\201\361\272\212}%\352_E\312\325JR\242\\T&\304[\230\225\374]X%\362\302\305YV\005\363K\021q\357\217\027|\005FZ\216\237\020\323\241\240\016?\025\031-n\036\n\023w\273\005\317W\200%CR\221\031(\365I\231\275\244~Yk<Jv\203O0c\345%\2219\003\300z\261\"e\034'\n\347\212\347\241\177\356[G\230\203\227\027\036\030\236Z\231U8^\t\357\262\264\016\013p!s\3008\311\\;\371\271\261\036\213\026Fm\254[\010\211!7\326\332\031\246\355\204\002\210\354\177\t\222\025W\320cM\253\002\252\267\326,\010xAX\366\260\242\353R\226]\244\326\333\340\243\211x\"\221\023?](ze\260Ag\305\303\020\265\313/]\240i\347a[t\200\361\027\304\3125\nV5@\300\254Y\277C2\346\313\013\3455&*\031\213cQ\204(/p=0\t\247\273\"\373$\300+\213=\361\2375_\001\303u\001\277\034g=\007\301?\035I?\335\020\237\375Mi\261\364\246\342\253\234s\026\037;\217_:/\231W\307=\276AC\302\253\021\230\037z\203\367\354\010I\336Q\014HUZ\204\325\005\013\266foV\367\242\324\360\240{\304E\tP9\363\353'\325\030\221\212\310N\3323\254;\362\241\273\241\271\313\361\237\263\332\354g%\251\000?\211""\215\226\257\250\244R\360\000\234\223\"\240\226B\233\004\374b\242\n\210V\235\276\213\242+\216bM\255\345\200\324\r\250'\225\017\036\226\214\236\233\304\362\n\334\256\263u\312\232\223\350{\213\224x@\2539\243\327l\t\251\251\032\0200\244\322\034\223\254 w\243\023\254\206\353\001\014\362R\013.0\376u\202\340\024\014\355t\214\211\375\340\363x\017\037\355\207\241\345\347\013\267\353\345R,\326\370(\366\254\322\006\257\351\256\2614r\034\014\356\207'%\356\036\353:\3248\350v\316\337,\215\2266\367\007\221\217\313\366\r6X\226\276\315\025\371\314$\240R\252\021\270\177=\245F*$a\235n\232\277\036\216\305\232\276\021\354\367Ny\263rJb\271\360\227T\345r\262\366%cr~\355TX\376\342\264\323}N\344\223t\235/=\227\332Z\217\344\t\030\024p3T\207\003\036u\2754^\3271]\314\320IU\351\024\367\246\325\205\231P\035\365\257\206\370\255@\013\213h4gh\2121\"\246\376\3171\202\343\027o\013R\037q\332\206\031\265o\255\326\325P\217\233\260|g=\225\214\247\207N\326G\211*\005p\276\261\004\005E\212/aK\030\212`\206\235et2J\212\354~\225\337\231\354\017\301\334\300\346\241M\245v\316\233?YJ\215\030\203X9\243\275\334R:)\035\004\352\253DGW\335\270\341\275r\244\034\255\227\373\271)\276\332\337\037\321-d{O\364(\0375\324<\254\253\334b]'\335\326\240!\337\024\206?\234mh>\t\303\265\005\205\272n^\265:,\211{\356\345\361t\343\340\371I\246v\334}\352\201\333@\375\205\375\371\247j\250\024\360\262y\022\373v\004\310\266\243\204g[\013\252>Nl\005\323C\0217%\344\232\216V\247E\000\275\252\232\376EJ\252Tl\232HG\316\010\350ZT\302F\311\355-q\361\201\201oa\321\307\301Z\017\030\212\222\252;5VR\345\355\273\213\257\360\330i\231\316\204\375\213\3247(G\305_\274O\305*\023p\353\371\353\271~\361\226Ue\025l\307){\223\365J7\314\373b\006\275\204}R\206\325/\346\361w\274\374>\223\237\004\351=\352s8\352\t\365]\234\000\177\225\003\3612\254O\347\306K\367\362\210y\313\332\264O)cU\311\273\205\302\356\245\357\355F\226\341w\226\357;\217\026$\257\"\351W\327e\n\013\234=|\306\027\365H\221\361\234\304\nY\353\022)\275(\307*\003\030\327y\372\253[\330\"\336I\223X|mo""\204Z\273z-\021\323\t)+ow=\264-1{.\247w\004\224\337C#(\346rV\nk\340\253[\277\226\216\300WX.7\303\366\270\037\276\222[\332\225\272l\033\002\214\376C\025\025\010M\235s\327\361\000^\304\213\014\235^\224\330\032(\304\202\212\036\000\230s*\007\3124\006k\247\332\245\214c/\351\250\246+\316\000\347\356\253\311\260\017\001M}*\375\352\253?zJ9D\304\236'\211\343\t\265\357\273\337\355mc\302\247*\233 q\255^\244U\363\252\217~\373p\333\003\273\323\376\021\267\234P\245\311\364cg\200\273\351\302\376do\212\261\374^\212\315\200\321!\240\257\234WI'\271\353\354\276\371\320\320\360{\343\035~\035q\247\351.\017w\233\026yXlz\314\303\343\246'M\334\350~\371\246\020\250_\262\037\307+\303\225\237D\347\252\372\"\350\334ug}\307\331Q\303\271\343\314\3630\337t\237\207\373M\017xx\320\364\214\207gM/xx\321\024\347!\336\264\302\303J\323j\023yqM\342>\243\252FQJ\275\256cQ\277\272u\225\230\013\327\373\223\024_\325s\3360w\027\3406\377\nZ]*e\312}\225\260;\275zM\262\267\247\370\007\277\375\342\343\003\220\203\267\340\271\337\031\344\243E>\345\372]-,F\351\000\253Kdi\217\310\304|?\230\227m\337\201\224m\243\252\325\201\202\321\n\177\262\244\311MyJ\002\357T;\003p\003\247\335\270\033~Y\004q\236a6)\272\226\226\374\004\244D\206\320i\277)\237o\325X\274\340\346\266\360C\224\361\240\2612]\321\245Z\360_\316\277TEW\242\352\371\007\244\371l\245\221\222\263\227\031\254WI$\235_T\341\265|\242\030\256\252A/2kw\r\346\274\033;\351\255\314\tVzR\335\313\215^t\313\266\237\271\237]\253\300rs7\255 k\342X\364@\370\335\301Z'\327:\266\354\247\310\251\252\274\252V\216\331Mb\317\217\312GO\253\000\213\233&\227\004\004)*\240\307MG\370\024\246\361\314\224'\312O+a\347\276\372\240R\276\001\3650\266\374\351Lh%\002\237\232DfC\357K\305\244(\020\346\375\030>;\003\235B\324\313\332\254\216\322\024P#q\227\037\036\255|@j\337,-\224\342\3164(CeT#\210\240\335\362@nG\255?\224W\315\364\243\277\316Xr\326;*\016\246\272B$q\232_\300\252P\365\003\300\247v\t\030\270\032p\340\243\220\010\277\333\270&\216\203V\225\257x\357\251\212\217Z{P\202\323\317\355\337\260;""\374F% edD$\252\334\302\177F\016P.~\025\220:+\321\230\234\004\346\370y\3047\202\"\361\304U\027\375K\024 \242\360>\200?\247\323.\324\341\027\210\027\224/\300\320\335\272=\311\017\364]\2221=\304\017\014\006a\260X\326\300\240\222\323\177\231Y\024rJ\273\202W?\303\2142\3529 \271\023\217\371\243$\022\246\3547\222\177\361v;\335\347\351\217[7\001\271\343Lk\337eP\305\353\006\250<\305\207\220}\245\177\211\031\270m\177\250o\327y\346;\255V(W\202b-U-n\361-t\240\257\036u\236\206ss\221\321\215\332\241:\007\240\316\303\230\304\031\234\220\357\242\332\251IO\232\272uK}\275\314\355\336\017]\360\254+\244rB\237^iW\250k\004\302\313\312\007\"\351\342eIFq\013n\300\262\275\204>\232u\036\321\246\035x}\255\275\213\322!H\250\221+Z5\027\276t\" \273\371\304\n\311w!!\226\250J\026\200\325\003\003\000\033\333V\022\020\3711\024\244\2076\370\343\334\334\307e_\327!\007\233\037\225}\211\227x\270\336K\025Kt\300f>\206*\2360\227\340\260\206\251\n_\321Ab\006p\321\031\242\024\235U\037\203\272\371?\225\241U\377\331\004F\310\024:\013\021\365\325q\267\324\205Je`\315C\014\304h\271\340j\367\033c\252\237 (\320-\311t\267\310P>\003\031\372\270\327\375F\245I\002g\235\256\177\244>Z\241\310\257\354\271Z\322\001\365\377I\257\024k|\322+:G}6\361\312u\010\345\364\256\304\"\357\324?\252\270+S\026s\242>8\026u\344\223\352\270\357\260\253a\326ZF\200_E\023\031R\177\024)<+\336\005\20732\351\236\362\303d\365\177\017t\210r\251\017r\301\370\311|g/\324\276v#\002*\220\362\325\033Q\373\224\340\237\337\006Q\354\237l\203Ti|B\332\021\226\267\376\375m\250\376\377\332\206\237\377\007<\247\374.";
+    PyObject *data = __Pyx_DecompressString(cstring, 10902, 1);
     if (unlikely(!data)) __PYX_ERR(0, 1, __pyx_L1_error)
     const char* const bytes = __Pyx_PyBytes_AsString(data);
     #if !CYTHON_ASSUME_SAFE_MACROS
     if (likely(bytes)); else { Py_DECREF(data); __PYX_ERR(0, 1, __pyx_L1_error) }
     #endif
-    #else /* compression: none (21851 bytes) */
-const char* const bytes = ": All dimensions preceding dimension %d must be indexed and not slicedBuffer view does not expose stridesCan only create a buffer that is contiguous in memory.Cannot assign to read-only memoryviewCannot create writable memory view from read-only memoryviewCannot index with type 'Cannot transpose memoryview with indirect dimensionsDimension %d is not directEmpty shape tuple for cython.arrayIndex out of bounds (axis %d)Indirect dimensions not supportedInvalid mode, expected 'c' or 'fortran', got Invalid shape in axis <MemoryView of Note that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.Out of bounds on buffer access (axis Overflow: is intervalToBlockMap correct?Step may not be zero (axis %d)Unable to convert item to object\t?.>')add_note and  at 0xcollections.abc<contiguous and direct><contiguous and indirect>disableenablegc (got got differing extents in dimension isenableditemsize <= 0 for cython.arrayneed an odd-length blockno default __reduce__ due to non-trivial __cinit__numpy._core.multiarray failed to importnumpy._core.umath failed to import object>src/consenrich/cconsenrich.pyx<strided and direct><strided and direct or indirect><strided and indirect>unable to allocate array data.unable to allocate shape and strides.x must be np.float32 or np.float64AASCIICEllipsis__Pyx_PyDict_NextRefSequenceView.MemoryViewabcallocate_bufferallowDeflatealphaanyargpartitionargsortarrayasarrayascontiguousarrayastypeasyncio.coroutinesbamFilebasebedFileblockCountblockGradCountblockGradLogScaleblockLengthblockSizebootBlockSizecc0c1cEMAcPAVAcSFcSparseMaxcTransformcbackwardPasscbedMaskcenterGeoMeancforwardPasscgetFirstChromReadcgetFragmentLengthcgetGlobalBaselinecgetLastChromReadcgetReadLengthchoicechromLengthchromMatchromosomechunkSize__class____class_getitem__cline_in_tracebackclipclipSmallclocalBaselineclocalBaseline_F32clocalBaseline_F64closecmeanVarPairscoeff""icientsHconsenrich.cconsenrichcontigcopycountcovarClipcpu_countcreadBamSegmentcrolling_AR1_IVarcsampleBlockStatscscaleStateCovardStatdStatAlphadStatAlphaLowMultdStatPCdStatddatadefault_rng__dict__disableBackgrounddtypedtype_is_objectearlyExiteigFlooremptyencodeend__enter__enumerateepserrorexcludeIdxMaskexcludeMask__exit__expectedBlockSizeextendBPeyefallBackfetchfillflagflagsfloat32float64flushformatfortranfull__func__geometric__getstate__id__import__indexinferFragmentLengthinflatedQint32int64intervalSizeBPintervalToBlockMapintervalsintp_is_coroutineitemsitemsizeiterslagSteplengths__main__mappedmapping_qualitymatrixDatamatrixFmatrixMuncmatrixPmatrixQmatrixQCopymaxmaxBetamaxInsertSizemaxIterationsmaxMultmaxQmaximummedianmedian_filtermemviewminCountminMappingQualityminQminReadsminTemplateLengthminimummode__module__name__name__ndimndimagenearest__new__next_reference_idnonzeroFracnpnumBootsnumpynumpy.randomobjoneReadPerBinonesopenorderosoutppNoiseForwardpackpadpairedEndModepoppostFitResidualsprogressBarprogressIterprojectStateDuringFilteringprojectToBoxprotectCovariance22pushForward__pyx_checksum__pyx_state__pyx_type__pyx_unpickle_Enum__pyx_vtable____qualname__quantilequery_lengthrrandSeedrandomravelrbreadLength__reduce____reduce_cython____reduce_ex__reference_endreference_idreference_startreferencesregisterreplacereshapereturnNLLridgeLambdarollingChunkSizertailPropsamFlagExcludesamThreadsscaleFactorLow_scaleFactorUpper_scipyseed__set_name__setdefault__setstate____setstate_cython__shapeshiftForwardStrand53shiftReverseStrand53shufflesizesmoothAlphasparseMapsqResClipstartstateCovarForwardstateCovarInitstateCovarSmoothedstateForwardstateInitstateLowerBoundstateSmoothedstateUpperBoundstateVar0stepstepAdjustmentstopstoreNLLInDstripstructtemplate_length__test__threadstopFracuint32uint8unpackupdateupdateProcessNoiseCovarianceuseInnovationVaruseSampleVarvalsvaluevaluesvectorDvectorXww_globalw_localweightByOverlapxzeroPenaltyzeroThreshzeros\200\001\330\0041\260\022\3203E\300Q""\300c\310\026\310r\320QR\330\004\030\230\002\230&\240\001\240\021\330\0042\260\"\260F\270!\2703\270f\300B\300a\330\004\t\210\021\210/\230\022\2307\240)\2503\250g\260S\270\001\330\004\013\2101\200\001\360*\000\005\034\2301\330\004\031\230\021\330\004\024\220D\230\001\230\031\240!\360\006\000\005\006\330\010\014\210H\220A\330\014\023\2204\220v\230Q\330\014\017\210t\2205\230\003\2304\230q\240\003\2403\240a\330\020\021\330\014\023\2204\220v\230Q\230a\330\014\017\210t\2205\230\003\2303\230a\230v\240R\240q\330\020\021\330\014\017\210t\2201\220C\220s\230!\330\020\021\330\014\026\220g\230Q\230c\240\021\240$\240a\240q\330\014\024\220G\2301\230C\230q\240\004\240A\240Q\340\010\t\210\026\210q\330\004#\2409\250A\340\0041\260\022\2606\270\021\270.\310\006\310b\320PQ\330\004\007\200t\2101\330\010\017\210q\330\0044\260B\260h\270a\270|\3106\320QS\320ST\330\0042\260\"\260H\270A\270Z\300v\310R\310q\330\004&\240a\330\004$\240A\330\004#\2401\330\004\"\240!\360\014\000\005\031\230\006\230a\330\004\007\200v\210V\2202\220Q\330\010\020\220\001\220\032\2301\230A\340\010\020\220\013\2301\340\004\007\200t\2106\220\022\2201\330\010\020\220\001\220\030\230\021\230!\340\010\020\220\013\2301\340\004\007\200}\220B\220a\330\010\021\220\021\220'\230\021\230!\330\010\021\220\021\220'\230\021\230!\340\010\021\220\033\230A\330\010\021\220\032\2301\340\t\n\330\010\013\210=\230\002\230\"\230D\240\002\240\"\240A\330\014\033\2301\230H\240N\260'\270\027\300\003\3001\330\004\013\2101\320\0004\260A\360\020\000\005\013\210-\220q\360\006\000\005\010\200s\210'\220\023\220B\220a\330\010\022\220)\2303\230a\330\r\016\330\014\021\220\027\230\001\230\021\330\014\021\220\027\230\001\230\021\330\014\021\220\023\220B\220g\230Q\230c\240\022\2407\250!\2501\340\014\017\210s\220#\220Q\330\020\023\2203\220b\230\n\240%\240q\330\020\023\2203\220b\230\n\240%\240q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\340\020\030\230\003\2302\230Q\330\020\026\220d""\230!\2304\230r\240\023\240B\240c\250\022\2503\250b\260\004\260C\260r\270\021\270!\330\020\027\220y\240\006\240b\250\001\250\021\250$\250a\250q\330\020\027\220y\240\006\240b\250\001\250\021\250$\250a\250q\340\020\023\2205\230\002\230*\240G\2501\330\020\023\2205\230\002\230*\240G\2501\340\020\023\2204\220q\230\005\230R\230t\2402\240T\250\021\250%\250r\260\021\330\024+\2505\260\002\260!\330\024,\250A\340\024+\2501\330\024,\250E\260\022\2601\340\020\023\320\023(\250\003\2504\250t\3203I\310\023\310A\330\024+\2508\2601\330\024,\250H\260A\340\020\027\220t\2302\230T\240\022\320#7\260q\3208N\310c\320Qf\320fg\320gh\330\020(\250\001\330\020)\250\021\340\020&\320&:\270!\2701\330\020'\320'<\270A\270Q\330\020\035\320\0351\260\021\260!\330\020\026\220e\2302\230Q\360\n\000\021\030\220q\230\005\230U\240\"\240C\240q\250\001\330\020\027\220q\230\005\230U\240\"\240C\240q\250\001\330\020\027\220q\230\005\230S\240\001\240\021\330\020\027\220q\230\005\230W\240A\240Q\330\010\017\210q\360\006\000\005\010\200s\210'\220\023\220B\220a\330\010\022\220(\230#\230Q\330\r\016\330\014\021\220\030\230\027\240\001\240\021\330\014\021\220\030\230\027\240\001\240\021\330\014\021\220\023\220C\220x\230w\240a\240t\2503\250h\260g\270Q\270a\340\014\017\210s\220#\220Q\330\020\023\2203\220b\230\n\240%\240q\330\020\023\2203\220b\230\n\240%\240q\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\340\020\034\230H\240C\240r\250\021\330\020\032\230(\240$\240a\240t\2502\250S\260\002\260#\260R\260r\270\021\270$\270c\300\022\3001\300A\330\020\033\2309\240J\250b\260\001\260\021\260)\2702\270Q\330\020\033\2308\240:\250R\250q\260\001\260\031\270\"\270A\340\020\023\2209\230B\230j\250\013\2601\330\020\023\2209\230B\230j\250\013\2601\340\020\023\2204\220q\230\t\240\022\2404\240r\250\024\250Q\250i\260r\270\021\330\024+\2509\260B\260a\330\024,\250A\340\024+\2501\330\024,\250I\260R\260q\340\020\023\320\023(\250\003\2504\250t\3203I\310""\023\310A\330\024+\2501\330\024,\250A\340\020\027\220t\2302\230T\240\021\320\"6\260a\3207L\310B\320Nc\320cd\320de\330\020(\250\001\330\020)\250\021\340\020%\320%9\270\021\270!\330\020&\320&;\2701\270A\330\020\035\320\0351\260\021\260!\330\020\032\230)\2402\240Q\340\020\027\220q\230\005\230X\240Y\250b\260\007\260q\270\001\330\020\027\220q\230\005\230X\240Y\250b\260\007\260q\270\001\330\020\027\220q\230\005\230X\240W\250A\250Q\330\020\027\220q\230\005\230W\240A\240Q\330\010\017\210q\200\001\3604\000\0054\2602\3205G\300q\310\003\3106\320QS\320S\\\320\\b\320bc\330\0043\2602\3205G\300q\310\003\3106\320QS\320S\\\320\\b\320bc\330\004\030\230\004\230F\240!\2401\340\0045\260R\260v\270Q\270c\300\026\300r\310\021\330\0045\260R\260v\270Q\270c\300\026\300r\310\021\340\0044\260B\260f\270A\270S\300\006\300b\310\001\330\0048\270\002\270&\300\001\300\023\300F\310\"\310A\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004 \240\001\360\010\000\005\t\210\001\330\004\006\200a\200u\210B\210a\210q\330\004\006\200a\200u\210B\210a\210q\330\004\006\200a\200u\210A\340\004\010\210\001\330\004\n\210\"\210B\210a\340\010\r\210Q\330\010\017\210r\220\021\220!\330\010\014\210B\210a\210q\360\006\000\t\014\2102\210Q\210b\220\002\220#\220R\220q\340\014\021\220\021\330\014\020\220\002\220!\2202\220R\220r\230\021\230\"\230A\230R\230r\240\023\240B\240a\240q\250\001\330\014\020\220\002\220\"\220B\220a\220r\230\022\2301\340\014\023\2202\220R\220q\360\006\000\r\023\220\"\220B\220b\230\002\230\"\230D\240\005\240S\250\002\250!\2502\250R\250q\330\020\025\220Q\330\020\024\220B\220c\230\022\2301\230B\230a\230r\240\021\240!\330\020\024\220B\220b\230\002\230!\2301\330\020\027\220r\230\022\2301\360\010\000\r\023\220\"\220B\220b\230\004\230B\230a\230r\240\022\2403\240b\250\001\330\020\025\220Q\330\020\024\220B\220c\230\022\2301\230B\230b\240\002\240!\2402\240Q\240b\250\002\250!\330\020\024\220B\220b\230\002\230!\2302\230R\230q\330\020\027\220r\230\022\2301\360""\006\000\t\013\210!\2102\210R\210u\220A\330\010\n\210!\2102\210R\210u\220A\330\010\n\210!\2102\210R\210u\220A\330\010\r\210Q\360\010\000\005\t\210\002\210\"\210A\330\004\010\210\005\210U\220!\2202\220R\220t\2304\230q\340\010\013\2102\210S\220\001\340\014\020\220\001\360\006\000\r\021\220\002\220!\2202\220R\220s\230\"\230A\330\010\014\210E\220\025\220a\220s\230\"\230B\230d\240!\330\014\026\220a\220u\230B\230a\230q\330\010\014\210B\210b\220\001\340\004\013\2101\200\001\360\014\000\032\033\330%&\330\032\033\330\032\033\330\024\025\330\031\032\330\031\032\330\036\037\330\034\035\330\027\030\330\034\035\340\004 \240\001\330\004(\250\001\330\004*\250!\330\0045\260Q\330\0042\260!\330\004:\270!\330\0046\260a\330\004!\240\030\250\026\250q\260\001\330\004$\240H\250F\260!\2601\360\020\000\005\034\2301\330\004\030\230\001\330\004\034\230C\230q\240\006\240a\240q\330\004\032\230#\230Q\230f\240A\360\036\000\005\010\200~\220W\230A\330\010\033\320\033J\310!\340\010\033\2302\230V\2402\240_\260D\270\006\270b\300\001\340\004\007\320\007\032\230'\240\021\330\010 \320 O\310q\340\010 \240\002\240&\250\002\250/\270\023\270D\300\006\300b\310\001\340\004\007\320\007\030\230\007\230q\330\010\036\320\036M\310Q\340\010\036\230b\240\006\240b\250\017\260}\300F\310\"\310A\340\004\030\230\001\330\004\035\230Q\330\004\033\2301\340\004\017\210z\230\022\2302\230T\240\036\250w\260e\2704\320?R\320RY\320Y^\320^b\320bs\320sz\320z{\330\004\022\220,\230g\240U\250$\250m\2702\270Q\340\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\025\220Q\220n\240B\240c\250\025\320.>\270a\270~\310R\310s\320RS\330\004\025\220Q\220n\240B\240c\250\025\320.>\270a\270~\310R\310s\320RS\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025""\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\340\004\010\210\016\220e\2301\230A\330\010\034\230A\230^\2502\250S\260\016\270a\330\r\025\220X\230Q\230l\250.\270\002\270$\270c\300\030\320IZ\320Z[\320[i\320ik\320kn\320no\360\006\000\005\t\320\010\031\230\025\230a\230~\250R\250t\2604\260q\360\006\000\t\026\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\360\006\000\t\027\320\026'\240r\250\030\3201A\300\021\300.\320PT\320TV\320Vg\320gi\320iq\360\000\000r\001B\002\360\000\000B\002C\002\360\000\000C\002Q\002\360\000\000Q\002R\002\330\010\026\320\026'\240r\250\030\3201A\300\021\300.\320PT\320TV\320Vg\320gi\320iq\360\000\000r\001B\002\360\000\000B\002C\002\360\000\000C\002Q\002\360\000\000Q\002R\002\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\360\006\000\t\021\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\360\006\000\t\024\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\340\010\024\220H\230A\230Z\240s\250(\260!\2601\330\010\013\2109\220C\220q\330\014\027\220q\340\010\025\220X\230Q\230a\330\010\025\220Q\220i\230r\240\021\330\010\025\220Q\220i\230r\240\021\330\010\025\220X\230Q\230a\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A""\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\340\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\340\010\027\220x\320\0370\260\001\260\036\270r\300\023\300D\310\002\310!\330\010\027\220x\320\0370\260\001\260\036\270r\300\023\300D\310\002\310!\330\010\032\230(\320\"2\260!\260?\300$\300c\310\036\320WX\320Xd\320df\320ft\320tu\320uv\330\010\032\230(\320\"2\260!\260?\300$\300c\310\036\320WX\320Xd\320df\320ft\320tu\320uv\330\010\031\230\021\230/\250\025\250o\270Q\330\010\031\230\021\230/\250\025\250o\270Q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\340\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\330\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\330\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\340\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\340\010\013\2101\330\014\030\230\001\330\020\030\320\030(\250\001\250\021\330\020\030\320\030-\250Q\250a\330\020\037\230q\330\020\037\230q\330\020\037\230q\360\006\000\t\034\2301\230H\320$9\270\021\270!\340\010\014\210N\230%\230q\240""\001\330\014\037\230x\240x\250q\260\014\320<L\310C\310x\320Wh\320hi\320ix\320xy\330\014 \240\001\240\037\260\016\270o\310Q\340\010\013\2108\2205\230\016\240b\250\n\260#\260S\270\005\270^\3102\310Q\330\014\034\230F\240!\330\014!\240\026\240q\330\014\037\230v\240Q\340\010\013\2101\330\014\031\230\021\330\014\020\220\n\230\"\230N\250#\250Q\330\020\033\2307\240!\2401\340\004\007\200q\330\010\030\230\006\230a\330\010\035\230V\2401\330\010\033\2306\240\021\340\004\007\200q\330\010\035\230^\2502\250S\260\002\260!\330\010\013\320\013\035\230S\240\001\330\014\027\220w\230a\230q\340\004\014\320\014\036\320\0365\260Q\200\001\360\032\000\032\033\330\024\025\330\016\017\330%&\330\032\033\330\032\033\330\031\032\330\030\031\330\035\036\330\031\032\330\023\024\330\027\030\330\034\035\330\023\024\330\025\026\330\036\037\330\035\036\330\032\033\340\004*\250!\330\004*\250!\330\0045\260Q\330\004!\240\030\250\026\250q\260\001\330\004$\240H\250F\260!\2601\360\014\000\005\032\230\035\240g\250Q\360\020\000\005\031\230\001\330\004\033\2301\330\004 \240\001\330\004(\250\001\340\004D\300B\300f\310A\310Q\310k\320Y_\320_e\320eg\320gh\330\004D\300B\300d\310!\3103\310f\320TV\320V_\320_`\320`b\320bj\320jk\320kl\330\004.\250a\330\0040\260\001\340\004\034\230C\230q\240\006\240a\240q\330\004\032\230#\230Q\230f\240A\340\004\032\230!\330\004\037\230q\330\004\030\230\001\360\030\000\005\033\230!\330\004\031\230\021\330\004\036\230a\330\004\033\2301\330\004\035\320\0350\260\007\260u\270D\320@R\320RY\320Y^\320^b\320bq\320qx\320xy\360\016\000\005 \230q\360\014\000\005\010\200x\210s\220!\330\010\031\230\022\2306\240\021\240/\260\026\260r\270\021\330\010\022\220!\340\010\031\320\031H\310\001\340\004\022\220!\340\004\007\200q\330\010\032\320\032I\310\021\330\010\037\320\037N\310a\330\010\033\320\033J\310!\330\010\033\2301\330\010 \240\001\330\010\034\230A\340\004\007\200q\330\010 \320 M\310Q\330\010!\240\021\330\010\037\320\037N\310a\330\010 \240\001\330\010\034\320\034K\3101\330\010\035\230Q\340\004\017""\210x\220t\230:\240R\240q\330\004\022\220,\230g\240U\250$\250m\2702\270Q\340\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\360\006\000\005\014\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\340\004\010\320\010\031\230\025\230a\230q\340\010\026\320\026'\240r\250\030\260\037\300\001\300\024\300R\320GX\320XZ\320Zb\320bq\320qr\320rs\330\010\026\320\026'\240r\250\030\260\037\300\001\300\024\300R\320GX\320XZ\320Zb\320bq\320qr\320rs\330\010\027\220q\230\005\230_\250A\330\010\027\220q\230\005\230_\250A\340\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\340\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\340\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\340\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\340\010\026\220a\330\010\026\220a\330\010\026\220a\330\010\030\230\001\330\010\013\2101\330\014\026\220a\340\010\013\2101\330\014\032\230!\330\014\031\230\021\330\014\031\230\021\330\014\031\230\021\340\010\014\210N\230%\230q\240\001\330\014\037\230x\240x\250q\260\014\320<L\310C\310x\320Wf\320fg\320gh\330\014#\2408\2508\2601\260L\300""\001\330\014\035\320\0351\260\023\260H\270A\330\014\017\210\177\230b\240\001\330\020!\240\021\330\014\032\230$\230b\240\001\330\014\017\210q\330\020\033\2303\230a\230q\330\014\033\230;\240b\250\017\260q\270\001\330\014\033\230;\240a\240q\330\014\035\320\0350\260\002\260+\270Q\270a\330\014\033\2301\340\014\017\210q\330\020\023\220?\240\"\240A\330\024\033\2301\340\024\033\2301\330\020\037\230u\240B\240a\330\020\036\230e\2403\240n\260A\260Q\330\020\036\230e\2402\320%5\260S\270\016\300a\300q\330\020\036\230e\2403\240o\260Q\3206G\300s\310.\320XY\320YZ\340\010\026\220d\230#\230X\240^\2601\260B\260c\270\021\270!\330\010\013\210<\220r\230\021\330\014\032\230!\330\010\027\220x\230~\250Q\250b\260\004\260B\260a\330\010\030\230\014\240B\240k\260\022\260;\270a\270q\330\010\013\210>\230\022\2301\330\014\034\230A\340\010\013\2101\340\014\033\2304\230r\240\030\250\022\2503\250a\250}\270B\270a\330\014\026\220a\340\010\013\210<\220t\2301\330\014\033\2303\230h\240n\260A\260R\260t\2702\270\\\310\022\3101\330\014\034\230K\240q\250\r\260R\260q\330\014\025\220Q\220l\240#\240\\\260\022\260;\270a\270~\310S\320PS\320ST\320T_\320_`\320`k\320kl\320lm\330\014\033\2304\230s\240,\250b\260\r\270R\270q\340\014\017\210x\220q\230\001\330\020\032\320\0320\260\001\260\021\330\020%\240Q\240l\260/\300\021\330\020\"\240!\240<\250\177\270a\360\006\000\t\026\220^\2403\240h\250a\330\010\024\220A\330\010\013\210:\220T\230\021\330\014\027\220q\320\030)\250\037\270\001\340\014\027\220q\320\030)\250\037\270\001\340\010\033\2306\240\033\250C\250x\260q\330\010\013\210;\220b\230\001\330\014\025\220\\\320!=\270Q\330\020\021\330\020\021\330\020\027\220q\330\020\027\220q\330\020\027\220q\330\020\027\220q\330\020\021\330\020\027\220q\330\020\027\220q\360\006\000\t\014\2107\220!\2202\220S\230\002\230/\250\033\260G\2701\270B\270e\300?\320RS\330\r\024\220A\220R\220s\230\"\230O\2509\260G\2701\270B\270e\300?\320RS\330\010\013\2107\220!\2202\220S\230\002\230/\250\033\260G\2701\270B\270e\300?\320RS\330\r\024\220A\220R\220s""\230\"\230O\2509\260G\2701\270B\270e\300?\320RS\360\006\000\t\031\230\014\240B\240a\330\010\027\220q\230\005\320\035.\250h\260o\300Q\300d\310#\310X\320Uc\320cd\320df\320fi\320ij\320jk\330\010\027\220q\230\005\320\035.\250h\260o\300Q\300d\310#\310X\320Uc\320cd\320df\320fi\320ij\320jk\330\010\020\220\014\230B\230a\330\010\020\220\016\230c\240\033\250A\250Q\330\010\020\220\004\220D\230\010\240\016\250a\250r\260\023\260A\260Q\330\010\020\220\003\2208\230>\250\021\250\"\250C\250q\260\001\340\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\340\010\032\230%\230q\240\005\240Q\240n\260C\260u\270B\270l\310!\3101\330\010\032\230%\230r\240\025\240a\240}\260B\260o\300S\310\005\310R\310|\320[\\\320\\]\330\010\033\2305\240\001\240\025\240a\240~\260R\260s\270!\2705\300\001\300\035\310b\320P^\320^a\320af\320fh\320ht\320tu\320uv\340\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\330\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\330\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\340\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\340\010\013\2101\330\014\030\230\001\330\020\021\330\020\021\330\020\037\230q\330\020\037\230q\330\020\037\230q\360\006\000\t\034\2301\230A\340\010\013\2101\330\014\034\230A\230^\2505\260\017\270q\300\001\330\014\034\230A\230^\2505\260\017\270q\300\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607""\270!\2702\270Q\340\014\017\210x\220u\230N\250\"\250J\260c\270\023\270E\300\036\310r\320QR\330\020\037\230v\240Q\330\020$\240F\250!\330\020 \240\006\240a\340\010\013\2101\330\014\031\230\021\330\014\020\220\n\230\"\230N\250#\250Q\330\020\033\2307\240!\2401\340\004\007\200x\210t\2201\330\010\027\220v\230Q\330\010\034\230F\240!\330\010\030\230\006\230a\340\004\007\200q\330\010\034\230N\250\"\250A\330\010\013\320\013\035\230S\240\001\330\014\027\220w\230a\230q\340\004\r\210X\220Y\230c\240\030\250\021\340\004\007\200q\330\010\020\220\010\320\030)\250\031\260!\340\004\014\210H\320\024%\240Q\200\001\360\014\000./\330,-\33089\33045\360.\000\005\013\210+\220Q\220a\330\004\022\220\"\320\024&\240a\240x\250v\260R\260q\330\004\021\220\021\330\004\021\220\022\2205\230\001\230\027\240\013\2506\260\022\2601\330\004\017\210r\220\026\220q\230\007\230v\240R\240q\330\004\016\210b\220\006\220a\220w\230f\240B\240a\330\004\023\220<\230{\250!\330\004\025\220\\\240\021\330\004\017\210t\2203\220h\230a\330\004\022\220!\330\004\020\220\001\340\004\n\210*\220C\220}\240B\240a\330\010\013\210>\230\021\230*\240J\250b\260\017\270t\3001\330\014\030\230\n\240\"\240O\2602\260Q\330\014\r\330\010\023\2207\230!\2301\330\010\024\220J\230b\240\001\340\004\007\200s\210!\210=\230\003\2301\330\010\020\220\006\220a\330\010\017\210v\220Q\330\010\026\220b\230\006\230a\230s\240&\250\002\250!\330\010\024\220B\220f\230A\230S\240\006\240b\250\001\330\010\017\210z\230\031\240-\250q\340\004\021\220\022\2208\2301\230M\250\026\250r\260\021\330\004\016\210c\220\027\230\001\230\034\240U\250'\260\030\270\025\270g\300Q\300b\310\001\330\004\021\220\023\220J\230a\230z\250\025\250e\2607\270&\300\007\300q\310\002\310'\320QV\320VW\330\004\006\200h\210a\210|\230<\240s\250$\250a\330\004\006\200h\210a\210|\320\033+\2504\250q\330\004\013\2108\2202\220Q\330\004\006\200h\210a\210|\320\033+\2504\250q\330\004\013\2108\2202\220Q\340\004\021\220\021\330\004\020\220\001\330\004\020\220\001\330\004\017\210q\340\004\022\220!\220<\230|\250;""\260k\300\032\310=\320Xd\320dv\320vw\340\004\013\210:\220Y\230i\240q\320\000!\240\021\360(\000\005\036\230]\250!\2509\260F\270(\300!\340\004\010\210\010\220\003\2206\230\021\230'\240\034\250V\2603\260d\270!\330\010\013\2105\220\004\220F\230\"\230A\330\014\017\210v\220Q\330\014\023\2204\220q\330\004\007\200v\210Q\330\004\013\2101\200\001\360\016\000\005\022\220\021\220)\2309\320$5\3205F\300a\200\001\340\023\032\230!\330\027\030\330\027\030\340\004B\300\"\320DV\320VW\320Wa\320ag\320gi\320ij\330\004\030\230\t\240\026\240q\250\001\330\004\030\230\t\240\026\240q\250\001\330\004.\250a\340\004?\270r\300\026\300q\310\003\3106\320QS\320ST\330\004\"\240!\340\004E\300R\300v\310Q\310c\320QW\320WY\320YZ\330\004(\250\001\340\004D\300B\300f\310A\310S\320PV\320VX\320XY\330\004'\240q\360\n\000\005\013\210!\340\004\022\220-\230|\2503\250h\260c\270\023\270D\300\002\300!\330\004\007\200|\2202\220Q\330\010\026\220a\330\t\025\220R\220q\330\010\026\220a\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\025\220Q\330\014\033\2301\330\014\020\220\005\220U\230!\2301\330\020\024\220H\230L\250\001\250\023\250A\330\020\023\2202\220R\220x\230q\330\024\036\230c\240\021\240!\330\024$\240A\330\014\026\220a\220u\230A\230W\240C\240x\320/A\300\035\310c\320Qb\320bc\340\010\014\210E\220\025\220a\220q\330\014\020\220\001\330\014\020\220\005\220U\230!\2301\330\020\023\2204\220u\230A\230Z\240q\250\001\330\024\030\230\010\240\014\250A\250S\260\001\330\024\027\220r\230\022\2308\2401\330\030'\240q\250\005\250S\260\001\260\023\260B\260j\300\001\300\021\330\030\035\230Q\340\014\017\210r\220\023\220A\330\020 \240\001\240\025\240a\340\020\037\230q\240\001\240\037\260\001\260\024\260S\270\002\270#\270Q\330\020\031\230\037\250\001\250\022\2503\250a\330\020 \240\001\240\025\240c\250\021\250!\340\010\013\210>\230\024\230R\230r\240\021\330\014\025\220Q\330\014\020\220\005\220U\230!\2301\330\020\032\230#\230Q\320\036.\250a\250s\260\"\260A\330\014\026\220c\230\021\230'\240\023\240H\250A\330\014\020\220\005\220U\230!""\2301\330\020 \240\001\240\026\240q\340\004\013\2101\200\001\360\006\000\032\"\240\021\340\004\030\230\014\240D\250\006\250a\250q\330\0042\260\"\260F\270!\2703\270f\300B\300a\330\004\036\230a\360\014\000\005\"\240\021\360\014\000\005\023\220!\2206\230\022\2301\330\004\010\210\003\2105\220\t\230\026\230q\330\010\014\210L\230\001\330\010\013\2102\210S\220\004\220A\330\014\027\220q\230\005\230Q\330\014\032\230-\240r\250\026\250q\260\001\330\014\017\210{\230\"\230A\330\020\035\230Q\330\004\007\200{\220\"\220A\330\010\025\220Q\330\004\014\210B\210f\220A\220\\\240\026\240r\250\021\330\004\r\210Q\330\004\033\2301\230D\240\001\240\021\360\010\000\005\t\210\005\210U\220!\2201\330\010\014\210K\220q\230\001\330\010\013\2102\210S\220\001\330\014\023\2201\220E\230\027\240\001\330\014\r\330\010\027\320\0278\270\001\330\010\032\230!\330\010\025\220_\240F\250!\2501\330\010\013\210;\220c\230\021\330\014\023\2201\220E\230\027\240\001\330\014\r\330\010\013\210;\220b\230\006\230f\240A\240Q\330\014\024\220B\220f\230A\230\\\250\026\250r\260\021\330\014\025\220Q\330\010\020\220\001\220\037\240\001\240\021\330\010\020\220\001\220\026\220q\230\001\330\r\016\330\014\020\220\005\220U\230!\2301\330\020\025\220Q\220e\2308\2401\240E\250\021\250!\330\010\016\210g\220Q\220h\230a\330\010\026\220l\240!\330\010\013\2104\210r\220\030\230\021\330\014\033\2301\330\010\013\210<\220r\230\021\330\014\032\230!\330\r\031\230\022\2301\330\014\032\230!\330\010\023\220;\230b\240\001\340\r\016\330\014\027\220q\230\007\230|\2501\330\014\025\220Q\330\014\020\220\005\220U\230!\230:\240Q\330\020\032\230(\240%\240q\250\001\330\010\017\210q\220\005\220X\230W\240B\240h\250a\340\004\013\2101\320\000\030\320\030H\310\001\360\034\000\005\020\210t\2205\230\002\230&\240\002\320\"4\260B\260k\300\021\300!\320\000-\250Q\330\004\n\210\"\210H\220A\220Q\330\004\007\200s\210'\220\023\220B\220a\330\010\017\320\017!\240\021\240%\240u\250A\330\004\007\200s\210'\220\023\220B\220a\330\010\017\320\017!\240\021\240%\240u\250A\330\004""\n\210)\2201\220A\320\000\035\230Q\360 \000\005#\240!\330\004&\240a\330\004\035\230]\250!\2509\260F\270(\300!\340\0049\270\022\2706\300\021\300/\320QW\320WY\320YZ\330\004\026\220a\330\004\007\200z\220\023\220H\230B\230a\330\010\013\2106\220\021\330\010\017\210q\330\004\010\210\010\220\003\2206\230\021\330\010\013\2105\220\016\230b\240\t\250\024\320-?\270r\300\021\330\014\r\330\010\013\2105\220\004\220F\230\"\230A\340\014\027\220q\230\005\230T\240\021\330\014\035\230Q\330\014\021\220\021\330\010\035\230Q\330\004\007\200v\210Q\330\004\007\200~\220R\220q\330\010\017\210q\330\004\013\210:\220R\220w\230a\230{\250\"\250A\200\001\360\014\000&.\250Q\360(\000\005\007\200g\210U\220!\2201\330\0048\270\002\320:L\310A\310X\320U[\320[]\320]^\330\004\"\240!\360\006\000\0053\260\"\260F\270!\2707\300&\310\002\310!\340\004\030\230\014\240I\250Q\330\004 \240\010\250\001\330\004 \240\n\250$\250b\260\001\340\004\016\320\016\037\230s\320\"3\2601\260A\330\004\016\320\016\037\230}\250A\320-@\300\001\330\004\017\210r\220\027\230\n\240!\2404\240r\320)<\270E\300\026\300w\310a\310r\320QX\320X]\320]^\330\004\006\200e\2101\210J\220i\230y\250\004\250A\330\004\025\220X\230T\240\021\330\004\030\230\001\330\004\031\230\021\330\004\n\210#\210R\210q\220\001\220\021\330\010\013\210>\230\021\230#\230S\240\002\240/\260\024\260Q\330\014\021\220\023\220B\220o\240R\240q\330\014\r\330\010\017\210w\220a\220q\330\010\r\210S\220\002\220!\340\0043\2602\260W\270G\3001\330\010\t\330\010\r\210Q\330\010\020\220\001\330\010\n\210!\330\t\020\220\001\220\022\2201\340\004&\240a\330\004%\240Q\330\004\037\230q\330\004\r\210Q\210l\230,\240k\260\031\270!\330\004\013\2101\200\001\360\022\000!\"\330\026\027\360\016\000\005\026\220W\230A\340\004\007\320\007\031\230\023\230A\330\010\030\230\001\340\010\030\230\n\240!\2401\330\004\007\200~\220S\230\001\330\010\030\230\001\340\004\007\200{\220!\2203\220c\230\022\2301\330\010 \240\013\2501\250C\250s\260\"\260K\270q\300\003\3001\340\010 \240\001\360\006\000\005\021\220\005\220R""\220q\330\004\020\220\005\220R\220q\330\004\020\220\005\220Q\220e\2301\230K\240q\250\003\2503\250b\260\013\2701\270C\270t\3001\330\004\026\220k\240\021\240#\240S\250\002\250!\330\004\020\220\007\220q\230\003\2301\330\004\026\220g\230Q\230c\240\021\330\004\022\220'\230\021\230#\230Q\360\006\000\005\024\2207\230!\330\004\007\320\007\027\220r\230\021\330\010\032\230!\330\t\031\230\022\2301\230A\330\010\032\230!\2301\340\004\007\200v\210R\210q\330\010\021\220\025\220a\220u\230A\230V\2401\240E\250\021\250&\260\002\260,\270b\300\n\310!\330\010\014\210G\2201\220C\220r\230\021\230'\240\023\240F\250%\250w\260a\260s\270\"\270A\270W\300C\300q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\340\014\036\230e\2401\240G\2501\250C\250r\260\021\260(\270!\330\014\036\230e\2401\240G\2501\250C\250r\260\021\260(\270!\330\014\032\320\032*\250\"\250E\260\021\260%\260q\270\017\300r\320IZ\320Z[\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\010\024\220F\230!\340\t\017\210s\220.\240\004\240A\330\010\021\220\025\220a\220u\230A\230V\2401\240E\250\021\250&\260\002\260/\300\022\300:\310Q\330\010\014\210G\2201\220C\220s\230\"\230G\2403\240f\250E\260\027\270\001\270\023\270C\270r\300\027\310\003\3101\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\360\006\000\r\037\230e\2401\240G\2501\250C\250s\260\"\260H\270A\330\014\036\230e\2401\240G\2501\250C\250s\260\"\260H\270A\330\014\032\320\032*\250\"\250E\260\021\260%\260q\270\017\300r\320IZ\320Z[\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\020\220\017\230s\240%\240r\250\025\250e\3203C\3003\300j\320PR\320RS\330\020\034\230F\240!\340\004\013\2109\220A\200\001\360\024\000$%\330#$\330\027\030\330\032\033\330\032\033\330 !\330""\036\037\330\037 \330\034\035\360\n\000\005\032\230\031\240$\240b\250\t\260\021\340\004\007\200\177\220c\230\022\2303\230f\240C\240q\330\010\027\220q\340\010\027\220~\240V\2502\250_\270B\270c\300\023\300A\340\0048\270\002\270&\300\001\300\036\310v\320UW\320WX\330\004%\240Q\340\004\007\200}\220C\220q\330\010\017\210q\340\004\035\230]\250!\2509\260F\270(\300!\340\004\033\2301\330\004\031\230\021\330\004\032\230!\340\004 \240\r\250R\250q\360\016\000\005\034\2301\330\004\027\220u\230A\340\004\007\200x\210r\220\021\330\010\022\220!\340\004\007\320\007\033\2302\230R\230t\240>\260\023\260B\260d\270)\3003\300a\330\010\023\320\023%\240Q\240a\330\026\027\330\030\031\340\004\005\330\r\016\330\014\020\220\010\230\003\2306\240\021\240,\250i\260q\330\020\027\220z\240\024\240Q\330\020\023\2205\230\002\230/\250\023\250D\3200A\300\022\3001\330\024\025\340\020!\240\025\240b\250\004\250C\250q\330\020\034\230I\240T\250\021\330\020\032\230)\2404\240q\340\020\023\220>\240\022\2401\330\024\027\220u\230B\230b\240\003\2401\330\030\031\340\024\027\220u\230B\230a\330\030\031\330\024\030\230\005\230R\230s\240#\240T\320)<\270C\270t\3001\330\030\031\330\024\033\2309\240D\250\001\330\024\034\230H\240E\250\023\250G\2601\260A\330\024\027\220v\230S\240\002\240#\240V\2502\250Q\330\030\031\330\024\027\220u\230C\230q\330\030#\2401\330\030!\240\032\2502\250Q\340\030!\240\021\330\030#\2407\250\"\250A\330\024\027\320\027,\250C\250r\260\023\3204I\310\023\310A\330\030\033\2301\330\034(\250\001\330\034&\240a\340\034(\250\001\330\034&\240a\360\006\000\025\030\220q\330\030$\240J\250b\260\001\340\030%\240X\250R\250s\260\"\260A\340\024\027\220y\240\002\240!\340\030\033\2301\330\034'\240q\330\034%\240Z\250r\260\021\340\034%\240Z\250r\260\021\330\034'\240w\250b\260\001\330\031.\250c\260\022\2603\3206K\3103\310a\330\030\033\2301\330\034'\240z\260\022\2601\330\034%\240X\250R\250q\340\034'\240z\260\022\2601\330\034%\240X\250R\250q\340\030#\2401\330\030!\240\021\340\020\023\2207\230#\230X\240S\250\t\260\023\260A\330""\024\025\330\020\023\2209\230B\230a\330\024\037\230q\330\020\023\2207\230\"\230A\330\024\035\230Q\340\020\023\2201\330\024\033\2309\240B\240h\250c\260\021\330\024\037\230~\250T\260\022\2609\270C\270q\330\024\027\220r\230\023\230L\250\001\330\030\036\230a\230}\250O\2701\360\006\000\025\036\230^\2509\260B\260i\270s\300!\330\024\035\230_\250G\2602\260S\270\002\270)\3003\300a\330\024\027\220w\230b\240\001\330\030!\240\021\330\024\027\220w\230b\240\001\330\030!\240\021\330\024\027\220w\230b\240\n\250#\250W\260B\260b\270\003\2707\300\"\300A\330\030\031\340\024\027\220q\330\030\034\230F\240%\240q\250\010\260\007\260r\270\021\330\034'\240x\250s\260)\2703\270a\270q\330\034%\240Y\250b\260\001\330\034\037\230w\240b\250\001\330 )\250\021\340\034+\250<\260y\300\002\300.\320PQ\330\034)\250\032\2607\270\"\270L\310\001\330\034&\240k\260\022\2601\330\034\037\230x\240r\250\021\330 &\240a\240x\250\177\270h\300b\320HX\320X_\320_a\320ab\340\030\034\230F\240%\240q\250\010\260\007\260r\270\021\330\034\"\240!\2407\250/\270\021\360\010\000\t\014\2106\220\021\340\004\013\2101\320\000 \240\001\340\030\031\330\034\035\330\032\033\330\022\023\330\026\027\330\025\026\330\035\036\330\024\025\330\026\027\330\025\026\360\n\000\005\027\220k\240\021\240!\360>\000\005#\240!\330\004!\240\030\250\021\330\004&\240i\250q\330\004 \240\010\250\001\330\004(\250\t\260\021\360>\000\005\024\2201\220K\230q\330\004\031\230\025\230a\330\004\022\220\"\220J\230a\330\004\007\200|\2203\220a\330\010\023\2201\340\010\023\2205\230\001\330\010\013\2109\220B\220a\330\014\027\220q\340\004\007\200{\220\"\220A\330\010\035\230]\250#\250Y\260c\270\024\270Q\340\004\n\210-\220q\230\t\240\026\240x\250q\330\004\005\330\010\022\220#\220Q\330\010\022\220#\220Q\340\010\013\2108\2203\220e\2303\230c\240\021\240)\2503\250a\330\014\023\2209\230A\340\010\025\220R\220x\230q\240\t\250\026\250r\260\021\330\010\017\210u\220C\220q\230\t\240\023\240G\2501\330\010\030\230\002\230-\240q\250\014\260A\260U\270!\2701\270A\330\010\030\230\r\240Q\240b""\250\010\260\001\260\032\2701\270A\330\010\014\210M\230\021\330\014\025\220W\230A\230Q\330\014\020\220\013\2303\230f\240A\240Q\330\020\033\2307\240!\330\020\024\220I\230R\320\037/\250s\260!\330\024\025\330\020\023\2204\220q\330\024\030\230\t\240\022\2403\240c\250\021\330\030&\240f\250A\330\020\023\320\023(\250\002\250!\330\024%\240W\250A\330\024,\250A\340\024\025\340\010\013\320\013 \240\003\2401\330\014\023\2209\230A\330\010\031\230\030\240\021\330\010\030\230\n\240.\260\002\260!\330\010\013\210>\230\022\2301\330\014\034\230A\330\010\013\210>\230\022\2301\330\014\034\230A\340\010\013\2101\340\014#\2401\240G\2501\340\014\020\220\r\230Q\330\020\023\320\023&\240c\250\021\330\024\025\330\020\031\230\027\240\001\240\021\340\020\024\220K\230s\240&\250\001\250\021\330\024\027\320\027*\250#\250Q\330\030\031\340\024\037\230w\240a\330\024\030\230\t\240\022\320#3\2603\260b\270\004\270I\300R\300s\310#\310Q\340\030\031\360\010\000\025\031\230\t\240\022\2404\240s\250!\330\030\031\330\024\033\2309\240G\2501\330\024\027\220u\230B\230a\330\030*\250(\260!\330\030.\250a\330\031\036\230b\240\001\330\030*\250)\2601\260A\330\030.\250a\340\014\017\320\017\"\240\"\240A\330\020\027\220z\240\021\340\014\036\230h\240a\340\014\017\210\177\230c\240\036\250t\260?\300#\300Q\330\020\027\220z\240\037\260\002\260!\340\020\027\220z\240\021\340\010\023\2201\330\010\024\220J\230c\240\021\340\010\016\210b\220\006\220a\220{\240&\250\002\250*\260F\270!\330\010\016\210b\220\006\220a\220{\240&\250\002\250*\260F\270!\330\010\022\220\"\220F\230!\2309\240A\240S\250\006\250b\260\n\270&\300\001\330\010\022\220\"\220F\230!\2309\240A\240S\250\006\250b\260\n\270&\300\001\340\010\022\220!\330\010\022\220!\330\010\026\220a\330\010\026\220a\340\010\014\210M\230\021\330\014\025\220W\230A\230Q\330\014\030\230\t\240\032\2501\250A\330\014\030\230\001\340\014\017\210z\230\022\230:\240S\250\n\260#\260Q\330\020\021\340\014\017\210~\230R\230q\330\020 \240\001\360\006\000\r\034\230:\240S\250\001\330\014\017\210}\230C\230q""\330\020\037\230q\330\014\030\230\005\230Q\340\014\025\220R\220v\230Q\230k\250\026\250r\260\021\330\014\025\220R\220v\230Q\230k\250\026\250r\260\021\340\014\020\220\013\2303\230f\240A\240Q\330\020\033\2307\240!\330\020\024\220I\230R\320\037/\250s\260!\330\024\025\330\020\024\220F\230'\320!2\260#\260Q\330\020\023\2202\220S\230\004\230A\330\024\032\230!\2306\240\021\360\n\000\r\027\220f\230J\240c\250\021\330\014\017\210x\220r\230\021\330\020\032\230!\330\014\020\220\010\230\002\230#\230S\240\001\330\020\033\2301\330\014\022\220&\230\007\230~\250Q\250h\260e\2709\300E\310\021\360\006\000\r\025\220I\230V\2402\240_\260A\330\014\032\230\"\230M\250\021\250(\260!\2606\270\021\270!\2701\330\014\033\2306\240\021\240!\330\014\030\230\013\2401\240B\240h\250a\250}\270D\300\001\360\010\000\r\024\2202\220V\2301\230K\240v\250R\250q\330\014\033\2301\330\014\020\220\005\220U\230!\2301\330\020\031\230\025\230i\240q\250\001\330\020\033\2307\240#\240X\250S\260\001\330\020\031\230\031\240\"\240A\330\020\023\2209\230B\230a\330\024\037\230q\330\024\035\230[\250\010\260\002\260/\300\021\330\020\023\2207\230\"\230A\330\024\035\230Q\330\024\037\230w\240b\250\013\2608\2703\270o\310Q\330\020\024\220E\230\025\230a\230z\250\021\330\024\027\220t\2301\230C\230s\240!\330\030\034\230A\230U\240!\330\030$\240G\2501\250A\340\014\017\210s\220!\220>\240\022\2401\330\020\023\2208\2301\230A\340\014\020\220\n\230!\340\020\037\230v\240Q\320&7\260s\320:K\3103\310c\320QS\320ST\330\020\023\220=\240\002\240!\330\024#\2401\330\020\035\230]\250\"\250A\330\020\023\220;\230b\240\001\330\024!\240\021\330\024#\240;\250b\260\001\330\024\027\220}\240B\240a\330\030\031\360\010\000\021\024\2205\230\001\230\021\330\020\027\220u\230A\230Q\330\020\023\2205\230\001\230\021\330\020\027\220u\230A\230Q\330\020\034\230A\340\020\024\220K\230s\240&\250\001\250\030\260\036\270q\330\024\037\230w\240a\330\024\030\230\t\240\022\320#3\2603\260a\330\030\031\330\024 \240\t\250\027\260\001\330\024\036\230i\240w\250a\330\024\027\220z\240\022""\240=\260\003\2608\2702\270Q\330\030\031\340\024\034\230J\240b\250\001\330\024\034\230H\240B\240a\330\024\035\230Y\240b\250\001\330\024\027\220w\230c\240\021\360\006\000\031$\2401\240E\250\032\2601\330\030#\2401\240E\250\032\2601\360\010\000\031$\2401\240E\250\032\2601\330\030#\2401\240E\250\032\2601\340\020\036\320\0360\260\016\270b\320@Q\320Q[\320[]\320]^\330\020\036\230e\2401\330\020\036\230e\2401\330\020\023\220<\230r\240\021\330\024\025\330\020\037\230u\240A\330\020\023\220=\240\002\240!\330\024#\2401\360\010\000\026\027\330\024!\240\021\330\024\030\230\007\230y\250\001\330\030&\240k\260\021\260!\330\030\037\230q\240\005\240Q\340\024!\240\021\330\024\030\230\007\230y\250\001\330\030&\240k\260\021\260!\330\030\037\230q\240\005\240Q\340\024\035\230Q\330\024\035\230Q\330\024\030\230\007\230y\250\001\330\030\"\240'\250\021\250!\330\030\"\240'\250\021\250!\340\024\036\230g\240R\240q\330\024\036\230g\240R\240q\340\024\030\230\007\230y\250\001\330\030\037\230q\240\005\240W\250A\250S\260\002\260!\330\030\037\230q\240\005\240W\250A\250S\260\002\260!\340\024 \240\001\330\024\037\230q\330\024\030\230\t\320!7\260\177\300a\330\030 \240\001\330\030#\240:\250R\250q\330\030\034\230G\2409\250A\330\034%\240W\250A\250S\260\002\260'\270\021\270\"\270B\270a\330\030\033\2306\240\022\2401\330\034(\250\001\330\034&\240a\340\020\023\2208\2302\230R\230t\240:\250S\260\001\330\024\034\230G\2401\240A\330\020\023\2203\220a\220z\240\023\240A\330\024\025\360\006\000\t\014\2106\220\021\340\004\007\200s\210!\210:\220R\220q\330\010\017\210q\340\004\022\220\"\220H\230A\230Z\240v\250R\250q\330\004\n\210#\210Q\210b\220\007\220q\230\r\240R\240~\260R\260q\330\004\007\200t\2102\210Q\330\010\016\210e\2201\330\t\r\210R\210q\330\010\016\210e\2201\330\004\013\2109\220A\320\000\037\230q\340\035\036\330\030\031\330\025\035\230Q\330\022\023\360 \000\005\032\230\021\360\006\000\005\017\210a\330\004\016\210a\360\010\000\005 \230q\360\006\000\005\010\200~\220S\230\001\330\010\030\230\001\330\004\007\200y\220""\003\2201\330\010\017\210q\340\004\007\200z\220\023\220A\330\010\024\220A\330\t\023\2203\220a\330\010\024\220A\340\004\n\210\"\320\014\036\230a\230s\240&\250\002\250)\2608\2702\270Q\330\004\016\210a\340\004\r\210R\210u\220A\220U\230)\2401\330\004\021\220\021\330\004\020\220\006\220a\330\004\020\220\010\230\001\330\004\021\220\022\2206\230\021\230*\240B\240c\250\026\250r\260\021\330\004\021\220\021\330\004\022\220\"\220F\230!\230:\240R\240s\250&\260\002\260!\330\004\020\220\001\330\004\025\220R\220v\230Q\230j\250\006\250b\260\001\330\004\017\210q\360\006\000\005\017\210n\230B\230a\330\004\007\200q\330\010\014\210D\220\003\2208\2301\330\010\020\220\003\2201\220D\230\002\230!\340\010\020\220\001\360\006\000\005\n\210\021\210!\360\006\000\n\013\340\010\022\220!\2205\230\001\330\010\021\220\021\220%\220q\330\010\014\210E\220\025\220a\220q\330\014\026\220a\220r\230\022\2305\240\n\250!\2503\250c\260\030\270\032\3001\300A\330\014\025\220Q\220b\230\002\230%\230y\250\001\250\023\250C\250u\260G\2701\270C\270s\300,\310a\360\006\000\005\013\210(\220)\2301\230L\250\003\2508\2601\360\006\000\n\013\330\010\014\210E\220\025\220a\220q\360\006\000\r\031\230\001\330\014\035\230Q\340\014\022\220*\230B\230a\340\020\023\2201\330\024\030\230\016\240a\240q\340\024\030\230\001\330\020\023\2202\220R\220q\330\024\030\230\001\330\020\023\2202\220S\230\001\330\024\030\230\001\360\006\000\021\027\220c\230\023\230H\240A\330\020\026\220d\230!\2304\230s\240$\240b\250\004\250B\250a\340\020\037\230}\250D\260\002\260*\270B\270d\300\"\300A\330\020\023\220=\240\002\240!\330\024#\2401\330\025\"\240\"\240A\330\024#\2401\360\014\000\021\025\220I\230U\240!\2401\330\024\034\230I\240Q\240a\330\024\032\230&\240\002\240!\340\024\027\220t\2303\230a\330\030$\240I\250Q\250e\2602\260Y\270a\270q\340\030\037\230q\330\030%\240Y\250a\250{\270\"\270I\300Q\300h\310b\320PY\320YZ\320Z[\340\024\027\220z\240\023\240A\340\030\031\340\020\026\220f\230B\230a\330\020\023\2204\220s\230!\340\024&\240j\260\001\260\025\260b\270\n""\300!\3001\360\006\000\025\034\2301\330\024'\240z\260\021\260+\270R\270z\310\021\310(\320RT\320T^\320^_\320_`\360\006\000\021\036\230Q\330\014\024\220A\220U\230/\250\023\250H\260A\360\006\000\005\022\220\030\230\022\2309\240A\320%5\260Q\260a\260q\330\004\013\2101\200\001\360\006\000$%\330\027\037\230q\330\020\030\230\001\230\021\230!\330\020\030\230\001\230\021\230#\230Q\230a\330\023\033\2301\330\024\034\230A\360\026\000\005\025\320\024(\250\r\260W\270A\330\004\010\210\016\220b\230\003\2303\230a\330\010\031\230\021\330\010\013\210>\230\022\2301\330\014\035\230Q\340\004\010\210\r\220R\220w\230c\240\022\2401\330\010\030\230\002\320\032,\250A\250S\260\006\260b\270\t\300\030\310\022\3101\330\010\031\230\021\330\010\027\220~\240V\2501\250A\330\010\013\210=\230\003\2301\330\014\023\2201\340\010\025\220R\220v\230Q\230n\250F\260\"\260A\330\010\031\230\021\340\010\036\230g\320%7\260q\330\014\r\330\014\032\230!\330\014\026\220a\360\006\000\t\014\2103\210b\220\001\330\014\036\230e\2401\320$9\270\027\300\001\340\014\036\230g\240Q\340\010\030\230\013\2401\330\014\021\220\021\320\022'\240w\250a\330\014\r\330\014\023\2201\360\006\000\t\033\230\"\230F\240!\240>\260\026\260r\270\021\330\010\033\2301\340\r\016\330\014\020\220\005\220U\230!\2301\330\020 \240\001\240\025\240k\260\021\330\024\031\230\021\230.\250\001\250\024\250W\260A\330\024\025\330\024\033\2301\360\006\000\t\033\230.\250\001\320):\270%\270q\330\010\033\2301\340\r\016\330\014\017\210t\2201\330\020\024\220E\230\025\230a\230q\330\024\"\240!\2405\250\013\2601\330\030\035\230Q\230n\250A\250T\260\027\270\001\330\030\031\330\030\037\230q\330\026\030\230\t\240\027\250\001\320)9\270\021\270#\270R\270x\300q\310\017\320WY\320Ya\320ai\320ik\320kl\340\020\024\220E\230\025\230a\230q\330\024\"\240!\2405\250\013\2601\330\030\035\230Q\230n\250A\250T\260\027\270\001\330\030\031\330\030\037\230q\360\006\000\t\020\210q\340\004\024\220B\320\026(\250\001\250\023\250F\260\"\260I\270X\300R\300q\330\004\025\220Q\330\004\023\220>\240\026\240q""\250\001\330\004\007\200}\220C\220q\330\010\017\210q\340\004\021\220\022\2206\230\021\230.\250\006\250b\260\001\330\004\025\220Q\340\004\032\230(\320\"4\260A\330\010\t\330\010\026\220a\330\010\022\220!\360\006\000\005\010\200s\210\"\210A\330\010\032\230$\230a\320\0374\260H\270A\340\010\032\230(\240!\340\004\024\220K\230q\330\010\014\210A\320\r\"\240!\330\010\t\330\010\020\220\001\360\006\000\005\027\220b\230\006\230a\230~\250V\2602\260Q\330\004\027\220q\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\034\230A\230U\240+\250Q\330\020\024\220A\220^\2401\240D\250\001\330\020\021\330\020\030\230\001\360\006\000\005\027\220n\240A\320%6\260f\270A\330\004\027\220q\340\t\n\330\010\013\2104\210q\330\014\020\220\005\220U\230!\2301\330\020\036\230a\230u\240K\250q\330\024\030\230\001\230\036\240q\250\004\250A\330\024\025\330\024\034\230A\330\022\024\220J\230g\240Q\320&6\260a\260s\270\"\270H\300A\300_\320TV\320V_\320_g\320gi\320ij\340\014\020\220\005\220U\230!\2301\330\020\036\230a\230u\240K\250q\330\024\030\230\001\230\036\240q\250\004\250A\330\024\025\330\024\034\230A\360\006\000\005\014\2101\200\001\360\010\000\024\025\330\031\032\340\004!\240\026\240v\250Q\250a\360\n\000\005 \230q\330\004#\2401\360&\000\005\016\210R\210v\220Q\220m\2406\250\022\2501\340\004\007\200|\2202\220Q\330\010\026\220e\2301\340\004\007\200|\2202\220Q\330\010\016\210f\220A\330\010\017\210q\340\004\027\220{\240\"\240A\330\004\025\220]\240\"\240A\330\004\026\220b\230\006\230b\240\016\250b\260\003\2606\270\022\2701\340\004\t\210\021\330\004\013\2101\330\004\017\210q\330\004\014\210A\330\004\r\210Q\330\004\017\210q\360\006\000\005\t\320\010\030\230\005\230Q\230a\330\010\025\220Z\230q\240\001\330\010\020\220\001\330\010\023\220<\230q\240\001\330\010\023\2205\230\010\240\001\240\021\330\010\013\210=\230\003\230<\240r\250\021\330\014\033\230<\240q\250\n\260\"\260M\300\022\3001\340\004\010\320\010\030\230\005\230Q\230l\250\"\250A\330\010\026\220j\240\001\240\035\250b\260\003\2602\260Z\270q\300\001\330\010""\022\220!\330\010\024\220L\240\002\240!\360\006\000\005\t\210\016\220e\2301\230N\250\"\250A\330\010\013\2108\2203\220a\330\014\033\2301\230L\250\017\260q\340\014\033\2309\240L\260\002\260!\330\014\034\230J\240a\240q\330\014\033\230:\240R\240{\260\"\260L\300\002\300!\360\010\000\r\027\220e\2302\230Q\330\014\026\220e\2302\230Q\360\006\000\r\025\220H\230B\230a\330\014\025\220X\230R\230q\330\014\031\230\027\240\003\240<\250q\260\017\270s\300,\310a\310u\320TU\320UV\330\014\031\230\027\240\003\240=\260\001\3201A\300\023\300L\320PQ\320QW\320WX\320XY\330\014\017\210z\230\022\2301\330\020\034\230A\330\014\017\210z\230\022\2301\330\020\034\230A\360\006\000\r\027\220k\240\023\240F\250!\2509\260C\260u\270A\270Y\300c\310\034\320UV\320V[\320[\\\320\\]\330\014\022\220&\230\002\230*\240B\240a\330\014\017\210z\230\022\2301\340\020\031\230\027\240\003\240:\250S\260\013\2701\270A\340\020\030\230\001\340\014\017\210v\220R\220q\330\020\030\230\001\360\006\000\022\030\220r\230\021\330\020\030\230\001\330\014\022\220*\230D\240\005\240Q\240f\250A\250[\270\003\2703\270b\300\005\300Q\300a\330\014\017\210t\2202\220Q\330\020\026\220a\360\006\000\r\037\230i\240|\2602\260Q\330\014\033\2301\230L\320(8\270\003\2701\270A\360\006\000\r\032\230\031\240,\250b\260\001\340\014\025\220Y\230c\240\027\250\002\250(\260\"\260A\330\014\017\210w\220b\230\001\330\020\031\230\021\330\014\017\210{\230\"\230A\330\020\031\230\027\240\003\240;\250b\260\001\340\020\031\230\021\340\014\033\2301\230N\250!\330\021\031\230\037\250\001\250\021\330\014\017\210w\220b\230\017\240q\250\001\330\020\037\230q\240\016\250a\330\024#\2401\240L\260\002\260#\260R\260w\270b\300\017\310q\320PQ\340\010\013\210;\220b\230\001\340\014\024\220D\230\001\230\032\2401\240M\260\023\260J\270b\300\013\3102\310Q\330\014\025\220W\230C\230r\240\032\2501\250K\260q\270\n\300!\300=\320PS\320S]\320]_\320_j\320jl\320ly\320yz\360\000\000{\001E\002\360\000\000E\002G\002\360\000\000G\002R\002\360\000\000R\002T\002\360\000\000T\002U\002\330\014\031\230\033""\240C\240r\250\032\2601\260K\270q\300\n\310\"\310K\320WY\320Y^\320^a\320ak\320km\320mx\320xz\360\000\000{\001G\002\360\000\000G\002I\002\360\000\000I\002L\002\360\000\000L\002M\002\360\000\000M\002W\002\360\000\000W\002Y\002\360\000\000Y\002d\002\360\000\000d\002f\002\360\000\000f\002g\002\330\014\026\220h\230c\240\021\240%\240x\250q\260\014\270B\270e\3008\3102\310[\320XZ\320Z[\330\014\031\230\032\2401\240K\250r\260\023\260B\260j\300\001\300\021\330\014\032\230*\240A\240[\260\002\260-\270r\300\032\3101\310K\320WY\320Ye\320eg\320gh\330\014\027\220|\2402\240Q\330\014\031\230\034\240R\240}\260C\260{\300\"\300A\340\004\010\210\017\220u\230A\230Q\330\010\025\220\\\240\022\240<\250r\260\021\330\010\013\210;\220b\230\001\340\014\022\220!\220?\240/\260\021\330\014\r\330\010\013\210;\220b\230\001\330\014\031\230\021\330\010\016\210a\210\177\230o\250Q\250a\340\004\013\2101\200\001\360\014\000\017\020\330\032\033\330\034\035\330\024\025\330\026\027\330\024\025\330\027\030\340\004)\250\021\330\004*\250!\330\004)\250\021\330\004)\250\021\330\004\030\230\007\230v\240Q\240a\330\004\030\230\007\230v\240Q\240a\340\004 \240\001\340\004'\240q\330\004%\240Q\330\004%\240Q\360\026\000\005M\001\310B\310e\320ST\320T`\320`f\320fh\320hi\330\004@\300\002\300&\310\001\310\034\320U[\320[]\320]^\330\004E\300R\300v\310Q\310l\320Z`\320`b\320bc\330\0043\2601\330\004'\240q\330\004,\250A\330\0047\260r\270\026\270q\300\014\310F\320RT\320TU\330\0049\270\022\2706\300\021\300,\310f\320TV\320VW\330\004$\240A\330\004&\240a\360\006\000\005\026\220Q\330\004\020\220\014\230L\250\001\250\026\250r\260\022\2607\270!\330\004\025\220Q\330\004\010\210\005\210U\220!\2201\330\010\024\220L\240\014\250A\250Q\330\010\013\210:\220S\230\001\330\014\017\210\177\230b\240\001\330\020!\240\021\330\014\035\230Q\330\014\030\230\001\330\010\032\230!\330\004\007\200\177\220b\230\001\330\010\031\230\021\330\004\007\200\177\220c\230\021\330\010\031\230\021\340\004C\3002\300V\3101\320L\\\320\\b\320bd\320de\330\004!\240\021\340\004""\020\220\014\230L\250\001\250\026\250r\260\022\2607\270!\360\n\000\005\030\220q\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\030\230\014\240L\260\001\260\021\330\014\017\210z\230\023\230A\330\020\023\320\023$\240B\240b\250\004\250J\260c\270\022\2704\270z\310\022\3101\330\024\036\320\0361\260\021\260!\260:\270Q\270d\320BT\320T[\320[\\\340\024\"\240!\330\024\030\230\004\230N\250%\250|\2702\270Q\330\030&\240a\330\024\027\220|\2402\240Q\330\030&\240a\330\031%\240R\240q\330\030&\240a\330\024(\250\001\250\035\260a\330\024\036\230a\230}\250M\270\021\330\020#\2401\330\020\034\230A\360\006\000\r\034\2301\330\014\020\220\005\220U\230!\2301\330\020\033\2308\2407\250!\2503\250a\330\020\034\230H\240H\250A\250S\260\001\340\020 \240\n\250#\250X\260\\\300\021\300$\300c\310\030\320QR\330\020\023\220>\240\023\240H\250A\330\024$\240H\250A\330\020\031\230\024\230R\230q\330\020&\240h\250a\250t\2601\260A\330\020\030\320\030+\2501\250A\330\020\023\2206\230\023\230H\240A\330\024\034\230H\240A\330\020\037\230}\250B\250a\360\006\000\r\020\210z\230\023\230B\230d\240*\250B\250a\330\020\036\230h\240m\2603\260h\270a\330\020\023\320\023$\240C\240q\330\031\032\330\030\036\230l\250!\2501\330\020\032\230!\320\033/\250q\330\020$\240A\330\020\035\230Q\230n\250O\2701\340\010\013\320\013\034\230B\230b\240\004\240J\250c\260\022\2604\260z\300\022\3001\330\014\026\320\026)\250\021\250!\250:\260Q\260d\320:L\310G\320ST\330\014\032\230!\330\014\020\220\004\220N\240%\240|\2602\260Q\330\020\036\230a\330\014\017\210|\2302\230Q\330\020\036\230a\330\021\035\230R\230q\330\020\036\230a\330\014 \240\001\240\035\250a\330\014\026\220a\220}\240M\260\021\340\004\007\200{\220\"\220B\220d\230,\240b\250\001\340\010\013\210<\220r\230\021\330\014\032\230!\340\r\016\340\014\020\220\005\220U\230!\2301\330\020\036\320\0362\260!\2601\330\020\024\220D\230\016\240e\250<\260r\270\021\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\025!\240\022\2401\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!""\330\020\034\230A\230U\240#\240Q\240h\250a\340\014\021\220\021\220/\240\021\240,\250a\250t\2609\270A\270^\3101\310D\320P\\\320\\]\340\014\020\220\005\220U\230!\2301\340\020\025\220S\230\001\230\036\240q\250\001\330\020\036\230g\240Q\330\020\024\220D\230\016\240e\250<\260r\270\021\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\025!\240\022\2401\330\024\"\240!\330\020$\240A\240U\250!\340\004\014\320\014!\240\033\250A\320\000 \240\001\360(\000\005\034\230<\240w\250l\270#\270T\300\021\330\004\034\230A\330\004\035\230]\250!\2509\260F\270(\300!\340\004\010\210\010\220\003\2206\230\021\230'\240\034\250V\2608\2704\270q\330\010\013\2105\220\004\220F\230\"\230A\330\014\026\220d\230!\330\004\007\200v\210Q\330\004\013\2101\200\001\330\004\007\200z\220\022\2202\220T\230\032\2402\240S\250\003\2501\330\010\016\210j\230\001\230\021\340\004\035\230R\320\0371\260\021\260&\270\006\270b\300\001\330\004\031\230\021\330\004\021\220\025\220a\220v\230Q\230a\330\004\007\200r\210\023\210A\330\010\017\210r\220\026\220r\230\025\230f\240B\240a\340\004\026\220j\240\003\2401\330\004\021\220\022\2202\220R\220r\230\021\360\006\000\005 \230r\240\026\240q\250\003\2506\260\022\2601\330\004\036\230a\330\004\037\230r\240\026\240q\250\003\2506\260\022\2601\330\004\033\2301\330\004 \240\002\240&\250\001\250\023\250F\260\"\260A\330\004 \240\001\330\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004$\240A\340\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004\035\230Q\330\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004!\240\021\340\004\013\2101\210B\210j\230\001\230\021\230!\330\004\013\2101\210G\2207\230\"\230E\240\021\330\004\013\2101\210G\2202\220R\220u\230A\230Q\230b\240\002\240!\340\t\n\330\010\021\220\021\220)\230;\240e\2501\340\004\014\210A\210R\210z\230\023\230A\230Q\330\004\014\210A\210W\220G\2302\230U\240!\330\004\014\210A\210W\220B\220b\230\005\230S\240\001\240\022\2402\240Q\330\t\n\330\010\021\220\021\220*\230K\240~\260Q\340\004\013\2101\200\001\330\004\007\200z\220""\022\2202\220T\230\032\2402\240S\250\003\2501\330\010\016\210j\230\001\230\021\340\004\035\230R\320\0371\260\021\260&\270\006\270b\300\001\330\004\030\230\001\330\004\021\220\025\220a\220v\230Q\230a\330\004\007\200r\210\023\210A\330\010\017\210r\220\026\220r\230\025\230f\240B\240a\340\004\026\220j\240\003\2401\330\004\021\220\022\2202\220R\220r\230\021\340\004\037\230r\240\026\240q\250\003\2506\260\022\2601\330\004\036\230a\330\004\037\230r\240\026\240q\250\003\2506\260\022\2601\330\004\032\230!\330\004 \240\002\240&\250\001\250\023\250F\260\"\260A\330\004\037\230q\330\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004#\2401\340\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004\035\230Q\330\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004!\240\021\330\004\013\2101\210B\210j\230\001\230\021\230!\330\004\013\2101\210G\2207\230\"\230E\240\021\330\004\013\2101\210G\2202\220R\220u\230A\230Q\230b\240\002\240!\340\t\n\330\010\021\220\021\220)\230;\240e\2501\340\004\014\210A\210R\210z\230\023\230A\230Q\330\004\014\210A\210W\220G\2302\230U\240!\330\004\014\210A\210W\220B\220b\230\005\230S\240\001\240\022\2402\240Q\330\t\n\330\010\021\220\021\220*\230K\240~\260Q\340\004\013\2101O";
+    #else /* compression: none (21835 bytes) */
+const char* const bytes = ": All dimensions preceding dimension %d must be indexed and not slicedBuffer view does not expose stridesCan only create a buffer that is contiguous in memory.Cannot assign to read-only memoryviewCannot create writable memory view from read-only memoryviewCannot index with type 'Cannot transpose memoryview with indirect dimensionsDimension %d is not directEmpty shape tuple for cython.arrayIndex out of bounds (axis %d)Indirect dimensions not supportedInvalid mode, expected 'c' or 'fortran', got Invalid shape in axis <MemoryView of Note that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.Out of bounds on buffer access (axis Overflow: is intervalToBlockMap correct?Step may not be zero (axis %d)Unable to convert item to object\t?.>')add_note and  at 0xcollections.abc<contiguous and direct><contiguous and indirect>disableenablegc (got got differing extents in dimension isenableditemsize <= 0 for cython.arrayneed an odd-length blockno default __reduce__ due to non-trivial __cinit__numpy._core.multiarray failed to importnumpy._core.umath failed to import object>src/consenrich/cconsenrich.pyx<strided and direct><strided and direct or indirect><strided and indirect>unable to allocate array data.unable to allocate shape and strides.x must be np.float32 or np.float64AASCIICEllipsis__Pyx_PyDict_NextRefSequenceView.MemoryViewabcallocate_bufferallowDeflatealphaanyargpartitionargsortarrayasarrayascontiguousarrayastypeasyncio.coroutinesbamFilebasebedFileblockCountblockGradCountblockGradLogScaleblockLengthblockSizebootBlockSizecc0c1cEMAcPAVAcSFcSparseMaxcTransformcbackwardPasscbedMaskcenterGeoMeancforwardPasscgetFirstChromReadcgetFragmentLengthcgetGlobalBaselinecgetLastChromReadcgetReadLengthchoicechromLengthchromMatchromosomechunkSize__class____class_getitem__cline_in_tracebackclipclipSmallclocalBaselineclocalBaseline_F32clocalBaseline_F64closecmeanVarPairscoeff""icientsHconsenrich.cconsenrichcontigcopycountcovarClipcpu_countcreadBamSegmentcrolling_AR1_IVarcsampleBlockStatscscaleStateCovardStatdStatAlphadStatAlphaLowMultdStatPCdStatddatadefault_rng__dict__disableBackgrounddtypedtype_is_objectearlyExiteigFlooremptyencodeend__enter__enumerateepserrorexcludeIdxMaskexcludeMask__exit__expectedBlockSizeextendBPeyefallBackfetchfillflagflagsfloat32float64flushformatfortranfull__func__geometric__getstate__id__import__indexinferFragmentLengthinflatedQint32int64intervalSizeBPintervalToBlockMapintervalsintp_is_coroutineitemsitemsizeiterslagSteplengths__main__mappedmapping_qualitymatrixDatamatrixFmatrixMuncmatrixPmatrixQmatrixQCopymaxmaxBetamaxInsertSizemaxIterationsmaxMultmaxQmaximummedianmedian_filtermemviewminCountminMappingQualityminQminReadsminTemplateLengthminimummode__module__name__name__ndimndimagenearest__new__next_reference_idnonzeroFracnpnumBootsnumpynumpy.randomobjoneReadPerBinonesopenorderosoutppNoiseForwardpackpadpairedEndModepoppostFitResidualsprogressBarprogressIterprojectStateDuringFilteringprojectToBoxprotectCovariance22pushForward__pyx_checksum__pyx_state__pyx_type__pyx_unpickle_Enum__pyx_vtable____qualname__quantilequery_lengthrrandSeedrandomravelrbreadLength__reduce____reduce_cython____reduce_ex__reference_endreference_idreference_startreferencesregisterreplacereshapereturnNLLridgeLambdarollingChunkSizertailPropsamFlagExcludesamThreadsscaleFactorLow_scaleFactorUpper_scipyseed__set_name__setdefault__setstate____setstate_cython__shapeshiftForwardStrand53shiftReverseStrand53shufflesizesmoothAlphasparseMapsqResClipstartstateCovarForwardstateCovarInitstateCovarSmoothedstateForwardstateInitstateLowerBoundstateSmoothedstateUpperBoundstateVar0stepstepAdjustmentstopstoreNLLInDstripstructtemplate_length__test__threadstopFracuint32uint8unpackupdateupdateProcessNoiseCovarianceuseInnovationVaruseSampleVarvalsvaluevaluesvectorDvectorXww_globalw_localweightByOverlapxzeroPenaltyzeroThreshzeros\200\001\330\0041\260\022\3203E\300Q""\300c\310\026\310r\320QR\330\004\030\230\002\230&\240\001\240\021\330\0042\260\"\260F\270!\2703\270f\300B\300a\330\004\t\210\021\210/\230\022\2307\240)\2503\250g\260S\270\001\330\004\013\2101\200\001\360*\000\005\034\2301\330\004\031\230\021\330\004\024\220D\230\001\230\031\240!\360\006\000\005\006\330\010\014\210H\220A\330\014\023\2204\220v\230Q\330\014\017\210t\2205\230\003\2304\230q\240\003\2403\240a\330\020\021\330\014\023\2204\220v\230Q\230a\330\014\017\210t\2205\230\003\2303\230a\230v\240R\240q\330\020\021\330\014\017\210t\2201\220C\220s\230!\330\020\021\330\014\026\220g\230Q\230c\240\021\240$\240a\240q\330\014\024\220G\2301\230C\230q\240\004\240A\240Q\340\010\t\210\026\210q\330\004#\2409\250A\340\0041\260\022\2606\270\021\270.\310\006\310b\320PQ\330\004\007\200t\2101\330\010\017\210q\330\0044\260B\260h\270a\270|\3106\320QS\320ST\330\0042\260\"\260H\270A\270Z\300v\310R\310q\330\004&\240a\330\004$\240A\330\004#\2401\330\004\"\240!\360\014\000\005\031\230\006\230a\330\004\007\200v\210V\2202\220Q\330\010\020\220\001\220\032\2301\230A\340\010\020\220\013\2301\340\004\007\200t\2106\220\022\2201\330\010\020\220\001\220\030\230\021\230!\340\010\020\220\013\2301\340\004\007\200}\220B\220a\330\010\021\220\021\220'\230\021\230!\330\010\021\220\021\220'\230\021\230!\340\010\021\220\033\230A\330\010\021\220\032\2301\340\t\n\330\010\013\210=\230\002\230\"\230D\240\002\240\"\240A\330\014\033\2301\230H\240N\260'\270\027\300\003\3001\330\004\013\2101\320\0004\260A\360\020\000\005\013\210-\220q\360\006\000\005\010\200s\210'\220\023\220B\220a\330\010\022\220)\2303\230a\330\r\016\330\014\021\220\027\230\001\230\021\330\014\021\220\027\230\001\230\021\330\014\021\220\023\220B\220g\230Q\230c\240\022\2407\250!\2501\340\014\017\210s\220#\220Q\330\020\023\2203\220b\230\n\240%\240q\330\020\023\2203\220b\230\n\240%\240q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\340\020\030\230\003\2302\230Q\330\020\026\220d""\230!\2304\230r\240\023\240B\240c\250\022\2503\250b\260\004\260C\260r\270\021\270!\330\020\027\220y\240\006\240b\250\001\250\021\250$\250a\250q\330\020\027\220y\240\006\240b\250\001\250\021\250$\250a\250q\340\020\023\2205\230\002\230*\240G\2501\330\020\023\2205\230\002\230*\240G\2501\340\020\023\2204\220q\230\005\230R\230t\2402\240T\250\021\250%\250r\260\021\330\024+\2505\260\002\260!\330\024,\250A\340\024+\2501\330\024,\250E\260\022\2601\340\020\023\320\023(\250\003\2504\250t\3203I\310\023\310A\330\024+\2508\2601\330\024,\250H\260A\340\020\027\220t\2302\230T\240\022\320#7\260q\3208N\310c\320Qf\320fg\320gh\330\020(\250\001\330\020)\250\021\340\020&\320&:\270!\2701\330\020'\320'<\270A\270Q\330\020\035\320\0351\260\021\260!\330\020\026\220e\2302\230Q\360\n\000\021\030\220q\230\005\230U\240\"\240C\240q\250\001\330\020\027\220q\230\005\230U\240\"\240C\240q\250\001\330\020\027\220q\230\005\230S\240\001\240\021\330\020\027\220q\230\005\230W\240A\240Q\330\010\017\210q\360\006\000\005\010\200s\210'\220\023\220B\220a\330\010\022\220(\230#\230Q\330\r\016\330\014\021\220\030\230\027\240\001\240\021\330\014\021\220\030\230\027\240\001\240\021\330\014\021\220\023\220C\220x\230w\240a\240t\2503\250h\260g\270Q\270a\340\014\017\210s\220#\220Q\330\020\023\2203\220b\230\n\240%\240q\330\020\023\2203\220b\230\n\240%\240q\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\340\020\034\230H\240C\240r\250\021\330\020\032\230(\240$\240a\240t\2502\250S\260\002\260#\260R\260r\270\021\270$\270c\300\022\3001\300A\330\020\033\2309\240J\250b\260\001\260\021\260)\2702\270Q\330\020\033\2308\240:\250R\250q\260\001\260\031\270\"\270A\340\020\023\2209\230B\230j\250\013\2601\330\020\023\2209\230B\230j\250\013\2601\340\020\023\2204\220q\230\t\240\022\2404\240r\250\024\250Q\250i\260r\270\021\330\024+\2509\260B\260a\330\024,\250A\340\024+\2501\330\024,\250I\260R\260q\340\020\023\320\023(\250\003\2504\250t\3203I\310""\023\310A\330\024+\2501\330\024,\250A\340\020\027\220t\2302\230T\240\021\320\"6\260a\3207L\310B\320Nc\320cd\320de\330\020(\250\001\330\020)\250\021\340\020%\320%9\270\021\270!\330\020&\320&;\2701\270A\330\020\035\320\0351\260\021\260!\330\020\032\230)\2402\240Q\340\020\027\220q\230\005\230X\240Y\250b\260\007\260q\270\001\330\020\027\220q\230\005\230X\240Y\250b\260\007\260q\270\001\330\020\027\220q\230\005\230X\240W\250A\250Q\330\020\027\220q\230\005\230W\240A\240Q\330\010\017\210q\200\001\3604\000\0054\2602\3205G\300q\310\003\3106\320QS\320S\\\320\\b\320bc\330\0043\2602\3205G\300q\310\003\3106\320QS\320S\\\320\\b\320bc\330\004\030\230\004\230F\240!\2401\340\0045\260R\260v\270Q\270c\300\026\300r\310\021\330\0045\260R\260v\270Q\270c\300\026\300r\310\021\340\0044\260B\260f\270A\270S\300\006\300b\310\001\330\0048\270\002\270&\300\001\300\023\300F\310\"\310A\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004\026\220a\330\004 \240\001\360\010\000\005\t\210\001\330\004\006\200a\200u\210B\210a\210q\330\004\006\200a\200u\210B\210a\210q\330\004\006\200a\200u\210A\340\004\010\210\001\330\004\n\210\"\210B\210a\340\010\r\210Q\330\010\017\210r\220\021\220!\330\010\014\210B\210a\210q\360\006\000\t\014\2102\210Q\210b\220\002\220#\220R\220q\340\014\021\220\021\330\014\020\220\002\220!\2202\220R\220r\230\021\230\"\230A\230R\230r\240\023\240B\240a\240q\250\001\330\014\020\220\002\220\"\220B\220a\220r\230\022\2301\340\014\023\2202\220R\220q\360\006\000\r\023\220\"\220B\220b\230\002\230\"\230D\240\005\240S\250\002\250!\2502\250R\250q\330\020\025\220Q\330\020\024\220B\220c\230\022\2301\230B\230a\230r\240\021\240!\330\020\024\220B\220b\230\002\230!\2301\330\020\027\220r\230\022\2301\360\010\000\r\023\220\"\220B\220b\230\004\230B\230a\230r\240\022\2403\240b\250\001\330\020\025\220Q\330\020\024\220B\220c\230\022\2301\230B\230b\240\002\240!\2402\240Q\240b\250\002\250!\330\020\024\220B\220b\230\002\230!\2302\230R\230q\330\020\027\220r\230\022\2301\360\006""\000\t\013\210!\2102\210R\210u\220A\330\010\n\210!\2102\210R\210u\220A\330\010\n\210!\2102\210R\210u\220A\330\010\r\210Q\360\010\000\005\t\210\002\210\"\210A\330\004\010\210\005\210U\220!\2202\220R\220t\2304\230q\340\010\013\2102\210S\220\001\340\014\020\220\001\360\006\000\r\021\220\002\220!\2202\220R\220s\230\"\230A\330\010\014\210E\220\025\220a\220s\230\"\230B\230d\240!\330\014\026\220a\220u\230B\230a\230q\330\010\014\210B\210b\220\001\340\004\013\2101\200\001\360\014\000\032\033\330%&\330\032\033\330\032\033\330\024\025\330\031\032\330\031\032\330\036\037\330\034\035\330\027\030\330\034\035\340\004 \240\001\330\004(\250\001\330\004*\250!\330\0045\260Q\330\0042\260!\330\004:\270!\330\0046\260a\330\004!\240\030\250\026\250q\260\001\330\004$\240H\250F\260!\2601\360\020\000\005\034\2301\330\004\030\230\001\330\004\034\230C\230q\240\006\240a\240q\330\004\032\230#\230Q\230f\240A\360\036\000\005\010\200~\220W\230A\330\010\033\320\033J\310!\340\010\033\2302\230V\2402\240_\260D\270\006\270b\300\001\340\004\007\320\007\032\230'\240\021\330\010 \320 O\310q\340\010 \240\002\240&\250\002\250/\270\023\270D\300\006\300b\310\001\340\004\007\320\007\030\230\007\230q\330\010\036\320\036M\310Q\340\010\036\230b\240\006\240b\250\017\260}\300F\310\"\310A\340\004\030\230\001\330\004\035\230Q\330\004\033\2301\340\004\017\210z\230\022\2302\230T\240\036\250w\260e\2704\320?R\320RY\320Y^\320^b\320bs\320sz\320z{\330\004\022\220,\230g\240U\250$\250m\2702\270Q\340\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\025\220Q\220n\240B\240c\250\025\320.>\270a\270~\310R\310s\320RS\330\004\025\220Q\220n\240B\240c\250\025\320.>\270a\270~\310R\310s\320RS\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K""\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\340\004\010\210\016\220e\2301\230A\330\010\034\230A\230^\2502\250S\260\016\270a\330\r\025\220X\230Q\230l\250.\270\002\270$\270c\300\030\320IZ\320Z[\320[i\320ik\320kn\320no\360\006\000\005\t\320\010\031\230\025\230a\230~\250R\250t\2604\260q\360\006\000\t\026\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\360\006\000\t\027\320\026'\240r\250\030\3201A\300\021\300.\320PT\320TV\320Vg\320gi\320iq\360\000\000r\001B\002\360\000\000B\002C\002\360\000\000C\002Q\002\360\000\000Q\002R\002\330\010\026\320\026'\240r\250\030\3201A\300\021\300.\320PT\320TV\320Vg\320gi\320iq\360\000\000r\001B\002\360\000\000B\002C\002\360\000\000C\002Q\002\360\000\000Q\002R\002\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\360\006\000\t\021\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\360\006\000\t\024\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\340\010\024\220H\230A\230Z\240s\250(\260!\2601\330\010\013\2109\220C\220q\330\014\027\220q\340\010\025\220X\230Q\230a\330\010\025\220Q\220i\230r\240\021\330\010\025\220Q\220i\230r\240\021\330\010\025\220X\230Q\230a\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330""\010\022\220*\230A\320\035/\250r\260\032\2701\270A\340\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\340\010\027\220x\320\0370\260\001\260\036\270r\300\023\300D\310\002\310!\330\010\027\220x\320\0370\260\001\260\036\270r\300\023\300D\310\002\310!\330\010\032\230(\320\"2\260!\260?\300$\300c\310\036\320WX\320Xd\320df\320ft\320tu\320uv\330\010\032\230(\320\"2\260!\260?\300$\300c\310\036\320WX\320Xd\320df\320ft\320tu\320uv\330\010\031\230\021\230/\250\025\250o\270Q\330\010\031\230\021\230/\250\025\250o\270Q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\340\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\330\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\330\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\340\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\340\010\013\2101\330\014\030\230\001\330\020\030\320\030(\250\001\250\021\330\020\030\320\030-\250Q\250a\330\020\037\230q\330\020\037\230q\330\020\037\230q\360\006\000\t\034\2301\230H\320$9\270\021\270!\340\010\014\210N\230%\230q\240\001""\330\014\037\230x\240x\250q\260\014\320<L\310C\310x\320Wh\320hi\320ix\320xy\330\014 \240\001\240\037\260\016\270o\310Q\340\010\013\2108\2205\230\016\240b\250\n\260#\260S\270\005\270^\3102\310Q\330\014\034\230F\240!\330\014!\240\026\240q\330\014\037\230v\240Q\340\010\013\2101\330\014\031\230\021\330\014\020\220\n\230\"\230N\250#\250Q\330\020\033\2307\240!\2401\340\004\007\200q\330\010\030\230\006\230a\330\010\035\230V\2401\330\010\033\2306\240\021\340\004\007\200q\330\010\035\230^\2502\250S\260\002\260!\330\010\013\320\013\035\230S\240\001\330\014\027\220w\230a\230q\340\004\014\320\014\036\320\0365\260Q\200\001\360\032\000\032\033\330\024\025\330\016\017\330%&\330\032\033\330\032\033\330\031\032\330\030\031\330\035\036\330\031\032\330\023\024\330\027\030\330\034\035\330\023\024\330\025\026\330\036\037\330\035\036\330\032\033\340\004*\250!\330\004*\250!\330\0045\260Q\330\004!\240\030\250\026\250q\260\001\330\004$\240H\250F\260!\2601\360\014\000\005\032\230\035\240g\250Q\360\020\000\005\031\230\001\330\004\033\2301\330\004 \240\001\330\004(\250\001\340\004D\300B\300f\310A\310Q\310k\320Y_\320_e\320eg\320gh\330\004D\300B\300d\310!\3103\310f\320TV\320V_\320_`\320`b\320bj\320jk\320kl\330\004.\250a\330\0040\260\001\340\004\034\230C\230q\240\006\240a\240q\330\004\032\230#\230Q\230f\240A\340\004\032\230!\330\004\037\230q\330\004\030\230\001\360\030\000\005\033\230!\330\004\031\230\021\330\004\036\230a\330\004\033\2301\330\004\035\320\0350\260\007\260u\270D\320@R\320RY\320Y^\320^b\320bq\320qx\320xy\360\016\000\005 \230q\360\014\000\005\010\200x\210s\220!\330\010\031\230\022\2306\240\021\240/\260\026\260r\270\021\330\010\022\220!\340\010\031\320\031H\310\001\340\004\022\220!\340\004\007\200q\330\010\032\320\032I\310\021\330\010\037\320\037N\310a\330\010\033\320\033J\310!\330\010\033\2301\330\010 \240\001\330\010\034\230A\340\004\007\200q\330\010 \320 M\310Q\330\010!\240\021\330\010\037\320\037N\310a\330\010 \240\001\330\010\034\320\034K\3101\330\010\035\230Q\340\004\017\210x""\220t\230:\240R\240q\330\004\022\220,\230g\240U\250$\250m\2702\270Q\340\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\360\006\000\005\014\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\340\004\010\320\010\031\230\025\230a\230q\340\010\026\320\026'\240r\250\030\260\037\300\001\300\024\300R\320GX\320XZ\320Zb\320bq\320qr\320rs\330\010\026\320\026'\240r\250\030\260\037\300\001\300\024\300R\320GX\320XZ\320Zb\320bq\320qr\320rs\330\010\027\220q\230\005\230_\250A\330\010\027\220q\230\005\230_\250A\340\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\340\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\340\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\340\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\340\010\026\220a\330\010\026\220a\330\010\026\220a\330\010\030\230\001\330\010\013\2101\330\014\026\220a\340\010\013\2101\330\014\032\230!\330\014\031\230\021\330\014\031\230\021\330\014\031\230\021\340\010\014\210N\230%\230q\240\001\330\014\037\230x\240x\250q\260\014\320<L\310C\310x\320Wf\320fg\320gh\330\014#\2408\2508\2601\260L\300\001""\330\014\035\320\0351\260\023\260H\270A\330\014\017\210\177\230b\240\001\330\020!\240\021\330\014\032\230$\230b\240\001\330\014\017\210q\330\020\033\2303\230a\230q\330\014\033\230;\240b\250\017\260q\270\001\330\014\033\230;\240a\240q\330\014\035\320\0350\260\002\260+\270Q\270a\330\014\033\2301\340\014\017\210q\330\020\023\220?\240\"\240A\330\024\033\2301\340\024\033\2301\330\020\037\230u\240B\240a\330\020\036\230e\2403\240n\260A\260Q\330\020\036\230e\2402\320%5\260S\270\016\300a\300q\330\020\036\230e\2403\240o\260Q\3206G\300s\310.\320XY\320YZ\340\010\026\220d\230#\230X\240^\2601\260B\260c\270\021\270!\330\010\013\210<\220r\230\021\330\014\032\230!\330\010\027\220x\230~\250Q\250b\260\004\260B\260a\330\010\030\230\014\240B\240k\260\022\260;\270a\270q\330\010\013\210>\230\022\2301\330\014\034\230A\340\010\013\2101\340\014\033\2304\230r\240\030\250\022\2503\250a\250}\270B\270a\330\014\026\220a\340\010\013\210<\220t\2301\330\014\033\2303\230h\240n\260A\260R\260t\2702\270\\\310\022\3101\330\014\034\230K\240q\250\r\260R\260q\330\014\025\220Q\220l\240#\240\\\260\022\260;\270a\270~\310S\320PS\320ST\320T_\320_`\320`k\320kl\320lm\330\014\033\2304\230s\240,\250b\260\r\270R\270q\340\014\017\210x\220q\230\001\330\020\032\320\0320\260\001\260\021\330\020%\240Q\240l\260/\300\021\330\020\"\240!\240<\250\177\270a\360\006\000\t\026\220^\2403\240h\250a\330\010\024\220A\330\010\013\210:\220T\230\021\330\014\027\220q\320\030)\250\037\270\001\340\014\027\220q\320\030)\250\037\270\001\340\010\033\2306\240\033\250C\250x\260q\330\010\013\210;\220b\230\001\330\014\025\220\\\320!=\270Q\330\020\021\330\020\021\330\020\027\220q\330\020\027\220q\330\020\027\220q\330\020\027\220q\330\020\021\330\020\027\220q\330\020\027\220q\360\006\000\t\014\2107\220!\2202\220S\230\002\230/\250\033\260G\2701\270B\270e\300?\320RS\330\r\024\220A\220R\220s\230\"\230O\2509\260G\2701\270B\270e\300?\320RS\330\010\013\2107\220!\2202\220S\230\002\230/\250\033\260G\2701\270B\270e\300?\320RS\330\r\024\220A\220R\220s\230""\"\230O\2509\260G\2701\270B\270e\300?\320RS\360\006\000\t\031\230\014\240B\240a\330\010\027\220q\230\005\320\035.\250h\260o\300Q\300d\310#\310X\320Uc\320cd\320df\320fi\320ij\320jk\330\010\027\220q\230\005\320\035.\250h\260o\300Q\300d\310#\310X\320Uc\320cd\320df\320fi\320ij\320jk\330\010\020\220\014\230B\230a\330\010\020\220\016\230c\240\033\250A\250Q\330\010\020\220\004\220D\230\010\240\016\250a\250r\260\023\260A\260Q\330\010\020\220\003\2208\230>\250\021\250\"\250C\250q\260\001\340\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\340\010\032\230%\230q\240\005\240Q\240n\260C\260u\270B\270l\310!\3101\330\010\032\230%\230r\240\025\240a\240}\260B\260o\300S\310\005\310R\310|\320[\\\320\\]\330\010\033\2305\240\001\240\025\240a\240~\260R\260s\270!\2705\300\001\300\035\310b\320P^\320^a\320af\320fh\320ht\320tu\320uv\340\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\330\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\330\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\340\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\340\010\013\2101\330\014\030\230\001\330\020\021\330\020\021\330\020\037\230q\330\020\037\230q\330\020\037\230q\360\006\000\t\034\2301\230A\340\010\013\2101\330\014\034\230A\230^\2505\260\017\270q\300\001\330\014\034\230A\230^\2505\260\017\270q\300\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!""\2702\270Q\340\014\017\210x\220u\230N\250\"\250J\260c\270\023\270E\300\036\310r\320QR\330\020\037\230v\240Q\330\020$\240F\250!\330\020 \240\006\240a\340\010\013\2101\330\014\031\230\021\330\014\020\220\n\230\"\230N\250#\250Q\330\020\033\2307\240!\2401\340\004\007\200x\210t\2201\330\010\027\220v\230Q\330\010\034\230F\240!\330\010\030\230\006\230a\340\004\007\200q\330\010\034\230N\250\"\250A\330\010\013\320\013\035\230S\240\001\330\014\027\220w\230a\230q\340\004\r\210X\220Y\230c\240\030\250\021\340\004\007\200q\330\010\020\220\010\320\030)\250\031\260!\340\004\014\210H\320\024%\240Q\200\001\360\014\000./\330,-\33089\33045\360.\000\005\013\210+\220Q\220a\330\004\022\220\"\320\024&\240a\240x\250v\260R\260q\330\004\021\220\021\330\004\021\220\022\2205\230\001\230\027\240\013\2506\260\022\2601\330\004\017\210r\220\026\220q\230\007\230v\240R\240q\330\004\016\210b\220\006\220a\220w\230f\240B\240a\330\004\023\220<\230{\250!\330\004\025\220\\\240\021\330\004\017\210t\2203\220h\230a\330\004\022\220!\330\004\020\220\001\340\004\n\210*\220C\220}\240B\240a\330\010\013\210>\230\021\230*\240J\250b\260\017\270t\3001\330\014\030\230\n\240\"\240O\2602\260Q\330\014\r\330\010\023\2207\230!\2301\330\010\024\220J\230b\240\001\340\004\007\200s\210!\210=\230\003\2301\330\010\020\220\006\220a\330\010\017\210v\220Q\330\010\026\220b\230\006\230a\230s\240&\250\002\250!\330\010\024\220B\220f\230A\230S\240\006\240b\250\001\330\010\017\210z\230\031\240-\250q\340\004\021\220\022\2208\2301\230M\250\026\250r\260\021\330\004\016\210c\220\027\230\001\230\034\240U\250'\260\030\270\025\270g\300Q\300b\310\001\330\004\021\220\023\220J\230a\230z\250\025\250e\2607\270&\300\007\300q\310\002\310'\320QV\320VW\330\004\006\200h\210a\210|\230<\240s\250$\250a\330\004\006\200h\210a\210|\320\033+\2504\250q\330\004\013\2108\2202\220Q\330\004\006\200h\210a\210|\320\033+\2504\250q\330\004\013\2108\2202\220Q\340\004\021\220\021\330\004\020\220\001\330\004\020\220\001\330\004\017\210q\340\004\022\220!\220<\230|\250;\260k""\300\032\310=\320Xd\320dv\320vw\340\004\013\210:\220Y\230i\240q\320\000!\240\021\360(\000\005\036\230]\250!\2509\260F\270(\300!\340\004\010\210\010\220\003\2206\230\021\230'\240\034\250V\2603\260d\270!\330\010\013\2105\220\004\220F\230\"\230A\330\014\017\210v\220Q\330\014\023\2204\220q\330\004\007\200v\210Q\330\004\013\2101\200\001\360\016\000\005\022\220\021\220)\2309\320$5\3205F\300a\200\001\340\023\032\230!\330\027\030\330\027\030\340\004B\300\"\320DV\320VW\320Wa\320ag\320gi\320ij\330\004\030\230\t\240\026\240q\250\001\330\004\030\230\t\240\026\240q\250\001\330\004.\250a\340\004?\270r\300\026\300q\310\003\3106\320QS\320ST\330\004\"\240!\340\004E\300R\300v\310Q\310c\320QW\320WY\320YZ\330\004(\250\001\340\004D\300B\300f\310A\310S\320PV\320VX\320XY\330\004'\240q\360\n\000\005\013\210!\340\004\022\220-\230|\2503\250h\260c\270\023\270D\300\002\300!\330\004\007\200|\2202\220Q\330\010\026\220a\330\t\025\220R\220q\330\010\026\220a\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\025\220Q\330\014\033\2301\330\014\020\220\005\220U\230!\2301\330\020\024\220H\230L\250\001\250\023\250A\330\020\023\2202\220R\220x\230q\330\024\036\230c\240\021\240!\330\024$\240A\330\014\026\220a\220u\230A\230W\240C\240x\320/A\300\035\310c\320Qb\320bc\340\010\014\210E\220\025\220a\220q\330\014\020\220\001\330\014\020\220\005\220U\230!\2301\330\020\023\2204\220u\230A\230Z\240q\250\001\330\024\030\230\010\240\014\250A\250S\260\001\330\024\027\220r\230\022\2308\2401\330\030'\240q\250\005\250S\260\001\260\023\260B\260j\300\001\300\021\330\030\035\230Q\340\014\017\210r\220\023\220A\330\020 \240\001\240\025\240a\340\020\037\230q\240\001\240\037\260\001\260\024\260S\270\002\270#\270Q\330\020\031\230\037\250\001\250\022\2503\250a\330\020 \240\001\240\025\240c\250\021\250!\340\010\013\210>\230\024\230R\230r\240\021\330\014\025\220Q\330\014\020\220\005\220U\230!\2301\330\020\032\230#\230Q\320\036.\250a\250s\260\"\260A\330\014\026\220c\230\021\230'\240\023\240H\250A\330\014\020\220\005\220U\230!\2301""\330\020 \240\001\240\026\240q\340\004\013\2101\200\001\360\006\000\032\"\240\021\340\004\030\230\014\240D\250\006\250a\250q\330\0042\260\"\260F\270!\2703\270f\300B\300a\330\004\036\230a\360\014\000\005\"\240\021\360\014\000\005\023\220!\2206\230\022\2301\330\004\010\210\003\2105\220\t\230\026\230q\330\010\014\210L\230\001\330\010\013\2102\210S\220\004\220A\330\014\027\220q\230\005\230Q\330\014\032\230-\240r\250\026\250q\260\001\330\014\017\210{\230\"\230A\330\020\035\230Q\330\004\007\200{\220\"\220A\330\010\025\220Q\330\004\014\210B\210f\220A\220\\\240\026\240r\250\021\330\004\r\210Q\330\004\033\2301\230D\240\001\240\021\360\010\000\005\t\210\005\210U\220!\2201\330\010\014\210K\220q\230\001\330\010\013\2102\210S\220\001\330\014\023\2201\220E\230\027\240\001\330\014\r\330\010\027\320\0278\270\001\330\010\032\230!\330\010\025\220_\240F\250!\2501\330\010\013\210;\220c\230\021\330\014\023\2201\220E\230\027\240\001\330\014\r\330\010\013\210;\220b\230\006\230f\240A\240Q\330\014\024\220B\220f\230A\230\\\250\026\250r\260\021\330\014\025\220Q\330\010\020\220\001\220\037\240\001\240\021\330\010\020\220\001\220\026\220q\230\001\330\r\016\330\014\020\220\005\220U\230!\2301\330\020\025\220Q\220e\2308\2401\240E\250\021\250!\330\010\016\210g\220Q\220h\230a\330\010\026\220l\240!\330\010\013\2104\210r\220\030\230\021\330\014\033\2301\330\010\013\210<\220r\230\021\330\014\032\230!\330\r\031\230\022\2301\330\014\032\230!\330\010\023\220;\230b\240\001\340\r\016\330\014\027\220q\230\007\230|\2501\330\014\025\220Q\330\014\020\220\005\220U\230!\230:\240Q\330\020\032\230(\240%\240q\250\001\330\010\017\210q\220\005\220X\230W\240B\240h\250a\340\004\013\2101\320\000\030\320\030H\310\001\360\034\000\005\020\210t\2205\230\002\230&\240\002\320\"4\260B\260k\300\021\300!\320\000-\250Q\330\004\n\210\"\210H\220A\220Q\330\004\007\200s\210'\220\023\220B\220a\330\010\017\320\017!\240\021\240%\240u\250A\330\004\007\200s\210'\220\023\220B\220a\330\010\017\320\017!\240\021\240%\240u\250A\330\004\n\210)""\2201\220A\320\000\035\230Q\360 \000\005#\240!\330\004&\240a\330\004\035\230]\250!\2509\260F\270(\300!\340\0049\270\022\2706\300\021\300/\320QW\320WY\320YZ\330\004\026\220a\330\004\007\200z\220\023\220H\230B\230a\330\010\013\2106\220\021\330\010\017\210q\330\004\010\210\010\220\003\2206\230\021\330\010\013\2105\220\016\230b\240\t\250\024\320-?\270r\300\021\330\014\r\330\010\013\2105\220\004\220F\230\"\230A\340\014\027\220q\230\005\230T\240\021\330\014\035\230Q\330\014\021\220\021\330\010\035\230Q\330\004\007\200v\210Q\330\004\007\200~\220R\220q\330\010\017\210q\330\004\013\210:\220R\220w\230a\230{\250\"\250A\200\001\360\014\000&.\250Q\360(\000\005\007\200g\210U\220!\2201\330\0048\270\002\320:L\310A\310X\320U[\320[]\320]^\330\004\"\240!\360\006\000\0053\260\"\260F\270!\2707\300&\310\002\310!\340\004\030\230\014\240I\250Q\330\004 \240\010\250\001\330\004 \240\n\250$\250b\260\001\340\004\016\320\016\037\230s\320\"3\2601\260A\330\004\016\320\016\037\230}\250A\320-@\300\001\330\004\017\210r\220\027\230\n\240!\2404\240r\320)<\270E\300\026\300w\310a\310r\320QX\320X]\320]^\330\004\006\200e\2101\210J\220i\230y\250\004\250A\330\004\025\220X\230T\240\021\330\004\030\230\001\330\004\031\230\021\330\004\n\210#\210R\210q\220\001\220\021\330\010\013\210>\230\021\230#\230S\240\002\240/\260\024\260Q\330\014\021\220\023\220B\220o\240R\240q\330\014\r\330\010\017\210w\220a\220q\330\010\r\210S\220\002\220!\340\0043\2602\260W\270G\3001\330\010\t\330\010\r\210Q\330\010\020\220\001\330\010\n\210!\330\t\020\220\001\220\022\2201\340\004&\240a\330\004%\240Q\330\004\037\230q\330\004\r\210Q\210l\230,\240k\260\031\270!\330\004\013\2101\200\001\360\022\000!\"\330\026\027\360\016\000\005\026\220W\230A\340\004\007\320\007\031\230\023\230A\330\010\030\230\001\340\010\030\230\n\240!\2401\330\004\007\200~\220S\230\001\330\010\030\230\001\340\004\007\200{\220!\2203\220c\230\022\2301\330\010 \240\013\2501\250C\250s\260\"\260K\270q\300\003\3001\340\010 \240\001\360\006\000\005\021\220\005\220R\220q\330""\004\020\220\005\220R\220q\330\004\020\220\005\220Q\220e\2301\230K\240q\250\003\2503\250b\260\013\2701\270C\270t\3001\330\004\026\220k\240\021\240#\240S\250\002\250!\330\004\020\220\007\220q\230\003\2301\330\004\026\220g\230Q\230c\240\021\330\004\022\220'\230\021\230#\230Q\360\006\000\005\024\2207\230!\330\004\007\320\007\027\220r\230\021\330\010\032\230!\330\t\031\230\022\2301\230A\330\010\032\230!\2301\340\004\007\200v\210R\210q\330\010\021\220\025\220a\220u\230A\230V\2401\240E\250\021\250&\260\002\260,\270b\300\n\310!\330\010\014\210G\2201\220C\220r\230\021\230'\240\023\240F\250%\250w\260a\260s\270\"\270A\270W\300C\300q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\340\014\036\230e\2401\240G\2501\250C\250r\260\021\260(\270!\330\014\036\230e\2401\240G\2501\250C\250r\260\021\260(\270!\330\014\032\320\032*\250\"\250E\260\021\260%\260q\270\017\300r\320IZ\320Z[\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\010\024\220F\230!\340\t\017\210s\220.\240\004\240A\330\010\021\220\025\220a\220u\230A\230V\2401\240E\250\021\250&\260\002\260/\300\022\300:\310Q\330\010\014\210G\2201\220C\220s\230\"\230G\2403\240f\250E\260\027\270\001\270\023\270C\270r\300\027\310\003\3101\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\360\006\000\r\037\230e\2401\240G\2501\250C\250s\260\"\260H\270A\330\014\036\230e\2401\240G\2501\250C\250s\260\"\260H\270A\330\014\032\320\032*\250\"\250E\260\021\260%\260q\270\017\300r\320IZ\320Z[\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\020\220\017\230s\240%\240r\250\025\250e\3203C\3003\300j\320PR\320RS\330\020\034\230F\240!\340\004\013\2109\220A\200\001\360\024\000$%\330#$\330\027\030\330\032\033\330\032\033\330 !\330\036\037""\330\037 \330\034\035\360\n\000\005\032\230\031\240$\240b\250\t\260\021\340\004\007\200\177\220c\230\022\2303\230f\240C\240q\330\010\027\220q\340\010\027\220~\240V\2502\250_\270B\270c\300\023\300A\340\0048\270\002\270&\300\001\300\036\310v\320UW\320WX\330\004%\240Q\340\004\007\200}\220C\220q\330\010\017\210q\340\004\035\230]\250!\2509\260F\270(\300!\340\004\033\2301\330\004\031\230\021\330\004\032\230!\340\004 \240\r\250R\250q\360\016\000\005\034\2301\330\004\027\220u\230A\340\004\007\200x\210r\220\021\330\010\022\220!\340\004\007\320\007\033\2302\230R\230t\240>\260\023\260B\260d\270)\3003\300a\330\010\023\320\023%\240Q\240a\330\026\027\330\030\031\340\004\005\330\r\016\330\014\020\220\010\230\003\2306\240\021\240,\250i\260q\330\020\027\220z\240\024\240Q\330\020\023\2205\230\002\230/\250\023\250D\3200A\300\022\3001\330\024\025\340\020!\240\025\240b\250\004\250C\250q\330\020\034\230I\240T\250\021\330\020\032\230)\2404\240q\340\020\023\220>\240\022\2401\330\024\027\220u\230B\230b\240\003\2401\330\030\031\340\024\027\220u\230B\230a\330\030\031\330\024\030\230\005\230R\230s\240#\240T\320)<\270C\270t\3001\330\030\031\330\024\033\2309\240D\250\001\330\024\034\230H\240E\250\023\250G\2601\260A\330\024\027\220v\230S\240\002\240#\240V\2502\250Q\330\030\031\330\024\027\220u\230C\230q\330\030#\2401\330\030!\240\032\2502\250Q\340\030!\240\021\330\030#\2407\250\"\250A\330\024\027\320\027,\250C\250r\260\023\3204I\310\023\310A\330\030\033\2301\330\034(\250\001\330\034&\240a\340\034(\250\001\330\034&\240a\360\006\000\025\030\220q\330\030$\240J\250b\260\001\340\030%\240X\250R\250s\260\"\260A\340\024\027\220y\240\002\240!\340\030\033\2301\330\034'\240q\330\034%\240Z\250r\260\021\340\034%\240Z\250r\260\021\330\034'\240w\250b\260\001\330\031.\250c\260\022\2603\3206K\3103\310a\330\030\033\2301\330\034'\240z\260\022\2601\330\034%\240X\250R\250q\340\034'\240z\260\022\2601\330\034%\240X\250R\250q\340\030#\2401\330\030!\240\021\340\020\023\2207\230#\230X\240S\250\t\260\023\260A\330\024\025""\330\020\023\2209\230B\230a\330\024\037\230q\330\020\023\2207\230\"\230A\330\024\035\230Q\340\020\023\2201\330\024\033\2309\240B\240h\250c\260\021\330\024\037\230~\250T\260\022\2609\270C\270q\330\024\027\220r\230\023\230L\250\001\330\030\036\230a\230}\250O\2701\360\006\000\025\036\230^\2509\260B\260i\270s\300!\330\024\035\230_\250G\2602\260S\270\002\270)\3003\300a\330\024\027\220w\230b\240\001\330\030!\240\021\330\024\027\220w\230b\240\001\330\030!\240\021\330\024\027\220w\230b\240\n\250#\250W\260B\260b\270\003\2707\300\"\300A\330\030\031\340\024\027\220q\330\030\034\230F\240%\240q\250\010\260\007\260r\270\021\330\034'\240x\250s\260)\2703\270a\270q\330\034%\240Y\250b\260\001\330\034\037\230w\240b\250\001\330 )\250\021\340\034+\250<\260y\300\002\300.\320PQ\330\034)\250\032\2607\270\"\270L\310\001\330\034&\240k\260\022\2601\330\034\037\230x\240r\250\021\330 &\240a\240x\250\177\270h\300b\320HX\320X_\320_a\320ab\340\030\034\230F\240%\240q\250\010\260\007\260r\270\021\330\034\"\240!\2407\250/\270\021\360\010\000\t\014\2106\220\021\340\004\013\2101\320\000 \240\001\340\030\031\330\034\035\330\032\033\330\022\023\330\026\027\330\025\026\330\035\036\330\024\025\330\026\027\330\025\026\360\n\000\005\027\220k\240\021\240!\360>\000\005#\240!\330\004!\240\030\250\021\330\004&\240i\250q\330\004 \240\010\250\001\330\004(\250\t\260\021\360>\000\005\024\2201\220K\230q\330\004\031\230\025\230a\330\004\022\220\"\220J\230a\330\004\007\200|\2203\220a\330\010\023\2201\340\010\023\2205\230\001\330\010\013\2109\220B\220a\330\014\027\220q\340\004\007\200{\220\"\220A\330\010\035\230]\250#\250Y\260c\270\024\270Q\340\004\n\210-\220q\230\t\240\026\240x\250q\330\004\005\330\010\022\220#\220Q\330\010\022\220#\220Q\340\010\013\2108\2203\220e\2303\230c\240\021\240)\2503\250a\330\014\023\2209\230A\340\010\025\220R\220x\230q\240\t\250\026\250r\260\021\330\010\017\210u\220C\220q\230\t\240\023\240G\2501\330\010\030\230\002\230-\240q\250\014\260A\260U\270!\2701\270A\330\010\030\230\r\240Q\240b\250\010""\260\001\260\032\2701\270A\330\010\014\210M\230\021\330\014\025\220W\230A\230Q\330\014\020\220\013\2303\230f\240A\240Q\330\020\033\2307\240!\330\020\024\220I\230R\320\037/\250s\260!\330\024\025\330\020\023\2204\220q\330\024\030\230\t\240\022\2403\240c\250\021\330\030&\240f\250A\330\020\023\320\023(\250\002\250!\330\024%\240W\250A\330\024,\250A\340\024\025\340\010\013\320\013 \240\003\2401\330\014\023\2209\230A\330\010\031\230\030\240\021\330\010\030\230\n\240.\260\002\260!\330\010\013\210>\230\022\2301\330\014\034\230A\330\010\013\210>\230\022\2301\330\014\034\230A\340\010\013\2101\340\014#\2401\240G\2501\340\014\020\220\r\230Q\330\020\023\320\023&\240c\250\021\330\024\025\330\020\031\230\027\240\001\240\021\340\020\024\220K\230s\240&\250\001\250\021\330\024\027\320\027*\250#\250Q\330\030\031\340\024\037\230w\240a\330\024\030\230\t\240\022\320#3\2603\260b\270\004\270I\300R\300s\310#\310Q\340\030\031\360\010\000\025\031\230\t\240\022\2404\240s\250!\330\030\031\330\024\033\2309\240G\2501\330\024\027\220u\230B\230a\330\030*\250(\260!\330\030.\250a\330\031\036\230b\240\001\330\030*\250)\2601\260A\330\030.\250a\340\014\017\320\017\"\240\"\240A\330\020\027\220z\240\021\340\014\036\230h\240a\340\014\017\210\177\230c\240\036\250t\260?\300#\300Q\330\020\027\220z\240\037\260\002\260!\340\020\027\220z\240\021\340\010\023\2201\330\010\024\220J\230c\240\021\340\010\016\210b\220\006\220a\220{\240&\250\002\250*\260F\270!\330\010\016\210b\220\006\220a\220{\240&\250\002\250*\260F\270!\330\010\022\220\"\220F\230!\2309\240A\240S\250\006\250b\260\n\270&\300\001\330\010\022\220\"\220F\230!\2309\240A\240S\250\006\250b\260\n\270&\300\001\340\010\022\220!\330\010\022\220!\330\010\026\220a\330\010\026\220a\340\010\014\210M\230\021\330\014\025\220W\230A\230Q\330\014\030\230\t\240\032\2501\250A\330\014\030\230\001\340\014\017\210z\230\022\230:\240S\250\n\260#\260Q\330\020\021\340\014\017\210~\230R\230q\330\020 \240\001\360\006\000\r\034\230:\240S\250\001\330\014\017\210}\230C\230q\330\020""\037\230q\330\014\030\230\005\230Q\340\014\025\220R\220v\230Q\230k\250\026\250r\260\021\330\014\025\220R\220v\230Q\230k\250\026\250r\260\021\340\014\020\220\013\2303\230f\240A\240Q\330\020\033\2307\240!\330\020\024\220I\230R\320\037/\250s\260!\330\024\025\330\020\024\220F\230'\320!2\260#\260Q\330\020\023\2202\220S\230\004\230A\330\024\032\230!\2306\240\021\360\n\000\r\027\220f\230J\240c\250\021\330\014\017\210x\220r\230\021\330\020\032\230!\330\014\020\220\010\230\002\230#\230S\240\001\330\020\033\2301\330\014\022\220&\230\007\230~\250Q\250h\260e\2709\300E\310\021\360\006\000\r\025\220I\230V\2402\240_\260A\330\014\032\230\"\230M\250\021\250(\260!\2606\270\021\270!\2701\330\014\033\2306\240\021\240!\330\014\030\230\013\2401\240B\240h\250a\250}\270D\300\001\360\010\000\r\024\2202\220V\2301\230K\240v\250R\250q\330\014\033\2301\330\014\020\220\005\220U\230!\2301\330\020\031\230\025\230i\240q\250\001\330\020\033\2307\240#\240X\250S\260\001\330\020\031\230\031\240\"\240A\330\020\023\2209\230B\230a\330\024\037\230q\330\024\035\230[\250\010\260\002\260/\300\021\330\020\023\2207\230\"\230A\330\024\035\230Q\330\024\037\230w\240b\250\013\2608\2703\270o\310Q\330\020\024\220E\230\025\230a\230z\250\021\330\024\027\220t\2301\230C\230s\240!\330\030\034\230A\230U\240!\330\030$\240G\2501\250A\340\014\017\210s\220!\220>\240\022\2401\330\020\023\2208\2301\230A\340\014\020\220\n\230!\340\020\037\230v\240Q\320&7\260s\320:K\3103\310c\320QS\320ST\330\020\023\220=\240\002\240!\330\024#\2401\330\020\035\230]\250\"\250A\330\020\023\220;\230b\240\001\330\024!\240\021\330\024#\240;\250b\260\001\330\024\027\220}\240B\240a\330\030\031\360\010\000\021\024\2205\230\001\230\021\330\020\027\220u\230A\230Q\330\020\023\2205\230\001\230\021\330\020\027\220u\230A\230Q\330\020\034\230A\340\020\024\220K\230s\240&\250\001\250\030\260\036\270q\330\024\037\230w\240a\330\024\030\230\t\240\022\320#3\2603\260a\330\030\031\330\024 \240\t\250\027\260\001\330\024\036\230i\240w\250a\330\024\027\220z\240\022\240=""\260\003\2608\2702\270Q\330\030\031\340\024\034\230J\240b\250\001\330\024\034\230H\240B\240a\330\024\035\230Y\240b\250\001\330\024\027\220w\230c\240\021\360\006\000\031$\2401\240E\250\032\2601\330\030#\2401\240E\250\032\2601\360\010\000\031$\2401\240E\250\032\2601\330\030#\2401\240E\250\032\2601\340\020\036\320\0360\260\016\270b\320@Q\320Q[\320[]\320]^\330\020\036\230e\2401\330\020\036\230e\2401\330\020\023\220<\230r\240\021\330\024\025\330\020\037\230u\240A\330\020\023\220=\240\002\240!\330\024#\2401\360\010\000\026\027\330\024!\240\021\330\024\030\230\007\230y\250\001\330\030&\240k\260\021\260!\330\030\037\230q\240\005\240Q\340\024!\240\021\330\024\030\230\007\230y\250\001\330\030&\240k\260\021\260!\330\030\037\230q\240\005\240Q\340\024\035\230Q\330\024\035\230Q\330\024\030\230\007\230y\250\001\330\030\"\240'\250\021\250!\330\030\"\240'\250\021\250!\340\024\036\230g\240R\240q\330\024\036\230g\240R\240q\340\024\030\230\007\230y\250\001\330\030\037\230q\240\005\240W\250A\250S\260\002\260!\330\030\037\230q\240\005\240W\250A\250S\260\002\260!\340\024 \240\001\330\024\037\230q\330\024\030\230\t\320!7\260\177\300a\330\030 \240\001\330\030#\240:\250R\250q\330\030\034\230G\2409\250A\330\034%\240W\250A\250S\260\002\260'\270\021\270\"\270B\270a\330\030\033\2306\240\022\2401\330\034(\250\001\330\034&\240a\340\020\023\2208\2302\230R\230t\240:\250S\260\001\330\024\034\230G\2401\240A\330\020\023\2203\220a\220z\240\023\240A\330\024\025\360\006\000\t\014\2106\220\021\340\004\007\200s\210!\210:\220R\220q\330\010\017\210q\340\004\022\220\"\220H\230A\230Z\240v\250R\250q\330\004\n\210#\210Q\210b\220\007\220q\230\r\240R\240~\260R\260q\330\004\007\200t\2102\210Q\330\010\016\210e\2201\330\t\r\210R\210q\330\010\016\210e\2201\330\004\013\2109\220A\320\000\037\230q\340\035\036\330\030\031\330\025\035\230Q\330\022\023\360 \000\005\032\230\021\360\006\000\005\017\210a\330\004\016\210a\360\010\000\005 \230q\360\006\000\005\010\200~\220S\230\001\330\010\030\230\001\330\004\007\200y\220\003""\2201\330\010\017\210q\340\004\007\200z\220\023\220A\330\010\024\220A\330\t\023\2203\220a\330\010\024\220A\340\004\n\210\"\320\014\036\230a\230s\240&\250\002\250)\2608\2702\270Q\330\004\016\210a\340\004\r\210Q\330\004\021\220\021\330\004\020\220\006\220a\330\004\020\220\010\230\001\330\004\021\220\022\2206\230\021\230*\240B\240c\250\026\250r\260\021\330\004\021\220\021\330\004\022\220\"\220F\230!\230:\240R\240s\250&\260\002\260!\330\004\020\220\001\330\004\025\220R\220v\230Q\230j\250\006\250b\260\001\330\004\017\210q\360\006\000\005\017\210n\230B\230a\330\004\007\200q\330\010\014\210D\220\003\2208\2301\330\010\020\220\003\2201\220D\230\002\230!\340\010\020\220\001\360\006\000\005\n\210\021\210!\360\006\000\n\013\340\010\022\220!\2205\230\001\330\010\021\220\021\220%\220q\330\010\014\210E\220\025\220a\220q\330\014\026\220a\220r\230\022\2305\240\n\250!\2503\250c\260\030\270\032\3001\300A\330\014\025\220Q\220b\230\002\230%\230y\250\001\250\023\250C\250u\260G\2701\270C\270s\300,\310a\360\006\000\005\013\210(\220)\2301\230L\250\003\2508\2601\360\006\000\n\013\330\010\014\210E\220\025\220a\220q\360\006\000\r\031\230\001\330\014\035\230Q\340\014\022\220*\230B\230a\340\020\023\2201\330\024\030\230\016\240a\240q\340\024\030\230\001\330\020\023\2202\220R\220q\330\024\030\230\001\330\020\023\2202\220S\230\001\330\024\030\230\001\340\020\026\220c\230\023\230H\240A\330\020\026\220d\230!\2304\230s\240$\240b\250\004\250B\250a\330\020\037\230}\250D\260\002\260*\270B\270a\330\020\023\220=\240\002\240!\330\024#\2401\330\025\"\240\"\240A\330\024#\2401\360\014\000\021\025\220I\230U\240!\2401\330\024\034\230I\240Q\240a\330\024\032\230&\240\002\240!\340\024\027\220t\2303\230a\330\030$\240I\250Q\250e\2602\260Y\270a\270q\340\030\037\230q\330\030%\240Y\250a\250{\270\"\270I\300Q\300h\310b\320PY\320YZ\320Z[\340\024\027\220z\240\023\240A\340\030\031\340\020\026\220f\230B\230a\330\020\023\2204\220s\230!\340\024&\240j\260\001\260\025\260b\270\n\300!\3001\360\006\000\025\034\2301\330\024'\240z""\260\021\260+\270R\270z\310\021\310(\320RT\320T^\320^_\320_`\360\006\000\021\036\230Q\330\014\024\220A\220U\230/\250\023\250H\260A\360\006\000\005\022\220\030\230\022\2309\240A\320%5\260Q\260a\260q\330\004\013\2101\200\001\360\006\000$%\330\027\037\230q\330\020\030\230\001\230\021\230!\330\020\030\230\001\230\021\230#\230Q\230a\330\023\033\2301\330\024\034\230A\360\026\000\005\025\320\024(\250\r\260W\270A\330\004\010\210\016\220b\230\003\2303\230a\330\010\031\230\021\330\010\013\210>\230\022\2301\330\014\035\230Q\340\004\010\210\r\220R\220w\230c\240\022\2401\330\010\030\230\002\320\032,\250A\250S\260\006\260b\270\t\300\030\310\022\3101\330\010\031\230\021\330\010\027\220~\240V\2501\250A\330\010\013\210=\230\003\2301\330\014\023\2201\340\010\025\220R\220v\230Q\230n\250F\260\"\260A\330\010\031\230\021\340\010\036\230g\320%7\260q\330\014\r\330\014\032\230!\330\014\026\220a\360\006\000\t\014\2103\210b\220\001\330\014\036\230e\2401\320$9\270\027\300\001\340\014\036\230g\240Q\340\010\030\230\013\2401\330\014\021\220\021\320\022'\240w\250a\330\014\r\330\014\023\2201\360\006\000\t\033\230\"\230F\240!\240>\260\026\260r\270\021\330\010\033\2301\340\r\016\330\014\020\220\005\220U\230!\2301\330\020 \240\001\240\025\240k\260\021\330\024\031\230\021\230.\250\001\250\024\250W\260A\330\024\025\330\024\033\2301\360\006\000\t\033\230.\250\001\320):\270%\270q\330\010\033\2301\340\r\016\330\014\017\210t\2201\330\020\024\220E\230\025\230a\230q\330\024\"\240!\2405\250\013\2601\330\030\035\230Q\230n\250A\250T\260\027\270\001\330\030\031\330\030\037\230q\330\026\030\230\t\240\027\250\001\320)9\270\021\270#\270R\270x\300q\310\017\320WY\320Ya\320ai\320ik\320kl\340\020\024\220E\230\025\230a\230q\330\024\"\240!\2405\250\013\2601\330\030\035\230Q\230n\250A\250T\260\027\270\001\330\030\031\330\030\037\230q\360\006\000\t\020\210q\340\004\024\220B\320\026(\250\001\250\023\250F\260\"\260I\270X\300R\300q\330\004\025\220Q\330\004\023\220>\240\026\240q\250\001\330\004\007\200}\220C\220q\330\010\017""\210q\340\004\021\220\022\2206\230\021\230.\250\006\250b\260\001\330\004\025\220Q\340\004\032\230(\320\"4\260A\330\010\t\330\010\026\220a\330\010\022\220!\360\006\000\005\010\200s\210\"\210A\330\010\032\230$\230a\320\0374\260H\270A\340\010\032\230(\240!\340\004\024\220K\230q\330\010\014\210A\320\r\"\240!\330\010\t\330\010\020\220\001\360\006\000\005\027\220b\230\006\230a\230~\250V\2602\260Q\330\004\027\220q\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\034\230A\230U\240+\250Q\330\020\024\220A\220^\2401\240D\250\001\330\020\021\330\020\030\230\001\360\006\000\005\027\220n\240A\320%6\260f\270A\330\004\027\220q\340\t\n\330\010\013\2104\210q\330\014\020\220\005\220U\230!\2301\330\020\036\230a\230u\240K\250q\330\024\030\230\001\230\036\240q\250\004\250A\330\024\025\330\024\034\230A\330\022\024\220J\230g\240Q\320&6\260a\260s\270\"\270H\300A\300_\320TV\320V_\320_g\320gi\320ij\340\014\020\220\005\220U\230!\2301\330\020\036\230a\230u\240K\250q\330\024\030\230\001\230\036\240q\250\004\250A\330\024\025\330\024\034\230A\360\006\000\005\014\2101\200\001\360\010\000\024\025\330\031\032\340\004!\240\026\240v\250Q\250a\360\n\000\005 \230q\330\004#\2401\360&\000\005\016\210R\210v\220Q\220m\2406\250\022\2501\340\004\007\200|\2202\220Q\330\010\026\220e\2301\340\004\007\200|\2202\220Q\330\010\016\210f\220A\330\010\017\210q\340\004\027\220{\240\"\240A\330\004\025\220]\240\"\240A\330\004\026\220b\230\006\230b\240\016\250b\260\003\2606\270\022\2701\340\004\t\210\021\330\004\013\2101\330\004\017\210q\330\004\014\210A\330\004\r\210Q\330\004\017\210q\360\006\000\005\t\320\010\030\230\005\230Q\230a\330\010\025\220Z\230q\240\001\330\010\020\220\001\330\010\023\220<\230q\240\001\330\010\023\2205\230\010\240\001\240\021\330\010\013\210=\230\003\230<\240r\250\021\330\014\033\230<\240q\250\n\260\"\260M\300\022\3001\340\004\010\320\010\030\230\005\230Q\230l\250\"\250A\330\010\026\220j\240\001\240\035\250b\260\003\2602\260Z\270q\300\001\330\010\022\220!\330\010\024\220L\240\002\240!\360\006""\000\005\t\210\016\220e\2301\230N\250\"\250A\330\010\013\2108\2203\220a\330\014\033\2301\230L\250\017\260q\340\014\033\2309\240L\260\002\260!\330\014\034\230J\240a\240q\330\014\033\230:\240R\240{\260\"\260L\300\002\300!\360\010\000\r\027\220e\2302\230Q\330\014\026\220e\2302\230Q\360\006\000\r\025\220H\230B\230a\330\014\025\220X\230R\230q\330\014\031\230\027\240\003\240<\250q\260\017\270s\300,\310a\310u\320TU\320UV\330\014\031\230\027\240\003\240=\260\001\3201A\300\023\300L\320PQ\320QW\320WX\320XY\330\014\017\210z\230\022\2301\330\020\034\230A\330\014\017\210z\230\022\2301\330\020\034\230A\360\006\000\r\027\220k\240\023\240F\250!\2509\260C\260u\270A\270Y\300c\310\034\320UV\320V[\320[\\\320\\]\330\014\022\220&\230\002\230*\240B\240a\330\014\017\210z\230\022\2301\340\020\031\230\027\240\003\240:\250S\260\013\2701\270A\340\020\030\230\001\340\014\017\210v\220R\220q\330\020\030\230\001\360\006\000\022\030\220r\230\021\330\020\030\230\001\330\014\022\220*\230D\240\005\240Q\240f\250A\250[\270\003\2703\270b\300\005\300Q\300a\330\014\017\210t\2202\220Q\330\020\026\220a\360\006\000\r\037\230i\240|\2602\260Q\330\014\033\2301\230L\320(8\270\003\2701\270A\360\006\000\r\032\230\031\240,\250b\260\001\340\014\025\220Y\230c\240\027\250\002\250(\260\"\260A\330\014\017\210w\220b\230\001\330\020\031\230\021\330\014\017\210{\230\"\230A\330\020\031\230\027\240\003\240;\250b\260\001\340\020\031\230\021\340\014\033\2301\230N\250!\330\021\031\230\037\250\001\250\021\330\014\017\210w\220b\230\017\240q\250\001\330\020\037\230q\240\016\250a\330\024#\2401\240L\260\002\260#\260R\260w\270b\300\017\310q\320PQ\340\010\013\210;\220b\230\001\340\014\024\220D\230\001\230\032\2401\240M\260\023\260J\270b\300\013\3102\310Q\330\014\025\220W\230C\230r\240\032\2501\250K\260q\270\n\300!\300=\320PS\320S]\320]_\320_j\320jl\320ly\320yz\360\000\000{\001E\002\360\000\000E\002G\002\360\000\000G\002R\002\360\000\000R\002T\002\360\000\000T\002U\002\330\014\031\230\033\240C\240r\250\032\2601\260K\270q\300\n\310\"""\310K\320WY\320Y^\320^a\320ak\320km\320mx\320xz\360\000\000{\001G\002\360\000\000G\002I\002\360\000\000I\002L\002\360\000\000L\002M\002\360\000\000M\002W\002\360\000\000W\002Y\002\360\000\000Y\002d\002\360\000\000d\002f\002\360\000\000f\002g\002\330\014\026\220h\230c\240\021\240%\240x\250q\260\014\270B\270e\3008\3102\310[\320XZ\320Z[\330\014\031\230\032\2401\240K\250r\260\023\260B\260j\300\001\300\021\330\014\032\230*\240A\240[\260\002\260-\270r\300\032\3101\310K\320WY\320Ye\320eg\320gh\330\014\027\220|\2402\240Q\330\014\031\230\034\240R\240}\260C\260{\300\"\300A\340\004\010\210\017\220u\230A\230Q\330\010\025\220\\\240\022\240<\250r\260\021\330\010\013\210;\220b\230\001\340\014\022\220!\220?\240/\260\021\330\014\r\330\010\013\210;\220b\230\001\330\014\031\230\021\330\010\016\210a\210\177\230o\250Q\250a\340\004\013\2101\200\001\360\014\000\017\020\330\032\033\330\034\035\330\024\025\330\026\027\330\024\025\330\027\030\340\004)\250\021\330\004*\250!\330\004)\250\021\330\004)\250\021\330\004\030\230\007\230v\240Q\240a\330\004\030\230\007\230v\240Q\240a\340\004 \240\001\340\004'\240q\330\004%\240Q\330\004%\240Q\360\026\000\005M\001\310B\310e\320ST\320T`\320`f\320fh\320hi\330\004@\300\002\300&\310\001\310\034\320U[\320[]\320]^\330\004E\300R\300v\310Q\310l\320Z`\320`b\320bc\330\0043\2601\330\004'\240q\330\004,\250A\330\0047\260r\270\026\270q\300\014\310F\320RT\320TU\330\0049\270\022\2706\300\021\300,\310f\320TV\320VW\330\004$\240A\330\004&\240a\360\006\000\005\026\220Q\330\004\020\220\014\230L\250\001\250\026\250r\260\022\2607\270!\330\004\025\220Q\330\004\010\210\005\210U\220!\2201\330\010\024\220L\240\014\250A\250Q\330\010\013\210:\220S\230\001\330\014\017\210\177\230b\240\001\330\020!\240\021\330\014\035\230Q\330\014\030\230\001\330\010\032\230!\330\004\007\200\177\220b\230\001\330\010\031\230\021\330\004\007\200\177\220c\230\021\330\010\031\230\021\340\004C\3002\300V\3101\320L\\\320\\b\320bd\320de\330\004!\240\021\340\004\020\220\014\230L\250\001\250\026\250r\260\022""\2607\270!\360\n\000\005\030\220q\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\030\230\014\240L\260\001\260\021\330\014\017\210z\230\023\230A\330\020\023\320\023$\240B\240b\250\004\250J\260c\270\022\2704\270z\310\022\3101\330\024\036\320\0361\260\021\260!\260:\270Q\270d\320BT\320T[\320[\\\340\024\"\240!\330\024\030\230\004\230N\250%\250|\2702\270Q\330\030&\240a\330\024\027\220|\2402\240Q\330\030&\240a\330\031%\240R\240q\330\030&\240a\330\024(\250\001\250\035\260a\330\024\036\230a\230}\250M\270\021\330\020#\2401\330\020\034\230A\360\006\000\r\034\2301\330\014\020\220\005\220U\230!\2301\330\020\033\2308\2407\250!\2503\250a\330\020\034\230H\240H\250A\250S\260\001\340\020 \240\n\250#\250X\260\\\300\021\300$\300c\310\030\320QR\330\020\023\220>\240\023\240H\250A\330\024$\240H\250A\330\020\031\230\024\230R\230q\330\020&\240h\250a\250t\2601\260A\330\020\030\320\030+\2501\250A\330\020\023\2206\230\023\230H\240A\330\024\034\230H\240A\330\020\037\230}\250B\250a\360\006\000\r\020\210z\230\023\230B\230d\240*\250B\250a\330\020\036\230h\240m\2603\260h\270a\330\020\023\320\023$\240C\240q\330\031\032\330\030\036\230l\250!\2501\330\020\032\230!\320\033/\250q\330\020$\240A\330\020\035\230Q\230n\250O\2701\340\010\013\320\013\034\230B\230b\240\004\240J\250c\260\022\2604\260z\300\022\3001\330\014\026\320\026)\250\021\250!\250:\260Q\260d\320:L\310G\320ST\330\014\032\230!\330\014\020\220\004\220N\240%\240|\2602\260Q\330\020\036\230a\330\014\017\210|\2302\230Q\330\020\036\230a\330\021\035\230R\230q\330\020\036\230a\330\014 \240\001\240\035\250a\330\014\026\220a\220}\240M\260\021\340\004\007\200{\220\"\220B\220d\230,\240b\250\001\340\010\013\210<\220r\230\021\330\014\032\230!\340\r\016\340\014\020\220\005\220U\230!\2301\330\020\036\320\0362\260!\2601\330\020\024\220D\230\016\240e\250<\260r\270\021\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\025!\240\022\2401\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\020\034\230A\230U\240#\240Q\240h\250a\340""\014\021\220\021\220/\240\021\240,\250a\250t\2609\270A\270^\3101\310D\320P\\\320\\]\340\014\020\220\005\220U\230!\2301\340\020\025\220S\230\001\230\036\240q\250\001\330\020\036\230g\240Q\330\020\024\220D\230\016\240e\250<\260r\270\021\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\025!\240\022\2401\330\024\"\240!\330\020$\240A\240U\250!\340\004\014\320\014!\240\033\250A\320\000 \240\001\360(\000\005\034\230<\240w\250l\270#\270T\300\021\330\004\034\230A\330\004\035\230]\250!\2509\260F\270(\300!\340\004\010\210\010\220\003\2206\230\021\230'\240\034\250V\2608\2704\270q\330\010\013\2105\220\004\220F\230\"\230A\330\014\026\220d\230!\330\004\007\200v\210Q\330\004\013\2101\200\001\330\004\007\200z\220\022\2202\220T\230\032\2402\240S\250\003\2501\330\010\016\210j\230\001\230\021\340\004\035\230R\320\0371\260\021\260&\270\006\270b\300\001\330\004\031\230\021\330\004\021\220\025\220a\220v\230Q\230a\330\004\007\200r\210\023\210A\330\010\017\210r\220\026\220r\230\025\230f\240B\240a\340\004\026\220j\240\003\2401\330\004\021\220\022\2202\220R\220r\230\021\360\006\000\005 \230r\240\026\240q\250\003\2506\260\022\2601\330\004\036\230a\330\004\037\230r\240\026\240q\250\003\2506\260\022\2601\330\004\033\2301\330\004 \240\002\240&\250\001\250\023\250F\260\"\260A\330\004 \240\001\330\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004$\240A\340\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004\035\230Q\330\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004!\240\021\340\004\013\2101\210B\210j\230\001\230\021\230!\330\004\013\2101\210G\2207\230\"\230E\240\021\330\004\013\2101\210G\2202\220R\220u\230A\230Q\230b\240\002\240!\340\t\n\330\010\021\220\021\220)\230;\240e\2501\340\004\014\210A\210R\210z\230\023\230A\230Q\330\004\014\210A\210W\220G\2302\230U\240!\330\004\014\210A\210W\220B\220b\230\005\230S\240\001\240\022\2402\240Q\330\t\n\330\010\021\220\021\220*\230K\240~\260Q\340\004\013\2101\200\001\330\004\007\200z\220\022\2202\220T\230\032\2402\240S\250\003\2501""\330\010\016\210j\230\001\230\021\340\004\035\230R\320\0371\260\021\260&\270\006\270b\300\001\330\004\030\230\001\330\004\021\220\025\220a\220v\230Q\230a\330\004\007\200r\210\023\210A\330\010\017\210r\220\026\220r\230\025\230f\240B\240a\340\004\026\220j\240\003\2401\330\004\021\220\022\2202\220R\220r\230\021\340\004\037\230r\240\026\240q\250\003\2506\260\022\2601\330\004\036\230a\330\004\037\230r\240\026\240q\250\003\2506\260\022\2601\330\004\032\230!\330\004 \240\002\240&\250\001\250\023\250F\260\"\260A\330\004\037\230q\330\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004#\2401\340\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004\035\230Q\330\004$\240B\240f\250A\250S\260\006\260b\270\001\330\004!\240\021\330\004\013\2101\210B\210j\230\001\230\021\230!\330\004\013\2101\210G\2207\230\"\230E\240\021\330\004\013\2101\210G\2202\220R\220u\230A\230Q\230b\240\002\240!\340\t\n\330\010\021\220\021\220)\230;\240e\2501\340\004\014\210A\210R\210z\230\023\230A\230Q\330\004\014\210A\210W\220G\2302\230U\240!\330\004\014\210A\210W\220B\220b\230\005\230S\240\001\240\022\2402\240Q\330\t\n\330\010\021\220\021\220*\230K\240~\260Q\340\004\013\2101O";
     PyObject *data = NULL;
     CYTHON_UNUSED_VAR(__Pyx_DecompressString);
     #endif
@@ -64494,37 +64461,37 @@ static int __Pyx_CreateCodeObjects(__pyx_mstatetype *__pyx_mstate) {
     __pyx_mstate_global->__pyx_codeobj_tab[17] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_cgetGlobalBaseline, __pyx_mstate->__pyx_kp_b_iso88591_q_Q_a_a_q_S_y_1_q_z_A_A_3a_A_as, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[17])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {5, 0, 0, 5, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2416};
+    const __Pyx_PyCode_New_function_description descr = {5, 0, 0, 5, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2414};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_values, __pyx_mstate->__pyx_n_u_blockLength, __pyx_mstate->__pyx_n_u_excludeMask, __pyx_mstate->__pyx_n_u_maxBeta, __pyx_mstate->__pyx_n_u_ridgeLambda};
     __pyx_mstate_global->__pyx_codeobj_tab[18] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_crolling_AR1_IVar, __pyx_mstate->__pyx_kp_b_iso88591_vQa_q_1_RvQm6_1_2Q_e1_2Q_fA_q_A, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[18])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2570};
+    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2568};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_x, __pyx_mstate->__pyx_n_u_w};
     __pyx_mstate_global->__pyx_codeobj_tab[19] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_cPAVA, __pyx_mstate->__pyx_kp_b_iso88591_4_425Gq_6QSS_bbc_325Gq_6QSS_bbc, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[19])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {12, 0, 0, 12, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2674};
+    const __Pyx_PyCode_New_function_description descr = {12, 0, 0, 12, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2672};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_postFitResiduals, __pyx_mstate->__pyx_n_u_matrixMunc, __pyx_mstate->__pyx_n_u_stateVar0, __pyx_mstate->__pyx_n_u_intervalToBlockMap, __pyx_mstate->__pyx_n_u_blockCount, __pyx_mstate->__pyx_n_u_pad, __pyx_mstate->__pyx_n_u_scaleFactorLow, __pyx_mstate->__pyx_n_u_scaleFactorUpper, __pyx_mstate->__pyx_n_u_sqResClip, __pyx_mstate->__pyx_n_u_allowDeflate, __pyx_mstate->__pyx_n_u_clipSmall, __pyx_mstate->__pyx_n_u_smoothAlpha};
     __pyx_mstate_global->__pyx_codeobj_tab[20] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_cscaleStateCovar, __pyx_mstate->__pyx_kp_b_iso88591_vQa_vQa_q_Q_Q_M_BeSTT_ffhhi_U_E, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[20])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2913};
+    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2911};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_data, __pyx_mstate->__pyx_n_u_blockSize};
     __pyx_mstate_global->__pyx_codeobj_tab[21] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_clocalBaseline_F64, __pyx_mstate->__pyx_kp_b_iso88591_z_2T_2S_1_j_R_1_b_avQa_r_A_r_r, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[21])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2957};
+    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2955};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_data, __pyx_mstate->__pyx_n_u_blockSize};
     __pyx_mstate_global->__pyx_codeobj_tab[22] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_clocalBaseline_F32, __pyx_mstate->__pyx_kp_b_iso88591_z_2T_2S_1_j_R_1_b_avQa_r_A_r_r_2, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[22])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2999};
+    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 2997};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_x, __pyx_mstate->__pyx_n_u_blockSize};
     __pyx_mstate_global->__pyx_codeobj_tab[23] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_clocalBaseline, __pyx_mstate->__pyx_kp_b_iso88591_Q_HAQ_s_Ba_uA_s_Ba_uA_1A, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[23])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 3008};
+    const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 3006};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_chromMat, __pyx_mstate->__pyx_n_u_minCount, __pyx_mstate->__pyx_n_u_nonzeroFrac, __pyx_mstate->__pyx_n_u_centerGeoMean};
     __pyx_mstate_global->__pyx_codeobj_tab[24] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_cSF, __pyx_mstate->__pyx_kp_b_iso88591_B_DVVWWaaggiij_q_q_a_r_q_6QSST, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[24])) goto bad;
   }

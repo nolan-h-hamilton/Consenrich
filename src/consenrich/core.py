@@ -1676,10 +1676,7 @@ def plotStateEstimatesHistogram(
         plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
         x = np.asarray(binnedStateEstimates, dtype=np.float64).ravel()
         if x.size:
-            q1, q3 = np.quantile(x, [0.25, 0.75])
-            iqr = q3 - q1
-            lowerLim = q1 - (5.0 * iqr)
-            upperLim = q3 + (5.0 * iqr)
+            lowerLim, upperLim = np.quantile(x, [1.0e-4, 1.0 - 1.0e-4])
             x = x[(x >= lowerLim) & (x <= upperLim)]
         binnedStateEstimates = x.astype(np.float32, copy=False)
 
@@ -1762,10 +1759,7 @@ def plotMWSRHistogram(
         plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
         x = np.asarray(binnedMWSR, dtype=np.float64).ravel()
         if x.size:
-            q1, q3 = np.quantile(x, [0.25, 0.75])
-            iqr = q3 - q1
-            lowerLim = q1 - (5.0 * iqr)
-            upperLim = q3 + (5.0 * iqr)
+            lowerLim, upperLim = np.quantile(x, [0, 1.0 - 1.0e-4])
             x = x[(x >= lowerLim) & (x <= upperLim)]
         binnedMWSR = x.astype(np.float32, copy=False)
 

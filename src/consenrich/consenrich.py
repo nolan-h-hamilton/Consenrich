@@ -481,7 +481,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        1.0,
+        0.5,
     )
 
     c1_ = _cfgGet(
