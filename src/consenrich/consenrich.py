@@ -399,12 +399,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 25) + 1, 1000), 500_000),
+        min(max(2 * (intervalSizeBP * 50) + 1, 1000), 500_000),
     )
     smoothSpanBP_ = _cfgGet(
         configData,
         "countingParams.smoothSpanBP",
-        4 * intervalSizeBP,
+        3 * intervalSizeBP,
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -475,7 +475,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     rtailProp_ = _cfgGet(
         configData,
         "countingParams.rtailProp",
-        0.50,
+        0.9,
     )
 
     c0_ = _cfgGet(

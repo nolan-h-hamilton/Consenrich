@@ -1488,11 +1488,11 @@ cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
     bint disableBackground = <bint>False,
-    double rtailProp = <double>0.75,
+    double rtailProp = <double>0.9,
     double c0 = <double>1/2,
     double c1 = <double>1.0 / log(2.0),
     double w_local=<double>1.0,
-    double w_global=<double>3.0,
+    double w_global=<double>4.0,
 ):
     cdef cnp.ndarray finalArr__
     cdef Py_ssize_t valuesLength, i, bootBlockSize
