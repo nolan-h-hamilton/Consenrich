@@ -115,20 +115,22 @@ class observationParams(NamedTuple):
 
 
     :param minR: Genome-wide lower bound for sample-specific measurement uncertainty levels. In the default implementation, this clip is applied after initial calculation of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
-    :type minR: float
+    :type minR: float | None
     :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels. In the default implementation, this clip is applied after initial calculation of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
-    :type max: float
+    :type maxR: float | None
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
-    :type samplingIters: int
+    :type samplingIters: int | None
     :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
       Note, block sizes are drawn as :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSizeBP})` to avoid fixed block artifacts.
-    :type samplingBlockSizeBP: int
+    :type samplingBlockSizeBP: int | None
+    :param binQuantileCutoff: Quantile cutoff for binning variances when fitting the empirical mean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
+    :type binQuantileCutoff: float | None
     :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{EB_minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
-    :type EB_minLin: float
-    :param EB_use: If True, apply empirical Bayes shrinkage in :func:`consenrich.core.getMuncTrack`.
-    :type EB_use: bool
+    :type EB_minLin: float | None
+    :param EB_use: If True, shrink 'local' noise estimates to a prior trend dependent on amplitude. See  :func:`consenrich.core.getMuncTrack`.
+    :type EB_use: bool | None
     :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
-    :type EB_setNu0: int or None
+    :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
     """
 
@@ -136,6 +138,7 @@ class observationParams(NamedTuple):
     maxR: float | None
     samplingIters: int | None
     samplingBlockSizeBP: int | None
+    binQuantileCutoff: float | None
     EB_minLin: float | None
     EB_use: bool | None
     EB_setNu0: int | None
@@ -183,18 +186,17 @@ class samParams(NamedTuple):
     :type offsetStr: str
     :param maxInsertSize: Maximum frag length/insert to consider when estimating fragment length.
     :type maxInsertSize: int
-    :param pairedEndMode: If > 0, use TLEN attribute to determine span of (proper) read pairs and extend reads accordingly.
-    :type pairedEndMode: int
     :param inferFragmentLength: Intended for single-end data: if > 0, the maximum correlation lag
        (avg.) between *strand-specific* read tracks is taken as the fragment length estimate and used to
-       extend reads from 5'. Ignored if `pairedEndMode > 0`, `countEndsOnly`, or `fragmentLengths` is provided.
+       extend reads from 5'. Ignored if data is paired-end, `countEndsOnly`, or `fragmentLengths` is provided.
        important when targeting broader marks (e.g., ChIP-seq H3K27me3).
     :type inferFragmentLength: int
-    :param countEndsOnly: If True, only the 5' read lengths contribute to counting. Overrides `inferFragmentLength` and `pairedEndMode`.
+    :param countEndsOnly: If True, only the 5' read lengths contribute to counting.
     :type countEndsOnly: Optional[bool]
     :param minMappingQuality: Minimum mapping quality (MAPQ) for reads to be counted.
     :type minMappingQuality: Optional[int]
-    :param fragmentLengths:
+    :param fragmentLengths: If supplied, a list of estimated fragment lengths for each BAM file.
+        These are values are used to extend reads. Note, these values will override `TLEN` attributes in paired-end data
 
     .. tip::
 
@@ -248,6 +250,10 @@ class genomeParams(NamedTuple):
     :type sparseBedFile: str, optional
     :param chromosomes: A list of chromosome names to analyze. If None, all chromosomes in `chromSizesFile` are used.
     :type chromosomes: List[str]
+    :param excludeChroms: A list of chromosome names to *exclude* from analysis.
+    :type excludeChroms: List[str]
+    :param excludeForNorm: A list of chromosome names to *exclude* when summing up the 'effective genome size' during normalization. This can be useful to avoid bias from poorly assembled, highly repetitive, and/or sex-specific chromosomes (e.g., chrM, chrUn, etc.). For reference, see `effective genome size <https://deeptools.readthedocs.io/en/latest/content/feature/effectiveGenomeSize.html>`_.
+    :type excludeForNorm: List[str]
     """
 
     genomeName: str
@@ -274,7 +280,7 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param rtailProp: Quantile of bootstrap *means* used to define global baseline.
+    :param rtailProp: Quantile of circular/block-bootstrapped *empirical means* used to define global baseline.
     :type rtailProp: float, optional
 
     :seealso: :func:`consenrich.cconsenrich.cTransform`
@@ -603,8 +609,7 @@ def readBamSegments(
     :param minTemplateLength: See :class:`samParams`.
     :type minTemplateLength: Optional[int]
     :param fragmentLengths: If supplied, a list of estimated fragment lengths for each BAM file.
-        In single-end mode, these are values are used to extend reads. They are ignored in paired-end
-        mode, where each proper pair `TLEN` is counted.
+        These are values are used to extend reads. Note, these values will override `TLEN` attributes in paired-end data
     :type fragmentLengths: Optional[List[int]]
     """
 
@@ -623,8 +628,23 @@ def readBamSegments(
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
     counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
 
-    if pairedEndMode:
-        # paired end --> use TLEN attribute for each properly paired read
+    if pairedEndMode and fragmentLengths is not None:
+        if isinstance(fragmentLengths, list) and len(fragmentLengths) != len(bamFiles):
+            if len(fragmentLengths) == 1:
+                fragmentLengths = fragmentLengths * len(bamFiles)
+            else:
+                raise ValueError(
+                    f"`fragmentLengths` length must match `bamFiles` length: {len(fragmentLengths)} != {len(bamFiles)}.",
+                )
+
+        if isinstance(fragmentLengths, int):
+            fragmentLengths = [fragmentLengths] * len(bamFiles)
+
+        pairedEndMode = 0
+        inferFragmentLength = 0
+
+    elif pairedEndMode:
+        # paired end w/ out fragment lengths provided --> use TLEN attribute for each properly paired read
         fragmentLengths = [0] * len(bamFiles)
         inferFragmentLength = 0
 
@@ -1021,7 +1041,7 @@ def runConsenrich(
             # if rho (actual vs. predicted reduction) is above/below these thresholds,
             # grow/shrink the trust-region radius accordingly
             calibration_trustRhoThresh = np.float32(
-                calibration_kwargs.get("calibration_trustRhoThresh", 1.0 - 1.0 / 4.0)
+                calibration_kwargs.get("calibration_trustRhoThresh", 1.0 - (1.0 / 4.0))
             )
             calibration_NOT_TrustRhoThresh = np.float32(
                 calibration_kwargs.get("calibration_NOT_TrustRhoThresh", 1.0 / 4.0)
@@ -1030,7 +1050,7 @@ def runConsenrich(
             calibration_trustShrink = np.float32(calibration_kwargs.get("calibration_trustShrink", 1 / 2.0))
 
             # mild smoothing for nearby block-gradients
-            calibration_gradSmooth = float(calibration_kwargs.get("calibration_gradSmooth", 0.25))
+            calibration_gradSmooth = float(calibration_kwargs.get("calibration_gradSmooth", 0.1))
             calibration_gradSmooth = max(0.0, min(0.5, calibration_gradSmooth))
             gradKernel = np.array(
                 [calibration_gradSmooth, 1.0 - 2.0 * calibration_gradSmooth, calibration_gradSmooth],
@@ -1286,6 +1306,15 @@ def runConsenrich(
             f"Process noise updated at {float(100 * (countAdjustments / NIS.size))}% intervals, NIS Φ≈{phiHat:.4f}",
         )
 
+        if phiHat < 0.5:
+            logger.warning(
+                f"Warning: Final NIS statistic Φ≈{phiHat:.4f} is below expectation (Φ≈1.0). Variances may be OVER-estimated."
+            )
+        elif phiHat > 2.0:
+            logger.warning(
+                f"Warning: Final NIS statistic Φ≈{phiHat:.4f} is above expectation (Φ≈1.0). Variances may be UNDER-estimated."
+            )
+
         stateForwardArr = stateForward
         stateCovarForwardArr = stateCovarForward
         pNoiseForwardArr = pNoiseForward
@@ -1502,7 +1531,6 @@ def getBedMask(
         raise ValueError("intervals must contain at least two positions")
     bedFile_ = str(bedFile)
 
-    # (possibly redundant) creation of uint32 version
     # + quick check for constant steps
     intervals_ = np.asarray(intervals, dtype=np.uint32)
     if (intervals_[1] - intervals_[0]) != (intervals_[-1] - intervals_[-2]):
@@ -1529,7 +1557,7 @@ def autoDeltaF(
     Computes average fragment length across samples and sets `processParams.deltaF = countingArgs.intervalSizeBP / medianFragmentLength`.
 
     Where `intervalSizeBP` is small, adjacent genomic intervals may share information from the same fragments. This motivates
-    a smaller `deltaF` (i.e., less state breaks_ between neighboring intervals).
+    a smaller `deltaF` (i.e., less change in state between neighboring intervals). Note, to specify ``deltaF`` directly, set it in the :class:`processParams`.
 
     :param intervalSizeBP: Length of genomic intervals/bins. See :class:`countingParams`.
     :type intervalSizeBP: int
@@ -1566,8 +1594,8 @@ def autoDeltaF(
     else:
         raise ValueError("One of `fragmentLengths` or `bamFiles` is required...")
     if avgFragmentLength > 0:
-        deltaF = round(intervalSizeBP / float(avgFragmentLength), 4)
-        logger.info(f"Setting `processParams.deltaF`={deltaF}")
+        deltaF = min(intervalSizeBP / float(avgFragmentLength), 0.25)
+        logger.info(f"Setting `processParams.deltaF`={deltaF:.4f}")
         return np.float32(deltaF)
     else:
         raise ValueError("Average cross-sample fraglen estimation failed")
@@ -1675,15 +1703,11 @@ def plotStateEstimatesHistogram(
     with mpl.rc_context(MATHFONT):
         plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
         x = np.asarray(binnedStateEstimates, dtype=np.float64).ravel()
-        if x.size:
-            lowerLim, upperLim = np.quantile(x, [1.0e-4, 1.0 - 1.0e-4])
-            x = x[(x >= lowerLim) & (x <= upperLim)]
         binnedStateEstimates = x.astype(np.float32, copy=False)
 
         plt.hist(
             binnedStateEstimates,
             color="blue",
-            bins="doane",
             alpha=1.0,
             edgecolor="black",
             fill=False,
@@ -1759,14 +1783,13 @@ def plotMWSRHistogram(
         plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
         x = np.asarray(binnedMWSR, dtype=np.float64).ravel()
         if x.size:
-            lowerLim, upperLim = np.quantile(x, [0, 1.0 - 1.0e-4])
+            lowerLim, upperLim = np.quantile(x, [0, 0.99])
             x = x[(x >= lowerLim) & (x <= upperLim)]
         binnedMWSR = x.astype(np.float32, copy=False)
 
         plt.hist(
             binnedMWSR,
             color="blue",
-            bins="doane",
             alpha=1.0,
             edgecolor="black",
             fill=False,
@@ -1786,64 +1809,77 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-2,
-    EB_minLin: float = 0.1,
+    eps: float = 1.0e-4,
+    binQuantileCutoff: float = 0.75,
+    EB_minLin: float = 0.0,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
     absMeans = np.abs(means)
-
-    # filter/mask |mean| values before fit
-    upper__ = np.quantile(absMeans, 0.999)
-    filterMask = (absMeans >= 0.0) & (absMeans < upper__)
-    absMeans = absMeans[filterMask]
-    variances = variances[filterMask]
+    n = absMeans.size
 
     sortIdx = np.argsort(absMeans)
     absMeans = absMeans[sortIdx]
-    variances = variances[sortIdx]
+    variances = variances[sortIdx] + eps
 
-    # weights increasing wrt variance
-    weights = np.power(variances + 1e-4, 0.5)
-    weights /= np.mean(weights)
+    binCount = int(1 + np.log2(n))
+    binCount = max(4, binCount)
+    binEdges = np.linspace(0, n, binCount + 1, dtype=np.int64)
+    binEdges = np.unique(binEdges)
+    if binEdges.size < 2:
+        binEdges = np.array([0, n], dtype=np.int64)
 
-    # weighted isotonic regression
+    binnedAbsMeans = []
+    binnedVariances = []
+    binWeights = []
+    for k in range(binEdges.size - 1):
+        i = int(binEdges[k])
+        j = int(binEdges[k + 1])
+        if j <= i:
+            continue
+        binnedAbsMeans.append(np.median(absMeans[i:j]))
+        binnedVariances.append(np.quantile(variances[i:j], binQuantileCutoff))
+        binWeights.append(float(j - i))
+
+    absMeans = np.asarray(binnedAbsMeans, dtype=np.float64)
+    variances = np.asarray(binnedVariances, dtype=np.float64)
+    weights = np.asarray(binWeights, dtype=np.float64)
+
+    # isotonic regression via PAVA
     varsFit = cconsenrich.cPAVA(variances, weights)
+    breaks = np.empty(varsFit.size, dtype=bool)
+    breaks[0] = True
+    breaks[1:] = varsFit[1:] != varsFit[:-1]
+
+    coefAMu = absMeans[breaks]
+    coefVar = varsFit[breaks]
 
     # lower envelope
-    varsFit = np.maximum(varsFit, EB_minLin * absMeans + eps)
-    breaks_ = np.empty(varsFit.size, dtype=bool)
-    breaks_[0] = True
-    breaks_[1:] = (varsFit[1:] != varsFit[:-1])
-
-    coef_aMu = absMeans[breaks_]
-    coef_Var = varsFit[breaks_]
-    return np.vstack([coef_aMu.astype(np.float32), coef_Var.astype(np.float32)])
+    coefVar = np.maximum(coefVar, EB_minLin * coefAMu)
+    return np.vstack([coefAMu.astype(np.float32), coefVar.astype(np.float32)])
 
 
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
     eps: float = 1.0e-2,
-    EB_minLin: float = 0.1,
+    EB_minLin: float = 0.0,
 ) -> np.ndarray:
-
-    absMeans_ = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
+    absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
     if coeffs is None or np.asarray(coeffs).size == 0:
-        return np.full(absMeans_.shape, np.nan, dtype=np.float32)
+        return np.full(absMeans.shape, np.nan, dtype=np.float32)
 
-    coef_aMu = np.asarray(coeffs[0], dtype=np.float64).ravel()
-    coef_Var = np.asarray(coeffs[1], dtype=np.float64).ravel()
-    if coef_aMu.size == 0:
-        return np.full(absMeans_.shape, np.nan, dtype=np.float32)
+    coefAMu = np.asarray(coeffs[0], dtype=np.float64).ravel()
+    coefVar = np.asarray(coeffs[1], dtype=np.float64).ravel()
+    if coefAMu.size == 0:
+        return np.full(absMeans.shape, np.nan, dtype=np.float32)
 
     # keep in range used to fit
-    x = np.clip(absMeans_, coef_aMu[0], coef_aMu[-1])
-    idx = np.searchsorted(coef_aMu, x, side="right") - 1
-    varsEval_ = coef_Var[idx]
-
-    varsEval_ = np.maximum(varsEval_, EB_minLin * absMeans_ + eps)
-    return varsEval_.astype(np.float32)
+    x = np.clip(absMeans, coefAMu[0], coefAMu[-1])
+    # idx = np.searchsorted(coefAMu, x, side="right") - 1
+    # varsEval = coefVar[idx]
+    varsEval = np.interp(x, coefAMu, coefVar)
+    return varsEval.astype(np.float32)
 
 
 def getMuncTrack(
@@ -1857,7 +1893,8 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    EB_minLin: float = 0.1,
+    binQuantileCutoff: float = 0.75,
+    EB_minLin: float = 0.0,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
@@ -1883,6 +1920,8 @@ def getMuncTrack(
     :type samplingBlockSizeBP: int
     :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
+    :param binQuantileCutoff: Quantile of variances within bins of absolute mean signal to use when fitting global mean-variance trend.
+    :type binQuantileCutoff: float
     :param EB_minLin: Require prior-model fitted variances satisfy ``var >= EB_minLin*absMean``
     :type EB_minLin: float
     :param EB_use: If `False`, only return the global prior variance track.
@@ -1898,14 +1937,14 @@ def getMuncTrack(
     """
     AR1_PARAMCT = 3
     if samplingBlockSizeBP is None:
-        samplingBlockSizeBP = intervalSizeBP * (5 * AR1_PARAMCT)
+        samplingBlockSizeBP = intervalSizeBP * (11 * AR1_PARAMCT)
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
-    if blockSizeIntervals < (5 * AR1_PARAMCT):
+    if blockSizeIntervals < (11 * AR1_PARAMCT):
         logger.warning(
             f"`observationParams.samplingBlockSizeBP`={samplingBlockSizeBP}bp spans "
             f"only {blockSizeIntervals} genomic intervals for estimating "
             f"AR1 per (|mean|, variance) pair...consider increasing to at least "
-            f"{(5 * AR1_PARAMCT) * intervalSizeBP}bp to control AR1 estimate variance",
+            f"{(11 * AR1_PARAMCT) * intervalSizeBP}bp to control AR1 estimate variance",
         )
 
     localWindowIntervals = max(4, (blockSizeIntervals + 1))
@@ -1939,7 +1978,9 @@ def getMuncTrack(
     order = np.argsort(meanAbs_Masked)
     meanAbs_Sorted = meanAbs_Masked[order]
     var_Sorted = var_Masked[order]
-    opt = fitVarianceFunction(meanAbs_Sorted, var_Sorted, EB_minLin=EB_minLin)
+    opt = fitVarianceFunction(
+        meanAbs_Sorted, var_Sorted, binQuantileCutoff=binQuantileCutoff, EB_minLin=EB_minLin
+    )
 
     meanTrack = np.abs(valuesArr).copy()
     if useEMA:
@@ -1950,7 +1991,7 @@ def getMuncTrack(
         return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
 
     # Local:
-    # ... Rolling AR(1) innovation variance estimates over local windows
+    # ... 'Rolling' AR(1) innovation variance estimates over a sliding window
     obsVarTrack = cconsenrich.crolling_AR1_IVar(
         valuesArr,
         localWindowIntervals,
@@ -1979,7 +2020,7 @@ def getMuncTrack(
     posteriorVarTrack[:] = priorTrack
 
     obsVarTrackF32 = obsVarTrack.astype(np.float32, copy=False)
-    noFlag = (obsVarTrackF32 > 1.0e-4)
+    noFlag = obsVarTrackF32 > 1.0e-4
     posteriorVarTrack[noFlag] = (
         Nu_L * obsVarTrackF32[noFlag] + Nu_0 * priorTrack[noFlag]
     ) / posteriorSampleSize
@@ -2015,8 +2056,7 @@ def EB_computePriorStrength(
     localModelVariancesArr = np.asarray(localModelVariances, dtype=np.float64)
     globalModelVariancesArr = np.asarray(globalModelVariances, dtype=np.float64)
 
-    ratioMask = ((localModelVariancesArr > 0.0) & (globalModelVariancesArr > 0.0)
-    )
+    ratioMask = (localModelVariancesArr > 0.0) & (globalModelVariancesArr > 0.0)
     if np.count_nonzero(ratioMask) < (0.10) * localModelVariancesArr.size:
         logger.warning(
             f"Insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
@@ -2032,16 +2072,16 @@ def EB_computePriorStrength(
         return float(1.0e6)
 
     logVarRatioArr = np.log(varRatioArr)
-    clipSmall = np.quantile(logVarRatioArr, 0.005)
-    clipBig = np.quantile(logVarRatioArr, 0.995)
+    clipSmall = np.quantile(logVarRatioArr, 0.001)
+    clipBig = np.quantile(logVarRatioArr, 0.999)
     np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
 
     varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
     trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))
-    gap = varLogVarRatio - trigammaLocal
+    # inverse trigamma --> inf near 0
+    gap = max(varLogVarRatio - trigammaLocal, 1.0e-6)
     Nu_0 = 2.0 * itrigamma(gap)
     if Nu_0 < 4.0:
         Nu_0 = 4.0
 
     return float(Nu_0)
-

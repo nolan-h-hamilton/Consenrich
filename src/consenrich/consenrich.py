@@ -395,16 +395,16 @@ def getStateArgs(config_path: str) -> core.stateParams:
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
+    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 50)
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 11) + 1, 1000), 500_000),
+        min(max(2 * (intervalSizeBP * 25) + 1, 1000), 500_000),
     )
     smoothSpanBP_ = _cfgGet(
         configData,
         "countingParams.smoothSpanBP",
-        3 * intervalSizeBP,
+        0 * intervalSizeBP,
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -427,7 +427,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "SF",
+        "EGS",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
@@ -481,13 +481,13 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        0.5,
+        1.0,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0 / math.log(2.0),
+        1 / math.log(2),
     )
 
     return core.countingParams(
@@ -620,18 +620,23 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
-            10_000,
+            25_000,
         ),
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockSizeBP",
             None,
         ),
+        binQuantileCutoff=_cfgGet(
+            configData,
+            "observationParams.binQuantileCutoff",
+            0.75,
+        ),
         EB_minLin=float(
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                0.1,
+                0.0,
             )
         ),
         EB_use=_cfgGet(
@@ -1253,14 +1258,30 @@ def main():
                         fragmentLengthsControl[j_],
                     ],
                 )
-
-                chromMat[j_, :] = cconsenrich.cTransform(
-                    np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0),
+                treat_t = cconsenrich.cTransform(
+                    pairMatrix[0, :],
                     blockLength=backgroundBlockSizeIntervals,
+                    disableBackground=True,
                     rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
                 )
+                ctrl_t = cconsenrich.cTransform(
+                    pairMatrix[1, :],
+                    blockLength=backgroundBlockSizeIntervals,
+                    disableBackground=True,
+                    rtailProp=countingArgs.rtailProp,
+                    c0=countingArgs.c0,
+                    c1=countingArgs.c1,
+                )
+
+                chromMat[j_, :] = treat_t - ctrl_t
+
+                if countingArgs.smoothSpanBP > 0:
+                    chromMat[j_, :] = cconsenrich.cEMA(
+                        chromMat[j_, :],
+                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
+                    )
 
                 muncMat[j_, :], _ = core.getMuncTrack(
                     chromosome,
@@ -1269,6 +1290,7 @@ def main():
                     intervalSizeBP,
                     samplingIters=observationArgs.samplingIters,
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
+                    binQuantileCutoff=observationArgs.binQuantileCutoff,
                     EB_minLin=observationArgs.EB_minLin,
                     randomSeed=42 + j_,
                     EB_use=observationArgs.EB_use,
@@ -1276,12 +1298,6 @@ def main():
                     EB_setNuL=observationArgs.EB_setNuL,
                     verbose=args.verbose2,
                 )
-
-                if countingArgs.smoothSpanBP > 0:
-                    chromMat[j_, :] = cconsenrich.cEMA(
-                        chromMat[j_, :],
-                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
-                    )
 
                 j_ += 1
         else:
@@ -1332,6 +1348,12 @@ def main():
                     c1=countingArgs.c1,
                 )
 
+                if countingArgs.smoothSpanBP > 0:
+                    chromMat[j, :] = cconsenrich.cEMA(
+                        chromMat[j, :],
+                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
+                    )
+
                 # compute munc track for each sample independently
                 muncMat[j, :], _ = core.getMuncTrack(
                     chromosome,
@@ -1340,6 +1362,7 @@ def main():
                     intervalSizeBP,
                     samplingIters=observationArgs.samplingIters,
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
+                    binQuantileCutoff=observationArgs.binQuantileCutoff,
                     EB_minLin=observationArgs.EB_minLin,
                     randomSeed=42 + j,
                     EB_use=observationArgs.EB_use,
@@ -1347,12 +1370,6 @@ def main():
                     EB_setNuL=observationArgs.EB_setNuL,
                     verbose=args.verbose2,
                 )
-
-                if countingArgs.smoothSpanBP > 0:
-                    chromMat[j, :] = cconsenrich.cEMA(
-                        chromMat[j, :],
-                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
-                    )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-4))
