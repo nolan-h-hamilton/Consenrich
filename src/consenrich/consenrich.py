@@ -399,12 +399,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 11) + 1, 1000), 500_000),
+        min(max(2 * (intervalSizeBP * 25) + 1, 1000), 500_000),
     )
     smoothSpanBP_ = _cfgGet(
         configData,
         "countingParams.smoothSpanBP",
-        3 * intervalSizeBP,
+        4 * intervalSizeBP,
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -427,7 +427,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "SF",
+        "EGS",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
@@ -475,19 +475,19 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     rtailProp_ = _cfgGet(
         configData,
         "countingParams.rtailProp",
-        0.75,
+        0.50,
     )
 
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        0.5,
+        1/2,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0 / math.log(2.0),
+        1.0/math.log(2),
     )
 
     return core.countingParams(
@@ -620,7 +620,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
-            10_000,
+            25_000,
         ),
         samplingBlockSizeBP=_cfgGet(
             configData,
@@ -631,7 +631,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                0.1,
+                0.01,
             )
         ),
         EB_use=_cfgGet(
@@ -1255,12 +1255,18 @@ def main():
                 )
 
                 chromMat[j_, :] = cconsenrich.cTransform(
-                    np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0),
+                    pairMatrix[0, :] - pairMatrix[1, :],
                     blockLength=backgroundBlockSizeIntervals,
                     rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
                 )
+
+                if countingArgs.smoothSpanBP > 0:
+                    chromMat[j_, :] = cconsenrich.cEMA(
+                        chromMat[j_, :],
+                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
+                    )
 
                 muncMat[j_, :], _ = core.getMuncTrack(
                     chromosome,
@@ -1276,12 +1282,6 @@ def main():
                     EB_setNuL=observationArgs.EB_setNuL,
                     verbose=args.verbose2,
                 )
-
-                if countingArgs.smoothSpanBP > 0:
-                    chromMat[j_, :] = cconsenrich.cEMA(
-                        chromMat[j_, :],
-                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
-                    )
 
                 j_ += 1
         else:
@@ -1332,6 +1332,12 @@ def main():
                     c1=countingArgs.c1,
                 )
 
+                if countingArgs.smoothSpanBP > 0:
+                    chromMat[j, :] = cconsenrich.cEMA(
+                        chromMat[j, :],
+                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
+                    )
+
                 # compute munc track for each sample independently
                 muncMat[j, :], _ = core.getMuncTrack(
                     chromosome,
@@ -1347,12 +1353,6 @@ def main():
                     EB_setNuL=observationArgs.EB_setNuL,
                     verbose=args.verbose2,
                 )
-
-                if countingArgs.smoothSpanBP > 0:
-                    chromMat[j, :] = cconsenrich.cEMA(
-                        chromMat[j, :],
-                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
-                    )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-4))

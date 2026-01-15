@@ -18,6 +18,7 @@ from cython.parallel import prange
 from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
 from libc.stdlib cimport rand, srand, RAND_MAX
 from libc.string cimport memcpy
+from libc.stdio cimport printf
 cnp.import_array()
 
 # ========
@@ -244,13 +245,13 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 cdef inline float _ctrans_F32(float x, float c0, float c1) nogil:
     # CALLERS: `cTransform`
 
-    return c1*logf(x + c0)
+    return c1*asinhf(x*c0)
 
 
 cdef inline double _ctrans_F64(double x, double c0, double c1) nogil:
     # CALLERS: `cTransform`
 
-    return c1*log(x + c0)
+    return c1*asinh(x*c0)
 
 
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
@@ -359,10 +360,12 @@ cdef inline double _U01() nogil:
 
     return (<double>rand()) / (<double>RAND_MAX + 1.0)
 
+
 cdef inline Py_ssize_t _rand_int(Py_ssize_t n) nogil:
     # CALLERS: cgetGlobalBaseline
 
     return <Py_ssize_t>(rand() % n)
+
 
 cdef inline Py_ssize_t _geometricDraw(double logq_) nogil:
     # CALLERS: cgetGlobalBaseline
@@ -511,6 +514,7 @@ cpdef cnp.float32_t[:] creadBamSegment(
     int64_t minMappingQuality=0,
     int64_t minTemplateLength=-1,
     uint8_t weightByOverlap=1,
+    uint8_t ignoreTLEN=1,
     ):
     r"""Count reads in a BAM file for a given chromosome"""
 
@@ -1486,9 +1490,9 @@ cpdef object cTransform(
     bint disableBackground = <bint>False,
     double rtailProp = <double>0.75,
     double c0 = <double>1/2,
-    double c1 = <double>1/log(2.0),
+    double c1 = <double>1.0 / log(2.0),
     double w_local=<double>1.0,
-    double w_global=<double>4.0,
+    double w_global=<double>3.0,
 ):
     cdef cnp.ndarray finalArr__
     cdef Py_ssize_t valuesLength, i, bootBlockSize
@@ -2273,8 +2277,9 @@ cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=1000,
-    double rtailProp=<double>0.75,
+    double rtailProp=<double>0.50,
     uint64_t seed=0,
+    bint verbose = <bint>False,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
     cdef cnp.float32_t[::1] rawView
@@ -2290,16 +2295,24 @@ cpdef double cgetGlobalBaseline(
     cdef Py_ssize_t i, b
     cdef Py_ssize_t remaining, L, start, end
     cdef double sumInReplicate
-    cdef double lowEPS = 1.0 # values below `lowEPS` are treated as zeros in the bootstrap
+    # values below `lowEPS` are treated as zeros during the reject
+    cdef double lowEPS = 0.5
+
+    # ... additionally, values lower than lower__, greater than upper__
+    # ... are truncated to bounds to nudge the baseline estimate to
+    # ... the right tail (save those > upper__)
     cdef double lower__, upper__
     cdef double upperBound
-    lower__ = 1.0e-4
-    upper__ = 1.0e8
+    lower__ = 1.0e-2
+    upper__ = 100.0
 
     cdef double p0, mu0, sd0, stdCutoff
     cdef Py_ssize_t allowedZeros, zeroCount, tries
-    cdef Py_ssize_t maxTries = 100
+    cdef Py_ssize_t maxTries = 25
     cdef bint useGeom
+    cdef long acceptCt = <long>0
+    cdef long proposalCt = <long>0
+
 
     if bootBlockSize <= 0:
         bootBlockSize = 1
@@ -2314,7 +2327,7 @@ cpdef double cgetGlobalBaseline(
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
 
-    values = raw
+    values = np.clip(raw, lower__, upper__)
     valuesView = values
     numValues = values.size
     stdCutoff = <double>5.0
@@ -2367,22 +2380,27 @@ cpdef double cgetGlobalBaseline(
                 if L <= 0:
                     L = 1
 
+                # encourages rejection of sparse blocks despite crude independence assumption
                 mu0 = p0 * (<double>L)
                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
                 allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)
+
+                # edge cases: don't require all values in the block to be non-zero
+                # or allow all to be zero until maxTries is exhausted
                 if allowedZeros < 1:
-                    allowedZeros = 1
+                    allowedZeros = 1 if L > 1 else 0
                 elif allowedZeros > L:
-                    allowedZeros = L
+                    allowedZeros = L-1 if L > 1 else L
 
                 # try to sample a dense block: no success --> take the last try
-                # ... this is less than ideal (breaks the sampling distribution),
+                # ... this is less than ideal (breaks any real sampling distribution),
                 # ... but should be uncommon for reasonable thresholds, and we need
                 # ... the algorithm to actually terminate
                 for tries in range(maxTries):
+                    # note, on each try, only the start index is resampled, the length L fixed
                     start = _rand_int(numValues)
                     end = start + L
-
+                    proposalCt += 1
                     if end <= numValues:
                         zeroCount = zerosView[end] - zerosView[start]
                     else:
@@ -2391,7 +2409,9 @@ cpdef double cgetGlobalBaseline(
 
                     if zeroCount <= allowedZeros:
                         # ACCEPT
+                        acceptCt += 1
                         break
+
 
                 end = start + L
                 if end <= numValues:
@@ -2406,8 +2426,15 @@ cpdef double cgetGlobalBaseline(
                 remaining -= L
             bootView[b] = sumInReplicate / (<double>numValues)
 
-    # conservative: we take the upper (1 - rtailProp) quantile from the distribution of bootstrap means
+
+
+    # finally, compute the upper bound quantile from the bootstrap means
+    # we take the upper (1 - rtailProp) quantile of *bootstrap replicates* (not the original values)
     upperBound = <double>np.quantile(bootstrapMeans, 1-rtailProp)
+    if verbose:
+        printf(b"cconsenrich.cgetGlobalBaseline: Accepted %ld out of %ld block proposals during bootstrap.\n",
+            acceptCt, proposalCt)
+        printf(b"cconsenrich.cgetGlobalBaseline: Global baseline = %.4f\n", upperBound)
     return upperBound
 
 
