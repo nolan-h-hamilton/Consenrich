@@ -395,16 +395,16 @@ def getStateArgs(config_path: str) -> core.stateParams:
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
+    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 50)
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 50) + 1, 1000), 500_000),
+        min(max(2 * (intervalSizeBP * 25) + 1, 1000), 500_000),
     )
     smoothSpanBP_ = _cfgGet(
         configData,
         "countingParams.smoothSpanBP",
-        3 * intervalSizeBP,
+        0 * intervalSizeBP,
     )
     scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
     scaleFactorsControlList = _cfgGet(configData, "countingParams.scaleFactorsControl", None)
@@ -475,19 +475,19 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     rtailProp_ = _cfgGet(
         configData,
         "countingParams.rtailProp",
-        0.9,
+        0.75,
     )
 
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        1/2,
+        1.0,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0/math.log(2),
+        1 / math.log(2),
     )
 
     return core.countingParams(
@@ -627,11 +627,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.samplingBlockSizeBP",
             None,
         ),
+        binQuantileCutoff=_cfgGet(
+            configData,
+            "observationParams.binQuantileCutoff",
+            0.75,
+        ),
         EB_minLin=float(
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                0.01,
+                0.0,
             )
         ),
         EB_use=_cfgGet(
@@ -1253,14 +1258,24 @@ def main():
                         fragmentLengthsControl[j_],
                     ],
                 )
-
-                chromMat[j_, :] = cconsenrich.cTransform(
-                    pairMatrix[0, :] - pairMatrix[1, :],
+                treat_t = cconsenrich.cTransform(
+                    pairMatrix[0, :],
                     blockLength=backgroundBlockSizeIntervals,
+                    disableBackground=True,
                     rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
                 )
+                ctrl_t = cconsenrich.cTransform(
+                    pairMatrix[1, :],
+                    blockLength=backgroundBlockSizeIntervals,
+                    disableBackground=True,
+                    rtailProp=countingArgs.rtailProp,
+                    c0=countingArgs.c0,
+                    c1=countingArgs.c1,
+                )
+
+                chromMat[j_, :] = treat_t - ctrl_t
 
                 if countingArgs.smoothSpanBP > 0:
                     chromMat[j_, :] = cconsenrich.cEMA(
@@ -1275,6 +1290,7 @@ def main():
                     intervalSizeBP,
                     samplingIters=observationArgs.samplingIters,
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
+                    binQuantileCutoff=observationArgs.binQuantileCutoff,
                     EB_minLin=observationArgs.EB_minLin,
                     randomSeed=42 + j_,
                     EB_use=observationArgs.EB_use,
@@ -1346,6 +1362,7 @@ def main():
                     intervalSizeBP,
                     samplingIters=observationArgs.samplingIters,
                     samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
+                    binQuantileCutoff=observationArgs.binQuantileCutoff,
                     EB_minLin=observationArgs.EB_minLin,
                     randomSeed=42 + j,
                     EB_use=observationArgs.EB_use,

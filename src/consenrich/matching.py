@@ -35,7 +35,7 @@ def _FDR(pVals: np.ndarray, method: str | None = "bh") -> np.ndarray:
 def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 5,
-    maxLen: int = 5000,
+    maxLen: int = 1000,
     cutoffQuantile: float = 0.50,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
@@ -526,8 +526,8 @@ def mergeMatches(
         mergeGapBP = 147
         logger.info(f"Setting mergeGapBP = {mergeGapBP} bp")
 
-    MAX_NEGLOGP = 10.0
-    MIN_NEGLOGP = 1.0e-10
+    MAX_NEGLOGP = 1000.0
+    MIN_NEGLOGP = np.finfo(np.float32).eps
 
     if not os.path.isfile(filePath):
         logger.warning(f"Couldn't access {filePath}...skipping merge")

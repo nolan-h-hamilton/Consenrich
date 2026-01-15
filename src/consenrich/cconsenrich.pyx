@@ -245,14 +245,13 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 cdef inline float _ctrans_F32(float x, float c0, float c1) nogil:
     # CALLERS: `cTransform`
 
-    return c1*asinhf(x*c0)
+    return c1*logf(x + c0)
 
 
 cdef inline double _ctrans_F64(double x, double c0, double c1) nogil:
     # CALLERS: `cTransform`
 
-    return c1*asinh(x*c0)
-
+    return c1*log(x + c0)
 
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
     # CALLERS: `_partitionLt`, `_nthElement`
@@ -755,8 +754,6 @@ cdef void _blockMax(double[::1] valuesView,
                     Py_ssize_t[::1] blockSizes,
                     double[::1] outputView,
                     double eps = 0.0) noexcept:
-
-    # FFR: can we inline/nogil this?
 
     cdef Py_ssize_t iterIndex, elementIndex, startIndex, blockLength
     cdef double currentMax, currentValue
@@ -1488,8 +1485,8 @@ cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
     bint disableBackground = <bint>False,
-    double rtailProp = <double>0.9,
-    double c0 = <double>1/2,
+    double rtailProp = <double>0.75,
+    double c0 = <double>1.0,
     double c1 = <double>1.0 / log(2.0),
     double w_local=<double>1.0,
     double w_global=<double>4.0,
@@ -2277,7 +2274,7 @@ cpdef double cgetGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=1000,
-    double rtailProp=<double>0.50,
+    double rtailProp=<double>0.75,
     uint64_t seed=0,
     bint verbose = <bint>False,
 ):
@@ -2295,19 +2292,18 @@ cpdef double cgetGlobalBaseline(
     cdef Py_ssize_t i, b
     cdef Py_ssize_t remaining, L, start, end
     cdef double sumInReplicate
-    # values below `lowEPS` are treated as zeros during the reject
-    cdef double lowEPS = 0.5
+    cdef double lowEPS = 1.0
 
     # ... additionally, values lower than lower__, greater than upper__
     # ... are truncated to bounds to nudge the baseline estimate to
     # ... the right tail (save those > upper__)
     cdef double lower__, upper__
     cdef double upperBound
-    lower__ = 1.0e-2
+    lower__ = 0.25
     upper__ = 100.0
 
     cdef double p0, mu0, sd0, stdCutoff
-    cdef Py_ssize_t allowedZeros, zeroCount, tries
+    cdef Py_ssize_t allowedLowCt, lowCt, tries
     cdef Py_ssize_t maxTries = 25
     cdef bint useGeom
     cdef long acceptCt = <long>0
@@ -2383,14 +2379,14 @@ cpdef double cgetGlobalBaseline(
                 # encourages rejection of sparse blocks despite crude independence assumption
                 mu0 = p0 * (<double>L)
                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
-                allowedZeros = <Py_ssize_t>(mu0 + stdCutoff * sd0)
+                allowedLowCt = <Py_ssize_t>(mu0 + stdCutoff * sd0)
 
-                # edge cases: don't require all values in the block to be non-zero
-                # or allow all to be zero until maxTries is exhausted
-                if allowedZeros < 1:
-                    allowedZeros = 1 if L > 1 else 0
-                elif allowedZeros > L:
-                    allowedZeros = L-1 if L > 1 else L
+                # edge cases: don't require all values in the block to be above low
+                # or allow all to be low until maxTries is exhausted
+                if allowedLowCt < 1:
+                    allowedLowCt = 1 if L > 1 else 0
+                elif allowedLowCt > L:
+                    allowedLowCt = L-1 if L > 1 else L
 
                 # try to sample a dense block: no success --> take the last try
                 # ... this is less than ideal (breaks any real sampling distribution),
@@ -2402,12 +2398,12 @@ cpdef double cgetGlobalBaseline(
                     end = start + L
                     proposalCt += 1
                     if end <= numValues:
-                        zeroCount = zerosView[end] - zerosView[start]
+                        lowCt = zerosView[end] - zerosView[start]
                     else:
                         end -= numValues
-                        zeroCount = (zerosView[numValues] - zerosView[start]) + zerosView[end]
+                        lowCt = (zerosView[numValues] - zerosView[start]) + zerosView[end]
 
-                    if zeroCount <= allowedZeros:
+                    if lowCt <= allowedLowCt:
                         # ACCEPT
                         acceptCt += 1
                         break
