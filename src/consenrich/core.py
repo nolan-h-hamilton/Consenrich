@@ -312,6 +312,8 @@ class countingParams(NamedTuple):
     rtailProp: float | None
     c0: float | None
     c1: float | None
+    c2: float | None
+    c3: float | None
 
 
 class matchingParams(NamedTuple):
@@ -1809,9 +1811,9 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-4,
+    eps: float = 1.0e-2,
     binQuantileCutoff: float = 0.75,
-    EB_minLin: float = 0.0,
+    EB_minLin: float = 1.0e-4,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -1822,7 +1824,7 @@ def fitVarianceFunction(
     absMeans = absMeans[sortIdx]
     variances = variances[sortIdx] + eps
 
-    binCount = int(1 + np.log2(n))
+    binCount = int(1 + np.log2(n+1, dtype=np.float64))
     binCount = max(4, binCount)
     binEdges = np.linspace(0, n, binCount + 1, dtype=np.int64)
     binEdges = np.unique(binEdges)
@@ -1863,7 +1865,7 @@ def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
     eps: float = 1.0e-2,
-    EB_minLin: float = 0.0,
+    EB_minLin: float = 1.0e-4,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
     if coeffs is None or np.asarray(coeffs).size == 0:
@@ -1876,8 +1878,6 @@ def evalVarianceFunction(
 
     # keep in range used to fit
     x = np.clip(absMeans, coefAMu[0], coefAMu[-1])
-    # idx = np.searchsorted(coefAMu, x, side="right") - 1
-    # varsEval = coefVar[idx]
     varsEval = np.interp(x, coefAMu, coefVar)
     return varsEval.astype(np.float32)
 
@@ -1894,7 +1894,7 @@ def getMuncTrack(
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     binQuantileCutoff: float = 0.75,
-    EB_minLin: float = 0.0,
+    EB_minLin: float = 1.0e-4,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
@@ -1937,14 +1937,14 @@ def getMuncTrack(
     """
     AR1_PARAMCT = 3
     if samplingBlockSizeBP is None:
-        samplingBlockSizeBP = intervalSizeBP * (11 * AR1_PARAMCT)
+        samplingBlockSizeBP = intervalSizeBP * (20 * (AR1_PARAMCT))
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
-    if blockSizeIntervals < (11 * AR1_PARAMCT):
+    if blockSizeIntervals < (20 * (AR1_PARAMCT)):
         logger.warning(
             f"`observationParams.samplingBlockSizeBP`={samplingBlockSizeBP}bp spans "
             f"only {blockSizeIntervals} genomic intervals for estimating "
             f"AR1 per (|mean|, variance) pair...consider increasing to at least "
-            f"{(11 * AR1_PARAMCT) * intervalSizeBP}bp to control AR1 estimate variance",
+            f"{(20 * (AR1_PARAMCT)) * intervalSizeBP}bp to control AR1 estimate variance",
         )
 
     localWindowIntervals = max(4, (blockSizeIntervals + 1))

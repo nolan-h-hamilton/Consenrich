@@ -475,7 +475,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     rtailProp_ = _cfgGet(
         configData,
         "countingParams.rtailProp",
-        0.75,
+        0.50,
     )
 
     c0_ = _cfgGet(
@@ -488,6 +488,18 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         configData,
         "countingParams.c1",
         1 / math.log(2),
+    )
+
+    c2_ = _cfgGet(
+        configData,
+        "countingParams.c2",
+        0.0,
+    )
+
+    c3_ = _cfgGet(
+        configData,
+        "countingParams.c3",
+        0.0,
     )
 
     return core.countingParams(
@@ -504,6 +516,8 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         rtailProp=rtailProp_,
         c0=c0_,
         c1=c1_,
+        c2=c2_,
+        c3=c3_,
     )
 
 
@@ -636,7 +650,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                0.0,
+                1.0e-4,
             )
         ),
         EB_use=_cfgGet(
@@ -739,7 +753,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.50,
+            0.25,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -909,7 +923,7 @@ def main():
     parser.add_argument(
         "--match-auto-length-quantile",
         type=float,
-        default=0.50,
+        default=0.25,
         dest="matchAutoLengthQuantile",
         help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )
@@ -1258,6 +1272,7 @@ def main():
                         fragmentLengthsControl[j_],
                     ],
                 )
+                logger.info(f"(trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
                 treat_t = cconsenrich.cTransform(
                     pairMatrix[0, :],
                     blockLength=backgroundBlockSizeIntervals,
@@ -1265,6 +1280,7 @@ def main():
                     rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
+                    verbose=args.verbose2,
                 )
                 ctrl_t = cconsenrich.cTransform(
                     pairMatrix[1, :],
@@ -1273,6 +1289,7 @@ def main():
                     rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
+                    verbose=args.verbose2,
                 )
 
                 chromMat[j_, :] = treat_t - ctrl_t
@@ -1340,12 +1357,14 @@ def main():
         ):
             # if controlsPresent, already done above
             if not controlsPresent:
+                logger.info(f"{chromosome}, sample {j + 1} / {numSamples}...")
                 chromMat[j, :] = cconsenrich.cTransform(
                     chromMat[j, :],
                     blockLength=backgroundBlockSizeIntervals,
                     rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
+                    verbose=args.verbose2,
                 )
 
                 if countingArgs.smoothSpanBP > 0:

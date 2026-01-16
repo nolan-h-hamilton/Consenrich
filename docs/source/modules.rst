@@ -194,7 +194,7 @@ Several computationally burdensome tasks are written in `Cython <https://cython.
 .. autofunction:: consenrich.cconsenrich.csampleBlockStats
 .. autofunction:: consenrich.cconsenrich.cgetFragmentLength
 .. autofunction:: consenrich.cconsenrich.cTransform
-.. autofunction:: consenrich.cconsenrich.cgetGlobalBaseline
+.. autofunction:: consenrich.cconsenrich.cDenseGlobalBaseline
 .. autofunction:: consenrich.cconsenrich.cPAVA
 .. autofunction:: consenrich.cconsenrich.cforwardPass
 .. autofunction:: consenrich.cconsenrich.cbackwardPass

@@ -242,16 +242,16 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
 
 
-cdef inline float _ctrans_F32(float x, float c0, float c1) nogil:
+cdef inline float _ctrans_F32(float x, float c0, float c1, float c2, float c3) nogil:
     # CALLERS: `cTransform`
 
-    return c1*logf(x + c0)
+    return c1*logf(x + c0) - c1*logf(c0)
 
 
-cdef inline double _ctrans_F64(double x, double c0, double c1) nogil:
+cdef inline double _ctrans_F64(double x, double c0, double c1, double c2, double c3) nogil:
     # CALLERS: `cTransform`
 
-    return c1*log(x + c0)
+    return c1*log(x + c0) - c1*log(c0)
 
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
     # CALLERS: `_partitionLt`, `_nthElement`
@@ -355,19 +355,19 @@ cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) nogil
 
 
 cdef inline double _U01() nogil:
-    # CALLERS: cgetGlobalBaseline
+    # CALLERS: cDenseGlobalBaseline
 
     return (<double>rand()) / (<double>RAND_MAX + 1.0)
 
 
 cdef inline Py_ssize_t _rand_int(Py_ssize_t n) nogil:
-    # CALLERS: cgetGlobalBaseline
+    # CALLERS: cDenseGlobalBaseline
 
     return <Py_ssize_t>(rand() % n)
 
 
 cdef inline Py_ssize_t _geometricDraw(double logq_) nogil:
-    # CALLERS: cgetGlobalBaseline
+    # CALLERS: cDenseGlobalBaseline
 
     cdef double u = _U01()
     if u <= 0.0:
@@ -1485,11 +1485,14 @@ cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
     bint disableBackground = <bint>False,
-    double rtailProp = <double>0.75,
+    double rtailProp = <double>0.50,
     double c0 = <double>1.0,
     double c1 = <double>1.0 / log(2.0),
+    double c2 = <double>0.0,
+    double c3 = <double>0.0,
     double w_local=<double>1.0,
-    double w_global=<double>4.0,
+    double w_global=<double>3.0,
+    bint verbose=<bint>False,
 ):
     cdef cnp.ndarray finalArr__
     cdef Py_ssize_t valuesLength, i, bootBlockSize
@@ -1516,10 +1519,11 @@ cpdef object cTransform(
         finalArr__ = np.empty(valuesLength, dtype=np.float32)
         outputView_F32 = finalArr__
 
-        trackWideOffset_F32 = <float>cgetGlobalBaseline(
+        trackWideOffset_F32 = <float>cDenseGlobalBaseline(
             valuesArr_F32,
             bootBlockSize=bootBlockSize,
             rtailProp=rtailProp,
+            verbose=verbose,
         )
 
         if c0 < 0.0:
@@ -1530,7 +1534,9 @@ cpdef object cTransform(
         logGlobal_F32 = _ctrans_F32(
             fmaxf(trackWideOffset_F32, <float>0.0),
             effectiveC0_F32,
-            <float>c1
+            <float>c1,
+            <float>c2,
+            <float>c3
         )
 
         baselineArr_F32 = np.empty(valuesLength, dtype=np.float32)
@@ -1541,7 +1547,9 @@ cpdef object cTransform(
                 baselineView_F32[i] = _ctrans_F32(
                     fmaxf(valuesView_F32[i], <float>0.0),
                     effectiveC0_F32,
-                    <float>c1
+                    <float>c1,
+                    <float>c2,
+                    <float>c3
                 )
 
         baselineArr_F32 = clocalBaseline(baselineArr_F32, <int>bootBlockSize)
@@ -1553,14 +1561,18 @@ cpdef object cTransform(
                     outputView_F32[i] = _ctrans_F32(
                         fmaxf(valuesView_F32[i], <float>0.0),
                         effectiveC0_F32,
-                        <float>c1
+                        <float>c1,
+                        <float>c2,
+                        <float>c3
                     ) - <float>((w_local*baselineView_F32[i] + w_global*logGlobal_F32) / <float>(w_local + w_global))
             else:
                 for i in range(valuesLength):
                     outputView_F32[i] = _ctrans_F32(
                         fmaxf(valuesView_F32[i], <float>0.0),
                         effectiveC0_F32,
-                        <float>c1
+                        <float>c1,
+                        <float>c2,
+                        <float>c3
                     )
 
         return finalArr__
@@ -1574,10 +1586,11 @@ cpdef object cTransform(
     finalArr__ = np.empty(valuesLength, dtype=np.float64)
     outputView_F64 = finalArr__
 
-    trackWideOffset_F64 = <double>cgetGlobalBaseline(
+    trackWideOffset_F64 = <double>cDenseGlobalBaseline(
         valuesArr_F64,
         bootBlockSize=bootBlockSize,
         rtailProp=rtailProp,
+        verbose=verbose,
     )
 
     if c0 < 0.0:
@@ -1588,7 +1601,9 @@ cpdef object cTransform(
     logGlobal_F64 = _ctrans_F64(
         fmax(trackWideOffset_F64, 0.0),
         effectiveC0_F64,
-        <double>c1
+        <double>c1,
+        <double>c2,
+        <double>c3
     )
 
     baselineArr_F64 = np.empty(valuesLength, dtype=np.float64)
@@ -1599,7 +1614,9 @@ cpdef object cTransform(
             baselineView_F64[i] = _ctrans_F64(
                 fmax(valuesView_F64[i], 0.0),
                 effectiveC0_F64,
-                <double>c1
+                <double>c1,
+                <double>c2,
+                <double>c3
             )
 
     baselineArr_F64 = clocalBaseline(baselineArr_F64, <int>(bootBlockSize))
@@ -1611,14 +1628,18 @@ cpdef object cTransform(
                 outputView_F64[i] = _ctrans_F64(
                     fmax(valuesView_F64[i], 0.0),
                     effectiveC0_F64,
-                    <double>c1
+                    <double>c1,
+                    <double>c2,
+                    <double>c3
                 ) - <double>((w_local*baselineView_F64[i] + w_global*logGlobal_F64) / <double>(w_local + w_global))
         else:
             for i in range(valuesLength):
                 outputView_F64[i] = _ctrans_F64(
                     fmax(valuesView_F64[i], 0.0),
                     effectiveC0_F64,
-                    <double>c1
+                    <double>c1,
+                    <double>c2,
+                    <double>c3
                 )
 
     return finalArr__
@@ -2270,11 +2291,11 @@ cpdef tuple cbackwardPass(
     return (stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr)
 
 
-cpdef double cgetGlobalBaseline(
+cpdef double cDenseGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=1000,
-    double rtailProp=<double>0.75,
+    double rtailProp=<double>0.50,
     uint64_t seed=0,
     bint verbose = <bint>False,
 ):
@@ -2293,14 +2314,10 @@ cpdef double cgetGlobalBaseline(
     cdef Py_ssize_t remaining, L, start, end
     cdef double sumInReplicate
     cdef double lowEPS = 1.0
-
-    # ... additionally, values lower than lower__, greater than upper__
-    # ... are truncated to bounds to nudge the baseline estimate to
-    # ... the right tail (save those > upper__)
     cdef double lower__, upper__
     cdef double upperBound
-    lower__ = 0.25
-    upper__ = 100.0
+    cdef double blockSizeUBound = 5.0*(<double>bootBlockSize)
+    cdef double blockSizeLBound = (<double>bootBlockSize) * 0.2
 
     cdef double p0, mu0, sd0, stdCutoff
     cdef Py_ssize_t allowedLowCt, lowCt, tries
@@ -2322,11 +2339,15 @@ cpdef double cgetGlobalBaseline(
 
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
-
+    cdef float q10 = <float>np.quantile(raw, 0.10)
+    cdef float q90 = <float>np.quantile(raw, 0.90)
+    lower__ = fminf(fmaxf(q10, 0.25), <float>lowEPS)
+    upper__ = fmaxf(fminf(q90, 250.0), lower__ + <float>lowEPS)
     values = np.clip(raw, lower__, upper__)
+
     valuesView = values
     numValues = values.size
-    stdCutoff = <double>5.0
+    stdCutoff = <double>3.0
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
     prefixZeros = np.empty(numValues + 1, dtype=np.int32)
@@ -2334,7 +2355,7 @@ cpdef double cgetGlobalBaseline(
     bootstrapMeans = np.empty(numBoots, dtype=np.float64)
     bootView = bootstrapMeans
 
-    # length L ~ Geometric(p) with E[L] = 1/p = bootBlockSize.
+    # length L ~ Geometric(p) [truncated to [blockSizeLBound, blockSizeUBound]!]
     useGeom = bootBlockSize > 1
     if useGeom:
         p = 1.0 / (<double>bootBlockSize)
@@ -2352,8 +2373,7 @@ cpdef double cgetGlobalBaseline(
         zerosView[0] = 0
         for i in range(numValues):
             prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
-            zerosView[i + 1] = zerosView[i] + (1 if rawView[i] <= lowEPS else 0)
-
+            zerosView[i + 1] = zerosView[i] + (1 if valuesView[i] <= <cnp.float32_t>lowEPS else 0)
 
     p0 = (<double>zerosView[numValues]) / (<double>numValues)
 
@@ -2369,6 +2389,10 @@ cpdef double cgetGlobalBaseline(
                 # pick a random start index and block length
                 if useGeom:
                     L = _geometricDraw(logq_)
+                    if L < blockSizeLBound:
+                        L = <Py_ssize_t>blockSizeLBound
+                    elif L > blockSizeUBound:
+                        L = <Py_ssize_t>blockSizeUBound
                 else:
                     L = 1
                 if L > remaining:
@@ -2376,10 +2400,10 @@ cpdef double cgetGlobalBaseline(
                 if L <= 0:
                     L = 1
 
-                # encourages rejection of sparse blocks despite crude independence assumption
+                # heuristic: encourage rejection of sparse blocks, but note the independence assumption implied by binomial
                 mu0 = p0 * (<double>L)
                 sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
-                allowedLowCt = <Py_ssize_t>(mu0 + stdCutoff * sd0)
+                allowedLowCt = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)
 
                 # edge cases: don't require all values in the block to be above low
                 # or allow all to be low until maxTries is exhausted
@@ -2408,7 +2432,6 @@ cpdef double cgetGlobalBaseline(
                         acceptCt += 1
                         break
 
-
                 end = start + L
                 if end <= numValues:
                     # No wraparound: sum values[start:end].
@@ -2422,16 +2445,15 @@ cpdef double cgetGlobalBaseline(
                 remaining -= L
             bootView[b] = sumInReplicate / (<double>numValues)
 
-
-
     # finally, compute the upper bound quantile from the bootstrap means
-    # we take the upper (1 - rtailProp) quantile of *bootstrap replicates* (not the original values)
-    upperBound = <double>np.quantile(bootstrapMeans, 1-rtailProp)
+    # we pick from the right tail of *bootstrap replicates* (not the original values)
+    upperBound = <double>np.quantile(bootstrapMeans, rtailProp)
     if verbose:
-        printf(b"cconsenrich.cgetGlobalBaseline: Accepted %ld out of %ld block proposals during bootstrap.\n",
+        printf(b"cconsenrich.cDenseGlobalBaseline: Accepted %ld out of %ld block proposals while sampling blocks.\n",
             acceptCt, proposalCt)
-        printf(b"cconsenrich.cgetGlobalBaseline: Global baseline = %.4f\n", upperBound)
+        printf(b"cconsenrich.cDenseGlobalBaseline: Natural-scale dense baseline = %.4f\n", upperBound)
     return upperBound
+
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
@@ -2944,7 +2966,6 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):
     cdef int radius = blockSize // 2
     cdef int m = n + 2 * radius
 
-    # divisbility -- pad the input on both ends with edge values
     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float64)
     cdef double[::1] padView= pad_vec
     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
@@ -2962,7 +2983,6 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):
     padView[0:radius] = y[0]
     padView[radius:radius + n] = y
     padView[radius + n:m] = y[n - 1]
-
     with nogil:
         _rmin_F64(padView, blockSize, sw_, sliding1)
 
@@ -2971,7 +2991,14 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize):
     pad2View[radius + n:m] = sw_[n - 1]
     with nogil:
         _rmax_F64(pad2View, blockSize, baselineView, sliding2View)
-
+    cdef double med, lift, mad
+    cdef cnp.ndarray residuals
+    residuals = y_vec - baseline_vec
+    residuals = residuals[residuals > 0.0]
+    med = np.median(residuals)
+    mad = np.median(np.abs(residuals - med))
+    lift = 1.4826 * mad
+    np.add(lift, baseline_vec, out=baseline_vec)
     return baseline_vec
 
 
@@ -3001,10 +3028,10 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize):
     cdef int[::1] sliding1 = sliding1_vec
     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
     cdef int[::1] sliding2View = sliding2_vec
+
     padView[0:radius] = y[0]
     padView[radius:radius + n] = y
     padView[radius + n:m] = y[n - 1]
-
     with nogil:
         _rmin_F32(padView, blockSize, sw_, sliding1)
 
@@ -3013,7 +3040,15 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize):
     pad2View[radius + n:m] = sw_[n - 1]
     with nogil:
         _rmax_F32(pad2View, blockSize, baselineView, sliding2View)
-
+    cdef float med, mad, lift
+    cdef cnp.ndarray residuals
+    # MAD of points' residuals *above* the lower envelope
+    residuals = y_vec - baseline_vec
+    residuals = residuals[residuals > 0.0]
+    med = np.median(residuals)
+    mad = np.median(np.abs(residuals - med))
+    lift = 1.4826 * mad
+    np.add(lift, baseline_vec, out=baseline_vec)
     return baseline_vec
 
 

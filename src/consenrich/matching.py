@@ -36,7 +36,7 @@ def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 5,
     maxLen: int = 1000,
-    cutoffQuantile: float = 0.50,
+    cutoffQuantile: float = 0.25,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
 
@@ -84,7 +84,7 @@ def autoMinLengthIntervals(
         return initLen
     # changed from previous...trim right tail
     return max(
-        int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.95)))),
+        int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.90) + 1.0e-4))),
         initLen,
     )
 
@@ -136,7 +136,7 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-3,
-    autoLengthQuantile: float = 0.50,
+    autoLengthQuantile: float = 0.25,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -693,7 +693,7 @@ def runMatchingAlgorithm(
     excludeRegionsBedFile: Optional[str] = None,
     weightsBedGraph: str | None = None,
     eps: float = 1.0e-2,
-    autoLengthQuantile: float = 0.50,
+    autoLengthQuantile: float = 0.25,
     mergeGapBP: int | None = -1,
     methodFDR: str | None = None,
     merge: bool = True,
