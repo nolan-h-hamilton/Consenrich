@@ -1550,39 +1550,25 @@ def getBedMask(
 def autoDeltaF(
     bamFiles: List[str],
     intervalSizeBP: int,
+    chromMat: Optional[npt.NDArray[np.float32]] = None,
     fragmentLengths: Optional[List[int]] = None,
     fallBackFragmentLength: int = 147,
     randomSeed: int = 42,
+    blockMult: float = 10.0,
+    numBlocks: int = 100,
+    maxLagBins: int = 25,
+    minDeltaF: float = 1.0e-2,
+    maxDeltaF: float = 0.5,
 ) -> float:
-    r"""(Experimental) Set `deltaF` as the ratio intervalLength:fragmentLength.
-
-    Computes average fragment length across samples and sets `processParams.deltaF = countingArgs.intervalSizeBP / medianFragmentLength`.
-
-    Where `intervalSizeBP` is small, adjacent genomic intervals may share information from the same fragments. This motivates
-    a smaller `deltaF` (i.e., less change in state between neighboring intervals). Note, to specify ``deltaF`` directly, set it in the :class:`processParams`.
-
-    :param intervalSizeBP: Length of genomic intervals/bins. See :class:`countingParams`.
-    :type intervalSizeBP: int
-    :param bamFiles: List of sorted/indexed BAM files to estimate fragment lengths from if they are not provided directly.
-    :type bamFiles: List[str]
-    :param fragmentLengths: Optional list of fragment lengths (in bp) for each sample. If provided, these values are used directly instead of estimating from `bamFiles`.
-    :type fragmentLengths: Optional[List[int]]
-    :param fallBackFragmentLength: If fragment length estimation from a BAM file fails, this value is used instead.
-    :type fallBackFragmentLength: int
-    :param randomSeed: Random seed for fragment length estimation.
-    :type randomSeed: int
-    :return: Estimated `deltaF` value.
-    :rtype: float
-    :seealso: :func:`cconsenrich.cgetFragmentLength`, :class:`processParams`, :class:`countingParams`
+    r"""(Experimental) Infer `deltaF` from autocorrelation in interval-level signal.
     """
 
-    avgFragmentLength: float = 0.0
     if (
         fragmentLengths is not None
         and len(fragmentLengths) > 0
         and all(isinstance(x, (int, float)) for x in fragmentLengths)
     ):
-        avgFragmentLength = np.median(fragmentLengths)
+        medFragLen = float(np.median(fragmentLengths))
     elif bamFiles is not None and len(bamFiles) > 0:
         fragmentLengths_ = []
         for bamFile in bamFiles:
@@ -1592,15 +1578,88 @@ def autoDeltaF(
                 randSeed=randomSeed,
             )
             fragmentLengths_.append(fLen)
-        avgFragmentLength = np.median(fragmentLengths_)
+        medFragLen = float(np.median(fragmentLengths_))
     else:
         raise ValueError("One of `fragmentLengths` or `bamFiles` is required...")
-    if avgFragmentLength > 0:
-        deltaF = min(intervalSizeBP / float(avgFragmentLength), 0.25)
+
+    if medFragLen <= 0:
+        raise ValueError("Average cross-sample fraglen estimation failed")
+
+    if chromMat is None:
+        deltaF = float(intervalSizeBP) / medFragLen
+        if deltaF > maxDeltaF:
+            deltaF = maxDeltaF
+        return np.float32(deltaF)
+
+    if hasattr(chromMat, "ndim") and chromMat.ndim == 1:
+        meanTrack = np.asarray(chromMat, dtype=np.float32)
+    else:
+        meanTrack = np.mean(chromMat, axis=0, dtype=np.float64).astype(np.float32, copy=False)
+
+    nBins = int(meanTrack.size)
+    blockLenBP = int(max(intervalSizeBP, round(blockMult * medFragLen)))
+    blockBins = int(np.ceil(blockLenBP / float(intervalSizeBP)))
+    if blockBins > nBins:
+        blockBins = nBins
+
+    nStarts = nBins - blockBins + 1
+    if nStarts < 1:
+        deltaF = float(intervalSizeBP) / medFragLen
+        if deltaF > maxDeltaF:
+            deltaF = maxDeltaF
         logger.info(f"Setting `processParams.deltaF`={deltaF:.4f}")
         return np.float32(deltaF)
+
+    rng = np.random.default_rng(int(randomSeed))
+    if nStarts <= numBlocks:
+        starts = np.arange(nStarts, dtype=np.int64)
     else:
-        raise ValueError("Average cross-sample fraglen estimation failed")
+        starts = rng.choice(nStarts, size=int(numBlocks), replace=False).astype(np.int64)
+
+    L_bins_vals: List[float] = []
+    for s in starts:
+        block = meanTrack[s : s + blockBins]
+        lmax = int(min(maxLagBins, blockBins - 1))
+        if lmax < 1:
+            continue
+        for lag in range(1, lmax + 1):
+            a = block[:-lag]
+            b = block[lag:]
+            scaleA = float(np.dot(a, a))
+            scaleB = float(np.dot(b, b))
+            scaleCross = (scaleA * scaleB) ** 0.5
+            if scaleCross <= 0.0:
+                continue
+            rho = float(np.dot(a, b) / scaleCross)
+            if not np.isfinite(rho) or rho <= 0.0 or rho >= 0.999999:
+                continue
+            Lb = float(-lag / np.log(rho))
+            if np.isfinite(Lb) and Lb > 0.0:
+                L_bins_vals.append(Lb)
+
+    if len(L_bins_vals) < 8:
+        deltaF = float(intervalSizeBP) / medFragLen
+        if deltaF > maxDeltaF:
+            deltaF = maxDeltaF
+        return np.float32(deltaF)
+
+    mean_L_bins = float(np.mean(L_bins_vals))
+    mean_L_bp = mean_L_bins * float(intervalSizeBP)
+    if mean_L_bp < float(minDeltaF):
+        mean_L_bp = float(minDeltaF)
+        mean_L_bins = mean_L_bp / float(intervalSizeBP)
+
+    deltaF = float(1.0 / mean_L_bins)
+    if not np.isfinite(deltaF) or deltaF <= 0.0:
+        deltaF = float(intervalSizeBP) / medFragLen
+
+    if deltaF > maxDeltaF:
+        deltaF = maxDeltaF
+
+    logger.info(
+        f"`processParams.deltaF`={deltaF:.4f}",
+    )
+    return np.float32(deltaF)
 
 
 def _forPlotsSampleBlockStats(
@@ -1811,9 +1870,9 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-2,
+    eps: float = .05,
     binQuantileCutoff: float = 0.75,
-    EB_minLin: float = 1.0e-4,
+    EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -1864,8 +1923,8 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1.0e-2,
-    EB_minLin: float = 1.0e-4,
+    eps: float = .05,
+    EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
     if coeffs is None or np.asarray(coeffs).size == 0:
@@ -1894,7 +1953,7 @@ def getMuncTrack(
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     binQuantileCutoff: float = 0.75,
-    EB_minLin: float = 1.0e-4,
+    EB_minLin: float = 1.0e-2,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
@@ -1937,15 +1996,8 @@ def getMuncTrack(
     """
     AR1_PARAMCT = 3
     if samplingBlockSizeBP is None:
-        samplingBlockSizeBP = intervalSizeBP * (20 * (AR1_PARAMCT))
+        samplingBlockSizeBP = intervalSizeBP * (11*(AR1_PARAMCT))
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
-    if blockSizeIntervals < (20 * (AR1_PARAMCT)):
-        logger.warning(
-            f"`observationParams.samplingBlockSizeBP`={samplingBlockSizeBP}bp spans "
-            f"only {blockSizeIntervals} genomic intervals for estimating "
-            f"AR1 per (|mean|, variance) pair...consider increasing to at least "
-            f"{(20 * (AR1_PARAMCT)) * intervalSizeBP}bp to control AR1 estimate variance",
-        )
 
     localWindowIntervals = max(4, (blockSizeIntervals + 1))
     intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)

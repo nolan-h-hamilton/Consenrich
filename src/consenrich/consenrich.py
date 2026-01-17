@@ -650,7 +650,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                1.0e-4,
+                1.0e-2,
             )
         ),
         EB_use=_cfgGet(
@@ -753,7 +753,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.25,
+            0.01,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -923,7 +923,7 @@ def main():
     parser.add_argument(
         "--match-auto-length-quantile",
         type=float,
-        default=0.25,
+        default=0.01,
         dest="matchAutoLengthQuantile",
         help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )
@@ -1015,6 +1015,17 @@ def main():
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
     offDiagQ_ = processArgs.offDiagQ
+    samplingBlockSizeBP_ = observationArgs.samplingBlockSizeBP
+    if samplingBlockSizeBP_ is None:
+        samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
+
+    elif samplingBlockSizeBP_ is not None and samplingBlockSizeBP_ < countingArgs.backgroundBlockSizeBP // 2:
+        logger.warning(
+            f"`observationParams.samplingBlockSizeBP` ({samplingBlockSizeBP_} bp) is less than "
+            f"half `countingParams.backgroundBlockSizeBP` ({countingArgs.backgroundBlockSizeBP} bp). "
+            f"Setting `samplingBlockSizeBP` to {countingArgs.backgroundBlockSizeBP} bp."
+        )
+        samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
 
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
@@ -1228,15 +1239,6 @@ def main():
         chromosomeEnd = max(0, (chromosomeEnd - (chromosomeEnd % intervalSizeBP)))
         numIntervals = (((chromosomeEnd - chromosomeStart) + intervalSizeBP) - 1) // intervalSizeBP
         intervals = np.arange(chromosomeStart, chromosomeEnd, intervalSizeBP)
-
-        if c_ == 0 and deltaF_ < 0:
-            logger.info(f"`processParams.deltaF < 0` --> calling core.autoDeltaF()...")
-            deltaF_ = core.autoDeltaF(
-                bamFiles,
-                intervalSizeBP,
-                fragmentLengths=fragmentLengthsTreatment,
-            )
-
         chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
         sparseMap = None
@@ -1276,19 +1278,19 @@ def main():
                 treat_t = cconsenrich.cTransform(
                     pairMatrix[0, :],
                     blockLength=backgroundBlockSizeIntervals,
-                    disableBackground=True,
                     rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
+                    disableBackground=True,
                     verbose=args.verbose2,
                 )
                 ctrl_t = cconsenrich.cTransform(
                     pairMatrix[1, :],
                     blockLength=backgroundBlockSizeIntervals,
-                    disableBackground=True,
                     rtailProp=countingArgs.rtailProp,
                     c0=countingArgs.c0,
                     c1=countingArgs.c1,
+                    disableBackground=True,
                     verbose=args.verbose2,
                 )
 
@@ -1343,7 +1345,14 @@ def main():
             sf = cconsenrich.cSF(chromMat)
             np.multiply(chromMat, sf[:, None], out=chromMat)
             logger.info(f"Calculated scaleFactors: {sf}")
-
+        if c_ == 0 and deltaF_ < 0:
+            logger.info(f"`processParams.deltaF < 0` --> calling core.autoDeltaF()...")
+            deltaF_ = core.autoDeltaF(
+                bamFiles,
+                intervalSizeBP,
+                chromMat,
+                fragmentLengths=fragmentLengthsTreatment,
+            )
         # negative --> data-based
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = 0.0
