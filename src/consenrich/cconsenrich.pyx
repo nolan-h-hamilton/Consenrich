@@ -1480,7 +1480,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple momVST(object x, double overdisp=<double>(-1.0), double offset=<double>(3/8)):
+cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3/8)):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] x_F64 = np.ascontiguousarray(x, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64 = np.empty(<Py_ssize_t>(x_F64.size), dtype=np.float64)
@@ -1489,14 +1489,18 @@ cpdef tuple momVST(object x, double overdisp=<double>(-1.0), double offset=<doub
     cdef double mom2 = 0.0
     cdef double delta, delta2
     cdef double muHat, varHat
-    cdef double overdisp__ = overdisp
+    cdef double a__ = a
+    cdef double offset__ = offset
+    cdef double scale_
     cdef double scale = 2.0 * __INV_LN2_DOUBLE
     cdef double xValue
     cdef Py_ssize_t i
 
-    if overdisp__ <= 0.0:
+    if offset__ == 0.0:
+        offset__ = 0.375
+
+    if a__ <= 0.0:
         for i in range(n):
-            # welford for mom1,2
             xValue = x_F64[i]
             delta = xValue - mom1
             mom1 += delta / (i + 1.0)
@@ -1507,20 +1511,29 @@ cpdef tuple momVST(object x, double overdisp=<double>(-1.0), double offset=<doub
         varHat = (mom2 / (n - 1.0)) if n > 1 else 0.0
 
         if muHat > 0.0 and varHat > muHat:
-            # NB
-            overdisp__ = (muHat * muHat) / (varHat - muHat)
+            a__ = (muHat * muHat) / (varHat - muHat)
         else:
-            # Poisson
-            overdisp__ = 1.0e12
+            a__ = 1.0e8
 
-    if (not isfinite(overdisp__)) or overdisp__ <= 0.0:
-        overdisp__ = 1.0e12
+    if (not isfinite(a__)) or a__ <= 0.0:
+        a__ = 1.0e8
+
+    if a__ >= 1.0e8:
+        for i in range(n):
+            xValue = x_F64[i]
+            out_F64[i] = scale * sqrt(xValue + offset__)
+        return (out_F64, a__)
+
+    scale_ = a__ - 0.75
+    if scale_ <= 0.0 or (not isfinite(scale_)):
+        scale_ = 1.0e-8
 
     for i in range(n):
         xValue = x_F64[i]
-        out_F64[i] = scale * asinh(sqrt((xValue + offset) / overdisp__))
+        out_F64[i] = scale * asinh(sqrt((xValue + offset__) / scale_))
 
-    return (out_F64, overdisp__)
+    return (out_F64, a__)
+
 
 
 cpdef object cTransform(
@@ -1538,8 +1551,8 @@ cpdef object cTransform(
 ):
     cdef Py_ssize_t bootBlockSize, n, i
     cdef double wLocal, wGlobal, weightSum, invWeightSum
-    cdef double constOffset = <double>(0.375) # 3/8 anscombe offset
-    cdef object momRes # tuple (cnp.ndarray (transformed vals), estimated overdispersion)
+    cdef double constOffset = <double>(0.375) # anscombe offset
+    cdef object momRes
     cdef cnp.ndarray outArr
     cdef cnp.ndarray zArr_F32, localBaseArr_F32
     cdef float[::1] zView_F32, localBaseView_F32, outView_F32
@@ -1570,50 +1583,49 @@ cpdef object cTransform(
         weightSum = 1.0
     invWeightSum = 1.0 / weightSum
 
-    if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
-        n = (<cnp.ndarray>x).size
-        # I) ~VST~ with overdispersion approximated from data
-        momRes = momVST(x, overdisp=<double>(-1.0), offset=constOffset)
-        zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
-        zView_F32 = zArr_F32
-        n = zArr_F32.shape[0]
-        outArr = np.empty(n, dtype=np.float32)
-        outView_F32 = outArr
+    n = (<cnp.ndarray>x).size
+    # I) ~VST~ with aersion approximated from data
+    momRes = momVST(x, a=<double>(-1.0), offset=constOffset)
+    zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
+    zView_F32 = zArr_F32
+    n = zArr_F32.shape[0]
+    outArr = np.empty(n, dtype=np.float32)
+    outView_F32 = outArr
 
-        # II) baseline estimation (weighted(local, global)) on transformed data
-        if wGlobal > 0.0:
-            # right-tail biased circular resampling
-            globalBaselineF32 = <float>cDenseGlobalBaseline(
-                zArr_F32,
-                bootBlockSize=bootBlockSize,
-                rtailProp=rtailProp,
-                verbose=verbose,
-            )
-        else:
-            globalBaselineF32 = 0.0
+    # II) baseline estimation (weighted(local, global)) on transformed data
+    if wGlobal > 0.0:
+        # right-tail biased circular resampling
+        globalBaselineF32 = <float>cDenseGlobalBaseline(
+            zArr_F32,
+            bootBlockSize=bootBlockSize,
+            rtailProp=rtailProp,
+            verbose=verbose,
+        )
+    else:
+        globalBaselineF32 = 0.0
 
-        if wLocal > 0.0:
-            # morphological local baseline -- lower envelope estimation
-            localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize)
-            localBaseView_F32 = localBaseArr_F32
+    if wLocal > 0.0:
+        # morphological local baseline -- lower envelope estimation
+        localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize)
+        localBaseView_F32 = localBaseArr_F32
 
-        # III) remove weighted combination of local,global baselines
-        wLocalF32 = <float>wLocal
-        wGlobalF32 = <float>wGlobal
-        invWeightSumF32 = <float>invWeightSum
+    # III) remove weighted combination of local,global baselines
+    wLocalF32 = <float>wLocal
+    wGlobalF32 = <float>wGlobal
+    invWeightSumF32 = <float>invWeightSum
 
-        with nogil:
-            for i in range(n):
-                combinedBaselineF32 = (
-                    (wLocalF32 * (localBaseView_F32[i] if wLocalF32 > 0.0 else 0.0)) +
-                    (wGlobalF32 * globalBaselineF32)
-                ) * invWeightSumF32
-                outView_F32[i] = zView_F32[i] - combinedBaselineF32
+    with nogil:
+        for i in range(n):
+            combinedBaselineF32 = (
+                (wLocalF32 * (localBaseView_F32[i] if wLocalF32 > 0.0 else 0.0)) +
+                (wGlobalF32 * globalBaselineF32)
+            ) * invWeightSumF32
+            outView_F32[i] = zView_F32[i] - combinedBaselineF32
+    return outArr
 
-        return outArr
 
     # F64
-    momRes = momVST(x, overdisp=<double>(-1.0), offset=constOffset)
+    momRes = momVST(x, a=<double>(-1.0), offset=constOffset)
     zArr_F64 = np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
     zView_F64 = zArr_F64
     n = zArr_F64.shape[0]
@@ -1646,7 +1658,6 @@ cpdef object cTransform(
                 (wGlobalF64 * globalBaselineF64)
             ) * invWeightSumF64
             outView_F64[i] = zView_F64[i] - combinedBaselineF64
-
     return outArr
 
 
