@@ -421,3 +421,31 @@ def testRunConsenrichInvalidShapeRaises():
             chunkSize=10,
             progressIter=1000,
         )
+
+
+@pytest.mark.correctness
+def testAutoDeltaFChromMatAutocorrPath(monkeypatch):
+    class placeholder:
+        def info(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(core, "logger", placeholder(), raising=False)
+    L_bins = 5.0
+    n = 2000
+    meanTrack = np.exp(-np.arange(n, dtype=np.float32) / np.float32(L_bins)).astype(np.float32)
+
+    out = core.autoDeltaF(
+        bamFiles=[],
+        intervalSizeBP=10,
+        chromMat=meanTrack,
+        fragmentLengths=[200],
+        randomSeed=42,
+        numBlocks=100,
+        maxLagBins=25,
+        maxDeltaF=1.0,
+        minDeltaF=0.01,
+    )
+
+    assert isinstance(out, np.float32)
+    expected = 1.0 / L_bins
+    assert 0.5*expected <= float(out) <= 2*expected

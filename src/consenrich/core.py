@@ -756,7 +756,7 @@ def constructMatrixQ(
         return np.eye(2, dtype=np.float32) * np.float32(useIdentity)
 
     if ratioDiagQ is None:
-        ratioDiagQ = 5.0  # negligible for expected minQ
+        ratioDiagQ = 10.0  # negligible for expected minQ
 
     Q = np.empty((2, 2), dtype=np.float32)
     Q[0, 0] = np.float32(minDiagQ if Q00 is None else Q00)
@@ -1555,10 +1555,10 @@ def autoDeltaF(
     fallBackFragmentLength: int = 147,
     randomSeed: int = 42,
     blockMult: float = 10.0,
-    numBlocks: int = 100,
+    numBlocks: int = 250,
     maxLagBins: int = 25,
-    minDeltaF: float = 1.0e-2,
-    maxDeltaF: float = 0.5,
+    minDeltaF: float = 0.01,
+    maxDeltaF: float = 1.0,
 ) -> float:
     r"""(Experimental) Infer `deltaF` from autocorrelation in interval-level signal.
     """
@@ -1596,30 +1596,32 @@ def autoDeltaF(
     else:
         meanTrack = np.mean(chromMat, axis=0, dtype=np.float64).astype(np.float32, copy=False)
 
-    nBins = int(meanTrack.size)
+    numIntervals = int(meanTrack.size)
     blockLenBP = int(max(intervalSizeBP, round(blockMult * medFragLen)))
-    blockBins = int(np.ceil(blockLenBP / float(intervalSizeBP)))
-    if blockBins > nBins:
-        blockBins = nBins
+    blockLenIntervals = int(np.ceil(blockLenBP / float(intervalSizeBP)))
+    if blockLenIntervals > numIntervals:
+        blockLenIntervals = numIntervals
 
-    nStarts = nBins - blockBins + 1
-    if nStarts < 1:
+    numStarts = numIntervals - blockLenIntervals + 1
+    if numStarts < 1:
         deltaF = float(intervalSizeBP) / medFragLen
         if deltaF > maxDeltaF:
             deltaF = maxDeltaF
-        logger.info(f"Setting `processParams.deltaF`={deltaF:.4f}")
+        logger.warning(
+            "Not enough intervals to compute deltaF via autocorrelation...using fall-back value.",
+        )
         return np.float32(deltaF)
 
     rng = np.random.default_rng(int(randomSeed))
-    if nStarts <= numBlocks:
-        starts = np.arange(nStarts, dtype=np.int64)
+    if numStarts <= numBlocks:
+        starts = np.arange(numStarts, dtype=np.int64)
     else:
-        starts = rng.choice(nStarts, size=int(numBlocks), replace=False).astype(np.int64)
+        starts = rng.choice(numStarts, size=int(numBlocks), replace=False).astype(np.int64)
 
     L_bins_vals: List[float] = []
     for s in starts:
-        block = meanTrack[s : s + blockBins]
-        lmax = int(min(maxLagBins, blockBins - 1))
+        block = meanTrack[s : s + blockLenIntervals]
+        lmax = int(min(maxLagBins, blockLenIntervals - 1))
         if lmax < 1:
             continue
         for lag in range(1, lmax + 1):
@@ -1645,20 +1647,14 @@ def autoDeltaF(
 
     mean_L_bins = float(np.mean(L_bins_vals))
     mean_L_bp = mean_L_bins * float(intervalSizeBP)
-    if mean_L_bp < float(minDeltaF):
-        mean_L_bp = float(minDeltaF)
-        mean_L_bins = mean_L_bp / float(intervalSizeBP)
 
     deltaF = float(1.0 / mean_L_bins)
-    if not np.isfinite(deltaF) or deltaF <= 0.0:
-        deltaF = float(intervalSizeBP) / medFragLen
+    if deltaF <= minDeltaF:
+        deltaF = minDeltaF
 
     if deltaF > maxDeltaF:
         deltaF = maxDeltaF
 
-    logger.info(
-        f"`processParams.deltaF`={deltaF:.4f}",
-    )
     return np.float32(deltaF)
 
 
@@ -1870,7 +1866,7 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = .05,
+    eps: float = 1.0e-4,
     binQuantileCutoff: float = 0.75,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
@@ -1923,7 +1919,7 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = .05,
+    eps: float = 1.0e-4,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())

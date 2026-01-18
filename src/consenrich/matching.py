@@ -36,7 +36,7 @@ def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 5,
     maxLen: int = 1000,
-    cutoffQuantile: float = 0.25,
+    cutoffQuantile: float = 0.9,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
 
@@ -62,8 +62,7 @@ def autoMinLengthIntervals(
         ),
     )
 
-    # just consider stretches of positive signal
-    nz = trValues[trValues > 0]
+    nz = trValues
     if nz.size == 0:
         return initLen
 
@@ -84,7 +83,7 @@ def autoMinLengthIntervals(
         return initLen
     # changed from previous...trim right tail
     return max(
-        int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.90) + 1.0e-4))),
+        int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.75) + 1.0e-4))),
         initLen,
     )
 
@@ -136,7 +135,7 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-3,
-    autoLengthQuantile: float = 0.25,
+    autoLengthQuantile: float = 0.75,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -205,12 +204,15 @@ def matchWavelet(
             cutoffQuantile=autoLengthQuantile,
         ) * int(intervalLengthBp)
     elif minMatchLengthBP is None:
-        minMatchLengthBP = 147  # default to nucleosome size
+        minMatchLengthBP = 250
 
     logger.info(f"\n\tUsing minMatchLengthBP: {minMatchLengthBP}")
 
     if not np.all(np.abs(np.diff(intervals)) == intervalLengthBp):
         raise ValueError("`intervals` must be evenly spaced.")
+
+    chromStart = int(intervals[0])
+    chromEnd = int(intervals[-1]) + int(intervalLengthBp)
 
     if weights is not None:
         if len(weights) != len(values):
@@ -221,10 +223,10 @@ def matchWavelet(
             values = values * weights
 
     values_ = values.astype(np.float32)
-    nz_values_ = values_
+    nz_values_ = values_  # NOTE: null/thresholds are now with respect to ALL values (including zeros/negatives)
 
     iters = max(int(iters), 1000)
-    defQuantile = 0.75
+    defQuantile = 0.50
     chromMin = int(intervals[0])
     chromMax = int(intervals[-1])
     chromMid = chromMin + (chromMax - chromMin) // 2  # for split
@@ -339,8 +341,9 @@ def matchWavelet(
         high = np.quantile(vals, 0.9999)
         return vals[(vals > low) & (vals < high)]
 
+    wavelet_set = set(pw.wavelist(kind="discrete"))
     for templateName, cascadeLevel in zip(templateNames, cascadeLevels):
-        if templateName not in pw.wavelist(kind="discrete"):
+        if templateName not in wavelet_set:
             logger.warning(f"Skipping unknown wavelet template: {templateName}")
             continue
 
@@ -350,8 +353,7 @@ def matchWavelet(
             scalingFunc if useScalingFunction else waveletFunc,
             dtype=np.float64,
         )
-        template /= np.linalg.norm(template)
-
+        template /= max(np.linalg.norm(template), np.finfo(np.float64).tiny)
         logger.info(
             f"\n\tMatching template: {templateName}"
             f"\n\tcascade level: {cascadeLevel}"
@@ -391,6 +393,7 @@ def matchWavelet(
                     seed=rng.integers(1, 10_000),
                     eps=eps,
                 )
+
             ecdfSf = stats.ecdf(blockMaxima).sf
             candidateIdx = relativeMaxima(response, relWindowBins, eps=eps)
 
@@ -424,7 +427,13 @@ def matchWavelet(
             if recenterAtPointSource:
                 starts = pointSourcesAbs - (relWindowBins * intervalLengthBp)
                 ends = pointSourcesAbs + (relWindowBins * intervalLengthBp)
-            pointSourcesRel = (intervals[pointSourcesIdx] - starts) + max(1, intervalLengthBp // 2)
+
+            starts = np.maximum(starts.astype(np.int64, copy=False), chromStart)
+            ends = np.minimum(ends.astype(np.int64, copy=False), chromEnd)
+
+            pointSourcesRel = (intervals[pointSourcesIdx].astype(np.int64, copy=False) - starts) + max(
+                1, intervalLengthBp // 2
+            )
             sqScores = (1 + response[candidateIdx]) ** 2
             minR, maxR = (
                 float(np.min(sqScores)),
@@ -470,7 +479,7 @@ def matchWavelet(
 
     df = pd.DataFrame(allRows)
 
-    groupCols = ["chromosome", "templateName"]
+    groupCols = ["chromosome", "templateName", "cascadeLevel"]
     qVals = np.empty(len(df), dtype=float)
     for _, groupIdx in df.groupby(groupCols, sort=False).groups.items():
         # FDR is wrt chromosome and the wavelet/scaling function template
@@ -527,7 +536,7 @@ def mergeMatches(
         logger.info(f"Setting mergeGapBP = {mergeGapBP} bp")
 
     MAX_NEGLOGP = 1000.0
-    MIN_NEGLOGP = np.finfo(np.float32).eps
+    MIN_NEGLOGP = 0.0
 
     if not os.path.isfile(filePath):
         logger.warning(f"Couldn't access {filePath}...skipping merge")
@@ -586,6 +595,8 @@ def mergeMatches(
         if math.isinf(pLog10) or pLog10 >= MAX_NEGLOGP:
             g["pHasInf"] = True
         else:
+            if pLog10 < 0:
+                pLog10 = 0.0
             if pLog10 > g["pMax"]:
                 if g["pMax"] == float("-inf"):
                     g["pTail"] = 1.0
@@ -595,14 +606,14 @@ def mergeMatches(
             else:
                 g["pTail"] += 10 ** (pLog10 - g["pMax"])
 
-        if math.isinf(qLog10) or qLog10 >= MAX_NEGLOGP or qLog10 <= MIN_NEGLOGP:
+        # BUGFIX: do not treat qLog10==0 (q=1) as invalid/inf
+        if math.isinf(qLog10) or qLog10 >= MAX_NEGLOGP:
             g["qHasInf"] = True
         else:
+            if qLog10 < 0:
+                qLog10 = 0.0
             if qLog10 < g["qMin"]:
-                if qLog10 < MIN_NEGLOGP:
-                    g["qMin"] = MIN_NEGLOGP
-                else:
-                    g["qMin"] = qLog10
+                g["qMin"] = qLog10
 
             if qLog10 > g["qMax"]:
                 if g["qMax"] == float("-inf"):
@@ -684,7 +695,7 @@ def runMatchingAlgorithm(
     cascadeLevels: List[int],
     iters: int,
     alpha: float = 0.05,
-    minMatchLengthBP: Optional[int] = -1,
+    minMatchLengthBP: Optional[int] = 250,
     maxNumMatches: Optional[int] = 100_000,
     minSignalAtMaxima: Optional[float | str] = 0.01,
     randSeed: int = 42,
@@ -693,7 +704,7 @@ def runMatchingAlgorithm(
     excludeRegionsBedFile: Optional[str] = None,
     weightsBedGraph: str | None = None,
     eps: float = 1.0e-2,
-    autoLengthQuantile: float = 0.25,
+    autoLengthQuantile: float = 0.75,
     mergeGapBP: int | None = -1,
     methodFDR: str | None = None,
     merge: bool = True,
@@ -701,65 +712,59 @@ def runMatchingAlgorithm(
 ):
     r"""Wraps :func:`matchWavelet` for genome-wide matching given a bedGraph file"""
     gwideDF = pd.DataFrame()
-    chromosomes = (
-        pd.read_csv(
-            bedGraphFile,
-            sep="\t",
-            header=None,
-            names=["chromosome", "start", "end", "value"],
-            dtype={
-                "chromosome": str,
-                "start": np.uint32,
-                "end": np.uint32,
-                "value": np.float64,
-            },
-        )["chromosome"]
-        .unique()
-        .tolist()
+    cols = ["chromosome", "start", "end", "value"]
+    bedGraphDF = pd.read_csv(
+        bedGraphFile,
+        sep="\t",
+        header=None,
+        names=cols,
+        dtype={
+            "chromosome": str,
+            "start": np.uint32,
+            "end": np.uint32,
+            "value": np.float64,
+        },
     )
+    chromosomes = bedGraphDF["chromosome"].unique().tolist()
+
+    weightsDF = None
+    if weightsBedGraph is not None and os.path.exists(weightsBedGraph):
+        try:
+            weightsDF = pd.read_csv(
+                weightsBedGraph,
+                sep="\t",
+                header=None,
+                names=cols,
+                dtype={
+                    "chromosome": str,
+                    "start": np.uint32,
+                    "end": np.uint32,
+                    "value": np.float64,
+                },
+            )
+        except Exception as ex:
+            logger.warning(f"Failed to parse weights from {weightsBedGraph}. Ignoring weights....\n{ex}")
+            weightsDF = None
 
     avgMinMatchLengths = []
 
     for c_, chromosome_ in enumerate(chromosomes):
-        cols = ["chromosome", "start", "end", "value"]
-        chromBedGraphDF = pd.read_csv(
-            bedGraphFile,
-            sep="\t",
-            header=None,
-            names=cols,
-            dtype={
-                "chromosome": str,
-                "start": np.uint32,
-                "end": np.uint32,
-                "value": np.float64,
-            },
-        )
-        chromBedGraphDF = chromBedGraphDF[chromBedGraphDF["chromosome"] == chromosome_]
+        chromBedGraphDF = bedGraphDF[bedGraphDF["chromosome"] == chromosome_]
         chromIntervals = chromBedGraphDF["start"].to_numpy()
         chromValues = chromBedGraphDF["value"].to_numpy()
-        del chromBedGraphDF
 
-        weightsDF = pd.DataFrame()
         weights = np.ones_like(chromValues, dtype=np.float64)
-        if weightsBedGraph is not None and os.path.exists(weightsBedGraph):
+        if weightsDF is not None:
             try:
-                weightsDF = pd.read_csv(
-                    weightsBedGraph,
-                    sep="\t",
-                    header=None,
-                    names=cols,
-                    dtype={
-                        "chromosome": str,
-                        "start": np.uint32,
-                        "end": np.uint32,
-                        "value": np.float64,
-                    },
-                )
-                weights = weightsDF[weightsDF["chromosome"] == chromosome_]
-                weights = 1 / np.sqrt(weights["value"].to_numpy() + 1.0)
+                wChr = weightsDF[weightsDF["chromosome"] == chromosome_]
+                if len(wChr) == len(chromValues):
+                    weights = 1 / np.sqrt(wChr["value"].to_numpy() + 1.0)
+                else:
+                    logger.warning(
+                        f"Weights length {len(wChr)} does not match values length {len(chromValues)} on {chromosome_}. Ignoring weights for this chrom...."
+                    )
             except Exception as ex:
-                logger.warning("Failed to parse weights from {weightsBedGraph}. Ignoring weights....")
-        del weightsDF
+                logger.warning(f"Failed to parse weights from {weightsBedGraph}. Ignoring weights....\n{ex}")
 
         if minMatchLengthBP is not None and minMatchLengthBP < 1:
             minMatchLengthBP_ = autoMinLengthIntervals(

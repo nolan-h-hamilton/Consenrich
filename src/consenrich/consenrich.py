@@ -399,7 +399,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 25) + 1, 1000), 500_000),
+        min(max(2 * (intervalSizeBP * 50) + 1, 1000), 500_000),
     )
     smoothSpanBP_ = _cfgGet(
         configData,
@@ -427,7 +427,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "EGS",
+        "SF",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
@@ -481,13 +481,13 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        1.0,
+        1/2,
     )
 
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1 / math.log(2),
+        1.0/math.log(2.0),
     )
 
     c2_ = _cfgGet(
@@ -623,7 +623,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
-        ratioDiagQ=_cfgGet(configData, "processParams.ratioDiagQ", 5.0),
+        ratioDiagQ=_cfgGet(configData, "processParams.ratioDiagQ", 10.0),
     )
 
     plotArgs = getPlotArgs(config_path, experimentName)
@@ -753,7 +753,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.01,
+            0.75,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -923,7 +923,7 @@ def main():
     parser.add_argument(
         "--match-auto-length-quantile",
         type=float,
-        default=0.01,
+        default=0.75,
         dest="matchAutoLengthQuantile",
         help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )
@@ -1019,10 +1019,10 @@ def main():
     if samplingBlockSizeBP_ is None:
         samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
 
-    elif samplingBlockSizeBP_ is not None and samplingBlockSizeBP_ < countingArgs.backgroundBlockSizeBP // 2:
+    elif samplingBlockSizeBP_ is not None and samplingBlockSizeBP_ < countingArgs.backgroundBlockSizeBP:
         logger.warning(
             f"`observationParams.samplingBlockSizeBP` ({samplingBlockSizeBP_} bp) is less than "
-            f"half `countingParams.backgroundBlockSizeBP` ({countingArgs.backgroundBlockSizeBP} bp). "
+            f"`countingParams.backgroundBlockSizeBP` ({countingArgs.backgroundBlockSizeBP} bp). "
             f"Setting `samplingBlockSizeBP` to {countingArgs.backgroundBlockSizeBP} bp."
         )
         samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
@@ -1061,7 +1061,7 @@ def main():
 
     if normMethod_ in ["SF"] and (len(bamFilesControl) > 0 or numSamples < 3):
         logger.warning(
-            "`countingParams.normMethod` `SF` is not available when control inputs are present or < 3 treatment samples are given."
+            "`countingParams.normMethod` `SF` is not available when control inputs are present OR if < 3 treatment samples are given."
             "  --> defaulting to 1x-coverage normalization (EGS) ..."
         )
         normMethod_ = "EGS"
@@ -1344,8 +1344,8 @@ def main():
         if waitForMatrix:
             sf = cconsenrich.cSF(chromMat)
             np.multiply(chromMat, sf[:, None], out=chromMat)
-            logger.info(f"Calculated scaleFactors: {sf}")
-        if c_ == 0 and deltaF_ < 0:
+
+        if processArgs.deltaF < 0:
             logger.info(f"`processParams.deltaF < 0` --> calling core.autoDeltaF()...")
             deltaF_ = core.autoDeltaF(
                 bamFiles,
@@ -1353,6 +1353,8 @@ def main():
                 chromMat,
                 fragmentLengths=fragmentLengthsTreatment,
             )
+            logger.info(f"Δ_F: {deltaF_}")
+
         # negative --> data-based
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = 0.0
@@ -1400,16 +1402,16 @@ def main():
                 )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-4))
+            minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-3))
             muncMat = muncMat.astype(np.float32, copy=False)
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-4))
+                minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-3))
 
-            autoMinQ = max((0.01 * minR_), 0.001)
+            autoMinQ = max((0.01 * minR_), 1.0e-3)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
