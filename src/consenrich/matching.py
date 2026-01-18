@@ -35,12 +35,10 @@ def _FDR(pVals: np.ndarray, method: str | None = "bh") -> np.ndarray:
 def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 5,
-    maxLen: int = 1000,
+    maxLen: int = 20,
     cutoffQuantile: float = 0.9,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
-
-    Returns the average length of non-zero contiguous segments in a log-scaled/centered version of `values`
 
     :param values: A 1D array of signal-like values.
     :type values: np.ndarray
@@ -62,13 +60,12 @@ def autoMinLengthIntervals(
         ),
     )
 
-    nz = trValues
+    nz = trValues[trValues >= 0]
     if nz.size == 0:
         return initLen
 
     thr = np.quantile(nz, cutoffQuantile, method="interpolated_inverted_cdf")
-
-    mask = (trValues > 0) & (trValues >= thr)
+    mask = (trValues >= thr)
     if not np.any(mask):
         return initLen
     if np.all(mask):
@@ -81,11 +78,11 @@ def autoMinLengthIntervals(
 
     if len(widths) == 0:
         return initLen
-    # changed from previous...trim right tail
-    return max(
-        int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.75) + 1.0e-4))),
+
+    return min(max(
+        int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.9) + 1.0e-4))),
         initLen,
-    )
+    ), maxLen)
 
 
 def scalarClip(value: float, low: float, high: float) -> float:
@@ -135,7 +132,7 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-3,
-    autoLengthQuantile: float = 0.75,
+    autoLengthQuantile: float = 0.9,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -704,7 +701,7 @@ def runMatchingAlgorithm(
     excludeRegionsBedFile: Optional[str] = None,
     weightsBedGraph: str | None = None,
     eps: float = 1.0e-2,
-    autoLengthQuantile: float = 0.75,
+    autoLengthQuantile: float = 0.9,
     mergeGapBP: int | None = -1,
     methodFDR: str | None = None,
     merge: bool = True,

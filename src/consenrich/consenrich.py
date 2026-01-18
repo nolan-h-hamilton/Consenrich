@@ -481,7 +481,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        1/2,
+        3/8,
     )
 
     c1_ = _cfgGet(
@@ -753,7 +753,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.75,
+            0.9,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -923,7 +923,7 @@ def main():
     parser.add_argument(
         "--match-auto-length-quantile",
         type=float,
-        default=0.75,
+        default=0.9,
         dest="matchAutoLengthQuantile",
         help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )
@@ -1279,8 +1279,6 @@ def main():
                     pairMatrix[0, :],
                     blockLength=backgroundBlockSizeIntervals,
                     rtailProp=countingArgs.rtailProp,
-                    c0=countingArgs.c0,
-                    c1=countingArgs.c1,
                     disableBackground=True,
                     verbose=args.verbose2,
                 )
@@ -1288,8 +1286,6 @@ def main():
                     pairMatrix[1, :],
                     blockLength=backgroundBlockSizeIntervals,
                     rtailProp=countingArgs.rtailProp,
-                    c0=countingArgs.c0,
-                    c1=countingArgs.c1,
                     disableBackground=True,
                     verbose=args.verbose2,
                 )
@@ -1373,8 +1369,6 @@ def main():
                     chromMat[j, :],
                     blockLength=backgroundBlockSizeIntervals,
                     rtailProp=countingArgs.rtailProp,
-                    c0=countingArgs.c0,
-                    c1=countingArgs.c1,
                     verbose=args.verbose2,
                 )
 

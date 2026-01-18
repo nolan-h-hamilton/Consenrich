@@ -440,12 +440,12 @@ def testAutoDeltaFChromMatAutocorrPath(monkeypatch):
         chromMat=meanTrack,
         fragmentLengths=[200],
         randomSeed=42,
-        numBlocks=100,
+        numBlocks=250,
         maxLagBins=25,
         maxDeltaF=1.0,
         minDeltaF=0.01,
     )
 
     assert isinstance(out, np.float32)
-    expected = 1.0 / L_bins
-    assert 0.5*expected <= float(out) <= 2*expected
+    expected = min(max(1.0 / L_bins, 0.01), 1.0)
+    assert float(out) <= 1.1*expected

@@ -1480,60 +1480,56 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3/8)):
+cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0/8.0)):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] x_F64 = np.ascontiguousarray(x, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64 = np.empty(<Py_ssize_t>(x_F64.size), dtype=np.float64)
     cdef Py_ssize_t n = x_F64.shape[0]
     cdef double mom1 = 0.0
     cdef double mom2 = 0.0
-    cdef double delta, delta2
+    cdef double welf1, welf2
     cdef double muHat, varHat
-    cdef double a__ = a
-    cdef double offset__ = offset
+    cdef double a_ = a
+    cdef double offset_ = offset
     cdef double scale_
-    cdef double scale = 2.0 * __INV_LN2_DOUBLE
+    cdef double multLog2 = 2.0 * __INV_LN2_DOUBLE
     cdef double xValue
     cdef Py_ssize_t i
 
-    if offset__ == 0.0:
-        offset__ = 0.375
+    if offset_ <= 0.0:
+        offset_ = 0.375
 
-    if a__ <= 0.0:
+    if a_ <= 0.0:
         for i in range(n):
             xValue = x_F64[i]
-            delta = xValue - mom1
-            mom1 += delta / (i + 1.0)
-            delta2 = xValue - mom1
-            mom2 += delta * delta2
+            welf1 = xValue - mom1
+            mom1 += welf1 / (i + 1.0)
+            welf2 = xValue - mom1
+            mom2 += welf1 * welf2
 
         muHat = mom1
         varHat = (mom2 / (n - 1.0)) if n > 1 else 0.0
 
         if muHat > 0.0 and varHat > muHat:
-            a__ = (muHat * muHat) / (varHat - muHat)
+            a_ = (muHat * muHat) / (varHat - muHat)
         else:
-            a__ = 1.0e8
+            # push to poisson when 1/a --> 0, and return before asinh
+            for i in range(n):
+                xValue = x_F64[i]
+                out_F64[i] = multLog2 * sqrt(xValue + offset_)
+            return (out_F64, a_)
 
-    if (not isfinite(a__)) or a__ <= 0.0:
-        a__ = 1.0e8
 
-    if a__ >= 1.0e8:
-        for i in range(n):
-            xValue = x_F64[i]
-            out_F64[i] = scale * sqrt(xValue + offset__)
-        return (out_F64, a__)
-
-    scale_ = a__ - 0.75
+    scale_ = <double>(a_ - 0.75)
     if scale_ <= 0.0 or (not isfinite(scale_)):
-        scale_ = 1.0e-8
-
+        a_ = <double>(0.75 + 1.0e-4)
+        scale_ = <double>(a_ - 0.75)
+    cdef double valAtZero = multLog2 * asinh(sqrt(offset_ / scale_))
     for i in range(n):
         xValue = x_F64[i]
-        out_F64[i] = scale * asinh(sqrt((xValue + offset__) / scale_))
+        out_F64[i] = multLog2 * asinh(sqrt((xValue + offset_) / scale_)) - valAtZero
 
-    return (out_F64, a__)
-
+    return (out_F64, a_)
 
 
 cpdef object cTransform(
@@ -1541,17 +1537,16 @@ cpdef object cTransform(
     Py_ssize_t blockLength,
     bint disableBackground=<bint>False,
     double rtailProp=<double>0.50,
-    double c0=<double>(3/8),
+    double c0=<double>(3.0/8.0),
     double c1=<double>1/log(2.0),
     double c2=<double>0.0,
     double c3=<double>0.0,
     double w_local=<double>1.0,
-    double w_global=<double>3.0,
+    double w_global=<double>4.0,
     bint verbose=<bint>False,
 ):
     cdef Py_ssize_t bootBlockSize, n, i
     cdef double wLocal, wGlobal, weightSum, invWeightSum
-    cdef double constOffset = <double>(0.375) # anscombe offset
     cdef object momRes
     cdef cnp.ndarray outArr
     cdef cnp.ndarray zArr_F32, localBaseArr_F32
@@ -1584,8 +1579,8 @@ cpdef object cTransform(
     invWeightSum = 1.0 / weightSum
 
     n = (<cnp.ndarray>x).size
-    # I) ~VST~ with aersion approximated from data
-    momRes = momVST(x, a=<double>(-1.0), offset=constOffset)
+    # I) ~VST~ with a approximated from data
+    momRes = momVST(x)
     zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
     zView_F32 = zArr_F32
     n = zArr_F32.shape[0]
@@ -1605,7 +1600,7 @@ cpdef object cTransform(
         globalBaselineF32 = 0.0
 
     if wLocal > 0.0:
-        # morphological local baseline -- lower envelope estimation
+        # lower envelope baseline
         localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize)
         localBaseView_F32 = localBaseArr_F32
 
@@ -1625,7 +1620,7 @@ cpdef object cTransform(
 
 
     # F64
-    momRes = momVST(x, a=<double>(-1.0), offset=constOffset)
+    momRes = momVST(x)
     zArr_F64 = np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
     zView_F64 = zArr_F64
     n = zArr_F64.shape[0]
@@ -2316,7 +2311,7 @@ cpdef double cDenseGlobalBaseline(
     bint verbose = <bint>False,
     double lq = <double>0.005,
     double uq = <double>0.995,
-    double pc = <double>0.25,
+    double pc = <double>0.01,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
     cdef cnp.float32_t[::1] rawView
@@ -2324,24 +2319,24 @@ cpdef double cDenseGlobalBaseline(
     cdef Py_ssize_t numValues
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixSums
     cdef cnp.float64_t[::1] prefixView
-    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] prefixZeros
-    cdef cnp.int32_t[::1] zerosView
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] prefixZeros
+    cdef cnp.int64_t[::1] zerosView
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
     cdef cnp.float64_t[::1] bootView
     cdef double p, logq_
     cdef Py_ssize_t i, b
     cdef Py_ssize_t remaining, L, start, end
     cdef double sumInReplicate
-    cdef double lowEPS = 0.5
+    cdef double lowEPS = 1.0
     cdef double lower__, upper__
     cdef double upperBound
-    cdef double blockSizeUBound = 5.0*(<double>bootBlockSize)
-    cdef double blockSizeLBound = 5.0
-
+    cdef Py_ssize_t blockSizeUBound
+    cdef Py_ssize_t blockSizeLBound = <Py_ssize_t>5
     cdef double p0, mu0, sd0, stdCutoff
     cdef Py_ssize_t allowedLowCt, lowCt, tries
     cdef Py_ssize_t maxTries = 50
     cdef bint useGeom
+    cdef bint trackVerbose = verbose
     cdef long acceptCt = <long>0
     cdef long proposalCt = <long>0
 
@@ -2359,7 +2354,7 @@ cpdef double cDenseGlobalBaseline(
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
     lower__ = max(np.quantile(raw, lq), pc)
-    upper__ = max(np.quantile(raw, uq), lower__ + pc)
+    upper__ = max(np.quantile(raw, uq), lower__ + 5*lowEPS)
     values = np.clip(raw, lower__, upper__)
 
     valuesView = values
@@ -2367,10 +2362,11 @@ cpdef double cDenseGlobalBaseline(
     stdCutoff = <double>3.0
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
-    prefixZeros = np.empty(numValues + 1, dtype=np.int32)
+    prefixZeros = np.empty(numValues + 1, dtype=np.int64)
     zerosView = prefixZeros
     bootstrapMeans = np.empty(numBoots, dtype=np.float64)
     bootView = bootstrapMeans
+    blockSizeUBound = <Py_ssize_t>(5 * bootBlockSize)
 
     # length L ~ Geometric(p) [truncated to [blockSizeLBound, blockSizeUBound]!]
     useGeom = bootBlockSize > 1
@@ -2407,9 +2403,9 @@ cpdef double cDenseGlobalBaseline(
                 if useGeom:
                     L = _geometricDraw(logq_)
                     if L < blockSizeLBound:
-                        L = <Py_ssize_t>blockSizeLBound
+                        L = blockSizeLBound
                     elif L > blockSizeUBound:
-                        L = <Py_ssize_t>blockSizeUBound
+                        L = blockSizeUBound
                 else:
                     L = 1
                 if L > remaining:
@@ -2437,16 +2433,18 @@ cpdef double cDenseGlobalBaseline(
                     # note, on each try, only the start index is resampled, the length L fixed
                     start = _rand_int(numValues)
                     end = start + L
-                    proposalCt += 1
+                    if trackVerbose:
+                        proposalCt += 1
                     if end <= numValues:
-                        lowCt = zerosView[end] - zerosView[start]
+                        lowCt = <Py_ssize_t>(zerosView[end] - zerosView[start])
                     else:
                         end -= numValues
-                        lowCt = (zerosView[numValues] - zerosView[start]) + zerosView[end]
+                        lowCt = <Py_ssize_t>((zerosView[numValues] - zerosView[start]) + zerosView[end])
 
                     if lowCt <= allowedLowCt:
                         # ACCEPT
-                        acceptCt += 1
+                        if trackVerbose:
+                            acceptCt += 1
                         break
 
                 end = start + L
@@ -2468,9 +2466,8 @@ cpdef double cDenseGlobalBaseline(
     if verbose:
         printf(b"cconsenrich.cDenseGlobalBaseline: Accepted %ld out of %ld block proposals while sampling.\n",
             acceptCt, proposalCt)
-        printf(b"cconsenrich.cDenseGlobalBaseline: Natural-scale dense baseline = %.4f\n", upperBound)
+        printf(b"cconsenrich.cDenseGlobalBaseline: Dense baseline = %.4f\n", upperBound)
     return upperBound
-
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
@@ -2970,7 +2967,7 @@ cdef void _rmax_F32(float[::1] x, int blockSize, float[::1] out, int[::1] slidin
             out[i - (blockSize - 1)] = x[sliding[first_]]
 
 
-cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double MADScale=<double>0.0):
+cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double MADScale=<double>1.0):
     if blockSize < 3 or (blockSize & 1) == 0:
         raise ValueError("need an odd-length block")
 
@@ -2982,7 +2979,6 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double MAD
 
     cdef int radius = blockSize // 2
     cdef int m = n + 2 * radius
-
     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float64)
     cdef double[::1] padView= pad_vec
     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
@@ -2991,7 +2987,6 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double MAD
     cdef double[::1] pad2View = pad2_vec
     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float64)
     cdef double[::1] baselineView = baseline_vec
-
     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
     cdef int[::1] sliding1 = sliding1_vec
     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
@@ -3014,13 +3009,13 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double MAD
     np.maximum(residuals, 0.0, out=residuals)
     med = np.median(residuals)
     mad = np.median(np.abs(residuals - med))
-    lift = MADScale * (mad/0.6744897501960817)
+    lift = MADScale * (mad / 0.6744897501960817)
     np.add(lift, baseline_vec, out=baseline_vec)
     ndimage.median_filter(baseline_vec, size=2*blockSize + 1, mode='nearest', output=baseline_vec)
     return baseline_vec
 
 
-cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float MADScale=<float>0.0):
+cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float MADScale=<float>1.0):
     if blockSize < 3 or (blockSize & 1) == 0:
         raise ValueError("need an odd-length block")
 
@@ -3032,7 +3027,6 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float MADS
 
     cdef int radius = blockSize // 2
     cdef int m = n + 2 * radius
-
     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float32)
     cdef float[::1] padView = pad_vec
     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float32)
@@ -3041,7 +3035,6 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float MADS
     cdef float[::1] pad2View = pad2_vec
     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float32)
     cdef float[::1] baselineView = baseline_vec
-
     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
     cdef int[::1] sliding1 = sliding1_vec
     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
@@ -3059,13 +3052,13 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float MADS
     with nogil:
         _rmax_F32(pad2View, blockSize, baselineView, sliding2View)
     cdef float med, mad, lift
-    cdef cnp.ndarray residuals
+    cdef cnp.ndarray residuals = np.empty(n, dtype=np.float32)
     # MAD of points' residuals *above* the lower envelope
     residuals = y_vec - baseline_vec
     np.maximum(residuals, 0.0, out=residuals)
     med = np.median(residuals)
     mad = np.median(np.abs(residuals - med))
-    lift = MADScale * (mad/0.6744897501960817)
+    lift = MADScale * (mad / 0.6744897501960817)
     np.add(lift, baseline_vec, out=baseline_vec)
     ndimage.median_filter(baseline_vec, size=2*blockSize + 1, mode='nearest', output=baseline_vec)
     return baseline_vec

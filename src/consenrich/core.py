@@ -280,8 +280,17 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param rtailProp: Quantile of circular/block-bootstrapped *empirical means* used to define global baseline.
+    :param rtailProp: Quantile of the distribution of circular, block-sampled empirical means that determines the global baseline.
+        The global baseline is mixed (e.g., 3:1 weighted average) with a local lower envelope estimate for the final baseline at each interval.
     :type rtailProp: float, optional
+    :param c0: Ignored in current/default implementation.
+    :type c0: float, optional
+    :param c1: Ignored in current/default implementation.
+    :type c1: float, optional
+    :param c2: Ignored in current/default implementation.
+    :type c2: float, optional
+    :param c3: Ignored in current/default implementation.
+    :type c3: float, optional
 
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
@@ -1241,7 +1250,7 @@ def runConsenrich(
                 if localLinReduction < 1.0e-4 and calibration_trustRadius >= 2.0 * calibration_trustRadiusMin:
                     localLinReduction = 1.0e-4  # stable
                 elif calibration_trustRadius < max(2.0 * calibration_trustRadiusMin, 1.0e-4):
-                    logger.info("Early stop criterion: Trust region shrunk to threshold...")
+                    logger.info("Early stop criterion: trust region shrunk to threshold...")
                     break
 
                 # trust-radius feedback: compute "rho" = (actual reduction) / (predicted reduction)
@@ -1284,7 +1293,7 @@ def runConsenrich(
 
                 relImprovement = float((prevAcceptedLoss - acceptedLoss) / max(abs(prevAcceptedLoss), 1.0))
                 logger.info(
-                    f"\niter={iterCt}\tL={bestLoss:.4f}\tΦ_0={acceptedPhiHat:.4f}\tmax|∇|={maxGradAll:.4f}\tΔRel={relImprovement:.3e}\tTrust-Radius={float(calibration_trustRadius):.4f}"
+                    f"\niter={iterCt}\tL={bestLoss:.4f}\tΦ_0={acceptedPhiHat:.4f}\tmax|∇|={maxGradAll:.4f}\tΔRel={relImprovement:.3e}\tProposal radius={float(calibration_trustRadius):.4f}"
                 )
 
                 if (iterCt > calibration_minIters) and (
@@ -1877,7 +1886,7 @@ def fitVarianceFunction(
 
     sortIdx = np.argsort(absMeans)
     absMeans = absMeans[sortIdx]
-    variances = variances[sortIdx] + eps
+    variances = np.maximum(variances[sortIdx], EB_minLin * absMeans[sortIdx]) + eps
 
     binCount = int(1 + np.log2(n+1, dtype=np.float64))
     binCount = max(4, binCount)
@@ -1901,6 +1910,20 @@ def fitVarianceFunction(
     absMeans = np.asarray(binnedAbsMeans, dtype=np.float64)
     variances = np.asarray(binnedVariances, dtype=np.float64)
     weights = np.asarray(binWeights, dtype=np.float64)
+
+    # one bin --> skip PAVA
+    if absMeans.size < 2:
+        m0 = float(np.median(absMeans if absMeans.size > 0 else np.abs(means[:n])))
+        v0 = float(
+            np.quantile(
+                variances
+                if variances.size
+                else (np.maximum(variances[:n], EB_minLin * np.abs(means[:n])) + eps),
+                binQuantileCutoff,
+            )
+        )
+        v0 = max(v0, EB_minLin * m0)
+        return np.vstack([np.array([m0], dtype=np.float32), np.array([v0], dtype=np.float32)])
 
     # isotonic regression via PAVA
     varsFit = cconsenrich.cPAVA(variances, weights)
