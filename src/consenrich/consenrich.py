@@ -480,7 +480,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     liftLower_ = _cfgGet(
         configData,
         "countingParams.liftLower",
-        2.0,
+        1.0,
     )
     c0_ = _cfgGet(
         configData,
@@ -632,7 +632,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     )
 
     plotArgs = getPlotArgs(config_path, experimentName)
-
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
         maxR=_cfgGet(configData, "observationParams.maxR", 1000.0),
@@ -1300,11 +1299,6 @@ def main():
                 )
 
                 chromMat[j_, :] = treat_t - ctrl_t
-
-                med_ = np.median(chromMat[j_, :])
-                if med_ > 0:
-                    chromMat[j_, :] -= med_
-
                 if countingArgs.smoothSpanBP > 0:
                     chromMat[j_, :] = cconsenrich.cEMA(
                         chromMat[j_, :],
@@ -1386,10 +1380,6 @@ def main():
                     verbose=args.verbose2,
                     rseed = 42 + j,
                 )
-
-                med_ = np.median(chromMat[j, :])
-                if med_ > 0:
-                    chromMat[j, :] -= med_
 
                 if countingArgs.smoothSpanBP > 0:
                     chromMat[j, :] = cconsenrich.cEMA(

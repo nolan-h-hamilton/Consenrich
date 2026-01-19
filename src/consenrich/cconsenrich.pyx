@@ -1519,7 +1519,7 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
             # push to poisson when 1/a --> 0, and return before asinh
             for i in range(n):
                 xValue = x_F64[i]
-                out_F64[i] = multLog2 * sqrt(xValue + offset_)
+                out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
             return (out_F64, a_)
 
 
@@ -1527,10 +1527,10 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
     if scale_ <= 0.0 or (not isfinite(scale_)):
         a_ = <double>(0.75 + 1.0e-4)
         scale_ = <double>(a_ - 0.75)
-    cdef double valAtZero = multLog2 * asinh(sqrt(offset_ / scale_))
+    cdef double valAtZero = asinh(sqrt(offset_ / scale_))
     for i in range(n):
         xValue = x_F64[i]
-        out_F64[i] = multLog2 * asinh(sqrt((xValue + offset_) / scale_)) - valAtZero
+        out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)) - valAtZero)
 
     return (out_F64, a_)
 
