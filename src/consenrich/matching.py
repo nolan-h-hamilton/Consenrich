@@ -36,7 +36,7 @@ def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 5,
     maxLen: int = 20,
-    cutoffQuantile: float = 0.9,
+    cutoffQuantile: float = 0.50,
 ) -> int:
     r"""Determines a minimum matching length (in interval units) based on the input signal values.
 
@@ -79,10 +79,7 @@ def autoMinLengthIntervals(
     if len(widths) == 0:
         return initLen
 
-    return min(max(
-        int(stats.tmean(widths, limits=(0, np.quantile(widths, 0.9) + 1.0e-4))),
-        initLen,
-    ), maxLen)
+    return int(stats.tmean(widths, limits=(initLen, np.quantile(widths, 0.75) + 1.0e-4)))
 
 
 def scalarClip(value: float, low: float, high: float) -> float:
@@ -132,7 +129,7 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-3,
-    autoLengthQuantile: float = 0.9,
+    autoLengthQuantile: float = 0.5,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -700,8 +697,8 @@ def runMatchingAlgorithm(
     useScalingFunction: bool = True,
     excludeRegionsBedFile: Optional[str] = None,
     weightsBedGraph: str | None = None,
-    eps: float = 1.0e-2,
-    autoLengthQuantile: float = 0.9,
+    eps: float = 1.0e-3,
+    autoLengthQuantile: float = 0.5,
     mergeGapBP: int | None = -1,
     methodFDR: str | None = None,
     merge: bool = True,
@@ -821,6 +818,8 @@ def runMatchingAlgorithm(
     if gwideDF.empty:
         logger.warning("Empty matching results over `chromosomes`.")
         return gwideDF
+    if methodFDR is not None:
+        logger.info(f"Performing genome-wide FDR correction over {len(gwideDF)} matches...")
     naturalScalePValues = 10 ** (-gwideDF["pValue"].values.astype(float))
     qVals = _FDR(naturalScalePValues, method=methodFDR)
     gwideDF["qValue"] = -np.log10(np.clip(qVals, np.finfo(np.float32).tiny, 1.0))

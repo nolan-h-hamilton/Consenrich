@@ -1480,7 +1480,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0/8.0)):
+cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0/8.0), bint useAsymptoticLog2=<bint>True):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] x_F64 = np.ascontiguousarray(x, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64 = np.empty(<Py_ssize_t>(x_F64.size), dtype=np.float64)
@@ -1498,6 +1498,9 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
 
     if offset_ <= 0.0:
         offset_ = 0.375
+
+    if not (useAsymptoticLog2):
+        multLog2 = <double>(1.0)
 
     if a_ <= 0.0:
         for i in range(n):
@@ -1535,15 +1538,17 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
 cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
-    bint disableBackground=<bint>False,
-    double rtailProp=<double>0.50,
+    bint disableLocalBackground=<bint>False,
+    double denseMeanQuantile=<double>0.50,
+    double liftLower=<double>1.0,
     double c0=<double>(3.0/8.0),
     double c1=<double>1/log(2.0),
     double c2=<double>0.0,
     double c3=<double>0.0,
     double w_local=<double>1.0,
-    double w_global=<double>4.0,
+    double w_global=<double>3.0,
     bint verbose=<bint>False,
+    uint64_t rseed=<uint64_t>0,
 ):
     cdef Py_ssize_t bootBlockSize, n, i
     cdef double wLocal, wGlobal, weightSum, invWeightSum
@@ -1558,18 +1563,25 @@ cpdef object cTransform(
     cdef double globalBaselineF64, combinedBaselineF64
     cdef double wLocalF64, wGlobalF64, invWeightSumF64
 
-    bootBlockSize = <Py_ssize_t>max(min(blockLength, 10000), 3)
-    if bootBlockSize % 2 == 0:
-        bootBlockSize += 1
-        if bootBlockSize > 10000:
-            bootBlockSize -= 2
-
-    if disableBackground:
+    if disableLocalBackground:
         wLocal = 0.0
         wGlobal = 1.0
     else:
         wLocal = w_local
         wGlobal = w_global
+
+    # If user explicitly sets w_local=w_global=0, skip both local+global subtraction
+    if not disableLocalBackground and wLocal == 0.0 and wGlobal == 0.0:
+        momRes = momVST(x)
+        if (<cnp.ndarray>x).dtype == np.float32:
+            return np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
+        return np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
+
+    bootBlockSize = <Py_ssize_t>max(min(blockLength, 10000), 3)
+    if bootBlockSize % 2 == 0:
+        bootBlockSize += 1
+        if bootBlockSize > 10000:
+            bootBlockSize -= 2
 
     weightSum = wLocal + wGlobal
     if weightSum <= 0.0:
@@ -1579,45 +1591,47 @@ cpdef object cTransform(
     invWeightSum = 1.0 / weightSum
 
     n = (<cnp.ndarray>x).size
-    # I) ~VST~ with a approximated from data
-    momRes = momVST(x)
-    zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
-    zView_F32 = zArr_F32
-    n = zArr_F32.shape[0]
-    outArr = np.empty(n, dtype=np.float32)
-    outView_F32 = outArr
+    # F32
+    if (<cnp.ndarray>x).dtype == np.float32:
+        # I) ~VST~ with a approximated from data
+        momRes = momVST(x)
+        zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
+        zView_F32 = zArr_F32
+        n = zArr_F32.shape[0]
+        outArr = np.empty(n, dtype=np.float32)
+        outView_F32 = outArr
 
-    # II) baseline estimation (weighted(local, global)) on transformed data
-    if wGlobal > 0.0:
-        # right-tail biased circular resampling
-        globalBaselineF32 = <float>cDenseGlobalBaseline(
-            zArr_F32,
-            bootBlockSize=bootBlockSize,
-            rtailProp=rtailProp,
-            verbose=verbose,
-        )
-    else:
-        globalBaselineF32 = 0.0
+        # II) baseline estimation (weighted(local, global)) on transformed data
+        if wGlobal > 0.0:
+            # right-tail biased circular resampling
+            globalBaselineF32 = <float>cDenseGlobalBaseline(
+                zArr_F32,
+                bootBlockSize=bootBlockSize,
+                denseMeanQuantile=denseMeanQuantile,
+                verbose=verbose,
+                seed=rseed,
+            )
+        else:
+            globalBaselineF32 = 0.0
 
-    if wLocal > 0.0:
-        # lower envelope baseline
-        localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize)
-        localBaseView_F32 = localBaseArr_F32
+        if wLocal > 0.0:
+            # lower envelope baseline
+            localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize, liftLower=<float>liftLower)
+            localBaseView_F32 = localBaseArr_F32
 
-    # III) remove weighted combination of local,global baselines
-    wLocalF32 = <float>wLocal
-    wGlobalF32 = <float>wGlobal
-    invWeightSumF32 = <float>invWeightSum
+        # III) remove weighted combination of local,global baselines
+        wLocalF32 = <float>wLocal
+        wGlobalF32 = <float>wGlobal
+        invWeightSumF32 = <float>invWeightSum
 
-    with nogil:
-        for i in range(n):
-            combinedBaselineF32 = (
-                (wLocalF32 * (localBaseView_F32[i] if wLocalF32 > 0.0 else 0.0)) +
-                (wGlobalF32 * globalBaselineF32)
-            ) * invWeightSumF32
-            outView_F32[i] = zView_F32[i] - combinedBaselineF32
-    return outArr
-
+        with nogil:
+            for i in range(n):
+                combinedBaselineF32 = (
+                    (wLocalF32 * (localBaseView_F32[i] if wLocalF32 > 0.0 else 0.0)) +
+                    (wGlobalF32 * globalBaselineF32)
+                ) * invWeightSumF32
+                outView_F32[i] = zView_F32[i] - combinedBaselineF32
+        return outArr
 
     # F64
     momRes = momVST(x)
@@ -1632,14 +1646,15 @@ cpdef object cTransform(
         globalBaselineF64 = <double>cDenseGlobalBaseline(
             zArr_F64,
             bootBlockSize=bootBlockSize,
-            rtailProp=rtailProp,
+            denseMeanQuantile=denseMeanQuantile,
             verbose=verbose,
+            seed=rseed,
         )
     else:
         globalBaselineF64 = 0.0
 
     if wLocal > 0.0:
-        localBaseArr_F64 = clocalBaseline(zArr_F64, <int>bootBlockSize)
+        localBaseArr_F64 = clocalBaseline(zArr_F64, <int>bootBlockSize, liftLower=<double>liftLower)
         localBaseView_F64 = localBaseArr_F64
 
     wLocalF64 = <double>wLocal
@@ -2306,12 +2321,9 @@ cpdef double cDenseGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=1000,
-    double rtailProp=<double>0.50,
+    double denseMeanQuantile=<double>0.50,
     uint64_t seed=0,
     bint verbose = <bint>False,
-    double lq = <double>0.005,
-    double uq = <double>0.995,
-    double pc = <double>0.01,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
     cdef cnp.float32_t[::1] rawView
@@ -2319,51 +2331,41 @@ cpdef double cDenseGlobalBaseline(
     cdef Py_ssize_t numValues
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixSums
     cdef cnp.float64_t[::1] prefixView
-    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] prefixZeros
-    cdef cnp.int64_t[::1] zerosView
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
     cdef cnp.float64_t[::1] bootView
     cdef double p, logq_
     cdef Py_ssize_t i, b
     cdef Py_ssize_t remaining, L, start, end
     cdef double sumInReplicate
-    cdef double lowEPS = 1.0
     cdef double lower__, upper__
     cdef double upperBound
     cdef Py_ssize_t blockSizeUBound
     cdef Py_ssize_t blockSizeLBound = <Py_ssize_t>5
-    cdef double p0, mu0, sd0, stdCutoff
-    cdef Py_ssize_t allowedLowCt, lowCt, tries
-    cdef Py_ssize_t maxTries = 50
     cdef bint useGeom
     cdef bint trackVerbose = verbose
     cdef long acceptCt = <long>0
     cdef long proposalCt = <long>0
-
+    cdef double lowEPS
+    cdef double scale
 
     if bootBlockSize <= 0:
         bootBlockSize = 1
     if numBoots <= 0:
         return 0.0
 
-    if rtailProp <= 0.0:
-        rtailProp = 0.0
-    elif rtailProp >= 1.0:
-        rtailProp = 1.0
+    if denseMeanQuantile <= 0.0:
+        denseMeanQuantile = 0.0
+    elif denseMeanQuantile >= 1.0:
+        denseMeanQuantile = 1.0
 
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
-    lower__ = max(np.quantile(raw, lq), pc)
-    upper__ = max(np.quantile(raw, uq), lower__ + 5*lowEPS)
-    values = np.clip(raw, lower__, upper__)
-
+    # these values only ~make sense~ if momVST has been called!!!
+    values = np.clip(raw, 0.25, 4.0)
     valuesView = values
     numValues = values.size
-    stdCutoff = <double>3.0
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
-    prefixZeros = np.empty(numValues + 1, dtype=np.int64)
-    zerosView = prefixZeros
     bootstrapMeans = np.empty(numBoots, dtype=np.float64)
     bootView = bootstrapMeans
     blockSizeUBound = <Py_ssize_t>(5 * bootBlockSize)
@@ -2383,12 +2385,8 @@ cpdef double cDenseGlobalBaseline(
     with nogil:
         # first pass through to build prefix sums and count zeros
         prefixView[0] = 0.0
-        zerosView[0] = 0
         for i in range(numValues):
             prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
-            zerosView[i + 1] = zerosView[i] + (1 if valuesView[i] <= <cnp.float32_t>lowEPS else 0)
-
-    p0 = (<double>zerosView[numValues]) / (<double>numValues)
 
     # Now, start drawing bootstrap replicates
     with nogil:
@@ -2413,39 +2411,10 @@ cpdef double cDenseGlobalBaseline(
                 if L <= 0:
                     L = 1
 
-                # heuristic: encourage rejection of sparse blocks, but note the independence assumption implied by binomial
-                mu0 = p0 * (<double>L)
-                sd0 = sqrt(mu0 * (1.0 - p0) + 1.0e-8)
-                allowedLowCt = <Py_ssize_t>(mu0 + stdCutoff * sd0 + 0.5)
-
-                # edge cases: don't require all values in the block to be above low
-                # or allow all to be low until maxTries is exhausted
-                if allowedLowCt < 1:
-                    allowedLowCt = 1 if L > 1 else 0
-                elif allowedLowCt > L:
-                    allowedLowCt = L-1 if L > 1 else L
-
-                # try to sample a dense block: no success --> take the last try
-                # ... this is less than ideal (breaks any real sampling distribution),
-                # ... but should be uncommon for reasonable thresholds, and we need
-                # ... the algorithm to actually terminate
-                for tries in range(maxTries):
-                    # note, on each try, only the start index is resampled, the length L fixed
-                    start = _rand_int(numValues)
-                    end = start + L
-                    if trackVerbose:
-                        proposalCt += 1
-                    if end <= numValues:
-                        lowCt = <Py_ssize_t>(zerosView[end] - zerosView[start])
-                    else:
-                        end -= numValues
-                        lowCt = <Py_ssize_t>((zerosView[numValues] - zerosView[start]) + zerosView[end])
-
-                    if lowCt <= allowedLowCt:
-                        # ACCEPT
-                        if trackVerbose:
-                            acceptCt += 1
-                        break
+                start = _rand_int(numValues)
+                if trackVerbose:
+                    proposalCt += 1
+                    acceptCt += 1
 
                 end = start + L
                 if end <= numValues:
@@ -2462,10 +2431,8 @@ cpdef double cDenseGlobalBaseline(
 
     # finally, compute the upper bound quantile from the bootstrap means
     # we pick from the right tail of *bootstrap replicates* (not the original values)
-    upperBound = <double>np.quantile(bootstrapMeans, rtailProp)
+    upperBound = <double>np.quantile(bootstrapMeans, denseMeanQuantile)
     if verbose:
-        printf(b"cconsenrich.cDenseGlobalBaseline: Accepted %ld out of %ld block proposals while sampling.\n",
-            acceptCt, proposalCt)
         printf(b"cconsenrich.cDenseGlobalBaseline: Dense baseline = %.4f\n", upperBound)
     return upperBound
 
@@ -2967,7 +2934,7 @@ cdef void _rmax_F32(float[::1] x, int blockSize, float[::1] out, int[::1] slidin
             out[i - (blockSize - 1)] = x[sliding[first_]]
 
 
-cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double MADScale=<double>1.0):
+cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double liftLower=<double>1.0):
     if blockSize < 3 or (blockSize & 1) == 0:
         raise ValueError("need an odd-length block")
 
@@ -3009,13 +2976,13 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double MAD
     np.maximum(residuals, 0.0, out=residuals)
     med = np.median(residuals)
     mad = np.median(np.abs(residuals - med))
-    lift = MADScale * (mad / 0.6744897501960817)
+    lift = liftLower * (mad / 0.6744897501960817)
     np.add(lift, baseline_vec, out=baseline_vec)
-    ndimage.median_filter(baseline_vec, size=2*blockSize + 1, mode='nearest', output=baseline_vec)
+    ndimage.median_filter(baseline_vec, size=4*blockSize + 1, mode='nearest', output=baseline_vec)
     return baseline_vec
 
 
-cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float MADScale=<float>1.0):
+cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float liftLower=<float>1.0):
     if blockSize < 3 or (blockSize & 1) == 0:
         raise ValueError("need an odd-length block")
 
@@ -3058,18 +3025,18 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float MADS
     np.maximum(residuals, 0.0, out=residuals)
     med = np.median(residuals)
     mad = np.median(np.abs(residuals - med))
-    lift = MADScale * (mad / 0.6744897501960817)
+    lift = liftLower * (mad / 0.6744897501960817)
     np.add(lift, baseline_vec, out=baseline_vec)
-    ndimage.median_filter(baseline_vec, size=2*blockSize + 1, mode='nearest', output=baseline_vec)
+    ndimage.median_filter(baseline_vec, size=4*blockSize + 1, mode='nearest', output=baseline_vec)
     return baseline_vec
 
 
-cpdef clocalBaseline(object x, int blockSize=101):
+cpdef clocalBaseline(object x, int blockSize=101, double liftLower=<double>(1.0)):
     arr = np.asarray(x)
     if arr.dtype == np.float64:
-        return clocalBaseline_F64(arr, <int>blockSize)
+        return clocalBaseline_F64(arr, <int>blockSize, liftLower=<double>liftLower)
     if arr.dtype == np.float32:
-        return clocalBaseline_F32(arr, <int>blockSize)
+        return clocalBaseline_F32(arr, <int>blockSize, liftLower=<float>liftLower)
     raise TypeError("x must be np.float32 or np.float64")
 
 

@@ -472,12 +472,16 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         True,
     )
 
-    rtailProp_ = _cfgGet(
+    denseMeanQuantile_ = _cfgGet(
         configData,
-        "countingParams.rtailProp",
+        "countingParams.denseMeanQuantile",
         0.50,
     )
-
+    liftLower_ = _cfgGet(
+        configData,
+        "countingParams.liftLower",
+        2.0,
+    )
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
@@ -513,7 +517,8 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fragmentLengthsControl=fragmentLengthsControl,
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
-        rtailProp=rtailProp_,
+        denseMeanQuantile=denseMeanQuantile_,
+        liftLower=liftLower_,
         c0=c0_,
         c1=c1_,
         c2=c2_,
@@ -753,7 +758,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.9,
+            0.5,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -923,7 +928,7 @@ def main():
     parser.add_argument(
         "--match-auto-length-quantile",
         type=float,
-        default=0.9,
+        default=0.50,
         dest="matchAutoLengthQuantile",
         help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )
@@ -1278,16 +1283,20 @@ def main():
                 treat_t = cconsenrich.cTransform(
                     pairMatrix[0, :],
                     blockLength=backgroundBlockSizeIntervals,
-                    rtailProp=countingArgs.rtailProp,
-                    disableBackground=True,
+                    denseMeanQuantile=countingArgs.denseMeanQuantile,
+                    liftLower=countingArgs.liftLower,
+                    disableLocalBackground=True,
                     verbose=args.verbose2,
+                    rseed = 42 + j_,
                 )
                 ctrl_t = cconsenrich.cTransform(
                     pairMatrix[1, :],
                     blockLength=backgroundBlockSizeIntervals,
-                    rtailProp=countingArgs.rtailProp,
-                    disableBackground=True,
+                    denseMeanQuantile=countingArgs.denseMeanQuantile,
+                    liftLower=countingArgs.liftLower,
+                    disableLocalBackground=True,
                     verbose=args.verbose2,
+                    rseed=42 + j_,
                 )
 
                 chromMat[j_, :] = treat_t - ctrl_t
@@ -1368,8 +1377,10 @@ def main():
                 chromMat[j, :] = cconsenrich.cTransform(
                     chromMat[j, :],
                     blockLength=backgroundBlockSizeIntervals,
-                    rtailProp=countingArgs.rtailProp,
+                    denseMeanQuantile=countingArgs.denseMeanQuantile,
+                    liftLower=countingArgs.liftLower,
                     verbose=args.verbose2,
+                    rseed = 42 + j,
                 )
 
                 if countingArgs.smoothSpanBP > 0:

@@ -280,10 +280,13 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param rtailProp: Quantile of the distribution of circular, block-sampled empirical means that determines the global baseline.
+    :param denseMeanQuantile: Quantile of the distribution of circular, block-sampled empirical means that determines the global baseline.
         The global baseline is mixed (e.g., 3:1 weighted average) with a local lower envelope estimate for the final baseline at each interval.
-    :type rtailProp: float, optional
-    :param c0: Ignored in current/default implementation.
+        Increasing this value can result in a more conservative signal estimate.
+    :type denseMeanQuantile: float, optional
+    :param liftLower: For the local baseline estimate (moving lower envelope), shift the lower envelope *up* by ``liftLower*MAD(data - lower_envelope)``.
+        Increasing this value can result in a more conservative signal estimate.
+    :type liftLower: float, optional
     :type c0: float, optional
     :param c1: Ignored in current/default implementation.
     :type c1: float, optional
@@ -318,7 +321,8 @@ class countingParams(NamedTuple):
     fragmentLengthsControl: List[int] | None
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
-    rtailProp: float | None
+    denseMeanQuantile: float | None
+    liftLower: float | None
     c0: float | None
     c1: float | None
     c2: float | None
