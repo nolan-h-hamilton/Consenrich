@@ -1301,6 +1301,10 @@ def main():
 
                 chromMat[j_, :] = treat_t - ctrl_t
 
+                med_ = np.median(chromMat[j_, :])
+                if med_ > 0:
+                    chromMat[j_, :] -= med_
+
                 if countingArgs.smoothSpanBP > 0:
                     chromMat[j_, :] = cconsenrich.cEMA(
                         chromMat[j_, :],
@@ -1382,6 +1386,10 @@ def main():
                     verbose=args.verbose2,
                     rseed = 42 + j,
                 )
+
+                med_ = np.median(chromMat[j, :])
+                if med_ > 0:
+                    chromMat[j, :] -= med_
 
                 if countingArgs.smoothSpanBP > 0:
                     chromMat[j, :] = cconsenrich.cEMA(

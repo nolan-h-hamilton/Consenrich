@@ -1546,7 +1546,7 @@ cpdef object cTransform(
     double c2=<double>0.0,
     double c3=<double>0.0,
     double w_local=<double>1.0,
-    double w_global=<double>3.0,
+    double w_global=<double>4.0,
     bint verbose=<bint>False,
     uint64_t rseed=<uint64_t>0,
 ):
@@ -2361,7 +2361,7 @@ cpdef double cDenseGlobalBaseline(
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
     # these values only ~make sense~ if momVST has been called!!!
-    values = np.clip(raw, 0.25, 4.0)
+    values = np.clip(raw, 1.0, 4.0)
     valuesView = values
     numValues = values.size
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
