@@ -427,7 +427,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "SF",
+        "EGS",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
@@ -478,29 +478,29 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     liftLower_ = _cfgGet(
         configData,
         "countingParams.liftLower",
-        0.25,
+        1.0,
     )
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
-        3/8,
+        3/8, # IGNORED
     )
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
-        1.0/math.log(2.0),
+        1.0/math.log(2.0), # IGNORED
     )
 
     c2_ = _cfgGet(
         configData,
         "countingParams.c2",
-        0.0,
+        0.0, # IGNORED
     )
 
     c3_ = _cfgGet(
         configData,
         "countingParams.c3",
-        0.0,
+        0.0, # IGNORED
     )
 
     return core.countingParams(
@@ -651,7 +651,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                1.0e-2,
+                1.0e-3,
             )
         ),
         EB_use=_cfgGet(
@@ -754,7 +754,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         autoLengthQuantile=_cfgGet(
             configData,
             "matchingParams.autoLengthQuantile",
-            0.5,
+            0.9,
         ),
         methodFDR=_cfgGet(
             configData,
@@ -924,7 +924,7 @@ def main():
     parser.add_argument(
         "--match-auto-length-quantile",
         type=float,
-        default=0.50,
+        default=0.9,
         dest="matchAutoLengthQuantile",
         help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )

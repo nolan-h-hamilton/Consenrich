@@ -129,7 +129,7 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-3,
-    autoLengthQuantile: float = 0.5,
+    autoLengthQuantile: float = 0.9,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -698,7 +698,7 @@ def runMatchingAlgorithm(
     excludeRegionsBedFile: Optional[str] = None,
     weightsBedGraph: str | None = None,
     eps: float = 1.0e-3,
-    autoLengthQuantile: float = 0.5,
+    autoLengthQuantile: float = 0.9,
     mergeGapBP: int | None = -1,
     methodFDR: str | None = None,
     merge: bool = True,

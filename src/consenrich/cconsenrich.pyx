@@ -241,18 +241,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         varOutView[regionIndex] = <float>(RSS / pairCountDouble / divRSS)
 
 
-
-cdef inline float _ctrans_F32(float x, float c0, float c1, float c2, float c3) nogil:
-    # CALLERS: `cTransform`
-
-    return c1*asinhf(x*c0)
-
-
-cdef inline double _ctrans_F64(double x, double c0, double c1, double c2, double c3) nogil:
-    # CALLERS: `cTransform`
-
-    return c1*asinh(x*c0)
-
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
     # CALLERS: `_partitionLt`, `_nthElement`
 
@@ -1192,7 +1180,7 @@ cpdef int64_t cgetFragmentLength(
                         continue
 
                 # now we build strand-specific tracks
-                # ...avoid forward/reverse strand for loops in each block w/ a cumsum
+                # ...avoid forward/reverse strand for loops in each block postWeight/ a cumsum
                 fwd.fill(0.0)
                 fwdDiff.fill(0.0)
                 rev.fill(0.0)
@@ -1481,8 +1469,6 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 
 cpdef tuple arsinhSqrt(object x,
-                       double a=<double>(-1.0),
-                       double offset=<double>(3.0/8.0),
                        bint useAsymptoticLog2=<bint>True):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] x_F64 = np.ascontiguousarray(x, dtype=np.float64)
@@ -1494,21 +1480,31 @@ cpdef tuple arsinhSqrt(object x,
     cdef double welf1, welf2
     cdef double muHat = 0.0
     cdef double varHat = 0.0
-    cdef double a_ = a
-    cdef double offset_ = offset
+    cdef double a_ = <double>(-1.0) # FIXED
+    cdef double offset_ = <double>(0.375) # FIXED
     cdef double scale_
     cdef double multLog2 = 2.0 * __INV_LN2_DOUBLE
     cdef double xValue
     cdef Py_ssize_t i
-
-    if offset_ <= 0.0:
-        offset_ = 0.375
+    cdef double smol = 1e-12
+    cdef double overdisp_raw, overdisp
+    cdef double overdispFloor, overdispBound, overdispThreshold
+    cdef double a_raw, a_prior, postWeight, a_log
+    cdef double a_min, a_max
+    cdef double scaleFloor
 
     if not useAsymptoticLog2:
         multLog2 = <double>1.0
 
-    if n == 0:
-        return (out_F64, a_)
+    # ---------------------------------------------------------------------------
+    # Note: this is a crude treatment of overdispersion and --not-- a full VST
+    #
+    # Intent: compressed dynamic range, and,
+    #
+    #     multiplicative noise --> additive (but maybe not homoscedastic) noise,
+    #
+    # before computing/removing baselines and fitting an *explicit* variance func.
+    # ---------------------------------------------------------------------------
 
     for i in range(n):
         xValue = x_F64[i]
@@ -1519,21 +1515,61 @@ cpdef tuple arsinhSqrt(object x,
 
     muHat = mom1
     varHat = (mom2 / (n - 1.0)) if n > 1 else 0.0
+
     if a_ <= 0.0:
-        if muHat > 0.0 and varHat > muHat:
-            a_ = (muHat * muHat) / (varHat - muHat)
-        else:
+        if (not isfinite(muHat)) or (not isfinite(varHat)) or (muHat <= 0.0):
             for i in range(n):
                 xValue = x_F64[i]
                 out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
             return (out_F64, a_)
+        overdisp_raw = (varHat - muHat) / max(muHat * muHat, smol)
+        if n > 1:
+            overdispThreshold = max(1e-3, 2.0 / (n - 1.0))
+        else:
+            overdispThreshold = 1e-2
 
+        # low overdispersion --> goto poisson-like sqrt
+        if (not isfinite(overdisp_raw)) or (overdisp_raw <= overdispThreshold):
+            for i in range(n):
+                xValue = x_F64[i]
+                # FFR: for consistency, multLog2 is nice, but revisit
+                out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
+            return (out_F64, a_)
 
-    cdef double scaleFloor = 1e-2 + 1e-2 * sqrt(varHat + muHat*muHat)
+        overdisp = overdisp_raw
+        if overdisp < 0.0:
+            overdisp = 0.0
+        overdispFloor = fmax(1.0e-2, 2.0 / ((<int>n) - 1.0))
+        if overdisp < overdispFloor:
+            overdisp = overdispFloor
+
+        overdispBound = 1e2
+        if overdisp > overdispBound:
+            overdisp = overdispBound
+
+        a_raw = 1.0 / fmax(overdisp, smol)
+        scaleFloor = 0.1 + (0.1 * sqrt(varHat + muHat * muHat))
+        a_min = 0.75 + scaleFloor
+        a_max = 1e6
+
+        # lightweight EB: shrink --> 3/4 + floor-guess
+        a_prior = a_min
+        postWeight = n / (n + 50.0)
+        a_log = postWeight * log(fmax(a_raw, smol)) + (1.0 - postWeight) * log(fmax(a_prior, smol))
+        a_ = exp(a_log)
+
+        if (not isfinite(a_)) or a_ < a_min:
+            a_ = a_min
+        elif a_ > a_max:
+            a_ = a_max
+
+    scaleFloor = 0.1 + (0.1*sqrt(varHat + muHat*muHat))
     scale_ = a_ - 0.75
     if (not isfinite(scale_)) or scale_ < scaleFloor:
         scale_ = scaleFloor
         a_ = 0.75 + scale_
+
+    printf("cconsenrich.arsinhSqrt: offset=%f scale=%f a=%f\n", offset_, scale_, a_)
 
     cdef double valAtZero = asinh(sqrt(offset_ / scale_))
     for i in range(n):
@@ -1543,16 +1579,13 @@ cpdef tuple arsinhSqrt(object x,
     return (out_F64, a_)
 
 
+
 cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
     bint disableLocalBackground=<bint>False,
     double denseMeanQuantile=<double>0.50,
     double liftLower=<double>1.0,
-    double c0=<double>(3.0/8.0),
-    double c1=<double>1/log(2.0),
-    double c2=<double>0.0,
-    double c3=<double>0.0,
     double w_local=<double>1.0,
     double w_global=<double>3.0,
     bint verbose=<bint>False,
@@ -1629,7 +1662,7 @@ cpdef object cTransform(
             globalBaselineF32 = 0.0
 
         if wLocal > 0.0:
-            # lower envelope baseline
+            # broad local baseline (median filter at 2x block size)
             localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize, liftLower=<float>liftLower)
             localBaseView_F32 = localBaseArr_F32
 
@@ -2385,7 +2418,7 @@ cpdef double cDenseGlobalBaseline(
 
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
-    values = np.clip(raw, 1.0, None)
+    values = np.clip(raw, 1.0, 10.0)
     valuesView = values
     numValues = values.size
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
@@ -2617,7 +2650,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
     cnp.ndarray x,
-    cnp.ndarray w):
+    cnp.ndarray postWeight):
     r"""PAVA for isotonic regression
 
     This code aims for the notation and algorithm of Busing 2022 (JSS, DOI: 10.18637/jss.v102.c01).
@@ -2634,15 +2667,15 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
 
     :param x: 1D array to be fitted as nondecreasing
     :type x: cnp.ndarray, (either f32 or f64)
-    :param w: 1D array of weights corresponding to each observed value.
+    :param postWeight: 1D array of weights corresponding to each observed value.
       These are the number of 'observations' associated to each 'unique' value in `x`. Intuition: more weight to values with more observations.
-    :type w: cnp.ndarray
+    :type postWeight: cnp.ndarray
     :return: PAVA-fitted values
     :rtype: cnp.ndarray, (either f32 or f64)
     """
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] xArr = np.ascontiguousarray(x, dtype=np.float64).ravel()
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr = np.ascontiguousarray(w, dtype=np.float64).ravel()
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr = np.ascontiguousarray(postWeight, dtype=np.float64).ravel()
     cdef Py_ssize_t n = xArr.shape[0]
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] xBlock = np.empty(n, dtype=np.float64)
@@ -2886,9 +2919,9 @@ cpdef tuple cscaleStateCovar(
     return (blockscaleFactorArr, blockNArr, blockChi2Arr)
 
 
-cpdef clocalBaseline(object x, int blockSize=101, double liftLower=<double>(0.25)):
+cpdef clocalBaseline(object x, int blockSize=101, double liftLower=<double>(1.0)):
     arr = np.asarray(x)
-    return np.maximum(ndimage.median_filter(arr, size=4*blockSize + 1, mode='nearest'), liftLower)
+    return np.maximum(ndimage.median_filter(arr, size=2*blockSize + 1, mode='nearest'), liftLower)
 
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(

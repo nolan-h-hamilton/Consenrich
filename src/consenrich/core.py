@@ -1026,9 +1026,9 @@ def runConsenrich(
 
             # --- calibration hyperparameters ---
             calibration_maxIters = int(calibration_kwargs.get("calibration_maxIters", 100))
-            calibration_minIters = int(calibration_kwargs.get("calibration_minIters", 25))
+            calibration_minIters = int(calibration_kwargs.get("calibration_minIters", 50))
             calibration_numTotalBlocks = int(
-                calibration_kwargs.get("calibration_numTotalBlocks", max(int(np.sqrt(n / 10)), 1))
+                calibration_kwargs.get("calibration_numTotalBlocks", max(int(np.sqrt(n / 5)), 1))
             )
             # gradient magnitude, relative to gradient magnitude @ starting point
             calibration_relEps = np.float32(calibration_kwargs.get("calibration_relEps", 0.01))
@@ -1877,7 +1877,7 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-4,
+    eps: float = 1.0e-3,
     binQuantileCutoff: float = 0.75,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
@@ -1944,7 +1944,7 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1.0e-4,
+    eps: float = 1.0e-3,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
