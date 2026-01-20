@@ -79,7 +79,7 @@ def autoMinLengthIntervals(
     if len(widths) == 0:
         return initLen
 
-    return int(stats.tmean(widths, limits=(initLen, np.quantile(widths, 0.75) + 1.0e-4)))
+    return min(int(stats.tmean(widths, limits=(initLen, np.quantile(widths, 0.75) + 1.0e-4))), maxLen)
 
 
 def scalarClip(value: float, low: float, high: float) -> float:
