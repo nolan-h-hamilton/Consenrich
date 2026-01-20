@@ -475,12 +475,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     denseMeanQuantile_ = _cfgGet(
         configData,
         "countingParams.denseMeanQuantile",
-        0.50,
+        0.5,
     )
     liftLower_ = _cfgGet(
         configData,
         "countingParams.liftLower",
-        1.0,
+        2.0,
     )
     c0_ = _cfgGet(
         configData,
@@ -648,7 +648,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         binQuantileCutoff=_cfgGet(
             configData,
             "observationParams.binQuantileCutoff",
-            0.75,
+            0.9,
         ),
         EB_minLin=float(
             _cfgGet(

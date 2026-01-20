@@ -1495,6 +1495,11 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
     cdef double multLog2 = 2.0 * __INV_LN2_DOUBLE
     cdef double xValue
     cdef Py_ssize_t i
+    cdef Py_ssize_t j
+    # allocate 2n since for forward + backward computation of a_
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] aCand = np.empty(<Py_ssize_t>(2*n), dtype=np.float64)
+    cdef Py_ssize_t k = 0
+    cdef double muLocal, varLocal, aLocal
 
     if offset_ <= 0.0:
         offset_ = 0.375
@@ -1502,7 +1507,14 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
     if not (useAsymptoticLog2):
         multLog2 = <double>(1.0)
 
+    # We want the same estimated a_ as if we'd started from the front
+    # ... so collect candidates from two passes, forward and back
     if a_ <= 0.0:
+        # ---------------------------------
+        # estimating a_: first pass (-->)
+        # ---------------------------------
+        mom1 = 0.0
+        mom2 = 0.0
         for i in range(n):
             xValue = x_F64[i]
             welf1 = xValue - mom1
@@ -1510,27 +1522,67 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
             welf2 = xValue - mom1
             mom2 += welf1 * welf2
 
+            muLocal = mom1
+            varLocal = (mom2 / i) if i > 0 else 0.0
+
+            if muLocal > 0.0 and varLocal > muLocal and isfinite(varLocal):
+                # excess variance from Poisson
+                aLocal = (muLocal * muLocal) / (varLocal - muLocal)
+                if aLocal > 0.0 and isfinite(aLocal):
+                    # keep positives (conservative overdispersion treatment)
+                    aCand[k] = aLocal
+                    k += 1
         muHat = mom1
         varHat = (mom2 / (n - 1.0)) if n > 1 else 0.0
 
-        if muHat > 0.0 and varHat > muHat:
-            a_ = (muHat * muHat) / (varHat - muHat)
+        # ----------------------------------
+        # estimating a_: backward pass (<--)
+        # ----------------------------------
+        mom1 = 0.0
+        mom2 = 0.0
+        for j in range(n):
+            i = n - 1 - j # i decreases toward 0
+            xValue = x_F64[i]
+            welf1 = xValue - mom1
+            mom1 += welf1 / (j + 1.0) # j tracks current sample count
+            welf2 = xValue - mom1
+            mom2 += welf1 * welf2
+
+            muLocal = mom1
+            varLocal = (mom2 / j) if j > 0 else 0.0
+
+            if muLocal > 0.0 and varLocal > muLocal and isfinite(varLocal):
+                aLocal = (muLocal * muLocal) / (varLocal - muLocal)
+                if aLocal > 0.0 and isfinite(aLocal):
+                    # k counts valid a_ candidates, up to 2n
+                    aCand[k] = aLocal
+                    k += 1
+
+        # -----------------------------------------
+        # estimating a_:  median of all candidates
+        # -----------------------------------------
+        if k > 0:
+            # first: check/pick median of positive a_ samples, if any
+            a_ = <double>np.median(aCand[:k])
         else:
-            # push to poisson when 1/a --> 0, and return before asinh
+            if muHat > 0.0 and varHat > muHat and isfinite(varHat):
+                a_ = (muHat * muHat) / (varHat - muHat)
+
+        # poisson backup
+        if not (a_ > 0.0) or (not isfinite(a_)):
             for i in range(n):
                 xValue = x_F64[i]
-                out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
+                out_F64[i] = multLog2 * (sqrt(xValue + offset_))
             return (out_F64, a_)
-
 
     scale_ = <double>(a_ - 0.75)
     if scale_ <= 0.0 or (not isfinite(scale_)):
-        a_ = <double>(0.75 + 1.0e-4)
+        a_ = <double>(0.75 + 1.0e-3)
         scale_ = <double>(a_ - 0.75)
-    cdef double valAtZero = asinh(sqrt(offset_ / scale_))
+
     for i in range(n):
         xValue = x_F64[i]
-        out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)) - valAtZero)
+        out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)))
 
     return (out_F64, a_)
 
@@ -1546,9 +1598,10 @@ cpdef object cTransform(
     double c2=<double>0.0,
     double c3=<double>0.0,
     double w_local=<double>1.0,
-    double w_global=<double>4.0,
+    double w_global=<double>3.0,
     bint verbose=<bint>False,
     uint64_t rseed=<uint64_t>0,
+    bint posthocCenter=<bint>(True)
 ):
     cdef Py_ssize_t bootBlockSize, n, i
     cdef double wLocal, wGlobal, weightSum, invWeightSum
@@ -1562,6 +1615,8 @@ cpdef object cTransform(
     cdef double[::1] zView_F64, localBaseView_F64, outView_F64
     cdef double globalBaselineF64, combinedBaselineF64
     cdef double wLocalF64, wGlobalF64, invWeightSumF64
+    cdef float meanVal_F32 = 0.0
+    cdef double meanVal_F64 = <double>(0.0)
 
     if disableLocalBackground:
         wLocal = 0.0
@@ -1570,7 +1625,7 @@ cpdef object cTransform(
         wLocal = w_local
         wGlobal = w_global
 
-    # If user explicitly sets w_local=w_global=0, skip both local+global subtraction
+    # 0,0 --> skip both local+global baseline subtraction
     if not disableLocalBackground and wLocal == 0.0 and wGlobal == 0.0:
         momRes = momVST(x)
         if (<cnp.ndarray>x).dtype == np.float32:
@@ -1631,6 +1686,12 @@ cpdef object cTransform(
                     (wGlobalF32 * globalBaselineF32)
                 ) * invWeightSumF32
                 outView_F32[i] = zView_F32[i] - combinedBaselineF32
+
+        if posthocCenter:
+            meanVal_F32 = np.mean(outArr)
+            if meanVal_F32 > 0.0:
+                np.subtract(outArr, meanVal_F32, out=outArr)
+
         return outArr
 
     # F64
@@ -1668,6 +1729,11 @@ cpdef object cTransform(
                 (wGlobalF64 * globalBaselineF64)
             ) * invWeightSumF64
             outView_F64[i] = zView_F64[i] - combinedBaselineF64
+
+    if posthocCenter:
+        meanVal_F64 = np.mean(outArr)
+        if meanVal_F64 > 0.0:
+            np.subtract(outArr, meanVal_F64, out=outArr)
     return outArr
 
 
@@ -2360,8 +2426,7 @@ cpdef double cDenseGlobalBaseline(
 
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
-    # these values only ~make sense~ if momVST has been called!!!
-    values = np.clip(raw, 1.0, 4.0)
+    values = np.clip(raw, 1.0, None)
     valuesView = values
     numValues = values.size
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
@@ -2946,21 +3011,24 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double lif
 
     cdef int radius = blockSize // 2
     cdef int m = n + 2 * radius
-    cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float64)
-    cdef double[::1] padView= pad_vec
-    cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
-    cdef double[::1] sw_ = sw__vec
-    cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float64)
-    cdef double[::1] pad2View = pad2_vec
-    cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float64)
-    cdef double[::1] baselineView = baseline_vec
-    cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
-    cdef int[::1] sliding1 = sliding1_vec
-    cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
-    cdef int[::1] sliding2View = sliding2_vec
-    cdef double med, lift, mad
-    cdef cnp.ndarray residuals
 
+    cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float64)
+    cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
+    cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float64)
+    cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float64)
+    cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
+    cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
+    cdef double[::1] padView = pad_vec
+    cdef double[::1] sw_ = sw__vec
+    cdef double[::1] pad2View = pad2_vec
+    cdef double[::1] baselineView = baseline_vec
+    cdef int[::1] sliding1 = sliding1_vec
+    cdef int[::1] sliding2View = sliding2_vec
+
+    cdef cnp.ndarray FOD
+    cdef double medFOD, sigma, lift
+
+    # min-then-max with padding
     padView[0:radius] = y[0]
     padView[radius:radius + n] = y
     padView[radius + n:m] = y[n - 1]
@@ -2972,13 +3040,15 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double lif
     pad2View[radius + n:m] = sw_[n - 1]
     with nogil:
         _rmax_F64(pad2View, blockSize, baselineView, sliding2View)
-    residuals = y_vec - baseline_vec
-    np.maximum(residuals, 0.0, out=residuals)
-    med = np.median(residuals)
-    mad = np.median(np.abs(residuals - med))
-    lift = liftLower * (mad / 0.6744897501960817)
+
+    # lift up envelope by the MAD of first-order differences
+    FOD = np.diff(y_vec)
+    medFOD = <double>np.median(FOD)
+    # normal correction (1.4826)
+    # 1/sqrt(2) = 0.707... (sqrt(+1 for each point in pair))
+    sigma = <double>(1.4826 * np.median(np.abs(FOD - medFOD)) * 0.7071067811865476)
+    lift = sigma * liftLower
     np.add(lift, baseline_vec, out=baseline_vec)
-    ndimage.median_filter(baseline_vec, size=4*blockSize + 1, mode='nearest', output=baseline_vec)
     return baseline_vec
 
 
@@ -2994,19 +3064,24 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float lift
 
     cdef int radius = blockSize // 2
     cdef int m = n + 2 * radius
+
     cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float32)
-    cdef float[::1] padView = pad_vec
     cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float32)
-    cdef float[::1] sw_ = sw__vec
     cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float32)
-    cdef float[::1] pad2View = pad2_vec
     cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float32)
-    cdef float[::1] baselineView = baseline_vec
     cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
-    cdef int[::1] sliding1 = sliding1_vec
     cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
+    cdef float[::1] padView = pad_vec
+    cdef float[::1] sw_ = sw__vec
+    cdef float[::1] pad2View = pad2_vec
+    cdef float[::1] baselineView = baseline_vec
+    cdef int[::1] sliding1 = sliding1_vec
     cdef int[::1] sliding2View = sliding2_vec
 
+    cdef cnp.ndarray FOD
+    cdef float medFOD, sigma, lift
+
+    # min-then-max with padding
     padView[0:radius] = y[0]
     padView[radius:radius + n] = y
     padView[radius + n:m] = y[n - 1]
@@ -3018,16 +3093,15 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float lift
     pad2View[radius + n:m] = sw_[n - 1]
     with nogil:
         _rmax_F32(pad2View, blockSize, baselineView, sliding2View)
-    cdef float med, mad, lift
-    cdef cnp.ndarray residuals = np.empty(n, dtype=np.float32)
-    # MAD of points' residuals *above* the lower envelope
-    residuals = y_vec - baseline_vec
-    np.maximum(residuals, 0.0, out=residuals)
-    med = np.median(residuals)
-    mad = np.median(np.abs(residuals - med))
-    lift = liftLower * (mad / 0.6744897501960817)
+
+    # lift up envelope by the MAD of first-order differences
+    FOD = np.diff(y_vec)
+    medFOD = <float>np.median(FOD)
+    # normal correction (1.4826)
+    # 1/sqrt(2) = 0.707... (sqrt(+1 for each point in pair))
+    sigma = <float>(1.4826 * np.median(np.abs(FOD - medFOD)) * 0.7071067811865476)
+    lift = sigma * liftLower
     np.add(lift, baseline_vec, out=baseline_vec)
-    ndimage.median_filter(baseline_vec, size=4*blockSize + 1, mode='nearest', output=baseline_vec)
     return baseline_vec
 
 
@@ -3044,7 +3118,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
     float minCount=<float>1.0,
     double nonzeroFrac=0.25,
-    bint centerGeoMean=True,
+    bint centerGeoMean=False,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
     cdef Py_ssize_t m = chromMat_.shape[0]
