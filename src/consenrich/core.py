@@ -284,8 +284,6 @@ class countingParams(NamedTuple):
         The global baseline is mixed (e.g., 3:1 weighted average) with a local lower envelope estimate for the final baseline at each interval.
         Increasing this value can result in a more conservative signal estimate.
     :type denseMeanQuantile: float, optional
-    :param liftLower: For the local baseline estimate (moving lower envelope), shift the lower envelope *up* by ``liftLower*Var(ΔResiduals)``.
-        Increasing this value can result in a more conservative signal estimate.
     :type liftLower: float, optional
     :type c0: float, optional
     :param c1: Ignored in current/default implementation.

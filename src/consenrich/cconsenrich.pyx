@@ -1480,98 +1480,65 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0/8.0), bint useAsymptoticLog2=<bint>True):
+cpdef tuple arsinhSqrt(object x,
+                       double a=<double>(-1.0),
+                       double offset=<double>(3.0/8.0),
+                       bint useAsymptoticLog2=<bint>True):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] x_F64 = np.ascontiguousarray(x, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64 = np.empty(<Py_ssize_t>(x_F64.size), dtype=np.float64)
     cdef Py_ssize_t n = x_F64.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64 = np.empty(<Py_ssize_t>n, dtype=np.float64)
+
     cdef double mom1 = 0.0
     cdef double mom2 = 0.0
     cdef double welf1, welf2
-    cdef double muHat, varHat
+    cdef double muHat = 0.0
+    cdef double varHat = 0.0
     cdef double a_ = a
     cdef double offset_ = offset
     cdef double scale_
     cdef double multLog2 = 2.0 * __INV_LN2_DOUBLE
     cdef double xValue
     cdef Py_ssize_t i
-    cdef Py_ssize_t j
-    # allocate 2n since for forward + backward computation of a_
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] aCand = np.empty(<Py_ssize_t>(2*n), dtype=np.float64)
-    cdef Py_ssize_t k = 0
-    cdef double muLocal, varLocal, aLocal
 
     if offset_ <= 0.0:
-        offset_ = 0.0
+        offset_ = 0.375
 
-    if not (useAsymptoticLog2):
-        multLog2 = <double>(1.0)
+    if not useAsymptoticLog2:
+        multLog2 = <double>1.0
 
-    # We want the same estimated a_ as if we'd started from the front
-    # ... so collect candidates from two passes, forward and back
-    if a_ <= 0.0:
-        # ---------------------------------
-        # estimating a_: first pass (-->)
-        # ---------------------------------
-        mom1 = 0.0
-        mom2 = 0.0
-        for i in range(n):
-            xValue = x_F64[i]
-            welf1 = xValue - mom1
-            mom1 += welf1 / (i + 1.0)
-            welf2 = xValue - mom1
-            mom2 += welf1 * welf2
+    if n == 0:
+        return (out_F64, a_)
 
-            muLocal = mom1
-            varLocal = (mom2 / i) if i > 0 else 0.0
-
-            if muLocal > 0.0 and varLocal > muLocal and isfinite(varLocal):
-                # excess variance from Poisson
-                aLocal = (muLocal * muLocal) / (varLocal - muLocal)
-                if aLocal > 0.0 and isfinite(aLocal):
-                    # keep positives (conservative overdispersion treatment)
-                    aCand[k] = aLocal
-                    k += 1
-        muHat = mom1
-        varHat = (mom2 / (n - 1.0)) if n > 1 else 0.0
-
-        # ----------------------------------
-        # estimating a_: backward pass (<--)
-        # ----------------------------------
-        mom1 = 0.0
-        mom2 = 0.0
-        for j in range(n):
-            i = n - 1 - j # i decreases toward 0
-            xValue = x_F64[i]
-            welf1 = xValue - mom1
-            mom1 += welf1 / (j + 1.0) # j tracks current sample count
-            welf2 = xValue - mom1
-            mom2 += welf1 * welf2
-
-            muLocal = mom1
-            varLocal = (mom2 / j) if j > 0 else 0.0
-
-            if muLocal > 0.0 and varLocal > muLocal and isfinite(varLocal):
-                aLocal = (muLocal * muLocal) / (varLocal - muLocal)
-                if aLocal > 0.0 and isfinite(aLocal):
-                    # k counts valid a_ candidates, up to 2n
-                    aCand[k] = aLocal
-                    k += 1
-
-        # -----------------------------------------
-        # estimating a_:  avg candidates
-        # -----------------------------------------
-        if k > 0:
-            a_ = <double>np.mean(aCand[:k]) # 2n may not be filled, so up to :k
-        else:
-            if muHat > 0.0 and varHat > muHat and isfinite(varHat):
-                a_ = (muHat * muHat) / (varHat - muHat)
-
-    scale_ = fmax(a_ - (2.0 * offset_), 0.5)
-    printf("a_:  %.4f for MOM-VST\n", a_)
     for i in range(n):
         xValue = x_F64[i]
-        out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)) - asinh(sqrt(offset_ / scale_)))
+        welf1 = xValue - mom1
+        mom1 += welf1 / (i + 1.0)
+        welf2 = xValue - mom1
+        mom2 += welf1 * welf2
+
+    muHat = mom1
+    varHat = (mom2 / (n - 1.0)) if n > 1 else 0.0
+    if a_ <= 0.0:
+        if muHat > 0.0 and varHat > muHat:
+            a_ = (muHat * muHat) / (varHat - muHat)
+        else:
+            for i in range(n):
+                xValue = x_F64[i]
+                out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
+            return (out_F64, a_)
+
+
+    cdef double scaleFloor = 1e-2 + 1e-2 * sqrt(varHat + muHat*muHat)
+    scale_ = a_ - 0.75
+    if (not isfinite(scale_)) or scale_ < scaleFloor:
+        scale_ = scaleFloor
+        a_ = 0.75 + scale_
+
+    cdef double valAtZero = asinh(sqrt(offset_ / scale_))
+    for i in range(n):
+        xValue = x_F64[i]
+        out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)) - valAtZero)
 
     return (out_F64, a_)
 
@@ -1616,7 +1583,7 @@ cpdef object cTransform(
     # 0,0 --> skip both local+global baseline subtraction
     if not disableLocalBackground and wLocal == 0.0 and wGlobal == 0.0:
 
-        momRes = momVST(x)
+        momRes = arsinhSqrt(x)
         if (<cnp.ndarray>x).dtype == np.float32:
             return np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
         else:
@@ -1642,7 +1609,7 @@ cpdef object cTransform(
     # F32
     if (<cnp.ndarray>x).dtype == np.float32:
         # I) ~VST~ with a approximated from data
-        momRes = momVST(x)
+        momRes = arsinhSqrt(x)
         zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
         zView_F32 = zArr_F32
         n = zArr_F32.shape[0]
@@ -1686,7 +1653,7 @@ cpdef object cTransform(
         return outArr
 
     # F64
-    momRes = momVST(x)
+    momRes = arsinhSqrt(x)
     zArr_F64 = np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
     zView_F64 = zArr_F64
     n = zArr_F64.shape[0]
@@ -2919,193 +2886,15 @@ cpdef tuple cscaleStateCovar(
     return (blockscaleFactorArr, blockNArr, blockChi2Arr)
 
 
-cdef void _rmin_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:
-    cdef int m = <int>x.shape[0]
-    cdef int i, first_ = 0, end_ = 0
-    cdef int idxDrop
-    cdef double xi
-    for i in range(m):
-        xi = x[i]
-        while end_ > first_ and xi <= x[sliding[end_ - 1]]:
-            end_ -= 1
-        sliding[end_] = i
-        end_ += 1
-        idxDrop = i - blockSize
-        if sliding[first_] <= idxDrop:
-            first_ += 1
-        if i >= blockSize - 1:
-            out[i - (blockSize - 1)] = x[sliding[first_]]
-
-
-cdef void _rmax_F64(double[::1] x, int blockSize, double[::1] out, int[::1] sliding) noexcept nogil:
-    cdef int m = <int>x.shape[0]
-    cdef int i, first_ = 0, end_ = 0
-    cdef int idxDrop
-    cdef double xi
-    for i in range(m):
-        xi = x[i]
-        while end_ > first_ and xi >= x[sliding[end_ - 1]]:
-            end_ -= 1
-        sliding[end_] = i
-        end_ += 1
-        idxDrop = i - blockSize
-        if sliding[first_] <= idxDrop:
-            first_ += 1
-        if i >= blockSize - 1:
-            out[i - (blockSize - 1)] = x[sliding[first_]]
-
-
-cdef void _rmin_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:
-    cdef int m = <int>x.shape[0]
-    cdef int i, first_ = 0, end_ = 0
-    cdef int idxDrop
-    cdef float xi
-    for i in range(m):
-        xi = x[i]
-        while end_ > first_ and xi <= x[sliding[end_ - 1]]:
-            end_ -= 1
-        sliding[end_] = i
-        end_ += 1
-        idxDrop = i - blockSize
-        if sliding[first_] <= idxDrop:
-            first_ += 1
-        if i >= blockSize - 1:
-            out[i - (blockSize - 1)] = x[sliding[first_]]
-
-
-cdef void _rmax_F32(float[::1] x, int blockSize, float[::1] out, int[::1] sliding) noexcept nogil:
-    cdef int m = <int>x.shape[0]
-    cdef int i, first_ = 0, end_ = 0
-    cdef int idxDrop
-    cdef float xi
-    for i in range(m):
-        xi = x[i]
-        while end_ > first_ and xi >= x[sliding[end_ - 1]]:
-            end_ -= 1
-        sliding[end_] = i
-        end_ += 1
-        idxDrop = i - blockSize
-        if sliding[first_] <= idxDrop:
-            first_ += 1
-        if i >= blockSize - 1:
-            out[i - (blockSize - 1)] = x[sliding[first_]]
-
-
-cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double liftLower=<double>1.0):
-    if blockSize < 3 or (blockSize & 1) == 0:
-        raise ValueError("need an odd-length block")
-
-    cdef cnp.ndarray y_vec = np.ascontiguousarray(data, dtype=np.float64)
-    cdef double[::1] y = y_vec
-    cdef int n = <int>y.shape[0]
-    if n == 0:
-        return np.empty((0,), dtype=np.float64)
-
-    cdef int radius = blockSize // 2
-    cdef int m = n + 2 * radius
-
-    cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float64)
-    cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float64)
-    cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float64)
-    cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float64)
-    cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
-    cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
-    cdef double[::1] padView = pad_vec
-    cdef double[::1] sw_ = sw__vec
-    cdef double[::1] pad2View = pad2_vec
-    cdef double[::1] baselineView = baseline_vec
-    cdef int[::1] sliding1 = sliding1_vec
-    cdef int[::1] sliding2View = sliding2_vec
-
-    cdef cnp.ndarray FOD
-    cdef double muFOD, sigma, lift
-
-    # min-then-max with padding
-    padView[0:radius] = y[0]
-    padView[radius:radius + n] = y
-    padView[radius + n:m] = y[n - 1]
-    with nogil:
-        _rmin_F64(padView, blockSize, sw_, sliding1)
-
-    pad2View[0:radius] = sw_[0]
-    pad2View[radius:radius + n] = sw_
-    pad2View[radius + n:m] = sw_[n - 1]
-    with nogil:
-        _rmax_F64(pad2View, blockSize, baselineView, sliding2View)
-
-    # lift the lower envelope
-    FOD = np.diff(y_vec)
-    muFOD = <double>np.mean(FOD)
-    sigma = <double>np.std(FOD)
-    lift = sigma * liftLower
-    np.add(lift, baseline_vec, out=baseline_vec)
-    return baseline_vec
-
-
-cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float liftLower=<float>1.0):
-    if blockSize < 3 or (blockSize & 1) == 0:
-        raise ValueError("need an odd-length block")
-
-    cdef cnp.ndarray y_vec = np.ascontiguousarray(data, dtype=np.float32)
-    cdef float[::1] y = y_vec
-    cdef int n = <int>y.shape[0]
-    if n == 0:
-        return np.empty((0,), dtype=np.float32)
-
-    cdef int radius = blockSize // 2
-    cdef int m = n + 2 * radius
-
-    cdef cnp.ndarray pad_vec = np.empty(m, dtype=np.float32)
-    cdef cnp.ndarray sw__vec = np.empty(n, dtype=np.float32)
-    cdef cnp.ndarray pad2_vec = np.empty(m, dtype=np.float32)
-    cdef cnp.ndarray baseline_vec = np.empty(n, dtype=np.float32)
-    cdef cnp.ndarray sliding1_vec = np.empty(m, dtype=np.int32)
-    cdef cnp.ndarray sliding2_vec = np.empty(m, dtype=np.int32)
-    cdef float[::1] padView = pad_vec
-    cdef float[::1] sw_ = sw__vec
-    cdef float[::1] pad2View = pad2_vec
-    cdef float[::1] baselineView = baseline_vec
-    cdef int[::1] sliding1 = sliding1_vec
-    cdef int[::1] sliding2View = sliding2_vec
-
-    cdef cnp.ndarray FOD
-    cdef float muFOD, sigma, lift
-
-    # min-then-max with padding
-    padView[0:radius] = y[0]
-    padView[radius:radius + n] = y
-    padView[radius + n:m] = y[n - 1]
-    with nogil:
-        _rmin_F32(padView, blockSize, sw_, sliding1)
-
-    pad2View[0:radius] = sw_[0]
-    pad2View[radius:radius + n] = sw_
-    pad2View[radius + n:m] = sw_[n - 1]
-    with nogil:
-        _rmax_F32(pad2View, blockSize, baselineView, sliding2View)
-
-    # lift the lower envelope
-    FOD = np.diff(y_vec)
-    muFOD = <float>np.mean(FOD)
-    sigma = <float>np.std(FOD)
-    lift = sigma * liftLower
-    np.add(lift, baseline_vec, out=baseline_vec)
-    return baseline_vec
-
-
-cpdef clocalBaseline(object x, int blockSize=101, double liftLower=<double>(1.0)):
+cpdef clocalBaseline(object x, int blockSize=101, double liftLower=<double>(0.25)):
     arr = np.asarray(x)
-    if arr.dtype == np.float64:
-        return clocalBaseline_F64(arr, <int>blockSize, liftLower=<double>liftLower)
-    if arr.dtype == np.float32:
-        return clocalBaseline_F32(arr, <int>blockSize, liftLower=<float>liftLower)
-    raise TypeError("x must be np.float32 or np.float64")
+    return np.maximum(ndimage.median_filter(arr, size=4*blockSize + 1, mode='nearest'), liftLower)
 
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
     float minCount=<float>1.0,
-    double nonzeroFrac=0.25,
+    double nonzeroFrac=0.5,
     bint centerGeoMean=False,
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)

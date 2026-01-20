@@ -399,7 +399,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 50) + 1, 1000), 500_000),
+        min(max(2 * (intervalSizeBP * 25) + 1, 1000), 500_000),
     )
     smoothSpanBP_ = _cfgGet(
         configData,
@@ -465,13 +465,11 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.useTreatmentFragmentLengths",
         True,
     )
-
     fixControl_ = _cfgGet(
         configData,
         "countingParams.fixControl",
         True,
     )
-
     denseMeanQuantile_ = _cfgGet(
         configData,
         "countingParams.denseMeanQuantile",
@@ -480,14 +478,13 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     liftLower_ = _cfgGet(
         configData,
         "countingParams.liftLower",
-        1.0,
+        0.25,
     )
     c0_ = _cfgGet(
         configData,
         "countingParams.c0",
         3/8,
     )
-
     c1_ = _cfgGet(
         configData,
         "countingParams.c1",
@@ -638,7 +635,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
-            25_000,
+            50_000,
         ),
         samplingBlockSizeBP=_cfgGet(
             configData,
