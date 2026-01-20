@@ -1493,6 +1493,9 @@ cpdef tuple arsinhSqrt(object x,
     cdef double a_min, a_max
     cdef double scaleFloor
 
+    cdef double zGate = 1.644853627 # 95%
+    cdef double k, t, chi2_q, varUpperEq
+
     if not useAsymptoticLog2:
         multLog2 = <double>1.0
 
@@ -1522,11 +1525,18 @@ cpdef tuple arsinhSqrt(object x,
                 xValue = x_F64[i]
                 out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
             return (out_F64, a_)
+
+
+        # gate: var <= (mu + (z*mu)*sqrt(2/(n-1))) --> treat as -not- overdispersed (sqrt)
+        varUpperEq = muHat * (1.0 + zGate*sqrt(2.0 / (n - 1.0)))
+        if varHat <= varUpperEq:
+            for i in range(n):
+                xValue = x_F64[i]
+                out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
+            return (out_F64, a_)
+
         overdisp_raw = (varHat - muHat) / max(muHat * muHat, smol)
-        if n > 1:
-            overdispThreshold = max(1e-3, 2.0 / (n - 1.0))
-        else:
-            overdispThreshold = 1e-2
+        overdispThreshold = max(1e-3, 2.0 / (n - 1.0))
 
         # low overdispersion --> goto poisson-like sqrt
         if (not isfinite(overdisp_raw)) or (overdisp_raw <= overdispThreshold):
@@ -1577,6 +1587,7 @@ cpdef tuple arsinhSqrt(object x,
         out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)) - valAtZero)
 
     return (out_F64, a_)
+
 
 
 

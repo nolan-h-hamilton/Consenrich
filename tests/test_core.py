@@ -83,6 +83,47 @@ def testProcessNoiseAdjustment():
     assert inflatedQ is True
 
 
+@pytest.mark.chelpers
+def testArsinhSqrtPoissonBackup():
+    np.random.seed(0)
+
+    x = np.random.poisson(lam=3.0, size=50_000).astype(np.float64)
+    out, a = cconsenrich.arsinhSqrt(x, useAsymptoticLog2=True)
+    offset = 0.375
+    mult = 2.0 / np.log(2.0)
+    sqrt_like = mult * (np.sqrt(x + offset) - np.sqrt(offset))
+    rtol = 0.02 if a < 30 else 0.01
+    np.testing.assert_allclose(out, sqrt_like, rtol=rtol, atol=1e-4)
+
+
+@pytest.mark.chelpers
+def testArsinhSqrtOverdispersedFiniteA_monotone():
+    rng = np.random.default_rng(1)
+    mu = 20.0
+    size = 2.0
+    p = size / (size + mu)
+    x = rng.negative_binomial(size, p, size=50_000).astype(np.float64)
+    out, a = cconsenrich.arsinhSqrt(x, useAsymptoticLog2=True)
+    assert a > 0.75 # offset: 0.75 + 0.1 * scaleFloor
+    assert a < 1.0e6 # bound
+
+    # monotonic
+    idx = np.argsort(x)
+    out_sorted = out[idx]
+    assert np.all(np.diff(out_sorted) >= -1e-12)
+
+
+@pytest.mark.chelpers
+def testArsinhSqrt_useAsymptoticLog2_scales_outputs():
+    x = np.array([0.0, 1.0, 5.0, 10.0, 100.0], dtype=np.float64)
+
+    out1, a1 = cconsenrich.arsinhSqrt(x, useAsymptoticLog2=True)
+    out2, a2 = cconsenrich.arsinhSqrt(x, useAsymptoticLog2=False)
+    mask = out2 != 0.0
+    ratio = out1[mask] / out2[mask]
+    np.testing.assert_allclose(ratio, (2.0 / np.log(2.0)), rtol=1e-4, atol=1e-4)
+
+
 @pytest.mark.correctness
 def testbedMask(tmp_path):
     bedPath = tmp_path / "testTmp.bed"
