@@ -475,12 +475,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     denseMeanQuantile_ = _cfgGet(
         configData,
         "countingParams.denseMeanQuantile",
-        0.5,
+        0.50,
     )
     liftLower_ = _cfgGet(
         configData,
         "countingParams.liftLower",
-        2.0,
+        1.0,
     )
     c0_ = _cfgGet(
         configData,
@@ -1280,25 +1280,15 @@ def main():
                 )
                 logger.info(f"(trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
                 treat_t = cconsenrich.cTransform(
-                    pairMatrix[0, :],
+                    np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0),
                     blockLength=backgroundBlockSizeIntervals,
                     denseMeanQuantile=countingArgs.denseMeanQuantile,
                     liftLower=countingArgs.liftLower,
-                    disableLocalBackground=True,
                     verbose=args.verbose2,
                     rseed = 42 + j_,
                 )
-                ctrl_t = cconsenrich.cTransform(
-                    pairMatrix[1, :],
-                    blockLength=backgroundBlockSizeIntervals,
-                    denseMeanQuantile=countingArgs.denseMeanQuantile,
-                    liftLower=countingArgs.liftLower,
-                    disableLocalBackground=True,
-                    verbose=args.verbose2,
-                    rseed=42 + j_,
-                )
 
-                chromMat[j_, :] = treat_t - ctrl_t
+                chromMat[j_, :] = treat_t
                 if countingArgs.smoothSpanBP > 0:
                     chromMat[j_, :] = cconsenrich.cEMA(
                         chromMat[j_, :],

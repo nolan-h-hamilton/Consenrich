@@ -1502,7 +1502,7 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
     cdef double muLocal, varLocal, aLocal
 
     if offset_ <= 0.0:
-        offset_ = 0.375
+        offset_ = 0.0
 
     if not (useAsymptoticLog2):
         multLog2 = <double>(1.0)
@@ -1559,30 +1559,19 @@ cpdef tuple momVST(object x, double a=<double>(-1.0), double offset=<double>(3.0
                     k += 1
 
         # -----------------------------------------
-        # estimating a_:  median of all candidates
+        # estimating a_:  avg candidates
         # -----------------------------------------
         if k > 0:
-            # first: check/pick median of positive a_ samples, if any
-            a_ = <double>np.median(aCand[:k])
+            a_ = <double>np.mean(aCand[:k]) # 2n may not be filled, so up to :k
         else:
             if muHat > 0.0 and varHat > muHat and isfinite(varHat):
                 a_ = (muHat * muHat) / (varHat - muHat)
 
-        # poisson backup
-        if not (a_ > 0.0) or (not isfinite(a_)):
-            for i in range(n):
-                xValue = x_F64[i]
-                out_F64[i] = multLog2 * (sqrt(xValue + offset_))
-            return (out_F64, a_)
-
-    scale_ = <double>(a_ - 0.75)
-    if scale_ <= 0.0 or (not isfinite(scale_)):
-        a_ = <double>(0.75 + 1.0e-3)
-        scale_ = <double>(a_ - 0.75)
-
+    scale_ = fmax(a_ - (2.0 * offset_), 0.5)
+    printf("a_:  %.4f for MOM-VST\n", a_)
     for i in range(n):
         xValue = x_F64[i]
-        out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)))
+        out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)) - asinh(sqrt(offset_ / scale_)))
 
     return (out_F64, a_)
 
@@ -1601,7 +1590,6 @@ cpdef object cTransform(
     double w_global=<double>3.0,
     bint verbose=<bint>False,
     uint64_t rseed=<uint64_t>0,
-    bint posthocCenter=<bint>(True)
 ):
     cdef Py_ssize_t bootBlockSize, n, i
     cdef double wLocal, wGlobal, weightSum, invWeightSum
@@ -1616,7 +1604,7 @@ cpdef object cTransform(
     cdef double globalBaselineF64, combinedBaselineF64
     cdef double wLocalF64, wGlobalF64, invWeightSumF64
     cdef float meanVal_F32 = 0.0
-    cdef double meanVal_F64 = <double>(0.0)
+    cdef double meanVal_F64 = 0.0
 
     if disableLocalBackground:
         wLocal = 0.0
@@ -1627,10 +1615,14 @@ cpdef object cTransform(
 
     # 0,0 --> skip both local+global baseline subtraction
     if not disableLocalBackground and wLocal == 0.0 and wGlobal == 0.0:
+
         momRes = momVST(x)
         if (<cnp.ndarray>x).dtype == np.float32:
             return np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
-        return np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
+        else:
+            return np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
+
+        raise RuntimeError("Unreachable code executed in cTransform")
 
     bootBlockSize = <Py_ssize_t>max(min(blockLength, 10000), 3)
     if bootBlockSize % 2 == 0:
@@ -1645,6 +1637,7 @@ cpdef object cTransform(
         weightSum = 1.0
     invWeightSum = 1.0 / weightSum
 
+
     n = (<cnp.ndarray>x).size
     # F32
     if (<cnp.ndarray>x).dtype == np.float32:
@@ -1655,7 +1648,6 @@ cpdef object cTransform(
         n = zArr_F32.shape[0]
         outArr = np.empty(n, dtype=np.float32)
         outView_F32 = outArr
-
         # II) baseline estimation (weighted(local, global)) on transformed data
         if wGlobal > 0.0:
             # right-tail biased circular resampling
@@ -1686,12 +1678,11 @@ cpdef object cTransform(
                     (wGlobalF32 * globalBaselineF32)
                 ) * invWeightSumF32
                 outView_F32[i] = zView_F32[i] - combinedBaselineF32
-
-        if posthocCenter:
-            meanVal_F32 = np.mean(outArr)
-            if meanVal_F32 > 0.0:
-                np.subtract(outArr, meanVal_F32, out=outArr)
-
+        meanVal_F32 = np.median(outView_F32)
+        if meanVal_F32 > 0.0:
+            with nogil:
+                for i in range(n):
+                    outView_F32[i] = outView_F32[i] - meanVal_F32
         return outArr
 
     # F64
@@ -1699,7 +1690,6 @@ cpdef object cTransform(
     zArr_F64 = np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
     zView_F64 = zArr_F64
     n = zArr_F64.shape[0]
-
     outArr = np.empty(n, dtype=np.float64)
     outView_F64 = outArr
 
@@ -1730,10 +1720,12 @@ cpdef object cTransform(
             ) * invWeightSumF64
             outView_F64[i] = zView_F64[i] - combinedBaselineF64
 
-    if posthocCenter:
-        meanVal_F64 = np.mean(outArr)
-        if meanVal_F64 > 0.0:
-            np.subtract(outArr, meanVal_F64, out=outArr)
+    meanVal_F64 = np.median(outView_F64)
+    if meanVal_F64 > 0.0:
+        with nogil:
+            for i in range(n):
+                outView_F64[i] = outView_F64[i] - meanVal_F64
+
     return outArr
 
 
@@ -3026,7 +3018,7 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double lif
     cdef int[::1] sliding2View = sliding2_vec
 
     cdef cnp.ndarray FOD
-    cdef double medFOD, sigma, lift
+    cdef double muFOD, sigma, lift
 
     # min-then-max with padding
     padView[0:radius] = y[0]
@@ -3041,12 +3033,10 @@ cpdef cnp.ndarray clocalBaseline_F64(cnp.ndarray data, int blockSize, double lif
     with nogil:
         _rmax_F64(pad2View, blockSize, baselineView, sliding2View)
 
-    # lift up envelope by the MAD of first-order differences
+    # lift the lower envelope
     FOD = np.diff(y_vec)
-    medFOD = <double>np.median(FOD)
-    # normal correction (1.4826)
-    # 1/sqrt(2) = 0.707... (sqrt(+1 for each point in pair))
-    sigma = <double>(1.4826 * np.median(np.abs(FOD - medFOD)) * 0.7071067811865476)
+    muFOD = <double>np.mean(FOD)
+    sigma = <double>np.std(FOD)
     lift = sigma * liftLower
     np.add(lift, baseline_vec, out=baseline_vec)
     return baseline_vec
@@ -3079,7 +3069,7 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float lift
     cdef int[::1] sliding2View = sliding2_vec
 
     cdef cnp.ndarray FOD
-    cdef float medFOD, sigma, lift
+    cdef float muFOD, sigma, lift
 
     # min-then-max with padding
     padView[0:radius] = y[0]
@@ -3094,12 +3084,10 @@ cpdef cnp.ndarray clocalBaseline_F32(cnp.ndarray data, int blockSize, float lift
     with nogil:
         _rmax_F32(pad2View, blockSize, baselineView, sliding2View)
 
-    # lift up envelope by the MAD of first-order differences
+    # lift the lower envelope
     FOD = np.diff(y_vec)
-    medFOD = <float>np.median(FOD)
-    # normal correction (1.4826)
-    # 1/sqrt(2) = 0.707... (sqrt(+1 for each point in pair))
-    sigma = <float>(1.4826 * np.median(np.abs(FOD - medFOD)) * 0.7071067811865476)
+    muFOD = <float>np.mean(FOD)
+    sigma = <float>np.std(FOD)
     lift = sigma * liftLower
     np.add(lift, baseline_vec, out=baseline_vec)
     return baseline_vec
