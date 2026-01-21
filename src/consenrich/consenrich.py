@@ -478,7 +478,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     liftLower_ = _cfgGet(
         configData,
         "countingParams.liftLower",
-        1.0,
+        0.0,
     )
     c0_ = _cfgGet(
         configData,
