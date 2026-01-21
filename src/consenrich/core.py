@@ -406,16 +406,14 @@ class outputParams(NamedTuple):
     :type convertToBigWig: bool
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
-    :param writeUncertainty: If True, write the model's posterior uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
+    :param writeUncertainty: If True, write the posterior state uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
     :type writeUncertainty: bool
     :param writeMWSR: If True, write the per-interval average of weighted squared residuals (MWSR),
         where the weighting is with respect to measurement uncertainty and the *estimated* positional state uncertainty after running the filter/smoother.
 
-        .. math::
+        .. math:: \textsf{MWSR}[i] = \frac{1}{m}\sum_{j=1}^{m}\frac{\left(Z_{[i,j]} - \widetilde{x}_{[i]}\right)^{2}}{R_{[i,j]} + \widetilde{P}_{[i,(11)]}}
 
-        \mathrm{MWSR}_{[i]} = \frac{1}{m}\sum_{j=1}^{m}\frac{\left(Z_{[i,j]} - (\mathbf{H}\widetilde{x}_{[i]})_{j}\right)^{2}}{R_{[i,j]} + \widetilde{P}_{[i,(11)]}}
-
-        Here, :math:`m` = ``numSamples``, :math:`R_{[i,j]}` is the (diagonal) measurement variance for sample j, and :math:`\widetilde{P}_{[i,(11)]}` is the estimated primary state variance at interval i.
+        Here, :math:`m` = ``numSamples``, :math:`R_{[i,j]}` is the (diagonal) measurement variance for at interval :math:`i`, sample :math:`j`, and :math:`\widetilde{P}_{[i,(11)]}` is the estimated primary state variance at interval i.
     :type writeMWSR: bool
     """
 
@@ -1998,7 +1996,7 @@ def getMuncTrack(
       Note, block sizes are drawn as :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSizeBP})`, truncated to :math:`\{3, \ldots, 3 \times \textsf{samplingBlockSizeBP}\}`, to
       avoid fixed-size block artifacts when estimating mean-variance trend.
     :type samplingBlockSizeBP: int
-    :param samplingIters: Number of contiguous blocks to sample when estimating global mean-variance trend.
+    :param samplingIters: Number of genomic blocks to sample when estimating global mean-variance trend.
     :type samplingIters: int
     :param binQuantileCutoff: Quantile of variances within bins of absolute mean signal to use when fitting global mean-variance trend.
     :type binQuantileCutoff: float
@@ -2010,10 +2008,6 @@ def getMuncTrack(
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, sets :math:`\nu_{\mathcal{L}}` to this value, overriding the local window size - 3.
     :type EB_setNuL: int | None
-    :param verbose: If `True`, print fit details.
-    :type verbose: bool
-    :return: Munc track, fraction of valid (mean, variance) pairs used in fitting.
-    :rtype: tuple[npt.NDArray[np.float32], float]
     """
     AR1_PARAMCT = 3
     if samplingBlockSizeBP is None:
@@ -2112,7 +2106,7 @@ def EB_computePriorStrength(
 ) -> float:
     r"""Compute :math:`\nu_0` to determine 'prior strength'
 
-    The prior model strength is determined by its 'excess' dispersion beyond sampling noise  (at the local level)
+    The prior model strength is determined by 'excess' dispersion beyond sampling noise at the local level.
 
     :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) innovation variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
     :type localModelVariances: np.ndarray

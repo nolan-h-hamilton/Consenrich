@@ -100,9 +100,8 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   ENCFF490MWV.bam]
 
   # Optional: call 'structured peaks'
-  matchingParams.templateNames: [haar,haar,db2,db2]
-  matchingParams.cascadeLevels: [2,3,2,3]
-  outputParams.writeUncertainty: true
+  matchingParams.templateNames: [haar, db2, db3]
+  matchingParams.cascadeLevels: [2,2,2]
 
 
 .. admonition:: Control Inputs
@@ -152,7 +151,7 @@ For example, to run the `Consenrich+ROCCO` protocol as it is used in the manuscr
     -g hg38 -o consenrichRocco_<experimentName>.bed \
     # <...>
 
-The budgeted/total-variation-regularized optimization procedure performed by ROCCO to select consensus peak regions prevents excessive multiple comparisons downstream and enforces biological plausibility. Other peak calling methods can be applied downstream, too,---including the :ref:`matching` algorithm packaged with Consenrich---that accept bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_). Only Consenrich+ROCCO has been extensively benchmarked for differential accessibility analyses to date.
+Other peak calling methods can be applied downstream, too, including the :ref:`matching` algorithm packaged with Consenrich, that accept a bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_). Only Consenrich+ROCCO has been benchmarked for differential accessibility analyses to date.
 
 In general, for workflows of the form ``Consenrich Signal Track --> Peak Caller --> Sample-by-CalledPeaks Count Matrix --> Differential Analysis between Conditions``, it is recommended to use *all samples from all experimental conditions* as input to Consenrich for better control of downstream false discovery rates. See, for example, `Lun and Smyth, 2014`.
 
