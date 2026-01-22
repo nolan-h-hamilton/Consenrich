@@ -4,23 +4,23 @@
 {
     "distutils": {
         "depends": [
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayobject.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayscalars.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarrayobject.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarraytypes.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ufuncobject.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/htslib_util.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/bgzf.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/cram.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/faidx.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/hfile.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/hts.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/kstring.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/sam.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/tbx.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/vcf.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/vcfutils.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/pysam_stream.h"
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayscalars.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarrayobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarraytypes.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ufuncobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/htslib_util.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/bgzf.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/cram.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/faidx.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/hfile.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/hts.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/kstring.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/sam.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/tbx.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/vcf.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib/htslib/vcfutils.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/pysam_stream.h"
         ],
         "extra_compile_args": [
             "-O3",
@@ -34,20 +34,20 @@
             "-lomp"
         ],
         "include_dirs": [
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/htslib",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/include/samtools",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/_core/include"
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/htslib",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/include/samtools",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/_core/include"
         ],
         "language": "c",
         "libraries": [
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/libctabixproxies.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/libcfaidx.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/libcsamfile.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/libcvcf.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/libcbcf.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/libctabix.cpython-312-darwin.so",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/pysam/libchtslib.cpython-312-darwin.so"
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/libctabixproxies.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/libcfaidx.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/libcsamfile.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/libcvcf.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/libcbcf.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/libctabix.cpython-312-darwin.so",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/pysam/libchtslib.cpython-312-darwin.so"
         ],
         "name": "consenrich.cconsenrich",
         "sources": [
@@ -1581,7 +1581,7 @@ static const char *__pyx_filename;
 static const char* const __pyx_f[] = {
   "src/consenrich/cconsenrich.pyx",
   "<stringsource>",
-  "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd",
+  "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd",
   "cpython/contextvars.pxd",
   "array.pxd",
   "cpython/type.pxd",
@@ -1842,7 +1842,7 @@ typedef struct {
 
 /* #### Code section: numeric_typedefs ### */
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":744
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":744
  * # in Cython to enable them only on the right systems.
  * 
  * ctypedef npy_int8       int8_t             # <<<<<<<<<<<<<<
@@ -1851,7 +1851,7 @@ typedef struct {
 */
 typedef npy_int8 __pyx_t_5numpy_int8_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":745
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":745
  * 
  * ctypedef npy_int8       int8_t
  * ctypedef npy_int16      int16_t             # <<<<<<<<<<<<<<
@@ -1860,7 +1860,7 @@ typedef npy_int8 __pyx_t_5numpy_int8_t;
 */
 typedef npy_int16 __pyx_t_5numpy_int16_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":746
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":746
  * ctypedef npy_int8       int8_t
  * ctypedef npy_int16      int16_t
  * ctypedef npy_int32      int32_t             # <<<<<<<<<<<<<<
@@ -1869,7 +1869,7 @@ typedef npy_int16 __pyx_t_5numpy_int16_t;
 */
 typedef npy_int32 __pyx_t_5numpy_int32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":747
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":747
  * ctypedef npy_int16      int16_t
  * ctypedef npy_int32      int32_t
  * ctypedef npy_int64      int64_t             # <<<<<<<<<<<<<<
@@ -1878,7 +1878,7 @@ typedef npy_int32 __pyx_t_5numpy_int32_t;
 */
 typedef npy_int64 __pyx_t_5numpy_int64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":749
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":749
  * ctypedef npy_int64      int64_t
  * 
  * ctypedef npy_uint8      uint8_t             # <<<<<<<<<<<<<<
@@ -1887,7 +1887,7 @@ typedef npy_int64 __pyx_t_5numpy_int64_t;
 */
 typedef npy_uint8 __pyx_t_5numpy_uint8_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":750
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":750
  * 
  * ctypedef npy_uint8      uint8_t
  * ctypedef npy_uint16     uint16_t             # <<<<<<<<<<<<<<
@@ -1896,7 +1896,7 @@ typedef npy_uint8 __pyx_t_5numpy_uint8_t;
 */
 typedef npy_uint16 __pyx_t_5numpy_uint16_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":751
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":751
  * ctypedef npy_uint8      uint8_t
  * ctypedef npy_uint16     uint16_t
  * ctypedef npy_uint32     uint32_t             # <<<<<<<<<<<<<<
@@ -1905,7 +1905,7 @@ typedef npy_uint16 __pyx_t_5numpy_uint16_t;
 */
 typedef npy_uint32 __pyx_t_5numpy_uint32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":752
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":752
  * ctypedef npy_uint16     uint16_t
  * ctypedef npy_uint32     uint32_t
  * ctypedef npy_uint64     uint64_t             # <<<<<<<<<<<<<<
@@ -1914,7 +1914,7 @@ typedef npy_uint32 __pyx_t_5numpy_uint32_t;
 */
 typedef npy_uint64 __pyx_t_5numpy_uint64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":754
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":754
  * ctypedef npy_uint64     uint64_t
  * 
  * ctypedef npy_float32    float32_t             # <<<<<<<<<<<<<<
@@ -1923,7 +1923,7 @@ typedef npy_uint64 __pyx_t_5numpy_uint64_t;
 */
 typedef npy_float32 __pyx_t_5numpy_float32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":755
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":755
  * 
  * ctypedef npy_float32    float32_t
  * ctypedef npy_float64    float64_t             # <<<<<<<<<<<<<<
@@ -1932,7 +1932,7 @@ typedef npy_float32 __pyx_t_5numpy_float32_t;
 */
 typedef npy_float64 __pyx_t_5numpy_float64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":762
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":762
  * ctypedef double complex complex128_t
  * 
  * ctypedef npy_longlong   longlong_t             # <<<<<<<<<<<<<<
@@ -1941,7 +1941,7 @@ typedef npy_float64 __pyx_t_5numpy_float64_t;
 */
 typedef npy_longlong __pyx_t_5numpy_longlong_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":763
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":763
  * 
  * ctypedef npy_longlong   longlong_t
  * ctypedef npy_ulonglong  ulonglong_t             # <<<<<<<<<<<<<<
@@ -1950,7 +1950,7 @@ typedef npy_longlong __pyx_t_5numpy_longlong_t;
 */
 typedef npy_ulonglong __pyx_t_5numpy_ulonglong_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":765
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":765
  * ctypedef npy_ulonglong  ulonglong_t
  * 
  * ctypedef npy_intp       intp_t             # <<<<<<<<<<<<<<
@@ -1959,7 +1959,7 @@ typedef npy_ulonglong __pyx_t_5numpy_ulonglong_t;
 */
 typedef npy_intp __pyx_t_5numpy_intp_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":766
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":766
  * 
  * ctypedef npy_intp       intp_t
  * ctypedef npy_uintp      uintp_t             # <<<<<<<<<<<<<<
@@ -1968,7 +1968,7 @@ typedef npy_intp __pyx_t_5numpy_intp_t;
 */
 typedef npy_uintp __pyx_t_5numpy_uintp_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":768
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":768
  * ctypedef npy_uintp      uintp_t
  * 
  * ctypedef npy_double     float_t             # <<<<<<<<<<<<<<
@@ -1977,7 +1977,7 @@ typedef npy_uintp __pyx_t_5numpy_uintp_t;
 */
 typedef npy_double __pyx_t_5numpy_float_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":769
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":769
  * 
  * ctypedef npy_double     float_t
  * ctypedef npy_double     double_t             # <<<<<<<<<<<<<<
@@ -1986,7 +1986,7 @@ typedef npy_double __pyx_t_5numpy_float_t;
 */
 typedef npy_double __pyx_t_5numpy_double_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":770
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":770
  * ctypedef npy_double     float_t
  * ctypedef npy_double     double_t
  * ctypedef npy_longdouble longdouble_t             # <<<<<<<<<<<<<<
@@ -2360,7 +2360,7 @@ struct __pyx_opt_args_10consenrich_11cconsenrich_cmeanVarPairs {
 /* "consenrich/cconsenrich.pyx":1471
  * 
  * 
- * cpdef tuple monoFunc(object x, double offset=0, double scale=1.0):             # <<<<<<<<<<<<<<
+ * cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
 */
@@ -5331,11 +5331,13 @@ typedef struct {
   double __pyx_k__11;
   double __pyx_k__12;
   double __pyx_k__13;
-  uint64_t __pyx_k__14;
+  double __pyx_k__14;
   double __pyx_k__15;
-  float __pyx_k__16;
+  uint64_t __pyx_k__16;
+  double __pyx_k__17;
+  float __pyx_k__18;
   PyObject *__pyx_slice[2];
-  PyObject *__pyx_tuple[14];
+  PyObject *__pyx_tuple[13];
   PyObject *__pyx_codeobj_tab[28];
   PyObject *__pyx_string_tab[361];
   PyObject *__pyx_number_tab[32];
@@ -5400,7 +5402,7 @@ static __pyx_mstatetype * const __pyx_mstate_global = &__pyx_mstate_global_stati
 #define __pyx_kp_u_Step_may_not_be_zero_axis_d __pyx_string_tab[18]
 #define __pyx_kp_u_Unable_to_convert_item_to_object __pyx_string_tab[19]
 #define __pyx_kp_u__10 __pyx_string_tab[20]
-#define __pyx_kp_u__17 __pyx_string_tab[21]
+#define __pyx_kp_u__19 __pyx_string_tab[21]
 #define __pyx_kp_u__2 __pyx_string_tab[22]
 #define __pyx_kp_u__3 __pyx_string_tab[23]
 #define __pyx_kp_u__4 __pyx_string_tab[24]
@@ -5729,11 +5731,11 @@ static __pyx_mstatetype * const __pyx_mstate_global = &__pyx_mstate_global_stati
 #define __pyx_kp_b_iso88591_H_t5_4Bk __pyx_string_tab[347]
 #define __pyx_kp_b_iso88591_N_AU_b_fBa_A_V1A_r_1_q_Q_z_q_3a __pyx_string_tab[348]
 #define __pyx_kp_b_iso88591_Q_1_A_Q_Q_a_q_t_gS_D_1_M_7_Rq_2 __pyx_string_tab[349]
-#define __pyx_kp_b_iso88591_Q_5R7I_VSUUV_fAQ_5RvQc_r_q_q_U __pyx_string_tab[350]
-#define __pyx_kp_b_iso88591_Q_a_9F_9_6_QWWYYZ_a_z_HBa_6_q_6 __pyx_string_tab[351]
-#define __pyx_kp_b_iso88591_Q_gU_1_8_LAXU_3_F_7_IQ_b_s_31A __pyx_string_tab[352]
-#define __pyx_kp_b_iso88591_Q_l_Q_q_6_S_y_1_q_A_A_3a_A_as_8 __pyx_string_tab[353]
-#define __pyx_kp_b_iso88591_WA_A_1_S_3c_1_1Cs_Kq_1_Rq_Rq_Qe __pyx_string_tab[354]
+#define __pyx_kp_b_iso88591_Q_a_9F_9_6_QWWYYZ_a_z_HBa_6_q_6 __pyx_string_tab[350]
+#define __pyx_kp_b_iso88591_Q_gU_1_8_LAXU_3_F_7_IQ_b_s_31A __pyx_string_tab[351]
+#define __pyx_kp_b_iso88591_Q_l_Q_q_6_S_y_1_q_A_A_3a_A_as_8 __pyx_string_tab[352]
+#define __pyx_kp_b_iso88591_WA_A_1_S_3c_1_1Cs_Kq_1_Rq_Rq_Qe __pyx_string_tab[353]
+#define __pyx_kp_b_iso88591_Yc_MYVW_5R7I_VSUUV_fAQ_5RvQc_r __pyx_string_tab[354]
 #define __pyx_kp_b_iso88591_b_c_3fCq_q_V2_Bc_A_8_vUWWX_Q_Cq __pyx_string_tab[355]
 #define __pyx_kp_b_iso88591_k_iq_1Kq_a_Ja_3a_1_5_9Ba_q_A_Yc __pyx_string_tab[356]
 #define __pyx_kp_b_iso88591_vQa_q_1_RvQm6_1_2Q_e1_2Q_fA_q_A __pyx_string_tab[357]
@@ -5838,7 +5840,7 @@ static CYTHON_SMALL_CODE int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_memoryviewslice_type);
   Py_CLEAR(clear_module_state->__pyx_type___pyx_memoryviewslice);
   for (int i=0; i<2; ++i) { Py_CLEAR(clear_module_state->__pyx_slice[i]); }
-  for (int i=0; i<14; ++i) { Py_CLEAR(clear_module_state->__pyx_tuple[i]); }
+  for (int i=0; i<13; ++i) { Py_CLEAR(clear_module_state->__pyx_tuple[i]); }
   for (int i=0; i<28; ++i) { Py_CLEAR(clear_module_state->__pyx_codeobj_tab[i]); }
   for (int i=0; i<361; ++i) { Py_CLEAR(clear_module_state->__pyx_string_tab[i]); }
   for (int i=0; i<32; ++i) { Py_CLEAR(clear_module_state->__pyx_number_tab[i]); }
@@ -5916,7 +5918,7 @@ static CYTHON_SMALL_CODE int __pyx_m_traverse(PyObject *m, visitproc visit, void
   Py_VISIT(traverse_module_state->__pyx_memoryviewslice_type);
   Py_VISIT(traverse_module_state->__pyx_type___pyx_memoryviewslice);
   for (int i=0; i<2; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_slice[i]); }
-  for (int i=0; i<14; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_tuple[i]); }
+  for (int i=0; i<13; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_tuple[i]); }
   for (int i=0; i<28; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_codeobj_tab[i]); }
   for (int i=0; i<361; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_string_tab[i]); }
   for (int i=0; i<32; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_number_tab[i]); }
@@ -19200,7 +19202,7 @@ static PyObject *__pyx_unpickle_Enum__set_state(struct __pyx_MemviewEnum_obj *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
  *         cdef int type_num
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19211,7 +19213,7 @@ static PyObject *__pyx_unpickle_Enum__set_state(struct __pyx_MemviewEnum_obj *__
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_Descr *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":245
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":245
  *         @property
  *         cdef inline npy_intp itemsize(self) noexcept nogil:
  *             return PyDataType_ELSIZE(self)             # <<<<<<<<<<<<<<
@@ -19221,7 +19223,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_D
   __pyx_r = PyDataType_ELSIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
  *         cdef int type_num
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19234,7 +19236,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_D
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
  *             return PyDataType_ELSIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19245,7 +19247,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_D
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_9alignment_alignment(PyArray_Descr *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":249
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":249
  *         @property
  *         cdef inline npy_intp alignment(self) noexcept nogil:
  *             return PyDataType_ALIGNMENT(self)             # <<<<<<<<<<<<<<
@@ -19255,7 +19257,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_9alignment_alignment(PyArray
   __pyx_r = PyDataType_ALIGNMENT(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
  *             return PyDataType_ELSIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19268,7 +19270,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_9alignment_alignment(PyArray
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
  *         # Use fields/names with care as they may be NULL.  You must check
  *         # for this using PyDataType_HASFIELDS.
  *         @property             # <<<<<<<<<<<<<<
@@ -19282,7 +19284,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   PyObject *__pyx_t_1;
   __Pyx_RefNannySetupContext("fields", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":255
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":255
  *         @property
  *         cdef inline object fields(self):
  *             return <object>PyDataType_FIELDS(self)             # <<<<<<<<<<<<<<
@@ -19295,7 +19297,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   __pyx_r = ((PyObject *)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
  *         # Use fields/names with care as they may be NULL.  You must check
  *         # for this using PyDataType_HASFIELDS.
  *         @property             # <<<<<<<<<<<<<<
@@ -19310,7 +19312,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
  *             return <object>PyDataType_FIELDS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19324,7 +19326,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   PyObject *__pyx_t_1;
   __Pyx_RefNannySetupContext("names", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":259
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":259
  *         @property
  *         cdef inline tuple names(self):
  *             return <tuple>PyDataType_NAMES(self)             # <<<<<<<<<<<<<<
@@ -19337,7 +19339,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   __pyx_r = ((PyObject*)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
  *             return <object>PyDataType_FIELDS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19352,7 +19354,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
  *         # valid (the pointer can be NULL). Most users should access
  *         # this field via the inline helper method PyDataType_SHAPE.
  *         @property             # <<<<<<<<<<<<<<
@@ -19363,7 +19365,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
 static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarray(PyArray_Descr *__pyx_v_self) {
   PyArray_ArrayDescr *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":266
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":266
  *         @property
  *         cdef inline PyArray_ArrayDescr* subarray(self) noexcept nogil:
  *             return PyDataType_SUBARRAY(self)             # <<<<<<<<<<<<<<
@@ -19373,7 +19375,7 @@ static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarra
   __pyx_r = PyDataType_SUBARRAY(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
  *         # valid (the pointer can be NULL). Most users should access
  *         # this field via the inline helper method PyDataType_SHAPE.
  *         @property             # <<<<<<<<<<<<<<
@@ -19386,7 +19388,7 @@ static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarra
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
  *             return PyDataType_SUBARRAY(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19397,7 +19399,7 @@ static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarra
 static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr *__pyx_v_self) {
   npy_uint64 __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":271
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":271
  *         cdef inline npy_uint64 flags(self) noexcept nogil:
  *             """The data types flags."""
  *             return PyDataType_FLAGS(self)             # <<<<<<<<<<<<<<
@@ -19407,7 +19409,7 @@ static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr
   __pyx_r = PyDataType_FLAGS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
  *             return PyDataType_SUBARRAY(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19420,7 +19422,7 @@ static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
  *     ctypedef class numpy.broadcast [object PyArrayMultiIterObject, check_size ignore]:
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19431,7 +19433,7 @@ static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr
 static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMultiIterObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":283
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":283
  *         cdef inline int numiter(self) noexcept nogil:
  *             """The number of arrays that need to be broadcast to the same shape."""
  *             return PyArray_MultiIter_NUMITER(self)             # <<<<<<<<<<<<<<
@@ -19441,7 +19443,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMulti
   __pyx_r = PyArray_MultiIter_NUMITER(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
  *     ctypedef class numpy.broadcast [object PyArrayMultiIterObject, check_size ignore]:
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19454,7 +19456,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMulti
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
  *             return PyArray_MultiIter_NUMITER(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19465,7 +19467,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMulti
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":288
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":288
  *         cdef inline npy_intp size(self) noexcept nogil:
  *             """The total broadcasted size."""
  *             return PyArray_MultiIter_SIZE(self)             # <<<<<<<<<<<<<<
@@ -19475,7 +19477,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiI
   __pyx_r = PyArray_MultiIter_SIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
  *             return PyArray_MultiIter_NUMITER(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19488,7 +19490,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiI
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
  *             return PyArray_MultiIter_SIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19499,7 +19501,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiI
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":293
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":293
  *         cdef inline npy_intp index(self) noexcept nogil:
  *             """The current (1-d) index into the broadcasted result."""
  *             return PyArray_MultiIter_INDEX(self)             # <<<<<<<<<<<<<<
@@ -19509,7 +19511,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMult
   __pyx_r = PyArray_MultiIter_INDEX(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
  *             return PyArray_MultiIter_SIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19522,7 +19524,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMult
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
  *             return PyArray_MultiIter_INDEX(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19533,7 +19535,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMult
 static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":298
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":298
  *         cdef inline int nd(self) noexcept nogil:
  *             """The number of dimensions in the broadcasted result."""
  *             return PyArray_MultiIter_NDIM(self)             # <<<<<<<<<<<<<<
@@ -19543,7 +19545,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject
   __pyx_r = PyArray_MultiIter_NDIM(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
  *             return PyArray_MultiIter_INDEX(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19556,7 +19558,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
  *             return PyArray_MultiIter_NDIM(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19567,7 +19569,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":303
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":303
  *         cdef inline npy_intp* dimensions(self) noexcept nogil:
  *             """The shape of the broadcasted result."""
  *             return PyArray_MultiIter_DIMS(self)             # <<<<<<<<<<<<<<
@@ -19577,7 +19579,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions
   __pyx_r = PyArray_MultiIter_DIMS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
  *             return PyArray_MultiIter_NDIM(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19590,7 +19592,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
  *             return PyArray_MultiIter_DIMS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19601,7 +19603,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions
 static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiIterObject *__pyx_v_self) {
   void **__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":309
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":309
  *             """An array of iterator objects that holds the iterators for the arrays to be broadcast together.
  *             On return, the iterators are adjusted for broadcasting."""
  *             return PyArray_MultiIter_ITERS(self)             # <<<<<<<<<<<<<<
@@ -19611,7 +19613,7 @@ static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiI
   __pyx_r = PyArray_MultiIter_ITERS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
  *             return PyArray_MultiIter_DIMS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19624,7 +19626,7 @@ static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiI
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
  *         # Instead, we use properties that map to the corresponding C-API functions.
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19635,7 +19637,7 @@ static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiI
 static CYTHON_INLINE PyObject *__pyx_f_5numpy_7ndarray_4base_base(PyArrayObject *__pyx_v_self) {
   PyObject *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":327
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":327
  *             """Returns a borrowed reference to the object owning the data/memory.
  *             """
  *             return PyArray_BASE(self)             # <<<<<<<<<<<<<<
@@ -19645,7 +19647,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_7ndarray_4base_base(PyArrayObject 
   __pyx_r = PyArray_BASE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
  *         # Instead, we use properties that map to the corresponding C-API functions.
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19658,7 +19660,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_7ndarray_4base_base(PyArrayObject 
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
  *             return PyArray_BASE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19672,7 +19674,7 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   PyArray_Descr *__pyx_t_1;
   __Pyx_RefNannySetupContext("descr", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":333
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":333
  *             """Returns an owned reference to the dtype of the array.
  *             """
  *             return <dtype>PyArray_DESCR(self)             # <<<<<<<<<<<<<<
@@ -19685,7 +19687,7 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   __pyx_r = ((PyArray_Descr *)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
  *             return PyArray_BASE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19700,7 +19702,7 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
  *             return <dtype>PyArray_DESCR(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19711,7 +19713,7 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
 static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":339
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":339
  *             """Returns the number of dimensions in the array.
  *             """
  *             return PyArray_NDIM(self)             # <<<<<<<<<<<<<<
@@ -19721,7 +19723,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx
   __pyx_r = PyArray_NDIM(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
  *             return <dtype>PyArray_DESCR(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19734,7 +19736,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
  *             return PyArray_NDIM(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19745,7 +19747,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":347
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":347
  *             Can return NULL for 0-dimensional arrays.
  *             """
  *             return PyArray_DIMS(self)             # <<<<<<<<<<<<<<
@@ -19755,7 +19757,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObjec
   __pyx_r = PyArray_DIMS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
  *             return PyArray_NDIM(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19768,7 +19770,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObjec
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
  *             return PyArray_DIMS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19779,7 +19781,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObjec
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":354
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":354
  *             The number of elements matches the number of dimensions of the array (ndim).
  *             """
  *             return PyArray_STRIDES(self)             # <<<<<<<<<<<<<<
@@ -19789,7 +19791,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayO
   __pyx_r = PyArray_STRIDES(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
  *             return PyArray_DIMS(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19802,7 +19804,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayO
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
  *             return PyArray_STRIDES(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19813,7 +19815,7 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayO
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":360
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":360
  *             """Returns the total size (in number of elements) of the array.
  *             """
  *             return PyArray_SIZE(self)             # <<<<<<<<<<<<<<
@@ -19823,7 +19825,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *
   __pyx_r = PyArray_SIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
  *             return PyArray_STRIDES(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19836,7 +19838,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
  *             return PyArray_SIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19847,7 +19849,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *
 static CYTHON_INLINE char *__pyx_f_5numpy_7ndarray_4data_data(PyArrayObject *__pyx_v_self) {
   char *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":369
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":369
  *             of `PyArray_DATA()` instead, which returns a 'void*'.
  *             """
  *             return PyArray_BYTES(self)             # <<<<<<<<<<<<<<
@@ -19857,7 +19859,7 @@ static CYTHON_INLINE char *__pyx_f_5numpy_7ndarray_4data_data(PyArrayObject *__p
   __pyx_r = PyArray_BYTES(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
  *             return PyArray_SIZE(self)
  * 
  *         @property             # <<<<<<<<<<<<<<
@@ -19870,7 +19872,7 @@ static CYTHON_INLINE char *__pyx_f_5numpy_7ndarray_4data_data(PyArrayObject *__p
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
  * ctypedef long double complex clongdouble_t
  * 
  * cdef inline object PyArray_MultiIterNew1(a):             # <<<<<<<<<<<<<<
@@ -19887,7 +19889,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew1", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":778
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":778
  * 
  * cdef inline object PyArray_MultiIterNew1(a):
  *     return PyArray_MultiIterNew(1, <void*>a)             # <<<<<<<<<<<<<<
@@ -19901,7 +19903,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
  * ctypedef long double complex clongdouble_t
  * 
  * cdef inline object PyArray_MultiIterNew1(a):             # <<<<<<<<<<<<<<
@@ -19920,7 +19922,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
  *     return PyArray_MultiIterNew(1, <void*>a)
  * 
  * cdef inline object PyArray_MultiIterNew2(a, b):             # <<<<<<<<<<<<<<
@@ -19937,7 +19939,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew2", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":781
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":781
  * 
  * cdef inline object PyArray_MultiIterNew2(a, b):
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)             # <<<<<<<<<<<<<<
@@ -19951,7 +19953,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
  *     return PyArray_MultiIterNew(1, <void*>a)
  * 
  * cdef inline object PyArray_MultiIterNew2(a, b):             # <<<<<<<<<<<<<<
@@ -19970,7 +19972,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)
  * 
  * cdef inline object PyArray_MultiIterNew3(a, b, c):             # <<<<<<<<<<<<<<
@@ -19987,7 +19989,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew3", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":784
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":784
  * 
  * cdef inline object PyArray_MultiIterNew3(a, b, c):
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)             # <<<<<<<<<<<<<<
@@ -20001,7 +20003,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)
  * 
  * cdef inline object PyArray_MultiIterNew3(a, b, c):             # <<<<<<<<<<<<<<
@@ -20020,7 +20022,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)
  * 
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):             # <<<<<<<<<<<<<<
@@ -20037,7 +20039,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew4", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":787
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":787
  * 
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)             # <<<<<<<<<<<<<<
@@ -20051,7 +20053,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)
  * 
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):             # <<<<<<<<<<<<<<
@@ -20070,7 +20072,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)
  * 
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):             # <<<<<<<<<<<<<<
@@ -20087,7 +20089,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew5", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":790
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":790
  * 
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)             # <<<<<<<<<<<<<<
@@ -20101,7 +20103,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)
  * 
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):             # <<<<<<<<<<<<<<
@@ -20120,7 +20122,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)
  * 
  * cdef inline tuple PyDataType_SHAPE(dtype d):             # <<<<<<<<<<<<<<
@@ -20135,7 +20137,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   PyObject *__pyx_t_2;
   __Pyx_RefNannySetupContext("PyDataType_SHAPE", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
  * 
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):             # <<<<<<<<<<<<<<
@@ -20145,7 +20147,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   __pyx_t_1 = PyDataType_HASSUBARRAY(__pyx_v_d);
   if (__pyx_t_1) {
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":794
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":794
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):
  *         return <tuple>d.subarray.shape             # <<<<<<<<<<<<<<
@@ -20158,7 +20160,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
     __pyx_r = ((PyObject*)__pyx_t_2);
     goto __pyx_L0;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
  * 
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):             # <<<<<<<<<<<<<<
@@ -20167,7 +20169,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
 */
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":796
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":796
  *         return <tuple>d.subarray.shape
  *     else:
  *         return ()             # <<<<<<<<<<<<<<
@@ -20181,7 +20183,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
     goto __pyx_L0;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)
  * 
  * cdef inline tuple PyDataType_SHAPE(dtype d):             # <<<<<<<<<<<<<<
@@ -20196,7 +20198,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
  *     int _import_umath() except -1
  * 
  * cdef inline void set_array_base(ndarray arr, object base) except *:             # <<<<<<<<<<<<<<
@@ -20210,7 +20212,7 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":996
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":996
  * 
  * cdef inline void set_array_base(ndarray arr, object base) except *:
  *     Py_INCREF(base) # important to do this before stealing the reference below!             # <<<<<<<<<<<<<<
@@ -20219,7 +20221,7 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
 */
   Py_INCREF(__pyx_v_base);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":997
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":997
  * cdef inline void set_array_base(ndarray arr, object base) except *:
  *     Py_INCREF(base) # important to do this before stealing the reference below!
  *     PyArray_SetBaseObject(arr, base)             # <<<<<<<<<<<<<<
@@ -20228,7 +20230,7 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
 */
   __pyx_t_1 = PyArray_SetBaseObject(__pyx_v_arr, __pyx_v_base); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(2, 997, __pyx_L1_error)
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
  *     int _import_umath() except -1
  * 
  * cdef inline void set_array_base(ndarray arr, object base) except *:             # <<<<<<<<<<<<<<
@@ -20243,7 +20245,7 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
   __pyx_L0:;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
  *     PyArray_SetBaseObject(arr, base)
  * 
  * cdef inline object get_array_base(ndarray arr):             # <<<<<<<<<<<<<<
@@ -20258,7 +20260,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   int __pyx_t_1;
   __Pyx_RefNannySetupContext("get_array_base", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1000
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1000
  * 
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)             # <<<<<<<<<<<<<<
@@ -20267,7 +20269,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
 */
   __pyx_v_base = PyArray_BASE(__pyx_v_arr);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)
  *     if base is NULL:             # <<<<<<<<<<<<<<
@@ -20277,7 +20279,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   __pyx_t_1 = (__pyx_v_base == NULL);
   if (__pyx_t_1) {
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1002
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1002
  *     base = PyArray_BASE(arr)
  *     if base is NULL:
  *         return None             # <<<<<<<<<<<<<<
@@ -20288,7 +20290,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
     __pyx_r = Py_None; __Pyx_INCREF(Py_None);
     goto __pyx_L0;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)
  *     if base is NULL:             # <<<<<<<<<<<<<<
@@ -20297,7 +20299,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
 */
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1003
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1003
  *     if base is NULL:
  *         return None
  *     return <object>base             # <<<<<<<<<<<<<<
@@ -20309,7 +20311,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   __pyx_r = ((PyObject *)__pyx_v_base);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
  *     PyArray_SetBaseObject(arr, base)
  * 
  * cdef inline object get_array_base(ndarray arr):             # <<<<<<<<<<<<<<
@@ -20324,7 +20326,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
  * # Versions of the import_* functions which are more suitable for
  * # Cython code.
  * cdef inline int import_array() except -1:             # <<<<<<<<<<<<<<
@@ -20350,7 +20352,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_array", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20366,7 +20368,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1009
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1009
  * cdef inline int import_array() except -1:
  *     try:
  *         __pyx_import_array()             # <<<<<<<<<<<<<<
@@ -20375,7 +20377,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
 */
       __pyx_t_4 = _import_array(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(2, 1009, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20389,7 +20391,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1010
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1010
  *     try:
  *         __pyx_import_array()
  *     except Exception:             # <<<<<<<<<<<<<<
@@ -20404,7 +20406,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1011
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1011
  *         __pyx_import_array()
  *     except Exception:
  *         raise ImportError("numpy._core.multiarray failed to import")             # <<<<<<<<<<<<<<
@@ -20426,7 +20428,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20442,7 +20444,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
  * # Versions of the import_* functions which are more suitable for
  * # Cython code.
  * cdef inline int import_array() except -1:             # <<<<<<<<<<<<<<
@@ -20466,7 +20468,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
  *         raise ImportError("numpy._core.multiarray failed to import")
  * 
  * cdef inline int import_umath() except -1:             # <<<<<<<<<<<<<<
@@ -20492,7 +20494,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_umath", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
  * 
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20508,7 +20510,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1015
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1015
  * cdef inline int import_umath() except -1:
  *     try:
  *         _import_umath()             # <<<<<<<<<<<<<<
@@ -20517,7 +20519,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
 */
       __pyx_t_4 = _import_umath(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(2, 1015, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
  * 
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20531,7 +20533,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1016
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1016
  *     try:
  *         _import_umath()
  *     except Exception:             # <<<<<<<<<<<<<<
@@ -20546,7 +20548,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1017
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1017
  *         _import_umath()
  *     except Exception:
  *         raise ImportError("numpy._core.umath failed to import")             # <<<<<<<<<<<<<<
@@ -20568,7 +20570,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
  * 
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20584,7 +20586,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
  *         raise ImportError("numpy._core.multiarray failed to import")
  * 
  * cdef inline int import_umath() except -1:             # <<<<<<<<<<<<<<
@@ -20608,7 +20610,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
  *         raise ImportError("numpy._core.umath failed to import")
  * 
  * cdef inline int import_ufunc() except -1:             # <<<<<<<<<<<<<<
@@ -20634,7 +20636,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_ufunc", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
  * 
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20650,7 +20652,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1021
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1021
  * cdef inline int import_ufunc() except -1:
  *     try:
  *         _import_umath()             # <<<<<<<<<<<<<<
@@ -20659,7 +20661,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
 */
       __pyx_t_4 = _import_umath(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(2, 1021, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
  * 
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20673,7 +20675,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1022
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1022
  *     try:
  *         _import_umath()
  *     except Exception:             # <<<<<<<<<<<<<<
@@ -20688,7 +20690,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1023
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1023
  *         _import_umath()
  *     except Exception:
  *         raise ImportError("numpy._core.umath failed to import")             # <<<<<<<<<<<<<<
@@ -20710,7 +20712,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
  * 
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -20726,7 +20728,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
  *         raise ImportError("numpy._core.umath failed to import")
  * 
  * cdef inline int import_ufunc() except -1:             # <<<<<<<<<<<<<<
@@ -20750,7 +20752,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
  * 
  * 
  * cdef inline bint is_timedelta64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
@@ -20761,7 +20763,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
 static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_obj) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1038
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1038
  *     bool
  *     """
  *     return PyObject_TypeCheck(obj, &PyTimedeltaArrType_Type)             # <<<<<<<<<<<<<<
@@ -20771,7 +20773,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_
   __pyx_r = PyObject_TypeCheck(__pyx_v_obj, (&PyTimedeltaArrType_Type));
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
  * 
  * 
  * cdef inline bint is_timedelta64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
@@ -20784,7 +20786,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
  * 
  * 
  * cdef inline bint is_datetime64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
@@ -20795,7 +20797,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_
 static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_obj) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1053
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1053
  *     bool
  *     """
  *     return PyObject_TypeCheck(obj, &PyDatetimeArrType_Type)             # <<<<<<<<<<<<<<
@@ -20805,7 +20807,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_o
   __pyx_r = PyObject_TypeCheck(__pyx_v_obj, (&PyDatetimeArrType_Type));
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
  * 
  * 
  * cdef inline bint is_datetime64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
@@ -20818,7 +20820,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_o
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
  * 
  * 
  * cdef inline npy_datetime get_datetime64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20829,7 +20831,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_o
 static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *__pyx_v_obj) {
   npy_datetime __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1063
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1063
  *     also needed.  That can be found using `get_datetime64_unit`.
  *     """
  *     return (<PyDatetimeScalarObject*>obj).obval             # <<<<<<<<<<<<<<
@@ -20839,7 +20841,7 @@ static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *
   __pyx_r = ((PyDatetimeScalarObject *)__pyx_v_obj)->obval;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
  * 
  * 
  * cdef inline npy_datetime get_datetime64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20852,7 +20854,7 @@ static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
  * 
  * 
  * cdef inline npy_timedelta get_timedelta64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20863,7 +20865,7 @@ static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *
 static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject *__pyx_v_obj) {
   npy_timedelta __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1070
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1070
  *     returns the int64 value underlying scalar numpy timedelta64 object
  *     """
  *     return (<PyTimedeltaScalarObject*>obj).obval             # <<<<<<<<<<<<<<
@@ -20873,7 +20875,7 @@ static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject
   __pyx_r = ((PyTimedeltaScalarObject *)__pyx_v_obj)->obval;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
  * 
  * 
  * cdef inline npy_timedelta get_timedelta64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20886,7 +20888,7 @@ static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
  * 
  * 
  * cdef inline NPY_DATETIMEUNIT get_datetime64_unit(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -20897,7 +20899,7 @@ static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject
 static CYTHON_INLINE NPY_DATETIMEUNIT __pyx_f_5numpy_get_datetime64_unit(PyObject *__pyx_v_obj) {
   NPY_DATETIMEUNIT __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1077
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1077
  *     returns the unit part of the dtype for a numpy datetime64 object.
  *     """
  *     return <NPY_DATETIMEUNIT>(<PyDatetimeScalarObject*>obj).obmeta.base             # <<<<<<<<<<<<<<
@@ -20907,7 +20909,7 @@ static CYTHON_INLINE NPY_DATETIMEUNIT __pyx_f_5numpy_get_datetime64_unit(PyObjec
   __pyx_r = ((NPY_DATETIMEUNIT)((PyDatetimeScalarObject *)__pyx_v_obj)->obmeta.base);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-brrsx3b0/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-l115fg80/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
  * 
  * 
  * cdef inline NPY_DATETIMEUNIT get_datetime64_unit(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
@@ -40140,7 +40142,7 @@ static PyObject *__pyx_pf_10consenrich_11cconsenrich_24cEMA(CYTHON_UNUSED PyObje
 /* "consenrich/cconsenrich.pyx":1471
  * 
  * 
- * cpdef tuple monoFunc(object x, double offset=0, double scale=1.0):             # <<<<<<<<<<<<<<
+ * cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
 */
@@ -40153,8 +40155,8 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyObject *__pyx_f_10consenrich_11cconsenrich_monoFunc(PyObject *__pyx_v_x, CYTHON_UNUSED int __pyx_skip_dispatch, struct __pyx_opt_args_10consenrich_11cconsenrich_monoFunc *__pyx_optional_args) {
-  double __pyx_v_offset = ((double)0.0);
-  double __pyx_v_scale = ((double)1.0);
+  double __pyx_v_offset = __pyx_mstate_global->__pyx_k__11;
+  double __pyx_v_scale = __pyx_mstate_global->__pyx_k__12;
   PyArrayObject *__pyx_v_arr_np = 0;
   Py_ssize_t __pyx_v_n;
   PyArrayObject *__pyx_v_out_np = 0;
@@ -40207,7 +40209,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_monoFunc(PyObject *__pyx_v_x
   __pyx_pybuffernd_out_np.rcbuffer = &__pyx_pybuffer_out_np;
 
   /* "consenrich/cconsenrich.pyx":1473
- * cpdef tuple monoFunc(object x, double offset=0, double scale=1.0):
+ * cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)             # <<<<<<<<<<<<<<
  *     cdef Py_ssize_t n = arr_np.shape[0]
@@ -40484,7 +40486,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_monoFunc(PyObject *__pyx_v_x
   /* "consenrich/cconsenrich.pyx":1471
  * 
  * 
- * cpdef tuple monoFunc(object x, double offset=0, double scale=1.0):             # <<<<<<<<<<<<<<
+ * cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
 */
@@ -40606,12 +40608,12 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     if (values[1]) {
       __pyx_v_offset = __Pyx_PyFloat_AsDouble(values[1]); if (unlikely((__pyx_v_offset == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 1471, __pyx_L3_error)
     } else {
-      __pyx_v_offset = ((double)0.0);
+      __pyx_v_offset = __pyx_mstate_global->__pyx_k__11;
     }
     if (values[2]) {
       __pyx_v_scale = __Pyx_PyFloat_AsDouble(values[2]); if (unlikely((__pyx_v_scale == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 1471, __pyx_L3_error)
     } else {
-      __pyx_v_scale = ((double)1.0);
+      __pyx_v_scale = __pyx_mstate_global->__pyx_k__12;
     }
   }
   goto __pyx_L6_skip;
@@ -40692,9 +40694,9 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cTransform(PyObject *__pyx_v
  *     double w_local=<double>1.0,
 */
   int __pyx_v_disableLocalBackground = ((int)0);
-  double __pyx_v_denseMeanQuantile = __pyx_mstate_global->__pyx_k__11;
-  double __pyx_v_w_local = __pyx_mstate_global->__pyx_k__12;
-  double __pyx_v_w_global = __pyx_mstate_global->__pyx_k__13;
+  double __pyx_v_denseMeanQuantile = __pyx_mstate_global->__pyx_k__13;
+  double __pyx_v_w_local = __pyx_mstate_global->__pyx_k__14;
+  double __pyx_v_w_global = __pyx_mstate_global->__pyx_k__15;
 
   /* "consenrich/cconsenrich.pyx":1501
  *     double w_local=<double>1.0,
@@ -40704,7 +40706,7 @@ static PyObject *__pyx_f_10consenrich_11cconsenrich_cTransform(PyObject *__pyx_v
  * ):
 */
   int __pyx_v_verbose = ((int)0);
-  uint64_t __pyx_v_rseed = __pyx_mstate_global->__pyx_k__14;
+  uint64_t __pyx_v_rseed = __pyx_mstate_global->__pyx_k__16;
   Py_ssize_t __pyx_v_bootBlockSize;
   Py_ssize_t __pyx_v_n;
   Py_ssize_t __pyx_v_i;
@@ -42545,17 +42547,17 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     if (values[3]) {
       __pyx_v_denseMeanQuantile = __Pyx_PyFloat_AsDouble(values[3]); if (unlikely((__pyx_v_denseMeanQuantile == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 1498, __pyx_L3_error)
     } else {
-      __pyx_v_denseMeanQuantile = __pyx_mstate_global->__pyx_k__11;
+      __pyx_v_denseMeanQuantile = __pyx_mstate_global->__pyx_k__13;
     }
     if (values[4]) {
       __pyx_v_w_local = __Pyx_PyFloat_AsDouble(values[4]); if (unlikely((__pyx_v_w_local == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 1499, __pyx_L3_error)
     } else {
-      __pyx_v_w_local = __pyx_mstate_global->__pyx_k__12;
+      __pyx_v_w_local = __pyx_mstate_global->__pyx_k__14;
     }
     if (values[5]) {
       __pyx_v_w_global = __Pyx_PyFloat_AsDouble(values[5]); if (unlikely((__pyx_v_w_global == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 1500, __pyx_L3_error)
     } else {
-      __pyx_v_w_global = __pyx_mstate_global->__pyx_k__13;
+      __pyx_v_w_global = __pyx_mstate_global->__pyx_k__15;
     }
     if (values[6]) {
       __pyx_v_verbose = __Pyx_PyObject_IsTrue(values[6]); if (unlikely((__pyx_v_verbose == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 1501, __pyx_L3_error)
@@ -42573,7 +42575,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     if (values[7]) {
       __pyx_v_rseed = __Pyx_PyLong_As_uint64_t(values[7]); if (unlikely((__pyx_v_rseed == ((uint64_t)-1)) && PyErr_Occurred())) __PYX_ERR(0, 1502, __pyx_L3_error)
     } else {
-      __pyx_v_rseed = __pyx_mstate_global->__pyx_k__14;
+      __pyx_v_rseed = __pyx_mstate_global->__pyx_k__16;
     }
   }
   goto __pyx_L6_skip;
@@ -50503,7 +50505,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 static double __pyx_f_10consenrich_11cconsenrich_cDenseGlobalBaseline(PyObject *__pyx_v_x, CYTHON_UNUSED int __pyx_skip_dispatch, struct __pyx_opt_args_10consenrich_11cconsenrich_cDenseGlobalBaseline *__pyx_optional_args) {
   Py_ssize_t __pyx_v_bootBlockSize = ((Py_ssize_t)0xFA);
   Py_ssize_t __pyx_v_numBoots = ((Py_ssize_t)0x3E8);
-  double __pyx_v_denseMeanQuantile = __pyx_mstate_global->__pyx_k__15;
+  double __pyx_v_denseMeanQuantile = __pyx_mstate_global->__pyx_k__17;
   uint64_t __pyx_v_seed = ((uint64_t)0);
 
   /* "consenrich/cconsenrich.pyx":2290
@@ -51834,7 +51836,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     if (values[3]) {
       __pyx_v_denseMeanQuantile = __Pyx_PyFloat_AsDouble(values[3]); if (unlikely((__pyx_v_denseMeanQuantile == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2288, __pyx_L3_error)
     } else {
-      __pyx_v_denseMeanQuantile = __pyx_mstate_global->__pyx_k__15;
+      __pyx_v_denseMeanQuantile = __pyx_mstate_global->__pyx_k__17;
     }
     if (values[4]) {
       __pyx_v_seed = __Pyx_PyLong_As_uint64_t(values[4]); if (unlikely((__pyx_v_seed == ((uint64_t)-1)) && PyErr_Occurred())) __PYX_ERR(0, 2289, __pyx_L3_error)
@@ -57085,7 +57087,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_cSF(PyObject *__pyx_v_chromMat, CYTHON_UNUSED int __pyx_skip_dispatch, struct __pyx_opt_args_10consenrich_11cconsenrich_cSF *__pyx_optional_args) {
-  float __pyx_v_minCount = __pyx_mstate_global->__pyx_k__16;
+  float __pyx_v_minCount = __pyx_mstate_global->__pyx_k__18;
   double __pyx_v_nonzeroFrac = ((double)0.5);
 
   /* "consenrich/cconsenrich.pyx":2832
@@ -58109,7 +58111,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     if (values[1]) {
       __pyx_v_minCount = __Pyx_PyFloat_AsFloat(values[1]); if (unlikely((__pyx_v_minCount == (float)-1) && PyErr_Occurred())) __PYX_ERR(0, 2830, __pyx_L3_error)
     } else {
-      __pyx_v_minCount = __pyx_mstate_global->__pyx_k__16;
+      __pyx_v_minCount = __pyx_mstate_global->__pyx_k__18;
     }
     if (values[2]) {
       __pyx_v_nonzeroFrac = __Pyx_PyFloat_AsDouble(values[2]); if (unlikely((__pyx_v_nonzeroFrac == (double)-1) && PyErr_Occurred())) __PYX_ERR(0, 2831, __pyx_L3_error)
@@ -64683,7 +64685,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject
  *         blockSize += 1
  *     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)             # <<<<<<<<<<<<<<
  *     cdef double w = blockSize * (blockFreqCutoff)
- *     lambda_ = (w*w*w*w)*10.0
+ *     lambda_ = 100*(w*w*w*w)
 */
   __Pyx_INCREF(__pyx_mstate_global->__pyx_float_0_15915494);
   __pyx_v_blockFreqCutoff = __pyx_mstate_global->__pyx_float_0_15915494;
@@ -64692,7 +64694,7 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject
  *         blockSize += 1
  *     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
  *     cdef double w = blockSize * (blockFreqCutoff)             # <<<<<<<<<<<<<<
- *     lambda_ = (w*w*w*w)*10.0
+ *     lambda_ = 100*(w*w*w*w)
  *     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)
 */
   __pyx_t_1 = __Pyx_PyLong_From_int(__pyx_v_blockSize); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3350, __pyx_L1_error)
@@ -64707,14 +64709,14 @@ static PyArrayObject *__pyx_f_10consenrich_11cconsenrich_clocalBaseline(PyObject
   /* "consenrich/cconsenrich.pyx":3351
  *     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
  *     cdef double w = blockSize * (blockFreqCutoff)
- *     lambda_ = (w*w*w*w)*10.0             # <<<<<<<<<<<<<<
+ *     lambda_ = 100*(w*w*w*w)             # <<<<<<<<<<<<<<
  *     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)
 */
-  __pyx_v_lambda_ = ((((__pyx_v_w * __pyx_v_w) * __pyx_v_w) * __pyx_v_w) * 10.0);
+  __pyx_v_lambda_ = (100.0 * (((__pyx_v_w * __pyx_v_w) * __pyx_v_w) * __pyx_v_w));
 
   /* "consenrich/cconsenrich.pyx":3352
  *     cdef double w = blockSize * (blockFreqCutoff)
- *     lambda_ = (w*w*w*w)*10.0
+ *     lambda_ = 100*(w*w*w*w)
  *     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)             # <<<<<<<<<<<<<<
 */
   __Pyx_XDECREF((PyObject *)__pyx_r);
@@ -67520,18 +67522,29 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   /* "consenrich/cconsenrich.pyx":1471
  * 
  * 
- * cpdef tuple monoFunc(object x, double offset=0, double scale=1.0):             # <<<<<<<<<<<<<<
+ * cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):             # <<<<<<<<<<<<<<
  * 
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
 */
-  __pyx_t_4 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_27monoFunc, 0, __pyx_mstate_global->__pyx_n_u_monoFunc, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[13])); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 1471, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_k__11 = ((double)(3.0 / 8.0));
+  __pyx_mstate_global->__pyx_k__12 = ((double)1.0);
+  __pyx_t_4 = PyFloat_FromDouble(((double)(3.0 / 8.0))); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 1471, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_4);
-  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
-  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_4);
-  #endif
-  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_4, __pyx_mstate_global->__pyx_tuple[7]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_monoFunc, __pyx_t_4) < (0)) __PYX_ERR(0, 1471, __pyx_L1_error)
+  __pyx_t_5 = PyFloat_FromDouble(((double)1.0)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 1471, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
+  __pyx_t_11 = PyTuple_Pack(2, __pyx_t_4, __pyx_t_5); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 1471, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_11);
   __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
+  __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
+  __pyx_t_5 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_27monoFunc, 0, __pyx_mstate_global->__pyx_n_u_monoFunc, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[13])); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 1471, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
+  #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
+  PyUnstable_Object_EnableDeferredRefcount(__pyx_t_5);
+  #endif
+  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_5, __pyx_t_11);
+  __Pyx_DECREF(__pyx_t_11); __pyx_t_11 = 0;
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_monoFunc, __pyx_t_5) < (0)) __PYX_ERR(0, 1471, __pyx_L1_error)
+  __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
 
   /* "consenrich/cconsenrich.pyx":1498
  *     Py_ssize_t blockLength,
@@ -67540,7 +67553,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     double w_local=<double>1.0,
  *     double w_global=<double>3.0,
 */
-  __pyx_mstate_global->__pyx_k__11 = ((double)0.50);
+  __pyx_mstate_global->__pyx_k__13 = ((double)0.50);
 
   /* "consenrich/cconsenrich.pyx":1499
  *     bint disableLocalBackground=<bint>False,
@@ -67549,7 +67562,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     double w_global=<double>3.0,
  *     bint verbose=<bint>False,
 */
-  __pyx_mstate_global->__pyx_k__12 = ((double)1.0);
+  __pyx_mstate_global->__pyx_k__14 = ((double)1.0);
 
   /* "consenrich/cconsenrich.pyx":1500
  *     double denseMeanQuantile=<double>0.50,
@@ -67558,7 +67571,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     bint verbose=<bint>False,
  *     uint64_t rseed=<uint64_t>0,
 */
-  __pyx_mstate_global->__pyx_k__13 = ((double)3.0);
+  __pyx_mstate_global->__pyx_k__15 = ((double)3.0);
 
   /* "consenrich/cconsenrich.pyx":1502
  *     double w_global=<double>3.0,
@@ -67567,7 +67580,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  * ):
  *     cdef Py_ssize_t bootBlockSize, n, i
 */
-  __pyx_mstate_global->__pyx_k__14 = ((uint64_t)0);
+  __pyx_mstate_global->__pyx_k__16 = ((uint64_t)0);
 
   /* "consenrich/cconsenrich.pyx":1498
  *     Py_ssize_t blockLength,
@@ -67576,8 +67589,8 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     double w_local=<double>1.0,
  *     double w_global=<double>3.0,
 */
-  __pyx_t_4 = PyFloat_FromDouble(((double)0.50)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 1498, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_4);
+  __pyx_t_5 = PyFloat_FromDouble(((double)0.50)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 1498, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_5);
 
   /* "consenrich/cconsenrich.pyx":1499
  *     bint disableLocalBackground=<bint>False,
@@ -67586,8 +67599,8 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     double w_global=<double>3.0,
  *     bint verbose=<bint>False,
 */
-  __pyx_t_5 = PyFloat_FromDouble(((double)1.0)); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 1499, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_5);
+  __pyx_t_11 = PyFloat_FromDouble(((double)1.0)); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 1499, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_11);
 
   /* "consenrich/cconsenrich.pyx":1500
  *     double denseMeanQuantile=<double>0.50,
@@ -67596,8 +67609,8 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     bint verbose=<bint>False,
  *     uint64_t rseed=<uint64_t>0,
 */
-  __pyx_t_11 = PyFloat_FromDouble(((double)3.0)); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 1500, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_11);
+  __pyx_t_4 = PyFloat_FromDouble(((double)3.0)); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 1500, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_4);
 
   /* "consenrich/cconsenrich.pyx":1502
  *     double w_global=<double>3.0,
@@ -67616,11 +67629,11 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     object x,
  *     Py_ssize_t blockLength,
 */
-  __pyx_t_13 = PyTuple_Pack(6, Py_False, __pyx_t_4, __pyx_t_5, __pyx_t_11, Py_False, __pyx_t_12); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 1494, __pyx_L1_error)
+  __pyx_t_13 = PyTuple_Pack(6, Py_False, __pyx_t_5, __pyx_t_11, __pyx_t_4, Py_False, __pyx_t_12); if (unlikely(!__pyx_t_13)) __PYX_ERR(0, 1494, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_13);
-  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
   __Pyx_DECREF(__pyx_t_11); __pyx_t_11 = 0;
+  __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
   __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
   __pyx_t_12 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_11cconsenrich_29cTransform, 0, __pyx_mstate_global->__pyx_n_u_cTransform, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_cconsenrich, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[14])); if (unlikely(!__pyx_t_12)) __PYX_ERR(0, 1494, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_12);
@@ -67644,7 +67657,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_12);
   #endif
-  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[8]);
+  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[7]);
   if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_protectCovariance22, __pyx_t_12) < (0)) __PYX_ERR(0, 1638, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
 
@@ -67660,7 +67673,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_12);
   #endif
-  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[9]);
+  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[8]);
   if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cforwardPass, __pyx_t_12) < (0)) __PYX_ERR(0, 1752, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
 
@@ -67676,7 +67689,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_12);
   #endif
-  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[10]);
+  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[9]);
   if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cbackwardPass, __pyx_t_12) < (0)) __PYX_ERR(0, 2080, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
 
@@ -67687,7 +67700,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     uint64_t seed=0,
  *     bint verbose = <bint>False,
 */
-  __pyx_mstate_global->__pyx_k__15 = ((double)0.50);
+  __pyx_mstate_global->__pyx_k__17 = ((double)0.50);
 
   /* "consenrich/cconsenrich.pyx":2284
  * 
@@ -67739,7 +67752,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_12);
   #endif
-  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[11]);
+  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[10]);
   if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_crolling_AR1_IVar, __pyx_t_12) < (0)) __PYX_ERR(0, 2403, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
 
@@ -67770,7 +67783,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_12);
   #endif
-  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[12]);
+  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[11]);
   if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_cscaleStateCovar, __pyx_t_12) < (0)) __PYX_ERR(0, 2661, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
 
@@ -67781,7 +67794,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
  *     double nonzeroFrac=0.5,
  *     bint centerGeoMean=False,
 */
-  __pyx_mstate_global->__pyx_k__16 = ((float)1.0);
+  __pyx_mstate_global->__pyx_k__18 = ((float)1.0);
 
   /* "consenrich/cconsenrich.pyx":2828
  * 
@@ -67893,7 +67906,7 @@ __Pyx_RefNannySetupContext("PyInit_cconsenrich", 0);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_12);
   #endif
-  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[13]);
+  __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_12, __pyx_mstate_global->__pyx_tuple[12]);
   if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_clocalBaseline, __pyx_t_12) < (0)) __PYX_ERR(0, 3335, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_12); __pyx_t_12 = 0;
 
@@ -68075,17 +68088,6 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[6]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[6]);
 
-  /* "consenrich/cconsenrich.pyx":1471
- * 
- * 
- * cpdef tuple monoFunc(object x, double offset=0, double scale=1.0):             # <<<<<<<<<<<<<<
- * 
- *     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
-*/
-  __pyx_mstate_global->__pyx_tuple[7] = PyTuple_Pack(2, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_float_1_0); if (unlikely(!__pyx_mstate_global->__pyx_tuple[7])) __PYX_ERR(0, 1471, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[7]);
-  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[7]);
-
   /* "consenrich/cconsenrich.pyx":1638
  * 
  * 
@@ -68093,9 +68095,9 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
  *     cdef cnp.ndarray arr
  *     cdef double a_, b_, c_
 */
-  __pyx_mstate_global->__pyx_tuple[8] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_float_1_0eneg_4); if (unlikely(!__pyx_mstate_global->__pyx_tuple[8])) __PYX_ERR(0, 1638, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[8]);
-  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[8]);
+  __pyx_mstate_global->__pyx_tuple[7] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_float_1_0eneg_4); if (unlikely(!__pyx_mstate_global->__pyx_tuple[7])) __PYX_ERR(0, 1638, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[7]);
+  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[7]);
 
   /* "consenrich/cconsenrich.pyx":1752
  * 
@@ -68104,9 +68106,9 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixData,
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc,
 */
-  __pyx_mstate_global->__pyx_tuple[9] = PyTuple_Pack(18, Py_None, __pyx_mstate_global->__pyx_float_3_0, __pyx_mstate_global->__pyx_float_1_0eneg_2, Py_False, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_int_1000000, Py_None, Py_None, Py_None, Py_None, Py_None, __pyx_mstate_global->__pyx_int_25000, Py_False, Py_False, Py_None, Py_None, Py_None); if (unlikely(!__pyx_mstate_global->__pyx_tuple[9])) __PYX_ERR(0, 1752, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[9]);
-  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[9]);
+  __pyx_mstate_global->__pyx_tuple[8] = PyTuple_Pack(18, Py_None, __pyx_mstate_global->__pyx_float_3_0, __pyx_mstate_global->__pyx_float_1_0eneg_2, Py_False, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_int_1000000, Py_None, Py_None, Py_None, Py_None, Py_None, __pyx_mstate_global->__pyx_int_25000, Py_False, Py_False, Py_None, Py_None, Py_None); if (unlikely(!__pyx_mstate_global->__pyx_tuple[8])) __PYX_ERR(0, 1752, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[8]);
+  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[8]);
 
   /* "consenrich/cconsenrich.pyx":2080
  * 
@@ -68115,9 +68117,9 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixData,
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixF,
 */
-  __pyx_mstate_global->__pyx_tuple[10] = PyTuple_Pack(11, Py_None, Py_False, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_float_3_0, __pyx_mstate_global->__pyx_int_1000000, Py_None, Py_None, Py_None, Py_None, __pyx_mstate_global->__pyx_int_10000); if (unlikely(!__pyx_mstate_global->__pyx_tuple[10])) __PYX_ERR(0, 2080, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[10]);
-  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[10]);
+  __pyx_mstate_global->__pyx_tuple[9] = PyTuple_Pack(11, Py_None, Py_False, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_float_0_0, __pyx_mstate_global->__pyx_float_3_0, __pyx_mstate_global->__pyx_int_1000000, Py_None, Py_None, Py_None, Py_None, __pyx_mstate_global->__pyx_int_10000); if (unlikely(!__pyx_mstate_global->__pyx_tuple[9])) __PYX_ERR(0, 2080, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[9]);
+  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[9]);
 
   /* "consenrich/cconsenrich.pyx":2403
  * 
@@ -68126,9 +68128,9 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
  *     cnp.ndarray[cnp.float32_t, ndim=1] values,
  *     int blockLength,
 */
-  __pyx_mstate_global->__pyx_tuple[11] = PyTuple_Pack(2, __pyx_mstate_global->__pyx_float_0_99, __pyx_mstate_global->__pyx_float_0_1); if (unlikely(!__pyx_mstate_global->__pyx_tuple[11])) __PYX_ERR(0, 2403, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[11]);
-  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[11]);
+  __pyx_mstate_global->__pyx_tuple[10] = PyTuple_Pack(2, __pyx_mstate_global->__pyx_float_0_99, __pyx_mstate_global->__pyx_float_0_1); if (unlikely(!__pyx_mstate_global->__pyx_tuple[10])) __PYX_ERR(0, 2403, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[10]);
+  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[10]);
 
   /* "consenrich/cconsenrich.pyx":2661
  * 
@@ -68137,9 +68139,9 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals,
  *     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc,
 */
-  __pyx_mstate_global->__pyx_tuple[12] = PyTuple_Pack(7, __pyx_mstate_global->__pyx_float_1_0eneg_3, __pyx_mstate_global->__pyx_float_1_0, __pyx_mstate_global->__pyx_float_10_0, __pyx_mstate_global->__pyx_float_100_0, Py_False, __pyx_mstate_global->__pyx_float_1_0eneg_8, __pyx_mstate_global->__pyx_float_0_1); if (unlikely(!__pyx_mstate_global->__pyx_tuple[12])) __PYX_ERR(0, 2661, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[12]);
-  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[12]);
+  __pyx_mstate_global->__pyx_tuple[11] = PyTuple_Pack(7, __pyx_mstate_global->__pyx_float_1_0eneg_3, __pyx_mstate_global->__pyx_float_1_0, __pyx_mstate_global->__pyx_float_10_0, __pyx_mstate_global->__pyx_float_100_0, Py_False, __pyx_mstate_global->__pyx_float_1_0eneg_8, __pyx_mstate_global->__pyx_float_0_1); if (unlikely(!__pyx_mstate_global->__pyx_tuple[11])) __PYX_ERR(0, 2661, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[11]);
+  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[11]);
 
   /* "consenrich/cconsenrich.pyx":3335
  * 
@@ -68148,13 +68150,13 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
  *     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr
  *     cdef Py_ssize_t n
 */
-  __pyx_mstate_global->__pyx_tuple[13] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_int_101); if (unlikely(!__pyx_mstate_global->__pyx_tuple[13])) __PYX_ERR(0, 3335, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[13]);
-  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[13]);
+  __pyx_mstate_global->__pyx_tuple[12] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_int_101); if (unlikely(!__pyx_mstate_global->__pyx_tuple[12])) __PYX_ERR(0, 3335, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[12]);
+  __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[12]);
   #if CYTHON_IMMORTAL_CONSTANTS
   {
     PyObject **table = __pyx_mstate->__pyx_tuple;
-    for (Py_ssize_t i=0; i<14; ++i) {
+    for (Py_ssize_t i=0; i<13; ++i) {
       #if CYTHON_COMPILING_IN_CPYTHON_FREETHREADING
       #if PY_VERSION_HEX < 0x030E0000
       if (_Py_IsOwnedByCurrentThread(table[i]) && Py_REFCNT(table[i]) == 1)
@@ -68200,25 +68202,25 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
 static int __Pyx_InitConstants(__pyx_mstatetype *__pyx_mstate) {
   CYTHON_UNUSED_VAR(__pyx_mstate);
   {
-    const struct { const unsigned int length: 12; } index[] = {{2},{68},{35},{54},{37},{60},{24},{52},{26},{34},{29},{33},{45},{22},{15},{179},{37},{40},{30},{32},{1},{1},{1},{1},{1},{1},{8},{5},{6},{15},{23},{25},{7},{6},{23},{2},{6},{35},{9},{30},{50},{39},{34},{8},{30},{20},{32},{22},{30},{37},{1},{5},{1},{8},{20},{8},{15},{3},{15},{12},{5},{3},{12},{7},{5},{7},{17},{6},{18},{7},{4},{7},{10},{14},{17},{11},{9},{13},{1},{20},{4},{5},{3},{10},{10},{13},{8},{13},{12},{18},{18},{17},{14},{6},{11},{8},{10},{9},{9},{17},{18},{4},{9},{14},{5},{13},{13},{22},{6},{4},{5},{9},{9},{15},{17},{17},{16},{5},{10},{17},{7},{6},{11},{17},{8},{22},{5},{15},{9},{8},{5},{6},{3},{9},{9},{3},{5},{14},{11},{8},{17},{8},{3},{8},{5},{4},{9},{4},{5},{7},{7},{5},{6},{7},{4},{8},{9},{12},{2},{10},{10},{3},{5},{19},{9},{5},{5},{14},{18},{9},{4},{13},{5},{8},{5},{7},{10},{10},{7},{8},{6},{15},{10},{7},{10},{7},{7},{11},{3},{7},{13},{13},{7},{4},{7},{6},{13},{7},{8},{17},{4},{8},{17},{7},{4},{10},{8},{4},{8},{4},{7},{7},{7},{17},{11},{2},{8},{5},{12},{3},{6},{13},{4},{4},{5},{2},{3},{1},{13},{4},{3},{13},{14},{3},{16},{10},{11},{12},{27},{12},{19},{11},{14},{11},{10},{19},{14},{12},{8},{12},{1},{8},{6},{5},{2},{10},{10},{17},{13},{13},{12},{15},{10},{8},{7},{7},{9},{16},{5},{14},{10},{5},{15},{17},{5},{4},{12},{10},{12},{19},{5},{20},{20},{7},{4},{11},{9},{27},{27},{24},{24},{9},{5},{17},{14},{18},{12},{9},{15},{13},{15},{9},{4},{14},{4},{11},{5},{6},{15},{8},{7},{7},{6},{5},{6},{6},{28},{16},{12},{4},{5},{6},{7},{7},{7},{8},{7},{15},{1},{3},{11},{10},{5},{75},{405},{226},{984},{649},{2059},{2645},{458},{84},{21},{154},{226},{540},{494},{34},{699},{883},{202},{193},{336},{593},{756},{1019},{2116},{1216},{1153},{97},{1}};
-    #if (CYTHON_COMPRESS_STRINGS) == 2 /* compression: bz2 (9744 bytes) */
-const char* const cstring = "BZh91AY&SY\336u\016\246\000\r\260\177\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\300@@@@@@@@@@@@\000@\000`*\177=\345s\007\336b\021*\251\342\032\003{\000|vD:)\236\300u\305\205\013\026 \275\226\317\274n{\035\323\273\255\207\327\025J\n)\341\005\n\030\225\357\000\017U\n\244\250\322\202\324\250P\n\000\000\017qC\357\\Q\034x\212*\222\235\232T%\020\204\320\233F\0024M11\002a4\324{POF\230\224\321\200bi\265\023\302&\304d\214\236H2\000\000\006\247\240 H\223$\217T\336\246#P\336\250\332A\351\251\352\r<\240\036Q\352=@\365\017P\364OSOOM\214\230\"SQ\211\243F\324\364\332\240\r1\004Q\0254d\237\243P\232z\215=2\236\246\320\237\222\2311=@\365\030\2326\247\250\314m2d5M\010\001\247\345'\250\310\320\006z(\022j\"%2\233T\365\036MOSCC\324\3204\032\003\324\362\214\231\036\240z\t\260I\240\032i\340\236\247\252~\205\033PmFM\243I\3454h$T\251\372\223\364\247\352\200\r\003C\365O\3254\323@\332\233\325\017Q\240\320\375S\322=\251\001\352\r\250\323@\r\031\003h\232h\3652\000\000\004\211\020\000\010\231\000&\203J\236zE<\023&\236\215)\2656\221\240\310\0004hi\246\206\203 4\032\032\000\037\374$U\347k\033\273\031\302\270\240Y{\033\345K<\354\355g%w|s\223\235\245\224\303\353\242\212<2\265\327Ev\371{\355\367\274P\261b\033C\030\354\200+\224\244Cl\177\370\343\313\232\304\343\247\017\030\272N0\007\246\21219\335\243\330=\316\351'\272\023\375\204;\322\007\345\210\037\233\311\020=\376\214\000V\366\312\315\312\252\321\032\250\033 \032\030\024{\365v\005h+\017@\326\242(\013r\0023ti\022d*\274jC\204\361\031\242\224Q\253\246\"%\255\325#e\010\250\321SF\361v\260Z\225V\tV\361\331Ha\r\310li\252\010\231\220\265\214@\345k\230\237\t\335\357w\376^\361\341\035\342\371\244\372<\277o\246\200\225\t\004\010\321\n\004I\301\n\020\241\n\020\254>\373\321\036\2575$\3053\024\323=%zi\246\232d)D\244\022d\t\223\2158\263\2158\323\377{\350\014\210\",T\025\212\305D`\254\024T\202\2021\202\244DDb\013\021PR*\221\030\250$\026\nAA\022\010\252\301ET`\260\202\221`#\004B,\026\n\242\300U\005Y\001E\001T\212EPU\246\306\333ci\307\030""\243\010\324j5\034\211$\242\022\211 \210B\211\005E%\327P|'\300\201&*\322\220\025\245X\027Yag\320\361\211\332\200V\253R-\266\324[mB\242\340\014rh`6\300lcI\260U\024\004E\024\213\010\250\212\002\302\002\301\030,\212\n1\200,\026,\202!\024R#\"\200\244P\021\221VO\000J`QT\002\202\211\261\264!\264\332\030\302\361R\tb\030,\025\213\000\276\372\212i\003\020\271\031\"\370p6\014k\360\340\227\255bN\313\0220X*IQ\232V,\312\t\253\022\316\325Z\013B\325\241\241\241\361\242\364\235\352\344\202\360M&\003`\30666!\\\027\\\\\256\266\220\250\360Y \320\r[\007\005\025b\301DVA\020X\212\250\n(AT\202\221`\244\212)\010,\024RCpJZ\251)\205UW\007qf\260\330 \210\310(\262nM\310n\033\230\343Q\006\330`\206j\210\030\3300i\246b\361\300\254\006\261\202\036\271de\221\215\236p4\014LT\313\321zc\032///\013\325\301\265K\344\003\205\2676\366\362\221\203\2704\202\225T\312\234$\253\241\021B\220l\206\006\030a\232\30006\253\334\325j\221\260\3041\203hm\261\260\024\210\204D\026)\"\200\210,\025\020X\332\022l@\333b\033\006\307\230\020DBP\333\026z\351\230\037\004\023kj\355\271Q\241\010\323(\246\"4U:T\237\203g\014A\335\262\272\252\212\354D(Q\014\204\340\201\250\202\r\201l\200\334!nInH\334\006\341o6\246\232\212\344CX\262\312\034\024\020\340\242\034\334\2424t\342S\267l\026\356\034l\270\240\330\271\025\177KAk\014Y&\245\226\031\020\355[\022%!1$\204'WUd\202C\220\200J\356jh\240\362F6F\230CT\330\026\031Mf\265\253\2111\235\2172<\316@\006\206Zh\340\030\304\301\220D\n\010W\245\220\222\271\001\220\027\241`\226BY\024)\375\034\216\014\336\226y\3573H4\334\233\206\242\010I\275Y\003r\002\023n!\014h\201\204\2325\005\252X\244j\031\001\250j\215Ue\254(\374Sz\324F\375\3206\r\200\332\033\006\3046\201VE\001E\026E\201\304Z\242\232\022\034>\037\203\305\273<\034\001\335\200J[\334\202N \206\014rp3pn7hn\334n\t\374\246\213p0\334\2630\300\313%\004\004\226\263\2219\312D\233(\211IC\207\021\034\210\r\004\264F\001\2424\332D\203\332\022\341\236\2144G\022\263S<\200k2\005\0035rr\223\224\210\220\3449C\007\2424KD\263H\317M\350\337b\267\361\326\200h\267\232:3Cb""\035@\324#|\022\227\3138\032a\254\004\335\003\010Hs\006\311\316D\365F\242Z\353\251\256\273XY\357\013\206\310\347`1\211\260M\211\2646\226\340c\030\371\37199\3547$\367o|\241&\022jD\244\330\224\203\354\020\340\020\005(B\225\"K\t9\300\235'\002p\234\205/<\016'\273\314\004\240>,\240*\307ye\273q$C\333&\020\342uM\255\304\344S\r\3002\222\021\020\271#Dm\256\305_\032K\227MZM\275C\\\335\\3\014e\006p\333\223]3\201\222\211\232\271\014d\216&\246\253Qj\216\216R\242\273>ah\2631\240\244 \035,\226y\357T\321;4\256\276\024\360d\333\256\310\245\014\031bt\"[l\033\001\2613\340H\342q\022\351`6\233{\221\231\271q\346q\246~\"\375\r\234Ojd\246NL\335\363Z\253*\252\232\212\333!\271\271\311\313q\270\216\243]Xj\001\333\265\201uo\002E\352q\203\2277V\272\225PV\254\221-48\364\027\327Y\036\244\271v[%\307'\313Q\216\331\205\367\320\324\0353\246\205@\240\210\212t\320\353Z\024\322\352\257\224\374\200\323As\225`C,\226@\341\203\031\344\322\002\371\233\333\202\211\304\372\3655\\\r\215O\244\270\371\366\374\007\343\t\367\303{\r\377\007\360G\223\364\274 \013G\215\253\356$}xM?\023\333K\004\325RH\376\025\021\355\331\006\002~\004\255\277\347\346\234\204goj\311\250\352\241\367\377'\271\3605\177\026y\376\032\314\352\017\250*W^\201\337_\317d_\307\317f:\205\344|\271l\006+}D(\267:\374\320\347\345\254\345/R\213!\276\033)\260$\034YS\312\363\\\234o\260}Q\351\307\246>h\364\007\352\374\347/\350\325\323\371\363\364k)*\224P\331\365\353\362%\357|(\366\204/i!{\266\201x[\006F\t\340\3572(\252\200\242=\261\036\330\227\266\204z\2223\027\276e4\214\342l\244\250s*qRL\324P@<h \035]\324\250\226\202e\002f\332\037\022bA\274I\247\005@\302\034\244Yi0t@m\ni\302K\346\356,\\\321\275n\346\361\346n\205\023\231R\021IX\2425\2551\352\374Q\024.\000\030\220\276>>\376\246\364\330\266_/6\363\024\032\244j\013@\324\331hi/\332\371\333\225\005\002\334#c\034OO\035\266\335\024\016Q8\211l\203al\215\215Q\260sj\264\323\322c\226F1\361\0179L\214\3031dd\277o\220\311t\007\014\321~8\342|c4\347\245\2325\240\215\027 \254\373\035\\4Y\256\013E\315\352\313v\253E\241\017t""\262\2352(\324De(RV<f\216\274\274\373s\201p''I\304\305\036T\325\234\231}\220aB\224%\035%\334\235\335+]CJL\357\306\303\005\007:s\301\030\034\341a\217\275\211\355\221\211A\255\313\023<\363f\246FFGN\331\2342\026B\304;\317\247\201\206\n\373'\275w\000\326u\006g\206\377.ffv\006MX\026l}\375\227\023\253R\373\315|\327\"\356\337O/\277/\273\210\336\016\nX6\331\353\364\336c\314\343\217\303\332\252U\\3\023!\213\025\364\315*\026\366\257\305|H\276} \320b\261:\226?7~^\230\363\330r\\aRY\375f%\242\000\320\005\232H\315\005U\226\0170\r\342Z\033\305r\035\326\227Q\022tUAC\024\345A8\272\211\251;\206H\221PU\224A51\224hQ\001\027Wd\022$\235%\026Y\025z%\200\314\007\004NL\350V0\334\2147RD\202a\004\250\216\034kZf\360[\203#\260\255K\026`\322\265\304|/$\336\233\314\265%p\221Z\002\244\027\000e\351\017@f\037`\324'\220\214\320\264\325c\212\302\223C\372\223\336\222\373\205(Z\210\250\rR_;>`\036\213\3420\r\021\240\032+\247\353\3777\267\374z\377*96A`\266\r\226\336\316\246\331\032\257h\301^\213\322E\345\313\243\342\270N\317\223\352\363\235\n\361^\"\360/\005\256\031\341\230\2608\205\245\252\324\255J\324sY\341\325p\027\031\362\337\246\010\301\030\001\201\231\360\037\006\350\014\327\332\310:\356\013\205rE\305\3108]\315qi\250W\325\367\376v\313\024P\214\003\016\027]\235B\314U\225\252\353\327\355\226\035\327\217\331\374c\352<\000\301,\003\005\202\277\356\037\321R\250\244\352\363k\333\336o\352\t\n$)hJ\357\022\201\361MZ\262V,\323\002&\220@~\200y\352\375\337\273\263\343\374;\2703=9\363\275P4\267\241\033\301LF\340\361\213\357\037\254\367\363+*\261\026D\244Z\220Q\300\271\241v\203\220KEp\"\315L\301t\0231\014\214.T\221\006\251\271uFe\222M$\005'>u;Sh\3350B\320+\0359 j\220ujf\002\321A\025\224\223QJ\214\212\364G\367\016\337\324\371\035\004\276\234\302G\227\344\371\216\025S\372\264\024N\215\2227\t\031\240Y\0106\021\240\221\250\204\341\212d\t\320\234\373\017/\341F\256\351\265\253)\334\246\017/\202\357\273\200+*e\250DJ\204*\002\244\n\202\240\275\315UF<T\357\373\263\311\035\030\244\022@\220\214\215#H\3222GI\251\226?6\017=""\352\2670\335\230\t\220\231&\002\340M\031*\023\n\023Y\022\203\006<\367.F5\232m\331\255}u\266\236sg\235\020\234I\320\234\234C\265)\207\t\207_T\265s)\021\020d\262\021\221\222:s>l\360\362\\\256E\311\\+\225\301\371\277Wr\256\260\254\335\267\257\343\355\211&\305\233.\213\267\23752V\201\264\334K\224\323\177\325\357g9\256\302\204)\010B`\367\307\337A\364}\367\315@\367\027\346}1\230p\375W\376\323Og^\376\0263i\230F\36716\275\024\027\020\241'0M\203\214c\371\375\372i\372\3468.L,\312j\320\303r-\017\372\360\024%\302s\035\037.\307\303\313\024r\342\333\332\340\206#R\332%\261\017\210\366\265\303\212\230w\253\025\220\234u\276\266\233c\000\326\276i\257\3470]\244\310d\035`\005Ps\372\317\233^\310G8-\340\211\210\336\222\241\036q\036d\034\352\232h\375\257y)\331\341\276\02326\324Q\205)!\273\322%e\334\311l\032\227\234#R#**j5\216\201\010\210F\345B33`)R\030tPT\230\031\231l\020\244\342.\024L\224\236\314\2744\022\211\234S\254\245\230\325\016\226\311\321*\231E\221:`\2154_6\251\034\273\373\315e\335\377\020`\013\021\013\001\002\322\ti\020\220\0222\342$`><\0178\222^~\310K\206d\t\251\275G\227\233l(]|p\330\205\006>\375\253\017=t.\240N\005\324\n\004J\020\273J\027K\264\202\374\210\230p\332\274\"a\253%E7e\225\tII\006El\310\316Q.[\004\366#\301u\0201Ib+\303\0209n\367\321\333x\256\341\352q%\370\220\360A\202\300X,\016\236\237\277\325\227\017\275\t\213\257\206h]\014\304X\201\210\261\344\347\303\000\276\017\312V\244\271v/\025\350\274/\275\023\rU\237u\037x\277\373\244\266\333 ,X\030,\rk?\305\365\216\n\300+\255Vg_EI\214\340\317\351V%YY~\333W\310m\370\000\260FJ\333r\312\177\344r\326\035\277$N\324Sh\265\232\253\374\325(\246\224_q\225\373/\364\017t^\036?\227\355n1\214\352e\341\254$\034,AXl\256\205\337X!\330\340n\376\370\3773\254Xp7\215k\330p\253g\335\326\355\025t\372 1\0029\251\373C>X\014\t\004\210\262\007:\027\004\026\375\224\203\357SJ.k\007cG\026\023(\337 \257\030/\206\316\316\305\330z\376\267o\341\363y\003\273\273\220;\362\255\235\033\2728\217\243\204\367\256X\210w\025\361\354\377o\204\352\"\177l})\261\274Y""\364)J^\303\3222\n\376\330h\037U\276_\026\207\346\241\240#\304-n\360|\276\234\325S\316E\344\364H\262\221\233\265\201\333\223\366\342\210\221\026\342\003Dk\203\276\322\341\273\362\302\202\340\235\212\266\363N\233}$4e\341\264\311rk\257_\016B:\224\213\313\216[\005\222Z\325\231\3243\016k2\225G\3210[\376NL&W\3228J\367S\024\334\2271:\216J'!GZ\224\221c\361\232G\004#h\251\357UPL$\246\020\246\000\231\013\205\022X\027\343\245\014\227\236\257\355\235\361\034\207|\2167\301\n\006d\221\rT\313\027R\324\264`\232\2562&9\026<\002b\250\031\307g\0107@\260L\225,\303\024\230\031!\266ZYwWHc\030\245\225\032\232yV5N*\325\334\273w\331\354\374q\372r\357<\347\241.D\370\224W\337`QZ\n:\007\332\371\254)P\340\342\367\201\260\n\330\201\"\001\032\010\223$\310N\004\014d\345t\377\034\014\366\030\336\221Q1\243v^\205Ts\035.\237G\016\023\032p-v\2066\327\213\301\322\306\226\014\250\252\250\365\222\016\263]r\313\013\033y\226\020\277\342\r\202\210\3153QAz9\202#\331\347\t\353j\365'\347S(lr\336\327{\316=\357\351\037ZOVK\214\275\331rj\346>\252\364Ir\r6\265\031\313\025\026\035\376\010^\002^\010<\001x#\300^\010<\003\325\362\235\251x\276n\335\220\321\366\367\270!\311H\334I9\r\246\234p%)G\022\177\023\240\242#\315r\343\316X\254\257\315\316<\023\252\213#\256w\322UX\036\220\216Q\371\373\272P\014\220\240\301\023\356\317\250n\254o\341S\242\023\022\213E\263I\346\003\366l~,(a0\027\321pO\2319R\234\377\352\360\325\332d\014\314\345^\263R\373\356~x;#\223\207d\016\032\002\330L4q\"\312r\020\311mR\226\036\022J\306\261|\340\370 \254\2207-\350\017\261\000\207\353a\307\2243\\H\343\206\253~UO\232)BE\312R\342\353\314\031\365S\324\201\364[J\367\224\237\256\037X\211\313\ra,\006\274\275\267V7\351\267\2615b:\252\365S;z\313~_N8UM\370\213\215\212\235\307(\327\322\235\215Kui\271/\300\204\365\236\327\330\243\221TE/X\013\262D\201T65\234\337j\313\304\0212\322\325k\225\252m\321\244\246Da\331>i\243Je)\303\346\014\\\033\247)D\2408u\310\256\243\255\365g\320\345\327\017\240pN1~\370\007\332\326\212{\305\014\315k\237\005)\211A\254x-\364\324/\246""\253\322\255y\267yt\001\320\020\350 h4!\266m\240\315\026\275\236K\207O\247\2208$\220P\324I\225\210-\027\302\363\231[t\037\333\267\200\203+\345\214neg\377&\247\311l\262\367g.W\241\214\264Y\267\2111!\210\014I\207\026#\204\306pv\273]MP\311l\032\261\340f\243\230T\363\033- \243\034N\025\225\034\341\256)=\2358l\031+9\310\204\001\255UIP\225%HUU\262\371\301\346\036\030qc\362S\352\306\241TKV6\245q\206\330r\226\217(l\314<\373\236d\204a\032F$hFG\223&IH\203\177\035B\311\254\33560 \243\206\007<4x\226\376\027\034\315\261\272\273\216\234YT\344\034\340\376c\250\214\344\375jsb\362d\375>8V{\210\272\222ca\271\"\202\254\354\335\276\230\210qn\377w\326\317\320\375\030\373v\360\261\254\323\033x#\t\3602\021\262\341\260^\026\356)9\311\356\350\345\013,\343\214U\2375\330G\010\352\304c!D\271\006\204\025E\316\231\303>s>g$\204\276\332\230\316\231tYb\006o\360\312\345\226FK*\375\007C\327\2516\270\264\334\r\246\261C\013\305yz.6:78\261i0e\361D\\x\242\250nm;\200\321\304\014\230\026\021\212\315\346\331\316\243\317\260\232\356\342y\247M\265i\224\313\302A\203( \366a\320|\217\027\331s>\264\203\241\340|^;\364\301l\036\003k\215\025\321\225\254\322\0030\314m\305I\2253\261S\307>\356\323\2651\031:8\360\342R\2537\"\032\n5\244t\353.mI\037\353\303z\235\315\315\267\255W\350?\016w\322\312\205\272t{\024\242\235\205\334\256\322\277bW\341\217\242\352\313l\225\373\312\271\rR\245\232\225\2574\255\n!}*\013\245\342\355;;\016\237%\246\026\303c\2138JSQ\363\337+\233\034\310q\004d}*\327F\373\2354\327H\231\313\"RH{\242%}\313\205\222\220RSHH\013\034\231\271\222\250\212\235L\014]I\014\231YR\244R\272VS\331^}4662\367\311y\245Ah1\205\370HR\213\302E \324\004\3212r\232\365\364e\214\026\352\260X\260\254\315x\314\205I\274\225Sd&Q#\341G:\343\n\202\222J\270\334\203\314D\216_\243\021\323Xw\327Y\335\362\020T\322\346\302\311<\313k\214\240\2063IO\354\230\320\027\003b\243?f\205\354\331\217dW\355_\354\216au\004G^\224\224*\313\031%\350E\351H\307\031V\246?-\311\261\260\271\233\347 \356\212\315\r\014\207\344\ri4y\341,DR\220\342\304\201\213X\365""\2217\210s\341%\242\375\3740j\262\tv\257\323\tt\252\322*n\030\306PNO\210e)\223\300\352,f!U\022)s\266Q\245\036\270\312\357\306\216\223;p\316\307\025\306\007O\273L\225\003\243\321\336\214\375\004z\235\304\274\000\354\022\016\304#\261\020<\361\003\317\021\347\210\365\000\233\023\333\371q\233\023[\016B\t\020\2360\203\251\227\010\021E\2742\367f\375c\250T\200Ap\215\304\356\203\"\313\221[l\355E\2232\2142\026\245\211\002]:sdB7\273\016\031nZ\221%Z\230\246\002\272Gg\016\263JS\037\020n\310\222\257A\tW\345\0173\312)\255\3158p8c \346\363\236\360\311Itp\362K\331t.jR\217'=\342\275\246\035\207W?\240\203\307\312\005\315u\233\206hg\205\327\344\213\035\376#)P\340+\362\003\024\274n=\306\224QI\024a\001\356\350\036\276\336\306(\312\257@\352\316\363\t\325\tJF\362D(\363\0216\324\332fn@\344\"\032\363\007\214\027p\222\361\010]\310]\310G\215\007\220^eU\024\004\2172\374\3433\263\262\016\221\232\304\032u\272b\212f\232A6;6\273\t\030\314\370\375\216\014|\231\310[\276\036h\371\\G/\034\t,\277\230\330\212i\016\207q\342\274\353}\327Pu\325\205kJ\345\037\\eY\324+\374\252\214\222\316\354\352\335N\331\306qe\336\267\300\354\306_N\302\246\231s\013\007\256Q\"\203k\361\255\261\264\3119}\234\355\246\2124\372\211\237\034\257\221\356=0\237~]\341\343Gz\016\364\217(y@\357;\316\362\202]\347\2079\346\310\307G\334\324\306\023\240\346'3g\316S\3306P\224\023\357\260\231R\364P\301\241\247\332u\307CDKk\221f=W\356*\314\037\257\000\301\004@\345\\\205\024\220\235\216N\2066\204]\014\256E\255\235\215^[su\\|7\216uL<v\251w\274 \353L\034\016\017]\024\301mi=\305\205\227\306\232J\234+\235\342)\231H:,\335}y\216\307ei|\027\212-\271\313:\261+TSd\273WqI<<\267\271KN\345\334\203\270]k\270\356K\267\271U#\260\345\344\323\321\351zDjH8\350\242d\031\r\013]n\364 \322\276\235]\305\323\264\276\272\270P\334l\017\360\312\205\243\271\246\3243\006M\275\230\267\030\370=v\253\262u\237\372U5\223Q3\001\230D3&l\311\273m\"L\002\227$\322\003]\222\341\366\243 \206\r\203m'\252y\320\235\t\301\t\321'C`\241:)I\227q#B\225\024S\242#\253\234S\236\342\207\236k4""\031\2430\314\317\303Oj\343\223\237\210\315\316\001\312m\021\007\253\335\2116\016Q\013V\036.U\260l\033\002\331l\226\322#\224\313\330\350\343\020\242\343e\342$\3525\356\r\347\323\023\222\ta\030\271\\\334.DgOx!F\351*\017SL\313\202;Mu7\201\216\247O\2552\353\203\234\013\305y\314\260\361\034\227c\363\313B\322\325q{\373\221A\024\201\024\201\350g\320\2213I\002D\213E\004DPR\003\201ZE4\014\206\246x=\036C\313F\250\370\355\335|\257S\334\016\3422O`c\262P\024\310\n\261\336V#\005\026H\275\312\234x\301\336\253\377)\2705\354\363\356\025S\005\341p\220\366Y\342\244\366\317\234\324\014_\nY\013C\272\271\205Y\226\2442\310\013!\303\270w\023\327C\375r\245[\220d;I)\223\302\374\235\276\004\373\221\222\331m\342V#\334\242\236^\374&`\334\232i\247&T\372\303+\240\374\273\005\004\242T\255\371\351\373T\036 \311M\211\013~\270\334C\242\226\202\364\223\332L\203\244\242\200-\226\254\037\024\276\334@\244\235\007\320J\252\017\022\252\336W\322\236u\345\365\342l\035\210J4\330\027\026\031d\024\372}\257\031\206\303\350$\305\326\021J\027\356\342\302\261\324.bb\271\200%\231\214\305K?\035T\303[(\264^\207\245!\366G\264'w_\031\344;3*\220\266j\315\roS@\307#I5\0353\260\262\206,\014W\330\352O\341\310v\300.\037n\247sNS\014;K\232\331\233\230}\355\214\317\3525\231\030\210\360\010\0252\030\006\231p\005\021\211\000*B\202\rV\3015\272\214!\0239\245%\202\006Qc\3369:\237\267\307\252\353\342\314\010\343_ \306\236E\336\027\276\206\344N\301@\300\"F\356\356\314D\n\374\230\036\220D\021\273\016\342\245Zp\032\307\273r5w5\311A\247\245\337\361\376\366\327\224\313KNK\344\217\337\254\266\"\230AQe\376\354\206>\017\364U\213\010\243\200\324_\256\231\241,\nZ\210\024X\234s\027\264!\244\007&\224h\211?_\327Q\036\274\300\nHA\177A\0108\365\331aTS\200\225\006\001?\375\357\215~T0` Xe\201J\346\2054\006\377\362\300\177^\351O\376\2213A\361\244\035S\004|\n\211 2b\276\267\277\217/\233SXy\254\357\244\226\337K\263\246\014y\333B\206\211P\247\020\263\025\261\202\361\2527\223\370#8-\316\210'E\000&4*\245\240\252\210w\374\214T\327P.\320\3164\227Y\204\251h9K""\270\005\261\022\232g\345\037\330G\017`O\261 \t\366=\205\003\363\030~*\026=\232E\013\267\001\251n\224 `\201\277\346\370\037\n\272!\034\032\311\226o\003\025n\300\220\t& \005\2661t\214\302\016\315\227\300HcZ)\026m\216\240\230a\207M\014\3375\0379\355s\357\233R\366\214!\242a3\212\234\322\375c\372\340\314\327B\243r\235\014+@}\241@\221J\235o\375^\346,\262\206=\316\375\240\211\211\000\036\21608\005\303\"\032\342\251\005\367\215\252\267dk\r\036\217\242tC\320a\242S\374\356\203P\031\243\344>\336\002\027\270@\004\311\231\032}\313\231\204G0\320Oz\211\177\367\033\330aG\344\341\204f\253\361\203\312oE\014\003\212\210l\203\237\336\344\345\0049\373\335\336o&\272$Uw\2778\014},ax\272n\020\024\372F\346\310\263/d\005\000\020T2\245<md\\\027rQ\006\"\371u\020\371i\300)\223`\177\352\331\027\"\270h\270\223)\006\341\023\001\223h\004D\204\240\030\307s\313J3\222x\316\001\334\377pG?\203\000`t\206\343\275\324\001\270`\357:\207~\370\002\363\r\305\021H\377\022\032\237\324\362\242H50\240:\317v\235&5XTj\2623\337D\244\210Bz\362yL\223\262\020\345\301\014\215\220$\223\034\0223\034y\005\310\223\025\301\215\021\335\034\375\377\004u\016\267\023_\026\005\021\340#\311\337\300Z\020\345\316Z\353\251\206\252\t\001\342W2d 4\337_\n:\325\222\037\373\007\203xo\016\355\006\201\201u\225B.\351\3016\342\222\342\204(R\0377G{\302\013\360\200s\254\335w\362C ]\327\363\325V\037\004S\307B\214\240\201\000\3156\372\376\340\343\304W\027\200/\215\352\270\276,\246\002|\202\270\270\265<\306\203\002\342\242\310\324_\375\010\027^\026\266\244\242[&\326\200g\247\337\352o\235>\225hJ-\352_P\034\273\256\353\333\365/\300\306\270\252\026@\020\021ffAr\342\251Phi\367\304d\006\t5\316B\250a\261\204Lgl\322#\301*9\340\334\226\033x6\333\336\274\2304\201\233\265\016\256\355\365\217Q\352\365\270\222\301\336\335\255\324\250\230/S\003F\030\243\313i#\267^\251\330\354\315\\\302M\213\\\005\371\032V\204\212E\204\2735\n\024\321R\225\276\2650\377\027_WS\255\355\356\2658\201\275\255\000\357\353&{\325W\275,\340k\330\301\213\313w@\304\331I\354\327p\253IiS""\014\224m\341B\212\352\243\346\3520\2165e\315\326\214\347#\006B%\221n\341Q\020i\255\331\235\222@\323!\003\350\230;v\016\257\032\363\222\023\342\366GLu2\030\241\250JI\004*\016\276\270W\336PF\3773;\360\250\324qa\212\225\321\270^\351\240\270\025\216\0100I\032\206l\0263\255(2\310\204\013\2205U7n\347\351\336y\345\316\270=\205\310x{\363\016\273\365\256\006\245\331\245\350-\216\233\347c\271\331\301\265{\rI\346aW\271\261\314\345\301\261c\207B\346\021\021\266\356\006\236N\003\234oO<(b\233N\312\321\033~\345K\271c\303\206m-e\236\"1}/\221\233\347\225kZ\255\034\201\362\234\324\224\0011*\220\316H\230G\327.\351\254\315\024b\206\3328\036\366\375\350{8\366}\007GA\272\220L\362\362\260\210\020UVC+\374\226Z\271\226\217.\022\315\027\247k\327\272\036\005\252\336[(\300cBT\020\262\315a\263\200\360\362\356\355\340\335\277h\r\303\205\312\321)\310\243\204FDLw,\232-&\331\267u\253t\306cLL\3339P*.\314<\270Xb\345h\016\177\231\265\301D\344>wO\001\273\313\333\335\335\232\n\216<\232\275\243\002F\024-2\226\001P3\277s\005^\334Gt\3335\001\330^tJ]\327F\316\226\2562.\322mT\331\263\\\330\365O[\364q\253zU\356\372\245Q\247^\251\205\225Og^\310fa\030\255\tE\363q`/w\025\221V\271\247\225B\026\272\204\226R\256\n\206L\037\347\354\331\337\353T\341\3246@\370\332w\013X\212\263!\252\36624E/\271b,\002r\311\267\014\"\211\025\013\242\307\036B\341e$\rG\000%\303 \341\307wQ\333\265\307 6\300$p\367\300\2530\216I\301\271\032U\306oi\213\210\241\300\206\016\266\013\211@\257\205\252\022\204^\351\277\374\366Pq]\233[\211S\024\332\2528\211^;\214\200\036|\020\204\357 \"\336\256\032j3\225\n\324\03705\344\037\307\263\253ru\"\221\275;7{\265\246\372\366o-fC}\352f*\003\375,p\003@-\245EM\033G\r\246\201\262\311\305-6\306\017\273\303\206\301A\304\364\357\333\274\310\241\354\016j\301_\343\342\374\013\257\001\310\347\321\002W0d\320\233\252\353\252\0009\rC&\255\307\206\321\273\275\265\251\341\330\260\350\273\216\355\311{\313J\003\013\277\025QN6\345\226\032=t\321\355Qp\225\234\350\237\350\003\320j\003\264h\200(\301\221e\271\327\254Xy6Sg\362""\355\247a}\234w\"\320\314\257\242\311F\026\0264\335\301\t\021\302,\005\200!\254\324\312\251\003\267\220c\205\204q\230\370\274\237\223\263\263\267v\3560>\365\230\032P\310C\334\224r\306\214~\222c\357 \301\n\300$\371t\312Xd\210\302\007\022\224Z\026\013|\007\177b\235c\310:GN\356J\007\236\310\016\344\033\367 <oay\030\221\210\340\315lqTl\256\214.\000Lq\344\331\201 :\002;G\257\274&\325\024\246\372o\000\"\r\2644a\274*\003\007\267\204(h\022=r\224\355\344\026\002\\%\005R\220\250ic]\274w(\003a\343\331\301{\006\362\316\036\214P0\337\274^\252\007\017ai\307\343\276\263s+N@(\312s>\253L\324\203J\0044\353\362\016_\237\3246\243\221\330\307\237sR\217\331\311y\026\200\310\023|6W\r\3134\"\000\266S\220/\202\tpG\257\326\007^\365\247\223\352\361=@\256\335\2348\303=h\260\230\265\235\241h,w\374>\327\220\000H\361\323rz}\214\241~$\333\330a\332-\nK\032u\235\254,\002\374{\007O\334\035\335#\356\035\262\237[\2456t\210\300\263\365\"Hf\003\353Y\320\330\010<\236// xU\024_\020\357#F)\344\371\210\035\352\205]\013\224\307\317\337\340\035\nO{\251@\256\252\306\024t\271#\246\366\273\336\347\323\363@\351\034\307\245\317\275t:\202\212\314o\237\241\250\351\023\2407*\273\200\177/\353/o\236\007\271T}\276q\3508\346]\027\320)wo\214\214\033\350hJn;]\337g\307\355|\277\265\001A\022G2\346\350\2203=\307\303LS]\034\374=\300\365w~$\327w\301\337\025=_W\306\336\362\235\365G/\307e\347\334\304U\203\336\307\333\364\366\376\201\335\340}^\246\374]\315x\2729\367\342\336\341\025\003\007G\006\357\305\366\307xtw9\371\277\301s\237y\203>>\256\014\236\255o`y#\240\037\037|{\251\363\243\370OK\352\023Z\377/\007\370\357~\035\360\311\242O\340\361x~`>>\270\360\036\260G_\317\217\303\257u\350\201\227\241\254!8\373\251\036I\252]\337L\016\241\336\360\365\200\274\036;\364\340h\212\243\222\214}\276\377s\237\277\335\212\001\222e\224\275N\200\340.u(\013\025\316\244\030\205\332\311k\n\330\303xp(9\2662\002N\251]4\333\200,\263\010\206\000\351\326\351\361\316g\232\371\225\316A\276z\027\347\366\023[\023\234\345\234\317\315\363O.x\234\312\304\363\n\312W""\206\254\342\301}\326\353]\026\334\252\031G\235\204\022\362\347 r\321\014*\252S\263\033\032\376\253,5\3167\257\327|}\215\364\366;\241\351\342g\037`\372`\362<?\311\007\231k\361\232\274\234H\271R\353\223\223\310\307\232\207\317\355\257\301\363\257\021\327\031\306\367\030vNU\205\345R\267[\301\326\365\034L9?Kx\330\363\317\275\312\371\327\342C\317\305\342\354\270_\013yGU*\252\365T\203\230O\273\220^\221\272\037\002\231\014\247\321\203\333I\276\375.\030\022\301\300\246\225=\026.\205\\\0241\254\233}i\002\230\013;\360\276\3144ajK\321\206\355\036\200\326\330\316\206c\365\036b@>\362@\373\265\275\317\031\3326uy\223\236\202mO\3277p\337;H\275\033\235\237&\314V\376\276\304[&\000\301\336\250\327\260\036=d\274\240p\233\276\212\213\326\2034]-\314S\373\332\017\257\326\235\336\265q\324Nu{\032\217s\305\350\371>\307\014\336\010\240\261e}\t\316\272\327\274\356y\254)>\224\225y\367\332in\231\337x\214\264z\235\357\\d\254'\366\005\206\347\31721Wg\225\025F\270\203\250K\022-4\256q\305e\343\201\326\007\342gz\220\253\010\315F*-\010\375\205\362/\020\256\327\001+\225 \031\t\\*\022\337\005\2725&n\326\242\336\024\347[\205\266\225fz)/\253\361\274\357@\366\376\265z\337VtR\272\373\n\205cc&\210@\272\300\331\014\212\234\234\265@\3159\2422\2462\324\251a\026\203\270\246\025\254D\223\223/\025\325\342\2327 \265\225\215Sv%\316H\221v\n \370\346\246t\273{\220\350|VF\222jZ\214\312\336\267\203\364\337\024\247\206\302\270&\332\264\364\250\266!\205\252\212\3124{4)\264\263\273\264\3759g\365z+{\007\350\270E\375\033]g6\375\013\016\371i%'\2410o\017\253\230%C\272fs\352\267\245\371|\356$H\020/\360_W\234fk\242\326\265/c\210\177]\r\274\324\330\227\210P\316\371\262\256\270}\307\255*c\332r\310\340h\340\\U\003\306\356A\303V\\\324\362f\206\256\316\242\222\006}-\\L,\335\311H\032\325 \n\346\336\242\340\326\243\265\031\306Uph\034\326\242\204\232\341s.\342\213\032Q\020\241\204\223-\350\003\342\366\313jj\342\302\227\031\347X5\211\235!\364\372\225W\213\207\313\270V-\274\315\236\325n'K!-p5*\352\352\340\320\252-\313\325\033\241\231""\210\"\354M\006>J\226)\026nVx\026\321\332X\352l9%\"\031</,G\2267:\020\265i\273\251<(\226(JP\346\346\3704\225\021:;W\0176a\371V\250\253\252\335aB\3247FsY\217=9\324`\207\273\034\256O\027\236\241|\246\3331zM\304\206\350\320\323ak\322\324\201~R~m\247\204$\000\364\367\026\345\241\362\371B\316\371*\204@\255e\211z\303C!5\246\267\350\332\336\325\2040\373'nA\316\"\204\265\014\036/Q!C\004Z\026\350\334\313\272\224\257\023\311\242V)\252Y`&\246\333#\223\206X\232E\351\033\321H{#\242\303 \027|\330;\342\242\254U\254\250\265\361sTC\364b\377g\017\366~\322\373n\372\315\304\376\347\301\034\323\336\326j\303\340}L!\001E\205\304i\001\236A\255A\220i\221\210]\351!V\233*\365z\341\232\250 \215XGfe\311-L\255#\3361\350@\363\275\343_v\357\312\374\363\320\234\326\325T\357\367\371\263\022 )\226n\201\336\347\274\0042\202AT\021\014\313$\263\007\204\212\337\277mX\347\213\013j\250\367\3077\371.U>\337\333\3605\252\367#\264\302\340\340c\205I<P\330_vWL\364P\327\3607\307\333\361\370t\253]\267e\215\215l\2744\244\037\227N<\2657J\335VH\257\245z\263N\263\370t\366\265\210\375\3258%\023a\354\357J\205J\262\244T\263F\276F\232\325y\336^\257w\302gyz\023`P\212]\332\207\322x\365o\3649\237\020\210\23062\177a]\202f\nz\232{\014\357uE\272\022oTl)\016mU\335-\310]\277WU\253\326je\263f\352\351\226\247yT.\347\030\231k-\214\267\"\250\345\251\370Z\n\373\000\215\333\336\221_eX\226_\236\225k&\020z\302\200(\375\361T\005\312l\231tF\027[;\316\223\250\243#\337i\211\336\257u\227l\211\232?e\275\214`\232WJh\353\341\242\306\376U|mj\360\217/j\017N?[6\230\001\r\n\237\250\310\327?\tL'\377\213\271\"\234(Ho:\207S\000";
-    PyObject *data = __Pyx_DecompressString(cstring, 9744, 2);
+    const struct { const unsigned int length: 12; } index[] = {{2},{68},{35},{54},{37},{60},{24},{52},{26},{34},{29},{33},{45},{22},{15},{179},{37},{40},{30},{32},{1},{1},{1},{1},{1},{1},{8},{5},{6},{15},{23},{25},{7},{6},{23},{2},{6},{35},{9},{30},{50},{39},{34},{8},{30},{20},{32},{22},{30},{37},{1},{5},{1},{8},{20},{8},{15},{3},{15},{12},{5},{3},{12},{7},{5},{7},{17},{6},{18},{7},{4},{7},{10},{14},{17},{11},{9},{13},{1},{20},{4},{5},{3},{10},{10},{13},{8},{13},{12},{18},{18},{17},{14},{6},{11},{8},{10},{9},{9},{17},{18},{4},{9},{14},{5},{13},{13},{22},{6},{4},{5},{9},{9},{15},{17},{17},{16},{5},{10},{17},{7},{6},{11},{17},{8},{22},{5},{15},{9},{8},{5},{6},{3},{9},{9},{3},{5},{14},{11},{8},{17},{8},{3},{8},{5},{4},{9},{4},{5},{7},{7},{5},{6},{7},{4},{8},{9},{12},{2},{10},{10},{3},{5},{19},{9},{5},{5},{14},{18},{9},{4},{13},{5},{8},{5},{7},{10},{10},{7},{8},{6},{15},{10},{7},{10},{7},{7},{11},{3},{7},{13},{13},{7},{4},{7},{6},{13},{7},{8},{17},{4},{8},{17},{7},{4},{10},{8},{4},{8},{4},{7},{7},{7},{17},{11},{2},{8},{5},{12},{3},{6},{13},{4},{4},{5},{2},{3},{1},{13},{4},{3},{13},{14},{3},{16},{10},{11},{12},{27},{12},{19},{11},{14},{11},{10},{19},{14},{12},{8},{12},{1},{8},{6},{5},{2},{10},{10},{17},{13},{13},{12},{15},{10},{8},{7},{7},{9},{16},{5},{14},{10},{5},{15},{17},{5},{4},{12},{10},{12},{19},{5},{20},{20},{7},{4},{11},{9},{27},{27},{24},{24},{9},{5},{17},{14},{18},{12},{9},{15},{13},{15},{9},{4},{14},{4},{11},{5},{6},{15},{8},{7},{7},{6},{5},{6},{6},{28},{16},{12},{4},{5},{6},{7},{7},{7},{8},{7},{15},{1},{3},{11},{10},{5},{75},{405},{226},{984},{649},{2059},{2645},{458},{84},{21},{154},{226},{540},{494},{34},{699},{883},{193},{336},{593},{756},{211},{1019},{2116},{1216},{1153},{97},{1}};
+    #if (CYTHON_COMPRESS_STRINGS) == 2 /* compression: bz2 (9748 bytes) */
+const char* const cstring = "BZh91AY&SY\242\370\205k\000\r\257\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\377\300@@@@@@@@@@@@\000@\000`*\177y\345s\003\241\t\025Us\334r\003\275\200<vG4\222\356{\236\204\342\r\013\026 \275\226\313\210\356\327i\334]\253\333\024$(\243\317`\241\266\270h\336\000\017\001T\225\032HZU\000\003@\000\002\037B<\220X\342(\252JvhBI\020\215\t\214\002\005=1\031!\204\320\325=\221O\325=\240\021\030\3211\242zM=4jlF\223\003A2\000\000\006\232\004\004\210\"5\036\215L(~\250\323\324\033)\240l\220\036Q\352=F\217\325\017P\365\036\240\363O#i\202%OQ\211\243#\324\364\312\000\323\020E\021J\037\252i\351\224d\003\302\236\243\320\236\024\323\324?T\362OP\332Cjz\215\246c&#U=5\032\032i\351\345'\250h\3204\331\242\201&\242\"5)\2217\221OS@=M4\323A\246\203\324\332\200\036\240hh\3653I\240\006\231\352\236j\237\252d\017Pdd\3325\0314h$\212iS\324\031\000\365\003\324=L\023M\007\250\321\241\240\323OS\323L\325=F\236\232\236\247\251\264F i\2401\014\203@\000\000H\221\002`\020\231\032\rF\2324\232zMS\362i\032\236\230j\236\324\332\211\351\014\200\003@hhh\032\003A\241\352\000\037\374$U\343k\013x\263uq@\261\3676\312\226x\331\336g%v\374s\223\236\242\312a\365QF~'s\263\273;\266\357\273\375\272]\032\234\324\202\301\021\337@n\273\262\225\037\372\327}\232\304\350\247\0161t\235\000\017)\024b}\376\311\350\236\257n\023\375B\177\260\207\255 |Q\003\343\361D\017\223\237\000\025\275\262\263f\247Dk l\200h`Q\362U\330\025\240\254=\003Z\210\240-\310\010\315\321\244I\220\252\361\251\016\023\230\315\024\242\215]1\021-n\251\033(EF\212\2327\213\321`\265*\254\022\255\343\262\220\302\033\220\330\323T\0213!k\030\201\003>\007/\\\357{}\377w\333=\342\017\017\3017\303\344\372>\252\202tL \225\"\241*A\025\"\244T\213$QCx\363\371k(+\240\256\272k-W]u\3271ZU\202\241\005\n\271\317\235\t\320\237\373\331@dA\021b\240\254V*#\005`\242\244\024\021\214\025\"\"#\020X\306\nER#\025\004\202\221`(\"A\025X(\252\214\026\020R,\004`\210E\202\301TX\n\240\253 (\240*\221H\252\n\261ETX\355\2616\r\246\323i\267\273\222I\251&\262\006\244&\260*)-""\266\203\340=\364\t1V\224\200\255*\300\266\313\013>\247\200OR\001j\233Hm\266\320\333mI\236\000\016or\301\001P\024FE\005Q@DQH\260\212\210\240, ,\021\202\310\240\243\030\002\301b\310\"\021E\"2(\nE\001\031\025d\356\004\246\005\025@()\024m\010m6\2060\270T\202X\005\352\365b\274.\272\242\232@\300-F(\272\034\r\203\032\372/K\311bN\313\022/W\252IQ\222V,\212\t\253\022\313R\255\006\240\324\26333>4\\\223\271Z\220\\\t\244\300l\030\306\306\304+B\333KU\272\251\n\216\345\212\014\300\321\260hh\253\026\n\"\262\010\202\304U@QB\n\244\024\213\005$QHA`\242\222\034\321)j\022\206\210\210\213\360mT\212\306\014cHlm,\026\010\300\303\014* \327}\350f\210\201\215\203\006\232f\017\013\312\300k\010!\351\216&8\230Y\343\0030\300\301L\271\027&4\321qqp\\\255\ru/P\031pN\016\t3\007\2324\202\225T\312\235\322U\320\210\241H)L\013\357\277%x^k\253\335\321h\221\254b\030\301\2646\330\330\r\221\020\210\202\305$P\021\005\202\242\013\026\0216 m\261\r\203c\310\010\"!(m\213-3\310\014\301\233mv\334\250\320\204i\224S\021\032*\235*O\251\273\204A\340\341V\325Q]\210\205\n!\220\234\0205\020A\255#Z\003`\205\261%\262C\210\016\"s\216\0354\316\246\354\024\316jo\275.\334\224\321\212p\335V\367{\211N\335\260[\270q\242\342\203b\344U\372\232\013Xb\3115,\260\310\207j\330\221)\t\211$!:\272\253$\022\034\204\002WsSECQ\305\031\210\253\005\025\206`$1VZV\265\224r\224\363\271\323\237 \016Q\257<\334\003\030\2302\010\201A\n\3401\022V\2401\002\344+\322\304K\022\205?\227\023s6\245\226[L\222\014\366&\341\250\202\022oF@\334\200\204\333\210C\032 a&\215\001h\226\t\032\006 h\032C\273\233\215\220\317\204s\247vC\235\305B\202\200\260PR\013\001VE\001E\026E\201\304\265E4$8xy\334\373\263\235\314\007m\341)mr\t8\202\0301\311\300\315\201\260\331\231\263a\260'\3533[\001\206\305\221}\3468\250 $\264\234\211\316R$\331DJJ\0348\210\344@f%\232/\014\321\236\271\022\0178\226\354\263a\2327\225\232\031b\003Y\020(\031\243\223\224\234\244D\207!\312\030<\321\232Y\245\222FY\355F\333\026\257\252\263\0035\264\315\321\222\033\020\352\006\241\033`\224\275s\201\246\032@M""\3200\204\2070l\234\344ODh%\246\232\032i\256\302\317x[\265\243\203\001\214M\202lM\241\264\266\003\030\307\303\223\223\205\206\304\236\315\256\361&\022jD\244\330\224\203\361\310p\010\002\224!J\221%\204\237\216\002\225H\024\205$k\014!\001N\016\330\023\201\020\323\200\315.\026\237\004\212d=x\260\207\023\252ml'\"\230n\001\224\220\210\205\311\031\243^\232\312\2764\227.z4\233z\006\231:\267d\030J\014\241\267&\272'\003%\0234r\030\311\033\315\r\026\202\321\034\374\245Ev{\005\232\310\302\202\220\200t\262Ye\265SD\354\316\272\367S\271\223n\273\"\2240e\211\320\211k\326\032\300\326L\367\3227\233\304\272\030\r\246\336\304dl[\371\234g\227|\2733[\211\353\246Jd\344\315\236\315J\262\252\251\250\255\262\033\233\234\234\266\033\010\3514\321\206\200\035\355v\005\265\273\311\027)\305\356\\\335:hUAZ\262D\263\314\337\316]]d|\211r\353Z\322\337\213\345\250\303^Au\3245\007D\351\241P(\"\"\234\363:\226e4\272\253\345>\270g\230\270\025^C,\226 \341\203\031\331\234\005\3236\267\005\023\211\365hh\267\032\315\017\231o\361\353\374'\320/\336\017\355?\342?~z?C\276\000\264\370\336\276\362\317\257+\247\341\213i`\272\252I\037\274\302}\333(\300_\276\265\267\374}\024\310W\207\367,\272\216\244?\007\343\367\277\271\353\370s\315\361V\224\324#Pe\256\275\004F\277=\325\277\347\232\316u\013\320|\371|\007-}D0\2673}\023\007\347\2552\267\251V\240~F)\260$\034YS\312\363\\\234o\307>\220\363\243\316\037@yC\365\376\213\227\364\352\351\375)\372u\226*\224P\331\366\353\354K\336\370\021\347@\274\351\013\323\250\013\203T\030\227\247{\270\304\242\252\002\210\364\010\364\tz\020\217\221#!}3\031\244e\023e%C\231S\212\242\031\250\240\200x\320@:\273\251Q-\004\312\004\315\264?*bA\274I\247\005@\302\034\244Yi0t@m\ni\302K\350n,\\\321\275n\346\361\346n\205\023\231R\021IX\2425\2551\351|\301\024.\000\031\020.\255|2\224&aL\2738h.\240\225\"PR\004\244\312BG\370:S\250HE8\211\213\267N:\346\232wB3\335\003\234\371\220L)\2211*&\0142\251$\3430\307\023\010\370\207\224\246FA\220\2611_\261\310b\271\303vH\273\0140>1\231\360\245\2222\220D\212\221G\341\345U""\"\276\252R,<\227\247\225H\244\034\323\276\364\021<\206Q\022\225\242\262\311\357\234\\\223\373\233\264\201 RR\251\026ivV\305%\r\350\203\212\230\251U\220\267\223\257\241i\240gI\225\330X^\240\340\234\357E\347\000\260\303\336\300\364\021\201A\245\253\003,\262f\206&&'F\274\215\330\213\021`\035\247\326\274\276\365u\223\332\272\300k*\202\371\271F\233\345\362\374ay\224a\034\307\355\230\254\345J\\\270K\2535\304\\\343\301\303\017\321t\177\007\005n\037|\351t\341t.\353\313\357w1N\315\226\202\204f\315\215i\235\027\366\361\336\306+\336-`\342.\254\016\225\207\263\267\037\206<v\034\226\227\324\226_i\211f\2003\001d\2222AUe\201\344\000\016\350D\345\035\320\230@qq\210V1H\020B;@u\304:3L2D\212\202\254\242\t\251\214\243B\210\010\272\273 \221$\351(\262\310\253\321,\006`8\"rgB\261\206\344a\272\222$\023\010\"Q\0348\326\264\315\340\267\006GqZ\226,\301\245k\210\367\237D\345\234\254\332%h\221Z\002\244\026\200c\360\207\2242\017\3314\t\342#$,\364X`\257\244\314\376\244\366\244\276\361J\026\202*\003D\227\322\313\230\007\232\370\213\3034f\004\212\334\033\1777C\315/\312\212fA\030\246\t\224\334\351I\257\022\256y\254\256\"\342H\270Z\271\376+D\354\365}\236\007:\270W\010\270\013\201i~W\344+\315\341\250\324\265%\251-H\346\263\273\246\320-2\345\273;\321z/\002\363#\337=\375\220\031/\336\304:\255\013EjE\245\2507[\315i\250\320+\351\374\037KX`\212\021x_\272\333r\250Y\n\262\265]z}\322\303\256\341\371\277\030\371\335\340^\225\341z\275]\367\217\350\251TRt\347\307\264\364e\025\224\254\255aG\t0\036\324\366l\253'2\273\tk\005\203\346\010a\265\336\372\373\036\377\341\336\311|\343\277\211\245@\311P\204P\n\001\023\206\300\276\223\276\324aQG\032#{\336Zs\202\216\005\315\013\264\034\202Z+\201\026jf\013\240\231\210dar\244\2105M\313\2523,\222i )9\362)\332\233F\351\202\026\201X\351\311\003T\203\253S0\026\212\010\254\244\232\212TdW\230>\350\364\177w\347s\207\350@\0174\365\273\205V\"\375\020\220\301\014\311\023\211\027\320+\302\t\204H$J\"\220\315B\nQI\363\236O\302\255\216q\267\2619\354\327c\311\340\301\335\310\026Yl\342\022X""\204b\003\022\014A\2100\366\361b3\346\257\241\335\246ij\3150\246\t\211IT\252U)4\023k\354\313\345\311\346\303\213{.\n\000\241\024*\000\220(\224\235\024\014\024\\\025FL\372\244\222Q\356\345?\233g\033mm\303\003\351\245\"\221R\212JDw'2\3452\362\366\013\262l\227\213\301yb#\023\024td{2\277\262\325j-J\321Z\255\017\312\373;\025u\205f\315~\337\203\275\212\2436\235\236,\030b5\364Y\260\372\344RW^\077\077\253\250\355\340\215\021\250\3023'\254E\022\"QE\021\256\036\243|\021,\346\\\277\036?\240\345syx\362\271\333n\312?\331\314\373UTH\212\225&J2u\307E\253\326\256\277\331A\301%\003P\306\305N7\257qE\322\260T\244)3\325\356\363=z\373W\346\2436\356\337\005\253\346\274\211H#\332=.XupG\277d\262\212\210/\361\345|\240\033Y\014\255\362\234\254\025\233\006\301\004`\025A\303\310\371\264\357B8!m\004LF\324\225\010\361\210\355A\301SM\037\027\302\224\354\360\337\t\231\033j(\302\224\220\335\351\022\262\356d\266\rK\316\021\251\021\225\0255\032\307@\204D#r\241\031\231\260\024\251\014:(*L\014\314\266\010Rq\027\n&JOf^\032\t\t\234S\254\245\230U\016\226\311\321*\231E\221:`\214\363^\315\0229v\370\315%\327\377\020^\013\004\n\361\005\324+\251\023\002\224\221)@\210\204!\200\232\177s\260\023\345\241\005\025\341\253\311\333\336\n\233\227\236;q\241\321Ev\3340\340\014\010)\003\002\n\204\252F\n\321\200\301X7\351K.[\270D\262\342\321\210\257\004\363\242rra\327\257\232\035\332\024\227\301~Ir`H0I`+\203\0009m\372h\357\\\225\273\276G\022^\324;\320^\257\025\352\363\243\243\360t\343\273\357\302b\352\335\222\027;0\026\000`,98_x]\007\330\rI.]e\302\271\027\005\327\"a\242\263\371\321\367\313\277\272K^\274@\261^^\257Z_a\376/\250pX\001e\212\303+9\352Lf\346\177J\261*\312\313\357\327_!\257\360\201`\214V\255X\343?\3629k\016\367\252'\251\024\352\026\223U\177\232\245\024\322\213\2551\273Z\377@\364\213\273\301\353\361\3579\316\352l\360\331\025\216\027!\234s[\211\272\rb>g\003\372\035\002.\334\026\355\300\017\3545\253p\014\331\361k\207\232\302\372\0009\002y\023\355\214\371\2448$\022&\312 \350`\020_\355,\277z\232QkW\273\0327\260\231F""\331\005xAt6q\342\270\236\337\223\275\364x\273\003\257\257\220;q\255\234\3739\367\217\237t\366\256X\210v\225\357\343\376\337\001\322D\376\350\372\023cx3\352J\245\354=C@[\366\003\310\372\357\363\370t?B\024\004xE\255\312#1\247%X\363\021z\031\246i\311Nu\220\203z\237b\365\342d\322 x\237\000w\336Hs\275\330\320\331)s5\375<\211\267\320CF=\332\346K\223M:\267r\021\322\244\\Zr\330,R\322\254\216\221\227\363Y\214\252>R\365\267\325\311|\312\372\007\t\\\352b\233\222\346'Q\311D\344(\352R\222#o\031u\235\000\314\216\017\336\273\0107\322K|B\337\000\337B\342\260\227g\214k0e\363\375/T\357\210\344;\344q\276\010P3$\210j\246X\272\226\245\243\004\325q\2211\310\261\340\023\025@\316;8A\272\005\202d\251f\030\244\300\311\r\262\322\313\272\272C\030\305,\250\324\323\312\261\252qV\256\345\333\277'\311\374\341\260\375\243\226n\245Jj\310l\355F\020\331A\0161\2636\030\310\223\231\305m@\023\000\257\210&@J\204\250T\"\220,9\324\226\227\370\340w\344s\372&\"\203\213\235>\346*\273gG\247\317\313\224\316\270\032\323\303;\355^\360ts\253f\312fe\r\302\307\033\340\222\343\213{\272Z0\364<!\360U]\351J\204\027H2D\373|\301~\316\257\261O92\246\307/\356r\367O/\210z\324}8\255\362\364\313\223G1\364\327\232K\220i\265\240\316X\250\260\355;\220\273\204\273\220n\002\334\026\340\267\020n\007'd\314\226~\346i\220\310\362\320\316\034\317O'\036\231\343i\247\033\211JQ\274\237\304\350(\210\361Z\267\360,VW\342\340;\323\252\213#\252wRf\200\363Dr\217\237\273\245\000\311\n\014\021>\364\371\346\352\306\374jtBbQi\236\355h\\\021\\\267\350eFS!\2156Jt\256\322\257W\372\302=\266\335a\332`f\343z\307\024\021x\371\344\216N\036H\0344\005\260\230h\342E\224\344!\222\332\245,<$\225\215b\372!\360AY n[\320\037\311\000\207\331\303\217(f\270\221\307\rV\365\305>\231D$\\\252\\]\271\003\306\244\373\022=\007\322\274\254O\256#X\232e\306\260\266\0068\372\035X]\236\277rj\304t\325\362S=]F\257_\303\205\365Sv\002\337b\247a\3125\363N\306\245\262\275\276\276z\221\311]\036?kw\255\2613\232\320\345\327\212\016\026[\3339}\213\250*\3060|0\372\262f\276|\3452\"\3763\346""\2323\246R\234>`\301\301\262r\224J\003wT\212\352:\237\203\223\236\0146#A\000\234b\375\300\017\271\255X\362\2254\245k\236\362&(\243X\357[\323`\376k7F\316\027\340\355q\001\270#q\007\021\304\215\323u\016\342\273\350\366d:}=\001\3014\303\007\025\265\302\036\356p\346\234W\346\n|\271t\025vR[\337\234WO\317\307\365r.\243\345\354\354\242\315\014\013\227\363,\310\314\006e\2276c\204\316pw;\235M\200\321|\036\322\344v\274\0161B\347\317X2&r\005mNd\246o>\277M\226\235u\316i\025\007o\016\013\200\270.\010\341\303#\334\034\317\020\367A\317\217\274O\215\032\205Q-X\332\225\320\033a\323Z>\220\274\322C\024\020\272bP\225J)Q).\215\032'/\007C>!\246\332\177)\316\013\025p\330\235\003G}m\335i\314\333\033\253\254\350\301\225NA\300\037\260\351#)?%91vb\376\037\004+=\324[I1\260\330\221AVVl\333LD8\325\267\323\344\313\312\374\270z5n\261\254\223\033w\242\371\3561\021\255n\326\027\006\255\205'\002{9\371B\3137\341\025e\315n\263\270H,\222\216\215),q!\230mKPj\324j\323\002\230\237\323c9\3230\r=\340\215\275\330\332\261\304\305c_\224\347zt\246\326\366\233\201\264\326\010ap\256.E\247\265\347\317\343\357_\004s\214O\277\336\307\201/\017Na\"eQ\264\035\2048\374I]\342e\024\3015\327\274\361N\235Ug\214\313\202A{( \363C\240\365<\037\033Y\366\244\034\356\363\342\360]\235\353Xw\r\255\364WF:\231\234\006A\220\333\212\223*g\025N\374\272\373\306e\230\321\317\317\2273\030\256Ixx0\367\222\327\264\332u\346\213\222<5\357on\303v\326\344Q\352\211\\`\265&=\350\221\024\302\320\255\311gy\3675\256\356\333\262Z\215\367(,RJ\224LJYZ\237h(\205\363P[.\377x\343\304\350\354\324_\252\033\034Y\272R\232\217\305|\256ls!\304\021\211\363V\271\366\332\351\246\272D\316Y\022\222C\331\021+\255[\254\224\202\222\232B@X\344\315\214\225DT\352``\352Hd\312\312\225\"\225\262\262\2365\345\321Ccc.|\227\031\324\032\201\214.\276B\224\\\022)\006\240&\211\223\224\326\334\216\267\222\376+e\273l\3558M(\304\267\326*\356\005\014)xT\020H\343\020VM\213\257\002(b$r\374\261\035\025\207mu\235~\242\n\232\\\327\331'\221\252\270\306\010c3\224\376\341\205\001h6*2\363P\274""\326a\306+\363\335\346\034\302\332\010\216\254\351(U\2262K\312\213\222\221\206\022\255L~\033Scak6\316A\327\025\231\231\230\217\2604\244\222\030En\361Z\2176d\031\266\217\304\226\371\036\254\244\365c\307\226\306\303\254O\267\216\270\314\006+\251\227\270a\030\3019=\341\214\246N\363\244\261\230\005TH\245\317T\243:=\261\225\335\205\035\006Z\257\312\307\025\305\347G\246\231*\007G\227\265\031yH\371\035\244\273\222\342$\034P\216(G\021\034E\304]\301:I\372<*\253\t\321a)\220D2%T\210%D\346\341\002(\267\206^\354\337d\352\025 \020\\#q;\240\310\262\344V\333;Qd\314\243\014\205\251b@\227N\234\331\020\215\356\303\206[\226\2449YWH`\026aM\215\riUua\312-$9Y\250P\353:\307>\266\232\330\323\207\003\2062\016o\031\357\014\224\227>\356\311y\235\013\232\224\243\263\205\302\271\246\034N\236\036R\017\007(\026\265\324l\031\231\225\366\335\212,ww\314eC\200\257\260\030\245\340q\356\264\242\212H\242\370\017Na\355\353\3670F5yGVW\027\316\250JR6\222!G\210\211\266\246\3232r\007!\020\327\210<\000\272\304\227|B\353B\353B<\010;\005\342UQ@H\361/\31328\361\203\240f\221\006}N\230\242\231\243*\205f\037RW\316U)Jw\374\353\260\360=\021m7\363\307\253\201\246(\025V\223\3533\005M!\316\355;\367\035O\256\332\016\252\257\255g\\\243\355\214\253*\205w\205Q\212Y[\225[)\327\224e\026[\344\367\335\230K\353XT\323-a`\364\306$Pk\273\n\333\033L\223\227\334\313U4Q\237\316\231\361\312\351\036\353\316\371\366\343\332\036\004v\240\355H\360\207\204\016\323\264\355(%\332wp<X\230f\372\332\230\302t\034\304\346k|\nx\215\224%\004\373l&b\363\020\301\241\247\350:\343\241\242%\265\310\263\036\253\326U\230=8\006\010\"\007*\310\211\n\206\305\214\020J\004\030R*\302\344\217H\246E\360M0>\326AzL<\032\224\273]\360u&\016\007\007\266\212`\325ZOaae\321\236r\246\372\347p\202\\H\006-\334\315y\001\261\265Q?[!\026\370-\311MB\251\023f\364\323\325\022\037M7\031\357\223B\320\203@\262\255\006\204\263hV\036k\230)\223w\215\244s\245\036\025\310\235\000\343A\304\326\233\006\345\215lk\361\3577*\353t\232\001\203y\366\"\341\235\027Og\224\364i\r\033\274\333\333\316""\210!\301\213\004\334q|L\266\226\272\322\006\221#J\323\245s\257\253\313 \304\223k\001\313t\371})K\021\330\346\033\252\234T\322\212QH\"\224\251G0\251s\325f\316\362\225\025\260\3039\342:x\ns\330P\362\311d\203$d\031\031wg\347\264\344\341\274f\307\000\3456C\234rp9\354\300\317s\224\254\031\360)\202`\230\024\312d\246x\354\005\355\354u\336\030l\356\302^]G\303\301\277\022\315\002\261<c\233f\007\345\201't\367\3024\375fD5\327B\251\031\211e(\002\354\246Nl\005\273a\210\013\202\270aZ\331\312m\335\351\226\202\321i./\177zPJH\224\221\340\317\202\202\224J\001AAiA3(\022D\001T\231\240d53\314\353t\236\2425G\271n\353\336\366=P\355#$\364F;\245\001L\200\253\036Ub0Qd\213\332\251\321\214\036Z\277\360\234\321\257K\306\270UL\027\205\302C\322g\200\223\324>\003P1}\324\262\026\207ms\n\263-He\220\026C\206\341\332O=\017\363\323\225nA\220\354\244\246N\363\354z\033\347\314\214\226\313o\022\261\036\325\024\365<\350L\301\2714\323O\016T\360\206W\216\373\353\005\202Q*W\234y^\235\007z2SbB\337\2167\020\353%\240\276Zzi\220t\224P\005\262\325\203\340_\241\020)'\216\371\tUA\336\325[\323\370s\305\274\276|M\303\271\tF\233\202\342\303,\202\235\237\005\206\247~\223\301\272\302)C\365k\347g\001Y\343.bb\274@\022\314\306b\245\232\325L5\272\213G\307\375\022\037${\"v\365\360^\223\2772\251\013f\254\320\326\3654\014t\264\223Q\323;\213(b\300\305W\034\375]'`\013\207\313\251\332\360\372l0\356\\\326\354\334\303\354nf\177\031\254\310\304Gz\031\306\013\0076\334\014\246\265@g\005Ds\235\342\347~f\251IT\211\020\300 \n \230?\217\356z\232\035\035\224\252X\220A\234\354\211\316\313r\276D7\"v\n\006\001\0227wvb W\341\300\364\202 \215\330w\025\t\221\262\247\3618\202\233\214\240\200\276\317O\305\331\365x\372\306\031\014\217P\372\300\375EE\204S\010*,\266\020\371\177\002\233VE\036 \324_\256\231\241,\nZ\210\024X\234s\027\264!\244\007&\224h\211>\257\261\353\270\217^\240\005$ \276\331\0108\266XU\024\340%A\200O\377|\203_\022\0300\020,2\300\245sB\232\003\177\373`?b\351O\343\"f\203\343H:\246\010\371U\022@d\305\177\027\263\217\265\325\251\254>""\343=t\222\333\362\377~\2301\277\356\212\032%B\234B\314V\346\013\306\250\336O\301\031\301ntA:(\0011\241U-\005TC\277\347b\246\272\201v\206q\244\272\314%KA\312]\300-\210\224\323\366\321\365\207\334#\217\262'\331\220\004\373&\007\306c^\n\026=\252E\013\267\001\251n\224 `\201\277\351\371_\n\272!\034\032\311\226o\003\025n\300\220\t& \005\266b\351\031\204\035\333\257zC\032\321H\263\200u\004\303\014:hf\372\250\370\257g\306\276\255K\330\302uST\312i\232\231/\371\037\323\006f\272\025\033\224laZ\003\354\n\004\212T\353\177\356\3671e\2241\356w\366B&$\000y\370!\274\270dC\\U \276\301\265[\2725\206\217'\311:\301\3440\321(\374\016\203P\031\243\342>\346\002\027\272@\004\311\231\032}\253\231\204Glh'\275D\277\305\033\330aG\341\341\204f\253\360\003\312oE\014\003\212\210l\203\237\342\344\345\0049\273\275\316\337\213\\\362*\273\277\230\006>\2060\274]\027\010\n}\003sdY\227\262\002\240\004\026\016\312\2367\262\266\014A*\243\023|\303\t\214\2750\n\344\330\037\372\337 \271\025\303E\304\231H7\010\230\014\233@\"$%\000\306;\236ZQ\234\223\306p\016\327\374\2029\273\330\003\003\2407\035\336\220\r\303\007y\322:\257\200/0\312\"\261\037\336C\247\363E\030P\203S,\0045;t\3513\252\302\243U\225\342\372*PJ\207\370\350\372\027&\304(\322\201\030\213\020\034\222\227U.\230\310\227\016R\2701\242;\203\233\253\275\035#\255\304\327\314\201Dw\210\361u`-\010r\347-u\324\303U\004\200\361+\2312\020\032o\257\205\035j\311\017\376\003\301\2747\207v\203@\300\272\312\241\027t\340\233qIqB\024)\017\267\317\335\357\202\373\340\034\3537]Y!\220.\353\373*\253\017z)\343\241FP@\200f\233}\177\3248\361\025\305\250\003x\342\255\213\342\314d/\314+\213\213'\322P`\\TY]\033\377B\206\327\206\256\371\252%\262m\240\031\363=~?4\363<\272\320\224[\307|`\345\344y\037C\261}\3065uQe\001A\026wu\0270*\265\005\n}\3419\001\302\322\271\310f\016:\234J<`J\020t\n\2064dF\003\0160[c@q(\0043\022\007G%\365\316\303\372\372\374R\301\345\344\256D\250\230/S\003F\030\243\324i#\301]C\177^k\006V\226/p\033\346z2\022\022l)\016\350T\256\214\251[\353c1\307\311\330\343\353""\372\234\215N \345\326\200|\335d\317\255U|\262\315\372\376\354\030\274\267t\014EU}\272\355\025z\027\243\031uG\334\0300\256\244\214\335\206\026\006\254\301\273#\301\310\301\240U\262\265\3402\252\2155\303\274:\320\r2\024F\213\203\263\250y<m\314H_\223\333\0353\344u2\206\241R\204\020\312<\276Yh\334TN\357\245\3427\324j8\260\305Kh\373\357u\320\\\n\316\365\030$\215C6\r9\326\2502\352\244\013\2205Uv\355\346\351\334>\340d\334\001\336L\001\340\332\216i\265h\340\2523\ti\004\2603\264o\374\\\034^\366\032\227\351qX\271\261\3153\000\330\271\304)\203*\252\3736\202\235\033\3070\334\276\210`\345v\036\252\242\276\355\254\267\202\347~\374\332\217f\247\0018\276\227\310\315\363\306\265\255Y \201\363\234\324\225\001qFYx$RV5\322!u\232#\014!\266\220\007\277\273r\236\276\035\177V\026\024mI&\234|\316&D\226f\240v\217\232\315X4y\363al\363t\354\212\366\314H\265_\315f\030\016P\226\0045\035\354:\267\216\377\036\336\315\357\331\375\240m\033\356Y\0258\225\200\252\352\253\216\326\241FJ[6\355\265n\270\314\351\212R\331\313\001Qwq\346\303K\230,\200\347\370\337\\\225^#\316\351\3366\371\273;{r\202\243\207\027\257`\300\240\303\006L\255\200e\017\021\332\341\233\263\023\333Kf\240C\213\323EK\303h\371\322\325\306E\336\202\352\225\255!\201\350\035\277\325\336]\210\255\345\352\n\242w*\224\014\025O\np\002\021\3107\250%?\217\356\310\0348P\326\rO\003\036\006\021\236\014,\226]\002\304\256'\356u\365w<\254\273\374\203\252G\312\364\332-b*\356\246\255\326\352\363)}\2553`\027\216M\267\341XPT6\215<8\213\206\242\320\rG\000-\303\250\337\303o\220\354\331\003\210\033$\0227\374\000U\334O\025\336\374JV\006ojM\304\241\300\227\020\326\r\212(h\303UIR/u\335\376}H87V\307\340X\312lf\034\005\033\206\323@\004S\275*N\342\002\265\353\001\351Q\234\260gA\364\003^\"<}^M\253\344V#r\365\355\361U7W\257q{:\233\356cI\250\021\351cx\032\001m**Q\364\200\372h\037.\274\026\324\2660|[\367\365\004\034\017N\355\233\215\002\036\261\006\256\032>^\021\274\303o\034N~\260\024l\311\241Bn\315\256\252\000\3425\014\302\3268o\3306\362\354t\357\3654\302\266\323""\267j\336\364z(2\333\261V\t\302\334r\343H\256\232E\252.\026\264\316\213\376\200B\r@v\r\024\006\0304\026k\235z\305\207GRu\177\026\304\3531\325\303j\262\032Q\275\007Tqab\233w\251\"w\315\200\260\004=\2352\314@\354\342\034\341\245`f~N\217\307\327\327\331\267o\t\037v\316\n!\240S\332\251\005\3129\364\227\037uF\010g\001i\346\323+a\222'\n QQ\220\270k\340D{I\345\035\003\244t\355\342\300z.\240\355Q\273j\203\302\366\027\240\305\006'{\275\261\301\225\362\3328\270\001q\303\213\346E\000\205\004v\017gp]\214\0217&\340\002\250\330\205\034n\014\240\311\354\337,\036E\007\262U;8\206\220\267\n\202\252\222\312R\306\2738m`\007Q\341\327\275\272\306\342\360!\034\250q\273p\275X\r\376\323'\017\226\372\315\315\0318\200\303+\311\032\255JT\202\210\024\247\227\240q\374\317 \330\260G[\236m\256\211\035|[\211y\016\241wK\345\260\374r\204H\026\312\361\0060A0\010\366|\240yw2t}~\007\310\013l\352\337\302^*\215+\213Z\036Y\005\216\357\213\334\350\000\022<i\265\1777\255\3307\310\257\263\254\254<\332X\227)\345;\034X\006\371z\207O\306;zG\306vQ}n\225\352\351\023\201h\362%\202P\026u;\342\006{\375\357\353\376\020:\214\020{\302}\366\021\036\377X\311\360\354\316\344\217\323\346\356zc\235L\256\357J\201}7l(\350rGE\355w}\337\334\371\240t\016\331\350s\360\335\016\220\242\263\033\346\347j:\004\350\r\312\256\320\037\321\373+\334\346\201\356\325\037s\230yN;k\236\371\305.\345\361\221\203|\355\tM\307\241\334\366\274?g\313\373\020\024\021$v\327o\236@\314\367_\r1\034O\330\310\325\342\006\215\216\272\274\205lq\226\217\212\314X\314c\260Y\264\204pt\315*\255\275\177E|\302\030\300Y\252o\301\332\327\203\237\233~\r\356\021P0s\360n\374\036\330\356\216~\3277o\357.c\360\260g\303\323\301\223\323\255\354\017\024s\203\341\352\036\362|\310\375\363\320\372D\326\277\317\275\376[\337\177|2h\223\360x;\377\260\017\207\256;\307\254\021\327\364\243\357\353\336z e\350k\010N>\322G\222j\227s\316\003\244w{\375`.\367\206\374\350\032\"\250\344\243\036\337Wk\233\253\271\024\003$\313)y\374\341\300\\\317\007\013\025N\253\344\027kA\227Z2\313Yt\365,g\004""\332\345T\311\231\2343\330\256A\302\265.\355\271'I\252>+\003EY\202.\246s\022\242\030\305h\331I\211\275:*\346G\202\250<lU\205\t\342\221\262\331\251]\021\321\246\305?#\003\333a\317\035\255\251\302\n\202S\330\315\315\300\3541\336f\324?\223\222\"'?\352\353w\203\352\352\273\257\326>+\0368H\2736<\255k\256lvz\251\266V\010\027g\306\350^\217\027\246\337\237\304\335S\220w^\036\270v\016\323G\0131\025\236?\007\037\234\352\270\354\375/\353\272\030b\216\216\240\347\340\243\307\203\332\241\001\262\342\242Bb\226\334\327yXb\322\302\032\370\342\005f.\013\2433u\323R\364\355o\335)0\247%:\323\275\254S\nl2\320\227\267\035^\201\237|\027\372E\250z\346\336\214\033h\371\003k\231\251\032O\260\362\223\001\367\223\007\327\265\352{\347p\346\354v\327\271QF\277\333G\262t\016\342n|\235\217\0376\365\376\265\336a\2141\373XM\253A\341\324\2600\035#{\315\204\301t6ot7u\350\356\325\302|\234\025C\301l\202\272\216\247&X{\367\374\336\347\317\000\356p^\261n\343y\227}\265b\370\340\205\3560\036U;w\371\357/ic\302\335\366>\343\316\333\336\320\306f\016O\264;\314\334\217b\322\370Yz\254|H\354\014\272\203t\214\366Q\3672[\026\205\362\267\220\016\3607\353c\336\262.\330\217\275\036$}\302?a\312G\t\n\355r\022\270S@\362\2451RK\214\022\321\2624\356x\353\206N\350+\305\345\376\224x\177\277Q\365\1777\310\362\217\243\354Wg\352\316\212W_QP\254ld\321\010\027X\033!\221S\223\226\250\031\2474FT\306Z\225,\"\320W\024\302\265\210\222je\332\272\027\223F\330-e\343T\335\211s\222$]\202\210>\t\247z\257\261g\020\247\303ez\023R\350\356\317\366{\337\243\030D\357\330W\004\333V\236\2425\210qj\253;\r\"\317,mG\210\207\247\247G\217c\236\267\260\216{\205o\317\265\332\231\267\347Xw\013\320\225\247:\340\336cW Z\210\205\3153\354?\251\352\363@\240\240\022/\360\337Wt\322\225\321\353Z5\263\210\177u\r\274\324\330\227\210P\316\223e]p\353z\322\246=\267,\216\006\216\005\305P<n\344\0345e\315O&hj\354\352) g\315\325\304\302\315\334\224\201\255R\000\256\326\365\027\006\265\036\204g\031U\301\240sZ\212\022k\204\273\264\244\027(\212\245L\255\r\037\300\017\207\335/""\251\353\213\004\270\3173I\254\322\232Mr\371zuw\017\227p\254[y\233>\205n'K!-p5*\352\352\340\320\252-\313\325\033\241\231\210\"\354M\006?=K\024\2137+:\226\321\332X\352l9%\"\031</,G`nt!j\323wRxQ,P\224\221\236^n\364,&\232C\327\021K8\372\226\250\2543]\245\203T?>sZO\242\274\314q\"\2701\312\344\361y\347\227\312m\263\027\244\334Hn\215\r6\026\274\335H\023\255[\317\225\357\205\220!=\346\271y\214\306T\274FK)\022+Z91Yy\224N\243\362\037\231k{V\020\303\355\035\271\0078\212\022\3240x\275D\205\014\021h[\243s.\352R\274O&\211X\246\251e\200\232\233l\216N\031a\341KU_\353,\305\226\025\245\324\013\306l\"1QW,\366ej\370y*&9\361\177\203\021\360\177c{\261\032\315\305?g\341\236Jr\3535q\360\306\247\022\240\253Kbt\220\361@u\240p\032db\027zHU\246\312\275^\270f\252\010#V\021\331\231nK+\273$\373\346|\022;\276\371\257\212\361\302\374\324\347^Kj\252\367;\234\231\232\t\014h\357\3169y\257!M\024P\026Q2\356\324%\334D\254\326\375\313j\3074\330[UG\365\216O\360k\217w\203\301\\\027mI-\327\022\020\003\240\031M\357Gm\273\263\301D7\243\265\372\237\341\366<?f\265\234\027\3569\375\203\311A\212A\366)\307aM\322\267U\222+\324\275Y\247Y\365\264\366\257I}\2458%\023a\354\357J\205J\262\244T\263F\276v\232\325y\035\215^\357\325\231\336^\203\340\010\022\230\207C\352\304\376\226;\374\261\211U\\\033\032\037\327hp\271\222\276\276\237m\342.\323\340\2117\2526\024\2076\252\356\226\344/K\323\325j\365\232\231l\331\272\272e\251\336U\013\271\306&Z\313c-\310\2529j|m\005\1774\021\273{\322+\353\253\031/\310Z\235\256(~\320\200\030\365\306\2204W\333\314\244\244p{\252\316\\\361\212\225W\350\261;\325\356\262\355\2213G\353\267\261\214\023J\351M\035~J,[\362#\352\326\267\225\212E\220z\323\372\271\265$\005(X\370]^\347\342+\205\377\361w$S\205\t\n/\210V\260";
+    PyObject *data = __Pyx_DecompressString(cstring, 9748, 2);
     if (unlikely(!data)) __PYX_ERR(0, 1, __pyx_L1_error)
     const char* const bytes = __Pyx_PyBytes_AsString(data);
     #if !CYTHON_ASSUME_SAFE_MACROS
     if (likely(bytes)); else { Py_DECREF(data); __PYX_ERR(0, 1, __pyx_L1_error) }
     #endif
-    #elif (CYTHON_COMPRESS_STRINGS) != 0 /* compression: zlib (11223 bytes) */
-const char* const cstring = "x\332\275\\\311[\023\331\372\006\014\n\030\220@\2000\210\t\210\250\255\330\014\216mw\3370\251\335h\313\340\324\335\267s\213\244\200hH \003\203=.\263\3142\313Z\326\262\226\265\3142\313Zf\231?\301?\341\367\276\337\251@P\373\336\266\357}~\317#\251S\247NU\235\363\235ox\277\241\274\027\014'\022\301X|[Of\342\251d&\270\223\326\243z,\236\334<\356\014\216\305\202\333\271L6\270\256\007\343\311\230~\240\307\202Z2\026L\246\262\301L\"\216\341\263\271\215\r=\035\334\213\353\373\301XJ\317\310%\375`'\225\321\203\231l:\036\3233sZ2\230J&\016\203\321\264\256e\365\240\026\\W7e\267\264l0\236\tFS\311l|3\227\312e\360\222\340\266\276\235J\037N\340.>J\313d\342\233\311`6\025\304\315\261\353\362\0345\202\257t\007\271\017\336O\307\263\332zBw\007\250Im\244S\333\377\356^YVp?\236\335\nf\017w\364\340\270\333\237Mk\311\214,\343\370\0265\014w\304A\252l\035\355\346\353\t\026WDP\203\026\266w\262\207\301\314\226\206Ggs;\230\334F*\035\214\036f\267R\311\t-\235\326\016\037\311\004R\271l0\265\021\\O\345\222\261L\360\262v\200\247\214\305\256<\372\360]\212\370\271\235\235T:\253\307\036%\367\264D\034\273\224\212\351\327Hx\014\306&\215G\307\203x\3178^\306\205\214_\013n\342\256\332`5\035\320Z^s\377\261,\3609\027\210)<I\201\224\2625s2K\256'\246'\342\353z\032D\006\t\271\255x\211\354_2\370t\341\351\365\231;3\302\026i\3755^\237\301\354\326\243\t\354\034\330\201k\312\305\023Y\274\214\344\315L\004\037m\004\017S\271`R\3074\261\255;\030W\177CvKO\0063z\226\215\340\270\354\205\226\305\272#\270\035\2749\356\3225\276\247\363\356E-\221\321'\276;A<L\331e0-\032\32535j~\267\247\2477\022\251\375{\\P<\211\005\200\030k\251\331D*\372\346\261\266\003.L\363\301_\257f\365\235\340\266v(t\006\337\277\325\323\251\343\ry\226\024\016\303\253\301\265x\"\030(\253o\363<\265\316\305\267~=\361\325\370\025-\026\213$IGR%\010R~~\020M%\022\2347vpB[\217\336\257cz\016R\253\372\352\375\356\032\257}\025\213g\370b]^\277\021\317>\3262o\202\t=\271\t\206\334\216g\266\265ltk3\032\274\314m\336\024\356#\005(\314\372AVOfE\264\216\345:\236QO\212q\366\231\370[=""x\377\313\340\347\037\360f2\205\255\337\320r\211l0\022I\353\261\\T\217D\202\261\234\020 \231J^\007+\354\305\265\004\256F\343\311x6\022I\346\266w\016'\" \246>\261\215\373\342\362\234\340\206\026O\250\375\216o\223q\353\207\3450\371\255\017F\270\364\374*\223\216\336\000Q0_p\335\326\215\350q{b\347\360\340\276\3221\261\0234\374\260\217\262pD\312\023\327\217zsG\033\253%\300\022\242\250d\3521-\253M|\344\252\022\">\303\325s\023\341\360\352\334\243Gs\013\211D|'\023\317D\"O\017\017\3607\017i\211<\3016\254\350\033\253\372nNOFu\n\333\304\261\334\201!j\317\215(\336\345\351\376\274\276\221@\227\226\330\331\322\264\344\241\226\336\334\321\322\3318\231\010\355\014\250$S\3242\356\341\230y\334\016\212\234\2269LF\343\251\t\320\032J&\236\3243\353\332\366\"\210\275\256e\364u=&M\n\301\034\304'+\255\007i-v\362l)\265\271\212)\252\201K\302v\322\\\005\353\254\247R\331\331\332I4:\017\026\323\037$R\353Zb\026oH\340\215\321\205\307\341\350\323\360\363ptu1\272\2125d\364\307\332At\215*\026,\267\035]\327\242o\366\265t\354)t@\024s\"wGu\312\350\003=\365X\327\222Q\014;\032\260\251g\027\343\351Lvn\013\272}\005\252]z\322\332&\270;\253&\307\236%\355\275!<\272\227\267R0^Q^\254u\240\371\230B\204c*\223\332\306\305\\RV\004\326\246j\212Dj\r<\211R\303S\254-\022\207jJkQ\235k@\317\016\377V\267\261\177Qn\3501\r\022\260%\321m\254\345\271\226~\252a\376\321\224\276\261\021\217\306)\235\017\353\330\272\216\305\325\206FS;\207QnG4\265\247\245\347\370\216\235\\D\365\320\262\315j\333\253\272,>\232\206\226\201\320G\302+\223\221GxQ4\243m\303\350\250\355\201\"\315D3\334F6\3659>-\306\246\374\204\311e\307\255\245\324\376c\310\257t<\235S\303\\]\020I'7c\334e\356\314rN\303\034\023 S\214|\036q\025\325\222Z{\364\315f\232Z9FN\224\237\010\004C\211\266\256\245\023\207\013\007\240e|s1\221\202*\240\255\204t\300\224\351\311X$\"\014\300Cn[l\217\276\223\321\323i\214;\210&r1\375Q\354\200|\342\236\261\211\261\007TB53x\304\225\242\003c\263O\365C\254 !\363\332\320\261\331\033\361D\302U\246\217\222\220\265M\376e`%\264\354\364\224\034n\315l$r""\231-r\251\226u\255\351F.\221\210D6r\311h\004\314\000^\241Ad3\233!]#\221x\014\230\005\363\\[Zx\2023\321g\0212\212\200\215x\022\362}\222]\343I\021\364\3302\354\322\364\024~n\315\324,\024\247?\373\364C{U\353\311\240\261C\242\036\311\267R\351\256^\3071\235\301\242h\325\022\332\366zL\213,NO\325Z\267f\224\t\001wok\230\037~w\260O\374%\027\355\346\000\027\262\207Xy:~0\017=\250Z\213\352\360\030\004P\255\247\352\260\354\036\346\300\257\333\332\001\376\315\352\274\347\340\021x%\235\345Jx\222\345f\322\016\342\204,\206\003\356<\210o\347\266\267a\220\264\244\372\215`s0\024\350\213\320k;\236\024\215\204\343c5\273ewr\361\3442\376(\333\031\034\327\300D$\245\242+:\344\261\340(\254-\025\313%\344\230L-b\356Im\033g\356/L#\377\264M=\t\276\32434e\372>\177\016\300\357:v\214j\033;\013\253GD\200\375\213&w\300\231\263\320~\0311g\312\246\201?bP!\353\257S\033\033\2001\251\244\316\251=\325\323\263q\334\252gR;:X#\206Gd\260];;OR\260\305\213J\273\355\200/w4\034`\222b\013\311\330c\314\233'\231\025}sI\266l'\005\334\227\201\372\2032\313\304c \0011j\366\005Dh+\273\223Nmb\352\231Y-]k\222\330hS\334D\346\347s\304\004\213BY4\334K\340\252\324\001\332Y\264E+\200\374Q}jj\007\234\357N-\022\201\265\215D\267\364\350\233Ln[\235\271\334\316\246H\266\264r\311\235x\364\r\350\274\220\254\215\333\023TN\005J\206R\004\337u\325\006\314a\3720\242\2700M\332\255\002\027*\032\246\265==\221^O\037i\355c\010r\324R`\245\256C?\210\324m\027\204\276~\357\216\333\230:D\271v\232I\353\233\361\014H\222\246\220D\321)\306=\255gs\351\344\223\245%W\253\316\325L\002\354\227\036\203f]\204`-(\365\203\263\265-N5#\nV~\026\265h6\225\206\"\215\324\235>\203\200\245\321\021\3379\344S\"\0210\211\313\204h\3254,\333.y\353\332\265\325\312\3542[\361\215\254\273;\253TK\261\233\323\322\267\242\357q\206\307}\000\024\230\021\346\235\331\006\263n\211z\317\270Vx'\263C\353T\263Rs`\313\0144\342\024\265\304\237^\2725s\362\222\250\341\330\207\267\324\3721~\027\374J\313%\204\317\034\231\037w\376\307\035\217\200\"\217\317Ve\302\272\272^?\366h\030\250\013\321\022""\340\317\323\0237\010\251\217\257\301\034~\216M\336\341_8\366\032n-\025p&\233B\017\2245\366\371Qr\236X\016\347\351\\4\233uU\211\313\235\221HV\324BVm3n\243\016\310\211\306\346\357\035p>\3447\267\003\300\250\253\337\247\351\024\035\020\021\361c\271\312e0\375$N\251\0041)\234\257\212\225F\233\n\035\1779]~2{:Yf^\035^b[\327\001\"\366#\233\202\256\366#\0020\366E\366g\017\351\337$\264\235\0038\224TPO\001\360\023\331C6\311\230\231-\2662\1774V<\223V\2273\275PZ.E\313\275\345\264\263\274R\361\004\212M\305KF\243\341\253x\246\254\021k\321\016\331\323\366Fi\266\244U<\255y_\376F\261\253x\333\270bN\233\233\326\252\215g\234\315O\376\321\370\356jC\363Pq\262\342\351/\342F\177a\276\330X\3547B\357N74\237\256\264x\363\017\013\341\212\267\2730S\330+.W\274\347\362\331\302\315\342\251\342Lq\3278eL\033Z\245\323wt\271\250\035\017\230.j\305=c\305\330\225\001\354\235,\314\0252\305\220\234\367\02661<j\370\214\213\206\2061^\177\341Aq\2628\207\247z\214\260\261\\mi\315\367\346w+\236Q\343\256\031\256r\265\326-\333gO\224O\227\327\235\247\313\025\317\231?\262\371\311J\3139\016\232\261f\255-[\263\177)\337r\226W\235\3255E\200\207v\330\376\276\264W^)c\314%L\325s\321\010\363\221X\354\010V\350mh\356/\236\306\244\361\260\275\374\363\302Ta\271\322\322Yh,\014`*\341*\232g\213\223Uy\323\255BWaR]\014\024}\305P\335\305_\013\263\005\255\322\342+\370\n\343\274T\327\254\2429X\014\263\007\217\254\266\266UZ\316\346\277\304.\215\024\347\215&c\004\263\361\016\342]\017\215'\326\270\335W:U\232\254m\212\277\241\331\233\237r\332/\200\"\315\306ss\312\304\232[\362\236\374b!\204\231\340\275\351|\227\"\000\351\335X\365\234\313\247\013\275\205]\220\376\226\321\305%v\344\327\013\247\013\032h~\t/\013\361\366\346\3743\271]\026\322S\330(\316\026\327e\0337\361x\322\262\320\\x^\234*\256\0243\306\250\361\302\014\223\013:\235s\343\306\256y\332|M\236\351p:@Jc\317|eiULv\n\204\343\316\356\341\246\335\023\357\360\346\303h^,D\213\001\354\363(xa\337\324\314]Y\241\3230c\205\337u64\237\315_/\354\362--\177d\362\343\205nE\314\256\302\0252P\245""\275\243\342\365\025\372\300\221\276\023\r\016S\014\324e\3346C\346d\025\034\226)\214b\003;\273\013\323\205\365b\2331F\326;q\322\007\3524\203\211\377\274Q\355\014\200~S\354\351-\304\212!\260y\332\3506f\215\250\331\005\261Y\267<\326\234\225\006\037\206x\313\241q\332X7\033M\237yQ\026\366aW\025\023\270\211\375\276j<0'+\365'\2742#/])f\215)c\r\267\214\231i\313W\361\177f\336\264\232\254P\305\177\r\234\217\263I\266\026 \000\274\311\351\276l\2362g\314\2543\375\250\334]\016s\370\035K\206<\264\302UL!\213\371\257\031]\316\350mk\327\271\363\244\034u\2267\234\215Mgs\253\322y\331l\254t^1}\325\316K\316\245{\320\017\230\324\2703~\037\202\202%\237w\316OZ>\274\031\213\327I\205wm\r\276\200L\362\031\230u\016L\320X#\325\007\035\253\242x\334\223\027\224aa\250\217l\355\345\342(\010\254\2666P\354\223\373N6\273\301O\007\305}\260Y\026T\337\2626\355e[\373\204-\306\353\377c\263\3329\004\271\2333\322&f=P\274,\212(\0139[\005\361G\255\025\331\346\213v\264\324U\232,\341\306\301\342]\343\033p@#(t\305\236\"\275\006\213w\214{\346\212\271\213\316~{\304\016sS\357B\246^\233g-\331\356\243\223\332v\267\202ag\360N\277\271l\306\371\n\356\337]\250/\355\344v?\302\004v\377d\273'\325\320\243\255\3669#\267,\315\271\275T\236u\236D\235h\314\211\351\365[=\346\214\335U,\213M\377\302\236\264\303\365[=P\274\002\366[\256\272\224yi\274\302\"\317X\273\366\321\316~\264\013\272\301\\\376p\273\241\271f\032\232g\254)\347\346\203\322n\371\224\253\220\177t~\\w\326\243\025\317t\355\212\327Y\373\336\371\036\375\272\243\277q\336$h\275<\305E#d@\251\336\304\352\367\260\347\321Ro)]\206Uz\257\243*\032\177\003\\\273Z:]Z/C-\335\261\233\354K\245\306Rwi\261<\002:\341q\215\037\374\364\202\001=A\243\361]KCsk\036\035\247\377\320\376\310\345g\363\032\255\310GN`yZ8\256-?\302\013\325\226\366\274\2543\r\r\037\242\206\223\321\340\361V(\353\3742\024n\0238t\245\260[\005\027\203\225;q\036\202]Y)\244a\017F\212aH\273R(\232\310\216\014\030\241``@\027L\004,)G\363\221\355\335re\3355\027\315\306\252\331\004U7E\206\253t\366P\016\374\270\036\345}`3\r\017""\366A\313K'o\n\301\246c\177\344\271X\360\321\343<\356\340.\250\375u2\311\007\217Z\247\271 S\340:^Y\377\310)\321\362G\217\305\302\317\346CX\372J>\007\230\320\322\366\247' \234\242z\023H\031>\266\023\\m\226h\242\332B[\262Zh\254\202(\215\\\277\357\210x\031\222\216\344^\200\321\322\344t\266\030\303b\201#\264BN\026\264\253\266c\035\017pM\250\267a`\2602v\251\202_\374\363\367T\372\007\370o\370Be\350|\245/\200\337*\231\241\342\241\250x\256b\241\340\263eB\007\264\240\034+\036\210U\305\0232\002f/e\234\360\341\241\271h\205\254IZ.\301L\302VC\202[N\013\220\361\014P\273\0257\214\360\273aj\276\337\n/8\365Ag\360\2332\360\300 (\370\034\244\215X\363\366i{\275\204\311\236q\316\014\024\307\241\370Z\202N\360\2732\010\021\004\375/\201\3627\354n{^1\270\014\013\024\317p\231\303\316\360\3432\020\32206\212\326\346\234\365\253b\372\252\232\316yhW\317 \301\311\271\374[l\023u\304\260\271o\351\366\214\363\365\212\263\362\312y\365\223\363\023\3441\343d\336:o\177\256x\272\n\327\212\233\3063\330\254mj6>\247\305\tN[\223\242\230>\341\014\254TH\212\271\354q&\276\002\"\373\r\340+\343\254\254\376\333K\003`\254\257\304\300F\255\036\347\326\267\345\311\362\023\321\r\021'\242\324\306\377\307\010\212z\007\354\336$\367k\010\242\372\223\030\203\016\0330\244\247\360\022\233\2320'\240eh\023\002\316#h\257\037\234\037\342N\034\332+\351$S4t\255NK\177\261\007\314\370\033\2044k\315X\242\032z\013/\235\363`*\353\353\322h\t\352\243\347\223\316\371\204>\247w\034F#\340L\206K\276\322\204\363t\315Y{\356<\207M\307\373w\33754\244\033g\233p\230m\232\343a\256i\231\207\345\246\225\246JK\357\177qo\1771\340\2048\223\257h\005?\365\2343\3679\235!\250\245\317\314\025\347\306?\240\236\301\345\235\177\257\213O\363\023\351:\375\237ac\236Y!\272?+%\010D\367\177\337]m\361\027\036b\317\27772\346eJ8\221\372]\300\020\270&\260q\325\026\305\001\032wg\271\020\247\256}\257\351^\356*\\-\206\235\3637\000\345\006\304\324\376\255\236*HI44h\316\302W[\206h}zG\265\245\257p\340\\\370\034\340d\330N\3030\316\227\233\3120Z\037\357\005\002rF\024\323]\204K9""\354\274x\351\274\004\222\000t\314:\331\234\223\333\373kc\340D\026o\230=f\n\000\351\344\t\010\354\014\325\230c\032\367\373\3051\373\237\365\023\215M\032\337YS\326K\302\305\277\325\321[x\003\353\374\204l1\017\2779\351\254=s\236=\377\324~\232\262\373\260\220\203\274Ri\357\207\016\276+\315O\354\247\212\327\212\277S_Y)j\206O8\345\034&+^\032\204\316\200\023\270L\237DZ\327\201<\341\264_\240\031\257\375P\266\206\350\207:\027\005)VaJ\237\024\307`\324\000Q.\024\017\214\003\330?\257s\177\251<W>p^l9[\320\035\007\316\301a\305\013\003j\\\200\222L\225\345\225w \\\035\260Im\200\320\253v\263\375Sy\252\274\\\361\016\021\331U\274!\243\227\276\376\205\342\236Q\233 \203\0160\370m0\351O\314QSP\365m\205\002\317\374\201]\r\210\203\336r\036Vs\222\033v\313\360\271W\316\273\n\272I\010\350\234=O\027\204\322\272O4P\365x\035/,%,:\240\300@\203B\000\035\347\216\001\001\240@\240\277r~\230\215n\277\002\004l\364\364\022\"\240\177`\260\252P\30114\370(\026\36064\017\024\317\323\205&,\350\247\t\036$6\250a\213\252\207\274\261Q\016\227\227\313o\234W07\300\274\342\217\311\205X9T\236.o\210V\306\265\1779\377\2025z\355\274V\250x\002\233\345\201\264V\377\004eTi\327*\036\356$\255\377\273@C\363 ;$\2303\314\330\206\314\005x\377s@\370\234=\357\374\243\036\002\354:\273\334\307w\035\r\315A\360\201\227\220\345\000nV\210\302\333Ej\0337\254^qT\240\244\300\030\375N\377C\302\021\236\250}\030p\006\036\001\243\267\\p.<)k5\250\303\275\302\206\221\0064\246\356X \034@\227JK\310\250\273A\215q\206`\221\271\253\313\304-\007\000\205\367$z\364\277\002'\264\317\336\374$ \242^\370B\241e\211D|Z\007@B\315\306\303(\324l\253u\001\026\312_Zq\036@!\002\030(\302\246\235t\246\362\227\306(/*b\206\353\232\242\276\001$\226\351sV\376\332I\265f6\257\233igr\266\024\242Q\376\233]\325\217\030\312\325r\213\363\364\205\250}\302\237\312\377\327\020PZ<\244\236b\212q\252\277t\"\367T\352~\250\n\225\316\301\251\253}(;J\005\325~\376\203\352\253ER\274\243\306\035\306]\254\245\022\306\2117\335\315x##\235\277\003\227C\353\222\307\361\202\213r\346e\234\022""\252mZ<\025\357`\361\013\001\356t\251\345Db\240\"\244M\326gb\213\030\030\254\252\333\272\013_K\254\320\317.\376Pi\347\350DV:\207\213:\374\270\244\025\206z\222\223)g\354&ToGI\003\330q/\247\254e\347\326\203R\246<\341\274\204\350\177O\332\304\240A^\032?\211pD%<\340Z!\237\"K\035_yD\232@@/\336\371\306\352\262\276\000|\337\345\370\257\350\005R\275\207\205\240UL\232\021\263\200\300l\315\374\325\236\345J\\z\337\207LOr]\323\305-\231\361\212\225\205D\377X\356*\3133\276\205K\334\316\270G\305Kd\2250F\215\037\335\227\375V^u\2362\260\353\254)\025I\345\350$\266+\362\302\214q\r\263l\267W\354]R\354\000\"\004\372C/\021\345\300\352\215\301\223MX7\000+;G`Z\356\233\277\333\232\002\346?\2018[\320\260\000\025a\256\347^a\215\353\207\020:\201+\346\005\033\316h][\314\317\2409g\036X\262\372/\340\0247r\262?:\241/\031\020\362\311?\334\361\301O]\267\212\026\334\026\327v\025N\365\rs\320z\000\3207k\353\245\257\351\017\265c2\256\323\373\235y\367\3445\274\365\357\335\311\267\366\313\006j\256\222q\316O\230[\204\n\260@\243\345\227\3163\025:\002\207\303\270\323\376\374\365q\235\005/}p6:\212Q\220\210\261!\234x\n\363\305\026\243\003\234\220\206x\220E\321y\252p\007~\230\317\034\001!w\251\263\376\216\236\033\020\021m\306\306&\2559\230\265Y;\0013:Y\221\013i\243\007\002\365+\2706\005M\322\014x\370\213\363\003\034\275\177\322(\335\004`\341\345\337\300i\031;d\337\204Z>\317\234\002\014\242\346hX\026\340\215\013g\311\265_\203\230\337:\343w \251\355CXe\\\265\377\306\225\277\247\305\216a\234\342\256\217\002\267\260;N\271\2557\255s\366.\365\322{\247T\360\023P0c\326o\330M\206\315\376~\027\354t1\tWC\267n\203\210\014\207\376\335.%\2629\300\277\021\363\033\250\242n{\2414\2542Z\235\202\024+\235\027\215E\206\241\202D?\177\0057\0360\333D\216a\312\252E\201O\205$]\0342$o\013\177\0247\266\347_\026^\201\213\003f\riv\026Z\250\002\372\201\310=\336\374C\307\017\205\"\361\245\211\033\225k\327+w\356Vfn\276\233`.\3433\350-\215\220e\304\3613Kr`\356\211B\3630\032\210\237.Z:\270ig\315[\214\347W\216\2226g\334\\\331Q\322f\037\340\216""\262\352\351.\334/\376L\000\n5C@\302|\317ta\253(\257Aw'\003^m\371\253\360U\177U\322M\265\354+^\225h\3659;[\022\376i\203\005\241\243\203\035h\247\305\275-\361A\350\275oh\237\270\320L>\224\377\262x\252(\331\241\323\264\230\347\362{\005a\307u\222\016j\366\222\204\003[\030\016\334\000k\255\252d\007\007\276-\366\003;\200z\\\343\035p\344c\340df3\260\240\250\344m\206\000\341\306\255\200\335co\272<\344a\240\377\033<\370-\\D\262\303\245\322\231\322.\334\321qg\031X\370\005\203\260[y-\377K\361>\274\362\213\004\302\265\216Iz\313\327\3155K\020\332\035f\356\252\212\306 \207\373\003\323)0\025\364\373\305\374\302zS\032(\177)\356\352\236\263\267\317\030\341=ls\334\330u\032\300\336\357.74\017\027\377i\206\2406\027\355\313\245\020\243A-\320U\267@\312qc\310|nM[1e$oB\257-JD\322\253($\351\317]\225E\\\256%\360\200\250\273\n\276\302\225\342]\347\342M\347\346bIs\032\340\\\021\206\002\240s\313F\340\240\324\221\025/<\225\277%\201e\311\356u\347\303*\324\\\227\324\343>\275U\251HZ,\334\322V\030q\323\252\014G\270h\237\273\032U\314\262[h\344#\013\223b\031h\030=\340y\362f\316|\350Z\010M\345\033[\363MN\033U\306\263\343\03152\013Kj\326\345\033\231$\\\246$\314\3467\360\324U0\007!\316\277\315\005\266\347\227\001\242oI4r\3258\305\244]-AxI\002\334s\240\303\270)\344iw\274\027\215\260\261j\236\221d\241sv\024N\372\234\261\007m\210G6\345/aI\335\356\016\324\277\203)\3561\221\016]R\311i\303\017\373\240\271\033R\355&\252\201\227\327\027\250zfK#\316<y\314y\001\235\257ba\257\351/\264\322C5\033O4\341\202U=_\333\351Ro]FcMR\310U\017\243G{p\354\242\3162\036Fp\365\236\317\007\340\202\027\001\310\276\252x\306\215\335wm\324\023!r\346u\360%\263[Q\t\3636\225d\337\177QYh\"\326\326\036\356\230\264%u\\\013\177+|$\000\221*\260\271\360L\305\372\031\301Z\202\237\337\r\305\326\251\362\010\007\330\006\377\260\344\331C\025?\263\337n\304<\\|\001\222\03687\3020~\230\273\004@\353\337@\021\252\1778Y<'\0012\322\304\017\317\312\360\302\314\257\3022\373U6\340\016\034\364\000\023\305\315\354\205\275\237\265^K,/@\237\316KN\356\006\317v""\006\225\001\256\322~I\360\240\321\362\003\2606\331\243\204P\375\305\013X\202\300\307\332\320(\300B\250*j\315/\371\023\237K\200\272\351\211?\354\014c\253\314\2145b\311:\243\"\272\335\360\323\303uc\253\362Tl\255\244\t\300\201T\345\247\033\006F\350\334\021\342\316\233\247U\232\372\203\032\nH+=d\214\344\241\033\\wK\360\257H\356\315Bk\261We!\226\224\247\301l\206\207\305\023\265,3p\365u\270\202*\200\000\202\374,,\334)\361\3723\177\374\014I\016\273R\\\223\255\0371Q&(=\314;Q\266\213\363\314\221\252LJ]\242\375[\221\354Z\006\205\ni\262\260\300p\240h\373>\247O\200\311\200\322\022\021ZSsR!\330h\321\367\376p\005lO3\272\000\343\353\255i\373\037]\215.\264\227\002\202\013\222\257\225f\257L\2009\335\272M!\212\327%\304\266\300-\254\264t\3447\321E\333\005\246N\030\242Mg\300\027\001NB\342\005'\\\020\211\204\271^\032L\326\027b\251\370\216>\261\230\277`\r'\031\341\036\301\002s\271c\302\245\256\256z\t^\237%\314\257\252\312\203\200\023xXn|7\324\320\334)\265\023,\232irF\230R|S\362\225B\340\207'\215\037S\207\260\315\216x\020_\230\033*\300\340e*K\354\016\365\020\225_\370CUY\021\245\255\2648\213\032@\206\327,d\370\2106k\305\2154\001\243R\205\261|\3341\"\351\271^\025\223\370h\347\007\332\267\326\301\324\335QM\310G;\377t\032\377\305[\335\216\252\"\221\260\357\361\217\024\355\034\377\2747\244f\302\305\026\210\211\010\311\030\325\250)\374i\225\221\254\225\262\250\315\310\257\200\233\336?\251~\342\315\325\023\311\311\335\243A\222\3419\226:\226\243\264\201\031\356P\224:\000Kr\205\007\330\264\037\300+n\006A\031\275\333\240\351\202(\340\367\237\253n\372V\034f\237\371\037\257\213\021\200'P\014\340<`\365\331g\354\375\322Vy\313y\016\033\266^\313z\236n\030\277\\9\017\204Z\351\246D\371\301\301\264z\335\3202d\371ar\325\360\021\020&\357\252\300^\255\245\n6\262\316\331\021\343\242\261\tU\356\261\346\355\026\226&qL@U8y\363\217\245\226lT@+\223\326N\217\252\021\322\314\254u\313\356\262\357\226\036\226g\313Z\365\337\\\243\026\353q\374\227\341\364\277\264EJ~\223Dy7\023p\304\367\307\001\006\211\nv\026\316\210n""\020q\242)9\232\263\213\206h\2430\200+h\313\237\247s\316\255l\307C\367\245RH6\315]\301\237O\313\r\006\260\360mQ\201dbZ\342\300QI\335\272\326\271\245\206;\275A\343\2143\376\005Ki|\014\270h\022e\250t\212\317\006\365\304Tv\010\212K\\w\252x\357\005\361c_\333\315\364\207\202\274$\325o\324\315\222,\226tp\365=e\352\253\364\\(f\234\021\2063\027\355\253\260H\361\362\036\223\020=A\251\356\352\342\254;i\"\026\214~\350\367i\3455\023\274\237\221h\326\221n\365u\021+,\250 f\305\257*\314~pM\266vT\265\323\001?H\274\031Xn\307G\014F\2631#\036\315a\251E\322FJV\211\224O\013l\200\000\257\020\022\037+\0107N|\300\222\t\372]\017\235\213\264E\2603*\370Fzy9u\026L\320\235=\257\202\305\373\314\344\323_g\250\340\252\265`\373\33482\234\261\242\370\0164\032\236^Z\223\367\321Q{\3057X\234v\206o\300\320\236\006\010i*]!j[\251\370\206$L\321!\340FY\345W@\302\031\372\202Dd#R\204\030>\306a\357\355\201\242\356\240\340\236&z\203bO\256;\327\277d\\\372\246\265\342\334~T\366\225G\313\317\235UI\020y\002Gv\364\303\242\026\211\331\313\317\300Q\304\276G^\305\342\3123\312\3603P7\"\221\377\026\263\311\271\372\005<\3465\311{\301\203\202\000\265\235=\261\362\232_\347\225\220*\340\322rq\023@\272YjF\\3O\014\225\223D\274O=O\260\374\303B\330i\240\216\01064\217RWI\275\344\371\223.\321]H\311-\230\310\033u`Wjj\224D>TA\240\2634\023ne\346\221\023\245\034\247\016\230\360V\323\357\\'\234\366\271h\343\310\237\252\272{\262F\204GT$E4-.>\022\337J\351\210]\367\351\364\341V\304o\377\231[(>\371\245\ts\231\336\334\231?6]M\315\332 \347\336\022\260\370K\347\331\017\316\017\377t\376\371\223*\000\005\227O\273 \357v\351\0229ZA\300G,\266\014\202\342\215<\264\301\367d\320\211\245\217G\"\030\256\250\323_\315\260s\375\037\245F\345\312+\2130c\244\235+\367\355\005l\364~Yc(\003\360_\275\365\364\037:@\3477\205x\361\320\364\000\227z\2308\346zU\351\206\360@[~\024R$\216[\315\231\037\205\323\324d\334\000P^\256\225?\246\224\352m')\366e\367aoVY2Se\225\225\365\302~\300\270~kE\325,\221\345Y\221Si\2455\203\007YU;LC\241\230\220\326*Q\274f\274\261\372Y\373""\"\254\r\317\270z~X\362d\034\330\325]\351\037x7\322\320<n$\310\376\2623\375\002{=\222\232\243Jg\315\313*\321\250\254\350\314\037\207`\000\005\206\244\210\245_\351w\232\245\326A\205\207D\256\337\363\207\257Xw$^\004\320\245)\265\222\003\036~\306\260_\245\346\3513H\341\251)\347\253\302\322n\320A\006\320}bQ\362k\350x\352B\0056z\013\333P\342\240\035w\377\\>)<\253\214\2417?/\321\311I\025\246\234,\314\023$\260\324\267Q\331\024_\236<\323v\266J\243C\t;!|\275n\025\327MpLH\312L\002\366\000\213\007\345\236\272\241\264\010L\023\212Y\3632\367\2179\260Bp\222\216U\207$\003\\\247\n.\025)\325?(p\220\355\252_\014\213['V9>#\315y\306\032\326VU\n&O\2441\362\323\312t\366J\301\257\246\234\271\014V\346\277d\274\206\336\357\261\326\3556\346|0\261\036\2265\371\307\215\267\226\317\372\314^\261\337B\237]vV\326\234\265\237\234\237\030{\307\030\037A\004\2256\366\343\006\334\315\207V\230\033\337\005\225\314\314u\230\031\210e\227\246\330>\347\034s~.<\351j\010\215Tz\373\030\036\351\245\265\253\347\tN\276% \"4\251D\275\306GU\361\217\210\333\244F\2159\303\263\346\2449'\316\336\267\366\256\202'\254\354\303>\371\240\260I\032Og}cY\242\002\3141\234\022\333x\326\236\264\347$:\346a\026\237\005\312\253\n\346\023g\354J \314sT\246NC6.\202H{\336\354\247\236\255p\352}bR\305\265j\025wE\031\360\220\252\r\337\243 \023@\364\270^\367s\327\031\272\004\373q\315^/\265\225\005M=\020\304\234v\035\326Es\314\334\2674+\303\232R\373Ei\256\344*\3579U\203\377\037\232U/\263>\223\2542\006\205 \017\326e[,\355G:\007\234\201\253P\235\0138\037\263v\355s\245\264\252l\252=.W\014\377\347&\340\013\220R\265\225\365\271\023\254\337\377\263\025\337\200\345\272\307\374om\305\314T<0\246\215\r\314\240\317n\264\273\261%\351R_\371Ty\362SVL\201\272P\267\274\214*\376?\271\346\243\316\377\311\232\001\013\316AU\215\301J\367\230\2723=\007\223\374\332y\272\3024L\247D\234\211\016\356\026\302\022[\2738V\031\275H\030\256J\017\202!\226\030\\\010\252BD\206\204\006\212\375\200\333\353f\253%A\347\337\205\317\247\001\035\346\240\013Z\244\002\251\257\360\233|""\007\020\261g\201!\272K\020\235Z\321\3530\221 \323\245\242\317\325G\ts\256\225\254\276o\304\007\217\276\365\030`\0342h\264\023\035P \245\242\261\217\313\253\203l\n\3009g\006\245\3663k|%01f_\301\202\241\273\273\235\3561\211\262\365\366\301LT=\315.fj\021\367\322g\\3\343\226\344\275\3362\032W+\201\247\326\230w>\017K\331\230\277\247\332\0312z\260z\017SB$\337#\326\303\253\332\344\031C\252\350\277\022\374\356\357\223jO~\2630\311\327\271\347\032-\024t_\263\373\341\302\032\315\257\022n^`\351\366<\243V\254\370^\300\253\037\210\001\3673?@\273:\352~_\301\261| \320V%\300\257D\002!c\200W\252\001&s\321u[\262\006\376>\247\357\232HQ\2673\243\312\262\003\244\352\020\013I\207`V\253G-j\324\000v\"pQ\025\217W\003c\306K\320[\202T\234\376!\301{U\335\016w\24424f|O\361\254\326\032\354\336\027\373\325?\001\223\322eM\263vq\032~J\355\246\267\222J\030R\017\336\255~\330S[\213\217\204\274-y\337UpZ7i\320S+S\327\304\023\250\310\010\006\001\3744N\312\202\220~\014\240D\371u\002\235\2275<\377.\010\354\232\251n\206\035+\001\032\357_\315\357l1#\303\305\237\244\256=ngJ!>,\002\252OI\234Oq\216\237\t\027\306\215\205\266\037=k3G\315\027x\306\272}\n\370l\244\024v\267|\227\206pQ\202<-\326\031)N\301\242\017@\324+\366\264\244\246\261\364WB\263\241\013\305}\311Q\004Y\n?\364\231y\037\276K\023\313 \227+CW\314\001\3536t\354RY6\353\215\242\032\223\376\204\336A\225\300\371\335\336*\255;\017\201\340`\375\304\321\376\360\345\214\t\3356o\330\304?\255^\302_\3275\240\331\005WA\314!\365@O\020\222\236^\326\026\201\356\322\246\354\367\211\371\t\275\373\312E\336,2\362\021\200\307\031\205ta\350e\252\006\016\361C\005}K\020$U(\222kb\022E\371,\323tL\261gn\361\206*b\344g\027R\304x\034d\244J\0305_YQ\333O\370\337\306\217p$\340}\300W6S\352\371\241\205:\250\272.F\325\247%\222|E\202\263^\262M\230\205\221\022f\006\254W\330\013:'G\345\203\307u\313W/-\374,\355:\310\345\265\302\3263~sb\213\255o\227\372\362\026\340\017\267\010\222A\005\t/\002\026\024%\252wVT \275'\225\335\243\337\372\250\270\342\\\270\201\275\016\271\314;\243PP\253\024\264""\303\251\251\004.\301\2360\004\316\217'h\321\375c\374\\\301\375\300\242\247\312\244_P4\210Z\203\324\2552\220I\3501\341\326\223\325\2256|\264\320aT\331\025\026\253\267\363s!\274\354\222\274\235\223R\225\230\0207?\266\212x\226\305w\324\032W%UI.&_j\356\274\235\321ik\032\\\356\261\037\225VJ\031\370\217\3208\375\340\245\236~\367\203\221\014VQ\323d\244\351\261\336\273\312`S%\3002\261\376a%AW\001\236\251\337\330Y\365\236s\316\215H\365\210\350`\037\301\301\226!\037\323\374\216\335\0346\263n\331\261\\\276 n\255;\222\214\2442\204Q\236\3252\223?\013>\277J\257\251\362\361N\262$C'w%\213C\360\335F3\365\247\027\252*\206#?\265z\235\352\007\354@R\r\300\222\207%\035\316\005\260\270\375\036\036\304bCV_\260\3577\365\201\202\202\202\355Cr]\202\355\277\212Z\227\314\2717 \337zyk\016\302\233\343\310\366\211\216\352_cA\242\237q\326=\313,\024\024\367P\203\022\006\322)jkh\357\003\364\376F\370C\262\335\304\214\235\022\377\240\245l\022\377\256Q\342\013\025\370\003\227\212g$B\264e\351\366\335\322B\231q\221\366\036\274V}9@\010\003\025\375\030\240\212\201F~\026\311\017\271\274\342\201\261\3142P<\013\356\224\220\267\371\253=_b\240\240\335\217y=\027\004\274\247\242\001\357\247\217\250O\342\352\213\256A\t\355\275\224\354\016\372\373\025\377\234\260\023\320\350?@x\233TYM\275\321\250\370\225\316=\013\017n\232u\241\307\321\246\267\"\006,\003\222|_H\034\232\34236.\nJ\013\253\217\274B\256\271\307s\357Hu\203d\372CUU\017\340\\\272me\234{4\202Q7\027\207\201_J\024\314OS\327I\3656\242\262`\2224\250\370\305\252\214\032_\210Q\300\024T\252\\\204\314'U\345E\251\320\311\t\253uv\177\320C\301\257\223\346\2005l\357V>\"\304\n\211\004\241\r\373\370\242aPt\337\024c\367\026+\372\322:\345\272\265T\001C\340\210\365\032,\341t@\275W\252\247O\"\226\334\367\376\213\202\237\007`\231h\306U\023\263\376h\177\265s\330\031\376\334\352\260\327\235\177,;\313\265X\207T\201M\036\035XQ\300\330\034y\227ud\341\223\344\303\303a\232\024\305\370\305\311!m;\255#?\027\013\250h\341r\365?^\027N\220\237\243A#\314\360R\223\271\215*\350\263)a\214Z""\243z<X=\350E-\326\366AG\225>\255\313\213\330\000't\333\372\035\260\"\300^PD\276\313#\177=\340\007\304\004\004\265;\307!/#R\230\026\030t3 \307\300M8N\001\335{*\271\311'L*\032\301\272b\033\273Y\211\327\243\252\270\304\322\253\322\211{Gq)\025IT_\023(Y\223\220\016\277\016\243c\331\216\205\376\246\252B\370e\361\024\2433\035y\035\272\266\265]\271\213\352\354\310}hi\300N\361c%\226O\357\261|\233\250!X\224\257\243'\337]b\250VE]\267\215[f\227)\236\347Q\036Y/\326\237w0\255\350\316\262\017Z\233\202\355\351)\374S5T\245\307\272\321\00119%1q\334\333\232We\260\037$k\3348q\253\323\"\372T}\034\361\275\2125K\270\211\214&g\224\247\026\225,<+5&\367\005aA\005\335\207\302i\003\026~LO@\212k\325\263\022\252<\247\267\360\032\267\235\227\351LY\337K\031S-\340\277D\216U9\031\365\331N\255\244G\300\212*\240\0040=g\355\262,\361\256\261$l\344\245\324I\265\345\240\024\030\377\214\227/1\371N\035\331\247>{e(G}\377*zW\2055\275\214\324\321\266xi\335O\031\367\315]\353\034\300\355\265\262V\316\271\337\003\270\227\276\264\032\371\265Mwi\t0SB\245\222\376w-\326\244h\223\223g|Q\237|K\260(\256\032K\332\302\366\253R\264<\204\347:\317\177p\353\327\30484I\254K;zB\265S\275\366\236\372Z\311\336e\004H\014\344\236\360$\317\360\202\256\2002;\014\030I\320i^\352\347\000\225\314\037\000\260\247\355\365Rsi\271\344~\302On\351\354\225\244\027\\\353\270\361\213\252\035\022\232:\227\357\340\006`6^\244\347zM\\\033P\210uS}\222\000\223\034<#\223,\221\354\224j\255\243\204\267\232\256\350b\316\335W\225\307>\201f\360\251\364\277\257v\3539e\217(\372\035T\243\324tK\356\367\271\373\230\360\271\362.H\\\255\325bV\275\352\277/\030\300\260\307\360o\276\301\220\263\352\013\004\302\010\226\204\020A|\013\257\237\361\256/\245\246\024*\022\310\376\265\363:\341$\016\235\303\267\357\032\032~n\\\340GP\013M\017xx\320\264\302\303J\323\032\017kM\317\232\270\321\203\362\3550\224\256\304\237\332\312#\345o%$\256\312\010\3378o\266\235\355\003\347@=\316}\316#\036\0365-\361\260\324\364\230\207\307M/xx\321\364\212\207WM1\036bM\033<l4m6\221\027\267\004v""\217\251Rd\251\350\274\203E\375\340\226Oc.\\\357\267RcY\253\271\000B\270\n\324\362\003hu\335N\227\006\312\223\356\364j\237\036\300!\370E\222Y\270}\010r\360+x\356g\372XL\231\235s\315^\013k\316\272\300\352\002\354\217\210\314\340\347\327\306\r\313WW.\320\250J\362$g\371;+\027\335t\273\304\344\317u\322\377\201\027\244\334\036\374\262\010\347\n\275\034\371\266BZ\362\023\220J8\251\3329j\312W\232U\026\317\270\341j\374\274\353mh~\334X\236-\353R\024\374/\347_\252p3^\361\374\003\322|\251\334H\3119\n\366\327\252t\022\316\367\352\373\n\371\024y\262\242\036z\215\201\370\333p\345z\261\223\336\362\242\204;\237U\216\322\035\327\334\2573^\270\377\201\204\362\353\233{\013\222\254\366J\321\r\001c\027K\032\345K\307\023uITU^U\022\313\204\005c\232\357U\211\237W\370\326-\321\220\370\017)*IP7\032\344\223\263\252g\2564Uz^\236t\226\324'\325\362\255\267\207\256\375\2073\241\225\010\300\355{/;\306\004\307\222\024F\213\002a\344\225\336\313E\350\024F`X\202\331e\317\330o\245,\333\017@!\037\212[\367\354e;\346\314\2022TFU\025V\3467\333O\3141\363\027\005j\230Q\360\327\030K\316\372\307\304\276\253+\374\010\351<\277tW\221\202\307p\235;\005\257\271\032p\350=D\312\317\263nK(]\253\310\327\372\017U\305\021Kx\030\033xi\375\210\335\341\247h\001\251\026e\224H\225\373\370/\312\001\312\305\257\374\201K\002\206\263\342\027\361+\250\317\304\221\300\035\267@\200\207\264\350Cr\350dFg\326\024\265\327)\324\341\207\306W\331E\374\264el\003\344m\331\232K2F\347\370\035\3210\014\026Kj\210\351\235\301\033\014b\221S:U\261\353w0\243t:\207$t\3451\276\2218\316\214\365V\302_\336^\247\367\n\341\220y\317Z\266b\314T= \246\365\272\376\201\247\360\004\262\257\364\257\244\227\261m\277\250\377\243\202g\276\363j\205r%(\326R\225\334\003\343>V\321\304\237\245f#V\274FpY=QcSm\357\250\326\223\034\333=%\305\013\235\324\244\035\206n\336W\377K\301\210\312'\270\310\221g=!\025\222\373\360J\247B\365\243\020^V\3350\213W\270!\261@n\301]X\266\237\240\217\346\235\247\264i\325\372\322\254\036JGqXi}b\302\345O\235\010+\007\237\231!\371\374+\304T\255""\004a\230\020\034\002\330\3307\023\366\250\275\006\005\351\241\r~?4\372~\311\347\035\310\301\356{%\237\362\377\202\324\327z~\367\177\014\217\300\377";
-    PyObject *data = __Pyx_DecompressString(cstring, 11223, 1);
+    #elif (CYTHON_COMPRESS_STRINGS) != 0 /* compression: zlib (11236 bytes) */
+const char* const cstring = "x\332\275\\\311[\023\331\372\006\014\n\030\220@\2000\210\t\210\250\255\330\014\216mw\3370\251\335h\313\340\324\335\267s\213\244\200hH \003\203=\271\3142\313Z\326\262\226\265\3142\313,k\231e\376\004\377\204\337\373~\247\002A\355{\273\373\336\347\367<\222\252:u\252\352\234\357|\303\373\r\307{\301p\"\021\214\305\267\365d&\236Jf\202;i=\252\307\342\311\315\343\306\340X,\270\235\313d\203\353z0\236\214\351\007z,\250%c\301d*\033\314$\342\350>\233\333\330\320\323\301\275\270\276\037\214\245\364\214\334\322\017vR\031=\230\311\246\3431=3\247%\203\251d\3420\030M\353ZV\017j\301u\365PvK\313\006\343\231`4\225\314\3067s\251\\\006\037\tn\353\333\251\364\341\004\236\342\253\264L&\276\231\014fSA<\034\273.\357Q=\370I\267\223\373\342\375t<\253\255't\267\203\032\324F:\265\375\357\236\225i\005\367\343\331\255`\366pG\017\216\273\355\331\264\226\314\3104\216\037Q\335\360D\034\244\312\326\321n\276\236`qE\004\325ia{'{\030\314lixu6\267\203\301m\244\322\301\350av+\225\234\320\322i\355\360\221\014 \225\313\006S\033\301\365T.\031\313\004/k\007x\313X\354\312\243\217\277\245\210\237\333\331I\245\263z\354QrOK\304\261J\251\230~\215\204Gg,\322xt<\210\357\214\343c\234\310\370\265\340&\236\252uV\303\001\255\3453\367\037\313\004\237s\202\030\302\223\024H)K3'\243\344|bz\"\276\256\247Ad\220\220\313\212\217\310\372%\203O\027\236^\237\2713#l\221\326_\343\363\031\214n=\232\300\312\201\0358\247\\<\221\305\307H\336\314D\360\321F\3600\225\013&u\014\023\313\272\203~\365\017d\267\364d0\243gy\022\034\227\265\320\262\230w\004\217\2037\307]\272\306\367t>\275\250%2\372\304w'\210\207!\273\014\246E\243z\246F\315\357\366\364\364F\"\265\177\217\023\212'1\001\020c-5\233HE\337<\326v\300\205i\276\370\353\325\254\276\023\334\326\016\205\316\340\373\267z:u\274 \317\222\302a\3704\270\026o\004\003e\365m^\247\3269\371\326\257'\276\032\277\242\305b\221$\351H\252\004A\312\317\017\242\251D\202\343\306\nNh\353\321\373uL\317NjV_}\330\\\343\265\257b\361\014?\254\313\3477\342\331\307Z\346M0\241'7\301\220\333\361\314\266\226\215nmF\203""\227\271\314\233\302}\244\000\205Y?\310\352\311\254\210\326\261\\\3073\352M1\216>\023\177\253\007\357\177\031\374\374#\336L\246\260\364\033Z.\221\rF\"i=\226\213\352\221H0\226\023\002$S\311\353`\205\275\270\226\300\335h<\031\317F\"\311\334\366\316\341D\004\304\324'\266\361\\\\\336\023\334\320\342\t\265\336\361m2n}\267\034\006\277\365Q\017\227\236_e\322\321\033 \n\306\013\256\333\272\021=>\237\3309<\270\257tL\354\004\r?n\243,\034\221\362\304\375\243\326\334\321\302j\t\260\204(*\031zL\313j\023\237\270\253\204\210\357p\365\334D8\274:\367\350\321\334B\"\021\337\311\3043\221\310\323\303\003\374\315CZ\"O\260\014+\372\306\252\276\233\323\223Q\235\3026q,w`\210\332{#\212wy\271?\257o$\320\244%v\2664-y\250\2457w\264t6N&\302y\006T\222!j\031\367p\314<n\003EN\313\034&\243\361\324\004h\r%\023O\352\231um{\021\304^\3272\372\272\036\223S\n\301\034\304'+g\017\322Z\354\344\325Rjs\025CT\035\227\204\355\344t\025\254\263\236Jegk\027\321\350<XL\177\220H\255k\211Y|!\201/F\027\036\207\243O\303\317\303\321\325\305\350*\346\220\321\037k\007\3215\252X\260\334vt]\213\276\331\327\322\261\247\320\001Q\214\211\334\035\325)\243\017\364\324c]KF\321\355\250\303\246\236]\214\2473\331\271-\350\366\025\250viIk\233\340\356\254\032\034[\226\264\017\272\360\350\336\336J\301xEy\263\326\200\323\307\024\"\034S\231\3246n\346\2222#\2606US$R;\301\233(5\274\304\334\"q\250\246\264\026\3259\007\264\354\360ou\033\353\027\345\202\036\323 \001[\022\335\306\\\236k\351\247\032\306\037M\351\033\033\361h\234\322\371\260\216\255\353X\\-h4\265s\030\345rDS{Zz\216\337\330\311ET\013-\333\254\266\275\252\313\344\243ih\031\010}$\2742\031y\204\017E3\3326\214\216Z\036(\322L4\303e\344\251>\307\267\305x*?ar\331\361\331Rj\3771\344W\032\236\316\251n\256.\210\244\223\2331\2562Wf9\247a\214\t\220)F>\217\270\212jI\315=\372f3M\255\034#'\312O\004\202\241D[\327\322\211\303\205\003\3202\276\271\230HA\025\320VB:`\312\364d,\022\021\006\340!\267-\266G\337\311\350\3514\372\035D\023\271\230\376(v@>q\257x\212\276\007TB53x\304\225\242\003c\263O\365C""\314 !\343\332\320\261\330\033\361D\302U\246\217\222\220\265M\376e`%\264\354\364\224\034n\315l$r\231-r\251\226u\255\351F.\221\210D6r\311h\004\314\000^\241A\344i6C\272F\"\361\0300\013\306\271\266\264\360\004W\242\317\"d\024\001\033\361$\344\373$\273\306\223\"\350\261e\330\245\351)\374\334\232\251Y(\016\177\366\351\307\366\252\326\222\301\311\016\211z$\337J\245\273z\035\307t\006\223\242UKh\333\3531-\2628=U;\2735\243L\010\270{[\303\370\360\273\203u\342/\271h7\007\270\220=\304\314\323\361\203y\350Au\266\250\016\217A\000u\366T\035\226\335\303\034\370u[;\300\277Y\235\317\034<\002\257\244\263\234\t/\262\\L\332A\\\220\305p\300\223\007\361\355\334\3666\014\222\226T\277\021,\016\272\002}\021zm\307\223\242\221p|\254F\267\354\016.\236\\\306\037e;\203\343\032\230\210\244TtE\203\274\026\034\205\271\245b\271\204\034\223\251E\214=\251m\343\312\375\205i\344\237\266\251'\301\227z\206\246L\337\347\317\001\370]\307\212Qmcea\365\210\010\260~\321\344\0168s\026\332/#\346L\3314\360G\014*d\375ujc\0030&\225\3249\264\247zz6\216G\365LjG\007k\304\360\212\014\226kg\347I\n\266xQi\267\035\360\345\216\206\003LRl!\031{\214q\363\"\263\242o.\311\222\355\244\200\3732P\177Pf\231x\014$ F\315\276\200\010mew\322\251M\014=3\253\245k\247$6\316)n\"\363\3639b\202E\241,N\334[\340\252\324\001\316\2638\027\255\000\362G\365\251\251\035p\276;\264H\004\3266\022\335\322\243o2\271mu\345r;OE\262\345,\227\334\211G\337\200\316\013\311Z\277=A\345T\240d(E\360]Wm\300\034\246\017#\212\013\323\244\335*p\241\242aZ\333\323\023\351\365\364\221\326>\206 Gg\n\254\3245\350\007\221\272\345\202\320\327\257\335\3619\206\016Q\256]f\322\372f<\003\222\244)$Q4\212qO\353\331\\:\371di\311\325\252s5\223\000\373\245\307\240Y\027!X\013J\375\340jm\213C\315\210\202\225\237E-\232M\245\241H#u\227\317 `i4\304w\016\371\226H\004L\3422!\316j\032\226\347.y\353\316k\263\225\321e\266\342\033YwuV\251\226b7\247\245mE\337\343\010\217\333\000(0\"\214;\263\rf\335\022\365\236q\255\360Nf\207\326\251f\245\346\300\226\031h\304)j\211?\274uk\346\344-Q\303\261\217""\037\251\265\243\377.\370\225\226K\010\23792?\356\370\217\033\036\001E\036_\255\312\200uu\277\276\357Q7P\027\242%\300\237\227'\036\020R\037\337\2039\374\034\213\274\303\277p\3545\334Z*\340L6\205\026(k\254\363\243\344<\261\034\256\323\271h6\353\252\022\227;#\221\254\250\205\254Zf<F\035\220\023\215\315\337;\340|\310on\007\200QW\277O\323): \"\342\307r\225\313`\370I\\R\tbP\270^\025+\215s*t\374\345t\371\311\354\351d\231yux\211e]\007\210\330\217l\n\272\332\217\010\300\330\027\331\237=\244\177\223\320v\016\340PRA=\005\300Od\017yJ\306\314l\361,\363\256\261\342\231\264\273\234\351\205\322r)Z\356-\247\235\345\225\212'`4\031\227\314F\323W\361L\331#\366b1T\234.n\224fKZ\305\323\232\367\345o\030]\306m\363\2125mm\332\253E\274\343l~\362]\343\373\253\r\315C\306d\305\323o\340A\177a\336h4\372\315\320\373\323\r\315\247+-\336\374\303B\270\342\355.\314\024\366\214\345\212\367\\>[\270i\2342f\214]\363\2249mj\225N\337\321mC;\3560mh\306\236\271b\356J\007\266N\026\346\n\031#$\327\275\205Mt\217\232>\363\242\251\241\217\327_x`L\032sx\253\307\014\233\313\325\226\326|o~\267\342\0315\357Z\341*gk\337*\372\212\023\345\323\345u\347\351r\305s\346]6?Yi9\307N3\366\254\275U\324\212\277\224o9\313\253\316\352\232\"\300\303b\270\370}i\257\274RF\237K\030\252\347\242\031\346+1\331\021\314\320\333\320\334o\234\306\240\361\262\275\374\363\302Ta\271\322\322Yh,\014`(\341*N\317\032\223U\371\322\255BWaR\335\014\030>#Tw\363\327\302lA\253\264\370\n\276\3028o\325\235Vq:h\204\331\202WV[\333*-g\363_b\225F\214y\263\311\034\301h\274\203\370\326C\363\211=^\354+\235*M\326\026\305\337\320\354\315O9\355\027@\221f\363\2715ea\316-yO~\261\020\302H\360\335t\276K\021\200\364n\254z\316\345\323\205\336\302.H\177\313\354\342\024;\362\353\205\323\005\r4\277\204\217\205\370xs\376\231<.\023\351)l\030\263\306\272,\343&^OZ\026\232\013\317\215)c\305\310\230\243\346\013+L.\350t\316\215\233\273\326i\3535y\246\303\351\000)\315=\353\225\255U1\330)\020\216+\273\207\207vO|\303\233\017\343\364b!j\004\260\316\243\340\205}K\263ve\206N\303\214\035~""\337\331\320|6\177\275\260\313\257\264\274\313\344\307\013\335\212\230]\205+d\240J{G\305\353+\364\201#}'N\330M1P\227y\333\nY\223UpX\2460\212\005\354\354.L\027\326\2156s\214\254w\342\242\017\324i\006\023\377\361I\2653\000\372M\261\245\267\0203B`\363\264\331m\316\232Q\253\013b\263n{\3549;\r>\014\361\221C\363\264\271n5Z>\353\242L\354\343\246*\006p\023\353}\325|`MV\352/xgF>\272bd\315)s\r\217\214Yi\333W\361\177f\335\264\233\354P\305\177\r\234\217\253I\236-@\000\370\220\323}\331:e\315XYg\372Q\271\273\034f\367;\266tyh\207\253\030B\026\343_3\273\234\321\333\366\256s\347I9\352,o8\033\233\316\346V\245\363\262\325X\351\274b\371\252\235\227\234K\367\240\0370\250qg\374>\004\005S>\357\234\237\264}\3702&\257\223\n\357\333\032|\001\031\34430\353\034\230\240\261F\252\217\032VE\361\270\027/(\303\302P\237X\332\313\306(\010\254\2266`\364\311s'O\273\301O\007\306>\330,\013\252o\331\233\305\345\242\366\027\226\030\237\377\217\247\325\316!\310\335\234\231\2660\352\001\343\262(\242,\344l\025\304\037\265Wd\231/\026\243\245\256\322d\t\017\016\032w\315o\300\001\215\240\320\225\342\024\3515h\3341\357Y+\326.\032\373\213#\3050\027\365.d\352\265u\326\226\345>\272\250-w+\030v\006\337\364[\313V\234\237\340\372\335\205\372\322N.\367#\014`\367\017\226{Ru=Zj\2373r\313\326\234\333K\345Y\347I\324\211\306\234\230^\277\324c\316\330]\305\262X\364/\212\223\305p\375R\017\030W\300~\313U\2272/\315W\230\344\031{\267x\264\262\237l\202n\260\226?^nh\256\231\206\346\031{\312\271\371\240\264[>\345*\344\037\235\037\327\235\365h\3053]\273\343u\326\276w\276G\273\356\350o\2347\tZ/\217\261h\206L(\325\233\230\375\036\326<Z\352-\245\313\260J\0374TE\343o\200kWK\247K\353e\250\245;\305\246\342\245Rc\251\273\264X\036\001\235\360\272\306\217~z\301\200\236\240\331\370\276\245\241\2715\217\206\323\357\264w\271\374l^\243\025\371\304\005,O\013\373\265\345Gx\243\332\322\236\227y\246\241\341C\324p\322\033<\336\ne\235_\206\302m\002\207\256\024v\253\340b\260r'\256C\260++\2054\354\301\210\021\206\264+\205\242\211\354H\207\021\n\006:t""\301D\300\222\2627_\331\336-w\326]s\321l\256ZMPuSd\270Jg\017\345\300\217\373Q>\0076\323\360b\037\264\2744\362\241\020l:\326G\336\213\t\037\275\316\343v\356\202\332_'\223|\364\252u\232\0132\005\356\343\223\365\257\234\022-\177\364ZL\374l>\204\251\257\344s\200\t-m\177x\001\302)\2527\201\224\341c;\301\331f\211&\252-\264%\253\205\306*\210\322\310\371\373\216\210\227!\351H\356\005\030-M.g\215\030&\013\034\241\025r2\241]\265\034\353x\201kB\275\r\003\203\225\261K\025\374\342\237\277\247\322?\300\177\303\027*C\347+}\001\374V\311\014\025\017E\305s\025\023\005\237-\023:\340\014\312\261\342\201XU<!3`\365R\306\t\037\036Z\213v\310\236\244\345\022\314$l5$\270\345\264\000\031\317\000\265\233\261a\206\337\017S\363\375Vx\301\241\017:\203\337\224\201\007\006A\301\347 m\304\236/\236.\256\2270\3303\316\231\001c\034\212\257%\350\004\277+\203\020A\320\377\022(\177\243\330]\234W\014.\335\002\306\031Ns\330\031~\\\006B\032\306B\321\332\234\263\177UL_U\3039\017\355\352\031$89\227\177\213e\242\216\030\266\366m\2758\343|\275\342\254\274r^\375\344\374\004y\3148\231\267\316\333\237+\236\256\3025c\323|\006\233\265M\315\306\367\2648\301i{R\024\323_\270\002+\025\222b.{\234\211\257\200\310~\003\370\3128+\253\377\366\326\000\030\353+1\260Q\273\307\271\365my\262\374DtC\304\211(\265\361\377\321\203\242\336\001\2737\311\365\032\202\250\376$\306\240\243\010\030\322Sx\211EMX\023\3202\264\t\001\347\021\264\327\017\316\017q'\016\355\225t\222)\032\272V\247\245\337\350\0013\376\006!\315\3323\266\250\206\336\302K\347<\230\312\376\2724Z\202\372\350\371K\327|C\237\323;\016\243\021p&\303%_i\302y\272\346\254=w\236\303\246\343\373\273\357\033\032\322\215\263M8\3146\315\3610\327\264\314\303r\323JS\245\245\367\277x\266\337\0108!\216\344+Z\301\277z\315\221\373\234\316\020\324\322g\326\212s\343\037P\317\340\362\316\277\327\304\267\371\211t\235\376\317\2600\317\354\020\335\237\225\022\004\242\373\277o\256\266\370\013\017\261\346\337\233\031\3532%\234H\375.`\010\\\023\330\270j\213\342\000\215\253\263\\\210S\327~p\352""\336\356*\\5\302\316\371\033\200r\003bj\377VK\025\244$\032\032\264f\341\253-C\264\376zC\265\245\257p\340\\\370\034\340d\270\230\206a\234/7\225a\264>\335\n\004\344\214(\246\273\010\227r\330y\361\322y\t$\001\350\230u\2629'\267\367\347\372\300\2114nX=V\n\000\351\344\005\010\354\014\325\230c\032\317\373\3051\373\237\265\023\215M\232\337\331S\366K\302\305\277\325\320[x\003\353\374\204l1\017\2779\351\254=s\236=\377\253\3554e\367a!\007y\247\322\336\017\035|WN\377b;U\274f\374N}e\247\250\031\376\302%\3070Y\361\322 t\006\234\300e\372$rv\035\310\023N\373\005\232\361\332\017ek\210~\250sQ\220b\025\246\364\2111\006\243\006\210r\30180\017`\377\274\316\375\245\362\\\371\300y\261\345lAw\0348\007\207\025/\014\250y\001J2U\226O\336\201pu\300&\265\001B\257\026\233\213?\225\247\312\313\025\357\020\221]\305\0332{\351\353_0\366\314\332\000\031t\200\301o\203I\177b\215Z\202\252o+\024x\346\035V5 \016z\313yX\315I.\330-\323\347\3369\357*\350&!\240s\366<]\020J\353>\321@\325\343u\274\260\224\260\350\200\002\003\r\n\001t\234;\006\004\200\002\201\376\312\371a\236t\373\025 \340IO/!\002\332\007\006\253\n\025\034C\203Ob\001oC\363\200q\236.4aA?M\360 \261A\r[T=\344\215\215r\270\274\\~\343\274\202\271\001\346\025\177Ln\304\312\241\362tyC\2642\356\375\313\371\027\254\321k\347\265B\305\023X,\017\244\265\372\007(\243J\273V\361p%i\375\337\007\032\232\007\331 \301\234a\3066d,\300\373\237\003\302\347\212\363\316?\352!\300\256\263\313u|\337\321\320\034\004\037x\tY\016\340f\205(\274]\244\266y\303\356\025G\005J\n\214\321\357\364?$\034\341\205Z\207\001g\340\0210z\313\005\347\302\223\262V\203:\\+,\030i@c\352\366\005\302\001t\251\264\204\314\272\007T\037g\010\026\231\253\272L\334r\000PxO\242G\377+pB\373\354\315O\002\"\352\205/\024Z\226H\304_k\000H\250\331x\030\205\232m\265/\300B\371K+\316\003(D\000\003E\330\264\223\316T\376T\037\345EE\254p\335\251\250o\000\211e\372\234\225?wQ\255\231\315\353V\332\231\234-\205h\224\377fS\365\023\206r\265\334\342<}!j\237\360\247\362\377\325\005\224\026\017\251\307H1N\365\247.\344\231J""\335\017U\241\3229\270t\265\017eG\251\240\332\317\177P}\265H\212w\324\274\303\270\213\275TB?\361\246\273\031od\244\363w\340rh]\3628>pQ\256\274\214SB\265M\213\247\342\0354\276\020\340N\227Z.$\006*B\332d\177&\266\210\201\301\252z\254\273\360\265\304\n\375l\342\017\225v\216Nd\245s\330\320\341\307%\3550\324\223\\L9c7\241z;J\032\300\216{;e/;\267\036\2242\345\t\347%D\377{\322&\006\r\362\322\374I\204#*\341\001\327\n\371\024Y\352\370\312#\322\004\002z\361\3157v\227\375\005\340\373.\373\177E/\220\352=,\004\255b\320\214\230\005\004fk\326\257\305Y\316\304\245\367}\310\364$\3475ml\311\210W\354,$\372\307rWY\336\361-\\\342v\306=*^\"\253\2049j\376\350~\354\267\362\252\363\224\201]gM\251H*G'\261]\221\017f\314k\030e{q\245\270K\212\035@\204@\177\350%\242\034X\2751x\262\t\373\006`e\347\010L\313}\353\367\242\246\200\371O \316\0264,@E\230\363\271WX\343\374!\204N\340\212u\241\010g\264\356\\\314\317\2405g\035\3302\373/\340\0247r\260?:\241/\031\020\362\311?<\361\321O]\263\212\026\334\026\327v\025N\365\rk\320~\000\3207[\324K_\323\037j\307`\\\247\367;\353\356\311{\370\352\337{\222_\355\227\005\324\\%\343\234\237\260\266\010\025`\201F\313/\235g*t\004\016\207q\247\375\371\363\375:\013^\372\340<\3510\242 \021cC\270\360\024\346\215\026\263\003\234\220\206x\220E\321x\252p\007~\230\317\032\001!w\251\263\376\216\236\033\020\021m\306\302&\3559\230\265\331b\002ft\262\"7\322f\017\004\352Wpm\n\232\244\031\360\360\027\347\0078z\377\244Q\272\t\300\302\333\277\201\3232\305P\361&\324\362y\346\024`\0205G\303\264\000o\\8K\256\375\032\304\374\326\031\277\003Im\037\302,\343\352\374o\334\371{Z\354\030\306)\356\372$p\013\273\375\224\333z\323>W\334\245^\372\340\222\n~\002\nf\314\376\r\253\311\260\331\337o\202\2356\222p5t\3736\210\310p\350\337mR\"\233\003\374\033\261\276\201*\352..\224\206UF\253S\220b\245\363\242\271\3100T\220\350\347\317\340\306\003f\233\3101LY\265(\360\251\220\244\213C\206\344k\341O\342\306\366\374\313\302+pq\300\252!\315\316B\013U@?\020\271\307\233\177\350\370\241P$\2764q\243r\355z\345\316\335""\312\314\315\367\023\314e|\006\275\245\021\262\2148~fI\016\254=Qh\036F\003\361\323EK\0077\355\254u\213\361\374\312Q\322\346\214\233+;J\332\354\003\334QV=\335\205\373\306\317\004\240P3\004$\314\367L\027\266\014\371\014\232;\031\360j\313_\205\257\372\253\222n\252e\237qU\242\325\347\212\331\222\360O\033,\010\035\035\254@;-\356m\211\017B\357}C\373\304\211f\362\241\374\227\306)C\262C\247i1\317\345\367\n\302\216\353$\035\324\354%\t\007\2660\034\270\001\326ZU\311\016v|k\364\003;\200z\234\343\035p\344c\340df30\241\250\344m\206\000\341\306\355@\261\247\270\351\362\220\207\201\376o\360\342\267p\021\311\016\227JgJ\273pG\307\235e`\341\027\014\302n\345\265\374/\306}x\345\027\t\204k\r\223\364\226\257[k\266 \264;\314\334U\025\215A\016\367\007\246S`*\350\367\213\365\205\375\2464P\376R\334\325=go\2371\302{X\346\270\271\3534\200\275\337_nh\0366\376i\205\2406\027\213\227K!F\203Z\240\253n\201\224\343\346\220\365\334\236\266c\312H\336\204^[\224\210\244WQH\322\237\273*\213\270\\K\340\001Qw\025|\205+\306]\347\342M\347\346bIs\032\340\\\021\206\002\240s\311F\340\240\324\221\025\037<\225\277%\201e\311\356u\347\303*\324\\\227\324\343:\275U\251HZ,<\322V\030q\323\252\014G\270h\237\253\0325]\342\2437\254\002\370\222f\221^\001x\236\274\231\263\036\272\026BS\371\306\326|\223\323F\225\361\354xD\215\314\302\222\232u\371F&\t\227)\t\263\371\r\274y\025\314A\210\363os\201\355\371e\200\350[\022\215\\5O1iWK\020^\222\000\367\034\3500n\ty\332\035\357E3l\256Zg$Y\350\234\035\205\223>g\356A\033\342\225M\371K\205F0\216Z\201\372o0\305=&\322\241K*9m\372a\0374wA\252\335D5\360\362\372\002U\317li\304\231'\2179/\240\363U,\3545\375\205Vz\250V\343\211S\270`U\317\327\305t\251\267.\243\261&)\344\252\207\321\243=8vQg\031/#\270\372\300\347\003p\301\207\000d_U<\343\346\356\3736\352\211\0209\363:\370\222\331\255\250\204y\233J\262\356\277\250,4\021kk\0173\001r.\251\343Z\370[\341#\001\210T\201\315\205g*\326\317\010\326\022\374\374n(\266N\225G8\3002\370\207%\317\036\252\370\231\375v#\346a\343\005Hz\340\334\010\303\370a\354\022""\000\255\377\002E\250\376\345d\361\234\004\310H\023?<+\323\0133\277\n\313\354W\331\200;p\320\003L\0247\263\025\366~\326~-\261\274\000}:/9\271\033<\333\031T\006\270J\373%\301\203F\333\017\300\332T\034%\204\3527.`\n\002\037k]\243\000\013\241\252\2505\277\344O|.\001\352\206'\376\2603\214\245\2622\366\210-\363\214\212\350v\303O\017\327\365\255\312[\261\264\222&\000\007R\225\237n\030\030\241sG\210;o\235Vi\352\217j( \255\364\220\321\223\207np\335-\301\277\"\2717\013\255F\257\312B,)O\203\331\014\017\213'jYf\340\352\353p\005U\000\001\004\371YX\270S\342\365g\336\375\014I\016\273R\\\223\255\0371P&(=\314;Q\266\215y\346HU&\245.\321\376\255@\336Z\006\205\ni\262\260\300p\240h\373>\247O\200\311\200\322\022\021ZSkR!\330\250\341\373\260\273\002\266\247\031]\200\361\365\326\264\375\217\256F\027\332K\001\301\005\311\327\312i\257\014\2009\335\272E!\212\327%\304\266\300%\254\264t\3447\321D\333\005\246N\230\242Mg\300\027\001\016B\342\005'\\\020\211\204\271^\032L\326\027b\251\370\215>\261\230\277`\016'\031\341\036\301\002s\271c\302\245\256\256z\t^\237%\314\257\252\312\203\200\023xXn|?\324\320\334)\265\023,\232irF\230R|S\362\225B\340\207'\215\237R\207\260\315\216x\020_X\033*\300\340e*K\354\016\365\020\225_\370cUY\021\245\255\2648\213\032@\206\327\324\304\237\320f\255x\220&`T\2520\226\217\033F$=\327\253b\022\237l\374H\373\326\032\230\272;\252\t\371d\343\037\016\343\277\370\252\333PU$\022\366=\376\221\242\235\343\237\017\272\324L\270\330\0021\021!\351\243Nj\n\177Ze$k\245,j1\362+\340\246\017/\252\177\361\341\352\211\344\344\356Q'\311\360\034K\035\313Q\332\300\014w(J\035\200%\271\302\003,\332\017\340\0257\203\240\214\336m\320tA\024\360\207\357U\017}+\016\263\317\372\217\367\305\010\300\0230\002\270\016\330}\3053\305\375\322Vy\313y\016\033\266^\313z\236n\030\277\\9\017\204Z\351\246D\371\301\301\264z\335\3202d\371ar\325\360\021\020&\357\252\300^\355L\025ld\235\263#\346Es\023\252\334c\317\027[X\232\304>\001U\341\344\315?\226Z\262Q\001\255LZ;=\252FH\263\262\366\255bW\361n\351ay\266\254U\377\315=j""\261\036\307\177\031N\377\313\242H\311o\222(\357f\002\216\370\3768\300 Q\301\316\302\031\321\r\"N4%Gcv\321\020m\024:p\006m\371\363t\316\271\224\355x\351\276T\n\311\242\2713\370\343a\271\301\000\026\276-*\220LLK\0348*\251[\327:\267\324p\2477h\236q\306\277`)\215\217\001\027M\242\014\225N\361\331\240\236\230\312\016Aq\211\353N\025\357\275 ~\354\353b3\375\241 oI\365\033u\263$\213%\035\\\375@\231\372*=\027\214\2143\302p\346b\361*,R\274\274\307$DOP\252\273\2728\352N\232\210\005\263\037\372}Zy\315\004\357g$\232u\244[}]\304\n\013*\210Y\361\253\n\263\037\\\223\255\035U\355t\300\017\022o\006\226\333\361\021\203\321l\314\210GsXj\221\264\221\222U\"\345\323\002\033 \300+\204\304\307\n\302\215\023\037\260d\202~\327C\347\"m\021\354\214\n\276\221^^\016\235\005\023tg\317\253`\361>3\371\364\327\031*\270j/\024}n\034\031\316\230!\276\003\215\206\247\227\326\344Ct\324^\361\r\032\323\316\360\r\030\332\323\000!M\245+Dm+\025\337\220\204):\004\334(\253\374\nH8C_\220\210lD\212\020\303\3078\354\2035P\324\035\024\334\323DoP\354\t%+\330\320<J\t\227*\303\363'\035\211\273\340\255[0,7\352 \242T\242(>~\250B'g\251\\\335z\306#\327C\271\033\0350|\255\226\337\271N\020\352sm\364\221\027Rug\262F\\D,!\245'-.\252\020\217DI\326\256\373vz>+\342\355\376\314\211\213'{i\302Z\246\017t\346\335\246\253\337XQ\343\334[\002\202}\351<\373\301\371\341\237\316?\177Re\223\340\215i\027\032\335.]\"\037(\340\364\210%\212A\263\205\2309h\266\301cc\250\206\005\203G\214\033\256\250\313_\255\260s\375\037\245F\345\000+=:c\246\235+\367\341\374\367\226\366\313\032\003\000\000\315\352\253\247\337\351\200j\337\024\342\306\241\345\001\232\3630\335\312\371\252\202\007\311u\264\345G\301{\360U\n\276\232\013<\nW\243\311\274\001x\271\\+\032L)\205\325NR\354\013\267@K\257\262\320\244\312\332$\373E\361\001\243\341\255\025U\351CFa\035K\245\2256\000\236TU\2550\325\253\312\271P\307'\214k\346\033\273\237\025#\302\020\360'\253\347\207%\273\304\216]\335\225\376\201\367#\r\315\343f\202L#+\323/`\321#\t-*BV\212\254\022\303\311\214\316\274;\004\003(""\010!\245\037\375J+R\231\267\016*\024!\322\360\201\027y\305\276#Q\026@\025M\tc\016(\362\031\203e\225\232\177L\327\336SSiW\245\"\303u\325\245\003\235\016\226\362\276\206f\244\006Q&\272\267\260\r\325\007\332q\365\317\345\223\302\263\312\204x\363\363\022\323\233T\301\275\311\302<M+\013d\033\225&\366\345\3113mg\253T\325\014\200\234\020\326^\267\366\351&8&$\305\031\201\342\000K\356\344\231\272\256\324\243L\256\2111\3602c\2161\260\256n\222\356H\207\204\320]W\004\216\010)\325?( \212\347U\277\250c\267\272\252r|E\232\363\212\225\237\255\252\200J\336H\025\356\247n\356\354\2252YM\271@p\264\253\376K\346kh\313\036{\275\330\306L\t\006\326\303b \377\270\371\326\366\331\237\025W\212o\313\276\362ege\315Y\373\311\371\211\021k\364\361\321\364R\325a=n\300I{h\207\271\360]Pd\314\367\206\031\267_vi\212\345s\3161S\346\032\365\256\206\320H\245\267\217A\205^\332\210z\236\340\340[\002\"B\223J\324k|T\025\257\202hG*\273\230i;kMZs\342\"}[\334UF\235\365pX'\037\324\034I\343\351\254?Y\026_\232\221\371SbQ\316\026'\213s\022S\3620\367\315\262\336U\005\216i\235w%|\3449*\356\246\372\037\027A\244\025l\3663\352T\341\320\373\304\020\211C\322* _\231\275\220\252\250\336\243 \323\354\366\270\276\352s\327\205\270\004\255{\255\270^j+\013\006y 83\355\272y\213\326\230\265okv\206\225\230\305\027\245\271\322\256\362l\346T\345\372\1778\255z\231+\231dm.(\004y\260/\027\305>}\242q\300\031\270\n\325\271\200\3531{\267x\256\224V\365@\265\327\345\214\360\177>\205\321\007\276\250\266\262\252u\202U\357\1774\343\033\245\256\322=fMk3f|\377\2019mn`\004}\305\306b7\226$]\352+\237b\036\345\317\317\230\002u\241nz\031U2\177r\316G\215\377\2239\303\230\236\203\252\032\203S\333c\351\316\364\\i\272\364\332y\272\302\344E\247\304iiS\357\026\302N\303u\353\025\363R\316\275\307\345W\316\363\027R\024\352\334~\004\301\032-?wV\245\376\302\0238rS?\256\031\025\365,?\003G\t\361\036\261\344\334\273pF\371\325\314\203\215Hb\275\305jr\256~\001\355\271&e%\353eV\211\236P@\234\210\n\233z%ci\370\301\345\233\340\377f)\311t\275h\206(r\242U}\352}\022*{X\010K""\220\355\342Xe\364\"\361\270\252A\010\206Xkp!\250*\022\031\033\0320\372\201\273\327\255V[\242\317\277\213\350Nc\222sPo-R\212\324W\370M6\004D\212\263\230mw\t\332\240V\375:LH\310\274\251\230(\265;a\3165\374\325\017q\311\340\321\246\217\001\006$\203f;\347A\035#\245\215}\\\261:\354\246\220\234sfP\212@\263\346W\202\027c\305+\240\026\314Q\267\323=&\341\266\336>X\276\252\247\331\005O-\342g\372\314kV\334\226\004\330[\206\345j\265\360T\204\363\316\347a\251\037\363\367T;Cf\017f\357an\210\034\361\210\205\361\252Hy\306\224r\372\257\004\310\373\373\244\354\223\233\027&\3719\367Z\243\321\205:ovw0\254\021Q(}\305\033\254\341\236g\370\212\245\337\013\370\364\003\301$~&\n\010\025F\335\215\026\354\313\027\202/*\001n\027\t\204\314\001\336\251\006\230\325E\323mI\037\370\373\234\276k\242\030\272\235\031U\237\035 U\207XQ:\004\244P=:\243\221\010`%\002\027U\025y50f\276\004\275%Z\305\341\037\022\305W\325\343\360K*Cc\346\367\3248\325\332\t\233\367\305$\367O\300Jv\331\323,b\234\206\303R{\350\255\344\024\206\324\213w\253\037\267\324\346\342#!oK\002x\025\234\326M\032\364\324\352\3255q\t*\322\203\321\000?\355\2552\212\244\037#)QnS\240\027\263\206\367\337\005\201]\313\333\315\370c%@<\362\253\365]Q,\343\260\361\223\024\270\307\213\231R\210/\213\200\352S\022\360S\234\343g\346\205\001d\241\355'\257\332\254Q\353\005\336\261^<\005\3109R\n\273K\276K\333\276(\321\236\026\373\214T\251`\322\007 \352\225\342\264\344\2501\365WB\263\241\013\306\276$+\202\254\211\037\372\314\272\017'\246\211\365\220\313\225\241+\326\200}\033fc\251,\213\365FQ\215\331\177*\211\240\312\344\374^\334*\255;\017\001Ja\320\305\343\376\370\343\014\016\335\266n\024\t\351Z\275D\364\256\217@$\001\256\202\230C\352\001\010!$=\275,2\002\335\345\234\262\337'\0265\364\376+\327\231`\265\221\217>E\234\341H\027Y_\246j`\027?\324\315\267ToR\216\"I'fS\224\3632M\017\025k\346Vq\250jF\356\277\220j\306\343h#U\302\250hZ?\025U\033w\343H\344\373\200\237l\246\324s\307\205:\250\002/\206\327\247%\244|E\242\264^\262M\230\025\222\022o\206\247\242\340$tN\216""\312\007\257\353\226\355/-\334\237v\035\344\362\332a\373\0317\237\024\005\276\264K\241y\013 \225[\r\311\350\202\304\031\201t\014\t\357\235\025\025H=\257\322|t`\037\031+\316\205\033X\353\220\313\2743\n\330\265Je;\324o%p\t&\222\261p\356\242 H\361\217q\337\202\273\323\242\247\312\354_P4\210\232\203\024\2602\242I45\341\026\226\325\3258|\262\342aT\231JV\255\267s\337\020>vI\276\316A\251\222L\210\233\037KE\210\316*<j\215\253\222\263$\027\223/5w\334\316\350\264=\r.\367\024\037\225VJ\031X:h\234~\360RO\277\273s$\203Y\3244\031iz\254\367\2562\352T\t\260^\254\177XI\320U\370\003\324ol\254z\3179\347F\244\214Dt\260\217xg\313\224]5\277c5\207\255\254[\177,\267/\210\177\353\366$#\251Ta\224W\265\024\345\317\342r\\\245#X\371t#Y\2221\224\273\222\316\241?\321F3\365\2077\252*\230#?\265\302\235\352G\354@R\r\000\234\204%/\316\t\260\312\375\036^\304\252C\226a\260\3557\265SA\241\333\366!\271/Q\367_E\255K\n\335\033\220M_\336\232\317\363\3468\304}\242\241\372\347X\220\200n\234\005\3202\n\345]x\250A\211l\351\347\2655\264\367\301\233\370F\370C\322\336\204\301\235\022\010\241\245l\022\227\265Q\002\r\025\2708\227\2143\022*\332\262\365\342\335\322B\231\001\222\366\036|Vm! *\203\212~\014\234\310\210#\367GrG\227W\234J\326[\006\214\263\340N\211}[\277\026\347K\2044\355~\214\353\271\200\372=\205[>\314#Q\237\304\325\326\256A\211\361\275\2244\017\332\373\025\377\234\260\023\320\350?@x\233T}M\275\321\250\370\225\316=\013\247t\232\005\242\307a\247\267\"\006\254\007\222\304_H|4\343\031O.\n\360\014\253\335^!\327\334\343\275w\244\314AR\376\241\252*\014p.\335\2663\316=\032\301\250\233\224C\307/%\034\346\247\251\353\244z\033Q\3510\311\036T\374bUF\315/\304(`\010*g.B\346\223\362rCJur\302j\235\335\037\265P\360\353\2449`\017\027w+\237\020b\205D\202\320\206}\374\3200(\272o\211\261{\213\031}i\237r=u\252\200!p\304z\r\226p8\240\336+\325\322'\241K\256{\377Eq\t\006`\231h\306\325)F\375\311\366j\347\2603\374\271\335Q\\w\376\261\354,\327\3027R\0166yt`i\001\203t\344]\026\224\205O\222\017/\207iR\024\343\326\223C\332vZG\356\033""\013\250\260\341r\365?\336\027N\220\237\243N#L\365R\223\271'U\320gS\"3\265\223\352qg\365\242\027\265\240\333G\rU\272\351./b\001\234\320m\373w\300\212\000[A\021\331\240G\376z\300\235\304\004\004\265'\307!/#R\241\026\030tS!\307\300M8N\001\335{*\313\3117L*\032\301\272b\031\273Y\222\327\243\312\271\304\322\253\032\212{G\2416\025RT\333\n\224\254I\224\212\333\304\350+\267c\242\277\251\362\020n1\236b\300\251#\257C\327\266\266+\017X])\217\350\035\205\027+\305]K\254\243\336c\0357QC\320\220m\322\223\357/1f\253\302\257\333\346-\253\313\022g\372(\241\254\033\365\327\035\314/\272\243\354\203\326\246`\303=\372\247:Q%\037\353f\007\304\344\224\004\307\361lk^\325\303~\224\265q\003\306\255N\213\350S\265K\342{\025t\226\010\032\031M\256(O-*kxV\212M\356\013\302\202\n\272\017\205\323\006,\374\230\236\200T\331\252w%T\235No\3415\036;/\303\231\262\277\227z\246Z\344\177\211\034\253\2223j\377N\255\266G\300\212\252\244\0040=g\357\262>\361\256\271$l\344\245\324I\331\345\240T\032\377\214\217/1\013O\035\331\247\366\2772:\2456\302\212\336U\221Z/\203\217\264-^Z\367S\346}k\327>\007p{\255\254\225s\356\306\000\367\326\227v#\267\335t\227\226\0003%\372+u\000\256\305\232\024mr\362\212\037\352\223M\005\213\342\252\261\266-\\|U\212\226\207\360^\347\371\017n!\233\030\207&\t\337iGo\250v\252\317\336S\333\226\212\273\014j\211\201\334\023\236\344\025>\320\025Pf\20710\211\243\315K!\035\240\222\365\003\000\366tq\275\324\\Z.\271{\371\311-\235\275\222\375j\277\000-\366\213*\"\022\232:\227\357\340\001`6\336\244\347zM\\\033P\210\005T}\222\t\223d<\203\255\254\225\354\224\262\255\243\314\267\032\256\350b\216\335W\225\327>\201f\360\251:\000_\355\321s\312\036Q\364;\250F\251\351\226\334\215\272\373\030\360\271\362.H\\\255\025eV\275\352\3771\030@\267\307\360o\276A\227\263j+\002a\004kC\210 \276\265w%\204\367\245\024\227BE\002\331\277v^'\234\304\241s\370\366}C\303\317\215\013\334\r\265\320\364\200\207\007M+<\2544\255\361\260\326\364\254\211\013=(\233\210\241t%\244\326V\036)\177+Q~UO\370\306y\263\355l\0378\007\352u\356{\036""\361\360\250i\211\207\245\246\307<<nz\301\303\213\246W<\274j\212\361\020k\332\340a\243i\263\211\274\270%\260{L\325$Ki\347\035L\352\007\267\216\032c\341|\277\225b\313Z\361\005\020\302U\240\226\037@\253\353\305ti\240<\351\016\257\266\007\001\016\301/\222\325\302\343C\220\203_\301s?\323\307b\356\354\234k\366ZX|\326\005V\027`\177Dd\306s\2776o\330\276\272\272\201FU\233'\311\313\337Y\302\350\346\335%\315p\256\223\376\017\274 \345\366\340\227\3258W\350\345\310&\0139\223\237\200\224\304I\371\316\321\251l\327\254\262\212\306\215\300\343\347}oC\363\343\306\362lY\227\352\340\1779\377R\025\234\361\212\347\037\220\346K\345FJ\316Q\376\242V\256\223p\276W\033-dO\362dE\275\364\032s\013\267\341\312\365b%\275\345E\211\340>\253\034ep\256\271\3334^\270\377\223\204\362\353\233{\013\222\265\366J\365\r\001c\027k\033e\313\343\211\002%\252*\257\252\215e\016\206a\332\017\312\305\317+|\353\326jH\374\207\024\225l\250\033\r\362\311U\3253W\232*=/O:Kjo\265l\372\366\320\265\377x$\264\022\001\270}\037\244\311\230\263Y\222\niQ \014&\323{\271\010\235\302\010\014k1\273\2123\305\267R\237\355\007\240\220\035\343\366\275\342r1\346\314\2022TFU\025)\347\346\355'\326\230\365\213\0025L\222\370k\214%W\375cb\337\325\035\356F:\317-\357*R\360\030\256s\247\3405W\003\016}\200H\271O\353\266d\007\264\212l\333\177\250J\217X\313\303\330\300K\373G\254\016\367\244\005\244l\224Q\"U\367\343\277(\007(\027\277\362\007.\t\030\316\212_\304\355P\237\211#\201'n\201\000\017i\321\207\344\320\311$\325\254%j\257S\250\303\035\307W\331D\374\264en\003\344m\0255\227d\214\316qC\3210\014\026kk\210\351\235\301\033\014b\221S:U\325\353w0\243t:\207$t\3451\277\2218\316\214\375V\302_\336^\247\367\n\341\220u\317^\266cL\276= \246\365\272\376\201\247\360\004\262\257\364\257\344\231\261l\277\250\377\254\202W\276\363j\206r'(\326R\325\336\003\343>V\321\304\237\245x#f\\#\270\254\236(\266\251\266wT\353I\216\345\236\222*\206Nj\322\016S\267\356\253\377\256`D\245H\\\344\310\253\236\220\n\311}|\247S\241\372Q\010/\313o\230\230,\334\220X \227\340.,\333O\320G""\363\316S\332\264j}\215V\017\245\303\030VZ\237\230p\371\257\016\204%\204\317\254\220\354\003\0131g+A\030\3468\207\0006\366\255Dq\264\270\006\005\351\241\r\37604\372a\355\347\035\310\301\356\007\265\237\362\037\204\324\027}~\367\177\346_\305\327";
+    PyObject *data = __Pyx_DecompressString(cstring, 11236, 1);
     if (unlikely(!data)) __PYX_ERR(0, 1, __pyx_L1_error)
     const char* const bytes = __Pyx_PyBytes_AsString(data);
     #if !CYTHON_ASSUME_SAFE_MACROS
     if (likely(bytes)); else { Py_DECREF(data); __PYX_ERR(0, 1, __pyx_L1_error) }
     #endif
-    #else /* compression: none (22403 bytes) */
-const char* const bytes = ": All dimensions preceding dimension %d must be indexed and not slicedBuffer view does not expose stridesCan only create a buffer that is contiguous in memory.Cannot assign to read-only memoryviewCannot create writable memory view from read-only memoryviewCannot index with type 'Cannot transpose memoryview with indirect dimensionsDimension %d is not directEmpty shape tuple for cython.arrayIndex out of bounds (axis %d)Indirect dimensions not supportedInvalid mode, expected 'c' or 'fortran', got Invalid shape in axis <MemoryView of Note that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.Out of bounds on buffer access (axis Overflow: is intervalToBlockMap correct?Step may not be zero (axis %d)Unable to convert item to object\t?.>')add_note and  at 0xcollections.abc<contiguous and direct><contiguous and indirect>disableenablefitMask length mismatchgc (got got differing extents in dimension isenableditemsize <= 0 for cython.arrayno default __reduce__ due to non-trivial __cinit__numpy._core.multiarray failed to importnumpy._core.umath failed to import object>src/consenrich/cconsenrich.pyx<strided and direct><strided and direct or indirect><strided and indirect>unable to allocate array data.unable to allocate shape and strides.AASCIICEllipsis__Pyx_PyDict_NextRefSequenceView.MemoryViewabcallocate_bufferallowDeflatealphaanyargpartitionargsortarrayasarrayascontiguousarrayastypeasyncio.coroutinesbamFilebasebedFileblockCountblockGradCountblockGradLogScaleblockLengthblockSizebootBlockSizeccDenseGlobalBaselinecEMAcPAVAcSFcSparseMaxcTransformcbackwardPasscbedMaskcenterGeoMeancforwardPasscgetFirstChromReadcgetFragmentLengthcgetLastChromReadcgetReadLengthchoicechromLengthchromMatchromosomechunkSize__class____class_getitem__cline_in_tracebackclipclipSmallclocalBaselineclosecmeanVarPairscoefficientsHconsenrich.cconsenrichcontigcopycountcovarClipcpu_countcreadBamSe""gmentcrolling_AR1_IVarcsampleBlockStatscscaleStateCovardStatdStatAlphadStatAlphaLowMultdStatPCdStatddefault_rngdenseMeanQuantile__dict__disableLocalBackgrounddtypedtype_is_objectearlyExiteigFlooremptyencodeend__enter__enumerateepserrorexcludeIdxMaskexcludeMask__exit__expectedBlockSizeextendBPeyefallBackfetchfillfitMaskInflagflagsfloat32float64flushformatfortranfull__func__geometric__getstate__idignoreTLEN__import__in_indexinferFragmentLengthinflatedQint32int64intervalSizeBPintervalToBlockMapintervalsintp_is_coroutineitemsitemsizeiterslagSteplambda_F32lambda_F64lengths__main__mappedmapping_qualitymatrixDatamatrixFmatrixMuncmatrixPmatrixQmatrixQCopymaxmaxBetamaxInsertSizemaxIterationsmaxMultmaxQmaximummedianmedian_filtermemviewminCountminMappingQualityminQminReadsminTemplateLengthminimummode__module__monoFuncname__name__ndimndimagenearest__new__next_reference_idnonzeroFracnpnumBootsnumpynumpy.randomobjoffsetoneReadPerBinonesopenorderosoutppNoiseForwardpackpadpairedEndModepairsRegLambdapoppostFitResidualspostWeightprogressBarprogressIterprojectStateDuringFilteringprojectToBoxprotectCovariance22pushForward__pyx_checksum__pyx_state__pyx_type__pyx_unpickle_Enum__pyx_vtable____qualname__quantilequery_lengthrrandSeedrandomravelrbreadLength__reduce____reduce_cython____reduce_ex__reference_endreference_idreference_startreferencesregisterreplacereshapereturnNLLrollingChunkSizerseedsamFlagExcludesamThreadsscalescaleFactorLow_scaleFactorUpper_scipyseed__set_name__setdefault__setstate____setstate_cython__shapeshiftForwardStrand53shiftReverseStrand53shufflesizesmoothAlphasparseMapsplineBaselineCrossfit2_F32splineBaselineCrossfit2_F64splineBaselineMasked_F32splineBaselineMasked_F64sqResClipstartstateCovarForwardstateCovarInitstateCovarSmoothedstateForwardstateInitstateLowerBoundstateSmoothedstateUpperBoundstateVar0stepstepAdjustmentstopstoreNLLInDstripstructtemplate_length__test__threadstopFracuint32uint8unpackupdateupdateProcessNoiseCovarianceuseInnovationVaruseSampleVarvalsvaluev""aluesvectorDvectorXverbosew_globalw_localweightByOverlapxyInzeroPenaltyzeroThreshzeros\200\001\330\0041\260\022\3203E\300Q\300c\310\026\310r\320QR\330\004\030\230\002\230&\240\001\240\021\330\0042\260\"\260F\270!\2703\270f\300B\300a\330\004\t\210\021\210/\230\022\2307\240)\2503\250g\260S\270\001\330\004\013\2101\200\001\360*\000\005\034\2301\330\004\031\230\021\330\004\024\220D\230\001\230\031\240!\360\006\000\005\006\330\010\014\210H\220A\330\014\023\2204\220v\230Q\330\014\017\210t\2205\230\003\2304\230q\240\003\2403\240a\330\020\021\330\014\023\2204\220v\230Q\230a\330\014\017\210t\2205\230\003\2303\230a\230v\240R\240q\330\020\021\330\014\017\210t\2201\220C\220s\230!\330\020\021\330\014\026\220g\230Q\230c\240\021\240$\240a\240q\330\014\024\220G\2301\230C\230q\240\004\240A\240Q\340\010\t\210\026\210q\330\004#\2409\250A\340\0041\260\022\2606\270\021\270.\310\006\310b\320PQ\330\004\007\200t\2101\330\010\017\210q\330\0044\260B\260h\270a\270|\3106\320QS\320ST\330\0042\260\"\260H\270A\270Z\300v\310R\310q\330\004&\240a\330\004$\240A\330\004#\2401\330\004\"\240!\360\014\000\005\031\230\006\230a\330\004\007\200v\210V\2202\220Q\330\010\020\220\001\220\032\2301\230A\340\010\020\220\013\2301\340\004\007\200t\2106\220\022\2201\330\010\020\220\001\220\030\230\021\230!\340\010\020\220\013\2301\340\004\007\200}\220B\220a\330\010\021\220\021\220'\230\021\230!\330\010\021\220\021\220'\230\021\230!\340\010\021\220\033\230A\330\010\021\220\032\2301\340\t\n\330\010\013\210=\230\002\230\"\230D\240\002\240\"\240A\330\014\033\2301\230H\240N\260'\270\027\300\003\3001\330\004\013\2101\200\001\360\024\000\005\014\2102\320\r\037\230q\240\005\240V\2502\250Q\330\004\010\210\004\210F\220!\2201\330\004\007\200r\210\022\2101\330\010\017\210t\2205\230\001\340\004\017\210r\220\026\220q\230\003\2306\240\022\2401\330\004\016\210b\220\006\220a\220s\230&\240\002\240!\330\004\010\210\005\210U\220!\2201\330\010\020\220\001\220\025\220f\230B\230b\240\003\2403\240g\250Q\330\010\017\210q\220\005\220V\2302""\230R\230s\240#\240W\250A\360\006\000\005\020\320\017'\240q\250\006\250j\270\001\330\004\016\320\016&\240a\240v\250Y\260a\340\004\013\2102\210V\2201\220C\220v\230R\230q\330\004\010\210\005\210U\220!\2201\330\010\014\210A\210U\220$\220c\230\030\240\021\240#\240R\240w\250a\250q\330\004\013\2101\320\0004\260A\360\020\000\005\013\210-\220q\360\006\000\005\010\200s\210'\220\023\220B\220a\330\010\022\220)\2303\230a\330\r\016\330\014\021\220\027\230\001\230\021\330\014\021\220\027\230\001\230\021\330\014\021\220\023\220B\220g\230Q\230c\240\022\2407\250!\2501\340\014\017\210s\220#\220Q\330\020\023\2203\220b\230\n\240%\240q\330\020\023\2203\220b\230\n\240%\240q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\340\020\030\230\003\2302\230Q\330\020\026\220d\230!\2304\230r\240\023\240B\240c\250\022\2503\250b\260\004\260C\260r\270\021\270!\330\020\027\220y\240\006\240b\250\001\250\021\250$\250a\250q\330\020\027\220y\240\006\240b\250\001\250\021\250$\250a\250q\340\020\023\2205\230\002\230*\240G\2501\330\020\023\2205\230\002\230*\240G\2501\340\020\023\2204\220q\230\005\230R\230t\2402\240T\250\021\250%\250r\260\021\330\024+\2505\260\002\260!\330\024,\250A\340\024+\2501\330\024,\250E\260\022\2601\340\020\023\320\023(\250\003\2504\250t\3203I\310\023\310A\330\024+\2508\2601\330\024,\250H\260A\340\020\027\220t\2302\230T\240\022\320#7\260q\3208N\310c\320Qf\320fg\320gh\330\020(\250\001\330\020)\250\021\340\020&\320&:\270!\2701\330\020'\320'<\270A\270Q\330\020\035\320\0351\260\021\260!\330\020\026\220e\2302\230Q\360\n\000\021\030\220q\230\005\230U\240\"\240C\240q\250\001\330\020\027\220q\230\005\230U\240\"\240C\240q\250\001\330\020\027\220q\230\005\230S\240\001\240\021\330\020\027\220q\230\005\230W\240A\240Q\330\010\017\210q\360\006\000\005\010\200s\210'\220\023\220B\220a\330\010\022\220(\230#\230Q\330\r\016\330\014\021\220\030\230\027\240\001\240\021\330\014\021\220\030\230\027\240\001\240\021\330\014\021\220\023\220C""\220x\230w\240a\240t\2503\250h\260g\270Q\270a\340\014\017\210s\220#\220Q\330\020\023\2203\220b\230\n\240%\240q\330\020\023\2203\220b\230\n\240%\240q\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\340\020\034\230H\240C\240r\250\021\330\020\032\230(\240$\240a\240t\2502\250S\260\002\260#\260R\260r\270\021\270$\270c\300\022\3001\300A\330\020\033\2309\240J\250b\260\001\260\021\260)\2702\270Q\330\020\033\2308\240:\250R\250q\260\001\260\031\270\"\270A\340\020\023\2209\230B\230j\250\013\2601\330\020\023\2209\230B\230j\250\013\2601\340\020\023\2204\220q\230\t\240\022\2404\240r\250\024\250Q\250i\260r\270\021\330\024+\2509\260B\260a\330\024,\250A\340\024+\2501\330\024,\250I\260R\260q\340\020\023\320\023(\250\003\2504\250t\3203I\310\023\310A\330\024+\2501\330\024,\250A\340\020\027\220t\2302\230T\240\021\320\"6\260a\3207L\310B\320Nc\320cd\320de\330\020(\250\001\330\020)\250\021\340\020%\320%9\270\021\270!\330\020&\320&;\2701\270A\330\020\035\320\0351\260\021\260!\330\020\032\230)\2402\240Q\340\020\027\220q\230\005\230X\240Y\250b\260\007\260q\270\001\330\020\027\220q\230\005\230X\240Y\250b\260\007\260q\270\001\330\020\027\220q\230\005\230X\240W\250A\250Q\330\020\027\220q\230\005\230W\240A\240Q\330\010\017\210q\200\001\3604\000\0054\2602\3205G\300q\310\003\3106\320QS\320S\\\320\\b\320bc\330\0043\2602\3205G\300q\310\014\320TZ\320Z\\\320\\e\320ek\320kl\330\004\030\230\004\230F\240!\2401\340\0045\260R\260v\270Q\270c\300\026\300r\310\021\330\0045\260R\260v\270Q\270c\300\026\300r\310\021\340\0044\260B\260f\270A\270S\300\006\300b\310\001\330\0048\270\002\270&\300\001\300\023\300F\310\"\310A\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004\026\220a\330\004 \240\001\360\010\000\005\t\210\001\330\004\006\200a\200u\210B\210a\210q\330\004\006\200a\200u\210B\210a\210q\330\004\006\200a\200u\210A\340\004\010\210\001\330\004\n\210\"\210B\210a\340\010\r\210Q\330\010""\017\210r\220\021\220!\330\010\014\210B\210a\210q\360\006\000\t\014\2102\210Q\210b\220\002\220#\220R\220q\340\014\021\220\021\330\014\020\220\002\220!\2202\220R\220r\230\021\230\"\230A\230R\230r\240\023\240B\240a\240q\250\001\330\014\020\220\002\220\"\220B\220a\220r\230\022\2301\340\014\023\2202\220R\220q\360\006\000\r\023\220\"\220B\220b\230\002\230\"\230D\240\005\240S\250\002\250!\2502\250R\250q\330\020\025\220Q\330\020\024\220B\220c\230\022\2301\230B\230a\230r\240\021\240!\330\020\024\220B\220b\230\002\230!\2301\330\020\027\220r\230\022\2301\360\010\000\r\023\220\"\220B\220b\230\004\230B\230a\230r\240\022\2403\240b\250\001\330\020\025\220Q\330\020\024\220B\220c\230\022\2301\230B\230b\240\002\240!\2402\240Q\240b\250\002\250!\330\020\024\220B\220b\230\002\230!\2302\230R\230q\330\020\027\220r\230\022\2301\360\006\000\t\013\210!\2102\210R\210u\220A\330\010\n\210!\2102\210R\210u\220A\330\010\n\210!\2102\210R\210u\220A\330\010\r\210Q\360\010\000\005\t\210\002\210\"\210A\330\004\010\210\005\210U\220!\2202\220R\220t\2304\230q\340\010\013\2102\210S\220\001\340\014\020\220\001\360\006\000\r\021\220\002\220!\2202\220R\220s\230\"\230A\330\010\014\210E\220\025\220a\220s\230\"\230B\230d\240!\330\014\026\220a\220u\230B\230a\230q\330\010\014\210B\210b\220\001\340\004\013\2101\200\001\360\014\000\032\033\330%&\330\032\033\330\032\033\330\024\025\330\031\032\330\031\032\330\036\037\330\034\035\330\027\030\330\034\035\340\004 \240\001\330\004(\250\001\330\004*\250!\330\0045\260Q\330\0042\260!\330\004:\270!\330\0046\260a\330\004!\240\030\250\026\250q\260\001\330\004$\240H\250F\260!\2601\360\020\000\005\034\2301\330\004\030\230\001\330\004\034\230C\230q\240\006\240a\240q\330\004\032\230#\230Q\230f\240A\360\036\000\005\010\200~\220W\230A\330\010\033\320\033J\310!\340\010\033\2302\230V\2402\240_\260D\270\006\270b\300\001\340\004\007\320\007\032\230'\240\021\330\010 \320 O\310q\340\010 \240\002\240&\250\002\250/\270\023\270D\300\006\300b\310\001\340\004\007\320\007\030\230\007\230q\330""\010\036\320\036M\310Q\340\010\036\230b\240\006\240b\250\017\260}\300F\310\"\310A\340\004\030\230\001\330\004\035\230Q\330\004\033\2301\340\004\017\210z\230\022\2302\230T\240\036\250w\260e\2704\320?R\320RY\320Y^\320^b\320bs\320sz\320z{\330\004\022\220,\230g\240U\250$\250m\2702\270Q\340\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\025\220Q\220n\240B\240c\250\025\320.>\270a\270~\310R\310s\320RS\330\004\025\220Q\220n\240B\240c\250\025\320.>\270a\270~\310R\310s\320RS\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\340\004\010\210\016\220e\2301\230A\330\010\034\230A\230^\2502\250S\260\016\270a\330\r\025\220X\230Q\230l\250.\270\002\270$\270c\300\030\320IZ\320Z[\320[i\320ik\320kn\320no\360\006\000\005\t\320\010\031\230\025\230a\230~\250R\250t\2604\260q\360\006\000\t\026\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\360\006\000\t\027\320\026'\240r\250\030\3201A\300\021\300.\320PT\320TV\320Vg\320gi\320iq\360\000\000r\001B\002\360\000\000B\002C\002\360\000\000C\002Q\002\360\000\000Q\002R\002\330\010\026\320\026'\240r\250\030\3201A\300\021\300.\320PT\320TV\320Vg\320gi\320iq\360\000\000r\001B\002\360\000\000B\002C\002\360\000\000C\002Q\002\360\000\000Q\002R\002\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\360\006\000\t\021\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010""\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\360\006\000\t\024\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\340\010\024\220H\230A\230Z\240s\250(\260!\2601\330\010\013\2109\220C\220q\330\014\027\220q\340\010\025\220X\230Q\230a\330\010\025\220Q\220i\230r\240\021\330\010\025\220Q\220i\230r\240\021\330\010\025\220X\230Q\230a\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\340\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\340\010\027\220x\320\0370\260\001\260\036\270r\300\023\300D\310\002\310!\330\010\027\220x\320\0370\260\001\260\036\270r\300\023\300D\310\002\310!\330\010\032\230(\320\"2\260!\260?\300$\300c\310\036\320WX\320Xd\320df\320ft\320tu\320uv\330\010\032\230(\320\"2\260!\260?\300$\300c\310\036\320WX\320Xd\320df\320ft\320tu\320uv\330\010\031\230\021\230/\250\025\250o\270Q\330\010\031\230\021\230/\250\025\250o\270Q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\026\220k""\240\023\240N\260!\3203D\300B\300n\320TU\320UV\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\340\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\330\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\330\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\340\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\340\010\013\2101\330\014\030\230\001\330\020\030\320\030(\250\001\250\021\330\020\030\320\030-\250Q\250a\330\020\037\230q\330\020\037\230q\330\020\037\230q\360\006\000\t\034\2301\230H\320$9\270\021\270!\340\010\014\210N\230%\230q\240\001\330\014\037\230x\240x\250q\260\014\320<L\310C\310x\320Wh\320hi\320ix\320xy\330\014 \240\001\240\037\260\016\270o\310Q\340\010\013\2108\2205\230\016\240b\250\n\260#\260S\270\005\270^\3102\310Q\330\014\034\230F\240!\330\014!\240\026\240q\330\014\037\230v\240Q\340\010\013\2101\330\014\031\230\021\330\014\020\220\n\230\"\230N\250#\250Q\330\020\033\2307\240!\2401\340\004\007\200q\330\010\030\230\006\230a\330\010\035\230V\2401\330\010\033\2306\240\021\340\004\007\200q\330\010\035\230^\2502\250S\260\002\260!\330\010\013\320\013\035\230S\240\001\330\014\027\220w\230a\230q\340\004\014\320\014\036\320\0365\260Q\200\001\360\032\000\032\033\330\024\025\330\016\017\330%&\330\032\033\330\032\033\330\031\032\330\030\031\330\035\036\330\031\032\330\023\024\330\027\030\330\034\035\330\023\024\330\025\026\330\036\037\330\035\036\330\032\033\340\004*\250!\330\004*\250!\330\0045\260Q\330\004!\240\030\250\026\250q\260\001\330\004$\240H\250F\260!\2601\360\014\000\005\032\230\035\240g\250Q\360\020\000\005\031\230\001\330\004\033\2301\330\004 \240\001\330\004(\250\001\340\004D\300B\300f\310A\310Q\310k\320Y_\320_e\320eg\320gh\330\004D\300B\300d\310!\3103\310f\320TV\320V_\320_`\320`b""\320bj\320jk\320kl\330\004.\250a\330\0040\260\001\340\004\034\230C\230q\240\006\240a\240q\330\004\032\230#\230Q\230f\240A\340\004\032\230!\330\004\037\230q\330\004\030\230\001\360\030\000\005\033\230!\330\004\031\230\021\330\004\036\230a\330\004\033\2301\330\004\035\320\0350\260\007\260u\270D\320@R\320RY\320Y^\320^b\320bq\320qx\320xy\360\016\000\005 \230q\360\014\000\005\010\200x\210s\220!\330\010\031\230\022\2306\240\021\240/\260\026\260r\270\021\330\010\022\220!\340\010\031\320\031H\310\001\340\004\022\220!\340\004\007\200q\330\010\032\320\032I\310\021\330\010\037\320\037N\310a\330\010\033\320\033J\310!\330\010\033\2301\330\010 \240\001\330\010\034\230A\340\004\007\200q\330\010 \320 M\310Q\330\010!\240\021\330\010\037\320\037N\310a\330\010 \240\001\330\010\034\320\034K\3101\330\010\035\230Q\340\004\017\210x\220t\230:\240R\240q\330\004\022\220,\230g\240U\250$\250m\2702\270Q\340\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\360\006\000\005\014\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\340\004\010\320\010\031\230\025\230a\230q\340\010\026\320\026'\240r\250\030\260\037\300\001\300\024\300R\320GX\320XZ\320Zb\320bq\320qr\320rs\330\010\026\320\026'\240r\250\030\260\037\300\001\300\024\300R\320GX\320XZ\320Zb\320bq\320qr\320rs\330\010\027\220q\230\005\230_\250A\330\010\027\220q\230\005\230_\250A\340\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\340\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\340\010\023\2205\230\001\320\031+\2502\250U\260!""\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\340\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\340\010\026\220a\330\010\026\220a\330\010\026\220a\330\010\030\230\001\330\010\013\2101\330\014\026\220a\340\010\013\2101\330\014\032\230!\330\014\031\230\021\330\014\031\230\021\330\014\031\230\021\340\010\014\210N\230%\230q\240\001\330\014\037\230x\240x\250q\260\014\320<L\310C\310x\320Wf\320fg\320gh\330\014#\2408\2508\2601\260L\300\001\330\014\035\320\0351\260\023\260H\270A\330\014\017\210\177\230b\240\001\330\020!\240\021\330\014\032\230$\230b\240\001\330\014\017\210q\330\020\033\2303\230a\230q\330\014\033\230;\240b\250\017\260q\270\001\330\014\033\230;\240a\240q\330\014\035\320\0350\260\002\260+\270Q\270a\330\014\033\2301\340\014\017\210q\330\020\023\220?\240\"\240A\330\024\033\2301\340\024\033\2301\330\020\037\230u\240B\240a\330\020\036\230e\2403\240n\260A\260Q\330\020\036\230e\2402\320%5\260S\270\016\300a\300q\330\020\036\230e\2403\240o\260Q\3206G\300s\310.\320XY\320YZ\340\010\026\220d\230#\230X\240^\2601\260B\260c\270\021\270!\330\010\013\210<\220r\230\021\330\014\032\230!\330\010\027\220x\230~\250Q\250b\260\004\260B\260a\330\010\030\230\014\240B\240k\260\022\260;\270a\270q\330\010\013\210>\230\022\2301\330\014\034\230A\340\010\013\2101\340\014\033\2304\230r\240\030\250\022\2503\250a\250}\270B\270a\330\014\026\220a\340\010\013\210<\220t\2301\330\014\033\2303\230h\240n\260A\260R\260t\2702\270\\\310\022\3101\330\014\034\230K\240q\250\r\260R\260q\330\014\025\220Q\220l\240#\240\\\260\022\260;\270a\270~\310S\320PS\320ST\320T_\320_`\320`k\320kl\320lm\330\014\033\2304\230s\240,\250b\260\r\270R""\270q\340\014\017\210x\220q\230\001\330\020\032\320\0320\260\001\260\021\330\020%\240Q\240l\260/\300\021\330\020\"\240!\240<\250\177\270a\360\006\000\t\026\220^\2403\240h\250a\330\010\024\220A\330\010\013\210:\220T\230\021\330\014\027\220q\320\030)\250\037\270\001\340\014\027\220q\320\030)\250\037\270\001\340\010\033\2306\240\033\250C\250x\260q\330\010\013\210;\220b\230\001\330\014\025\220\\\320!=\270Q\330\020\021\330\020\021\330\020\027\220q\330\020\027\220q\330\020\027\220q\330\020\027\220q\330\020\021\330\020\027\220q\330\020\027\220q\360\006\000\t\014\2107\220!\2202\220S\230\002\230/\250\033\260G\2701\270B\270e\300?\320RS\330\r\024\220A\220R\220s\230\"\230O\2509\260G\2701\270B\270e\300?\320RS\330\010\013\2107\220!\2202\220S\230\002\230/\250\033\260G\2701\270B\270e\300?\320RS\330\r\024\220A\220R\220s\230\"\230O\2509\260G\2701\270B\270e\300?\320RS\360\006\000\t\031\230\014\240B\240a\330\010\027\220q\230\005\320\035.\250h\260o\300Q\300d\310#\310X\320Uc\320cd\320df\320fi\320ij\320jk\330\010\027\220q\230\005\320\035.\250h\260o\300Q\300d\310#\310X\320Uc\320cd\320df\320fi\320ij\320jk\330\010\020\220\014\230B\230a\330\010\020\220\016\230c\240\033\250A\250Q\330\010\020\220\004\220D\230\010\240\016\250a\250r\260\023\260A\260Q\330\010\020\220\003\2208\230>\250\021\250\"\250C\250q\260\001\340\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\340\010\032\230%\230q\240\005\240Q\240n\260C\260u\270B\270l\310!\3101\330\010\032\230%\230r\240\025\240a\240}\260B\260o\300S\310\005\310R\310|\320[\\\320\\]\330\010\033\2305\240\001\240\025\240a\240~\260R\260s\270!\2705\300\001\300\035\310b\320P^\320^a\320af\320fh\320ht\320tu\320uv\340\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\330\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\330\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\340\010\026\220a\220r\230""\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\340\010\013\2101\330\014\030\230\001\330\020\021\330\020\021\330\020\037\230q\330\020\037\230q\330\020\037\230q\360\006\000\t\034\2301\230A\340\010\013\2101\330\014\034\230A\230^\2505\260\017\270q\300\001\330\014\034\230A\230^\2505\260\017\270q\300\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\340\014\017\210x\220u\230N\250\"\250J\260c\270\023\270E\300\036\310r\320QR\330\020\037\230v\240Q\330\020$\240F\250!\330\020 \240\006\240a\340\010\013\2101\330\014\031\230\021\330\014\020\220\n\230\"\230N\250#\250Q\330\020\033\2307\240!\2401\340\004\007\200x\210t\2201\330\010\027\220v\230Q\330\010\034\230F\240!\330\010\030\230\006\230a\340\004\007\200q\330\010\034\230N\250\"\250A\330\010\013\320\013\035\230S\240\001\330\014\027\220w\230a\230q\340\004\r\210X\220Y\230c\240\030\250\021\340\004\007\200q\330\010\020\220\010\320\030)\250\031\260!\340\004\014\210H\320\024%\240Q\200\001\360\014\000./\330,-\33089\33045\360.\000\005\013\210+\220Q\220a\330\004\022\220\"\320\024&\240a\240x\250v\260R\260q\330\004\021\220\021\330\004\021\220\022\2205\230\001\230\027\240\013\2506\260\022\2601\330\004\017\210r\220\026\220q\230\007\230v\240R\240q\330\004\016\210b\220\006\220a\220w\230f\240B\240a\330\004\023\220<\230{\250!\330\004\025\220\\\240\021\330\004\017\210t\2203\220h\230a\330\004\022\220!\330\004\020\220\001\340\004\n\210*\220C\220}\240B\240a\330\010\013\210>\230\021\230*\240J\250b\260\017\270t\3001\330\014\030\230\n\240\"\240O\2602\260Q\330\014\r\330\010\023\2207""\230!\2301\330\010\024\220J\230b\240\001\340\004\007\200s\210!\210=\230\003\2301\330\010\020\220\006\220a\330\010\017\210v\220Q\330\010\026\220b\230\006\230a\230s\240&\250\002\250!\330\010\024\220B\220f\230A\230S\240\006\240b\250\001\330\010\017\210z\230\031\240-\250q\340\004\021\220\022\2208\2301\230M\250\026\250r\260\021\330\004\016\210c\220\027\230\001\230\034\240U\250'\260\030\270\025\270g\300Q\300b\310\001\330\004\021\220\023\220J\230a\230z\250\025\250e\2607\270&\300\007\300q\310\002\310'\320QV\320VW\330\004\006\200h\210a\210|\230<\240s\250$\250a\330\004\006\200h\210a\210|\2301\230A\320\035-\250T\260\021\330\004\013\2108\2202\220Q\340\004\021\220\021\330\004\020\220\001\330\004\020\220\001\330\004\017\210q\340\004\022\220!\220<\230|\250;\260k\300\032\310=\320Xd\320dv\320vw\340\004\013\210:\220Y\230i\240q\320\000!\240\021\360(\000\005\036\230]\250!\2509\260F\270(\300!\340\004\010\210\010\220\003\2206\230\021\230'\240\034\250V\2603\260d\270!\330\010\013\2105\220\004\220F\230\"\230A\330\014\017\210v\220Q\330\014\023\2204\220q\330\004\007\200v\210Q\330\004\013\2101\200\001\360\016\000\005\022\220\021\220)\2309\320$5\3205F\300a\320\0009\270\021\360\006\000\005\033\230!\340\004\n\210\"\320\014\036\230a\230s\240&\250\002\250!\330\004\010\210\003\2106\220\021\220!\330\004\007\200r\210\023\210A\330\010\017\210r\220\026\220q\230\003\2306\240\022\2401\340\004\007\200z\220\022\2201\330\010\024\220A\330\004\010\210\n\220\"\220C\220s\230!\330\010\025\220Q\330\004\033\2301\330\004\024\220J\230c\240\021\330\004\017\210q\220\001\220\021\220!\2201\220A\220R\220q\230\001\330\004\013\320\013&\240a\240u\250H\260G\2701\270B\270a\200\001\360\024\000\005\t\210\002\320\n\034\230A\230U\240&\250\002\250!\330\004\010\210\001\210\026\210q\220\001\330\004\007\200r\210\022\2101\330\010\017\210q\220\005\220Q\340\004\014\210B\210f\220A\220S\230\006\230b\240\001\330\004\013\2102\210V\2201\220C\220v\230R\230q\330\004\010\210\005\210U\220!\2201\330\010\r\210Q\210e\2206\230\022\2302\230S\240\003""\2407\250!\330\010\014\210A\210U\220&\230\002\230\"\230C\230s\240'\250\021\360\006\000\005\r\320\014$\240A\240S\250\007\250q\330\004\013\320\013#\2401\240C\240v\250Q\340\004\010\210\002\210&\220\001\220\023\220F\230\"\230A\330\004\010\210\005\210U\220!\2201\330\010\t\210\021\210%\210t\2203\220e\2301\230C\230r\240\024\240Q\240a\330\004\013\2101\200\001\340\023\032\230!\330\027\030\330\027\030\340\004B\300\"\320DV\320VW\320Wa\320ag\320gi\320ij\330\004\030\230\t\240\026\240q\250\001\330\004\030\230\t\240\026\240q\250\001\330\004.\250a\340\004?\270r\300\026\300q\310\003\3106\320QS\320ST\330\004\"\240!\340\004E\300R\300v\310Q\310c\320QW\320WY\320YZ\330\004(\250\001\340\004D\300B\300f\310A\310S\320PV\320VX\320XY\330\004'\240q\360\n\000\005\013\210!\340\004\022\220-\230|\2503\250h\260c\270\023\270D\300\002\300!\330\004\007\200|\2202\220Q\330\010\026\220a\330\t\025\220R\220q\330\010\026\220a\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\025\220Q\330\014\033\2301\330\014\020\220\005\220U\230!\2301\330\020\024\220H\230L\250\001\250\023\250A\330\020\023\2202\220R\220x\230q\330\024\036\230c\240\021\240!\330\024$\240A\330\014\026\220a\220u\230A\230W\240C\240x\320/A\300\035\310c\320Qb\320bc\340\010\014\210E\220\025\220a\220q\330\014\020\220\001\330\014\020\220\005\220U\230!\2301\330\020\023\2204\220u\230A\230Z\240q\250\001\330\024\030\230\010\240\014\250A\250S\260\001\330\024\027\220r\230\022\2308\2401\330\030'\240q\250\005\250S\260\001\260\023\260B\260j\300\001\300\021\330\030\035\230Q\340\014\017\210r\220\023\220A\330\020 \240\001\240\025\240a\340\020\037\230q\240\001\240\037\260\001\260\024\260S\270\002\270#\270Q\330\020\031\230\037\250\001\250\022\2503\250a\330\020 \240\001\240\025\240c\250\021\250!\340\010\013\210>\230\024\230R\230r\240\021\330\014\025\220Q\330\014\020\220\005\220U\230!\2301\330\020\032\230#\230Q\320\036.\250a\250s\260\"\260A\330\014\026\220c\230\021\230'\240\023\240H\250A\330\014\020\220\005\220U\230!\2301\340\020 \240\001\240\026\240q\340\004\013\2101""\210A\210Q\200\001\360\006\000\032\"\240\021\340\004\030\230\014\240D\250\006\250a\250q\330\0042\260\"\260F\270!\2703\270f\300B\300a\330\004\036\230a\360\014\000\005\"\240\021\360\014\000\005\023\220!\2206\230\022\2301\330\004\010\210\003\2105\220\t\230\026\230q\330\010\014\210L\230\001\330\010\013\2102\210S\220\004\220A\330\014\027\220q\230\005\230Q\330\014\032\230-\240r\250\026\250q\260\001\330\014\017\210{\230\"\230A\330\020\035\230Q\330\004\007\200{\220\"\220A\330\010\025\220Q\330\004\014\210B\210f\220A\220\\\240\026\240r\250\021\330\004\r\210Q\330\004\033\2301\230D\240\001\240\021\360\010\000\005\t\210\005\210U\220!\2201\330\010\014\210K\220q\230\001\330\010\013\2102\210S\220\001\330\014\023\2201\220E\230\027\240\001\330\014\r\330\010\027\320\0278\270\001\330\010\032\230!\330\010\025\220_\240F\250!\2501\330\010\013\210;\220c\230\021\330\014\023\2201\220E\230\027\240\001\330\014\r\330\010\013\210;\220b\230\006\230f\240A\240Q\330\014\024\220B\220f\230A\230\\\250\026\250r\260\021\330\014\025\220Q\330\010\020\220\001\220\037\240\001\240\021\330\010\020\220\001\220\026\220q\230\001\330\r\016\330\014\020\220\005\220U\230!\2301\330\020\025\220Q\220e\2308\2401\240E\250\021\250!\330\010\016\210g\220Q\220h\230a\330\010\026\220l\240!\330\010\013\2104\210r\220\030\230\021\330\014\033\2301\330\010\013\210<\220r\230\021\330\014\032\230!\330\r\031\230\022\2301\330\014\032\230!\330\010\023\220;\230b\240\001\340\r\016\330\014\027\220q\230\007\230|\2501\330\014\025\220Q\330\014\020\220\005\220U\230!\230:\240Q\330\020\032\230(\240%\240q\250\001\330\010\017\210q\220\005\220X\230W\240B\240h\250a\340\004\013\2101\320\000\030\320\030H\310\001\360\034\000\005\020\210t\2205\230\002\230&\240\002\320\"4\260B\260k\300\021\300!\200\001\360N\001\000\005\t\210\002\320\n\034\230A\230U\240&\250\002\250!\330\004\016\210b\320\020\"\240!\240;\250f\260B\260a\330\004\014\210A\330\004\021\220\021\330\004\010\210\005\210V\2201\220A\330\004\007\200r\210\022\2101\330\010\017\210q\220\005\220Q\330\004""\007\200z\220\026\220q\230\003\2303\230a\330\010\016\210j\230\001\230\021\340\004\010\210\002\210&\220\001\220\023\220F\230\"\230A\330\004\t\210\022\2106\220\021\220#\220V\2302\230Q\330\004\t\210\022\2106\220\021\220\"\220B\220c\230\026\230r\240\021\330\004\t\210\022\2106\220\021\220\"\220B\220c\230\026\230r\240\021\330\004\013\2102\210V\2201\220C\220v\230R\230q\330\004\013\2102\210V\2201\220B\220b\230\003\2306\240\022\2401\330\004\013\2102\210V\2201\220B\220b\230\003\2306\240\022\2401\330\004\010\210\002\210&\220\001\220\023\220F\230\"\230A\330\004\t\210\022\2106\220\021\220\"\220B\220c\230\026\230r\240\021\330\004\t\210\022\2106\220\021\220\"\220B\220c\230\026\230r\240\021\330\004\013\2102\210V\2201\220C\220v\230R\230q\330\004\013\2102\210V\2201\220C\220v\230R\230q\340\004\014\210A\330\004\r\210Q\330\004\r\210Q\330\004\r\210Q\330\004\017\210q\330\004\017\210q\330\004\017\210q\330\004\014\210A\330\004\r\210Q\330\004\r\210Q\330\004\020\220\001\330\004\020\220\001\360\006\000\005\r\210A\210U\220!\330\004\014\210A\210U\220!\330\004\010\210\005\210U\220!\2203\220b\230\002\230!\330\010\020\220\001\220\025\220a\330\004\014\210A\210R\210r\220\025\220a\330\004\014\210A\210R\210r\220\025\220a\340\004\014\210A\210U\220!\330\004\010\210\005\210U\220!\2203\220b\230\002\230!\330\010\020\220\001\220\025\220a\330\004\014\210A\210R\210r\220\025\220a\340\004\010\210\005\210U\220!\2202\220R\220q\330\010\020\220\001\220\025\220a\360\006\000\005\t\210\005\210U\220!\2201\330\010\021\220\027\230\n\240!\2408\2501\330\010\016\210a\210u\220G\2302\230[\250\002\250(\260!\2601\330\010\r\210Q\210e\2207\230\"\230E\240\021\240!\330\004\010\210\005\210U\220!\2202\220R\220q\330\010\016\210a\210u\220K\230r\240\030\250\021\250!\330\004\010\210\005\210U\220!\2202\220R\220q\330\010\016\210a\210u\220K\230r\240\030\250\021\250!\340\t\n\330\010\030\230\001\230\030\240\030\250\030\260\027\270\007\270w\300h\310h\320Va\320ab\340\004\013\2101\200\001\360\006\000'(\330\035%\240Q\330\023\033\2301\330\024\034""\230A\330\027\030\330\023\035\230Q\360\034\000\005\036\230Q\330\004\036\230a\340\004\007\200q\330\010\021\220\021\330\010\022\220!\340\010\021\220\021\330\010\022\220!\360\006\000\005\010\200t\320\013\"\240$\240g\250S\260\004\260D\270\010\300\003\3001\340\010\021\220\030\230\021\230!\330\010\014\210M\230\022\2307\240#\240R\240q\330\014\023\2202\320\025'\240q\250\006\250a\250t\2606\270\022\2709\300H\310B\310a\340\014\023\2202\320\025'\240q\250\006\250a\250t\2606\270\022\2709\300H\310B\310a\360\010\000\005\025\320\024(\250\r\260X\270Q\330\004\007\200~\220R\220r\230\023\230A\330\010\031\230\021\330\010\013\210>\230\022\2301\330\014\035\230Q\340\004\020\220\007\220r\230\021\330\004\007\200z\220\023\220A\330\010\021\220\021\330\010\022\220!\330\010\024\220A\330\004\023\2204\220r\230\021\360\006\000\005\n\210\035\220b\230\001\340\004\010\210\r\220R\220w\230c\240\022\2401\330\010\021\220\030\230\021\230!\330\010\023\2202\320\025'\240q\250\006\250a\250t\2606\270\022\2709\300H\310B\310a\330\010\024\220A\330\010\014\210H\220F\230!\2301\330\010\021\220\022\2206\230\021\230#\230V\2402\240Q\330\010\026\220a\330\010\013\2108\2202\220Q\340\014 \240\007\320';\2701\330\020\021\330\020\036\230a\330\020\"\240!\330\020\030\230\001\330\020\025\220Q\360\006\000\r!\240\001\340\010\013\2107\220\"\220A\330\014\037\230~\250Q\250j\270\005\270Q\330\014 \240\001\340\010\024\220G\2301\330\010\025\220W\230A\330\010\032\230'\240\021\340\r\016\330\014\020\220\005\220U\230!\2301\330\020\021\330\025\037\230s\320\"3\2601\260F\270*\300B\300i\310v\320UV\330\025 \240\002\240!\330\022\024\220A\330\020\033\2301\230E\240\031\250!\2503\250b\260\001\330\010\026\220b\230\007\230q\240\001\330\010\013\210<\220r\230\021\330\021\022\330\020\024\220E\230\025\230a\230q\330\024\037\230q\240\005\240[\260\001\260\023\260B\260a\330\010\017\210q\360\006\000\005\016\210X\220Q\220a\330\004\017\210r\320\021#\2401\240F\250!\2504\250v\260R\260y\300\010\310\002\310!\330\004\020\220\001\330\004\010\210\010\220\006\220a\220q""\330\004\r\210R\210v\220Q\220c\230\026\230r\240\021\330\004\022\220!\340\004\007\200x\210r\220\021\330\010\034\230H\320$8\270\001\330\014\r\330\014\032\230!\330\014\036\230a\330\014\024\220A\330\014\021\220\021\360\006\000\t\035\230A\340\004\007\200w\210b\220\001\330\010\033\230>\250\021\250*\260E\270\021\330\010\034\230A\340\004\020\220\010\230\001\330\004\021\220\030\230\021\330\004\026\220h\230a\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\r\330\021\033\2303\320\036/\250q\260\006\260j\300\002\300)\3106\320QR\330\021\034\230B\230a\330\016\020\220\001\330\014\027\220q\230\005\230Y\240a\240s\250\"\250A\340\004\022\220\"\220G\2301\230A\330\004\007\200|\2202\220Q\330\r\016\330\014\020\220\005\220U\230!\2301\330\020\033\2301\230E\240\033\250A\250S\260\002\260!\340\004\013\2101\320\000-\320-=\270Q\340\0045\260R\3207I\310\021\310#\310V\320SU\320UV\330\004\030\230\006\230f\240A\240Q\330\0045\260R\260v\270Q\270c\300\026\300r\310\021\330\004\037\230q\330\004\037\230q\330\004\032\230!\330\004\031\230\021\330\004\025\220U\230!\2304\230q\240\007\240r\250\021\330\004\026\220d\230\"\230C\230q\240\010\250\002\320*;\2702\270T\300\022\3003\300b\310\001\360\010\000\n\013\330\010\014\210E\220\025\220a\220q\330\014\023\2207\230!\2301\330\014\023\2205\230\001\230\024\230Q\230g\240S\250\005\250R\250q\330\014\023\2201\220E\230\024\230R\230u\240B\240c\250\021\320*;\2702\270Q\340\004\014\210H\220A\320\000\035\230Q\360 \000\005#\240!\330\004&\240a\330\004\035\230]\250!\2509\260F\270(\300!\340\0049\270\022\2706\300\021\300/\320QW\320WY\320YZ\330\004\026\220a\330\004\007\200z\220\023\220H\230B\230a\330\010\013\2106\220\021\330\010\017\210q\330\004\010\210\010\220\003\2206\230\021\330\010\013\2105\220\016\230b\240\t\250\024\320-?\270r\300\021\330\014\r\330\010\013\2105\220\004\220F\230\"\230A\340\014\027\220q\230\005\230T\240\021\330\014\035\230Q\330\014\021\220\021\330\010\035\230Q\330\004\007\200v\210Q\330\004\007\200~\220R\220q\330\010\017\210q\330\004\013\210:\220R\220w\230a\230{""\250\"\250A\200\001\360\014\000&.\250Q\360(\000\005\007\200g\210U\220!\2201\330\0048\270\002\320:L\310A\310X\320U[\320[]\320]^\330\004\"\240!\360\006\000\0053\260\"\260F\270!\2707\300&\310\002\310!\340\004\030\230\014\240I\250Q\330\004 \240\010\250\001\330\004 \240\n\250$\250b\260\001\340\004\016\320\016\037\230s\320\"3\2601\260A\330\004\016\320\016\037\230}\250A\320-@\300\001\330\004\017\210r\220\027\230\n\240!\2404\240r\320)<\270E\300\026\300w\310a\310r\320QX\320X]\320]^\330\004\006\200e\2101\210J\220i\230y\250\004\250A\330\004\025\220X\230T\240\021\330\004\030\230\001\330\004\031\230\021\330\004\n\210#\210R\210q\220\001\220\021\330\010\013\210>\230\021\230#\230S\240\002\240/\260\024\260Q\330\014\021\220\023\220B\220o\240R\240q\330\014\r\330\010\017\210w\220a\220q\330\010\r\210S\220\002\220!\340\0043\2602\260W\270G\3001\330\010\t\330\010\r\210Q\330\010\020\220\001\330\010\n\210!\330\t\020\220\001\220\022\2201\340\004&\240a\330\004%\240Q\330\004\037\230q\330\004\r\210Q\210l\230,\240k\260\031\270!\330\004\013\2101\320\000!\240\021\340\035\036\330\030\031\330\035%\240Q\330\022\023\330\031\032\360\"\000\005'\240l\260!\340\004\035\230Q\330\004\031\230\026\230q\330\004\033\2306\240\021\360\010\000\005\010\200~\220S\230\001\330\010\030\230\001\330\004\007\200y\220\003\2201\330\010\017\210q\340\004\007\320\007\031\230\023\230A\330\010\034\230A\330\t\033\2303\230a\330\010\034\230A\340\004\n\210\"\320\014\036\230a\230s\240&\250\002\250)\2608\2702\270Q\330\004\016\210a\330\004\r\210R\210u\220A\220U\230%\230q\330\004\021\220\021\330\004\020\220\006\220a\330\004\021\220\022\2206\230\021\230*\240B\240c\250\026\250r\260\021\330\004\021\220\021\330\004\025\220R\220v\230Q\230j\250\006\250b\260\001\330\004\017\210q\330\004\026\220m\2402\240R\240q\360\006\000\005\017\210n\230B\230a\330\004\007\200q\330\010\014\210D\220\003\2208\2301\330\010\020\220\003\2201\220D\230\002\230!\340\010\020\220\001\360\006\000\005\n\210\021\210!\360\006\000\n\013\340\010\022\220!\2205\230\001\330\010""\014\210E\220\025\220a\220q\330\014\026\220a\220r\230\022\2305\240\n\250!\2503\250c\260\030\270\032\3001\300A\360\006\000\n\013\330\010\014\210E\220\025\220a\220q\360\006\000\r\031\230\001\330\014\035\230Q\340\014\022\220*\230B\230a\340\020\023\2201\330\024\030\230\016\240a\240q\330\024\027\220r\230\022\2301\330\030\034\230A\330\031\033\2302\230Q\330\030\034\230A\340\024\030\230\001\330\020\023\2202\220R\220q\330\024\030\230\001\330\020\023\2202\220S\230\001\330\024\030\230\001\340\020\030\230\t\240\021\240!\330\020\023\2201\330\024\"\240!\330\024 \240\001\340\020\026\220f\230B\230a\330\020\023\2204\220s\230!\340\024&\240j\260\001\260\025\260b\270\n\300!\3001\360\006\000\025\034\2301\330\024'\240z\260\021\260+\270R\270z\310\021\310(\320RT\320T^\320^_\320_`\360\006\000\021\036\230Q\330\014\024\220A\220U\230/\250\023\250H\260A\360\010\000\005\022\220\030\230\022\2309\240A\320%5\260Q\330\004\007\200q\330\010\016\210a\320\017M\310Q\330\004\013\2101\200\001\360\022\000!\"\330\026\027\360\016\000\005\026\220W\230A\340\004\007\320\007\031\230\023\230A\330\010\030\230\001\340\010\030\230\n\240!\2401\330\004\007\200~\220S\230\001\330\010\030\230\001\340\004\007\200{\220!\2203\220c\230\022\2301\330\010 \240\013\2501\250C\250s\260\"\260K\270q\300\003\3001\340\010 \240\001\360\006\000\005\021\220\005\220R\220q\330\004\020\220\005\220R\220q\330\004\020\220\005\220Q\220e\2301\230K\240q\250\003\2503\250b\260\013\2701\270C\270t\3001\330\004\026\220k\240\021\240#\240S\250\002\250!\330\004\020\220\007\220q\230\003\2301\330\004\026\220g\230Q\230c\240\021\330\004\022\220'\230\021\230#\230Q\360\006\000\005\024\2207\230!\330\004\007\320\007\027\220r\230\021\330\010\032\230!\330\t\031\230\022\2301\230A\330\010\032\230!\2301\340\004\007\200v\210R\210q\330\010\021\220\025\220a\220u\230A\230V\2401\240E\250\021\250&\260\002\260,\270b\300\n\310!\330\010\014\210G\2201\220C\220r\230\021\230'\240\023\240F\250%\250w\260a\260s\270\"\270A\270W\300C\300q\330\014\023\2201\220C\220v\230Q\330\014\023""\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\340\014\036\230e\2401\240G\2501\250C\250r\260\021\260(\270!\330\014\036\230e\2401\240G\2501\250C\250r\260\021\260(\270!\330\014\032\320\032*\250\"\250E\260\021\260%\260q\270\017\300r\320IZ\320Z[\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\010\024\220F\230!\340\t\017\210s\220.\240\004\240A\330\010\021\220\025\220a\220u\230A\230V\2401\240E\250\021\250&\260\002\260/\300\022\300:\310Q\330\010\014\210G\2201\220C\220s\230\"\230G\2403\240f\250E\260\027\270\001\270\023\270C\270r\300\027\310\003\3101\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\360\006\000\r\037\230e\2401\240G\2501\250C\250s\260\"\260H\270A\330\014\036\230e\2401\240G\2501\250C\250s\260\"\260H\270A\330\014\032\320\032*\250\"\250E\260\021\260%\260q\270\017\300r\320IZ\320Z[\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\020\220\017\230s\240%\240r\250\025\250e\3203C\3003\300j\320PR\320RS\330\020\034\230F\240!\340\004\013\2109\220A\200\001\360\024\000$%\330#$\330\027\030\330\032\033\330\032\033\330 !\330\036\037\330\037 \330\034\035\330\027\030\360\n\000\005\032\230\031\240$\240b\250\t\260\021\340\004\007\200\177\220c\230\022\2303\230f\240C\240q\330\010\027\220q\340\010\027\220~\240V\2502\250_\270B\270c\300\023\300A\340\0048\270\002\270&\300\001\300\036\310v\320UW\320WX\330\004%\240Q\340\004\007\200}\220C\220q\330\010\017\210q\340\004\035\230]\250!\2509\260F\270(\300!\340\004\033\2301\330\004\031\230\021\330\004\032\230!\340\004 \240\r\250R\250q\360\016\000\005\034\2301\330\004\027\220u\230A\340\004\007\200x\210r\220\021\330\010\022\220!\340\004\007\320\007\033\2302\230R\230t\240>\260\023\260B\260d\270)\3003\300a\330\010\023\320\023%\240Q\240a\330\026\027\330\030\031\340""\004\005\330\r\016\330\014\020\220\010\230\003\2306\240\021\240,\250i\260q\330\020\027\220z\240\024\240Q\330\020\023\2205\230\002\230/\250\023\250D\3200A\300\022\3001\330\024\025\340\020!\240\025\240b\250\004\250C\250q\330\020\034\230I\240T\250\021\330\020\032\230)\2404\240q\340\020\023\220>\240\022\2401\330\024\027\220u\230B\230b\240\003\2401\330\030\031\340\024\027\220u\230B\230a\330\030\031\330\024\030\230\005\230R\230s\240#\240T\320)<\270C\270t\3001\330\030\031\330\024\033\2309\240D\250\001\330\024\034\230H\240E\250\023\250G\2601\260A\330\024\027\220v\230S\240\002\240#\240V\2502\250Q\330\030\031\330\024\027\220u\230C\230q\330\030#\2401\330\030!\240\032\2502\250Q\340\030!\240\021\330\030#\2407\250\"\250A\330\024\027\320\027,\250C\250r\260\023\3204I\310\023\310A\330\030\033\2301\330\034(\250\001\330\034&\240a\340\034(\250\001\330\034&\240a\360\006\000\025\030\220q\330\030$\240J\250b\260\001\340\030%\240X\250R\250s\260\"\260A\340\024\027\220y\240\002\240!\340\030\033\2301\330\034'\240q\330\034%\240Z\250r\260\021\340\034%\240Z\250r\260\021\330\034'\240w\250b\260\001\330\031.\250c\260\022\2603\3206K\3103\310a\330\030\033\2301\330\034'\240z\260\022\2601\330\034%\240X\250R\250q\340\034'\240z\260\022\2601\330\034%\240X\250R\250q\340\030#\2401\330\030!\240\021\340\020\023\2207\230#\230X\240S\250\t\260\023\260A\330\024\025\330\020\023\2209\230B\230a\330\024\037\230q\330\020\023\2207\230\"\230A\330\024\035\230Q\340\020\023\2201\330\024\033\2309\240B\240h\250c\260\021\330\024\037\230~\250T\260\022\2609\270C\270q\330\024\027\220r\230\023\230L\250\001\330\030\036\230a\230}\250O\2701\360\006\000\025\036\230^\2509\260B\260i\270s\300!\330\024\035\230_\250G\2602\260S\270\002\270)\3003\300a\330\024\027\220w\230b\240\001\330\030!\240\021\330\024\027\220w\230b\240\001\330\030!\240\021\330\024\027\220w\230b\240\n\250#\250W\260B\260b\270\003\2707\300\"\300A\330\030\031\340\024\027\220q\330\030\034\230F\240%\240q\250\010\260\007\260r\270\021\330\034'\240x\250s\260)\2703\270a\270q\330""\034%\240Y\250b\260\001\330\034\037\230w\240b\250\001\330 )\250\021\340\034+\250<\260y\300\002\300.\320PQ\330\034)\250\032\2607\270\"\270L\310\001\330\034&\240k\260\022\2601\330\034\037\230x\240r\250\021\330 &\240a\240x\250\177\270h\300b\320HX\320X_\320_a\320ab\340\030\034\230F\240%\240q\250\010\260\007\260r\270\021\330\034\"\240!\2407\250/\270\021\360\010\000\t\014\2106\220\021\340\004\013\2101\320\000 \240\001\340\030\031\330\034\035\330\032\033\330\022\023\330\026\027\330\025\026\330\035\036\330\024\025\330\026\027\330\025\026\360\n\000\005\027\220k\240\021\240!\360>\000\005#\240!\330\004!\240\030\250\021\330\004&\240i\250q\330\004 \240\010\250\001\330\004(\250\t\260\021\360>\000\005\024\2201\220K\230q\330\004\031\230\025\230a\330\004\022\220\"\220J\230a\330\004\007\200|\2203\220a\330\010\023\2201\340\010\023\2205\230\001\330\010\013\2109\220B\220a\330\014\027\220q\340\004\007\200{\220\"\220A\330\010\035\230]\250#\250Y\260c\270\024\270Q\340\004\n\210-\220q\230\t\240\026\240x\250q\330\004\005\330\010\022\220#\220Q\330\010\022\220#\220Q\340\010\013\2108\2203\220e\2303\230c\240\021\240)\2503\250a\330\014\023\2209\230A\340\010\025\220R\220x\230q\240\t\250\026\250r\260\021\330\010\017\210u\220C\220q\230\t\240\023\240G\2501\330\010\030\230\002\230-\240q\250\014\260A\260U\270!\2701\270A\330\010\030\230\r\240Q\240b\250\010\260\001\260\032\2701\270A\330\010\014\210M\230\021\330\014\025\220W\230A\230Q\330\014\020\220\013\2303\230f\240A\240Q\330\020\033\2307\240!\330\020\024\220I\230R\320\037/\250s\260!\330\024\025\330\020\023\2204\220q\330\024\030\230\t\240\022\2403\240c\250\021\330\030&\240f\250A\330\020\023\320\023(\250\002\250!\330\024%\240W\250A\330\024,\250A\340\024\025\340\010\013\320\013 \240\003\2401\330\014\023\2209\230A\330\010\031\230\030\240\021\330\010\030\230\n\240.\260\002\260!\330\010\013\210>\230\022\2301\330\014\034\230A\330\010\013\210>\230\022\2301\330\014\034\230A\340\010\013\2101\340\014#\2401\240G\2501\340\014\020\220\r\230Q\330\020\023\320\023&\240c""\250\021\330\024\025\330\020\031\230\027\240\001\240\021\340\020\024\220K\230s\240&\250\001\250\021\330\024\027\320\027*\250#\250Q\330\030\031\340\024\037\230w\240a\330\024\030\230\t\240\022\320#3\2603\260b\270\004\270I\300R\300s\310#\310Q\340\030\031\360\010\000\025\031\230\t\240\022\2404\240s\250!\330\030\031\330\024\033\2309\240G\2501\330\024\027\220u\230B\230a\330\030*\250(\260!\330\030.\250a\330\031\036\230b\240\001\330\030*\250)\2601\260A\330\030.\250a\340\014\017\320\017\"\240\"\240A\330\020\027\220z\240\021\340\014\036\230h\240a\340\014\017\210\177\230c\240\036\250t\260?\300#\300Q\330\020\027\220z\240\037\260\002\260!\340\020\027\220z\240\021\340\010\023\2201\330\010\024\220J\230c\240\021\340\010\016\210b\220\006\220a\220{\240&\250\002\250*\260F\270!\330\010\016\210b\220\006\220a\220{\240&\250\002\250*\260F\270!\330\010\022\220\"\220F\230!\2309\240A\240S\250\006\250b\260\n\270&\300\001\330\010\022\220\"\220F\230!\2309\240A\240S\250\006\250b\260\n\270&\300\001\340\010\022\220!\330\010\022\220!\330\010\026\220a\330\010\026\220a\340\010\014\210M\230\021\330\014\025\220W\230A\230Q\330\014\030\230\t\240\032\2501\250A\330\014\030\230\001\340\014\017\210z\230\022\230:\240S\250\n\260#\260Q\330\020\021\340\014\017\210~\230R\230q\330\020 \240\001\360\006\000\r\034\230:\240S\250\001\330\014\017\210}\230C\230q\330\020\037\230q\330\014\030\230\005\230Q\340\014\025\220R\220v\230Q\230k\250\026\250r\260\021\330\014\025\220R\220v\230Q\230k\250\026\250r\260\021\340\014\020\220\013\2303\230f\240A\240Q\330\020\033\2307\240!\330\020\024\220I\230R\320\037/\250s\260!\330\024\025\330\020\024\220F\230'\320!2\260#\260Q\330\020\023\2202\220S\230\004\230A\330\024\032\230!\2306\240\021\360\n\000\r\027\220f\230J\240c\250\021\330\014\017\210x\220r\230\021\330\020\032\230!\330\014\020\220\010\230\002\230#\230S\240\001\330\020\033\2301\330\014\022\220&\230\007\230~\250Q\250h\260e\2709\300E\310\021\360\006\000\r\025\220I\230V\2402\240_\260A\330\014\032\230\"\230M\250\021\250(\260!\2606\270""\021\270!\2701\330\014\033\2306\240\021\240!\330\014\030\230\013\2401\240B\240h\250a\250}\270D\300\001\360\010\000\r\024\2202\220V\2301\230K\240v\250R\250q\330\014\033\2301\330\014\020\220\005\220U\230!\2301\330\020\031\230\025\230i\240q\250\001\330\020\033\2307\240#\240X\250S\260\001\330\020\031\230\031\240\"\240A\330\020\023\2209\230B\230a\330\024\037\230q\330\024\035\230[\250\010\260\002\260/\300\021\330\020\023\2207\230\"\230A\330\024\035\230Q\330\024\037\230w\240b\250\013\2608\2703\270o\310Q\330\020\024\220E\230\025\230a\230z\250\021\330\024\027\220t\2301\230C\230s\240!\330\030\034\230A\230U\240!\330\030$\240G\2501\250A\340\014\017\210s\220!\220>\240\022\2401\330\020\023\2208\2301\230A\340\014\020\220\n\230!\340\020\037\230v\240Q\320&7\260s\320:K\3103\310c\320QS\320ST\330\020\023\220=\240\002\240!\330\024#\2401\330\020\035\230]\250\"\250A\330\020\023\220;\230b\240\001\330\024!\240\021\330\024#\240;\250b\260\001\330\024\027\220}\240B\240a\330\030\031\360\010\000\021\024\2205\230\001\230\021\330\020\027\220u\230A\230Q\330\020\023\2205\230\001\230\021\330\020\027\220u\230A\230Q\330\020\034\230A\340\020\024\220K\230s\240&\250\001\250\030\260\036\270q\330\024\037\230w\240a\330\024\030\230\t\240\022\320#3\2603\260a\330\030\031\330\024 \240\t\250\027\260\001\330\024\036\230i\240w\250a\330\024\027\220z\240\022\240=\260\003\2608\2702\270Q\330\030\031\340\024\034\230J\240b\250\001\330\024\034\230H\240B\240a\330\024\035\230Y\240b\250\001\330\024\027\220w\230c\240\021\360\006\000\031$\2401\240E\250\032\2601\330\030#\2401\240E\250\032\2601\360\010\000\031$\2401\240E\250\032\2601\330\030#\2401\240E\250\032\2601\340\020\036\320\0360\260\016\270b\320@Q\320Q[\320[]\320]^\330\020\036\230e\2401\330\020\036\230e\2401\330\020\023\220<\230r\240\021\330\024\025\330\020\037\230u\240A\330\020\023\220=\240\002\240!\330\024#\2401\360\010\000\026\027\330\024!\240\021\330\024\030\230\007\230y\250\001\330\030&\240k\260\021\260!\330\030\037\230q\240\005\240Q\340\024!\240\021\330\024\030\230""\007\230y\250\001\330\030&\240k\260\021\260!\330\030\037\230q\240\005\240Q\340\024\035\230Q\330\024\035\230Q\330\024\030\230\007\230y\250\001\330\030\"\240'\250\021\250!\330\030\"\240'\250\021\250!\340\024\036\230g\240R\240q\330\024\036\230g\240R\240q\340\024\030\230\007\230y\250\001\330\030\037\230q\240\005\240W\250A\250S\260\002\260!\330\030\037\230q\240\005\240W\250A\250S\260\002\260!\340\024 \240\001\330\024\037\230q\330\024\030\230\t\320!7\260\177\300a\330\030 \240\001\330\030#\240:\250R\250q\330\030\034\230G\2409\250A\330\034%\240W\250A\250S\260\002\260'\270\021\270\"\270B\270a\330\030\033\2306\240\022\2401\330\034(\250\001\330\034&\240a\340\020\023\2208\2302\230R\230t\240:\250S\260\001\330\024\034\230G\2401\240A\330\020\023\2203\220a\220z\240\023\240A\330\024\025\360\006\000\t\014\2106\220\021\340\004\007\200s\210!\210:\220R\220q\330\010\017\210q\340\004\022\220\"\220H\230A\230Z\240v\250R\250q\330\004\n\210#\210Q\210b\220\007\220q\230\r\240R\240~\260R\260q\330\004\007\200t\2102\210Q\330\010\016\210e\2201\330\t\r\210R\210q\330\010\016\210e\2201\330\004\013\2109\220A\200\001\360\010\000\024\025\330\034\035\340\004!\240\026\240v\250Q\250a\360\n\000\005 \230q\330\004#\2401\360&\000\005\016\210R\210v\220Q\220m\2406\250\022\2501\340\004\007\200|\2202\220Q\330\010\026\220e\2301\340\004\007\200|\2202\220Q\330\010\016\210f\220A\330\010\017\210q\340\004\027\220{\240\"\240A\330\004\025\220]\240\"\240A\330\004\026\220b\230\006\230b\240\016\250b\260\003\2606\270\022\2701\340\004\t\210\021\330\004\013\2101\330\004\017\210q\330\004\014\210A\330\004\r\210Q\330\004\017\210q\360\006\000\005\t\320\010\030\230\005\230Q\230a\330\010\025\220Z\230q\240\001\330\010\020\220\001\330\010\023\220<\230q\240\001\330\010\023\2205\230\010\240\001\240\021\330\010\013\210=\230\003\230<\240r\250\021\330\014\033\230<\240q\250\n\260\"\260M\300\022\3001\340\004\010\320\010\030\230\005\230Q\230l\250\"\250A\330\010\026\220j\240\001\240\035\250b\260\003\2602\260Z\270q\300\001\330\010\022\220!\330""\010\024\220L\240\002\240!\360\006\000\005\t\210\016\220e\2301\230N\250\"\250A\330\010\013\2108\2203\220a\330\014\033\2301\230L\250\017\260q\340\014\033\2309\240L\260\002\260!\330\014\034\230J\240a\240q\330\014\033\230:\240R\240{\260\"\260L\300\002\300!\360\010\000\r\027\220e\2302\230Q\330\014\026\220e\2302\230Q\360\006\000\r\025\220H\230B\230a\330\014\025\220X\230R\230q\330\014\031\230\027\240\003\240<\250q\260\017\270s\300,\310a\310u\320TU\320UV\330\014\031\230\027\240\003\240=\260\001\3201A\300\023\300L\320PQ\320QW\320WX\320XY\330\014\017\210z\230\022\2301\330\020\034\230A\330\014\017\210z\230\022\2301\330\020\034\230A\360\006\000\r\027\220k\240\023\240F\250!\2509\260C\260u\270A\270Y\300c\310\034\320UV\320V[\320[\\\320\\]\330\014\022\220&\230\002\230*\240B\240a\330\014\017\210z\230\022\2301\340\020\031\230\027\240\003\240:\250S\260\016\270a\270q\340\020\030\230\001\340\014\017\210v\220R\220q\330\020\030\230\001\360\006\000\022\030\220r\230\021\330\020\030\230\001\330\014\022\220*\230D\240\005\240Q\240f\250A\250[\270\003\2703\270b\300\005\300Q\300a\330\014\017\210t\2202\220Q\330\020\026\220a\360\006\000\r\037\230i\240|\2602\260Q\330\014\033\2301\230L\320(8\270\003\2701\270A\360\006\000\r\032\230\031\240,\250b\260\001\340\014\025\220Y\230c\240\027\250\002\250(\260\"\260A\330\014\017\210w\220b\230\001\330\020\031\230\021\330\014\017\210{\230\"\230A\330\020\031\230\027\240\003\240;\250b\260\001\340\020\031\230\021\340\014\033\2301\230N\250!\330\021\031\230\037\250\001\250\021\330\014\017\210w\220b\230\017\240q\250\001\330\020\037\230q\240\016\250a\330\024#\2401\240L\260\002\260#\260R\260w\270b\300\017\310q\320PQ\340\010\013\210;\220b\230\001\340\014\024\220D\230\001\230\032\2401\240M\260\023\260J\270b\300\013\3102\310Q\330\014\025\220W\230C\230r\240\032\2501\250K\260q\270\n\300!\300=\320PS\320S]\320]_\320_j\320jl\320ly\320yz\360\000\000{\001E\002\360\000\000E\002G\002\360\000\000G\002R\002\360\000\000R\002T\002\360\000\000T\002U\002\330\014\031\230\033\240C\240r\250""\032\2601\260K\270q\300\n\310\"\310K\320WY\320Y^\320^a\320ak\320km\320mx\320xz\360\000\000{\001G\002\360\000\000G\002I\002\360\000\000I\002L\002\360\000\000L\002M\002\360\000\000M\002W\002\360\000\000W\002Y\002\360\000\000Y\002d\002\360\000\000d\002f\002\360\000\000f\002g\002\330\014\026\220h\230c\240\021\240%\240x\250q\260\014\270B\270e\3008\3102\310[\320XZ\320Z[\330\014\031\230\032\2401\240K\250r\260\023\260B\260j\300\001\300\021\330\014\032\230*\240A\240[\260\002\260-\270r\300\032\3101\310K\320WY\320Ye\320eg\320gh\330\014\027\220|\2402\240Q\330\014\031\230\034\240R\240}\260C\260{\300\"\300A\340\004\010\210\017\220u\230A\230Q\330\010\025\220\\\240\022\240<\250r\260\021\330\010\013\210;\220b\230\001\340\014\022\220!\220?\240/\260\021\330\014\r\330\010\013\210;\220b\230\001\330\014\031\230\021\330\010\016\210a\210\177\230o\250Q\250a\340\004\013\2101\200\001\360\014\000\017\020\330\032\033\330\034\035\330\024\025\330\026\027\330\024\025\330\027\030\340\004)\250\021\330\004*\250!\330\004)\250\021\330\004)\250\021\330\004\030\230\007\230v\240Q\240a\330\004\030\230\007\230v\240Q\240a\340\004 \240\001\340\004'\240q\330\004%\240Q\330\004%\240Q\360\026\000\005M\001\310B\310e\320ST\320T`\320`f\320fh\320hi\330\004@\300\002\300&\310\001\310\034\320U[\320[]\320]^\330\004E\300R\300v\310Q\310l\320Z`\320`b\320bc\330\0043\2601\330\004'\240q\330\004,\250A\330\0047\260r\270\026\270q\300\014\310F\320RT\320TU\330\0049\270\022\2706\300\021\300,\310f\320TV\320VW\330\004$\240A\330\004&\240a\360\006\000\005\026\220Q\330\004\020\220\014\230L\250\001\250\026\250r\260\022\2607\270!\330\004\025\220Q\330\004\010\210\005\210U\220!\2201\330\010\024\220L\240\014\250A\250Q\330\010\013\210:\220S\230\001\330\014\017\210\177\230b\240\001\330\020!\240\021\330\014\035\230Q\330\014\030\230\001\330\010\032\230!\330\004\007\200\177\220b\230\001\330\010\031\230\021\330\004\007\200\177\220c\230\021\330\010\031\230\021\340\004C\3002\300V\3101\320L\\\320\\b\320bd\320de\330\004!\240\021\340\004\020\220\014""\230L\250\001\250\026\250r\260\022\2607\270!\360\n\000\005\030\220q\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\030\230\014\240L\260\001\260\021\330\014\017\210z\230\023\230A\330\020\023\320\023$\240B\240b\250\004\250J\260c\270\022\2704\270z\310\022\3101\330\024\036\320\0361\260\021\260!\260:\270Q\270d\320BT\320T[\320[\\\340\024\"\240!\330\024\030\230\004\230N\250%\250|\2702\270Q\330\030&\240a\330\024\027\220|\2402\240Q\330\030&\240a\330\031%\240R\240q\330\030&\240a\330\024(\250\001\250\035\260a\330\024\036\230a\230}\250M\270\021\330\020#\2401\330\020\034\230A\360\006\000\r\034\2301\330\014\020\220\005\220U\230!\2301\330\020\033\2308\2407\250!\2503\250a\330\020\034\230H\240H\250A\250S\260\001\340\020 \240\n\250#\250X\260\\\300\021\300$\300c\310\030\320QR\330\020\023\220>\240\023\240H\250A\330\024$\240H\250A\330\020\031\230\024\230R\230q\330\020&\240h\250a\250t\2601\260A\330\020\030\320\030+\2501\250A\330\020\023\2206\230\023\230H\240A\330\024\034\230H\240A\330\020\037\230}\250B\250a\360\006\000\r\020\210z\230\023\230B\230d\240*\250B\250a\330\020\036\230h\240m\2603\260h\270a\330\020\023\320\023$\240C\240q\330\031\032\330\030\036\230l\250!\2501\330\020\032\230!\320\033/\250q\330\020$\240A\330\020\035\230Q\230n\250O\2701\340\010\013\320\013\034\230B\230b\240\004\240J\250c\260\022\2604\260z\300\022\3001\330\014\026\320\026)\250\021\250!\250:\260Q\260d\320:L\310G\320ST\330\014\032\230!\330\014\020\220\004\220N\240%\240|\2602\260Q\330\020\036\230a\330\014\017\210|\2302\230Q\330\020\036\230a\330\021\035\230R\230q\330\020\036\230a\330\014 \240\001\240\035\250a\330\014\026\220a\220}\240M\260\021\340\004\007\200{\220\"\220B\220d\230,\240b\250\001\340\010\013\210<\220r\230\021\330\014\032\230!\340\r\016\340\014\020\220\005\220U\230!\2301\330\020\036\320\0362\260!\2601\330\020\024\220D\230\016\240e\250<\260r\270\021\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\025!\240\022\2401\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\020\034""\230A\230U\240#\240Q\240h\250a\340\014\021\220\021\220/\240\021\240,\250a\250t\2609\270A\270^\3101\310D\320P\\\320\\]\340\014\020\220\005\220U\230!\2301\340\020\025\220S\230\001\230\036\240q\250\001\330\020\036\230g\240Q\330\020\024\220D\230\016\240e\250<\260r\270\021\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\025!\240\022\2401\330\024\"\240!\330\020$\240A\240U\250!\340\004\014\320\014!\240\033\250A\320\000 \240\001\360(\000\005\034\230<\240w\250l\270#\270T\300\021\330\004\034\230A\330\004\035\230]\250!\2509\260F\270(\300!\340\004\010\210\010\220\003\2206\230\021\230'\240\034\250V\2608\2704\270q\330\010\013\2105\220\004\220F\230\"\230A\330\014\026\220d\230!\330\004\007\200v\210Q\330\004\013\2101O";
+    #else /* compression: none (22412 bytes) */
+const char* const bytes = ": All dimensions preceding dimension %d must be indexed and not slicedBuffer view does not expose stridesCan only create a buffer that is contiguous in memory.Cannot assign to read-only memoryviewCannot create writable memory view from read-only memoryviewCannot index with type 'Cannot transpose memoryview with indirect dimensionsDimension %d is not directEmpty shape tuple for cython.arrayIndex out of bounds (axis %d)Indirect dimensions not supportedInvalid mode, expected 'c' or 'fortran', got Invalid shape in axis <MemoryView of Note that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.Out of bounds on buffer access (axis Overflow: is intervalToBlockMap correct?Step may not be zero (axis %d)Unable to convert item to object\t?.>')add_note and  at 0xcollections.abc<contiguous and direct><contiguous and indirect>disableenablefitMask length mismatchgc (got got differing extents in dimension isenableditemsize <= 0 for cython.arrayno default __reduce__ due to non-trivial __cinit__numpy._core.multiarray failed to importnumpy._core.umath failed to import object>src/consenrich/cconsenrich.pyx<strided and direct><strided and direct or indirect><strided and indirect>unable to allocate array data.unable to allocate shape and strides.AASCIICEllipsis__Pyx_PyDict_NextRefSequenceView.MemoryViewabcallocate_bufferallowDeflatealphaanyargpartitionargsortarrayasarrayascontiguousarrayastypeasyncio.coroutinesbamFilebasebedFileblockCountblockGradCountblockGradLogScaleblockLengthblockSizebootBlockSizeccDenseGlobalBaselinecEMAcPAVAcSFcSparseMaxcTransformcbackwardPasscbedMaskcenterGeoMeancforwardPasscgetFirstChromReadcgetFragmentLengthcgetLastChromReadcgetReadLengthchoicechromLengthchromMatchromosomechunkSize__class____class_getitem__cline_in_tracebackclipclipSmallclocalBaselineclosecmeanVarPairscoefficientsHconsenrich.cconsenrichcontigcopycountcovarClipcpu_countcreadBamSe""gmentcrolling_AR1_IVarcsampleBlockStatscscaleStateCovardStatdStatAlphadStatAlphaLowMultdStatPCdStatddefault_rngdenseMeanQuantile__dict__disableLocalBackgrounddtypedtype_is_objectearlyExiteigFlooremptyencodeend__enter__enumerateepserrorexcludeIdxMaskexcludeMask__exit__expectedBlockSizeextendBPeyefallBackfetchfillfitMaskInflagflagsfloat32float64flushformatfortranfull__func__geometric__getstate__idignoreTLEN__import__in_indexinferFragmentLengthinflatedQint32int64intervalSizeBPintervalToBlockMapintervalsintp_is_coroutineitemsitemsizeiterslagSteplambda_F32lambda_F64lengths__main__mappedmapping_qualitymatrixDatamatrixFmatrixMuncmatrixPmatrixQmatrixQCopymaxmaxBetamaxInsertSizemaxIterationsmaxMultmaxQmaximummedianmedian_filtermemviewminCountminMappingQualityminQminReadsminTemplateLengthminimummode__module__monoFuncname__name__ndimndimagenearest__new__next_reference_idnonzeroFracnpnumBootsnumpynumpy.randomobjoffsetoneReadPerBinonesopenorderosoutppNoiseForwardpackpadpairedEndModepairsRegLambdapoppostFitResidualspostWeightprogressBarprogressIterprojectStateDuringFilteringprojectToBoxprotectCovariance22pushForward__pyx_checksum__pyx_state__pyx_type__pyx_unpickle_Enum__pyx_vtable____qualname__quantilequery_lengthrrandSeedrandomravelrbreadLength__reduce____reduce_cython____reduce_ex__reference_endreference_idreference_startreferencesregisterreplacereshapereturnNLLrollingChunkSizerseedsamFlagExcludesamThreadsscalescaleFactorLow_scaleFactorUpper_scipyseed__set_name__setdefault__setstate____setstate_cython__shapeshiftForwardStrand53shiftReverseStrand53shufflesizesmoothAlphasparseMapsplineBaselineCrossfit2_F32splineBaselineCrossfit2_F64splineBaselineMasked_F32splineBaselineMasked_F64sqResClipstartstateCovarForwardstateCovarInitstateCovarSmoothedstateForwardstateInitstateLowerBoundstateSmoothedstateUpperBoundstateVar0stepstepAdjustmentstopstoreNLLInDstripstructtemplate_length__test__threadstopFracuint32uint8unpackupdateupdateProcessNoiseCovarianceuseInnovationVaruseSampleVarvalsvaluev""aluesvectorDvectorXverbosew_globalw_localweightByOverlapxyInzeroPenaltyzeroThreshzeros\200\001\330\0041\260\022\3203E\300Q\300c\310\026\310r\320QR\330\004\030\230\002\230&\240\001\240\021\330\0042\260\"\260F\270!\2703\270f\300B\300a\330\004\t\210\021\210/\230\022\2307\240)\2503\250g\260S\270\001\330\004\013\2101\200\001\360*\000\005\034\2301\330\004\031\230\021\330\004\024\220D\230\001\230\031\240!\360\006\000\005\006\330\010\014\210H\220A\330\014\023\2204\220v\230Q\330\014\017\210t\2205\230\003\2304\230q\240\003\2403\240a\330\020\021\330\014\023\2204\220v\230Q\230a\330\014\017\210t\2205\230\003\2303\230a\230v\240R\240q\330\020\021\330\014\017\210t\2201\220C\220s\230!\330\020\021\330\014\026\220g\230Q\230c\240\021\240$\240a\240q\330\014\024\220G\2301\230C\230q\240\004\240A\240Q\340\010\t\210\026\210q\330\004#\2409\250A\340\0041\260\022\2606\270\021\270.\310\006\310b\320PQ\330\004\007\200t\2101\330\010\017\210q\330\0044\260B\260h\270a\270|\3106\320QS\320ST\330\0042\260\"\260H\270A\270Z\300v\310R\310q\330\004&\240a\330\004$\240A\330\004#\2401\330\004\"\240!\360\014\000\005\031\230\006\230a\330\004\007\200v\210V\2202\220Q\330\010\020\220\001\220\032\2301\230A\340\010\020\220\013\2301\340\004\007\200t\2106\220\022\2201\330\010\020\220\001\220\030\230\021\230!\340\010\020\220\013\2301\340\004\007\200}\220B\220a\330\010\021\220\021\220'\230\021\230!\330\010\021\220\021\220'\230\021\230!\340\010\021\220\033\230A\330\010\021\220\032\2301\340\t\n\330\010\013\210=\230\002\230\"\230D\240\002\240\"\240A\330\014\033\2301\230H\240N\260'\270\027\300\003\3001\330\004\013\2101\200\001\360\024\000\005\014\2102\320\r\037\230q\240\005\240V\2502\250Q\330\004\010\210\004\210F\220!\2201\330\004\007\200r\210\022\2101\330\010\017\210t\2205\230\001\340\004\017\210r\220\026\220q\230\003\2306\240\022\2401\330\004\016\210b\220\006\220a\220s\230&\240\002\240!\330\004\010\210\005\210U\220!\2201\330\010\020\220\001\220\025\220f\230B\230b\240\003\2403\240g\250Q\330\010\017\210q\220\005\220V\2302""\230R\230s\240#\240W\250A\360\006\000\005\020\320\017'\240q\250\006\250j\270\001\330\004\016\320\016&\240a\240v\250Y\260a\340\004\013\2102\210V\2201\220C\220v\230R\230q\330\004\010\210\005\210U\220!\2201\330\010\014\210A\210U\220$\220c\230\030\240\021\240#\240R\240w\250a\250q\330\004\013\2101\320\0004\260A\360\020\000\005\013\210-\220q\360\006\000\005\010\200s\210'\220\023\220B\220a\330\010\022\220)\2303\230a\330\r\016\330\014\021\220\027\230\001\230\021\330\014\021\220\027\230\001\230\021\330\014\021\220\023\220B\220g\230Q\230c\240\022\2407\250!\2501\340\014\017\210s\220#\220Q\330\020\023\2203\220b\230\n\240%\240q\330\020\023\2203\220b\230\n\240%\240q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\330\020\027\220q\230\005\230Q\340\020\030\230\003\2302\230Q\330\020\026\220d\230!\2304\230r\240\023\240B\240c\250\022\2503\250b\260\004\260C\260r\270\021\270!\330\020\027\220y\240\006\240b\250\001\250\021\250$\250a\250q\330\020\027\220y\240\006\240b\250\001\250\021\250$\250a\250q\340\020\023\2205\230\002\230*\240G\2501\330\020\023\2205\230\002\230*\240G\2501\340\020\023\2204\220q\230\005\230R\230t\2402\240T\250\021\250%\250r\260\021\330\024+\2505\260\002\260!\330\024,\250A\340\024+\2501\330\024,\250E\260\022\2601\340\020\023\320\023(\250\003\2504\250t\3203I\310\023\310A\330\024+\2508\2601\330\024,\250H\260A\340\020\027\220t\2302\230T\240\022\320#7\260q\3208N\310c\320Qf\320fg\320gh\330\020(\250\001\330\020)\250\021\340\020&\320&:\270!\2701\330\020'\320'<\270A\270Q\330\020\035\320\0351\260\021\260!\330\020\026\220e\2302\230Q\360\n\000\021\030\220q\230\005\230U\240\"\240C\240q\250\001\330\020\027\220q\230\005\230U\240\"\240C\240q\250\001\330\020\027\220q\230\005\230S\240\001\240\021\330\020\027\220q\230\005\230W\240A\240Q\330\010\017\210q\360\006\000\005\010\200s\210'\220\023\220B\220a\330\010\022\220(\230#\230Q\330\r\016\330\014\021\220\030\230\027\240\001\240\021\330\014\021\220\030\230\027\240\001\240\021\330\014\021\220\023\220C""\220x\230w\240a\240t\2503\250h\260g\270Q\270a\340\014\017\210s\220#\220Q\330\020\023\2203\220b\230\n\240%\240q\330\020\023\2203\220b\230\n\240%\240q\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\330\020\027\220q\230\005\230W\240A\340\020\034\230H\240C\240r\250\021\330\020\032\230(\240$\240a\240t\2502\250S\260\002\260#\260R\260r\270\021\270$\270c\300\022\3001\300A\330\020\033\2309\240J\250b\260\001\260\021\260)\2702\270Q\330\020\033\2308\240:\250R\250q\260\001\260\031\270\"\270A\340\020\023\2209\230B\230j\250\013\2601\330\020\023\2209\230B\230j\250\013\2601\340\020\023\2204\220q\230\t\240\022\2404\240r\250\024\250Q\250i\260r\270\021\330\024+\2509\260B\260a\330\024,\250A\340\024+\2501\330\024,\250I\260R\260q\340\020\023\320\023(\250\003\2504\250t\3203I\310\023\310A\330\024+\2501\330\024,\250A\340\020\027\220t\2302\230T\240\021\320\"6\260a\3207L\310B\320Nc\320cd\320de\330\020(\250\001\330\020)\250\021\340\020%\320%9\270\021\270!\330\020&\320&;\2701\270A\330\020\035\320\0351\260\021\260!\330\020\032\230)\2402\240Q\340\020\027\220q\230\005\230X\240Y\250b\260\007\260q\270\001\330\020\027\220q\230\005\230X\240Y\250b\260\007\260q\270\001\330\020\027\220q\230\005\230X\240W\250A\250Q\330\020\027\220q\230\005\230W\240A\240Q\330\010\017\210q\200\001\3604\000\0054\2602\3205G\300q\310\003\3106\320QS\320S\\\320\\b\320bc\330\0043\2602\3205G\300q\310\014\320TZ\320Z\\\320\\e\320ek\320kl\330\004\030\230\004\230F\240!\2401\340\0045\260R\260v\270Q\270c\300\026\300r\310\021\330\0045\260R\260v\270Q\270c\300\026\300r\310\021\340\0044\260B\260f\270A\270S\300\006\300b\310\001\330\0048\270\002\270&\300\001\300\023\300F\310\"\310A\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004\030\230\001\330\004\026\220a\330\004 \240\001\360\010\000\005\t\210\001\330\004\006\200a\200u\210B\210a\210q\330\004\006\200a\200u\210B\210a\210q\330\004\006\200a\200u\210A\340\004\010\210\001\330\004\n\210\"\210B\210a\340\010\r\210Q\330\010""\017\210r\220\021\220!\330\010\014\210B\210a\210q\360\006\000\t\014\2102\210Q\210b\220\002\220#\220R\220q\340\014\021\220\021\330\014\020\220\002\220!\2202\220R\220r\230\021\230\"\230A\230R\230r\240\023\240B\240a\240q\250\001\330\014\020\220\002\220\"\220B\220a\220r\230\022\2301\340\014\023\2202\220R\220q\360\006\000\r\023\220\"\220B\220b\230\002\230\"\230D\240\005\240S\250\002\250!\2502\250R\250q\330\020\025\220Q\330\020\024\220B\220c\230\022\2301\230B\230a\230r\240\021\240!\330\020\024\220B\220b\230\002\230!\2301\330\020\027\220r\230\022\2301\360\010\000\r\023\220\"\220B\220b\230\004\230B\230a\230r\240\022\2403\240b\250\001\330\020\025\220Q\330\020\024\220B\220c\230\022\2301\230B\230b\240\002\240!\2402\240Q\240b\250\002\250!\330\020\024\220B\220b\230\002\230!\2302\230R\230q\330\020\027\220r\230\022\2301\360\006\000\t\013\210!\2102\210R\210u\220A\330\010\n\210!\2102\210R\210u\220A\330\010\n\210!\2102\210R\210u\220A\330\010\r\210Q\360\010\000\005\t\210\002\210\"\210A\330\004\010\210\005\210U\220!\2202\220R\220t\2304\230q\340\010\013\2102\210S\220\001\340\014\020\220\001\360\006\000\r\021\220\002\220!\2202\220R\220s\230\"\230A\330\010\014\210E\220\025\220a\220s\230\"\230B\230d\240!\330\014\026\220a\220u\230B\230a\230q\330\010\014\210B\210b\220\001\340\004\013\2101\200\001\360\014\000\032\033\330%&\330\032\033\330\032\033\330\024\025\330\031\032\330\031\032\330\036\037\330\034\035\330\027\030\330\034\035\340\004 \240\001\330\004(\250\001\330\004*\250!\330\0045\260Q\330\0042\260!\330\004:\270!\330\0046\260a\330\004!\240\030\250\026\250q\260\001\330\004$\240H\250F\260!\2601\360\020\000\005\034\2301\330\004\030\230\001\330\004\034\230C\230q\240\006\240a\240q\330\004\032\230#\230Q\230f\240A\360\036\000\005\010\200~\220W\230A\330\010\033\320\033J\310!\340\010\033\2302\230V\2402\240_\260D\270\006\270b\300\001\340\004\007\320\007\032\230'\240\021\330\010 \320 O\310q\340\010 \240\002\240&\250\002\250/\270\023\270D\300\006\300b\310\001\340\004\007\320\007\030\230\007\230q\330""\010\036\320\036M\310Q\340\010\036\230b\240\006\240b\250\017\260}\300F\310\"\310A\340\004\030\230\001\330\004\035\230Q\330\004\033\2301\340\004\017\210z\230\022\2302\230T\240\036\250w\260e\2704\320?R\320RY\320Y^\320^b\320bs\320sz\320z{\330\004\022\220,\230g\240U\250$\250m\2702\270Q\340\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\025\220Q\220n\240B\240c\250\025\320.>\270a\270~\310R\310s\320RS\330\004\025\220Q\220n\240B\240c\250\025\320.>\270a\270~\310R\310s\320RS\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\330\004\032\230!\230>\250\022\2503\250c\260\025\3206K\3101\310N\320Z\\\320\\_\320_b\320bc\340\004\010\210\016\220e\2301\230A\330\010\034\230A\230^\2502\250S\260\016\270a\330\r\025\220X\230Q\230l\250.\270\002\270$\270c\300\030\320IZ\320Z[\320[i\320ik\320kn\320no\360\006\000\005\t\320\010\031\230\025\230a\230~\250R\250t\2604\260q\360\006\000\t\026\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\330\010\025\220X\320\0352\260!\260?\300#\300Q\360\006\000\t\027\320\026'\240r\250\030\3201A\300\021\300.\320PT\320TV\320Vg\320gi\320iq\360\000\000r\001B\002\360\000\000B\002C\002\360\000\000C\002Q\002\360\000\000Q\002R\002\330\010\026\320\026'\240r\250\030\3201A\300\021\300.\320PT\320TV\320Vg\320gi\320iq\360\000\000r\001B\002\360\000\000B\002C\002\360\000\000C\002Q\002\360\000\000Q\002R\002\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\330\010\031\230\030\320!2\260!\260>\300\022\3001\360\006\000\t\021\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010""\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\330\010\020\320\020!\240\021\240+\250R\320/@\300\001\300\021\360\006\000\t\024\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300R\300q\340\010\024\220H\230A\230Z\240s\250(\260!\2601\330\010\013\2109\220C\220q\330\014\027\220q\340\010\025\220X\230Q\230a\330\010\025\220Q\220i\230r\240\021\330\010\025\220Q\220i\230r\240\021\330\010\025\220X\230Q\230a\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\330\010\022\220*\230A\320\035/\250r\260\032\2701\270A\340\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\330\010\031\230\027\240\001\240\033\250B\250g\260Q\260a\340\010\027\220x\320\0370\260\001\260\036\270r\300\023\300D\310\002\310!\330\010\027\220x\320\0370\260\001\260\036\270r\300\023\300D\310\002\310!\330\010\032\230(\320\"2\260!\260?\300$\300c\310\036\320WX\320Xd\320df\320ft\320tu\320uv\330\010\032\230(\320\"2\260!\260?\300$\300c\310\036\320WX\320Xd\320df\320ft\320tu\320uv\330\010\031\230\021\230/\250\025\250o\270Q\330\010\031\230\021\230/\250\025\250o\270Q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\024\220H\320\0342\260!\260>\300\022\3003\300c\310\024\310R\310q\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\033\2308\2401\240O\2602\260X\270Q\270a\330\010\026\220k""\240\023\240N\260!\3203D\300B\300n\320TU\320UV\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\330\010\026\220k\240\023\240N\260!\3203D\300B\300n\320TU\320UV\340\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\330\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\330\010\013\210<\220r\230\033\240N\260!\330\r\031\230\022\2309\240N\260!\340\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\330\010\036\230a\230\177\250c\260\025\260o\300Q\340\010\013\2101\330\014\030\230\001\330\020\030\320\030(\250\001\250\021\330\020\030\320\030-\250Q\250a\330\020\037\230q\330\020\037\230q\330\020\037\230q\360\006\000\t\034\2301\230H\320$9\270\021\270!\340\010\014\210N\230%\230q\240\001\330\014\037\230x\240x\250q\260\014\320<L\310C\310x\320Wh\320hi\320ix\320xy\330\014 \240\001\240\037\260\016\270o\310Q\340\010\013\2108\2205\230\016\240b\250\n\260#\260S\270\005\270^\3102\310Q\330\014\034\230F\240!\330\014!\240\026\240q\330\014\037\230v\240Q\340\010\013\2101\330\014\031\230\021\330\014\020\220\n\230\"\230N\250#\250Q\330\020\033\2307\240!\2401\340\004\007\200q\330\010\030\230\006\230a\330\010\035\230V\2401\330\010\033\2306\240\021\340\004\007\200q\330\010\035\230^\2502\250S\260\002\260!\330\010\013\320\013\035\230S\240\001\330\014\027\220w\230a\230q\340\004\014\320\014\036\320\0365\260Q\200\001\360\032\000\032\033\330\024\025\330\016\017\330%&\330\032\033\330\032\033\330\031\032\330\030\031\330\035\036\330\031\032\330\023\024\330\027\030\330\034\035\330\023\024\330\025\026\330\036\037\330\035\036\330\032\033\340\004*\250!\330\004*\250!\330\0045\260Q\330\004!\240\030\250\026\250q\260\001\330\004$\240H\250F\260!\2601\360\014\000\005\032\230\035\240g\250Q\360\020\000\005\031\230\001\330\004\033\2301\330\004 \240\001\330\004(\250\001\340\004D\300B\300f\310A\310Q\310k\320Y_\320_e\320eg\320gh\330\004D\300B\300d\310!\3103\310f\320TV\320V_\320_`\320`b""\320bj\320jk\320kl\330\004.\250a\330\0040\260\001\340\004\034\230C\230q\240\006\240a\240q\330\004\032\230#\230Q\230f\240A\340\004\032\230!\330\004\037\230q\330\004\030\230\001\360\030\000\005\033\230!\330\004\031\230\021\330\004\036\230a\330\004\033\2301\330\004\035\320\0350\260\007\260u\270D\320@R\320RY\320Y^\320^b\320bq\320qx\320xy\360\016\000\005 \230q\360\014\000\005\010\200x\210s\220!\330\010\031\230\022\2306\240\021\240/\260\026\260r\270\021\330\010\022\220!\340\010\031\320\031H\310\001\340\004\022\220!\340\004\007\200q\330\010\032\320\032I\310\021\330\010\037\320\037N\310a\330\010\033\320\033J\310!\330\010\033\2301\330\010 \240\001\330\010\034\230A\340\004\007\200q\330\010 \320 M\310Q\330\010!\240\021\330\010\037\320\037N\310a\330\010 \240\001\330\010\034\320\034K\3101\330\010\035\230Q\340\004\017\210x\220t\230:\240R\240q\330\004\022\220,\230g\240U\250$\250m\2702\270Q\340\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\330\004\030\230\010\320 3\2601\260B\260a\360\006\000\005\014\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\330\004\013\2101\210B\210e\220;\230a\230r\240\021\340\004\010\320\010\031\230\025\230a\230q\340\010\026\320\026'\240r\250\030\260\037\300\001\300\024\300R\320GX\320XZ\320Zb\320bq\320qr\320rs\330\010\026\320\026'\240r\250\030\260\037\300\001\300\024\300R\320GX\320XZ\320Zb\320bq\320qr\320rs\330\010\027\220q\230\005\230_\250A\330\010\027\220q\230\005\230_\250A\340\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\340\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\330\010\020\320\020!\240\021\240-\250r\3201B\300!\3001\340\010\023\2205\230\001\320\031+\2502\250U\260!""\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\330\010\023\2205\230\001\320\031+\2502\250U\260!\3203E\300S\310\010\320PW\320WX\320XZ\320Z[\340\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\340\010\026\220a\330\010\026\220a\330\010\026\220a\330\010\030\230\001\330\010\013\2101\330\014\026\220a\340\010\013\2101\330\014\032\230!\330\014\031\230\021\330\014\031\230\021\330\014\031\230\021\340\010\014\210N\230%\230q\240\001\330\014\037\230x\240x\250q\260\014\320<L\310C\310x\320Wf\320fg\320gh\330\014#\2408\2508\2601\260L\300\001\330\014\035\320\0351\260\023\260H\270A\330\014\017\210\177\230b\240\001\330\020!\240\021\330\014\032\230$\230b\240\001\330\014\017\210q\330\020\033\2303\230a\230q\330\014\033\230;\240b\250\017\260q\270\001\330\014\033\230;\240a\240q\330\014\035\320\0350\260\002\260+\270Q\270a\330\014\033\2301\340\014\017\210q\330\020\023\220?\240\"\240A\330\024\033\2301\340\024\033\2301\330\020\037\230u\240B\240a\330\020\036\230e\2403\240n\260A\260Q\330\020\036\230e\2402\320%5\260S\270\016\300a\300q\330\020\036\230e\2403\240o\260Q\3206G\300s\310.\320XY\320YZ\340\010\026\220d\230#\230X\240^\2601\260B\260c\270\021\270!\330\010\013\210<\220r\230\021\330\014\032\230!\330\010\027\220x\230~\250Q\250b\260\004\260B\260a\330\010\030\230\014\240B\240k\260\022\260;\270a\270q\330\010\013\210>\230\022\2301\330\014\034\230A\340\010\013\2101\340\014\033\2304\230r\240\030\250\022\2503\250a\250}\270B\270a\330\014\026\220a\340\010\013\210<\220t\2301\330\014\033\2303\230h\240n\260A\260R\260t\2702\270\\\310\022\3101\330\014\034\230K\240q\250\r\260R\260q\330\014\025\220Q\220l\240#\240\\\260\022\260;\270a\270~\310S\320PS\320ST\320T_\320_`\320`k\320kl\320lm\330\014\033\2304\230s\240,\250b\260\r\270R""\270q\340\014\017\210x\220q\230\001\330\020\032\320\0320\260\001\260\021\330\020%\240Q\240l\260/\300\021\330\020\"\240!\240<\250\177\270a\360\006\000\t\026\220^\2403\240h\250a\330\010\024\220A\330\010\013\210:\220T\230\021\330\014\027\220q\320\030)\250\037\270\001\340\014\027\220q\320\030)\250\037\270\001\340\010\033\2306\240\033\250C\250x\260q\330\010\013\210;\220b\230\001\330\014\025\220\\\320!=\270Q\330\020\021\330\020\021\330\020\027\220q\330\020\027\220q\330\020\027\220q\330\020\027\220q\330\020\021\330\020\027\220q\330\020\027\220q\360\006\000\t\014\2107\220!\2202\220S\230\002\230/\250\033\260G\2701\270B\270e\300?\320RS\330\r\024\220A\220R\220s\230\"\230O\2509\260G\2701\270B\270e\300?\320RS\330\010\013\2107\220!\2202\220S\230\002\230/\250\033\260G\2701\270B\270e\300?\320RS\330\r\024\220A\220R\220s\230\"\230O\2509\260G\2701\270B\270e\300?\320RS\360\006\000\t\031\230\014\240B\240a\330\010\027\220q\230\005\320\035.\250h\260o\300Q\300d\310#\310X\320Uc\320cd\320df\320fi\320ij\320jk\330\010\027\220q\230\005\320\035.\250h\260o\300Q\300d\310#\310X\320Uc\320cd\320df\320fi\320ij\320jk\330\010\020\220\014\230B\230a\330\010\020\220\016\230c\240\033\250A\250Q\330\010\020\220\004\220D\230\010\240\016\250a\250r\260\023\260A\260Q\330\010\020\220\003\2208\230>\250\021\250\"\250C\250q\260\001\340\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\330\010\027\220x\230~\250Q\250b\260\001\340\010\032\230%\230q\240\005\240Q\240n\260C\260u\270B\270l\310!\3101\330\010\032\230%\230r\240\025\240a\240}\260B\260o\300S\310\005\310R\310|\320[\\\320\\]\330\010\033\2305\240\001\240\025\240a\240~\260R\260s\270!\2705\300\001\300\035\310b\320P^\320^a\320af\320fh\320ht\320tu\320uv\340\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\330\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\330\010\013\210?\230\"\230K\320'8\270\001\330\r\034\230B\230i\320'8\270\001\340\010\026\220a\220r\230""\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\330\010\026\220a\220r\230\025\230o\250Q\340\010\013\2101\330\014\030\230\001\330\020\021\330\020\021\330\020\037\230q\330\020\037\230q\330\020\037\230q\360\006\000\t\034\2301\230A\340\010\013\2101\330\014\034\230A\230^\2505\260\017\270q\300\001\330\014\034\230A\230^\2505\260\017\270q\300\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014!\240\021\240.\260\002\260%\260~\300Q\300b\310\001\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\330\014\035\230Q\230n\250B\250e\2607\270!\2702\270Q\340\014\017\210x\220u\230N\250\"\250J\260c\270\023\270E\300\036\310r\320QR\330\020\037\230v\240Q\330\020$\240F\250!\330\020 \240\006\240a\340\010\013\2101\330\014\031\230\021\330\014\020\220\n\230\"\230N\250#\250Q\330\020\033\2307\240!\2401\340\004\007\200x\210t\2201\330\010\027\220v\230Q\330\010\034\230F\240!\330\010\030\230\006\230a\340\004\007\200q\330\010\034\230N\250\"\250A\330\010\013\320\013\035\230S\240\001\330\014\027\220w\230a\230q\340\004\r\210X\220Y\230c\240\030\250\021\340\004\007\200q\330\010\020\220\010\320\030)\250\031\260!\340\004\014\210H\320\024%\240Q\200\001\360\014\000./\330,-\33089\33045\360.\000\005\013\210+\220Q\220a\330\004\022\220\"\320\024&\240a\240x\250v\260R\260q\330\004\021\220\021\330\004\021\220\022\2205\230\001\230\027\240\013\2506\260\022\2601\330\004\017\210r\220\026\220q\230\007\230v\240R\240q\330\004\016\210b\220\006\220a\220w\230f\240B\240a\330\004\023\220<\230{\250!\330\004\025\220\\\240\021\330\004\017\210t\2203\220h\230a\330\004\022\220!\330\004\020\220\001\340\004\n\210*\220C\220}\240B\240a\330\010\013\210>\230\021\230*\240J\250b\260\017\270t\3001\330\014\030\230\n\240\"\240O\2602\260Q\330\014\r\330\010\023\2207""\230!\2301\330\010\024\220J\230b\240\001\340\004\007\200s\210!\210=\230\003\2301\330\010\020\220\006\220a\330\010\017\210v\220Q\330\010\026\220b\230\006\230a\230s\240&\250\002\250!\330\010\024\220B\220f\230A\230S\240\006\240b\250\001\330\010\017\210z\230\031\240-\250q\340\004\021\220\022\2208\2301\230M\250\026\250r\260\021\330\004\016\210c\220\027\230\001\230\034\240U\250'\260\030\270\025\270g\300Q\300b\310\001\330\004\021\220\023\220J\230a\230z\250\025\250e\2607\270&\300\007\300q\310\002\310'\320QV\320VW\330\004\006\200h\210a\210|\230<\240s\250$\250a\330\004\006\200h\210a\210|\2301\230A\320\035-\250T\260\021\330\004\013\2108\2202\220Q\340\004\021\220\021\330\004\020\220\001\330\004\020\220\001\330\004\017\210q\340\004\022\220!\220<\230|\250;\260k\300\032\310=\320Xd\320dv\320vw\340\004\013\210:\220Y\230i\240q\320\000!\240\021\360(\000\005\036\230]\250!\2509\260F\270(\300!\340\004\010\210\010\220\003\2206\230\021\230'\240\034\250V\2603\260d\270!\330\010\013\2105\220\004\220F\230\"\230A\330\014\017\210v\220Q\330\014\023\2204\220q\330\004\007\200v\210Q\330\004\013\2101\200\001\360\016\000\005\022\220\021\220)\2309\320$5\3205F\300a\320\0009\270\021\360\006\000\005\033\230!\340\004\n\210\"\320\014\036\230a\230s\240&\250\002\250!\330\004\010\210\003\2106\220\021\220!\330\004\007\200r\210\023\210A\330\010\017\210r\220\026\220q\230\003\2306\240\022\2401\340\004\007\200z\220\022\2201\330\010\024\220A\330\004\010\210\n\220\"\220C\220s\230!\330\010\025\220Q\330\004\033\2301\330\004\024\220J\230c\240\021\330\004\016\210c\220\022\2201\220A\220Q\220a\220q\230\001\230\021\330\004\013\320\013&\240a\240u\250H\260G\2701\270B\270a\200\001\360\024\000\005\t\210\002\320\n\034\230A\230U\240&\250\002\250!\330\004\010\210\001\210\026\210q\220\001\330\004\007\200r\210\022\2101\330\010\017\210q\220\005\220Q\340\004\014\210B\210f\220A\220S\230\006\230b\240\001\330\004\013\2102\210V\2201\220C\220v\230R\230q\330\004\010\210\005\210U\220!\2201\330\010\r\210Q\210e\2206\230\022\2302\230S\240\003""\2407\250!\330\010\014\210A\210U\220&\230\002\230\"\230C\230s\240'\250\021\360\006\000\005\r\320\014$\240A\240S\250\007\250q\330\004\013\320\013#\2401\240C\240v\250Q\340\004\010\210\002\210&\220\001\220\023\220F\230\"\230A\330\004\010\210\005\210U\220!\2201\330\010\t\210\021\210%\210t\2203\220e\2301\230C\230r\240\024\240Q\240a\330\004\013\2101\200\001\340\023\032\230!\330\027\030\330\027\030\340\004B\300\"\320DV\320VW\320Wa\320ag\320gi\320ij\330\004\030\230\t\240\026\240q\250\001\330\004\030\230\t\240\026\240q\250\001\330\004.\250a\340\004?\270r\300\026\300q\310\003\3106\320QS\320ST\330\004\"\240!\340\004E\300R\300v\310Q\310c\320QW\320WY\320YZ\330\004(\250\001\340\004D\300B\300f\310A\310S\320PV\320VX\320XY\330\004'\240q\360\n\000\005\013\210!\340\004\022\220-\230|\2503\250h\260c\270\023\270D\300\002\300!\330\004\007\200|\2202\220Q\330\010\026\220a\330\t\025\220R\220q\330\010\026\220a\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\025\220Q\330\014\033\2301\330\014\020\220\005\220U\230!\2301\330\020\024\220H\230L\250\001\250\023\250A\330\020\023\2202\220R\220x\230q\330\024\036\230c\240\021\240!\330\024$\240A\330\014\026\220a\220u\230A\230W\240C\240x\320/A\300\035\310c\320Qb\320bc\340\010\014\210E\220\025\220a\220q\330\014\020\220\001\330\014\020\220\005\220U\230!\2301\330\020\023\2204\220u\230A\230Z\240q\250\001\330\024\030\230\010\240\014\250A\250S\260\001\330\024\027\220r\230\022\2308\2401\330\030'\240q\250\005\250S\260\001\260\023\260B\260j\300\001\300\021\330\030\035\230Q\340\014\017\210r\220\023\220A\330\020 \240\001\240\025\240a\340\020\037\230q\240\001\240\037\260\001\260\024\260S\270\002\270#\270Q\330\020\031\230\037\250\001\250\022\2503\250a\330\020 \240\001\240\025\240c\250\021\250!\340\010\013\210>\230\024\230R\230r\240\021\330\014\025\220Q\330\014\020\220\005\220U\230!\2301\330\020\032\230#\230Q\320\036.\250a\250s\260\"\260A\330\014\026\220c\230\021\230'\240\023\240H\250A\330\014\020\220\005\220U\230!\2301\340\020 \240\001\240\026\240q\340\004\013\2101""\210A\210Q\200\001\360\006\000\032\"\240\021\340\004\030\230\014\240D\250\006\250a\250q\330\0042\260\"\260F\270!\2703\270f\300B\300a\330\004\036\230a\360\014\000\005\"\240\021\360\014\000\005\023\220!\2206\230\022\2301\330\004\010\210\003\2105\220\t\230\026\230q\330\010\014\210L\230\001\330\010\013\2102\210S\220\004\220A\330\014\027\220q\230\005\230Q\330\014\032\230-\240r\250\026\250q\260\001\330\014\017\210{\230\"\230A\330\020\035\230Q\330\004\007\200{\220\"\220A\330\010\025\220Q\330\004\014\210B\210f\220A\220\\\240\026\240r\250\021\330\004\r\210Q\330\004\033\2301\230D\240\001\240\021\360\010\000\005\t\210\005\210U\220!\2201\330\010\014\210K\220q\230\001\330\010\013\2102\210S\220\001\330\014\023\2201\220E\230\027\240\001\330\014\r\330\010\027\320\0278\270\001\330\010\032\230!\330\010\025\220_\240F\250!\2501\330\010\013\210;\220c\230\021\330\014\023\2201\220E\230\027\240\001\330\014\r\330\010\013\210;\220b\230\006\230f\240A\240Q\330\014\024\220B\220f\230A\230\\\250\026\250r\260\021\330\014\025\220Q\330\010\020\220\001\220\037\240\001\240\021\330\010\020\220\001\220\026\220q\230\001\330\r\016\330\014\020\220\005\220U\230!\2301\330\020\025\220Q\220e\2308\2401\240E\250\021\250!\330\010\016\210g\220Q\220h\230a\330\010\026\220l\240!\330\010\013\2104\210r\220\030\230\021\330\014\033\2301\330\010\013\210<\220r\230\021\330\014\032\230!\330\r\031\230\022\2301\330\014\032\230!\330\010\023\220;\230b\240\001\340\r\016\330\014\027\220q\230\007\230|\2501\330\014\025\220Q\330\014\020\220\005\220U\230!\230:\240Q\330\020\032\230(\240%\240q\250\001\330\010\017\210q\220\005\220X\230W\240B\240h\250a\340\004\013\2101\320\000\030\320\030H\310\001\360\034\000\005\020\210t\2205\230\002\230&\240\002\320\"4\260B\260k\300\021\300!\200\001\360N\001\000\005\t\210\002\320\n\034\230A\230U\240&\250\002\250!\330\004\016\210b\320\020\"\240!\240;\250f\260B\260a\330\004\014\210A\330\004\021\220\021\330\004\010\210\005\210V\2201\220A\330\004\007\200r\210\022\2101\330\010\017\210q\220\005\220Q\330\004""\007\200z\220\026\220q\230\003\2303\230a\330\010\016\210j\230\001\230\021\340\004\010\210\002\210&\220\001\220\023\220F\230\"\230A\330\004\t\210\022\2106\220\021\220#\220V\2302\230Q\330\004\t\210\022\2106\220\021\220\"\220B\220c\230\026\230r\240\021\330\004\t\210\022\2106\220\021\220\"\220B\220c\230\026\230r\240\021\330\004\013\2102\210V\2201\220C\220v\230R\230q\330\004\013\2102\210V\2201\220B\220b\230\003\2306\240\022\2401\330\004\013\2102\210V\2201\220B\220b\230\003\2306\240\022\2401\330\004\010\210\002\210&\220\001\220\023\220F\230\"\230A\330\004\t\210\022\2106\220\021\220\"\220B\220c\230\026\230r\240\021\330\004\t\210\022\2106\220\021\220\"\220B\220c\230\026\230r\240\021\330\004\013\2102\210V\2201\220C\220v\230R\230q\330\004\013\2102\210V\2201\220C\220v\230R\230q\340\004\014\210A\330\004\r\210Q\330\004\r\210Q\330\004\r\210Q\330\004\017\210q\330\004\017\210q\330\004\017\210q\330\004\014\210A\330\004\r\210Q\330\004\r\210Q\330\004\020\220\001\330\004\020\220\001\360\006\000\005\r\210A\210U\220!\330\004\014\210A\210U\220!\330\004\010\210\005\210U\220!\2203\220b\230\002\230!\330\010\020\220\001\220\025\220a\330\004\014\210A\210R\210r\220\025\220a\330\004\014\210A\210R\210r\220\025\220a\340\004\014\210A\210U\220!\330\004\010\210\005\210U\220!\2203\220b\230\002\230!\330\010\020\220\001\220\025\220a\330\004\014\210A\210R\210r\220\025\220a\340\004\010\210\005\210U\220!\2202\220R\220q\330\010\020\220\001\220\025\220a\360\006\000\005\t\210\005\210U\220!\2201\330\010\021\220\027\230\n\240!\2408\2501\330\010\016\210a\210u\220G\2302\230[\250\002\250(\260!\2601\330\010\r\210Q\210e\2207\230\"\230E\240\021\240!\330\004\010\210\005\210U\220!\2202\220R\220q\330\010\016\210a\210u\220K\230r\240\030\250\021\250!\330\004\010\210\005\210U\220!\2202\220R\220q\330\010\016\210a\210u\220K\230r\240\030\250\021\250!\340\t\n\330\010\030\230\001\230\030\240\030\250\030\260\027\270\007\270w\300h\310h\320Va\320ab\340\004\013\2101\200\001\360\006\000'(\330\035%\240Q\330\023\033\2301\330\024\034""\230A\330\027\030\330\023\035\230Q\360\034\000\005\036\230Q\330\004\036\230a\340\004\007\200q\330\010\021\220\021\330\010\022\220!\340\010\021\220\021\330\010\022\220!\360\006\000\005\010\200t\320\013\"\240$\240g\250S\260\004\260D\270\010\300\003\3001\340\010\021\220\030\230\021\230!\330\010\014\210M\230\022\2307\240#\240R\240q\330\014\023\2202\320\025'\240q\250\006\250a\250t\2606\270\022\2709\300H\310B\310a\340\014\023\2202\320\025'\240q\250\006\250a\250t\2606\270\022\2709\300H\310B\310a\360\010\000\005\025\320\024(\250\r\260X\270Q\330\004\007\200~\220R\220r\230\023\230A\330\010\031\230\021\330\010\013\210>\230\022\2301\330\014\035\230Q\340\004\020\220\007\220r\230\021\330\004\007\200z\220\023\220A\330\010\021\220\021\330\010\022\220!\330\010\024\220A\330\004\023\2204\220r\230\021\360\006\000\005\n\210\035\220b\230\001\340\004\010\210\r\220R\220w\230c\240\022\2401\330\010\021\220\030\230\021\230!\330\010\023\2202\320\025'\240q\250\006\250a\250t\2606\270\022\2709\300H\310B\310a\330\010\024\220A\330\010\014\210H\220F\230!\2301\330\010\021\220\022\2206\230\021\230#\230V\2402\240Q\330\010\026\220a\330\010\013\2108\2202\220Q\340\014 \240\007\320';\2701\330\020\021\330\020\036\230a\330\020\"\240!\330\020\030\230\001\330\020\025\220Q\360\006\000\r!\240\001\340\010\013\2107\220\"\220A\330\014\037\230~\250Q\250j\270\005\270Q\330\014 \240\001\340\010\024\220G\2301\330\010\025\220W\230A\330\010\032\230'\240\021\340\r\016\330\014\020\220\005\220U\230!\2301\330\020\021\330\025\037\230s\320\"3\2601\260F\270*\300B\300i\310v\320UV\330\025 \240\002\240!\330\022\024\220A\330\020\033\2301\230E\240\031\250!\2503\250b\260\001\330\010\026\220b\230\007\230q\240\001\330\010\013\210<\220r\230\021\330\021\022\330\020\024\220E\230\025\230a\230q\330\024\037\230q\240\005\240[\260\001\260\023\260B\260a\330\010\017\210q\360\006\000\005\016\210X\220Q\220a\330\004\017\210r\320\021#\2401\240F\250!\2504\250v\260R\260y\300\010\310\002\310!\330\004\020\220\001\330\004\010\210\010\220\006\220a\220q""\330\004\r\210R\210v\220Q\220c\230\026\230r\240\021\330\004\022\220!\340\004\007\200x\210r\220\021\330\010\034\230H\320$8\270\001\330\014\r\330\014\032\230!\330\014\036\230a\330\014\024\220A\330\014\021\220\021\360\006\000\t\035\230A\340\004\007\200w\210b\220\001\330\010\033\230>\250\021\250*\260E\270\021\330\010\034\230A\340\004\020\220\010\230\001\330\004\021\220\030\230\021\330\004\026\220h\230a\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\r\330\021\033\2303\320\036/\250q\260\006\260j\300\002\300)\3106\320QR\330\021\034\230B\230a\330\016\020\220\001\330\014\027\220q\230\005\230Y\240a\240s\250\"\250A\340\004\022\220\"\220G\2301\230A\330\004\007\200|\2202\220Q\330\r\016\330\014\020\220\005\220U\230!\2301\330\020\033\2301\230E\240\033\250A\250S\260\002\260!\340\004\013\2101\320\000\035\230Q\360 \000\005#\240!\330\004&\240a\330\004\035\230]\250!\2509\260F\270(\300!\340\0049\270\022\2706\300\021\300/\320QW\320WY\320YZ\330\004\026\220a\330\004\007\200z\220\023\220H\230B\230a\330\010\013\2106\220\021\330\010\017\210q\330\004\010\210\010\220\003\2206\230\021\330\010\013\2105\220\016\230b\240\t\250\024\320-?\270r\300\021\330\014\r\330\010\013\2105\220\004\220F\230\"\230A\340\014\027\220q\230\005\230T\240\021\330\014\035\230Q\330\014\021\220\021\330\010\035\230Q\330\004\007\200v\210Q\330\004\007\200~\220R\220q\330\010\017\210q\330\004\013\210:\220R\220w\230a\230{\250\"\250A\200\001\360\014\000&.\250Q\360(\000\005\007\200g\210U\220!\2201\330\0048\270\002\320:L\310A\310X\320U[\320[]\320]^\330\004\"\240!\360\006\000\0053\260\"\260F\270!\2707\300&\310\002\310!\340\004\030\230\014\240I\250Q\330\004 \240\010\250\001\330\004 \240\n\250$\250b\260\001\340\004\016\320\016\037\230s\320\"3\2601\260A\330\004\016\320\016\037\230}\250A\320-@\300\001\330\004\017\210r\220\027\230\n\240!\2404\240r\320)<\270E\300\026\300w\310a\310r\320QX\320X]\320]^\330\004\006\200e\2101\210J\220i\230y\250\004\250A\330\004\025\220X\230T\240\021\330\004\030\230\001\330\004\031\230\021\330\004\n\210#""\210R\210q\220\001\220\021\330\010\013\210>\230\021\230#\230S\240\002\240/\260\024\260Q\330\014\021\220\023\220B\220o\240R\240q\330\014\r\330\010\017\210w\220a\220q\330\010\r\210S\220\002\220!\340\0043\2602\260W\270G\3001\330\010\t\330\010\r\210Q\330\010\020\220\001\330\010\n\210!\330\t\020\220\001\220\022\2201\340\004&\240a\330\004%\240Q\330\004\037\230q\330\004\r\210Q\210l\230,\240k\260\031\270!\330\004\013\2101\320\000!\240\021\340\035\036\330\030\031\330\035%\240Q\330\022\023\330\031\032\360\"\000\005'\240l\260!\340\004\035\230Q\330\004\031\230\026\230q\330\004\033\2306\240\021\360\010\000\005\010\200~\220S\230\001\330\010\030\230\001\330\004\007\200y\220\003\2201\330\010\017\210q\340\004\007\320\007\031\230\023\230A\330\010\034\230A\330\t\033\2303\230a\330\010\034\230A\340\004\n\210\"\320\014\036\230a\230s\240&\250\002\250)\2608\2702\270Q\330\004\016\210a\330\004\r\210R\210u\220A\220U\230%\230q\330\004\021\220\021\330\004\020\220\006\220a\330\004\021\220\022\2206\230\021\230*\240B\240c\250\026\250r\260\021\330\004\021\220\021\330\004\025\220R\220v\230Q\230j\250\006\250b\260\001\330\004\017\210q\330\004\026\220m\2402\240R\240q\360\006\000\005\017\210n\230B\230a\330\004\007\200q\330\010\014\210D\220\003\2208\2301\330\010\020\220\003\2201\220D\230\002\230!\340\010\020\220\001\360\006\000\005\n\210\021\210!\360\006\000\n\013\340\010\022\220!\2205\230\001\330\010\014\210E\220\025\220a\220q\330\014\026\220a\220r\230\022\2305\240\n\250!\2503\250c\260\030\270\032\3001\300A\360\006\000\n\013\330\010\014\210E\220\025\220a\220q\360\006\000\r\031\230\001\330\014\035\230Q\340\014\022\220*\230B\230a\340\020\023\2201\330\024\030\230\016\240a\240q\330\024\027\220r\230\022\2301\330\030\034\230A\330\031\033\2302\230Q\330\030\034\230A\340\024\030\230\001\330\020\023\2202\220R\220q\330\024\030\230\001\330\020\023\2202\220S\230\001\330\024\030\230\001\340\020\030\230\t\240\021\240!\330\020\023\2201\330\024\"\240!\330\024 \240\001\340\020\026\220f\230B\230a\330\020\023\2204\220s""\230!\340\024&\240j\260\001\260\025\260b\270\n\300!\3001\360\006\000\025\034\2301\330\024'\240z\260\021\260+\270R\270z\310\021\310(\320RT\320T^\320^_\320_`\360\006\000\021\036\230Q\330\014\024\220A\220U\230/\250\023\250H\260A\360\010\000\005\022\220\030\230\022\2309\240A\320%5\260Q\330\004\007\200q\330\010\016\210a\320\017M\310Q\330\004\013\2101\200\001\360\022\000!\"\330\026\027\360\016\000\005\026\220W\230A\340\004\007\320\007\031\230\023\230A\330\010\030\230\001\340\010\030\230\n\240!\2401\330\004\007\200~\220S\230\001\330\010\030\230\001\340\004\007\200{\220!\2203\220c\230\022\2301\330\010 \240\013\2501\250C\250s\260\"\260K\270q\300\003\3001\340\010 \240\001\360\006\000\005\021\220\005\220R\220q\330\004\020\220\005\220R\220q\330\004\020\220\005\220Q\220e\2301\230K\240q\250\003\2503\250b\260\013\2701\270C\270t\3001\330\004\026\220k\240\021\240#\240S\250\002\250!\330\004\020\220\007\220q\230\003\2301\330\004\026\220g\230Q\230c\240\021\330\004\022\220'\230\021\230#\230Q\360\006\000\005\024\2207\230!\330\004\007\320\007\027\220r\230\021\330\010\032\230!\330\t\031\230\022\2301\230A\330\010\032\230!\2301\340\004\007\200v\210R\210q\330\010\021\220\025\220a\220u\230A\230V\2401\240E\250\021\250&\260\002\260,\270b\300\n\310!\330\010\014\210G\2201\220C\220r\230\021\230'\240\023\240F\250%\250w\260a\260s\270\"\270A\270W\300C\300q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\340\014\036\230e\2401\240G\2501\250C\250r\260\021\260(\270!\330\014\036\230e\2401\240G\2501\250C\250r\260\021\260(\270!\330\014\032\320\032*\250\"\250E\260\021\260%\260q\270\017\300r\320IZ\320Z[\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\010\024\220F\230!\340\t\017\210s\220.\240\004\240A\330\010\021\220\025\220a\220u\230A\230V\2401\240E\250\021\250&\260\002\260/\300\022\300:\310Q\330\010\014\210G\2201\220C\220s\230\"\230G\2403\240f\250E""\260\027\270\001\270\023\270C\270r\300\027\310\003\3101\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\330\014\023\2201\220C\220v\230Q\360\006\000\r\037\230e\2401\240G\2501\250C\250s\260\"\260H\270A\330\014\036\230e\2401\240G\2501\250C\250s\260\"\260H\270A\330\014\032\320\032*\250\"\250E\260\021\260%\260q\270\017\300r\320IZ\320Z[\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\023\2201\220C\220u\230A\330\014\020\220\017\230s\240%\240r\250\025\250e\3203C\3003\300j\320PR\320RS\330\020\034\230F\240!\340\004\013\2109\220A\320\000-\250Y\260c\270\021\320:M\310Y\320VW\340\0045\260R\3207I\310\021\310#\310V\320SU\320UV\330\004\030\230\006\230f\240A\240Q\330\0045\260R\260v\270Q\270c\300\026\300r\310\021\330\004\037\230q\330\004\037\230q\330\004\032\230!\330\004\031\230\021\330\004\025\220U\230!\2304\230q\240\007\240r\250\021\330\004\026\220d\230\"\230C\230q\240\010\250\002\320*;\2702\270T\300\022\3003\300b\310\001\360\010\000\n\013\330\010\014\210E\220\025\220a\220q\330\014\023\2207\230!\2301\330\014\023\2205\230\001\230\024\230Q\230g\240S\250\005\250R\250q\330\014\023\2201\220E\230\024\230R\230u\240B\240c\250\021\320*;\2702\270Q\340\004\014\210H\220A\200\001\360\024\000$%\330#$\330\027\030\330\032\033\330\032\033\330 !\330\036\037\330\037 \330\034\035\330\027\030\360\n\000\005\032\230\031\240$\240b\250\t\260\021\340\004\007\200\177\220c\230\022\2303\230f\240C\240q\330\010\027\220q\340\010\027\220~\240V\2502\250_\270B\270c\300\023\300A\340\0048\270\002\270&\300\001\300\036\310v\320UW\320WX\330\004%\240Q\340\004\007\200}\220C\220q\330\010\017\210q\340\004\035\230]\250!\2509\260F\270(\300!\340\004\033\2301\330\004\031\230\021\330\004\032\230!\340\004 \240\r\250R\250q\360\016\000\005\034\2301\330\004\027\220u\230A\340\004\007\200x\210r\220\021\330\010\022\220!\340\004\007\320\007\033\2302\230R\230t\240>\260\023\260B\260d\270)\3003\300a\330\010\023\320\023%\240Q\240a\330\026""\027\330\030\031\340\004\005\330\r\016\330\014\020\220\010\230\003\2306\240\021\240,\250i\260q\330\020\027\220z\240\024\240Q\330\020\023\2205\230\002\230/\250\023\250D\3200A\300\022\3001\330\024\025\340\020!\240\025\240b\250\004\250C\250q\330\020\034\230I\240T\250\021\330\020\032\230)\2404\240q\340\020\023\220>\240\022\2401\330\024\027\220u\230B\230b\240\003\2401\330\030\031\340\024\027\220u\230B\230a\330\030\031\330\024\030\230\005\230R\230s\240#\240T\320)<\270C\270t\3001\330\030\031\330\024\033\2309\240D\250\001\330\024\034\230H\240E\250\023\250G\2601\260A\330\024\027\220v\230S\240\002\240#\240V\2502\250Q\330\030\031\330\024\027\220u\230C\230q\330\030#\2401\330\030!\240\032\2502\250Q\340\030!\240\021\330\030#\2407\250\"\250A\330\024\027\320\027,\250C\250r\260\023\3204I\310\023\310A\330\030\033\2301\330\034(\250\001\330\034&\240a\340\034(\250\001\330\034&\240a\360\006\000\025\030\220q\330\030$\240J\250b\260\001\340\030%\240X\250R\250s\260\"\260A\340\024\027\220y\240\002\240!\340\030\033\2301\330\034'\240q\330\034%\240Z\250r\260\021\340\034%\240Z\250r\260\021\330\034'\240w\250b\260\001\330\031.\250c\260\022\2603\3206K\3103\310a\330\030\033\2301\330\034'\240z\260\022\2601\330\034%\240X\250R\250q\340\034'\240z\260\022\2601\330\034%\240X\250R\250q\340\030#\2401\330\030!\240\021\340\020\023\2207\230#\230X\240S\250\t\260\023\260A\330\024\025\330\020\023\2209\230B\230a\330\024\037\230q\330\020\023\2207\230\"\230A\330\024\035\230Q\340\020\023\2201\330\024\033\2309\240B\240h\250c\260\021\330\024\037\230~\250T\260\022\2609\270C\270q\330\024\027\220r\230\023\230L\250\001\330\030\036\230a\230}\250O\2701\360\006\000\025\036\230^\2509\260B\260i\270s\300!\330\024\035\230_\250G\2602\260S\270\002\270)\3003\300a\330\024\027\220w\230b\240\001\330\030!\240\021\330\024\027\220w\230b\240\001\330\030!\240\021\330\024\027\220w\230b\240\n\250#\250W\260B\260b\270\003\2707\300\"\300A\330\030\031\340\024\027\220q\330\030\034\230F\240%\240q\250\010\260\007\260r\270\021\330\034'\240x\250s\260)""\2703\270a\270q\330\034%\240Y\250b\260\001\330\034\037\230w\240b\250\001\330 )\250\021\340\034+\250<\260y\300\002\300.\320PQ\330\034)\250\032\2607\270\"\270L\310\001\330\034&\240k\260\022\2601\330\034\037\230x\240r\250\021\330 &\240a\240x\250\177\270h\300b\320HX\320X_\320_a\320ab\340\030\034\230F\240%\240q\250\010\260\007\260r\270\021\330\034\"\240!\2407\250/\270\021\360\010\000\t\014\2106\220\021\340\004\013\2101\320\000 \240\001\340\030\031\330\034\035\330\032\033\330\022\023\330\026\027\330\025\026\330\035\036\330\024\025\330\026\027\330\025\026\360\n\000\005\027\220k\240\021\240!\360>\000\005#\240!\330\004!\240\030\250\021\330\004&\240i\250q\330\004 \240\010\250\001\330\004(\250\t\260\021\360>\000\005\024\2201\220K\230q\330\004\031\230\025\230a\330\004\022\220\"\220J\230a\330\004\007\200|\2203\220a\330\010\023\2201\340\010\023\2205\230\001\330\010\013\2109\220B\220a\330\014\027\220q\340\004\007\200{\220\"\220A\330\010\035\230]\250#\250Y\260c\270\024\270Q\340\004\n\210-\220q\230\t\240\026\240x\250q\330\004\005\330\010\022\220#\220Q\330\010\022\220#\220Q\340\010\013\2108\2203\220e\2303\230c\240\021\240)\2503\250a\330\014\023\2209\230A\340\010\025\220R\220x\230q\240\t\250\026\250r\260\021\330\010\017\210u\220C\220q\230\t\240\023\240G\2501\330\010\030\230\002\230-\240q\250\014\260A\260U\270!\2701\270A\330\010\030\230\r\240Q\240b\250\010\260\001\260\032\2701\270A\330\010\014\210M\230\021\330\014\025\220W\230A\230Q\330\014\020\220\013\2303\230f\240A\240Q\330\020\033\2307\240!\330\020\024\220I\230R\320\037/\250s\260!\330\024\025\330\020\023\2204\220q\330\024\030\230\t\240\022\2403\240c\250\021\330\030&\240f\250A\330\020\023\320\023(\250\002\250!\330\024%\240W\250A\330\024,\250A\340\024\025\340\010\013\320\013 \240\003\2401\330\014\023\2209\230A\330\010\031\230\030\240\021\330\010\030\230\n\240.\260\002\260!\330\010\013\210>\230\022\2301\330\014\034\230A\330\010\013\210>\230\022\2301\330\014\034\230A\340\010\013\2101\340\014#\2401\240G\2501\340\014\020\220\r\230Q\330""\020\023\320\023&\240c\250\021\330\024\025\330\020\031\230\027\240\001\240\021\340\020\024\220K\230s\240&\250\001\250\021\330\024\027\320\027*\250#\250Q\330\030\031\340\024\037\230w\240a\330\024\030\230\t\240\022\320#3\2603\260b\270\004\270I\300R\300s\310#\310Q\340\030\031\360\010\000\025\031\230\t\240\022\2404\240s\250!\330\030\031\330\024\033\2309\240G\2501\330\024\027\220u\230B\230a\330\030*\250(\260!\330\030.\250a\330\031\036\230b\240\001\330\030*\250)\2601\260A\330\030.\250a\340\014\017\320\017\"\240\"\240A\330\020\027\220z\240\021\340\014\036\230h\240a\340\014\017\210\177\230c\240\036\250t\260?\300#\300Q\330\020\027\220z\240\037\260\002\260!\340\020\027\220z\240\021\340\010\023\2201\330\010\024\220J\230c\240\021\340\010\016\210b\220\006\220a\220{\240&\250\002\250*\260F\270!\330\010\016\210b\220\006\220a\220{\240&\250\002\250*\260F\270!\330\010\022\220\"\220F\230!\2309\240A\240S\250\006\250b\260\n\270&\300\001\330\010\022\220\"\220F\230!\2309\240A\240S\250\006\250b\260\n\270&\300\001\340\010\022\220!\330\010\022\220!\330\010\026\220a\330\010\026\220a\340\010\014\210M\230\021\330\014\025\220W\230A\230Q\330\014\030\230\t\240\032\2501\250A\330\014\030\230\001\340\014\017\210z\230\022\230:\240S\250\n\260#\260Q\330\020\021\340\014\017\210~\230R\230q\330\020 \240\001\360\006\000\r\034\230:\240S\250\001\330\014\017\210}\230C\230q\330\020\037\230q\330\014\030\230\005\230Q\340\014\025\220R\220v\230Q\230k\250\026\250r\260\021\330\014\025\220R\220v\230Q\230k\250\026\250r\260\021\340\014\020\220\013\2303\230f\240A\240Q\330\020\033\2307\240!\330\020\024\220I\230R\320\037/\250s\260!\330\024\025\330\020\024\220F\230'\320!2\260#\260Q\330\020\023\2202\220S\230\004\230A\330\024\032\230!\2306\240\021\360\n\000\r\027\220f\230J\240c\250\021\330\014\017\210x\220r\230\021\330\020\032\230!\330\014\020\220\010\230\002\230#\230S\240\001\330\020\033\2301\330\014\022\220&\230\007\230~\250Q\250h\260e\2709\300E\310\021\360\006\000\r\025\220I\230V\2402\240_\260A\330\014\032\230\"\230M\250""\021\250(\260!\2606\270\021\270!\2701\330\014\033\2306\240\021\240!\330\014\030\230\013\2401\240B\240h\250a\250}\270D\300\001\360\010\000\r\024\2202\220V\2301\230K\240v\250R\250q\330\014\033\2301\330\014\020\220\005\220U\230!\2301\330\020\031\230\025\230i\240q\250\001\330\020\033\2307\240#\240X\250S\260\001\330\020\031\230\031\240\"\240A\330\020\023\2209\230B\230a\330\024\037\230q\330\024\035\230[\250\010\260\002\260/\300\021\330\020\023\2207\230\"\230A\330\024\035\230Q\330\024\037\230w\240b\250\013\2608\2703\270o\310Q\330\020\024\220E\230\025\230a\230z\250\021\330\024\027\220t\2301\230C\230s\240!\330\030\034\230A\230U\240!\330\030$\240G\2501\250A\340\014\017\210s\220!\220>\240\022\2401\330\020\023\2208\2301\230A\340\014\020\220\n\230!\340\020\037\230v\240Q\320&7\260s\320:K\3103\310c\320QS\320ST\330\020\023\220=\240\002\240!\330\024#\2401\330\020\035\230]\250\"\250A\330\020\023\220;\230b\240\001\330\024!\240\021\330\024#\240;\250b\260\001\330\024\027\220}\240B\240a\330\030\031\360\010\000\021\024\2205\230\001\230\021\330\020\027\220u\230A\230Q\330\020\023\2205\230\001\230\021\330\020\027\220u\230A\230Q\330\020\034\230A\340\020\024\220K\230s\240&\250\001\250\030\260\036\270q\330\024\037\230w\240a\330\024\030\230\t\240\022\320#3\2603\260a\330\030\031\330\024 \240\t\250\027\260\001\330\024\036\230i\240w\250a\330\024\027\220z\240\022\240=\260\003\2608\2702\270Q\330\030\031\340\024\034\230J\240b\250\001\330\024\034\230H\240B\240a\330\024\035\230Y\240b\250\001\330\024\027\220w\230c\240\021\360\006\000\031$\2401\240E\250\032\2601\330\030#\2401\240E\250\032\2601\360\010\000\031$\2401\240E\250\032\2601\330\030#\2401\240E\250\032\2601\340\020\036\320\0360\260\016\270b\320@Q\320Q[\320[]\320]^\330\020\036\230e\2401\330\020\036\230e\2401\330\020\023\220<\230r\240\021\330\024\025\330\020\037\230u\240A\330\020\023\220=\240\002\240!\330\024#\2401\360\010\000\026\027\330\024!\240\021\330\024\030\230\007\230y\250\001\330\030&\240k\260\021\260!\330\030\037\230q\240\005\240Q\340\024!""\240\021\330\024\030\230\007\230y\250\001\330\030&\240k\260\021\260!\330\030\037\230q\240\005\240Q\340\024\035\230Q\330\024\035\230Q\330\024\030\230\007\230y\250\001\330\030\"\240'\250\021\250!\330\030\"\240'\250\021\250!\340\024\036\230g\240R\240q\330\024\036\230g\240R\240q\340\024\030\230\007\230y\250\001\330\030\037\230q\240\005\240W\250A\250S\260\002\260!\330\030\037\230q\240\005\240W\250A\250S\260\002\260!\340\024 \240\001\330\024\037\230q\330\024\030\230\t\320!7\260\177\300a\330\030 \240\001\330\030#\240:\250R\250q\330\030\034\230G\2409\250A\330\034%\240W\250A\250S\260\002\260'\270\021\270\"\270B\270a\330\030\033\2306\240\022\2401\330\034(\250\001\330\034&\240a\340\020\023\2208\2302\230R\230t\240:\250S\260\001\330\024\034\230G\2401\240A\330\020\023\2203\220a\220z\240\023\240A\330\024\025\360\006\000\t\014\2106\220\021\340\004\007\200s\210!\210:\220R\220q\330\010\017\210q\340\004\022\220\"\220H\230A\230Z\240v\250R\250q\330\004\n\210#\210Q\210b\220\007\220q\230\r\240R\240~\260R\260q\330\004\007\200t\2102\210Q\330\010\016\210e\2201\330\t\r\210R\210q\330\010\016\210e\2201\330\004\013\2109\220A\200\001\360\010\000\024\025\330\034\035\340\004!\240\026\240v\250Q\250a\360\n\000\005 \230q\330\004#\2401\360&\000\005\016\210R\210v\220Q\220m\2406\250\022\2501\340\004\007\200|\2202\220Q\330\010\026\220e\2301\340\004\007\200|\2202\220Q\330\010\016\210f\220A\330\010\017\210q\340\004\027\220{\240\"\240A\330\004\025\220]\240\"\240A\330\004\026\220b\230\006\230b\240\016\250b\260\003\2606\270\022\2701\340\004\t\210\021\330\004\013\2101\330\004\017\210q\330\004\014\210A\330\004\r\210Q\330\004\017\210q\360\006\000\005\t\320\010\030\230\005\230Q\230a\330\010\025\220Z\230q\240\001\330\010\020\220\001\330\010\023\220<\230q\240\001\330\010\023\2205\230\010\240\001\240\021\330\010\013\210=\230\003\230<\240r\250\021\330\014\033\230<\240q\250\n\260\"\260M\300\022\3001\340\004\010\320\010\030\230\005\230Q\230l\250\"\250A\330\010\026\220j\240\001\240\035\250b\260\003\2602\260Z\270q\300""\001\330\010\022\220!\330\010\024\220L\240\002\240!\360\006\000\005\t\210\016\220e\2301\230N\250\"\250A\330\010\013\2108\2203\220a\330\014\033\2301\230L\250\017\260q\340\014\033\2309\240L\260\002\260!\330\014\034\230J\240a\240q\330\014\033\230:\240R\240{\260\"\260L\300\002\300!\360\010\000\r\027\220e\2302\230Q\330\014\026\220e\2302\230Q\360\006\000\r\025\220H\230B\230a\330\014\025\220X\230R\230q\330\014\031\230\027\240\003\240<\250q\260\017\270s\300,\310a\310u\320TU\320UV\330\014\031\230\027\240\003\240=\260\001\3201A\300\023\300L\320PQ\320QW\320WX\320XY\330\014\017\210z\230\022\2301\330\020\034\230A\330\014\017\210z\230\022\2301\330\020\034\230A\360\006\000\r\027\220k\240\023\240F\250!\2509\260C\260u\270A\270Y\300c\310\034\320UV\320V[\320[\\\320\\]\330\014\022\220&\230\002\230*\240B\240a\330\014\017\210z\230\022\2301\340\020\031\230\027\240\003\240:\250S\260\016\270a\270q\340\020\030\230\001\340\014\017\210v\220R\220q\330\020\030\230\001\360\006\000\022\030\220r\230\021\330\020\030\230\001\330\014\022\220*\230D\240\005\240Q\240f\250A\250[\270\003\2703\270b\300\005\300Q\300a\330\014\017\210t\2202\220Q\330\020\026\220a\360\006\000\r\037\230i\240|\2602\260Q\330\014\033\2301\230L\320(8\270\003\2701\270A\360\006\000\r\032\230\031\240,\250b\260\001\340\014\025\220Y\230c\240\027\250\002\250(\260\"\260A\330\014\017\210w\220b\230\001\330\020\031\230\021\330\014\017\210{\230\"\230A\330\020\031\230\027\240\003\240;\250b\260\001\340\020\031\230\021\340\014\033\2301\230N\250!\330\021\031\230\037\250\001\250\021\330\014\017\210w\220b\230\017\240q\250\001\330\020\037\230q\240\016\250a\330\024#\2401\240L\260\002\260#\260R\260w\270b\300\017\310q\320PQ\340\010\013\210;\220b\230\001\340\014\024\220D\230\001\230\032\2401\240M\260\023\260J\270b\300\013\3102\310Q\330\014\025\220W\230C\230r\240\032\2501\250K\260q\270\n\300!\300=\320PS\320S]\320]_\320_j\320jl\320ly\320yz\360\000\000{\001E\002\360\000\000E\002G\002\360\000\000G\002R\002\360\000\000R\002T\002\360\000\000T\002U\002\330\014""\031\230\033\240C\240r\250\032\2601\260K\270q\300\n\310\"\310K\320WY\320Y^\320^a\320ak\320km\320mx\320xz\360\000\000{\001G\002\360\000\000G\002I\002\360\000\000I\002L\002\360\000\000L\002M\002\360\000\000M\002W\002\360\000\000W\002Y\002\360\000\000Y\002d\002\360\000\000d\002f\002\360\000\000f\002g\002\330\014\026\220h\230c\240\021\240%\240x\250q\260\014\270B\270e\3008\3102\310[\320XZ\320Z[\330\014\031\230\032\2401\240K\250r\260\023\260B\260j\300\001\300\021\330\014\032\230*\240A\240[\260\002\260-\270r\300\032\3101\310K\320WY\320Ye\320eg\320gh\330\014\027\220|\2402\240Q\330\014\031\230\034\240R\240}\260C\260{\300\"\300A\340\004\010\210\017\220u\230A\230Q\330\010\025\220\\\240\022\240<\250r\260\021\330\010\013\210;\220b\230\001\340\014\022\220!\220?\240/\260\021\330\014\r\330\010\013\210;\220b\230\001\330\014\031\230\021\330\010\016\210a\210\177\230o\250Q\250a\340\004\013\2101\200\001\360\014\000\017\020\330\032\033\330\034\035\330\024\025\330\026\027\330\024\025\330\027\030\340\004)\250\021\330\004*\250!\330\004)\250\021\330\004)\250\021\330\004\030\230\007\230v\240Q\240a\330\004\030\230\007\230v\240Q\240a\340\004 \240\001\340\004'\240q\330\004%\240Q\330\004%\240Q\360\026\000\005M\001\310B\310e\320ST\320T`\320`f\320fh\320hi\330\004@\300\002\300&\310\001\310\034\320U[\320[]\320]^\330\004E\300R\300v\310Q\310l\320Z`\320`b\320bc\330\0043\2601\330\004'\240q\330\004,\250A\330\0047\260r\270\026\270q\300\014\310F\320RT\320TU\330\0049\270\022\2706\300\021\300,\310f\320TV\320VW\330\004$\240A\330\004&\240a\360\006\000\005\026\220Q\330\004\020\220\014\230L\250\001\250\026\250r\260\022\2607\270!\330\004\025\220Q\330\004\010\210\005\210U\220!\2201\330\010\024\220L\240\014\250A\250Q\330\010\013\210:\220S\230\001\330\014\017\210\177\230b\240\001\330\020!\240\021\330\014\035\230Q\330\014\030\230\001\330\010\032\230!\330\004\007\200\177\220b\230\001\330\010\031\230\021\330\004\007\200\177\220c\230\021\330\010\031\230\021\340\004C\3002\300V\3101\320L\\\320\\b\320bd\320de\330\004!\240""\021\340\004\020\220\014\230L\250\001\250\026\250r\260\022\2607\270!\360\n\000\005\030\220q\340\t\n\330\010\014\210E\220\025\220a\220q\330\014\030\230\014\240L\260\001\260\021\330\014\017\210z\230\023\230A\330\020\023\320\023$\240B\240b\250\004\250J\260c\270\022\2704\270z\310\022\3101\330\024\036\320\0361\260\021\260!\260:\270Q\270d\320BT\320T[\320[\\\340\024\"\240!\330\024\030\230\004\230N\250%\250|\2702\270Q\330\030&\240a\330\024\027\220|\2402\240Q\330\030&\240a\330\031%\240R\240q\330\030&\240a\330\024(\250\001\250\035\260a\330\024\036\230a\230}\250M\270\021\330\020#\2401\330\020\034\230A\360\006\000\r\034\2301\330\014\020\220\005\220U\230!\2301\330\020\033\2308\2407\250!\2503\250a\330\020\034\230H\240H\250A\250S\260\001\340\020 \240\n\250#\250X\260\\\300\021\300$\300c\310\030\320QR\330\020\023\220>\240\023\240H\250A\330\024$\240H\250A\330\020\031\230\024\230R\230q\330\020&\240h\250a\250t\2601\260A\330\020\030\320\030+\2501\250A\330\020\023\2206\230\023\230H\240A\330\024\034\230H\240A\330\020\037\230}\250B\250a\360\006\000\r\020\210z\230\023\230B\230d\240*\250B\250a\330\020\036\230h\240m\2603\260h\270a\330\020\023\320\023$\240C\240q\330\031\032\330\030\036\230l\250!\2501\330\020\032\230!\320\033/\250q\330\020$\240A\330\020\035\230Q\230n\250O\2701\340\010\013\320\013\034\230B\230b\240\004\240J\250c\260\022\2604\260z\300\022\3001\330\014\026\320\026)\250\021\250!\250:\260Q\260d\320:L\310G\320ST\330\014\032\230!\330\014\020\220\004\220N\240%\240|\2602\260Q\330\020\036\230a\330\014\017\210|\2302\230Q\330\020\036\230a\330\021\035\230R\230q\330\020\036\230a\330\014 \240\001\240\035\250a\330\014\026\220a\220}\240M\260\021\340\004\007\200{\220\"\220B\220d\230,\240b\250\001\340\010\013\210<\220r\230\021\330\014\032\230!\340\r\016\340\014\020\220\005\220U\230!\2301\330\020\036\320\0362\260!\2601\330\020\024\220D\230\016\240e\250<\260r\270\021\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\025!\240\022\2401\330\024\"\240!\330\020\023\220<\230r\240\021\330""\024\"\240!\330\020\034\230A\230U\240#\240Q\240h\250a\340\014\021\220\021\220/\240\021\240,\250a\250t\2609\270A\270^\3101\310D\320P\\\320\\]\340\014\020\220\005\220U\230!\2301\340\020\025\220S\230\001\230\036\240q\250\001\330\020\036\230g\240Q\330\020\024\220D\230\016\240e\250<\260r\270\021\330\024\"\240!\330\020\023\220<\230r\240\021\330\024\"\240!\330\025!\240\022\2401\330\024\"\240!\330\020$\240A\240U\250!\340\004\014\320\014!\240\033\250A\320\000 \240\001\360(\000\005\034\230<\240w\250l\270#\270T\300\021\330\004\034\230A\330\004\035\230]\250!\2509\260F\270(\300!\340\004\010\210\010\220\003\2206\230\021\230'\240\034\250V\2608\2704\270q\330\010\013\2105\220\004\220F\230\"\230A\330\014\026\220d\230!\330\004\007\200v\210Q\330\004\013\2101O";
     PyObject *data = NULL;
     CYTHON_UNUSED_VAR(__Pyx_DecompressString);
     #endif
@@ -68403,7 +68405,7 @@ static int __Pyx_CreateCodeObjects(__pyx_mstatetype *__pyx_mstate) {
   {
     const __Pyx_PyCode_New_function_description descr = {3, 0, 0, 3, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 1471};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_x, __pyx_mstate->__pyx_n_u_offset, __pyx_mstate->__pyx_n_u_scale};
-    __pyx_mstate_global->__pyx_codeobj_tab[13] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_monoFunc, __pyx_mstate->__pyx_kp_b_iso88591_Q_5R7I_VSUUV_fAQ_5RvQc_r_q_q_U, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[13])) goto bad;
+    __pyx_mstate_global->__pyx_codeobj_tab[13] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_cconsenrich_pyx, __pyx_mstate->__pyx_n_u_monoFunc, __pyx_mstate->__pyx_kp_b_iso88591_Yc_MYVW_5R7I_VSUUV_fAQ_5RvQc_r, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[13])) goto bad;
   }
   {
     const __Pyx_PyCode_New_function_description descr = {8, 0, 0, 8, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 1494};
@@ -79100,7 +79102,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           result = name;
           name = NULL;
       } else {
-          result = __Pyx_NewRef(__pyx_mstate_global->__pyx_kp_u__17);
+          result = __Pyx_NewRef(__pyx_mstate_global->__pyx_kp_u__19);
       }
       goto done;
   }

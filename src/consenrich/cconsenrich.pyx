@@ -1468,7 +1468,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple monoFunc(object x, double offset=0, double scale=1.0):
+cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
     cdef Py_ssize_t n = arr_np.shape[0]
@@ -3348,5 +3348,5 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
         blockSize += 1
     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
     cdef double w = blockSize * (blockFreqCutoff)
-    lambda_ = (w*w*w*w)*10.0
+    lambda_ = 100*(w*w*w*w)
     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)

@@ -356,8 +356,6 @@ class matchingParams(NamedTuple):
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
-    :param methodFDR: Method for genome-wide multiple hypothesis testing correction. Can specify either Benjamini-Hochberg ('BH'), the more conservative Benjamini-Yekutieli ('BY') to account for arbitrary dependencies between tests, or None.
-    :type methodFDR: str
     :param massQuantileCutoff: Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' ``((avgSignal*length)/intervalLength)``. To diable, set ``< 0``.
     :type massQuantileCutoff: float
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
@@ -377,7 +375,6 @@ class matchingParams(NamedTuple):
     penalizeBy: Optional[str]
     randSeed: Optional[int]
     eps: Optional[float]
-    methodFDR: Optional[str]
     massQuantileCutoff: Optional[float]
 
 
@@ -442,8 +439,12 @@ def getChromRanges(
 
     :seealso: :func:`getChromRangesJoint`, :func:`cconsenrich.cgetFirstChromRead`, :func:`cconsenrich.cgetLastChromRead`
     """
-    start: int = cconsenrich.cgetFirstChromRead(bamFile, chromosome, chromLength, samThreads, samFlagExclude)
-    end: int = cconsenrich.cgetLastChromRead(bamFile, chromosome, chromLength, samThreads, samFlagExclude)
+    start: int = cconsenrich.cgetFirstChromRead(
+        bamFile, chromosome, chromLength, samThreads, samFlagExclude
+    )
+    end: int = cconsenrich.cgetLastChromRead(
+        bamFile, chromosome, chromLength, samThreads, samFlagExclude
+    )
     return start, end
 
 
@@ -516,7 +517,9 @@ def getReadLength(
 
     :seealso: :func:`cconsenrich.cgetReadLength`
     """
-    init_rlen = cconsenrich.cgetReadLength(bamFile, numReads, samThreads, maxIterations, samFlagExclude)
+    init_rlen = cconsenrich.cgetReadLength(
+        bamFile, numReads, samThreads, maxIterations, samFlagExclude
+    )
     if init_rlen == 0:
         raise ValueError(
             f"Failed to determine read length in {bamFile}. Revise `numReads`, and/or `samFlagExclude` parameters?"
@@ -608,7 +611,9 @@ def readBamSegments(
 
     segmentSize_ = end - start
     if intervalSizeBP <= 0 or segmentSize_ <= 0:
-        raise ValueError("Invalid intervalSizeBP or genomic segment specified (end <= start)")
+        raise ValueError(
+            "Invalid intervalSizeBP or genomic segment specified (end <= start)"
+        )
 
     if len(bamFiles) == 0:
         raise ValueError("bamFiles list is empty")
@@ -777,11 +782,15 @@ def constructMatrixQ(
     try:
         np.linalg.cholesky(Q.astype(np.float64, copy=False) + tol * np.eye(2))
     except Exception as ex:
-        raise ValueError(f"Process noise covariance Q is not positive definite:\n{Q}") from ex
+        raise ValueError(
+            f"Process noise covariance Q is not positive definite:\n{Q}"
+        ) from ex
     return Q
 
 
-def constructMatrixH(m: int, coefficients: Optional[np.ndarray] = None) -> npt.NDArray[np.float32]:
+def constructMatrixH(
+    m: int, coefficients: Optional[np.ndarray] = None
+) -> npt.NDArray[np.float32]:
     r"""Build the observation model matrix :math:`\mathbf{H}`.
 
     :param m: Number of observations.
@@ -851,12 +860,16 @@ def runConsenrich(
     if matrixData.ndim == 1:
         matrixData = matrixData[None, :]
     elif matrixData.ndim != 2:
-        raise ValueError(f"`matrixData` must be 1D or 2D (got ndim = {matrixData.ndim})")
+        raise ValueError(
+            f"`matrixData` must be 1D or 2D (got ndim = {matrixData.ndim})"
+        )
 
     if matrixMunc.ndim == 1:
         matrixMunc = matrixMunc[None, :]
     elif matrixMunc.ndim != 2:
-        raise ValueError(f"`matrixMunc` must be 1D or 2D (got ndim = {matrixMunc.ndim})")
+        raise ValueError(
+            f"`matrixMunc` must be 1D or 2D (got ndim = {matrixMunc.ndim})"
+        )
 
     if matrixMunc.shape != matrixData.shape:
         raise ValueError(
@@ -865,7 +878,9 @@ def runConsenrich(
 
     m, n = matrixData.shape
     if m < 1 or n < 1:
-        raise ValueError(f"`matrixData` and `matrixMunc` need positive m x n, shape={matrixData.shape})")
+        raise ValueError(
+            f"`matrixData` and `matrixMunc` need positive m x n, shape={matrixData.shape})"
+        )
 
     if n <= 100:
         logger.warning(
@@ -966,7 +981,11 @@ def runConsenrich(
                 blockGradCountOut.fill(np.float32(0.0))
 
             progressBar = None
-            if (not isInitialPass) and (progressIter is not None) and (progressIter > 0):
+            if (
+                (not isInitialPass)
+                and (progressIter is not None)
+                and (progressIter > 0)
+            ):
                 progressBar = tqdm(total=n, unit=" intervals ")
 
             try:
@@ -993,7 +1012,12 @@ def runConsenrich(
                 vectorD = vectorDOut
                 countAdjustments = int(countAdjustmentsOut)
                 fwdPassArgs["vectorD"] = vectorD
-                return (float(phiHatOut), int(countAdjustmentsOut), vectorD, float(NLLOut))
+                return (
+                    float(phiHatOut),
+                    int(countAdjustmentsOut),
+                    vectorD,
+                    float(NLLOut),
+                )
 
             phiHatOut, countAdjustmentsOut, vectorDOut = out
             vectorD = vectorDOut
@@ -1005,23 +1029,37 @@ def runConsenrich(
             initialMuncBaseline = matrixMunc.copy()
 
             # --- calibration hyperparameters ---
-            calibration_maxIters = int(calibration_kwargs.get("calibration_maxIters", 100))
-            calibration_minIters = int(calibration_kwargs.get("calibration_minIters", 50))
+            calibration_maxIters = int(
+                calibration_kwargs.get("calibration_maxIters", 100)
+            )
+            calibration_minIters = int(
+                calibration_kwargs.get("calibration_minIters", 50)
+            )
             calibration_numTotalBlocks = int(
-                calibration_kwargs.get("calibration_numTotalBlocks", max(int(np.sqrt(n / 5)), 1))
+                calibration_kwargs.get(
+                    "calibration_numTotalBlocks", max(int(np.sqrt(n / 5)), 1)
+                )
             )
             # gradient magnitude, relative to gradient magnitude @ starting point
-            calibration_relEps = np.float32(calibration_kwargs.get("calibration_relEps", 0.01))
+            calibration_relEps = np.float32(
+                calibration_kwargs.get("calibration_relEps", 0.01)
+            )
             # near-zero gradient magnitude
-            calibration_absEps = np.float32(calibration_kwargs.get("calibration_absEps", 0.01))
+            calibration_absEps = np.float32(
+                calibration_kwargs.get("calibration_absEps", 0.01)
+            )
             # loss versus previous accepted step
             calibration_minRelativeImprovement = np.float32(
                 calibration_kwargs.get("calibration_minRelativeImprovement", 1.0e-6)
             )
             # don't early-stop unless mean NIS matches up with expectation within this tolerance
-            calibration_phiEps = np.float32(calibration_kwargs.get("calibration_phiEps", 0.10))
+            calibration_phiEps = np.float32(
+                calibration_kwargs.get("calibration_phiEps", 0.10)
+            )
             # starting trust-region radius (in log-scale)
-            calibration_trustRadius = np.float32(calibration_kwargs.get("calibration_trustRadius", 2.0 * LN2))
+            calibration_trustRadius = np.float32(
+                calibration_kwargs.get("calibration_trustRadius", 2.0 * LN2)
+            )
 
             # bound the size of the trust-region (prevent huge steps/premature convergence)
             calibration_trustRadiusMin = np.float32(
@@ -1039,21 +1077,39 @@ def runConsenrich(
             calibration_NOT_TrustRhoThresh = np.float32(
                 calibration_kwargs.get("calibration_NOT_TrustRhoThresh", 1.0 / 4.0)
             )
-            calibration_trustGrow = np.float32(calibration_kwargs.get("calibration_trustGrow", 2.0))
-            calibration_trustShrink = np.float32(calibration_kwargs.get("calibration_trustShrink", 1 / 2.0))
+            calibration_trustGrow = np.float32(
+                calibration_kwargs.get("calibration_trustGrow", 2.0)
+            )
+            calibration_trustShrink = np.float32(
+                calibration_kwargs.get("calibration_trustShrink", 1 / 2.0)
+            )
 
             # mild smoothing for nearby block-gradients
-            calibration_gradSmooth = float(calibration_kwargs.get("calibration_gradSmooth", 0.1))
+            calibration_gradSmooth = float(
+                calibration_kwargs.get("calibration_gradSmooth", 0.1)
+            )
             calibration_gradSmooth = max(0.0, min(0.5, calibration_gradSmooth))
             gradKernel = np.array(
-                [calibration_gradSmooth, 1.0 - 2.0 * calibration_gradSmooth, calibration_gradSmooth],
+                [
+                    calibration_gradSmooth,
+                    1.0 - 2.0 * calibration_gradSmooth,
+                    calibration_gradSmooth,
+                ],
                 dtype=np.float32,
             )
 
-            calibration_scoreWmin = np.float32(calibration_kwargs.get("calibration_scoreWMin", 0.5))
-            calibration_scoreWmax = np.float32(calibration_kwargs.get("calibration_scoreWMax", 2.0))
-            calibration_scoreExponent = np.float32(calibration_kwargs.get("calibration_scorePow", 1.0))
-            calibration_topKBlocks = int(calibration_kwargs.get("calibration_topKBlocks", 0))
+            calibration_scoreWmin = np.float32(
+                calibration_kwargs.get("calibration_scoreWMin", 0.5)
+            )
+            calibration_scoreWmax = np.float32(
+                calibration_kwargs.get("calibration_scoreWMax", 2.0)
+            )
+            calibration_scoreExponent = np.float32(
+                calibration_kwargs.get("calibration_scorePow", 1.0)
+            )
+            calibration_topKBlocks = int(
+                calibration_kwargs.get("calibration_topKBlocks", 0)
+            )
 
             logger.info(
                 f"\nScaling covariances\n\tcalibration_maxIters={calibration_maxIters}, _numTotalBlocks={calibration_numTotalBlocks}\n",
@@ -1065,7 +1121,9 @@ def runConsenrich(
             init_maxGrad = np.float32(0.0)
 
             # (I) Map intervals to blocks: interval i -> block b = i // numIntervalsPerBlock
-            intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
+            intervalToBlockMap = (
+                np.arange(n, dtype=np.int32) // numIntervalsPerBlock
+            ).astype(np.int32)
             intervalToBlockMap[intervalToBlockMap >= calibration_numTotalBlocks] = (
                 calibration_numTotalBlocks - 1
             )
@@ -1077,7 +1135,9 @@ def runConsenrich(
             logUpperUpdateLimit = np.float32(np.log(float(upperUpdateLimit)))
 
             # (III) Initialize block-level dispersion factors
-            BlockDispersionFactors = np.ones(calibration_numTotalBlocks, dtype=np.float32)
+            BlockDispersionFactors = np.ones(
+                calibration_numTotalBlocks, dtype=np.float32
+            )
             bestBlockDispersionFactors = BlockDispersionFactors.copy()
             bestLoss = 1.0e16
 
@@ -1100,7 +1160,9 @@ def runConsenrich(
             acceptedPhiHat = float(phiHat)
 
             calibration_trustRadius = np.clip(
-                calibration_trustRadius, calibration_trustRadiusMin, calibration_trustRadiusMax
+                calibration_trustRadius,
+                calibration_trustRadiusMin,
+                calibration_trustRadiusMax,
             ).astype(np.float32, copy=False)
 
             for iterCt in range(int(calibration_maxIters)):
@@ -1125,18 +1187,20 @@ def runConsenrich(
                 # mask to prevent undue influence from empty blocks
                 mask = blockGradCount > 0
                 gradMeansAll = np.zeros_like(blockGradLogScales, dtype=np.float32)
-                gradMeansAll[mask] = (blockGradLogScales[mask] / blockGradCount[mask]).astype(
-                    np.float32, copy=False
-                )
+                gradMeansAll[mask] = (
+                    blockGradLogScales[mask] / blockGradCount[mask]
+                ).astype(np.float32, copy=False)
 
-                maxGradAll = float(np.max(np.abs(gradMeansAll[mask]))) if np.any(mask) else 0.0
+                maxGradAll = (
+                    float(np.max(np.abs(gradMeansAll[mask]))) if np.any(mask) else 0.0
+                )
                 if iterCt == 0:
                     init_maxGrad = np.float32(maxGradAll)
 
                 phiNearOne = abs(acceptedPhiHat - 1.0) < float(calibration_phiEps)
-                gradSmall = (maxGradAll < float(calibration_relEps) * float(init_maxGrad)) or (
-                    maxGradAll < float(calibration_absEps)
-                )
+                gradSmall = (
+                    maxGradAll < float(calibration_relEps) * float(init_maxGrad)
+                ) or (maxGradAll < float(calibration_absEps))
 
                 if (iterCt >= calibration_minIters) and phiNearOne and gradSmall:
                     logger.info(
@@ -1147,22 +1211,24 @@ def runConsenrich(
                 # regularize across-block gradients
                 if calibration_gradSmooth > 0.0:
                     maskF = mask.astype(np.float32, copy=False)
-                    conv_ = np.convolve(gradMeansAll * maskF, gradKernel, mode="same").astype(
+                    conv_ = np.convolve(
+                        gradMeansAll * maskF, gradKernel, mode="same"
+                    ).astype(np.float32, copy=False)
+                    convAll_ = np.convolve(maskF, gradKernel, mode="same").astype(
                         np.float32, copy=False
                     )
-                    convAll_ = np.convolve(maskF, gradKernel, mode="same").astype(np.float32, copy=False)
                     gradMeansSm = np.zeros_like(gradMeansAll, dtype=np.float32)
                     validMask = convAll_ > 0
-                    gradMeansSm[validMask] = (conv_[validMask] / convAll_[validMask]).astype(
-                        np.float32, copy=False
-                    )
+                    gradMeansSm[validMask] = (
+                        conv_[validMask] / convAll_[validMask]
+                    ).astype(np.float32, copy=False)
                     gradMeansAll = gradMeansSm
 
                 score = np.zeros_like(gradMeansAll, dtype=np.float32)
                 if np.any(mask):
-                    score[mask] = (np.abs(blockGradLogScales[mask]) / np.sqrt(blockGradCount[mask])).astype(
-                        np.float32, copy=False
-                    )
+                    score[mask] = (
+                        np.abs(blockGradLogScales[mask]) / np.sqrt(blockGradCount[mask])
+                    ).astype(np.float32, copy=False)
 
                 weights = np.ones_like(score, dtype=np.float32)
                 if np.any(mask):
@@ -1171,13 +1237,20 @@ def runConsenrich(
                     scoreMean = float(np.mean(scoreVals)) if scoreVals.size > 0 else 0.0
                     # prevent division by zero/blowup near stationary points
                     scoreScale_ = np.float32(
-                        scoreMedian if scoreMedian > 0 else (scoreMean if scoreMean > 0 else 1.0)
+                        scoreMedian
+                        if scoreMedian > 0
+                        else (scoreMean if scoreMean > 0 else 1.0)
                     )
-                    weights[mask] = ((score[mask] / scoreScale_) ** calibration_scoreExponent).astype(
-                        np.float32, copy=False
-                    )
+                    weights[mask] = (
+                        (score[mask] / scoreScale_) ** calibration_scoreExponent
+                    ).astype(np.float32, copy=False)
                     weights[~mask] = 0.0
-                    np.clip(weights, calibration_scoreWmin, calibration_scoreWmax, out=weights)
+                    np.clip(
+                        weights,
+                        calibration_scoreWmin,
+                        calibration_scoreWmax,
+                        out=weights,
+                    )
 
                 gradMeansAll = (gradMeansAll * weights).astype(np.float32, copy=False)
 
@@ -1185,13 +1258,17 @@ def runConsenrich(
                 if calibration_topKBlocks > 0 and np.any(mask):
                     eligibleIdx = np.flatnonzero(mask)
                     k = int(min(calibration_topKBlocks, eligibleIdx.size))
-                    rankedEligible = eligibleIdx[np.argsort(-score[eligibleIdx], kind="stable")[:k]]
+                    rankedEligible = eligibleIdx[
+                        np.argsort(-score[eligibleIdx], kind="stable")[:k]
+                    ]
                     keep = np.zeros_like(mask, dtype=bool)
                     keep[rankedEligible] = True
                     gradMeansAll[~keep] = np.float32(0.0)
 
                 # build the candidate step within trust region
-                blockLogFactors = np.log(BlockDispersionFactors).astype(np.float32, copy=False)
+                blockLogFactors = np.log(BlockDispersionFactors).astype(
+                    np.float32, copy=False
+                )
                 deltaBlockLogFactors = (-gradMeansAll).astype(np.float32, copy=False)
                 np.clip(
                     deltaBlockLogFactors,
@@ -1200,13 +1277,22 @@ def runConsenrich(
                     out=deltaBlockLogFactors,
                 )
 
-                candidateLogFactors = (blockLogFactors + deltaBlockLogFactors).astype(np.float32, copy=False)
-                np.clip(
-                    candidateLogFactors, logLowerUpdateLimit, logUpperUpdateLimit, out=candidateLogFactors
+                candidateLogFactors = (blockLogFactors + deltaBlockLogFactors).astype(
+                    np.float32, copy=False
                 )
-                candidate_BlockDispersionFactors = np.exp(candidateLogFactors).astype(np.float32, copy=False)
+                np.clip(
+                    candidateLogFactors,
+                    logLowerUpdateLimit,
+                    logUpperUpdateLimit,
+                    out=candidateLogFactors,
+                )
+                candidate_BlockDispersionFactors = np.exp(candidateLogFactors).astype(
+                    np.float32, copy=False
+                )
 
-                intervalDispersionFactors = candidate_BlockDispersionFactors[intervalToBlockMap]
+                intervalDispersionFactors = candidate_BlockDispersionFactors[
+                    intervalToBlockMap
+                ]
                 matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
 
                 # evaluate candidate step
@@ -1229,10 +1315,17 @@ def runConsenrich(
                     )
                 )
 
-                if localLinReduction < 1.0e-4 and calibration_trustRadius >= 2.0 * calibration_trustRadiusMin:
+                if (
+                    localLinReduction < 1.0e-4
+                    and calibration_trustRadius >= 2.0 * calibration_trustRadiusMin
+                ):
                     localLinReduction = 1.0e-4  # stable
-                elif calibration_trustRadius < max(2.0 * calibration_trustRadiusMin, 1.0e-4):
-                    logger.info("Early stop criterion: trust region shrunk to threshold...")
+                elif calibration_trustRadius < max(
+                    2.0 * calibration_trustRadiusMin, 1.0e-4
+                ):
+                    logger.info(
+                        "Early stop criterion: trust region shrunk to threshold..."
+                    )
                     break
 
                 # trust-radius feedback: compute "rho" = (actual reduction) / (predicted reduction)
@@ -1259,7 +1352,8 @@ def runConsenrich(
                         # if trust-region step was poorly calibrated, shrink trust region for next step
                         calibration_trustRadius = np.maximum(
                             calibration_trustRadiusMin,
-                            np.float32(calibration_trustShrink) * calibration_trustRadius,
+                            np.float32(calibration_trustShrink)
+                            * calibration_trustRadius,
                         )
                 else:
                     acceptedPhiHat = float(phiHat)
@@ -1270,16 +1364,28 @@ def runConsenrich(
                         np.float32(calibration_trustShrink) * calibration_trustRadius,
                     )
 
-                    intervalDispersionFactors = BlockDispersionFactors[intervalToBlockMap]
-                    matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
+                    intervalDispersionFactors = BlockDispersionFactors[
+                        intervalToBlockMap
+                    ]
+                    matrixMunc[:] = (
+                        initialMuncBaseline * intervalDispersionFactors[None, :]
+                    )
 
-                relImprovement = float((prevAcceptedLoss - acceptedLoss) / max(abs(prevAcceptedLoss), 1.0))
+                relImprovement = float(
+                    (prevAcceptedLoss - acceptedLoss) / max(abs(prevAcceptedLoss), 1.0)
+                )
                 logger.info(
                     f"\niter={iterCt}\tL={bestLoss:.4f}\tΦ_0={acceptedPhiHat:.4f}\tmax|∇|={maxGradAll:.4f}\tΔRel={relImprovement:.3e}\tProposal radius={float(calibration_trustRadius):.4f}"
                 )
 
                 if (iterCt > calibration_minIters) and (
-                    (accepted or (calibration_trustRadius <= float(calibration_trustRadiusMin) * 1.01))
+                    (
+                        accepted
+                        or (
+                            calibration_trustRadius
+                            <= float(calibration_trustRadiusMin) * 1.01
+                        )
+                    )
                     and relImprovement <= float(calibration_minRelativeImprovement)
                     and abs(acceptedPhiHat - 1.0) < float(calibration_phiEps)
                 ):
@@ -1378,7 +1484,9 @@ def runConsenrich(
     if rescaleStateCovar:
         numIntervalsPerBlock = int(np.ceil(np.sqrt(n / 2)))
         blockCount = int(np.ceil(n / numIntervalsPerBlock))
-        intervalToBlockMap = (np.arange(n, dtype=np.int32) // numIntervalsPerBlock).astype(np.int32)
+        intervalToBlockMap = (
+            np.arange(n, dtype=np.int32) // numIntervalsPerBlock
+        ).astype(np.int32)
         intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
         stateVar0_mm = np.asarray(outStateCovarSmoothed_mm[:, 0, 0])
 
@@ -1393,7 +1501,9 @@ def runConsenrich(
         # upscale state covariances per observed residuals
         # ... adjustments are usually mild, but may help avoid
         # ... overconfident uncertainty estimates more generally
-        newScale_Intervals = updatedScale[intervalToBlockMap].astype(np.float32, copy=False)
+        newScale_Intervals = updatedScale[intervalToBlockMap].astype(
+            np.float32, copy=False
+        )
         outStateCovarSmoothed_mm *= newScale_Intervals[:, None, None]
     outStateSmoothed = np.array(outStateSmoothed_mm, copy=True)
     outPostFitResiduals = np.array(outPostFitResiduals_mm, copy=True)
@@ -1439,7 +1549,9 @@ def getPrimaryState(
     return out_
 
 
-def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: str) -> npt.NDArray[np.int64]:
+def sparseIntersection(
+    chromosome: str, intervals: np.ndarray, sparseBedFile: str
+) -> npt.NDArray[np.int64]:
     r"""Returns intervals in the chromosome that overlap with the 'sparse' features.
 
     :param chromosome: The chromosome name.
@@ -1466,7 +1578,9 @@ def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: st
             )
         )
     )
-    centeredFeatures: bed.BedTool = chromFeatures.each(adjustFeatureBounds, intervalSizeBP=intervalSizeBP)
+    centeredFeatures: bed.BedTool = chromFeatures.each(
+        adjustFeatureBounds, intervalSizeBP=intervalSizeBP
+    )
 
     start0: int = int(intervals[0])
     last: int = int(intervals[-1])
@@ -1483,7 +1597,9 @@ def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: st
             )
         )
     )
-    centeredFeatures: bed.BedTool = chromFeatures.each(adjustFeatureBounds, intervalSizeBP=intervalSizeBP)
+    centeredFeatures: bed.BedTool = chromFeatures.each(
+        adjustFeatureBounds, intervalSizeBP=intervalSizeBP
+    )
     centeredStarts = []
     for f in centeredFeatures:
         s = int(f.start)
@@ -1494,7 +1610,9 @@ def sparseIntersection(chromosome: str, intervals: np.ndarray, sparseBedFile: st
 
 def adjustFeatureBounds(feature: bed.Interval, intervalSizeBP: int) -> bed.Interval:
     r"""Adjust the start and end positions of a BED feature to be centered around a step."""
-    feature.start = cconsenrich.stepAdjustment((feature.start + feature.end) // 2, intervalSizeBP)
+    feature.start = cconsenrich.stepAdjustment(
+        (feature.start + feature.end) // 2, intervalSizeBP
+    )
     feature.end = feature.start + intervalSizeBP
     return feature
 
@@ -1584,7 +1702,9 @@ def autoDeltaF(
     if hasattr(chromMat, "ndim") and chromMat.ndim == 1:
         meanTrack = np.asarray(chromMat, dtype=np.float32)
     else:
-        meanTrack = np.mean(chromMat, axis=0, dtype=np.float64).astype(np.float32, copy=False)
+        meanTrack = np.mean(chromMat, axis=0, dtype=np.float64).astype(
+            np.float32, copy=False
+        )
 
     numIntervals = int(meanTrack.size)
     blockLenBP = int(max(intervalSizeBP, round(blockMult * medFragLen)))
@@ -1606,7 +1726,9 @@ def autoDeltaF(
     if numStarts <= numBlocks:
         starts = np.arange(numStarts, dtype=np.int64)
     else:
-        starts = rng.choice(numStarts, size=int(numBlocks), replace=False).astype(np.int64)
+        starts = rng.choice(numStarts, size=int(numBlocks), replace=False).astype(
+            np.int64
+        )
 
     L_bins_vals: List[float] = []
     for s in starts:
@@ -1676,7 +1798,9 @@ def _forPlotsSampleBlockStats(
         x = np.ascontiguousarray(values_, dtype=np.float32)
     n = x.shape[0]
     if blockSize_ > n:
-        logger.warning(f"`blockSize>values.size`...setting `blockSize` = {max(n // 2, 1)}.")
+        logger.warning(
+            f"`blockSize>values.size`...setting `blockSize` = {max(n // 2, 1)}."
+        )
         blockSize_ = int(max(n // 2, 1))
 
     maxStart = n - blockSize_ + 1
@@ -1897,14 +2021,20 @@ def fitVarianceFunction(
         m0 = float(np.median(absMeans if absMeans.size > 0 else np.abs(means[:n])))
         v0 = float(
             np.quantile(
-                variances
-                if variances.size
-                else (np.maximum(variances[:n], EB_minLin * np.abs(means[:n])) + eps),
+                (
+                    variances
+                    if variances.size
+                    else (
+                        np.maximum(variances[:n], EB_minLin * np.abs(means[:n])) + eps
+                    )
+                ),
                 binQuantileCutoff,
             )
         )
         v0 = max(v0, EB_minLin * m0)
-        return np.vstack([np.array([m0], dtype=np.float32), np.array([v0], dtype=np.float32)])
+        return np.vstack(
+            [np.array([m0], dtype=np.float32), np.array([v0], dtype=np.float32)]
+        )
 
     # isotonic regression via PAVA
     varsFit = cconsenrich.cPAVA(variances, weights)
@@ -2027,13 +2157,18 @@ def getMuncTrack(
     meanAbs_Sorted = meanAbs_Masked[order]
     var_Sorted = var_Masked[order]
     opt = fitVarianceFunction(
-        meanAbs_Sorted, var_Sorted, binQuantileCutoff=binQuantileCutoff, EB_minLin=EB_minLin
+        meanAbs_Sorted,
+        var_Sorted,
+        binQuantileCutoff=binQuantileCutoff,
+        EB_minLin=EB_minLin,
     )
 
     meanTrack = np.abs(valuesArr).copy()
     if useEMA:
         meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
-    priorTrack = evalVarianceFunction(opt, meanTrack, EB_minLin=EB_minLin).astype(np.float32, copy=False)
+    priorTrack = evalVarianceFunction(opt, meanTrack, EB_minLin=EB_minLin).astype(
+        np.float32, copy=False
+    )
 
     if not EB_use:
         return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
@@ -2137,60 +2272,77 @@ def EB_computePriorStrength(
 
 def getContextSize(
     vals: np.ndarray,
-    maxSpan: int = 0,
+    minSpan: int = 8,
+    maxSpan: int = 128,
     bandZ: float = 0.67448,
-    order_: int = 3,
+    order_: int = 5,
 ) -> tuple[int, int, int]:
     y = np.asarray(vals, dtype=np.float64)
     n = int(y.size)
     if n == 0:
         raise ValueError("vals is empty")
 
-    if maxSpan <= 0:
-        maxSpan = int(np.sqrt(n + 1))
-        if maxSpan < 4:
-            maxSpan = 4
-
-    _y = vals.copy().astype(np.float64)
-    pos = _y[_y > 0]
+    yArr = vals.copy().astype(np.float64)
+    positiveVals = yArr[yArr > 0]
 
     # early exit -- no signal
-    if pos.size == 0:
-        pe = max(4, maxSpan // 2)
-        return int(pe), int(max(1, pe // 2)), int(max(1, pe * 2))
+    if positiveVals.size <= order_:
+        raise ValueError(
+            "Insufficient positive elements found. If this is expected, consider supplying `countingParams.backgroundBlockSizeBP` manually."
+        )
 
-    kMinPeaks = int(max(1, (np.sqrt(n + 1) // 2)))
-    peakIndexArray = signal.argrelmax(_y, order=int(max(1, order_)))[0]
+    smoothCpy = ndimage.uniform_filter1d(
+        yArr, size=int(max(1, minSpan)), mode="nearest"
+    )
+    kMinFeatures = int(max(1, (2 * np.log2(n + 1))))
+    thr = float(np.median(positiveVals))
 
-    thr = float(np.median(pos))
-    if peakIndexArray.size:
-        peakIndexArray = peakIndexArray[_y[peakIndexArray] > thr]
+    featureIndexArray = np.array([], dtype=np.int64)
+    orderVal = int(max(1, order_))
+    for o in range(orderVal, 0, -1):
+        cand = signal.argrelmax(smoothCpy, order=int(max(1, o)))[0]
+        if cand.size:
+            cand = cand[yArr[cand] > thr]
+        if cand.size >= kMinFeatures or o == 1:
+            featureIndexArray = cand
+            orderVal = o
+            break
 
-    while peakIndexArray.size < kMinPeaks and order_ > 1:
-        order_ -= 1
-        peakIndexArray = signal.argrelmax(_y, order=int(max(1, order_)))[0]
-        if peakIndexArray.size:
-            peakIndexArray = peakIndexArray[_y[peakIndexArray] > thr]
-
-    if peakIndexArray.size == 0:
+    if featureIndexArray.size == 0:
         # just take the largest elements
-        logger.warning("No relative maxima found, using largest elements for context size estimation")
-        peakIndexArray = np.argsort(-_y)[:kMinPeaks]
+        logger.warning(
+            "No relative maxima found, using largest elements for context size estimation"
+        )
+        featureIndexArray = np.argsort(-yArr)[:kMinFeatures]
 
-    peakHeights = _y[peakIndexArray]
-    kKeep = int(min(1000, peakHeights.size, max(kMinPeaks, n // max(4, maxSpan))))
+    baseQ = 0.1
+    featureBaselines = np.empty(featureIndexArray.size, dtype=np.float64)
+    for i in range(featureIndexArray.size):
+        featureIndex = int(featureIndexArray[i])
+        leftIndex = int(np.clip((featureIndex - maxSpan), 0, (n - 1)))
+        rightIndex = int(np.clip((featureIndex + maxSpan), 0, (n - 1)))
+        baselineLeft = float(np.quantile(yArr[leftIndex : (featureIndex + 1)], baseQ))
+        baselineRight = float(np.quantile(yArr[featureIndex : (rightIndex + 1)], baseQ))
+        featureBaselines[i] = (
+            baselineLeft if (baselineLeft > baselineRight) else baselineRight
+        )
+
+    featureScores = yArr[featureIndexArray] - featureBaselines
+    positiveScoreMask = featureScores > 0.0
+    if np.any(positiveScoreMask):
+        featureIndexArray = featureIndexArray[positiveScoreMask]
+        featureScores = featureScores[positiveScoreMask]
+
+    kKeep = int(min(1000, featureScores.size, max(kMinFeatures, n // max(8, maxSpan))))
     if kKeep <= 0:
         raise ValueError(
-            "No peaks found for context size estimation...supply `countingParams.backgroundBlockSizeBP` manually"
+            "No features found for context size estimation...supply `countingParams.backgroundBlockSizeBP` manually"
         )
-    keep = np.argpartition(-peakHeights, kKeep - 1)[:kKeep]
-    peakIndexArray = peakIndexArray[keep]
-    peakHeights = peakHeights[keep]
+    keep = np.argpartition(-featureScores, kKeep - 1)[:kKeep]
+    featureIndexArray = featureIndexArray[keep]
 
     eps = 1e-4
-    noiseWindow = int(min(maxSpan, 64))
-    sqrt2 = 1.4142135623730951
-    base_q = 0.05
+    noiseWindow = int(min(maxSpan, 32))
 
     def _mad(x: np.ndarray) -> float:
         if x.size == 0:
@@ -2198,18 +2350,19 @@ def getContextSize(
         med = float(np.median(x))
         return 1.4826 * float(np.median(np.abs(x - med)))
 
-    def getWidthEstimates(peakIndex):
-        peakValue = float(_y[peakIndex])
-        leftIndex = int(np.clip((peakIndex - maxSpan), 0, (n - 1)))
-        rightIndex = int(np.clip((peakIndex + maxSpan), 0, (n - 1)))
-        baselineLeft = float(np.quantile(_y[leftIndex : (peakIndex + 1)], base_q))
-        baselineRight = float(np.quantile(_y[peakIndex : (rightIndex + 1)], base_q))
+    def getWidthEstimates(featureIndex):
+        featureValue = float(yArr[featureIndex])
+        leftIndex = int(np.clip((featureIndex - maxSpan), 0, (n - 1)))
+        rightIndex = int(np.clip((featureIndex + maxSpan), 0, (n - 1)))
+        baselineLeft = float(np.quantile(yArr[leftIndex : (featureIndex + 1)], baseQ))
+        baselineRight = float(np.quantile(yArr[featureIndex : (rightIndex + 1)], baseQ))
+        # the larger of the two quantiles is used as the feature's baseline reference
         baseline = baselineLeft if (baselineLeft > baselineRight) else baselineRight
 
-        if peakValue <= baseline:
+        if featureValue <= baseline:
             return None
 
-        halfHeight = baseline + (0.5 * (peakValue - baseline))
+        halfHeight = baseline + (0.5 * (featureValue - baseline))
 
         # LEFT SIDE
         # Find index t such that: _y[t-1] <= halfHeight <= _y[t]
@@ -2217,13 +2370,15 @@ def getContextSize(
         leftPos = float(leftIndex)
         leftStep = 0.0
         leftFound = False
-        t = peakIndex
+        t = featureIndex
         while t > leftIndex:
-            if (_y[t - 1] <= halfHeight) and (_y[t] >= halfHeight):
-                dgrad = float(_y[t] - _y[t - 1])  # discrete ~gradient~
+            if (yArr[t - 1] <= halfHeight) and (yArr[t] >= halfHeight):
+                dgrad = float(yArr[t] - yArr[t - 1])  # discrete ~gradient~
                 leftStep = abs(dgrad)
                 leftPos = (
-                    float(t - 1) if (dgrad == 0.0) else float(t - 1) + ((halfHeight - _y[t - 1]) / dgrad)
+                    float(t - 1)
+                    if (dgrad == 0.0)
+                    else float(t - 1) + ((halfHeight - yArr[t - 1]) / dgrad)
                 )
                 leftFound = True
                 break
@@ -2233,12 +2388,16 @@ def getContextSize(
         rightPos = float(rightIndex)
         rightStep = 0.0
         rightFound = False
-        t = peakIndex
+        t = featureIndex
         while t < rightIndex:
-            if (_y[t] >= halfHeight) and (_y[t + 1] <= halfHeight):
-                dgrad = float(_y[t] - _y[t + 1])
+            if (yArr[t] >= halfHeight) and (yArr[t + 1] <= halfHeight):
+                dgrad = float(yArr[t] - yArr[t + 1])
                 rightStep = abs(dgrad)  # slope near intersection w/ half-height
-                rightPos = float(t + 1) if (dgrad == 0.0) else float(t) + ((_y[t] - halfHeight) / dgrad)
+                rightPos = (
+                    float(t + 1)
+                    if (dgrad == 0.0)
+                    else float(t) + ((yArr[t] - halfHeight) / dgrad)
+                )
                 rightFound = True
                 break
             t += 1
@@ -2247,26 +2406,16 @@ def getContextSize(
             return None
 
         # Each peak's 'width' recorded as the distance |left-half-point - right-half-point|
-        widthHat = rightPos - leftPos
-        if widthHat <= 1.0:
-            widthHat = 1.0
+        widthHat = max(1.0, rightPos - leftPos)
         # we build the actual distribtuion on log-width
-        logWidth_ = float(np.log(widthHat))
+        logWidth = float(np.log(widthHat))
 
         # Noise level around peak is recorded as the MAD of first-order differences
         # within the `noiseWindow` around the peak. Note the practical/naive independence assumption here.
-        leftWindow = int(np.clip((peakIndex - noiseWindow), 0, (n - 1)))
-        rightWindow = int(np.clip((peakIndex + noiseWindow + 1), 0, n))
-        window = _y[leftWindow:rightWindow]
-        if window.size < 3:
-            sigmaY = 0.0
-        else:
-            sigmaY = _mad(np.diff(window))
-
-        if not leftFound:
-            leftStep = 0.0
-        if not rightFound:
-            rightStep = 0.0
+        leftWindow = int(np.clip((featureIndex - noiseWindow), 0, (n - 1)))
+        rightWindow = int(np.clip((featureIndex + noiseWindow + 1), 0, n))
+        window = yArr[leftWindow:rightWindow]
+        sigmaY = 0.0 if window.size < 3 else _mad(np.diff(window))
 
         # Assumption: base noise disrupts the exact locations of half-points (i.e., width estimate)
         # ... but structure/slope at each half-point reduces uncertainty
@@ -2277,22 +2426,19 @@ def getContextSize(
         if sigmaS2 < 1e-6:
             sigmaS2 = 1e-6
 
-        return (logWidth_, float(sigmaS2))
+        return (logWidth, float(sigmaS2))
 
     # collect (log-width, variance) pairs
     sHatList = []
     sigma2List = []
-    k = 0
-    while k < peakIndexArray.size:
-        out = getWidthEstimates(int(peakIndexArray[k]))
+    for idx in featureIndexArray:
+        out = getWidthEstimates(int(idx))
         if out is not None:
             sHatList.append(out[0])
             sigma2List.append(out[1])
-        k += 1
 
     if len(sHatList) == 0:
-        # medians of posterior means +- CIs
-        p = np.sort(peakIndexArray)
+        p = np.sort(featureIndexArray)
         d = np.diff(p)
         pe = int(np.median(d)) if d.size else maxSpan
         pe = max(4, min(maxSpan, pe))
@@ -2310,15 +2456,12 @@ def getContextSize(
         tau0 = 0.05
     elif tau0 > 2.0:
         tau0 = 2.0
-    tauSq_0 = tau0 * tau0
+    tauSq0 = tau0 * tau0
 
     # posterior: weighted average, penalized by respective uncertainties
-    # normal-normal
-    postVar = 1.0 / ((1.0 / tauSq_0) + (1.0 / sigma2Arr))
-    postMean = postVar * ((mu0 / tauSq_0) + (sHatArr / sigma2Arr))
+    postVar = 1.0 / ((1.0 / tauSq0) + (1.0 / sigma2Arr))
+    postMean = postVar * ((mu0 / tauSq0) + (sHatArr / sigma2Arr))
     postStd = np.sqrt(postVar)
-
-    # medians of posterior means +- CIs
     logLower = float(np.median((postMean - (bandZ * postStd))))
     logUpper = float(np.median((postMean + (bandZ * postStd))))
     logPointEstimate = float(np.median(postMean))

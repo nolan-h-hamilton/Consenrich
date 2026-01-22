@@ -99,17 +99,16 @@ Several computationally burdensome tasks are written in cython for efficiency.
     :name: matching
 
 
-
 (Experimental) Detect genomic regions showing both **enrichment** and **non-random structure**
 
 
-Denote a noisy signal over fixed-length genomic intervals, estimated from multiple samples' functional genomics HTS data as
+Denote a noisy signal over fixed-length genomic intervals,
 
 .. math::
 
-  \widetilde{\mathbf{x}} = \{\widetilde{x}_{[i]}\}_{i=1}^{i=n}.
+  {\mathbf{x}} = \{{x}_{[i]}\}_{i=1}^{i=n}.
 
-**Aim**: Determine a set of 'structured' peak-like signal regions showing both:
+**Aim**: Determine a set of *structured peaks*, i.e., genomic regions where :math:`x_{[a:b]}` exhibits both:
 
 #. *Enrichment* (large relative amplitude)
 #. *Non-random structure* defined by a robust template (polynomial, oscillatory, etc.)
@@ -121,10 +120,15 @@ Prioritizing genomic regions that are both enriched and agree with a prescribed 
 * **Speed**: Runs in seconds/minutes using efficient numerical methods to compute large chromosome-scale convolutions (fast fourier transform (FFT)-based, overlap-add (OA), etc.)
 
 Algorithm Overview
-""""""""""""""""""""""
+"""""""""""""""""""""""
 
 To detect structured peaks, we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_, with
-*templates* derived from approximated discrete `wavelets <https://pywavelets.readthedocs.io/en/latest/ref/wavelets.html>`_ or their scaling functions.
+*templates* derived from approximated discrete `wavelets <https://pywavelets.readthedocs.io/en/latest/ref/wavelets.html>`_ (or their corresponding scaling functions).
+
+Note, other bases for defining templates may be considered in the future, e.g., splines, polynomials, etc.
+Wavelet-based templates are convenient and possess several desirable properties for detecting structured peaks: multi-scale representation,
+compact support, orthogonality, etc. For relevant background, `Fournier et al '95 <https://multires.caltech.edu/teaching/courses/waveletcourse/sig95.course.pdf>`_, and/or `Mallat and Hwan '92 <https://ieeexplore.ieee.org/abstract/document/119727>`_ may be useful reading.
+
 
 .. math::
 
@@ -135,23 +139,23 @@ Denote the cross-correlation between the signal track and a matching template :m
 
 .. math::
 
-  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = \widetilde{\mathbf{x}} \star \boldsymbol{\xi},
+  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = {\mathbf{x}} \star \boldsymbol{\xi},
 
 .. math::
 
-  \mathcal{R}_{[i]} = \sum_{t=1}^{t=T} \widetilde{x}_{[i+t-1]} \cdot \xi_{[t]}.
+  \mathcal{R}_{[i]} = \sum_{t=1}^{t=T} {x}_{[i+t-1]} \cdot \xi_{[t]}.
 
-We refer to :math:`\mathcal{R}` over :math:`i=1 \ldots n` as the *response sequence*. The response will be greatest in genomic regions with a high read density and structural similarity with template :math:`\boldsymbol{\xi}`.
+We refer to :math:`\mathcal{R}` over :math:`i=1 \ldots n` as the *response sequence*. The response will be greatest in genomic regions with a high read density and structural similarity to the template :math:`\boldsymbol{\xi}`.
 
-To detect significant hits,
+To detect 'significant' hits,
 
 * We first construct an observed empirical distribution from randomly-sampled genomic blocks. Specifically, we sample :math:`B` blocks and record each :math:`\max(\mathcal{R}_{[b_1]}, \ldots, \mathcal{R}_{[b_K]})`. Note, to mitigate artifacts, the size of each sampled block (:math:`K`) is drawn from a (truncated) geometric distribution with a mean equal to the desired feature size or template length, :math:`T`.
 
 * Relative maxima in the response sequence, i.e., :math:`i^*` such that :math:`\mathcal{R}_{[i^* - 1 \,:\, i^* - T/2]}\, \leq \, \mathcal{R}_{[i^*]} \, \geq \, \mathcal{R}_{[i^* + 1 \,:\, i^* + T/2]}` are retained as candidate matches
 
-* Each candidate is assigned an empirical :math:`p`-value based on its (interpolated) quantile in the sampled distribution. Those satisfying :math:`p_{\textsf{adj}} < \alpha` are deemed 'significant'.
+* Each candidate is assigned an empirical :math:`p`-value based on its (interpolated) quantile in the sampled distribution. Those satisfying :math:`p < \alpha` are deemed 'significant'. Note that :math:`p`-values are with respect to chromosome-specific empirical distributions.
 
-  * Additional criteria for matching: require the *signal values* at candidate peaks/matches, :math:`\widetilde{x}_{[i^*]}`, to exceed a cutoff (`matchingParams.minSignalAtMaxima`), and/or require the *length* of the matched feature to exceed a minimum size (`matchingParams.minMatchLengthBP`).
+  * Additional criteria for matching: require the *signal values* at candidate peaks/matches, :math:`{x}_{[i^*]}`, to exceed a cutoff (`matchingParams.minSignalAtMaxima`), and/or require the *length* of the matched feature to exceed a minimum size (`matchingParams.minMatchLengthBP`).
   * Overlapping/adjacent matches can be merged.
 
 .. note:: **Alternating Sampling Scheme**

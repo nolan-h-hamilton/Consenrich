@@ -37,7 +37,6 @@ def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 5,
     maxLen: int = 25,
-    cutoffQuantile: float|None = None,
 ) -> int:
     hlen = core.getContextSize(
         values,
@@ -115,8 +114,8 @@ def matchWavelet(
     :type alpha: float
     :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
         the signal-template convolution must be greater in value than others to qualify as matches.
-        If set to a value less than 1, the minimum length is determined via :func:`consenrich.matching.autoMinLengthIntervals`.
-        If set to `None`, defaults to 250 bp.
+        If set to a value less than 1, the minimum length is determined via :func:`consenrich.matching.autoMinLengthIntervals`,
+        a simple wrapper around :func:`consenrich.core.getContextSize`. If set to `None`, defaults to 250 bp.
     :type minMatchLengthBP: Optional[int]
     :param minSignalAtMaxima: Secondary significance threshold coupled with :math:`\alpha`. Requires the *signal value*
         at relative maxima in the response sequence to be greater than a threshold :math:`\pm \epsilon`.
@@ -189,7 +188,9 @@ def matchWavelet(
     halfRightMask = ~halfLeftMask
     excludeMaskGlobal = np.zeros(len(intervals), dtype=np.uint8)
     if excludeRegionsBedFile is not None:
-        excludeMaskGlobal = core.getBedMask(chromosome, excludeRegionsBedFile, intervals).astype(np.uint8)
+        excludeMaskGlobal = core.getBedMask(
+            chromosome, excludeRegionsBedFile, intervals
+        ).astype(np.uint8)
     allRows = []
 
     def parseMinSignalThreshold(val):
@@ -229,7 +230,9 @@ def matchWavelet(
             )
         )
 
-    def relativeMaxima(resp: np.ndarray, orderBins: int, eps: float = None) -> np.ndarray:
+    def relativeMaxima(
+        resp: np.ndarray, orderBins: int, eps: float = None
+    ) -> np.ndarray:
         order_: int = max(int(orderBins), 1)
         if eps is None:
             eps = np.finfo(resp.dtype).eps * 10
@@ -364,7 +367,9 @@ def matchWavelet(
             if len(candidateIdx) == 0:
                 continue
             if maxNumMatches is not None and len(candidateIdx) > maxNumMatches:
-                candidateIdx = candidateIdx[np.argsort(values_[candidateIdx])[-maxNumMatches:]]
+                candidateIdx = candidateIdx[
+                    np.argsort(values_[candidateIdx])[-maxNumMatches:]
+                ]
             pEmp = np.clip(
                 ecdfSf.evaluate(response[candidateIdx]),
                 np.finfo(np.float32).tiny,
@@ -378,7 +383,9 @@ def matchWavelet(
             pointSourcesIdx = np.array(pointSourcesIdx)
             starts = intervals[startsIdx]
             ends = intervals[endsIdx]
-            pointSourcesAbs = (intervals[pointSourcesIdx]) + max(1, intervalLengthBp // 2)
+            pointSourcesAbs = (intervals[pointSourcesIdx]) + max(
+                1, intervalLengthBp // 2
+            )
             if recenterAtPointSource:
                 starts = pointSourcesAbs - (relWindowBins * intervalLengthBp)
                 ends = pointSourcesAbs + (relWindowBins * intervalLengthBp)
@@ -386,9 +393,9 @@ def matchWavelet(
             starts = np.maximum(starts.astype(np.int64, copy=False), chromStart)
             ends = np.minimum(ends.astype(np.int64, copy=False), chromEnd)
 
-            pointSourcesRel = (intervals[pointSourcesIdx].astype(np.int64, copy=False) - starts) + max(
-                1, intervalLengthBp // 2
-            )
+            pointSourcesRel = (
+                intervals[pointSourcesIdx].astype(np.int64, copy=False) - starts
+            ) + max(1, intervalLengthBp // 2)
             sqScores = (1 + response[candidateIdx]) ** 2
             minR, maxR = (
                 float(np.min(sqScores)),
@@ -437,11 +444,12 @@ def matchWavelet(
     groupCols = ["chromosome", "templateName", "cascadeLevel"]
     qVals = np.empty(len(df), dtype=float)
     for _, groupIdx in df.groupby(groupCols, sort=False).groups.items():
-        # FDR is wrt chromosome and the wavelet/scaling function template
         p = df.loc[groupIdx, "p_raw"].values.astype(float, copy=False)
         qVals[groupIdx] = p
 
-    df["pValue"] = -np.log10(np.clip(df["p_raw"].values.astype(float), np.finfo(np.float32).tiny, 1.0))
+    df["pValue"] = -np.log10(
+        np.clip(df["p_raw"].values.astype(float), np.finfo(np.float32).tiny, 1.0)
+    )
     df["qValue"] = -np.log10(np.clip(qVals, np.finfo(np.float32).tiny, 1.0))
     df.drop(columns=["p_raw"], inplace=True)
     df = df[qVals <= alpha].copy()
@@ -482,7 +490,6 @@ def runMatchingAlgorithm(
     weightsBedGraph: str | None = None,
     eps: float = 1.0e-3,
     mergeGapBP: int | None = -1,
-    methodFDR: str | None = None,
     merge: bool = True,
     massQuantileCutoff: float = -1.0,
 ):
@@ -518,7 +525,9 @@ def runMatchingAlgorithm(
                 },
             )
         except Exception as ex:
-            logger.warning(f"Failed to parse weights from {weightsBedGraph}. Ignoring weights....\n{ex}")
+            logger.warning(
+                f"Failed to parse weights from {weightsBedGraph}. Ignoring weights....\n{ex}"
+            )
             weightsDF = None
 
     minMatchLengths = []
@@ -540,7 +549,9 @@ def runMatchingAlgorithm(
                         f"Weights length {len(wChr)} does not match values length {len(chromValues)} on {chromosome_}. Ignoring weights for this chrom...."
                     )
             except Exception as ex:
-                logger.warning(f"Failed to parse weights from {weightsBedGraph}. Ignoring weights....\n{ex}")
+                logger.warning(
+                    f"Failed to parse weights from {weightsBedGraph}. Ignoring weights....\n{ex}"
+                )
 
         if minMatchLengthBP is not None and minMatchLengthBP < 1:
             minMatchLengthBP_ = autoMinLengthIntervals(
@@ -573,9 +584,10 @@ def runMatchingAlgorithm(
             continue
         gapByChrom[chromosome_] = int(minMatchLengthBP__)
         stepSize_ = np.float32(chromIntervals[1] - chromIntervals[0])
-        lengths = (df__["end"].to_numpy(dtype=np.int64) - df__["start"].to_numpy(dtype=np.int64)).astype(
-            np.float32
-        )
+        lengths = (
+            df__["end"].to_numpy(dtype=np.int64)
+            - df__["start"].to_numpy(dtype=np.int64)
+        ).astype(np.float32)
 
         signals = df__["signal"].to_numpy(dtype=np.float32)
 
@@ -588,7 +600,9 @@ def runMatchingAlgorithm(
                 method="interpolated_inverted_cdf",
             )
 
-            logger.info(f"Applying mass cutoff: {cutoff:.3f} on chromosome {chromosome_}")
+            logger.info(
+                f"Applying mass cutoff: {cutoff:.3f} on chromosome {chromosome_}"
+            )
             df__ = df__[massProxy >= cutoff].copy()
         else:
             df__ = df__.copy()
@@ -599,21 +613,26 @@ def runMatchingAlgorithm(
             index=False,
             header=False,
         )
-        tmpFiles.append(f"{bedGraphFile}_{chromosome_}_matches.narrowPeak".replace(".bedGraph", ""))
+        tmpFiles.append(
+            f"{bedGraphFile}_{chromosome_}_matches.narrowPeak".replace(".bedGraph", "")
+        )
         minMatchLengths.append(minMatchLengthBP__)
+    if merge and len(tmpFiles) > 0:
+        mergeNarrowPeaks.mergeAndSortNarrowPeaks(
+            tmpFiles,
+            outPath=f"{bedGraphFile}_matches.mergedMatches.narrowPeak".replace(
+                ".bedGraph", ""
+            ),
+            defaultGapBP=(
+                mergeGapBP if mergeGapBP is not None and mergeGapBP > 0 else 250
+            ),
+            gapByChrom=gapByChrom,
+        )
 
-
-    mergeNarrowPeaks.mergeAndSortNarrowPeaks(
-        tmpFiles,
-        outPath=f"{bedGraphFile}_matches.mergedMatches.narrowPeak".replace(".bedGraph", ""),
-        defaultGapBP=250,
-        gapByChrom=gapByChrom,
-    )
-
-    for tf in tmpFiles:
-        try:
-            os.remove(tf)
-        except Exception:
-            logger.warning(f'Could not remove temporary file: {tf}')
-            pass
+        for tf in tmpFiles:
+            try:
+                os.remove(tf)
+            except Exception:
+                logger.warning(f"Could not remove temporary file: {tf}")
+                pass
     return f"{bedGraphFile}_matches.mergedMatches.narrowPeak".replace(".bedGraph", "")

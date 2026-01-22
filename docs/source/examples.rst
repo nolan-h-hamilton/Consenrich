@@ -88,7 +88,6 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   genomeParams.name: hg38
   genomeParams.chromosomes: [chr21, chr22] # remove this line to run genome-wide
   genomeParams.excludeForNorm: [chrX, chrY]
-
   inputParams.bamFiles: [ENCFF793ZHL.bam,
   ENCFF647VPO.bam,
   ENCFF809VKT.bam,
@@ -99,9 +98,9 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   ENCFF898LKJ.bam,
   ENCFF490MWV.bam]
 
-  # Optional: call 'structured peaks'
-  matchingParams.templateNames: [haar, db2, db3]
-  matchingParams.cascadeLevels: [2,2,2]
+  # Optional: call 'structured peaks' via `consenrich.matching`
+  matchingParams.templateNames: [haar, haar, db2, db2]
+  matchingParams.cascadeLevels: [1,2,1,2]
 
 
 .. admonition:: Control Inputs
@@ -151,13 +150,8 @@ For example, to run the `Consenrich+ROCCO` protocol as it is used in the manuscr
     -g hg38 -o consenrichRocco_<experimentName>.bed \
     # <...>
 
-Other peak calling methods can be applied downstream, too, including the :ref:`matching` algorithm packaged with Consenrich, that accept a bedGraph or bigWig input (e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_). Only Consenrich+ROCCO has been benchmarked for differential accessibility analyses to date.
+* Only Consenrich+ROCCO has been benchmarked for differential accessibility analyses to date, but alternative peak calling methods can be considered downstream, too. For example, the :ref:`matching` algorithm packaged that is packaged with Consenrich.
 
-In general, for workflows of the form ``Consenrich Signal Track --> Peak Caller --> Sample-by-CalledPeaks Count Matrix --> Differential Analysis between Conditions``, it is recommended to use *all samples from all experimental conditions* as input to Consenrich for better control of downstream false discovery rates. See, for example, `Lun and Smyth, 2014`.
+* Other methods supporting bedGraph/bigWig input, e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_, `LanceOTron <https://lanceotron.molbiol.ox.ac.uk>`_ may also be effective.
 
-
-Broad Features / Shallow Sequencing Depth
-""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-
-The default for (``countingParams.intervalSizeBP``) is 25 base pairs, which may be too fine for very broad marks and/or samples with less than :math:`\approx 5\textsf{M}` tags. Consider using larger interval sizes, e.g., 50-200 bp in these cases.
 

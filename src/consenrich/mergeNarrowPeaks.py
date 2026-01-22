@@ -46,8 +46,16 @@ def mergeAndSortNarrowPeaks(
                 start = int(parts[1])
                 end = int(parts[2])
 
-                score = float(parts[4]) if len(parts) > 4 and parts[4] not in ("", ".") else 0.0
-                signal = float(parts[6]) if len(parts) > 6 and parts[6] not in ("", ".") else 0.0
+                score = (
+                    float(parts[4])
+                    if len(parts) > 4 and parts[4] not in ("", ".")
+                    else 0.0
+                )
+                signal = (
+                    float(parts[6])
+                    if len(parts) > 6 and parts[6] not in ("", ".")
+                    else 0.0
+                )
 
                 pLog10: Optional[float] = None
                 if len(parts) > 7 and parts[7] not in ("", "."):
