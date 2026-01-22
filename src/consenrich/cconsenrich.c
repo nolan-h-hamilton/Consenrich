@@ -23119,7 +23119,7 @@ static CYTHON_INLINE void __pyx_f_10consenrich_11cconsenrich__regionMeanVar(__Py
   /* function exit code */
 }
 
-/* "consenrich/cconsenrich.pyx":244
+/* "consenrich/cconsenrich.pyx":245
  * 
  * 
  * cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:             # <<<<<<<<<<<<<<
@@ -51467,7 +51467,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cDenseGlobalBaseline(PyObject *
  *                     proposalCt += 1
  *                     acceptCt += 1             # <<<<<<<<<<<<<<
  * 
- *                 end = start + L
+ * 
 */
               __pyx_v_acceptCt = (__pyx_v_acceptCt + 1);
 
@@ -51611,7 +51611,7 @@ static double __pyx_f_10consenrich_11cconsenrich_cDenseGlobalBaseline(PyObject *
     PyObject* __pyx__function = PyMethod_GET_FUNCTION(__pyx_t_7);
     __Pyx_INCREF(__pyx_t_8);
     __Pyx_INCREF(__pyx__function);
-    __Pyx_DECREF_SET(__pyx_t_7, __pyx__function);
+    __Pyx_DECREF_SET(__pyx_t_3, __pyx__function);
     __pyx_t_9 = 0;
   }
   #endif

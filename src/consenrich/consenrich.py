@@ -656,6 +656,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.binQuantileCutoff",
             0.75,
         ),
+        binQuantileCutoff=_cfgGet(
+            configData,
+            "observationParams.binQuantileCutoff",
+            0.75,
+        ),
         EB_minLin=float(
             _cfgGet(
                 configData,

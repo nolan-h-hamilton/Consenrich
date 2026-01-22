@@ -2379,6 +2379,7 @@ cpdef double cDenseGlobalBaseline(
                     proposalCt += 1
                     acceptCt += 1
 
+
                 end = start + L
                 if end <= numValues:
                     # No wraparound: sum values[start:end].
