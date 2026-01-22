@@ -29,7 +29,7 @@ def testMatrixConstruction(
     coefficients=[0.1, 0.2, 0.3, 0.4],
     minQ=0.25,
     offDiag=0.10,
-    ratioDiagQ=5.0
+    ratioDiagQ=5.0,
 ):
     # F
     m = len(coefficients)
@@ -46,7 +46,9 @@ def testMatrixConstruction(
     # Q
     matrixQ = core.constructMatrixQ(minQ, ratioDiagQ=5.0)
     assert matrixQ.shape == (2, 2)
-    np.testing.assert_allclose(matrixQ, np.array([[minQ, 0.0], [0.0, minQ/ratioDiagQ]]))
+    np.testing.assert_allclose(
+        matrixQ, np.array([[minQ, 0.0], [0.0, minQ / ratioDiagQ]])
+    )
 
 
 @pytest.mark.chelpers
@@ -211,92 +213,6 @@ def testMatchExistingBedGraph():
         assert len(lineStrings) >= 3  # fewer than 5 might indicate low power
 
 
-@pytest.mark.matching
-def testMergeMatches():
-    TEST_FILE = "unmerged.test.narrowPeak"
-
-    outFile = matching.mergeMatches(TEST_FILE, mergeGapBP=75)
-    assert outFile and os.path.isfile(outFile), "No output 'merged' file found"
-
-    name_re = re.compile(
-        r"^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\.\d{3})$"
-    )
-    with open(outFile) as f:
-        lines = [line.strip() for line in f if line.strip()]
-
-    assert len(lines) > 0, "no merged features"
-
-    idx = 0
-    for line in lines:
-        idx += 1
-        line_ = line.strip()
-        fields = line_.split("\t")
-        assert len(fields) == 10, f"Line {idx}: fewer than 10 narrowPeak fields"
-        (
-            chrom,
-            start_,
-            end_,
-            name,
-            score,
-            strand,
-            sigAvg,
-            pHM,
-            qHM,
-            point,
-        ) = fields[:10]
-        record_ = name_re.match(name)
-        assert record_, f"Could not parse feature name: {name}"
-
-        gap = int(record_["gap"])
-        ct = int(record_["ct"])
-        assert gap == 75, "parsed mergeGapBP in feature name does not match expected"
-        assert ct >= 1, "parsed count of merged peaks should be at least 1"
-
-        qMinLog10 = float(record_["qmin"])
-        qMaxLog10 = float(record_["qmax"])
-        qMin = np.round(10 ** (-float(qMaxLog10)), 3)
-        qMax = np.round(10 ** (-float(qMinLog10)), 3)
-
-        qHarmonicMean = np.round(10 ** (-float(qHM)), 3)
-        assert qHarmonicMean >= qMin, (
-            f"harmonic mean of q-values should be greater/equal to minimum q-value: {line_}"
-        )
-        assert qHarmonicMean <= qMax, (
-            f"harmonic mean of q-values should be less/equal to maximum q-value: {line_}"
-        )
-
-
-@pytest.mark.matching
-def testMergeMatchesReduction():
-    TEST_FILE = "unmerged.test.narrowPeak"
-
-    with open(TEST_FILE) as f:
-        linesInit = [line.strip() for line in f if line.strip()]
-    numInit = len(linesInit)
-
-    outFile = matching.mergeMatches(TEST_FILE, mergeGapBP=75)
-
-    assert outFile and os.path.isfile(outFile), (
-        "No output file can be found after call to `mergeMatches`"
-    )
-
-    name_re = re.compile(
-        r"^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\.\d{3})$"
-    )
-    with open(outFile) as f:
-        lines = [line.strip() for line in f if line.strip()]
-
-    assert len(lines) > 0, "no remaining features after merge"
-
-    assert len(lines) > 25, (
-        f"Unexpected: too few features remaining after merge {len(lines)},{numInit}"
-    )
-
-    assert len(lines) < 75, (
-        f"Unexpected: too many features remaining after merge {len(lines)},{numInit}"
-    )
-
-
 @pytest.mark.correctness
 def testRunConsenrich1DInputShapes():
     np.random.seed(42)
@@ -390,7 +306,7 @@ def testRunConsenrich2DInputShapes():
 
     assert state.shape == (n, 2)
     assert stateCov.shape == (n, 2, 2)
-    assert len(resid) == n 
+    assert len(resid) == n
 
 
 @pytest.mark.correctness
@@ -421,3 +337,33 @@ def testRunConsenrichInvalidShapeRaises():
             chunkSize=10,
             progressIter=1000,
         )
+
+
+@pytest.mark.correctness
+def testAutoDeltaFChromMatAutocorrPath(monkeypatch):
+    class placeholder:
+        def info(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(core, "logger", placeholder(), raising=False)
+    L_bins = 5.0
+    n = 2000
+    meanTrack = np.exp(-np.arange(n, dtype=np.float32) / np.float32(L_bins)).astype(
+        np.float32
+    )
+
+    out = core.autoDeltaF(
+        bamFiles=[],
+        intervalSizeBP=10,
+        chromMat=meanTrack,
+        fragmentLengths=[200],
+        randomSeed=42,
+        numBlocks=250,
+        maxLagBins=25,
+        maxDeltaF=1.0,
+        minDeltaF=0.01,
+    )
+
+    assert isinstance(out, np.float32)
+    expected = min(max(1.0 / L_bins, 0.01), 1.0)
+    assert float(out) <= 1.1 * expected

@@ -49,7 +49,9 @@ def checkBamFile(bamFile: str) -> bool:
 
     if not has_index:
         try:
-            logger.info(f"Could not find index file for {bamFile}. Calling pysam.index()")
+            logger.info(
+                f"Could not find index file for {bamFile}. Calling pysam.index()"
+            )
             sam.index(bamFile)
             has_index = True
         except Exception as ex:
