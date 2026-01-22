@@ -25,7 +25,7 @@ cnp.import_array()
 # constants
 # ========
 cdef const float __INV_LN2_FLOAT = <float>1.44269504
-cdef const double __INV_LN2_DOUBLE = <double>1.44269504
+cdef const double __INV_LN2_DOUBLE = <double>1.44269504088896340
 
 # ===============
 # inline/helpers
@@ -1468,127 +1468,27 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple arsinhSqrt(object x,
-                       bint useAsymptoticLog2=<bint>True):
+cpdef tuple monoFunc(object x, double offset=0, double scale=1.0):
 
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] x_F64 = np.ascontiguousarray(x, dtype=np.float64)
-    cdef Py_ssize_t n = x_F64.shape[0]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64 = np.empty(<Py_ssize_t>n, dtype=np.float64)
-
-    cdef double mom1 = 0.0
-    cdef double mom2 = 0.0
-    cdef double welf1, welf2
-    cdef double muHat = 0.0
-    cdef double varHat = 0.0
-    cdef double a_ = <double>(-1.0) # FIXED
-    cdef double offset_ = <double>(0.375) # FIXED
-    cdef double scale_
-    cdef double multLog2 = 2.0 * __INV_LN2_DOUBLE
-    cdef double xValue
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
+    cdef Py_ssize_t n = arr_np.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_np = np.empty(n, dtype=np.float64)
+    cdef double[::1] arrView = arr_np
+    cdef double[::1] outView = out_np
+    cdef double offset_ = offset
+    cdef double scale_ = scale
+    cdef double a0 = asinh(sqrt(scale_ * offset_))
+    cdef double c0 = (2.0 + log(scale_) * __INV_LN2_DOUBLE - 2.0 * a0 * __INV_LN2_DOUBLE)
     cdef Py_ssize_t i
-    cdef double smol = 1e-12
-    cdef double overdisp_raw, overdisp
-    cdef double overdispFloor, overdispBound, overdispThreshold
-    cdef double a_raw, a_prior, postWeight, a_log
-    cdef double a_min, a_max
-    cdef double scaleFloor
+    cdef double xval, tval
 
-    cdef double zGate = 1.644853627 # 95%
-    cdef double k, t, chi2_q, varUpperEq
+    with nogil:
+        for i in range(n):
+            xval = arrView[i]
+            tval = asinh(sqrt(scale_ * (xval + offset_)))
+            outView[i] = 2.0 *(tval - a0)*__INV_LN2_DOUBLE - c0
 
-    if not useAsymptoticLog2:
-        multLog2 = <double>1.0
-
-    # ---------------------------------------------------------------------------
-    # Note: this is a crude treatment of overdispersion and --not-- a full VST
-    #
-    # Intent: compressed dynamic range, and,
-    #
-    #     multiplicative noise --> additive (but maybe not homoscedastic) noise,
-    #
-    # before computing/removing baselines and fitting an *explicit* variance func.
-    # ---------------------------------------------------------------------------
-
-    for i in range(n):
-        xValue = x_F64[i]
-        welf1 = xValue - mom1
-        mom1 += welf1 / (i + 1.0)
-        welf2 = xValue - mom1
-        mom2 += welf1 * welf2
-
-    muHat = mom1
-    varHat = (mom2 / (n - 1.0)) if n > 1 else 0.0
-
-    if a_ <= 0.0:
-        if (not isfinite(muHat)) or (not isfinite(varHat)) or (muHat <= 0.0):
-            for i in range(n):
-                xValue = x_F64[i]
-                out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
-            return (out_F64, a_)
-
-
-        # gate: var <= (mu + (z*mu)*sqrt(2/(n-1))) --> treat as -not- overdispersed (sqrt)
-        varUpperEq = muHat * (1.0 + zGate*sqrt(2.0 / (n - 1.0)))
-        if varHat <= varUpperEq:
-            for i in range(n):
-                xValue = x_F64[i]
-                out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
-            return (out_F64, a_)
-
-        overdisp_raw = (varHat - muHat) / max(muHat * muHat, smol)
-        overdispThreshold = max(1e-3, 2.0 / (n - 1.0))
-
-        # low overdispersion --> goto poisson-like sqrt
-        if (not isfinite(overdisp_raw)) or (overdisp_raw <= overdispThreshold):
-            for i in range(n):
-                xValue = x_F64[i]
-                # FFR: for consistency, multLog2 is nice, but revisit
-                out_F64[i] = multLog2 * (sqrt(xValue + offset_) - sqrt(offset_))
-            return (out_F64, a_)
-
-        overdisp = overdisp_raw
-        if overdisp < 0.0:
-            overdisp = 0.0
-        overdispFloor = fmax(1.0e-2, 2.0 / ((<int>n) - 1.0))
-        if overdisp < overdispFloor:
-            overdisp = overdispFloor
-
-        overdispBound = 1e2
-        if overdisp > overdispBound:
-            overdisp = overdispBound
-
-        a_raw = 1.0 / fmax(overdisp, smol)
-        scaleFloor = 0.1 + (0.1 * sqrt(varHat + muHat * muHat))
-        a_min = 0.75 + scaleFloor
-        a_max = 1e6
-
-        # lightweight EB: shrink --> 3/4 + floor-guess
-        a_prior = a_min
-        postWeight = n / (n + 50.0)
-        a_log = postWeight * log(fmax(a_raw, smol)) + (1.0 - postWeight) * log(fmax(a_prior, smol))
-        a_ = exp(a_log)
-
-        if (not isfinite(a_)) or a_ < a_min:
-            a_ = a_min
-        elif a_ > a_max:
-            a_ = a_max
-
-    scaleFloor = 0.1 + (0.1*sqrt(varHat + muHat*muHat))
-    scale_ = a_ - 0.75
-    if (not isfinite(scale_)) or scale_ < scaleFloor:
-        scale_ = scaleFloor
-        a_ = 0.75 + scale_
-
-    printf("cconsenrich.arsinhSqrt: offset=%f scale=%f a=%f\n", offset_, scale_, a_)
-
-    cdef double valAtZero = asinh(sqrt(offset_ / scale_))
-    for i in range(n):
-        xValue = x_F64[i]
-        out_F64[i] = multLog2 * (asinh(sqrt((xValue + offset_) / scale_)) - valAtZero)
-
-    return (out_F64, a_)
-
-
+    return (out_np, -1.0)
 
 
 cpdef object cTransform(
@@ -1596,7 +1496,6 @@ cpdef object cTransform(
     Py_ssize_t blockLength,
     bint disableLocalBackground=<bint>False,
     double denseMeanQuantile=<double>0.50,
-    double liftLower=<double>1.0,
     double w_local=<double>1.0,
     double w_global=<double>3.0,
     bint verbose=<bint>False,
@@ -1627,7 +1526,7 @@ cpdef object cTransform(
     # 0,0 --> skip both local+global baseline subtraction
     if not disableLocalBackground and wLocal == 0.0 and wGlobal == 0.0:
 
-        momRes = arsinhSqrt(x)
+        momRes = monoFunc(x)
         if (<cnp.ndarray>x).dtype == np.float32:
             return np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
         else:
@@ -1652,14 +1551,12 @@ cpdef object cTransform(
     n = (<cnp.ndarray>x).size
     # F32
     if (<cnp.ndarray>x).dtype == np.float32:
-        # I) ~VST~ with a approximated from data
-        momRes = arsinhSqrt(x)
+        momRes = monoFunc(x)
         zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
         zView_F32 = zArr_F32
         n = zArr_F32.shape[0]
         outArr = np.empty(n, dtype=np.float32)
         outView_F32 = outArr
-        # II) baseline estimation (weighted(local, global)) on transformed data
         if wGlobal > 0.0:
             # right-tail biased circular resampling
             globalBaselineF32 = <float>cDenseGlobalBaseline(
@@ -1673,11 +1570,9 @@ cpdef object cTransform(
             globalBaselineF32 = 0.0
 
         if wLocal > 0.0:
-            # broad local baseline (median filter at 2x block size)
-            localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize, liftLower=<float>liftLower)
+            localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize)
             localBaseView_F32 = localBaseArr_F32
 
-        # III) remove weighted combination of local,global baselines
         wLocalF32 = <float>wLocal
         wGlobalF32 = <float>wGlobal
         invWeightSumF32 = <float>invWeightSum
@@ -1697,7 +1592,7 @@ cpdef object cTransform(
         return outArr
 
     # F64
-    momRes = arsinhSqrt(x)
+    momRes = monoFunc(x)
     zArr_F64 = np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
     zView_F64 = zArr_F64
     n = zArr_F64.shape[0]
@@ -1716,7 +1611,7 @@ cpdef object cTransform(
         globalBaselineF64 = 0.0
 
     if wLocal > 0.0:
-        localBaseArr_F64 = clocalBaseline(zArr_F64, <int>bootBlockSize, liftLower=<double>liftLower)
+        localBaseArr_F64 = clocalBaseline(zArr_F64, <int>bootBlockSize)
         localBaseView_F64 = localBaseArr_F64
 
     wLocalF64 = <double>wLocal
@@ -2664,7 +2559,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
     cnp.ndarray postWeight):
     r"""PAVA for isotonic regression
 
-    This code aims for the notation and algorithm of Busing 2022 (JSS, DOI: 10.18637/jss.v102.c01).
+    This code aims for the notation and algorithm of Busing 2022 (JSS, ``DOI: 10.18637/jss.v102.c01``).
 
     Key algorithmic insight:
 
@@ -2930,11 +2825,6 @@ cpdef tuple cscaleStateCovar(
     return (blockscaleFactorArr, blockNArr, blockChi2Arr)
 
 
-cpdef clocalBaseline(object x, int blockSize=101, double liftLower=<double>(1.0)):
-    arr = np.asarray(x)
-    return np.maximum(ndimage.median_filter(arr, size=2*blockSize + 1, mode='nearest'), liftLower)
-
-
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
     float minCount=<float>1.0,
@@ -3003,3 +2893,460 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
                 scaleFactorsView[s] /= geoMean
 
     return 1/scaleFactors
+
+
+cdef void solveSOD_LDL_F64(
+    const double[::1] A0_F64,
+    const double[::1] A1_F64,
+    const double[::1] A2_F64,
+    const double[::1] b_F64,
+    double[::1] x_F64,
+    double[::1] D_F64,
+    double[::1] L1_F64,
+    double[::1] L2_F64,
+    double[::1] y_tmp_F64,
+    double[::1] z_tmp_F64) noexcept nogil:
+    r"""Solve ``Ax = b`` for a symmetric 5-diagonal matrix ``A``
+
+    Matrix :math:`A \in \mathbb{R}^{n \times n}` is represented in three 1D arrays:
+
+        A0[i] = A[i,i]
+        A1[i] = A[i,i+1] = A[i+1,i]
+        A2[i] = A[i,i+2] = A[i+2,i]
+
+    i.e., a 5-diagonal matrix with the following structure::
+
+            c0      c1      c2      c3      c4      c5
+        r0  A0_0    A1_0    A2_0     .       .       .
+        r1  A1_0    A0_1    A1_1    A2_1     .       .
+        r2  A2_0    A1_1    A0_2    A1_2    A2_2     .
+        r3   .      A2_1    A1_2    A0_3    A1_3    A2_3
+        r4   .       .      A2_2    A1_3    A0_4    A1_4
+        r5   .       .       .      A2_3    A1_4    A0_5
+
+    """
+
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+    cdef double t1
+    cdef double t2
+
+    # Ax=b, A=LD(L^T), Ly=b, Dz=y, L^Tx=z
+    n = A0_F64.shape[0]
+    if n == 0:
+        return
+    if n == 1:
+        x_F64[0] = (b_F64[0] / A0_F64[0])
+        return
+
+    # LDL decomposition of A
+    D_F64[0] = A0_F64[0]
+    L1_F64[0] = (A1_F64[0] / D_F64[0])
+    if n > 2:
+        L2_F64[0] = (A2_F64[0] / D_F64[0])
+
+    D_F64[1] = (A0_F64[1] - ((L1_F64[0] * L1_F64[0]) * D_F64[0]))
+    if n > 2:
+        t1 = ((L2_F64[0] * D_F64[0]) * L1_F64[0])
+        L1_F64[1] = ((A1_F64[1] - t1) / D_F64[1])
+    if n > 3:
+        L2_F64[1] = (A2_F64[1] / D_F64[1])
+
+    for i in range(2, n):
+        t1 = ((L1_F64[i - 1] * L1_F64[i - 1]) * D_F64[i - 1])
+        t2 = ((L2_F64[i - 2] * L2_F64[i - 2]) * D_F64[i - 2])
+        D_F64[i] = (A0_F64[i] - t1 - t2)
+
+        if i <= (n - 2):
+            t1 = ((L2_F64[i - 1] * D_F64[i - 1]) * L1_F64[i - 1])
+            L1_F64[i] = ((A1_F64[i] - t1) / D_F64[i])
+
+        if i <= (n - 3):
+            L2_F64[i] = (A2_F64[i] / D_F64[i])
+
+    # now solve Ly=b
+    y_tmp_F64[0] = b_F64[0]
+    y_tmp_F64[1] = (b_F64[1] - (L1_F64[0] * y_tmp_F64[0]))
+    for i in range(2, n):
+        t1 = (L1_F64[i - 1] * y_tmp_F64[i - 1])
+        t2 = (L2_F64[i - 2] * y_tmp_F64[i - 2])
+        y_tmp_F64[i] = (b_F64[i] - t1 - t2)
+
+    # ... Dz=y
+    for i in range(n):
+        z_tmp_F64[i] = (y_tmp_F64[i] / D_F64[i])
+
+    # ... L^Tx=z
+    x_F64[n - 1] = z_tmp_F64[n - 1]
+    x_F64[n - 2] = (z_tmp_F64[n - 2] - (L1_F64[n - 2] * x_F64[n - 1]))
+    for i in range(n - 3, -1, -1):
+        t1 = (L1_F64[i] * x_F64[i + 1])
+        t2 = (L2_F64[i] * x_F64[i + 2])
+        x_F64[i] = (z_tmp_F64[i] - t1 - t2)
+
+
+cdef void solveSOD_LDL_F32(
+    const float[::1] A0_F32,
+    const float[::1] A1_F32,
+    const float[::1] A2_F32,
+    const float[::1] b_F32,
+    float[::1] x_F32,
+    float[::1] D_F32,
+    float[::1] L1_F32,
+    float[::1] L2_F32,
+    float[::1] y_tmp_F32,
+    float[::1] z_tmp_F32
+) noexcept nogil:
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+    cdef float t1
+    cdef float t2
+
+    # Ax=b, A=LD(L^T), Ly=b, Dz=y, L^Tx=z
+    n = A0_F32.shape[0]
+    if n == 0:
+        return
+    if n == 1:
+        x_F32[0] = (b_F32[0] / A0_F32[0])
+        return
+
+    # LDL decomposition of A
+    D_F32[0] = A0_F32[0]
+    L1_F32[0] = (A1_F32[0] / D_F32[0])
+    if n > 2:
+        L2_F32[0] = (A2_F32[0] / D_F32[0])
+
+    D_F32[1] = (A0_F32[1] - ((L1_F32[0] * L1_F32[0]) * D_F32[0]))
+    if n > 2:
+        t1 = ((L2_F32[0] * D_F32[0]) * L1_F32[0])
+        L1_F32[1] = ((A1_F32[1] - t1) / D_F32[1])
+    if n > 3:
+        L2_F32[1] = (A2_F32[1] / D_F32[1])
+
+    for i in range(2, n):
+        t1 = ((L1_F32[i - 1] * L1_F32[i - 1]) * D_F32[i - 1])
+        t2 = ((L2_F32[i - 2] * L2_F32[i - 2]) * D_F32[i - 2])
+        D_F32[i] = (A0_F32[i] - t1 - t2)
+
+        if i <= (n - 2):
+            t1 = ((L2_F32[i - 1] * D_F32[i - 1]) * L1_F32[i - 1])
+            L1_F32[i] = ((A1_F32[i] - t1) / D_F32[i])
+
+        if i <= (n - 3):
+            L2_F32[i] = (A2_F32[i] / D_F32[i])
+
+    # now solve Ly=b
+    y_tmp_F32[0] = b_F32[0]
+    y_tmp_F32[1] = (b_F32[1] - (L1_F32[0] * y_tmp_F32[0]))
+    for i in range(2, n):
+        t1 = (L1_F32[i - 1] * y_tmp_F32[i - 1])
+        t2 = (L2_F32[i - 2] * y_tmp_F32[i - 2])
+        y_tmp_F32[i] = (b_F32[i] - t1 - t2)
+
+    # ... Dz=y
+    for i in range(n):
+        z_tmp_F32[i] = (y_tmp_F32[i] / D_F32[i])
+
+    # ... L^Tx=z
+    x_F32[n - 1] = z_tmp_F32[n - 1]
+    x_F32[n - 2] = (z_tmp_F32[n - 2] - (L1_F32[n - 2] * x_F32[n - 1]))
+    for i in range(n - 3, -1, -1):
+        t1 = (L1_F32[i] * x_F32[i + 1])
+        t2 = (L2_F32[i] * x_F32[i + 2])
+        x_F32[i] = (z_tmp_F32[i] - t1 - t2)
+
+
+cpdef cnp.ndarray splineBaselineMasked_F64(cnp.ndarray in_, cnp.ndarray fitMaskIn, double lambda_F64):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] y
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] fitMask
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] b
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] A0
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] A1
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] A2
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD0
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD1
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD2
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] D
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] L1
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] L2
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] yTMP
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] zTMP
+
+    cdef double[::1] y_F64
+    cdef cnp.uint8_t[::1] fitMask_U8
+    cdef double[::1] b_F64
+    cdef double[::1] A0_F64
+    cdef double[::1] A1_F64
+    cdef double[::1] A2_F64
+    cdef double[::1] DTD0_F64
+    cdef double[::1] DTD1_F64
+    cdef double[::1] DTD2_F64
+    cdef double[::1] D_F64
+    cdef double[::1] L1_F64
+    cdef double[::1] L2_F64
+    cdef double[::1] y_tmp_F64
+    cdef double[::1] z_tmp_F64
+
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+    cdef double wi_F64
+
+    # solve for `b` to  minimize [(W^(1/2)(y-b))^T (W^(1/2)(y-b))] + [lambda (D b)^T (D b)]
+    #  where W is diagonal with wi = 1 if fitMask[i] else 0
+    #  and lambda,D penalize second-order differences in the baseline estimate `b`
+
+    y = np.ascontiguousarray(in_, dtype=np.float64)
+    fitMask = np.ascontiguousarray(fitMaskIn, dtype=np.uint8)
+    y_F64 = y
+    fitMask_U8 = fitMask
+    n = y_F64.shape[0]
+    if n < 3:
+        return y.copy()
+    if fitMask_U8.shape[0] != n:
+        raise ValueError("fitMask length mismatch")
+
+    b = np.empty(n, dtype=np.float64)
+    A0 = np.empty(n, dtype=np.float64)
+    A1 = np.empty(n - 1, dtype=np.float64)
+    A2 = np.empty(n - 2, dtype=np.float64)
+    DTD0 = np.empty(n, dtype=np.float64)
+    DTD1 = np.empty(n - 1, dtype=np.float64)
+    DTD2 = np.empty(n - 2, dtype=np.float64)
+    D = np.empty(n, dtype=np.float64)
+    L1 = np.empty(n - 1, dtype=np.float64)
+    L2 = np.empty(n - 2, dtype=np.float64)
+    yTMP = np.empty(n, dtype=np.float64)
+    zTMP = np.empty(n, dtype=np.float64)
+
+    b_F64 = b
+    A0_F64 = A0
+    A1_F64 = A1
+    A2_F64 = A2
+    DTD0_F64 = DTD0
+    DTD1_F64 = DTD1
+    DTD2_F64 = DTD2
+    D_F64 = D
+    L1_F64 = L1
+    L2_F64 = L2
+    y_tmp_F64 = yTMP
+    z_tmp_F64 = zTMP
+
+    # D^T D
+    DTD0_F64[0] = 1.0
+    DTD0_F64[1] = 5.0
+    for i in range(2, n - 2):
+        DTD0_F64[i] = 6.0
+    DTD0_F64[n - 2] = 5.0
+    DTD0_F64[n - 1] = 1.0
+
+    DTD1_F64[0] = -2.0
+    for i in range(1, n - 2):
+        DTD1_F64[i] = -4.0
+    DTD1_F64[n - 2] = -2.0
+
+    for i in range(n - 2):
+        DTD2_F64[i] = 1.0
+
+    # (W + lam D^T D)b = Wy
+    for i in range(n):
+        wi_F64 = 1.0 if fitMask_U8[i] else 0.0 # crossfit mask
+        A0_F64[i] = wi_F64 + lambda_F64 * DTD0_F64[i]
+        b_F64[i] = wi_F64 * y_F64[i]
+    for i in range(n - 1):
+        A1_F64[i] = lambda_F64 * DTD1_F64[i]
+    for i in range(n - 2):
+        A2_F64[i] = lambda_F64 * DTD2_F64[i]
+
+    with nogil:
+        solveSOD_LDL_F64(A0_F64, A1_F64, A2_F64, b_F64, b_F64, D_F64, L1_F64, L2_F64, y_tmp_F64, z_tmp_F64)
+
+    return b
+
+
+cpdef cnp.ndarray splineBaselineMasked_F32(cnp.ndarray in_, cnp.ndarray fitMaskIn, float lambda_F32):
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] y
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] fitMask
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] b
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] A0
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] A1
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] A2
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD0
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD1
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD2
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] D
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] L1
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] L2
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] yTMP
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] zTMP
+
+    cdef float[::1] y_F32
+    cdef cnp.uint8_t[::1] fitMask_U8
+    cdef float[::1] b_F32
+    cdef float[::1] A0_F32
+    cdef float[::1] A1_F32
+    cdef float[::1] A2_F32
+    cdef float[::1] DTD0_F32
+    cdef float[::1] DTD1_F32
+    cdef float[::1] DTD2_F32
+    cdef float[::1] D_F32
+    cdef float[::1] L1_F32
+    cdef float[::1] L2_F32
+    cdef float[::1] y_tmp_F32
+    cdef float[::1] z_tmp_F32
+
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+    cdef float wi_F32
+
+    # solve for `b` to  minimize [(W^(1/2)(y-b))^T (W^(1/2)(y-b))] + [lambda (D b)^T (D b)]
+    #  where W is diagonal with wi = 1 if fitMask[i] else 0
+    #  and lambda,D penalize second-order differences in the baseline estimate `b`
+
+    y = np.ascontiguousarray(in_, dtype=np.float32)
+    fitMask = np.ascontiguousarray(fitMaskIn, dtype=np.uint8)
+    y_F32 = y
+    fitMask_U8 = fitMask
+    n = y_F32.shape[0]
+    if n < 3:
+        return y.copy()
+    if fitMask_U8.shape[0] != n:
+        raise ValueError("fitMask length mismatch")
+
+    b = np.empty(n, dtype=np.float32)
+    A0 = np.empty(n, dtype=np.float32)
+    A1 = np.empty(n - 1, dtype=np.float32)
+    A2 = np.empty(n - 2, dtype=np.float32)
+    DTD0 = np.empty(n, dtype=np.float32)
+    DTD1 = np.empty(n - 1, dtype=np.float32)
+    DTD2 = np.empty(n - 2, dtype=np.float32)
+    D = np.empty(n, dtype=np.float32)
+    L1 = np.empty(n - 1, dtype=np.float32)
+    L2 = np.empty(n - 2, dtype=np.float32)
+    yTMP = np.empty(n, dtype=np.float32)
+    zTMP = np.empty(n, dtype=np.float32)
+
+    b_F32 = b
+    A0_F32 = A0
+    A1_F32 = A1
+    A2_F32 = A2
+    DTD0_F32 = DTD0
+    DTD1_F32 = DTD1
+    DTD2_F32 = DTD2
+    D_F32 = D
+    L1_F32 = L1
+    L2_F32 = L2
+    y_tmp_F32 = yTMP
+    z_tmp_F32 = zTMP
+
+    # D^T D
+    DTD0_F32[0] = 1.0
+    DTD0_F32[1] = 5.0
+    for i in range(2, n - 2):
+        DTD0_F32[i] = 6.0
+    DTD0_F32[n - 2] = 5.0
+    DTD0_F32[n - 1] = 1.0
+
+    DTD1_F32[0] = -2.0
+    for i in range(1, n - 2):
+        DTD1_F32[i] = -4.0
+    DTD1_F32[n - 2] = -2.0
+
+    for i in range(n - 2):
+        DTD2_F32[i] = 1.0
+
+    # (W + lam D^T D)b = Wy
+    for i in range(n):
+        wi_F32 = 1.0 if fitMask_U8[i] else 0.0 # crossfit mask
+        A0_F32[i] = wi_F32 + lambda_F32 * DTD0_F32[i]
+        b_F32[i] = wi_F32 * y_F32[i]
+    for i in range(n - 1):
+        A1_F32[i] = lambda_F32 * DTD1_F32[i]
+    for i in range(n - 2):
+        A2_F32[i] = lambda_F32 * DTD2_F32[i]
+
+    with nogil:
+        solveSOD_LDL_F32(A0_F32, A1_F32, A2_F32, b_F32, b_F32, D_F32, L1_F32, L2_F32, y_tmp_F32, z_tmp_F32)
+
+    return b
+
+
+cpdef cnp.ndarray splineBaselineCrossfit2_F32(cnp.ndarray in_, float lambda_F32):
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] y
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] mEven
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] mOdd
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] bEven
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] bOdd
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] b
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+
+    y = np.ascontiguousarray(in_, dtype=np.float32)
+    n = y.shape[0]
+    if n < 3:
+        return y.copy()
+
+    mEven = np.empty(n, dtype=np.uint8)
+    mOdd = np.empty(n, dtype=np.uint8)
+    for i in range(n):
+        mEven[i] = 1 if (i & 1) == 0 else 0
+        mOdd[i] = 1 if (i & 1) == 1 else 0
+
+    # solve for even cols and odd cols separately, then average
+    bEven = splineBaselineMasked_F32(y, mEven, lambda_F32)
+    bOdd = splineBaselineMasked_F32(y, mOdd, lambda_F32)
+
+    b = np.empty(n, dtype=np.float32)
+    for i in range(n):
+        b[i] = 0.5 * (bEven[i] + bOdd[i])
+    return b
+
+
+cpdef cnp.ndarray splineBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] yArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] mEvenArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1] mOddArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] bEvenArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] bOddArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] bArr
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+
+    yArr = np.ascontiguousarray(yIn, dtype=np.float64)
+    n = yArr.shape[0]
+    if n < 3:
+        return yArr.copy()
+
+    mEvenArr = np.empty(n, dtype=np.uint8)
+    mOddArr = np.empty(n, dtype=np.uint8)
+    for i in range(n):
+        mEvenArr[i] = 1 if (i & 1) == 0 else 0
+        mOddArr[i] = 1 if (i & 1) == 1 else 0
+
+    # solve for even cols and odd cols separately, then average
+    bEvenArr = splineBaselineMasked_F64(yArr, mEvenArr, lambda_F64)
+    bOddArr = splineBaselineMasked_F64(yArr, mOddArr, lambda_F64)
+
+    bArr = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        bArr[i] = 0.5 * (bEvenArr[i] + bOddArr[i])
+    return bArr
+
+
+cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] arr
+    cdef Py_ssize_t n
+    cdef double lambda_ = 0.0
+
+    arr = np.ascontiguousarray(x, dtype=np.float64)
+    n = arr.shape[0]
+    if n == 0:
+        return np.empty(0, dtype=np.float32)
+
+    if blockSize < 3:
+        blockSize = 3
+    if (blockSize & 1) == 0:
+        blockSize += 1
+    cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
+    cdef double w = blockSize * (blockFreqCutoff)
+    lambda_ = (w*w*w*w)*10.0
+    return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)

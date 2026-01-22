@@ -168,8 +168,8 @@ To detect significant hits,
 
   matchingParams.templateNames: [haar, haar, db2, db2]
   matchingParams.cascadeLevels: [1,2,1,2]
-  matchingParams.minMatchLengthBP: -1 # auto-select based on data
-  matchingParams.mergeGapBP: -1 # selects half of `minMatchLengthBP`
+  matchingParams.minMatchLengthBP: -1 # select via `consenrich.core.getContextSize`
+  matchingParams.mergeGapBP: -1
   matchingParams.alpha: 0.05
 
 
@@ -177,6 +177,5 @@ To detect significant hits,
 
 .. autofunction:: consenrich.matching.matchWavelet
 
-.. autofunction:: consenrich.matching.mergeMatches
 
 

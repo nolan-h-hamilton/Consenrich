@@ -284,14 +284,6 @@ class countingParams(NamedTuple):
         The global baseline is mixed (e.g., 3:1 weighted average) with a local lower envelope estimate for the final baseline at each interval.
         Increasing this value can result in a more conservative signal estimate.
     :type denseMeanQuantile: float, optional
-    :type liftLower: float, optional
-    :type c0: float, optional
-    :param c1: Ignored in current/default implementation.
-    :type c1: float, optional
-    :param c2: Ignored in current/default implementation.
-    :type c2: float, optional
-    :param c3: Ignored in current/default implementation.
-    :type c3: float, optional
 
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
@@ -320,11 +312,6 @@ class countingParams(NamedTuple):
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
     denseMeanQuantile: float | None
-    liftLower: float | None
-    c0: float | None
-    c1: float | None
-    c2: float | None
-    c3: float | None
 
 
 class matchingParams(NamedTuple):
@@ -369,10 +356,6 @@ class matchingParams(NamedTuple):
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
-    :param autoLengthQuantile: If `minMatchLengthBP < 1`, the minimum match length (``minMatchLengthBP / intervalSizeBP``) is determined
-        by the quantile in the distribution of non-zero segment lengths (i.e., consecutive intervals with non-zero signal estimates).
-        after local standardization.
-    :type autoLengthQuantile: float
     :param methodFDR: Method for genome-wide multiple hypothesis testing correction. Can specify either Benjamini-Hochberg ('BH'), the more conservative Benjamini-Yekutieli ('BY') to account for arbitrary dependencies between tests, or None.
     :type methodFDR: str
     :param massQuantileCutoff: Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' ``((avgSignal*length)/intervalLength)``. To diable, set ``< 0``.
@@ -394,7 +377,6 @@ class matchingParams(NamedTuple):
     penalizeBy: Optional[str]
     randSeed: Optional[int]
     eps: Optional[float]
-    autoLengthQuantile: Optional[float]
     methodFDR: Optional[str]
     massQuantileCutoff: Optional[float]
 
@@ -1569,8 +1551,7 @@ def autoDeltaF(
     minDeltaF: float = 0.01,
     maxDeltaF: float = 1.0,
 ) -> float:
-    r"""(Experimental) Infer `deltaF` from autocorrelation in interval-level signal.
-    """
+    r"""(Experimental) Infer `deltaF` from autocorrelation in interval-level signal."""
 
     if (
         fragmentLengths is not None
@@ -1888,7 +1869,7 @@ def fitVarianceFunction(
     absMeans = absMeans[sortIdx]
     variances = np.maximum(variances[sortIdx], EB_minLin * absMeans[sortIdx]) + eps
 
-    binCount = int(1 + np.log2(n+1, dtype=np.float64))
+    binCount = int(1 + np.log2(n + 1, dtype=np.float64))
     binCount = max(4, binCount)
     binEdges = np.linspace(0, n, binCount + 1, dtype=np.int64)
     binEdges = np.unique(binEdges)
@@ -2011,7 +1992,7 @@ def getMuncTrack(
     """
     AR1_PARAMCT = 3
     if samplingBlockSizeBP is None:
-        samplingBlockSizeBP = intervalSizeBP * (11*(AR1_PARAMCT))
+        samplingBlockSizeBP = intervalSizeBP * (11 * (AR1_PARAMCT))
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
 
     localWindowIntervals = max(4, (blockSizeIntervals + 1))
@@ -2152,3 +2133,203 @@ def EB_computePriorStrength(
         Nu_0 = 4.0
 
     return float(Nu_0)
+
+
+def getContextSize(
+    vals: np.ndarray,
+    maxSpan: int = 0,
+    bandZ: float = 0.67448,
+    order_: int = 3,
+) -> tuple[int, int, int]:
+    y = np.asarray(vals, dtype=np.float64)
+    n = int(y.size)
+    if n == 0:
+        raise ValueError("vals is empty")
+
+    if maxSpan <= 0:
+        maxSpan = int(np.sqrt(n + 1))
+        if maxSpan < 4:
+            maxSpan = 4
+
+    _y = vals.copy().astype(np.float64)
+    pos = _y[_y > 0]
+
+    # early exit -- no signal
+    if pos.size == 0:
+        pe = max(4, maxSpan // 2)
+        return int(pe), int(max(1, pe // 2)), int(max(1, pe * 2))
+
+    kMinPeaks = int(max(1, (np.sqrt(n + 1) // 2)))
+    peakIndexArray = signal.argrelmax(_y, order=int(max(1, order_)))[0]
+
+    thr = float(np.median(pos))
+    if peakIndexArray.size:
+        peakIndexArray = peakIndexArray[_y[peakIndexArray] > thr]
+
+    while peakIndexArray.size < kMinPeaks and order_ > 1:
+        order_ -= 1
+        peakIndexArray = signal.argrelmax(_y, order=int(max(1, order_)))[0]
+        if peakIndexArray.size:
+            peakIndexArray = peakIndexArray[_y[peakIndexArray] > thr]
+
+    if peakIndexArray.size == 0:
+        # just take the largest elements
+        logger.warning("No relative maxima found, using largest elements for context size estimation")
+        peakIndexArray = np.argsort(-_y)[:kMinPeaks]
+
+    peakHeights = _y[peakIndexArray]
+    kKeep = int(min(1000, peakHeights.size, max(kMinPeaks, n // max(4, maxSpan))))
+    if kKeep <= 0:
+        raise ValueError(
+            "No peaks found for context size estimation...supply `countingParams.backgroundBlockSizeBP` manually"
+        )
+    keep = np.argpartition(-peakHeights, kKeep - 1)[:kKeep]
+    peakIndexArray = peakIndexArray[keep]
+    peakHeights = peakHeights[keep]
+
+    eps = 1e-4
+    noiseWindow = int(min(maxSpan, 64))
+    sqrt2 = 1.4142135623730951
+    base_q = 0.05
+
+    def _mad(x: np.ndarray) -> float:
+        if x.size == 0:
+            return 0.0
+        med = float(np.median(x))
+        return 1.4826 * float(np.median(np.abs(x - med)))
+
+    def getWidthEstimates(peakIndex):
+        peakValue = float(_y[peakIndex])
+        leftIndex = int(np.clip((peakIndex - maxSpan), 0, (n - 1)))
+        rightIndex = int(np.clip((peakIndex + maxSpan), 0, (n - 1)))
+        baselineLeft = float(np.quantile(_y[leftIndex : (peakIndex + 1)], base_q))
+        baselineRight = float(np.quantile(_y[peakIndex : (rightIndex + 1)], base_q))
+        baseline = baselineLeft if (baselineLeft > baselineRight) else baselineRight
+
+        if peakValue <= baseline:
+            return None
+
+        halfHeight = baseline + (0.5 * (peakValue - baseline))
+
+        # LEFT SIDE
+        # Find index t such that: _y[t-1] <= halfHeight <= _y[t]
+        # Use the slope between _y[t-1] and _y[t], and find its intersection with halfHeight
+        leftPos = float(leftIndex)
+        leftStep = 0.0
+        leftFound = False
+        t = peakIndex
+        while t > leftIndex:
+            if (_y[t - 1] <= halfHeight) and (_y[t] >= halfHeight):
+                dgrad = float(_y[t] - _y[t - 1])  # discrete ~gradient~
+                leftStep = abs(dgrad)
+                leftPos = (
+                    float(t - 1) if (dgrad == 0.0) else float(t - 1) + ((halfHeight - _y[t - 1]) / dgrad)
+                )
+                leftFound = True
+                break
+            t -= 1
+
+        # RIGHT SIDE (same logic)
+        rightPos = float(rightIndex)
+        rightStep = 0.0
+        rightFound = False
+        t = peakIndex
+        while t < rightIndex:
+            if (_y[t] >= halfHeight) and (_y[t + 1] <= halfHeight):
+                dgrad = float(_y[t] - _y[t + 1])
+                rightStep = abs(dgrad)  # slope near intersection w/ half-height
+                rightPos = float(t + 1) if (dgrad == 0.0) else float(t) + ((_y[t] - halfHeight) / dgrad)
+                rightFound = True
+                break
+            t += 1
+
+        if (not leftFound) or (not rightFound):
+            return None
+
+        # Each peak's 'width' recorded as the distance |left-half-point - right-half-point|
+        widthHat = rightPos - leftPos
+        if widthHat <= 1.0:
+            widthHat = 1.0
+        # we build the actual distribtuion on log-width
+        logWidth_ = float(np.log(widthHat))
+
+        # Noise level around peak is recorded as the MAD of first-order differences
+        # within the `noiseWindow` around the peak. Note the practical/naive independence assumption here.
+        leftWindow = int(np.clip((peakIndex - noiseWindow), 0, (n - 1)))
+        rightWindow = int(np.clip((peakIndex + noiseWindow + 1), 0, n))
+        window = _y[leftWindow:rightWindow]
+        if window.size < 3:
+            sigmaY = 0.0
+        else:
+            sigmaY = _mad(np.diff(window))
+
+        if not leftFound:
+            leftStep = 0.0
+        if not rightFound:
+            rightStep = 0.0
+
+        # Assumption: base noise disrupts the exact locations of half-points (i.e., width estimate)
+        # ... but structure/slope at each half-point reduces uncertainty
+        sigmaXLeft = sigmaY / (leftStep + eps)
+        sigmaXRight = sigmaY / (rightStep + eps)
+        sigmaW2 = (sigmaXLeft**2) + (sigmaXRight**2)
+        sigmaS2 = sigmaW2 / ((widthHat**2) + eps)
+        if sigmaS2 < 1e-6:
+            sigmaS2 = 1e-6
+
+        return (logWidth_, float(sigmaS2))
+
+    # collect (log-width, variance) pairs
+    sHatList = []
+    sigma2List = []
+    k = 0
+    while k < peakIndexArray.size:
+        out = getWidthEstimates(int(peakIndexArray[k]))
+        if out is not None:
+            sHatList.append(out[0])
+            sigma2List.append(out[1])
+        k += 1
+
+    if len(sHatList) == 0:
+        # medians of posterior means +- CIs
+        p = np.sort(peakIndexArray)
+        d = np.diff(p)
+        pe = int(np.median(d)) if d.size else maxSpan
+        pe = max(4, min(maxSpan, pe))
+        return int(pe), int(max(1, pe // 2)), int(max(1, min(maxSpan, pe * 2)))
+
+    sHatArr = np.asarray(sHatList, dtype=np.float64)
+    sigma2Arr = np.asarray(sigma2List, dtype=np.float64)
+
+    # mu0 prior plugin: median of log-widths
+    mu0 = float(np.median(sHatArr))
+    # tau0 prior plugin: scaled IQR of log-widths
+    iqr = float((np.quantile(sHatArr, 0.75) - np.quantile(sHatArr, 0.25)))
+    tau0 = iqr / 1.349
+    if tau0 < 0.05:
+        tau0 = 0.05
+    elif tau0 > 2.0:
+        tau0 = 2.0
+    tauSq_0 = tau0 * tau0
+
+    # posterior: weighted average, penalized by respective uncertainties
+    # normal-normal
+    postVar = 1.0 / ((1.0 / tauSq_0) + (1.0 / sigma2Arr))
+    postMean = postVar * ((mu0 / tauSq_0) + (sHatArr / sigma2Arr))
+    postStd = np.sqrt(postVar)
+
+    # medians of posterior means +- CIs
+    logLower = float(np.median((postMean - (bandZ * postStd))))
+    logUpper = float(np.median((postMean + (bandZ * postStd))))
+    logPointEstimate = float(np.median(postMean))
+    widthLower = float(np.exp(logLower))
+    widthUpper = float(np.exp(logUpper))
+    pointEstimate = float(np.exp(logPointEstimate))
+    if widthLower < 1.0:
+        widthLower = 1.0
+    if widthUpper < 1.0:
+        widthUpper = 1.0
+    if widthUpper < widthLower:
+        widthUpper = widthLower
+
+    return int(pointEstimate), int(widthLower), int(widthUpper)

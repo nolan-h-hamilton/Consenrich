@@ -16,6 +16,7 @@ from scipy import signal, stats
 from . import cconsenrich
 from . import core as core
 from . import __version__
+from . import mergeNarrowPeaks as mergeNarrowPeaks
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,51 +36,13 @@ def _FDR(pVals: np.ndarray, method: str | None = "bh") -> np.ndarray:
 def autoMinLengthIntervals(
     values: np.ndarray,
     initLen: int = 5,
-    maxLen: int = 20,
-    cutoffQuantile: float = 0.50,
+    maxLen: int = 25,
+    cutoffQuantile: float|None = None,
 ) -> int:
-    r"""Determines a minimum matching length (in interval units) based on the input signal values.
-
-    :param values: A 1D array of signal-like values.
-    :type values: np.ndarray
-    :param initLen: Initial minimum length (in intervals). Defaults to 5.
-    :type initLen: int
-    :return: Estimated minimum matching length (in intervals)
-    :rtype: int
-
-    """
-    if cutoffQuantile <= 0.0 or cutoffQuantile >= 1.0:
-        raise ValueError("cutoffQuantile is not a valid quantile value (0,1)")
-
-    values_ = values.astype(np.float64).copy()
-    trValues = values_ - signal.medfilt(
-        values_,
-        kernel_size=max(
-            (2 * initLen) + 1,
-            2 * (int(len(values_) * 0.05)) + 1,
-        ),
-    )
-
-    nz = trValues[trValues >= 0]
-    if nz.size == 0:
-        return initLen
-
-    thr = np.quantile(nz, cutoffQuantile, method="interpolated_inverted_cdf")
-    mask = (trValues >= thr)
-    if not np.any(mask):
-        return initLen
-    if np.all(mask):
-        return maxLen
-
-    idx = np.flatnonzero(np.diff(np.r_[False, mask, False]))
-    runs = idx.reshape(-1, 2)
-    widths = runs[:, 1] - runs[:, 0]
-    widths = widths[widths >= initLen]
-
-    if len(widths) == 0:
-        return initLen
-
-    return min(int(stats.tmean(widths, limits=(initLen, np.quantile(widths, 0.75) + 1.0e-4))), maxLen)
+    hlen = core.getContextSize(
+        values,
+    )[1]
+    return min(max(int(hlen), initLen), maxLen)
 
 
 def scalarClip(value: float, low: float, high: float) -> float:
@@ -129,7 +92,6 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-3,
-    autoLengthQuantile: float = 0.9,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -195,9 +157,8 @@ def matchWavelet(
     if minMatchLengthBP is not None and minMatchLengthBP < 1:
         minMatchLengthBP = autoMinLengthIntervals(
             values,
-            cutoffQuantile=autoLengthQuantile,
         ) * int(intervalLengthBp)
-    elif minMatchLengthBP is None:
+    elif minMatchLengthBP is None or minMatchLengthBP == 0:
         minMatchLengthBP = 250
 
     logger.info(f"\n\tUsing minMatchLengthBP: {minMatchLengthBP}")
@@ -478,7 +439,7 @@ def matchWavelet(
     for _, groupIdx in df.groupby(groupCols, sort=False).groups.items():
         # FDR is wrt chromosome and the wavelet/scaling function template
         p = df.loc[groupIdx, "p_raw"].values.astype(float, copy=False)
-        qVals[groupIdx] = _FDR(p)
+        qVals[groupIdx] = p
 
     df["pValue"] = -np.log10(np.clip(df["p_raw"].values.astype(float), np.finfo(np.float32).tiny, 1.0))
     df["qValue"] = -np.log10(np.clip(qVals, np.finfo(np.float32).tiny, 1.0))
@@ -502,185 +463,7 @@ def matchWavelet(
         "pointSource",
     ]
     df = df[keepCols]
-    return df
-
-
-def mergeMatches(
-    filePath: str,
-    mergeGapBP: Optional[int] = -1,
-) -> Optional[str]:
-    r"""Merge overlapping or nearby structured peaks ('matches') in a narrowPeak file.
-
-    The harmonic mean of p-values and q-values is computed for each merged region within `mergeGapBP` base pairs.
-    The fourth column (name) of each merged peak contains information about the number of features that were merged
-    and the range of q-values among them.
-
-    Expects a `narrowPeak <https://genome.ucsc.edu/FAQ/FAQformat.html#format12>`_ file as input (all numeric columns, '.' for strand if unknown).
-
-    :param filePath: narrowPeak file containing matches detected with :func:`consenrich.matching.matchWavelet`
-    :type filePath: str
-    :param mergeGapBP: Maximum gap size (in base pairs) to consider for merging.
-    :type mergeGapBP: Optional[int]
-
-    :seealso: :ref:`matching`, :class:`consenrich.core.matchingParams`
-    """
-
-    if mergeGapBP is None or mergeGapBP < 1:
-        mergeGapBP = 147
-        logger.info(f"Setting mergeGapBP = {mergeGapBP} bp")
-
-    MAX_NEGLOGP = 1000.0
-    MIN_NEGLOGP = 0.0
-
-    if not os.path.isfile(filePath):
-        logger.warning(f"Couldn't access {filePath}...skipping merge")
-        return None
-    bed = None
-    try:
-        bed = BedTool(filePath)
-    except Exception as ex:
-        logger.warning(f"Couldn't create BedTool for {filePath}:\n{ex}\n\nskipping merge...")
-        return None
-    if bed is None:
-        logger.warning(f"Couldn't create BedTool for {filePath}...skipping merge")
-        return None
-
-    bed = bed.sort()
-    clustered = bed.cluster(d=mergeGapBP)
-    groups = {}
-    for f in clustered:
-        fields = f.fields
-        chrom = fields[0]
-        start = int(fields[1])
-        end = int(fields[2])
-        score = float(fields[4])
-        signal = float(fields[6])
-        pLog10 = float(fields[7])
-        qLog10 = float(fields[8])
-        peak = int(fields[9])
-        clusterID = fields[-1]
-        if clusterID not in groups:
-            groups[clusterID] = {
-                "chrom": chrom,
-                "sMin": start,
-                "eMax": end,
-                "scSum": 0.0,
-                "sigSum": 0.0,
-                "n": 0,
-                "maxS": float("-inf"),
-                "peakAbs": -1,
-                "pMax": float("-inf"),
-                "pTail": 0.0,
-                "pHasInf": False,
-                "qMax": float("-inf"),
-                "qMin": float("inf"),
-                "qTail": 0.0,
-                "qHasInf": False,
-            }
-        g = groups[clusterID]
-        if start < g["sMin"]:
-            g["sMin"] = start
-        if end > g["eMax"]:
-            g["eMax"] = end
-        g["scSum"] += score
-        g["sigSum"] += signal
-        g["n"] += 1
-
-        if math.isinf(pLog10) or pLog10 >= MAX_NEGLOGP:
-            g["pHasInf"] = True
-        else:
-            if pLog10 < 0:
-                pLog10 = 0.0
-            if pLog10 > g["pMax"]:
-                if g["pMax"] == float("-inf"):
-                    g["pTail"] = 1.0
-                else:
-                    g["pTail"] = g["pTail"] * (10 ** (g["pMax"] - pLog10)) + 1.0
-                g["pMax"] = pLog10
-            else:
-                g["pTail"] += 10 ** (pLog10 - g["pMax"])
-
-        # BUGFIX: do not treat qLog10==0 (q=1) as invalid/inf
-        if math.isinf(qLog10) or qLog10 >= MAX_NEGLOGP:
-            g["qHasInf"] = True
-        else:
-            if qLog10 < 0:
-                qLog10 = 0.0
-            if qLog10 < g["qMin"]:
-                g["qMin"] = qLog10
-
-            if qLog10 > g["qMax"]:
-                if g["qMax"] == float("-inf"):
-                    g["qTail"] = 1.0
-                else:
-                    g["qTail"] = g["qTail"] * (10 ** (g["qMax"] - qLog10)) + 1.0
-                g["qMax"] = qLog10
-            else:
-                g["qTail"] += 10 ** (qLog10 - g["qMax"])
-
-        if signal > g["maxS"]:
-            g["maxS"] = signal
-            g["peakAbs"] = start + peak if peak >= 0 else -1
-
-    items = []
-    for clusterID, g in groups.items():
-        items.append((g["chrom"], g["sMin"], g["eMax"], g))
-    items.sort(key=lambda x: (str(x[0]), x[1], x[2]))
-
-    outPath = f"{filePath.replace('.narrowPeak', '')}.mergedMatches.narrowPeak"
-    lines = []
-    i = 0
-    for chrom, sMin, eMax, g in items:
-        i += 1
-        avgScore = g["scSum"] / g["n"]
-        if avgScore < 0:
-            avgScore = 0
-        if avgScore > 1000:
-            avgScore = 1000
-        scoreInt = int(round(avgScore))
-        sigAvg = g["sigSum"] / g["n"]
-
-        if g["pHasInf"]:
-            pHMLog10 = MAX_NEGLOGP
-        else:
-            if g["pMax"] == float("-inf") or not (g["pTail"] > 0.0) or math.isnan(g["pTail"]):
-                pHMLog10 = MIN_NEGLOGP
-            else:
-                pHMLog10 = -math.log10(g["n"]) + (g["pMax"] + math.log10(g["pTail"]))
-                pHMLog10 = max(MIN_NEGLOGP, min(pHMLog10, MAX_NEGLOGP))
-
-        if g["qHasInf"]:
-            qHMLog10 = MAX_NEGLOGP
-        else:
-            if g["qMax"] == float("-inf") or not (g["qTail"] > 0.0) or math.isnan(g["qTail"]):
-                qHMLog10 = MIN_NEGLOGP
-            else:
-                qHMLog10 = -math.log10(g["n"]) + (g["qMax"] + math.log10(g["qTail"]))
-                qHMLog10 = max(MIN_NEGLOGP, min(qHMLog10, MAX_NEGLOGP))
-
-        pointSource = g["peakAbs"] - sMin if g["peakAbs"] >= 0 else (eMax - sMin) // 2
-
-        qMinLog10 = g["qMin"]
-        qMaxLog10 = g["qMax"]
-        if math.isfinite(qMinLog10) and qMinLog10 < MIN_NEGLOGP:
-            qMinLog10 = MIN_NEGLOGP
-        if math.isfinite(qMaxLog10) and qMaxLog10 > MAX_NEGLOGP:
-            qMaxLog10 = MAX_NEGLOGP
-        elif (not math.isfinite(qMaxLog10) or not math.isfinite(qMinLog10)) or (qMaxLog10 < MIN_NEGLOGP):
-            qMinLog10 = 0.0
-            qMaxLog10 = 0.0
-
-        # informative+parsable name
-        # e.g., regex: ^consenrichPeak\|i=(?P<i>\d+)\|gap=(?P<gap>\d+)bp\|ct=(?P<ct>\d+)\|qRange=(?P<qmin>\d+\.\d{3})_(?P<qmax>\d+\_\d{3})$
-        name = f"consenrichPeak|i={i}|gap={mergeGapBP}bp|ct={g['n']}|qRange={qMinLog10:.3f}_{qMaxLog10:.3f}"
-        lines.append(
-            f"{chrom}\t{int(sMin)}\t{int(eMax)}\t{name}\t{scoreInt}\t.\t{sigAvg:.3f}\t{pHMLog10:.3f}\t{qHMLog10:.3f}\t{int(pointSource)}"
-        )
-
-    with open(outPath, "w") as outF:
-        outF.write("\n".join(lines) + ("\n" if lines else ""))
-    logger.info(f"Merged matches written to {outPath}")
-    return outPath
+    return df, minMatchLengthBP
 
 
 def runMatchingAlgorithm(
@@ -698,14 +481,12 @@ def runMatchingAlgorithm(
     excludeRegionsBedFile: Optional[str] = None,
     weightsBedGraph: str | None = None,
     eps: float = 1.0e-3,
-    autoLengthQuantile: float = 0.9,
     mergeGapBP: int | None = -1,
     methodFDR: str | None = None,
     merge: bool = True,
     massQuantileCutoff: float = -1.0,
 ):
     r"""Wraps :func:`matchWavelet` for genome-wide matching given a bedGraph file"""
-    gwideDF = pd.DataFrame()
     cols = ["chromosome", "start", "end", "value"]
     bedGraphDF = pd.read_csv(
         bedGraphFile,
@@ -740,8 +521,9 @@ def runMatchingAlgorithm(
             logger.warning(f"Failed to parse weights from {weightsBedGraph}. Ignoring weights....\n{ex}")
             weightsDF = None
 
-    avgMinMatchLengths = []
-
+    minMatchLengths = []
+    gapByChrom: dict[str, int] = {}
+    tmpFiles = []
     for c_, chromosome_ in enumerate(chromosomes):
         chromBedGraphDF = bedGraphDF[bedGraphDF["chromosome"] == chromosome_]
         chromIntervals = chromBedGraphDF["start"].to_numpy()
@@ -763,21 +545,18 @@ def runMatchingAlgorithm(
         if minMatchLengthBP is not None and minMatchLengthBP < 1:
             minMatchLengthBP_ = autoMinLengthIntervals(
                 chromValues,
-                cutoffQuantile=autoLengthQuantile,
             ) * int(chromIntervals[1] - chromIntervals[0])
         else:
             minMatchLengthBP_ = minMatchLengthBP
 
-        avgMinMatchLengths.append(minMatchLengthBP_)
-
-        df__ = matchWavelet(
+        df__, minMatchLengthBP__ = matchWavelet(
             chromosome_,
             chromIntervals,
             chromValues,
             templateNames,
             cascadeLevels,
             iters,
-            1.0,  # keep all for later gwide correction
+            alpha,
             minMatchLengthBP_,
             maxNumMatches,
             minSignalAtMaxima,
@@ -788,10 +567,11 @@ def runMatchingAlgorithm(
             weights,
             eps,
         )
+
         if df__.empty:
             logger.info(f"No matches detected on {chromosome_}.")
             continue
-
+        gapByChrom[chromosome_] = int(minMatchLengthBP__)
         stepSize_ = np.float32(chromIntervals[1] - chromIntervals[0])
         lengths = (df__["end"].to_numpy(dtype=np.int64) - df__["start"].to_numpy(dtype=np.int64)).astype(
             np.float32
@@ -813,33 +593,27 @@ def runMatchingAlgorithm(
         else:
             df__ = df__.copy()
 
-        gwideDF = pd.concat([gwideDF, df__], ignore_index=True)
+        df__.to_csv(
+            f"{bedGraphFile}_{chromosome_}_matches.narrowPeak".replace(".bedGraph", ""),
+            sep="\t",
+            index=False,
+            header=False,
+        )
+        tmpFiles.append(f"{bedGraphFile}_{chromosome_}_matches.narrowPeak".replace(".bedGraph", ""))
+        minMatchLengths.append(minMatchLengthBP__)
 
-    if gwideDF.empty:
-        logger.warning("Empty matching results over `chromosomes`.")
-        return gwideDF
-    if methodFDR is not None:
-        logger.info(f"Performing genome-wide FDR correction over {len(gwideDF)} matches...")
-    naturalScalePValues = 10 ** (-gwideDF["pValue"].values.astype(float))
-    qVals = _FDR(naturalScalePValues, method=methodFDR)
-    gwideDF["qValue"] = -np.log10(np.clip(qVals, np.finfo(np.float32).tiny, 1.0))
-    gwideDF = gwideDF[qVals <= alpha].copy()
-    gwideDF.sort_values(by=["chromosome", "start", "end"], inplace=True)
-    tempNarrowPeak = f"{bedGraphFile}_matches.narrowPeak".replace(".bedGraph", "")
-    gwideDF.to_csv(
-        tempNarrowPeak,
-        sep="\t",
-        index=False,
-        header=False,
+
+    mergeNarrowPeaks.mergeAndSortNarrowPeaks(
+        tmpFiles,
+        outPath=f"{bedGraphFile}_matches.mergedMatches.narrowPeak".replace(".bedGraph", ""),
+        defaultGapBP=250,
+        gapByChrom=gapByChrom,
     )
 
-    if mergeGapBP is None or mergeGapBP < 1:
-        mergeGapBP = max((np.median(avgMinMatchLengths).astype(int) // 2), 147)
-
-    mergedPath = None
-    if merge:
-        mergedPath = mergeMatches(tempNarrowPeak, mergeGapBP=mergeGapBP)
-        if mergedPath is not None and os.path.isfile(mergedPath):
-            logger.info(f"Merged matches written to {mergedPath}")
-
-    return mergedPath
+    for tf in tmpFiles:
+        try:
+            os.remove(tf)
+        except Exception:
+            logger.warning(f'Could not remove temporary file: {tf}')
+            pass
+    return f"{bedGraphFile}_matches.mergedMatches.narrowPeak".replace(".bedGraph", "")

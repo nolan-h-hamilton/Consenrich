@@ -399,7 +399,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        min(max(2 * (intervalSizeBP * 25) + 1, 1000), 500_000),
+        -1,
     )
     smoothSpanBP_ = _cfgGet(
         configData,
@@ -427,7 +427,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "EGS",
+        "SF",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
@@ -475,33 +475,6 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.denseMeanQuantile",
         0.50,
     )
-    liftLower_ = _cfgGet(
-        configData,
-        "countingParams.liftLower",
-        0.0,
-    )
-    c0_ = _cfgGet(
-        configData,
-        "countingParams.c0",
-        3/8, # IGNORED
-    )
-    c1_ = _cfgGet(
-        configData,
-        "countingParams.c1",
-        1.0/math.log(2.0), # IGNORED
-    )
-
-    c2_ = _cfgGet(
-        configData,
-        "countingParams.c2",
-        0.0, # IGNORED
-    )
-
-    c3_ = _cfgGet(
-        configData,
-        "countingParams.c3",
-        0.0, # IGNORED
-    )
 
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
@@ -515,11 +488,6 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
         denseMeanQuantile=denseMeanQuantile_,
-        liftLower=liftLower_,
-        c0=c0_,
-        c1=c1_,
-        c2=c2_,
-        c3=c3_,
     )
 
 
@@ -640,18 +608,18 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockSizeBP",
-            None,
+            -1,
         ),
         binQuantileCutoff=_cfgGet(
             configData,
             "observationParams.binQuantileCutoff",
-            0.9,
+            0.75,
         ),
         EB_minLin=float(
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                1.0e-3,
+                1.0e-2,
             )
         ),
         EB_use=_cfgGet(
@@ -751,11 +719,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         randSeed=_cfgGet(configData, "matchingParams.randSeed", 42),
         penalizeBy=_cfgGet(configData, "matchingParams.penalizeBy", None),
         eps=_cfgGet(configData, "matchingParams.eps", 1.0e-3),
-        autoLengthQuantile=_cfgGet(
-            configData,
-            "matchingParams.autoLengthQuantile",
-            0.9,
-        ),
         methodFDR=_cfgGet(
             configData,
             "matchingParams.methodFDR",
@@ -875,7 +838,7 @@ def main():
     parser.add_argument(
         "--match-min-length",
         type=int,
-        default=-1,
+        default=250,
         dest="matchMinMatchLengthBP",
         help="Minimum length (bp) qualifying candidate matches. Set to -1 for auto calculation from data",
     )
@@ -903,7 +866,7 @@ def main():
     parser.add_argument(
         "--match-merge-gap",
         type=int,
-        default=-1,
+        default=147,
         dest="matchMergeGapBP",
         help="Maximum gap (bp) between candidate matches to merge into a single match.\
             Set to -1 for auto calculation from data.",
@@ -920,13 +883,6 @@ def main():
         type=str,
         default=None,
         dest="matchExcludeBed",
-    )
-    parser.add_argument(
-        "--match-auto-length-quantile",
-        type=float,
-        default=0.9,
-        dest="matchAutoLengthQuantile",
-        help="Cutoff in standardized values to use when auto-calculating minimum match length and merge gap.",
     )
     parser.add_argument(
         "--match-method-fdr",
@@ -971,7 +927,6 @@ def main():
             useScalingFunction=(not args.matchUseWavelet),
             mergeGapBP=args.matchMergeGapBP,
             excludeRegionsBedFile=args.matchExcludeBed,
-            autoLengthQuantile=args.matchAutoLengthQuantile,
             methodFDR=args.matchMethodFDR.lower() if args.matchMethodFDR else None,
             randSeed=args.matchRandSeed,
             merge=True,  # always merge for CLI use -- either way, both files produced
@@ -1017,15 +972,8 @@ def main():
     maxQ_ = processArgs.maxQ
     offDiagQ_ = processArgs.offDiagQ
     samplingBlockSizeBP_ = observationArgs.samplingBlockSizeBP
-    if samplingBlockSizeBP_ is None:
-        samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
-
-    elif samplingBlockSizeBP_ is not None and samplingBlockSizeBP_ < countingArgs.backgroundBlockSizeBP:
-        logger.warning(
-            f"`observationParams.samplingBlockSizeBP` ({samplingBlockSizeBP_} bp) is less than "
-            f"`countingParams.backgroundBlockSizeBP` ({countingArgs.backgroundBlockSizeBP} bp). "
-            f"Setting `samplingBlockSizeBP` to {countingArgs.backgroundBlockSizeBP} bp."
-        )
+    backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
+    if samplingBlockSizeBP_ is None or samplingBlockSizeBP_ <= 0:
         samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
 
     waitForMatrix: bool = False
@@ -1063,9 +1011,9 @@ def main():
     if normMethod_ in ["SF"] and (len(bamFilesControl) > 0 or numSamples < 3):
         logger.warning(
             "`countingParams.normMethod` `SF` is not available when control inputs are present OR if < 3 treatment samples are given."
-            "  --> defaulting to 1x-coverage normalization (EGS) ..."
+            "  --> using CPM/RPKM ..."
         )
-        normMethod_ = "EGS"
+        normMethod_ = "RPKM"
 
     controlsPresent = checkControlsPresent(inputArgs)
     if args.verbose:
@@ -1243,7 +1191,6 @@ def main():
         chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
         sparseMap = None
-        backgroundBlockSizeIntervals: int = max(2, int(countingArgs.backgroundBlockSizeBP // intervalSizeBP))
         if controlsPresent:
             j_: int = 0
             for bamA, bamB in zip(bamFiles, bamFilesControl):
@@ -1276,38 +1223,7 @@ def main():
                     ],
                 )
                 logger.info(f"(trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
-                treat_t = cconsenrich.cTransform(
-                    np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0),
-                    blockLength=backgroundBlockSizeIntervals,
-                    denseMeanQuantile=countingArgs.denseMeanQuantile,
-                    liftLower=countingArgs.liftLower,
-                    verbose=args.verbose2,
-                    rseed = 42 + j_,
-                )
-
-                chromMat[j_, :] = treat_t
-                if countingArgs.smoothSpanBP > 0:
-                    chromMat[j_, :] = cconsenrich.cEMA(
-                        chromMat[j_, :],
-                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
-                    )
-
-                muncMat[j_, :], _ = core.getMuncTrack(
-                    chromosome,
-                    intervals,
-                    chromMat[j_, :],
-                    intervalSizeBP,
-                    samplingIters=observationArgs.samplingIters,
-                    samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
-                    binQuantileCutoff=observationArgs.binQuantileCutoff,
-                    EB_minLin=observationArgs.EB_minLin,
-                    randomSeed=42 + j_,
-                    EB_use=observationArgs.EB_use,
-                    EB_setNu0=observationArgs.EB_setNu0,
-                    EB_setNuL=observationArgs.EB_setNuL,
-                    verbose=args.verbose2,
-                )
-
+                chromMat[j_, :] = np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0)
                 j_ += 1
         else:
             chromMat = core.readBamSegments(
@@ -1329,6 +1245,24 @@ def main():
                 minMappingQuality=samArgs.minMappingQuality,
                 minTemplateLength=samArgs.minTemplateLength,
                 fragmentLengths=fragmentLengthsTreatment,
+            )
+
+        if backgroundBlockSizeBP_ < 0:
+            backgroundBlockSizeBP_ = (
+                core.getContextSize(np.mean(chromMat, axis=0))[0] * (2 * intervalSizeBP) + 1
+            )
+            backgroundBlockSizeIntervals = backgroundBlockSizeBP_ // intervalSizeBP
+            logger.info(
+                f"`countingParams.backgroundBlockSizeBP < 0` --> auto-set to {backgroundBlockSizeBP_} bp"
+            )
+
+        if samplingBlockSizeBP_ < 0:
+            samplingBlockSizeBP_ = (
+                core.getContextSize(np.mean(chromMat, axis=0))[0] * (2 * intervalSizeBP) + 1
+            )
+            samplingBlockSizeIntervals = samplingBlockSizeBP_ // intervalSizeBP
+            logger.info(
+                f"`observationParams.samplingBlockSizeBP < 0` --> auto-set to {samplingBlockSizeBP_} bp"
             )
 
         if waitForMatrix:
@@ -1356,40 +1290,37 @@ def main():
         for j in tqdm(
             range(numSamples), desc="Transforming data / Fitting variance function f(|μ|;Θ)", unit=" sample "
         ):
-            # if controlsPresent, already done above
-            if not controlsPresent:
-                logger.info(f"{chromosome}, sample {j + 1} / {numSamples}...")
-                chromMat[j, :] = cconsenrich.cTransform(
+            logger.info(f"{chromosome}, sample {j + 1} / {numSamples}...")
+            chromMat[j, :] = cconsenrich.cTransform(
+                chromMat[j, :],
+                blockLength=backgroundBlockSizeIntervals,
+                denseMeanQuantile=countingArgs.denseMeanQuantile,
+                verbose=args.verbose2,
+                rseed=42 + j,
+            )
+
+            if countingArgs.smoothSpanBP > 0:
+                chromMat[j, :] = cconsenrich.cEMA(
                     chromMat[j, :],
-                    blockLength=backgroundBlockSizeIntervals,
-                    denseMeanQuantile=countingArgs.denseMeanQuantile,
-                    liftLower=countingArgs.liftLower,
-                    verbose=args.verbose2,
-                    rseed = 42 + j,
+                    1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
                 )
 
-                if countingArgs.smoothSpanBP > 0:
-                    chromMat[j, :] = cconsenrich.cEMA(
-                        chromMat[j, :],
-                        1.0 - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
-                    )
-
-                # compute munc track for each sample independently
-                muncMat[j, :], _ = core.getMuncTrack(
-                    chromosome,
-                    intervals,
-                    chromMat[j, :],
-                    intervalSizeBP,
-                    samplingIters=observationArgs.samplingIters,
-                    samplingBlockSizeBP=observationArgs.samplingBlockSizeBP,
-                    binQuantileCutoff=observationArgs.binQuantileCutoff,
-                    EB_minLin=observationArgs.EB_minLin,
-                    randomSeed=42 + j,
-                    EB_use=observationArgs.EB_use,
-                    EB_setNu0=observationArgs.EB_setNu0,
-                    EB_setNuL=observationArgs.EB_setNuL,
-                    verbose=args.verbose2,
-                )
+            # compute munc track for each sample independently
+            muncMat[j, :], _ = core.getMuncTrack(
+                chromosome,
+                intervals,
+                chromMat[j, :],
+                intervalSizeBP,
+                samplingIters=observationArgs.samplingIters,
+                samplingBlockSizeBP=samplingBlockSizeBP_,
+                binQuantileCutoff=observationArgs.binQuantileCutoff,
+                EB_minLin=observationArgs.EB_minLin,
+                randomSeed=42 + j,
+                EB_use=observationArgs.EB_use,
+                EB_setNu0=observationArgs.EB_setNu0,
+                EB_setNuL=observationArgs.EB_setNuL,
+                verbose=args.verbose2,
+            )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-3))
@@ -1538,7 +1469,6 @@ def main():
                 excludeRegionsBedFile=matchingArgs.excludeRegionsBedFile,
                 randSeed=matchingArgs.randSeed,
                 eps=matchingArgs.eps,
-                autoLengthQuantile=matchingArgs.autoLengthQuantile,
                 methodFDR=matchingArgs.methodFDR.lower() if matchingArgs.methodFDR is not None else None,
                 merge=matchingArgs.merge,
                 massQuantileCutoff=matchingArgs.massQuantileCutoff,
@@ -1548,7 +1478,7 @@ def main():
         except Exception as ex_:
             logger.warning(
                 f"Matching algorithm raised an exception:\n\n\t{ex_}\n"
-                f"Skipping matching step...try running post-hoc via `consenrich --match-bedGraph <bedGraphFile>`\n"
+                f"Skipping matching step...try running post hoc via `consenrich --match-bedGraph <bedGraphFile>`\n"
                 f"\tSee ``consenrich -h`` for more details.\n"
             )
 
