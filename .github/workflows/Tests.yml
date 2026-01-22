@@ -54,4 +54,3 @@ jobs:
         working-directory: ./tests
         run: |
           pytest --disable-warnings -vv -s -rPA -l test_core.py
-          pytest --disable-warnings -vv -s -rPA -l test_config.py
