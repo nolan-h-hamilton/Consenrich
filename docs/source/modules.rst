@@ -130,11 +130,6 @@ Wavelet-based templates are convenient and possess several desirable properties 
 compact support, orthogonality, etc. For relevant background, `Fournier et al '95 <https://multires.caltech.edu/teaching/courses/waveletcourse/sig95.course.pdf>`_, and/or `Mallat and Hwan '92 <https://ieeexplore.ieee.org/abstract/document/119727>`_ may be useful reading.
 
 
-.. math::
-
-  \boldsymbol{\xi} = \{\xi_{[t]}\}_{t=1}^{t=T}.
-
-
 Denote the cross-correlation between the signal track and a matching template :math:`\boldsymbol{\xi}` as:
 
 .. math::

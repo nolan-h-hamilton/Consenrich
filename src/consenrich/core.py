@@ -81,19 +81,17 @@ class processParams(NamedTuple):
     and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
     matrices.
 
-    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), determined based on intervalSizeBP:fragmentLength ratio.
+    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), the value is computed from the data using :func:`consenrich.core.autoDeltaF`.
     :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
-        on the primary state variable (signal level). If `minQ < 0` (default), a small
+        on the primary state variable (signal level). If ``minQ < 0`` (default), a small
         value scales the minimum observation noise level (``observationParams.minR``) and is used
         for numerical stability.
     :type minQ: float
-    :param maxQ: Maximum process noise level.
-    :type minQ: float
+    :param maxQ: Maximum process noise level. If ``maxQ < 0`` (default), no upper bound is enforced.
+    :type maxQ: float
     :param dStatAlpha: Threshold on the (normalized) deviation between the data and estimated signal -- determines whether the process noise is scaled up.
     :type dStatAlpha: float
-    :param ratioDiagQ: Ratio of diagonal entries in the process noise covariance matrix :math:`\mathbf{Q}_{[i]}`. Larger values imply more process noise on the primary state relative to the secondary (slope) state. For increased robustness when tracking large, slowly varying signals, consider larger values (5-10).
-    :type ratioDiagQ: float or None
     """
 
     deltaF: float
@@ -114,18 +112,19 @@ class observationParams(NamedTuple):
     uncertainty arising from biological and/or technical sources of noise.
 
 
-    :param minR: Genome-wide lower bound for sample-specific measurement uncertainty levels. In the default implementation, this clip is applied after initial calculation of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
+    :param minR: Genome-wide lower bound for sample-specific measurement uncertainty levels. In the default implementation, this clip is computed as a small fraction of values in the left-tail of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
     :type minR: float | None
-    :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels. In the default implementation, this clip is applied after initial calculation of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
+    :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels.
     :type maxR: float | None
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
     :type samplingIters: int | None
     :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
-      Note, block sizes are drawn as :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSizeBP})` to avoid fixed block artifacts.
+      Note, during sampling, each block's size (unit: genomic intervals) is drawn from truncated :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSize})` to reduce artifacts from fixed-size blocks.
+      This value is set automatically based on :func:`consenrich.core.getContextSize` if `None` or less than 1.
     :type samplingBlockSizeBP: int | None
-    :param binQuantileCutoff: Quantile cutoff for binning variances when fitting the empirical mean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
+    :param binQuantileCutoff: When fitting the variance function, pairs :math:`(\lvert \mu_b \rvert, \sigma^2_b)` are binned by their (absolute) means. This parameter sets the quantile of variances within each bin to use when fitting the global mean-variance trend.
     :type binQuantileCutoff: float | None
-    :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{EB_minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
+    :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type EB_minLin: float | None
     :param EB_use: If True, shrink 'local' noise estimates to a prior trend dependent on amplitude. See  :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool | None
@@ -269,9 +268,11 @@ class countingParams(NamedTuple):
     r"""Parameters related to counting aligned reads
 
     :param intervalSizeBP: Length (bp) of each genomic interval :math:`i=1\ldots n` that comprise the larger genomic region (contig, chromosome, etc.)
-        The default is generally robust, but consider increasing this value when expected feature size is large and/or sequencing depth
+        The default value is generally robust, but users may consider increasing this value when expected feature size is large and/or sequencing depth
         is low (less than :math:`\approx 5 \textsf{million}`, depending on assay).
     :type intervalSizeBP: int
+    :param backgroundBlockSizeBP: Length (bp) of blocks used to sample local quantities (e.g., local background read counts). If a negative value is provided (default), this value is inferred from the data using :func:`consenrich.core.getContextSize`.
+    :type backgroundBlockSizeBP: int
     :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
     :type fragmentLengths: List[int], optional
     :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
@@ -1669,7 +1670,7 @@ def autoDeltaF(
     minDeltaF: float = 0.01,
     maxDeltaF: float = 1.0,
 ) -> float:
-    r"""(Experimental) Infer `deltaF` from autocorrelation in interval-level signal."""
+    r"""(Experimental) Infer `deltaF` from correlation length in the data."""
 
     if (
         fragmentLengths is not None
@@ -2103,23 +2104,11 @@ def getMuncTrack(
     :type values: np.ndarray
     :param intervals: genomic intervals positions (start positions)
     :type intervals: np.ndarray
-    :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
-      Note, block sizes are drawn as :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSizeBP})`, truncated to :math:`\{3, \ldots, 3 \times \textsf{samplingBlockSizeBP}\}`, to
-      avoid fixed-size block artifacts when estimating mean-variance trend.
-    :type samplingBlockSizeBP: int
-    :param samplingIters: Number of genomic blocks to sample when estimating global mean-variance trend.
-    :type samplingIters: int
-    :param binQuantileCutoff: Quantile of variances within bins of absolute mean signal to use when fitting global mean-variance trend.
-    :type binQuantileCutoff: float
-    :param EB_minLin: Require prior-model fitted variances satisfy ``var >= EB_minLin*absMean``
-    :type EB_minLin: float
-    :param EB_use: If `False`, only return the global prior variance track.
-    :type EB_use: bool
-    :param EB_setNu0: If provided, sets :math:`\nu_0` to this value instead of estimating from data.
-    :type EB_setNu0: int | None
-    :param EB_setNuL: If provided, sets :math:`\nu_{\mathcal{L}}` to this value, overriding the local window size - 3.
-    :type EB_setNuL: int | None
+
+    See :class:`consenrich.core.observationParams` for other parameters.
+
     """
+
     AR1_PARAMCT = 3
     if samplingBlockSizeBP is None:
         samplingBlockSizeBP = intervalSizeBP * (11 * (AR1_PARAMCT))
