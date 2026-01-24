@@ -26,8 +26,6 @@ logger = logging.getLogger(__name__)
 
 
 def _FDR(pVals: np.ndarray, method: str | None = "bh") -> np.ndarray:
-    # can use bh or the more conservative Benjamini-Yekutieli to
-    # ... control FDR under arbitrary dependencies between tests
     if method is None:
         return pVals
     return stats.false_discovery_control(pVals, method=method.lower())
@@ -91,6 +89,7 @@ def matchWavelet(
     excludeRegionsBedFile: Optional[str] = None,
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-3,
+    methodFDR: str | None = None,
 ) -> pd.DataFrame:
     r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
 
@@ -295,8 +294,8 @@ def matchWavelet(
         )
         if len(vals) == 0:
             return vals
-        low = np.quantile(vals, 0.0001)
-        high = np.quantile(vals, 0.9999)
+        low = np.quantile(vals, 0.005)
+        high = np.quantile(vals, 0.995)
         return vals[(vals > low) & (vals < high)]
 
     wavelet_set = set(pw.wavelist(kind="discrete"))
@@ -445,7 +444,13 @@ def matchWavelet(
     qVals = np.empty(len(df), dtype=float)
     for _, groupIdx in df.groupby(groupCols, sort=False).groups.items():
         p = df.loc[groupIdx, "p_raw"].values.astype(float, copy=False)
-        qVals[groupIdx] = p
+        if methodFDR is None:
+            qVals[groupIdx] = p
+        elif isinstance(methodFDR, str):
+            logger.info(
+                f"Applying FDR correction method: {methodFDR} wrt {groupCols}: {len(p)} tests"
+            )
+            qVals[groupIdx] = _FDR(p, method=methodFDR)
 
     df["pValue"] = -np.log10(
         np.clip(df["p_raw"].values.astype(float), np.finfo(np.float32).tiny, 1.0)
@@ -492,6 +497,7 @@ def runMatchingAlgorithm(
     mergeGapBP: int | None = -1,
     merge: bool = True,
     massQuantileCutoff: float = -1.0,
+    methodFDR: str | None = None,
 ):
     r"""Wraps :func:`matchWavelet` for genome-wide matching given a bedGraph file"""
     cols = ["chromosome", "start", "end", "value"]
@@ -577,6 +583,7 @@ def runMatchingAlgorithm(
             excludeRegionsBedFile,
             weights,
             eps,
+            methodFDR,
         )
 
         if df__.empty:

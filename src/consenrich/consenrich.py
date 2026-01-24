@@ -771,6 +771,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "matchingParams.massQuantileCutoff",
             -1.0,
         ),
+        methodFDR=_cfgGet(
+            configData,
+            "matchingParams.methodFDR",
+            None,
+        ),
     )
 
     return {
@@ -937,6 +942,13 @@ def main():
         dest="matchMassQuantileCutoff",
         help="Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' (average signal value * length). Set to < 0 to disable",
     )
+    parser.add_argument(
+        "--match-method-fdr",
+        type=str,
+        default=None,
+        dest="matchMethodFDR",
+        help="Method for FDR correction of p-values, e.g., 'BH'",
+    )
     parser.add_argument("--verbose", action="store_true", help="If set, logs config")
     parser.add_argument(
         "--verbose2",
@@ -973,6 +985,7 @@ def main():
             randSeed=args.matchRandSeed,
             merge=True,  # always merge for CLI use -- either way, both files produced
             massQuantileCutoff=args.matchMassQuantileCutoff,
+            methodFDR=args.matchMethodFDR,
         )
         logger.info(f"Finished matching. Written to {outName}")
         sys.exit(0)
@@ -1009,6 +1022,7 @@ def main():
     chromSizes = genomeArgs.chromSizesFile
     initialTreatmentScaleFactors = []
     minMatchLengthBP_: Optional[int] = matchingArgs.minMatchLengthBP
+    methodFDR_: Optional[str] = matchingArgs.methodFDR
     deltaF_ = processArgs.deltaF
     minR_ = observationArgs.minR
     maxR_ = observationArgs.maxR
@@ -1072,7 +1086,7 @@ def main():
         logger.info(f"matchingEnabled: {matchingEnabled}")
     scaleFactors = countingArgs.scaleFactors
     scaleFactorsControl = countingArgs.scaleFactorsControl
-
+    methodFDR_: Optional[str] = matchingArgs.methodFDR
     fragmentLengthsTreatment: List[int] = []
     fragmentLengthsControl: List[int] = []
 
@@ -1534,6 +1548,7 @@ def main():
                 eps=matchingArgs.eps,
                 merge=matchingArgs.merge,
                 massQuantileCutoff=matchingArgs.massQuantileCutoff,
+                methodFDR=matchingArgs.methodFDR,
             )
 
             logger.info(f"Finished matching. Written to {outName}")

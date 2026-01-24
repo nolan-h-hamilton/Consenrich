@@ -2289,6 +2289,8 @@ cpdef double cDenseGlobalBaseline(
     uint64_t seed=0,
     bint verbose = <bint>False,
 ):
+
+    # FFR: given the current setup, this function can probably be removed or simplified
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
     cdef cnp.float32_t[::1] rawView
     cdef cnp.float32_t[::1] valuesView

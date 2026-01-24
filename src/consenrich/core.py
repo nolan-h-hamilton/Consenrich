@@ -377,6 +377,7 @@ class matchingParams(NamedTuple):
     randSeed: Optional[int]
     eps: Optional[float]
     massQuantileCutoff: Optional[float]
+    methodFDR: str | None
 
 
 class outputParams(NamedTuple):
