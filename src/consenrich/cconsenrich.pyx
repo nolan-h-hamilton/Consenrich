@@ -2417,6 +2417,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef cnp.ndarray[cnp.float32_t, ndim=1] varOut
     cdef float[::1] valuesView=values
     cdef cnp.uint8_t[::1] maskView=excludeMask
+    cdef float[::1] varAtView
+    cdef float[::1] varOutView
     cdef double sumY
     cdef double sumSqY
     cdef double sumLagProd
@@ -2433,8 +2435,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef double beta1, eps
     cdef double RSS
     cdef double pairCountDouble
-    cdef double sumFOD, sumSqFOD, FODLeaving, FODEntering
-    cdef double nFODDouble, varFOD
     varOut = np.empty(numIntervals,dtype=np.float32)
 
     if blockLength > numIntervals:
@@ -2447,112 +2447,87 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     halfBlockLength = (blockLength//2)
     maxStartIndex = (numIntervals - blockLength)
     varAtStartIndex = np.empty((maxStartIndex + 1),dtype=np.float32)
+    varAtView = varAtStartIndex
+    varOutView = varOut
 
     sumY=0.0
     sumSqY=0.0
     sumLagProd=0.0
     maskSum=0
-    sumFOD = 0.0
-    sumSqFOD = 0.0
 
-    # initialize first
-    for elementIndex in range(blockLength):
-        currentValue=valuesView[elementIndex]
-        sumY += currentValue
-        sumSqY += (currentValue*currentValue)
-        maskSum += <int>maskView[elementIndex]
-        if elementIndex < (blockLength - 1):
-            sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
+    with nogil:
+        # initialize first
+        for elementIndex in range(blockLength):
+            currentValue=valuesView[elementIndex]
+            sumY += currentValue
+            sumSqY += (currentValue*currentValue)
+            maskSum += <int>maskView[elementIndex]
+            if elementIndex < (blockLength - 1):
+                sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
 
-    for elementIndex in range(blockLength - 1):
-        FODEntering = valuesView[elementIndex + 1] - valuesView[elementIndex]
-        sumFOD += FODEntering
-        sumSqFOD += FODEntering * FODEntering
-
-    # sliding window until last block's start
-    for startIndex in range(maxStartIndex + 1):
-        if maskSum != 0:
-            varAtStartIndex[startIndex]=<cnp.float32_t>-1.0
-        else:
-            nPairsDouble = <double>(blockLength - 1)
-            previousValue = valuesView[startIndex]
-            currentValue = valuesView[(startIndex + blockLength - 1)]
-
-            # x[i] = values[startIndex+i] i=0,1,...n-2
-            # y[i] = values[startIndex+i+1] i=0,1,...n-2
-            sumXSeq = sumY - currentValue
-            sumYSeq = sumY - previousValue
-
-            # these are distinct now, so means must be computed separately
-            meanX = sumXSeq / nPairsDouble
-            meanYp = sumYSeq / nPairsDouble
-            sumSqXSeq = (sumSqY - (currentValue*currentValue)) - (nPairsDouble*meanX*meanX)
-            sumSqYSeq = (sumSqY - (previousValue*previousValue)) - (nPairsDouble*meanYp*meanYp)
-            if sumSqXSeq < 0.0:
-                sumSqXSeq = 0.0
-            if sumSqYSeq < 0.0:
-                sumSqYSeq = 0.0
-
-            # sum (x[i] - meanX)*(y[i] - meanYp) i = 0..n-2
-            sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
-            eps = 1.0e-8*(sumSqXSeq + 1.0)
-            if sumSqXSeq > eps:
-                # reg. AR(1) coefficient estimate
-                beta1 = (sumXYc / (sumSqXSeq + (pairsRegLambda*nPairsDouble)))
+        # sliding window until last block's start
+        for startIndex in range(maxStartIndex + 1):
+            if maskSum != 0:
+                varAtView[startIndex]=<cnp.float32_t>-1.0
             else:
-                beta1 = 0.0
+                nPairsDouble = <double>(blockLength - 1)
+                previousValue = valuesView[startIndex]
+                currentValue = valuesView[(startIndex + blockLength - 1)]
 
-            if beta1 > maxBeta:
-                beta1 = maxBeta
+                # x[i] = values[startIndex+i] i=0,1,...n-2
+                # y[i] = values[startIndex+i+1] i=0,1,...n-2
+                sumXSeq = sumY - currentValue
+                sumYSeq = sumY - previousValue
 
-            # AR(1) negative autocorrelation hides noise here
-            elif beta1 < 0.0:
-                beta1 = 0.0
-            RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
-            if RSS < 0.0:
-                RSS = 0.0
+                # these are distinct now, so means must be computed separately
+                meanX = sumXSeq / nPairsDouble
+                meanYp = sumYSeq / nPairsDouble
+                sumSqXSeq = (sumSqY - (currentValue*currentValue)) - (nPairsDouble*meanX*meanX)
+                sumSqYSeq = (sumSqY - (previousValue*previousValue)) - (nPairsDouble*meanYp*meanYp)
+                if sumSqXSeq < 0.0:
+                    sumSqXSeq = 0.0
+                if sumSqYSeq < 0.0:
+                    sumSqYSeq = 0.0
 
-            # n-1 pairs, slope and intercept estimated --> use df = n-3
-            pairCountDouble = <double>(blockLength - 3)
-            varAtStartIndex[startIndex]=<cnp.float32_t>(RSS/pairCountDouble)
+                # sum (x[i] - meanX)*(y[i] - meanYp) i = 0..n-2
+                sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
+                eps = 1.0e-8*(sumSqXSeq + 1.0)
+                if sumSqXSeq > eps:
+                    # reg. AR(1) coefficient estimate
+                    beta1 = (sumXYc / (sumSqXSeq + (pairsRegLambda*nPairsDouble)))
+                else:
+                    beta1 = 0.0
 
+                if beta1 > maxBeta:
+                    beta1 = maxBeta
 
-            nFODDouble = <double>(blockLength - 1)
-            # rolling first-order differences variance
-            varFOD = sumSqFOD - (sumFOD * sumFOD) / nFODDouble
-            if varFOD < 0.0:
-                varFOD = 0.0
-            if nFODDouble > 1.0:
-                varFOD = varFOD / (nFODDouble - 1.0)
-            else:
-                varFOD = 0.0
+                # AR(1) negative autocorrelation hides noise here
+                elif beta1 < 0.0:
+                    beta1 = 0.0
+                RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
+                if RSS < 0.0:
+                    RSS = 0.0
 
-            varAtStartIndex[startIndex] = <cnp.float32_t>(
-                (<double>varAtStartIndex[startIndex]))
-            if varFOD > varAtStartIndex[startIndex]:
-                varAtStartIndex[startIndex] = <cnp.float32_t>(
-                    varAtStartIndex[startIndex] + 0.5*(varFOD - varAtStartIndex[startIndex])
-                )
-        if startIndex < maxStartIndex:
-            # slide window forward --> (previousSum - leavingValue) + enteringValue
-            sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])
-            sumSqY = sumSqY + (-(valuesView[startIndex]*valuesView[startIndex]) + (valuesView[(startIndex + blockLength)]*valuesView[(startIndex + blockLength)]))
-            sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
-            maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
-            FODLeaving = valuesView[startIndex + 1] - valuesView[startIndex]
-            FODEntering = valuesView[startIndex + blockLength] - valuesView[startIndex + blockLength - 1]
-            sumFOD += (FODEntering - FODLeaving)
-            sumSqFOD += (FODEntering * FODEntering) - (FODLeaving * FODLeaving)
+                # n-1 pairs, slope and intercept estimated --> use df = n-3
+                pairCountDouble = <double>(blockLength - 3)
+                varAtView[startIndex]=<cnp.float32_t>(RSS/pairCountDouble)
 
-    for regionIndex in range(numIntervals):
-        startIndex = regionIndex - blockLength + 1
-        if startIndex < 0:
-            # flag as invalid (i.e., divert to prior model until full window)
-            varOut[regionIndex] = <cnp.float32_t>-1.0
-            continue
-        if startIndex > maxStartIndex:
-            startIndex = maxStartIndex
-        varOut[regionIndex] = varAtStartIndex[startIndex]
+            if startIndex < maxStartIndex:
+                # slide window forward --> (previousSum - leavingValue) + enteringValue
+                sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])
+                sumSqY = sumSqY + (-(valuesView[startIndex]*valuesView[startIndex]) + (valuesView[(startIndex + blockLength)]*valuesView[(startIndex + blockLength)]))
+                sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
+                maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
+
+        for regionIndex in range(numIntervals):
+            startIndex = regionIndex - blockLength + 1
+            if startIndex < 0:
+                # flag as invalid (i.e., divert to prior model until full window)
+                varOutView[regionIndex] = <cnp.float32_t>-1.0
+                continue
+            if startIndex > maxStartIndex:
+                startIndex = maxStartIndex
+            varOutView[regionIndex] = varAtView[startIndex]
 
     return varOut
 
