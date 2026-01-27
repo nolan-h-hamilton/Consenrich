@@ -36,9 +36,15 @@ def autoMinLengthIntervals(
     initLen: int = 5,
     maxLen: int = 25,
 ) -> int:
-    hlen = core.getContextSize(
-        values,
-    )[1]
+    try:
+        hlen = core.getContextSize(
+            values,
+        )[1]
+    except Exception:
+        logger.warning(
+            "autoMinLengthIntervals: could not compute context size, using default length."
+        )
+        hlen = initLen
     return min(max(int(hlen), initLen), maxLen)
 
 
@@ -82,7 +88,7 @@ def matchWavelet(
     alpha: float = 0.05,
     minMatchLengthBP: Optional[int] = -1,
     maxNumMatches: Optional[int] = 100_000,
-    minSignalAtMaxima: Optional[float | str] = 0.01,
+    minSignalAtMaxima: Optional[float | str] = 0.1,
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
@@ -294,8 +300,8 @@ def matchWavelet(
         )
         if len(vals) == 0:
             return vals
-        low = np.quantile(vals, 0.005)
-        high = np.quantile(vals, 0.995)
+        low = np.quantile(vals, 0.001)
+        high = np.quantile(vals, 0.999)
         return vals[(vals > low) & (vals < high)]
 
     wavelet_set = set(pw.wavelist(kind="discrete"))
@@ -487,7 +493,7 @@ def runMatchingAlgorithm(
     alpha: float = 0.05,
     minMatchLengthBP: Optional[int] = 250,
     maxNumMatches: Optional[int] = 100_000,
-    minSignalAtMaxima: Optional[float | str] = 0.01,
+    minSignalAtMaxima: Optional[float | str] = 0.1,
     randSeed: int = 42,
     recenterAtPointSource: bool = True,
     useScalingFunction: bool = True,
