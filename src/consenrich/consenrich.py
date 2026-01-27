@@ -1341,19 +1341,6 @@ def main():
                     f"`observationParams.samplingBlockSizeBP < 0` --> getContextSize(): {samplingBlockSizeBP_} bp"
                 )
 
-        if minMatchLengthBP_ is None or minMatchLengthBP_ < 0:
-            if backgroundBlockSizeBP_ > 0:
-                minMatchLengthBP_ = backgroundBlockSizeBP_
-            else:
-                minMatchLengthBP_ = (
-                    core.getContextSize(np.mean(chromMat, axis=0))[0]
-                    * (2 * intervalSizeBP)
-                    + 1
-                )
-            logger.info(
-                f"`matchingParams.minMatchLengthBP < 0` --> getContextSize(): {minMatchLengthBP_} bp"
-            )
-
         if waitForMatrix:
             sf = cconsenrich.cSF(chromMat)
             np.multiply(chromMat, sf[:, None], out=chromMat)

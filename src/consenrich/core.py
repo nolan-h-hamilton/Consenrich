@@ -272,7 +272,7 @@ class countingParams(NamedTuple):
         The default value is generally robust, but users may consider increasing this value when expected feature size is large and/or sequencing depth
         is low (less than :math:`\approx 5 \textsf{million}`, depending on assay).
     :type intervalSizeBP: int
-    :param backgroundBlockSizeBP: Length (bp) of blocks used to sample local quantities (e.g., local background read counts). If a negative value is provided (default), this value is inferred from the data using :func:`consenrich.core.getContextSize`.
+    :param backgroundBlockSizeBP: Length (bp) of blocks used to estimate local statistics (background, noise, etc.). If a negative value is provided (default), this value is inferred from the data using :func:`consenrich.core.getContextSize`.
     :type backgroundBlockSizeBP: int
     :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
     :type fragmentLengths: List[int], optional
@@ -2282,7 +2282,7 @@ def getContextSize(
     vals: np.ndarray,
     minSpan: int | None = 3,
     maxSpan: int | None = 64,
-    bandZ: float = 0.67448,
+    bandZ: float = 1.0,
     maxOrder: int = 5,
 ) -> tuple[int, int, int]:
     y = np.asarray(vals, dtype=np.float64)
@@ -2318,6 +2318,8 @@ def getContextSize(
     bestFeatures = np.array([], dtype=np.int64)
     bestScore = -1.0
 
+    # first, choose between-feature 'distance' threshold based on score that is increasing wrt number/prominence of features
+    # search space is over [1, maxOrder]
     for o in range(startOrder, 0, -1):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -2328,16 +2330,33 @@ def getContextSize(
                 prominence=1e-4,
             )
 
+        prominences = props.get("prominences")
+        promMasked: np.ndarray | None = None
         if features.size:
             featureMask = yLog[features] > thrLog
-            prominences = props.get("prominences")
             if prominences is not None:
                 featureMask &= prominences > 0.0
+                promMasked = prominences[featureMask]
             features = features[featureMask]
+
         numFeatures = int(features.size)
-        # we pick the value that maximizes coverage, i.e., number of features * order
-        # TODO: distance is not the best proxy for coverage here...
-        score = float(numFeatures * o)
+
+        # score by sum of top-K prominences, prevent small/noisy peaks dominating the score.
+        if numFeatures == 0:
+            score = -np.inf
+        else:
+            if promMasked is None:
+                logger.warning(
+                    "Prominences missing for context size estimation...using number of features of distinct features as score.",
+                )
+                score = float(numFeatures)
+            else:
+                K = int(min(1000, promMasked.size))
+                if K <= 0:
+                    score = float(numFeatures)
+                else:
+                    top = np.partition(promMasked, -K)[-K:]
+                    score = float(np.sum(np.log1p(top)))
 
         if score > bestScore:
             bestScore = score
@@ -2346,13 +2365,13 @@ def getContextSize(
 
     chosenFeatures = bestFeatures
     logger.info(
-        f"Chose order={bestOrder} with numFeatures={int(chosenFeatures.size)} (score=numFeatures*order={bestScore:.1f})."
+        f"Chose order={bestOrder} with numFeatures={int(chosenFeatures.size)} (score={bestScore:.3f})."
     )
 
     if chosenFeatures.size == 0:
         raise ValueError(
-            "Could not identify features for context size estimation...using largest values as features...",
-            "Consider setting `countingParams.backgroundBlockSizeBP` manually...",
+            "Could not identify features for context size estimation...using largest values as features... "
+            "Consider setting `countingParams.backgroundBlockSizeBP` manually..."
         )
 
     chosenFeatures = np.unique(chosenFeatures.astype(np.int64))
@@ -2399,7 +2418,7 @@ def getContextSize(
         )
 
     # For each feature, convert to log-scale and assign per-feature variance using local noise heuristic.
-    # .. The local noise heuristic is based on data within `noiseWindow` of the peak
+    # ... the local noise heuristic is based on data within `noiseWindow` of the peak
     eps = 1e-4
     noiseWindow = int(min(maxSpan, 32))
     sHatList: list[float] = []
@@ -2414,31 +2433,32 @@ def getContextSize(
             continue
         if widthHat <= 0.0:
             continue
-        # log scale
+        #   log scale
         widthHat = float(max(1.0, widthHat))
         logWidth = float(np.log(widthHat))
 
-        # |slope| at left half-max and right half-max
+        #   |slope| at left half-max and right half-max
         leftStep = _localSlopeAbs(yLog, float(leftIp), halfWindow=2)
         rightStep = _localSlopeAbs(yLog, float(rightIp), halfWindow=2)
 
-        # define window around the feature
+        #   define window around the feature
         wLeft = max(0, int(peakIdx) - noiseWindow)
         wRight = min(n, int(peakIdx) + noiseWindow + 1)
 
-        # within the local window, use sdev of first-order differences as the local noise estimate (Y-axis)
+        #   within the local window, use sdev of first-order differences as the local noise estimate (Y-axis)
+        #   FFR: it might be more consistent to use the same local noise estimate as in `getMuncTrack`, maybe expensive though
         diffs = np.diff(yLog[wLeft:wRight])
         sigmaY = float(np.std(diffs, ddof=1)) if diffs.size >= 2 else 0.0
 
-        # propagate to X-axis (width), add contributions from left and right sides
-        # Var[W] ~=~ Var[Y] / (dY/dX)^2, 'independent' contributions from left and right sides
-        # note that variance is decreasing for increasing slope
+        #   propagate to X-axis (width), add contributions from left and right sides
+        #   Var[W] ~=~ Var[Y] / (dY/dX)^2, 'independent' contributions from left and right sides
+        #   note that variance is decreasing for increasing slope
         sigmaXLeft = sigmaY / (leftStep + eps)
         sigmaXRight = sigmaY / (rightStep + eps)
         sigmaW2 = (sigmaXLeft * sigmaXLeft) + (sigmaXRight * sigmaXRight)
 
-        # final per-feature variance on --log scale--
-        # Var[log(W)] ~=~ Var[W] / (W^2)
+        #   final per-feature variance on --log scale--
+        #   Var[log(W)] ~=~ Var[W] / (W^2)
         sigmaS2 = float(max(1e-6, sigmaW2 / (widthHat * widthHat + eps)))
         sHatList.append(logWidth)
         sigma2List.append(sigmaS2)
@@ -2465,13 +2485,16 @@ def getContextSize(
     tau2Mom = float(max(0.0, varS - meanSigma2))
     tau2Max = float(max(1e-6, varS + meanSigma2) * 10.0)
 
-    def LL(betweenFeatureVar: float) -> float:
+    def _LL(betweenFeatureVar: float) -> float:
+        # the negative LL here is computed assuming independent Gaussian features with
+        # ... per-feature variance = sigma2[i] + tau^2 (where sigma2[i] is the per-feature variance estimate from above)
         tauSq = float(max(0.0, betweenFeatureVar))
         totalVar = sigma2Arr + tauSq
         totalVar = np.maximum(totalVar, 1e-12)
         invTotalVar = 1.0 / totalVar
         muHat = float(np.sum(invTotalVar * sHatArr) / np.sum(invTotalVar))
         residuals = sHatArr - muHat
+        # note several constant terms dropped from the expression, but order is preserved
         return 0.5 * float(
             np.sum(np.log(totalVar)) + np.sum((residuals * residuals) * invTotalVar)
         )
@@ -2481,7 +2504,7 @@ def getContextSize(
         warnings.filterwarnings("ignore", category=UserWarning)
         # maximize marginal likelihood over 0 <= tau^2 <= tau2Max
         res = optimize.minimize_scalar(
-            LL,
+            _LL,
             bounds=(0.0, tau2Max),
             method="bounded",
             options={"xatol": 1e-4, "maxiter": 50},
@@ -2492,11 +2515,11 @@ def getContextSize(
     tauSqHat: float = 0.0
     if getattr(res, "success", False):
         tauSqHat = float(res.x)
-        logger.info(f"Estimated tau^2 = {tauSqHat:.6f} via ML.")
+        logger.info(f"Maximum likelihood estimate for tau^2 plugin = {tauSqHat:.6f}")
     else:
         tauSqHat = tau2Mom
         logger.warning(
-            f"Failed to optimize tau^2 via ML...using method-of-moments estimate tau^2 = {tau2Mom:.6f}.",
+            f"Failed to estimate plugin tau^2 with maximum likelihood...using MoM estimate tau^2 = {tau2Mom:.6f}.",
         )
 
     #   Posterior variance sigma^2[i] + tau^2 used to compute weights
@@ -2523,4 +2546,4 @@ def getContextSize(
         f"Natural scale: pointEstimate={pointEstimate:.4f}, Lower={widthLower:.4f}, Upper={widthUpper:.4f}"
     )
 
-    return int(pointEstimate + 0.5), int(widthLower + 0.5), int(widthUpper + 0.5)
+    return int(pointEstimate), int(widthLower), int(widthUpper)
