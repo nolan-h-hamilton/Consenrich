@@ -6,6 +6,7 @@ Consenrich core functions and classes.
 
 import logging
 import os
+import warnings
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import (
     Any,
@@ -2260,209 +2261,266 @@ def EB_computePriorStrength(
     return float(Nu_0)
 
 
+def _localSlopeAbs(yVals: np.ndarray, xPos: float, halfWindow: int = 2) -> float:
+    centerIdx = int(np.clip(int(np.floor(xPos)), 0, yVals.size - 1))
+    leftIdx = max(0, centerIdx - halfWindow)
+    rightIdx = min(yVals.size - 1, centerIdx + halfWindow)
+    if rightIdx - leftIdx < 1:
+        return 0.0
+    xIdx = np.arange(leftIdx, rightIdx + 1, dtype=np.float64) - float(centerIdx)
+    yWin = yVals[leftIdx : rightIdx + 1]
+    sumSqX = float(np.sum(xIdx * xIdx))
+    if sumSqX <= 0.0:
+        return 0.0
+
+    yCentered = yWin - float(np.mean(yWin))
+    slope = float(np.sum(xIdx * yCentered) / sumSqX)
+    return float(abs(slope))
+
+
 def getContextSize(
     vals: np.ndarray,
-    minSpan: int = 8,
-    maxSpan: int = 128,
+    minSpan: int | None = 3,
+    maxSpan: int | None = 64,
     bandZ: float = 0.67448,
-    order_: int = 5,
+    maxOrder: int = 5,
 ) -> tuple[int, int, int]:
     y = np.asarray(vals, dtype=np.float64)
     n = int(y.size)
-    if n == 0:
-        raise ValueError("vals is empty")
-
-    yArr = vals.copy().astype(np.float64)
-    positiveVals = yArr[yArr > 0]
-
-    # early exit -- no signal
-    if positiveVals.size <= order_:
+    if n < 100:
         raise ValueError(
-            "Insufficient positive elements found. If this is expected, consider supplying `countingParams.backgroundBlockSizeBP` manually."
+            "input `vals` is too small for context size estimation...set `countingParams.backgroundBlockSizeBP` manually."
         )
 
-    smoothCpy = ndimage.uniform_filter1d(
-        yArr, size=int(max(1, minSpan)), mode="nearest"
+    minSpan = 3 if minSpan is None else int(minSpan)
+    maxSpan = (
+        int(max(10, min(50, np.floor(np.log2(n + 1) * 2))))
+        if maxSpan is None
+        else int(maxSpan)
     )
+    if maxSpan <= 0:
+        raise ValueError("`maxSpan` must be positive.")
+
+    yPos = np.clip(y, 0.0, None)
+    yLog = np.log1p(yPos)
+    posLog = yLog[y > 0]
+    if posLog.size <= max(1, int(maxOrder)):
+        raise ValueError(
+            "Insufficient positive elements found...set `countingParams.backgroundBlockSizeBP` manually."
+        )
+
+    smoothSize = min(int(max(1, minSpan)), int(maxSpan / 2))
+    yLogSmooth = ndimage.uniform_filter1d(yLog, size=smoothSize, mode="nearest")
     kMinFeatures = int(max(1, (2 * np.log2(n + 1))))
-    thr = float(np.median(positiveVals))
+    thrLog = float(np.mean(posLog))
+    startOrder = int(max(1, maxOrder))
+    bestOrder = 1
+    bestFeatures = np.array([], dtype=np.int64)
+    bestScore = -1.0
 
-    featureIndexArray = np.array([], dtype=np.int64)
-    orderVal = int(max(1, order_))
-    for o in range(orderVal, 0, -1):
-        cand = signal.argrelmax(smoothCpy, order=int(max(1, o)))[0]
-        if cand.size:
-            cand = cand[yArr[cand] > thr]
-        if cand.size >= kMinFeatures or o == 1:
-            featureIndexArray = cand
-            orderVal = o
-            break
+    for o in range(startOrder, 0, -1):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            warnings.filterwarnings("ignore", category=UserWarning)
+            features, props = signal.find_peaks(
+                yLogSmooth,
+                distance=int(max(1, o)),
+                prominence=1e-4,
+            )
 
-    if featureIndexArray.size == 0:
-        # just take the largest elements
-        logger.warning(
-            "No relative maxima found, using largest elements for context size estimation"
+        if features.size:
+            featureMask = yLog[features] > thrLog
+            prominences = props.get("prominences")
+            if prominences is not None:
+                featureMask &= prominences > 0.0
+            features = features[featureMask]
+        numFeatures = int(features.size)
+        # we pick the value that maximizes coverage, i.e., number of features * order
+        # TODO: distance is not the best proxy for coverage here...
+        score = float(numFeatures * o)
+
+        if score > bestScore:
+            bestScore = score
+            bestOrder = o
+            bestFeatures = features.astype(np.int64, copy=False)
+
+    chosenFeatures = bestFeatures
+    logger.info(
+        f"Chose order={bestOrder} with numFeatures={int(chosenFeatures.size)} (score=numFeatures*order={bestScore:.1f})."
+    )
+
+    if chosenFeatures.size == 0:
+        raise ValueError(
+            "Could not identify features for context size estimation...using largest values as features...",
+            "Consider setting `countingParams.backgroundBlockSizeBP` manually...",
         )
-        featureIndexArray = np.argsort(-yArr)[:kMinFeatures]
 
-    baseQ = 0.1
-    featureBaselines = np.empty(featureIndexArray.size, dtype=np.float64)
-    for i in range(featureIndexArray.size):
-        featureIndex = int(featureIndexArray[i])
-        leftIndex = int(np.clip((featureIndex - maxSpan), 0, (n - 1)))
-        rightIndex = int(np.clip((featureIndex + maxSpan), 0, (n - 1)))
-        baselineLeft = float(np.quantile(yArr[leftIndex : (featureIndex + 1)], baseQ))
-        baselineRight = float(np.quantile(yArr[featureIndex : (rightIndex + 1)], baseQ))
-        featureBaselines[i] = (
-            baselineLeft if (baselineLeft > baselineRight) else baselineRight
-        )
+    chosenFeatures = np.unique(chosenFeatures.astype(np.int64))
+    chosenFeatures.sort()
 
-    featureScores = yArr[featureIndexArray] - featureBaselines
-    positiveScoreMask = featureScores > 0.0
-    if np.any(positiveScoreMask):
-        featureIndexArray = featureIndexArray[positiveScoreMask]
-        featureScores = featureScores[positiveScoreMask]
+    # We compute a 'baseline' around each feature -- these are used to
+    # compute per-feature 'feature scores' (height above baseline).
+    baseQ = 0.05
+    featureBaselines = np.empty(chosenFeatures.size, dtype=np.float64)
+    for i, idx in enumerate(chosenFeatures):
+        # FFR: this might be redundant in practice...perhaps just take quantile over full window?
+        left = max(0, idx - maxSpan)
+        right = min(n - 1, idx + maxSpan)
+
+        leftQ = float(np.quantile(yLog[left : idx + 1], baseQ))
+        rightQ = float(np.quantile(yLog[idx : right + 1], baseQ))
+        featureBaselines[i] = max(leftQ, rightQ)
+
+    featureScores = yLog[chosenFeatures] - featureBaselines
+    keepMask = featureScores > 0.0
+    if np.any(keepMask):
+        chosenFeatures = chosenFeatures[keepMask]
+        featureScores = featureScores[keepMask]
 
     kKeep = int(min(1000, featureScores.size, max(kMinFeatures, n // max(8, maxSpan))))
     if kKeep <= 0:
         raise ValueError(
             "No features found for context size estimation...supply `countingParams.backgroundBlockSizeBP` manually"
         )
-    keep = np.argpartition(-featureScores, kKeep - 1)[:kKeep]
-    featureIndexArray = featureIndexArray[keep]
 
+    # we use the top-scoring kKeep features for estimation
+    keep = np.argpartition(-featureScores, kKeep - 1)[:kKeep]
+    featureIndexArray = np.unique(chosenFeatures[keep].astype(np.int64))
+    featureIndexArray.sort()
+
+    # note that these are in log-scale
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)
+        widths, _, leftIps, rightIps = signal.peak_widths(
+            yLog,
+            featureIndexArray,
+            rel_height=0.5,  # half-width at half-maximum
+        )
+
+    # For each feature, convert to log-scale and assign per-feature variance using local noise heuristic.
+    # .. The local noise heuristic is based on data within `noiseWindow` of the peak
     eps = 1e-4
     noiseWindow = int(min(maxSpan, 32))
+    sHatList: list[float] = []
+    sigma2List: list[float] = []
 
-    def _mad(x: np.ndarray) -> float:
-        if x.size == 0:
-            return 0.0
-        med = float(np.median(x))
-        return 1.4826 * float(np.median(np.abs(x - med)))
+    for j, peakIdx in enumerate(featureIndexArray):
+        widthHat = float(widths[j])
+        leftIp = float(leftIps[j])
+        rightIp = float(rightIps[j])
 
-    def getWidthEstimates(featureIndex):
-        featureValue = float(yArr[featureIndex])
-        leftIndex = int(np.clip((featureIndex - maxSpan), 0, (n - 1)))
-        rightIndex = int(np.clip((featureIndex + maxSpan), 0, (n - 1)))
-        baselineLeft = float(np.quantile(yArr[leftIndex : (featureIndex + 1)], baseQ))
-        baselineRight = float(np.quantile(yArr[featureIndex : (rightIndex + 1)], baseQ))
-        # the larger of the two quantiles is used as the feature's baseline reference
-        baseline = baselineLeft if (baselineLeft > baselineRight) else baselineRight
-
-        if featureValue <= baseline:
-            return None
-
-        halfHeight = baseline + (0.5 * (featureValue - baseline))
-
-        # LEFT SIDE
-        # Find index t such that: _y[t-1] <= halfHeight <= _y[t]
-        # Use the slope between _y[t-1] and _y[t], and find its intersection with halfHeight
-        leftPos = float(leftIndex)
-        leftStep = 0.0
-        leftFound = False
-        t = featureIndex
-        while t > leftIndex:
-            if (yArr[t - 1] <= halfHeight) and (yArr[t] >= halfHeight):
-                dgrad = float(yArr[t] - yArr[t - 1])  # discrete ~gradient~
-                leftStep = abs(dgrad)
-                leftPos = (
-                    float(t - 1)
-                    if (dgrad == 0.0)
-                    else float(t - 1) + ((halfHeight - yArr[t - 1]) / dgrad)
-                )
-                leftFound = True
-                break
-            t -= 1
-
-        # RIGHT SIDE (same logic)
-        rightPos = float(rightIndex)
-        rightStep = 0.0
-        rightFound = False
-        t = featureIndex
-        while t < rightIndex:
-            if (yArr[t] >= halfHeight) and (yArr[t + 1] <= halfHeight):
-                dgrad = float(yArr[t] - yArr[t + 1])
-                rightStep = abs(dgrad)  # slope near intersection w/ half-height
-                rightPos = (
-                    float(t + 1)
-                    if (dgrad == 0.0)
-                    else float(t) + ((yArr[t] - halfHeight) / dgrad)
-                )
-                rightFound = True
-                break
-            t += 1
-
-        if (not leftFound) or (not rightFound):
-            return None
-
-        # Each peak's 'width' recorded as the distance |left-half-point - right-half-point|
-        widthHat = max(1.0, rightPos - leftPos)
-        # we build the actual distribtuion on log-width
+        if not (np.isfinite(leftIp) and np.isfinite(rightIp) and np.isfinite(widthHat)):
+            continue
+        if widthHat <= 0.0:
+            continue
+        # log scale
+        widthHat = float(max(1.0, widthHat))
         logWidth = float(np.log(widthHat))
 
-        # Noise level around peak is recorded as the MAD of first-order differences
-        # within the `noiseWindow` around the peak. Note the practical/naive independence assumption here.
-        leftWindow = int(np.clip((featureIndex - noiseWindow), 0, (n - 1)))
-        rightWindow = int(np.clip((featureIndex + noiseWindow + 1), 0, n))
-        window = yArr[leftWindow:rightWindow]
-        sigmaY = 0.0 if window.size < 3 else _mad(np.diff(window))
+        # |slope| at left half-max and right half-max
+        leftStep = _localSlopeAbs(yLog, float(leftIp), halfWindow=2)
+        rightStep = _localSlopeAbs(yLog, float(rightIp), halfWindow=2)
 
-        # Assumption: base noise disrupts the exact locations of half-points (i.e., width estimate)
-        # ... but structure/slope at each half-point reduces uncertainty
+        # define window around the feature
+        wLeft = max(0, int(peakIdx) - noiseWindow)
+        wRight = min(n, int(peakIdx) + noiseWindow + 1)
+
+        # within the local window, use sdev of first-order differences as the local noise estimate (Y-axis)
+        diffs = np.diff(yLog[wLeft:wRight])
+        sigmaY = float(np.std(diffs, ddof=1)) if diffs.size >= 2 else 0.0
+
+        # propagate to X-axis (width), add contributions from left and right sides
+        # Var[W] ~=~ Var[Y] / (dY/dX)^2, 'independent' contributions from left and right sides
+        # note that variance is decreasing for increasing slope
         sigmaXLeft = sigmaY / (leftStep + eps)
         sigmaXRight = sigmaY / (rightStep + eps)
-        sigmaW2 = (sigmaXLeft**2) + (sigmaXRight**2)
-        sigmaS2 = sigmaW2 / ((widthHat**2) + eps)
-        if sigmaS2 < 1e-6:
-            sigmaS2 = 1e-6
+        sigmaW2 = (sigmaXLeft * sigmaXLeft) + (sigmaXRight * sigmaXRight)
 
-        return (logWidth, float(sigmaS2))
-
-    # collect (log-width, variance) pairs
-    sHatList = []
-    sigma2List = []
-    for idx in featureIndexArray:
-        out = getWidthEstimates(int(idx))
-        if out is not None:
-            sHatList.append(out[0])
-            sigma2List.append(out[1])
+        # final per-feature variance on --log scale--
+        # Var[log(W)] ~=~ Var[W] / (W^2)
+        sigmaS2 = float(max(1e-6, sigmaW2 / (widthHat * widthHat + eps)))
+        sHatList.append(logWidth)
+        sigma2List.append(sigmaS2)
 
     if len(sHatList) == 0:
-        p = np.sort(featureIndexArray)
-        d = np.diff(p)
-        pe = int(np.median(d)) if d.size else maxSpan
-        pe = max(4, min(maxSpan, pe))
-        return int(pe), int(max(1, pe // 2)), int(max(1, min(maxSpan, pe * 2)))
+        raise ValueError(
+            "Failed to estimate context size from feature widths due to insufficient valid features...set `countingParams.backgroundBlockSizeBP` manually.",
+        )
 
+    # Method-of-moments estimate given observed variance of log-widths
     sHatArr = np.asarray(sHatList, dtype=np.float64)
     sigma2Arr = np.asarray(sigma2List, dtype=np.float64)
+    nFeat = int(sHatArr.size)
 
-    # mu0 prior plugin: median of log-widths
-    mu0 = float(np.median(sHatArr))
-    # tau0 prior plugin: scaled IQR of log-widths
-    iqr = float((np.quantile(sHatArr, 0.75) - np.quantile(sHatArr, 0.25)))
-    tau0 = iqr / 1.349
-    if tau0 < 0.05:
-        tau0 = 0.05
-    elif tau0 > 2.0:
-        tau0 = 2.0
-    tauSq0 = tau0 * tau0
+    #   varS := sample variance of log-widths across all features
+    varS = float(np.var(sHatArr, ddof=1)) if nFeat > 1 else 0.0
 
-    # posterior: weighted average, penalized by respective uncertainties
-    postVar = 1.0 / ((1.0 / tauSq0) + (1.0 / sigma2Arr))
-    postMean = postVar * ((mu0 / tauSq0) + (sHatArr / sigma2Arr))
-    postStd = np.sqrt(postVar)
-    logLower = float(np.median((postMean - (bandZ * postStd))))
-    logUpper = float(np.median((postMean + (bandZ * postStd))))
-    logPointEstimate = float(np.median(postMean))
-    widthLower = float(np.exp(logLower))
-    widthUpper = float(np.exp(logUpper))
-    pointEstimate = float(np.exp(logPointEstimate))
-    if widthLower < 1.0:
-        widthLower = 1.0
-    if widthUpper < 1.0:
-        widthUpper = 1.0
-    if widthUpper < widthLower:
-        widthUpper = widthLower
+    #   meanSigma2 := average of per-feature variance estimates
+    meanSigma2 = float(np.mean(sigma2Arr))
 
-    return int(pointEstimate), int(widthLower), int(widthUpper)
+    #   Given observed variance of log-widths (varS) and average per-feature variance estimates (meanSigma2),
+    #   the MoM estimate of the 'between-feature' variance component is from E[x^2] - E[x]^2 = Var[x],
+    #   ... i.e., tau^2_MoM = varS - meanSigma2
+    tau2Mom = float(max(0.0, varS - meanSigma2))
+    tau2Max = float(max(1e-6, varS + meanSigma2) * 10.0)
+
+    def LL(betweenFeatureVar: float) -> float:
+        tauSq = float(max(0.0, betweenFeatureVar))
+        totalVar = sigma2Arr + tauSq
+        totalVar = np.maximum(totalVar, 1e-12)
+        invTotalVar = 1.0 / totalVar
+        muHat = float(np.sum(invTotalVar * sHatArr) / np.sum(invTotalVar))
+        residuals = sHatArr - muHat
+        return 0.5 * float(
+            np.sum(np.log(totalVar)) + np.sum((residuals * residuals) * invTotalVar)
+        )
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)
+        # maximize marginal likelihood over 0 <= tau^2 <= tau2Max
+        res = optimize.minimize_scalar(
+            LL,
+            bounds=(0.0, tau2Max),
+            method="bounded",
+            options={"xatol": 1e-4, "maxiter": 50},
+        )
+
+    # Take the posterior at each feature given fixed tauSqHat (~parametric EB~)
+    # ... (or backup MoM estimate if optimization failed)
+    tauSqHat: float = 0.0
+    if getattr(res, "success", False):
+        tauSqHat = float(res.x)
+        logger.info(f"Estimated tau^2 = {tauSqHat:.6f} via ML.")
+    else:
+        tauSqHat = tau2Mom
+        logger.warning(
+            f"Failed to optimize tau^2 via ML...using method-of-moments estimate tau^2 = {tau2Mom:.6f}.",
+        )
+
+    #   Posterior variance sigma^2[i] + tau^2 used to compute weights
+    vHat = sigma2Arr + tauSqHat
+    vHat = np.maximum(vHat, 1e-12)
+    wHat = 1.0 / vHat
+
+    # Get point estimate, band limits on natural scale
+    muHat = float(np.sum(wHat * sHatArr) / np.sum(wHat))
+    muVar = float(1.0 / np.sum(wHat))
+    predStd = float(np.sqrt(max(0.0, tauSqHat + muVar)))
+    logLower = float(muHat - bandZ * predStd)
+    logUpper = float(muHat + bandZ * predStd)
+    pointEstimate = float(np.exp(muHat))
+    widthLower = max(1.0, float(np.exp(logLower)))
+    widthUpper = max(1.0, float(np.exp(logUpper)), widthLower)
+
+    if maxSpan > 0:
+        pointEstimate = min(pointEstimate, float(maxSpan))
+        widthLower = min(widthLower, float(maxSpan))
+        widthUpper = min(widthUpper, float(maxSpan))
+
+    logger.info(
+        f"Natural scale: pointEstimate={pointEstimate:.4f}, Lower={widthLower:.4f}, Upper={widthUpper:.4f}"
+    )
+
+    return int(pointEstimate + 0.5), int(widthLower + 0.5), int(widthUpper + 0.5)

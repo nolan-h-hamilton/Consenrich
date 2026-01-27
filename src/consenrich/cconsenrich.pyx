@@ -1497,7 +1497,7 @@ cpdef object cTransform(
     bint disableLocalBackground=<bint>False,
     double denseMeanQuantile=<double>0.50,
     double w_local=<double>1.0,
-    double w_global=<double>3.0,
+    double w_global=<double>2.0,
     bint verbose=<bint>False,
     uint64_t rseed=<uint64_t>0,
 ):
@@ -3326,5 +3326,5 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
         blockSize += 1
     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
     cdef double w = blockSize * (blockFreqCutoff)
-    lambda_ = 100*(w*w*w*w)
+    lambda_ = 10*(w*w*w*w)
     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)

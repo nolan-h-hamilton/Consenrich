@@ -1319,22 +1319,39 @@ def main():
 
         if backgroundBlockSizeBP_ < 0:
             backgroundBlockSizeBP_ = (
-                core.getContextSize(np.mean(chromMat, axis=0))[2] * (2 * intervalSizeBP)
+                core.getContextSize(np.mean(chromMat, axis=0))[0] * (2 * intervalSizeBP)
                 + 1
             )
             backgroundBlockSizeIntervals = backgroundBlockSizeBP_ // intervalSizeBP
             logger.info(
-                f"`countingParams.backgroundBlockSizeBP < 0` --> auto-set to {backgroundBlockSizeBP_} bp"
+                f"`countingParams.backgroundBlockSizeBP < 0` --> getContextSize(): {backgroundBlockSizeBP_} bp"
             )
 
         if samplingBlockSizeBP_ < 0:
-            samplingBlockSizeBP_ = (
-                core.getContextSize(np.mean(chromMat, axis=0))[2] * (2 * intervalSizeBP)
-                + 1
-            )
-            samplingBlockSizeIntervals = samplingBlockSizeBP_ // intervalSizeBP
+            if backgroundBlockSizeBP_ > 0:
+                samplingBlockSizeBP_ = backgroundBlockSizeBP_
+            else:
+                samplingBlockSizeBP_ = (
+                    core.getContextSize(np.mean(chromMat, axis=0))[0]
+                    * (2 * intervalSizeBP)
+                    + 1
+                )
+                samplingBlockSizeIntervals = samplingBlockSizeBP_ // intervalSizeBP
+                logger.info(
+                    f"`observationParams.samplingBlockSizeBP < 0` --> getContextSize(): {samplingBlockSizeBP_} bp"
+                )
+
+        if minMatchLengthBP_ is None or minMatchLengthBP_ < 0:
+            if backgroundBlockSizeBP_ > 0:
+                minMatchLengthBP_ = backgroundBlockSizeBP_
+            else:
+                minMatchLengthBP_ = (
+                    core.getContextSize(np.mean(chromMat, axis=0))[0]
+                    * (2 * intervalSizeBP)
+                    + 1
+                )
             logger.info(
-                f"`observationParams.samplingBlockSizeBP < 0` --> auto-set to {samplingBlockSizeBP_} bp"
+                f"`matchingParams.minMatchLengthBP < 0` --> getContextSize(): {minMatchLengthBP_} bp"
             )
 
         if waitForMatrix:
