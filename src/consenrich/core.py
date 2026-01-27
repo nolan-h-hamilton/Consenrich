@@ -1983,7 +1983,7 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-3,
+    eps: float = 1.0e-2,
     binQuantileCutoff: float = 0.75,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
@@ -2056,7 +2056,7 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1.0e-3,
+    eps: float = 1.0e-2,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())

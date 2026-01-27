@@ -1469,7 +1469,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 
 cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):
-
+    # NOT a full vst! used *before* trend fit for simple compression and good behavior near zero and as x --> inf
     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
     cdef Py_ssize_t n = arr_np.shape[0]
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out_np = np.empty(n, dtype=np.float64)
@@ -2311,8 +2311,26 @@ cpdef double cDenseGlobalBaseline(
     cdef bint trackVerbose = verbose
     cdef long acceptCt = <long>0
     cdef long proposalCt = <long>0
-    cdef double lowEPS
     cdef double scale
+
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] posPrefixCounts
+    cdef long[::1] posPrefixView
+    cdef long totPos
+    cdef long posInBlock
+    cdef double globalRate
+    cdef double steep
+    cdef double epsilonWeight = 1e-12
+    cdef double logisticInput, blockWeight
+    cdef double weightedMeanSum, weightSum
+    cdef double blockSum, blockMean, blockPosRate
+
+    cdef Py_ssize_t fixedBlockLen, numSlidingBlocks
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] slidingPosRates
+    cdef cnp.float64_t[::1] slidingView
+    cdef double q25, q75, iqr, transitionHalfWidth
+    # bound the slope of the logistic for minimal stability
+    cdef double minTransitionHalfWidth = 0.05
+    cdef long k
 
     if bootBlockSize <= 0:
         bootBlockSize = 1
@@ -2326,11 +2344,13 @@ cpdef double cDenseGlobalBaseline(
 
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
-    values = np.clip(raw, 1.0, 10.0)
+    values = np.clip(raw, 0.0, 10.0)
     valuesView = values
     numValues = values.size
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
     prefixView = prefixSums
+    posPrefixCounts = np.empty(numValues + 1, dtype=np.int64)
+    posPrefixView = posPrefixCounts
     bootstrapMeans = np.empty(numBoots, dtype=np.float64)
     bootView = bootstrapMeans
     blockSizeUBound = <Py_ssize_t>(5 * bootBlockSize)
@@ -2350,8 +2370,50 @@ cpdef double cDenseGlobalBaseline(
     with nogil:
         # first pass through to build prefix sums and count zeros
         prefixView[0] = 0.0
+        posPrefixView[0] = 0
         for i in range(numValues):
             prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
+            # count positive values (>= 0.5)
+            posPrefixView[i + 1] = posPrefixView[i] + (<long>(isfinite(rawView[i]) and rawView[i] >= 0.5))
+
+    totPos = posPrefixView[numValues]
+    globalRate = (<double>totPos) / (<double>numValues) if numValues > 0 else 0.5
+    if not isfinite(globalRate):
+        globalRate = 0.5
+    if globalRate < 0.0:
+        globalRate = 0.0
+    elif globalRate > 1.0:
+        globalRate = 1.0
+
+    fixedBlockLen = bootBlockSize
+    if fixedBlockLen <= 0:
+        fixedBlockLen = 1
+    if fixedBlockLen > numValues:
+        fixedBlockLen = numValues
+    numSlidingBlocks = numValues - fixedBlockLen + 1
+    if numSlidingBlocks <= 0:
+        steep = 20.0
+    else:
+        slidingPosRates = np.empty(numSlidingBlocks, dtype=np.float64)
+        slidingView = slidingPosRates
+
+        with nogil:
+            for i in range(numSlidingBlocks):
+                k = posPrefixView[i + fixedBlockLen] - posPrefixView[i]
+                slidingView[i] = (<double>k) / (<double>fixedBlockLen)
+
+        # compute `steep` so that the step occurs roughly over the IQR range
+        # (not accounting for squared weights, etc.)
+        q25 = <double>np.quantile(slidingPosRates, 0.25)
+        q75 = <double>np.quantile(slidingPosRates, 0.75)
+        iqr = q75 - q25
+        transitionHalfWidth = 0.5 * iqr
+        if not isfinite(transitionHalfWidth) or transitionHalfWidth < minTransitionHalfWidth:
+            transitionHalfWidth = minTransitionHalfWidth
+        steep = 2.1 / transitionHalfWidth
+
+    if not isfinite(steep) or steep <= 0.0:
+        steep = 20.0
 
     # Now, start drawing bootstrap replicates
     with nogil:
@@ -2360,6 +2422,8 @@ cpdef double cDenseGlobalBaseline(
             # the total drawn length reaches `numValues`.
             remaining = numValues
             sumInReplicate = 0.0
+            weightedMeanSum = 0.0
+            weightSum = 0.0
 
             while remaining > 0:
                 # pick a random start index and block length
@@ -2381,22 +2445,38 @@ cpdef double cDenseGlobalBaseline(
                     proposalCt += 1
                     acceptCt += 1
 
-
                 end = start + L
                 if end <= numValues:
                     # No wraparound: sum values[start:end].
-                    sumInReplicate += prefixView[end] - prefixView[start]
+                    blockSum = prefixView[end] - prefixView[start]
+                    posInBlock = posPrefixView[end] - posPrefixView[start]
                 else:
                     # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
                     end -= numValues
-                    sumInReplicate += (prefixView[numValues] - prefixView[start]) + prefixView[end]
+                    blockSum = (prefixView[numValues] - prefixView[start]) + prefixView[end]
+                    posInBlock = (posPrefixView[numValues] - posPrefixView[start]) + posPrefixView[end]
+
+                if L > 0:
+                    # assign weights to favor the dense state (step UP where block density is above global)
+                    blockMean = blockSum / (<double>L)
+                    blockPosRate = (<double>posInBlock) / (<double>L)
+                    # weight increases with the excess above global rate
+                    logisticInput = steep * (blockPosRate - globalRate)
+                    if logisticInput >= 0.0:
+                        blockWeight = 1.0 / (1.0 + exp(-logisticInput))
+                    else:
+                        blockWeight = exp(logisticInput) / (1.0 + exp(logisticInput))
+
+                    blockWeight += epsilonWeight
+                    blockWeight = blockWeight * blockWeight
+                    weightedMeanSum += blockWeight * blockMean
+                    weightSum += blockWeight
 
                 # update the number of remaining values to draw.
                 remaining -= L
-            bootView[b] = sumInReplicate / (<double>numValues)
 
-    # finally, compute the upper bound quantile from the bootstrap means
-    # we pick from the right tail of *bootstrap replicates* (not the original values)
+            bootView[b] = weightedMeanSum / weightSum if weightSum > 0.0 else NAN
+
     upperBound = <double>np.quantile(bootstrapMeans, denseMeanQuantile)
     if verbose:
         printf(b"cconsenrich.cDenseGlobalBaseline: Dense baseline = %.4f\n", upperBound)
@@ -3326,5 +3406,5 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
         blockSize += 1
     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
     cdef double w = blockSize * (blockFreqCutoff)
-    lambda_ = 10*(w*w*w*w)
+    lambda_ = 50*(w*w*w*w)
     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)

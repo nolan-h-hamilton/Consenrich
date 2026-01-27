@@ -644,7 +644,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
-            50_000,
+            25_000,
         ),
         samplingBlockSizeBP=_cfgGet(
             configData,
@@ -745,7 +745,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minSignalAtMaxima=_cfgGet(
             configData,
             "matchingParams.minSignalAtMaxima",
-            0.01,
+            0.1,
         ),
         merge=_cfgGet(configData, "matchingParams.merge", True),
         mergeGapBP=_cfgGet(
@@ -1347,6 +1347,7 @@ def main():
 
         if processArgs.deltaF < 0:
             logger.info(f"`processParams.deltaF < 0` --> calling core.autoDeltaF()...")
+            # FFR: we can possibly switch this to use val from getContextSize(), if available
             deltaF_ = core.autoDeltaF(
                 bamFiles,
                 intervalSizeBP,
