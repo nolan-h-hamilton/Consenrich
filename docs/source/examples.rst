@@ -19,7 +19,7 @@ Getting Started: Minimal Example
     :caption: Getting Started
     :name: minimal
 
-A brief analysis using H3K27ac (narrow) ChIP-seq data is carried out for demonstration.
+A brief analysis using H3K27ac (narrow) ChIP-seq data generated from human tissue samples is carried out for demonstration.
 
 Input Data
 """""""""""""""""""""
@@ -79,7 +79,7 @@ Using a YAML Configuration file
    Refer to the ``<process,observation,etc.>Params`` classes in module in the :ref:`API` for complete documentation of configuration options.
 
 
-Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``. For a quick trial run (:math:`\approx` 1 minute), you can restrict analysis to a subset of chromosomes: To reproduce the results shown in the browser snapshot, add ``genomeParams.chromosomes: [chr21, chr22]`` to the configuration file.
+Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``:
 
 .. code-block:: yaml
   :name: demoHistoneChIPSeq.yaml
@@ -99,8 +99,8 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``.
   ENCFF490MWV.bam]
 
   # Optional: call 'structured peaks' via `consenrich.matching`
-  matchingParams.templateNames: [haar, haar, db2, db2]
-  matchingParams.cascadeLevels: [1,2,1,2]
+  matchingParams.templateNames: [haar, haar, db2, db2, sym3, sym3]
+  matchingParams.cascadeLevels: [1,2,1,2,1,2]
 
 
 .. admonition:: Control Inputs
@@ -120,7 +120,7 @@ Run Consenrich
 Results
 """"""""""""""""""""""""""
 
-* We display Consenrich results (blue) over a 100 kb locus in human chromosome 22
+* We display Consenrich results (blue) over a 150 kb locus in human chromosome 22
 
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
