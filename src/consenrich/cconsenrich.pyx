@@ -1497,7 +1497,7 @@ cpdef object cTransform(
     bint disableLocalBackground=<bint>False,
     double denseMeanQuantile=<double>0.50,
     double w_local=<double>1.0,
-    double w_global=<double>2.0,
+    double w_global=<double>3.0,
     bint verbose=<bint>False,
     uint64_t rseed=<uint64_t>0,
 ):
@@ -1558,7 +1558,6 @@ cpdef object cTransform(
         outArr = np.empty(n, dtype=np.float32)
         outView_F32 = outArr
         if wGlobal > 0.0:
-            # right-tail biased circular resampling
             globalBaselineF32 = <float>cDenseGlobalBaseline(
                 zArr_F32,
                 bootBlockSize=bootBlockSize,
@@ -2373,7 +2372,7 @@ cpdef double cDenseGlobalBaseline(
         posPrefixView[0] = 0
         for i in range(numValues):
             prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
-            # count positive values (>= 0.5)
+            # determines the logistic weights used to prioritize 'dense' blocks, cutoff chosen for balance in egs, sf, rpkm, etc.
             posPrefixView[i + 1] = posPrefixView[i] + (<long>(isfinite(rawView[i]) and rawView[i] >= 0.5))
 
     totPos = posPrefixView[numValues]
@@ -3380,7 +3379,8 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64
         mEvenArr[i] = 1 if (i & 1) == 0 else 0
         mOddArr[i] = 1 if (i & 1) == 1 else 0
 
-    # solve for even cols and odd cols separately, then average
+    # solve for even cols and odd cols separately
+    # FFR: revisit, not sure theoretical benefit is substantial to offset cost
     bEvenArr = splineBaselineMasked_F64(yArr, mEvenArr, lambda_F64)
     bOddArr = splineBaselineMasked_F64(yArr, mOddArr, lambda_F64)
 
@@ -3404,6 +3404,7 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
         blockSize = 3
     if (blockSize & 1) == 0:
         blockSize += 1
+    # whittaker/second-order penalty based on the frequency cutoff corresponding to block size
     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
     cdef double w = blockSize * (blockFreqCutoff)
     lambda_ = 50*(w*w*w*w)

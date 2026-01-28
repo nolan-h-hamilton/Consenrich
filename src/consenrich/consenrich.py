@@ -516,6 +516,11 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.denseMeanQuantile",
         0.50,
     )
+    globalWeight_ = _cfgGet(
+        configData,
+        "countingParams.globalWeight",
+        3.0,  # 75% global weight verus 25% p-spline local weight
+    )
 
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
@@ -529,6 +534,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
         denseMeanQuantile=denseMeanQuantile_,
+        globalWeight=globalWeight_,
     )
 
 
@@ -644,7 +650,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
-            25_000,
+            10_000,
         ),
         samplingBlockSizeBP=_cfgGet(
             configData,
@@ -654,7 +660,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         binQuantileCutoff=_cfgGet(
             configData,
             "observationParams.binQuantileCutoff",
-            0.75,
+            0.9,  # prior is intentionally conservative
         ),
         EB_minLin=float(
             _cfgGet(
@@ -1376,6 +1382,7 @@ def main():
                 denseMeanQuantile=countingArgs.denseMeanQuantile,
                 verbose=args.verbose2,
                 rseed=42 + j,
+                w_global=countingArgs.globalWeight,
             )
 
             if countingArgs.smoothSpanBP > 0:

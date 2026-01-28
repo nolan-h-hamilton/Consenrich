@@ -121,9 +121,10 @@ class observationParams(NamedTuple):
     :type samplingIters: int | None
     :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
       Note, during sampling, each block's size (unit: genomic intervals) is drawn from truncated :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSize})` to reduce artifacts from fixed-size blocks.
-      This value is set automatically based on :func:`consenrich.core.getContextSize` if `None` or less than 1.
+      If `None, < 1`, then this value is inferred using :func:`consenrich.core.getContextSize`.
     :type samplingBlockSizeBP: int | None
     :param binQuantileCutoff: When fitting the variance function, pairs :math:`(\lvert \mu_b \rvert, \sigma^2_b)` are binned by their (absolute) means. This parameter sets the quantile of variances within each bin to use when fitting the global mean-variance trend.
+      Increasing this value toward `1.0` results in a more conservative prior trend (i.e., higher variance estimates at a given mean level).
     :type binQuantileCutoff: float | None
     :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type EB_minLin: float | None
@@ -283,9 +284,12 @@ class countingParams(NamedTuple):
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
     :param denseMeanQuantile: Quantile of the distribution of circular, block-sampled empirical means that determines the global baseline.
-        The global baseline is mixed (e.g., 3:1 weighted average) with a local lower envelope estimate for the final baseline at each interval.
+        The global baseline is mixed (e.g., `0.75, 0.25` weighted average for `countingParams.globalWeight = 3`) with a local, penalized spline-based baseline estimate.
         Increasing this value can result in a more conservative signal estimate.
     :type denseMeanQuantile: float, optional
+    :param globalWeight: Relative weight assigned to the global 'dense' baseline when combining with local, penalized spline-based baseline estimates. Higher values increase the influence of the global baseline. For instance, ``globalWeight = 2`` results in a weighted average where the global baseline contributes `2/3` of the final baseline estimate; whereas ``globalWeight = 1`` results in equal weighting between global and local baselines.
+      Users with input control samples may consider increasing this value to avoid redundancy (artificial local trends have presumably been accounted for in the control, leaving less signal to be modeled locally).
+    :type globalWeight: float, optional
 
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
@@ -314,6 +318,7 @@ class countingParams(NamedTuple):
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
     denseMeanQuantile: float | None
+    globalWeight: float | None
 
 
 class matchingParams(NamedTuple):
@@ -835,7 +840,7 @@ def runConsenrich(
     progressIter: int,
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-    pad: float = 1.0e-3,
+    pad: float = 1.0e-2,  # small gain regularization
     calibration_kwargs: Optional[dict[str, Any]] = None,
     disableCalibration: bool = False,
     ratioDiagQ: float | None = None,
@@ -2015,6 +2020,19 @@ def fitVarianceFunction(
         binnedVariances.append(np.quantile(variances[i:j], binQuantileCutoff))
         binWeights.append(float(j - i))
 
+    try:
+        counts = [int(w) for w in binWeights]
+        if counts:
+            msg = (
+                f"{len(counts)} bins; n/bin: "
+                f"min binSize={min(counts)}, median binSize={int(np.median(counts))}, max binSize={max(counts)}"
+            )
+        else:
+            msg = "0 bins; n/bin: []"
+        logger.info(f"Bins: {msg}")
+    except Exception:
+        pass
+
     absMeans = np.asarray(binnedAbsMeans, dtype=np.float64)
     variances = np.asarray(binnedVariances, dtype=np.float64)
     weights = np.asarray(binWeights, dtype=np.float64)
@@ -2503,6 +2521,7 @@ def getContextSize(
         warnings.filterwarnings("ignore", category=RuntimeWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
         # maximize marginal likelihood over 0 <= tau^2 <= tau2Max
+        # FFR: there may be a cleaner approach -- this is still negligible in runtime for now
         res = optimize.minimize_scalar(
             _LL,
             bounds=(0.0, tau2Max),
@@ -2515,11 +2534,11 @@ def getContextSize(
     tauSqHat: float = 0.0
     if getattr(res, "success", False):
         tauSqHat = float(res.x)
-        logger.info(f"Maximum likelihood estimate for tau^2 plugin = {tauSqHat:.6f}")
+        logger.info(f"tau^2 MLE plugin = {tauSqHat:.6f}")
     else:
         tauSqHat = tau2Mom
         logger.warning(
-            f"Failed to estimate plugin tau^2 with maximum likelihood...using MoM estimate tau^2 = {tau2Mom:.6f}.",
+            f"Failed to solve for tau^2 MLE...using MoM estimate tau^2 = {tau2Mom:.6f}.",
         )
 
     #   Posterior variance sigma^2[i] + tau^2 used to compute weights
