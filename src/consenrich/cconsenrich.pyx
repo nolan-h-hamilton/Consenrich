@@ -15,7 +15,7 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, powf, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
+from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
 from libc.stdlib cimport rand, srand, RAND_MAX
 from libc.string cimport memcpy
 from libc.stdio cimport printf
@@ -1615,11 +1615,6 @@ cpdef object cTransform(
                     (wGlobalF32 * globalBaselineF32)
                 ) * invWeightSumF32
                 outView_F32[i] = zView_F32[i] - combinedBaselineF32
-        meanVal_F32 = np.median(outView_F32)
-        if meanVal_F32 > 0.0:
-            with nogil:
-                for i in range(n):
-                    outView_F32[i] = outView_F32[i] - meanVal_F32
         return outArr
 
     # F64
@@ -1656,12 +1651,6 @@ cpdef object cTransform(
                 (wGlobalF64 * globalBaselineF64)
             ) * invWeightSumF64
             outView_F64[i] = zView_F64[i] - combinedBaselineF64
-
-    meanVal_F64 = np.median(outView_F64)
-    if meanVal_F64 > 0.0:
-        with nogil:
-            for i in range(n):
-                outView_F64[i] = outView_F64[i] - meanVal_F64
 
     return outArr
 
@@ -1840,8 +1829,8 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[::1] stateVectorView = stateVector
     cdef cnp.float32_t[:, ::1] stateCovarView = stateCovar
 
-    cdef double clipSmall = powf(10.0, -covarClip)
-    cdef double clipBig = powf(10.0, covarClip)
+    cdef double clipSmall = pow(10.0, -covarClip)
+    cdef double clipBig = pow(10.0, covarClip)
 
     cdef bint inflatedQ = False
     cdef int adjustmentCount = 0
@@ -2144,8 +2133,8 @@ cpdef tuple cbackwardPass(
     cdef cnp.float32_t[:, ::1] postFitResidualsView
     cdef bint doProgress = False
     cdef bint doFlush = False
-    cdef double clipSmall = powf(10.0, -covarClip)
-    cdef double clipBig = powf(10.0, covarClip)
+    cdef double clipSmall = pow(10.0, -covarClip)
+    cdef double clipBig = pow(10.0, covarClip)
     cdef double stateTransition00, stateTransition01, stateTransition10, stateTransition11
     cdef double priorState0, priorState1
     cdef double deltaState0, deltaState1
@@ -2314,7 +2303,6 @@ cpdef tuple cbackwardPass(
 
 cdef double cOtsu(
     cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw,
-    Py_ssize_t numBins=512,
     double loQuantile=0.001,
     double hiQuantile=0.999,
 ) except? -1:
@@ -2322,9 +2310,9 @@ cdef double cOtsu(
     cdef cnp.float64_t[::1] finiteView
     cdef Py_ssize_t n
     cdef Py_ssize_t i, binIdx, bestBinIdx
+    cdef Py_ssize_t numBins
     cdef double lower_, higher_, binWidth, invBinWidth
     cdef double x
-
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] histCounts
     cdef cnp.float64_t[::1] histView
@@ -2333,15 +2321,11 @@ cdef double cOtsu(
     cdef double sumBinIndexBelow
     cdef double meanBelow, meanAbove
     cdef double betweenClassVar, bestBetweenClassVar
+    cdef double avgCount, initPerBin, sumIdxInit, q25, q75, iqr, fdBinWidth, m_d, range_
+    cdef Py_ssize_t mInRange, fdBins
 
-    # scale-aware histogram init (stabilizes Otsu when counts are sparse / many bins)
-    cdef double avgCount, initPerBin
-    cdef double sumIdxInit
 
-    if numBins < 32:
-        numBins = 32
-
-    finiteValues = np.ascontiguousarray(raw[np.isfinite(raw)], dtype=np.float64).reshape(-1)
+    finiteValues = np.ascontiguousarray(raw[np.isfinite(raw)], dtype=np.float64).ravel()
     finiteView = finiteValues
     n = finiteValues.size
     if n <= 0:
@@ -2352,7 +2336,40 @@ cdef double cOtsu(
     if (not isfinite(lower_)) or (not isfinite(higher_)) or higher_ <= lower_:
         return NAN
 
-    binWidth = (higher_ - lower_) / (<double>numBins)
+    # Freedman–Diaconis bin counts
+    q25 = <double>np.quantile(finiteValues, 0.25)
+    q75 = <double>np.quantile(finiteValues, 0.75)
+    iqr = q75 - q25
+    range_ = higher_ - lower_
+
+    if (not isfinite(iqr)) or iqr <= 0.0 or (not isfinite(range_)) or range_ <= 0.0:
+        numBins = 512
+    else:
+        mInRange = 0
+        with nogil:
+            for i in range(n):
+                x = finiteView[i]
+                if x < lower_ or x > higher_:
+                    continue
+                mInRange += 1
+
+        if mInRange <= 1:
+            numBins = 64
+        else:
+            m_d = <double>mInRange
+            fdBinWidth = (2.0 * iqr) / pow(m_d, 1.0 / 3.0)
+            if (not isfinite(fdBinWidth)) or fdBinWidth <= 0.0:
+                numBins = 512
+            else:
+                fdBins = <Py_ssize_t>ceil(range_ / fdBinWidth)
+                if fdBins < 64:
+                    numBins = 64
+                elif fdBins > 512:
+                    numBins = 512
+                else:
+                    numBins = fdBins
+
+    binWidth = range_ / (<double>numBins)
     if (not isfinite(binWidth)) or binWidth <= 0.0:
         return NAN
 
@@ -2428,8 +2445,6 @@ cpdef double cDenseGlobalBaseline(
     bint verbose = <bint>False,
 ):
 
-    # FFR: given the current setup, this function can probably be removed or simplified
-    # ... (not sure if the bootstrap-like resampling buys us much, and it is fairly expensive)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
     cdef cnp.float32_t[::1] rawView
     cdef cnp.float32_t[::1] valuesView
@@ -2439,9 +2454,8 @@ cpdef double cDenseGlobalBaseline(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
     cdef cnp.float64_t[::1] bootView
     cdef double p, logq_
-    cdef Py_ssize_t i, b
-    cdef Py_ssize_t remaining, L, start, end
-    cdef double sumInReplicate
+    cdef Py_ssize_t i, b, j
+    cdef Py_ssize_t L, start, end
     cdef double lower__, upper__
     cdef double upperBound
     cdef Py_ssize_t blockSizeUBound
@@ -2460,8 +2474,11 @@ cpdef double cDenseGlobalBaseline(
     cdef double steep
     cdef double epsilonWeight = 1e-12
     cdef double logisticInput, blockWeight
-    cdef double weightedMeanSum, weightSum
     cdef double blockSum, blockMean, blockPosRate
+    cdef double u
+    cdef double meanSum
+    cdef Py_ssize_t numBlocksPerBoot
+    cdef Py_ssize_t maxBlocksPerBoot = <Py_ssize_t>128
 
     cdef Py_ssize_t fixedBlockLen, numSlidingBlocks
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] slidingPosRates
@@ -2489,7 +2506,7 @@ cpdef double cDenseGlobalBaseline(
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
 
-    posThreshold = cOtsu(raw, numBins=512, loQuantile=0.001, hiQuantile=0.999)
+    posThreshold = cOtsu(raw, loQuantile=0.001, hiQuantile=0.999)
     if not isfinite(posThreshold):
         # !in case Otsu fails!
         rawFinite = raw[np.isfinite(raw)].astype(np.float64, copy=False)
@@ -2508,6 +2525,8 @@ cpdef double cDenseGlobalBaseline(
 
             if not isfinite(posThreshold):
                 posThreshold = fmax(medThr, 1.0e-2)
+    if verbose:
+        printf(b"cconsenrich.cDenseGlobalBaseline: sparse-dense indicator=%.6f\n", posThreshold)
 
     values = raw
     valuesView = values
@@ -2519,6 +2538,17 @@ cpdef double cDenseGlobalBaseline(
     bootstrapMeans = np.empty(numBoots, dtype=np.float64)
     bootView = bootstrapMeans
     blockSizeUBound = <Py_ssize_t>(5 * bootBlockSize)
+
+    # number of accepted blocks per bootstrap replicate
+    # (avoiding strict/full stitched coverage)
+    if bootBlockSize > 0:
+        numBlocksPerBoot = numValues // bootBlockSize
+    else:
+        numBlocksPerBoot = numValues
+    if numBlocksPerBoot < 1:
+        numBlocksPerBoot = 1
+    if numBlocksPerBoot > maxBlocksPerBoot:
+        numBlocksPerBoot = maxBlocksPerBoot
 
     # length L ~ Geometric(p) [truncated to [blockSizeLBound, blockSizeUBound]!]
     useGeom = bootBlockSize > 1
@@ -2538,7 +2568,7 @@ cpdef double cDenseGlobalBaseline(
         posPrefixView[0] = 0
         for i in range(numValues):
             prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
-            # determines the step function (logistic) defining weights for 'dense' blocks
+            # determines the step function (logistic) defining sampling weights for 'dense' blocks
             posPrefixView[i + 1] = posPrefixView[i] + (<long>(isfinite(rawView[i]) and rawView[i] >= posThreshold))
 
     totPos = posPrefixView[numValues]
@@ -2557,7 +2587,7 @@ cpdef double cDenseGlobalBaseline(
         fixedBlockLen = numValues
     numSlidingBlocks = numValues - fixedBlockLen + 1
     if numSlidingBlocks <= 0:
-        steep = 20.0
+        steep = 10.0
     else:
         slidingPosRates = np.empty(numSlidingBlocks, dtype=np.float64)
         slidingView = slidingPosRates
@@ -2568,65 +2598,59 @@ cpdef double cDenseGlobalBaseline(
                 slidingView[i] = (<double>k) / (<double>fixedBlockLen)
 
         # compute `steep` so that the step occurs roughly over the IQR range
-        # (not accounting for squared weights, etc.)
+        # (not accounting for exponentiated weights, etc.)
         q25 = <double>np.quantile(slidingPosRates, 0.25)
         q75 = <double>np.quantile(slidingPosRates, 0.75)
         iqr = q75 - q25
         transitionHalfWidth = 0.5 * iqr
         if not isfinite(transitionHalfWidth) or transitionHalfWidth < minTransitionHalfWidth:
             transitionHalfWidth = minTransitionHalfWidth
-        # intention: # 0.10 --> 0.90 across width = 2*transitionHalfWidth = iqr
+        # intention: logistic transitions from 0.10 --> 0.90 across width = 2*transitionHalfWidth = iqr
         # lower bound ~~ toward linear
         # upper bound ~~ toward step function
         steep = fmax(2.19 / transitionHalfWidth, 10.0)
         steep = fmin(steep, 50.0)
-    if verbose:
-        printf(b"cconsenrich.cDenseGlobalBaseline: step=%.4f\n", steep)
     if not isfinite(steep) or steep <= 0.0:
         steep = 10.0
 
-    # Now, start drawing bootstrap replicates
     with nogil:
         for b in range(numBoots):
-            # each bootstrap rep: draw random blocks until
-            # the total drawn length reaches `numValues`.
-            remaining = numValues
-            sumInReplicate = 0.0
-            weightedMeanSum = 0.0
-            weightSum = 0.0
 
-            while remaining > 0:
-                # pick a random start index and block length
-                if useGeom:
-                    L = _geometricDraw(logq_)
-                    if L < blockSizeLBound:
-                        L = blockSizeLBound
-                    elif L > blockSizeUBound:
-                        L = blockSizeUBound
-                else:
-                    L = 1
-                if L > remaining:
-                    L = remaining
-                if L <= 0:
-                    L = 1
+            # average several dense-biased block means
+            meanSum = 0.0
 
-                start = _rand_int(numValues)
-                if trackVerbose:
-                    proposalCt += 1
-                    acceptCt += 1
+            for j in range(numBlocksPerBoot):
 
-                end = start + L
-                if end <= numValues:
-                    # No wraparound: sum values[start:end].
-                    blockSum = prefixView[end] - prefixView[start]
-                    posInBlock = posPrefixView[end] - posPrefixView[start]
-                else:
-                    # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
-                    end -= numValues
-                    blockSum = (prefixView[numValues] - prefixView[start]) + prefixView[end]
-                    posInBlock = (posPrefixView[numValues] - posPrefixView[start]) + posPrefixView[end]
+                # accept/reject: oversample dense blocks
+                while True:
+                    # pick a random start index and block length
+                    if useGeom:
+                        # block length ~ TruncatedGeometric(p) on [blockSizeLBound, blockSizeUBound]
+                        L = _geometricDraw(logq_)
+                        if L < blockSizeLBound:
+                            L = blockSizeLBound
+                        elif L > blockSizeUBound:
+                            L = blockSizeUBound
+                    else:
+                        L = 1
 
-                if L > 0:
+                    if L > numValues:
+                        L = numValues
+                    if L <= 0:
+                        L = 1
+
+                    start = _rand_int(numValues)
+                    end = start + L
+                    if end <= numValues:
+                        # No wraparound: sum values[start:end].
+                        blockSum = prefixView[end] - prefixView[start]
+                        posInBlock = posPrefixView[end] - posPrefixView[start]
+                    else:
+                        # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
+                        end -= numValues
+                        blockSum = (prefixView[numValues] - prefixView[start]) + prefixView[end]
+                        posInBlock = (posPrefixView[numValues] - posPrefixView[start]) + posPrefixView[end]
+
                     # assign weights to favor the dense state (step UP where block density is above global)
                     blockMean = blockSum / (<double>L)
                     blockPosRate = (<double>posInBlock) / (<double>L)
@@ -2638,14 +2662,18 @@ cpdef double cDenseGlobalBaseline(
                         blockWeight = exp(logisticInput) / (1.0 + exp(logisticInput))
 
                     blockWeight += epsilonWeight
-                    blockWeight = powf(blockWeight, sparseDenseSeparation)
-                    weightedMeanSum += blockWeight * blockMean
-                    weightSum += blockWeight
+                    blockWeight = pow(blockWeight, sparseDenseSeparation)
+                    if blockWeight > 1.0:
+                        blockWeight = 1.0
+                    elif blockWeight < 0.0:
+                        blockWeight = 0.0
 
-                # update the number of remaining values to draw.
-                remaining -= L
+                    u = (<double>rand()) / ((<double>RAND_MAX) + 1.0)
+                    if u <= blockWeight:
+                        meanSum += blockMean
+                        break
 
-            bootView[b] = weightedMeanSum / weightSum if weightSum > 0.0 else NAN
+            bootView[b] = meanSum / (<double>numBlocksPerBoot) if numBlocksPerBoot > 0 else NAN
 
     upperBound = <double>np.quantile(bootstrapMeans, denseMeanQuantile)
     if verbose:
