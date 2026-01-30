@@ -15,7 +15,7 @@ from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
-from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
+from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, powf, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
 from libc.stdlib cimport rand, srand, RAND_MAX
 from libc.string cimport memcpy
 from libc.stdio cimport printf
@@ -142,7 +142,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 bint useInnovationVar,
                                 bint useSampleVar,
                                 double maxBeta=<double>0.99,
-                                double pairsRegLambda=<double>0.1) noexcept nogil:
+                                double pairsRegLambda=<double>1.0) noexcept nogil:
     # CALLERS: cmeanVarPairs
 
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
@@ -168,6 +168,11 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double pairCountDouble
     cdef double oneMinusBetaSq
     cdef double divRSS
+
+    cdef double lambdaEff
+    cdef double Scale
+    cdef double scaleFloor
+
     zeroPenalty = zeroPenalty
     zeroThresh = zeroThresh
 
@@ -214,9 +219,19 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             sumSqYSeq += yDev*yDev
             sumXYc += xDev*yDev
 
-        eps = 1.0e-8*(sumSqXSeq + 1.0)
+        eps = 1.0e-6*(sumSqXSeq + 1.0)
+
+        # scale-aware ridge
+        if nPairsDouble > 0.0:
+            lambdaEff = pairsRegLambda / (nPairsDouble + 1.0)
+        else:
+            lambdaEff = pairsRegLambda
+
+        scaleFloor = 1.0e-4*(sumSqXSeq + 1.0)
+
         if sumSqXSeq > eps:
-            beta1 = sumXYc / (sumSqXSeq + (pairsRegLambda*nPairsDouble))
+            Scale = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
+            beta1 = sumXYc / Scale
         else:
             beta1 = 0.0
 
@@ -1470,25 +1485,42 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):
     # NOT a full vst! used *before* trend fit for simple compression and good behavior near zero and as x --> inf
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_np = np.ascontiguousarray(x, dtype=np.float64)
-    cdef Py_ssize_t n = arr_np.shape[0]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_np = np.empty(n, dtype=np.float64)
-    cdef double[::1] arrView = arr_np
-    cdef double[::1] outView = out_np
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] arr = np.ascontiguousarray(x, dtype=np.float64)
+    cdef Py_ssize_t n = arr.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
+    cdef double[::1] arrView = arr
+    cdef double[::1] outView = out
     cdef double offset_ = offset
     cdef double scale_ = scale
-    cdef double a0 = asinh(sqrt(scale_ * offset_))
-    cdef double c0 = (2.0 + log(scale_) * __INV_LN2_DOUBLE - 2.0 * a0 * __INV_LN2_DOUBLE)
+    cdef double invln2 = __INV_LN2_DOUBLE
+    cdef double a0
+    cdef double k
+    cdef double bias
     cdef Py_ssize_t i
-    cdef double xval, tval
+    cdef double xval, u, tval
 
-    with nogil:
-        for i in range(n):
-            xval = arrView[i]
-            tval = asinh(sqrt(scale_ * (xval + offset_)))
-            outView[i] = 2.0 *(tval - a0)*__INV_LN2_DOUBLE - c0
+    # precompute affine transform constants
+    # out = k * asinh(sqrt(scale*(x+offset))) + bias
+    a0 = asinh(sqrt(scale_ * offset_))
+    k = 2.0 * invln2
+    bias = -2.0 - (log(scale_) * invln2) # precomputed once: constant shift so that x=0 --> out=0
 
-    return (out_np, -1.0)
+    if scale_ == 1.0:
+        with nogil:
+            for i in range(n):
+                xval = arrView[i]
+                u = xval + offset_
+                tval = asinh(sqrt(u))
+                outView[i] = (k * tval) + (-2.0)  # log(1)=0
+    else:
+        with nogil:
+            for i in range(n):
+                xval = arrView[i]
+                u = scale_ * (xval + offset_)
+                tval = asinh(sqrt(u))
+                outView[i] = (k * tval) + bias
+
+    return (out, -1.0)
 
 
 cpdef object cTransform(
@@ -1808,8 +1840,8 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[::1] stateVectorView = stateVector
     cdef cnp.float32_t[:, ::1] stateCovarView = stateCovar
 
-    cdef double clipSmall = pow(10.0, -covarClip)
-    cdef double clipBig = pow(10.0, covarClip)
+    cdef double clipSmall = powf(10.0, -covarClip)
+    cdef double clipBig = powf(10.0, covarClip)
 
     cdef bint inflatedQ = False
     cdef int adjustmentCount = 0
@@ -2112,8 +2144,8 @@ cpdef tuple cbackwardPass(
     cdef cnp.float32_t[:, ::1] postFitResidualsView
     cdef bint doProgress = False
     cdef bint doFlush = False
-    cdef double clipSmall = pow(10.0, -covarClip)
-    cdef double clipBig = pow(10.0, covarClip)
+    cdef double clipSmall = powf(10.0, -covarClip)
+    cdef double clipBig = powf(10.0, covarClip)
     cdef double stateTransition00, stateTransition01, stateTransition10, stateTransition11
     cdef double priorState0, priorState1
     cdef double deltaState0, deltaState1
@@ -2280,16 +2312,124 @@ cpdef tuple cbackwardPass(
     return (stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr)
 
 
+cdef double cOtsu(
+    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw,
+    Py_ssize_t numBins=512,
+    double loQuantile=0.001,
+    double hiQuantile=0.999,
+) except? -1:
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] finiteValues
+    cdef cnp.float64_t[::1] finiteView
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i, binIdx, bestBinIdx
+    cdef double lower_, higher_, binWidth, invBinWidth
+    cdef double x
+
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] histCounts
+    cdef cnp.float64_t[::1] histView
+    cdef double totalCount, sumBinIndexAll
+    cdef double weightBelow, weightAbove
+    cdef double sumBinIndexBelow
+    cdef double meanBelow, meanAbove
+    cdef double betweenClassVar, bestBetweenClassVar
+
+    # scale-aware histogram init (stabilizes Otsu when counts are sparse / many bins)
+    cdef double avgCount, initPerBin
+    cdef double sumIdxInit
+
+    if numBins < 32:
+        numBins = 32
+
+    finiteValues = np.ascontiguousarray(raw[np.isfinite(raw)], dtype=np.float64).reshape(-1)
+    finiteView = finiteValues
+    n = finiteValues.size
+    if n <= 0:
+        return NAN
+
+    lower_ = <double>np.quantile(finiteValues, loQuantile)
+    higher_ = <double>np.quantile(finiteValues, hiQuantile)
+    if (not isfinite(lower_)) or (not isfinite(higher_)) or higher_ <= lower_:
+        return NAN
+
+    binWidth = (higher_ - lower_) / (<double>numBins)
+    if (not isfinite(binWidth)) or binWidth <= 0.0:
+        return NAN
+
+    invBinWidth = 1.0 / binWidth
+    histCounts = np.zeros(numBins, dtype=np.float64)
+    histView = histCounts
+
+    with nogil:
+        for i in range(n):
+            x = finiteView[i]
+            if x < lower_ or x > higher_:
+                continue
+            binIdx = <Py_ssize_t>((x - lower_) * invBinWidth)
+            if binIdx < 0:
+                binIdx = 0
+            elif binIdx >= numBins:
+                binIdx = numBins - 1
+            histView[binIdx] += 1.0
+
+    totalCount = 0.0
+    sumBinIndexAll = 0.0
+    with nogil:
+        for binIdx in range(numBins):
+            totalCount += histView[binIdx]
+            sumBinIndexAll += histView[binIdx] * (<double>binIdx)
+
+    if (not isfinite(totalCount)) or totalCount <= 0.0:
+        return NAN
+
+    avgCount = totalCount / (<double>numBins)
+    initPerBin = 1.0e-4 * avgCount # smooth: small uniform const added across bins
+    if initPerBin > 0.0:
+        # add
+        totalCount += initPerBin * (<double>numBins)
+        sumIdxInit = (<double>numBins) * (<double>(numBins - 1)) * 0.5
+        sumBinIndexAll += initPerBin * sumIdxInit
+        with nogil:
+            for binIdx in range(numBins):
+                histView[binIdx] += initPerBin
+
+    weightBelow = 0.0
+    sumBinIndexBelow = 0.0
+    bestBetweenClassVar = -1.0
+    bestBinIdx = numBins // 2
+
+    with nogil:
+        for binIdx in range(numBins):
+            weightBelow += histView[binIdx]
+            sumBinIndexBelow += histView[binIdx] * (<double>binIdx)
+            weightAbove = totalCount - weightBelow
+            if weightBelow <= 0.0 or weightAbove <= 0.0:
+                continue
+
+            meanBelow = sumBinIndexBelow / weightBelow
+            meanAbove = (sumBinIndexAll - sumBinIndexBelow) / weightAbove
+            betweenClassVar = meanBelow - meanAbove
+            betweenClassVar = weightBelow * weightAbove * betweenClassVar * betweenClassVar
+
+            if betweenClassVar > bestBetweenClassVar:
+                bestBetweenClassVar = betweenClassVar
+                bestBinIdx = binIdx
+
+    return lower_ + ((<double>bestBinIdx) + 0.5) * binWidth
+
+
 cpdef double cDenseGlobalBaseline(
     object x,
     Py_ssize_t bootBlockSize=250,
     Py_ssize_t numBoots=1000,
     double denseMeanQuantile=<double>0.50,
     uint64_t seed=0,
+    double sparseDenseSeparation=2.0, # raise logistic weights to this power for higher (>1.0) or lower (<1.0) separation
     bint verbose = <bint>False,
 ):
 
     # FFR: given the current setup, this function can probably be removed or simplified
+    # ... (not sure if the bootstrap-like resampling buys us much, and it is fairly expensive)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
     cdef cnp.float32_t[::1] rawView
     cdef cnp.float32_t[::1] valuesView
@@ -2327,9 +2467,14 @@ cpdef double cDenseGlobalBaseline(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] slidingPosRates
     cdef cnp.float64_t[::1] slidingView
     cdef double q25, q75, iqr, transitionHalfWidth
-    # bound the slope of the logistic for minimal stability
     cdef double minTransitionHalfWidth = 0.05
     cdef long k
+
+    # Otsu thresholding: data-driven for the dense indicator
+    cdef double posThreshold
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rawFinite
+    cdef double medThr, q25Thr, q75Thr, iqrThr
+    cdef double thrEps = 1.0e-8
 
     if bootBlockSize <= 0:
         bootBlockSize = 1
@@ -2343,7 +2488,28 @@ cpdef double cDenseGlobalBaseline(
 
     raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
     rawView = raw
-    values = np.clip(raw, 0.0, 10.0)
+
+    posThreshold = cOtsu(raw, numBins=512, loQuantile=0.001, hiQuantile=0.999)
+    if not isfinite(posThreshold):
+        # !in case Otsu fails!
+        rawFinite = raw[np.isfinite(raw)].astype(np.float64, copy=False)
+        if rawFinite.size == 0:
+            posThreshold = 1.0e-2
+        else:
+            medThr = <double>np.median(rawFinite)
+            q25Thr = <double>np.quantile(rawFinite, 0.25)
+            q75Thr = <double>np.quantile(rawFinite, 0.75)
+            iqrThr = q75Thr - q25Thr
+
+            if (not isfinite(iqrThr)) or iqrThr < thrEps:
+                posThreshold = fmax(medThr, 1.0e-2)
+            else:
+                posThreshold = fmax(medThr + (iqrThr / 1.349), 1.0e-2)
+
+            if not isfinite(posThreshold):
+                posThreshold = fmax(medThr, 1.0e-2)
+
+    values = raw
     valuesView = values
     numValues = values.size
     prefixSums = np.empty(numValues + 1, dtype=np.float64)
@@ -2372,8 +2538,8 @@ cpdef double cDenseGlobalBaseline(
         posPrefixView[0] = 0
         for i in range(numValues):
             prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
-            # determines the logistic weights used to prioritize 'dense' blocks, cutoff chosen for balance in egs, sf, rpkm, etc.
-            posPrefixView[i + 1] = posPrefixView[i] + (<long>(isfinite(rawView[i]) and rawView[i] >= 0.5))
+            # determines the step function (logistic) defining weights for 'dense' blocks
+            posPrefixView[i + 1] = posPrefixView[i] + (<long>(isfinite(rawView[i]) and rawView[i] >= posThreshold))
 
     totPos = posPrefixView[numValues]
     globalRate = (<double>totPos) / (<double>numValues) if numValues > 0 else 0.5
@@ -2409,10 +2575,15 @@ cpdef double cDenseGlobalBaseline(
         transitionHalfWidth = 0.5 * iqr
         if not isfinite(transitionHalfWidth) or transitionHalfWidth < minTransitionHalfWidth:
             transitionHalfWidth = minTransitionHalfWidth
-        steep = 2.1 / transitionHalfWidth
-
+        # intention: # 0.10 --> 0.90 across width = 2*transitionHalfWidth = iqr
+        # lower bound ~~ toward linear
+        # upper bound ~~ toward step function
+        steep = fmax(2.19 / transitionHalfWidth, 10.0)
+        steep = fmin(steep, 50.0)
+    if verbose:
+        printf(b"cconsenrich.cDenseGlobalBaseline: step=%.4f\n", steep)
     if not isfinite(steep) or steep <= 0.0:
-        steep = 20.0
+        steep = 10.0
 
     # Now, start drawing bootstrap replicates
     with nogil:
@@ -2459,7 +2630,7 @@ cpdef double cDenseGlobalBaseline(
                     # assign weights to favor the dense state (step UP where block density is above global)
                     blockMean = blockSum / (<double>L)
                     blockPosRate = (<double>posInBlock) / (<double>L)
-                    # weight increases with the excess above global rate
+                    # weight dff increases with the excess above global rate, x steep
                     logisticInput = steep * (blockPosRate - globalRate)
                     if logisticInput >= 0.0:
                         blockWeight = 1.0 / (1.0 + exp(-logisticInput))
@@ -2467,7 +2638,7 @@ cpdef double cDenseGlobalBaseline(
                         blockWeight = exp(logisticInput) / (1.0 + exp(logisticInput))
 
                     blockWeight += epsilonWeight
-                    blockWeight = blockWeight * blockWeight
+                    blockWeight = powf(blockWeight, sparseDenseSeparation)
                     weightedMeanSum += blockWeight * blockMean
                     weightSum += blockWeight
 
@@ -2487,7 +2658,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     double maxBeta=0.99,
-    double pairsRegLambda = 0.1,
+    double pairsRegLambda = 1.0,
 ):
     cdef Py_ssize_t numIntervals=values.shape[0]
     cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex
@@ -2514,6 +2685,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef double beta1, eps
     cdef double RSS
     cdef double pairCountDouble
+    cdef double lambdaEff
+    cdef double Scale
+    cdef double scaleFloor
+
     varOut = np.empty(numIntervals,dtype=np.float32)
 
     if blockLength > numIntervals:
@@ -2570,10 +2745,14 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
 
                 # sum (x[i] - meanX)*(y[i] - meanYp) i = 0..n-2
                 sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
-                eps = 1.0e-8*(sumSqXSeq + 1.0)
+                eps = 1.0e-6*(sumSqXSeq + 1.0)
                 if sumSqXSeq > eps:
                     # reg. AR(1) coefficient estimate
-                    beta1 = (sumXYc / (sumSqXSeq + (pairsRegLambda*nPairsDouble)))
+                    # scale-aware ridge: keep regularizer in same units as sumSqXSeq
+                    lambdaEff = pairsRegLambda / (nPairsDouble + 1.0)
+                    scaleFloor = 1.0e-4*(sumSqXSeq + 1.0)
+                    Scale = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
+                    beta1 = (sumXYc / Scale)
                 else:
                     beta1 = 0.0
 
@@ -2721,7 +2900,7 @@ cpdef tuple cscaleStateCovar(
     cnp.ndarray[cnp.float32_t, ndim=1] stateVar0,
     cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap,
     Py_ssize_t blockCount,
-    float pad=1.0e-3,
+    float pad=1.0e-2,
     float scaleFactorLow_=1.0,
     float scaleFactorUpper_=10.0,
     float sqResClip=100.0,
@@ -3188,34 +3367,35 @@ cpdef cnp.ndarray splineBaselineMasked_F64(cnp.ndarray in_, cnp.ndarray fitMaskI
     y_tmp_F64 = yTMP
     z_tmp_F64 = zTMP
 
-    # D^T D
-    DTD0_F64[0] = 1.0
-    DTD0_F64[1] = 5.0
-    for i in range(2, n - 2):
-        DTD0_F64[i] = 6.0
-    DTD0_F64[n - 2] = 5.0
-    DTD0_F64[n - 1] = 1.0
-
-    DTD1_F64[0] = -2.0
-    for i in range(1, n - 2):
-        DTD1_F64[i] = -4.0
-    DTD1_F64[n - 2] = -2.0
-
-    for i in range(n - 2):
-        DTD2_F64[i] = 1.0
-
-    # (W + lam D^T D)b = Wy
-    for i in range(n):
-        wi_F64 = 1.0 if fitMask_U8[i] else 0.0 # crossfit mask
-        A0_F64[i] = wi_F64 + lambda_F64 * DTD0_F64[i]
-        b_F64[i] = wi_F64 * y_F64[i]
-    for i in range(n - 1):
-        A1_F64[i] = lambda_F64 * DTD1_F64[i]
-    for i in range(n - 2):
-        A2_F64[i] = lambda_F64 * DTD2_F64[i]
-
     with nogil:
-        solveSOD_LDL_F64(A0_F64, A1_F64, A2_F64, b_F64, b_F64, D_F64, L1_F64, L2_F64, y_tmp_F64, z_tmp_F64)
+        # D^T D
+        DTD0_F64[0] = 1.0
+        DTD0_F64[1] = 5.0
+        for i in range(2, n - 2):
+            DTD0_F64[i] = 6.0
+        DTD0_F64[n - 2] = 5.0
+        DTD0_F64[n - 1] = 1.0
+
+        DTD1_F64[0] = -2.0
+        for i in range(1, n - 2):
+            DTD1_F64[i] = -4.0
+        DTD1_F64[n - 2] = -2.0
+
+        for i in range(n - 2):
+            DTD2_F64[i] = 1.0
+
+        # (W + lam D^T D)b = Wy
+        for i in range(n):
+            wi_F64 = 1.0 if fitMask_U8[i] else 0.0 # crossfit mask
+            A0_F64[i] = wi_F64 + lambda_F64 * DTD0_F64[i]
+            b_F64[i] = wi_F64 * y_F64[i]
+        for i in range(n - 1):
+            A1_F64[i] = lambda_F64 * DTD1_F64[i]
+        for i in range(n - 2):
+            A2_F64[i] = lambda_F64 * DTD2_F64[i]
+
+        solveSOD_LDL_F64(A0_F64, A1_F64, A2_F64, b_F64, b_F64,
+                         D_F64, L1_F64, L2_F64, y_tmp_F64, z_tmp_F64)
 
     return b
 
@@ -3295,34 +3475,35 @@ cpdef cnp.ndarray splineBaselineMasked_F32(cnp.ndarray in_, cnp.ndarray fitMaskI
     y_tmp_F32 = yTMP
     z_tmp_F32 = zTMP
 
-    # D^T D
-    DTD0_F32[0] = 1.0
-    DTD0_F32[1] = 5.0
-    for i in range(2, n - 2):
-        DTD0_F32[i] = 6.0
-    DTD0_F32[n - 2] = 5.0
-    DTD0_F32[n - 1] = 1.0
-
-    DTD1_F32[0] = -2.0
-    for i in range(1, n - 2):
-        DTD1_F32[i] = -4.0
-    DTD1_F32[n - 2] = -2.0
-
-    for i in range(n - 2):
-        DTD2_F32[i] = 1.0
-
-    # (W + lam D^T D)b = Wy
-    for i in range(n):
-        wi_F32 = 1.0 if fitMask_U8[i] else 0.0 # crossfit mask
-        A0_F32[i] = wi_F32 + lambda_F32 * DTD0_F32[i]
-        b_F32[i] = wi_F32 * y_F32[i]
-    for i in range(n - 1):
-        A1_F32[i] = lambda_F32 * DTD1_F32[i]
-    for i in range(n - 2):
-        A2_F32[i] = lambda_F32 * DTD2_F32[i]
-
     with nogil:
-        solveSOD_LDL_F32(A0_F32, A1_F32, A2_F32, b_F32, b_F32, D_F32, L1_F32, L2_F32, y_tmp_F32, z_tmp_F32)
+        # D^T D
+        DTD0_F32[0] = 1.0
+        DTD0_F32[1] = 5.0
+        for i in range(2, n - 2):
+            DTD0_F32[i] = 6.0
+        DTD0_F32[n - 2] = 5.0
+        DTD0_F32[n - 1] = 1.0
+
+        DTD1_F32[0] = -2.0
+        for i in range(1, n - 2):
+            DTD1_F32[i] = -4.0
+        DTD1_F32[n - 2] = -2.0
+
+        for i in range(n - 2):
+            DTD2_F32[i] = 1.0
+
+        # (W + lam D^T D)b = Wy
+        for i in range(n):
+            wi_F32 = 1.0 if fitMask_U8[i] else 0.0 # crossfit mask
+            A0_F32[i] = wi_F32 + lambda_F32 * DTD0_F32[i]
+            b_F32[i] = wi_F32 * y_F32[i]
+        for i in range(n - 1):
+            A1_F32[i] = lambda_F32 * DTD1_F32[i]
+        for i in range(n - 2):
+            A2_F32[i] = lambda_F32 * DTD2_F32[i]
+
+        solveSOD_LDL_F32(A0_F32, A1_F32, A2_F32, b_F32, b_F32,
+                         D_F32, L1_F32, L2_F32, y_tmp_F32, z_tmp_F32)
 
     return b
 
@@ -3337,6 +3518,13 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F32(cnp.ndarray in_, float lambda_F32)
     cdef Py_ssize_t n
     cdef Py_ssize_t i
 
+    # for nogil
+    cdef cnp.uint8_t[::1] mEven_U8
+    cdef cnp.uint8_t[::1] mOdd_U8
+    cdef cnp.float32_t[::1] bView
+    cdef cnp.float32_t[::1] bEvenView
+    cdef cnp.float32_t[::1] bOddView
+
     y = np.ascontiguousarray(in_, dtype=np.float32)
     n = y.shape[0]
     if n < 3:
@@ -3344,17 +3532,26 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F32(cnp.ndarray in_, float lambda_F32)
 
     mEven = np.empty(n, dtype=np.uint8)
     mOdd = np.empty(n, dtype=np.uint8)
-    for i in range(n):
-        mEven[i] = 1 if (i & 1) == 0 else 0
-        mOdd[i] = 1 if (i & 1) == 1 else 0
+    mEven_U8 = mEven
+    mOdd_U8 = mOdd
+
+    with nogil:
+        for i in range(n):
+            mEven_U8[i] = 1 if (i & 1) == 0 else 0
+            mOdd_U8[i] = 1 if (i & 1) == 1 else 0
 
     # solve for even cols and odd cols separately, then average
     bEven = splineBaselineMasked_F32(y, mEven, lambda_F32)
     bOdd = splineBaselineMasked_F32(y, mOdd, lambda_F32)
 
     b = np.empty(n, dtype=np.float32)
-    for i in range(n):
-        b[i] = 0.5 * (bEven[i] + bOdd[i])
+    bView = b
+    bEvenView = bEven
+    bOddView = bOdd
+
+    with nogil:
+        for i in range(n):
+            bView[i] = 0.5 * (bEvenView[i] + bOddView[i])
     return b
 
 
@@ -3368,6 +3565,13 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64
     cdef Py_ssize_t n
     cdef Py_ssize_t i
 
+    # for nogil
+    cdef cnp.uint8_t[::1] mEven_U8
+    cdef cnp.uint8_t[::1] mOdd_U8
+    cdef cnp.float64_t[::1] bView
+    cdef cnp.float64_t[::1] bEvenView
+    cdef cnp.float64_t[::1] bOddView
+
     yArr = np.ascontiguousarray(yIn, dtype=np.float64)
     n = yArr.shape[0]
     if n < 3:
@@ -3375,9 +3579,13 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64
 
     mEvenArr = np.empty(n, dtype=np.uint8)
     mOddArr = np.empty(n, dtype=np.uint8)
-    for i in range(n):
-        mEvenArr[i] = 1 if (i & 1) == 0 else 0
-        mOddArr[i] = 1 if (i & 1) == 1 else 0
+    mEven_U8 = mEvenArr
+    mOdd_U8 = mOddArr
+
+    with nogil:
+        for i in range(n):
+            mEven_U8[i] = 1 if (i & 1) == 0 else 0
+            mOdd_U8[i] = 1 if (i & 1) == 1 else 0
 
     # solve for even cols and odd cols separately
     # FFR: revisit, not sure theoretical benefit is substantial to offset cost
@@ -3385,8 +3593,13 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64
     bOddArr = splineBaselineMasked_F64(yArr, mOddArr, lambda_F64)
 
     bArr = np.empty(n, dtype=np.float64)
-    for i in range(n):
-        bArr[i] = 0.5 * (bEvenArr[i] + bOddArr[i])
+    bView = bArr
+    bEvenView = bEvenArr
+    bOddView = bOddArr
+
+    with nogil:
+        for i in range(n):
+            bView[i] = 0.5 * (bEvenView[i] + bOddView[i])
     return bArr
 
 
@@ -3407,5 +3620,5 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
     # whittaker/second-order penalty based on the frequency cutoff corresponding to block size
     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
     cdef double w = blockSize * (blockFreqCutoff)
-    lambda_ = 50*(w*w*w*w)
+    lambda_ = 25*(w*w*w*w)
     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)
