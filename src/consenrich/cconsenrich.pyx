@@ -3672,5 +3672,5 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
     # whittaker/second-order penalty based on the frequency cutoff corresponding to block size
     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
     cdef double w = blockSize * (blockFreqCutoff)
-    lambda_ = 25*(w*w*w*w)
+    lambda_ = 10*(w*w*w*w)
     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)

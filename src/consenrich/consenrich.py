@@ -488,7 +488,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "SF",
+        "EGS",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
