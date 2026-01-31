@@ -35,6 +35,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _checkSF(sf, logger, cut_=3.0):
+
+    sf = np.asarray(sf, dtype=float)
+    bad = ~np.isfinite(sf) | (sf <= 0)
+    if np.any(bad):
+        logger.warning(
+            "Scaling factors contain non-finite or non-positive values: "
+            f"nBad={bad.sum()}/{sf.size}: {sf[bad][:10]} ..."
+        )
+
+    v = sf[np.isfinite(sf) & (sf > 0)]
+    if v.size < 3:
+        return
+
+    p05, p50, p95 = np.percentile(v, [5, 50, 95])
+    ratio = p95 / p05
+
+    if ratio > cut_:
+        logger.warning(
+            "Sample scaling factors (`countingParams.normMethod: SF`) used for library size/coverage normalization are heterogeneous: "
+            f"median={p50:.4g}, p95/p05={ratio:.2f} > {cut_}. __IF this is unexpected__, consider inspecting the alignment files."
+        )
+
+
 def _resolveFragmentLengthPairs(
     treatmentFragmentLengths: Optional[Sequence[Union[int, float]]],
     controlFragmentLengths: Optional[Sequence[Union[int, float]]],
@@ -44,7 +68,7 @@ def _resolveFragmentLengthPairs(
     For single-end data, cross-correlation-based fragment estimates for control inputs
     can be much smaller than for treatment samples due to lack of structure. This creates
     artifacts during signal quantification and normalization steps, and it's common to use
-    the treatment fragment length for both treatment and control samples. So we offer that here.
+    the treatment fragment length for both treatment and control samples. So we do that here.
     """
 
     if not treatmentFragmentLengths:
@@ -464,7 +488,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "EGS",
+        "SF",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
@@ -660,7 +684,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         binQuantileCutoff=_cfgGet(
             configData,
             "observationParams.binQuantileCutoff",
-            0.9,  # prior is intentionally conservative
+            0.9,
         ),
         EB_minLin=float(
             _cfgGet(
@@ -1095,7 +1119,7 @@ def main():
     methodFDR_: Optional[str] = matchingArgs.methodFDR
     fragmentLengthsTreatment: List[int] = []
     fragmentLengthsControl: List[int] = []
-
+    sf: np.ndarray = np.empty((numSamples,), dtype=float)
     if countingArgs.fragmentLengths is not None:
         fragmentLengthsTreatment = list(countingArgs.fragmentLengths)
     else:
@@ -1158,7 +1182,7 @@ def main():
             treatScaleFactors = scaleFactors
             controlScaleFactors = scaleFactorsControl
             # still make sure this is accessible
-            initialTreatmentScaleFactors = [1.0] * len(bamFiles)
+            initialTreatmentScaleFactors = np.ones((len(bamFiles),), dtype=float)
         else:
             try:
                 initialTreatmentScaleFactors = [
@@ -1348,7 +1372,12 @@ def main():
                 )
 
         if waitForMatrix:
-            sf = cconsenrich.cSF(chromMat)
+            if c_ == 0:
+                sf = cconsenrich.cSF(chromMat)
+                logger.info(
+                    f"`countingParams.normMethod=SF` --> calculating scaling factors\n{sf}\n",
+                )
+                _checkSF(sf, logger)
             np.multiply(chromMat, sf[:, None], out=chromMat)
 
         if processArgs.deltaF < 0:

@@ -283,8 +283,8 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param denseMeanQuantile: Quantile of the distribution of circular, block-sampled empirical means that determines the global baseline.
-        The global baseline is mixed (e.g., `0.75, 0.25` weighted average for `countingParams.globalWeight = 3`) with a local, penalized spline-based baseline estimate.
+    :param denseMeanQuantile: Quantile of the distribution of sampled block means that partially determines the global baseline.
+        The global baseline is mixed (e.g., `0.75, 0.25` weighted average for `countingParams.globalWeight = 3`) with a local, penalized spline-based baseline.
         Increasing this value can result in a more conservative signal estimate.
     :type denseMeanQuantile: float, optional
     :param globalWeight: Relative weight assigned to the global 'dense' baseline when combining with local, penalized spline-based baseline estimates. Higher values increase the influence of the global baseline. For instance, ``globalWeight = 2`` results in a weighted average where the global baseline contributes `2/3` of the final baseline estimate; whereas ``globalWeight = 1`` results in equal weighting between global and local baselines.

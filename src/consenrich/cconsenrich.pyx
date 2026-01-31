@@ -2526,7 +2526,7 @@ cpdef double cDenseGlobalBaseline(
             if not isfinite(posThreshold):
                 posThreshold = fmax(medThr, 1.0e-2)
     if verbose:
-        printf(b"cconsenrich.cDenseGlobalBaseline: sparse-dense indicator=%.6f\n", posThreshold)
+        printf(b"cconsenrich.cDenseGlobalBaseline: (Otsu) sparse-dense indicator=%.6f\n", posThreshold)
 
     values = raw
     valuesView = values
@@ -2597,18 +2597,16 @@ cpdef double cDenseGlobalBaseline(
                 k = posPrefixView[i + fixedBlockLen] - posPrefixView[i]
                 slidingView[i] = (<double>k) / (<double>fixedBlockLen)
 
-        # compute `steep` so that the step occurs roughly over the IQR range
-        # (not accounting for exponentiated weights, etc.)
         q25 = <double>np.quantile(slidingPosRates, 0.25)
         q75 = <double>np.quantile(slidingPosRates, 0.75)
         iqr = q75 - q25
         transitionHalfWidth = 0.5 * iqr
         if not isfinite(transitionHalfWidth) or transitionHalfWidth < minTransitionHalfWidth:
             transitionHalfWidth = minTransitionHalfWidth
-        # intention: logistic transitions from 0.10 --> 0.90 across width = 2*transitionHalfWidth = iqr
-        # lower bound ~~ toward linear
-        # upper bound ~~ toward step function
-        steep = fmax(2.19 / transitionHalfWidth, 10.0)
+        # separation between 'states' is moderated by the ~variance~ (IQR) of observed positive rates...
+        #   wider IQR --> less steep since the two-state biomodal notion is weak
+        #   narrower IQR --> steeper since the two-state biomodal notion is strong
+        steep = fmax(2.10 / transitionHalfWidth, 10.0)
         steep = fmin(steep, 50.0)
     if not isfinite(steep) or steep <= 0.0:
         steep = 10.0
@@ -2651,7 +2649,7 @@ cpdef double cDenseGlobalBaseline(
                         blockSum = (prefixView[numValues] - prefixView[start]) + prefixView[end]
                         posInBlock = (posPrefixView[numValues] - posPrefixView[start]) + posPrefixView[end]
 
-                    # assign weights to favor the dense state (step UP where block density is above global)
+                    # assign weights to favor the dense state
                     blockMean = blockSum / (<double>L)
                     blockPosRate = (<double>posInBlock) / (<double>L)
                     # weight dff increases with the excess above global rate, x steep
@@ -2665,8 +2663,7 @@ cpdef double cDenseGlobalBaseline(
                     blockWeight = pow(blockWeight, sparseDenseSeparation)
                     if blockWeight > 1.0:
                         blockWeight = 1.0
-                    elif blockWeight < 0.0:
-                        blockWeight = 0.0
+                    blockWeight += epsilonWeight
 
                     u = (<double>rand()) / ((<double>RAND_MAX) + 1.0)
                     if u <= blockWeight:
@@ -3093,7 +3090,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
     float minCount=<float>1.0,
     double nonzeroFrac=0.5,
-    bint centerGeoMean=False,
+    bint centerGeoMean=<bint>(True),
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
     cdef Py_ssize_t m = chromMat_.shape[0]
@@ -3112,6 +3109,9 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     cdef Py_ssize_t s, i, k, needNonzero
     cdef Py_ssize_t presentCount
     cdef double sumLog, v, medLog, geoMean, eps
+    cdef Py_ssize_t kLow, kHigh
+    cdef double low, high
+    cdef Py_ssize_t validCols
     eps = 1e-8
 
     needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + (1.0 - 1e-8))
@@ -3120,6 +3120,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     elif needNonzero > m:
         needNonzero = m
 
+    validCols = 0
     with nogil:
         for i in range(n):
             sumLog = 0.0
@@ -3130,7 +3131,17 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
                     sumLog += log(v)
                     presentCount += 1
             refLogView[i] = (sumLog / (<double>presentCount)) if presentCount >= needNonzero else NAN
+            if not isnan(refLogView[i]):
+                validCols += 1
 
+    # ensure enough usable columns
+    if validCols < 100:
+        raise ValueError(
+            f"insufficient valid/dense columns for `countingParams.normMethod: SF`, (need >= 100, got {validCols})... "
+            f"If this is expected, consider using `countingParams.normMethod: EGS` or RPKM instead."
+        )
+
+    with nogil:
         for s in range(m):
             k = 0
             for i in range(n):
@@ -3143,8 +3154,21 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
             if k == 0:
                 scaleFactorsView[s] = 1.0
             else:
-                _nthElement_F64(&logRatioBufView[0], k, k >> 1)
-                medLog = logRatioBufView[k >> 1]
+                # quickselect for median
+                if k & 1: # case: ODD, just take middle element
+                    _nthElement_F64(&logRatioBufView[0], k, k >> 1)
+                    medLog = logRatioBufView[k >> 1]
+                else:     # case: EVEN, average two middle elements
+                    kHigh = k >> 1
+                    kLow = kHigh - 1
+
+                    _nthElement_F64(&logRatioBufView[0], k, kHigh)
+                    high = logRatioBufView[kHigh]
+
+                    _nthElement_F64(&logRatioBufView[0], k, kLow)
+                    low = logRatioBufView[kLow]
+                    medLog = 0.5 * (low + high)
+
                 scaleFactorsView[s] = exp(medLog)
 
         if centerGeoMean and m > 0:

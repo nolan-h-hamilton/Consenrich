@@ -37,9 +37,12 @@ def autoMinLengthIntervals(
     maxLen: int = 25,
 ) -> int:
     try:
-        hlen = core.getContextSize(
-            values,
-        )[1]
+        hlen = int(
+            core.getContextSize(
+                values,
+            )[1]
+            / 2.0
+        )
     except Exception:
         logger.warning(
             "autoMinLengthIntervals: could not compute context size, using default length."
