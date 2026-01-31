@@ -2441,7 +2441,7 @@ cpdef double cDenseGlobalBaseline(
     Py_ssize_t numBoots=1000,
     double denseMeanQuantile=<double>0.50,
     uint64_t seed=0,
-    double sparseDenseSeparation=2.0, # raise logistic weights to this power for higher (>1.0) or lower (<1.0) separation
+    double sparseDenseSeparation=2.0, # raise logistic weights to this power for greater (>1.0) or lesser (<1.0) separation
     bint verbose = <bint>False,
 ):
 
@@ -3672,5 +3672,5 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
     # whittaker/second-order penalty based on the frequency cutoff corresponding to block size
     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
     cdef double w = blockSize * (blockFreqCutoff)
-    lambda_ = 10*(w*w*w*w)
+    lambda_ = 1.001*(w*w*w*w)
     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)

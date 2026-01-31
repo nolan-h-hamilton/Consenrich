@@ -283,9 +283,9 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param denseMeanQuantile: Quantile of the distribution of sampled block means that partially determines the global baseline.
-        The global baseline is mixed (e.g., `0.75, 0.25` weighted average for `countingParams.globalWeight = 3`) with a local, penalized spline-based baseline.
-        Increasing this value can result in a more conservative signal estimate.
+    :param denseMeanQuantile: Used to determine a global baseline for each sample (after normalization wrt sequencing depth / library size). The default value (`0.5`) estimates
+      the median value of *dense-state* genomic blocks using a coverage-biased block sampling scheme in :func:`consenrich.cconsenrich.cDenseGlobalBaseline`. To accommodate users
+      who prefer a conservative signal estimation, this parameter can be raised toward the right-tail, e.g., `0.75`.
     :type denseMeanQuantile: float, optional
     :param globalWeight: Relative weight assigned to the global 'dense' baseline when combining with local, penalized spline-based baseline estimates. Higher values increase the influence of the global baseline. For instance, ``globalWeight = 2`` results in a weighted average where the global baseline contributes `2/3` of the final baseline estimate; whereas ``globalWeight = 1`` results in equal weighting between global and local baselines.
       Users with input control samples may consider increasing this value to avoid redundancy (artificial local trends have presumably been accounted for in the control, leaving less signal to be modeled locally).
