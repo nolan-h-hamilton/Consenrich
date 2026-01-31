@@ -40,7 +40,7 @@ def autoMinLengthIntervals(
         hlen = int(
             core.getContextSize(
                 values,
-            )[1]
+            )[0]
             / 2.0
         )
     except Exception:
@@ -303,8 +303,8 @@ def matchWavelet(
         )
         if len(vals) == 0:
             return vals
-        low = np.quantile(vals, 0.001)
-        high = np.quantile(vals, 0.999)
+        low = np.quantile(vals, 0.005)
+        high = np.quantile(vals, 0.995)
         return vals[(vals > low) & (vals < high)]
 
     wavelet_set = set(pw.wavelist(kind="discrete"))

@@ -488,7 +488,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "EGS",
+        "SF",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
@@ -1404,7 +1404,7 @@ def main():
             desc="Transforming data / Fitting variance function f(|μ|;Θ)",
             unit=" sample ",
         ):
-            logger.info(f"{chromosome}, sample {j + 1} / {numSamples}...")
+            logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
             chromMat[j, :] = cconsenrich.cTransform(
                 chromMat[j, :],
                 blockLength=backgroundBlockSizeIntervals,

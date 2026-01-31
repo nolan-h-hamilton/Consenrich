@@ -2652,7 +2652,9 @@ cpdef double cDenseGlobalBaseline(
                     # assign weights to favor the dense state
                     blockMean = blockSum / (<double>L)
                     blockPosRate = (<double>posInBlock) / (<double>L)
-                    # weight dff increases with the excess above global rate, x steep
+
+                    # NOTE: here, weight separation is increased wrt the block's excess `posInBlock` above global rate
+                    # ... NOT wrt the block mean itself, since the mean can be noisy
                     logisticInput = steep * (blockPosRate - globalRate)
                     if logisticInput >= 0.0:
                         blockWeight = 1.0 / (1.0 + exp(-logisticInput))
@@ -3088,8 +3090,6 @@ cpdef tuple cscaleStateCovar(
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
-    float minCount=<float>1.0,
-    double nonzeroFrac=0.5,
     bint centerGeoMean=<bint>(True),
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
@@ -3106,31 +3106,36 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logRatioBuf = np.empty(n, dtype=np.float64)
     cdef double[::1] logRatioBufView = logRatioBuf
 
-    cdef Py_ssize_t s, i, k, needNonzero
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] logSFBuf = np.empty(m, dtype=np.float64)
+    cdef double[::1] logSFBufView = logSFBuf
+
+    cdef Py_ssize_t s, i, k
     cdef Py_ssize_t presentCount
     cdef double sumLog, v, medLog, geoMean, eps
+    cdef double centerLog
     cdef Py_ssize_t kLow, kHigh
     cdef double low, high
     cdef Py_ssize_t validCols
+    cdef double minSF, maxSF
     eps = 1e-8
 
-    needNonzero = <Py_ssize_t>(nonzeroFrac * (<double>m) + (1.0 - 1e-8))
-    if needNonzero < 1:
-        needNonzero = 1
-    elif needNonzero > m:
-        needNonzero = m
+    # bound scale factors for extreme cases, even if centering is not applied
+    minSF = 0.2
+    maxSF = 5.0
 
+    # reference uses geometric mean over *positive counts*, less than 75% nonzero counts --> NAN (ignored later)
     validCols = 0
+    cdef Py_ssize_t requiredNonZeroSamples_ssize = <Py_ssize_t>(0.75 * (<double>m) + (1.0 - 1e-8))
     with nogil:
         for i in range(n):
             sumLog = 0.0
             presentCount = 0
             for s in range(m):
                 v = <double>chromMatView[s, i]
-                if v > <double>minCount:
+                if v >= 1.0:
                     sumLog += log(v)
                     presentCount += 1
-            refLogView[i] = (sumLog / (<double>presentCount)) if presentCount >= needNonzero else NAN
+            refLogView[i] = (sumLog / (<double>presentCount)) if presentCount >= requiredNonZeroSamples_ssize else NAN
             if not isnan(refLogView[i]):
                 validCols += 1
 
@@ -3147,7 +3152,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
             for i in range(n):
                 if not isnan(refLogView[i]):
                     v = <double>chromMatView[s, i]
-                    if v > <double>minCount:
+                    if v > 0.0:
                         logRatioBufView[k] = log(v) - refLogView[i]
                         k += 1
 
@@ -3171,16 +3176,50 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
 
                 scaleFactorsView[s] = exp(medLog)
 
+            if scaleFactorsView[s] < minSF:
+                printf(b"Warning: sample scale factor %.4f below min %.4f, clamping.\n", scaleFactorsView[s], minSF)
+                scaleFactorsView[s] = minSF
+            elif scaleFactorsView[s] > maxSF:
+                printf(b"Warning: sample scale factor %.4f above max %.4f, clamping.\n", scaleFactorsView[s], maxSF)
+                scaleFactorsView[s] = maxSF
+
         if centerGeoMean and m > 0:
-            sumLog = 0.0
+            # robust centering around --median-- log(SF)
+            # ... this, and the bounds on SFs should prevent extreme scale factors
+            # ... or centering based on pathological samples
             for s in range(m):
-                sumLog += log(scaleFactorsView[s] + eps)
-            geoMean = exp(sumLog / (<double>m))
+                logSFBufView[s] = log(scaleFactorsView[s] + eps)
+
+            # quickselect for median on SFs
+            if m & 1: # case: ODD, just take middle element
+                _nthElement_F64(&logSFBufView[0], m, m >> 1)
+                centerLog = logSFBufView[m >> 1]
+            else:     # case: EVEN, average two middle elements
+                kHigh = m >> 1
+                kLow = kHigh - 1
+
+                _nthElement_F64(&logSFBufView[0], m, kHigh)
+                high = logSFBufView[kHigh]
+
+                _nthElement_F64(&logSFBufView[0], m, kLow)
+                low = logSFBufView[kLow]
+                centerLog = 0.5 * (low + high)
+
+            geoMean = exp(centerLog)
             for s in range(m):
-                # center around geometric mean (i.e.,  SF_1 * SF_2 * SF... = 1)
+                # center around ~~geometric median~~
                 scaleFactorsView[s] /= geoMean
 
+                # make sure bounds still hold
+                if scaleFactorsView[s] < minSF:
+                    printf(b"Warning: sample scale factor %.4f below min %.4f after centering, clamping.\n", scaleFactorsView[s], minSF)
+                    scaleFactorsView[s] = minSF
+                elif scaleFactorsView[s] > maxSF:
+                    printf(b"Warning: sample scale factor %.4f above max %.4f after centering, clamping.\n", scaleFactorsView[s], maxSF)
+                    scaleFactorsView[s] = maxSF
+
     return 1/scaleFactors
+
 
 
 cdef void solveSOD_LDL_F64(
@@ -3672,5 +3711,5 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
     # whittaker/second-order penalty based on the frequency cutoff corresponding to block size
     cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
     cdef double w = blockSize * (blockFreqCutoff)
-    lambda_ = 1.001*(w*w*w*w)
+    lambda_ = 10.0*(w*w*w*w)
     return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)
