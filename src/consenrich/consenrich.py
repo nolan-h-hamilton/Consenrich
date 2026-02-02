@@ -488,7 +488,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "SF",
+        "EGS",
     )
     if normMethod_.upper() not in ["EGS", "RPKM", "SF"]:
         logger.warning(
@@ -543,7 +543,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     globalWeight_ = _cfgGet(
         configData,
         "countingParams.globalWeight",
-        3.0,  # 75% global weight verus 25% p-spline local weight
+        2.0,
     )
 
     return core.countingParams(
@@ -684,7 +684,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         binQuantileCutoff=_cfgGet(
             configData,
             "observationParams.binQuantileCutoff",
-            0.9,
+            0.75,
         ),
         EB_minLin=float(
             _cfgGet(
@@ -1412,6 +1412,9 @@ def main():
                 verbose=args.verbose2,
                 rseed=42 + j,
                 w_global=countingArgs.globalWeight,
+                useAIRLS=(
+                    not controlsPresent
+                ),  # local baseline via asymmetric whittaker/IRLS is _skipped_ if controls present
             )
 
             if countingArgs.smoothSpanBP > 0:
@@ -1439,14 +1442,14 @@ def main():
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-3))
+            minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
             muncMat = muncMat.astype(np.float32, copy=False)
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-3))
+                minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
             autoMinQ = max((0.01 * minR_), 1.0e-3)
             if processArgs.minQ < 0.0:

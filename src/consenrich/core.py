@@ -121,7 +121,7 @@ class observationParams(NamedTuple):
     :type samplingIters: int | None
     :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
       Note, during sampling, each block's size (unit: genomic intervals) is drawn from truncated :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSize})` to reduce artifacts from fixed-size blocks.
-      If `None, < 1`, then this value is inferred using :func:`consenrich.core.getContextSize`.
+      If `None` or ` < 1`, then this value is inferred using :func:`consenrich.core.getContextSize`.
     :type samplingBlockSizeBP: int | None
     :param binQuantileCutoff: When fitting the variance function, pairs :math:`(\lvert \mu_b \rvert, \sigma^2_b)` are binned by their (absolute) means. This parameter sets the quantile of variances within each bin to use when fitting the global mean-variance trend.
       Increasing this value toward `1.0` results in a more conservative prior trend (i.e., higher variance estimates at a given mean level).
@@ -284,10 +284,10 @@ class countingParams(NamedTuple):
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
     :param denseMeanQuantile: Used to determine a global baseline for each sample (after normalization wrt sequencing depth / library size). The default value (`0.5`) estimates
-      the median value of *dense-state* genomic blocks using a coverage-biased block sampling scheme in :func:`consenrich.cconsenrich.cDenseGlobalBaseline`. To accommodate users
-      who prefer a conservative signal estimation, this parameter can be raised toward the right-tail, e.g., `0.75`.
+      the median value of *dense-state* genomic blocks using a coverage-biased block sampling scheme in :func:`consenrich.cconsenrich.cDenseMean`. To accommodate users
+      who prefer conservative signal estimates, this parameter can be raised toward the right-tail, e.g., `0.75`.
     :type denseMeanQuantile: float, optional
-    :param globalWeight: Relative weight assigned to the global 'dense' baseline when combining with local, penalized spline-based baseline estimates. Higher values increase the influence of the global baseline. For instance, ``globalWeight = 2`` results in a weighted average where the global baseline contributes `2/3` of the final baseline estimate; whereas ``globalWeight = 1`` results in equal weighting between global and local baselines.
+    :param globalWeight: Relative weight assigned to the global 'dense' baseline when combining with local baseline estimates. Higher values increase the influence of the global baseline. For instance, ``globalWeight = 2`` results in a weighted average where the global baseline contributes `2/3` of the final baseline estimate; whereas ``globalWeight = 1`` results in equal weighting between global and local baselines.
       Users with input control samples may consider increasing this value to avoid redundancy (artificial local trends have presumably been accounted for in the control, leaving less signal to be modeled locally).
     :type globalWeight: float, optional
 
@@ -1038,10 +1038,10 @@ def runConsenrich(
 
             # --- calibration hyperparameters ---
             calibration_maxIters = int(
-                calibration_kwargs.get("calibration_maxIters", 100)
+                calibration_kwargs.get("calibration_maxIters", 50)
             )
             calibration_minIters = int(
-                calibration_kwargs.get("calibration_minIters", 50)
+                calibration_kwargs.get("calibration_minIters", 25)
             )
             calibration_numTotalBlocks = int(
                 calibration_kwargs.get(
@@ -1066,7 +1066,7 @@ def runConsenrich(
             )
             # starting trust-region radius (in log-scale)
             calibration_trustRadius = np.float32(
-                calibration_kwargs.get("calibration_trustRadius", 2.0 * LN2)
+                calibration_kwargs.get("calibration_trustRadius", LN2)
             )
 
             # bound the size of the trust-region (prevent huge steps/premature convergence)
@@ -1074,7 +1074,7 @@ def runConsenrich(
                 calibration_kwargs.get("calibration_trustRadiusMin", 1.0e-4)
             )
             calibration_trustRadiusMax = np.float32(
-                calibration_kwargs.get("calibration_trustRadiusMax", 10 * LN2)
+                calibration_kwargs.get("calibration_trustRadiusMax", 4 * LN2)
             )
 
             # if rho (actual vs. predicted reduction) is above/below these thresholds,
@@ -1086,10 +1086,10 @@ def runConsenrich(
                 calibration_kwargs.get("calibration_NOT_TrustRhoThresh", 1.0 / 4.0)
             )
             calibration_trustGrow = np.float32(
-                calibration_kwargs.get("calibration_trustGrow", 2.0)
+                calibration_kwargs.get("calibration_trustGrow", 1 + LN2)
             )
             calibration_trustShrink = np.float32(
-                calibration_kwargs.get("calibration_trustShrink", 1 / 2.0)
+                calibration_kwargs.get("calibration_trustShrink", 1 / (1 + LN2))
             )
 
             # mild smoothing for nearby block-gradients
@@ -1988,8 +1988,8 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-2,
-    binQuantileCutoff: float = 0.75,
+    eps: float = 5.0e-2,
+    binQuantileCutoff: float = 0.9,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
@@ -2074,7 +2074,7 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1.0e-2,
+    eps: float = 5.0e-2,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
@@ -2103,11 +2103,12 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    binQuantileCutoff: float = 0.75,
+    binQuantileCutoff: float = 0.9,
     EB_minLin: float = 1.0e-2,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
+    EB_localQuantile: float = 0.0,
     verbose: bool = False,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
@@ -2120,7 +2121,7 @@ def getMuncTrack(
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
-    :param values: normalized/transformed signal values over genomic intervals (e.g., :func:`consenrich.cconsenrich.cTransform` output)
+    :param values: normalized/transformed signal measurements over genomic intervals (e.g., :func:`consenrich.cconsenrich.cTransform` output)
     :type values: np.ndarray
     :param intervals: genomic intervals positions (start positions)
     :type intervals: np.ndarray
@@ -2159,7 +2160,8 @@ def getMuncTrack(
     )
 
     meanAbs = np.abs(blockMeans)
-    mask = (meanAbs >= 0) & (blockVars >= 1.0e-4)
+    mask = np.isfinite(meanAbs) & np.isfinite(blockVars) & (blockVars >= 1.0e-2)
+
     meanAbs_Masked = meanAbs[mask]
     var_Masked = blockVars[mask]
     order = np.argsort(meanAbs_Masked)
@@ -2189,41 +2191,170 @@ def getMuncTrack(
         localWindowIntervals,
         excludeMaskArr,
     ).astype(np.float64, copy=False)
-    # negative value is a flag from `cconsenrich.crolling_AR1_IVar` -- set as NaN
+
+    # Note, negative values are a flag from `cconsenrich.crolling_AR1_IVar`
+    # ... -- set as _NaN_ -- and handle later during shrinkage
     obsVarTrack[obsVarTrack < 0.0] = np.nan
 
+    # ~Corresponds~ to `binQuantileCutoff` that is applied in the global/prior fit:
+    # ... Optionally, run a quantile filter over the local variance track
+    # ...     EB_localQuantile < 0 --> disable
+    # ...     EB_localQuantile == 0 --> use binQuantileCutoff
+    # ...     EB_localQuantile > 0 --> use supplied quantile value (x100)
+    # ... NOTE: Useful heuristic for parity with the global model and tempering effects of
+    # ...    spurious measurements in sparse genomic regions where estimated uncertainty
+    # ...    is often artificially deflated. Note that the quantile filter _centered_,
+    # ...    unlike innovations
+    if EB_localQuantile >= 0.0:
+        quantile_ = (
+            float(binQuantileCutoff)
+            if EB_localQuantile == 0.0
+            else float(EB_localQuantile)
+        )
+        if quantile_ < 0.0:
+            quantile_ = 0.0
+        elif quantile_ > 1.0:
+            quantile_ = 1.0
+        pct = 100.0 * quantile_
+        win = int(localWindowIntervals)
+        if win < 1:
+            win = 1
+        if (win & 1) == 0:
+            win += 1
+
+        # inf sentinel for NaN positions
+        fillVal = np.inf if quantile_ >= 0.5 else -np.inf
+        nanMask = ~np.isfinite(obsVarTrack)
+        if np.any(nanMask):
+            tmp = obsVarTrack.copy()
+            tmp[nanMask] = fillVal
+            ndimage.percentile_filter(
+                tmp,
+                size=win + 2,
+                percentile=pct,
+                mode="nearest",
+                output=tmp,
+            )
+            # immediately after, replace sentinel inf --> NaN
+            tmp[nanMask] = np.nan
+            tmp[~np.isfinite(tmp)] = np.nan
+            obsVarTrack = tmp
+        else:
+            ndimage.percentile_filter(
+                obsVarTrack,
+                size=win + 2,
+                percentile=pct,
+                mode="nearest",
+                output=obsVarTrack,
+            )
+
+    # df / effective sample size for local variance
     if EB_setNuL is not None and EB_setNuL > 3:
         Nu_L = float(EB_setNuL)
+        logger.info(f"Using fixed/specified Nu_L={Nu_L:.2f}")
     else:
-        # df = n-3 (intercept + slope on n-1 pairs)
-        Nu_L = float(max(2, localWindowIntervals - 3))
-    Nu_0: float
-    if EB_setNu0 is not None and EB_setNu0 > 0:
+        Nu_L = float(max(4, localWindowIntervals - 3))
+
+    # --- Determine prior strength ---
+    minScale_prior: float | None = None
+    minScale_obs: float | None = None
+    finMask_obs2: Optional[np.ndarray] = None
+    finMask_prior2: Optional[np.ndarray] = None
+    finMask_both2: Optional[np.ndarray] = None
+
+    priorTrackF64 = priorTrack.astype(np.float64, copy=False)
+
+    if EB_setNu0 is not None and EB_setNu0 > 4:
+        # check if Nu_0 is specified before computing
         Nu_0 = float(EB_setNu0)
+        logger.info(f"Using fixed/specified Nu_0={Nu_0:.2f}")
     else:
-        Nu_0 = EB_computePriorStrength(
-            obsVarTrack,
-            priorTrack.astype(np.float64, copy=False),
-            Nu_L,
-        )
+        # finite/non-zero mask _BEFORE_ Nu_0 fit
+        priorFinite = priorTrackF64[np.isfinite(priorTrackF64)]
+        obsFinite = obsVarTrack[np.isfinite(obsVarTrack)]
+        medPrior = float(np.median(priorFinite)) if priorFinite.size else 0.0
+        medObs = float(np.median(obsFinite)) if obsFinite.size else 0.0
+
+        minScale_prior = (1.0e-2 * medPrior) + 1.0e-4
+        minScale_obs = (1.0e-2 * medObs) + 1.0e-4
+
+        finMask_obs = np.isfinite(obsVarTrack) & (obsVarTrack > minScale_obs)
+        finMask_prior = np.isfinite(priorTrackF64) & (priorTrackF64 > minScale_prior)
+        finMask_both = finMask_obs & finMask_prior
+
+        # only pass matched finite pairs into EB_computePriorStrength
+        if np.count_nonzero(finMask_both) < 4:
+            logger.warning(
+                f"Insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
+            )
+            Nu_0 = float(1.0e6)
+        else:
+            Nu_0 = EB_computePriorStrength(
+                obsVarTrack[finMask_both],
+                priorTrackF64[finMask_both],
+                Nu_L,
+            )
+
+        # reuse masks during shrinkage (no need to recompute)
+        finMask_obs2 = finMask_obs
+        finMask_prior2 = finMask_prior
+        finMask_both2 = finMask_both
+
     logger.info(f"Nu_0={Nu_0:.2f}, Nu_L={Nu_L:.2f}")
     posteriorSampleSize: float = Nu_L + Nu_0
-    posteriorVarTrack = np.empty_like(priorTrack, dtype=np.float32)
-    posteriorVarTrack[:] = priorTrack
 
-    obsVarTrackF32 = obsVarTrack.astype(np.float32, copy=False)
-    noFlag = obsVarTrackF32 > 1.0e-4
-    posteriorVarTrack[noFlag] = (
-        Nu_L * obsVarTrackF32[noFlag] + Nu_0 * priorTrack[noFlag]
+    # --- Shrinkage ---
+    posteriorVarTrack = np.array(priorTrackF64, dtype=np.float64, copy=True)
+
+    # check if bounds/masks already exist (i.e., computed during Nu_0 fit), reuse them
+    # ... otherwise compute them for the first time here
+    if finMask_both2 is None:
+        if minScale_prior is None or minScale_obs is None:
+            priorFinite2 = posteriorVarTrack[np.isfinite(posteriorVarTrack)]
+            obsFinite2 = obsVarTrack[np.isfinite(obsVarTrack)]
+            medPrior2 = float(np.median(priorFinite2)) if priorFinite2.size else 0.0
+            medObs2 = float(np.median(obsFinite2)) if obsFinite2.size else 0.0
+
+            minScale_prior = (1.0e-2 * medPrior2) + 1.0e-4
+            minScale_obs = (1.0e-2 * medObs2) + 1.0e-4
+
+        finMask_obs2 = np.isfinite(obsVarTrack) & (obsVarTrack > minScale_obs)
+        finMask_prior2 = np.isfinite(posteriorVarTrack) & (
+            posteriorVarTrack > minScale_prior
+        )
+        finMask_both2 = finMask_obs2 & finMask_prior2
+
+    # Case: both prior and obs yield meaningful estimates --> proper shrinkage
+    posteriorVarTrack[finMask_both2] = (
+        Nu_L * obsVarTrack[finMask_both2] + Nu_0 * posteriorVarTrack[finMask_both2]
     ) / posteriorSampleSize
 
-    # go to prior for 'missing' local estimates
-    posteriorVarTrack[~noFlag] = priorTrack[~noFlag]
+    # Case: prior is missing but obs value is valid --> use the local estimate
+    # ... (shouldn't really happen, but JIC for completeness)
+    finMask_onlyObs2 = finMask_obs2 & ~finMask_prior2
+    if np.count_nonzero(finMask_onlyObs2) > 0:
+        logger.warning(
+            f"{np.count_nonzero(finMask_onlyObs2)} intervals with _only_ local variance information...using local estimate.",
+        )
+        posteriorVarTrack[finMask_onlyObs2] = obsVarTrack[finMask_onlyObs2]
+
+    # Case: Neither present --> assign NaN
+    # ... again, shouldn't happen
+    finMask_neither2 = ~finMask_obs2 & ~finMask_prior2
+    if np.count_nonzero(finMask_neither2) > 0:
+        logger.warning(
+            f"{np.count_nonzero(finMask_neither2)} intervals with _neither_ local nor prior variance information...setting as NaN (!!!)",
+        )
+        posteriorVarTrack[finMask_neither2] = np.nan
+
     if verbose:
         logger.info(
-            f"Median variance after shrinkage: {float(np.median(posteriorVarTrack)):.4f}",
+            f"Median variance after shrinkage: {float(np.nanmedian(posteriorVarTrack)):.4f}",
         )
-    return posteriorVarTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
+
+    return posteriorVarTrack.astype(np.float32, copy=False), np.sum(mask) / float(
+        len(blockMeans)
+    )
 
 
 def EB_computePriorStrength(

@@ -16,7 +16,7 @@ from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
 from numpy.random import default_rng
 from cython.parallel import prange
 from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
-from libc.stdlib cimport rand, srand, RAND_MAX
+from libc.stdlib cimport rand, srand, RAND_MAX, malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport printf
 cnp.import_array()
@@ -358,24 +358,83 @@ cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) nogil
 
 
 cdef inline double _U01() nogil:
-    # CALLERS: cDenseGlobalBaseline
+    # CALLERS: cDenseMean
 
     return (<double>rand()) / (<double>RAND_MAX + 1.0)
 
 
 cdef inline Py_ssize_t _rand_int(Py_ssize_t n) nogil:
-    # CALLERS: cDenseGlobalBaseline
+    # CALLERS: cDenseMean
 
     return <Py_ssize_t>(rand() % n)
 
 
 cdef inline Py_ssize_t _geometricDraw(double logq_) nogil:
-    # CALLERS: cDenseGlobalBaseline
+    # CALLERS: cDenseMean
 
     cdef double u = _U01()
     if u <= 0.0:
         u = 1.0 / ((<double>RAND_MAX) + 1.0)
     return <Py_ssize_t>(floor(log(u) / logq_) + 1.0)
+
+
+cdef inline double _median_F64(const double* src, Py_ssize_t n) noexcept nogil:
+    # CALLERS: `_MADSigma_F64`, `clocalBaseline`
+    # FFR: tidy this up, create F32 version and use consitently
+    # FFR: explicit malloc/free is inconsistent with the rest of codebase,
+    # ... but this may be fastest/safest for immutable inputs _REVISIT_
+
+    cdef double* buf
+    cdef Py_ssize_t k
+    cdef double upper, lower
+
+    if n <= 0:
+        return <double>(0.0)
+
+    buf = <double*>malloc(n * sizeof(double))
+    if buf == NULL:
+        return <double>(0.0)
+    memcpy(buf, src, n * sizeof(double))
+
+    k = n >> 1
+    _nthElement_F64(buf, n, k)
+    upper = buf[k]
+
+    if (n & 1) == 0:
+        _nthElement_F64(buf, n, k - 1)
+        lower = buf[k - 1]
+        upper = 0.5 * (upper + lower)
+
+    free(buf)
+    return upper
+
+
+cdef inline double _MADSigma_F64(const double* src, Py_ssize_t n, double* medOut) noexcept nogil:
+    # CALLERS: clocalBaseline
+    cdef double med
+    cdef double* dev
+    cdef Py_ssize_t i
+    cdef double mad
+
+    if n <= 0:
+        if medOut != NULL:
+            medOut[0] = <double>(0.0)
+        return <double>(0.0)
+
+    med = _median_F64(src, n)
+    if medOut != NULL:
+        medOut[0] = med
+
+    dev = <double*>malloc(n * sizeof(double))
+    if dev == NULL:
+        return <double>(0.0)
+
+    for i in range(n):
+        dev[i] = fabs(src[i] - med)
+
+    mad = _median_F64(dev, n)
+    free(dev)
+    return 1.4826 * mad
 
 
 cpdef int stepAdjustment(int value, int intervalSizeBP, int pushForward=0):
@@ -1483,8 +1542,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<double>(1.0)):
-    # NOT a full vst! used *before* trend fit for simple compression and good behavior near zero and as x --> inf
+cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(__INV_LN2_DOUBLE)):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr = np.ascontiguousarray(x, dtype=np.float64)
     cdef Py_ssize_t n = arr.shape[0]
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
@@ -1492,33 +1550,20 @@ cpdef tuple monoFunc(object x, double offset=<double>(3.0/8.0), double scale=<do
     cdef double[::1] outView = out
     cdef double offset_ = offset
     cdef double scale_ = scale
-    cdef double invln2 = __INV_LN2_DOUBLE
-    cdef double a0
-    cdef double k
-    cdef double bias
     cdef Py_ssize_t i
-    cdef double xval, u, tval
+    cdef double xval, u
 
-    # precompute affine transform constants
-    # out = k * asinh(sqrt(scale*(x+offset))) + bias
-    a0 = asinh(sqrt(scale_ * offset_))
-    k = 2.0 * invln2
-    bias = -2.0 - (log(scale_) * invln2) # precomputed once: constant shift so that x=0 --> out=0
+    # scale * log(x + offset)
+    if offset_ <= 0.0:
+        offset_ = 1.0
 
-    if scale_ == 1.0:
-        with nogil:
-            for i in range(n):
-                xval = arrView[i]
-                u = xval + offset_
-                tval = asinh(sqrt(u))
-                outView[i] = (k * tval) + (-2.0)  # log(1)=0
-    else:
-        with nogil:
-            for i in range(n):
-                xval = arrView[i]
-                u = scale_ * (xval + offset_)
-                tval = asinh(sqrt(u))
-                outView[i] = (k * tval) + bias
+    with nogil:
+        for i in range(n):
+            xval = arrView[i]
+            u = xval + offset_
+            if u <= 0.0:
+                u = offset_ # keep defined if x has negatives
+            outView[i] = scale_ * log(u)
 
     return (out, -1.0)
 
@@ -1529,11 +1574,12 @@ cpdef object cTransform(
     bint disableLocalBackground=<bint>False,
     double denseMeanQuantile=<double>0.50,
     double w_local=<double>1.0,
-    double w_global=<double>3.0,
+    double w_global=<double>2.0,
     bint verbose=<bint>False,
     uint64_t rseed=<uint64_t>0,
+    bint useAIRLS=<bint>True,
 ):
-    cdef Py_ssize_t bootBlockSize, n, i
+    cdef Py_ssize_t blockLenTarget, n, i
     cdef double wLocal, wGlobal, weightSum, invWeightSum
     cdef object momRes
     cdef cnp.ndarray outArr
@@ -1566,11 +1612,11 @@ cpdef object cTransform(
 
         raise RuntimeError("Unreachable code executed in cTransform")
 
-    bootBlockSize = <Py_ssize_t>max(min(blockLength, 10000), 3)
-    if bootBlockSize % 2 == 0:
-        bootBlockSize += 1
-        if bootBlockSize > 10000:
-            bootBlockSize -= 2
+    blockLenTarget = <Py_ssize_t>max(min(blockLength, 10000), 3)
+    if blockLenTarget % 2 == 0:
+        blockLenTarget += 1
+        if blockLenTarget > 10000:
+            blockLenTarget -= 2
 
     weightSum = wLocal + wGlobal
     if weightSum <= 0.0:
@@ -1590,18 +1636,18 @@ cpdef object cTransform(
         outArr = np.empty(n, dtype=np.float32)
         outView_F32 = outArr
         if wGlobal > 0.0:
-            globalBaselineF32 = <float>cDenseGlobalBaseline(
-                zArr_F32,
-                bootBlockSize=bootBlockSize,
-                denseMeanQuantile=denseMeanQuantile,
-                verbose=verbose,
-                seed=rseed,
+            globalBaselineF32 = <float>cDenseMean(
+            zArr_F32,
+            blockLenTarget=blockLenTarget,
+            denseMeanQuantile=denseMeanQuantile,
+            verbose=verbose,
+            seed=rseed,
             )
         else:
             globalBaselineF32 = 0.0
 
         if wLocal > 0.0:
-            localBaseArr_F32 = clocalBaseline(zArr_F32, <int>bootBlockSize)
+            localBaseArr_F32 = clocalBaseline(zArr_F32, <int>blockLenTarget, useAIRLS=useAIRLS)
             localBaseView_F32 = localBaseArr_F32
 
         wLocalF32 = <float>wLocal
@@ -1624,11 +1670,10 @@ cpdef object cTransform(
     n = zArr_F64.shape[0]
     outArr = np.empty(n, dtype=np.float64)
     outView_F64 = outArr
-
     if wGlobal > 0.0:
-        globalBaselineF64 = <double>cDenseGlobalBaseline(
+        globalBaselineF64 = <double>cDenseMean(
             zArr_F64,
-            bootBlockSize=bootBlockSize,
+            blockLenTarget=blockLenTarget,
             denseMeanQuantile=denseMeanQuantile,
             verbose=verbose,
             seed=rseed,
@@ -1637,7 +1682,7 @@ cpdef object cTransform(
         globalBaselineF64 = 0.0
 
     if wLocal > 0.0:
-        localBaseArr_F64 = clocalBaseline(zArr_F64, <int>bootBlockSize)
+        localBaseArr_F64 = clocalBaseline(zArr_F64, <int>blockLenTarget, useAIRLS=useAIRLS)
         localBaseView_F64 = localBaseArr_F64
 
     wLocalF64 = <double>wLocal
@@ -2336,7 +2381,7 @@ cdef double cOtsu(
     if (not isfinite(lower_)) or (not isfinite(higher_)) or higher_ <= lower_:
         return NAN
 
-    # Freedman–Diaconis bin counts
+    # Freedman-Diaconis bin counts
     q25 = <double>np.quantile(finiteValues, 0.25)
     q75 = <double>np.quantile(finiteValues, 0.75)
     iqr = q75 - q25
@@ -2359,13 +2404,13 @@ cdef double cOtsu(
             m_d = <double>mInRange
             fdBinWidth = (2.0 * iqr) / pow(m_d, 1.0 / 3.0)
             if (not isfinite(fdBinWidth)) or fdBinWidth <= 0.0:
-                numBins = 512
+                numBins = 256
             else:
                 fdBins = <Py_ssize_t>ceil(range_ / fdBinWidth)
                 if fdBins < 64:
                     numBins = 64
-                elif fdBins > 512:
-                    numBins = 512
+                elif fdBins > 256:
+                    numBins = 256
                 else:
                     numBins = fdBins
 
@@ -2435,67 +2480,167 @@ cdef double cOtsu(
     return lower_ + ((<double>bestBinIdx) + 0.5) * binWidth
 
 
-cpdef double cDenseGlobalBaseline(
+cpdef double cDenseMean(
     object x,
-    Py_ssize_t bootBlockSize=250,
-    Py_ssize_t numBoots=1000,
+    Py_ssize_t blockLenTarget=250,
+    Py_ssize_t numReplicates=1000,
     double denseMeanQuantile=<double>0.50,
     uint64_t seed=0,
-    double sparseDenseSeparation=2.0, # raise logistic weights to this power for greater (>1.0) or lesser (<1.0) separation
+    double sparseDenseSeparation=3.0,
     bint verbose = <bint>False,
 ):
+    r"""Estimate a robust **dense-conditioned block mean** from a contig-wide HTS signal measurement track.
 
+    Denote a signal over fixed-length genomic intervals,
+
+    .. math::
+
+    \mathbf{x} = \{x_{[i]}\}_{i=1}^{n}.
+
+    **Aim**: Estimate a scalar baseline :math:`\widehat{\mu}_{\texttt{dense}}` summarizing the typical signal level in regions that are non-sparse (*dense*),
+    at a characteristic scale set by ``blockLenTarget``.
+
+    A threshold to characterize the dense regime cutoff, :math:`t`, is calculated empirically using Otsu's method. Concretely, :math:`t` maximizes the between-class variance
+    after removing extreme values and smoothing for regularity.
+
+    .. math::
+
+    z_{[i]} = \mathbb{I}\{x_{[i]} \ge t\}.
+
+    The global dense rate is then computed as:
+
+    .. math::
+
+    \rho_0 = \frac{1}{n}\sum_{i=1}^{n} z_{[i]}.
+
+    For a contiguous genomic block :math:`B` (a start index and a length), define its mean signal and dense rate:
+
+    .. math::
+
+    \mu(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} x_{[i]}, \qquad
+    \rho(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} z_{[i]}.
+
+    Blocks are sampled from a proposal distribution :math:`q(B)` given by a uniform start index and a truncated geometric block length
+    with mean approximately ``blockLenTarget``. We bias toward dense blocks with a smooth gate:
+
+    .. math::
+
+    g(B) = \sigma\left(s\,(\rho(B) - \rho_0)\right), \qquad
+    \sigma(u) = \frac{1}{1 + \exp(-u)}.
+
+    Define an importance weight:
+
+    .. math::
+
+    w(B) = \left(g(B) + \varepsilon\right)^{\gamma} + \varepsilon, \qquad
+    \gamma = \texttt{sparseDenseSeparation}.
+
+    This induces a "dense-biased" block distribution, though we don't have the scaling constant:
+
+    .. math::
+
+    \pi(B) \propto q(B)\,w(B).
+
+    The target quantity is the dense-biased block mean:
+
+    .. math::
+
+    \theta = \mathbb{E}_{B \sim \pi}[\mu(B)]
+            = \frac{\mathbb{E}_{B \sim q}[w(B)\,\mu(B)]}{\mathbb{E}_{B \sim q}[w(B)]}.
+
+    We approximate :math:`\theta` via *self-normalized* importance sampling (SNIS). For each replicate, 'draw' :math:`B_1,\ldots,B_m \sim q` and compute:
+
+    .. math::
+
+    \widehat{\theta}
+    = \frac{\sum_{j=1}^{m} w(B_j)\,\mu(B_j)}{\sum_{j=1}^{m} w(B_j)}.
+
+    Finally, we return a quantile (default: median) over ``numReplicates`` independent SNIS replicates:
+
+    .. math::
+
+    \widehat{\mu}_{\texttt{dense}} =
+    \texttt{Quantile}\left(\widehat{\theta}_1, \ldots, \widehat{\theta}_R;\; q\right),
+    \qquad q = \texttt{denseMeanQuantile}.
+
+    :param x: Signal measurements (after transformation) over fixed-width genomic intervals.
+    :type x: array-like
+    :param blockLenTarget: Sets the expected value of the block-length sampling distribution (geometric) *before* truncation.
+        Units: genomic intervals (e.g., a value of 100 corresponds to 5kb given 50bp intervals).
+    :type blockLenTarget: int
+    :param numReplicates: Number of Monte Carlo replicates
+    :type numReplicates: int
+    :param denseMeanQuantile: Quantile in :math:`[0,1]` used to aggregate replicate SNIS estimates. This argument is
+        exposed in the default implementation. To obtain conservatively biased signal estimates for special cases,
+        users may consider raising (toward 1.0) or lowering (toward 0.0) this value.
+    :type denseMeanQuantile: float
+    :param seed: Random seed for reproducibility
+    :type seed: int
+    :param sparseDenseSeparation: Controls bias toward dense blocks via the importance weight exponent :math:`\gamma`.
+        Larger values increase the bias toward dense blocks.
+    :type sparseDenseSeparation: float
+    :param verbose: If True, prints diagnostic information (e.g., threshold and final baseline).
+    :type verbose: bool
+    :return: Dense-conditioned baseline :math:`\widehat{\mu}_{\texttt{dense}}`.
+    :rtype: float
+
+    """
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
     cdef cnp.float32_t[::1] rawView
     cdef cnp.float32_t[::1] valuesView
     cdef Py_ssize_t numValues
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixSums
     cdef cnp.float64_t[::1] prefixView
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] bootstrapMeans
-    cdef cnp.float64_t[::1] bootView
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] SNISEstimates
+    cdef cnp.float64_t[::1] SNISView
     cdef double p, logq_
-    cdef Py_ssize_t i, b, j
+    cdef Py_ssize_t i, r, j
     cdef Py_ssize_t L, start, end
-    cdef double lower__, upper__
     cdef double upperBound
-    cdef Py_ssize_t blockSizeUBound
-    cdef Py_ssize_t blockSizeLBound = <Py_ssize_t>5
+    cdef Py_ssize_t blockLenUpperBound
+    cdef Py_ssize_t blockLenLowerBound = <Py_ssize_t>5
     cdef bint useGeom
-    cdef bint trackVerbose = verbose
-    cdef long acceptCt = <long>0
-    cdef long proposalCt = <long>0
-    cdef double scale
-
     cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] posPrefixCounts
     cdef long[::1] posPrefixView
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] finitePrefixCounts
+    cdef long[::1] finitePrefixView
     cdef long totPos
+    cdef long totFinite
     cdef long posInBlock
+    cdef long finiteInBlock
     cdef double globalRate
-    cdef double steep
-    cdef double epsilonWeight = 1e-12
-    cdef double logisticInput, blockWeight
+    cdef double gateSteep
+    cdef double eps = 1e-12
+
     cdef double blockSum, blockMean, blockPosRate
-    cdef double u
-    cdef double meanSum
-    cdef Py_ssize_t numBlocksPerBoot
-    cdef Py_ssize_t maxBlocksPerBoot = <Py_ssize_t>128
+    cdef double denseDiff, gateInput, gate, importanceWeight
+    cdef double weightedValueSum, weightTotal
 
-    cdef Py_ssize_t fixedBlockLen, numSlidingBlocks
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] slidingPosRates
-    cdef cnp.float64_t[::1] slidingView
-    cdef double q25, q75, iqr, transitionHalfWidth
-    cdef double minTransitionHalfWidth = 0.05
-    cdef long k
+    # multiple blocks for each rep. (reduces monte-carlo variance)
+    cdef Py_ssize_t blocksPerReplicate
+    cdef Py_ssize_t maxBlocksPerReplicate = <Py_ssize_t>128
 
-    # Otsu thresholding: data-driven for the dense indicator
+    # step function's transition/steepness is given by excess above expectation, SE
+    cdef double avgBlockLen
+    cdef double blockRateVar, blockRateSE
+    cdef double blockPosRateSeApprox
+    cdef double seFloor = 1e-12
+    cdef double gateSteepMin = 10.0
+    cdef double gateSteepMax = 50.0
+    cdef double gateSteepAtTwoSigma = 25.0
+
+    # Empirical threshold via clipped/smoothed sweep: Otsu 'dense' indicator obtained by
+    # ... maximizing between-split variance. If Otsu fails (e.g., constant signal), goto
+    # ... a IQR-based threshold.
     cdef double posThreshold
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rawFinite
     cdef double medThr, q25Thr, q75Thr, iqrThr
     cdef double thrEps = 1.0e-8
 
-    if bootBlockSize <= 0:
-        bootBlockSize = 1
-    if numBoots <= 0:
+
+    if blockLenTarget <= 0:
+        blockLenTarget = 1
+    if numReplicates <= 0:
         return 0.0
 
     if denseMeanQuantile <= 0.0:
@@ -2508,7 +2653,6 @@ cpdef double cDenseGlobalBaseline(
 
     posThreshold = cOtsu(raw, loQuantile=0.001, hiQuantile=0.999)
     if not isfinite(posThreshold):
-        # !in case Otsu fails!
         rawFinite = raw[np.isfinite(raw)].astype(np.float64, copy=False)
         if rawFinite.size == 0:
             posThreshold = 1.0e-2
@@ -2525,8 +2669,9 @@ cpdef double cDenseGlobalBaseline(
 
             if not isfinite(posThreshold):
                 posThreshold = fmax(medThr, 1.0e-2)
+
     if verbose:
-        printf(b"cconsenrich.cDenseGlobalBaseline: (Otsu) sparse-dense indicator=%.6f\n", posThreshold)
+        printf(b"cconsenrich.cDenseMean: (Otsu) sparse-dense indicator=%.6f\n", posThreshold)
 
     values = raw
     valuesView = values
@@ -2535,25 +2680,23 @@ cpdef double cDenseGlobalBaseline(
     prefixView = prefixSums
     posPrefixCounts = np.empty(numValues + 1, dtype=np.int64)
     posPrefixView = posPrefixCounts
-    bootstrapMeans = np.empty(numBoots, dtype=np.float64)
-    bootView = bootstrapMeans
-    blockSizeUBound = <Py_ssize_t>(5 * bootBlockSize)
+    finitePrefixCounts = np.empty(numValues + 1, dtype=np.int64)
+    finitePrefixView = finitePrefixCounts
+    SNISEstimates = np.empty(numReplicates, dtype=np.float64)
+    SNISView = SNISEstimates
+    blockLenUpperBound = <Py_ssize_t>(5 * blockLenTarget)
 
-    # number of accepted blocks per bootstrap replicate
-    # (avoiding strict/full stitched coverage)
-    if bootBlockSize > 0:
-        numBlocksPerBoot = numValues // bootBlockSize
-    else:
-        numBlocksPerBoot = numValues
-    if numBlocksPerBoot < 1:
-        numBlocksPerBoot = 1
-    if numBlocksPerBoot > maxBlocksPerBoot:
-        numBlocksPerBoot = maxBlocksPerBoot
+    blocksPerReplicate = <Py_ssize_t>(
+        fmax((sqrt(<double>(numValues) / <double>(blockLenTarget))), 32.0)
+    )
+    blocksPerReplicate = <Py_ssize_t>(
+        fmin(<double>blocksPerReplicate, <double>maxBlocksPerReplicate)
+    )
 
-    # length L ~ Geometric(p) [truncated to [blockSizeLBound, blockSizeUBound]!]
-    useGeom = bootBlockSize > 1
+    # length L ~ Geometric(p) [truncated to [blockLenLowerBound, blockLenUpperBound]!]
+    useGeom = blockLenTarget > 1
     if useGeom:
-        p = 1.0 / (<double>bootBlockSize)
+        p = 1.0 / (<double>blockLenTarget)
         logq_ = log(1.0 - p)
     else:
         logq_ = 0.0
@@ -2563,16 +2706,26 @@ cpdef double cDenseGlobalBaseline(
     # ------------------------------------------------------
 
     with nogil:
-        # first pass through to build prefix sums and count zeros
+        # first pass: build prefix sums and values for fast block means and rates
         prefixView[0] = 0.0
         posPrefixView[0] = 0
+        finitePrefixView[0] = 0
         for i in range(numValues):
-            prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
-            # determines the step function (logistic) defining sampling weights for 'dense' blocks
-            posPrefixView[i + 1] = posPrefixView[i] + (<long>(isfinite(rawView[i]) and rawView[i] >= posThreshold))
+            if isfinite(rawView[i]):
+                prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
+                finitePrefixView[i + 1] = finitePrefixView[i] + 1
+                posPrefixView[i + 1] = posPrefixView[i] + (<long>(rawView[i] >= posThreshold))
+            else:
+                prefixView[i + 1] = prefixView[i]
+                finitePrefixView[i + 1] = finitePrefixView[i]
+                posPrefixView[i + 1] = posPrefixView[i]
 
     totPos = posPrefixView[numValues]
-    globalRate = (<double>totPos) / (<double>numValues) if numValues > 0 else 0.5
+    totFinite = finitePrefixView[numValues]
+    if totFinite <= 0:
+        return 0.0
+
+    globalRate = (<double>totPos) / (<double>totFinite)
     if not isfinite(globalRate):
         globalRate = 0.5
     if globalRate < 0.0:
@@ -2580,103 +2733,94 @@ cpdef double cDenseGlobalBaseline(
     elif globalRate > 1.0:
         globalRate = 1.0
 
-    fixedBlockLen = bootBlockSize
-    if fixedBlockLen <= 0:
-        fixedBlockLen = 1
-    if fixedBlockLen > numValues:
-        fixedBlockLen = numValues
-    numSlidingBlocks = numValues - fixedBlockLen + 1
-    if numSlidingBlocks <= 0:
-        steep = 10.0
-    else:
-        slidingPosRates = np.empty(numSlidingBlocks, dtype=np.float64)
-        slidingView = slidingPosRates
+    #  ~SE~ of blockPosRate given binomial(p=globalRate) at expected block length
+    # ... this partially determines the steepness of the logistic 'gate' function and
+    # ... influences the weighting of dense vs sparse blocks
+    avgBlockLen = fmax(1.0, <double>blockLenTarget)
+    blockRateVar = (globalRate * (1.0 - globalRate)) / avgBlockLen
+    if blockRateVar < seFloor:
+        blockRateVar = seFloor
+    blockRateSE= sqrt(blockRateVar)
 
-        with nogil:
-            for i in range(numSlidingBlocks):
-                k = posPrefixView[i + fixedBlockLen] - posPrefixView[i]
-                slidingView[i] = (<double>k) / (<double>fixedBlockLen)
-
-        q25 = <double>np.quantile(slidingPosRates, 0.25)
-        q75 = <double>np.quantile(slidingPosRates, 0.75)
-        iqr = q75 - q25
-        transitionHalfWidth = 0.5 * iqr
-        if not isfinite(transitionHalfWidth) or transitionHalfWidth < minTransitionHalfWidth:
-            transitionHalfWidth = minTransitionHalfWidth
-        # separation between 'states' is moderated by the ~variance~ (IQR) of observed positive rates...
-        #   wider IQR --> less steep since the two-state biomodal notion is weak
-        #   narrower IQR --> steeper since the two-state biomodal notion is strong
-        steep = fmax(2.10 / transitionHalfWidth, 10.0)
-        steep = fmin(steep, 50.0)
-    if not isfinite(steep) or steep <= 0.0:
-        steep = 10.0
+    gateSteep = gateSteepAtTwoSigma / blockRateSE
+    if gateSteep < gateSteepMin:
+        gateSteep = gateSteepMin
+    elif gateSteep > gateSteepMax:
+        gateSteep = gateSteepMax
+    if not isfinite(gateSteep) or gateSteep <= 0.0:
+        gateSteep = 10.0
 
     with nogil:
-        for b in range(numBoots):
+        for r in range(numReplicates):
 
-            # average several dense-biased block means
-            meanSum = 0.0
+            # SNIS estimate: [sum w * value] / [sum w]
+            weightedValueSum = 0.0
+            weightTotal = 0.0
 
-            for j in range(numBlocksPerBoot):
+            for j in range(blocksPerReplicate):
 
-                # accept/reject: oversample dense blocks
-                while True:
-                    # pick a random start index and block length
-                    if useGeom:
-                        # block length ~ TruncatedGeometric(p) on [blockSizeLBound, blockSizeUBound]
-                        L = _geometricDraw(logq_)
-                        if L < blockSizeLBound:
-                            L = blockSizeLBound
-                        elif L > blockSizeUBound:
-                            L = blockSizeUBound
-                    else:
-                        L = 1
+                # Proposal: sample a block (start, L) from q
+                if useGeom:
+                    # block length ~ TruncatedGeometric(p) over [blockLenLowerBound, blockLenUpperBound]
+                    L = _geometricDraw(logq_)
+                    if L < blockLenLowerBound:
+                        L = blockLenLowerBound
+                    elif L > blockLenUpperBound:
+                        L = blockLenUpperBound
+                else:
+                    L = 1
 
-                    if L > numValues:
-                        L = numValues
-                    if L <= 0:
-                        L = 1
+                if L > numValues:
+                    L = numValues
+                if L <= 0:
+                    L = 1
 
-                    start = _rand_int(numValues)
-                    end = start + L
-                    if end <= numValues:
-                        # No wraparound: sum values[start:end].
-                        blockSum = prefixView[end] - prefixView[start]
-                        posInBlock = posPrefixView[end] - posPrefixView[start]
-                    else:
-                        # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
-                        end -= numValues
-                        blockSum = (prefixView[numValues] - prefixView[start]) + prefixView[end]
-                        posInBlock = (posPrefixView[numValues] - posPrefixView[start]) + posPrefixView[end]
+                start = _rand_int(numValues)
+                end = start + L
+                if end <= numValues:
+                    # No wraparound: sum values[start:end].
+                    blockSum = prefixView[end] - prefixView[start]
+                    posInBlock = posPrefixView[end] - posPrefixView[start]
+                    finiteInBlock = finitePrefixView[end] - finitePrefixView[start]
+                else:
+                    # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
+                    # FFR: this is only to avoid issues at bounds and was previously important when building
+                    # ... full-length replicates. Truncation might be easier in the future
+                    end -= numValues
+                    blockSum = (prefixView[numValues] - prefixView[start]) + prefixView[end]
+                    posInBlock = (posPrefixView[numValues] - posPrefixView[start]) + posPrefixView[end]
+                    finiteInBlock = (finitePrefixView[numValues] - finitePrefixView[start]) + finitePrefixView[end]
 
-                    # assign weights to favor the dense state
-                    blockMean = blockSum / (<double>L)
-                    blockPosRate = (<double>posInBlock) / (<double>L)
+                if finiteInBlock <= 0:
+                    continue
 
-                    # NOTE: here, weight separation is increased wrt the block's excess `posInBlock` above global rate
-                    # ... NOT wrt the block mean itself, since the mean can be noisy
-                    logisticInput = steep * (blockPosRate - globalRate)
-                    if logisticInput >= 0.0:
-                        blockWeight = 1.0 / (1.0 + exp(-logisticInput))
-                    else:
-                        blockWeight = exp(logisticInput) / (1.0 + exp(logisticInput))
+                blockMean = blockSum / (<double>finiteInBlock)
+                blockPosRate = (<double>posInBlock) / (<double>finiteInBlock)
 
-                    blockWeight += epsilonWeight
-                    blockWeight = pow(blockWeight, sparseDenseSeparation)
-                    if blockWeight > 1.0:
-                        blockWeight = 1.0
-                    blockWeight += epsilonWeight
+                # Weight w(block):
+                # ... denseDiff = blockPosRate - globalRate
+                # ... gate = 1 / (1 + exp(-gateSteep * denseDiff))
+                # ... w = (gate + eps) ** sparseDenseSeparation + eps
+                denseDiff = blockPosRate - globalRate
+                gateInput = gateSteep * denseDiff
+                if gateInput >= 0.0:
+                    gate = 1.0 / (1.0 + exp(-gateInput))
+                else:
+                    gate = exp(gateInput) / (1.0 + exp(gateInput))
 
-                    u = (<double>rand()) / ((<double>RAND_MAX) + 1.0)
-                    if u <= blockWeight:
-                        meanSum += blockMean
-                        break
+                importanceWeight = gate + eps
+                importanceWeight = pow(importanceWeight, sparseDenseSeparation)
+                importanceWeight = importanceWeight + eps
 
-            bootView[b] = meanSum / (<double>numBlocksPerBoot) if numBlocksPerBoot > 0 else NAN
+                weightTotal += importanceWeight
+                weightedValueSum += importanceWeight * blockMean
 
-    upperBound = <double>np.quantile(bootstrapMeans, denseMeanQuantile)
+            SNISView[r] = (weightedValueSum / weightTotal) if weightTotal > 0.0 else NAN
+
+    # nan-robust quantile
+    upperBound = <double>np.nanquantile(SNISEstimates, denseMeanQuantile)
     if verbose:
-        printf(b"cconsenrich.cDenseGlobalBaseline: Dense baseline = %.4f\n", upperBound)
+        printf(b"cconsenrich.cDenseMean: Dense baseline = %.4f\n", upperBound)
     return upperBound
 
 
@@ -3024,6 +3168,7 @@ cpdef tuple cscaleStateCovar(
                 if totalVariance < (<double>clipSmall):
                     totalVariance = <double>clipSmall
                 invVar = 1.0 / totalVariance
+                # makes sense for the innovations, not so much post-smooth
                 studentizedResidual = residual*sqrt(invVar)
                 sqRes = studentizedResidual*studentizedResidual
                 if sqRes > (<double>sqResClip):
@@ -3090,7 +3235,7 @@ cpdef tuple cscaleStateCovar(
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
-    bint centerGeoMean=<bint>(True),
+    bint centerGeoMean=<bint>(True), # FFR: in fact, we use the _MEDIAN_ for centering!, change in next 0.x+1.0 release
 ):
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
     cdef Py_ssize_t m = chromMat_.shape[0]
@@ -3123,9 +3268,9 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     minSF = 0.2
     maxSF = 5.0
 
-    # reference uses geometric mean over *positive counts*, less than 75% nonzero counts --> NAN (ignored later)
+    # reference uses geometric mean over *positive counts*, less than x% nonzero counts --> NAN (ignored later)
     validCols = 0
-    cdef Py_ssize_t requiredNonZeroSamples_ssize = <Py_ssize_t>(0.75 * (<double>m) + (1.0 - 1e-8))
+    cdef Py_ssize_t requiredNonZeroSamples_ssize = <Py_ssize_t>(1.0 * (<double>m) + (1.0 - 1e-8)) # 100% for consistency w/ other implementations
     with nogil:
         for i in range(n):
             sumLog = 0.0
@@ -3139,12 +3284,15 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
             if not isnan(refLogView[i]):
                 validCols += 1
 
-    # ensure enough usable columns
-    if validCols < 100:
+    # ensure there are enough usable columns for the SF calculation
+    if validCols < fmax(fmin(<double>(500.0), np.sqrt(<double>(n*0.5))), 10.0):
         raise ValueError(
-            f"insufficient valid/dense columns for `countingParams.normMethod: SF`, (need >= 100, got {validCols})... "
+            f"insufficient valid/dense columns for `countingParams.normMethod: SF`, (need >= 500, got {validCols})... "
             f"If this is expected, consider using `countingParams.normMethod: EGS` or RPKM instead."
         )
+
+    # FFR: in a future version, trim left,right tails until we have at most 100k cols
+    printf(b"cconsenrich.cSF: using %zd valid/dense columns for scale factor calculation.\n", validCols)
 
     with nogil:
         for s in range(m):
@@ -3176,11 +3324,12 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
 
                 scaleFactorsView[s] = exp(medLog)
 
+            # note that inflated/deflated SFs should be fine after clipping here given later global/local corrections and UQ
             if scaleFactorsView[s] < minSF:
-                printf(b"Warning: sample scale factor %.4f below min %.4f, clamping.\n", scaleFactorsView[s], minSF)
+                printf(b"Warning: sample scale factor %.4f below min %.4f, clipping to lower.\n", scaleFactorsView[s], minSF)
                 scaleFactorsView[s] = minSF
             elif scaleFactorsView[s] > maxSF:
-                printf(b"Warning: sample scale factor %.4f above max %.4f, clamping.\n", scaleFactorsView[s], maxSF)
+                printf(b"Warning: sample scale factor %.4f above max %.4f, clipping to upper.\n", scaleFactorsView[s], maxSF)
                 scaleFactorsView[s] = maxSF
 
         if centerGeoMean and m > 0:
@@ -3205,21 +3354,20 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
                 low = logSFBufView[kLow]
                 centerLog = 0.5 * (low + high)
 
-            geoMean = exp(centerLog)
+            geoMean = exp(centerLog) #  _MEDIAN_
             for s in range(m):
                 # center around ~~geometric median~~
                 scaleFactorsView[s] /= geoMean
 
                 # make sure bounds still hold
                 if scaleFactorsView[s] < minSF:
-                    printf(b"Warning: sample scale factor %.4f below min %.4f after centering, clamping.\n", scaleFactorsView[s], minSF)
+                    printf(b"Warning: sample scale factor %.4f below min %.4f after centering, clipping to lower.\n", scaleFactorsView[s], minSF)
                     scaleFactorsView[s] = minSF
                 elif scaleFactorsView[s] > maxSF:
-                    printf(b"Warning: sample scale factor %.4f above max %.4f after centering, clamping.\n", scaleFactorsView[s], maxSF)
+                    printf(b"Warning: sample scale factor %.4f above max %.4f after centering, clipping to upper.\n", scaleFactorsView[s], maxSF)
                     scaleFactorsView[s] = maxSF
 
     return 1/scaleFactors
-
 
 
 cdef void solveSOD_LDL_F64(
@@ -3383,7 +3531,325 @@ cdef void solveSOD_LDL_F32(
         x_F32[i] = (z_tmp_F32[i] - t1 - t2)
 
 
-cpdef cnp.ndarray splineBaselineMasked_F64(cnp.ndarray in_, cnp.ndarray fitMaskIn, double lambda_F64):
+cpdef cnp.ndarray locBaselineWeighted_F64(cnp.ndarray in_, cnp.ndarray wIn, double lambda_F64):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] y
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] b
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] A0
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] A1
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] A2
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD0
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD1
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD2
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] D
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] L1
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] L2
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] yTMP
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] zTMP
+
+    cdef double[::1] y_F64
+    cdef double[::1] w_F64
+    cdef double[::1] b_F64
+    cdef double[::1] A0_F64
+    cdef double[::1] A1_F64
+    cdef double[::1] A2_F64
+    cdef double[::1] DTD0_F64
+    cdef double[::1] DTD1_F64
+    cdef double[::1] DTD2_F64
+    cdef double[::1] D_F64
+    cdef double[::1] L1_F64
+    cdef double[::1] L2_F64
+    cdef double[::1] y_tmp_F64
+    cdef double[::1] z_tmp_F64
+
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+    cdef double wi
+
+    y = np.ascontiguousarray(in_, dtype=np.float64)
+    wArr = np.ascontiguousarray(wIn, dtype=np.float64)
+    y_F64 = y
+    w_F64 = wArr
+    n = y_F64.shape[0]
+    if n < 3:
+        return y.copy()
+    if w_F64.shape[0] != n:
+        raise ValueError("weight length mismatch")
+
+    b = np.empty(n, dtype=np.float64)
+    A0 = np.empty(n, dtype=np.float64)
+    A1 = np.empty(n - 1, dtype=np.float64)
+    A2 = np.empty(n - 2, dtype=np.float64)
+    DTD0 = np.empty(n, dtype=np.float64)
+    DTD1 = np.empty(n - 1, dtype=np.float64)
+    DTD2 = np.empty(n - 2, dtype=np.float64)
+    D = np.empty(n, dtype=np.float64)
+    L1 = np.empty(n - 1, dtype=np.float64)
+    L2 = np.empty(n - 2, dtype=np.float64)
+    yTMP = np.empty(n, dtype=np.float64)
+    zTMP = np.empty(n, dtype=np.float64)
+
+    b_F64 = b
+    A0_F64 = A0
+    A1_F64 = A1
+    A2_F64 = A2
+    DTD0_F64 = DTD0
+    DTD1_F64 = DTD1
+    DTD2_F64 = DTD2
+    D_F64 = D
+    L1_F64 = L1
+    L2_F64 = L2
+    y_tmp_F64 = yTMP
+    z_tmp_F64 = zTMP
+
+    with nogil:
+        # D^T D
+        DTD0_F64[0] = 1.0
+        DTD0_F64[1] = 5.0
+        for i in range(2, n - 2):
+            DTD0_F64[i] = 6.0
+        DTD0_F64[n - 2] = 5.0
+        DTD0_F64[n - 1] = 1.0
+
+        DTD1_F64[0] = -2.0
+        for i in range(1, n - 2):
+            DTD1_F64[i] = -4.0
+        DTD1_F64[n - 2] = -2.0
+
+        for i in range(n - 2):
+            DTD2_F64[i] = 1.0
+
+        # (W + lam D^T D)b = Wy
+        for i in range(n):
+            wi = w_F64[i]
+            if wi < 0.0:
+                wi = 0.0
+            A0_F64[i] = wi + lambda_F64 * DTD0_F64[i]
+            b_F64[i] = wi * y_F64[i]
+        for i in range(n - 1):
+            A1_F64[i] = lambda_F64 * DTD1_F64[i]
+        for i in range(n - 2):
+            A2_F64[i] = lambda_F64 * DTD2_F64[i]
+
+        solveSOD_LDL_F64(A0_F64, A1_F64, A2_F64, b_F64, b_F64,
+                         D_F64, L1_F64, L2_F64, y_tmp_F64, z_tmp_F64)
+
+    return b
+
+
+cpdef cnp.ndarray locBaselineWeighted_F32(cnp.ndarray in_, cnp.ndarray wIn, float lambda_F32):
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] y
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] wArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] b
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] A0
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] A1
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] A2
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD0
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD1
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD2
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] D
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] L1
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] L2
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] yTMP
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] zTMP
+
+    cdef float[::1] y_F32
+    cdef float[::1] w_F32
+    cdef float[::1] b_F32
+    cdef float[::1] A0_F32
+    cdef float[::1] A1_F32
+    cdef float[::1] A2_F32
+    cdef float[::1] DTD0_F32
+    cdef float[::1] DTD1_F32
+    cdef float[::1] DTD2_F32
+    cdef float[::1] D_F32
+    cdef float[::1] L1_F32
+    cdef float[::1] L2_F32
+    cdef float[::1] y_tmp_F32
+    cdef float[::1] z_tmp_F32
+
+    cdef Py_ssize_t n
+    cdef Py_ssize_t i
+    cdef float wi
+
+    y = np.ascontiguousarray(in_, dtype=np.float32)
+    wArr = np.ascontiguousarray(wIn, dtype=np.float32)
+    y_F32 = y
+    w_F32 = wArr
+    n = y_F32.shape[0]
+    if n < 3:
+        return y.copy()
+    if w_F32.shape[0] != n:
+        raise ValueError("weight length mismatch")
+
+    b = np.empty(n, dtype=np.float32)
+    A0 = np.empty(n, dtype=np.float32)
+    A1 = np.empty(n - 1, dtype=np.float32)
+    A2 = np.empty(n - 2, dtype=np.float32)
+    DTD0 = np.empty(n, dtype=np.float32)
+    DTD1 = np.empty(n - 1, dtype=np.float32)
+    DTD2 = np.empty(n - 2, dtype=np.float32)
+    D = np.empty(n, dtype=np.float32)
+    L1 = np.empty(n - 1, dtype=np.float32)
+    L2 = np.empty(n - 2, dtype=np.float32)
+    yTMP = np.empty(n, dtype=np.float32)
+    zTMP = np.empty(n, dtype=np.float32)
+
+    b_F32 = b
+    A0_F32 = A0
+    A1_F32 = A1
+    A2_F32 = A2
+    DTD0_F32 = DTD0
+    DTD1_F32 = DTD1
+    DTD2_F32 = DTD2
+    D_F32 = D
+    L1_F32 = L1
+    L2_F32 = L2
+    y_tmp_F32 = yTMP
+    z_tmp_F32 = zTMP
+
+    with nogil:
+        # D^T D
+        DTD0_F32[0] = 1.0
+        DTD0_F32[1] = 5.0
+        for i in range(2, n - 2):
+            DTD0_F32[i] = 6.0
+        DTD0_F32[n - 2] = 5.0
+        DTD0_F32[n - 1] = 1.0
+
+        DTD1_F32[0] = -2.0
+        for i in range(1, n - 2):
+            DTD1_F32[i] = -4.0
+        DTD1_F32[n - 2] = -2.0
+
+        for i in range(n - 2):
+            DTD2_F32[i] = 1.0
+
+        # (W + lam D^T D)b = Wy
+        for i in range(n):
+            wi = w_F32[i]
+            if wi < 0.0:
+                wi = 0.0
+            A0_F32[i] = wi + lambda_F32 * DTD0_F32[i]
+            b_F32[i] = wi * y_F32[i]
+        for i in range(n - 1):
+            A1_F32[i] = lambda_F32 * DTD1_F32[i]
+        for i in range(n - 2):
+            A2_F32[i] = lambda_F32 * DTD2_F32[i]
+
+        solveSOD_LDL_F32(A0_F32, A1_F32, A2_F32, b_F32, b_F32,
+                         D_F32, L1_F32, L2_F32, y_tmp_F32, z_tmp_F32)
+
+    return b
+
+
+cpdef cnp.ndarray locBaselineCrossfit2w_F64(cnp.ndarray yIn, cnp.ndarray wIn, double lambda_F64):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] y
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] w
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] wEven
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] wOdd
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] bEven
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] bOdd
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] b
+    cdef Py_ssize_t n, i
+
+    cdef double[::1] wView
+    cdef double[::1] wEvenView
+    cdef double[::1] wOddView
+    cdef double[::1] bView
+    cdef double[::1] bEvenView
+    cdef double[::1] bOddView
+
+    y = np.ascontiguousarray(yIn, dtype=np.float64)
+    w = np.ascontiguousarray(wIn, dtype=np.float64)
+    n = y.shape[0]
+    if n < 3:
+        return y.copy()
+    if w.shape[0] != n:
+        raise ValueError("weight length mismatch")
+
+    wEven = np.empty(n, dtype=np.float64)
+    wOdd  = np.empty(n, dtype=np.float64)
+    wView = w
+    wEvenView = wEven
+    wOddView = wOdd
+
+    with nogil:
+        for i in range(n):
+            if (i & 1) == 0:
+                wEvenView[i] = wView[i]
+                wOddView[i]  = 0.0
+            else:
+                wEvenView[i] = 0.0
+                wOddView[i]  = wView[i]
+
+    bEven = locBaselineWeighted_F64(y, wEven, lambda_F64)
+    bOdd  = locBaselineWeighted_F64(y, wOdd,  lambda_F64)
+
+    b = np.empty(n, dtype=np.float64)
+    bView = b
+    bEvenView = bEven
+    bOddView  = bOdd
+    with nogil:
+        for i in range(n):
+            bView[i] = 0.5 * (bEvenView[i] + bOddView[i])
+    return b
+
+
+cpdef cnp.ndarray locBaselineCrossfit2w_F32(cnp.ndarray yIn, cnp.ndarray wIn, float lambda_F32):
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] y
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] w
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] wEven
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] wOdd
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] bEven
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] bOdd
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] b
+    cdef Py_ssize_t n, i
+
+    cdef float[::1] wView
+    cdef float[::1] wEvenView
+    cdef float[::1] wOddView
+    cdef float[::1] bView
+    cdef float[::1] bEvenView
+    cdef float[::1] bOddView
+
+    y = np.ascontiguousarray(yIn, dtype=np.float32)
+    w = np.ascontiguousarray(wIn, dtype=np.float32)
+    n = y.shape[0]
+    if n < 3:
+        return y.copy()
+    if w.shape[0] != n:
+        raise ValueError("weight length mismatch")
+
+    wEven = np.empty(n, dtype=np.float32)
+    wOdd  = np.empty(n, dtype=np.float32)
+    wView = w
+    wEvenView = wEven
+    wOddView = wOdd
+
+    with nogil:
+        for i in range(n):
+            if (i & 1) == 0:
+                wEvenView[i] = wView[i]
+                wOddView[i]  = 0.0
+            else:
+                wEvenView[i] = 0.0
+                wOddView[i]  = wView[i]
+
+    bEven = locBaselineWeighted_F32(y, wEven, lambda_F32)
+    bOdd  = locBaselineWeighted_F32(y, wOdd,  lambda_F32)
+
+    b = np.empty(n, dtype=np.float32)
+    bView = b
+    bEvenView = bEven
+    bOddView  = bOdd
+    with nogil:
+        for i in range(n):
+            bView[i] = <cnp.float32_t>(0.5) * (bEvenView[i] + bOddView[i])
+    return b
+
+
+cpdef cnp.ndarray locBaselineMasked_F64(cnp.ndarray in_, cnp.ndarray fitMaskIn, double lambda_F64):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] y
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] fitMask
     cdef cnp.ndarray[cnp.float64_t, ndim=1] b
@@ -3491,7 +3957,7 @@ cpdef cnp.ndarray splineBaselineMasked_F64(cnp.ndarray in_, cnp.ndarray fitMaskI
     return b
 
 
-cpdef cnp.ndarray splineBaselineMasked_F32(cnp.ndarray in_, cnp.ndarray fitMaskIn, float lambda_F32):
+cpdef cnp.ndarray locBaselineMasked_F32(cnp.ndarray in_, cnp.ndarray fitMaskIn, float lambda_F32):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] y
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] fitMask
     cdef cnp.ndarray[cnp.float32_t, ndim=1] b
@@ -3599,7 +4065,7 @@ cpdef cnp.ndarray splineBaselineMasked_F32(cnp.ndarray in_, cnp.ndarray fitMaskI
     return b
 
 
-cpdef cnp.ndarray splineBaselineCrossfit2_F32(cnp.ndarray in_, float lambda_F32):
+cpdef cnp.ndarray locBaselineCrossfit2_F32(cnp.ndarray in_, float lambda_F32):
     cdef cnp.ndarray[cnp.float32_t, ndim=1] y
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] mEven
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] mOdd
@@ -3632,8 +4098,8 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F32(cnp.ndarray in_, float lambda_F32)
             mOdd_U8[i] = 1 if (i & 1) == 1 else 0
 
     # solve for even cols and odd cols separately, then average
-    bEven = splineBaselineMasked_F32(y, mEven, lambda_F32)
-    bOdd = splineBaselineMasked_F32(y, mOdd, lambda_F32)
+    bEven = locBaselineMasked_F32(y, mEven, lambda_F32)
+    bOdd = locBaselineMasked_F32(y, mOdd, lambda_F32)
 
     b = np.empty(n, dtype=np.float32)
     bView = b
@@ -3646,7 +4112,7 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F32(cnp.ndarray in_, float lambda_F32)
     return b
 
 
-cpdef cnp.ndarray splineBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64):
+cpdef cnp.ndarray locBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] yArr
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] mEvenArr
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] mOddArr
@@ -3678,10 +4144,10 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64
             mEven_U8[i] = 1 if (i & 1) == 0 else 0
             mOdd_U8[i] = 1 if (i & 1) == 1 else 0
 
-    # solve for even cols and odd cols separately
-    # FFR: revisit, not sure theoretical benefit is substantial to offset cost
-    bEvenArr = splineBaselineMasked_F64(yArr, mEvenArr, lambda_F64)
-    bOddArr = splineBaselineMasked_F64(yArr, mOddArr, lambda_F64)
+    # solve even/odd separately (akin to 2-fold CV)
+    # ... so that self-fit bias is mitigated
+    bEvenArr = locBaselineMasked_F64(yArr, mEvenArr, lambda_F64)
+    bOddArr = locBaselineMasked_F64(yArr, mOddArr, lambda_F64)
 
     bArr = np.empty(n, dtype=np.float64)
     bView = bArr
@@ -3694,13 +4160,52 @@ cpdef cnp.ndarray splineBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64
     return bArr
 
 
-cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] arr
-    cdef Py_ssize_t n
-    cdef double lambda_ = 0.0
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
+        object x,
+        int blockSize=101,
+        bint useAIRLS=<bint>(True),
+        double posWeight=<double>(2.0/5.0),
+        double noiseMult=<double>(1.0),
+        double cauchyScale=<double>(3.0),
+        int maxIter=<int>(5),
+        double minWeight=<double>(1.0e-6),
+        double tol=<double>(1.0e-3)):
+    r"""Estimate a local baseline on `x` with a lower/smooth envelope via IRLS
 
-    arr = np.ascontiguousarray(x, dtype=np.float64)
-    n = arr.shape[0]
+    Compute a locally smooth baseline :math:`\hat{b}` for an input signal :math:`y`,
+    using a second-order penalized smoother (Whittaker) with *asymmetric* iteratively reweighted
+    least squares (IRLS) to dampen upward influence from positive peaks.
+
+    :param x: Signal measurements over fixed-length genomic intervals
+    :type x: np.ndarray
+    :param posWeight: *Relative* weight assigned to positive residuals to induce asymmetry. Smaller values
+      will downweight peaks more. Typical range is (0, 0.5].
+    :type posWeight: float
+    :param cauchyScale: Controls how quickly weights decay with normalized residual magnitude. Smaller values downweight
+      outliers more strongly.
+    :type cauchyScale: float
+    :return: Baseline estimate as a float32 NumPy array of shape ``(n,)``.
+    :rtype: numpy.ndarray
+
+    """
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] y
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] base
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] resid
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] tmpBuf
+    cdef Py_ssize_t n, i
+    cdef int it
+    cdef double lambda_ = <double>(0.0)
+    cdef double w_, s, madSIGMA_, mad_med
+    cdef double r, w_updated, w_prev, dw, maxDw
+    cdef double noiseScale, t
+    cdef double* residPtr
+    cdef double* tmpPtr
+    cdef double* wPtr
+
+    y = np.ascontiguousarray(x, dtype=np.float64)
+    n = y.shape[0]
     if n == 0:
         return np.empty(0, dtype=np.float32)
 
@@ -3708,8 +4213,85 @@ cpdef cnp.ndarray clocalBaseline(object x, int blockSize=101):
         blockSize = 3
     if (blockSize & 1) == 0:
         blockSize += 1
-    # whittaker/second-order penalty based on the frequency cutoff corresponding to block size
-    cdef blockFreqCutoff = 0.15915494  # 1 / (2 pi)
-    cdef double w = blockSize * (blockFreqCutoff)
-    lambda_ = 10.0*(w*w*w*w)
-    return splineBaselineCrossfit2_F64(arr, lambda_).astype(np.float32)
+
+    # Gentle Whittaker baseline for warm-start before asymmetric
+    # ... second-order/diff penalized fit. lambda_ is set so gain
+    # ... is about 1/5 for frequencies greater than 1/blockSize.
+    # ... blockSize is presumably from core.getContextSize()
+    w_ = blockSize * 0.15915494
+    lambda_ = (w_ * w_ * w_ * w_)*4.0
+
+    if useAIRLS == False:
+        base = locBaselineWeighted_F64(y, np.ones(n, dtype=np.float64), lambda_)
+        return base.astype(np.float32)
+
+    if n < 25:
+        printf("cconsenrich.clocalBaseline: input_len < 25  -->  returning as-is\n")
+        return y.astype(np.float32)
+
+    wArr = np.empty(n, dtype=np.float64)
+    resid = np.empty(n, dtype=np.float64)
+    tmpBuf = np.empty(n, dtype=np.float64)
+    wPtr = <double*>wArr.data
+    residPtr = <double*>resid.data
+    tmpPtr = <double*>tmpBuf.data
+
+    with nogil:
+        for i in range(n):
+            # initialize with uniform weights
+            wPtr[i] = 1.0
+
+    for it in range(maxIter):
+        # estimate smooth baseline with current weights
+        base = locBaselineWeighted_F64(y, wArr, lambda_)
+
+        with nogil:
+            for i in range(n):
+                # residual = obs - baseline
+                residPtr[i] = y[i] - base[i]
+
+            memcpy(tmpPtr, residPtr, n * sizeof(double))
+            # MAD-based noise level from residuals
+            madSIGMA_ = _MADSigma_F64(tmpPtr, n, &mad_med)
+
+            if madSIGMA_ <= 0.0 or not isfinite(madSIGMA_):
+                s = 1e-12
+            else:
+                s = madSIGMA_
+
+            noiseScale = noiseMult * s
+            if noiseScale <= 0.0 or not isfinite(noiseScale):
+                noiseScale = 1e-12
+
+            maxDw = 0.0
+            for i in range(n):
+                w_prev = wPtr[i]
+                r = residPtr[i]
+
+                if r > 0.0:
+                    # case: data < estimated baseline  -->  weigh by `posWeight`
+                    t = r / noiseScale
+                    w_updated = (posWeight) / (1.0 + (t / cauchyScale) * (t / cauchyScale))
+                else:
+                    # case: data >= estimated baseline  --> weigh by 1-posWeight
+                    t = (-r) / noiseScale
+                    w_updated = (1.0 - posWeight) / (1.0 + (t / cauchyScale) * (t / cauchyScale))
+
+                if w_updated < minWeight:
+                    w_updated = minWeight
+
+                # measure change vs previous for convergence
+                dw = fabs(w_updated - w_prev)
+                if dw > maxDw:
+                    # record new max change
+                    maxDw = dw
+
+                # damped update
+                wPtr[i] = 0.5 * w_prev + 0.5 * w_updated
+
+        if maxDw < tol:
+            break
+
+    # with weights learned through the CV IRLS, now final baseline
+    base = locBaselineWeighted_F64(y, wArr, lambda_)
+    return base.astype(np.float32)
