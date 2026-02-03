@@ -2489,58 +2489,61 @@ cpdef double cDenseMean(
     double sparseDenseSeparation=3.0,
     bint verbose = <bint>False,
 ):
-    r"""Estimate a robust **dense-conditioned block mean** from a contig-wide HTS signal measurement track.
+    r"""Estimate an upward-biased 'dense' baseline for an HTS signal measurement track.
 
-    Denote a signal over fixed-length genomic intervals,
-
-    .. math::
-
-    \mathbf{x} = \{x_{[i]}\}_{i=1}^{n}.
-
-    **Aim**: Estimate a scalar baseline :math:`\widehat{\mu}_{\texttt{dense}}` summarizing the typical signal level in regions that are non-sparse (*dense*),
-    at a characteristic scale set by ``blockLenTarget``.
-
-    A threshold to characterize the dense regime cutoff, :math:`t`, is calculated empirically using Otsu's method. Concretely, :math:`t` maximizes the between-class variance
-    after removing extreme values and smoothing for regularity.
+    Denote a track of signal measurements over fixed-length genomic intervals :math:`i=1,2, \ldots`
 
     .. math::
 
-    z_{[i]} = \mathbb{I}\{x_{[i]} \ge t\}.
+      \mathbf{x} = \{x_{[i]}\}_{i=1}^{n}.
 
-    The global dense rate is then computed as:
+    Concretely, we want to estimate a practical baseline :math:`\widehat{\mu}_{\texttt{dense}}` that summarizes the typical signal level in *non-sparse* regions.
 
-    .. math::
+    First, we infer a threshold to 'softly' separate sparse versus dense regimes in :math:`\mathbf{x}`: the value :math:`t > 0` is calculated empirically using Otsu's method.
 
-    \rho_0 = \frac{1}{n}\sum_{i=1}^{n} z_{[i]}.
+    That is, :math:`t` is obtained through a sweep over possible cutoffs and selected to maximize the between-class variance after removing extreme values and
+    smoothing for regularity.
 
-    For a contiguous genomic block :math:`B` (a start index and a length), define its mean signal and dense rate:
-
-    .. math::
-
-    \mu(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} x_{[i]}, \qquad
-    \rho(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} z_{[i]}.
-
-    Blocks are sampled from a proposal distribution :math:`q(B)` given by a uniform start index and a truncated geometric block length
-    with mean approximately ``blockLenTarget``. We bias toward dense blocks with a *smooth* gate that provides some flexibility to different modalities, etc. 
+    Let
 
     .. math::
 
-    g(B) = \sigma\left(s\,(\rho(B) - \rho_0)\right), \qquad
-    \sigma(u) = \frac{1}{1 + \exp(-u)}.
+      z_{[i]} = \mathbf{1}\{x_{[i]} \ge t\}.
+
+    A working 'global dense rate' is used for reference throughout the procedure:
+
+    .. math::
+
+      \rho_0 = \frac{1}{n}\sum_{i=1}^{n} z_{[i]}.
+
+    Blocks are sampled from a proposal distribution :math:`q(B)`, given by a uniform-distributed start index and a geometric-distributed block length
+    with mean ``blockLenTarget`` before truncation. Each :math:`B \subset \{1, \ldots, n\}` is assigned summary statistics:
+
+    .. math::
+
+      \mu(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} x_{[i]}, \qquad
+      \rho(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} z_{[i]}.
+
+    To favor non-sparse regions, we bias sampling toward dense blocks, where importance weights are assigned with a *soft* gate dependent on the block's dense rate :math:`\rho(B)`:
+
+    .. math::
+
+      g(B) = \sigma\left(s\,(\rho(B) - \rho_0)\right), \qquad
+      \sigma(u) = \frac{1}{1 + \exp(-u)}.
 
     A small constant is added to compute weights
 
     .. math::
 
-    w(B) = \left(g(B) + \varepsilon\right)^{\gamma} + \varepsilon, \qquad
-    \pi(B) \propto q(B)\,w(B).
+      w(B) = \left(g(B) + \varepsilon\right)^{\gamma} + \varepsilon, \qquad
+      \pi(B) \propto q(B)\,w(B).
 
     The target quantity is then the expectation of :math:`\mu(B)` under :math:`\pi` (i.e., the dense-conditioned block mean):
 
     .. math::
 
-    \theta = \mathbb{E}_{B \sim \pi}[\mu(B)]
-            = \frac{\mathbb{E}_{B \sim q}[w(B)\,\mu(B)]}{\mathbb{E}_{B \sim q}[w(B)]}.
+      \theta = \mathbb{E}_{B \sim \pi}[\mu(B)]
+              = \frac{\mathbb{E}_{B \sim q}[w(B)\,\mu(B)]}{\mathbb{E}_{B \sim q}[w(B)]}.
 
 
     :param x: Signal measurements (after transformation) over fixed-width genomic intervals.
@@ -4150,7 +4153,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
         int maxIter=<int>(5),
         double minWeight=<double>(1.0e-6),
         double tol=<double>(1.0e-3)):
-    r"""Estimate a local baseline on `x` with a lower/smooth envelope via IRLS
+    r"""Estimate a *local* baseline on `x` with a lower/smooth envelope via IRLS
 
     Compute a locally smooth baseline :math:`\hat{b}` for an input signal :math:`y`,
     using a second-order penalized smoother (Whittaker) with *asymmetric* iteratively reweighted
@@ -4196,10 +4199,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
 
     # Gentle Whittaker baseline for warm-start before asymmetric
     # ... second-order/diff penalized fit. lambda_ is set so gain
-    # ... is about 1/5 for frequencies greater than 1/blockSize.
+    # ... is about 1/8 for frequencies greater than 1/blockSize.
     # ... blockSize is presumably from core.getContextSize()
     w_ = blockSize * 0.15915494
-    lambda_ = (w_ * w_ * w_ * w_)*4.0
+    lambda_ = (w_ * w_ * w_ * w_)*7.0
 
     if useAIRLS == False:
         base = locBaselineWeighted_F64(y, np.ones(n, dtype=np.float64), lambda_)

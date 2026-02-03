@@ -89,10 +89,24 @@ class processParams(NamedTuple):
         value scales the minimum observation noise level (``observationParams.minR``) and is used
         for numerical stability.
     :type minQ: float
-    :param maxQ: Maximum process noise level. If ``maxQ < 0`` (default), no upper bound is enforced.
+    :param maxQ: Maximum process noise level. If ``maxQ < 0`` (default), no effective upper bound is enforced.
     :type maxQ: float
-    :param dStatAlpha: Threshold on the (normalized) deviation between the data and estimated signal -- determines whether the process noise is scaled up.
+    :param offDiagQ: Off-diagonal value in the process noise covariance :math:`\mathbf{Q}_{[i]}`
+    :type offDiagQ: float
+    :param dStatAlpha: Thresholds the normalized innovation statistic (NIS) to determine whether the process noise is scaled up at each interval :math:`i`.
+      Typically set to a very large, outlier-targeted value (e.g., `10`) to reserve adjustments for more extreme departures.
     :type dStatAlpha: float
+    :param dStatd: Scales the difference between the observed and expected NIS when adjusting process noise.
+    :type dStatd: float
+    :param dStatPC: A constant added to the process noise scaling factor to avoid overly aggressive down-scaling.
+    :type dStatPC: float
+    :param ratioDiagQ: If provided (> 0), the ratio between the diagonal entries in :math:`\mathbf{Q}_{[i]}` is fixed to this value.
+      Specifically, :math:`Q_{[i,(22)]} = \textsf{ratioDiagQ} \cdot Q_{[i,(11)]}`. This value is typically large (e.g., `10`) to
+      effectively constrain the second state variable (local trend) to vary more smoothly than the primary state (signal).
+    :type ratioDiagQ: float or None
+
+    :seealso: :func:`consenrich.core.autoDeltaF`, :func:`consenrich.core.runConsenrich`
+
     """
 
     deltaF: float
@@ -124,7 +138,7 @@ class observationParams(NamedTuple):
       If `None` or ` < 1`, then this value is inferred using :func:`consenrich.core.getContextSize`.
     :type samplingBlockSizeBP: int | None
     :param binQuantileCutoff: When fitting the variance function, pairs :math:`(\lvert \mu_b \rvert, \sigma^2_b)` are binned by their (absolute) means. This parameter sets the quantile of variances within each bin to use when fitting the global mean-variance trend.
-      Increasing this value toward `1.0` results in a more conservative prior trend (i.e., higher variance estimates at a given mean level).
+      Increasing this value toward `1.0` can raise the prior trend for measurement uncertainty and yield stiffer signal estimates overall.
     :type binQuantileCutoff: float | None
     :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type EB_minLin: float | None

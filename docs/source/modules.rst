@@ -18,6 +18,8 @@ API Reference
 
 The core module implements the main aspects of Consenrich and defines key parameter classes.
 
+Note that many parameters are documented here for *completeness* and do not need to be tuned in common use-cases.
+
 .. autoclass:: consenrich.core.processParams
 .. autoclass:: consenrich.core.plotParams
 .. autoclass:: consenrich.core.observationParams
