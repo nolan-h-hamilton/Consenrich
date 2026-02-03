@@ -845,6 +845,7 @@ def runConsenrich(
     disableCalibration: bool = False,
     ratioDiagQ: float | None = None,
     rescaleStateCovar: bool = False,
+    doDamp: bool = True,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -1402,6 +1403,15 @@ def runConsenrich(
 
             intervalDispersionFactors = bestBlockDispersionFactors[intervalToBlockMap]
             matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
+
+        if doDamp:
+            # mild conservative damping to guard against artificial precision
+            # ... for growing sample sizes and with unknown sources of noise,
+            # ... correlation, etc. in data. Otherwise each sample is treated
+            # ... as an independent observation of the same underlying state,
+            # ... which may lead to overconfident uncertainty estimates __in practice__.
+            damp_ = 1 + (1 - np.exp(-0.005 * (m + 1)))
+            np.multiply(matrixMunc, damp_, out=matrixMunc)
 
         phiHat, countAdjustments, NIS = _forwardPass(
             isInitialPass=False,

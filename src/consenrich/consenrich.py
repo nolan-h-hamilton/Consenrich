@@ -660,7 +660,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         dStatAlpha=_cfgGet(
             configData,
             "processParams.dStatAlpha",
-            5.0,
+            10.0,
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
@@ -1061,6 +1061,11 @@ def main():
     offDiagQ_ = processArgs.offDiagQ
     samplingBlockSizeBP_ = observationArgs.samplingBlockSizeBP
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
+    backgroundBlockSizeIntervals = (
+        -1
+        if backgroundBlockSizeBP_ <= 0
+        else int(backgroundBlockSizeBP_ / intervalSizeBP)
+    )
     if samplingBlockSizeBP_ is None or samplingBlockSizeBP_ <= 0:
         samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
 
@@ -1484,7 +1489,7 @@ def main():
             ratioDiagQ=processArgs.ratioDiagQ,
             rescaleStateCovar=stateArgs.rescaleStateCovar,
         )
-        logger.info(f"minQ={minQ_}, minR={minR_}")
+
         x_ = core.getPrimaryState(
             x,
             stateLowerBound=stateArgs.stateLowerBound,

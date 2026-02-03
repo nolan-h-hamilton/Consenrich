@@ -2521,47 +2521,27 @@ cpdef double cDenseMean(
     \rho(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} z_{[i]}.
 
     Blocks are sampled from a proposal distribution :math:`q(B)` given by a uniform start index and a truncated geometric block length
-    with mean approximately ``blockLenTarget``. We bias toward dense blocks with a smooth gate:
+    with mean approximately ``blockLenTarget``. We bias toward dense blocks with a *smooth* gate that provides some flexibility to different modalities, etc. 
 
     .. math::
 
     g(B) = \sigma\left(s\,(\rho(B) - \rho_0)\right), \qquad
     \sigma(u) = \frac{1}{1 + \exp(-u)}.
 
-    Define an importance weight:
+    A small constant is added to compute weights
 
     .. math::
 
     w(B) = \left(g(B) + \varepsilon\right)^{\gamma} + \varepsilon, \qquad
-    \gamma = \texttt{sparseDenseSeparation}.
-
-    This induces a "dense-biased" block distribution, though we don't have the scaling constant:
-
-    .. math::
-
     \pi(B) \propto q(B)\,w(B).
 
-    The target quantity is the dense-biased block mean:
+    The target quantity is then the expectation of :math:`\mu(B)` under :math:`\pi` (i.e., the dense-conditioned block mean):
 
     .. math::
 
     \theta = \mathbb{E}_{B \sim \pi}[\mu(B)]
             = \frac{\mathbb{E}_{B \sim q}[w(B)\,\mu(B)]}{\mathbb{E}_{B \sim q}[w(B)]}.
 
-    We approximate :math:`\theta` via *self-normalized* importance sampling (SNIS). For each replicate, 'draw' :math:`B_1,\ldots,B_m \sim q` and compute:
-
-    .. math::
-
-    \widehat{\theta}
-    = \frac{\sum_{j=1}^{m} w(B_j)\,\mu(B_j)}{\sum_{j=1}^{m} w(B_j)}.
-
-    Finally, we return a quantile (default: median) over ``numReplicates`` independent SNIS replicates:
-
-    .. math::
-
-    \widehat{\mu}_{\texttt{dense}} =
-    \texttt{Quantile}\left(\widehat{\theta}_1, \ldots, \widehat{\theta}_R;\; q\right),
-    \qquad q = \texttt{denseMeanQuantile}.
 
     :param x: Signal measurements (after transformation) over fixed-width genomic intervals.
     :type x: array-like
