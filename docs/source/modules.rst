@@ -72,14 +72,15 @@ Cython functions: ``consenrich.cconsenrich``
     :caption: ``cconsenrich``
     :name: cconsenrich
 
-Several computationally burdensome tasks are written in cython for efficiency.
+Several computationally burdensome tasks are implemented in cython:
 
 .. autofunction:: consenrich.cconsenrich.creadBamSegment
 .. autofunction:: consenrich.cconsenrich.updateProcessNoiseCovariance
 .. autofunction:: consenrich.cconsenrich.csampleBlockStats
 .. autofunction:: consenrich.cconsenrich.cgetFragmentLength
 .. autofunction:: consenrich.cconsenrich.cTransform
-.. autofunction:: consenrich.cconsenrich.cDenseGlobalBaseline
+.. autofunction:: consenrich.cconsenrich.cDenseMean
+.. autofunction:: consenrich.cconsenrich.clocalBaseline
 .. autofunction:: consenrich.cconsenrich.cPAVA
 .. autofunction:: consenrich.cconsenrich.cforwardPass
 .. autofunction:: consenrich.cconsenrich.cbackwardPass

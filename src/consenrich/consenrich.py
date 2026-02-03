@@ -35,6 +35,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _checkSF(sf, logger, cut_=3.0):
+
+    sf = np.asarray(sf, dtype=float)
+    bad = ~np.isfinite(sf) | (sf <= 0)
+    if np.any(bad):
+        logger.warning(
+            "Scaling factors contain non-finite or non-positive values: "
+            f"nBad={bad.sum()}/{sf.size}: {sf[bad][:10]} ..."
+        )
+
+    v = sf[np.isfinite(sf) & (sf > 0)]
+    if v.size < 3:
+        return
+
+    p05, p50, p95 = np.percentile(v, [5, 50, 95])
+    ratio = p95 / p05
+
+    if ratio > cut_:
+        logger.warning(
+            "Sample scaling factors (`countingParams.normMethod: SF`) used for library size/coverage normalization are heterogeneous: "
+            f"median={p50:.4g}, p95/p05={ratio:.2f} > {cut_}. __IF this is unexpected__, consider inspecting the alignment files."
+        )
+
+
 def _resolveFragmentLengthPairs(
     treatmentFragmentLengths: Optional[Sequence[Union[int, float]]],
     controlFragmentLengths: Optional[Sequence[Union[int, float]]],
@@ -44,7 +68,7 @@ def _resolveFragmentLengthPairs(
     For single-end data, cross-correlation-based fragment estimates for control inputs
     can be much smaller than for treatment samples due to lack of structure. This creates
     artifacts during signal quantification and normalization steps, and it's common to use
-    the treatment fragment length for both treatment and control samples. So we offer that here.
+    the treatment fragment length for both treatment and control samples. So we do that here.
     """
 
     if not treatmentFragmentLengths:
@@ -519,7 +543,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     globalWeight_ = _cfgGet(
         configData,
         "countingParams.globalWeight",
-        3.0,  # 75% global weight verus 25% p-spline local weight
+        2.0,
     )
 
     return core.countingParams(
@@ -636,7 +660,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         dStatAlpha=_cfgGet(
             configData,
             "processParams.dStatAlpha",
-            5.0,
+            10.0,
         ),
         dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
         dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
@@ -660,7 +684,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         binQuantileCutoff=_cfgGet(
             configData,
             "observationParams.binQuantileCutoff",
-            0.9,  # prior is intentionally conservative
+            0.75,
         ),
         EB_minLin=float(
             _cfgGet(
@@ -1037,6 +1061,11 @@ def main():
     offDiagQ_ = processArgs.offDiagQ
     samplingBlockSizeBP_ = observationArgs.samplingBlockSizeBP
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
+    backgroundBlockSizeIntervals = (
+        -1
+        if backgroundBlockSizeBP_ <= 0
+        else int(backgroundBlockSizeBP_ / intervalSizeBP)
+    )
     if samplingBlockSizeBP_ is None or samplingBlockSizeBP_ <= 0:
         samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
 
@@ -1095,7 +1124,7 @@ def main():
     methodFDR_: Optional[str] = matchingArgs.methodFDR
     fragmentLengthsTreatment: List[int] = []
     fragmentLengthsControl: List[int] = []
-
+    sf: np.ndarray = np.empty((numSamples,), dtype=float)
     if countingArgs.fragmentLengths is not None:
         fragmentLengthsTreatment = list(countingArgs.fragmentLengths)
     else:
@@ -1158,7 +1187,7 @@ def main():
             treatScaleFactors = scaleFactors
             controlScaleFactors = scaleFactorsControl
             # still make sure this is accessible
-            initialTreatmentScaleFactors = [1.0] * len(bamFiles)
+            initialTreatmentScaleFactors = np.ones((len(bamFiles),), dtype=float)
         else:
             try:
                 initialTreatmentScaleFactors = [
@@ -1348,7 +1377,12 @@ def main():
                 )
 
         if waitForMatrix:
-            sf = cconsenrich.cSF(chromMat)
+            if c_ == 0:
+                sf = cconsenrich.cSF(chromMat)
+                logger.info(
+                    f"`countingParams.normMethod=SF` --> calculating scaling factors\n{sf}\n",
+                )
+                _checkSF(sf, logger)
             np.multiply(chromMat, sf[:, None], out=chromMat)
 
         if processArgs.deltaF < 0:
@@ -1375,7 +1409,7 @@ def main():
             desc="Transforming data / Fitting variance function f(|μ|;Θ)",
             unit=" sample ",
         ):
-            logger.info(f"{chromosome}, sample {j + 1} / {numSamples}...")
+            logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
             chromMat[j, :] = cconsenrich.cTransform(
                 chromMat[j, :],
                 blockLength=backgroundBlockSizeIntervals,
@@ -1383,6 +1417,9 @@ def main():
                 verbose=args.verbose2,
                 rseed=42 + j,
                 w_global=countingArgs.globalWeight,
+                useAIRLS=(
+                    not controlsPresent
+                ),  # local baseline via asymmetric whittaker/IRLS is _skipped_ if controls present
             )
 
             if countingArgs.smoothSpanBP > 0:
@@ -1410,14 +1447,14 @@ def main():
             )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-3))
+            minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
             muncMat = muncMat.astype(np.float32, copy=False)
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(max(np.quantile(muncMat[muncMat > 0], 0.01), 1.0e-3))
+                minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
             autoMinQ = max((0.01 * minR_), 1.0e-3)
             if processArgs.minQ < 0.0:
@@ -1452,7 +1489,7 @@ def main():
             ratioDiagQ=processArgs.ratioDiagQ,
             rescaleStateCovar=stateArgs.rescaleStateCovar,
         )
-        logger.info(f"minQ={minQ_}, minR={minR_}")
+
         x_ = core.getPrimaryState(
             x,
             stateLowerBound=stateArgs.stateLowerBound,
