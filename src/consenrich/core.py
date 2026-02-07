@@ -82,7 +82,11 @@ class processParams(NamedTuple):
     and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
     matrices.
 
-    :param deltaF: Scales the signal and variance propagation between adjacent genomic intervals. If ``< 0`` (default), the value is computed from the data using :func:`consenrich.core.autoDeltaF`.
+    :param deltaF: Controls the integration step size (coupling) between the slope estimate :math:`\dot{x}_{[i]}`
+            and the signal :math:`x_{[i]}`.
+            - If ``< 0``, the effective step size is determined automatically from a
+            global estimate of autocorrelation.
+
     :type deltaF: float
     :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
         on the primary state variable (signal level). If ``minQ < 0`` (default), a small
@@ -147,6 +151,13 @@ class observationParams(NamedTuple):
     :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
+    :type EB_setNuL: int | None
+    :param damp: Values :math:`> 0` induce a conservative upscaling of the measurement noise covariance matrix with respect to the number of samples, :math:`m`.
+       This is akin to a soft damping on the filter gain as the number of samples, :math:`m`, increases.
+    :type damp: float | None
+
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
+
     """
 
     minR: float | None
@@ -158,6 +169,7 @@ class observationParams(NamedTuple):
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
+    damp: float | None
 
 
 class stateParams(NamedTuple):
@@ -289,6 +301,12 @@ class countingParams(NamedTuple):
     :type intervalSizeBP: int
     :param backgroundBlockSizeBP: Length (bp) of blocks used to estimate local statistics (background, noise, etc.). If a negative value is provided (default), this value is inferred from the data using :func:`consenrich.core.getContextSize`.
     :type backgroundBlockSizeBP: int
+    :param normMethod: Method used to normalize read counts for sequencing depth / library size.
+        - ``EGS``: Effective Genome Size normalization (see :func:`consenrich.detrorm.getScaleFactor1x`)
+        - ``SF``: Median of ratios style scale factors (see :func:`consenrich.cconsenrich.cSF`). Restricted to analyses with ``>= 3`` samples (no input control).
+        - ``RPKM``: Scale factors based on Reads Per Kilobase per Million mapped reads (see :func:`consenrich.detrorm.getScaleFactorPerMillion`)
+
+    :type normMethod: str
     :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
     :type fragmentLengths: List[int], optional
     :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
@@ -297,13 +315,13 @@ class countingParams(NamedTuple):
     :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param denseMeanQuantile: Used to determine a global baseline for each sample (after normalization wrt sequencing depth / library size). The default value (`0.5`) estimates
-      the median value of *dense-state* genomic blocks using a coverage-biased block sampling scheme in :func:`consenrich.cconsenrich.cDenseMean`. To accommodate users
-      who prefer conservative signal estimates, this parameter can be raised toward the right-tail, e.g., `0.75`.
-    :type denseMeanQuantile: float, optional
     :param globalWeight: Relative weight assigned to the global 'dense' baseline when combining with local baseline estimates. Higher values increase the influence of the global baseline. For instance, ``globalWeight = 2`` results in a weighted average where the global baseline contributes `2/3` of the final baseline estimate; whereas ``globalWeight = 1`` results in equal weighting between global and local baselines.
       Users with input control samples may consider increasing this value to avoid redundancy (artificial local trends have presumably been accounted for in the control, leaving less signal to be modeled locally).
     :type globalWeight: float, optional
+    :param asymPos: *Relative* weight assigned to positive residuals to induce asymmetry in reweighting. Used
+      during IRLS for the local baseline computation. Smaller values will downweight peaks more and pose less
+      risk of removing true signal. Typical range is ``(0, 0.75]``.
+    :type asymPos: float, optional
 
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
@@ -331,8 +349,8 @@ class countingParams(NamedTuple):
     fragmentLengthsControl: List[int] | None
     useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
-    denseMeanQuantile: float | None
     globalWeight: float | None
+    asymPos: float | None
 
 
 class matchingParams(NamedTuple):
@@ -859,7 +877,7 @@ def runConsenrich(
     disableCalibration: bool = False,
     ratioDiagQ: float | None = None,
     rescaleStateCovar: bool = False,
-    doDamp: bool = True,
+    damp: float = 0.005,
 ) -> Tuple[
     npt.NDArray[np.float32],
     npt.NDArray[np.float32],
@@ -1418,13 +1436,8 @@ def runConsenrich(
             intervalDispersionFactors = bestBlockDispersionFactors[intervalToBlockMap]
             matrixMunc[:] = initialMuncBaseline * intervalDispersionFactors[None, :]
 
-        if doDamp:
-            # mild conservative damping to guard against artificial precision
-            # ... for growing sample sizes and with unknown sources of noise,
-            # ... correlation, etc. in data. Otherwise each sample is treated
-            # ... as an independent observation of the same underlying state,
-            # ... which may lead to overconfident uncertainty estimates __in practice__.
-            damp_ = 1 + (1 - np.exp(-0.005 * (m + 1)))
+        if damp > 0.0:
+            damp_: float = 1 + (1 - np.exp(-damp * (m + 1)))
             np.multiply(matrixMunc, damp_, out=matrixMunc)
 
         phiHat, countAdjustments, NIS = _forwardPass(
@@ -1698,10 +1711,12 @@ def autoDeltaF(
     blockMult: float = 10.0,
     numBlocks: int = 250,
     maxLagBins: int = 25,
-    minDeltaF: float = 0.01,
+    minDeltaF: float = 1.0e-4,
     maxDeltaF: float = 1.0,
+    noiseEps: float = 1.0e-4,
+    minBlockWeight: float = 1.0e-8,
 ) -> float:
-    r"""(Experimental) Infer `deltaF` from correlation length in the data."""
+    r"""(Experimental) Infer `deltaF` from aggregated data with precision-weighting"""
 
     if (
         fragmentLengths is not None
@@ -1727,9 +1742,7 @@ def autoDeltaF(
 
     if chromMat is None:
         deltaF = float(intervalSizeBP) / medFragLen
-        if deltaF > maxDeltaF:
-            deltaF = maxDeltaF
-        return np.float32(deltaF)
+        return np.float32(min(deltaF, maxDeltaF))
 
     if hasattr(chromMat, "ndim") and chromMat.ndim == 1:
         meanTrack = np.asarray(chromMat, dtype=np.float32)
@@ -1747,12 +1760,8 @@ def autoDeltaF(
     numStarts = numIntervals - blockLenIntervals + 1
     if numStarts < 1:
         deltaF = float(intervalSizeBP) / medFragLen
-        if deltaF > maxDeltaF:
-            deltaF = maxDeltaF
-        logger.warning(
-            "Not enough intervals to compute deltaF via autocorrelation...using fall-back value.",
-        )
-        return np.float32(deltaF)
+        logger.warning("Not enough intervals... using fallback.")
+        return np.float32(min(deltaF, maxDeltaF))
 
     rng = np.random.default_rng(int(randomSeed))
     if numStarts <= numBlocks:
@@ -1762,43 +1771,69 @@ def autoDeltaF(
             np.int64
         )
 
-    L_bins_vals: List[float] = []
+    # pair (correlation length, block noise scale proxy)
+    L_blocks: List[float] = []
+    W_blocks: List[float] = []
+
     for s in starts:
-        block = meanTrack[s : s + blockLenIntervals]
-        lmax = int(min(maxLagBins, blockLenIntervals - 1))
+        block = meanTrack[s : s + blockLenIntervals].astype(np.float64, copy=False)
+        if block.size < 8 or not np.isfinite(block).all():
+            continue
+
+        # noise scale proxy for weighting: sdev of first-order diffs
+        d = np.diff(block)
+        if d.size < 2 or not np.isfinite(d).all():
+            w_block = float(minBlockWeight)
+        else:
+            sigma = float(np.std(d, ddof=1))
+            if not np.isfinite(sigma) or sigma <= 0.0:
+                w_block = float(minBlockWeight)
+            else:
+                w_block = 1.0 / (sigma * sigma + float(noiseEps))
+                w_block = float(max(w_block, float(minBlockWeight)))
+
+        lmax = int(min(maxLagBins, block.size - 1))
         if lmax < 1:
             continue
+
+        Lb_vals: List[float] = []
         for lag in range(1, lmax + 1):
             a = block[:-lag]
             b = block[lag:]
+
             scaleA = float(np.dot(a, a))
             scaleB = float(np.dot(b, b))
             scaleCross = (scaleA * scaleB) ** 0.5
             if scaleCross <= 0.0:
                 continue
+            # correlation between aggregated values and their `lag`-offset
             rho = float(np.dot(a, b) / scaleCross)
             if not np.isfinite(rho) or rho <= 0.0 or rho >= 0.999999:
                 continue
+            if np.ptp(a) <= 1.0e-2 or np.ptp(b) <= 1.0e-2:
+                continue
+
             Lb = float(-lag / np.log(rho))
             if np.isfinite(Lb) and Lb > 0.0:
-                L_bins_vals.append(Lb)
+                Lb_vals.append(Lb)
 
-    if len(L_bins_vals) < 8:
+        if not Lb_vals:
+            continue
+
+        L_block = float(np.median(Lb_vals))
+        if np.isfinite(L_block) and L_block > 0.0:
+            L_blocks.append(L_block)
+            W_blocks.append(w_block)
+
+    if len(L_blocks) < 8:
         deltaF = float(intervalSizeBP) / medFragLen
-        if deltaF > maxDeltaF:
-            deltaF = maxDeltaF
-        return np.float32(deltaF)
+        return np.float32(min(deltaF, maxDeltaF))
 
-    mean_L_bins = float(np.mean(L_bins_vals))
-    mean_L_bp = mean_L_bins * float(intervalSizeBP)
-
+    L_arr = np.asarray(L_blocks, dtype=np.float64)
+    W_arr = np.asarray(W_blocks, dtype=np.float64)
+    mean_L_bins = float(np.sum(W_arr * L_arr) / np.sum(W_arr))
     deltaF = float(1.0 / mean_L_bins)
-    if deltaF <= minDeltaF:
-        deltaF = minDeltaF
-
-    if deltaF > maxDeltaF:
-        deltaF = maxDeltaF
-
+    deltaF = float(np.clip(deltaF, minDeltaF, maxDeltaF))
     return np.float32(deltaF)
 
 
@@ -2013,7 +2048,7 @@ def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
     eps: float = 5.0e-2,
-    binQuantileCutoff: float = 0.9,
+    binQuantileCutoff: float = 0.75,
     EB_minLin: float = 1.0e-2,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
@@ -2127,7 +2162,7 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    binQuantileCutoff: float = 0.9,
+    binQuantileCutoff: float = 0.75,
     EB_minLin: float = 1.0e-2,
     EB_use: bool = True,
     EB_setNu0: int | None = None,

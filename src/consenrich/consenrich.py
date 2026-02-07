@@ -535,15 +535,15 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.fixControl",
         True,
     )
-    denseMeanQuantile_ = _cfgGet(
-        configData,
-        "countingParams.denseMeanQuantile",
-        0.50,
-    )
     globalWeight_ = _cfgGet(
         configData,
         "countingParams.globalWeight",
-        2.0,
+        3.0,
+    )
+    asymPos_ = _cfgGet(
+        configData,
+        "countingParams.asymPos",
+        2.0 / 5.0,
     )
 
     return core.countingParams(
@@ -557,8 +557,8 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fragmentLengthsControl=fragmentLengthsControl,
         useTreatmentFragmentLengths=useTreatmentFragmentLengths_,
         fixControl=fixControl_,
-        denseMeanQuantile=denseMeanQuantile_,
         globalWeight=globalWeight_,
+        asymPos=asymPos_,
     )
 
 
@@ -700,6 +700,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
+        damp=_cfgGet(configData, "observationParams.damp", 0.01),
     )
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
@@ -711,7 +712,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     minMappingQuality = _cfgGet(
         configData,
         "samParams.minMappingQuality",
-        0,
+        10,
     )
     oneReadPerBin = _cfgGet(configData, "samParams.oneReadPerBin", 0)
     chunkSize = _cfgGet(configData, "samParams.chunkSize", 500_000)
@@ -1413,13 +1414,13 @@ def main():
             chromMat[j, :] = cconsenrich.cTransform(
                 chromMat[j, :],
                 blockLength=backgroundBlockSizeIntervals,
-                denseMeanQuantile=countingArgs.denseMeanQuantile,
                 verbose=args.verbose2,
                 rseed=42 + j,
                 w_global=countingArgs.globalWeight,
-                useAIRLS=(
+                useIRLS=(
                     not controlsPresent
                 ),  # local baseline via asymmetric whittaker/IRLS is _skipped_ if controls present
+                asymPos=countingArgs.asymPos,
             )
 
             if countingArgs.smoothSpanBP > 0:
@@ -1488,6 +1489,7 @@ def main():
             progressIter=25_000,
             ratioDiagQ=processArgs.ratioDiagQ,
             rescaleStateCovar=stateArgs.rescaleStateCovar,
+            damp=observationArgs.damp,
         )
 
         x_ = core.getPrimaryState(

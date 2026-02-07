@@ -437,6 +437,13 @@ cdef inline double _MADSigma_F64(const double* src, Py_ssize_t n, double* medOut
     return 1.4826 * mad
 
 
+cdef inline double _log_norm_pdf(double y, double mu, double var) nogil:
+    # CALLERS: cDenseMean
+
+    cdef double z = y - mu
+    return -0.5 * log(6.28318 * var) - 0.5 * (z*z) / var
+
+
 cpdef int stepAdjustment(int value, int intervalSizeBP, int pushForward=0):
     r"""Adjusts a value to the nearest multiple of intervalSizeBP, optionally pushing it forward.
 
@@ -1542,7 +1549,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(__INV_LN2_DOUBLE)):
+cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(1.0)):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr = np.ascontiguousarray(x, dtype=np.float64)
     cdef Py_ssize_t n = arr.shape[0]
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
@@ -1572,12 +1579,12 @@ cpdef object cTransform(
     object x,
     Py_ssize_t blockLength,
     bint disableLocalBackground=<bint>False,
-    double denseMeanQuantile=<double>0.50,
     double w_local=<double>1.0,
-    double w_global=<double>2.0,
+    double w_global=<double>3.0,
     bint verbose=<bint>False,
     uint64_t rseed=<uint64_t>0,
-    bint useAIRLS=<bint>True,
+    bint useIRLS=<bint>True,
+    double asymPos=<double>(2.0/5.0),
 ):
     cdef Py_ssize_t blockLenTarget, n, i
     cdef double wLocal, wGlobal, weightSum, invWeightSum
@@ -1593,7 +1600,7 @@ cpdef object cTransform(
     cdef double wLocalF64, wGlobalF64, invWeightSumF64
     cdef float meanVal_F32 = 0.0
     cdef double meanVal_F64 = 0.0
-
+    cdef double asymPos_ = asymPos
     if disableLocalBackground:
         wLocal = 0.0
         wGlobal = 1.0
@@ -1639,7 +1646,6 @@ cpdef object cTransform(
             globalBaselineF32 = <float>cDenseMean(
             zArr_F32,
             blockLenTarget=blockLenTarget,
-            denseMeanQuantile=denseMeanQuantile,
             verbose=verbose,
             seed=rseed,
             )
@@ -1647,7 +1653,7 @@ cpdef object cTransform(
             globalBaselineF32 = 0.0
 
         if wLocal > 0.0:
-            localBaseArr_F32 = clocalBaseline(zArr_F32, <int>blockLenTarget, useAIRLS=useAIRLS)
+            localBaseArr_F32 = clocalBaseline(zArr_F32, <int>blockLenTarget, useIRLS=useIRLS, asymPos=asymPos_)
             localBaseView_F32 = localBaseArr_F32
 
         wLocalF32 = <float>wLocal
@@ -1674,7 +1680,6 @@ cpdef object cTransform(
         globalBaselineF64 = <double>cDenseMean(
             zArr_F64,
             blockLenTarget=blockLenTarget,
-            denseMeanQuantile=denseMeanQuantile,
             verbose=verbose,
             seed=rseed,
         )
@@ -1682,7 +1687,7 @@ cpdef object cTransform(
         globalBaselineF64 = 0.0
 
     if wLocal > 0.0:
-        localBaseArr_F64 = clocalBaseline(zArr_F64, <int>blockLenTarget, useAIRLS=useAIRLS)
+        localBaseArr_F64 = clocalBaseline(zArr_F64, <int>blockLenTarget, useIRLS=useIRLS, asymPos=asymPos_)
         localBaseView_F64 = localBaseArr_F64
 
     wLocalF64 = <double>wLocal
@@ -2483,328 +2488,208 @@ cdef double cOtsu(
 cpdef double cDenseMean(
     object x,
     Py_ssize_t blockLenTarget=250,
-    Py_ssize_t numReplicates=1000,
-    double denseMeanQuantile=<double>0.50,
+    Py_ssize_t itersEM=1000,
     uint64_t seed=0,
-    double sparseDenseSeparation=3.0,
     bint verbose = <bint>False,
 ):
-    r"""Estimate an upward-biased 'dense' baseline for an HTS signal measurement track.
+    r"""Estimate a 'dense' baseline to subtract from each replicate's transformed count track.
 
-    Denote a track of signal measurements over fixed-length genomic intervals :math:`i=1,2, \ldots`
+    If calling this function outside of the default implementation, note that the input is
+    assumed to have been normalized by sequencing depth / library size and transformed to
+    log-scale.
+
+    Data is modeled with a simple Gaussian mixture:
 
     .. math::
 
-      \mathbf{x} = \{x_{[i]}\}_{i=1}^{n}.
+      p(y) = \pi\, \mathcal{N}(y;\mu_1,\sigma_1^2) + (1-\pi)\,\mathcal{N}(y;\mu_2,\sigma_2^2).
 
-    Concretely, we want to estimate a practical baseline :math:`\widehat{\mu}_{\texttt{dense}}` that summarizes the typical signal level in *non-sparse* regions.
+    We maximize the likelihood with respect to $\mu_2 \geq \mu_1$ using an expectation-maximization routine.
 
-    First, we infer a threshold to 'softly' separate sparse versus dense regimes in :math:`\mathbf{x}`: the value :math:`t > 0` is calculated empirically using Otsu's method.
+    **E-step**: For each observation :math:`y_i`, define
 
-    That is, :math:`t` is obtained through a sweep over possible cutoffs and selected to maximize the between-class variance after removing extreme values and
-    smoothing for regularity.
+    .. math::
+
+      \ell_{i1} = \log \pi + \log \mathcal{N}(y_i;\mu_1,\sigma_1^2),
+      \qquad
+      \ell_{i2} = \log (1-\pi) + \log \mathcal{N}(y_i;\mu_2,\sigma_2^2).
+
+    .. math::
+
+      \ell_i = \log\!\left(\exp(\ell_{i1}) + \exp(\ell_{i2})\right),
+
+    and the component-1 weight
+
+    .. math::
+
+      w_i = \exp(\ell_{i1} - \ell_i),
+        \qquad
+        1-w_i = \exp(\ell_{i2} - \ell_i).
+
+
+    **M-step**
 
     Let
 
     .. math::
 
-      z_{[i]} = \mathbf{1}\{x_{[i]} \ge t\}.
+      W = \sum_{i=1}^n w_i, \qquad W' = \sum_{i=1}^n (1-w_i) = n - W.
 
-    A working 'global dense rate' is used for reference throughout the procedure:
-
-    .. math::
-
-      \rho_0 = \frac{1}{n}\sum_{i=1}^{n} z_{[i]}.
-
-    Blocks are sampled from a proposal distribution :math:`q(B)`, given by a uniform-distributed start index and a geometric-distributed block length
-    with mean ``blockLenTarget`` before truncation. Each :math:`B \subset \{1, \ldots, n\}` is assigned summary statistics:
+    Update
 
     .. math::
 
-      \mu(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} x_{[i]}, \qquad
-      \rho(B) = \frac{1}{\lvert B\rvert}\sum_{i \in B} z_{[i]}.
-
-    To favor non-sparse regions, we bias sampling toward dense blocks, where importance weights are assigned with a *soft* gate dependent on the block's dense rate :math:`\rho(B)`:
+        \pi \leftarrow \frac{W}{n},
 
     .. math::
 
-      g(B) = \sigma\left(s\,(\rho(B) - \rho_0)\right), \qquad
-      \sigma(u) = \frac{1}{1 + \exp(-u)}.
+        \mu_1 \leftarrow \frac{\sum_{i=1}^n w_i y_i}{W},
+        \qquad
+        \mu_2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i}{W'},
 
-    A small constant is added to compute weights
-
-    .. math::
-
-      w(B) = \left(g(B) + \varepsilon\right)^{\gamma} + \varepsilon, \qquad
-      \pi(B) \propto q(B)\,w(B).
-
-    The target quantity is then the expectation of :math:`\mu(B)` under :math:`\pi` (i.e., the dense-conditioned block mean):
+    (the order of the two components is swapped if $\mu_1 > \mu_2$) and
 
     .. math::
 
-      \theta = \mathbb{E}_{B \sim \pi}[\mu(B)]
-              = \frac{\mathbb{E}_{B \sim q}[w(B)\,\mu(B)]}{\mathbb{E}_{B \sim q}[w(B)]}.
+      \sigma_1^2 \leftarrow \frac{\sum_{i=1}^n w_i y_i^2}{W} - \mu_1^2,
+      \qquad
+      \sigma_2^2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i^2}{W'} - \mu_2^2.
 
+    We enforce a minimum variance floor and a minimum / maximum value for $\pi$ for stability. Note, we force $\mu_1 \leq \mu_2$ by
+    swapping parameters accordingly after the M-step updates.
 
-    :param x: Signal measurements (after transformation) over fixed-width genomic intervals.
-    :type x: array-like
-    :param blockLenTarget: Sets the expected value of the block-length sampling distribution (geometric) *before* truncation.
-        Units: genomic intervals (e.g., a value of 100 corresponds to 5kb given 50bp intervals).
-    :type blockLenTarget: int
-    :param numReplicates: Number of Monte Carlo replicates
-    :type numReplicates: int
-    :param denseMeanQuantile: Quantile in :math:`[0,1]` used to aggregate replicate SNIS estimates. This argument is
-        exposed in the default implementation. To obtain conservatively biased signal estimates for special cases,
-        users may consider raising (toward 1.0) or lowering (toward 0.0) this value.
-    :type denseMeanQuantile: float
-    :param seed: Random seed for reproducibility
-    :type seed: int
-    :param sparseDenseSeparation: Controls bias toward dense blocks via the importance weight exponent :math:`\gamma`.
-        Larger values increase the bias toward dense blocks.
-    :type sparseDenseSeparation: float
-    :param verbose: If True, prints diagnostic information (e.g., threshold and final baseline).
-    :type verbose: bool
-    :return: Dense-conditioned baseline :math:`\widehat{\mu}_{\texttt{dense}}`.
-    :rtype: float
+    The returned value is the estimated 'dense' baseline :math:`\mu_2 \geq \mu_1`. This value is used
+    in conjunction with :func:`consenrich.cconsenrich.clocalBaseline` for centering replicates' transformed
+    count tracks.
 
     """
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] raw, values
-    cdef cnp.float32_t[::1] rawView
-    cdef cnp.float32_t[::1] valuesView
-    cdef Py_ssize_t numValues
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] prefixSums
-    cdef cnp.float64_t[::1] prefixView
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] SNISEstimates
-    cdef cnp.float64_t[::1] SNISView
-    cdef double p, logq_
-    cdef Py_ssize_t i, r, j
-    cdef Py_ssize_t L, start, end
-    cdef double upperBound
-    cdef Py_ssize_t blockLenUpperBound
-    cdef Py_ssize_t blockLenLowerBound = <Py_ssize_t>5
-    cdef bint useGeom
-    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] posPrefixCounts
-    cdef long[::1] posPrefixView
-    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] finitePrefixCounts
-    cdef long[::1] finitePrefixView
-    cdef long totPos
-    cdef long totFinite
-    cdef long posInBlock
-    cdef long finiteInBlock
-    cdef double globalRate
-    cdef double gateSteep
-    cdef double eps = 1e-12
 
-    cdef double blockSum, blockMean, blockPosRate
-    cdef double denseDiff, gateInput, gate, importanceWeight
-    cdef double weightedValueSum, weightTotal
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] y
+    cdef cnp.float64_t[::1] yView
+    cdef Py_ssize_t n, i, it, maxIters
+    cdef double q
+    cdef double pi, mu1, mu2, var1, var2
+    cdef double r, sum_r, sum_1mr
+    cdef double sum_r_y, sum_1mr_y
+    cdef double sum_r_y2, sum_1mr_y2
+    cdef double logp1, logp2, mlog, tll_
+    cdef double loglik, prev_loglik, diff
+    cdef double dense_mu, dense_sd
+    cdef double tol = 1e-8
+    cdef double varFloor = 1e-6
+    cdef double piFloor = 1e-6
 
-    # multiple blocks for each rep. (reduces monte-carlo variance)
-    cdef Py_ssize_t blocksPerReplicate
-    cdef Py_ssize_t maxBlocksPerReplicate = <Py_ssize_t>128
+    y = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
+    yView = y
+    n = y.size
 
-    # step function's transition/steepness is given by excess above expectation, SE
-    cdef double avgBlockLen
-    cdef double blockRateVar, blockRateSE
-    cdef double blockPosRateSeApprox
-    cdef double seFloor = 1e-12
-    cdef double gateSteepMin = 10.0
-    cdef double gateSteepMax = 50.0
-    cdef double gateSteepAtTwoSigma = 25.0
+    maxIters = itersEM if itersEM > 0 else 50
+    if maxIters < 10:
+        maxIters = 10
+    elif maxIters > 500:
+        maxIters = 500
 
-    # Empirical threshold via clipped/smoothed sweep: Otsu 'dense' indicator obtained by
-    # ... maximizing between-split variance. If Otsu fails (e.g., constant signal), goto
-    # ... a IQR-based threshold.
-    cdef double posThreshold
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rawFinite
-    cdef double medThr, q25Thr, q75Thr, iqrThr
-    cdef double thrEps = 1.0e-8
+    cdef double q10 = <double>np.quantile(y, 0.10)
+    cdef double q90 = <double>np.quantile(y, 0.90)
+    cdef double ymean = <double>np.mean(y)
+    cdef double ysd = <double>np.std(y)
+    if ysd < 1e-6:
+        ysd = 1.0
 
+    mu1 = q10
+    mu2 = q90
+    if mu1 == mu2:
+        mu1 = ymean - 0.5 * ysd
+        mu2 = ymean + 0.5 * ysd
 
-    if blockLenTarget <= 0:
-        blockLenTarget = 1
-    if numReplicates <= 0:
-        return 0.0
+    var1 = ysd * ysd
+    var2 = ysd * ysd
+    if var1 < varFloor:
+        var1 = varFloor
+    if var2 < varFloor:
+        var2 = varFloor
 
-    if denseMeanQuantile <= 0.0:
-        denseMeanQuantile = 0.0
-    elif denseMeanQuantile >= 1.0:
-        denseMeanQuantile = 1.0
+    pi = 0.9
+    prev_loglik = -INFINITY
 
-    raw = np.ascontiguousarray(x, dtype=np.float32).reshape(-1)
-    rawView = raw
+    for it in range(maxIters):
+        sum_r = 0.0
+        sum_1mr = 0.0
+        sum_r_y = 0.0
+        sum_1mr_y = 0.0
+        sum_r_y2 = 0.0
+        sum_1mr_y2 = 0.0
+        loglik = 0.0
 
-    posThreshold = cOtsu(raw, loQuantile=0.001, hiQuantile=0.999)
-    if not isfinite(posThreshold):
-        rawFinite = raw[np.isfinite(raw)].astype(np.float64, copy=False)
-        if rawFinite.size == 0:
-            posThreshold = 1.0e-2
-        else:
-            medThr = <double>np.median(rawFinite)
-            q25Thr = <double>np.quantile(rawFinite, 0.25)
-            q75Thr = <double>np.quantile(rawFinite, 0.75)
-            iqrThr = q75Thr - q25Thr
+        # E-step
+        with nogil:
+            # fix mu1,mu2,var1,var2,pi, collect stats
+            for i in range(n):
+                logp1 = log(pi) + _log_norm_pdf(yView[i], mu1, var1)
+                logp2 = log(1.0 - pi) + _log_norm_pdf(yView[i], mu2, var2)
 
-            if (not isfinite(iqrThr)) or iqrThr < thrEps:
-                posThreshold = fmax(medThr, 1.0e-2)
-            else:
-                posThreshold = fmax(medThr + (iqrThr / 1.349), 1.0e-2)
+                mlog = logp1 if logp1 > logp2 else logp2
+                tll_ = mlog + log(exp(logp1 - mlog) + exp(logp2 - mlog))
+                r = exp(logp1 - tll_)
 
-            if not isfinite(posThreshold):
-                posThreshold = fmax(medThr, 1.0e-2)
+                sum_r += r
+                sum_1mr += (1.0 - r)
+                sum_r_y += r * yView[i]
+                sum_1mr_y += (1.0 - r) * yView[i]
+                sum_r_y2 += r * yView[i] * yView[i]
+                sum_1mr_y2 += (1.0 - r) * yView[i] * yView[i]
+                loglik += tll_
+
+        if sum_r <= 0.0 or sum_1mr <= 0.0:
+            break
+
+        # M-step: sum_r,sum_1mr,... --> update pi, mu1, mu2, var1, var2
+        pi = sum_r / (<double>n)
+        if pi < piFloor:
+            pi = piFloor
+        elif pi > 1.0 - piFloor:
+            pi = 1.0 - piFloor
+
+        mu1 = sum_r_y / sum_r
+        mu2 = sum_1mr_y / sum_1mr
+
+        # E[w*y^2]/E[w] - mu^2
+        var1 = (sum_r_y2 / sum_r) - (mu1 * mu1)
+        var2 = (sum_1mr_y2 / sum_1mr) - (mu2 * mu2)
+
+        if (not isfinite(var1)) or var1 < varFloor:
+            var1 = varFloor
+        if (not isfinite(var2)) or var2 < varFloor:
+            var2 = varFloor
+
+        # enforce mu1 <= mu2
+        if mu1 > mu2:
+            mu1, mu2 = mu2, mu1
+            var1, var2 = var2, var1
+            pi = 1.0 - pi
+
+        diff = loglik - prev_loglik
+        if diff < 0.0:
+            diff = -diff
+
+        if it > 0 and diff < tol * (1.0 + fabs(prev_loglik)):
+            break
+
+        if it >= maxIters-1 and diff >= tol * (1.0 + fabs(prev_loglik)):
+            if verbose:
+                printf(b"\tcconsenrich.cDenseMean: EM did not converge after %ld EM iters, diff=%.6f\n",
+                       <long>it + 1, diff)
+
+        prev_loglik = loglik
+
+    dense_mu = mu2
+    dense_sd = sqrt(var2)
 
     if verbose:
-        printf(b"cconsenrich.cDenseMean: (Otsu) sparse-dense indicator=%.6f\n", posThreshold)
+        printf(b"\tcconsenrich.cDenseMean(GMM): baseline=%.4f\n",
+               dense_mu)
 
-    values = raw
-    valuesView = values
-    numValues = values.size
-    prefixSums = np.empty(numValues + 1, dtype=np.float64)
-    prefixView = prefixSums
-    posPrefixCounts = np.empty(numValues + 1, dtype=np.int64)
-    posPrefixView = posPrefixCounts
-    finitePrefixCounts = np.empty(numValues + 1, dtype=np.int64)
-    finitePrefixView = finitePrefixCounts
-    SNISEstimates = np.empty(numReplicates, dtype=np.float64)
-    SNISView = SNISEstimates
-    blockLenUpperBound = <Py_ssize_t>(5 * blockLenTarget)
-
-    blocksPerReplicate = <Py_ssize_t>(
-        fmax((sqrt(<double>(numValues) / <double>(blockLenTarget))), 32.0)
-    )
-    blocksPerReplicate = <Py_ssize_t>(
-        fmin(<double>blocksPerReplicate, <double>maxBlocksPerReplicate)
-    )
-
-    # length L ~ Geometric(p) [truncated to [blockLenLowerBound, blockLenUpperBound]!]
-    useGeom = blockLenTarget > 1
-    if useGeom:
-        p = 1.0 / (<double>blockLenTarget)
-        logq_ = log(1.0 - p)
-    else:
-        logq_ = 0.0
-
-    # ---------DO NOT CALL THIS FUNCTION IN PARALLEL-------
-    srand(seed)
-    # ------------------------------------------------------
-
-    with nogil:
-        # first pass: build prefix sums and values for fast block means and rates
-        prefixView[0] = 0.0
-        posPrefixView[0] = 0
-        finitePrefixView[0] = 0
-        for i in range(numValues):
-            if isfinite(rawView[i]):
-                prefixView[i + 1] = prefixView[i] + (<double>valuesView[i])
-                finitePrefixView[i + 1] = finitePrefixView[i] + 1
-                posPrefixView[i + 1] = posPrefixView[i] + (<long>(rawView[i] >= posThreshold))
-            else:
-                prefixView[i + 1] = prefixView[i]
-                finitePrefixView[i + 1] = finitePrefixView[i]
-                posPrefixView[i + 1] = posPrefixView[i]
-
-    totPos = posPrefixView[numValues]
-    totFinite = finitePrefixView[numValues]
-    if totFinite <= 0:
-        return 0.0
-
-    globalRate = (<double>totPos) / (<double>totFinite)
-    if not isfinite(globalRate):
-        globalRate = 0.5
-    if globalRate < 0.0:
-        globalRate = 0.0
-    elif globalRate > 1.0:
-        globalRate = 1.0
-
-    #  ~SE~ of blockPosRate given binomial(p=globalRate) at expected block length
-    # ... this partially determines the steepness of the logistic 'gate' function and
-    # ... influences the weighting of dense vs sparse blocks
-    avgBlockLen = fmax(1.0, <double>blockLenTarget)
-    blockRateVar = (globalRate * (1.0 - globalRate)) / avgBlockLen
-    if blockRateVar < seFloor:
-        blockRateVar = seFloor
-    blockRateSE= sqrt(blockRateVar)
-
-    gateSteep = gateSteepAtTwoSigma / blockRateSE
-    if gateSteep < gateSteepMin:
-        gateSteep = gateSteepMin
-    elif gateSteep > gateSteepMax:
-        gateSteep = gateSteepMax
-    if not isfinite(gateSteep) or gateSteep <= 0.0:
-        gateSteep = 10.0
-
-    with nogil:
-        for r in range(numReplicates):
-
-            # SNIS estimate: [sum w * value] / [sum w]
-            weightedValueSum = 0.0
-            weightTotal = 0.0
-
-            for j in range(blocksPerReplicate):
-
-                # Proposal: sample a block (start, L) from q
-                if useGeom:
-                    # block length ~ TruncatedGeometric(p) over [blockLenLowerBound, blockLenUpperBound]
-                    L = _geometricDraw(logq_)
-                    if L < blockLenLowerBound:
-                        L = blockLenLowerBound
-                    elif L > blockLenUpperBound:
-                        L = blockLenUpperBound
-                else:
-                    L = 1
-
-                if L > numValues:
-                    L = numValues
-                if L <= 0:
-                    L = 1
-
-                start = _rand_int(numValues)
-                end = start + L
-                if end <= numValues:
-                    # No wraparound: sum values[start:end].
-                    blockSum = prefixView[end] - prefixView[start]
-                    posInBlock = posPrefixView[end] - posPrefixView[start]
-                    finiteInBlock = finitePrefixView[end] - finitePrefixView[start]
-                else:
-                    # circular: sum both (values[start:numValues]) and (values[0:(end - numValues)])
-                    # FFR: this is only to avoid issues at bounds and was previously important when building
-                    # ... full-length replicates. Truncation might be easier in the future
-                    end -= numValues
-                    blockSum = (prefixView[numValues] - prefixView[start]) + prefixView[end]
-                    posInBlock = (posPrefixView[numValues] - posPrefixView[start]) + posPrefixView[end]
-                    finiteInBlock = (finitePrefixView[numValues] - finitePrefixView[start]) + finitePrefixView[end]
-
-                if finiteInBlock <= 0:
-                    continue
-
-                blockMean = blockSum / (<double>finiteInBlock)
-                blockPosRate = (<double>posInBlock) / (<double>finiteInBlock)
-
-                # Weight w(block):
-                # ... denseDiff = blockPosRate - globalRate
-                # ... gate = 1 / (1 + exp(-gateSteep * denseDiff))
-                # ... w = (gate + eps) ** sparseDenseSeparation + eps
-                denseDiff = blockPosRate - globalRate
-                gateInput = gateSteep * denseDiff
-                if gateInput >= 0.0:
-                    gate = 1.0 / (1.0 + exp(-gateInput))
-                else:
-                    gate = exp(gateInput) / (1.0 + exp(gateInput))
-
-                importanceWeight = gate + eps
-                importanceWeight = pow(importanceWeight, sparseDenseSeparation)
-                importanceWeight = importanceWeight + eps
-
-                weightTotal += importanceWeight
-                weightedValueSum += importanceWeight * blockMean
-
-            SNISView[r] = (weightedValueSum / weightTotal) if weightTotal > 0.0 else NAN
-
-    # nan-robust quantile
-    upperBound = <double>np.nanquantile(SNISEstimates, denseMeanQuantile)
-    if verbose:
-        printf(b"cconsenrich.cDenseMean: Dense baseline = %.4f\n", upperBound)
-    return upperBound
+    return dense_mu
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
@@ -3218,8 +3103,10 @@ cpdef tuple cscaleStateCovar(
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
-    bint centerGeoMean=<bint>(True), # FFR: in fact, we use the _MEDIAN_ for centering!, change in next 0.x+1.0 release
+    bint centerGeoMean=<bint>(True),  # FFR: in fact, we use the _MEDIAN_ for centering!, change in next 0.x+1.0 release
+    Py_ssize_t minRefDist=<Py_ssize_t>(10),
 ):
+    #FFR: revisit this, may want to offer guidance given correlation structure...
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
     cdef Py_ssize_t m = chromMat_.shape[0]
     cdef Py_ssize_t n = chromMat_.shape[1]
@@ -3253,7 +3140,18 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
 
     # reference uses geometric mean over *positive counts*, less than x% nonzero counts --> NAN (ignored later)
     validCols = 0
-    cdef Py_ssize_t requiredNonZeroSamples_ssize = <Py_ssize_t>(1.0 * (<double>m) + (1.0 - 1e-8)) # 100% for consistency w/ other implementations
+    cdef Py_ssize_t requiredNonZeroSamples_ssize = <Py_ssize_t>(1.0 * (<double>m) + (1.0 - 1e-8))  # 100% for consistency w/ other implementations
+
+    # enforce _minimum distance_ between selected reference columns!
+    # ... since we're working with adjacent genomic intervals, best
+    # ... to avoid local correlations skewing the SF calculation.
+    # FFR: consider coupling minRefDist with `getContextSize`
+    cdef Py_ssize_t lastSelected = -minRefDist
+    cdef Py_ssize_t prevSelected = -1
+    cdef Py_ssize_t selectedCount = 0
+    cdef double sumGaps = 0.0
+    cdef double avgGap = NAN
+
     with nogil:
         for i in range(n):
             sumLog = 0.0
@@ -3263,9 +3161,29 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
                 if v >= 1.0:
                     sumLog += log(v)
                     presentCount += 1
+
             refLogView[i] = (sumLog / (<double>presentCount)) if presentCount >= requiredNonZeroSamples_ssize else NAN
+
             if not isnan(refLogView[i]):
-                validCols += 1
+                # enforce _minimum distance_ between selected reference columns
+                if (i - lastSelected) < minRefDist:
+                    refLogView[i] = NAN
+                else:
+                    validCols += 1
+                    lastSelected = i
+
+                    if selectedCount > 0:
+                        sumGaps += <double>(i - prevSelected)
+                    prevSelected = i
+                    selectedCount += 1
+
+        if selectedCount > 1:
+            avgGap = (1.0*sumGaps) / <double>(selectedCount - 1)
+
+    printf(
+        b"\tcconsenrich.cSF: minRefDist=%zd, selected=%zd, AVG distance between reference cols=%.2f indices\n",
+        minRefDist, selectedCount, avgGap
+    )
 
     # ensure there are enough usable columns for the SF calculation
     if validCols < fmax(fmin(<double>(500.0), np.sqrt(<double>(n*0.5))), 10.0):
@@ -3274,8 +3192,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
             f"If this is expected, consider using `countingParams.normMethod: EGS` or RPKM instead."
         )
 
-    # FFR: in a future version, trim left,right tails until we have at most 100k cols
-    printf(b"cconsenrich.cSF: using %zd valid/dense columns for scale factor calculation.\n", validCols)
+    printf(b"\tcconsenrich.cSF: using %zd valid/dense columns for scale factor calculation.\n", validCols)
 
     with nogil:
         for s in range(m):
@@ -3291,10 +3208,10 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
                 scaleFactorsView[s] = 1.0
             else:
                 # quickselect for median
-                if k & 1: # case: ODD, just take middle element
+                if k & 1:  # case: ODD, just take middle element
                     _nthElement_F64(&logRatioBufView[0], k, k >> 1)
                     medLog = logRatioBufView[k >> 1]
-                else:     # case: EVEN, average two middle elements
+                else:      # case: EVEN, average two middle elements
                     kHigh = k >> 1
                     kLow = kHigh - 1
 
@@ -3309,10 +3226,10 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
 
             # note that inflated/deflated SFs should be fine after clipping here given later global/local corrections and UQ
             if scaleFactorsView[s] < minSF:
-                printf(b"Warning: sample scale factor %.4f below min %.4f, clipping to lower.\n", scaleFactorsView[s], minSF)
+                printf(b"\tWarning: sample scale factor %.4f below min %.4f, clipping to lower.\n", scaleFactorsView[s], minSF)
                 scaleFactorsView[s] = minSF
             elif scaleFactorsView[s] > maxSF:
-                printf(b"Warning: sample scale factor %.4f above max %.4f, clipping to upper.\n", scaleFactorsView[s], maxSF)
+                printf(b"\tWarning: sample scale factor %.4f above max %.4f, clipping to upper.\n", scaleFactorsView[s], maxSF)
                 scaleFactorsView[s] = maxSF
 
         if centerGeoMean and m > 0:
@@ -3323,10 +3240,10 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
                 logSFBufView[s] = log(scaleFactorsView[s] + eps)
 
             # quickselect for median on SFs
-            if m & 1: # case: ODD, just take middle element
+            if m & 1:  # case: ODD, just take middle element
                 _nthElement_F64(&logSFBufView[0], m, m >> 1)
                 centerLog = logSFBufView[m >> 1]
-            else:     # case: EVEN, average two middle elements
+            else:      # case: EVEN, average two middle elements
                 kHigh = m >> 1
                 kLow = kHigh - 1
 
@@ -3337,20 +3254,20 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
                 low = logSFBufView[kLow]
                 centerLog = 0.5 * (low + high)
 
-            geoMean = exp(centerLog) #  _MEDIAN_
+            geoMean = exp(centerLog)  #  _MEDIAN_
             for s in range(m):
                 # center around ~~geometric median~~
                 scaleFactorsView[s] /= geoMean
 
                 # make sure bounds still hold
                 if scaleFactorsView[s] < minSF:
-                    printf(b"Warning: sample scale factor %.4f below min %.4f after centering, clipping to lower.\n", scaleFactorsView[s], minSF)
+                    printf(b"\tWarning: sample scale factor %.4f below min %.4f after centering, clipping to lower.\n", scaleFactorsView[s], minSF)
                     scaleFactorsView[s] = minSF
                 elif scaleFactorsView[s] > maxSF:
-                    printf(b"Warning: sample scale factor %.4f above max %.4f after centering, clipping to upper.\n", scaleFactorsView[s], maxSF)
+                    printf(b"\tWarning: sample scale factor %.4f above max %.4f after centering, clipping to upper.\n", scaleFactorsView[s], maxSF)
                     scaleFactorsView[s] = maxSF
 
-    return 1/scaleFactors
+    return 1 / scaleFactors
 
 
 cdef void solveSOD_LDL_F64(
@@ -3521,33 +3438,33 @@ cpdef cnp.ndarray locBaselineWeighted_F64(cnp.ndarray in_, cnp.ndarray wIn, doub
     cdef cnp.ndarray[cnp.float64_t, ndim=1] A0
     cdef cnp.ndarray[cnp.float64_t, ndim=1] A1
     cdef cnp.ndarray[cnp.float64_t, ndim=1] A2
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD0
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD1
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] DTD2
     cdef cnp.ndarray[cnp.float64_t, ndim=1] D
     cdef cnp.ndarray[cnp.float64_t, ndim=1] L1
     cdef cnp.ndarray[cnp.float64_t, ndim=1] L2
     cdef cnp.ndarray[cnp.float64_t, ndim=1] yTMP
     cdef cnp.ndarray[cnp.float64_t, ndim=1] zTMP
-
     cdef double[::1] y_F64
     cdef double[::1] w_F64
     cdef double[::1] b_F64
     cdef double[::1] A0_F64
     cdef double[::1] A1_F64
     cdef double[::1] A2_F64
-    cdef double[::1] DTD0_F64
-    cdef double[::1] DTD1_F64
-    cdef double[::1] DTD2_F64
     cdef double[::1] D_F64
     cdef double[::1] L1_F64
     cdef double[::1] L2_F64
     cdef double[::1] y_tmp_F64
     cdef double[::1] z_tmp_F64
-
     cdef Py_ssize_t n
     cdef Py_ssize_t i
-    cdef double wi
+    cdef double wi, dtd0
+    cdef double lam = lambda_F64
+    # FFR: revisit, but using pointers directly has proven faster in this function (and F64)
+    cdef double* yPtr
+    cdef double* wPtr
+    cdef double* bPtr
+    cdef double* a0Ptr
+    cdef double* a1Ptr
+    cdef double* a2Ptr
 
     y = np.ascontiguousarray(in_, dtype=np.float64)
     wArr = np.ascontiguousarray(wIn, dtype=np.float64)
@@ -3563,9 +3480,6 @@ cpdef cnp.ndarray locBaselineWeighted_F64(cnp.ndarray in_, cnp.ndarray wIn, doub
     A0 = np.empty(n, dtype=np.float64)
     A1 = np.empty(n - 1, dtype=np.float64)
     A2 = np.empty(n - 2, dtype=np.float64)
-    DTD0 = np.empty(n, dtype=np.float64)
-    DTD1 = np.empty(n - 1, dtype=np.float64)
-    DTD2 = np.empty(n - 2, dtype=np.float64)
     D = np.empty(n, dtype=np.float64)
     L1 = np.empty(n - 1, dtype=np.float64)
     L2 = np.empty(n - 2, dtype=np.float64)
@@ -3576,43 +3490,52 @@ cpdef cnp.ndarray locBaselineWeighted_F64(cnp.ndarray in_, cnp.ndarray wIn, doub
     A0_F64 = A0
     A1_F64 = A1
     A2_F64 = A2
-    DTD0_F64 = DTD0
-    DTD1_F64 = DTD1
-    DTD2_F64 = DTD2
     D_F64 = D
     L1_F64 = L1
     L2_F64 = L2
     y_tmp_F64 = yTMP
     z_tmp_F64 = zTMP
+    yPtr = <double*>y.data
+    wPtr = <double*>wArr.data
+    bPtr = <double*>b.data
+    a0Ptr = <double*>A0.data
+    a1Ptr = <double*>A1.data
+    a2Ptr = <double*>A2.data
 
     with nogil:
-        # D^T D
-        DTD0_F64[0] = 1.0
-        DTD0_F64[1] = 5.0
-        for i in range(2, n - 2):
-            DTD0_F64[i] = 6.0
-        DTD0_F64[n - 2] = 5.0
-        DTD0_F64[n - 1] = 1.0
-
-        DTD1_F64[0] = -2.0
-        for i in range(1, n - 2):
-            DTD1_F64[i] = -4.0
-        DTD1_F64[n - 2] = -2.0
-
-        for i in range(n - 2):
-            DTD2_F64[i] = 1.0
-
+        # D^T D bands are fixed for 2nd-difference penalty:
+        #   DTD0 = [1, 5, 6, ..., 6, 5, 1]
+        #   DTD1 = [-2, -4, ..., -4, -2]
+        #   DTD2 = [1, 1, ..., 1]
+        #
         # (W + lam D^T D)b = Wy
+
+        # fill A2 (second off-diagonal): +lam everywhere
+        for i in range(n - 2):
+            a2Ptr[i] = lam
+
+        # fill A1 (first off-diagonal): -2lam at ends, -4lam in middle
+        a1Ptr[0] = -2.0 * lam
+        for i in range(1, n - 2):
+            a1Ptr[i] = -4.0 * lam
+        a1Ptr[n - 2] = -2.0 * lam
+
+        # fill A0 (diagonal) and rhs b
         for i in range(n):
-            wi = w_F64[i]
+            wi = wPtr[i]
             if wi < 0.0:
                 wi = 0.0
-            A0_F64[i] = wi + lambda_F64 * DTD0_F64[i]
-            b_F64[i] = wi * y_F64[i]
-        for i in range(n - 1):
-            A1_F64[i] = lambda_F64 * DTD1_F64[i]
-        for i in range(n - 2):
-            A2_F64[i] = lambda_F64 * DTD2_F64[i]
+
+            # diag of D^T D
+            if i == 0 or i == (n - 1):
+                dtd0 = 1.0
+            elif i == 1 or i == (n - 2):
+                dtd0 = 5.0
+            else:
+                dtd0 = 6.0
+
+            a0Ptr[i] = wi + lam * dtd0
+            bPtr[i] = wi * yPtr[i]
 
         solveSOD_LDL_F64(A0_F64, A1_F64, A2_F64, b_F64, b_F64,
                          D_F64, L1_F64, L2_F64, y_tmp_F64, z_tmp_F64)
@@ -3627,9 +3550,6 @@ cpdef cnp.ndarray locBaselineWeighted_F32(cnp.ndarray in_, cnp.ndarray wIn, floa
     cdef cnp.ndarray[cnp.float32_t, ndim=1] A0
     cdef cnp.ndarray[cnp.float32_t, ndim=1] A1
     cdef cnp.ndarray[cnp.float32_t, ndim=1] A2
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD0
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD1
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] DTD2
     cdef cnp.ndarray[cnp.float32_t, ndim=1] D
     cdef cnp.ndarray[cnp.float32_t, ndim=1] L1
     cdef cnp.ndarray[cnp.float32_t, ndim=1] L2
@@ -3642,9 +3562,6 @@ cpdef cnp.ndarray locBaselineWeighted_F32(cnp.ndarray in_, cnp.ndarray wIn, floa
     cdef float[::1] A0_F32
     cdef float[::1] A1_F32
     cdef float[::1] A2_F32
-    cdef float[::1] DTD0_F32
-    cdef float[::1] DTD1_F32
-    cdef float[::1] DTD2_F32
     cdef float[::1] D_F32
     cdef float[::1] L1_F32
     cdef float[::1] L2_F32
@@ -3653,7 +3570,16 @@ cpdef cnp.ndarray locBaselineWeighted_F32(cnp.ndarray in_, cnp.ndarray wIn, floa
 
     cdef Py_ssize_t n
     cdef Py_ssize_t i
-    cdef float wi
+    cdef float wi, dtd0
+    cdef float lam = lambda_F32
+
+    # FFR: revisit, but using pointers directly has proven faster in this function (and F64)
+    cdef float* yPtr
+    cdef float* wPtr
+    cdef float* bPtr
+    cdef float* a0Ptr
+    cdef float* a1Ptr
+    cdef float* a2Ptr
 
     y = np.ascontiguousarray(in_, dtype=np.float32)
     wArr = np.ascontiguousarray(wIn, dtype=np.float32)
@@ -3669,9 +3595,6 @@ cpdef cnp.ndarray locBaselineWeighted_F32(cnp.ndarray in_, cnp.ndarray wIn, floa
     A0 = np.empty(n, dtype=np.float32)
     A1 = np.empty(n - 1, dtype=np.float32)
     A2 = np.empty(n - 2, dtype=np.float32)
-    DTD0 = np.empty(n, dtype=np.float32)
-    DTD1 = np.empty(n - 1, dtype=np.float32)
-    DTD2 = np.empty(n - 2, dtype=np.float32)
     D = np.empty(n, dtype=np.float32)
     L1 = np.empty(n - 1, dtype=np.float32)
     L2 = np.empty(n - 2, dtype=np.float32)
@@ -3682,43 +3605,54 @@ cpdef cnp.ndarray locBaselineWeighted_F32(cnp.ndarray in_, cnp.ndarray wIn, floa
     A0_F32 = A0
     A1_F32 = A1
     A2_F32 = A2
-    DTD0_F32 = DTD0
-    DTD1_F32 = DTD1
-    DTD2_F32 = DTD2
     D_F32 = D
     L1_F32 = L1
     L2_F32 = L2
     y_tmp_F32 = yTMP
     z_tmp_F32 = zTMP
 
+    # pointer setup (safe: contiguous arrays)
+    yPtr = <float*>y.data
+    wPtr = <float*>wArr.data
+    bPtr = <float*>b.data
+    a0Ptr = <float*>A0.data
+    a1Ptr = <float*>A1.data
+    a2Ptr = <float*>A2.data
+
     with nogil:
-        # D^T D
-        DTD0_F32[0] = 1.0
-        DTD0_F32[1] = 5.0
-        for i in range(2, n - 2):
-            DTD0_F32[i] = 6.0
-        DTD0_F32[n - 2] = 5.0
-        DTD0_F32[n - 1] = 1.0
-
-        DTD1_F32[0] = -2.0
-        for i in range(1, n - 2):
-            DTD1_F32[i] = -4.0
-        DTD1_F32[n - 2] = -2.0
-
-        for i in range(n - 2):
-            DTD2_F32[i] = 1.0
-
+        # D^T D bands are fixed for 2nd-difference penalty:
+        #   DTD0 = [1, 5, 6, ..., 6, 5, 1]
+        #   DTD1 = [-2, -4, ..., -4, -2]
+        #   DTD2 = [1, 1, ..., 1]
+        #
         # (W + lam D^T D)b = Wy
-        for i in range(n):
-            wi = w_F32[i]
-            if wi < 0.0:
-                wi = 0.0
-            A0_F32[i] = wi + lambda_F32 * DTD0_F32[i]
-            b_F32[i] = wi * y_F32[i]
-        for i in range(n - 1):
-            A1_F32[i] = lambda_F32 * DTD1_F32[i]
+
+        # fill A2 (second off-diagonal): +lam everywhere
         for i in range(n - 2):
-            A2_F32[i] = lambda_F32 * DTD2_F32[i]
+            a2Ptr[i] = lam
+
+        # fill A1 (first off-diagonal): -2lam at ends, -4lam in middle
+        a1Ptr[0] = <float>(-2.0) * lam
+        for i in range(1, n - 2):
+            a1Ptr[i] = <float>(-4.0) * lam
+        a1Ptr[n - 2] = <float>(-2.0) * lam
+
+        # fill A0 (diagonal) and rhs b
+        for i in range(n):
+            wi = wPtr[i]
+            if wi < <float>(0.0):
+                wi = <float>(0.0)
+
+            # diag of D^T D
+            if i == 0 or i == (n - 1):
+                dtd0 = <float>(1.0)
+            elif i == 1 or i == (n - 2):
+                dtd0 = <float>(5.0)
+            else:
+                dtd0 = <float>(6.0)
+
+            a0Ptr[i] = wi + lam * dtd0
+            bPtr[i] = wi * yPtr[i]
 
         solveSOD_LDL_F32(A0_F32, A1_F32, A2_F32, b_F32, b_F32,
                          D_F32, L1_F32, L2_F32, y_tmp_F32, z_tmp_F32)
@@ -3970,14 +3904,9 @@ cpdef cnp.ndarray locBaselineMasked_F32(cnp.ndarray in_, cnp.ndarray fitMaskIn, 
     cdef float[::1] L2_F32
     cdef float[::1] y_tmp_F32
     cdef float[::1] z_tmp_F32
-
     cdef Py_ssize_t n
     cdef Py_ssize_t i
     cdef float wi_F32
-
-    # solve for `b` to  minimize [(W^(1/2)(y-b))^T (W^(1/2)(y-b))] + [lambda (D b)^T (D b)]
-    #  where W is diagonal with wi = 1 if fitMask[i] else 0
-    #  and lambda,D penalize second-order differences in the baseline estimate `b`
 
     y = np.ascontiguousarray(in_, dtype=np.float32)
     fitMask = np.ascontiguousarray(fitMaskIn, dtype=np.uint8)
@@ -4143,29 +4072,99 @@ cpdef cnp.ndarray locBaselineCrossfit2_F64(cnp.ndarray yIn, double lambda_F64):
     return bArr
 
 
+cdef void _initPenaltyBandsF64(
+        Py_ssize_t n,
+        double lambda_,
+        double[::1] pen0, # lambda * diag(D^T D)   (n,)
+        double[::1] a1, # lambda * off1(D^T D)   (n-1,)
+        double[::1] a2  # lambda * off2(D^T D)   (n-2,)
+) noexcept nogil:
+    cdef Py_ssize_t i
+
+    # Note, D^T D bands are fixed for 2nd-difference penalty:
+    #   diag: [1, 5, 6, ..., 6, 5, 1]
+    #   off1: [-2, -4, ..., -4, -2]
+    #   off2: [1, 1, ..., 1]
+    #
+    # so we can store as pre-multiplied by lambda_ st the per-iter update is just A0 = w + pen0
+    if n <= 0:
+        return
+
+    # pen0 (diag)
+    pen0[0] = lambda_ * 1.0
+    if n > 1:
+        pen0[1] = lambda_ * 5.0
+    for i in range(2, n - 2):
+        pen0[i] = lambda_ * 6.0
+    if n > 2:
+        pen0[n - 2] = lambda_ * 5.0
+        pen0[n - 1] = lambda_ * 1.0
+
+    # a1 (off1)
+    if n > 1:
+        a1[0] = lambda_ * (-2.0)
+        for i in range(1, n - 2):
+            a1[i] = lambda_ * (-4.0)
+        a1[n - 2] = lambda_ * (-2.0)
+
+    # a2 (off2)
+    for i in range(n - 2):
+        a2[i] = lambda_
+
+
+cdef void _solveBaselineWeightedInplaceF64(
+        const double* yPtr,      # (n,)
+        const double* wPtr,      # (n,)
+        Py_ssize_t n,
+        const double[::1] pen0,  # (n,)   precomputed lambda*diag(D^T D)
+        const double[::1] a1,    # (n-1,) precomputed lambda*off1(D^T D)
+        const double[::1] a2,    # (n-2,) precomputed lambda*off2(D^T D)
+        double[::1] a0,          # (n,)   workspace diag (updated each iter)
+        double[::1] rhs,         # (n,)   workspace rhs; overwritten with solution baseline
+        double[::1] D,           # (n,)   LDL workspace
+        double[::1] L1,          # (n-1,) LDL workspace
+        double[::1] L2,          # (n-2,) LDL workspace
+        double[::1] yTmp,        # (n,)   solve workspace
+        double[::1] zTmp         # (n,)   solve workspace
+) noexcept nogil:
+    cdef Py_ssize_t i
+    cdef double wi
+
+    # (W + lam D^T D)b = Wy
+    for i in range(n):
+        wi = wPtr[i]
+        if wi < 0.0:
+            wi = 0.0
+        a0[i] = wi + pen0[i]
+        rhs[i] = wi * yPtr[i]
+
+    solveSOD_LDL_F64(a0, a1, a2, rhs, rhs, D, L1, L2, yTmp, zTmp)
+
+
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
         object x,
         int blockSize=101,
-        bint useAIRLS=<bint>(True),
-        double posWeight=<double>(2.0/5.0),
+        bint useIRLS=<bint>(True),
+        double asymPos=<double>(2.0/5.0),
         double noiseMult=<double>(1.0),
         double cauchyScale=<double>(3.0),
-        int maxIter=<int>(5),
+        int maxIters=<int>(25),
         double minWeight=<double>(1.0e-6),
-        double tol=<double>(1.0e-3)):
+        double tol=<double>(1.0e-2)):
     r"""Estimate a *local* baseline on `x` with a lower/smooth envelope via IRLS
 
     Compute a locally smooth baseline :math:`\hat{b}` for an input signal :math:`y`,
     using a second-order penalized smoother (Whittaker) with *asymmetric* iteratively reweighted
-    least squares (IRLS) to dampen upward influence from positive peaks.
+    least squares (IRLS) to reduce influence from peaks.
 
     :param x: Signal measurements over fixed-length genomic intervals
     :type x: np.ndarray
-    :param posWeight: *Relative* weight assigned to positive residuals to induce asymmetry. Smaller values
-      will downweight peaks more. Typical range is (0, 0.5].
-    :type posWeight: float
+    :param asymPos: *Relative* weight assigned to positive residuals to induce asymmetry in reweighting. Used
+      during IRLS for the local baseline computation. Smaller values will downweight peaks more and pose less
+      risk of removing true signal. Typical range is ``(0, 0.75]``.
+    :type asymPos: float
     :param cauchyScale: Controls how quickly weights decay with normalized residual magnitude. Smaller values downweight
-      outliers more strongly.
+      outliers strongly.
     :type cauchyScale: float
     :return: Baseline estimate as a float32 NumPy array of shape ``(n,)``.
     :rtype: numpy.ndarray
@@ -4173,19 +4172,47 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
     """
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] y
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] base
     cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] resid
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] tmpBuf
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] baseArr # smoother solution
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] a0Arr # diag (n)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] a1Arr # off1 (n-1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] a2Arr # off2 (n-2)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] pen0Arr # lambda*diag(D^T D)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] dArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] l1Arr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] l2Arr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] yTmpArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] zTmpArr
+    # pointers to memviews
+    cdef double* yPtr
+    cdef double* basePtr
+    cdef double* residPtr
+    cdef double* wPtr
+
     cdef Py_ssize_t n, i
     cdef int it
     cdef double lambda_ = <double>(0.0)
-    cdef double w_, s, madSIGMA_, mad_med
-    cdef double r, w_updated, w_prev, dw, maxDw
-    cdef double noiseScale, t
-    cdef double* residPtr
-    cdef double* tmpPtr
-    cdef double* wPtr
+    cdef double w_
+    cdef double r, t
+    cdef double wPrev, wUpdated, newW, dW, maxDW
+    cdef double noiseScale
+    cdef double invN
+    cdef double absSum, absMean, clipThr
+    cdef double r2Sum, clipR
+    cdef double eps_ = 1.0e-12
+
+    # memviews for nogil calls into solver
+    cdef double[::1] baseView
+    cdef double[::1] a0View
+    cdef double[::1] a1View
+    cdef double[::1] a2View
+    cdef double[::1] pen0View
+    cdef double[::1] dView
+    cdef double[::1] l1View
+    cdef double[::1] l2View
+    cdef double[::1] yTmpView
+    cdef double[::1] zTmpView
 
     y = np.ascontiguousarray(x, dtype=np.float64)
     n = y.shape[0]
@@ -4197,84 +4224,141 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
     if (blockSize & 1) == 0:
         blockSize += 1
 
-    # Gentle Whittaker baseline for warm-start before asymmetric
-    # ... second-order/diff penalized fit. lambda_ is set so gain
-    # ... is about 1/8 for frequencies greater than 1/blockSize.
-    # ... blockSize is presumably from core.getContextSize()
+    # lambda_ is set so the gain is about 1/5 (and decreasing) for frequencies greater than 1/blockSize,
+    # ... so that the baseline is smooth at scales smaller than blockSize but can follow larger-scale trends
     w_ = blockSize * 0.15915494
-    lambda_ = (w_ * w_ * w_ * w_)*7.0
+    lambda_ = (w_ * w_ * w_ * w_)*4.0
 
-    if useAIRLS == False:
-        base = locBaselineWeighted_F64(y, np.ones(n, dtype=np.float64), lambda_)
-        return base.astype(np.float32)
+    if useIRLS == False:
+        return np.zeros(n, dtype=np.float32)
 
     if n < 25:
-        printf("cconsenrich.clocalBaseline: input_len < 25  -->  returning as-is\n")
-        return y.astype(np.float32)
+        printf("\tcconsenrich.clocalBaseline: input_len < 25  -->  returning zeros\n")
+        return np.zeros(n, dtype=np.float32)
 
+    # weights and residuals
     wArr = np.empty(n, dtype=np.float64)
     resid = np.empty(n, dtype=np.float64)
-    tmpBuf = np.empty(n, dtype=np.float64)
-    wPtr = <double*>wArr.data
+
+    # allocate everything once here and avoid malloc/free inside IRLS
+    baseArr = np.empty(n, dtype=np.float64)
+    a0Arr = np.empty(n, dtype=np.float64)
+    a1Arr = np.empty(n - 1, dtype=np.float64)
+    a2Arr = np.empty(n - 2, dtype=np.float64)
+    pen0Arr = np.empty(n, dtype=np.float64)
+    dArr = np.empty(n, dtype=np.float64)
+    l1Arr = np.empty(n - 1, dtype=np.float64)
+    l2Arr = np.empty(n - 2, dtype=np.float64)
+    yTmpArr = np.empty(n, dtype=np.float64)
+    zTmpArr = np.empty(n, dtype=np.float64)
+    yPtr = <double*>y.data
+    basePtr = <double*>baseArr.data
     residPtr = <double*>resid.data
-    tmpPtr = <double*>tmpBuf.data
+    wPtr = <double*>wArr.data
+
+    # memviews for nogil solver call
+    baseView = baseArr
+    a0View = a0Arr
+    a1View = a1Arr
+    a2View = a2Arr
+    pen0View = pen0Arr
+    dView = dArr
+    l1View = l1Arr
+    l2View = l2Arr
+    yTmpView = yTmpArr
+    zTmpView = zTmpArr
 
     with nogil:
+        # initialize with uniform weights
         for i in range(n):
-            # initialize with uniform weights
             wPtr[i] = 1.0
 
-    for it in range(maxIter):
-        # estimate smooth baseline with current weights
-        base = locBaselineWeighted_F64(y, wArr, lambda_)
+        # precompute _constant_ penalty bands for the solver: lambda * diag(D^T D), lambda * off1(D^T D), lambda * off2(D^T D)
+        _initPenaltyBandsF64(n, lambda_, pen0View, a1View, a2View)
 
+    invN = 1.0 / <double>(n) # precompute once
+    maxDW = 0.0
+    for it in range(maxIters):
+
+        # For current weights, W, solve (LDL) for a baseline `b` to minimize:
+        # [(W^(1/2)(y-b))^T (W^(1/2)(y-b))] + [lambda (D b)^T (D b)]
+        # (D is the second-difference operator, so the second term penalizes non-smoothness in `b`)
         with nogil:
+            _solveBaselineWeightedInplaceF64(
+                yPtr, wPtr, n,
+                pen0View, a1View, a2View,
+                a0View, baseView,
+                dView, l1View, l2View,
+                yTmpView, zTmpView
+            )
+
             for i in range(n):
                 # residual = obs - baseline
-                residPtr[i] = y[i] - base[i]
+                residPtr[i] = yPtr[i] - basePtr[i]
 
-            memcpy(tmpPtr, residPtr, n * sizeof(double))
-            # MAD-based noise level from residuals
-            madSIGMA_ = _MADSigma_F64(tmpPtr, n, &mad_med)
-
-            if madSIGMA_ <= 0.0 or not isfinite(madSIGMA_):
-                s = 1e-12
-            else:
-                s = madSIGMA_
-
-            noiseScale = noiseMult * s
-            if noiseScale <= 0.0 or not isfinite(noiseScale):
-                noiseScale = 1e-12
-
-            maxDw = 0.0
+            # estimate noiseScale each pass via clipped _RMS_ of residuals:
+            #   noiseScale = noiseMult * sqrt(mean(clip(r, +/-clipThr)^2))
+            absSum = 0.0
             for i in range(n):
-                w_prev = wPtr[i]
+                absSum += fabs(residPtr[i])
+
+            absMean = absSum * invN
+            clipThr = 6.0 * absMean
+            if clipThr < 1.0e-12 or not isfinite(clipThr):
+                clipThr = 1.0e-12
+
+            r2Sum = 0.0
+            for i in range(n):
+                clipR = residPtr[i]
+                if clipR > clipThr:
+                    clipR = clipThr
+                elif clipR < -clipThr:
+                    clipR = -clipThr
+                r2Sum += clipR * clipR
+
+            noiseScale = noiseMult * sqrt(r2Sum * invN)
+            if noiseScale <= eps_ or not isfinite(noiseScale):
+                noiseScale = eps_
+
+            # initialized per pass
+            maxDW = 0.0
+            for i in range(n):
+                wPrev = wPtr[i]
                 r = residPtr[i]
 
                 if r > 0.0:
-                    # case: data < estimated baseline  -->  weigh by `posWeight`
+                    # case: data > estimated baseline  -->  weigh by `asymPos`
                     t = r / noiseScale
-                    w_updated = (posWeight) / (1.0 + (t / cauchyScale) * (t / cauchyScale))
+                    wUpdated = (asymPos) / (1.0 + (t / cauchyScale) * (t / cauchyScale))
                 else:
-                    # case: data >= estimated baseline  --> weigh by 1-posWeight
+                    # case: data <= estimated baseline  --> weigh by 1-asymPos
                     t = (-r) / noiseScale
-                    w_updated = (1.0 - posWeight) / (1.0 + (t / cauchyScale) * (t / cauchyScale))
+                    wUpdated = (1.0 - asymPos) / (1.0 + (t / cauchyScale) * (t / cauchyScale))
 
-                if w_updated < minWeight:
-                    w_updated = minWeight
+                if wUpdated < minWeight:
+                    wUpdated = minWeight
+
+                # smooth update
+                newW = 0.5 * wPrev + 0.5 * wUpdated
+                wPtr[i] = newW
 
                 # measure change vs previous for convergence
-                dw = fabs(w_updated - w_prev)
-                if dw > maxDw:
+                dW = fabs(newW - wPrev)
+                if dW > maxDW:
                     # record new max change
-                    maxDw = dw
+                    maxDW = dW
 
-                # damped update
-                wPtr[i] = 0.5 * w_prev + 0.5 * w_updated
-
-        if maxDw < tol:
+        if maxDW < tol:
+            printf("\tcconsenrich.clocalBaseline: converged at iteration %d with max weight change %.6f\n", it, maxDW)
             break
 
-    # with weights learned through the CV IRLS, now final baseline
-    base = locBaselineWeighted_F64(y, wArr, lambda_)
-    return base.astype(np.float32)
+    with nogil:
+        _solveBaselineWeightedInplaceF64(
+            yPtr, wPtr, n,
+            pen0View, a1View, a2View,
+            a0View, baseView,
+            dView, l1View, l2View,
+            yTmpView, zTmpView
+        )
+
+    return baseArr.astype(np.float32)
