@@ -1585,6 +1585,8 @@ cpdef object cTransform(
     uint64_t rseed=<uint64_t>0,
     bint useIRLS=<bint>True,
     double asymPos=<double>(2.0/5.0),
+    double logOffset=<double>(1.0),
+    double logMult=<double>(1.0)
 ):
     cdef Py_ssize_t blockLenTarget, n, i
     cdef double wLocal, wGlobal, weightSum, invWeightSum
@@ -1636,7 +1638,7 @@ cpdef object cTransform(
     n = (<cnp.ndarray>x).size
     # F32
     if (<cnp.ndarray>x).dtype == np.float32:
-        momRes = monoFunc(x)
+        momRes = monoFunc(x, offset=logOffset, scale=logMult)
         zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
         zView_F32 = zArr_F32
         n = zArr_F32.shape[0]
@@ -1670,7 +1672,7 @@ cpdef object cTransform(
         return outArr
 
     # F64
-    momRes = monoFunc(x)
+    momRes = monoFunc(x, offset=logOffset, scale=logMult)
     zArr_F64 = np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
     zView_F64 = zArr_F64
     n = zArr_F64.shape[0]
@@ -4113,19 +4115,19 @@ cdef void _initPenaltyBandsF64(
 
 
 cdef void _solveBaselineWeightedInplaceF64(
-        const double* yPtr,      # (n,)
-        const double* wPtr,      # (n,)
+        const double* yPtr,
+        const double* wPtr,
         Py_ssize_t n,
-        const double[::1] pen0,  # (n,)   precomputed lambda*diag(D^T D)
-        const double[::1] a1,    # (n-1,) precomputed lambda*off1(D^T D)
-        const double[::1] a2,    # (n-2,) precomputed lambda*off2(D^T D)
-        double[::1] a0,          # (n,)   workspace diag (updated each iter)
-        double[::1] rhs,         # (n,)   workspace rhs; overwritten with solution baseline
-        double[::1] D,           # (n,)   LDL workspace
-        double[::1] L1,          # (n-1,) LDL workspace
-        double[::1] L2,          # (n-2,) LDL workspace
-        double[::1] yTmp,        # (n,)   solve workspace
-        double[::1] zTmp         # (n,)   solve workspace
+        const double[::1] pen0,
+        const double[::1] a1,
+        const double[::1] a2,
+        double[::1] a0,
+        double[::1] rhs,
+        double[::1] D,
+        double[::1] L1,
+        double[::1] L2,
+        double[::1] yTmp,
+        double[::1] zTmp
 ) noexcept nogil:
     cdef Py_ssize_t i
     cdef double wi

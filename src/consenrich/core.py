@@ -302,8 +302,11 @@ class countingParams(NamedTuple):
     :param backgroundBlockSizeBP: Length (bp) of blocks used to estimate local statistics (background, noise, etc.). If a negative value is provided (default), this value is inferred from the data using :func:`consenrich.core.getContextSize`.
     :type backgroundBlockSizeBP: int
     :param normMethod: Method used to normalize read counts for sequencing depth / library size.
+
         - ``EGS``: Effective Genome Size normalization (see :func:`consenrich.detrorm.getScaleFactor1x`)
+
         - ``SF``: Median of ratios style scale factors (see :func:`consenrich.cconsenrich.cSF`). Restricted to analyses with ``>= 3`` samples (no input control).
+
         - ``RPKM``: Scale factors based on Reads Per Kilobase per Million mapped reads (see :func:`consenrich.detrorm.getScaleFactorPerMillion`)
 
     :type normMethod: str
@@ -319,10 +322,13 @@ class countingParams(NamedTuple):
       Users with input control samples may consider increasing this value to avoid redundancy (artificial local trends have presumably been accounted for in the control, leaving less signal to be modeled locally).
     :type globalWeight: float, optional
     :param asymPos: *Relative* weight assigned to positive residuals to induce asymmetry in reweighting. Used
-      during IRLS for the local baseline computation. Smaller values will downweight peaks more and pose less
+      during IRLS for the local baseline computation. Using smaller values near `0.0` will downweight peaks more and reduce the
       risk of removing true signal. Typical range is ``(0, 0.75]``.
     :type asymPos: float, optional
-
+    :param logOffset: A small constant added to read normalized counts before log-transforming (pseudocount). For example,  :math:`\log(x + 1)` for ``logOffset = 1``. Default is ``1.0``.
+    :type logOffset: float, optional
+    :param logMult: Multiplicative factor applied to log-scaled and normalized counts. For example, setting ``logMult = 1 / \log(2)`` will yield log2-scaled counts after transformation, and setting ``logMult = 1.0`` yields natural log-scaled counts. Default is ``1 / \log(2)``.
+    :type logMult: float, optional
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
     .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
@@ -351,6 +357,8 @@ class countingParams(NamedTuple):
     fixControl: bool | None
     globalWeight: float | None
     asymPos: float | None
+    logOffset: float | None
+    logMult: float | None
 
 
 class matchingParams(NamedTuple):

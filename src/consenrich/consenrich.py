@@ -545,6 +545,16 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.asymPos",
         2.0 / 5.0,
     )
+    logOffset_ = _cfgGet(
+        configData,
+        "countingParams.logOffset",
+        1.0,
+    )
+    logMult_ = _cfgGet(
+        configData,
+        "countingParams.logMult",
+        1.0,
+    )
 
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
@@ -559,6 +569,8 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fixControl=fixControl_,
         globalWeight=globalWeight_,
         asymPos=asymPos_,
+        logOffset=logOffset_,
+        logMult=logMult_,
     )
 
 
@@ -700,7 +712,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
-        damp=_cfgGet(configData, "observationParams.damp", 0.01),
+        damp=_cfgGet(configData, "observationParams.damp", 0.005),
     )
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
@@ -1421,6 +1433,8 @@ def main():
                     not controlsPresent
                 ),  # local baseline via asymmetric whittaker/IRLS is _skipped_ if controls present
                 asymPos=countingArgs.asymPos,
+                logOffset=countingArgs.logOffset,
+                logMult=countingArgs.logMult,
             )
 
             if countingArgs.smoothSpanBP > 0:
