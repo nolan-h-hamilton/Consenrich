@@ -997,7 +997,7 @@ cpdef int64_t cgetFragmentLength(
     int64_t blockSize=5000,
     int64_t fallBack=147,
     int64_t rollingChunkSize=250,
-    int64_t lagStep=10,
+    int64_t lagStep=5,
     int64_t earlyExit=250,
     int64_t randSeed=42,
 ):
@@ -1136,7 +1136,7 @@ cpdef int64_t cgetFragmentLength(
             return <int64_t>fallBack
 
         avgReadLength /= <double>numReadLengthSamples
-        minInsertSize = <int64_t>(avgReadLength / 2.0)
+        minInsertSize = <int64_t>(avgReadLength)
         if minInsertSize < 1:
             minInsertSize = 1
         if minInsertSize > maxInsertSize:

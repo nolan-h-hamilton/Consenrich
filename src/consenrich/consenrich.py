@@ -1463,7 +1463,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
-            autoMinQ = max((0.01 * minR_), 1.0e-2)
+            autoMinQ = max((0.01 * minR_), 1.0e-3)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
