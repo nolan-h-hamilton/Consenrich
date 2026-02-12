@@ -538,7 +538,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     globalWeight_ = _cfgGet(
         configData,
         "countingParams.globalWeight",
-        3.0,
+        2.0,
     )
     asymPos_ = _cfgGet(
         configData,
@@ -553,7 +553,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     logMult_ = _cfgGet(
         configData,
         "countingParams.logMult",
-        1.0,
+        1.0 / math.log(2.0),
     )
 
     return core.countingParams(
@@ -669,14 +669,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "processParams.offDiagQ",
             0.0,
         ),
-        dStatAlpha=_cfgGet(
-            configData,
-            "processParams.dStatAlpha",
-            10.0,
-        ),
-        dStatd=_cfgGet(configData, "processParams.dStatd", 1.0),
-        dStatPC=_cfgGet(configData, "processParams.dStatPC", 1.0),
-        ratioDiagQ=_cfgGet(configData, "processParams.ratioDiagQ", 10.0),
     )
 
     plotArgs = getPlotArgs(config_path, experimentName)
@@ -1471,7 +1463,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
-            autoMinQ = max((0.01 * minR_), 1.0e-3)
+            autoMinQ = max((0.01 * minR_), 1.0e-2)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1491,17 +1483,15 @@ def main():
             minQ_,
             maxQ_,
             offDiagQ_,
-            processArgs.dStatAlpha,
-            processArgs.dStatd,
-            processArgs.dStatPC,
             stateArgs.stateInit,
             stateArgs.stateCovarInit,
             stateArgs.boundState,
             stateArgs.stateLowerBound,
             stateArgs.stateUpperBound,
             samArgs.chunkSize,
-            progressIter=25_000,
-            ratioDiagQ=processArgs.ratioDiagQ,
+            blockLenIntervals=2
+            * max(backgroundBlockSizeIntervals, samplingBlockSizeBP_ // intervalSizeBP)
+            + 1,
             rescaleStateCovar=stateArgs.rescaleStateCovar,
             damp=observationArgs.damp,
         )
