@@ -132,16 +132,13 @@ class observationParams(NamedTuple):
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
     :type EB_setNuL: int | None
-    :param damp: Values :math:`> 0` induce a conservative upscaling of the measurement noise covariance matrix with respect to the number of samples, :math:`m`.
-       This is akin to a soft damping on the filter gain as the number of samples, :math:`m`, increases.
-    :type damp: float | None
     :param pad: A small constant added to the measurement noise variance estimates for numerics.
     :type pad: float | None
     :param EM_tNu: Degrees of freedom :math:`\nu` for the Student-t / Gaussian scale-mixture
-        used for robust reweighting in :func:`consenrich.cconsenrich.cblockScaleEM`.
-        Larger values push the model toward a Gaussian residual model (less downweighting of apparent outliers),
+        used for robust reweighting of residuals in :func:`consenrich.cconsenrich.cblockScaleEM`.
+        Larger values push the model toward the regular Gaussian residual model (less downweighting of apparent outliers),
         and smaller values increase robustness to outliers but can reduce sensitivity to true signal.
-        Values in the range ``[5, 15]`` are reasonable, and the default ``10.0`` is sufficient (and not disruptive) for most datasets.
+        Values in the range ``[5, 15]`` are reasonable.
         Users can set to an arbitrarily large value, e.g., :math:`\nu = 1e6` to effectively disable robust reweighting and
         use a standard Gaussian model for residuals.
     :type EM_tNu: float | None
@@ -153,7 +150,7 @@ class observationParams(NamedTuple):
         where :math:`\hat{s}_b` is the raw per-iteration update. Smaller values give **more smoothing** (slower adaptation).
         ``1.0`` disables smoothing (use the raw update), and values near ``0.0`` give very strong smoothing (slow adaptation).
         Note that smoothing voids *guaranteed* non-increasing behavior of the EM objective, but can be helpful for stability and convergence in practice.
-        Values in the range ``[0.05, 0.5]`` are good starting points. The default ``0.1`` gives a half-life of about 7 iterations, which is sufficient for most datasets.
+        Values in the range ``[0.05, 0.5]`` are good starting points. A value of ``0.1`` gives a half-life of about 7 iterations, which is sufficient for most datasets.
 
     :type EM_alphaEMA: float | None
     :param EM_scaleLOW: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Absolute lower bound on the per-block
@@ -177,7 +174,6 @@ class observationParams(NamedTuple):
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
-    damp: float | None
     pad: float | None
     EM_tNu: float | None
     EM_alphaEMA: float | None
@@ -938,8 +934,7 @@ def runConsenrich(
     calibration_kwargs: dict[str, object] | None = None,
     disableCalibration: bool = False,
     rescaleStateCovar: bool = False,
-    damp: float = 0.0,
-    EM_tNu: float = 10.0,
+    EM_tNu: float = 8.0,
     EM_alphaEMA: float = 0.1,
     EM_scaleLOW: float = 0.01,
     EM_scaleHIGH: float = 10.0,
@@ -991,16 +986,8 @@ def runConsenrich(
     )
 
     EM_maxIters = int(calibration_kwargs.get("EM_maxIters", 50))
-    EM_rtol = float(calibration_kwargs.get("EM_rtol", 1.0e-3))
+    EM_rtol = float(calibration_kwargs.get("EM_rtol", 1.0e-4))
     EM_scaleToMedian = bool(calibration_kwargs.get("EM_scaleToMedian", True))
-
-    if damp > 0.0:
-        logger.info(
-            "Applying damping factor to initial matrixMunc: damp=%.4f",
-            float(damp),
-        )
-        damp_ = 1.0 + (1.0 - np.exp(-float(damp) * float(m + 1)))
-        np.multiply(matrixMunc, np.float32(damp_), out=matrixMunc)
 
     logger.info(
         "m=%d n=%d deltaF=%.6g minQ=%.6g maxQ=%.6g",
@@ -1299,6 +1286,12 @@ def getBedMask(
     ).astype(np.bool_)
 
 
+from typing import List, Optional
+import numpy as np
+import numpy.typing as npt
+from scipy import stats
+
+
 def autoDeltaF(
     bamFiles: List[str],
     intervalSizeBP: int,
@@ -1307,248 +1300,144 @@ def autoDeltaF(
     fallBackFragmentLength: int = 147,
     randomSeed: int = 42,
     blockMult: float = 10.0,
-    numBlocks: int = 500,
+    numBlocks: int = 1000,
     maxLagBins: int = 25,
     minDeltaF: float = 1.0e-4,
     maxDeltaF: float = 1.0,
     noiseEps: float = 1.0e-6,
-    minBlockWeight: float = 1.0e-4,
+    minBlockWeight: float = 1.0e-8,
 ) -> float:
-    r"""Infer deltaF from the data using short time autocorrelation via FFT frames
+    r"""(Experimental) Infer `deltaF` from aggregated data with precision-weighting"""
 
-    Steps
-    - Build a stable 1D track using log1p of the per interval mean
-    - Slide a window across the track like an STFT
-    - For each window compute autocorrelation from FFT power spectrum
-    - Correct the autocorrelation for window taper bias
-    - Fit exponential decay in log space to get local L in intervals
-    - Aggregate L across windows using a trimmed mean
-    - Set deltaF = 1 / L and clip
-    """
-
-    def hannWindow(winLen: int) -> np.ndarray:
-        # symmetric Hann window to reduce boundary effects
-        if winLen <= 1:
-            return np.ones((winLen,), dtype=np.float64)
-        n = np.arange(winLen, dtype=np.float64)
-        return 0.5 - 0.5 * np.cos((2.0 * np.pi * n) / float(winLen - 1))
-
-    def nextPow2(x: int) -> int:
-        # smallest power of two >= x
-        if x <= 1:
-            return 1
-        return 1 << int((x - 1).bit_length())
-
-    def trimmedMean(values: np.ndarray, trimFrac: float) -> float:
-        v = np.asarray(values, dtype=np.float64)
-        v = v[np.isfinite(v)]
-        if v.size == 0:
-            return float("nan")
-        trimFrac = float(np.clip(trimFrac, 0.0, 0.49))
-        # in case of scipy issues, fallback to manual trim mean implementation
-        try:
-            from scipy.stats import trim_mean
-
-            return float(trim_mean(v, proportiontocut=trimFrac))
-        except Exception:
-            v = np.sort(v)
-            k = int(np.floor(trimFrac * v.size))
-            if v.size - 2 * k <= 0:
-                return float(np.mean(v))
-            return float(np.mean(v[k : v.size - k]))
-
-    # estimate a representative fragment length across samples
     if (
         fragmentLengths is not None
         and len(fragmentLengths) > 0
         and all(isinstance(x, (int, float)) for x in fragmentLengths)
     ):
-        fragLenArr = np.asarray(fragmentLengths, dtype=np.float64)
-        medianFragmentLengthBP = trimmedMean(fragLenArr, trimFrac=0.1)
+        medFragLen = float(np.median(fragmentLengths))
     elif bamFiles is not None and len(bamFiles) > 0:
-        tmpFragmentLengths: List[float] = []
+        fragmentLengths_ = []
         for bamFile in bamFiles:
-            fragLen = cconsenrich.cgetFragmentLength(
+            fLen = cconsenrich.cgetFragmentLength(
                 bamFile,
                 fallBack=fallBackFragmentLength,
                 randSeed=randomSeed,
             )
-            tmpFragmentLengths.append(float(fragLen))
-        medianFragmentLengthBP = trimmedMean(
-            np.asarray(tmpFragmentLengths, dtype=np.float64), trimFrac=0.1
-        )
+            fragmentLengths_.append(fLen)
+        medFragLen = float(np.median(fragmentLengths_))
     else:
-        raise ValueError("one of fragmentLengths or bamFiles is required")
+        raise ValueError("One of `fragmentLengths` or `bamFiles` is required...")
 
-    if (not np.isfinite(medianFragmentLengthBP)) or medianFragmentLengthBP <= 0.0:
-        raise ValueError("fraglen estimation failed")
+    if medFragLen <= 0:
+        raise ValueError("Average cross-sample fraglen estimation failed")
 
-    # interval to fragment ratio fallback
     if chromMat is None:
-        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
-        return np.float32(min(deltaF, float(maxDeltaF)))
+        deltaF = float(intervalSizeBP) / medFragLen
+        return np.float32(min(deltaF, maxDeltaF))
 
-    # aggregate pointwise in natural scale then log1p for stability
-    if hasattr(chromMat, "ndim") and int(chromMat.ndim) == 1:
-        rawMean = np.asarray(chromMat, dtype=np.float64)
+    if hasattr(chromMat, "ndim") and chromMat.ndim == 1:
+        meanTrack = np.asarray(chromMat, dtype=np.float32)
     else:
-        rawMean = np.mean(chromMat, axis=0, dtype=np.float64)
-    rawMean = np.clip(rawMean, 0.0, None)
-    meanTrack = np.log1p(rawMean).astype(np.float64, copy=False)
+        meanTrack = stats.trim_mean(
+            chromMat,
+            proportiontocut=0.1,
+            axis=0,
+        ).astype(np.float32)
+
+    np.sqrt(meanTrack, out=meanTrack)
 
     numIntervals = int(meanTrack.size)
-    if numIntervals < 16 or (not np.isfinite(meanTrack).all()):
-        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
-        return np.float32(min(deltaF, float(maxDeltaF)))
+    blockLenBP = int(max(intervalSizeBP, round(blockMult * medFragLen)))
+    blockLenIntervals = int(np.ceil(blockLenBP / float(intervalSizeBP)))
+    if blockLenIntervals > numIntervals:
+        blockLenIntervals = numIntervals
 
-    # window length tied to fragment length
-    windowLenBP = int(
-        max(
-            int(intervalSizeBP),
-            int(round(float(blockMult) * float(medianFragmentLengthBP))),
-        )
-    )
-    windowLenIntervals = int(np.ceil(float(windowLenBP) / float(intervalSizeBP)))
-
-    # keep windows reasonable for FFT based acorr
-    windowLenIntervals = int(max(32, windowLenIntervals))
-    windowLenIntervals = int(min(windowLenIntervals, numIntervals))
-    if windowLenIntervals < 16:
-        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
-        return np.float32(min(deltaF, float(maxDeltaF)))
-
-    # hop like a typical STFT
-    hopIntervals = int(max(1, windowLenIntervals // 2))
-
-    maxStart = int(numIntervals - windowLenIntervals)
-    if maxStart < 0:
-        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
-        return np.float32(min(deltaF, float(maxDeltaF)))
-
-    frameStartsAll = np.arange(0, maxStart + 1, hopIntervals, dtype=np.int64)
-    if frameStartsAll.size < 2:
-        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
-        return np.float32(min(deltaF, float(maxDeltaF)))
+    numStarts = numIntervals - blockLenIntervals + 1
+    if numStarts < 1:
+        deltaF = float(intervalSizeBP) / medFragLen
+        logger.warning("Not enough intervals... using fallback.")
+        return np.float32(min(deltaF, maxDeltaF))
 
     rng = np.random.default_rng(int(randomSeed))
-    if frameStartsAll.size > int(numBlocks):
-        chosen = rng.choice(frameStartsAll.size, size=int(numBlocks), replace=False)
-        frameStarts = np.sort(frameStartsAll[chosen])
+    if numStarts <= numBlocks:
+        starts = np.arange(numStarts, dtype=np.int64)
     else:
-        frameStarts = frameStartsAll
+        starts = rng.choice(numStarts, size=int(numBlocks), replace=False).astype(
+            np.int64
+        )
 
-    fitMaxLag = int(min(int(maxLagBins), windowLenIntervals - 1))
-    if fitMaxLag < 4:
-        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
-        return np.float32(min(deltaF, float(maxDeltaF)))
+    # pair (correlation length, block noise scale proxy)
+    L_blocks: List[float] = []
+    W_blocks: List[float] = []
 
-    win = hannWindow(windowLenIntervals)
-    nFft = nextPow2(2 * windowLenIntervals)
-
-    # precompute window autocorrelation to correct taper bias
-    winFft = np.fft.rfft(win, n=nFft)
-    winPower = (winFft.real * winFft.real) + (winFft.imag * winFft.imag)
-    winAcf = np.fft.irfft(winPower, n=nFft)
-    winAcf0 = float(winAcf[0])
-
-    if (not np.isfinite(winAcf0)) or winAcf0 <= 0.0:
-        winRho = None
-    else:
-        winRho = winAcf[: fitMaxLag + 1] / winAcf0
-
-    frameLengths: List[float] = []
-
-    for startIndex in frameStarts:
-        frame = meanTrack[startIndex : startIndex + windowLenIntervals]
-        if frame.size != windowLenIntervals:
-            continue
-        if not np.isfinite(frame).all():
+    for s in starts:
+        block = meanTrack[s : s + blockLenIntervals].astype(np.float64, copy=False)
+        if block.size < 8 or not np.isfinite(block).all():
             continue
 
-        # remove DC then apply taper
-        x = frame - float(np.mean(frame))
-        x = x * win
+        # noise scale proxy for weighting: sdev of first-order diffs
+        d = np.diff(block)
+        if d.size < 2 or not np.isfinite(d).all():
+            w_block = float(minBlockWeight)
+        else:
+            sigma = float(np.std(d, ddof=1))
+            if not np.isfinite(sigma) or sigma <= 0.001:
+                w_block = float(minBlockWeight)
+            else:
+                w_block = 1.0 / (sigma * sigma + float(noiseEps))
+                w_block = float(max(w_block, float(minBlockWeight)))
 
-        # skip nearly constant frames
-        xEnergy = float(np.dot(x, x))
-        if (not np.isfinite(xEnergy)) or xEnergy <= float(minBlockWeight):
+        lmax = int(min(maxLagBins, block.size - 1))
+        if lmax < 1:
             continue
 
-        # autocorrelation via FFT power spectrum
-        X = np.fft.rfft(x, n=nFft)
-        power = (X.real * X.real) + (X.imag * X.imag)
-        acf = np.fft.irfft(power, n=nFft)
+        Lb_vals: List[float] = []
+        for lag in range(1, lmax + 1):
+            a = block[:-lag]
+            b = block[lag:]
+            n = a.size  # == b.size
 
-        acf0 = float(acf[0])
-        if (not np.isfinite(acf0)) or acf0 <= 0.0:
+            # Centered correlation (_not_ in-place to avoid modifying the block for subsequent lags)
+            sa = float(np.sum(a))
+            sb = float(np.sum(b))
+            ma = sa / n
+            mb = sb / n
+
+            dotAA = float(np.dot(a, a))
+            dotBB = float(np.dot(b, b))
+            dotAB = float(np.dot(a, b))
+
+            scaleA = dotAA - n * ma * ma
+            scaleB = dotBB - n * mb * mb
+            if scaleA <= 0.0 or scaleB <= 0.0:
+                continue
+
+            scaleCross = (scaleA * scaleB) ** 0.5
+            rho = (dotAB - n * ma * mb) / scaleCross
+            if not np.isfinite(rho) or rho <= 0.0 or rho >= 0.999999:
+                continue
+
+            Lb = float(-lag / np.log(rho))
+            if np.isfinite(Lb) and Lb > 0.0:
+                Lb_vals.append(Lb)
+
+        if not Lb_vals:
             continue
 
-        rho = acf[: fitMaxLag + 1] / acf0
+        L_block = float(np.median(Lb_vals))
+        if np.isfinite(L_block) and L_block > 0.0:
+            L_blocks.append(L_block)
+            W_blocks.append(w_block)
 
-        # correct window induced damping
-        if winRho is not None:
-            denom = np.asarray(winRho, dtype=np.float64)
-            denom = np.where(denom > float(noiseEps), denom, float("nan"))
-            rho = rho / denom
+    if len(L_blocks) < 8:
+        deltaF = float(intervalSizeBP) / medFragLen
+        return np.float32(min(deltaF, maxDeltaF))
 
-        # keep rho in a safe range
-        rho = np.asarray(rho, dtype=np.float64)
-        rho = np.clip(rho, -0.999999, 0.999999)
-
-        # build fit set from positive rho values excluding lag 0
-        rhoVals = rho[1:]
-        lags = np.arange(1, rhoVals.size + 1, dtype=np.float64)
-        posMask = np.isfinite(rhoVals) & (rhoVals > 0.0) & (rhoVals < 0.999999)
-        if int(np.sum(posMask)) < 4:
-            continue
-
-        rhoPos = rhoVals[posMask]
-        lagPos = lags[posMask]
-
-        # fit band restricted to IQR of positive rho
-        rhoHigh = float(np.quantile(rhoPos, 0.75))
-        rhoLow = float(np.quantile(rhoPos, 0.25))
-        fitMask = (rhoPos >= rhoLow) & (rhoPos <= rhoHigh)
-        if int(np.sum(fitMask)) < 3:
-            continue
-
-        y = np.log(rhoPos[fitMask])
-        xFit = lagPos[fitMask]
-
-        # least squares slope for log rho = slope * lag + intercept
-        xMean = float(np.mean(xFit))
-        yMean = float(np.mean(y))
-        xC = xFit - xMean
-        yC = y - yMean
-        denom = float(np.dot(xC, xC))
-        if (not np.isfinite(denom)) or denom <= 0.0:
-            continue
-        slope = float(np.dot(xC, yC) / denom)
-
-        # exponential decay expects negative slope
-        if (not np.isfinite(slope)) or slope >= 0.0:
-            continue
-
-        frameL = float(-1.0 / slope)
-        if (not np.isfinite(frameL)) or frameL <= 0.0:
-            continue
-
-        frameLengths.append(frameL)
-
-    if len(frameLengths) < 8:
-        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
-        return np.float32(min(deltaF, float(maxDeltaF)))
-
-    summaryLBins = trimmedMean(np.asarray(frameLengths, dtype=np.float64), trimFrac=0.1)
-    if (not np.isfinite(summaryLBins)) or summaryLBins <= 0.0:
-        summaryLBins = float(np.median(np.asarray(frameLengths, dtype=np.float64)))
-
-    if (not np.isfinite(summaryLBins)) or summaryLBins <= 0.0:
-        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
-        return np.float32(min(deltaF, float(maxDeltaF)))
-
-    deltaF = float(1.0 / summaryLBins)
-    deltaF = float(np.clip(deltaF, float(minDeltaF), float(maxDeltaF)))
+    L_arr = np.asarray(L_blocks, dtype=np.float64)
+    W_arr = np.asarray(W_blocks, dtype=np.float64)
+    mean_L_bins = float(np.sum(W_arr * L_arr) / np.sum(W_arr))
+    deltaF = float(1.0 / mean_L_bins)
+    deltaF = float(np.clip(deltaF, minDeltaF, maxDeltaF))
     return np.float32(deltaF)
 
 
@@ -1762,9 +1651,9 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-2,
-    binQuantileCutoff: float = 0.75,
-    EB_minLin: float = 1.0e-2,
+    eps: float = 5.0e-2,
+    binQuantileCutoff: float = 0.5,
+    EB_minLin: float = 1.0,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -1860,8 +1749,8 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1.0e-2,
-    EB_minLin: float = 1.0e-2,
+    eps: float = 5.0e-2,
+    EB_minLin: float = 1.0,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
     if coeffs is None or np.asarray(coeffs).size == 0:
@@ -1889,8 +1778,8 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    binQuantileCutoff: float = 0.75,
-    EB_minLin: float = 1.0e-2,
+    binQuantileCutoff: float = 0.5,
+    EB_minLin: float = 1.0,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,

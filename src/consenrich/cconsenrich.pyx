@@ -2516,15 +2516,16 @@ cpdef tuple cblockScaleEM(
     float stateInit,
     float stateCovarInit,
     Py_ssize_t EM_maxIters=50,
-    float EM_rtol=1.0e-3,
+    float EM_rtol=1.0e-4,
     float covarClip=3.0,
     float pad=1.0e-2,
     float EM_scaleLOW=0.01,
     float EM_scaleHIGH=10.0,
     float EM_alphaEMA=0.1,
+    float EM_alphaEMA_Q=0.1,
     bint EM_scaleToMedian=True,
     bint returnIntermediates=False,
-    float EM_tNu=10.0,
+    float EM_tNu=8.0,
     Py_ssize_t t_innerIters=5,
 ):
     r"""Calibrate blockwise measurement and process noise scales while inferring the epigenomic consensus signal
@@ -2564,8 +2565,7 @@ cpdef tuple cblockScaleEM(
       To be sure, this routine uses an empirical *plug-in* approximation, rather than full EM over a joint model for :math:`\lambda_{j,k}` *and* the consensus signal.
 
       So, the heavy-tailed model is used to derive per-observation reweighting, but the M-step
-      proceeds with a weighted-Gaussian criterion using these plug-in weights.
-
+      proceeds with a weighted-Gaussian objective.
 
       Depending on specification, this routine can deviate from more standard EM: It alternates E-step-style updates of
       :math:`\lambda_{j,k}^{\mathrm{exp}}=\mathbb{E}[\lambda_{j,k}\mid e_{j,k}]` with M-step closed-form updates of
@@ -2660,7 +2660,7 @@ cpdef tuple cblockScaleEM(
     Related References
     ------------------------------------------------
 
-    * Gaussian scale-mixtures (e.g., :math:`Y` s.t. :math:`Y|(Z=z) \sim \mathcal{N}(\mu, z^{-1}\Sigma)`): `West (1987), <doi.org/10.1093/biomet/74.3.646>`_
+    * Gaussian scale-mixture (e.g., :math:`Y` s.t. :math:`Y|(Z=z) \sim \mathcal{N}(\mu, z^{-1}\Sigma)`): `West (1987), <doi.org/10.1093/biomet/74.3.646>`_
 
     * Student-t KF: `Aravkin et al. (2014), DOI:10.1137/130918861 <https://doi.org/10.1137/130918861>`_
 
@@ -2736,7 +2736,7 @@ cpdef tuple cblockScaleEM(
     cdef MAT2 F
     cdef MAT2 Ft
     cdef MAT2 Q0inv
-    cdef double previousNLL = 1.0e300
+    cdef double previousNLL = 1.0e16
     cdef double currentNLL = 0.0
     cdef double relImprovement = 0.0
     cdef Py_ssize_t itersDone = 0
@@ -2793,6 +2793,17 @@ cpdef tuple cblockScaleEM(
     cdef double rMax
     cdef double qMin
     cdef double qMax
+    cdef double alphaQ
+    cdef Py_ssize_t nEmptyRBlocks
+    cdef Py_ssize_t nEmptyQBlocks
+    cdef Py_ssize_t minRCount
+    cdef Py_ssize_t maxRCount
+    cdef Py_ssize_t minQCount
+    cdef Py_ssize_t maxQCount
+    cdef double rMedRaw
+    cdef double qMedRaw
+    cdef double rMean
+    cdef double qMean
 
     # check edge cases here once before loops
     if intervalCount <= 5:
@@ -2823,8 +2834,8 @@ cpdef tuple cblockScaleEM(
     Ft = MAT2_transpose(F)
     Q0inv = MAT2_make(q0Inv00, q0Inv01, q0Inv10, q0Inv11)
 
-    # reference mean u2 under integrated-t for nu > 2
-    refU2 = (<double>EM_tNu) / ((<double>EM_tNu) - 2.0) if EM_tNu > 2.0 else 1.0e300
+    # expected value for u2 if residuals were truly t-distributed with df=EM_tNu
+    refU2 = (<double>EM_tNu) / ((<double>EM_tNu) - 2.0) if EM_tNu > 2.0 else 1.0e16
 
     for i in range(EM_maxIters):
         itersDone = i + 1
@@ -2910,8 +2921,7 @@ cpdef tuple cblockScaleEM(
                         res = (<double>dataView[j, k]) - (<double>stateSmoothed[k, 0])
                         tmpVal = (res*res + p00k)
                         u2 = tmpVal / Rkj
-
-                        # w is the expected t-weight for the observation
+                        # Reweighting
                         w = ((<double>EM_tNu) + 1.0) / ((<double>EM_tNu) + u2)
                         if w < wMin:
                             w = wMin
@@ -2921,7 +2931,7 @@ cpdef tuple cblockScaleEM(
                             w = wMax
                             if inner == (t_innerIters - 1):
                                 nClipMax += 1
-
+                        # lambdaExp = E[lambda | u2] = (nu+1) / (nu + u2), where u2 is the squared+studentized residual
                         lambdaExpView[j, k] = <cnp.float32_t>w
 
                         if inner == (t_innerIters - 1):
@@ -2953,18 +2963,18 @@ cpdef tuple cblockScaleEM(
                     fracTail9 = 0.0
                     fracTail16 = 0.0
 
-
                 fprintf(
                     stderr,
-                    "\t[cblockScaleEM] studentized residual tails (nu=%.1f): "
-                    "P[|u|>2] ~=~ %.6f,  P[|u|>3] ~=~ %.6f,  P[|u|>4] ~=~ %.6f\n",
+                    "\t[cblockScaleEM] (studentized) residual tails (nu=%.1f): "
+                    "P[|u| > 2] = %.6f,  P[|u| > 3] = %.6f,  P[|u| > 4] = %.6f,  "
+                    "\n",
                     EM_tNu,
                     fracTail4,
                     fracTail9,
-                    fracTail16
+                    fracTail16,
                 )
 
-        # Gaussian NLL _given_ current lambdaExp
+        # Now we compute the _Gaussian_ NLL with the current lambdaExp as plug-in weights
         currentNLL = (<double>cforwardPass(
             matrixData=matrixData,
             matrixPluginMuncInit=matrixPluginMuncInit,
@@ -2996,10 +3006,10 @@ cpdef tuple cblockScaleEM(
         relImprovement = (previousNLL - currentNLL) / (fabs(previousNLL) + 1.0)
         previousNLL = currentNLL
 
-        fprintf(stderr, "\t[cblockScaleEM] nll=%.6f  rel_improve=%.6f\n", currentNLL, relImprovement)
+        fprintf(stderr, "\t[cblockScaleEM] NLL=%.6f  REL=%.6f\n", currentNLL, relImprovement)
 
         if i > 0 and relImprovement >= 0.0 and relImprovement < <double>EM_rtol:
-            fprintf(stderr, "\t[cblockScaleEM] CONVERGED  iter=%zd  rel_improve_below_rtol\n", itersDone)
+            fprintf(stderr, "\t[cblockScaleEM] CONVERGED (REL) iter=%zd \n", itersDone)
             break
 
         # ---M step: update rScale[b] and qScale[b] per block b using smoothed moments and lambdaExp---
@@ -3114,6 +3124,12 @@ cpdef tuple cblockScaleEM(
 
             # smooth scales across blocks in log-space (EMA)
             if EM_alphaEMA > 0.0 and EM_alphaEMA <= 1.0:
+                alphaQ = (<double>EM_alphaEMA) * (<double>EM_alphaEMA_Q)
+                if alphaQ > 1.0:
+                    alphaQ = 1.0
+                elif alphaQ < 0.0:
+                    alphaQ = 0.0
+
                 for b in range(blockCount):
                     tmpVal = <double>rScaleView[b]
                     if tmpVal < clipSmall:
@@ -3132,32 +3148,85 @@ cpdef tuple cblockScaleEM(
                 else:
                     for b in range(blockCount):
                         rLogSmView[b] = (1.0 - <double>EM_alphaEMA) * rLogSmView[b] + (<double>EM_alphaEMA) * rLogView[b]
-                        qLogSmView[b] = (1.0 - <double>EM_alphaEMA) * qLogSmView[b] + (<double>EM_alphaEMA) * qLogView[b]
+                        qLogSmView[b] = (1.0 - alphaQ) * qLogSmView[b] + alphaQ * qLogView[b]
 
                 for b in range(blockCount):
                     rScaleView[b] = <cnp.float32_t>exp(rLogSmView[b])
                     qScaleView[b] = <cnp.float32_t>exp(qLogSmView[b])
 
-        # summarize current scales
-        rMin = 1.0e300
-        rMax = -1.0e300
-        qMin = 1.0e300
-        qMax = -1.0e300
+        # summarize current scales and block coverage
+        rMin = 1.0e16
+        rMax = -1.0e16
+        qMin = 1.0e16
+        qMax = -1.0e16
+        rMean = 0.0
+        qMean = 0.0
+
+        nEmptyRBlocks = 0
+        nEmptyQBlocks = 0
+        minRCount = intervalCount * trackCount + 1
+        maxRCount = 0
+        minQCount = intervalCount + 1
+        maxQCount = 0
 
         for b in range(blockCount):
             if (<double>rScaleView[b]) < rMin:
                 rMin = <double>rScaleView[b]
             if (<double>rScaleView[b]) > rMax:
                 rMax = <double>rScaleView[b]
+
             if (<double>qScaleView[b]) < qMin:
                 qMin = <double>qScaleView[b]
             if (<double>qScaleView[b]) > qMax:
                 qMax = <double>qScaleView[b]
 
-        rRatioMin = 1.0e300
-        rRatioMax = -1.0e300
-        qRatioMin = 1.0e300
-        qRatioMax = -1.0e300
+            rMean += <double>rScaleView[b]
+            qMean += <double>qScaleView[b]
+
+            if rWeightCountView[b] <= 0:
+                nEmptyRBlocks += 1
+            else:
+                if rWeightCountView[b] < minRCount:
+                    minRCount = rWeightCountView[b]
+                if rWeightCountView[b] > maxRCount:
+                    maxRCount = rWeightCountView[b]
+
+            if qStatCountView[b] <= 0:
+                nEmptyQBlocks += 1
+            else:
+                if qStatCountView[b] < minQCount:
+                    minQCount = qStatCountView[b]
+                if qStatCountView[b] > maxQCount:
+                    maxQCount = qStatCountView[b]
+
+        if blockCount > 0:
+            rMean = rMean / (<double>blockCount)
+            qMean = qMean / (<double>blockCount)
+        else:
+            rMean = 0.0
+            qMean = 0.0
+
+        rMedRaw = <double>_medianCopy_F32(<float*>&rScaleView[0], blockCount)
+        qMedRaw = <double>_medianCopy_F32(<float*>&qScaleView[0], blockCount)
+
+        fprintf(
+            stderr,
+            "\t[cblockScaleEM] scales: "
+            "r[med=%.6g mean=%.6g] "
+            "q[med=%.6g mean=%.6g]\n",
+            rMedRaw, rMean,
+            qMedRaw, qMean,
+        )
+
+        if minRCount > (intervalCount * trackCount):
+            minRCount = 0
+        if minQCount > intervalCount:
+            minQCount = 0
+
+        rRatioMin = 1.0e16
+        rRatioMax = -1.0e16
+        qRatioMin = 1.0e16
+        qRatioMax = -1.0e16
         sumAbsLogRRatio = 0.0
         sumAbsLogQRatio = 0.0
         nRRatio = 0
@@ -3196,9 +3265,10 @@ cpdef tuple cblockScaleEM(
         else:
             meanAbsLogQRatio = 0.0
 
+
         # divide by block median so typical scale is near one
-        # voids EM guarantees but can improve interpretation
-        # of block-to-block scale comparisons
+        # ...voids EM guarantees but can improve interpretation
+        # ...of block-to-block scale comparisons
         if EM_scaleToMedian:
             rMed = <double>_medianCopy_F32(<float*>&rScaleView[0], blockCount)
             qMed = <double>_medianCopy_F32(<float*>&qScaleView[0], blockCount)
