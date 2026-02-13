@@ -77,25 +77,22 @@ class plotParams(NamedTuple):
 class processParams(NamedTuple):
     r"""Parameters related to the process model of Consenrich.
 
-    The process model governs the signal and variance propagation
-    through the state transition :math:`\mathbf{F} \in \mathbb{R}^{2 \times 2}`
-    and process noise covariance :math:`\mathbf{Q}_{[i]} \in \mathbb{R}^{2 \times 2}`
-    matrices.
+    The consensus epigenomic signal is modeled explicitly with a simple 'level + slope' *process*.
 
-    :param deltaF: Controls the integration step size (coupling) between the slope estimate :math:`\dot{x}_{[i]}`
-            and the signal :math:`x_{[i]}`.
-            - If ``< 0``, the effective step size is determined automatically from a
-            global estimate of autocorrelation.
+    :param deltaF: Controls the integration step size between the signal 'slope' :math:`\dot{x}_{[i]}`
+            and the signal 'level' :math:`x_{[i]}`.
+
+            - If set ``< 0``, ``deltaF`` is determined automatically from :func:`consenrich.core.autoDeltaF` based on the data.
 
     :type deltaF: float
-    :param minQ: Minimum process noise level (diagonal in :math:`\mathbf{Q}_{[i]}`)
+    :param minQ: Minimum process noise scale (diagonal in :math:`\mathbf{Q}_{[i]}`)
         on the primary state variable (signal level). If ``minQ < 0`` (default), a small
         value scales the minimum observation noise level (``observationParams.minR``) and is used
         for numerical stability.
     :type minQ: float
-    :param maxQ: Maximum process noise level. If ``maxQ < 0`` (default), no effective upper bound is enforced.
+    :param maxQ: Maximum process noise scale. If ``maxQ < 0`` (default), no effective upper bound is enforced.
     :type maxQ: float
-    :param offDiagQ: Off-diagonal value in the process noise covariance :math:`\mathbf{Q}_{[i]}`
+    :param offDiagQ: Off-diagonal value in the process noise covariance :math:`\mathbf{Q}_{[i,01]}`
     :type offDiagQ: float
     :seealso: :func:`consenrich.core.autoDeltaF`, :func:`consenrich.core.runConsenrich`
 
@@ -110,14 +107,13 @@ class processParams(NamedTuple):
 class observationParams(NamedTuple):
     r"""Parameters related to the observation model of Consenrich.
 
-    The observation model is used to integrate measured sequence alignment count-based
-    data from the multiple input samples while accounting for region- and sample-specific
-    uncertainty arising from biological and/or technical sources of noise.
+    The observation model is used to integrate sequence alignment data from the multiple replicates
+    while accounting for both region- and replicate-specific noise.
 
 
-    :param minR: Genome-wide lower bound for sample-specific measurement uncertainty levels. In the default implementation, this clip is computed as a small fraction of values in the left-tail of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
+    :param minR: Genome-wide lower bound for replicate-specific observation noise scales. In the default implementation, this clip is computed as a small fraction of values in the left-tail of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
     :type minR: float | None
-    :param maxR: Genome-wide upper bound for the sample-specific measurement uncertainty levels.
+    :param maxR: Genome-wide upper bound for the replicate-specific observation noise scales.
     :type maxR: float | None
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
     :type samplingIters: int | None
@@ -139,6 +135,13 @@ class observationParams(NamedTuple):
     :param damp: Values :math:`> 0` induce a conservative upscaling of the measurement noise covariance matrix with respect to the number of samples, :math:`m`.
        This is akin to a soft damping on the filter gain as the number of samples, :math:`m`, increases.
     :type damp: float | None
+    :param pad: A small constant added to the measurement noise variance estimates for numerics.
+    :type pad: float | None
+    :param EM_tNu: Degrees of freedom for the Student-t/Gaussian scale-mixture
+        used for robust reweighting in :func:`consenrich.cconsenrich.cblockScaleEM`.
+        Setting this argument to larger values pushes the model toward a regular Gaussian,
+        and reduces downweighting of apparent outliers.
+    :type EM_tNu: float | None
 
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
 
@@ -154,6 +157,8 @@ class observationParams(NamedTuple):
     EB_setNu0: int | None
     EB_setNuL: int | None
     damp: float | None
+    pad: float | None
+    EM_tNu: float | None
 
 
 class stateParams(NamedTuple):
@@ -419,12 +424,21 @@ class outputParams(NamedTuple):
     :type roundDigits: int
     :param writeUncertainty: If True, write the posterior state uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
     :type writeUncertainty: bool
-    :param writeMWSR: If True, write the per-interval average of weighted squared residuals (MWSR),
-        where the weighting is with respect to measurement uncertainty and the *estimated* positional state uncertainty after running the filter/smoother.
+    :param writeMWSR: If True, write a per-interval mean squared *studentized* post-fit residual (``MWSR``),
+        computed using the smoothed state and its posterior variance from the final filter/smoother pass.
 
-        .. math:: \textsf{MWSR}[i] = \frac{1}{m}\sum_{j=1}^{m}\frac{\left(Z_{[i,j]} - \widetilde{x}_{[i]}\right)^{2}}{R_{[i,j]} + \widetilde{P}_{[i,(11)]}}
+        Let :math:`r_{[j,i]} = \texttt{matrixData}_{[j,i]} - \widetilde{x}_{[i]}` denote the post-fit residual for replicate :math:`j` at interval
+        :math:`i`, where :math:`\widetilde{x}_{[i]}` is the consensus epigenomic signal level estimate. Let :math:`\widetilde{P}_{[00,i]}`
+        be the posterior variance of the first state variable (signal level) and let :math:`R_{[j,i]}` be the observation noise variance for replicate :math:`j` at interval :math:`i`.
+        Then, the studentized squared residuals :math:`u^2_{[j,i]}` and the mean weighted squared residuals :math:`\textsf{MWSR}[i]` are recorded as:
 
-        Here, :math:`m` = ``numSamples``, :math:`R_{[i,j]}` is the (diagonal) measurement variance for at interval :math:`i`, sample :math:`j`, and :math:`\widetilde{P}_{[i,(11)]}` is the estimated primary state variance at interval i.
+        .. math::
+
+          u^2_{[j,i]} = \frac{r_{[j,i]}^2 + \widetilde{P}_{[00,i]}}{R_{[j,i]}},
+          \qquad
+          \textsf{MWSR}[i] = \frac{1}{m}\sum_{j=1}^{m} u^2_{[j,i]}.
+
+        which is consistent with the EM routine in :func:`consenrich.cconsenrich.cblockScaleEM`
     :type writeMWSR: bool
     """
 
@@ -900,15 +914,12 @@ def runConsenrich(
     calibration_kwargs: dict[str, object] | None = None,
     disableCalibration: bool = False,
     rescaleStateCovar: bool = False,
-    damp: float = 0.005,
+    damp: float = 0.0,
+    EM_tNu: float = 10.0,
+    returnScales: bool = True,
 ):
-    r"""Execute Consenrich given transformed/normalized data and measurement noise (co)variances.
+    r"""Execute Consenrich given transformed/normalized data and initial measurement and process noise (co)variances"""
 
-    :seealso: :func:`cconsenrich.cblockScaleEM`, :func:`cconsenrich.cforwardPass`, :func:`cconsenrich.cbackwardPass`,
-      :func:`constructMatrixF`, :func:`constructMatrixQ`, :func:`getMuncTrack`,
-      :class:`processParams`, :class:`observationParams`
-
-    """
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
 
@@ -950,6 +961,14 @@ def runConsenrich(
     EM_alphaEMA = float(calibration_kwargs.get("EM_alphaEMA", 0.25))
     EM_scaleToMedian = bool(calibration_kwargs.get("EM_scaleToMedian", True))
 
+    if damp > 0.0:
+        logger.info(
+            "Applying damping factor to initial matrixMunc: damp=%.4f",
+            float(damp),
+        )
+        damp_ = 1.0 + (1.0 - np.exp(-float(damp) * float(m + 1)))
+        np.multiply(matrixMunc, np.float32(damp_), out=matrixMunc)
+
     logger.info(
         "m=%d n=%d deltaF=%.6g minQ=%.6g maxQ=%.6g",
         int(m),
@@ -959,12 +978,10 @@ def runConsenrich(
         float(maxQ),
     )
     logger.info(
-        "blockLenIntervals=%d blockCount=%d",
-        int(blockLenIntervals),
-        int(blockCount),
+        "blockLenIntervals=%d blockCount=%d", int(blockLenIntervals), int(blockCount)
     )
 
-    # Final forward/backward run for a fixed choice of block scales.
+    # Final forward/backward run for _fixed_ noise scales (either from EM calibration or default of 1.0)
     def _run_final_passes(rScale: np.ndarray, qScale: np.ndarray):
         stateForward = np.empty((n, 2), dtype=np.float32)
         stateCovarForward = np.empty((n, 2, 2), dtype=np.float32)
@@ -973,7 +990,7 @@ def runConsenrich(
 
         phiHat, _, vectorD, sumNLL = cconsenrich.cforwardPass(
             matrixData=matrixData,
-            matrixMuncBase=matrixMunc,
+            matrixPluginMuncInit=matrixMunc,
             matrixF=matrixF,
             matrixQ0=matrixQ0,
             intervalToBlockMap=intervalToBlockMap,
@@ -1017,30 +1034,45 @@ def runConsenrich(
         )
 
         NIS = vectorD.astype(np.float32, copy=False)
-        return phiHat, sumNLL, stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS
+        return (
+            phiHat,
+            sumNLL,
+            stateSmoothed,
+            stateCovarSmoothed,
+            postFitResiduals,
+            NIS,
+            intervalToBlockMap,
+        )
 
     if disableCalibration:
         rScale = np.ones(blockCount, dtype=np.float32)
         qScale = np.ones(blockCount, dtype=np.float32)
-
-        phiHat, sumNLL, stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS = (
-            _run_final_passes(rScale=rScale, qScale=qScale)
-        )
+        (
+            phiHat,
+            sumNLL,
+            stateSmoothed,
+            stateCovarSmoothed,
+            postFitResiduals,
+            NIS,
+            intervalToBlockMap,
+        ) = _run_final_passes(rScale=rScale, qScale=qScale)
         logger.info("final phiHat=%.4f sumNLL=%.6g", float(phiHat), float(sumNLL))
 
     else:
         logger.info(
-            "\nNoise (co)variance calibration\n\tEM_maxIters=%d EM_rtol=%.3e EM_multiplierLow=%.3e EM_multiplierHigh=%.3e EM_alphaEMA=%.3f\n",
+            "\nNoise (co)variance calibration\n\tEM_maxIters=%d EM_rtol=%.3e EM_multiplierLow=%.3e "
+            "EM_multiplierHigh=%.3e EM_alphaEMA=%.3f EM_tNu=%.1f\n",
             int(EM_maxIters),
             float(EM_rtol),
             float(EM_multiplierLow),
             float(EM_multiplierHigh),
             float(EM_alphaEMA),
+            float(EM_tNu),
         )
 
         rScale, qScale, emItersDone, emNLL = cconsenrich.cblockScaleEM(
             matrixData=matrixData,
-            matrixMuncBase=matrixMunc,
+            matrixPluginMuncInit=matrixMunc,
             matrixF=matrixF,
             matrixQ0=matrixQ0,
             intervalToBlockMap=intervalToBlockMap,
@@ -1055,36 +1087,23 @@ def runConsenrich(
             EM_multiplierHigh=float(EM_multiplierHigh),
             EM_alphaEMA=float(EM_alphaEMA),
             EM_scaleToMedian=bool(EM_scaleToMedian),
+            EM_tNu=float(EM_tNu),
             returnIntermediates=False,
         )
 
-        rScaleF = np.asarray(rScale, dtype=np.float64)
-        qScaleF = np.asarray(qScale, dtype=np.float64)
-        rMin = float(np.min(rScaleF)) if rScaleF.size else 1.0
-        rMed = float(np.median(rScaleF)) if rScaleF.size else 1.0
-        rMax = float(np.max(rScaleF)) if rScaleF.size else 1.0
-        qMin = float(np.min(qScaleF)) if qScaleF.size else 1.0
-        qMed = float(np.median(qScaleF)) if qScaleF.size else 1.0
-        qMax = float(np.max(qScaleF)) if qScaleF.size else 1.0
-
         logger.info(
-            "EM summary: iters=%d R[:,:] block scales [min/med/max]=%.4g/%.4g/%.4g Q[:,:] block scales [min/med/max]=%.4g/%.4g/%.4g",
-            int(emItersDone),
-            rMin,
-            rMed,
-            rMax,
-            qMin,
-            qMed,
-            qMax,
+            "EM summary: iters=%d (EM NLL=%.6g)", int(emItersDone), float(emNLL)
         )
 
-        if damp > 0.0:
-            damp_ = 1.0 + (1.0 - np.exp(-float(damp) * float(m + 1)))
-            np.multiply(matrixMunc, np.float32(damp_), out=matrixMunc)
-
-        phiHat, sumNLL, stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS = (
-            _run_final_passes(rScale=rScale, qScale=qScale)
-        )
+        (
+            phiHat,
+            sumNLL,
+            stateSmoothed,
+            stateCovarSmoothed,
+            postFitResiduals,
+            NIS,
+            intervalToBlockMap,
+        ) = _run_final_passes(rScale=rScale, qScale=qScale)
         logger.info(
             "final phiHat=%.4f sumNLL=%.6g (EM NLL=%.6g)",
             float(phiHat),
@@ -1102,6 +1121,17 @@ def runConsenrich(
             np.float32(stateLowerBound),
             np.float32(stateUpperBound),
             out=outStateSmoothed[:, 0],
+        )
+
+    if returnScales:
+        return (
+            outStateSmoothed,
+            outStateCovarSmoothed,
+            outPostFitResiduals,
+            NIS,
+            np.asarray(rScale, dtype=np.float32),
+            np.asarray(qScale, dtype=np.float32),
+            intervalToBlockMap,
         )
 
     return (
@@ -1251,299 +1281,248 @@ def autoDeltaF(
     fallBackFragmentLength: int = 147,
     randomSeed: int = 42,
     blockMult: float = 10.0,
-    numBlocks: int = 250,
-    maxLagBins: int = 25,
+    numBlocks: int = 500,
+    maxLagBins: int = 20,
     minDeltaF: float = 1.0e-4,
     maxDeltaF: float = 1.0,
     noiseEps: float = 1.0e-4,
-    minBlockWeight: float = 1.0e-8,
+    minBlockWeight: float = 1.0e-2,
 ) -> float:
-    r"""Apply a precision-weighted heuristic to set `deltaF` from aggregated data
+    r"""Infer deltaF from the data using short time autocorrelation via FFT frames
 
-    We estimate a "correlation length" in *interval units* from blockwise lag correlations.
-
-    For a block and lag `lag`, compute the correlation `rho` between the block
-    and its `lag`-shifted copy, and map it to an exponential correlation length:
-
-    .. math:: L = -\frac{\textsf{lag}}{\log(\rho)}
-
-    (This is the MLE under an exponential ACF model: :math:`\rho(\textsf{lag}) \approx \exp(-\textsf{lag} / L)`.)
-
-    We aggregate lag-level estimates robustly on the *log-length* scale:
-
-    .. math:: s = \log(L)
-
-    using a weighted median over lags within each block, and then combine blocks
-    using a precision-weighted mean of L.
-
-    Note that an 'effective sample size' correction is applied to the lag-level weights to mitigate overconfidence from correlated pairs
-    that would further violate independence assumptions.
+    Steps
+    - Build a stable 1D track using log1p of the per interval mean
+    - Slide a window across the track like an STFT
+    - For each window compute autocorrelation from FFT power spectrum
+    - Correct the autocorrelation for window taper bias
+    - Fit exponential decay in log space to get local L in intervals
+    - Aggregate L across windows using a trimmed mean
+    - Set deltaF = 1 / L and clip
     """
 
-    def _weightedMedian(values: np.ndarray, weights: np.ndarray) -> float:
-        v = np.asarray(values, dtype=np.float64)
-        w = np.asarray(weights, dtype=np.float64)
-        mask = np.isfinite(v) & np.isfinite(w) & (w > 0.0)
-        if not np.any(mask):
-            return float("nan")
-        v = v[mask]
-        w = w[mask]
-        order = np.argsort(v)
-        v = v[order]
-        w = w[order]
-        totalWeight = float(np.sum(w))
-        if totalWeight <= 0.0:
-            return float("nan")
-        cdf = np.cumsum(w) / totalWeight
-        idx = int(np.searchsorted(cdf, 0.5, side="left"))
-        if idx < 0:
-            idx = 0
-        elif idx >= v.size:
-            idx = v.size - 1
-        return float(v[idx])
+    def hannWindow(winLen: int) -> np.ndarray:
+        # symmetric Hann window to reduce boundary effects
+        if winLen <= 1:
+            return np.ones((winLen,), dtype=np.float64)
+        n = np.arange(winLen, dtype=np.float64)
+        return 0.5 - 0.5 * np.cos((2.0 * np.pi * n) / float(winLen - 1))
 
+    def nextPow2(x: int) -> int:
+        # smallest power of two >= x
+        if x <= 1:
+            return 1
+        return 1 << int((x - 1).bit_length())
+
+    def trimmedMean(values: np.ndarray, trimFrac: float) -> float:
+        v = np.asarray(values, dtype=np.float64)
+        v = v[np.isfinite(v)]
+        if v.size == 0:
+            return float("nan")
+        trimFrac = float(np.clip(trimFrac, 0.0, 0.49))
+        # in case of scipy issues, fallback to manual trim mean implementation
+        try:
+            from scipy.stats import trim_mean
+
+            return float(trim_mean(v, proportiontocut=trimFrac))
+        except Exception:
+            v = np.sort(v)
+            k = int(np.floor(trimFrac * v.size))
+            if v.size - 2 * k <= 0:
+                return float(np.mean(v))
+            return float(np.mean(v[k : v.size - k]))
+
+    # estimate a representative fragment length across samples
     if (
         fragmentLengths is not None
         and len(fragmentLengths) > 0
         and all(isinstance(x, (int, float)) for x in fragmentLengths)
     ):
-        medFragLen = float(np.median(fragmentLengths))
+        fragLenArr = np.asarray(fragmentLengths, dtype=np.float64)
+        medianFragmentLengthBP = trimmedMean(fragLenArr, trimFrac=0.1)
     elif bamFiles is not None and len(bamFiles) > 0:
-        fragmentLengths_ = []
+        tmpFragmentLengths: List[float] = []
         for bamFile in bamFiles:
-            fLen = cconsenrich.cgetFragmentLength(
+            fragLen = cconsenrich.cgetFragmentLength(
                 bamFile,
                 fallBack=fallBackFragmentLength,
                 randSeed=randomSeed,
             )
-            fragmentLengths_.append(fLen)
-        medFragLen = float(np.median(fragmentLengths_))
+            tmpFragmentLengths.append(float(fragLen))
+        medianFragmentLengthBP = trimmedMean(
+            np.asarray(tmpFragmentLengths, dtype=np.float64), trimFrac=0.1
+        )
     else:
-        raise ValueError("One of `fragmentLengths` or `bamFiles` is required...")
+        raise ValueError("one of fragmentLengths or bamFiles is required")
 
-    if medFragLen <= 0:
-        raise ValueError("Average cross-sample fraglen estimation failed")
+    if (not np.isfinite(medianFragmentLengthBP)) or medianFragmentLengthBP <= 0.0:
+        raise ValueError("fraglen estimation failed")
 
-    # intervals-per-fragment.
+    # interval to fragment ratio fallback
     if chromMat is None:
-        deltaF = float(intervalSizeBP) / medFragLen
-        return np.float32(min(deltaF, maxDeltaF))
+        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
+        return np.float32(min(deltaF, float(maxDeltaF)))
 
-    # per-interval aggregate in raw space, then log:
-    # meanTrack = log1p(mean(raw))
-    #
-    # Rationale:
-    # - Aggregating in raw space keeps the estimator aligned with the natural measurement scale.
-    # - Taking log1p afterward reduces heavy-tail effects and makes correlations less dominated
-    #   by rare very-large intervals (a common issue in count-like tracks).
-    if hasattr(chromMat, "ndim") and chromMat.ndim == 1:
+    # aggregate pointwise in natural scale then log1p for stability
+    if hasattr(chromMat, "ndim") and int(chromMat.ndim) == 1:
         rawMean = np.asarray(chromMat, dtype=np.float64)
-        rawMean = np.clip(rawMean, 0.0, None)
-        meanTrack = np.log1p(rawMean).astype(np.float32, copy=False)
     else:
         rawMean = np.mean(chromMat, axis=0, dtype=np.float64)
-        rawMean = np.clip(rawMean, 0.0, None)
-        meanTrack = np.log1p(rawMean).astype(np.float32, copy=False)
+    rawMean = np.clip(rawMean, 0.0, None)
+    meanTrack = np.log1p(rawMean).astype(np.float64, copy=False)
 
     numIntervals = int(meanTrack.size)
+    if numIntervals < 16 or (not np.isfinite(meanTrack).all()):
+        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
+        return np.float32(min(deltaF, float(maxDeltaF)))
 
-    # Block length selection:
-    # - We want blocks long enough to contain multiple correlation lengths, but not so long
-    #   that nonstationarity dominates.
-    # - blockMult * medFragLen is a simple proxy tying block size to biological footprint.
-    blockLenBP = int(max(intervalSizeBP, round(blockMult * medFragLen)))
-    blockLenIntervals = int(np.ceil(blockLenBP / float(intervalSizeBP)))
-    if blockLenIntervals > numIntervals:
-        blockLenIntervals = numIntervals
-
-    numStarts = numIntervals - blockLenIntervals + 1
-    if numStarts < 1:
-        deltaF = float(intervalSizeBP) / medFragLen
-        logger.warning("Not enough intervals... using fallback.")
-        return np.float32(min(deltaF, maxDeltaF))
-
-    # Sample start positions _without_ replacement to cover the chromosome without scanning all blocks.
-    rng = np.random.default_rng(int(randomSeed))
-    if numStarts <= numBlocks:
-        starts = np.arange(numStarts, dtype=np.int64)
-    else:
-        starts = rng.choice(numStarts, size=int(numBlocks), replace=False).astype(
-            np.int64
+    # window length tied to fragment length
+    windowLenBP = int(
+        max(
+            int(intervalSizeBP),
+            int(round(float(blockMult) * float(medianFragmentLengthBP))),
         )
-
-    # We store per-block correlation length estimates and per-block weights.
-    # The final deltaF is computed from a weighted mean of block-level L (in bins),
-    # with deltaF := 1 / mean(L).
-    L_blocks: List[float] = []
-    W_blocks: List[float] = []
-    maxBlockWeight = float(1.0 / minBlockWeight) if minBlockWeight > 0.0 else 1.0e8
-
-    # simple correlation uncertainty model for lag-level weights:
-    # - For each lag correlation rho, Fisher-z gives z = atanh(rho) approximately Normal with
-    #   Var(z) ~= 1/(nPairs-3) under iid assumptions.
-    # - Time series / lagged pairs are typically __not iid__, so we use an "effective sample size"
-    #   nEff = effFrac * nPairs, which downweights overconfident rho estimates.
-    # - Then we propagate Var(rho) to Var(s) for s=log(L) via the delta method.
-    #
-    # This yields a lag-level weight wLag ~ 1/Var(s), which is used in a weighted median
-    # across lags within each block (robust to a few unstable lags).
-    effFrac = 0.25
-    sampledLengths: np.ndarray = np.random.geometric(
-        p=1 / blockLenIntervals, size=len(starts)
     )
-    np.clip(sampledLengths, a_min=3, a_max=3 * blockLenIntervals, out=sampledLengths)
-    for s in starts:
-        block = meanTrack[s : s + blockLenIntervals].astype(np.float64, copy=False)
-        if block.size < 8 or not np.isfinite(block).all():
+    windowLenIntervals = int(np.ceil(float(windowLenBP) / float(intervalSizeBP)))
+
+    # keep windows reasonable for FFT based acorr
+    windowLenIntervals = int(max(32, windowLenIntervals))
+    windowLenIntervals = int(min(windowLenIntervals, numIntervals))
+    if windowLenIntervals < 16:
+        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
+        return np.float32(min(deltaF, float(maxDeltaF)))
+
+    # hop like a typical STFT
+    hopIntervals = int(max(1, windowLenIntervals // 2))
+
+    maxStart = int(numIntervals - windowLenIntervals)
+    if maxStart < 0:
+        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
+        return np.float32(min(deltaF, float(maxDeltaF)))
+
+    frameStartsAll = np.arange(0, maxStart + 1, hopIntervals, dtype=np.int64)
+    if frameStartsAll.size < 2:
+        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
+        return np.float32(min(deltaF, float(maxDeltaF)))
+
+    rng = np.random.default_rng(int(randomSeed))
+    if frameStartsAll.size > int(numBlocks):
+        chosen = rng.choice(frameStartsAll.size, size=int(numBlocks), replace=False)
+        frameStarts = np.sort(frameStartsAll[chosen])
+    else:
+        frameStarts = frameStartsAll
+
+    fitMaxLag = int(min(int(maxLagBins), windowLenIntervals - 1))
+    if fitMaxLag < 4:
+        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
+        return np.float32(min(deltaF, float(maxDeltaF)))
+
+    win = hannWindow(windowLenIntervals)
+    nFft = nextPow2(2 * windowLenIntervals)
+
+    # precompute window autocorrelation to correct taper bias
+    winFft = np.fft.rfft(win, n=nFft)
+    winPower = (winFft.real * winFft.real) + (winFft.imag * winFft.imag)
+    winAcf = np.fft.irfft(winPower, n=nFft)
+    winAcf0 = float(winAcf[0])
+
+    if (not np.isfinite(winAcf0)) or winAcf0 <= 0.0:
+        winRho = None
+    else:
+        winRho = winAcf[: fitMaxLag + 1] / winAcf0
+
+    frameLengths: List[float] = []
+
+    for startIndex in frameStarts:
+        frame = meanTrack[startIndex : startIndex + windowLenIntervals]
+        if frame.size != windowLenIntervals:
+            continue
+        if not np.isfinite(frame).all():
             continue
 
-        # 'local noise; via std of first differences.
-        #   if a block is very noisy (under this proxy), its correlation
-        #   estimates are considered less informative, and we downweight
-        d = np.diff(block)
-        if d.size < 2 or not np.isfinite(d).all():
-            blockNoisePrecision = float(minBlockWeight)
-        else:
-            sigmaDiff = float(np.std(d, ddof=1))
-            if not np.isfinite(sigmaDiff) or sigmaDiff <= 0.0:
-                blockNoisePrecision = float(minBlockWeight)
-            else:
-                blockNoisePrecision = 1.0 / (sigmaDiff * sigmaDiff + float(noiseEps))
-                blockNoisePrecision = float(
-                    max(blockNoisePrecision, float(minBlockWeight))
-                )
-                if blockNoisePrecision > maxBlockWeight:
-                    blockNoisePrecision = maxBlockWeight
+        # remove DC then apply taper
+        x = frame - float(np.mean(frame))
+        x = x * win
 
-        lmax = int(min(maxLagBins, block.size - 1))
-        if lmax < 1:
+        # skip nearly constant frames
+        xEnergy = float(np.dot(x, x))
+        if (not np.isfinite(xEnergy)) or xEnergy <= float(minBlockWeight):
             continue
 
-        logLengthVals: List[float] = []
-        logLengthPrecisions: List[float] = []
+        # autocorrelation via FFT power spectrum
+        X = np.fft.rfft(x, n=nFft)
+        power = (X.real * X.real) + (X.imag * X.imag)
+        acf = np.fft.irfft(power, n=nFft)
 
-        for lag in range(1, lmax + 1):
-            a = block[:-lag]
-            b = block[lag:]
-
-            # FFR: we might later want cosine sim to bias the estimation to denser blocks
-            a = a - float(np.mean(a))
-            b = b - float(np.mean(b))
-
-            # pearson within block
-            scaleA = float(np.dot(a, a))
-            scaleB = float(np.dot(b, b))
-            scaleCross = (scaleA * scaleB) ** 0.5
-            if scaleCross <= 0.0:
-                continue
-
-            rho = float(np.dot(a, b) / scaleCross)
-
-            # toss uninformative blocks
-            # - rho ~<~ 0: ACF length undefined / sign-flipping implies oscillation or noise.
-            # - rho extremely close to 1: maybe a constant block or num. artifacts
-            if not np.isfinite(rho) or rho <= 0.001 or rho >= 0.999:
-                continue
-
-            # |max - min| implies near-constant --> toss
-            if np.ptp(a) <= 1.0e-2 or np.ptp(b) <= 1.0e-2:
-                continue
-
-            # Exponential ACF inversion:
-            # rho(lag) ~= exp(-lag / L)  =>  L = -lag / log(rho)
-            # __log scale__ for a smaller/safer dynamic range
-            Lb = float(-lag / np.log(rho))
-            if not (np.isfinite(Lb) and Lb > 0.0):
-                continue
-            logLb = float(np.log(Lb))
-
-            # Approximate uncertainty of log(L) from uncertainty in rho.
-            #
-            # Fisher-z variance
-            #   z = atanh(rho), Var(z) ~= 1/(nEff - 3)
-            # and delta method:
-            #   Var(rho) ~= (1 - rho^2)^2 * Var(z)
-            nPairs = int(a.size)
-            nEff = int(max(5, round(effFrac * float(nPairs))))
-            if nEff <= 3:
-                continue
-
-            varZ = 1.0 / float(nEff - 3)
-            oneMinusR2 = 1.0 - (rho * rho)
-            varRho = (oneMinusR2 * oneMinusR2) * varZ
-
-            # Now propagate rho -> s=log(L):
-            # s(rho) = log(lag) - log(-log(rho))
-            # ds/drho = 1 / (rho * (-log(rho)))
-            denom = rho * (-np.log(rho))
-            if not np.isfinite(denom) or denom <= 0.0:
-                continue
-            dsDrho = 1.0 / float(denom)
-            varLogL = float((dsDrho * dsDrho) * varRho)
-
-            if not np.isfinite(varLogL):
-                continue
-            varLogL = float(min(max(varLogL, 1.0e-6), 1.0e6))
-            logLengthPrecision = 1.0 / varLogL
-
-            logLengthVals.append(logLb)
-            logLengthPrecisions.append(logLengthPrecision)
-
-        if not logLengthVals:
+        acf0 = float(acf[0])
+        if (not np.isfinite(acf0)) or acf0 <= 0.0:
             continue
 
-        # Within-block robust aggregation (weighted median):
-        #
-        # Why median (vs mean)?
-        # - Some lags may be unreliable due to local structure, motifs, or boundary effects.
-        # - The rho -> L transform amplifies errors at high rho, so outliers happen.
-        # - Weighted median keeps "typical" lag behavior while still leveraging uncertainty weights.
-        blockLogL = _weightedMedian(
-            np.asarray(logLengthVals, dtype=np.float64),
-            np.asarray(logLengthPrecisions, dtype=np.float64),
-        )
-        if not np.isfinite(blockLogL):
+        rho = acf[: fitMaxLag + 1] / acf0
+
+        # correct window induced damping
+        if winRho is not None:
+            denom = np.asarray(winRho, dtype=np.float64)
+            denom = np.where(denom > float(noiseEps), denom, float("nan"))
+            rho = rho / denom
+
+        # keep rho in a safe range
+        rho = np.asarray(rho, dtype=np.float64)
+        rho = np.clip(rho, -0.999999, 0.999999)
+
+        # build fit set from positive rho values excluding lag 0
+        rhoVals = rho[1:]
+        lags = np.arange(1, rhoVals.size + 1, dtype=np.float64)
+        posMask = np.isfinite(rhoVals) & (rhoVals > 0.0) & (rhoVals < 0.999999)
+        if int(np.sum(posMask)) < 4:
             continue
 
-        blockL = float(np.exp(blockLogL))
-        if not (np.isfinite(blockL) and blockL > 0.0):
+        rhoPos = rhoVals[posMask]
+        lagPos = lags[posMask]
+
+        # fit band restricted to IQR of positive rho
+        rhoHigh = float(np.quantile(rhoPos, 0.75))
+        rhoLow = float(np.quantile(rhoPos, 0.25))
+        fitMask = (rhoPos >= rhoLow) & (rhoPos <= rhoHigh)
+        if int(np.sum(fitMask)) < 3:
             continue
 
-        # Block-level combination weight:
-        #
-        # We multiply two notions of "trust":
-        # (1) blockNoisePrecision: blocks with higher roughness get downweighted
-        # (2) lagPrecisionSum: if many lags are stable / informative, upweight this block
-        #
-        # This is heuristic (not a full generative model), but it accomplishes the goal:
-        # blocks that look both "smooth" and "statistically certain" dominate the final estimate.
-        lagPrecisionSum = float(
-            np.sum(np.asarray(logLengthPrecisions, dtype=np.float64))
-        )
-        if not np.isfinite(lagPrecisionSum) or lagPrecisionSum <= 0.0:
-            lagPrecisionSum = float(minBlockWeight)
+        y = np.log(rhoPos[fitMask])
+        xFit = lagPos[fitMask]
 
-        combinedBlockWeight = float(blockNoisePrecision) * float(
-            min(max(lagPrecisionSum, float(minBlockWeight)), maxBlockWeight)
-        )
+        # least squares slope for log rho = slope * lag + intercept
+        xMean = float(np.mean(xFit))
+        yMean = float(np.mean(y))
+        xC = xFit - xMean
+        yC = y - yMean
+        denom = float(np.dot(xC, xC))
+        if (not np.isfinite(denom)) or denom <= 0.0:
+            continue
+        slope = float(np.dot(xC, yC) / denom)
 
-        L_blocks.append(blockL)
-        W_blocks.append(combinedBlockWeight)
+        # exponential decay expects negative slope
+        if (not np.isfinite(slope)) or slope >= 0.0:
+            continue
 
-    # If too few valid blocks, revert to physical-scale fallback.
-    if len(L_blocks) < 8:
-        deltaF = float(intervalSizeBP) / medFragLen
-        return np.float32(min(deltaF, maxDeltaF))
+        frameL = float(-1.0 / slope)
+        if (not np.isfinite(frameL)) or frameL <= 0.0:
+            continue
 
-    L_arr = np.asarray(L_blocks, dtype=np.float64)
-    W_arr = np.asarray(W_blocks, dtype=np.float64)
+        frameLengths.append(frameL)
 
-    # Final aggregation across blocks:
-    # mean_L_bins is the estimated correlation length in bins (L).
-    # deltaF is taken as 1/L, i.e. "bin step as a fraction of correlation length".
-    mean_L_bins = float(np.sum(W_arr * L_arr) / np.sum(W_arr))
-    deltaF = float(1.0 / mean_L_bins)
-    deltaF = float(np.clip(deltaF, minDeltaF, maxDeltaF))
+    if len(frameLengths) < 8:
+        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
+        return np.float32(min(deltaF, float(maxDeltaF)))
+
+    summaryLBins = trimmedMean(np.asarray(frameLengths, dtype=np.float64), trimFrac=0.1)
+    if (not np.isfinite(summaryLBins)) or summaryLBins <= 0.0:
+        summaryLBins = float(np.median(np.asarray(frameLengths, dtype=np.float64)))
+
+    if (not np.isfinite(summaryLBins)) or summaryLBins <= 0.0:
+        deltaF = float(intervalSizeBP) / float(medianFragmentLengthBP)
+        return np.float32(min(deltaF, float(maxDeltaF)))
+
+    deltaF = float(1.0 / summaryLBins)
+    deltaF = float(np.clip(deltaF, float(minDeltaF), float(maxDeltaF)))
     return np.float32(deltaF)
 
 

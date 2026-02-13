@@ -553,7 +553,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     logMult_ = _cfgGet(
         configData,
         "countingParams.logMult",
-        1.0 / math.log(2.0),
+        1.0,
     )
 
     return core.countingParams(
@@ -704,7 +704,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
-        damp=_cfgGet(configData, "observationParams.damp", 0.005),
+        damp=_cfgGet(configData, "observationParams.damp", 0.001),
+        pad=_cfgGet(configData, "observationParams.pad", 1.0e-2),
+        EM_tNu=_cfgGet(configData, "observationParams.EM_tNu", 10.0),
     )
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
@@ -1076,7 +1078,7 @@ def main():
 
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
-
+    pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-2
     if args.verbose2:
         args.verbose = True
 
@@ -1392,7 +1394,6 @@ def main():
 
         if processArgs.deltaF < 0:
             logger.info(f"`processParams.deltaF < 0` --> calling core.autoDeltaF()...")
-            # FFR: we can possibly switch this to use val from getContextSize(), if available
             deltaF_ = core.autoDeltaF(
                 bamFiles,
                 intervalSizeBP,
@@ -1463,7 +1464,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
-            autoMinQ = max((0.01 * minR_), 1.0e-3)
+            autoMinQ = max((0.01 * minR_) * (1 + deltaF_), 1.0e-3)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1475,25 +1476,32 @@ def main():
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
 
-        logger.info(f">>>Running consenrich: {chromosome}<<<")
-        x, P, _, _ = core.runConsenrich(
-            chromMat,
-            muncMat,
-            deltaF_,
-            minQ_,
-            maxQ_,
-            offDiagQ_,
-            stateArgs.stateInit,
-            stateArgs.stateCovarInit,
-            stateArgs.boundState,
-            stateArgs.stateLowerBound,
-            stateArgs.stateUpperBound,
-            samArgs.chunkSize,
-            blockLenIntervals=2
-            * max(backgroundBlockSizeIntervals, samplingBlockSizeBP_ // intervalSizeBP)
-            + 1,
-            rescaleStateCovar=stateArgs.rescaleStateCovar,
-            damp=observationArgs.damp,
+        logger.info(f">>>  Running consenrich: {chromosome}  <<<")
+        x, P, postFitResiduals, NIS, rScale, qScale, intervalToBlockMap = (
+            core.runConsenrich(
+                chromMat,
+                muncMat,
+                deltaF_,
+                minQ_,
+                maxQ_,
+                offDiagQ_,
+                stateArgs.stateInit,
+                stateArgs.stateCovarInit,
+                stateArgs.boundState,
+                stateArgs.stateLowerBound,
+                stateArgs.stateUpperBound,
+                samArgs.chunkSize,
+                blockLenIntervals=2
+                * max(
+                    backgroundBlockSizeIntervals, samplingBlockSizeBP_ // intervalSizeBP
+                )
+                + 1,
+                rescaleStateCovar=stateArgs.rescaleStateCovar,
+                damp=observationArgs.damp,
+                returnScales=True,
+                pad=pad_,
+                EM_tNu=observationArgs.EM_tNu,
+            )
         )
 
         x_ = core.getPrimaryState(
@@ -1522,14 +1530,22 @@ def main():
             cols_.append("uncertainty")
         if outputArgs.writeMWSR:
             cols_.append("MWSR")
-            srs_ = np.sum(
-                ((chromMat - x_[None, :]) ** 2) / muncMat + P00_[None, :],
-                axis=0,
-                dtype=np.float64,
-            ).astype(np.float32)
-            if numSamples > 1:
-                srs_ /= numSamples
-            df["MWSR"] = srs_.astype(np.float32, copy=False)
+
+            rByInterval = np.asarray(rScale, dtype=np.float32)[
+                np.asarray(intervalToBlockMap, dtype=np.int32)
+            ]
+
+            # note: cbackwardPass gives postFitResiduals as (n, m) --> transpose to (m, n)
+            resid = np.asarray(postFitResiduals, dtype=np.float32).T
+
+            R = rByInterval[None, :] * (
+                np.asarray(muncMat, dtype=np.float32) + np.float32(pad_)
+            )
+            refU2 = observationArgs.EM_tNu / (observationArgs.EM_tNu - 2.0)
+            studentizedResidualSq = (resid * resid + P00_[None, :]) / R
+            meanStudentizedResidualSq = np.mean(studentizedResidualSq, axis=0) / refU2
+
+            df["MWSR"] = meanStudentizedResidualSq
         df = df[cols_]
         suffixes = ["state"]
         if outputArgs.writeUncertainty:
@@ -1571,7 +1587,7 @@ def main():
             core.plotMWSRHistogram(
                 chromosome,
                 plotArgs.plotPrefix,
-                srs_,
+                meanStudentizedResidualSq,
                 plotDirectory=plotArgs.plotDirectory,
             )
 
