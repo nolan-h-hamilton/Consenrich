@@ -137,13 +137,27 @@ class observationParams(NamedTuple):
     :type damp: float | None
     :param pad: A small constant added to the measurement noise variance estimates for numerics.
     :type pad: float | None
-    :param EM_tNu: Degrees of freedom for the Student-t/Gaussian scale-mixture
+    :param EM_tNu: Degrees of freedom :math:`\nu` for the Student-t / Gaussian scale-mixture
         used for robust reweighting in :func:`consenrich.cconsenrich.cblockScaleEM`.
-        Setting this argument to larger values pushes the model toward a regular Gaussian,
-        and reduces downweighting of apparent outliers.
+        Larger values push the model toward a Gaussian residual model (less downweighting of apparent outliers),
+        and smaller values increase robustness to outliers but can reduce sensitivity to true signal.
+        Values in the range ``[5, 15]`` are reasonable, and the default ``10.0`` is sufficient (and not disruptive) for most datasets.
+        Users can set to an arbitrarily large value, e.g., :math:`\nu = 1e6` to effectively disable robust reweighting and
+        use a standard Gaussian model for residuals.
     :type EM_tNu: float | None
+    :param EM_alphaEMA: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Exponential moving-average (EMA) coefficient applied to per-block scale updates in **log space**.
+        After each M-step, we smooth as
 
-    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
+        :math:`\log s_b \leftarrow (1-\alpha)\log s_b + \alpha \log \hat{s}_b`,
+
+        where :math:`\hat{s}_b` is the raw per-iteration update. Smaller values give **more smoothing** (slower adaptation).
+        ``1.0`` disables smoothing (use the raw update), and values near ``0.0`` give very strong smoothing (slow adaptation).
+        Note that smoothing voids *guaranteed* non-increasing behavior of the EM objective, but can be helpful for stability and convergence in practice.
+        Values in the range ``[0.05, 0.25]`` are good starting points. The default ``0.1`` corresponds to a halflife of about 7 iterations and is sufficient for most datasets.
+
+    :type EM_alphaEMA: float | None
+
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cblockScaleEM`
 
     """
 
@@ -159,6 +173,7 @@ class observationParams(NamedTuple):
     damp: float | None
     pad: float | None
     EM_tNu: float | None
+    EM_alphaEMA: float | None
 
 
 class stateParams(NamedTuple):
@@ -842,7 +857,7 @@ def constructMatrixQ(
     Q[1, 1] = np.float32(minDiagQ if Q11 is None else Q11)
 
     if Q11 is None:
-        Q[1, 1] = Q[0, 0] / 2.0
+        Q[1, 1] = Q[0, 0] / 4.0
 
     if Q01 is not None and Q10 is None:
         Q10 = Q01
@@ -855,7 +870,7 @@ def constructMatrixQ(
     if not np.allclose(Q[0, 1], Q[1, 0], rtol=0.0, atol=1e-4):
         raise ValueError(f"Matrix is not symmetric: Q=\n{Q}")
 
-    maxNoiseCorr = np.float32(0.999)
+    maxNoiseCorr = np.float32(0.99)
     maxOffDiag = maxNoiseCorr * np.sqrt(Q[0, 0] * Q[1, 1]).astype(np.float32)
     Q[0, 1] = np.clip(Q[0, 1], -maxOffDiag, maxOffDiag)
     Q[1, 0] = Q[0, 1]
@@ -916,6 +931,7 @@ def runConsenrich(
     rescaleStateCovar: bool = False,
     damp: float = 0.0,
     EM_tNu: float = 10.0,
+    EM_alphaEMA: float = 0.1,
     returnScales: bool = True,
 ):
     r"""Execute Consenrich given transformed/normalized data and initial measurement and process noise (co)variances"""
@@ -955,10 +971,9 @@ def runConsenrich(
     )
 
     EM_maxIters = int(calibration_kwargs.get("EM_maxIters", 50))
-    EM_rtol = float(calibration_kwargs.get("EM_rtol", 1.0e-4))
-    EM_multiplierLow = float(calibration_kwargs.get("EM_multiplierLow", 1.0e-2))
-    EM_multiplierHigh = float(calibration_kwargs.get("EM_multiplierHigh", 1.0e2))
-    EM_alphaEMA = float(calibration_kwargs.get("EM_alphaEMA", 0.25))
+    EM_rtol = float(calibration_kwargs.get("EM_rtol", 1.0e-3))
+    EM_multiplierLow = float(calibration_kwargs.get("EM_multiplierLow", 0.1))
+    EM_multiplierHigh = float(calibration_kwargs.get("EM_multiplierHigh", 10.0))
     EM_scaleToMedian = bool(calibration_kwargs.get("EM_scaleToMedian", True))
 
     if damp > 0.0:
@@ -1281,12 +1296,12 @@ def autoDeltaF(
     fallBackFragmentLength: int = 147,
     randomSeed: int = 42,
     blockMult: float = 10.0,
-    numBlocks: int = 500,
-    maxLagBins: int = 20,
+    numBlocks: int = 1000,
+    maxLagBins: int = 25,
     minDeltaF: float = 1.0e-4,
     maxDeltaF: float = 1.0,
     noiseEps: float = 1.0e-4,
-    minBlockWeight: float = 1.0e-2,
+    minBlockWeight: float = 1.0e-4,
 ) -> float:
     r"""Infer deltaF from the data using short time autocorrelation via FFT frames
 

@@ -707,6 +707,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         damp=_cfgGet(configData, "observationParams.damp", 0.001),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-2),
         EM_tNu=_cfgGet(configData, "observationParams.EM_tNu", 10.0),
+        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.2),
     )
 
     samThreads = _cfgGet(configData, "samParams.samThreads", 1)
@@ -1501,6 +1502,7 @@ def main():
                 returnScales=True,
                 pad=pad_,
                 EM_tNu=observationArgs.EM_tNu,
+                EM_alphaEMA=observationArgs.EM_alphaEMA,
             )
         )
 

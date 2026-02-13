@@ -1580,7 +1580,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out
 
 
-cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(__INV_LN2_DOUBLE)):
+cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(1.0)):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr = np.ascontiguousarray(x, dtype=np.float64)
     cdef Py_ssize_t n = arr.shape[0]
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
@@ -2516,33 +2516,34 @@ cpdef tuple cblockScaleEM(
     float stateInit,
     float stateCovarInit,
     Py_ssize_t EM_maxIters=50,
-    float EM_rtol=1.0e-4,
+    float EM_rtol=1.0e-3,
     float covarClip=3.0,
     float pad=1.0e-2,
-    float EM_multiplierLow=1.0e-3,
-    float EM_multiplierHigh=1.0e3,
-    float EM_alphaEMA=0.25,
+    float EM_multiplierLow=0.1,
+    float EM_multiplierHigh=10.0,
+    float EM_alphaEMA=0.2,
     bint EM_scaleToMedian=True,
     bint returnIntermediates=False,
     float EM_tNu=10.0,
-    Py_ssize_t t_innerIters=5,
+    Py_ssize_t t_innerIters=3,
 ):
-    r"""Maximize likelihood with respect to block-level measurement and process noise scales
+    r"""Calibrate blockwise measurement and process noise scales while inferring the epigenomic consensus signal
 
 
     Multisample epigenomic HTS data shows strong heteroskedasticity (replicate- and interval-specific noise) and region-dependent dynamics.
-    This routine estimates *blockwise* multipliers of given noise scales (both observation noise and process noise)
+    This routine estimates *blockwise* multipliers of *given* noise scales (both observation noise and process noise)
 
     .. math::
 
-        R_{j,k} = r_{\mathrm{scale}}[b(k)]\,(\mathrm{pluginMuncInit}_{j,k}+\mathrm{pad}),
+        R_{[j,k]} = r_{\mathrm{scale}}[b(k)]\,(\mathrm{pluginMuncInit}_{j,k}+\mathrm{pad}),
         \qquad
         \mathbf{Q}_{[k]} = q_{\mathrm{scale}}[b(k)]\,\mathbf{Q}_0,
 
-    while inferring the consensus signal trajectory.
+    while inferring the consensus signal trajectory. Note that each :math:`R_{[j,k]}` is, in fact, estimated
+    from the data in :func:`consenrich.core.getMuncTrack`.
 
-    We aim for robustness by treating residuals as a Gaussian scale-mixture with an
-    *auxiliary* per-observation precision weight :math:`\lambda_{j,k}` that moderates
+    We aim for robustness by treating residuals with a Gaussian **scale**-mixture using
+    *auxiliary* per-observation precision weight :math:`\lambda_{j,k}` to moderate
     the influence of outliers. Concretely, *given* :math:`\lambda_{j,k}`, the residual
     is treated as Gaussian with variance scaled by :math:`1/\lambda_{j,k}`:
 
@@ -2556,6 +2557,20 @@ cpdef tuple cblockScaleEM(
     :math:`\mathbb{E}[\lambda_{j,k}\mid e_{j,k}]`. Because the mixture variance is
     :math:`R_{j,k}/\lambda_{j,k}`, this smaller :math:`\lambda_{j,k}` inflates the variance for that
     observation and thus downweights its contribution.
+
+
+    .. note::
+
+      To be sure, this routine uses an empirical *plug-in* approximation, rather than full EM over a joint model for :math:`\lambda_{j,k}` *and* the consensus signal.
+
+      So, the heavy-tailed model is used to derive per-observation reweighting, but the M-step
+      proceeds with a weighted-Gaussian criterion using these plug-in weights.
+
+
+      Notice also that this routine can deviate from standard EM: It alternates E-step-style updates of
+      :math:`\lambda_{j,k}^{\mathrm{exp}}=\mathbb{E}[\lambda_{j,k}\mid e_{j,k}]` with M-step closed-form updates of
+      :math:`(r_{\mathrm{scale}}, q_{\mathrm{scale}})` and RTS smoothing for :math:`\mathbf{x}`. But
+      (optional) log-EMA/median-normalization heuristics can void traditional EM monotonicity guarantees.
 
     E-step
     -------------------------------------
@@ -2641,12 +2656,14 @@ cpdef tuple cblockScaleEM(
     :returns: ``(rScale, qScale, itersDone, finalNLL, stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals, lambdaExp)``.
     :rtype: tuple
 
+
     Related References
     ------------------------------------------------
 
-    * Student-t as scale-mixture: `Andrews & Mallows (1974), DOI:10.1111/j.2517-6161.1974.tb00989.x <https://doi.org/10.1111/j.2517-6161.1974.tb00989.x>`_
+    * Gaussian scale-mixtures (e.g., :math:`Y` s.t. :math:`Y|(Z=z) \sim \mathcal{N}(\mu, z^{-1}\Sigma)`): `West (1987), <doi.org/10.1093/biomet/74.3.646>`_
 
     * Student-t KF: `Aravkin et al. (2014), DOI:10.1137/130918861 <https://doi.org/10.1137/130918861>`_
+
 
     :seealso: :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.core.runConsenrich`
     """
@@ -2939,7 +2956,7 @@ cpdef tuple cblockScaleEM(
 
                 fprintf(
                     stderr,
-                    "\t[cblockScaleEM] resid. t-tails (nu=%.1f): "
+                    "\t[cblockScaleEM] studentized residual tails (nu=%.1f): "
                     "P[|u|>2] ~=~ %.6f,  P[|u|>3] ~=~ %.6f,  P[|u|>4] ~=~ %.6f\n",
                     EM_tNu,
                     fracTail4,
@@ -3179,38 +3196,12 @@ cpdef tuple cblockScaleEM(
         else:
             meanAbsLogQRatio = 0.0
 
-        fprintf(
-            stderr,
-            "\t[cblockScaleEM] scales  r=[%.6g,%.6g]  q=[%.6g,%.6g]  clip_r=[%zd,%zd]  clip_q=[%zd,%zd]\n",
-            rMin,
-            rMax,
-            qMin,
-            qMax,
-            nClipRLow,
-            nClipRHigh,
-            nClipQLow,
-            nClipQHigh
-        )
-
-        fprintf(
-            stderr,
-            "\t[cblockScaleEM] ratios  r=[%.6g,%.6g]  mean_abs_log=%.6g  q=[%.6g,%.6g]  mean_abs_log=%.6g\n",
-            rRatioMin if nRRatio > 0 else 0.0,
-            rRatioMax if nRRatio > 0 else 0.0,
-            meanAbsLogRRatio,
-            qRatioMin if nQRatio > 0 else 0.0,
-            qRatioMax if nQRatio > 0 else 0.0,
-            meanAbsLogQRatio
-        )
-
         # divide by block median so typical scale is near one
         # voids EM guarantees but can improve interpretation
         # of block-to-block scale comparisons
         if EM_scaleToMedian:
             rMed = <double>_medianCopy_F32(<float*>&rScaleView[0], blockCount)
             qMed = <double>_medianCopy_F32(<float*>&qScaleView[0], blockCount)
-
-            fprintf(stderr, "\t[cblockScaleEM] median_norm  r_med=%.6g  q_med=%.6g\n", rMed, qMed)
 
             if rMed > 0.0 or qMed > 0.0:
                 with nogil:
@@ -3382,7 +3373,7 @@ cpdef double cDenseMean(
 
     .. math::
 
-      p(y) = \pi \cdot \mathcal{N}(y - \mu_1,\sigma_1^2) + (1-\pi) \cdot \mathcal{N}(y - \mu_2,\sigma_2^2).
+      p(y) = \pi \cdot \mathcal{N}(y;\,\mu_1,\sigma_1^2) + (1-\pi) \cdot \mathcal{N}(y;\,\mu_2,\sigma_2^2).
 
     We maximize the likelihood with respect to :math:`\mu_2 \geq \mu_1` using an expectation-maximization routine.
 
@@ -3390,9 +3381,9 @@ cpdef double cDenseMean(
 
     .. math::
 
-      \ell_{i1} = \log \pi + \log \mathcal{N}(y_i - \mu_1,\sigma_1^2),
+      \ell_{i1} = \log \pi + \log \mathcal{N}(y_i;\mu_1,\sigma_1^2),
       \qquad
-      \ell_{i2} = \log (1-\pi) + \log \mathcal{N}(y_i - \mu_2,\sigma_2^2).
+      \ell_{i2} = \log (1-\pi) + \log \mathcal{N}(y_i;\mu_2,\sigma_2^2).
 
     .. math::
 
@@ -3403,8 +3394,8 @@ cpdef double cDenseMean(
     .. math::
 
       w_i = \exp(\ell_{i1} - \ell_i),
-        \qquad
-        1-w_i = \exp(\ell_{i2} - \ell_i).
+          \qquad
+          1-w_i = \exp(\ell_{i2} - \ell_i).
 
 
     **M-step**
@@ -3415,19 +3406,19 @@ cpdef double cDenseMean(
 
       W = \sum_{i=1}^n w_i, \qquad W' = \sum_{i=1}^n (1-w_i) = n - W.
 
-    Update
+    *Update*
 
     .. math::
 
-        \pi \leftarrow \frac{W}{n},
+      \pi \leftarrow \frac{W}{n},
 
     .. math::
 
-        \mu_1 \leftarrow \frac{\sum_{i=1}^n w_i y_i}{W},
-        \qquad
-        \mu_2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i}{W'},
+      \mu_1 \leftarrow \frac{\sum_{i=1}^n w_i y_i}{W},
+      \qquad
+      \mu_2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i}{W'},
 
-    (the order of the two components is swapped if $\mu_1 > \mu_2$) and
+    (the order of the two components is swapped if :math:`\mu_1 > \mu_2` ) and
 
     .. math::
 
@@ -3435,11 +3426,10 @@ cpdef double cDenseMean(
       \qquad
       \sigma_2^2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i^2}{W'} - \mu_2^2.
 
-    We enforce a variance floor and a minimum / maximum value for :math:`\pi` for stability. Note, we force :math:`\mu_1 \leq \mu_2` by
-    swapping parameters accordingly after each M-step update.
+    We enforce a variance floor and a minimum / maximum value for :math:`\pi` for stability.
 
     The returned value is the estimated 'dense' baseline :math:`\mu_2 \geq \mu_1`. This value is used
-    in conjunction with :func:`consenrich.cconsenrich.clocalBaseline` for centering replicates' transformed
+    in a weighted average with :func:`consenrich.cconsenrich.clocalBaseline` for centering replicates' transformed
     count tracks.
 
     """
@@ -4858,7 +4848,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
         double cauchyScale=<double>(3.0),
         int maxIters=<int>(25),
         double minWeight=<double>(1.0e-6),
-        double tol=<double>(1.0e-2)):
+        double tol=<double>(1.0e-3)):
     r"""Estimate a *local* baseline on `x` with a lower/smooth envelope via IRLS
 
     Compute a locally smooth baseline :math:`\hat{b}` for an input signal :math:`y`,
