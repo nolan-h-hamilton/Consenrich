@@ -153,10 +153,17 @@ class observationParams(NamedTuple):
         where :math:`\hat{s}_b` is the raw per-iteration update. Smaller values give **more smoothing** (slower adaptation).
         ``1.0`` disables smoothing (use the raw update), and values near ``0.0`` give very strong smoothing (slow adaptation).
         Note that smoothing voids *guaranteed* non-increasing behavior of the EM objective, but can be helpful for stability and convergence in practice.
-        Values in the range ``[0.05, 0.25]`` are good starting points. The default ``0.1`` corresponds to a halflife of about 7 iterations and is sufficient for most datasets.
+        Values in the range ``[0.05, 0.5]`` are good starting points. The default ``0.1`` gives a half-life of about 7 iterations, which is sufficient for most datasets.
 
     :type EM_alphaEMA: float | None
-
+    :param EM_scaleLOW: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Absolute lower bound on the per-block
+        scale factors (applied after each update) for both ``rScale`` and ``qScale``. Values below ``EM_scaleLOW`` are
+        clipped.
+    :type EM_scaleLOW: float | None
+    :param EM_scaleHIGH: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Absolute upper bound on the per-block
+        scale factors (applied after each update) for both ``rScale`` and ``qScale``. Values above ``EM_scaleHIGH`` are
+        clipped. Increasing this value allows more aggressive optimization during EM but can reduce stability if the plug-in variance template is poor.
+    :type EM_scaleHIGH: float | None
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cblockScaleEM`
 
     """
@@ -174,6 +181,8 @@ class observationParams(NamedTuple):
     pad: float | None
     EM_tNu: float | None
     EM_alphaEMA: float | None
+    EM_scaleLOW: float | None
+    EM_scaleHIGH: float | None
 
 
 class stateParams(NamedTuple):
@@ -932,9 +941,20 @@ def runConsenrich(
     damp: float = 0.0,
     EM_tNu: float = 10.0,
     EM_alphaEMA: float = 0.1,
+    EM_scaleLOW: float = 0.01,
+    EM_scaleHIGH: float = 10.0,
     returnScales: bool = True,
 ):
-    r"""Execute Consenrich given transformed/normalized data and initial measurement and process noise (co)variances"""
+    r"""Execute Consenrich given transformed/normalized data and initial measurement and process noise (co)variances
+
+    :param matrixData: A 2D array of shape (m, n) containing the transformed/normalized read count data for m replicates and n genomic intervals. Relevant functions: :func:`consenrich.cconsenrich.cTransform` and :func:`consenrich.core.readBamSegments`.
+    :type matrixData: np.ndarray
+    :param matrixMunc: A 2D array of shape (m, n) containing the initial measurement noise variance estimates for m replicates and n genomic intervals. Relevant functions: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
+    :type matrixMunc: np.ndarray
+
+    :seealso: :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cblockScaleEM`, :class:`processParams`, :class:`observationParams`
+
+    """
 
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
@@ -972,8 +992,6 @@ def runConsenrich(
 
     EM_maxIters = int(calibration_kwargs.get("EM_maxIters", 50))
     EM_rtol = float(calibration_kwargs.get("EM_rtol", 1.0e-3))
-    EM_multiplierLow = float(calibration_kwargs.get("EM_multiplierLow", 0.1))
-    EM_multiplierHigh = float(calibration_kwargs.get("EM_multiplierHigh", 10.0))
     EM_scaleToMedian = bool(calibration_kwargs.get("EM_scaleToMedian", True))
 
     if damp > 0.0:
@@ -1071,16 +1089,15 @@ def runConsenrich(
             NIS,
             intervalToBlockMap,
         ) = _run_final_passes(rScale=rScale, qScale=qScale)
-        logger.info("final phiHat=%.4f sumNLL=%.6g", float(phiHat), float(sumNLL))
 
     else:
         logger.info(
-            "\nNoise (co)variance calibration\n\tEM_maxIters=%d EM_rtol=%.3e EM_multiplierLow=%.3e "
-            "EM_multiplierHigh=%.3e EM_alphaEMA=%.3f EM_tNu=%.1f\n",
+            "\nNoise (co)variance calibration\n\tEM_maxIters=%d EM_rtol=%.3e EM_scaleLOW=%.3e "
+            "EM_scaleHIGH=%.3e EM_alphaEMA=%.3f EM_tNu=%.1f\n",
             int(EM_maxIters),
             float(EM_rtol),
-            float(EM_multiplierLow),
-            float(EM_multiplierHigh),
+            float(EM_scaleLOW),
+            float(EM_scaleHIGH),
             float(EM_alphaEMA),
             float(EM_tNu),
         )
@@ -1098,8 +1115,8 @@ def runConsenrich(
             EM_rtol=float(EM_rtol),
             covarClip=float(covarClip),
             pad=float(pad),
-            EM_multiplierLow=float(EM_multiplierLow),
-            EM_multiplierHigh=float(EM_multiplierHigh),
+            EM_scaleLOW=float(EM_scaleLOW),
+            EM_scaleHIGH=float(EM_scaleHIGH),
             EM_alphaEMA=float(EM_alphaEMA),
             EM_scaleToMedian=bool(EM_scaleToMedian),
             EM_tNu=float(EM_tNu),
@@ -1119,12 +1136,6 @@ def runConsenrich(
             NIS,
             intervalToBlockMap,
         ) = _run_final_passes(rScale=rScale, qScale=qScale)
-        logger.info(
-            "final phiHat=%.4f sumNLL=%.6g (EM NLL=%.6g)",
-            float(phiHat),
-            float(sumNLL),
-            float(emNLL),
-        )
 
     outStateSmoothed = np.asarray(stateSmoothed, dtype=np.float32)
     outStateCovarSmoothed = np.asarray(stateCovarSmoothed, dtype=np.float32)
@@ -1296,11 +1307,11 @@ def autoDeltaF(
     fallBackFragmentLength: int = 147,
     randomSeed: int = 42,
     blockMult: float = 10.0,
-    numBlocks: int = 1000,
+    numBlocks: int = 500,
     maxLagBins: int = 25,
     minDeltaF: float = 1.0e-4,
     maxDeltaF: float = 1.0,
-    noiseEps: float = 1.0e-4,
+    noiseEps: float = 1.0e-6,
     minBlockWeight: float = 1.0e-4,
 ) -> float:
     r"""Infer deltaF from the data using short time autocorrelation via FFT frames

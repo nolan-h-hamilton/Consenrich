@@ -2519,13 +2519,13 @@ cpdef tuple cblockScaleEM(
     float EM_rtol=1.0e-3,
     float covarClip=3.0,
     float pad=1.0e-2,
-    float EM_multiplierLow=0.1,
-    float EM_multiplierHigh=10.0,
-    float EM_alphaEMA=0.2,
+    float EM_scaleLOW=0.01,
+    float EM_scaleHIGH=10.0,
+    float EM_alphaEMA=0.1,
     bint EM_scaleToMedian=True,
     bint returnIntermediates=False,
     float EM_tNu=10.0,
-    Py_ssize_t t_innerIters=3,
+    Py_ssize_t t_innerIters=5,
 ):
     r"""Calibrate blockwise measurement and process noise scales while inferring the epigenomic consensus signal
 
@@ -2567,7 +2567,7 @@ cpdef tuple cblockScaleEM(
       proceeds with a weighted-Gaussian criterion using these plug-in weights.
 
 
-      Notice also that this routine can deviate from standard EM: It alternates E-step-style updates of
+      Depending on specification, this routine can deviate from more standard EM: It alternates E-step-style updates of
       :math:`\lambda_{j,k}^{\mathrm{exp}}=\mathbb{E}[\lambda_{j,k}\mid e_{j,k}]` with M-step closed-form updates of
       :math:`(r_{\mathrm{scale}}, q_{\mathrm{scale}})` and RTS smoothing for :math:`\mathbf{x}`. But
       (optional) log-EMA/median-normalization heuristics can void traditional EM monotonicity guarantees.
@@ -2639,10 +2639,10 @@ cpdef tuple cblockScaleEM(
     :type  EM_maxIters: int
     :param EM_rtol: Relative tolerance for stopping based on NLL improvement.
     :type  EM_rtol: float
-    :param EM_multiplierLow: Lower bound for ``rScale`` and ``qScale`` during EM.
-    :type  EM_multiplierLow: float
-    :param EM_multiplierHigh: Upper bound for ``rScale`` and ``qScale`` during EM.
-    :type  EM_multiplierHigh: float
+    :param EM_scaleLOW: Lower bound for ``rScale`` and ``qScale`` during EM.
+    :type  EM_scaleLOW: float
+    :param EM_scaleHIGH: Upper bound for ``rScale`` and ``qScale`` during EM.
+    :type  EM_scaleHIGH: float
     :param EM_alphaEMA: EMA coefficient (in log space) applied to scale updates, in (0,1]
     :type  EM_alphaEMA: float
     :param EM_scaleToMedian: If True, divide ``rScale`` and ``qScale`` by their blockwise medians each iteration.
@@ -2665,7 +2665,7 @@ cpdef tuple cblockScaleEM(
     * Student-t KF: `Aravkin et al. (2014), DOI:10.1137/130918861 <https://doi.org/10.1137/130918861>`_
 
 
-    :seealso: :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.core.runConsenrich`
+    :seealso: :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.core.runConsenrich`, :class:`consenrich.core.observationParams`, :class:`consenrich.core.processParams`
     """
 
     cdef Py_ssize_t trackCount = matrixData.shape[0]
@@ -3098,18 +3098,18 @@ cpdef tuple cblockScaleEM(
                 if qStatCountView[b] > 0:
                     qScaleView[b] = <cnp.float32_t>(qStatSumView[b] / (<double>qStatCountView[b]))
 
-                if rScaleView[b] < <cnp.float32_t>EM_multiplierLow:
-                    rScaleView[b] = <cnp.float32_t>EM_multiplierLow
+                if rScaleView[b] < <cnp.float32_t>EM_scaleLOW:
+                    rScaleView[b] = <cnp.float32_t>EM_scaleLOW
                     nClipRLow += 1
-                elif rScaleView[b] > <cnp.float32_t>EM_multiplierHigh:
-                    rScaleView[b] = <cnp.float32_t>EM_multiplierHigh
+                elif rScaleView[b] > <cnp.float32_t>EM_scaleHIGH:
+                    rScaleView[b] = <cnp.float32_t>EM_scaleHIGH
                     nClipRHigh += 1
 
-                if qScaleView[b] < <cnp.float32_t>EM_multiplierLow:
-                    qScaleView[b] = <cnp.float32_t>EM_multiplierLow
+                if qScaleView[b] < <cnp.float32_t>EM_scaleLOW:
+                    qScaleView[b] = <cnp.float32_t>EM_scaleLOW
                     nClipQLow += 1
-                elif qScaleView[b] > <cnp.float32_t>EM_multiplierHigh:
-                    qScaleView[b] = <cnp.float32_t>EM_multiplierHigh
+                elif qScaleView[b] > <cnp.float32_t>EM_scaleHIGH:
+                    qScaleView[b] = <cnp.float32_t>EM_scaleHIGH
                     nClipQHigh += 1
 
             # smooth scales across blocks in log-space (EMA)
