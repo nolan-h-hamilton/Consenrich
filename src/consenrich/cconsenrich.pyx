@@ -2568,7 +2568,7 @@ cpdef tuple cblockScaleEM(
       proceeds with a weighted-Gaussian objective.
 
       Depending on specification, this routine can deviate from more standard EM: It alternates E-step-style updates of
-      :math:`\lambda_{j,k}^{\mathrm{exp}}=\mathbb{E}[\lambda_{j,k}\mid e_{j,k}]` with M-step closed-form updates of
+      :math:`\lambda_{j,k}=\mathbb{E}[\lambda_{j,k}\mid e_{j,k}]` with M-step closed-form updates of
       :math:`(r_{\mathrm{scale}}, q_{\mathrm{scale}})` and RTS smoothing for :math:`\mathbf{x}`. But
       (optional) log-EMA/median-normalization heuristics can void traditional EM monotonicity guarantees.
 
@@ -2597,7 +2597,7 @@ cpdef tuple cblockScaleEM(
 
         u_{j,k}^2 = \frac{\mathbb{E}[e_{j,k}^2]}{R_{j,k}},
         \qquad
-        \lambda_{j,k}^{\mathrm{exp}} = \frac{\nu+1}{\nu+u_{j,k}^2}.
+        \lambda_{j,k} = \frac{\nu+1}{\nu+u_{j,k}^2}.
 
     M-step
     --------------------------------
@@ -2609,7 +2609,7 @@ cpdef tuple cblockScaleEM(
         r_{\mathrm{scale}}[b] \leftarrow
         \frac{1}{|\mathcal{I}_b|}
         \sum_{(j,k)\in \mathcal{I}_b}
-        \lambda_{j,k}^{\mathrm{exp}}
+        \lambda_{j,k}
         \frac{\mathbb{E}[e_{j,k}^2]}{\mathrm{pluginMuncInit}_{j,k}+\mathrm{pad}}.
 
     **Process noise scale** per block :math:`b` using expected innovations

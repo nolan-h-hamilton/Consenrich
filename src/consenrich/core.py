@@ -460,9 +460,9 @@ class outputParams(NamedTuple):
 
         which is consistent with the EM routine in :func:`consenrich.cconsenrich.cblockScaleEM`
     :type writeMWSR: bool
-    :param applyJackknife: (Experimental). If True, estimate replicate-level sampling variability in the signal level estimates with the jackknife.
-      The jacknife variance is then added *post hoc* to the posterior signal level variance :math:`\widetilde{P}_{[00,i]}` for a heuristic,
-      conservative uncertainty quantification. Note that `matrixMunc` and several other data-derived quantities are  *not* re-estimated in each jackknife iteration.
+    :param writeJackknifeSE: If True, write the standard error of the signal level estimates across jackknife replicates to bedGraph. This is only relevant if `applyJackknife` is True.
+    :type writeJackknifeSE: bool
+    :param applyJackknife: If True, estimate replicate-level sampling variability in the signal level estimates with the jackknife
     :type applyJackknife: bool
 
     """
@@ -471,6 +471,7 @@ class outputParams(NamedTuple):
     roundDigits: int
     writeUncertainty: bool
     writeMWSR: bool
+    writeJackknifeSE: bool
     applyJackknife: bool
 
 
@@ -937,18 +938,49 @@ def runConsenrich(
     covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
     pad: float = 1.0e-2,
-    calibration_kwargs: dict[str, object] | None = None,
     disableCalibration: bool = False,
     rescaleStateCovar: bool = False,
+    EM_maxIters: int = 50,
+    EM_rtol: float = 1.0e-4,
+    EM_scaleToMedian: bool = True,
     EM_tNu: float = 8.0,
     EM_alphaEMA: float = 0.1,
     EM_scaleLOW: float = 0.01,
     EM_scaleHIGH: float = 10.0,
     returnScales: bool = True,
     applyJackknife: bool = False,
+    jackknifeEM_maxIters: int = 5,
+    jackknifeEM_rtol: float = 1.0e-2,
 ):
-    r"""Execute Consenrich given transformed/normalized data and initial measurement and process noise (co)variances"""
+    r"""Run Consenrich to estimate a consensus epigenomic signal from multiple replicate tracks' HTS data
 
+    Consenrich estimates a consensus epigenomic signal from multiple replicate tracks'
+    HTS data.
+
+    Consenrich also provides positional uncertainty quantification by propagating variance in a Kalman filter-smoother
+    setup. Observation and process noise scales are calibrated blockwise with a robust Gaussian
+    scale-mixture EM routine, and positional jackknife resampling-based standard errors can also be computed
+    to address genome-wide sampling variability across replicates.
+
+    This function is a Python wrapper around these Cython routines:
+
+    1. :func:`consenrich.cconsenrich.cblockScaleEM`: calibrate blockwise noise scales
+    (observation and process) using a robust Gaussian scale-mixture EM routine.
+
+    2. :func:`consenrich.cconsenrich.cforwardPass`: Kalman filter (forward pass).
+
+    3. :func:`consenrich.cconsenrich.cbackwardPass`: RTS smoother (backward pass).
+
+    The data-derived observation noise covariances encoded in ``matrixMunc`` are produced with
+    :func:`consenrich.core.getMuncTrack`. The transformed/normalized input data
+    ``matrixData`` is produced with :func:`consenrich.cconsenrich.cTransform`, etc.
+
+
+
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`,
+            :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`,
+            :func:`consenrich.cconsenrich.cblockScaleEM`
+    """
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
 
@@ -970,10 +1002,7 @@ def runConsenrich(
         raise ValueError("need at least 2 intervals for smoothing")
 
     if applyJackknife and m < 3:
-        raise ValueError("applyJackknife requires at least 3 replicates")
-
-    if calibration_kwargs is None:
-        calibration_kwargs = {}
+        raise ValueError("`applyJackknife` requires at least 3 replicates")
 
     blockCount = int(np.ceil(n / float(blockLenIntervals)))
     intervalToBlockMap = (np.arange(n, dtype=np.int32) // blockLenIntervals).astype(
@@ -984,22 +1013,6 @@ def runConsenrich(
     matrixF = constructMatrixF(float(deltaF)).astype(np.float32, copy=False)
     matrixQ0 = constructMatrixQ(float(minQ), offDiagQ=float(offDiagQ)).astype(
         np.float32, copy=False
-    )
-
-    EM_maxIters = int(calibration_kwargs.get("EM_maxIters", 50))
-    EM_rtol = float(calibration_kwargs.get("EM_rtol", 1.0e-4))
-    EM_scaleToMedian = bool(calibration_kwargs.get("EM_scaleToMedian", True))
-
-    logger.info(
-        "m=%d n=%d deltaF=%.6g minQ=%.6g maxQ=%.6g",
-        int(m),
-        int(n),
-        float(deltaF),
-        float(minQ),
-        float(maxQ),
-    )
-    logger.info(
-        "blockLenIntervals=%d blockCount=%d", int(blockLenIntervals), int(blockCount)
     )
 
     # Forward/backward run for fixed noise scales
@@ -1073,16 +1086,18 @@ def runConsenrich(
     if disableCalibration:
         rScale = np.ones(blockCount, dtype=np.float32)
         qScale = np.ones(blockCount, dtype=np.float32)
+        logger.info("Noise calibration disabled: using rScale=qScale=1 for all blocks.")
     else:
         logger.info(
-            "\nNoise (co)variance calibration\n\tEM_maxIters=%d EM_rtol=%.3e EM_scaleLOW=%.3e "
-            "EM_scaleHIGH=%.3e EM_alphaEMA=%.3f EM_tNu=%.1f\n",
+            "Noise (co)variance calibration: EM_maxIters=%d EM_rtol=%.3e EM_scaleLOW=%.3e EM_scaleHIGH=%.3e "
+            "EM_alphaEMA=%.3f EM_tNu=%.1f EM_scaleToMedian=%s",
             int(EM_maxIters),
             float(EM_rtol),
             float(EM_scaleLOW),
             float(EM_scaleHIGH),
             float(EM_alphaEMA),
             float(EM_tNu),
+            bool(EM_scaleToMedian),
         )
 
         rScale, qScale, emItersDone, emNLL = cconsenrich.cblockScaleEM(
@@ -1107,7 +1122,13 @@ def runConsenrich(
         )
 
         logger.info(
-            "EM summary: iters=%d (EM NLL=%.6g)", int(emItersDone), float(emNLL)
+            "EM summary: iters=%d EM_NLL=%.6g rScale[median=%.6g mean=%.6g] qScale[median=%.6g mean=%.6g]",
+            int(emItersDone),
+            float(emNLL),
+            float(np.median(rScale)),
+            float(np.mean(rScale)),
+            float(np.median(qScale)),
+            float(np.mean(qScale)),
         )
 
     (
@@ -1125,28 +1146,39 @@ def runConsenrich(
         qScale=qScale,
     )
 
+    logger.info("Forward/backward done: sumNLL=%.6g", float(sumNLL))
+
     outStateSmoothed = np.asarray(stateSmoothed, dtype=np.float32)
     outStateCovarSmoothed = np.asarray(stateCovarSmoothed, dtype=np.float32)
     outPostFitResiduals = np.asarray(postFitResiduals, dtype=np.float32)
 
-    if applyJackknife:
-        jackknifeEM_maxIters = int(calibration_kwargs.get("jackknifeEM_maxIters", 5))
-        jackknifeEM_rtol = float(calibration_kwargs.get("jackknifeEM_rtol", 1.0e-2))
+    # For jackknife influence calculations, we need the full fit's state estimates as a reference
+    fullState0 = outStateSmoothed[:, 0].astype(np.float64, copy=False)
 
+    outTrack4 = NIS
+    if applyJackknife:
         logger.info(
-            "Applying replicate-level jackknife on x[:,0] (m=%d leave-one-out fits, EM iters=%d)",
+            "Applying replicate-level jackknife on x[:,0]: m=%d leave-one-out fits; jackknife EM iters=%d rtol=%.3e",
             int(m),
             int(jackknifeEM_maxIters),
+            float(jackknifeEM_rtol),
         )
 
-        # Jackknife targets the combined sampling variability induced by replicate removal
-        # Including EM per split captures additional variability from re-estimating noise scales
-        # note, however, that matrixMunc is _not_ re-estimated in each jackknife iteration!
-        meanLooState0 = np.zeros(n, dtype=np.float64)
-        M2LooState0 = np.zeros(n, dtype=np.float64)
+        meanLOO_x0 = np.zeros(n, dtype=np.float64)
+        M2LOO_x0 = np.zeros(n, dtype=np.float64)
+
+        # Per-replicate influence scores (one scalar per replicate)
+        influenceMeanAbs = np.empty(m, dtype=np.float64)
+        influenceRMS = np.empty(m, dtype=np.float64)
+        influenceMaxAbs = np.empty(m, dtype=np.float64)
 
         for i in range(m):
-            logger.info("Jackknife iteration %d/%d", int(i + 1), int(m))
+            logger.info(
+                "Jackknife iteration %d/%d (leaving out replicate %d)",
+                int(i + 1),
+                int(m),
+                int(i),
+            )
             keepMask = np.ones(m, dtype=bool)
             keepMask[i] = False
 
@@ -1160,8 +1192,8 @@ def runConsenrich(
             if disableCalibration:
                 rScaleLoo = np.ones(blockCount, dtype=np.float32)
                 qScaleLoo = np.ones(blockCount, dtype=np.float32)
+                logger.info("  LOO calibration disabled: using rScale=qScale=1.")
             else:
-                # light EM for jackknife
                 rScaleLoo, qScaleLoo, emItersDoneLoo, emNLLLoo = (
                     cconsenrich.cblockScaleEM(
                         matrixData=matrixDataLoo,
@@ -1184,6 +1216,13 @@ def runConsenrich(
                         returnIntermediates=False,
                     )
                 )
+                logger.info(
+                    "  LOO EM: iters=%d EM_NLL=%.6g rScale[median=%.6g] qScale[median=%.6g]",
+                    int(emItersDoneLoo),
+                    float(emNLLLoo),
+                    float(np.median(rScaleLoo)),
+                    float(np.median(qScaleLoo)),
+                )
 
             (
                 _,
@@ -1200,55 +1239,111 @@ def runConsenrich(
                 qScale=qScaleLoo,
             )
 
-            looState0 = np.asarray(looStateSmoothed, dtype=np.float32)[:, 0].astype(
+            LOO_x0 = np.asarray(looStateSmoothed, dtype=np.float32)[:, 0].astype(
                 np.float64, copy=False
+            )
+
+            # per-replicate average influence scores (compare LOO to full fit)
+            diff0 = LOO_x0 - fullState0
+            meanAbs = float(np.mean(np.abs(diff0)))
+            rms = float(np.sqrt(np.mean(diff0 * diff0)))
+            maxAbs = float(np.max(np.abs(diff0)))
+
+            influenceMeanAbs[i] = meanAbs
+            influenceRMS[i] = rms
+            influenceMaxAbs[i] = maxAbs
+
+            logger.info(
+                "  Influence(rep=%d): meanAbs=%.6g RMS=%.6g maxAbs=%.6g",
+                int(i),
+                meanAbs,
+                rms,
+                maxAbs,
             )
 
             # update jackknife mean and second moment online
             k = float(i + 1)
-            delta = looState0 - meanLooState0
-            meanLooState0 += delta / k
-            delta2 = looState0 - meanLooState0
-            M2LooState0 += delta * delta2
+            delta = LOO_x0 - meanLOO_x0
+            meanLOO_x0 += delta / k
+            delta2 = LOO_x0 - meanLOO_x0
+            M2LOO_x0 += delta * delta2
 
-        # Jackknife variance: (m-1)/m * sum_i (theta_(i) - mean(theta_))^2
-        jackknifeVar0 = ((m - 1.0) / float(m)) * M2LooState0
-        jackknifeVar0 = jackknifeVar0.astype(np.float32, copy=False)
-
-        # (heuristic) 'total variance' = fixed EM variance + jackknife variance
-        outStateCovarSmoothed[:, 0, 0] += jackknifeVar0
-
+        # Summary over per-replicate influence scores
         logger.info(
-            "Jackknife: addVar0[median=%.6g mean=%.6g max=%.6g]",
-            float(np.median(jackknifeVar0)),
-            float(np.mean(jackknifeVar0)),
-            float(np.max(jackknifeVar0)),
+            "Influence summary (meanAbs): median=%.6g mean=%.6g max=%.6g",
+            float(np.median(influenceMeanAbs)),
+            float(np.mean(influenceMeanAbs)),
+            float(np.max(influenceMeanAbs)),
+        )
+        logger.info(
+            "Influence summary (RMS):     median=%.6g mean=%.6g max=%.6g",
+            float(np.median(influenceRMS)),
+            float(np.mean(influenceRMS)),
+            float(np.max(influenceRMS)),
+        )
+        logger.info(
+            "Influence summary (maxAbs):  median=%.6g mean=%.6g max=%.6g",
+            float(np.median(influenceMaxAbs)),
+            float(np.mean(influenceMaxAbs)),
+            float(np.max(influenceMaxAbs)),
         )
 
+        # Jackknife variance: (m-1)/m * sum_i (theta_(i) - mean(theta_))^2
+        jackknifeVar0 = ((m - 1.0) / float(m)) * M2LOO_x0
+        jackknifeVar0 = jackknifeVar0.astype(np.float32, copy=False)
+
+        # Convert to standard error track (same units as x[:,0])
+        jackknife_SE = np.sqrt(jackknifeVar0, dtype=np.float32)
+
+        logger.info(
+            "Jackknife: SE track ready (length n=%d). se[median=%.6g mean=%.6g max=%.6g]",
+            int(n),
+            float(np.median(jackknife_SE)),
+            float(np.mean(jackknife_SE)),
+            float(np.max(jackknife_SE)),
+        )
+        logger.info(
+            "Jackknife: swapping 4th return value from NIS --> positional jackknife SE (x[:,0])."
+        )
+
+        # When applyJackknife=True, swap to a positional jackknife SE track (per interval)
+        outTrack4 = jackknife_SE
+
     if boundState:
+        pre_clip_min = float(np.min(outStateSmoothed[:, 0]))
+        pre_clip_max = float(np.max(outStateSmoothed[:, 0]))
         np.clip(
             outStateSmoothed[:, 0],
             np.float32(stateLowerBound),
             np.float32(stateUpperBound),
             out=outStateSmoothed[:, 0],
         )
-
+        post_clip_min = float(np.min(outStateSmoothed[:, 0]))
+        post_clip_max = float(np.max(outStateSmoothed[:, 0]))
     if returnScales:
+        logger.info(
+            "Returning with scales: track4=%s",
+            "jackknife_SE" if applyJackknife else "NIS",
+        )
         return (
             outStateSmoothed,
             outStateCovarSmoothed,
             outPostFitResiduals,
-            NIS,
+            outTrack4,
             np.asarray(rScale, dtype=np.float32),
             np.asarray(qScale, dtype=np.float32),
             intervalToBlockMap,
         )
 
+    logger.info(
+        "Returning without scales: track4=%s",
+        "jackknife_SE" if applyJackknife else "NIS",
+    )
     return (
         outStateSmoothed,
         outStateCovarSmoothed,
         outPostFitResiduals,
-        NIS,
+        outTrack4,
     )
 
 

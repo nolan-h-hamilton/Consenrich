@@ -312,6 +312,11 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.writeMWSR",
         True,
     )
+    writeJackknifeSE_ = _cfgGet(
+        configData,
+        "outputParams.writeJackknifeSE",
+        True,
+    )
     applyJackknife_ = _cfgGet(
         configData,
         "outputParams.applyJackknife",
@@ -322,6 +327,7 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
         writeMWSR=writeMWSR_,
+        writeJackknifeSE=writeJackknifeSE_,
         applyJackknife=applyJackknife_,
     )
 
@@ -1493,7 +1499,7 @@ def main():
             maxQ_ = np.float32(max(maxQ_, minQ_))
 
         logger.info(f">>>  Running consenrich: {chromosome}  <<<")
-        x, P, postFitResiduals, NIS, rScale, qScale, intervalToBlockMap = (
+        x, P, postFitResiduals, JackknifeSEVec, rScale, qScale, intervalToBlockMap = (
             core.runConsenrich(
                 chromMat,
                 muncMat,
@@ -1549,11 +1555,9 @@ def main():
             cols_.append("uncertainty")
         if outputArgs.writeMWSR:
             cols_.append("MWSR")
-
             rByInterval = np.asarray(rScale, dtype=np.float32)[
                 np.asarray(intervalToBlockMap, dtype=np.int32)
             ]
-
             # note: cbackwardPass gives postFitResiduals as (n, m) --> transpose to (m, n)
             resid = np.asarray(postFitResiduals, dtype=np.float32).T
 
@@ -1565,12 +1569,19 @@ def main():
             meanStudentizedResidualSq = np.mean(studentizedResidualSq, axis=0) / refU2
 
             df["MWSR"] = meanStudentizedResidualSq
+
+        if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
+            cols_.append("JackknifeSE")
+            df["JackknifeSE"] = JackknifeSEVec.astype(np.float32, copy=False)
+
         df = df[cols_]
         suffixes = ["state"]
         if outputArgs.writeUncertainty:
             suffixes.append("uncertainty")
         if outputArgs.writeMWSR:
             suffixes.append("MWSR")
+        if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
+            suffixes.append("JackknifeSE")
 
         if (c_ == 0 and len(chromosomes) > 1) or (len(chromosomes) == 1):
             for file_ in os.listdir("."):
