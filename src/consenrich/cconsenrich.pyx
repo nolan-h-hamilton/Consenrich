@@ -18,7 +18,7 @@ from cython.parallel import prange
 from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
 from libc.stdlib cimport rand, srand, RAND_MAX, malloc, free
 from libc.string cimport memcpy
-from libc.stdio cimport printf
+from libc.stdio cimport printf, fprintf, stderr
 cnp.import_array()
 
 # ========
@@ -444,6 +444,82 @@ cdef inline double _log_norm_pdf(double y, double mu, double var) nogil:
     return -0.5 * log(6.28318 * var) - 0.5 * (z*z) / var
 
 
+cdef inline float _medianCopy_F32(const float* src, Py_ssize_t n) noexcept nogil:
+    cdef float* buf
+    cdef float med
+
+    if n <= 0:
+        return <float>0.0
+
+    buf = <float*>malloc(n * sizeof(float))
+    if buf == NULL:
+        return <float>0.0
+
+    memcpy(buf, src, n * sizeof(float))
+    med = _quantileInplaceF32(buf, n, <float>0.5)
+    free(buf)
+    return med
+
+
+# ===========================
+# --- MAT2: for readability/nogil inlining in the filter implementations ---
+ctypedef struct MAT2:
+    double a00
+    double a01
+    double a10
+    double a11
+
+
+cdef inline MAT2 MAT2_make(double a00, double a01, double a10, double a11) noexcept nogil:
+    cdef MAT2 M
+    M.a00 = a00
+    M.a01 = a01
+    M.a10 = a10
+    M.a11 = a11
+    return M
+
+
+cdef inline MAT2 MAT2_add(MAT2 A, MAT2 B) noexcept nogil:
+    return MAT2_make(A.a00 + B.a00, A.a01 + B.a01,
+                     A.a10 + B.a10, A.a11 + B.a11)
+
+
+cdef inline MAT2 MAT2_sub(MAT2 A, MAT2 B) noexcept nogil:
+    return MAT2_make(A.a00 - B.a00, A.a01 - B.a01,
+                     A.a10 - B.a10, A.a11 - B.a11)
+
+
+cdef inline MAT2 MAT2_mul(MAT2 A, MAT2 B) noexcept nogil:
+    return MAT2_make(
+        A.a00*B.a00 + A.a01*B.a10,
+        A.a00*B.a01 + A.a01*B.a11,
+        A.a10*B.a00 + A.a11*B.a10,
+        A.a10*B.a01 + A.a11*B.a11
+    )
+
+
+cdef inline MAT2 MAT2_transpose(MAT2 A) noexcept nogil:
+    return MAT2_make(A.a00, A.a10, A.a01, A.a11)
+
+
+cdef inline MAT2 MAT2_outer(double x0, double x1) noexcept nogil:
+    return MAT2_make(x0*x0, x0*x1, x1*x0, x1*x1)
+
+
+cdef inline MAT2 MAT2_clipDiagNonneg(MAT2 A) noexcept nogil:
+    if A.a00 < 0.0:
+        A.a00 = 0.0
+    if A.a11 < 0.0:
+        A.a11 = 0.0
+    return A
+
+
+cdef inline double MAT2_traceProd(MAT2 A, MAT2 B) noexcept nogil:
+    return A.a00*B.a00 + A.a01*B.a10 + A.a10*B.a01 + A.a11*B.a11
+
+
+# ===========================
+
 cpdef int stepAdjustment(int value, int intervalSizeBP, int pushForward=0):
     r"""Adjusts a value to the nearest multiple of intervalSizeBP, optionally pushing it forward.
 
@@ -732,92 +808,6 @@ cpdef cnp.float32_t[:] creadBamSegment(
     return values
 
 
-cpdef tuple updateProcessNoiseCovariance(cnp.ndarray[cnp.float32_t, ndim=2] matrixQ,
-        cnp.ndarray[cnp.float32_t, ndim=2] matrixQCopy,
-        float dStat,
-        float dStatAlpha,
-        float dStatd,
-        float dStatPC,
-        bint inflatedQ,
-        float maxQ,
-        float minQ,
-        float dStatAlphaLowMult=0.50,
-        float maxMult=2.0):
-
-    cdef float scaleQ, fac, dStatAlphaLow
-    cdef float baseSlopeToLevelRatio, maxSlopeQ, minSlopeQ
-    cdef float baseOffDiagProd, sqrtDiags, maxNoiseCorr
-    cdef float newLevelQ, newSlope_Qnoise, newOffDiagQ
-    cdef float newLevel_Qnoise # fix (was python-level before)
-    cdef float eps = <float>1.0e-8
-
-    if dStatAlphaLowMult <= 0:
-        dStatAlphaLow = 1.0
-    else:
-        dStatAlphaLow = dStatAlpha*dStatAlphaLowMult
-    if dStatAlphaLow >= dStatAlpha:
-        dStatAlphaLow = dStatAlpha
-
-    if matrixQCopy[0, 0] > eps:
-        baseSlopeToLevelRatio = matrixQCopy[1, 1] / matrixQCopy[0, 0]
-    else:
-        baseSlopeToLevelRatio = 1.0
-
-    # preserve the baseline level:slope ratio
-    maxSlopeQ = maxQ * baseSlopeToLevelRatio
-    minSlopeQ = minQ * baseSlopeToLevelRatio
-    sqrtDiags = sqrtf(fmaxf(matrixQCopy[0, 0] * matrixQCopy[1, 1], eps))
-    baseOffDiagProd = matrixQCopy[0, 1] / sqrtDiags
-    newLevelQ = matrixQ[0, 0]
-    newSlope_Qnoise = matrixQ[1, 1]
-    newOffDiagQ = matrixQ[0, 1]
-
-    # ensure SPD wrt off-diagonals
-    maxNoiseCorr = <float>0.999
-    if baseOffDiagProd > maxNoiseCorr:
-        baseOffDiagProd = maxNoiseCorr
-    elif baseOffDiagProd < -maxNoiseCorr:
-        baseOffDiagProd = -maxNoiseCorr
-
-    if dStat > dStatAlpha:
-        scaleQ = fminf(sqrtf(dStatd*fabsf(dStat - dStatAlpha) + dStatPC), maxMult)
-        if (matrixQ[0, 0]*scaleQ <= maxQ) and (matrixQ[1, 1]*scaleQ <= maxSlopeQ):
-            matrixQ[0, 0] *= scaleQ
-            matrixQ[0, 1] *= scaleQ
-            matrixQ[1, 0] *= scaleQ
-            matrixQ[1, 1] *= scaleQ
-        else:
-            newLevel_Qnoise = fminf(matrixQ[0, 0]*scaleQ, maxQ)
-            newSlope_Qnoise = fminf(matrixQ[1, 1]*scaleQ, maxSlopeQ)
-            newOffDiagQ = baseOffDiagProd * sqrtf(fmaxf(newLevel_Qnoise* newSlope_Qnoise, eps))
-            matrixQ[0, 0] = newLevel_Qnoise
-            matrixQ[0, 1] = newOffDiagQ
-            matrixQ[1, 0] = newOffDiagQ
-            matrixQ[1, 1] = newSlope_Qnoise
-        inflatedQ = <bint>True
-
-    elif dStat <= dStatAlphaLow and inflatedQ:
-        scaleQ = fminf(sqrtf(dStatd*fabsf(dStat - dStatAlphaLow) + dStatPC), maxMult)
-        if (matrixQ[0, 0] / scaleQ >= minQ) and (matrixQ[1, 1] / scaleQ >= minSlopeQ):
-            matrixQ[0, 0] /= scaleQ
-            matrixQ[0, 1] /= scaleQ
-            matrixQ[1, 0] /= scaleQ
-            matrixQ[1, 1] /= scaleQ
-        else:
-            # we've hit the minimum, no longer 'inflated'
-            newLevel_Qnoise = fmaxf(matrixQ[0, 0] / scaleQ, minQ)
-            newSlope_Qnoise = fmaxf(matrixQ[1, 1] / scaleQ, minSlopeQ)
-            newOffDiagQ = baseOffDiagProd * sqrtf(fmaxf(newLevel_Qnoise* newSlope_Qnoise, eps))
-            matrixQ[0, 0] = newLevel_Qnoise
-            matrixQ[0, 1] = newOffDiagQ
-            matrixQ[1, 0] = newOffDiagQ
-            matrixQ[1, 1] = newSlope_Qnoise
-            if (newLevel_Qnoise<= minQ + eps) and (newSlope_Qnoise <= minSlopeQ + eps):
-                inflatedQ = <bint>False
-
-    return matrixQ, inflatedQ
-
-
 cdef void _blockMax(double[::1] valuesView,
                     Py_ssize_t[::1] blockStartIndices,
                     Py_ssize_t[::1] blockSizes,
@@ -1007,13 +997,11 @@ cpdef int64_t cgetFragmentLength(
     int64_t blockSize=5000,
     int64_t fallBack=147,
     int64_t rollingChunkSize=250,
-    int64_t lagStep=10,
+    int64_t lagStep=5,
     int64_t earlyExit=250,
     int64_t randSeed=42,
 ):
 
-    # FFR: this function (as written) has enough python interaction to nearly void benefits of cython
-    # ... either rewrite with helpers for median filter, etc. or move to python for readability
     cdef object rng = default_rng(randSeed)
     cdef int64_t regionLen, numRollSteps
     cdef int numChunks
@@ -1039,36 +1027,30 @@ cpdef int64_t cgetFragmentLength(
     cdef cnp.ndarray[cnp.intp_t, ndim=1] unsortedIdx, sortedIdx
     cdef cnp.ndarray[cnp.float64_t, ndim=1] unsortedVals
     cdef cnp.ndarray[cnp.uint8_t, ndim=1] seen
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rev
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwdDiff
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] revDiff
-    cdef int64_t diffS, diffE
-    cdef cnp.ndarray[cnp.uint32_t, ndim=1] bestLagsArr
     cdef bint isPairedEnd = <bint>0
-    cdef double avgTemplateLen = <double>0.0
-    cdef int64_t templateLenSamples = <int64_t>0
     cdef double avgReadLength = <double>0.0
     cdef int64_t numReadLengthSamples = <int64_t>0
     cdef int64_t minInsertSize
     cdef int64_t requiredSamplesPE
     cdef int64_t tlen
 
-    # rather than taking `chromosome`, `start`, `end`
-    # ... we will just look at BAM contigs present and use
-    # ... the three largest to estimate the fragment length
+    # rather than taking chromosome start end
+    # look at contigs present and use the largest few
     cdef tuple contigs
     cdef tuple lengths
     cdef cnp.ndarray[cnp.int64_t, ndim=1] lengthsArr
     cdef Py_ssize_t contigIdx
     cdef str contig
     cdef int64_t contigLen
+    cdef int kTop
 
+    # Single end tracks
+    # fwd[i] is forward 5prime end count at offset i
+    # rev[i] is reverse 5prime end count at offset i
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rev
     cdef double[::1] fwdView
     cdef double[::1] revView
-    cdef double[::1] fwdDiffView
-    cdef double[::1] revDiffView
-    cdef double runningSum
     cdef double fwdSum
     cdef double revSum
     cdef double fwdMean
@@ -1079,7 +1061,22 @@ cpdef int64_t cgetFragmentLength(
     cdef int localMinLag
     cdef int localMaxLag
     cdef int localLagStep
-    cdef int kTop
+
+    # FFT buffers
+    cdef int nFFT
+    cdef object Ff
+    cdef object Fr
+    cdef object corr
+
+    # paired end sample buffer for median
+    cdef cnp.ndarray[cnp.int32_t, ndim=1] tlenArr
+    cdef cnp.ndarray[cnp.int32_t, ndim=1] tlenWork
+    cdef cnp.int32_t[::1] tlenWorkView
+    cdef int tlenN
+    cdef int midIdx
+    cdef cnp.int32_t medPE
+
+    # avoid out of bounds access in tight loops
     earlyExit = min(earlyExit, iters)
     samThreadsInternal = <int>samThreads
     cpuCountObj = os.cpu_count()
@@ -1093,6 +1090,17 @@ cpdef int64_t cgetFragmentLength(
     if samThreads < 1:
         samThreadsInternal = <int>min(max(1, cpuCount // 2), 4)
 
+    if maxInsertSize < 1:
+        maxInsertSize = 1
+    if iters < 1:
+        return <int64_t>fallBack
+    if blockSize < 64:
+        blockSize = 64
+    if rollingChunkSize < 1:
+        rollingChunkSize = 1
+    if lagStep < 1:
+        lagStep = 1
+
     aln = AlignmentFile(bamFile, "rb", threads=samThreadsInternal)
     try:
         contigs = aln.references
@@ -1102,18 +1110,22 @@ cpdef int64_t cgetFragmentLength(
             return <int64_t>fallBack
 
         lengthsArr = np.asarray(lengths, dtype=np.int64)
-        kTop = 2 if len(contigs) >= 2 else 1
+        kTop = 3 if len(contigs) >= 3 else (2 if len(contigs) >= 2 else 1)
         topContigsIdx = np.argpartition(lengthsArr, -kTop)[-kTop:]
-        topContigsIdx = topContigsIdx[np.argsort(lengthsArr[topContigsIdx])]
+        topContigsIdx = topContigsIdx[np.argsort(lengthsArr[topContigsIdx])[::-1]]
+
+        # detect paired end and estimate read length
         for contigIdx in topContigsIdx:
             contig = contigs[contigIdx]
             for readSeg in aln.fetch(contig):
                 readFlag = readSeg.flag
                 if (readFlag & samFlagExclude) != 0:
                     continue
+
                 if not isPairedEnd:
                     if (readFlag & 1) != 0:
                         isPairedEnd = <bint>1
+
                 if numReadLengthSamples < iters:
                     avgReadLength += readSeg.query_length
                     numReadLengthSamples += 1
@@ -1122,65 +1134,88 @@ cpdef int64_t cgetFragmentLength(
 
         if numReadLengthSamples <= 0:
             return <int64_t>fallBack
+
         avgReadLength /= <double>numReadLengthSamples
-        minInsertSize = <int64_t>(avgReadLength / 2.0)
+        minInsertSize = <int64_t>(avgReadLength)
         if minInsertSize < 1:
             minInsertSize = 1
         if minInsertSize > maxInsertSize:
             minInsertSize = maxInsertSize
 
+        # paired end: abs(TLEN) median over proper read1 pairs
         if isPairedEnd:
-            # skip to the paired-end block below (no xCorr --> average template len)
-            requiredSamplesPE = max(iters, 1000)
+            requiredSamplesPE = max(iters, 2000)
+
+            tlenArr = np.empty(requiredSamplesPE, dtype=np.int32)
+            tlenN = 0
 
             for contigIdx in topContigsIdx:
-                if templateLenSamples >= requiredSamplesPE:
+                if tlenN >= requiredSamplesPE:
                     break
                 contig = contigs[contigIdx]
 
                 for readSeg in aln.fetch(contig):
-                    if templateLenSamples >= requiredSamplesPE:
+                    if tlenN >= requiredSamplesPE:
                         break
 
                     readFlag = readSeg.flag
-                    if (readFlag & samFlagExclude) != 0 or (readFlag & 2) == 0:
-                        # skip any excluded flags, only count proper pairs
+                    if (readFlag & samFlagExclude) != 0:
                         continue
-
-                    # read1 only: otherwise each pair contributes to the mean twice
-                    # ... which might reduce breadth of the estimate
+                    if (readFlag & 2) == 0:
+                        continue
                     if (readFlag & 64) == 0:
                         continue
+
                     tlen = <int64_t>readSeg.template_length
-                    if tlen > 0:
-                        avgTemplateLen += <double>tlen
-                        templateLenSamples += 1
-                    elif tlen < 0:
-                        avgTemplateLen += <double>(-tlen)
-                        templateLenSamples += 1
+                    if tlen == 0:
+                        continue
+                    if tlen < 0:
+                        tlen = -tlen
 
-            if templateLenSamples < requiredSamplesPE:
-                return <int64_t> fallBack
+                    if tlen < minInsertSize or tlen > maxInsertSize:
+                        continue
 
-            avgTemplateLen /= <double>templateLenSamples
+                    tlenArr[tlenN] = <cnp.int32_t>tlen
+                    tlenN += 1
 
-            if avgTemplateLen >= minInsertSize and avgTemplateLen <= maxInsertSize:
-                return <int64_t>(avgTemplateLen + 0.5)
-            else:
-                return <int64_t> fallBack
+            if tlenN < max(500, requiredSamplesPE // 5):
+                return <int64_t>fallBack
+
+            midIdx = tlenN // 2
+            tlenWork = tlenArr[:tlenN].copy()
+            tlenWork = np.partition(tlenWork, midIdx)
+            tlenWorkView = tlenWork
+            medPE = <cnp.int32_t>tlenWorkView[midIdx]
+
+            if medPE < <cnp.int32_t>minInsertSize:
+                return <int64_t>minInsertSize
+            if medPE > <cnp.int32_t>maxInsertSize:
+                return <int64_t>fallBack
+            return <int64_t>medPE
+
+        # single end
+        # - coarse bins select blocks with high local signal
+        # - build fwd and rev 5prime end tracks in each block
+        # - score lag by cross covariance via FFT correlation
+        #
+        # corr[lag] = sum_i fwd0[i] * rev0[i + lag]
+        # fwd0 = fwd - mean(fwd)
+        # rev0 = rev - mean(rev)
+        #
+        # fragmentLen ~= lag + 1
+        # reverse 5prime end is reference_end - 1
 
         bestLags = []
         blockHalf = blockSize // 2
 
-        fwd = np.zeros(blockSize, dtype=np.float64, order='C')
-        rev = np.zeros(blockSize, dtype=np.float64, order='C')
-        fwdDiff = np.zeros(blockSize+1, dtype=np.float64, order='C')
-        revDiff = np.zeros(blockSize+1, dtype=np.float64, order='C')
-
+        fwd = np.zeros(blockSize, dtype=np.float64, order="C")
+        rev = np.zeros(blockSize, dtype=np.float64, order="C")
         fwdView = fwd
         revView = rev
-        fwdDiffView = fwdDiff
-        revDiffView = revDiff
+
+        nFFT = 1
+        while nFFT < (2 * blockSize):
+            nFFT <<= 1
 
         for contigIdx in topContigsIdx:
             contig = contigs[contigIdx]
@@ -1190,10 +1225,9 @@ cpdef int64_t cgetFragmentLength(
             if regionLen < blockSize or regionLen <= 0:
                 continue
 
-            if maxInsertSize < 1:
-                maxInsertSize = 1
-
-            # first, we build a coarse read coverage track from `start` to `end`
+            # coarse bin replicate
+            # rawArr[j] counts reads with reference_start in bin j
+            # medArr is a local median envelope
             numRollSteps = regionLen // rollingChunkSize
             if numRollSteps <= 0:
                 numRollSteps = 1
@@ -1210,9 +1244,8 @@ cpdef int64_t cgetFragmentLength(
                 if 0 <= j < numChunks:
                     rawArr[j] += 1.0
 
-            # second, we apply a rolling/moving/local/weywtci order-statistic filter (median)
-            # ...the size of the kernel is based on the blockSize -- we want high-coverage
-            # ...blocks as measured by their local median read count
+            # rolling local median filter
+            # kernel size tied to blockSize
             winSize = <int>(blockSize // rollingChunkSize)
             if winSize < 1:
                 winSize = 1
@@ -1220,14 +1253,12 @@ cpdef int64_t cgetFragmentLength(
                 winSize += 1
             medArr[:] = ndimage.median_filter(rawArr, size=winSize, mode="nearest")
 
-            # we pick the largest local-medians and form a block around each
+            # pick top bins then thin by a seen mask
             takeK = iters if iters < numChunks else numChunks
             unsortedIdx = np.argpartition(medArr, -takeK)[-takeK:]
             unsortedVals = medArr[unsortedIdx]
             sortedIdx = unsortedIdx[np.argsort(unsortedVals)[::-1]]
 
-            # expand each top-K center in-place into a "seen" mask,
-            # then gather unique block centers once.
             seen = np.zeros(numChunks, dtype=np.uint8)
             blockCenters = []
             for i in range(takeK):
@@ -1249,7 +1280,7 @@ cpdef int64_t cgetFragmentLength(
                 rng.shuffle(blockCenters)
 
             for idxVal in blockCenters:
-                # this should map back to genomic coordinates
+                # map bin center to genomic coordinates
                 blockStartBP = idxVal*rollingChunkSize + (rollingChunkSize // 2) - blockHalf
                 if blockStartBP < 0:
                     blockStartBP = 0
@@ -1260,36 +1291,33 @@ cpdef int64_t cgetFragmentLength(
                     if blockStartBP < 0:
                         continue
 
-                # now we build strand-specific tracks
-                # ...avoid forward/reverse strand for loops in each block postWeight/ a cumsum
+                # 5prime end tracks
+                # forward uses reference_start
+                # reverse uses reference_end - 1
                 fwd.fill(0.0)
-                fwdDiff.fill(0.0)
                 rev.fill(0.0)
-                revDiff.fill(0.0)
-                readFlag = -1
 
                 for readSeg in aln.fetch(contig, blockStartBP, blockEndBP):
                     readFlag = readSeg.flag
                     if (readFlag & samFlagExclude) != 0:
                         continue
+
                     readStart = <int64_t>readSeg.reference_start
                     readEnd = <int64_t>readSeg.reference_end
                     if readStart < blockStartBP or readEnd > blockEndBP:
                         continue
+                    if readEnd <= readStart:
+                        continue
 
-                    diffS = readStart - blockStartBP
-                    diffE = readEnd - blockStartBP
                     strand = readFlag & 16
                     if strand == 0:
-                        # forward
-                        # just mark offsets from block start/end
-                        fwdDiffView[<int>diffS] += 1.0
-                        fwdDiffView[<int>diffE] -= 1.0
+                        i = <int>(readStart - blockStartBP)
+                        if 0 <= i < blockSize:
+                            fwdView[i] += 1.0
                     else:
-                        # reverse
-                        # ditto
-                        revDiffView[<int>diffS] += 1.0
-                        revDiffView[<int>diffE] -= 1.0
+                        i = <int>((readEnd - 1) - blockStartBP)
+                        if 0 <= i < blockSize:
+                            revView[i] += 1.0
 
                 maxValidLag = maxInsertSize if (maxInsertSize < blockSize) else (blockSize - 1)
                 localMinLag = <int>minInsertSize
@@ -1297,50 +1325,50 @@ cpdef int64_t cgetFragmentLength(
                 if localMaxLag < localMinLag:
                     continue
                 localLagStep = <int>lagStep
-                if localLagStep < 1:
-                    localLagStep = 1
 
-                # now we can get coverage track by summing over diffs
-                # maximizes the crossCovar(forward, reverse, lag) wrt lag.
-                with nogil:
-                    runningSum = 0.0
-                    for i from 0 <= i < blockSize:
-                        runningSum += fwdDiffView[i]
-                        fwdView[i] = runningSum
+                # low count blocks contribute mostly noise
+                fwdSum = 0.0
+                revSum = 0.0
+                for i in range(blockSize):
+                    fwdSum += fwdView[i]
+                    revSum += revView[i]
 
-                    runningSum = 0.0
-                    for i from 0 <= i < blockSize:
-                        runningSum += revDiffView[i]
-                        revView[i] = runningSum
+                if fwdSum < 10.0 or revSum < 10.0:
+                    continue
 
-                    fwdSum = 0.0
-                    revSum = 0.0
-                    for i from 0 <= i < blockSize:
-                        fwdSum += fwdView[i]
-                        revSum += revView[i]
+                fwdMean = fwdSum / (<double>blockSize)
+                revMean = revSum / (<double>blockSize)
 
-                    fwdMean = fwdSum / blockSize
-                    revMean = revSum / blockSize
+                for i in range(blockSize):
+                    fwdView[i] = fwdView[i] - fwdMean
+                    revView[i] = revView[i] - revMean
 
-                    for i from 0 <= i < blockSize:
-                        fwdView[i] = fwdView[i] - fwdMean
-                        revView[i] = revView[i] - revMean
+                # corr[lag] = sum_i fwd0[i] * rev0[i + lag]
+                # zero padding to nFFT >= 2*blockSize makes this linear for lag in [0, blockSize-1]
+                Ff = np.fft.rfft(fwd, nFFT)
+                Fr = np.fft.rfft(rev, nFFT)
+                corr = np.fft.irfft(np.conj(Ff) * Fr, nFFT)
 
-                    bestScore = -1e308
-                    bestLag = -1
-                    for lag from localMinLag <= lag <= localMaxLag by localLagStep:
-                        score = 0.0
-                        blockLen = blockSize - lag
-                        for i from 0 <= i < blockLen:
-                            score += fwdView[i] * revView[i + lag]
-                        if score > bestScore:
-                            bestScore = score
-                            bestLag = lag
+                bestScore = -1e308
+                bestLag = -1
+
+                for lag in range(localMinLag, localMaxLag + 1, localLagStep):
+                    blockLen = blockSize - lag
+                    if blockLen <= 0:
+                        continue
+
+                    score = <double>corr[lag]
+                    if score > bestScore:
+                        bestScore = score
+                        bestLag = lag
 
                 if bestLag > 0 and bestScore != 0.0:
                     bestLags.append(bestLag)
                 if len(bestLags) >= earlyExit:
                     break
+
+            if len(bestLags) >= earlyExit:
+                break
 
     finally:
         aln.close()
@@ -1349,11 +1377,14 @@ cpdef int64_t cgetFragmentLength(
         return fallBack
 
     bestLagsArr = np.asarray(bestLags, dtype=np.uint32)
-    med = int(np.median(bestLagsArr) + avgReadLength + 0.5)
+
+    med = <int64_t>(np.median(bestLagsArr) + 1.0 + 0.5)
+
     if med < minInsertSize:
         med = <int>minInsertSize
     elif med > maxInsertSize:
         med = <int>maxInsertSize
+
     return <int64_t>med
 
 
@@ -1580,7 +1611,7 @@ cpdef object cTransform(
     Py_ssize_t blockLength,
     bint disableLocalBackground=<bint>False,
     double w_local=<double>1.0,
-    double w_global=<double>3.0,
+    double w_global=<double>2.0,
     bint verbose=<bint>False,
     uint64_t rseed=<uint64_t>0,
     bint useIRLS=<bint>True,
@@ -1823,18 +1854,15 @@ cpdef protectCovariance22(object A, double eigFloor=1.0e-4):
 
 cpdef tuple cforwardPass(
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixData,
-    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc,
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixPluginMuncInit,
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixF,
-    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQ,
-    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQCopy,
-    float dStatAlpha,
-    float dStatd,
-    float dStatPC,
-    float maxQ,
-    float minQ,
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQ0,
+    cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap,
+    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] rScale,
+    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] qScale,
+    Py_ssize_t blockCount,
     float stateInit,
     float stateCovarInit,
-    object coefficientsH=None,
     float covarClip=3.0,
     float pad=1.0e-2,
     bint projectStateDuringFiltering=False,
@@ -1849,16 +1877,25 @@ cpdef tuple cforwardPass(
     Py_ssize_t progressIter=25000,
     bint returnNLL=False,
     bint storeNLLInD=False,
-    object intervalToBlockMap=None,
-    object blockGradLogScale=None,
-    object blockGradCount=None,
+    object lambdaExp=None,
 ):
+    r"""Run the forward pass (filter) step in the forward-backward state estimation phase
+
+    :seealso: :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cblockScaleEM`, :func:`consenrich.core.runConsenrich`, :class:`consenrich.core.processParams`, :class:`consenrich.core.observationParams`
+
+    """
+
     cdef cnp.float32_t[:, ::1] dataView = matrixData
-    cdef cnp.float32_t[:, ::1] muncView = matrixMunc
-    cdef cnp.float32_t[:, ::1] stateTransitionView = matrixF
+    cdef cnp.float32_t[:, ::1] muncMatView = matrixPluginMuncInit
+    cdef cnp.float32_t[:, ::1] fView = matrixF
+    cdef cnp.float32_t[:, ::1] q0View = matrixQ0
+    cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
+    cdef cnp.float32_t[::1] rScaleView = rScale
+    cdef cnp.float32_t[::1] qScaleView = qScale
     cdef Py_ssize_t trackCount = dataView.shape[0]
     cdef Py_ssize_t intervalCount = dataView.shape[1]
-    cdef Py_ssize_t intervalIndex, trackIndex
+    cdef Py_ssize_t k, j
+    cdef Py_ssize_t blockId
 
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] dStatVectorArr
     cdef cnp.float32_t[::1] dStatVector
@@ -1871,56 +1908,87 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[:, :, ::1] stateCovarForwardView
     cdef cnp.float32_t[:, :, ::1] pNoiseForwardView
 
-    cdef bint doFlush = False
-    cdef bint doProgress = False
-    cdef Py_ssize_t stepsDone = 0
-    cdef Py_ssize_t progressRemainder = 0
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] lambdaExpArr
+    cdef cnp.float32_t[:, ::1] lambdaExpView
+    cdef bint useLambda = (lambdaExp is not None)
 
+    # ------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] stateVector = np.array([stateInit, 0.0], dtype=np.float32)
-    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateCovar = (np.eye(2, dtype=np.float32)*np.float32(stateCovarInit))
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateCovar = (np.eye(2, dtype=np.float32) * np.float32(stateCovarInit))
     cdef cnp.float32_t[::1] stateVectorView = stateVector
     cdef cnp.float32_t[:, ::1] stateCovarView = stateCovar
-
     cdef double clipSmall = pow(10.0, -covarClip)
     cdef double clipBig = pow(10.0, covarClip)
-
-    cdef bint inflatedQ = False
-    cdef int adjustmentCount = 0
     cdef float phiHat = 1.0
 
-    cdef double stateTransition00, stateTransition01, stateTransition10, stateTransition11
-    cdef double sumWeightUU, sumWeightUY, sumWeightYY, sumResidualUU
-    cdef double innovationValue, measurementVariance, paddedVariance, invVariance
-    cdef double addP00Trace, weightRank1, quadraticForm, dStatValue
-    cdef double posteriorP00, posteriorP01, posteriorP10, posteriorP11
-    cdef double priorP00, priorP01, priorP10, priorP11
-    cdef double priorState0, priorState1
+    # inlining to reduce small matrix indexing cost
+    cdef double F00, F01, F10, F11
+    cdef double Q00, Q01, Q10, Q11
+    cdef double xPred0, xPred1
+    cdef double P00, P01, P10, P11
+    cdef double PPred00, PPred01, PPred10, PPred11
     cdef double tmp00, tmp01, tmp10, tmp11
-    cdef double intermediate_, gainG, gainH, IKH00, IKH10
-    cdef double posteriorNew00, posteriorNew01, posteriorNew11
+
+    cdef double innov
+    cdef double baseVar, measVar, invMeasVar
+
+    cdef double sumInvR, sumInvRInnov, sumInvRInnov2
+    cdef double gainLike, quadForm
+    cdef double innovScale
+    cdef double delta0
+
+    cdef double IKH00, IKH10
+    cdef double gainG, gainH
+    cdef double PNew00, PNew01, PNew11
+
     cdef double sumLogR = 0.0
     cdef double sumNLL = 0.0
     cdef double intervalNLL = 0.0
     cdef double sumDStat = 0.0
-    cdef bint doBlockGrad = (intervalToBlockMap is not None and blockGradLogScale is not None and blockGradCount is not None)
-    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMapArr
-    cdef cnp.int32_t[::1] intervalToBlockMapView
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockGradLogScaleArr
-    cdef cnp.float32_t[::1] blockGradLogScaleView
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockGradCountArr
-    cdef cnp.float32_t[::1] blockGradCountView
-    cdef cnp.int32_t blockId = 0
+    cdef float rScaleB, qScaleB
 
-    cdef double gradSumLogR, gradSumWUU, gradSumWUY, gradSumWYY
-    cdef double dAddTraceLog, dWeightRank1, dQuad, intervalGrad
-    cdef double dVar
+    cdef double w
+    cdef double wMin = 1.0e-6
+    cdef double wMax = 1.0e6
+    cdef double LOG2PI = log(6.2831853071795864769)
 
+    if useLambda:
+        lambdaExpArr = <cnp.ndarray[cnp.float32_t, ndim=2, mode="c"]> lambdaExp
+        lambdaExpView = lambdaExpArr
+
+    # ------------------------------------------------------------
+    # Check edge cases here once before loops
+    # ------------------------------------------------------------
+    if intervalCount <= 0 or trackCount <= 0:
+        if vectorD is None:
+            dStatVectorArr = np.empty(intervalCount, dtype=np.float32)
+        else:
+            dStatVectorArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> vectorD
+        if returnNLL:
+            return (np.float32(0.0), 0, dStatVectorArr, 0.0)
+        return (np.float32(0.0), 0, dStatVectorArr)
+
+    if blockCount <= 0:
+        raise ValueError("blockCount must be positive")
+    if rScale.shape[0] < blockCount or qScale.shape[0] < blockCount:
+        raise ValueError("rScale or qScale length must be >= blockCount")
+    if intervalToBlockMap.shape[0] < intervalCount:
+        raise ValueError("intervalToBlockMap length must match intervalCount")
+
+    if useLambda:
+        if lambdaExpArr.shape[0] != trackCount or lambdaExpArr.shape[1] != intervalCount:
+            raise ValueError("lambdaExp shape must match (trackCount, intervalCount)")
+
+    # dStatVector[k]: diagnostic scalar statistic for interval k that can optionally store NLL[k]
+    # If storeNLLInD and returnNLL then dStatVector[k] stores NLL[k]
+    # Else dStatVector[k] stores quadForm / trackCount
     if vectorD is None:
         dStatVectorArr = np.empty(intervalCount, dtype=np.float32)
         vectorD = dStatVectorArr
     else:
         dStatVectorArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> vectorD
-
     dStatVector = dStatVectorArr
 
     if doStore:
@@ -1931,222 +1999,185 @@ cpdef tuple cforwardPass(
         stateCovarForwardView = stateCovarForwardArr
         pNoiseForwardView = pNoiseForwardArr
 
-    if doBlockGrad:
-        intervalToBlockMapArr = <cnp.ndarray[cnp.int32_t, ndim=1, mode="c"]> intervalToBlockMap
-        intervalToBlockMapView = intervalToBlockMapArr
-        blockGradLogScaleArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> blockGradLogScale
-        blockGradLogScaleView = blockGradLogScaleArr
-        blockGradCountArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> blockGradCount
-        blockGradCountView = blockGradCountArr
+    # F constants
+    F00 = <double>fView[0, 0]
+    F01 = <double>fView[0, 1]
+    F10 = <double>fView[1, 0]
+    F11 = <double>fView[1, 1]
 
-    doFlush = (doStore and chunkSize > 0)
-    doProgress = (progressBar is not None and progressIter > 0)
+    # ============================================================
+    # Outer loop genomic intervals k
+    # ============================================================
+    for k in range(intervalCount):
+        blockId = <Py_ssize_t>blockMapView[k]
+        if blockId < 0 or blockId >= blockCount:
+            raise ValueError("intervalToBlockMap has out-of-range block id")
 
-    stateTransition00 = <double>stateTransitionView[0,0]
-    stateTransition01 = <double>stateTransitionView[0,1]
-    stateTransition10 = <double>stateTransitionView[1,0]
-    stateTransition11 = <double>stateTransitionView[1,1]
+        rScaleB = rScaleView[blockId]
+        qScaleB = qScaleView[blockId]
+        if rScaleB < <float>clipSmall:
+            rScaleB = <float>clipSmall
+        if qScaleB < <float>clipSmall:
+            qScaleB = <float>clipSmall
 
-    # in case we refit Q across multiple passes
-    matrixQ[0,0] = matrixQCopy[0,0]
-    matrixQ[0,1] = matrixQCopy[0,1]
-    matrixQ[1,0] = matrixQCopy[1,0]
-    matrixQ[1,1] = matrixQCopy[1,1]
+        # ========================================================
+        # Predict step transition
+        # ========================================================
+        xPred0 = F00*(<double>stateVectorView[0]) + F01*(<double>stateVectorView[1])
+        xPred1 = F10*(<double>stateVectorView[0]) + F11*(<double>stateVectorView[1])
+        stateVectorView[0] = <cnp.float32_t>xPred0
+        stateVectorView[1] = <cnp.float32_t>xPred1
 
-    for intervalIndex in range(intervalCount):
-        # 'PREDICT' (prior, state transition model)
-        priorState0 = stateTransition00*(<double>stateVectorView[0]) + stateTransition01*(<double>stateVectorView[1])
-        priorState1 = stateTransition10*(<double>stateVectorView[0]) + stateTransition11*(<double>stateVectorView[1])
-        stateVectorView[0] = <cnp.float32_t>priorState0
-        stateVectorView[1] = <cnp.float32_t>priorState1
+        # Q[k,* , *] = qScale[block(k)] * Q0[* , *]
+        Q00 = (<double>qScaleB) * (<double>q0View[0, 0])
+        Q01 = (<double>qScaleB) * (<double>q0View[0, 1])
+        Q10 = (<double>qScaleB) * (<double>q0View[1, 0])
+        Q11 = (<double>qScaleB) * (<double>q0View[1, 1])
 
-        posteriorP00 = <double>stateCovarView[0,0]
-        posteriorP01 = <double>stateCovarView[0,1]
-        posteriorP10 = <double>stateCovarView[1,0]
-        posteriorP11 = <double>stateCovarView[1,1]
+        # P[k | k-1,* , *] = F P F^T + Q
+        P00 = <double>stateCovarView[0, 0]
+        P01 = <double>stateCovarView[0, 1]
+        P10 = <double>stateCovarView[1, 0]
+        P11 = <double>stateCovarView[1, 1]
 
-        tmp00 = stateTransition00*posteriorP00 + stateTransition01*posteriorP10
-        tmp01 = stateTransition00*posteriorP01 + stateTransition01*posteriorP11
-        tmp10 = stateTransition10*posteriorP00 + stateTransition11*posteriorP10
-        tmp11 = stateTransition10*posteriorP01 + stateTransition11*posteriorP11
+        tmp00 = F00*P00 + F01*P10
+        tmp01 = F00*P01 + F01*P11
+        tmp10 = F10*P00 + F11*P10
+        tmp11 = F10*P01 + F11*P11
 
-        priorP00 = tmp00*stateTransition00 + tmp01*stateTransition01 + (<double>matrixQ[0,0])
-        priorP01 = tmp00*stateTransition10 + tmp01*stateTransition11 + (<double>matrixQ[0,1])
-        priorP10 = tmp10*stateTransition00 + tmp11*stateTransition01 + (<double>matrixQ[1,0])
-        priorP11 = tmp10*stateTransition10 + tmp11*stateTransition11 + (<double>matrixQ[1,1])
+        PPred00 = tmp00*F00 + tmp01*F01 + Q00
+        PPred01 = tmp00*F10 + tmp01*F11 + Q01
+        PPred10 = tmp10*F00 + tmp11*F01 + Q10
+        PPred11 = tmp10*F10 + tmp11*F11 + Q11
 
-        stateCovarView[0,0] = <cnp.float32_t>priorP00
-        stateCovarView[0,1] = <cnp.float32_t>priorP01
-        stateCovarView[1,0] = <cnp.float32_t>priorP10
-        stateCovarView[1,1] = <cnp.float32_t>priorP11
+        stateCovarView[0, 0] = <cnp.float32_t>PPred00
+        stateCovarView[0, 1] = <cnp.float32_t>PPred01
+        stateCovarView[1, 0] = <cnp.float32_t>PPred10
+        stateCovarView[1, 1] = <cnp.float32_t>PPred11
 
-        sumWeightUU = 0.0
-        sumWeightUY = 0.0
-        sumWeightYY = 0.0
-        sumResidualUU = 0.0
+        # ========================================================
+        # t weight plugin precision via lambda[j,k]
+        # ========================================================
+        sumInvR = 0.0
+        sumInvRInnov = 0.0
+        sumInvRInnov2 = 0.0
         if returnNLL:
             sumLogR = 0.0
+            intervalNLL = 0.0
 
-        if doBlockGrad:
-            gradSumLogR = 0.0
-            gradSumWUU = 0.0
-            gradSumWUY = 0.0
-            gradSumWYY = 0.0
+        # Inner loop tracks j at interval k
+        for j in range(trackCount):
+            innov = (<double>dataView[j, k]) - (<double>stateVectorView[0])
 
-        for trackIndex in range(trackCount):
-            innovationValue = (<double>dataView[trackIndex, intervalIndex]) - (<double>stateVectorView[0])
-            measurementVariance = (<double>muncView[trackIndex, intervalIndex])
-            paddedVariance = measurementVariance + (<double>pad)
-            if paddedVariance < clipSmall:
-                paddedVariance = clipSmall
-            invVariance = 1.0 / paddedVariance
+            baseVar = (<double>muncMatView[j, k]) + (<double>pad)
+            if baseVar < clipSmall:
+                baseVar = clipSmall
+
+            measVar = (<double>rScaleB) * baseVar
+            if measVar < clipSmall:
+                measVar = clipSmall
+
+            if useLambda:
+                w = <double>lambdaExpView[j, k]
+                if w < wMin:
+                    w = wMin
+                elif w > wMax:
+                    w = wMax
+            else:
+                w = 1.0
+
+            invMeasVar = w / measVar
+
             if returnNLL:
-                sumLogR += log(paddedVariance)
-            sumWeightYY += invVariance*(innovationValue*innovationValue)
-            sumWeightUY += invVariance*innovationValue
-            sumResidualUU += measurementVariance*(invVariance*invVariance)
-            sumWeightUU += invVariance
+                # Gaussian objective given lambda
+                # log Var[j,k] = log(R[j,k]) - log(lambda[j,k])
+                sumLogR += (log(measVar) - log(w))
 
-            if doBlockGrad:
-                if paddedVariance > clipSmall:
-                    dVar = measurementVariance
-                else:
-                    dVar = 0.0
-                gradSumLogR += dVar / paddedVariance
-                gradSumWUU += dVar / (paddedVariance*paddedVariance)
-                gradSumWUY += dVar * innovationValue / (paddedVariance*paddedVariance)
-                gradSumWYY += dVar * (innovationValue*innovationValue) / (paddedVariance*paddedVariance)
+            sumInvRInnov2 += invMeasVar * (innov * innov)
+            sumInvRInnov += invMeasVar * innov
+            sumInvR += invMeasVar
 
-        addP00Trace = 1.0 + (<double>stateCovarView[0,0])*sumWeightUU
-        if addP00Trace < clipSmall:
-            addP00Trace = clipSmall
-        weightRank1 = (<double>stateCovarView[0,0]) / addP00Trace
-        quadraticForm = sumWeightYY - weightRank1*(sumWeightUY*sumWeightUY)
-        if quadraticForm < 0.0:
-            quadraticForm = 0.0
+        # innovScale = 1 + P[k | k-1,0,0] * sumInvR
+        innovScale = 1.0 + (<double>stateCovarView[0, 0]) * sumInvR
+        if innovScale < clipSmall:
+            innovScale = clipSmall
+
+        gainLike = (<double>stateCovarView[0, 0]) / innovScale
+        quadForm = sumInvRInnov2 - gainLike * (sumInvRInnov * sumInvRInnov)
+        if quadForm < 0.0:
+            quadForm = 0.0
 
         if returnNLL:
-        # Quadratic term rewards fit and log-determinant penalizes undue variance inflation.
-            intervalNLL = (0.5 *(sumLogR + log(addP00Trace) + quadraticForm))
+            # NLL[k] is the conditional Gaussian NLL _given_ lambdaExp
+            # Note that an observed data t-NLL would actually integrate over lambda
+            intervalNLL = 0.5 * (sumLogR + log(innovScale) + quadForm + (<double>trackCount) * LOG2PI)
             sumNLL += intervalNLL
 
-        if doBlockGrad and returnNLL:
-            dAddTraceLog = -((<double>stateCovarView[0,0]) * gradSumWUU) / addP00Trace
-            dWeightRank1 = (weightRank1*weightRank1) * gradSumWUU
-            dQuad = (-gradSumWYY) - (dWeightRank1*(sumWeightUY*sumWeightUY)) + (2.0*weightRank1*sumWeightUY*gradSumWUY)
-            intervalGrad = 0.5 * (gradSumLogR + dAddTraceLog + dQuad)
+        dStatVector[k] = <cnp.float32_t>(
+            intervalNLL if (returnNLL and storeNLLInD) else (quadForm / (<double>trackCount))
+        )
+        sumDStat += (<double>dStatVector[k])
 
-            if isfinite(intervalGrad):
-                blockId = intervalToBlockMapView[intervalIndex]
-                blockGradLogScaleView[blockId] += <cnp.float32_t>intervalGrad
-                blockGradCountView[blockId] += <cnp.float32_t>1.0
+        # delta0 = sumInvRInnov / innovScale
+        delta0 = sumInvRInnov / innovScale
 
-        # D stat ~=~ NIS
-        dStatValue = quadraticForm / (<double>trackCount)
-        sumDStat += dStatValue
-        if returnNLL and storeNLLInD:
-            dStatVector[intervalIndex] = <cnp.float32_t>intervalNLL
-        else:
-            dStatVector[intervalIndex] = <cnp.float32_t>dStatValue
+        stateVectorView[0] = <cnp.float32_t>((<double>stateVectorView[0]) + (<double>stateCovarView[0, 0]) * delta0)
+        stateVectorView[1] = <cnp.float32_t>((<double>stateVectorView[1]) + (<double>stateCovarView[1, 0]) * delta0)
 
-        adjustmentCount += <int>(dStatValue > (<double>dStatAlpha))
-        if dStatAlpha < 1.0e6:
-            matrixQ, inflatedQ = updateProcessNoiseCovariance(
-                matrixQ,
-                matrixQCopy,
-                <float>dStatValue,
-                <float>dStatAlpha,
-                <float>dStatd,
-                <float>dStatPC,
-                inflatedQ,
-                <float>maxQ,
-                <float>minQ
-            )
+        gainG = sumInvR / innovScale
+        gainH = sumInvR / (innovScale * innovScale)
 
-        if matrixQ[0,0] < <cnp.float32_t>clipSmall: matrixQ[0,0] = <cnp.float32_t>clipSmall
-        elif matrixQ[0,0] > <cnp.float32_t>clipBig: matrixQ[0,0] = <cnp.float32_t>clipBig
-        if matrixQ[1,1] < <cnp.float32_t>clipSmall: matrixQ[1,1] = <cnp.float32_t>clipSmall
-        elif matrixQ[1,1] > <cnp.float32_t>clipBig: matrixQ[1,1] = <cnp.float32_t>clipBig
+        IKH00 = 1.0 - ((<double>stateCovarView[0, 0]) * gainG)
+        IKH10 = -((<double>stateCovarView[1, 0]) * gainG)
 
-        # 'UPDATE' (posterior, measurement update)
-        intermediate_ = sumWeightUY / addP00Trace
-        stateVectorView[0] = <cnp.float32_t>((<double>stateVectorView[0]) + (<double>stateCovarView[0,0])*intermediate_)
-        stateVectorView[1] = <cnp.float32_t>((<double>stateVectorView[1]) + (<double>stateCovarView[1,0])*intermediate_)
-        gainG = sumWeightUU / addP00Trace
-        gainH = sumResidualUU / (addP00Trace*addP00Trace)
-        IKH00 = 1.0 - ((<double>stateCovarView[0,0])*gainG)
-        IKH10 = -((<double>stateCovarView[1,0])*gainG)
+        P00 = <double>stateCovarView[0, 0]
+        P01 = <double>stateCovarView[0, 1]
+        P10 = <double>stateCovarView[1, 0]
+        P11 = <double>stateCovarView[1, 1]
 
-        posteriorP00 = <double>stateCovarView[0,0]
-        posteriorP01 = <double>stateCovarView[0,1]
-        posteriorP10 = <double>stateCovarView[1,0]
-        posteriorP11 = <double>stateCovarView[1,1]
+        PNew00 = (IKH00*IKH00*P00) + (gainH*(P00*P00))
+        PNew01 = (IKH00*(IKH10*P00 + P01)) + (gainH*(P00*P10))
+        PNew11 = ((IKH10*IKH10*P00) + 2.0*IKH10*P10 + P11) + (gainH*(P10*P10))
 
-        posteriorNew00 = (IKH00*IKH00*posteriorP00) + (gainH*(posteriorP00*posteriorP00))
-        posteriorNew01 = (IKH00*(IKH10*posteriorP00 + posteriorP01)) + (gainH*(posteriorP00*posteriorP10))
-        posteriorNew11 = ((IKH10*IKH10*posteriorP00) + 2.0*IKH10*posteriorP10 + posteriorP11) + (gainH*(posteriorP10*posteriorP10))
+        if PNew00 < clipSmall:
+            PNew00 = clipSmall
+        elif PNew00 > clipBig:
+            PNew00 = clipBig
 
-        if posteriorNew00 < clipSmall: posteriorNew00 = clipSmall
-        elif posteriorNew00 > clipBig: posteriorNew00 = clipBig
-        if posteriorNew01 < clipSmall: posteriorNew01 = clipSmall
-        elif posteriorNew01 > clipBig: posteriorNew01 = clipBig
-        if posteriorNew11 < clipSmall: posteriorNew11 = clipSmall
-        elif posteriorNew11 > clipBig: posteriorNew11 = clipBig
+        if PNew01 < clipSmall:
+            PNew01 = clipSmall
+        elif PNew01 > clipBig:
+            PNew01 = clipBig
 
-        stateCovarView[0,0] = <cnp.float32_t>posteriorNew00 # next iter's prior
-        stateCovarView[0,1] = <cnp.float32_t>posteriorNew01
-        stateCovarView[1,0] = <cnp.float32_t>posteriorNew01
-        stateCovarView[1,1] = <cnp.float32_t>posteriorNew11
+        if PNew11 < clipSmall:
+            PNew11 = clipSmall
+        elif PNew11 > clipBig:
+            PNew11 = clipBig
 
-        if projectStateDuringFiltering:
-            projectToBox(
-                stateVector,
-                stateCovar,
-                <cnp.float32_t>stateLowerBound,
-                <cnp.float32_t>stateUpperBound,
-                <cnp.float32_t>clipSmall
-            )
+        stateCovarView[0, 0] = <cnp.float32_t>PNew00
+        stateCovarView[0, 1] = <cnp.float32_t>PNew01
+        stateCovarView[1, 0] = <cnp.float32_t>PNew01
+        stateCovarView[1, 1] = <cnp.float32_t>PNew11
 
-        protectCovariance22(stateCovar)
-
+        # store for smoothing and EM logistics
         if doStore:
-            stateForwardView[intervalIndex,0] = stateVectorView[0]
-            stateForwardView[intervalIndex,1] = stateVectorView[1]
-            stateCovarForwardView[intervalIndex,0,0] = stateCovarView[0,0]
-            stateCovarForwardView[intervalIndex,0,1] = stateCovarView[0,1]
-            stateCovarForwardView[intervalIndex,1,0] = stateCovarView[1,0]
-            stateCovarForwardView[intervalIndex,1,1] = stateCovarView[1,1]
-            pNoiseForwardView[intervalIndex,0,0] = matrixQ[0,0]
-            pNoiseForwardView[intervalIndex,0,1] = matrixQ[0,1]
-            pNoiseForwardView[intervalIndex,1,0] = matrixQ[1,0]
-            pNoiseForwardView[intervalIndex,1,1] = matrixQ[1,1]
-            # memmap flush every chunkSize intervals
-            if doFlush and (intervalIndex % chunkSize == 0) and (intervalIndex > 0):
-                stateForwardArr.flush()
-                stateCovarForwardArr.flush()
-                pNoiseForwardArr.flush()
-
-        if doProgress:
-            stepsDone += 1
-            if (stepsDone % progressIter) == 0:
-                progressBar.update(progressIter)
-
-    if doStore and doFlush:
-        stateForwardArr.flush()
-        stateCovarForwardArr.flush()
-        pNoiseForwardArr.flush()
-
-    if doProgress:
-        progressRemainder = intervalCount % progressIter
-        if progressRemainder != 0:
-            progressBar.update(progressRemainder)
+            stateForwardView[k, 0] = stateVectorView[0]
+            stateForwardView[k, 1] = stateVectorView[1]
+            stateCovarForwardView[k, 0, 0] = stateCovarView[0, 0]
+            stateCovarForwardView[k, 0, 1] = stateCovarView[0, 1]
+            stateCovarForwardView[k, 1, 0] = stateCovarView[1, 0]
+            stateCovarForwardView[k, 1, 1] = stateCovarView[1, 1]
+            pNoiseForwardView[k, 0, 0] = <cnp.float32_t>Q00
+            pNoiseForwardView[k, 0, 1] = <cnp.float32_t>Q01
+            pNoiseForwardView[k, 1, 0] = <cnp.float32_t>Q10
+            pNoiseForwardView[k, 1, 1] = <cnp.float32_t>Q11
 
     phiHat = <float>(sumDStat / (<double>intervalCount))
 
     if returnNLL:
-        return (phiHat, adjustmentCount, vectorD, sumNLL)
+        return (phiHat, 0, vectorD, sumNLL)
 
-    return (phiHat, adjustmentCount, vectorD)
+    return (phiHat, 0, vectorD)
 
 
 cpdef tuple cbackwardPass(
@@ -2155,51 +2186,155 @@ cpdef tuple cbackwardPass(
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateForward,
     cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarForward,
     cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] pNoiseForward,
-    object coefficientsH=None,
-    bint projectStateDuringFiltering=False,
-    float stateLowerBound=0.0,
-    float stateUpperBound=0.0,
     float covarClip=3.0,
     Py_ssize_t chunkSize=1000000,
     object stateSmoothed=None,
     object stateCovarSmoothed=None,
+    object lagCovSmoothed=None,
     object postFitResiduals=None,
     object progressBar=None,
     Py_ssize_t progressIter=10000
 ):
-    cdef Py_ssize_t stepsDone = 0
-    cdef Py_ssize_t progressRemainder = 0
+    r"""Run the backward pass (RTS smoother) step in the forward-backward state estimation phase
+
+
+    Inputs from the forward pass
+    ----------------------------
+
+    The smoother uses:
+
+    .. math::
+
+        \mathbf{x}_{[k|k]}, \qquad \mathbf{P}_{[k|k]}, \qquad \mathbf{Q}_{[k]},
+
+    from the forward pass ``stateForward``, ``stateCovarForward``, and ``pNoiseForward``.
+
+
+    RTS recursion
+    -------------
+
+    One-step prediction from the filtered state:
+
+
+    .. math::
+
+        \mathbf{x}_{[k+1|k]} = \mathbf{F}\,\mathbf{x}_{[k|k]}
+
+        \\
+        \mathbf{P}_{[k+1|k]} = \mathbf{F}\,\mathbf{P}_{[k|k]}\,\mathbf{F}^\top + \mathbf{Q}_{[k]}.
+
+
+    Smoother gain:
+
+    .. math::
+
+        \mathbf{J}_{[k]} = \mathbf{P}_{[k|k]}\mathbf{F}^\top \mathbf{P}_{[k+1|k]}^{-1}.
+
+
+    Smoothed mean and covariance:
+
+
+    .. math::
+
+        \widetilde{\mathbf{x}}_{[k]} =
+        \mathbf{x}_{[k|k]} + \mathbf{J}_{[k]}\left(\widetilde{\mathbf{x}}_{[k+1]} - \mathbf{x}_{[k+1|k]}\right)
+
+        \\
+        \widetilde{\mathbf{P}}_{[k]} =
+        \mathbf{P}_{[k|k]} + \mathbf{J}_{[k]}\left(\widetilde{\mathbf{P}}_{[k+1]} - \mathbf{P}_{[k+1|k]}\right)\mathbf{J}_{[k]}^\top.
+
+
+    Lag-one covariance
+    ------------------
+
+    The smoother also returns an estimate of the lag covariance:
+
+    .. math::
+
+        \mathbf{C}_{[k,k+1]} \approx \mathrm{Cov}(\mathbf{x}_{[k]}, \mathbf{x}_{[k+1]} \mid \text{all data}),
+
+    stored in ``lagCovSmoothed[k]``, which is used during the EM step (:func:`consenrich.cconsenrich.cblockScaleEM`).
+
+
+    Post-fit residuals
+    ------------------
+
+    Residuals against the smoothed level component are:
+
+    .. math::
+
+        r_{j,k} = z_{j,k} - \widetilde{x}_{[k]},
+
+    stored as ``postFitResiduals[k, j]``.
+
+    :param matrixF: State transition matrix :math:`\mathbf{F}`.
+    :type  matrixF: numpy.ndarray[float32], shape (2, 2)
+    :param stateForward: Filtered state :math:`\mathbf{x}_{[k|k]}` from the forward pass.
+    :type  stateForward: numpy.ndarray[float32], shape (n, 2)
+    :param stateCovarForward: Filtered state covariances :math:`\mathbf{P}_{[k|k]}` from the forward pass.
+    :type  stateCovarForward: numpy.ndarray[float32], shape (n, 2, 2)
+    :param pNoiseForward: Process noise covariances :math:`\mathbf{Q}_{[k]}` used at each interval.
+    :type  pNoiseForward: numpy.ndarray[float32], shape (n, 2, 2)
+    :param stateSmoothed: Output buffer for smoothed means :math:`\widetilde{\mathbf{x}}_{[k]}`.
+    :type  stateSmoothed: numpy.ndarray[float32], shape (n, 2) or None
+    :param stateCovarSmoothed: Optional output buffer for smoothed covariances :math:`\widetilde{\mathbf{P}}_{[k]}`.
+    :type  stateCovarSmoothed: numpy.ndarray[float32], shape (n, 2, 2) or None
+    :param lagCovSmoothed: Optional output buffer for lag-one covariances :math:`\mathbf{C}_{[k,k+1]}`.
+    :type  lagCovSmoothed: numpy.ndarray[float32], shape (max(n-1, 1), 2, 2) or None
+    :param postFitResiduals: Optional output buffer for residuals :math:`r_{j,k}`.
+    :type  postFitResiduals: numpy.ndarray[float32], shape (n, m) or None
+    :returns: ``(stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals)``.
+    :rtype: tuple
+
+    Related References
+    ---------------------
+
+    * RTS smoother: `Rauch, Tung & Striebel (1965), DOI:10.2514/3.3166 <https://doi.org/10.2514/3.3166>`_
+
+    :seealso: :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.core.runConsenrich`
+
+    """
+
     cdef cnp.float32_t[:, ::1] dataView = matrixData
-    cdef cnp.float32_t[:, ::1] stateTransitionView = matrixF
+    cdef cnp.float32_t[:, ::1] fView = matrixF
     cdef cnp.float32_t[:, ::1] stateForwardView = stateForward
     cdef cnp.float32_t[:, :, ::1] stateCovarForwardView = stateCovarForward
     cdef cnp.float32_t[:, :, ::1] pNoiseForwardView = pNoiseForward
+
     cdef Py_ssize_t trackCount = dataView.shape[0]
     cdef Py_ssize_t intervalCount = dataView.shape[1]
-    cdef Py_ssize_t intervalIndex, trackIndex
+    cdef Py_ssize_t k, j
+
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateSmoothedArr
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarSmoothedArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] lagCovSmoothedArr
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResidualsArr
+
     cdef cnp.float32_t[:, ::1] stateSmoothedView
     cdef cnp.float32_t[:, :, ::1] stateCovarSmoothedView
+    cdef cnp.float32_t[:, :, ::1] lagCovSmoothedView
     cdef cnp.float32_t[:, ::1] postFitResidualsView
-    cdef bint doProgress = False
-    cdef bint doFlush = False
+
     cdef double clipSmall = pow(10.0, -covarClip)
     cdef double clipBig = pow(10.0, covarClip)
-    cdef double stateTransition00, stateTransition01, stateTransition10, stateTransition11
-    cdef double priorState0, priorState1
-    cdef double deltaState0, deltaState1
-    cdef double smoothedState0, smoothedState1
-    cdef double forwardP00, forwardP01, forwardP10, forwardP11
-    cdef double processNoise00, processNoise01, processNoise10, processNoise11
-    cdef double priorP00, priorP01, priorP10, priorP11, detPrior, invPrior00, invPrior01, invPrior10, invPrior11, tmp00, tmp01, tmp10, tmp11
+    cdef double F00, F01, F10, F11
+    cdef double xPred0, xPred1
+    cdef double Q00, Q01, Q10, Q11
+    cdef double PPred00, PPred01, PPred10, PPred11
+    cdef double Pf00, Pf01, Pf10, Pf11
+    cdef double detPred
+    cdef double invPred00, invPred01, invPred10, invPred11
     cdef double cross00, cross01, cross10, cross11
-    cdef double smootherGain00, smootherGain01, smootherGain10, smootherGain11
-    cdef double deltaP00, deltaP01, deltaP10, deltaP11, retrCorrection00, retrCorrection01, retrCorrection10, retrCorrection11
-    cdef double smoothedP00, smoothedP01, smoothedP11
-    cdef double innovationValue
+    cdef double J00, J01, J10, J11
+    cdef double dx0, dx1
+    cdef double xs0, xs1
+    cdef double dP00, dP01, dP10, dP11
+    cdef double corr00, corr01, corr10, corr11
+    cdef double Ps00, Ps01, Ps11
+    cdef double C00, C01, C10, C11
+    cdef double JD00, JD01, JD10, JD11
 
+    cdef double innov
 
     if stateSmoothed is not None:
         stateSmoothedArr = <cnp.ndarray[cnp.float32_t, ndim=2, mode="c"]> stateSmoothed
@@ -2211,6 +2346,11 @@ cpdef tuple cbackwardPass(
     else:
         stateCovarSmoothedArr = np.empty((intervalCount, 2, 2), dtype=np.float32)
 
+    if lagCovSmoothed is not None:
+        lagCovSmoothedArr = <cnp.ndarray[cnp.float32_t, ndim=3, mode="c"]> lagCovSmoothed
+    else:
+        lagCovSmoothedArr = np.empty((max(intervalCount - 1, 1), 2, 2), dtype=np.float32)
+
     if postFitResiduals is not None:
         postFitResidualsArr = <cnp.ndarray[cnp.float32_t, ndim=2, mode="c"]> postFitResiduals
     else:
@@ -2218,139 +2358,938 @@ cpdef tuple cbackwardPass(
 
     stateSmoothedView = stateSmoothedArr
     stateCovarSmoothedView = stateCovarSmoothedArr
+    lagCovSmoothedView = lagCovSmoothedArr
     postFitResidualsView = postFitResidualsArr
 
-    doFlush = (chunkSize > 0 and stateSmoothed is not None and stateCovarSmoothed is not None and postFitResiduals is not None)
-    doProgress = (progressBar is not None and progressIter > 0)
+    F00 = <double>fView[0, 0]
+    F01 = <double>fView[0, 1]
+    F10 = <double>fView[1, 0]
+    F11 = <double>fView[1, 1]
 
-    stateTransition00 = <double>stateTransitionView[0,0]
-    stateTransition01 = <double>stateTransitionView[0,1]
-    stateTransition10 = <double>stateTransitionView[1,0]
-    stateTransition11 = <double>stateTransitionView[1,1]
-    stateSmoothedView[intervalCount - 1, 0] = stateForwardView[intervalCount - 1, 0]
-    stateSmoothedView[intervalCount - 1, 1] = stateForwardView[intervalCount - 1, 1]
-    stateCovarSmoothedView[intervalCount - 1, 0, 0] = stateCovarForwardView[intervalCount - 1, 0, 0]
-    stateCovarSmoothedView[intervalCount - 1, 0, 1] = stateCovarForwardView[intervalCount - 1, 0, 1]
-    stateCovarSmoothedView[intervalCount - 1, 1, 0] = stateCovarForwardView[intervalCount - 1, 1, 0]
-    stateCovarSmoothedView[intervalCount - 1, 1, 1] = stateCovarForwardView[intervalCount - 1, 1, 1]
+    if intervalCount <= 0:
+        return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
 
-    for trackIndex in range(trackCount):
-        postFitResidualsView[intervalCount - 1, trackIndex] = <cnp.float32_t>(
-            (<double>dataView[trackIndex, intervalCount - 1]) - (<double>stateSmoothedView[intervalCount - 1, 0])
-        )
+    with nogil:
+        # ========================================================
+        # initialize with the final forward pass estimates at k = intervalCount - 1
+        # ========================================================
+        stateSmoothedView[intervalCount - 1, 0] = stateForwardView[intervalCount - 1, 0]
+        stateSmoothedView[intervalCount - 1, 1] = stateForwardView[intervalCount - 1, 1]
 
-    for intervalIndex in range(intervalCount - 2, -1, -1):
+        stateCovarSmoothedView[intervalCount - 1, 0, 0] = stateCovarForwardView[intervalCount - 1, 0, 0]
+        stateCovarSmoothedView[intervalCount - 1, 0, 1] = stateCovarForwardView[intervalCount - 1, 0, 1]
+        stateCovarSmoothedView[intervalCount - 1, 1, 0] = stateCovarForwardView[intervalCount - 1, 1, 0]
+        stateCovarSmoothedView[intervalCount - 1, 1, 1] = stateCovarForwardView[intervalCount - 1, 1, 1]
 
-        # from the forward pass
-        forwardP00 = <double>stateCovarForwardView[intervalIndex, 0, 0]
-        forwardP01 = <double>stateCovarForwardView[intervalIndex, 0, 1]
-        forwardP10 = <double>stateCovarForwardView[intervalIndex, 1, 0]
-        forwardP11 = <double>stateCovarForwardView[intervalIndex, 1, 1]
-
-        # x[k+1|k]
-        priorState0 = stateTransition00*(<double>stateForwardView[intervalIndex,0]) + stateTransition01*(<double>stateForwardView[intervalIndex,1])
-        priorState1 = stateTransition10*(<double>stateForwardView[intervalIndex,0]) + stateTransition11*(<double>stateForwardView[intervalIndex,1])
-        processNoise00 = <double>pNoiseForwardView[intervalIndex,0,0]
-        processNoise01 = <double>pNoiseForwardView[intervalIndex,0,1]
-        processNoise10 = <double>pNoiseForwardView[intervalIndex,1,0]
-        processNoise11 = <double>pNoiseForwardView[intervalIndex,1,1]
-
-        # intermediates
-        tmp00 = stateTransition00*forwardP00 + stateTransition01*forwardP10
-        tmp01 = stateTransition00*forwardP01 + stateTransition01*forwardP11
-        tmp10 = stateTransition10*forwardP00 + stateTransition11*forwardP10
-        tmp11 = stateTransition10*forwardP01 + stateTransition11*forwardP11
-
-        # P[k+1|k]
-        priorP00 = tmp00*stateTransition00 + tmp01*stateTransition01 + processNoise00
-        priorP01 = tmp00*stateTransition10 + tmp01*stateTransition11 + processNoise01
-        priorP10 = tmp10*stateTransition00 + tmp11*stateTransition01 + processNoise10
-        priorP11 = tmp10*stateTransition10 + tmp11*stateTransition11 + processNoise11
-
-        detPrior = (priorP00*priorP11) - (priorP01*priorP10)
-        if detPrior == 0.0:
-            detPrior = clipSmall
-
-        invPrior00 = priorP11/detPrior
-        invPrior01 = -priorP01 / detPrior
-        invPrior10 = -priorP10 / detPrior
-        invPrior11 = priorP00/detPrior
-        cross00 = forwardP00*stateTransition00 + forwardP01*stateTransition01
-        cross01 = forwardP00*stateTransition10 + forwardP01*stateTransition11
-        cross10 = forwardP10*stateTransition00 + forwardP11*stateTransition01
-        cross11 = forwardP10*stateTransition10 + forwardP11*stateTransition11
-
-        smootherGain00 = cross00*invPrior00 + cross01*invPrior10
-        smootherGain01 = cross00*invPrior01 + cross01*invPrior11
-        smootherGain10 = cross10*invPrior00 + cross11*invPrior10
-        smootherGain11 = cross10*invPrior01 + cross11*invPrior11
-
-        deltaState0 = (<double>stateSmoothedView[intervalIndex + 1, 0]) - priorState0
-        deltaState1 = (<double>stateSmoothedView[intervalIndex + 1, 1]) - priorState1
-        smoothedState0 = (<double>stateForwardView[intervalIndex, 0]) + (smootherGain00*deltaState0 + smootherGain01*deltaState1)
-        smoothedState1 = (<double>stateForwardView[intervalIndex, 1]) + (smootherGain10*deltaState0 + smootherGain11*deltaState1)
-        stateSmoothedView[intervalIndex, 0] = <cnp.float32_t>smoothedState0
-        stateSmoothedView[intervalIndex, 1] = <cnp.float32_t>smoothedState1
-        deltaP00 = (<double>stateCovarSmoothedView[intervalIndex + 1, 0, 0]) - priorP00
-        deltaP01 = (<double>stateCovarSmoothedView[intervalIndex + 1, 0, 1]) - priorP01
-        deltaP10 = (<double>stateCovarSmoothedView[intervalIndex + 1, 1, 0]) - priorP10
-        deltaP11 = (<double>stateCovarSmoothedView[intervalIndex + 1, 1, 1]) - priorP11
-        retrCorrection00 = deltaP00*smootherGain00 + deltaP01*smootherGain01
-        retrCorrection01 = deltaP00*smootherGain10 + deltaP01*smootherGain11
-        retrCorrection10 = deltaP10*smootherGain00 + deltaP11*smootherGain01
-        retrCorrection11 = deltaP10*smootherGain10 + deltaP11*smootherGain11
-        smoothedP00 = forwardP00 + (smootherGain00*retrCorrection00 + smootherGain01*retrCorrection10)
-        smoothedP01 = forwardP01 + (smootherGain00*retrCorrection01 + smootherGain01*retrCorrection11)
-        smoothedP11 = forwardP11 + (smootherGain10*retrCorrection01 + smootherGain11*retrCorrection11)
-
-        if smoothedP00 < clipSmall: smoothedP00 = clipSmall
-        elif smoothedP00 > clipBig: smoothedP00 = clipBig
-        if smoothedP01 < clipSmall: smoothedP01 = clipSmall
-        elif smoothedP01 > clipBig: smoothedP01 = clipBig
-        if smoothedP11 < clipSmall: smoothedP11 = clipSmall
-        elif smoothedP11 > clipBig: smoothedP11 = clipBig
-
-        stateCovarSmoothedView[intervalIndex, 0, 0] = <cnp.float32_t>smoothedP00
-        stateCovarSmoothedView[intervalIndex, 0, 1] = <cnp.float32_t>smoothedP01
-        stateCovarSmoothedView[intervalIndex, 1, 0] = <cnp.float32_t>smoothedP01
-        stateCovarSmoothedView[intervalIndex, 1, 1] = <cnp.float32_t>smoothedP11
-
-        if projectStateDuringFiltering:
-            projectToBox(
-                <object>stateSmoothedArr[intervalIndex],
-                <object>stateCovarSmoothedArr[intervalIndex],
-                <cnp.float32_t>stateLowerBound,
-                <cnp.float32_t>stateUpperBound,
-                <cnp.float32_t>clipSmall
+        for j in range(trackCount):
+            postFitResidualsView[intervalCount - 1, j] = <cnp.float32_t>(
+                (<double>dataView[j, intervalCount - 1]) - (<double>stateSmoothedView[intervalCount - 1, 0])
             )
 
-        protectCovariance22(<object>stateCovarSmoothedArr[intervalIndex])
+        # ========================================================
+        # backward recursion k = intervalCount - 2 down to 0
+        # ========================================================
+        for k in range(intervalCount - 2, -1, -1):
+            Pf00 = <double>stateCovarForwardView[k, 0, 0]
+            Pf01 = <double>stateCovarForwardView[k, 0, 1]
+            Pf10 = <double>stateCovarForwardView[k, 1, 0]
+            Pf11 = <double>stateCovarForwardView[k, 1, 1]
 
-        for trackIndex in range(trackCount):
-            innovationValue = (<double>dataView[trackIndex, intervalIndex]) - (<double>stateSmoothedView[intervalIndex, 0])
-            postFitResidualsView[intervalIndex, trackIndex] = <cnp.float32_t>innovationValue
+            xPred0 = F00*(<double>stateForwardView[k, 0]) + F01*(<double>stateForwardView[k, 1])
+            xPred1 = F10*(<double>stateForwardView[k, 0]) + F11*(<double>stateForwardView[k, 1])
 
-        if doFlush and (intervalIndex % chunkSize == 0) and (intervalIndex > 0):
-            stateSmoothedArr.flush()
-            stateCovarSmoothedArr.flush()
-            postFitResidualsArr.flush()
+            Q00 = <double>pNoiseForwardView[k, 0, 0]
+            Q01 = <double>pNoiseForwardView[k, 0, 1]
+            Q10 = <double>pNoiseForwardView[k, 1, 0]
+            Q11 = <double>pNoiseForwardView[k, 1, 1]
 
-        if doProgress:
-            stepsDone += 1
-            if (stepsDone % progressIter) == 0:
-                progressBar.update(progressIter)
+            cross00 = F00*Pf00 + F01*Pf10
+            cross01 = F00*Pf01 + F01*Pf11
+            cross10 = F10*Pf00 + F11*Pf10
+            cross11 = F10*Pf01 + F11*Pf11
 
-    if doFlush:
-        stateSmoothedArr.flush()
-        stateCovarSmoothedArr.flush()
-        postFitResidualsArr.flush()
+            PPred00 = cross00*F00 + cross01*F01 + Q00
+            PPred01 = cross00*F10 + cross01*F11 + Q01
+            PPred10 = cross10*F00 + cross11*F01 + Q10
+            PPred11 = cross10*F10 + cross11*F11 + Q11
 
-    if doProgress:
-        progressRemainder = (intervalCount - 1) % progressIter
-        if progressRemainder != 0:
-            progressBar.update(progressRemainder)
+            # 2x2 inverse for PPred
+            detPred = (PPred00*PPred11) - (PPred01*PPred10)
+            if detPred == 0.0:
+                detPred = clipSmall
 
-    return (stateSmoothedArr, stateCovarSmoothedArr, postFitResidualsArr)
+            invPred00 = PPred11 / detPred
+            invPred01 = -PPred01 / detPred
+            invPred10 = -PPred10 / detPred
+            invPred11 = PPred00 / detPred
+
+            # J[k] = P[k|k] F^T inv(PPred[k+1|k])
+            cross00 = Pf00*F00 + Pf01*F01
+            cross01 = Pf00*F10 + Pf01*F11
+            cross10 = Pf10*F00 + Pf11*F01
+            cross11 = Pf10*F10 + Pf11*F11
+
+            J00 = cross00*invPred00 + cross01*invPred10
+            J01 = cross00*invPred01 + cross01*invPred11
+            J10 = cross10*invPred00 + cross11*invPred10
+            J11 = cross10*invPred01 + cross11*invPred11
+
+            dx0 = (<double>stateSmoothedView[k + 1, 0]) - xPred0
+            dx1 = (<double>stateSmoothedView[k + 1, 1]) - xPred1
+
+            xs0 = (<double>stateForwardView[k, 0]) + (J00*dx0 + J01*dx1)
+            xs1 = (<double>stateForwardView[k, 1]) + (J10*dx0 + J11*dx1)
+
+            stateSmoothedView[k, 0] = <cnp.float32_t>xs0
+            stateSmoothedView[k, 1] = <cnp.float32_t>xs1
+
+            dP00 = (<double>stateCovarSmoothedView[k + 1, 0, 0]) - PPred00
+            dP01 = (<double>stateCovarSmoothedView[k + 1, 0, 1]) - PPred01
+            dP10 = (<double>stateCovarSmoothedView[k + 1, 1, 0]) - PPred10
+            dP11 = (<double>stateCovarSmoothedView[k + 1, 1, 1]) - PPred11
+
+            corr00 = dP00*J00 + dP01*J01
+            corr01 = dP00*J10 + dP01*J11
+            corr10 = dP10*J00 + dP11*J01
+            corr11 = dP10*J10 + dP11*J11
+
+            Ps00 = Pf00 + (J00*corr00 + J01*corr10)
+            Ps01 = Pf01 + (J00*corr01 + J01*corr11)
+            Ps11 = Pf11 + (J10*corr01 + J11*corr11)
+
+            if Ps00 < clipSmall:
+                Ps00 = clipSmall
+            elif Ps00 > clipBig:
+                Ps00 = clipBig
+
+            if Ps01 < clipSmall:
+                Ps01 = clipSmall
+            elif Ps01 > clipBig:
+                Ps01 = clipBig
+
+            if Ps11 < clipSmall:
+                Ps11 = clipSmall
+            elif Ps11 > clipBig:
+                Ps11 = clipBig
+
+            stateCovarSmoothedView[k, 0, 0] = <cnp.float32_t>Ps00
+            stateCovarSmoothedView[k, 0, 1] = <cnp.float32_t>Ps01
+            stateCovarSmoothedView[k, 1, 0] = <cnp.float32_t>Ps01
+            stateCovarSmoothedView[k, 1, 1] = <cnp.float32_t>Ps11
+
+            # C[k] = P[k|k] F^T + J[k] (PS[k+1] - PPred[k+1|k])
+            C00 = Pf00*F00 + Pf01*F01
+            C01 = Pf00*F10 + Pf01*F11
+            C10 = Pf10*F00 + Pf11*F01
+            C11 = Pf10*F10 + Pf11*F11
+
+            JD00 = J00*dP00 + J01*dP10
+            JD01 = J00*dP01 + J01*dP11
+            JD10 = J10*dP00 + J11*dP10
+            JD11 = J10*dP01 + J11*dP11
+
+            C00 += JD00
+            C01 += JD01
+            C10 += JD10
+            C11 += JD11
+
+            if k < lagCovSmoothedArr.shape[0]:
+                lagCovSmoothedView[k, 0, 0] = <cnp.float32_t>C00
+                lagCovSmoothedView[k, 0, 1] = <cnp.float32_t>C01
+                lagCovSmoothedView[k, 1, 0] = <cnp.float32_t>C10
+                lagCovSmoothedView[k, 1, 1] = <cnp.float32_t>C11
+
+            for j in range(trackCount):
+                innov = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                postFitResidualsView[k, j] = <cnp.float32_t>innov
+
+    return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
+
+
+cpdef tuple cblockScaleEM(
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixData,
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixPluginMuncInit,
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixF,
+    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQ0,
+    cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap,
+    Py_ssize_t blockCount,
+    float stateInit,
+    float stateCovarInit,
+    Py_ssize_t EM_maxIters=50,
+    float EM_rtol=1.0e-4,
+    float covarClip=3.0,
+    float pad=1.0e-2,
+    float EM_scaleLOW=0.01,
+    float EM_scaleHIGH=10.0,
+    float EM_alphaEMA=0.1,
+    float EM_alphaEMA_Q=0.1,
+    bint EM_scaleToMedian=True,
+    bint returnIntermediates=False,
+    float EM_tNu=8.0,
+    Py_ssize_t t_innerIters=5,
+):
+    r"""Calibrate blockwise measurement and process noise scales while inferring the epigenomic consensus signal
+
+
+    Multisample epigenomic HTS data shows strong heteroskedasticity (replicate- and interval-specific noise) and region-dependent dynamics.
+    This routine estimates *blockwise* multipliers of *given* noise scales (both observation noise and process noise)
+
+    .. math::
+
+        R_{[j,k]} = r_{\mathrm{scale}}[b(k)]\,(\mathrm{pluginMuncInit}_{j,k}+\mathrm{pad}),
+        \qquad
+        \mathbf{Q}_{[k]} = q_{\mathrm{scale}}[b(k)]\,\mathbf{Q}_0,
+
+    while inferring the consensus signal trajectory. Note that each :math:`R_{[j,k]}` is, in fact, estimated
+    from the data in :func:`consenrich.core.getMuncTrack`.
+
+    We aim for robustness by treating residuals with a Gaussian **scale**-mixture using
+    *auxiliary* per-observation precision weight :math:`\lambda_{j,k}` to moderate
+    the influence of outliers. Concretely, *given* :math:`\lambda_{j,k}`, the residual
+    is treated as Gaussian with variance scaled by :math:`1/\lambda_{j,k}`:
+
+    .. math::
+
+      e_{j,k} \mid \lambda_{j,k} \sim \mathcal{N}\!\left(0,\; R_{j,k}/\lambda_{j,k}\right),
+      \qquad
+      \lambda_{j,k} \sim \mathrm{Gamma}\!\left(\nu/2,\; \nu/2\right).
+
+    Large-magnitude (studentized) residuals yield smaller
+    :math:`\mathbb{E}[\lambda_{j,k}\mid e_{j,k}]`. Because the mixture variance is
+    :math:`R_{j,k}/\lambda_{j,k}`, this smaller :math:`\lambda_{j,k}` inflates the variance for that
+    observation and thus downweights its contribution.
+
+
+    .. note::
+
+      To be sure, this routine uses an empirical *plug-in* approximation, rather than full EM over a joint model for :math:`\lambda_{j,k}` *and* the consensus signal.
+
+      So, the heavy-tailed model is used to derive per-observation reweighting, but the M-step
+      proceeds with a weighted-Gaussian objective.
+
+      Depending on specification, this routine can deviate from more standard EM: It alternates E-step-style updates of
+      :math:`\lambda_{j,k}^{\mathrm{exp}}=\mathbb{E}[\lambda_{j,k}\mid e_{j,k}]` with M-step closed-form updates of
+      :math:`(r_{\mathrm{scale}}, q_{\mathrm{scale}})` and RTS smoothing for :math:`\mathbf{x}`. But
+      (optional) log-EMA/median-normalization heuristics can void traditional EM monotonicity guarantees.
+
+    E-step
+    -------------------------------------
+
+    Using the current :math:`r_{\mathrm{scale}}` and :math:`q_{\mathrm{scale}}`, run a forward-backward pass:
+
+    * Forward (filter) pass to obtain :math:`\mathbf{x}_{[k\mid k]}` and :math:`\mathbf{P}_{[k\mid k]}`.
+
+    * Backward (RTS smoother) pass to obtain :math:`\widetilde{\mathbf{x}}_{[k]}`,
+    :math:`\widetilde{\mathbf{P}}_{[k]}`, and lag covariances.
+
+
+    Approximate the expected squared error of each observation as the squared residual
+    against the smoothed level plus the smoothed level variance:
+
+    .. math::
+
+        \mathbb{E}[e_{j,k}^2] \approx (z_{j,k} - \widetilde{x}_{[k]})^2 + \widetilde{P}_{00,[k]}.
+
+
+    Define the squared studentized residual and the expected precision weight:
+
+    .. math::
+
+        u_{j,k}^2 = \frac{\mathbb{E}[e_{j,k}^2]}{R_{j,k}},
+        \qquad
+        \lambda_{j,k}^{\mathrm{exp}} = \frac{\nu+1}{\nu+u_{j,k}^2}.
+
+    M-step
+    --------------------------------
+
+    **Measurement noise scale** per block :math:`b` (with :math:`\mathcal{I}_b=\{(j,k): b(k)=b\}`):
+
+    .. math::
+
+        r_{\mathrm{scale}}[b] \leftarrow
+        \frac{1}{|\mathcal{I}_b|}
+        \sum_{(j,k)\in \mathcal{I}_b}
+        \lambda_{j,k}^{\mathrm{exp}}
+        \frac{\mathbb{E}[e_{j,k}^2]}{\mathrm{pluginMuncInit}_{j,k}+\mathrm{pad}}.
+
+    **Process noise scale** per block :math:`b` using expected innovations
+
+    .. math::
+
+        \mathbf{w}_{[k]} = \widetilde{\mathbf{x}}_{[k+1]} - \mathbf{F}\widetilde{\mathbf{x}}_{[k]},
+
+    and smoothed second moments to approximate :math:`\mathbb{E}[\mathbf{w}\mathbf{w}^\top]`, then
+
+    .. math::
+
+        q_{\mathrm{scale}}[b] \leftarrow
+        \frac{1}{2}\,\mathrm{tr}\!\left(\mathbf{Q}_0^{-1}\,\mathbb{E}[\mathbf{w}\mathbf{w}^\top]\right),
+
+    where :math:`\mathbf{Q}_0` is the given process noise (co)variance template.
+
+    :param intervalToBlockMap: Mapping :math:`b(k)` from interval index :math:`k` to block id.
+    :type  intervalToBlockMap: numpy.ndarray[int32], shape (n,)
+    :param blockCount: Number of blocks :math:`B`.
+    :type  blockCount: int
+    :param stateInit: Initial level used in :math:`\mathbf{x}_{[0| -1]}=[\mathrm{stateInit},0]^\top`.
+    :type  stateInit: float
+    :param stateCovarInit: Initial covariance scale; initializes :math:`\mathbf{P}` to ``stateCovarInit * I``.
+    :type  stateCovarInit: float
+    :param EM_maxIters: Maximum number of outer EM iterations.
+    :type  EM_maxIters: int
+    :param EM_rtol: Relative tolerance for stopping based on NLL improvement.
+    :type  EM_rtol: float
+    :param EM_scaleLOW: Lower bound for ``rScale`` and ``qScale`` during EM.
+    :type  EM_scaleLOW: float
+    :param EM_scaleHIGH: Upper bound for ``rScale`` and ``qScale`` during EM.
+    :type  EM_scaleHIGH: float
+    :param EM_alphaEMA: EMA coefficient (in log space) applied to scale updates, in (0,1]
+    :type  EM_alphaEMA: float
+    :param EM_scaleToMedian: If True, divide ``rScale`` and ``qScale`` by their blockwise medians each iteration.
+    :type  EM_scaleToMedian: bool
+    :param returnIntermediates: If True, also return smoothed states, covariances, residuals, and ``lambdaExp``.
+    :type  returnIntermediates: bool
+    :param EM_tNu: Student-t df :math:`\nu` for robust reweighting
+    :type  EM_tNu: float
+    :param t_innerIters: Number of inner iterations updating ``lambdaExp`` before each M-step
+    :type  t_innerIters: int
+    :returns: ``(rScale, qScale, itersDone, finalNLL, stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals, lambdaExp)``.
+    :rtype: tuple
+
+
+    Related References
+    ------------------------------------------------
+
+    * Gaussian scale-mixture (e.g., :math:`Y` s.t. :math:`Y|(Z=z) \sim \mathcal{N}(\mu, z^{-1}\Sigma)`): `West (1987), <doi.org/10.1093/biomet/74.3.646>`_
+
+    * Student-t KF: `Aravkin et al. (2014), DOI:10.1137/130918861 <https://doi.org/10.1137/130918861>`_
+
+
+    :seealso: :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.core.runConsenrich`, :class:`consenrich.core.observationParams`, :class:`consenrich.core.processParams`
+    """
+
+    cdef Py_ssize_t trackCount = matrixData.shape[0]
+    cdef Py_ssize_t intervalCount = matrixData.shape[1]
+    cdef Py_ssize_t i, k, j, inner
+    cdef Py_ssize_t b
+    cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
+    cdef cnp.float32_t[:, ::1] dataView = matrixData
+    cdef cnp.float32_t[:, ::1] muncMatView = matrixPluginMuncInit
+    cdef cnp.float32_t[:, ::1] fView = matrixF
+    cdef cnp.float32_t[:, ::1] q0View = matrixQ0
+    cdef double clipSmall = pow(10.0, -covarClip)
+
+    # per block scale factors
+    # rScale[b] rescales measurement variance
+    # qScale[b] rescales process variance
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] rScaleArr = np.ones(blockCount, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] qScaleArr = np.ones(blockCount, dtype=np.float32)
+    cdef cnp.float32_t[::1] rScaleView = rScaleArr
+    cdef cnp.float32_t[::1] qScaleView = qScaleArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rScaleLogTmp = np.zeros(blockCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] qScaleLogTmp = np.zeros(blockCount, dtype=np.float64)
+    cdef double[::1] rLogView = rScaleLogTmp
+    cdef double[::1] qLogView = qScaleLogTmp
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rScaleLogSm = np.zeros(blockCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] qScaleLogSm = np.zeros(blockCount, dtype=np.float64)
+    cdef double[::1] rLogSmView = rScaleLogSm
+    cdef double[::1] qLogSmView = qScaleLogSm
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rStatSum = np.zeros(blockCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] rWeightCount = np.zeros(blockCount, dtype=np.int32)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] qStatSum = np.zeros(blockCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] qStatCount = np.zeros(blockCount, dtype=np.int32)
+    cdef double[::1] rStatSumView = rStatSum
+    cdef cnp.int32_t[::1] rWeightCountView = rWeightCount
+    cdef double[::1] qStatSumView = qStatSum
+    cdef cnp.int32_t[::1] qStatCountView = qStatCount
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateForward = np.empty((intervalCount, 2), dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] pNoiseForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
+
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateSmoothed = np.empty((intervalCount, 2), dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarSmoothed = np.empty((intervalCount, 2, 2), dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] lagCovSmoothed = np.empty((max(intervalCount - 1, 1), 2, 2), dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals = np.empty((intervalCount, trackCount), dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] lambdaExp = np.ones((trackCount, intervalCount), dtype=np.float32)
+    cdef cnp.float32_t[:, ::1] lambdaExpView = lambdaExp
+
+    cdef cnp.float32_t[:, ::1] stateForwardView = stateForward
+    cdef cnp.float32_t[:, :, ::1] stateCovarSmoothedView = stateCovarSmoothed
+    cdef cnp.float32_t[:, ::1] residualView = postFitResiduals
+
+    # inlined small matrices
+    cdef double f00 = <double>fView[0, 0]
+    cdef double f01 = <double>fView[0, 1]
+    cdef double f10 = <double>fView[1, 0]
+    cdef double f11 = <double>fView[1, 1]
+
+    cdef double q0_00 = <double>q0View[0, 0]
+    cdef double q0_01 = <double>q0View[0, 1]
+    cdef double q0_10 = <double>q0View[1, 0]
+    cdef double q0_11 = <double>q0View[1, 1]
+    cdef double detQ0 = (q0_00*q0_11 - q0_01*q0_10) # precomputed (used throughout EM for qScale update)
+    cdef double q0Inv00
+    cdef double q0Inv01
+    cdef double q0Inv10
+    cdef double q0Inv11
+    cdef MAT2 F
+    cdef MAT2 Ft
+    cdef MAT2 Q0inv
+    cdef double previousNLL = 1.0e16
+    cdef double currentNLL = 0.0
+    cdef double relImprovement = 0.0
+    cdef Py_ssize_t itersDone = 0
+    cdef double res
+    cdef double muncPlusPad
+    cdef double p00k
+    cdef double Rkj
+    cdef double rMed = 1.0
+    cdef double qMed = 1.0
+    cdef double x0, x1, y0, y1
+    cdef MAT2 Pk, Pk1, Ck_k1
+    cdef MAT2 expec_xx, expec_yy, expec_xy, expec_yx, expec_ww
+    cdef double trVal
+    cdef double u2
+    cdef double w
+    cdef double wMin = 1.0e-6
+    cdef double wMax = 1.0e6
+    cdef double tmpVal
+    cdef double sumU2
+    cdef double sumLam
+    cdef double sumLamU2
+    cdef Py_ssize_t nObs
+    cdef Py_ssize_t nTail4
+    cdef Py_ssize_t nTail9
+    cdef Py_ssize_t nTail16
+    cdef Py_ssize_t nClipMin
+    cdef Py_ssize_t nClipMax
+    cdef double meanU2
+    cdef double meanLam
+    cdef double meanLamU2
+    cdef double fracTail4
+    cdef double fracTail9
+    cdef double fracTail16
+    cdef double refU2
+    cdef double rHat
+    cdef double qHat
+    cdef double rRatio
+    cdef double qRatio
+    cdef double rRatioMin
+    cdef double rRatioMax
+    cdef double qRatioMin
+    cdef double qRatioMax
+    cdef double sumAbsLogRRatio
+    cdef double sumAbsLogQRatio
+    cdef Py_ssize_t nRRatio
+    cdef Py_ssize_t nQRatio
+    cdef Py_ssize_t nClipRLow
+    cdef Py_ssize_t nClipRHigh
+    cdef Py_ssize_t nClipQLow
+    cdef Py_ssize_t nClipQHigh
+    cdef double meanAbsLogRRatio
+    cdef double meanAbsLogQRatio
+    cdef double rMin
+    cdef double rMax
+    cdef double qMin
+    cdef double qMax
+    cdef double alphaQ
+    cdef Py_ssize_t nEmptyRBlocks
+    cdef Py_ssize_t nEmptyQBlocks
+    cdef Py_ssize_t minRCount
+    cdef Py_ssize_t maxRCount
+    cdef Py_ssize_t minQCount
+    cdef Py_ssize_t maxQCount
+    cdef double rMedRaw
+    cdef double qMedRaw
+    cdef double rMean
+    cdef double qMean
+
+    # check edge cases here once before loops
+    if intervalCount <= 5:
+        if returnIntermediates:
+            return (
+                rScaleArr, qScaleArr, 0, float(previousNLL),
+                stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals, lambdaExp
+            )
+        return (rScaleArr, qScaleArr, 0, float(previousNLL))
+
+    # validate dimensions and invertibility
+    if blockCount <= 0:
+        raise ValueError("blockCount must be positive")
+    if intervalToBlockMap.shape[0] < intervalCount:
+        raise ValueError("intervalToBlockMap length must match intervalCount")
+    if matrixPluginMuncInit.shape[0] != trackCount or matrixPluginMuncInit.shape[1] != intervalCount:
+        raise ValueError("matrixPluginMuncInit shape must match matrixData shape")
+    if detQ0 == 0.0:
+        raise ValueError("matrixQ0 is singular")
+
+    # Q0 inverse used in qScale update via trace Q0inv times E wwT
+    q0Inv00 = q0_11 / detQ0
+    q0Inv01 = -q0_01 / detQ0
+    q0Inv10 = -q0_10 / detQ0
+    q0Inv11 = q0_00 / detQ0
+
+    F = MAT2_make(f00, f01, f10, f11)
+    Ft = MAT2_transpose(F)
+    Q0inv = MAT2_make(q0Inv00, q0Inv01, q0Inv10, q0Inv11)
+
+    # expected value for u2 if residuals were truly t-distributed with df=EM_tNu
+    refU2 = (<double>EM_tNu) / ((<double>EM_tNu) - 2.0) if EM_tNu > 2.0 else 1.0e16
+
+    for i in range(EM_maxIters):
+        itersDone = i + 1
+        fprintf(stderr, "\n\t[cblockScaleEM] iter=%zd\n", itersDone)
+
+        # inner iterations update lambdaExp and then rerun the filter and smoother steps
+        for inner in range(t_innerIters):
+            cforwardPass(
+                matrixData=matrixData,
+                matrixPluginMuncInit=matrixPluginMuncInit,
+                matrixF=matrixF,
+                matrixQ0=matrixQ0,
+                intervalToBlockMap=intervalToBlockMap,
+                rScale=rScaleArr,
+                qScale=qScaleArr,
+                blockCount=blockCount,
+                stateInit=stateInit,
+                stateCovarInit=stateCovarInit,
+                covarClip=covarClip,
+                pad=pad,
+                projectStateDuringFiltering=False,
+                stateLowerBound=0.0,
+                stateUpperBound=0.0,
+                chunkSize=0,
+                stateForward=stateForward,
+                stateCovarForward=stateCovarForward,
+                pNoiseForward=pNoiseForward,
+                vectorD=None,
+                progressBar=None,
+                progressIter=0,
+                returnNLL=False,
+                storeNLLInD=False,
+                lambdaExp=lambdaExp,
+            )
+
+            stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPass(
+                matrixData=matrixData,
+                matrixF=matrixF,
+                stateForward=stateForward,
+                stateCovarForward=stateCovarForward,
+                pNoiseForward=pNoiseForward,
+                covarClip=covarClip,
+                chunkSize=0,
+                stateSmoothed=stateSmoothed,
+                stateCovarSmoothed=stateCovarSmoothed,
+                lagCovSmoothed=lagCovSmoothed,
+                postFitResiduals=postFitResiduals,
+                progressBar=None,
+                progressIter=0,
+            )
+
+            # u2 is squared (studentized) residual
+            sumU2 = 0.0
+            sumLam = 0.0
+            sumLamU2 = 0.0
+            nObs = 0
+            nTail4 = 0
+            nTail9 = 0
+            nTail16 = 0
+            nClipMin = 0
+            nClipMax = 0
+
+            with nogil:
+
+                for k in range(intervalCount):
+                    b = <Py_ssize_t>blockMapView[k]
+                    if b < 0 or b >= blockCount:
+                        continue
+
+                    p00k = <double>stateCovarSmoothedView[k, 0, 0]
+                    if p00k < 0.0:
+                        p00k = 0.0
+
+                    for j in range(trackCount):
+                        muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                        if muncPlusPad < clipSmall:
+                            muncPlusPad = clipSmall
+
+                        Rkj = (<double>rScaleView[b]) * muncPlusPad
+                        if Rkj < clipSmall:
+                            Rkj = clipSmall
+
+                        res = (<double>dataView[j, k]) - (<double>stateSmoothed[k, 0])
+                        tmpVal = (res*res + p00k)
+                        u2 = tmpVal / Rkj
+                        # Reweighting
+                        w = ((<double>EM_tNu) + 1.0) / ((<double>EM_tNu) + u2)
+                        if w < wMin:
+                            w = wMin
+                            if inner == (t_innerIters - 1):
+                                nClipMin += 1
+                        elif w > wMax:
+                            w = wMax
+                            if inner == (t_innerIters - 1):
+                                nClipMax += 1
+                        # lambdaExp = E[lambda | u2] = (nu+1) / (nu + u2), where u2 is the squared+studentized residual
+                        lambdaExpView[j, k] = <cnp.float32_t>w
+
+                        if inner == (t_innerIters - 1):
+                            # count up stats for tail probabilities
+                            sumU2 += u2
+                            sumLam += w
+                            sumLamU2 += (w * u2)
+                            nObs += 1
+                            if u2 > 4.0:
+                                nTail4 += 1
+                            if u2 > 9.0:
+                                nTail9 += 1
+                            if u2 > 16.0:
+                                nTail16 += 1
+
+            if inner == (t_innerIters - 1):
+                if nObs > 0:
+                    meanU2 = sumU2 / (<double>nObs)
+                    meanLam = sumLam / (<double>nObs)
+                    meanLamU2 = sumLamU2 / (<double>nObs)
+                    fracTail4 = (<double>nTail4) / (<double>nObs)
+                    fracTail9 = (<double>nTail9) / (<double>nObs)
+                    fracTail16 = (<double>nTail16) / (<double>nObs)
+                else:
+                    meanU2 = 0.0
+                    meanLam = 0.0
+                    meanLamU2 = 0.0
+                    fracTail4 = 0.0
+                    fracTail9 = 0.0
+                    fracTail16 = 0.0
+
+                fprintf(
+                    stderr,
+                    "\t[cblockScaleEM] (studentized) residual tails (nu=%.1f): "
+                    "P[|u| > 2] = %.6f,  P[|u| > 3] = %.6f,  P[|u| > 4] = %.6f,  "
+                    "\n",
+                    EM_tNu,
+                    fracTail4,
+                    fracTail9,
+                    fracTail16,
+                )
+
+        # Now we compute the _Gaussian_ NLL with the current lambdaExp as plug-in weights
+        currentNLL = (<double>cforwardPass(
+            matrixData=matrixData,
+            matrixPluginMuncInit=matrixPluginMuncInit,
+            matrixF=matrixF,
+            matrixQ0=matrixQ0,
+            intervalToBlockMap=intervalToBlockMap,
+            rScale=rScaleArr,
+            qScale=qScaleArr,
+            blockCount=blockCount,
+            stateInit=stateInit,
+            stateCovarInit=stateCovarInit,
+            covarClip=covarClip,
+            pad=pad,
+            projectStateDuringFiltering=False,
+            stateLowerBound=0.0,
+            stateUpperBound=0.0,
+            chunkSize=0,
+            stateForward=None,
+            stateCovarForward=None,
+            pNoiseForward=None,
+            vectorD=None,
+            progressBar=None,
+            progressIter=0,
+            returnNLL=True,
+            storeNLLInD=False,
+            lambdaExp=lambdaExp,
+        )[3])
+
+        relImprovement = (previousNLL - currentNLL) / (fabs(previousNLL) + 1.0)
+        previousNLL = currentNLL
+
+        fprintf(stderr, "\t[cblockScaleEM] NLL=%.6f  REL=%.6f\n", currentNLL, relImprovement)
+
+        if i > 0 and relImprovement >= 0.0 and relImprovement < <double>EM_rtol:
+            fprintf(stderr, "\t[cblockScaleEM] CONVERGED (REL) iter=%zd \n", itersDone)
+            break
+
+        # ---M step: update rScale[b] and qScale[b] per block b using smoothed moments and lambdaExp---
+        with nogil:
+            for b in range(blockCount):
+                rStatSumView[b] = 0.0
+                rWeightCountView[b] = 0
+                qStatSumView[b] = 0.0
+                qStatCountView[b] = 0
+
+            # rScale stats
+            for k in range(intervalCount):
+                b = <Py_ssize_t>blockMapView[k]
+                if b < 0 or b >= blockCount:
+                    continue
+
+                p00k = <double>stateCovarSmoothedView[k, 0, 0]
+                if p00k < 0.0:
+                    p00k = 0.0
+
+                for j in range(trackCount):
+                    res = <double>residualView[k, j]
+
+                    muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                    if muncPlusPad < clipSmall:
+                        muncPlusPad = clipSmall
+
+                    tmpVal = (res*res + p00k)
+                    w = <double>lambdaExpView[j, k]
+
+                    rStatSumView[b] += w * (tmpVal / muncPlusPad)
+                    rWeightCountView[b] += 1
+
+            # qScale stats
+            for k in range(intervalCount - 1):
+                b = <Py_ssize_t>blockMapView[k]
+                if b < 0 or b >= blockCount:
+                    continue
+
+                x0 = <double>stateSmoothed[k, 0]
+                x1 = <double>stateSmoothed[k, 1]
+                y0 = <double>stateSmoothed[k + 1, 0]
+                y1 = <double>stateSmoothed[k + 1, 1]
+
+                Pk = MAT2_make(
+                    <double>stateCovarSmoothed[k, 0, 0],
+                    <double>stateCovarSmoothed[k, 0, 1],
+                    <double>stateCovarSmoothed[k, 1, 0],
+                    <double>stateCovarSmoothed[k, 1, 1],
+                )
+
+                Pk1 = MAT2_make(
+                    <double>stateCovarSmoothed[k + 1, 0, 0],
+                    <double>stateCovarSmoothed[k + 1, 0, 1],
+                    <double>stateCovarSmoothed[k + 1, 1, 0],
+                    <double>stateCovarSmoothed[k + 1, 1, 1],
+                )
+                # Cross covariance between x[k] and x[k+1] from RTS smoother
+                # NOTE: this is not necessarily equal to P[k] * F^T (due to lag-one RTS correction term)
+                #       and so is preferred for a correct expected innovation covariance in the M-step
+                Ck_k1 = MAT2_make(
+                    <double>lagCovSmoothed[k, 0, 0],
+                    <double>lagCovSmoothed[k, 0, 1],
+                    <double>lagCovSmoothed[k, 1, 0],
+                    <double>lagCovSmoothed[k, 1, 1],
+                )
+
+                expec_xx = MAT2_add(Pk, MAT2_outer(x0, x1))
+                expec_yy = MAT2_add(Pk1, MAT2_outer(y0, y1))
+                expec_xy = MAT2_add(Ck_k1, MAT2_make(x0*y0, x0*y1, x1*y0, x1*y1))
+                expec_yx = MAT2_transpose(expec_xy)
+
+                expec_ww = expec_yy
+                expec_ww = MAT2_sub(expec_ww, MAT2_mul(expec_yx, Ft))
+                expec_ww = MAT2_sub(expec_ww, MAT2_mul(F, expec_xy))
+                expec_ww = MAT2_add(expec_ww, MAT2_mul(MAT2_mul(F, expec_xx), Ft))
+                expec_ww = MAT2_clipDiagNonneg(expec_ww)
+
+                trVal = MAT2_traceProd(Q0inv, expec_ww) / 2.0
+                if trVal < 0.0:
+                    trVal = 0.0
+
+                qStatSumView[b] += trVal
+                qStatCountView[b] += 1
+
+            nClipRLow = 0
+            nClipRHigh = 0
+            nClipQLow = 0
+            nClipQHigh = 0
+
+            # update scales then clip to multiplier bounds
+            for b in range(blockCount):
+                if rWeightCountView[b] > 0:
+                    rScaleView[b] = <cnp.float32_t>(rStatSumView[b] / (<double>rWeightCountView[b]))
+
+                if qStatCountView[b] > 0:
+                    qScaleView[b] = <cnp.float32_t>(qStatSumView[b] / (<double>qStatCountView[b]))
+
+                if rScaleView[b] < <cnp.float32_t>EM_scaleLOW:
+                    rScaleView[b] = <cnp.float32_t>EM_scaleLOW
+                    nClipRLow += 1
+                elif rScaleView[b] > <cnp.float32_t>EM_scaleHIGH:
+                    rScaleView[b] = <cnp.float32_t>EM_scaleHIGH
+                    nClipRHigh += 1
+
+                if qScaleView[b] < <cnp.float32_t>EM_scaleLOW:
+                    qScaleView[b] = <cnp.float32_t>EM_scaleLOW
+                    nClipQLow += 1
+                elif qScaleView[b] > <cnp.float32_t>EM_scaleHIGH:
+                    qScaleView[b] = <cnp.float32_t>EM_scaleHIGH
+                    nClipQHigh += 1
+
+            # smooth scales across blocks in log-space (EMA)
+            if EM_alphaEMA > 0.0 and EM_alphaEMA <= 1.0:
+                alphaQ = (<double>EM_alphaEMA) * (<double>EM_alphaEMA_Q)
+                if alphaQ > 1.0:
+                    alphaQ = 1.0
+                elif alphaQ < 0.0:
+                    alphaQ = 0.0
+
+                for b in range(blockCount):
+                    tmpVal = <double>rScaleView[b]
+                    if tmpVal < clipSmall:
+                        tmpVal = clipSmall
+                    rLogView[b] = log(tmpVal)
+
+                    tmpVal = <double>qScaleView[b]
+                    if tmpVal < clipSmall:
+                        tmpVal = clipSmall
+                    qLogView[b] = log(tmpVal)
+
+                if i == 0:
+                    for b in range(blockCount):
+                        rLogSmView[b] = rLogView[b]
+                        qLogSmView[b] = qLogView[b]
+                else:
+                    for b in range(blockCount):
+                        rLogSmView[b] = (1.0 - <double>EM_alphaEMA) * rLogSmView[b] + (<double>EM_alphaEMA) * rLogView[b]
+                        qLogSmView[b] = (1.0 - alphaQ) * qLogSmView[b] + alphaQ * qLogView[b]
+
+                for b in range(blockCount):
+                    rScaleView[b] = <cnp.float32_t>exp(rLogSmView[b])
+                    qScaleView[b] = <cnp.float32_t>exp(qLogSmView[b])
+
+        # summarize current scales and block coverage
+        rMin = 1.0e16
+        rMax = -1.0e16
+        qMin = 1.0e16
+        qMax = -1.0e16
+        rMean = 0.0
+        qMean = 0.0
+
+        nEmptyRBlocks = 0
+        nEmptyQBlocks = 0
+        minRCount = intervalCount * trackCount + 1
+        maxRCount = 0
+        minQCount = intervalCount + 1
+        maxQCount = 0
+
+        for b in range(blockCount):
+            if (<double>rScaleView[b]) < rMin:
+                rMin = <double>rScaleView[b]
+            if (<double>rScaleView[b]) > rMax:
+                rMax = <double>rScaleView[b]
+
+            if (<double>qScaleView[b]) < qMin:
+                qMin = <double>qScaleView[b]
+            if (<double>qScaleView[b]) > qMax:
+                qMax = <double>qScaleView[b]
+
+            rMean += <double>rScaleView[b]
+            qMean += <double>qScaleView[b]
+
+            if rWeightCountView[b] <= 0:
+                nEmptyRBlocks += 1
+            else:
+                if rWeightCountView[b] < minRCount:
+                    minRCount = rWeightCountView[b]
+                if rWeightCountView[b] > maxRCount:
+                    maxRCount = rWeightCountView[b]
+
+            if qStatCountView[b] <= 0:
+                nEmptyQBlocks += 1
+            else:
+                if qStatCountView[b] < minQCount:
+                    minQCount = qStatCountView[b]
+                if qStatCountView[b] > maxQCount:
+                    maxQCount = qStatCountView[b]
+
+        if blockCount > 0:
+            rMean = rMean / (<double>blockCount)
+            qMean = qMean / (<double>blockCount)
+        else:
+            rMean = 0.0
+            qMean = 0.0
+
+        rMedRaw = <double>_medianCopy_F32(<float*>&rScaleView[0], blockCount)
+        qMedRaw = <double>_medianCopy_F32(<float*>&qScaleView[0], blockCount)
+
+        fprintf(
+            stderr,
+            "\t[cblockScaleEM] scales: "
+            "r[med=%.6g mean=%.6g] "
+            "q[med=%.6g mean=%.6g]\n",
+            rMedRaw, rMean,
+            qMedRaw, qMean,
+        )
+
+        if minRCount > (intervalCount * trackCount):
+            minRCount = 0
+        if minQCount > intervalCount:
+            minQCount = 0
+
+        rRatioMin = 1.0e16
+        rRatioMax = -1.0e16
+        qRatioMin = 1.0e16
+        qRatioMax = -1.0e16
+        sumAbsLogRRatio = 0.0
+        sumAbsLogQRatio = 0.0
+        nRRatio = 0
+        nQRatio = 0
+
+        for b in range(blockCount):
+            if rWeightCountView[b] > 0 and (<double>rScaleView[b]) > 0.0:
+                rHat = rStatSumView[b] / (<double>rWeightCountView[b])
+                rRatio = rHat / (<double>rScaleView[b])
+                if rRatio < rRatioMin:
+                    rRatioMin = rRatio
+                if rRatio > rRatioMax:
+                    rRatioMax = rRatio
+                if rRatio > 0.0:
+                    sumAbsLogRRatio += fabs(log(rRatio))
+                nRRatio += 1
+
+            if qStatCountView[b] > 0 and (<double>qScaleView[b]) > 0.0:
+                qHat = qStatSumView[b] / (<double>qStatCountView[b])
+                qRatio = qHat / (<double>qScaleView[b])
+                if qRatio < qRatioMin:
+                    qRatioMin = qRatio
+                if qRatio > qRatioMax:
+                    qRatioMax = qRatio
+                if qRatio > 0.0:
+                    sumAbsLogQRatio += fabs(log(qRatio))
+                nQRatio += 1
+
+        if nRRatio > 0:
+            meanAbsLogRRatio = sumAbsLogRRatio / (<double>nRRatio)
+        else:
+            meanAbsLogRRatio = 0.0
+
+        if nQRatio > 0:
+            meanAbsLogQRatio = sumAbsLogQRatio / (<double>nQRatio)
+        else:
+            meanAbsLogQRatio = 0.0
+
+
+        # divide by block median so typical scale is near one
+        # ...voids EM guarantees but can improve interpretation
+        # ...of block-to-block scale comparisons
+        if EM_scaleToMedian:
+            rMed = <double>_medianCopy_F32(<float*>&rScaleView[0], blockCount)
+            qMed = <double>_medianCopy_F32(<float*>&qScaleView[0], blockCount)
+
+            if rMed > 0.0 or qMed > 0.0:
+                with nogil:
+                    if rMed > 0.0:
+                        for b in range(blockCount):
+                            rScaleView[b] = <cnp.float32_t>((<double>rScaleView[b]) / rMed)
+
+                    if qMed > 0.0:
+                        for b in range(blockCount):
+                            qScaleView[b] = <cnp.float32_t>((<double>qScaleView[b]) / qMed)
+
+    if returnIntermediates:
+        return (
+            rScaleArr, qScaleArr, itersDone, float(previousNLL),
+            stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals, lambdaExp
+        )
+
+    return (rScaleArr, qScaleArr, itersDone, float(previousNLL))
 
 
 cdef double cOtsu(
@@ -2494,7 +3433,7 @@ cpdef double cDenseMean(
     uint64_t seed=0,
     bint verbose = <bint>False,
 ):
-    r"""Estimate a 'dense' baseline to subtract from each replicate's transformed count track.
+    r"""Estimate a 'dense' baseline to subtract from each replicate's transformed count track
 
     If calling this function outside of the default implementation, note that the input is
     assumed to have been normalized by sequencing depth / library size and transformed to
@@ -2504,9 +3443,9 @@ cpdef double cDenseMean(
 
     .. math::
 
-      p(y) = \pi\, \mathcal{N}(y;\mu_1,\sigma_1^2) + (1-\pi)\,\mathcal{N}(y;\mu_2,\sigma_2^2).
+      p(y) = \pi \cdot \mathcal{N}(y;\,\mu_1,\sigma_1^2) + (1-\pi) \cdot \mathcal{N}(y;\,\mu_2,\sigma_2^2).
 
-    We maximize the likelihood with respect to $\mu_2 \geq \mu_1$ using an expectation-maximization routine.
+    We maximize the likelihood with respect to :math:`\mu_2 \geq \mu_1` using an expectation-maximization routine.
 
     **E-step**: For each observation :math:`y_i`, define
 
@@ -2525,8 +3464,8 @@ cpdef double cDenseMean(
     .. math::
 
       w_i = \exp(\ell_{i1} - \ell_i),
-        \qquad
-        1-w_i = \exp(\ell_{i2} - \ell_i).
+          \qquad
+          1-w_i = \exp(\ell_{i2} - \ell_i).
 
 
     **M-step**
@@ -2537,19 +3476,19 @@ cpdef double cDenseMean(
 
       W = \sum_{i=1}^n w_i, \qquad W' = \sum_{i=1}^n (1-w_i) = n - W.
 
-    Update
+    *Update*
 
     .. math::
 
-        \pi \leftarrow \frac{W}{n},
+      \pi \leftarrow \frac{W}{n},
 
     .. math::
 
-        \mu_1 \leftarrow \frac{\sum_{i=1}^n w_i y_i}{W},
-        \qquad
-        \mu_2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i}{W'},
+      \mu_1 \leftarrow \frac{\sum_{i=1}^n w_i y_i}{W},
+      \qquad
+      \mu_2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i}{W'},
 
-    (the order of the two components is swapped if $\mu_1 > \mu_2$) and
+    (the order of the two components is swapped if :math:`\mu_1 > \mu_2` ) and
 
     .. math::
 
@@ -2557,11 +3496,10 @@ cpdef double cDenseMean(
       \qquad
       \sigma_2^2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i^2}{W'} - \mu_2^2.
 
-    We enforce a minimum variance floor and a minimum / maximum value for $\pi$ for stability. Note, we force $\mu_1 \leq \mu_2$ by
-    swapping parameters accordingly after the M-step updates.
+    We enforce a variance floor and a minimum / maximum value for :math:`\pi` for stability.
 
     The returned value is the estimated 'dense' baseline :math:`\mu_2 \geq \mu_1`. This value is used
-    in conjunction with :func:`consenrich.cconsenrich.clocalBaseline` for centering replicates' transformed
+    in a weighted average with :func:`consenrich.cconsenrich.clocalBaseline` for centering replicates' transformed
     count tracks.
 
     """
@@ -2838,7 +3776,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
 
     This code aims for the notation and algorithm of Busing 2022 (JSS, ``DOI: 10.18637/jss.v102.c01``).
 
-    Key algorithmic insight:
+    From Busing:
 
         > Observe that the violation 8 = x3 > x4 = 2 is solved by combining two values, 8 and 2, resulting
         > in a (new) block value of 5, i.e., (8 + 2)/2 = 5. Instead of immediately turning
@@ -2933,174 +3871,6 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
         f = t - 1
 
     return predicted
-
-
-cpdef tuple cscaleStateCovar(
-    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals,
-    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixMunc,
-    cnp.ndarray[cnp.float32_t, ndim=1] stateVar0,
-    cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap,
-    Py_ssize_t blockCount,
-    float pad=1.0e-2,
-    float scaleFactorLow_=1.0,
-    float scaleFactorUpper_=10.0,
-    float sqResClip=100.0,
-    bint allowDeflate=False,
-    float clipSmall=1.0e-8,
-    double smoothAlpha=0.1,
-):
-    cdef cnp.float32_t[:, ::1] resView = postFitResiduals
-    cdef cnp.float32_t[:, ::1] muncView = matrixMunc
-    cdef cnp.float32_t[:] stateVarView = stateVar0
-    cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
-    cdef Py_ssize_t n = resView.shape[0]
-    cdef Py_ssize_t m = resView.shape[1]
-    cdef Py_ssize_t i, t
-    cdef Py_ssize_t currBlock = 0
-    cdef Py_ssize_t nextBlock
-    cdef Py_ssize_t numScalesInBlock = 0
-    cdef Py_ssize_t maxBlockLength = 0
-    cdef Py_ssize_t blockIntervals = 0
-    cdef double chi2Interval
-    cdef double residual
-    cdef double mVariance
-    cdef double totalVariance
-    cdef double invVar
-    cdef double studentizedResidual
-    cdef double sqRes
-    cdef float scaleFactor
-    cdef float median_
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockscaleFactorArr = np.ones(blockCount, dtype=np.float32)
-    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] blockNArr = np.zeros(blockCount, dtype=np.int32)
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] blockChi2Arr = np.zeros(blockCount, dtype=np.float32)
-    cdef cnp.float32_t[::1] blockscaleFactorView = blockscaleFactorArr
-    cdef cnp.int32_t[::1] blockNView = blockNArr
-    cdef cnp.float32_t[::1] blockChi2View = blockChi2Arr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] logScale = np.empty(blockCount, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] logScaleSm = np.empty(blockCount, dtype=np.float64)
-    cdef double[::1] logScaleView = logScale
-    cdef double[::1] logScaleSmView = logScaleSm
-    cdef double s_
-
-    maxBlockLength = 0
-    currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
-    blockIntervals = 0
-    for i in range(n):
-        nextBlock = <Py_ssize_t>blockMapView[i]
-        if nextBlock != currBlock:
-            if blockIntervals > maxBlockLength:
-                maxBlockLength = blockIntervals
-            blockIntervals = 0
-            currBlock = nextBlock
-        blockIntervals += 1
-    if blockIntervals > maxBlockLength:
-        maxBlockLength = blockIntervals
-    if maxBlockLength <= 0:
-        maxBlockLength = 1
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] calcBuffer = np.empty(maxBlockLength, dtype=np.float32)
-    cdef float[::1] bufferView = calcBuffer
-
-    currBlock = <Py_ssize_t>blockMapView[0] if n > 0 else 0
-
-
-    # numScalesInBlock is both the number of interval-level scale estimates in the current block
-    # ... and the index into bufferView to store them before computing the median
-    numScalesInBlock = 0
-
-    with nogil:
-        for i in range(n):
-            nextBlock = <Py_ssize_t>blockMapView[i]
-            if nextBlock != currBlock:
-                if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:
-                    median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)
-                    # block-level scale factor is the median of interval-level scale factors (over all tracks)
-                    scaleFactor = median_
-                    if (not allowDeflate) and (scaleFactor < 1.0):
-                        scaleFactor = 1.0
-                    if scaleFactor < scaleFactorLow_:
-                        scaleFactor = scaleFactorLow_
-                    elif scaleFactor > scaleFactorUpper_:
-                        scaleFactor = scaleFactorUpper_
-                    blockscaleFactorView[currBlock] = scaleFactor
-                    blockNView[currBlock] = <cnp.int32_t>numScalesInBlock
-                numScalesInBlock = 0
-                currBlock = nextBlock
-
-
-            chi2Interval = 0.0
-            for t in range(m):
-                residual = <double>resView[i, t]
-                mVariance = <double>muncView[t, i]
-                # P_[i,00] + R_[i,jj] + pad
-                totalVariance = mVariance + (<double>stateVarView[i]) + (<double>pad)
-                if totalVariance < (<double>clipSmall):
-                    totalVariance = <double>clipSmall
-                invVar = 1.0 / totalVariance
-                # makes sense for the innovations, not so much post-smooth
-                studentizedResidual = residual*sqrt(invVar)
-                sqRes = studentizedResidual*studentizedResidual
-                if sqRes > (<double>sqResClip):
-                    sqRes = <double>sqResClip
-                chi2Interval = chi2Interval + sqRes
-
-            #  check bounds in case interval-->block map from optimization ends up here
-            if currBlock >= 0 and currBlock < blockCount:
-                scaleFactor = <float>(chi2Interval / (<double>m))
-                if numScalesInBlock >= maxBlockLength:
-                    with gil:
-                        raise RuntimeError("Overflow: is intervalToBlockMap correct?")
-                bufferView[numScalesInBlock] = scaleFactor
-                numScalesInBlock += 1
-                blockChi2View[currBlock] += <cnp.float32_t>chi2Interval
-
-        if numScalesInBlock > 0 and currBlock >= 0 and currBlock < blockCount:
-            median_ = _quantileInplaceF32(&bufferView[0], numScalesInBlock, <float>0.5)
-            scaleFactor = median_
-            if (not allowDeflate) and (scaleFactor < 1.0):
-                scaleFactor = 1.0
-            if scaleFactor < scaleFactorLow_:
-                scaleFactor = scaleFactorLow_
-            elif scaleFactor > scaleFactorUpper_:
-                scaleFactor = scaleFactorUpper_
-            blockscaleFactorView[currBlock] = scaleFactor
-            blockNView[currBlock] = <cnp.int32_t>numScalesInBlock
-
-    if blockCount > 1 and smoothAlpha > 0.0:
-        # smooth over blocks in log-space to prevent kinks
-        if smoothAlpha > 1.0:
-            smoothAlpha = 1.0
-
-        with nogil:
-            # log-scale
-            for i in range(blockCount):
-                scaleFactor = blockscaleFactorView[i]
-                if (not allowDeflate) and (scaleFactor < 1.0):
-                    scaleFactor = 1.0
-                if scaleFactor < scaleFactorLow_:
-                    scaleFactor = scaleFactorLow_
-                elif scaleFactor > scaleFactorUpper_:
-                    scaleFactor = scaleFactorUpper_
-                if scaleFactor < clipSmall:
-                    scaleFactor = clipSmall
-                logScaleView[i] = log(<double>scaleFactor)
-
-            _cEMA(<const double*>&logScaleView[0], <double*>&logScaleSmView[0], blockCount, smoothAlpha)
-
-            for i in range(blockCount):
-                # make sure our bounds are still in check AFTER cEMA
-                s_ = exp(logScaleSmView[i])
-                scaleFactor = <float>s_
-                if (not allowDeflate) and (scaleFactor < 1.0):
-                    scaleFactor = 1.0
-                if scaleFactor < scaleFactorLow_:
-                    scaleFactor = scaleFactorLow_
-                elif scaleFactor > scaleFactorUpper_:
-                    scaleFactor = scaleFactorUpper_
-                blockscaleFactorView[i] = scaleFactor
-
-    return (blockscaleFactorArr, blockNArr, blockChi2Arr)
 
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
@@ -3803,10 +4573,6 @@ cpdef cnp.ndarray locBaselineMasked_F64(cnp.ndarray in_, cnp.ndarray fitMaskIn, 
     cdef Py_ssize_t i
     cdef double wi_F64
 
-    # solve for `b` to  minimize [(W^(1/2)(y-b))^T (W^(1/2)(y-b))] + [lambda (D b)^T (D b)]
-    #  where W is diagonal with wi = 1 if fitMask[i] else 0
-    #  and lambda,D penalize second-order differences in the baseline estimate `b`
-
     y = np.ascontiguousarray(in_, dtype=np.float64)
     fitMask = np.ascontiguousarray(fitMaskIn, dtype=np.uint8)
     y_F64 = y
@@ -4152,7 +4918,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
         double cauchyScale=<double>(3.0),
         int maxIters=<int>(25),
         double minWeight=<double>(1.0e-6),
-        double tol=<double>(1.0e-2)):
+        double tol=<double>(1.0e-3)):
     r"""Estimate a *local* baseline on `x` with a lower/smooth envelope via IRLS
 
     Compute a locally smooth baseline :math:`\hat{b}` for an input signal :math:`y`,
@@ -4226,10 +4992,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
     if (blockSize & 1) == 0:
         blockSize += 1
 
-    # lambda_ is set so the gain is about 1/5 (and decreasing) for frequencies greater than 1/blockSize,
+    # lambda_ is set so the gain is about 1/8 (and decreasing) for frequencies greater than 1/blockSize,
     # ... so that the baseline is smooth at scales smaller than blockSize but can follow larger-scale trends
     w_ = blockSize * 0.15915494
-    lambda_ = (w_ * w_ * w_ * w_)*4.0
+    lambda_ = (w_ * w_ * w_ * w_)*7.0
 
     if useIRLS == False:
         return np.zeros(n, dtype=np.float32)
@@ -4284,7 +5050,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] clocalBaseline(
 
         # For current weights, W, solve (LDL) for a baseline `b` to minimize:
         # [(W^(1/2)(y-b))^T (W^(1/2)(y-b))] + [lambda (D b)^T (D b)]
-        # (D is the second-difference operator, so the second term penalizes non-smoothness in `b`)
+        # (D is the second-difference operator, so the second term penalizes ~jumps~ in `b`)
         with nogil:
             _solveBaselineWeightedInplaceF64(
                 yPtr, wPtr, n,

@@ -38,6 +38,7 @@ Note that many parameters are documented here for *completeness* and do not need
 .. autofunction:: consenrich.core.constructMatrixF
 .. autofunction:: consenrich.core.constructMatrixQ
 .. autofunction:: consenrich.core.constructMatrixH
+.. autofunction:: consenrich.core.autoDeltaF
 
 ``consenrich.detrorm``
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -77,7 +78,6 @@ Cython functions: ``consenrich.cconsenrich``
 Several computationally burdensome tasks are implemented in cython:
 
 .. autofunction:: consenrich.cconsenrich.creadBamSegment
-.. autofunction:: consenrich.cconsenrich.updateProcessNoiseCovariance
 .. autofunction:: consenrich.cconsenrich.csampleBlockStats
 .. autofunction:: consenrich.cconsenrich.cgetFragmentLength
 .. autofunction:: consenrich.cconsenrich.cTransform
@@ -86,6 +86,7 @@ Several computationally burdensome tasks are implemented in cython:
 .. autofunction:: consenrich.cconsenrich.cPAVA
 .. autofunction:: consenrich.cconsenrich.cforwardPass
 .. autofunction:: consenrich.cconsenrich.cbackwardPass
+.. autofunction:: consenrich.cconsenrich.cblockScaleEM
 .. autofunction:: consenrich.cconsenrich.cEMA
 .. autofunction:: consenrich.cconsenrich.cmeanVarPairs
 .. autofunction:: consenrich.cconsenrich.projectToBox
