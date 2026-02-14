@@ -869,7 +869,7 @@ def constructMatrixQ(
     Q[1, 1] = np.float32(minDiagQ if Q11 is None else Q11)
 
     if Q11 is None:
-        Q[1, 1] = Q[0, 0] / 4.0
+        Q[1, 1] = Q[0, 0] / 8.0
 
     if Q01 is not None and Q10 is None:
         Q10 = Q01
@@ -952,29 +952,26 @@ def runConsenrich(
     jackknifeEM_maxIters: int = 5,
     jackknifeEM_rtol: float = 1.0e-2,
 ):
-    r"""Run Consenrich to estimate a consensus epigenomic signal from multiple replicate tracks' HTS data
+    r"""Run Consenrich over contiguous genomic intervals
 
-    Consenrich estimates a consensus epigenomic signal from multiple replicate tracks'
-    HTS data.
+    Consenrich estimates a consensus epigenomic signal from multiple replicate tracks' HTS data.
 
-    Consenrich also provides positional uncertainty quantification by propagating variance in a Kalman filter-smoother
-    setup. Observation and process noise scales are calibrated blockwise with a robust Gaussian
-    scale-mixture EM routine, and positional jackknife resampling-based standard errors can also be computed
-    to address genome-wide sampling variability across replicates.
+    Consenrich provides positional uncertainty quantification by propagating variance in a Kalman
+    filter-smoother setup. Observation and process noise scales are calibrated blockwise using a
+    Student-t Gaussian scale-mixture routine with precision-multipliers for both
 
-    This function is a Python wrapper around these Cython routines:
+    * observation residuals: ``lambdaExp[j,k]`` (conditional measurement variance is ``R[j,k]/lambdaExp[j,k]``)
+    * process innovations:  ``processPrecExp[k]`` (conditional process covariance is ``Q[k]/processPrecExp[k]``)
 
-    1. :func:`consenrich.cconsenrich.cblockScaleEM`: calibrate blockwise noise scales
-    (observation and process) using a robust Gaussian scale-mixture EM routine.
+    This wrapper ties together several fundamental routines written in Cython:
 
-    2. :func:`consenrich.cconsenrich.cforwardPass`: Kalman filter (forward pass).
+    #. :func:`consenrich.cconsenrich.cforwardPass`: Kalman filter using the final weights when
+       calibration is enabled.
 
-    3. :func:`consenrich.cconsenrich.cbackwardPass`: RTS smoother (backward pass).
+    #. :func:`consenrich.cconsenrich.cbackwardPass`: RTS smoother.
 
-    The data-derived observation noise covariances encoded in ``matrixMunc`` are produced with
-    :func:`consenrich.core.getMuncTrack`. The transformed/normalized input data
-    ``matrixData`` is produced with :func:`consenrich.cconsenrich.cTransform`, etc.
-
+    #. :func:`consenrich.cconsenrich.cblockScaleEM`: fit blockwise noise scales and infer
+       precision multipliers for the final inference pass.
 
 
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`,
@@ -1009,24 +1006,151 @@ def runConsenrich(
         np.int32
     )
     intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
-
     matrixF = constructMatrixF(float(deltaF)).astype(np.float32, copy=False)
     matrixQ0 = constructMatrixQ(float(minQ), offDiagQ=float(offDiagQ)).astype(
         np.float32, copy=False
     )
 
-    # Forward/backward run for fixed noise scales
+    clipSmall = float(10.0 ** (-float(covarClip)))
+    wMin = 1.0e-4
+    wMax = 1.0e6
+    kappaMin_ = 1.0e-2
+    kappaMax_ = 1.0e6
+
+    def _getTWeights(
+        matrixDataLocal: np.ndarray,
+        matrixMuncLocal: np.ndarray,
+        rScaleLocal: np.ndarray,
+        qScaleLocal: np.ndarray,
+        stateSmoothedLocal: np.ndarray,
+        stateCovarSmoothedLocal: np.ndarray,
+        lagCovSmoothedLocal: np.ndarray,
+    ):
+        rScaleLocal = np.asarray(rScaleLocal, dtype=np.float32)
+        qScaleLocal = np.asarray(qScaleLocal, dtype=np.float32)
+        x = np.asarray(stateSmoothedLocal, dtype=np.float32)
+        P = np.asarray(stateCovarSmoothedLocal, dtype=np.float32)
+        C = np.asarray(lagCovSmoothedLocal, dtype=np.float32)
+
+        # Q0 inverse (2x2 closed form)
+        Q0 = np.asarray(matrixQ0, dtype=np.float64)
+        detQ0 = float(Q0[0, 0] * Q0[1, 1] - Q0[0, 1] * Q0[1, 0])
+        if detQ0 == 0.0:
+            raise ValueError("matrixQ0 is singular")
+        Q0inv = np.array(
+            [
+                [Q0[1, 1] / detQ0, -Q0[0, 1] / detQ0],
+                [-Q0[1, 0] / detQ0, Q0[0, 0] / detQ0],
+            ],
+            dtype=np.float64,
+        )
+
+        F = np.asarray(matrixF, dtype=np.float64)
+        Ft = F.T
+
+        lambdaExpLocal = np.empty(
+            (matrixDataLocal.shape[0], matrixDataLocal.shape[1]), dtype=np.float32
+        )
+        processPrecExpLocal = np.ones(matrixDataLocal.shape[1], dtype=np.float32)
+
+        # observation noise scale reweighting
+        for k in range(n):
+            b = int(intervalToBlockMap[k])
+            if b < 0 or b >= blockCount:
+                continue
+
+            p00 = float(P[k, 0, 0])
+            if p00 < 0.0:
+                p00 = 0.0
+
+            x0 = float(x[k, 0])
+            rScaleB = float(rScaleLocal[b])
+            if rScaleB < clipSmall:
+                rScaleB = clipSmall
+
+            base = matrixMuncLocal[:, k].astype(np.float64, copy=False) + float(pad)
+            base[base < clipSmall] = clipSmall
+            R = rScaleB * base
+            R[R < clipSmall] = clipSmall
+
+            res = matrixDataLocal[:, k].astype(np.float64, copy=False) - x0
+            u2 = (res * res + p00) / R
+
+            w = (float(EM_tNu) + 1.0) / (float(EM_tNu) + u2)
+            w[w < wMin] = wMin
+            w[w > wMax] = wMax
+
+            lambdaExpLocal[:, k] = w.astype(np.float32, copy=False)
+
+        # process noise scale reweighting
+        # processPrecExp[0] = 1
+        # processPrecExp[k+1] corresponds to transition k --> k+1
+        dState = 2.0
+        processPrecExpLocal[0] = np.float32(1.0)
+        procNu = 2.0 * float(EM_tNu)
+
+        for k in range(n - 1):
+            b = int(intervalToBlockMap[k])
+            if b < 0 or b >= blockCount:
+                processPrecExpLocal[k + 1] = np.float32(1.0)
+                continue
+
+            qScaleB = float(qScaleLocal[b])
+            if qScaleB < clipSmall:
+                qScaleB = clipSmall
+
+            xk = x[k, :].astype(np.float64, copy=False)
+            xk1 = x[k + 1, :].astype(np.float64, copy=False)
+
+            Pk = P[k, :, :].astype(np.float64, copy=False)
+            Pk1 = P[k + 1, :, :].astype(np.float64, copy=False)
+            Ck = C[k, :, :].astype(np.float64, copy=False)
+
+            Exx = Pk + np.outer(xk, xk)
+            Eyy = Pk1 + np.outer(xk1, xk1)
+            Exy = Ck + np.outer(xk, xk1)
+            Eyx = Exy.T
+
+            Eww = Eyy - Eyx @ Ft - F @ Exy + F @ Exx @ Ft
+
+            if Eww[0, 0] < 0.0:
+                Eww[0, 0] = 0.0
+            if Eww[1, 1] < 0.0:
+                Eww[1, 1] = 0.0
+
+            # simplified quadratic form for Student-t scale-mixture update of process precision multiplier
+            delta = float(np.trace(Q0inv @ Eww))
+            if delta < 0.0:
+                delta = 0.0
+
+            # Student-t scale-mixture identity for process precisions
+            # kappa_k = (procNu + d) / (procNu + delta / qScale[b(k)])
+            # FFR: match var names in cython
+            kappa = (procNu + dState) / (procNu + (delta / qScaleB))
+            if kappa < kappaMin_:
+                kappa = kappaMin_
+            elif kappa > kappaMax_:
+                kappa = kappaMax_
+
+            processPrecExpLocal[k + 1] = np.float32(kappa)
+
+        return lambdaExpLocal, processPrecExpLocal
+
     def _run_passes_for_matrix(
         matrixDataLocal: np.ndarray,
         matrixMuncLocal: np.ndarray,
         rScale: np.ndarray,
         qScale: np.ndarray,
+        lambdaExp: np.ndarray | None = None,
+        processPrecExp: np.ndarray | None = None,
     ):
+        # Forward pass buffers
         stateForward = np.empty((n, 2), dtype=np.float32)
         stateCovarForward = np.empty((n, 2, 2), dtype=np.float32)
         pNoiseForward = np.empty((n, 2, 2), dtype=np.float32)
         vectorD = np.empty(n, dtype=np.float32)
 
+        # Filter (forward pass) with optional plug-in precision multipliers
         phiHat, _, vectorD, sumNLL = cconsenrich.cforwardPass(
             matrixData=matrixDataLocal,
             matrixPluginMuncInit=matrixMuncLocal,
@@ -1052,9 +1176,12 @@ def runConsenrich(
             progressIter=0,
             returnNLL=True,
             storeNLLInD=False,
+            lambdaExp=lambdaExp,
+            processPrecExp=processPrecExp,
         )
 
-        stateSmoothed, stateCovarSmoothed, _, postFitResiduals = (
+        # RTS smoother (backward pass)
+        stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
             cconsenrich.cbackwardPass(
                 matrixData=matrixDataLocal,
                 matrixF=matrixF,
@@ -1078,10 +1205,14 @@ def runConsenrich(
             sumNLL,
             stateSmoothed,
             stateCovarSmoothed,
+            lagCovSmoothed,
             postFitResiduals,
             NIS,
             intervalToBlockMap,
         )
+
+    lambdaExp_final = None
+    processPrecExp_final = None
 
     if disableCalibration:
         rScale = np.ones(blockCount, dtype=np.float32)
@@ -1100,7 +1231,8 @@ def runConsenrich(
             bool(EM_scaleToMedian),
         )
 
-        rScale, qScale, emItersDone, emNLL = cconsenrich.cblockScaleEM(
+        # Fit scales and get intermediates for final pass
+        EM_out = cconsenrich.cblockScaleEM(
             matrixData=matrixData,
             matrixPluginMuncInit=matrixMunc,
             matrixF=matrixF,
@@ -1118,24 +1250,66 @@ def runConsenrich(
             EM_alphaEMA=float(EM_alphaEMA),
             EM_scaleToMedian=bool(EM_scaleToMedian),
             EM_tNu=float(EM_tNu),
-            returnIntermediates=False,
+            returnIntermediates=True,
         )
 
+        if len(EM_out) == 9:
+            (
+                rScale,
+                qScale,
+                EMItersDone,
+                EMNLL,
+                EMStateSm,
+                EMCovSm,
+                EMLagCovSm,
+                EMResid,
+                lambdaExp_EM,
+            ) = EM_out
+
+            lambdaExp_final, processPrecExp_final = _getTWeights(
+                matrixDataLocal=matrixData,
+                matrixMuncLocal=matrixMunc,
+                rScaleLocal=rScale,
+                qScaleLocal=qScale,
+                stateSmoothedLocal=EMStateSm,
+                stateCovarSmoothedLocal=EMCovSm,
+                lagCovSmoothedLocal=EMLagCovSm,
+            )
+        elif len(EM_out) == 10:
+            (
+                rScale,
+                qScale,
+                EMItersDone,
+                EMNLL,
+                EMStateSm,
+                EMCovSm,
+                EMLagCovSm,
+                EMResid,
+                lambdaExp_EM,
+                processPrecExp_EM,
+            ) = EM_out
+            lambdaExp_final = np.asarray(lambdaExp_EM, dtype=np.float32)
+            processPrecExp_final = np.asarray(processPrecExp_EM, dtype=np.float32)
+        else:
+            raise ValueError(f"Unexpected cblockScaleEM return length: {len(EM_out)}")
+
         logger.info(
-            "EM summary: iters=%d EM_NLL=%.6g rScale[median=%.6g mean=%.6g] qScale[median=%.6g mean=%.6g]",
-            int(emItersDone),
-            float(emNLL),
+            "\nEM summary: iters=%d EM_NLL=%.6g rScale[median=%.6g mean=%.6g] qScale[median=%.6g mean=%.6g]\n",
+            int(EMItersDone),
+            float(EMNLL),
             float(np.median(rScale)),
             float(np.mean(rScale)),
             float(np.median(qScale)),
             float(np.mean(qScale)),
         )
 
+    # Final pass also uses the reweighted precisions
     (
         phiHat,
         sumNLL,
         stateSmoothed,
         stateCovarSmoothed,
+        _lagCovSmoothed,
         postFitResiduals,
         NIS,
         intervalToBlockMap,
@@ -1144,6 +1318,8 @@ def runConsenrich(
         matrixMuncLocal=matrixMunc,
         rScale=rScale,
         qScale=qScale,
+        lambdaExp=lambdaExp_final,
+        processPrecExp=processPrecExp_final,
     )
 
     logger.info("Forward/backward done: sumNLL=%.6g", float(sumNLL))
@@ -1152,7 +1328,6 @@ def runConsenrich(
     outStateCovarSmoothed = np.asarray(stateCovarSmoothed, dtype=np.float32)
     outPostFitResiduals = np.asarray(postFitResiduals, dtype=np.float32)
 
-    # For jackknife influence calculations, we need the full fit's state estimates as a reference
     fullState0 = outStateSmoothed[:, 0].astype(np.float64, copy=False)
 
     outTrack4 = NIS
@@ -1167,7 +1342,6 @@ def runConsenrich(
         meanLOO_x0 = np.zeros(n, dtype=np.float64)
         M2LOO_x0 = np.zeros(n, dtype=np.float64)
 
-        # Per-replicate influence scores (one scalar per replicate)
         influenceMeanAbs = np.empty(m, dtype=np.float64)
         influenceRMS = np.empty(m, dtype=np.float64)
         influenceMaxAbs = np.empty(m, dtype=np.float64)
@@ -1182,68 +1356,115 @@ def runConsenrich(
             keepMask = np.ones(m, dtype=bool)
             keepMask[i] = False
 
-            matrixDataLoo = np.ascontiguousarray(
+            matrixDataLOO = np.ascontiguousarray(
                 matrixData[keepMask, :], dtype=np.float32
             )
-            matrixMuncLoo = np.ascontiguousarray(
+            matrixMuncLOO = np.ascontiguousarray(
                 matrixMunc[keepMask, :], dtype=np.float32
             )
 
+            lambdaExp_LOO = None
+            processPrecExp_LOO = None
+
             if disableCalibration:
-                rScaleLoo = np.ones(blockCount, dtype=np.float32)
-                qScaleLoo = np.ones(blockCount, dtype=np.float32)
+                rScaleLOO = np.ones(blockCount, dtype=np.float32)
+                qScaleLOO = np.ones(blockCount, dtype=np.float32)
                 logger.info("  LOO calibration disabled: using rScale=qScale=1.")
             else:
-                rScaleLoo, qScaleLoo, emItersDoneLoo, emNLLLoo = (
-                    cconsenrich.cblockScaleEM(
-                        matrixData=matrixDataLoo,
-                        matrixPluginMuncInit=matrixMuncLoo,
-                        matrixF=matrixF,
-                        matrixQ0=matrixQ0,
-                        intervalToBlockMap=intervalToBlockMap,
-                        blockCount=int(blockCount),
-                        stateInit=float(stateInit),
-                        stateCovarInit=float(stateCovarInit),
-                        EM_maxIters=int(jackknifeEM_maxIters),
-                        EM_rtol=float(jackknifeEM_rtol),
-                        covarClip=float(covarClip),
-                        pad=float(pad),
-                        EM_scaleLOW=float(EM_scaleLOW),
-                        EM_scaleHIGH=float(EM_scaleHIGH),
-                        EM_alphaEMA=float(EM_alphaEMA),
-                        EM_scaleToMedian=bool(EM_scaleToMedian),
-                        EM_tNu=float(EM_tNu),
-                        returnIntermediates=False,
-                    )
+                EM_out_LOO = cconsenrich.cblockScaleEM(
+                    matrixData=matrixDataLOO,
+                    matrixPluginMuncInit=matrixMuncLOO,
+                    matrixF=matrixF,
+                    matrixQ0=matrixQ0,
+                    intervalToBlockMap=intervalToBlockMap,
+                    blockCount=int(blockCount),
+                    stateInit=float(stateInit),
+                    stateCovarInit=float(stateCovarInit),
+                    EM_maxIters=int(jackknifeEM_maxIters),
+                    EM_rtol=float(jackknifeEM_rtol),
+                    covarClip=float(covarClip),
+                    pad=float(pad),
+                    EM_scaleLOW=float(EM_scaleLOW),
+                    EM_scaleHIGH=float(EM_scaleHIGH),
+                    EM_alphaEMA=float(EM_alphaEMA),
+                    EM_scaleToMedian=bool(EM_scaleToMedian),
+                    EM_tNu=float(EM_tNu),
+                    returnIntermediates=True,
                 )
+
+                if len(EM_out_LOO) == 9:
+                    (
+                        rScaleLOO,
+                        qScaleLOO,
+                        EMItersDoneLOO,
+                        EMNLLLOO,
+                        EMStateSmLOO,
+                        EMCovSmLOO,
+                        EMLagCovSmLOO,
+                        EMResidLOO,
+                        lambdaExp_EM_LOO,
+                    ) = EM_out_LOO
+                    lambdaExp_LOO, processPrecExp_LOO = _getTWeights(
+                        matrixDataLocal=matrixDataLOO,
+                        matrixMuncLocal=matrixMuncLOO,
+                        rScaleLocal=rScaleLOO,
+                        qScaleLocal=qScaleLOO,
+                        stateSmoothedLocal=EMStateSmLOO,
+                        stateCovarSmoothedLocal=EMCovSmLOO,
+                        lagCovSmoothedLocal=EMLagCovSmLOO,
+                    )
+                elif len(EM_out_LOO) == 10:
+                    (
+                        rScaleLOO,
+                        qScaleLOO,
+                        EMItersDoneLOO,
+                        EMNLLLOO,
+                        EMStateSmLOO,
+                        EMCovSmLOO,
+                        EMLagCovSmLOO,
+                        EMResidLOO,
+                        lambdaExp_EM_LOO,
+                        processPrecExp_EM_LOO,
+                    ) = EM_out_LOO
+                    lambdaExp_LOO = np.asarray(lambdaExp_EM_LOO, dtype=np.float32)
+                    processPrecExp_LOO = np.asarray(
+                        processPrecExp_EM_LOO, dtype=np.float32
+                    )
+                else:
+                    raise ValueError(
+                        f"Unexpected cblockScaleEM LOO return length: {len(EM_out_LOO)}"
+                    )
+
                 logger.info(
                     "  LOO EM: iters=%d EM_NLL=%.6g rScale[median=%.6g] qScale[median=%.6g]",
-                    int(emItersDoneLoo),
-                    float(emNLLLoo),
-                    float(np.median(rScaleLoo)),
-                    float(np.median(qScaleLoo)),
+                    int(EMItersDoneLOO),
+                    float(EMNLLLOO),
+                    float(np.median(rScaleLOO)),
+                    float(np.median(qScaleLOO)),
                 )
 
             (
                 _,
                 _,
-                looStateSmoothed,
+                LOOStateSmoothed,
+                _,
                 _,
                 _,
                 _,
                 _,
             ) = _run_passes_for_matrix(
-                matrixDataLocal=matrixDataLoo,
-                matrixMuncLocal=matrixMuncLoo,
-                rScale=rScaleLoo,
-                qScale=qScaleLoo,
+                matrixDataLocal=matrixDataLOO,
+                matrixMuncLocal=matrixMuncLOO,
+                rScale=rScaleLOO,
+                qScale=qScaleLOO,
+                lambdaExp=lambdaExp_LOO,
+                processPrecExp=processPrecExp_LOO,
             )
 
-            LOO_x0 = np.asarray(looStateSmoothed, dtype=np.float32)[:, 0].astype(
+            LOO_x0 = np.asarray(LOOStateSmoothed, dtype=np.float32)[:, 0].astype(
                 np.float64, copy=False
             )
 
-            # per-replicate average influence scores (compare LOO to full fit)
             diff0 = LOO_x0 - fullState0
             meanAbs = float(np.mean(np.abs(diff0)))
             rms = float(np.sqrt(np.mean(diff0 * diff0)))
@@ -1261,42 +1482,25 @@ def runConsenrich(
                 maxAbs,
             )
 
-            # update jackknife mean and second moment online
-            k = float(i + 1)
-            delta = LOO_x0 - meanLOO_x0
-            meanLOO_x0 += delta / k
-            delta2 = LOO_x0 - meanLOO_x0
-            M2LOO_x0 += delta * delta2
+            kk = float(i + 1)
+            d = LOO_x0 - meanLOO_x0
+            meanLOO_x0 += d / kk
+            d2 = LOO_x0 - meanLOO_x0
+            M2LOO_x0 += d * d2
 
-        # Summary over per-replicate influence scores
-        logger.info(
-            "Influence summary (meanAbs): median=%.6g mean=%.6g max=%.6g",
-            float(np.median(influenceMeanAbs)),
-            float(np.mean(influenceMeanAbs)),
-            float(np.max(influenceMeanAbs)),
-        )
         logger.info(
             "Influence summary (RMS):     median=%.6g mean=%.6g max=%.6g",
             float(np.median(influenceRMS)),
             float(np.mean(influenceRMS)),
             float(np.max(influenceRMS)),
         )
-        logger.info(
-            "Influence summary (maxAbs):  median=%.6g mean=%.6g max=%.6g",
-            float(np.median(influenceMaxAbs)),
-            float(np.mean(influenceMaxAbs)),
-            float(np.max(influenceMaxAbs)),
-        )
 
-        # Jackknife variance: (m-1)/m * sum_i (theta_(i) - mean(theta_))^2
         jackknifeVar0 = ((m - 1.0) / float(m)) * M2LOO_x0
         jackknifeVar0 = jackknifeVar0.astype(np.float32, copy=False)
-
-        # Convert to standard error track (same units as x[:,0])
         jackknife_SE = np.sqrt(jackknifeVar0, dtype=np.float32)
 
         logger.info(
-            "Jackknife: SE track ready (length n=%d). se[median=%.6g mean=%.6g max=%.6g]",
+            "Jackknife: SE track (length n=%d). se[median=%.6g mean=%.6g max=%.6g]",
             int(n),
             float(np.median(jackknife_SE)),
             float(np.mean(jackknife_SE)),
@@ -1306,7 +1510,6 @@ def runConsenrich(
             "Jackknife: swapping 4th return value from NIS --> positional jackknife SE (x[:,0])."
         )
 
-        # When applyJackknife=True, swap to a positional jackknife SE track (per interval)
         outTrack4 = jackknife_SE
 
     if boundState:
@@ -1320,6 +1523,7 @@ def runConsenrich(
         )
         post_clip_min = float(np.min(outStateSmoothed[:, 0]))
         post_clip_max = float(np.max(outStateSmoothed[:, 0]))
+
     if returnScales:
         logger.info(
             "Returning with scales: track4=%s",
@@ -1379,11 +1583,11 @@ def sparseIntersection(
     :param chromosome: The chromosome name.
     :type chromosome: str
     :param intervals: The genomic intervals to consider.
-    :type intervals: np.ndarray
+    :type intervals: npt.NDArray[np.int64]
     :param sparseBedFile: Path to the sparse BED file.
     :type sparseBedFile: str
     :return: A numpy array of start positions of the sparse features that overlap with the intervals
-    :rtype: np.ndarray[Tuple[Any], np.dtype[Any]]
+    :rtype: npt.NDArray[np.int64]
     """
 
     intervalSizeBP: int = intervals[1] - intervals[0]
@@ -1506,7 +1710,7 @@ def autoDeltaF(
         and len(fragmentLengths) > 0
         and all(isinstance(x, (int, float)) for x in fragmentLengths)
     ):
-        medFragLen = float(np.median(fragmentLengths))
+        medFragLen = float(stats.trim_mean(fragmentLengths, proportiontocut=0.1))
     elif bamFiles is not None and len(bamFiles) > 0:
         fragmentLengths_ = []
         for bamFile in bamFiles:
@@ -1516,9 +1720,9 @@ def autoDeltaF(
                 randSeed=randomSeed,
             )
             fragmentLengths_.append(fLen)
-        medFragLen = float(np.median(fragmentLengths_))
+        medFragLen = float(stats.trim_mean(fragmentLengths_, proportiontocut=0.1))
     else:
-        raise ValueError("One of `fragmentLengths` or `bamFiles` is required...")
+        raise ValueError("One of either `fragmentLengths` or `bamFiles` is required...")
 
     if medFragLen <= 0:
         raise ValueError("Average cross-sample fraglen estimation failed")
@@ -1627,7 +1831,7 @@ def autoDeltaF(
 
     L_arr = np.asarray(L_blocks, dtype=np.float64)
     W_arr = np.asarray(W_blocks, dtype=np.float64)
-    mean_L_bins = float(np.sum(W_arr * L_arr) / np.sum(W_arr))
+    mean_L_bins = float(np.sum(W_arr * L_arr) / (0.5 * np.sum(W_arr)))
     deltaF = float(1.0 / mean_L_bins)
     deltaF = float(np.clip(deltaF, minDeltaF, maxDeltaF))
     return np.float32(deltaF)
@@ -1843,7 +2047,7 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 5.0e-2,
+    eps: float = 1.0e-2,
     binQuantileCutoff: float = 0.5,
     EB_minLin: float = 1.0,
 ) -> np.ndarray:
@@ -1941,7 +2145,7 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 5.0e-2,
+    eps: float = 1.0e-2,
     EB_minLin: float = 1.0,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
@@ -1977,7 +2181,7 @@ def getMuncTrack(
     EB_setNuL: int | None = None,
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
-    eps: float = 5.0e-2,
+    eps: float = 1.0e-2,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -2028,7 +2232,7 @@ def getMuncTrack(
     )
 
     meanAbs = np.abs(blockMeans)
-    mask = np.isfinite(meanAbs) & np.isfinite(blockVars) & (blockVars >= 1.0e-4)
+    mask = np.isfinite(meanAbs) & np.isfinite(blockVars) & (blockVars >= 1.0e-3)
 
     meanAbs_Masked = meanAbs[mask]
     var_Masked = blockVars[mask]

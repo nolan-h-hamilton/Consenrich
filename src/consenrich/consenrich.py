@@ -1486,7 +1486,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
-            autoMinQ = max((0.01 * minR_) * (1 + deltaF_), 1.0e-3)
+            autoMinQ = max((0.001 * minR_) * (1 + deltaF_), 1.0e-3)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1553,21 +1553,36 @@ def main():
 
         if outputArgs.writeUncertainty:
             cols_.append("uncertainty")
+
         if outputArgs.writeMWSR:
             cols_.append("MWSR")
             rByInterval = np.asarray(rScale, dtype=np.float32)[
                 np.asarray(intervalToBlockMap, dtype=np.int32)
             ]
-            # note: cbackwardPass gives postFitResiduals as (n, m) --> transpose to (m, n)
-            resid = np.asarray(postFitResiduals, dtype=np.float32).T
+            resid = np.asarray(
+                postFitResiduals, dtype=np.float32
+            ).T  # make (numIntervals, numSamples)
 
-            R = rByInterval[None, :] * (
+            R_ = rByInterval[None, :] * (
                 np.asarray(muncMat, dtype=np.float32) + np.float32(pad_)
             )
-            refU2 = observationArgs.EM_tNu / (observationArgs.EM_tNu - 2.0)
-            studentizedResidualSq = (resid * resid + P00_[None, :]) / R
-            meanStudentizedResidualSq = np.mean(studentizedResidualSq, axis=0) / refU2
+            R_ = np.maximum(R_, np.float32(1.0e-12))
 
+            P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
+            u2 = (resid * resid + P00_[None, :]) / R_
+
+            nu = float(observationArgs.EM_tNu)
+            refU2 = nu / (nu - 2.0) if nu > 2.0 else np.inf
+
+            lam = (nu + 1.0) / (nu + u2)
+            lam = np.clip(lam, 1.0e-4, 1.0e6).astype(np.float32, copy=False)
+
+            wSum = np.sum(lam, axis=0)
+            wSum = np.maximum(wSum, np.float32(1.0e-12))
+
+            meanU2w = np.sum(lam * u2, axis=0) / wSum
+
+            meanStudentizedResidualSq = (meanU2w / refU2).astype(np.float32, copy=False)
             df["MWSR"] = meanStudentizedResidualSq
 
         if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
