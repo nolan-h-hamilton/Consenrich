@@ -312,11 +312,17 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.writeMWSR",
         True,
     )
+    applyJackknife_ = _cfgGet(
+        configData,
+        "outputParams.applyJackknife",
+        False,
+    )
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
         writeMWSR=writeMWSR_,
+        applyJackknife=applyJackknife_,
     )
 
 
@@ -1513,6 +1519,7 @@ def main():
                 EM_alphaEMA=observationArgs.EM_alphaEMA,
                 EM_scaleLOW=observationArgs.EM_scaleLOW,
                 EM_scaleHIGH=observationArgs.EM_scaleHIGH,
+                applyJackknife=outputArgs.applyJackknife,
             )
         )
 

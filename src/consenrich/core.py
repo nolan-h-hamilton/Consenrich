@@ -460,12 +460,18 @@ class outputParams(NamedTuple):
 
         which is consistent with the EM routine in :func:`consenrich.cconsenrich.cblockScaleEM`
     :type writeMWSR: bool
+    :param applyJackknife: (Experimental). If True, estimate replicate-level sampling variability in the signal level estimates with the jackknife.
+      The jacknife variance is then added *post hoc* to the posterior signal level variance :math:`\widetilde{P}_{[00,i]}` for a heuristic,
+      conservative uncertainty quantification. Note that `matrixMunc` and several other data-derived quantities are  *not* re-estimated in each jackknife iteration.
+    :type applyJackknife: bool
+
     """
 
     convertToBigWig: bool
     roundDigits: int
     writeUncertainty: bool
     writeMWSR: bool
+    applyJackknife: bool
 
 
 def _checkMod(name: str) -> bool:
@@ -939,17 +945,9 @@ def runConsenrich(
     EM_scaleLOW: float = 0.01,
     EM_scaleHIGH: float = 10.0,
     returnScales: bool = True,
+    applyJackknife: bool = False,
 ):
-    r"""Execute Consenrich given transformed/normalized data and initial measurement and process noise (co)variances
-
-    :param matrixData: A 2D array of shape (m, n) containing the transformed/normalized read count data for m replicates and n genomic intervals. Relevant functions: :func:`consenrich.cconsenrich.cTransform` and :func:`consenrich.core.readBamSegments`.
-    :type matrixData: np.ndarray
-    :param matrixMunc: A 2D array of shape (m, n) containing the initial measurement noise variance estimates for m replicates and n genomic intervals. Relevant functions: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
-    :type matrixMunc: np.ndarray
-
-    :seealso: :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cblockScaleEM`, :class:`processParams`, :class:`observationParams`
-
-    """
+    r"""Execute Consenrich given transformed/normalized data and initial measurement and process noise (co)variances"""
 
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
@@ -970,6 +968,9 @@ def runConsenrich(
     m, n = matrixData.shape
     if n < 2:
         raise ValueError("need at least 2 intervals for smoothing")
+
+    if applyJackknife and m < 3:
+        raise ValueError("applyJackknife requires at least 3 replicates")
 
     if calibration_kwargs is None:
         calibration_kwargs = {}
@@ -1001,16 +1002,21 @@ def runConsenrich(
         "blockLenIntervals=%d blockCount=%d", int(blockLenIntervals), int(blockCount)
     )
 
-    # Final forward/backward run for _fixed_ noise scales (either from EM calibration or default of 1.0)
-    def _run_final_passes(rScale: np.ndarray, qScale: np.ndarray):
+    # Forward/backward run for fixed noise scales
+    def _run_passes_for_matrix(
+        matrixDataLocal: np.ndarray,
+        matrixMuncLocal: np.ndarray,
+        rScale: np.ndarray,
+        qScale: np.ndarray,
+    ):
         stateForward = np.empty((n, 2), dtype=np.float32)
         stateCovarForward = np.empty((n, 2, 2), dtype=np.float32)
         pNoiseForward = np.empty((n, 2, 2), dtype=np.float32)
         vectorD = np.empty(n, dtype=np.float32)
 
         phiHat, _, vectorD, sumNLL = cconsenrich.cforwardPass(
-            matrixData=matrixData,
-            matrixPluginMuncInit=matrixMunc,
+            matrixData=matrixDataLocal,
+            matrixPluginMuncInit=matrixMuncLocal,
             matrixF=matrixF,
             matrixQ0=matrixQ0,
             intervalToBlockMap=intervalToBlockMap,
@@ -1037,7 +1043,7 @@ def runConsenrich(
 
         stateSmoothed, stateCovarSmoothed, _, postFitResiduals = (
             cconsenrich.cbackwardPass(
-                matrixData=matrixData,
+                matrixData=matrixDataLocal,
                 matrixF=matrixF,
                 stateForward=stateForward,
                 stateCovarForward=stateCovarForward,
@@ -1067,16 +1073,6 @@ def runConsenrich(
     if disableCalibration:
         rScale = np.ones(blockCount, dtype=np.float32)
         qScale = np.ones(blockCount, dtype=np.float32)
-        (
-            phiHat,
-            sumNLL,
-            stateSmoothed,
-            stateCovarSmoothed,
-            postFitResiduals,
-            NIS,
-            intervalToBlockMap,
-        ) = _run_final_passes(rScale=rScale, qScale=qScale)
-
     else:
         logger.info(
             "\nNoise (co)variance calibration\n\tEM_maxIters=%d EM_rtol=%.3e EM_scaleLOW=%.3e "
@@ -1114,19 +1110,120 @@ def runConsenrich(
             "EM summary: iters=%d (EM NLL=%.6g)", int(emItersDone), float(emNLL)
         )
 
-        (
-            phiHat,
-            sumNLL,
-            stateSmoothed,
-            stateCovarSmoothed,
-            postFitResiduals,
-            NIS,
-            intervalToBlockMap,
-        ) = _run_final_passes(rScale=rScale, qScale=qScale)
+    (
+        phiHat,
+        sumNLL,
+        stateSmoothed,
+        stateCovarSmoothed,
+        postFitResiduals,
+        NIS,
+        intervalToBlockMap,
+    ) = _run_passes_for_matrix(
+        matrixDataLocal=matrixData,
+        matrixMuncLocal=matrixMunc,
+        rScale=rScale,
+        qScale=qScale,
+    )
 
     outStateSmoothed = np.asarray(stateSmoothed, dtype=np.float32)
     outStateCovarSmoothed = np.asarray(stateCovarSmoothed, dtype=np.float32)
     outPostFitResiduals = np.asarray(postFitResiduals, dtype=np.float32)
+
+    if applyJackknife:
+        jackknifeEM_maxIters = int(calibration_kwargs.get("jackknifeEM_maxIters", 5))
+        jackknifeEM_rtol = float(calibration_kwargs.get("jackknifeEM_rtol", 1.0e-2))
+
+        logger.info(
+            "Applying replicate-level jackknife on x[:,0] (m=%d leave-one-out fits, EM iters=%d)",
+            int(m),
+            int(jackknifeEM_maxIters),
+        )
+
+        # Jackknife targets the combined sampling variability induced by replicate removal
+        # Including EM per split captures additional variability from re-estimating noise scales
+        # note, however, that matrixMunc is _not_ re-estimated in each jackknife iteration!
+        meanLooState0 = np.zeros(n, dtype=np.float64)
+        M2LooState0 = np.zeros(n, dtype=np.float64)
+
+        for i in range(m):
+            logger.info("Jackknife iteration %d/%d", int(i + 1), int(m))
+            keepMask = np.ones(m, dtype=bool)
+            keepMask[i] = False
+
+            matrixDataLoo = np.ascontiguousarray(
+                matrixData[keepMask, :], dtype=np.float32
+            )
+            matrixMuncLoo = np.ascontiguousarray(
+                matrixMunc[keepMask, :], dtype=np.float32
+            )
+
+            if disableCalibration:
+                rScaleLoo = np.ones(blockCount, dtype=np.float32)
+                qScaleLoo = np.ones(blockCount, dtype=np.float32)
+            else:
+                # light EM for jackknife
+                rScaleLoo, qScaleLoo, emItersDoneLoo, emNLLLoo = (
+                    cconsenrich.cblockScaleEM(
+                        matrixData=matrixDataLoo,
+                        matrixPluginMuncInit=matrixMuncLoo,
+                        matrixF=matrixF,
+                        matrixQ0=matrixQ0,
+                        intervalToBlockMap=intervalToBlockMap,
+                        blockCount=int(blockCount),
+                        stateInit=float(stateInit),
+                        stateCovarInit=float(stateCovarInit),
+                        EM_maxIters=int(jackknifeEM_maxIters),
+                        EM_rtol=float(jackknifeEM_rtol),
+                        covarClip=float(covarClip),
+                        pad=float(pad),
+                        EM_scaleLOW=float(EM_scaleLOW),
+                        EM_scaleHIGH=float(EM_scaleHIGH),
+                        EM_alphaEMA=float(EM_alphaEMA),
+                        EM_scaleToMedian=bool(EM_scaleToMedian),
+                        EM_tNu=float(EM_tNu),
+                        returnIntermediates=False,
+                    )
+                )
+
+            (
+                _,
+                _,
+                looStateSmoothed,
+                _,
+                _,
+                _,
+                _,
+            ) = _run_passes_for_matrix(
+                matrixDataLocal=matrixDataLoo,
+                matrixMuncLocal=matrixMuncLoo,
+                rScale=rScaleLoo,
+                qScale=qScaleLoo,
+            )
+
+            looState0 = np.asarray(looStateSmoothed, dtype=np.float32)[:, 0].astype(
+                np.float64, copy=False
+            )
+
+            # update jackknife mean and second moment online
+            k = float(i + 1)
+            delta = looState0 - meanLooState0
+            meanLooState0 += delta / k
+            delta2 = looState0 - meanLooState0
+            M2LooState0 += delta * delta2
+
+        # Jackknife variance: (m-1)/m * sum_i (theta_(i) - mean(theta_))^2
+        jackknifeVar0 = ((m - 1.0) / float(m)) * M2LooState0
+        jackknifeVar0 = jackknifeVar0.astype(np.float32, copy=False)
+
+        # (heuristic) 'total variance' = fixed EM variance + jackknife variance
+        outStateCovarSmoothed[:, 0, 0] += jackknifeVar0
+
+        logger.info(
+            "Jackknife: addVar0[median=%.6g mean=%.6g max=%.6g]",
+            float(np.median(jackknifeVar0)),
+            float(np.mean(jackknifeVar0)),
+            float(np.max(jackknifeVar0)),
+        )
 
     if boundState:
         np.clip(
