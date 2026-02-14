@@ -700,13 +700,13 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         binQuantileCutoff=_cfgGet(
             configData,
             "observationParams.binQuantileCutoff",
-            0.5,
+            0.75,
         ),
         EB_minLin=float(
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                1.0,
+                0.01,
             )
         ),
         EB_use=_cfgGet(
@@ -718,7 +718,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-2),
         EM_tNu=_cfgGet(configData, "observationParams.EM_tNu", 8.0),
-        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.1),
+        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.25),
         EM_scaleLOW=_cfgGet(
             configData,
             "observationParams.EM_scaleLOW",
@@ -728,6 +728,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "observationParams.EM_scaleHIGH",
             10.0,
+        ),
+        EM_scaleToMedian=_cfgGet(
+            configData,
+            "observationParams.EM_scaleToMedian",
+            True,
+        ),
+        EM_maxIters=_cfgGet(
+            configData,
+            "observationParams.EM_maxIters",
+            100,
         ),
     )
 
@@ -1486,7 +1496,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
-            autoMinQ = max((0.001 * minR_) * (1 + deltaF_), 1.0e-3)
+            autoMinQ = max((0.001 * minR_) * (1 + deltaF_), 1.0e-4)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1525,6 +1535,8 @@ def main():
                 EM_alphaEMA=observationArgs.EM_alphaEMA,
                 EM_scaleLOW=observationArgs.EM_scaleLOW,
                 EM_scaleHIGH=observationArgs.EM_scaleHIGH,
+                EM_maxIters=observationArgs.EM_maxIters,
+                EM_scaleToMedian=observationArgs.EM_scaleToMedian,
                 applyJackknife=outputArgs.applyJackknife,
             )
         )

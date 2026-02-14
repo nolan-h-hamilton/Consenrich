@@ -2349,8 +2349,7 @@ cpdef tuple cbackwardPass(
     :type  stateForward: numpy.ndarray[float32], shape (n, 2)
     :param stateCovarForward: Filtered state covariances :math:`\mathbf{P}_{[k|k]}` from the forward pass.
     :type  stateCovarForward: numpy.ndarray[float32], shape (n, 2, 2)
-    :param pNoiseForward: Process noise covariances per transition :math:`k \rightarrow k+1`,
-        i.e. :math:`pNoiseForward[k] = \mathbf{Q}_{[k]}` used in the prediction step from :math:`k` to :math:`k+1`.
+    :param pNoiseForward: Process noise covariances per transition.
     :type  pNoiseForward: numpy.ndarray[float32], shape (n, 2, 2)
     :param stateSmoothed: Output buffer for smoothed means :math:`\widetilde{\mathbf{x}}_{[k]}`.
     :type  stateSmoothed: numpy.ndarray[float32], shape (n, 2) or None
@@ -2600,8 +2599,8 @@ cpdef tuple cblockScaleEM(
     float pad=1.0e-2,
     float EM_scaleLOW=0.01,
     float EM_scaleHIGH=10.0,
-    float EM_alphaEMA=0.1,
-    float EM_alphaEMA_Q=1.0,
+    float EM_alphaEMA=0.25,
+    float EM_alphaEMA_Q=0.1,
     bint EM_scaleToMedian=True,
     bint returnIntermediates=False,
     float EM_tNu=8.0,
@@ -2792,7 +2791,7 @@ cpdef tuple cblockScaleEM(
     cdef double maxAbsLogDelta = 0.0
     cdef Py_ssize_t stableIters = 0
     cdef Py_ssize_t patienceTarget = 2
-    cdef double thetaTol = 0.1
+    cdef double thetaTol = 0.05
     cdef double rMed
     cdef double qMed
     cdef double rMedRaw

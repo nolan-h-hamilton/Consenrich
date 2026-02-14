@@ -161,6 +161,10 @@ class observationParams(NamedTuple):
         scale factors (applied after each update) for both ``rScale`` and ``qScale``. Values above ``EM_scaleHIGH`` are
         clipped. Increasing this value allows more aggressive optimization during EM but can reduce stability if the plug-in variance template is poor.
     :type EM_scaleHIGH: float | None
+    :param EM_scaleToMedian: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. If True, per-block scale factors are normalized after each update such that the median scale factor is 1. This can be helpful to avoid degenerate solutions where all scales collapse to very small values (overfitting) or blow up to very large values (underfitting). Note that this normalization voids *guaranteed* monotonic behavior of the EM objective, but can be helpful for stability and convergence in practice.
+    :type EM_scaleToMedian: bool | None
+    :param EM_maxIters: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Maximum number of EM iterations to perform.
+    :type EM_maxIters: int | None
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cblockScaleEM`
 
     """
@@ -179,6 +183,8 @@ class observationParams(NamedTuple):
     EM_alphaEMA: float | None
     EM_scaleLOW: float | None
     EM_scaleHIGH: float | None
+    EM_scaleToMedian: float | None
+    EM_maxIters: int | None
 
 
 class stateParams(NamedTuple):
@@ -444,7 +450,7 @@ class outputParams(NamedTuple):
     :type roundDigits: int
     :param writeUncertainty: If True, write the posterior state uncertainty :math:`\sqrt{\widetilde{P}_{i,(11)}}` to bedGraph.
     :type writeUncertainty: bool
-    :param writeMWSR: If True, write a per-interval mean squared *studentized* post-fit residual (``MWSR``),
+    :param writeMWSR: If True, write a per-interval mean weighted+squared+*studentized* post-fit residual (``MWSR``),
         computed using the smoothed state and its posterior variance from the final filter/smoother pass.
 
         Let :math:`r_{[j,i]} = \texttt{matrixData}_{[j,i]} - \widetilde{x}_{[i]}` denote the post-fit residual for replicate :math:`j` at interval
@@ -940,11 +946,11 @@ def runConsenrich(
     pad: float = 1.0e-2,
     disableCalibration: bool = False,
     rescaleStateCovar: bool = False,
-    EM_maxIters: int = 50,
+    EM_maxIters: int = 100,
     EM_rtol: float = 1.0e-4,
     EM_scaleToMedian: bool = True,
     EM_tNu: float = 8.0,
-    EM_alphaEMA: float = 0.1,
+    EM_alphaEMA: float = 0.25,
     EM_scaleLOW: float = 0.01,
     EM_scaleHIGH: float = 10.0,
     returnScales: bool = True,
@@ -2047,9 +2053,9 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-2,
-    binQuantileCutoff: float = 0.5,
-    EB_minLin: float = 1.0,
+    eps: float = 5.0e-2,
+    binQuantileCutoff: float = 0.75,
+    EB_minLin: float = 0.01,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -2145,8 +2151,8 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 1.0e-2,
-    EB_minLin: float = 1.0,
+    eps: float = 5.0e-2,
+    EB_minLin: float = 0.01,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
     if coeffs is None or np.asarray(coeffs).size == 0:
@@ -2174,22 +2180,21 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    binQuantileCutoff: float = 0.5,
-    EB_minLin: float = 1.0,
+    binQuantileCutoff: float = 0.75,
+    EB_minLin: float = 0.01,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
-    eps: float = 1.0e-2,
+    eps: float = 5.0e-2,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     For an individual experimental sample (replicate), quantify *positional* data uncertainty over genomic intervals :math:`i=1,2,\ldots n` spanning ``chromosome``.
     These tracks (per-sample) comprise the ``matrixMunc`` input to :func:`runConsenrich`, :math:`\mathbf{R}[:,:] \in \mathbb{R}^{m \times n}`.
 
-    Variance is modeled as a function of the absolute mean signal level. For ``EB_use=True``, local variance estimates are also
-    are integrated with shrinkage using a plug-in empirical Bayes approach.
+    Variance is modeled as a function of the absolute mean signal level. For ``EB_use=True``, local variance estimates are shrunk toward a signal level dependent global variance fit.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
