@@ -2597,10 +2597,10 @@ cpdef tuple cblockScaleEM(
     float EM_rtol=1.0e-4,
     float covarClip=3.0,
     float pad=1.0e-2,
-    float EM_scaleLOW=0.01,
-    float EM_scaleHIGH=10.0,
-    float EM_alphaEMA=0.25,
-    float EM_alphaEMA_Q=0.1,
+    float EM_scaleLOW=0.5,
+    float EM_scaleHIGH=5.0,
+    float EM_alphaEMA=0.1,
+    float EM_alphaEMA_Q=1.0,
     bint EM_scaleToMedian=True,
     bint returnIntermediates=False,
     float EM_tNu=8.0,
@@ -2684,12 +2684,10 @@ cpdef tuple cblockScaleEM(
     ------------------
 
     * Shumway, R. H. & Stoffer, D. S. (1982).
-      *An approach to time series smoothing and forecasting using the EM algorithm*.
-      :doi:`10.1111/j.1467-9892.1982.tb00349.x`
+      *An approach to time series smoothing and forecasting using the EM algorithm*. DOI: ``10.1111/j.1467-9892.1982.tb00349.x``
 
     * West, M. (1987).
-      *On scale mixtures of normal distributions*.
-      :doi:`10.1093/biomet/74.3.646`
+      *On scale mixtures of normal distributions*. DOI: ``10.1093/biomet/74.3.646``.
 
     :seealso: :func:`consenrich.cconsenrich.cforwardPass`,
               :func:`consenrich.cconsenrich.cbackwardPass`,
@@ -2763,7 +2761,7 @@ cpdef tuple cblockScaleEM(
     cdef double dState = 2.0 # 2 state variables
     cdef double tmpVal
     cdef double procNu = (2.0*EM_tNu)
-    cdef double procScaleHIGH = fmax((0.25*EM_scaleHIGH), EM_scaleLOW + 1.0e-2)
+    cdef double procScaleHIGH = fmax((1.0*EM_scaleHIGH), EM_scaleLOW + 1.0e-2)
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rStatSum = np.zeros(blockCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] rWeightCount = np.zeros(blockCount, dtype=np.int32)

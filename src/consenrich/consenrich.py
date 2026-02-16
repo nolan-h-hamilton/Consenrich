@@ -706,7 +706,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                0.01,
+                0.5,
             )
         ),
         EB_use=_cfgGet(
@@ -718,16 +718,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-2),
         EM_tNu=_cfgGet(configData, "observationParams.EM_tNu", 8.0),
-        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.25),
+        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.1),
         EM_scaleLOW=_cfgGet(
             configData,
             "observationParams.EM_scaleLOW",
-            0.01,
+            0.5,
         ),
         EM_scaleHIGH=_cfgGet(
             configData,
             "observationParams.EM_scaleHIGH",
-            10.0,
+            5.0,
         ),
         EM_scaleToMedian=_cfgGet(
             configData,
@@ -1424,16 +1424,6 @@ def main():
                 _checkSF(sf, logger)
             np.multiply(chromMat, sf[:, None], out=chromMat)
 
-        if processArgs.deltaF < 0:
-            logger.info(f"`processParams.deltaF < 0` --> calling core.autoDeltaF()...")
-            deltaF_ = core.autoDeltaF(
-                bamFiles,
-                intervalSizeBP,
-                chromMat,
-                fragmentLengths=fragmentLengthsTreatment,
-            )
-            logger.info(f"Δ_F: {deltaF_}")
-
         # negative --> data-based
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = 0.0
@@ -1496,7 +1486,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
-            autoMinQ = max((0.001 * minR_) * (1 + deltaF_), 1.0e-4)
+            autoMinQ = max((0.01 * minR_), 1.0e-3)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1522,13 +1512,11 @@ def main():
                 stateArgs.boundState,
                 stateArgs.stateLowerBound,
                 stateArgs.stateUpperBound,
-                samArgs.chunkSize,
                 blockLenIntervals=2
                 * max(
                     backgroundBlockSizeIntervals, samplingBlockSizeBP_ // intervalSizeBP
                 )
                 + 1,
-                rescaleStateCovar=stateArgs.rescaleStateCovar,
                 returnScales=True,
                 pad=pad_,
                 EM_tNu=observationArgs.EM_tNu,
