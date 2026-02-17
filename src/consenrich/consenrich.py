@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from tqdm import tqdm
+from scipy import stats
 
 import consenrich.core as core
 import consenrich.misc_util as misc_util
@@ -717,17 +718,27 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-2),
-        EM_tNu=_cfgGet(configData, "observationParams.EM_tNu", 8.0),
-        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.1),
+        EM_tNu=_cfgGet(configData, "observationParams.EM_tNu", 10.0),
+        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.25),
         EM_scaleLOW=_cfgGet(
             configData,
             "observationParams.EM_scaleLOW",
-            0.01,
+            0.2,
         ),
         EM_scaleHIGH=_cfgGet(
             configData,
             "observationParams.EM_scaleHIGH",
-            10.0,
+            5.0,
+        ),
+        EM_scaleToMedian=_cfgGet(
+            configData,
+            "observationParams.EM_scaleToMedian",
+            False,
+        ),
+        EM_maxIters=_cfgGet(
+            configData,
+            "observationParams.EM_maxIters",
+            100,
         ),
     )
 
@@ -1097,7 +1108,7 @@ def main():
     )
     if samplingBlockSizeBP_ is None or samplingBlockSizeBP_ <= 0:
         samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
-
+    vec_: Optional[np.ndarray] = None
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-2
@@ -1382,10 +1393,10 @@ def main():
             )
 
         if backgroundBlockSizeBP_ < 0:
-            backgroundBlockSizeBP_ = (
-                core.getContextSize(np.mean(chromMat, axis=0))[0] * (2 * intervalSizeBP)
-                + 1
+            vec_ = core.getContextSize(
+                stats.trim_mean(chromMat, proportiontocut=0.1, axis=0)
             )
+            backgroundBlockSizeBP_ = vec_[0] * (2 * intervalSizeBP) + 1
             backgroundBlockSizeIntervals = backgroundBlockSizeBP_ // intervalSizeBP
             logger.info(
                 f"`countingParams.backgroundBlockSizeBP < 0` --> getContextSize(): {backgroundBlockSizeBP_} bp"
@@ -1396,7 +1407,9 @@ def main():
                 samplingBlockSizeBP_ = backgroundBlockSizeBP_
             else:
                 samplingBlockSizeBP_ = (
-                    core.getContextSize(np.mean(chromMat, axis=0))[0]
+                    core.getContextSize(
+                        stats.trim_mean(chromMat, proportiontocut=0.1, axis=0)
+                    )[0]
                     * (2 * intervalSizeBP)
                     + 1
                 )
@@ -1413,16 +1426,6 @@ def main():
                 )
                 _checkSF(sf, logger)
             np.multiply(chromMat, sf[:, None], out=chromMat)
-
-        if processArgs.deltaF < 0:
-            logger.info(f"`processParams.deltaF < 0` --> calling core.autoDeltaF()...")
-            deltaF_ = core.autoDeltaF(
-                bamFiles,
-                intervalSizeBP,
-                chromMat,
-                fragmentLengths=fragmentLengthsTreatment,
-            )
-            logger.info(f"Δ_F: {deltaF_}")
 
         # negative --> data-based
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
@@ -1486,7 +1489,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
-            autoMinQ = max((0.01 * minR_) * (1 + deltaF_), 1.0e-3)
+            autoMinQ = max((0.01 * minR_), 1.0e-3)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1497,7 +1500,7 @@ def main():
                 maxQ_ = np.float32(max(processArgs.maxQ, minQ_))
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
-
+        logger.info(f"minR={minR_}, maxR={maxR_}, minQ={minQ_}, maxQ={maxQ_}")
         logger.info(f">>>  Running consenrich: {chromosome}  <<<")
         x, P, postFitResiduals, JackknifeSEVec, rScale, qScale, intervalToBlockMap = (
             core.runConsenrich(
@@ -1512,19 +1515,19 @@ def main():
                 stateArgs.boundState,
                 stateArgs.stateLowerBound,
                 stateArgs.stateUpperBound,
-                samArgs.chunkSize,
-                blockLenIntervals=2
-                * max(
-                    backgroundBlockSizeIntervals, samplingBlockSizeBP_ // intervalSizeBP
-                )
-                + 1,
-                rescaleStateCovar=stateArgs.rescaleStateCovar,
+                blockLenIntervals=(
+                    (vec_[2] * 2 + 1)
+                    if vec_ is not None
+                    else backgroundBlockSizeIntervals
+                ),
                 returnScales=True,
                 pad=pad_,
                 EM_tNu=observationArgs.EM_tNu,
                 EM_alphaEMA=observationArgs.EM_alphaEMA,
                 EM_scaleLOW=observationArgs.EM_scaleLOW,
                 EM_scaleHIGH=observationArgs.EM_scaleHIGH,
+                EM_maxIters=observationArgs.EM_maxIters,
+                EM_scaleToMedian=observationArgs.EM_scaleToMedian,
                 applyJackknife=outputArgs.applyJackknife,
             )
         )
@@ -1553,21 +1556,36 @@ def main():
 
         if outputArgs.writeUncertainty:
             cols_.append("uncertainty")
+
         if outputArgs.writeMWSR:
             cols_.append("MWSR")
             rByInterval = np.asarray(rScale, dtype=np.float32)[
                 np.asarray(intervalToBlockMap, dtype=np.int32)
             ]
-            # note: cbackwardPass gives postFitResiduals as (n, m) --> transpose to (m, n)
-            resid = np.asarray(postFitResiduals, dtype=np.float32).T
+            resid = np.asarray(
+                postFitResiduals, dtype=np.float32
+            ).T  # make (numIntervals, numSamples)
 
-            R = rByInterval[None, :] * (
+            R_ = rByInterval[None, :] * (
                 np.asarray(muncMat, dtype=np.float32) + np.float32(pad_)
             )
-            refU2 = observationArgs.EM_tNu / (observationArgs.EM_tNu - 2.0)
-            studentizedResidualSq = (resid * resid + P00_[None, :]) / R
-            meanStudentizedResidualSq = np.mean(studentizedResidualSq, axis=0) / refU2
+            R_ = np.maximum(R_, np.float32(1.0e-12))
 
+            P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
+            u2 = (resid * resid + P00_[None, :]) / R_
+
+            nu = float(observationArgs.EM_tNu)
+            refU2 = nu / (nu - 2.0) if nu > 2.0 else np.inf
+
+            lam = (nu + 1.0) / (nu + u2)
+            lam = np.clip(lam, 1.0e-4, 1.0e6).astype(np.float32, copy=False)
+
+            wSum = np.sum(lam, axis=0)
+            wSum = np.maximum(wSum, np.float32(1.0e-12))
+
+            meanU2w = np.sum(lam * u2, axis=0) / wSum
+
+            meanStudentizedResidualSq = (meanU2w / refU2).astype(np.float32, copy=False)
             df["MWSR"] = meanStudentizedResidualSq
 
         if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:

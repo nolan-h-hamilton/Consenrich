@@ -38,7 +38,6 @@ Note that many parameters are documented here for *completeness* and do not need
 .. autofunction:: consenrich.core.constructMatrixF
 .. autofunction:: consenrich.core.constructMatrixQ
 .. autofunction:: consenrich.core.constructMatrixH
-.. autofunction:: consenrich.core.autoDeltaF
 
 ``consenrich.detrorm``
 ~~~~~~~~~~~~~~~~~~~~~~
