@@ -168,10 +168,12 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double pairCountDouble
     cdef double oneMinusBetaSq
     cdef double divRSS
-
     cdef double lambdaEff
     cdef double Scale
     cdef double scaleFloor
+    cdef double ScaleX
+    cdef double ScaleY
+    cdef double denomSym
 
     zeroPenalty = zeroPenalty
     zeroThresh = zeroThresh
@@ -219,7 +221,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             sumSqYSeq += yDev*yDev
             sumXYc += xDev*yDev
 
-        eps = 1.0e-6*(sumSqXSeq + 1.0)
+        eps = 1.0e-6*(sumSqXSeq + sumSqYSeq + 1.0)
 
         # scale-aware ridge
         if nPairsDouble > 0.0:
@@ -229,9 +231,13 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
 
         scaleFloor = 1.0e-4*(sumSqXSeq + 1.0)
 
-        if sumSqXSeq > eps:
-            Scale = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
-            beta1 = sumXYc / Scale
+        # _symmetry_: lag-1 correlation for beta
+        ScaleX = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
+        ScaleY = (sumSqYSeq * (1.0 + lambdaEff)) + scaleFloor
+        # both directions accounted for
+        denomSym = sqrt(ScaleX * ScaleY)
+        if denomSym > eps:
+            beta1 = sumXYc / denomSym
         else:
             beta1 = 0.0
 
@@ -1923,7 +1929,7 @@ cpdef tuple cforwardPass(
     float stateInit,
     float stateCovarInit,
     float covarClip=3.0,
-    float pad=1.0e-2,
+    float pad=0.1,
     bint projectStateDuringFiltering=False,
     float stateLowerBound=0.0,
     float stateUpperBound=0.0,
@@ -2015,8 +2021,8 @@ cpdef tuple cforwardPass(
     cdef double wMin = 1.0e-4
     cdef double wMax = 1.0e6
     cdef double procPrec
-    cdef double procPrecMin = 1.0e-2 # ~ kappa
-    cdef double procPrecMax = 1.0e6
+    cdef double procPrecMin = 0.2 # kappa
+    cdef double procPrecMax = 5.0 # 1/kappa
 
     cdef double LOG2PI = log(6.2831853071795864769)
 
@@ -2597,13 +2603,13 @@ cpdef tuple cblockScaleEM(
     float EM_rtol=1.0e-4,
     float covarClip=3.0,
     float pad=1.0e-2,
-    float EM_scaleLOW=0.5,
+    float EM_scaleLOW=0.2,
     float EM_scaleHIGH=5.0,
     float EM_alphaEMA=0.1,
     float EM_alphaEMA_Q=1.0,
-    bint EM_scaleToMedian=True,
+    bint EM_scaleToMedian=False,
     bint returnIntermediates=False,
-    float EM_tNu=8.0,
+    float EM_tNu=10.0,
     Py_ssize_t t_innerIters=3,
 ):
     r"""Calibrate blockwise measurement and process noise scales while inferring the epigenomic consensus signal
@@ -2719,10 +2725,11 @@ cpdef tuple cblockScaleEM(
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarSmoothed = np.empty((intervalCount, 2, 2), dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] lagCovSmoothed = np.empty((max(intervalCount - 1, 1), 2, 2), dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResiduals = np.empty((intervalCount, trackCount), dtype=np.float32)
+    cdef cnp.float32_t[:, ::1] stateSmoothedView = stateSmoothed
     cdef cnp.float32_t[:, :, ::1] stateCovarSmoothedView = stateCovarSmoothed
+    cdef cnp.float32_t[:, :, ::1] lagCovSmoothedView = lagCovSmoothed
     cdef cnp.float32_t[:, ::1] residualView = postFitResiduals
 
-    # inlined small matrices
     cdef double f00 = <double>fView[0, 0]
     cdef double f01 = <double>fView[0, 1]
     cdef double f10 = <double>fView[1, 0]
@@ -2756,9 +2763,9 @@ cpdef tuple cblockScaleEM(
     cdef double wMin = 1.0e-4
     cdef double wMax = 1.0e6
     cdef double kappa_
-    cdef double kappaMin_ = 1.0e-2
-    cdef double kappaMax_ = 1.0e6
-    cdef double dState = 2.0 # 2 state variables
+    cdef double kappaMin_ = 0.2
+    cdef double kappaMax_ = 5.0
+    cdef double dState = 2.0
     cdef double tmpVal
     cdef double procNu = (2.0*EM_tNu)
     cdef double procScaleHIGH = fmax((1.0*EM_scaleHIGH), EM_scaleLOW + 1.0e-2)
@@ -2788,8 +2795,8 @@ cpdef tuple cblockScaleEM(
     cdef double[::1] prevQLogView = prevQLog
     cdef double maxAbsLogDelta = 0.0
     cdef Py_ssize_t stableIters = 0
-    cdef Py_ssize_t patienceTarget = 2
-    cdef double thetaTol = 0.05
+    cdef Py_ssize_t patienceTarget = 3
+    cdef double thetaTol = 0.1
     cdef double rMed
     cdef double qMed
     cdef double rMedRaw
@@ -2829,7 +2836,6 @@ cpdef tuple cblockScaleEM(
     if detQ0 == 0.0:
         raise ValueError("matrixQ0 is singular")
 
-    # Q0 inverse used in qScale update via trace(Q0inv) E[wwT]
     q0Inv00 = q0_11 / detQ0
     q0Inv01 = -q0_01 / detQ0
     q0Inv10 = -q0_10 / detQ0
@@ -2839,7 +2845,6 @@ cpdef tuple cblockScaleEM(
     Ft = MAT2_transpose(F)
     Q0inv = MAT2_make(q0Inv00, q0Inv01, q0Inv10, q0Inv11)
 
-    # EM loop: alternate forward-backward passes with plug-in precision updates
     for i in range(EM_maxIters):
         itersDone = i + 1
         fprintf(stderr, "\n\t[cblockScaleEM] iter=%zd\n", itersDone)
@@ -2890,10 +2895,7 @@ cpdef tuple cblockScaleEM(
                 progressIter=0,
             )
 
-
-            # precision-weight updates
             with nogil:
-                # observation precisions
                 for k in range(intervalCount):
                     b = <Py_ssize_t>blockMapView[k]
                     if b < 0 or b >= blockCount:
@@ -2912,7 +2914,7 @@ cpdef tuple cblockScaleEM(
                         if Rkj < clipSmall:
                             Rkj = clipSmall
 
-                        res = (<double>dataView[j, k]) - (<double>stateSmoothed[k, 0])
+                        res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
                         tmpVal = (res*res + p00k)
                         u2 = tmpVal / Rkj
 
@@ -2924,8 +2926,6 @@ cpdef tuple cblockScaleEM(
 
                         lambdaExpView[j, k] = <cnp.float32_t>w
 
-                # processPrecExp[0] = 1; processPrecExp[k+1] = kappa_k for transition k --> k+1
-
                 processPrecExpView[0] = <cnp.float32_t>1.0
                 for k in range(intervalCount - 1):
                     b = <Py_ssize_t>blockMapView[k]
@@ -2933,30 +2933,30 @@ cpdef tuple cblockScaleEM(
                         processPrecExpView[k + 1] = <cnp.float32_t>1.0
                         continue
 
-                    x0 = <double>stateSmoothed[k, 0]
-                    x1 = <double>stateSmoothed[k, 1]
-                    y0 = <double>stateSmoothed[k + 1, 0]
-                    y1 = <double>stateSmoothed[k + 1, 1]
+                    x0 = <double>stateSmoothedView[k, 0]
+                    x1 = <double>stateSmoothedView[k, 1]
+                    y0 = <double>stateSmoothedView[k + 1, 0]
+                    y1 = <double>stateSmoothedView[k + 1, 1]
 
                     Pk = MAT2_make(
-                        <double>stateCovarSmoothed[k, 0, 0],
-                        <double>stateCovarSmoothed[k, 0, 1],
-                        <double>stateCovarSmoothed[k, 1, 0],
-                        <double>stateCovarSmoothed[k, 1, 1],
+                        <double>stateCovarSmoothedView[k, 0, 0],
+                        <double>stateCovarSmoothedView[k, 0, 1],
+                        <double>stateCovarSmoothedView[k, 1, 0],
+                        <double>stateCovarSmoothedView[k, 1, 1],
                     )
 
                     Pk1 = MAT2_make(
-                        <double>stateCovarSmoothed[k + 1, 0, 0],
-                        <double>stateCovarSmoothed[k + 1, 0, 1],
-                        <double>stateCovarSmoothed[k + 1, 1, 0],
-                        <double>stateCovarSmoothed[k + 1, 1, 1],
+                        <double>stateCovarSmoothedView[k + 1, 0, 0],
+                        <double>stateCovarSmoothedView[k + 1, 0, 1],
+                        <double>stateCovarSmoothedView[k + 1, 1, 0],
+                        <double>stateCovarSmoothedView[k + 1, 1, 1],
                     )
 
                     Ck_k1 = MAT2_make(
-                        <double>lagCovSmoothed[k, 0, 0],
-                        <double>lagCovSmoothed[k, 0, 1],
-                        <double>lagCovSmoothed[k, 1, 0],
-                        <double>lagCovSmoothed[k, 1, 1],
+                        <double>lagCovSmoothedView[k, 0, 0],
+                        <double>lagCovSmoothedView[k, 0, 1],
+                        <double>lagCovSmoothedView[k, 1, 0],
+                        <double>lagCovSmoothedView[k, 1, 1],
                     )
 
                     expec_xx = MAT2_add(Pk, MAT2_outer(x0, x1))
@@ -2975,7 +2975,6 @@ cpdef tuple cblockScaleEM(
                     tmpVal = <double>qScaleView[b]
                     if tmpVal < clipSmall:
                         tmpVal = clipSmall
-                    # Student-t scale-mixture identity: kappa = (nu + d) / (nu + delta / qScale)
                     kappa_ = ((<double>procNu) + dState) / ((<double>procNu) + (delta / tmpVal))
                     if kappa_ < kappaMin_:
                         kappa_ = kappaMin_
@@ -2983,8 +2982,6 @@ cpdef tuple cblockScaleEM(
                         kappa_ = kappaMax_
                     processPrecExpView[k + 1] = <cnp.float32_t>kappa_
 
-
-        # NLL @ current params
         currentNLL = (<double>cforwardPass(
             matrixData=matrixData,
             matrixPluginMuncInit=matrixPluginMuncInit,
@@ -3018,9 +3015,6 @@ cpdef tuple cblockScaleEM(
         previousNLL = currentNLL
         fprintf(stderr, "\t[cblockScaleEM] NLL=%.6f  REL=%.6f\n", currentNLL, relImprovement)
 
-        # -----------------------------------
-        # M-step for rScale[b], qScale[b]
-        # -----------------------------------
         with nogil:
             for b in range(blockCount):
                 rStatSumView[b] = 0.0
@@ -3029,7 +3023,6 @@ cpdef tuple cblockScaleEM(
                 qStatCountView[b] = 0
                 qWeightSumView[b] = 0.0
 
-            # measurement scale stats
             for k in range(intervalCount):
                 b = <Py_ssize_t>blockMapView[k]
                 if b < 0 or b >= blockCount:
@@ -3051,36 +3044,35 @@ cpdef tuple cblockScaleEM(
                     rStatSumView[b] += w * (tmpVal / muncPlusPad)
                     rWeightCountView[b] += 1
 
-            # process scale stats: qScale[b] = (1/(d * n)) sum_k kappa_k * delta_k
             for k in range(intervalCount - 1):
                 b = <Py_ssize_t>blockMapView[k]
                 if b < 0 or b >= blockCount:
                     continue
 
-                x0 = <double>stateSmoothed[k, 0]
-                x1 = <double>stateSmoothed[k, 1]
-                y0 = <double>stateSmoothed[k + 1, 0]
-                y1 = <double>stateSmoothed[k + 1, 1]
+                x0 = <double>stateSmoothedView[k, 0]
+                x1 = <double>stateSmoothedView[k, 1]
+                y0 = <double>stateSmoothedView[k + 1, 0]
+                y1 = <double>stateSmoothedView[k + 1, 1]
 
                 Pk = MAT2_make(
-                    <double>stateCovarSmoothed[k, 0, 0],
-                    <double>stateCovarSmoothed[k, 0, 1],
-                    <double>stateCovarSmoothed[k, 1, 0],
-                    <double>stateCovarSmoothed[k, 1, 1],
+                    <double>stateCovarSmoothedView[k, 0, 0],
+                    <double>stateCovarSmoothedView[k, 0, 1],
+                    <double>stateCovarSmoothedView[k, 1, 0],
+                    <double>stateCovarSmoothedView[k, 1, 1],
                 )
 
                 Pk1 = MAT2_make(
-                    <double>stateCovarSmoothed[k + 1, 0, 0],
-                    <double>stateCovarSmoothed[k + 1, 0, 1],
-                    <double>stateCovarSmoothed[k + 1, 1, 0],
-                    <double>stateCovarSmoothed[k + 1, 1, 1],
+                    <double>stateCovarSmoothedView[k + 1, 0, 0],
+                    <double>stateCovarSmoothedView[k + 1, 0, 1],
+                    <double>stateCovarSmoothedView[k + 1, 1, 0],
+                    <double>stateCovarSmoothedView[k + 1, 1, 1],
                 )
 
                 Ck_k1 = MAT2_make(
-                    <double>lagCovSmoothed[k, 0, 0],
-                    <double>lagCovSmoothed[k, 0, 1],
-                    <double>lagCovSmoothed[k, 1, 0],
-                    <double>lagCovSmoothed[k, 1, 1],
+                    <double>lagCovSmoothedView[k, 0, 0],
+                    <double>lagCovSmoothedView[k, 0, 1],
+                    <double>lagCovSmoothedView[k, 1, 0],
+                    <double>lagCovSmoothedView[k, 1, 1],
                 )
 
                 expec_xx = MAT2_add(Pk, MAT2_outer(x0, x1))
@@ -3094,9 +3086,6 @@ cpdef tuple cblockScaleEM(
                 expec_ww = MAT2_add(expec_ww, MAT2_mul(MAT2_mul(F, expec_xx), Ft))
                 expec_ww = MAT2_clipDiagNonneg(expec_ww)
 
-                # delta_k = E[w_k^T Q0inv w_k] = tr(Q0inv * E[w_k w_k^T])  (Mahalanobis dist. for Q0)
-                # used in the Student-t mixture updates: kappa_k = (nu+d)/(nu + delta_k/qScale[b])
-                # and in the qScale M-step via sums of kappa_k * delta_k over each block
                 delta = MAT2_traceProd(Q0inv, expec_ww)
                 if delta < 0.0:
                     delta = 0.0
@@ -3135,7 +3124,6 @@ cpdef tuple cblockScaleEM(
                     qScaleView[b] = <cnp.float32_t>procScaleHIGH
                     nClipQHigh += 1
 
-            # log-space EMA
             if EM_alphaEMA > 0.0 and EM_alphaEMA <= 1.0:
                 alphaQ = (<double>EM_alphaEMA) * (<double>EM_alphaEMA_Q)
                 if alphaQ > 1.0:
@@ -3222,7 +3210,7 @@ cpdef tuple cblockScaleEM(
 
         fprintf(
             stderr,
-            "\t[cblockScaleEM] block-reweighted noise scales: "
+            "\t[cblockScaleEM] block-level noise scales: "
             "r[med=%.6g mean=%.6g] "
             "q[med=%.6g mean=%.6g]\n",
             rMedRaw, rMean,
@@ -3243,7 +3231,6 @@ cpdef tuple cblockScaleEM(
                         for b in range(blockCount):
                             qScaleView[b] = <cnp.float32_t>((<double>qScaleView[b]) / qMed)
 
-        # check convergence in log space
         maxAbsLogDelta = 0.0
         if i == 0:
             for b in range(blockCount):
@@ -3674,6 +3661,20 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef double lambdaEff
     cdef double Scale
     cdef double scaleFloor
+    cdef double ScaleX
+    cdef double ScaleY
+    cdef double denomSym
+    cdef double scaleFloorX
+    cdef double scaleFloorY
+
+    cdef double blockLengthDouble
+    cdef double meanAll
+    cdef double gamma0_num
+    cdef double gamma1_num
+    cdef double denom
+    cdef double gamma0
+    cdef double oneMinusBetaSq
+    cdef double innoVar
 
     varOut = np.empty(numIntervals,dtype=np.float32)
 
@@ -3705,6 +3706,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             if elementIndex < (blockLength - 1):
                 sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
 
+        blockLengthDouble = <double>blockLength
+
         # sliding window until last block's start
         for startIndex in range(maxStartIndex + 1):
             if maskSum != 0:
@@ -3719,42 +3722,39 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
                 sumXSeq = sumY - currentValue
                 sumYSeq = sumY - previousValue
 
-                # these are distinct now, so means must be computed separately
-                meanX = sumXSeq / nPairsDouble
-                meanYp = sumYSeq / nPairsDouble
-                sumSqXSeq = (sumSqY - (currentValue*currentValue)) - (nPairsDouble*meanX*meanX)
-                sumSqYSeq = (sumSqY - (previousValue*previousValue)) - (nPairsDouble*meanYp*meanYp)
-                if sumSqXSeq < 0.0:
-                    sumSqXSeq = 0.0
-                if sumSqYSeq < 0.0:
-                    sumSqYSeq = 0.0
+                meanAll = sumY / blockLengthDouble
+                gamma0_num = sumSqY - (blockLengthDouble * meanAll * meanAll)
+                if gamma0_num < 0.0:
+                    gamma0_num = 0.0
 
-                # sum (x[i] - meanX)*(y[i] - meanYp) i = 0..n-2
-                sumXYc = (sumLagProd - (meanYp*sumXSeq) - (meanX*sumYSeq) + (nPairsDouble*meanX*meanYp))
-                eps = 1.0e-6*(sumSqXSeq + 1.0)
-                if sumSqXSeq > eps:
-                    # reg. AR(1) coefficient estimate
-                    # scale-aware ridge: keep regularizer in same units as sumSqXSeq
-                    lambdaEff = pairsRegLambda / (nPairsDouble + 1.0)
-                    scaleFloor = 1.0e-4*(sumSqXSeq + 1.0)
-                    Scale = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
-                    beta1 = (sumXYc / Scale)
+                # Yule--Walker (time-reversal symmetric): beta from lag-1 autocovariance
+                gamma1_num = sumLagProd - (meanAll * sumXSeq) - (meanAll * sumYSeq) + (nPairsDouble * meanAll * meanAll)
+
+                lambdaEff = pairsRegLambda / (blockLengthDouble + 1.0)
+                scaleFloor = 1.0e-4*(gamma0_num + 1.0)
+                denom = (gamma0_num * (1.0 + lambdaEff)) + scaleFloor
+
+                eps = 1.0e-12*(gamma0_num + 1.0)
+                if denom > eps:
+                    beta1 = gamma1_num / denom
                 else:
                     beta1 = 0.0
 
                 if beta1 > maxBeta:
                     beta1 = maxBeta
-
-                # AR(1) negative autocorrelation hides noise here
                 elif beta1 < 0.0:
                     beta1 = 0.0
-                RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
-                if RSS < 0.0:
-                    RSS = 0.0
 
-                # n-1 pairs, slope and intercept estimated --> use df = n-3
-                pairCountDouble = <double>(blockLength - 3)
-                varAtView[startIndex]=<cnp.float32_t>(RSS/pairCountDouble)
+                gamma0 = gamma0_num / blockLengthDouble
+                oneMinusBetaSq = 1.0 - (beta1 * beta1)
+                if oneMinusBetaSq < 0.0:
+                    oneMinusBetaSq = 0.0
+
+                innoVar = gamma0 * oneMinusBetaSq
+                if innoVar < 0.0:
+                    innoVar = 0.0
+
+                varAtView[startIndex]=<cnp.float32_t>innoVar
 
             if startIndex < maxStartIndex:
                 # slide window forward --> (previousSum - leavingValue) + enteringValue
@@ -3764,12 +3764,11 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
                 maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
 
         for regionIndex in range(numIntervals):
-            startIndex = regionIndex - blockLength + 1
+            # assign to center of block around regionIndex, or as close as possible if near edges
+            startIndex = regionIndex - halfBlockLength
             if startIndex < 0:
-                # flag as invalid (i.e., divert to prior model until full window)
-                varOutView[regionIndex] = <cnp.float32_t>-1.0
-                continue
-            if startIndex > maxStartIndex:
+                startIndex = 0
+            elif startIndex > maxStartIndex:
                 startIndex = maxStartIndex
             varOutView[regionIndex] = varAtView[startIndex]
 

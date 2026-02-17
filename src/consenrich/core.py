@@ -91,7 +91,7 @@ class processParams(NamedTuple):
     :type maxQ: float
     :param offDiagQ: Off-diagonal value in the process noise covariance :math:`\mathbf{Q}_{[i,01]}`
     :type offDiagQ: float
-    :seealso: :func:`consenrich.core.autoDeltaF`, :func:`consenrich.core.runConsenrich`
+    :seealso: :func:`consenrich.core.runConsenrich`
 
     """
 
@@ -872,7 +872,7 @@ def constructMatrixQ(
     Q[1, 1] = np.float32(minDiagQ if Q11 is None else Q11)
 
     if Q11 is None:
-        Q[1, 1] = Q[0, 0] / 8.0
+        Q[1, 1] = Q[0, 0] / 4.0
 
     if Q01 is not None and Q10 is None:
         Q10 = Q01
@@ -943,10 +943,10 @@ def runConsenrich(
     disableCalibration: bool = False,
     EM_maxIters: int = 100,
     EM_rtol: float = 1.0e-4,
-    EM_scaleToMedian: bool = True,
-    EM_tNu: float = 8.0,
+    EM_scaleToMedian: bool = False,
+    EM_tNu: float = 10.0,
     EM_alphaEMA: float = 0.1,
-    EM_scaleLOW: float = 0.5,
+    EM_scaleLOW: float = 0.2,
     EM_scaleHIGH: float = 5.0,
     returnScales: bool = True,
     applyJackknife: bool = False,
@@ -956,10 +956,9 @@ def runConsenrich(
     useDiscreteConstAccel: bool = False,
     autoDeltaF: bool = True,
     autoDeltaF_low: float = 1.0e-4,
-    autoDeltaF_high: float = 10.0,
+    autoDeltaF_high: float = 2.0,
     autoDeltaF_init: float = 0.01,
     autoDeltaF_maxEvals: int = 25,
-    autoDeltaF_gamma: float = 1.0,
     conformalRescale: bool = True,
     conformalAlpha: float = 0.05,
 ):
@@ -974,10 +973,6 @@ def runConsenrich(
     * observation residuals: ``lambdaExp[j,k]`` (conditional measurement variance is ``R[j,k]/lambdaExp[j,k]``)
     * process innovations:  ``processPrecExp[k]`` (conditional process covariance is ``Q[k]/processPrecExp[k]``)
 
-    If ``conformalRescale`` is enabled, the smoothed signal-level variance ``P00`` is rescaled by a
-    scalar factor estimated from a split of replicate subsets. The differences between each
-    independently fit consensus signal-level tracks (mutually exclusive with ``applyJackknife``).
-
     This wrapper ties together several fundamental routines written in Cython:
 
     #. :func:`consenrich.cconsenrich.cforwardPass`: Kalman filter using the final weights when
@@ -987,6 +982,11 @@ def runConsenrich(
 
     #. :func:`consenrich.cconsenrich.cblockScaleEM`: fit blockwise noise scales and infer
        precision multipliers for the final inference pass.
+
+
+    If ``conformalRescale`` is enabled, the smoothed signal-level variance ``P00`` is rescaled by a
+    scalar factor estimated from a split of replicate subsets. The differences between each
+    independently fit consensus signal-level tracks (mutually exclusive with ``applyJackknife``).
 
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`,
             :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`,
@@ -1041,28 +1041,6 @@ def runConsenrich(
             deltaF=float(deltaFLocal),
         ).astype(np.float32, copy=False)
 
-    # ------------------------------------------------------------
-    # 'auto' deltaF section
-    #
-    #   score(deltaF) = NLL(deltaF) + [gammaEff * intervalCount * log(eps + roughness(deltaF))]
-    #
-    # NLL(deltaF):
-    #   Gaussian forward-pass negative log likelihood under fixed rScale=qScale=1, no reweighting
-    #
-    # roughness(deltaF):
-    #   Expected squared change in the signal level between adjacent intervals:
-    #
-    #   E[(x0_{k+1} - x0_k)^2]
-    #     = (mu0_{k+1} - mu0_k)^2 + P00_{k+1} + P00_k - 2*C00_{k,k+1}
-    #
-    # Intuition:
-    # - NLL favors matching the observed tracks
-    # - roughness penalizes back-and-forth sensitivity to noise
-    # - log(.) makes the penalty less dependent on absolute scale
-    #
-    # gammaEff is set automatically from the data so this generalizes across assays.
-    # autoDeltaF_gamma is used as a user-facing multiplier on the data-driven gammaEff.
-    # ------------------------------------------------------------
     def _autoDeltaF(matrixDataLocal: np.ndarray, matrixMuncLocal: np.ndarray) -> float:
         deltaFMin = float(autoDeltaF_low)
         deltaFMax = float(autoDeltaF_high)
@@ -1072,20 +1050,14 @@ def runConsenrich(
             or deltaFMin <= 0.0
             or deltaFMax <= deltaFMin
         ):
-            deltaFMin, deltaFMax = 1.0e-3, 10.0
+            deltaFMin, deltaFMax = 1.0e-4, 1.0
 
         deltaFInit = float(autoDeltaF_init)
         if (not np.isfinite(deltaFInit)) or deltaFInit <= 0.0:
             deltaFInit = float(np.sqrt(deltaFMin * deltaFMax))
         deltaFInit = float(np.clip(deltaFInit, deltaFMin, deltaFMax))
 
-        gammaMultiplier = float(autoDeltaF_gamma)
-        if (not np.isfinite(gammaMultiplier)) or gammaMultiplier <= 0.0:
-            gammaMultiplier = 1.0
-
-        eps = 1.0e-8
-
-        # NOTE: skip EM when applying 'auto' deltaF
+        eps = 1.0
         rScaleUnity = np.ones(blockCount, dtype=np.float32)
         qScaleUnity = np.ones(blockCount, dtype=np.float32)
 
@@ -1103,6 +1075,26 @@ def runConsenrich(
         lagCovSmoothed = np.empty((max(nLocal - 1, 1), 2, 2), dtype=np.float32)
         postFitResiduals = np.empty((nLocal, mLocal), dtype=np.float32)
 
+        # ------------------------------------------------------------
+        # 'auto' deltaF section
+        #
+        #   score(deltaF) = NLL(deltaF) + [intervalCount * log(eps + roughness(deltaF))]
+        #
+        # NLL(deltaF):
+        #   Gaussian forward-pass negative log likelihood under fixed rScale=qScale=1, no reweighting
+        #
+        # roughness(deltaF):
+        #   Expected squared change in the signal level between adjacent intervals:
+        #
+        #   E[(x0_{k+1} - x0_k)^2]
+        #     =_mom (mu0_{k+1} - mu0_k)^2 + P00_{k+1} + P00_k - 2*C00_{k,k+1}
+        #
+        # Intuition:
+        # - NLL favors matching the observed tracks
+        # - roughness penalizes back-and-forth sensitivity to noise
+        # - log(.) makes the penalty less dependent on absolute scale
+        #
+        # ------------------------------------------------------------
         def _penNLL(deltaF_candidate: float):
             deltaF_candidate = float(deltaF_candidate)
             if (not np.isfinite(deltaF_candidate)) or deltaF_candidate <= 0.0:
@@ -1171,6 +1163,8 @@ def runConsenrich(
 
                 L = nLocal - 1
                 deltaMu0 = mu[1:, 0] - mu[:-1, 0]
+
+                # expected roughness
                 expDelta2 = (
                     (deltaMu0 * deltaMu0)
                     + P[1:, 0, 0]
@@ -1184,100 +1178,66 @@ def runConsenrich(
             except Exception:
                 return float(1.0e16), float(1.0e16)
 
-        nll0, rough0 = _penNLL(deltaFInit)
-        logR0 = float(np.log(eps + max(rough0, 0.0)))
-        nll_tmp = float(nLocal) * float(max(abs(logR0), 1.0e-8))
-        gammaAuto = (
-            float(0.5) * float(max(nll0, 0.0)) / nll_tmp if nll_tmp > 0.0 else 0.0
-        )
-
-        # final gamma used in scoring
-        gammaEff = float(gammaMultiplier) * float(gammaAuto)
-
-        if (not np.isfinite(gammaEff)) or gammaEff < 0.0:
-            gammaEff = 0.0
-        gammaEff = float(np.clip(gammaEff, 0.2, 2.0))
-
-        def deltaF_score(deltaF_candidate: float) -> float:
-            sumNLL, roughnessMean = _penNLL(deltaF_candidate)
-            if (not np.isfinite(sumNLL)) or (not np.isfinite(roughnessMean)):
-                return float(1.0e16)
-            if sumNLL >= 1.0e16 or roughnessMean >= 1.0e16:
-                return float(1.0e16)
-            return float(
-                sumNLL + gammaEff * float(nLocal) * float(np.log(eps + roughnessMean))
-            )
-
         # Search over t = log(deltaF)
         tLOW = float(np.log(deltaFMin))
         tHIGH = float(np.log(deltaFMax))
 
-        # warm start for GSS
-        gridDeltaF = np.exp(np.linspace(tLOW, tHIGH, num=7, dtype=np.float64))
-        gridScores = [(deltaF_score(float(d)), float(d)) for d in gridDeltaF]
-        gridScores.sort(key=lambda x: x[0])
-        bestScore, bestDeltaF = gridScores[0]
+        # warm start grid and set scale refs so w1,w2 are meaningful:
+        gridDeltaF = np.exp(np.linspace(tLOW, tHIGH, num=16, dtype=np.float64))
+        gridTerms = []
+        for d in gridDeltaF:
+            sumNLL_g, rough_g = _penNLL(float(d))
+            if sumNLL_g >= 1.0e16 or rough_g >= 1.0e16:
+                continue
 
-        # use neighbors around the best grid point as the starting interval
+            nll_per_obs = sumNLL_g / (float(mLocal) * float(nLocal))
+            rough_log = float(np.log1p(rough_g))
+            if np.isfinite(nll_per_obs) and np.isfinite(rough_log):
+                gridTerms.append((float(nll_per_obs), float(rough_log)))
+
+        if gridTerms:
+            nll_ref = float(np.median([t[0] for t in gridTerms]))
+            rough_ref = float(np.median([t[1] for t in gridTerms]))
+        else:
+            nll_ref = 1.0
+            rough_ref = 1.0
+        nll_ref = float(max(nll_ref, 1.0e-12))
+        rough_ref = float(max(rough_ref, 1.0e-12))
+
+        def deltaF_score(deltaF_candidate: float, w1=0.75, w2=0.25) -> float:
+            sumNLL, roughnessMean = _penNLL(deltaF_candidate)
+            if sumNLL >= 1.0e16 or roughnessMean >= 1.0e16:
+                return float(1.0e16)
+
+            #   score = w1*(nll_per_obs / nll_ref) + w2*(log1p(roughness)/rough_ref)
+            nll_term = (sumNLL / (float(mLocal) * float(nLocal))) / nll_ref
+            rough_term = float(np.log1p(roughnessMean)) / rough_ref
+            return float((w1 * nll_term) + (w2 * rough_term))
+
+        def obj(t: float) -> float:
+            return float(deltaF_score(float(np.exp(float(t)))))
+
         try:
-            bestIdx = int(
-                np.where(np.isclose(gridDeltaF, bestDeltaF, rtol=0.0, atol=0.0))[0][0]
+            res = optimize.minimize_scalar(
+                obj,
+                bounds=(tLOW, tHIGH),
+                method="bounded",
+                options={"maxiter": int(autoDeltaF_maxEvals), "xatol": 1.0e-3},
             )
-        except Exception:
-            bestIdx = int(len(gridDeltaF) // 2)
-
-        loIdx = max(0, bestIdx - 1)
-        hiIdx = min(len(gridDeltaF) - 1, bestIdx + 1)
-
-        a = float(np.log(float(gridDeltaF[loIdx])))
-        b = float(np.log(float(gridDeltaF[hiIdx])))
-        if bestIdx == 0 or bestIdx == (len(gridDeltaF) - 1):
-            a, b = tLOW, tHIGH
-
-        phi = 0.5 * (1.0 + np.sqrt(5.0))
-        invPhi = 1.0 / phi
-
-        c = b - (b - a) * invPhi
-        d = a + (b - a) * invPhi
-        fc = deltaF_score(float(np.exp(c)))
-        fd = deltaF_score(float(np.exp(d)))
-
-        evalsLeft = max(4, int(autoDeltaF_maxEvals) - len(gridDeltaF) - 2)
-        for _ in range(evalsLeft):
-            if fc < fd:
-                b = d
-                d = c
-                fd = fc
-                c = b - (b - a) * invPhi
-                fc = deltaF_score(float(np.exp(c)))
+            if (not res.success) or (not np.isfinite(res.x)):
+                bestDeltaF = deltaFInit
             else:
-                a = c
-                c = d
-                fc = fd
-                d = a + (b - a) * invPhi
-                fd = deltaF_score(float(np.exp(d)))
-
-        tBest = c if fc < fd else d
-        newDeltaF = float(np.exp(tBest))
-        newDeltaF = float(np.clip(newDeltaF, deltaFMin, deltaFMax))
-
-        newScore = deltaF_score(newDeltaF)
-        if newScore < bestScore:
-            bestScore, bestDeltaF = newScore, newDeltaF
-
-        if (not np.isfinite(bestDeltaF)) or bestDeltaF <= 0.0:
+                bestDeltaF = float(np.exp(float(res.x)))
+        except Exception:
             bestDeltaF = deltaFInit
 
+        bestDeltaF = float(np.clip(bestDeltaF, deltaFMin, deltaFMax))
+
+        bestScore = float(deltaF_score(bestDeltaF))
         logger.info(
-            "autoDeltaF: deltaF=%.6g score=%.6g gammaEff=%.6g gammaAuto=%.6g gammaMult=%.6g bounds=[%.6g, %.6g]",
-            float(bestDeltaF),
-            float(bestScore),
-            float(gammaEff),
-            float(gammaAuto),
-            float(gammaMultiplier),
-            float(deltaFMin),
-            float(deltaFMax),
+            f"autoDeltaF search completed: bestDeltaF={bestDeltaF}\tbestScore={bestScore:.4e}"
         )
+
         return float(bestDeltaF)
 
     # Data-driven deltaF if deltaF <= 0 or nan, etc
@@ -1290,7 +1250,7 @@ def runConsenrich(
     matrixF = buildMatrixF(float(deltaF))
     matrixQ0 = buildMatrixQ0(float(deltaF))
 
-    def runForwardBackward(
+    def _runForwardBackward(
         *,
         matrixDataLocal: np.ndarray,
         matrixMuncLocal: np.ndarray,
@@ -1364,7 +1324,7 @@ def runConsenrich(
             NIS,
         )
 
-    def _fit_subset_for_conformal(
+    def _conformal_fitA_fitB(
         matrixDataLocal: np.ndarray, matrixMuncLocal: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         mLocal = int(matrixDataLocal.shape[0])
@@ -1426,7 +1386,7 @@ def runConsenrich(
             _lagCovSmoothedLocal,
             _postFitResidualsLocal,
             _NISLocal,
-        ) = runForwardBackward(
+        ) = _runForwardBackward(
             matrixDataLocal=matrixDataLocal,
             matrixMuncLocal=matrixMuncLocal,
             rScale=rScaleLocal,
@@ -1441,14 +1401,14 @@ def runConsenrich(
         stateCovarSmoothedLocal = np.asarray(stateCovarSmoothedLocal, dtype=np.float32)
         return stateSmoothedLocal, stateCovarSmoothedLocal
 
-    def _conformal_scale_latent() -> float:
+    def _conformal_scalePosterior() -> float:
         mLocal = int(trackCount)
         if mLocal < 2:
-            logger.warning("conformalRescale: trackCount<2 --> scale=1.0")
+            logger.warning("conformalRescale: trackCount < 2 --> setting scale=1.0")
             return 1.0
 
         alphaLocal = float(conformalAlpha)
-        if (not np.isfinite(alphaLocal)) or alphaLocal <= 0.0 or alphaLocal >= 1.0:
+        if alphaLocal <= 0.0 or alphaLocal >= 1.0:
             logger.warning(
                 "conformalRescale: invalid conformalAlpha=%.3g --> using default 0.1",
                 float(conformalAlpha),
@@ -1472,8 +1432,16 @@ def runConsenrich(
         matrixMuncB = np.ascontiguousarray(matrixMunc[idxB, :], dtype=np.float32)
 
         # run on each half separately, get smoothed state-level means and variances independently
-        stateA, covA = _fit_subset_for_conformal(matrixDataA, matrixMuncA)
-        stateB, covB = _fit_subset_for_conformal(matrixDataB, matrixMuncB)
+        logger.info(
+            "Running conformal split fits: trackCount=%d --> splitIdx=%d (A:0-%d, B:%d-%d)",
+            int(mLocal),
+            int(splitIdx),
+            int(splitIdx - 1),
+            int(splitIdx),
+            int(mLocal - 1),
+        )
+        stateA, covA = _conformal_fitA_fitB(matrixDataA, matrixMuncA)
+        stateB, covB = _conformal_fitA_fitB(matrixDataB, matrixMuncB)
 
         # we don't really care about x1 for calibration, just the signal-levels
         muA = stateA[:, 0].astype(np.float64, copy=False)
@@ -1499,8 +1467,8 @@ def runConsenrich(
             scores = scores[::stride]
 
         # upper bound on the (1-alpha) quantile of conformal scores
-        # this is the factor we use to inflate the final P00 variance
-        # to achieve coverage
+        #   this is the factor we use to inflate the final P00 variance
+        #   to achieve coverage
         N = int(scores.size)
         k = int(np.ceil((N + 1) * (1.0 - alphaLocal)))
         q_level = min(1.0, max(0.0, k / float(N)))
@@ -1510,14 +1478,16 @@ def runConsenrich(
         except TypeError:
             qhat = float(np.quantile(scores, q_level, interpolation="higher"))
 
+        # never deflate via conformal
         if (not np.isfinite(qhat)) or qhat <= 0.0:
             qhat = 1.0
         qhat = float(max(1.0, qhat))
 
         logger.info(
-            "conformalRescale: alpha=%.3g N=%d qhat=%.6g (inflating uncertainty P00 by qhat^2)",
+            "conformalRescale: alpha=%.3g N=%d qhat=%.6g --> scaling P00 by %.3g",
             float(alphaLocal),
             int(N),
+            float(qhat),
             float(qhat),
         )
         return qhat
@@ -1583,7 +1553,7 @@ def runConsenrich(
         _lagCovSmoothed,
         postFitResiduals,
         NIS,
-    ) = runForwardBackward(
+    ) = _runForwardBackward(
         matrixDataLocal=matrixData,
         matrixMuncLocal=matrixMunc,
         rScale=rScale,
@@ -1689,7 +1659,7 @@ def runConsenrich(
                 _,
                 _,
                 _,
-            ) = runForwardBackward(
+            ) = _runForwardBackward(
                 matrixDataLocal=matrixData_LOO,
                 matrixMuncLocal=matrixMunc_LOO,
                 rScale=rScale_LOO,
@@ -1715,7 +1685,7 @@ def runConsenrich(
         outTrack4 = np.sqrt(jackknifeVar0, dtype=np.float32)
 
     if conformalRescale:
-        conformalScale = _conformal_scale_latent()
+        conformalScale = _conformal_scalePosterior()
         if conformalScale != 1.0:
             outStateCovarSmoothed[:, 0, 0] *= np.float32(
                 conformalScale * conformalScale
@@ -2089,9 +2059,9 @@ def plotMWSRHistogram(
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
-    eps: float = 5.0e-2,
-    binQuantileCutoff: float = 0.75,
-    EB_minLin: float = 0.5,
+    eps: float = 1.0e-2,
+    binQuantileCutoff: float = 0.5,
+    EB_minLin: float = 1.0,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -2187,8 +2157,8 @@ def fitVarianceFunction(
 def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
-    eps: float = 5.0e-2,
-    EB_minLin: float = 0.5,
+    eps: float = 1.0e-2,
+    EB_minLin: float = 0.01,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
     if coeffs is None or np.asarray(coeffs).size == 0:
@@ -2216,14 +2186,14 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    binQuantileCutoff: float = 0.75,
-    EB_minLin: float = 0.5,
+    binQuantileCutoff: float = 0.5,
+    EB_minLin: float = 1.0,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
-    eps: float = 5.0e-2,
+    eps: float = 1.0e-2,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -2288,9 +2258,10 @@ def getMuncTrack(
         eps=eps,
     )
 
-    meanTrack = np.abs(valuesArr).copy()
+    meanTrack = valuesArr.astype(np.float32, copy=True)
     if useEMA:
         meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
+    meanTrack = np.abs(meanTrack)
     priorTrack = evalVarianceFunction(opt, meanTrack, EB_minLin=EB_minLin).astype(
         np.float32, copy=False
     )
