@@ -872,7 +872,7 @@ def constructMatrixQ(
     Q[1, 1] = np.float32(minDiagQ if Q11 is None else Q11)
 
     if Q11 is None:
-        Q[1, 1] = Q[0, 0] / 4.0
+        Q[1, 1] = Q[0, 0]
 
     if Q01 is not None and Q10 is None:
         Q10 = Q01
@@ -941,13 +941,13 @@ def runConsenrich(
     projectStateDuringFiltering: bool = False,
     pad: float = 1.0e-2,
     disableCalibration: bool = False,
-    EM_maxIters: int = 100,
+    EM_maxIters: int = 50,
     EM_rtol: float = 1.0e-4,
     EM_scaleToMedian: bool = False,
     EM_tNu: float = 10.0,
     EM_alphaEMA: float = 0.1,
-    EM_scaleLOW: float = 0.2,
-    EM_scaleHIGH: float = 5.0,
+    EM_scaleLOW: float = 0.1,
+    EM_scaleHIGH: float = 10.0,
     returnScales: bool = True,
     applyJackknife: bool = False,
     jackknifeEM_maxIters: int = 5,
@@ -959,8 +959,10 @@ def runConsenrich(
     autoDeltaF_high: float = 2.0,
     autoDeltaF_init: float = 0.01,
     autoDeltaF_maxEvals: int = 25,
-    conformalRescale: bool = True,
+    conformalRescale: bool = False,
     conformalAlpha: float = 0.05,
+    conformal_numIters: int = 3,
+    conformalFinalRefit: bool = True,
 ):
     r"""Run Consenrich over contiguous genomic intervals
 
@@ -982,11 +984,6 @@ def runConsenrich(
 
     #. :func:`consenrich.cconsenrich.cblockScaleEM`: fit blockwise noise scales and infer
        precision multipliers for the final inference pass.
-
-
-    If ``conformalRescale`` is enabled, the smoothed signal-level variance ``P00`` is rescaled by a
-    scalar factor estimated from a split of replicate subsets. The differences between each
-    independently fit consensus signal-level tracks (mutually exclusive with ``applyJackknife``).
 
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`,
             :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`,
@@ -1057,10 +1054,8 @@ def runConsenrich(
             deltaFInit = float(np.sqrt(deltaFMin * deltaFMax))
         deltaFInit = float(np.clip(deltaFInit, deltaFMin, deltaFMax))
 
-        eps = 1.0
         rScaleUnity = np.ones(blockCount, dtype=np.float32)
         qScaleUnity = np.ones(blockCount, dtype=np.float32)
-
         nLocal = int(matrixDataLocal.shape[1])
         mLocal = int(matrixDataLocal.shape[0])
 
@@ -1204,11 +1199,8 @@ def runConsenrich(
         nll_ref = float(max(nll_ref, 1.0e-12))
         rough_ref = float(max(rough_ref, 1.0e-12))
 
-        def deltaF_score(deltaF_candidate: float, w1=0.75, w2=0.25) -> float:
+        def deltaF_score(deltaF_candidate: float, w1=0.95, w2=0.05) -> float:
             sumNLL, roughnessMean = _penNLL(deltaF_candidate)
-            if sumNLL >= 1.0e16 or roughnessMean >= 1.0e16:
-                return float(1.0e16)
-
             #   score = w1*(nll_per_obs / nll_ref) + w2*(log1p(roughness)/rough_ref)
             nll_term = (sumNLL / (float(mLocal) * float(nLocal))) / nll_ref
             rough_term = float(np.log1p(roughnessMean)) / rough_ref
@@ -1222,7 +1214,7 @@ def runConsenrich(
                 obj,
                 bounds=(tLOW, tHIGH),
                 method="bounded",
-                options={"maxiter": int(autoDeltaF_maxEvals), "xatol": 1.0e-3},
+                options={"maxiter": int(autoDeltaF_maxEvals), "xatol": 1.0e-4},
             )
             if (not res.success) or (not np.isfinite(res.x)):
                 bestDeltaF = deltaFInit
@@ -1240,15 +1232,7 @@ def runConsenrich(
 
         return float(bestDeltaF)
 
-    # Data-driven deltaF if deltaF <= 0 or nan, etc
-    inferDeltaF = bool(autoDeltaF) and (
-        (not np.isfinite(deltaF)) or (float(deltaF) <= 0.0)
-    )
-    if inferDeltaF:
-        deltaF = _autoDeltaF(matrixData, matrixMunc)
-
-    matrixF = buildMatrixF(float(deltaF))
-    matrixQ0 = buildMatrixQ0(float(deltaF))
+    inferDeltaF = bool(autoDeltaF) or (deltaF < 0.0)
 
     def _runForwardBackward(
         *,
@@ -1357,7 +1341,7 @@ def runConsenrich(
             )
             if len(EM_out_local) != 10:
                 raise ValueError(
-                    "Expected cblockScaleEM(..., returnIntermediates=True) to return 10 values "
+                    "Expected cblockScaleEM(..., returnIntermediates=True) to return >10.0 values "
                     f"(got {len(EM_out_local)})."
                 )
             (
@@ -1492,6 +1476,224 @@ def runConsenrich(
         )
         return qhat
 
+    def _conformal_FutureRepQHat(
+        deltaFBase: float,
+    ) -> tuple[float, np.ndarray | None, float]:
+        mLocal = int(trackCount)
+        if mLocal < 2:
+            logger.warning("conformalRescale: trackCount < 2 --> setting qhat=1.0")
+            return 1.0, None, float(deltaFBase)
+
+        alphaLocal = float(conformalAlpha)
+        if alphaLocal <= 0.0 or alphaLocal >= 1.0:
+            logger.warning(
+                "conformalRescale: invalid conformalAlpha=%.3g --> using default 0.1",
+                float(conformalAlpha),
+            )
+            alphaLocal = 0.1
+        alphaLocal = float(np.clip(alphaLocal, 1.0e-6, 0.5))
+
+        rng = np.random.default_rng()
+        all_scores = []
+        idxT0 = None
+        deltaF0 = float(deltaFBase)
+
+        iters = int(max(1, int(conformal_numIters)))
+        for _ in range(iters):
+            perm = rng.permutation(mLocal).astype(np.int32, copy=False)
+            splitIdx = int(mLocal // 2)
+            idxT = perm[:splitIdx]
+            idxC = perm[splitIdx:]
+
+            if idxT0 is None:
+                idxT0 = np.asarray(idxT, dtype=np.int32).copy()
+
+            if idxT.size < 1 or idxC.size < 1:
+                continue
+
+            matrixDataT = np.ascontiguousarray(matrixData[idxT, :], dtype=np.float32)
+            matrixMuncT = np.ascontiguousarray(matrixMunc[idxT, :], dtype=np.float32)
+
+            if inferDeltaF and (not conformalFinalRefit):
+                deltaF_iter = _autoDeltaF(matrixDataT, matrixMuncT)
+            else:
+                deltaF_iter = float(deltaFBase)
+
+            if idxT0 is not None and idxT0.size == idxT.size and np.all(idxT0 == idxT):
+                deltaF0 = float(deltaF_iter)
+
+            try:
+                matrixF_iter = buildMatrixF(float(deltaF_iter))
+                matrixQ0_iter = buildMatrixQ0(float(deltaF_iter))
+            except Exception:
+                continue
+
+            mT = int(matrixDataT.shape[0])
+            if disableCalibration or mT < 2:
+                rScaleT = np.ones(blockCount, dtype=np.float32)
+                qScaleT = np.ones(blockCount, dtype=np.float32)
+                lambdaExpT = None
+                processPrecExpT = None
+            else:
+                EM_iters_local = int(min(int(EM_maxIters), 25))
+                EM_out_T = cconsenrich.cblockScaleEM(
+                    matrixData=matrixDataT,
+                    matrixPluginMuncInit=matrixMuncT,
+                    matrixF=matrixF_iter,
+                    matrixQ0=matrixQ0_iter,
+                    intervalToBlockMap=intervalToBlockMap,
+                    blockCount=int(blockCount),
+                    stateInit=float(stateInit),
+                    stateCovarInit=float(stateCovarInit),
+                    EM_maxIters=EM_iters_local,
+                    EM_rtol=float(EM_rtol),
+                    covarClip=float(covarClip),
+                    pad=float(pad),
+                    EM_scaleLOW=float(EM_scaleLOW),
+                    EM_scaleHIGH=float(EM_scaleHIGH),
+                    EM_alphaEMA=float(EM_alphaEMA),
+                    EM_scaleToMedian=bool(EM_scaleToMedian),
+                    EM_tNu=float(EM_tNu),
+                    returnIntermediates=True,
+                )
+                if len(EM_out_T) != 10:
+                    continue
+                (
+                    rScaleT,
+                    qScaleT,
+                    _itersEMDoneT,
+                    _nllEMT,
+                    _stateSmEMT,
+                    _covSmEMT,
+                    _lagCovSmEMT,
+                    _residEMT,
+                    lambdaExpT,
+                    processPrecExpT,
+                ) = EM_out_T
+                rScaleT = np.asarray(rScaleT, dtype=np.float32)
+                qScaleT = np.asarray(qScaleT, dtype=np.float32)
+                lambdaExpT = np.asarray(lambdaExpT, dtype=np.float32)
+                processPrecExpT = np.asarray(processPrecExpT, dtype=np.float32)
+
+            (
+                _phiHatT,
+                _sumNLLT,
+                stateSmoothedT,
+                stateCovarSmoothedT,
+                _lagCovT,
+                _postResidT,
+                _NIST,
+            ) = _runForwardBackward(
+                matrixDataLocal=matrixDataT,
+                matrixMuncLocal=matrixMuncT,
+                rScale=rScaleT,
+                qScale=qScaleT,
+                matrixFLocal=matrixF_iter,
+                matrixQ0Local=matrixQ0_iter,
+                lambdaExp=lambdaExpT,
+                processPrecExp=processPrecExpT,
+            )
+
+            muT = np.asarray(stateSmoothedT, dtype=np.float32)[:, 0].astype(
+                np.float64, copy=False
+            )
+            vT = np.asarray(stateCovarSmoothedT, dtype=np.float32)[:, 0, 0].astype(
+                np.float64, copy=False
+            )
+            vT = np.maximum(vT, 0.0)
+
+            conformalMaxPoints = 100_000
+            for j in idxC:
+                y = matrixData[int(j), :].astype(np.float64, copy=False)
+                Rj = matrixMunc[int(j), :].astype(np.float64, copy=False)
+                futVar = np.sqrt(np.maximum(vT + Rj + float(pad), 1.0e-8))
+                s = np.abs(y - muT) / futVar
+                if s.size > int(conformalMaxPoints):
+                    stride = int(np.ceil(s.size / float(conformalMaxPoints)))
+                    s = s[::stride]
+                if s.size:
+                    all_scores.append(s.astype(np.float64, copy=False))
+
+        if not all_scores:
+            logger.warning("conformalRescale: no finite scores --> setting qhat=1.0")
+            return 1.0, idxT0, float(deltaF0)
+
+        scores = np.concatenate(all_scores, axis=0)
+        scores = scores[np.isfinite(scores)]
+
+        conformalMaxPoints = 100_000
+        if scores.size > int(conformalMaxPoints):
+            stride = int(np.ceil(scores.size / float(conformalMaxPoints)))
+            scores = scores[::stride]
+
+        N = int(scores.size)
+        if N <= 0:
+            logger.warning(
+                "conformalRescale: empty scores after filtering --> setting qhat=1.0"
+            )
+            return 1.0, idxT0, float(deltaF0)
+
+        k = int(np.ceil((N + 1) * (1.0 - alphaLocal)))
+        q_level = min(1.0, max(0.0, k / float(N)))
+
+        try:
+            qhat = float(np.quantile(scores, q_level, method="higher"))
+        except TypeError:
+            qhat = float(np.quantile(scores, q_level, interpolation="higher"))
+
+        if (not np.isfinite(qhat)) or qhat <= 0.0:
+            qhat = 1.0
+        qhat = float(max(1.0, qhat))
+
+        logger.info(
+            "conformalRescale(future_replicate): alpha=%.3g N=%d qhat=%.6g",
+            float(alphaLocal),
+            int(N),
+            float(qhat),
+        )
+        return float(qhat), idxT0, float(deltaF0)
+
+    conformalQhat = 1.0
+    conformalIdxT = None
+    deltaF_fit = float(deltaF)
+
+    if conformalRescale:
+        if (not np.isfinite(deltaF_fit)) or (float(deltaF_fit) <= 0.0):
+            deltaF_fit = float(autoDeltaF_init)
+        deltaF_fit = float(max(deltaF_fit, 1.0e-8))
+        if inferDeltaF and conformalFinalRefit:
+            deltaF = _autoDeltaF(matrixData, matrixMunc)
+            deltaF_fit = float(deltaF)
+        conformalQhat, conformalIdxT, deltaF0 = _conformal_FutureRepQHat(deltaF_fit)
+        if (
+            (not conformalFinalRefit)
+            and (conformalIdxT is not None)
+            and (conformalIdxT.size >= 1)
+        ):
+            deltaF_fit = float(deltaF0)
+    else:
+        if inferDeltaF:
+            deltaF = _autoDeltaF(matrixData, matrixMunc)
+        deltaF_fit = float(deltaF)
+
+    matrixF = buildMatrixF(float(deltaF_fit))
+    matrixQ0 = buildMatrixQ0(float(deltaF_fit))
+
+    matrixDataFit = matrixData
+    matrixMuncFit = matrixMunc
+    if (
+        conformalRescale
+        and (not conformalFinalRefit)
+        and (conformalIdxT is not None)
+        and (conformalIdxT.size >= 1)
+    ):
+        matrixDataFit = np.ascontiguousarray(
+            matrixData[conformalIdxT, :], dtype=np.float32
+        )
+        matrixMuncFit = np.ascontiguousarray(
+            matrixMunc[conformalIdxT, :], dtype=np.float32
+        )
+
     lambdaExp_final = None
     processPrecExp_final = None
 
@@ -1501,8 +1703,8 @@ def runConsenrich(
         logger.info("Noise calibration disabled: using rScale=qScale=1 for all blocks.")
     else:
         EM_out = cconsenrich.cblockScaleEM(
-            matrixData=matrixData,
-            matrixPluginMuncInit=matrixMunc,
+            matrixData=matrixDataFit,
+            matrixPluginMuncInit=matrixMuncFit,
             matrixF=matrixF,
             matrixQ0=matrixQ0,
             intervalToBlockMap=intervalToBlockMap,
@@ -1554,8 +1756,8 @@ def runConsenrich(
         postFitResiduals,
         NIS,
     ) = _runForwardBackward(
-        matrixDataLocal=matrixData,
-        matrixMuncLocal=matrixMunc,
+        matrixDataLocal=matrixDataFit,
+        matrixMuncLocal=matrixMuncFit,
         rScale=rScale,
         qScale=qScale,
         matrixFLocal=matrixF,
@@ -1685,11 +1887,8 @@ def runConsenrich(
         outTrack4 = np.sqrt(jackknifeVar0, dtype=np.float32)
 
     if conformalRescale:
-        conformalScale = _conformal_scalePosterior()
-        if conformalScale != 1.0:
-            outStateCovarSmoothed[:, 0, 0] *= np.float32(
-                conformalScale * conformalScale
-            )
+        if conformalQhat != 1.0:
+            outStateCovarSmoothed[:, 0, 0] *= np.float32(conformalQhat * conformalQhat)
 
     if boundState:
         np.clip(
