@@ -717,18 +717,18 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
-        pad=_cfgGet(configData, "observationParams.pad", 1.0e-2),
+        pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
         EM_tNu=_cfgGet(configData, "observationParams.EM_tNu", 10.0),
-        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.25),
+        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.1),
         EM_scaleLOW=_cfgGet(
             configData,
             "observationParams.EM_scaleLOW",
-            0.2,
+            0.1,
         ),
         EM_scaleHIGH=_cfgGet(
             configData,
             "observationParams.EM_scaleHIGH",
-            5.0,
+            10.0,
         ),
         EM_scaleToMedian=_cfgGet(
             configData,
@@ -738,7 +738,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_maxIters=_cfgGet(
             configData,
             "observationParams.EM_maxIters",
-            100,
+            50,
         ),
     )
 
@@ -1111,7 +1111,7 @@ def main():
     vec_: Optional[np.ndarray] = None
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
-    pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-2
+    pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
     if args.verbose2:
         args.verbose = True
 
@@ -1489,7 +1489,7 @@ def main():
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
 
-            autoMinQ = max((0.01 * minR_), 1.0e-3)
+            autoMinQ = max((0.01 * minR_) * (1 + deltaF_), 1.0e-4)
             if processArgs.minQ < 0.0:
                 minQ_ = autoMinQ
             else:
@@ -1516,9 +1516,9 @@ def main():
                 stateArgs.stateLowerBound,
                 stateArgs.stateUpperBound,
                 blockLenIntervals=(
-                    (vec_[2] * 2 + 1)
+                    4 * vec_[0] + 1
                     if vec_ is not None
-                    else backgroundBlockSizeIntervals
+                    else 2 * backgroundBlockSizeIntervals + 1
                 ),
                 returnScales=True,
                 pad=pad_,

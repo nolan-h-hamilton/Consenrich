@@ -1928,8 +1928,7 @@ cpdef tuple cforwardPass(
     Py_ssize_t blockCount,
     float stateInit,
     float stateCovarInit,
-    float covarClip=3.0,
-    float pad=0.1,
+    float pad=1.0e-4,
     bint projectStateDuringFiltering=False,
     float stateLowerBound=0.0,
     float stateUpperBound=0.0,
@@ -1944,6 +1943,10 @@ cpdef tuple cforwardPass(
     bint storeNLLInD=False,
     object lambdaExp=None,
     object processPrecExp=None,
+    bint useObsBlockScale=True,
+    bint useProcBlockScale=True,
+    bint useObsPrecReweight=True,
+    bint useProcPrecReweight=True,
 ):
     r"""Run the forward pass (filter) step in the forward-backward state estimation phase
 
@@ -1984,16 +1987,14 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[:, :, ::1] pNoiseForwardView
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] lambdaExpArr
     cdef cnp.float32_t[:, ::1] lambdaExpView
-    cdef bint useLambda = (lambdaExp is not None)
+    cdef bint useLambda = (useObsPrecReweight and (lambdaExp is not None))
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
     cdef cnp.float32_t[::1] processPrecExpView
-    cdef bint useProcPrec = (processPrecExp is not None)
+    cdef bint useProcPrec = (useProcPrecReweight and (processPrecExp is not None))
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] stateVector = np.array([stateInit, 0.0], dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateCovar = (np.eye(2, dtype=np.float32) * np.float32(stateCovarInit))
     cdef cnp.float32_t[::1] stateVectorView = stateVector
     cdef cnp.float32_t[:, ::1] stateCovarView = stateCovar
-    cdef double clipSmall = pow(10.0, -covarClip)
-    cdef double clipBig = pow(10.0, covarClip)
     cdef float phiHat = 1.0
 
     # inlining to reduce small matrix indexing cost
@@ -2018,10 +2019,10 @@ cpdef tuple cforwardPass(
     cdef double sumDStat = 0.0
     cdef float rScaleB, qScaleB
     cdef double w
-    cdef double wMin = 1.0e-4
-    cdef double wMax = 1.0e6
+    cdef double wMin = 0.2
+    cdef double wMax = 5.0
     cdef double procPrec
-    cdef double procPrecMin = 0.2 # kappa
+    cdef double procPrecMin = 0.2
     cdef double procPrecMax = 5.0 # 1/kappa
 
     cdef double LOG2PI = log(6.2831853071795864769)
@@ -2046,8 +2047,13 @@ cpdef tuple cforwardPass(
 
     if blockCount <= 0:
         raise ValueError("blockCount must be positive")
-    if rScale.shape[0] < blockCount or qScale.shape[0] < blockCount:
-        raise ValueError("rScale or qScale length must be >= blockCount")
+
+    # Only require scale vectors long enough if the corresponding block scaling is enabled
+    if useObsBlockScale and (rScale.shape[0] < blockCount):
+        raise ValueError("rScale length must be >= blockCount when useObsBlockScale=True")
+    if useProcBlockScale and (qScale.shape[0] < blockCount):
+        raise ValueError("qScale length must be >= blockCount when useProcBlockScale=True")
+
     if intervalToBlockMap.shape[0] < intervalCount:
         raise ValueError("intervalToBlockMap length must match intervalCount")
 
@@ -2088,15 +2094,20 @@ cpdef tuple cforwardPass(
         if blockId < 0 or blockId >= blockCount:
             raise ValueError("intervalToBlockMap has out-of-range block id")
 
-        rScaleB = rScaleView[blockId]
-        qScaleB = qScaleView[blockId]
-        if rScaleB < <float>clipSmall:
-            rScaleB = <float>clipSmall
-        if qScaleB < <float>clipSmall:
-            qScaleB = <float>clipSmall
+        # --------------------------------------------------------
+        # _Blockwise_ noise scale updates
+        # --------------------------------------------------------
+        rScaleB = <float>1.0
+        qScaleB = <float>1.0
+
+        if useObsBlockScale:
+            rScaleB = rScaleView[blockId]
+
+        if useProcBlockScale:
+            qScaleB = qScaleView[blockId]
 
         # --------------------------------------------------------
-        # Robust _process_ precision multiplier at interval k
+        # Robust _process_ precision multiplier at _interval_ k
         # --------------------------------------------------------
         if useProcPrec:
             procPrec = <double>processPrecExpView[k]
@@ -2156,12 +2167,8 @@ cpdef tuple cforwardPass(
             innov = (<double>dataView[j, k]) - (<double>stateVectorView[0])
 
             baseVar = (<double>muncMatView[j, k]) + (<double>pad)
-            if baseVar < clipSmall:
-                baseVar = clipSmall
 
             measVar = (<double>rScaleB) * baseVar
-            if measVar < clipSmall:
-                measVar = clipSmall
 
             if useLambda:
                 w = <double>lambdaExpView[j, k]
@@ -2182,8 +2189,6 @@ cpdef tuple cforwardPass(
             sumInvR += invMeasVar
 
         innovScale = 1.0 + (<double>stateCovarView[0, 0]) * sumInvR
-        if innovScale < clipSmall:
-            innovScale = clipSmall
 
         gainLike = (<double>stateCovarView[0, 0]) / innovScale
         quadForm = sumInvRInnov2 - gainLike * (sumInvRInnov * sumInvRInnov)
@@ -2218,20 +2223,6 @@ cpdef tuple cforwardPass(
         PNew00 = (IKH00*IKH00*P00) + (gainH*(P00*P00))
         PNew01 = (IKH00*(IKH10*P00 + P01)) + (gainH*(P00*P10))
         PNew11 = ((IKH10*IKH10*P00) + 2.0*IKH10*P10 + P11) + (gainH*(P10*P10))
-
-        if PNew00 < clipSmall: PNew00 = clipSmall
-        elif PNew00 > clipBig: PNew00 = clipBig
-
-        if PNew11 < clipSmall: PNew11 = clipSmall
-        elif PNew11 > clipBig: PNew11 = clipBig
-
-        rhoMax = <double>(0.99)
-        offCap = rhoMax * sqrt(PNew00 * PNew11)
-
-        if PNew01 > offCap:
-            PNew01 = offCap
-        elif PNew01 < -offCap:
-            PNew01 = -offCap
 
         stateCovarView[0, 0] = <cnp.float32_t>PNew00
         stateCovarView[0, 1] = <cnp.float32_t>PNew01
@@ -2268,7 +2259,6 @@ cpdef tuple cbackwardPass(
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateForward,
     cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarForward,
     cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] pNoiseForward,
-    float covarClip=3.0,
     Py_ssize_t chunkSize=1000000,
     object stateSmoothed=None,
     object stateCovarSmoothed=None,
@@ -2398,9 +2388,6 @@ cpdef tuple cbackwardPass(
     cdef cnp.float32_t[:, :, ::1] stateCovarSmoothedView
     cdef cnp.float32_t[:, :, ::1] lagCovSmoothedView
     cdef cnp.float32_t[:, ::1] postFitResidualsView
-
-    cdef double clipSmall = pow(10.0, -covarClip)
-    cdef double clipBig = pow(10.0, covarClip)
     cdef double F00, F01, F10, F11
     cdef double xPred0, xPred1
     cdef double Q00, Q01, Q10, Q11
@@ -2416,7 +2403,7 @@ cpdef tuple cbackwardPass(
     cdef double corr00, corr01, corr10, corr11
     cdef double Ps00, Ps01, Ps11
     cdef double C00, C01, C10, C11
-    cdef double JD00, JD01, JD10, JD11, rhoMax, offCap
+    cdef double JD00, JD01, JD10, JD11
 
     cdef double innov
 
@@ -2499,9 +2486,6 @@ cpdef tuple cbackwardPass(
 
             # 2x2 inverse for PPred
             detPred = (PPred00*PPred11) - (PPred01*PPred10)
-            if fabs(detPred) < clipSmall:
-                detPred = clipSmall if detPred >= 0.0 else -clipSmall
-
             invPred00 = PPred11 / detPred
             invPred01 = -PPred01 / detPred
             invPred10 = -PPred10 / detPred
@@ -2540,22 +2524,6 @@ cpdef tuple cbackwardPass(
             Ps00 = Pf00 + (J00*corr00 + J01*corr10)
             Ps01 = Pf01 + (J00*corr01 + J01*corr11)
             Ps11 = Pf11 + (J10*corr01 + J11*corr11)
-
-            if Ps00 < clipSmall: Ps00 = clipSmall
-            elif Ps00 > clipBig: Ps00 = clipBig
-
-            if Ps11 < clipSmall: Ps11 = clipSmall
-            elif Ps11 > clipBig: Ps11 = clipBig
-
-            # cap off-diagonal by absolute correlation
-            rhoMax = <double>(0.99)
-            offCap = rhoMax * sqrt(Ps00 * Ps11)
-
-            if Ps01 > offCap:
-                Ps01 = offCap
-            elif Ps01 < -offCap:
-                Ps01 = -offCap
-
             stateCovarSmoothedView[k, 0, 0] = <cnp.float32_t>Ps00
             stateCovarSmoothedView[k, 0, 1] = <cnp.float32_t>Ps01
             stateCovarSmoothedView[k, 1, 0] = <cnp.float32_t>Ps01
@@ -2599,18 +2567,21 @@ cpdef tuple cblockScaleEM(
     Py_ssize_t blockCount,
     float stateInit,
     float stateCovarInit,
-    Py_ssize_t EM_maxIters=100,
+    Py_ssize_t EM_maxIters=50,
     float EM_rtol=1.0e-4,
-    float covarClip=3.0,
-    float pad=1.0e-2,
-    float EM_scaleLOW=0.2,
-    float EM_scaleHIGH=5.0,
+    float pad=1.0e-4,
+    float EM_scaleLOW=0.1,
+    float EM_scaleHIGH=10.0,
     float EM_alphaEMA=0.1,
-    float EM_alphaEMA_Q=1.0,
+    float EM_alphaEMA_Q=0.1,
     bint EM_scaleToMedian=False,
     bint returnIntermediates=False,
     float EM_tNu=10.0,
     Py_ssize_t t_innerIters=3,
+    bint useObsBlockScale=True,
+    bint useProcBlockScale=True,
+    bint useObsPrecReweight=True,
+    bint useProcPrecReweight=True,
 ):
     r"""Calibrate blockwise measurement and process noise scales while inferring the epigenomic consensus signal
 
@@ -2709,15 +2680,31 @@ cpdef tuple cblockScaleEM(
     cdef cnp.float32_t[:, ::1] muncMatView = matrixPluginMuncInit
     cdef cnp.float32_t[:, ::1] fView = matrixF
     cdef cnp.float32_t[:, ::1] q0View = matrixQ0
-    cdef double clipSmall = pow(10.0, -covarClip)
+
+    # Always allocate scales (but optionally keep them fixed at 1.0 if disabled)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] rScaleArr = np.ones(blockCount, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] qScaleArr = np.ones(blockCount, dtype=np.float32)
     cdef cnp.float32_t[::1] rScaleView = rScaleArr
     cdef cnp.float32_t[::1] qScaleView = qScaleArr
-    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] lambdaExp = np.ones((trackCount, intervalCount), dtype=np.float32)
-    cdef cnp.float32_t[:, ::1] lambdaExpView = lambdaExp
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExp = np.ones(intervalCount, dtype=np.float32)
-    cdef cnp.float32_t[::1] processPrecExpView = processPrecExp
+
+    # Allocate latent precision multipliers only if enabled
+    cdef object lambdaExp = None
+    cdef object processPrecExp = None
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] lambdaExpArr
+    cdef cnp.float32_t[:, ::1] lambdaExpView
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
+    cdef cnp.float32_t[::1] processPrecExpView
+
+    if useObsPrecReweight:
+        lambdaExpArr = np.ones((trackCount, intervalCount), dtype=np.float32)
+        lambdaExp = lambdaExpArr
+        lambdaExpView = lambdaExpArr
+
+    if useProcPrecReweight:
+        processPrecExpArr = np.ones(intervalCount, dtype=np.float32)
+        processPrecExp = processPrecExpArr
+        processPrecExpView = processPrecExpArr
+
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateForward = np.empty((intervalCount, 2), dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] pNoiseForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
@@ -2760,15 +2747,16 @@ cpdef tuple cblockScaleEM(
     cdef double delta
     cdef double u2
     cdef double w
-    cdef double wMin = 1.0e-4
-    cdef double wMax = 1.0e6
+    cdef double wMin = 0.2
+    cdef double wMax = 5.0
     cdef double kappa_
     cdef double kappaMin_ = 0.2
     cdef double kappaMax_ = 5.0
     cdef double dState = 2.0
     cdef double tmpVal
-    cdef double procNu = (2.0*EM_tNu)
-    cdef double procScaleHIGH = fmax((1.0*EM_scaleHIGH), EM_scaleLOW + 1.0e-2)
+    cdef double procNu = 4.0*EM_tNu
+    cdef double procScaleLOW = EM_scaleLOW
+    cdef double procScaleHIGH = EM_scaleHIGH
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rStatSum = np.zeros(blockCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] rWeightCount = np.zeros(blockCount, dtype=np.int32)
@@ -2795,7 +2783,7 @@ cpdef tuple cblockScaleEM(
     cdef double[::1] prevQLogView = prevQLog
     cdef double maxAbsLogDelta = 0.0
     cdef Py_ssize_t stableIters = 0
-    cdef Py_ssize_t patienceTarget = 3
+    cdef Py_ssize_t patienceTarget = 2
     cdef double thetaTol = 0.1
     cdef double rMed
     cdef double qMed
@@ -2861,7 +2849,6 @@ cpdef tuple cblockScaleEM(
                 blockCount=blockCount,
                 stateInit=stateInit,
                 stateCovarInit=stateCovarInit,
-                covarClip=covarClip,
                 pad=pad,
                 projectStateDuringFiltering=False,
                 stateLowerBound=0.0,
@@ -2877,6 +2864,10 @@ cpdef tuple cblockScaleEM(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
+                useObsBlockScale=useObsBlockScale,
+                useProcBlockScale=useProcBlockScale,
+                useObsPrecReweight=useObsPrecReweight,
+                useProcPrecReweight=useProcPrecReweight,
             )
 
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPass(
@@ -2885,7 +2876,6 @@ cpdef tuple cblockScaleEM(
                 stateForward=stateForward,
                 stateCovarForward=stateCovarForward,
                 pNoiseForward=pNoiseForward,
-                covarClip=covarClip,
                 chunkSize=0,
                 stateSmoothed=stateSmoothed,
                 stateCovarSmoothed=stateCovarSmoothed,
@@ -2895,37 +2885,45 @@ cpdef tuple cblockScaleEM(
                 progressIter=0,
             )
 
-            with nogil:
-                for k in range(intervalCount):
-                    b = <Py_ssize_t>blockMapView[k]
-                    if b < 0 or b >= blockCount:
-                        continue
+            # -----------------------------
+            # E-step: update lambdaExp (optional)
+            # -----------------------------
+            if useObsPrecReweight:
+                with nogil:
+                    for k in range(intervalCount):
+                        b = <Py_ssize_t>blockMapView[k]
+                        if b < 0 or b >= blockCount:
+                            continue
 
-                    p00k = <double>stateCovarSmoothedView[k, 0, 0]
-                    if p00k < 0.0:
-                        p00k = 0.0
+                        p00k = <double>stateCovarSmoothedView[k, 0, 0]
+                        if p00k < 0.0:
+                            p00k = 0.0
 
-                    for j in range(trackCount):
-                        muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                        if muncPlusPad < clipSmall:
-                            muncPlusPad = clipSmall
+                        for j in range(trackCount):
+                            muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
 
-                        Rkj = (<double>rScaleView[b]) * muncPlusPad
-                        if Rkj < clipSmall:
-                            Rkj = clipSmall
+                            # If observation block scaling is disabled, treat rScale[b] as 1.0
+                            if useObsBlockScale:
+                                Rkj = (<double>rScaleView[b]) * muncPlusPad
+                            else:
+                                Rkj = 1.0 * muncPlusPad
 
-                        res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
-                        tmpVal = (res*res + p00k)
-                        u2 = tmpVal / Rkj
+                            res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                            tmpVal = (res*res + p00k)
+                            u2 = tmpVal / Rkj
 
-                        w = ((<double>EM_tNu) + 1.0) / ((<double>EM_tNu) + u2)
-                        if w < wMin:
-                            w = wMin
-                        elif w > wMax:
-                            w = wMax
+                            w = ((<double>EM_tNu) + 1.0) / ((<double>EM_tNu) + u2)
+                            if w < wMin:
+                                w = wMin
+                            elif w > wMax:
+                                w = wMax
 
-                        lambdaExpView[j, k] = <cnp.float32_t>w
+                            lambdaExpView[j, k] = <cnp.float32_t>w
 
+            # -----------------------------
+            # E-step: update processPrecExp (optional)
+            # -----------------------------
+            if useProcPrecReweight:
                 processPrecExpView[0] = <cnp.float32_t>1.0
                 for k in range(intervalCount - 1):
                     b = <Py_ssize_t>blockMapView[k]
@@ -2972,9 +2970,12 @@ cpdef tuple cblockScaleEM(
                     if delta < 0.0:
                         delta = 0.0
 
-                    tmpVal = <double>qScaleView[b]
-                    if tmpVal < clipSmall:
-                        tmpVal = clipSmall
+                    # If process block scaling is disabled, treat qScale[b] as 1.0
+                    if useProcBlockScale:
+                        tmpVal = <double>qScaleView[b]
+                    else:
+                        tmpVal = 1.0
+
                     kappa_ = ((<double>procNu) + dState) / ((<double>procNu) + (delta / tmpVal))
                     if kappa_ < kappaMin_:
                         kappa_ = kappaMin_
@@ -2993,7 +2994,6 @@ cpdef tuple cblockScaleEM(
             blockCount=blockCount,
             stateInit=stateInit,
             stateCovarInit=stateCovarInit,
-            covarClip=covarClip,
             pad=pad,
             projectStateDuringFiltering=False,
             stateLowerBound=0.0,
@@ -3009,6 +3009,10 @@ cpdef tuple cblockScaleEM(
             storeNLLInD=False,
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
+            useObsBlockScale=useObsBlockScale,
+            useProcBlockScale=useProcBlockScale,
+            useObsPrecReweight=useObsPrecReweight,
+            useProcPrecReweight=useProcPrecReweight,
         )[3])
 
         relImprovement = (previousNLL - currentNLL) / (fabs(previousNLL) + 1.0)
@@ -3023,80 +3027,94 @@ cpdef tuple cblockScaleEM(
                 qStatCountView[b] = 0
                 qWeightSumView[b] = 0.0
 
-            for k in range(intervalCount):
-                b = <Py_ssize_t>blockMapView[k]
-                if b < 0 or b >= blockCount:
-                    continue
+            # -----------------------------
+            # M-step sufficient stats for rScale (optional)
+            # -----------------------------
+            if useObsBlockScale:
+                for k in range(intervalCount):
+                    b = <Py_ssize_t>blockMapView[k]
+                    if b < 0 or b >= blockCount:
+                        continue
 
-                p00k = <double>stateCovarSmoothedView[k, 0, 0]
-                if p00k < 0.0:
-                    p00k = 0.0
+                    p00k = <double>stateCovarSmoothedView[k, 0, 0]
+                    if p00k < 0.0:
+                        p00k = 0.0
 
-                for j in range(trackCount):
-                    res = <double>residualView[k, j]
+                    for j in range(trackCount):
+                        res = <double>residualView[k, j]
 
-                    muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                    if muncPlusPad < clipSmall:
-                        muncPlusPad = clipSmall
+                        muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                        tmpVal = (res*res + p00k)
 
-                    tmpVal = (res*res + p00k)
-                    w = <double>lambdaExpView[j, k]
-                    rStatSumView[b] += w * (tmpVal / muncPlusPad)
-                    rWeightCountView[b] += 1
+                        if useObsPrecReweight:
+                            w = <double>lambdaExpView[j, k]
+                        else:
+                            w = 1.0
 
-            for k in range(intervalCount - 1):
-                b = <Py_ssize_t>blockMapView[k]
-                if b < 0 or b >= blockCount:
-                    continue
+                        rStatSumView[b] += w * (tmpVal / muncPlusPad)
+                        rWeightCountView[b] += 1
 
-                x0 = <double>stateSmoothedView[k, 0]
-                x1 = <double>stateSmoothedView[k, 1]
-                y0 = <double>stateSmoothedView[k + 1, 0]
-                y1 = <double>stateSmoothedView[k + 1, 1]
+            # -----------------------------
+            # M-step sufficient stats for qScale (optional)
+            # -----------------------------
+            if useProcBlockScale:
+                for k in range(intervalCount - 1):
+                    b = <Py_ssize_t>blockMapView[k]
+                    if b < 0 or b >= blockCount:
+                        continue
 
-                Pk = MAT2_make(
-                    <double>stateCovarSmoothedView[k, 0, 0],
-                    <double>stateCovarSmoothedView[k, 0, 1],
-                    <double>stateCovarSmoothedView[k, 1, 0],
-                    <double>stateCovarSmoothedView[k, 1, 1],
-                )
+                    x0 = <double>stateSmoothedView[k, 0]
+                    x1 = <double>stateSmoothedView[k, 1]
+                    y0 = <double>stateSmoothedView[k + 1, 0]
+                    y1 = <double>stateSmoothedView[k + 1, 1]
 
-                Pk1 = MAT2_make(
-                    <double>stateCovarSmoothedView[k + 1, 0, 0],
-                    <double>stateCovarSmoothedView[k + 1, 0, 1],
-                    <double>stateCovarSmoothedView[k + 1, 1, 0],
-                    <double>stateCovarSmoothedView[k + 1, 1, 1],
-                )
+                    Pk = MAT2_make(
+                        <double>stateCovarSmoothedView[k, 0, 0],
+                        <double>stateCovarSmoothedView[k, 0, 1],
+                        <double>stateCovarSmoothedView[k, 1, 0],
+                        <double>stateCovarSmoothedView[k, 1, 1],
+                    )
 
-                Ck_k1 = MAT2_make(
-                    <double>lagCovSmoothedView[k, 0, 0],
-                    <double>lagCovSmoothedView[k, 0, 1],
-                    <double>lagCovSmoothedView[k, 1, 0],
-                    <double>lagCovSmoothedView[k, 1, 1],
-                )
+                    Pk1 = MAT2_make(
+                        <double>stateCovarSmoothedView[k + 1, 0, 0],
+                        <double>stateCovarSmoothedView[k + 1, 0, 1],
+                        <double>stateCovarSmoothedView[k + 1, 1, 0],
+                        <double>stateCovarSmoothedView[k + 1, 1, 1],
+                    )
 
-                expec_xx = MAT2_add(Pk, MAT2_outer(x0, x1))
-                expec_yy = MAT2_add(Pk1, MAT2_outer(y0, y1))
-                expec_xy = MAT2_add(Ck_k1, MAT2_make(x0*y0, x0*y1, x1*y0, x1*y1))
-                expec_yx = MAT2_transpose(expec_xy)
+                    Ck_k1 = MAT2_make(
+                        <double>lagCovSmoothedView[k, 0, 0],
+                        <double>lagCovSmoothedView[k, 0, 1],
+                        <double>lagCovSmoothedView[k, 1, 0],
+                        <double>lagCovSmoothedView[k, 1, 1],
+                    )
 
-                expec_ww = expec_yy
-                expec_ww = MAT2_sub(expec_ww, MAT2_mul(expec_yx, Ft))
-                expec_ww = MAT2_sub(expec_ww, MAT2_mul(F, expec_xy))
-                expec_ww = MAT2_add(expec_ww, MAT2_mul(MAT2_mul(F, expec_xx), Ft))
-                expec_ww = MAT2_clipDiagNonneg(expec_ww)
+                    expec_xx = MAT2_add(Pk, MAT2_outer(x0, x1))
+                    expec_yy = MAT2_add(Pk1, MAT2_outer(y0, y1))
+                    expec_xy = MAT2_add(Ck_k1, MAT2_make(x0*y0, x0*y1, x1*y0, x1*y1))
+                    expec_yx = MAT2_transpose(expec_xy)
 
-                delta = MAT2_traceProd(Q0inv, expec_ww)
-                if delta < 0.0:
-                    delta = 0.0
+                    expec_ww = expec_yy
+                    expec_ww = MAT2_sub(expec_ww, MAT2_mul(expec_yx, Ft))
+                    expec_ww = MAT2_sub(expec_ww, MAT2_mul(F, expec_xy))
+                    expec_ww = MAT2_add(expec_ww, MAT2_mul(MAT2_mul(F, expec_xx), Ft))
+                    expec_ww = MAT2_clipDiagNonneg(expec_ww)
 
-                kappa_ = <double>processPrecExpView[k + 1]
-                if kappa_ < kappaMin_:
-                    kappa_ = kappaMin_
-                elif kappa_ > kappaMax_:
-                    kappa_ = kappaMax_
-                qStatSumView[b] += kappa_ * delta
-                qStatCountView[b] += 1
+                    delta = MAT2_traceProd(Q0inv, expec_ww)
+                    if delta < 0.0:
+                        delta = 0.0
+
+                    if useProcPrecReweight:
+                        kappa_ = <double>processPrecExpView[k + 1]
+                        if kappa_ < kappaMin_:
+                            kappa_ = kappaMin_
+                        elif kappa_ > kappaMax_:
+                            kappa_ = kappaMax_
+                    else:
+                        kappa_ = 1.0
+
+                    qStatSumView[b] += kappa_ * delta
+                    qStatCountView[b] += 1
 
             nClipRLow = 0
             nClipRHigh = 0
@@ -3104,25 +3122,31 @@ cpdef tuple cblockScaleEM(
             nClipQHigh = 0
 
             for b in range(blockCount):
-                if rWeightCountView[b] > 0:
+                if useObsBlockScale and (rWeightCountView[b] > 0):
                     rScaleView[b] = <cnp.float32_t>(rStatSumView[b] / (<double>rWeightCountView[b]))
 
-                if qStatCountView[b] > 0:
+                if useProcBlockScale and (qStatCountView[b] > 0):
                     qScaleView[b] = <cnp.float32_t>(qStatSumView[b] / (dState * (<double>qStatCountView[b])))
 
-                if rScaleView[b] < <cnp.float32_t>EM_scaleLOW:
-                    rScaleView[b] = <cnp.float32_t>EM_scaleLOW
-                    nClipRLow += 1
-                elif rScaleView[b] > <cnp.float32_t>EM_scaleHIGH:
-                    rScaleView[b] = <cnp.float32_t>EM_scaleHIGH
-                    nClipRHigh += 1
+                if useObsBlockScale:
+                    if rScaleView[b] < <cnp.float32_t>EM_scaleLOW:
+                        rScaleView[b] = <cnp.float32_t>EM_scaleLOW
+                        nClipRLow += 1
+                    elif rScaleView[b] > <cnp.float32_t>EM_scaleHIGH:
+                        rScaleView[b] = <cnp.float32_t>EM_scaleHIGH
+                        nClipRHigh += 1
+                else:
+                    rScaleView[b] = <cnp.float32_t>1.0
 
-                if qScaleView[b] < <cnp.float32_t>EM_scaleLOW:
-                    qScaleView[b] = <cnp.float32_t>EM_scaleLOW
-                    nClipQLow += 1
-                elif qScaleView[b] > <cnp.float32_t>procScaleHIGH:
-                    qScaleView[b] = <cnp.float32_t>procScaleHIGH
-                    nClipQHigh += 1
+                if useProcBlockScale:
+                    if qScaleView[b] < <cnp.float32_t>EM_scaleLOW:
+                        qScaleView[b] = <cnp.float32_t>EM_scaleLOW
+                        nClipQLow += 1
+                    elif qScaleView[b] > <cnp.float32_t>procScaleHIGH:
+                        qScaleView[b] = <cnp.float32_t>procScaleHIGH
+                        nClipQHigh += 1
+                else:
+                    qScaleView[b] = <cnp.float32_t>1.0
 
             if EM_alphaEMA > 0.0 and EM_alphaEMA <= 1.0:
                 alphaQ = (<double>EM_alphaEMA) * (<double>EM_alphaEMA_Q)
@@ -3131,16 +3155,19 @@ cpdef tuple cblockScaleEM(
                 elif alphaQ < 0.0:
                     alphaQ = 0.0
 
+                # log-domain smoothing only for enabled scales
                 for b in range(blockCount):
-                    tmpVal = <double>rScaleView[b]
-                    if tmpVal < clipSmall:
-                        tmpVal = clipSmall
-                    rLogView[b] = log(tmpVal)
+                    if useObsBlockScale:
+                        tmpVal = <double>rScaleView[b]
+                        rLogView[b] = log(tmpVal)
+                    else:
+                        rLogView[b] = 0.0  # log(1)
 
-                    tmpVal = <double>qScaleView[b]
-                    if tmpVal < clipSmall:
-                        tmpVal = clipSmall
-                    qLogView[b] = log(tmpVal)
+                    if useProcBlockScale:
+                        tmpVal = <double>qScaleView[b]
+                        qLogView[b] = log(tmpVal)
+                    else:
+                        qLogView[b] = 0.0  # log(1)
 
                 if i == 0:
                     for b in range(blockCount):
@@ -3148,12 +3175,24 @@ cpdef tuple cblockScaleEM(
                         qLogSmView[b] = qLogView[b]
                 else:
                     for b in range(blockCount):
-                        rLogSmView[b] = (1.0 - <double>EM_alphaEMA) * rLogSmView[b] + (<double>EM_alphaEMA) * rLogView[b]
-                        qLogSmView[b] = (1.0 - alphaQ) * qLogSmView[b] + alphaQ * qLogView[b]
+                        if useObsBlockScale:
+                            rLogSmView[b] = (1.0 - <double>EM_alphaEMA) * rLogSmView[b] + (<double>EM_alphaEMA) * rLogView[b]
+                        else:
+                            rLogSmView[b] = 0.0
+                        if useProcBlockScale:
+                            qLogSmView[b] = (1.0 - alphaQ) * qLogSmView[b] + alphaQ * qLogView[b]
+                        else:
+                            qLogSmView[b] = 0.0
 
                 for b in range(blockCount):
-                    rScaleView[b] = <cnp.float32_t>exp(rLogSmView[b])
-                    qScaleView[b] = <cnp.float32_t>exp(qLogSmView[b])
+                    if useObsBlockScale:
+                        rScaleView[b] = <cnp.float32_t>exp(rLogSmView[b])
+                    else:
+                        rScaleView[b] = <cnp.float32_t>1.0
+                    if useProcBlockScale:
+                        qScaleView[b] = <cnp.float32_t>exp(qLogSmView[b])
+                    else:
+                        qScaleView[b] = <cnp.float32_t>1.0
 
         rMin = 1.0e16
         rMax = -1.0e16
@@ -3223,39 +3262,37 @@ cpdef tuple cblockScaleEM(
 
             if rMed > 0.0 or qMed > 0.0:
                 with nogil:
-                    if rMed > 0.0:
+                    if useObsBlockScale and (rMed > 0.0):
                         for b in range(blockCount):
                             rScaleView[b] = <cnp.float32_t>((<double>rScaleView[b]) / rMed)
+                    if (not useObsBlockScale):
+                        for b in range(blockCount):
+                            rScaleView[b] = <cnp.float32_t>1.0
 
-                    if qMed > 0.0:
+                    if useProcBlockScale and (qMed > 0.0):
                         for b in range(blockCount):
                             qScaleView[b] = <cnp.float32_t>((<double>qScaleView[b]) / qMed)
+                    if (not useProcBlockScale):
+                        for b in range(blockCount):
+                            qScaleView[b] = <cnp.float32_t>1.0
 
         maxAbsLogDelta = 0.0
         if i == 0:
             for b in range(blockCount):
                 tmpVal = <double>rScaleView[b]
-                if tmpVal < clipSmall:
-                    tmpVal = clipSmall
                 prevRLogView[b] = log(tmpVal)
 
                 tmpVal = <double>qScaleView[b]
-                if tmpVal < clipSmall:
-                    tmpVal = clipSmall
                 prevQLogView[b] = log(tmpVal)
         else:
             for b in range(blockCount):
                 tmpVal = <double>rScaleView[b]
-                if tmpVal < clipSmall:
-                    tmpVal = clipSmall
                 tmpVal = log(tmpVal)
                 if fabs(tmpVal - prevRLogView[b]) > maxAbsLogDelta:
                     maxAbsLogDelta = fabs(tmpVal - prevRLogView[b])
                 prevRLogView[b] = tmpVal
 
                 tmpVal = <double>qScaleView[b]
-                if tmpVal < clipSmall:
-                    tmpVal = clipSmall
                 tmpVal = log(tmpVal)
                 if fabs(tmpVal - prevQLogView[b]) > maxAbsLogDelta:
                     maxAbsLogDelta = fabs(tmpVal - prevQLogView[b])

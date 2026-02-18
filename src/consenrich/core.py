@@ -937,9 +937,8 @@ def runConsenrich(
     stateLowerBound: float,
     stateUpperBound: float,
     blockLenIntervals: int,
-    covarClip: float = 3.0,
     projectStateDuringFiltering: bool = False,
-    pad: float = 1.0e-2,
+    pad: float = 1.0e-4,
     disableCalibration: bool = False,
     EM_maxIters: int = 50,
     EM_rtol: float = 1.0e-4,
@@ -963,6 +962,10 @@ def runConsenrich(
     conformalAlpha: float = 0.05,
     conformal_numIters: int = 3,
     conformalFinalRefit: bool = True,
+    useObsBlockScale: bool = True,
+    useProcBlockScale: bool = True,
+    useObsPrecReweight: bool = True,
+    useProcPrecReweight: bool = True,
 ):
     r"""Run Consenrich over contiguous genomic intervals
 
@@ -1114,7 +1117,6 @@ def runConsenrich(
                     blockCount=int(blockCount),
                     stateInit=float(stateInit),
                     stateCovarInit=float(stateCovarInit),
-                    covarClip=float(covarClip),
                     pad=float(pad),
                     projectStateDuringFiltering=False,
                     stateLowerBound=0.0,
@@ -1130,6 +1132,11 @@ def runConsenrich(
                     storeNLLInD=False,
                     lambdaExp=None,
                     processPrecExp=None,
+                    # Force the "Gaussian fixed-template" setting for auto-deltaF:
+                    useObsBlockScale=False,
+                    useProcBlockScale=False,
+                    useObsPrecReweight=False,
+                    useProcPrecReweight=False,
                 )
                 sumNLL = float(out[3])
 
@@ -1139,7 +1146,6 @@ def runConsenrich(
                     stateForward=stateForward,
                     stateCovarForward=stateCovarForward,
                     pNoiseForward=pNoiseForward,
-                    covarClip=float(covarClip),
                     chunkSize=0,
                     stateSmoothed=stateSmoothed,
                     stateCovarSmoothed=stateCovarSmoothed,
@@ -1261,7 +1267,6 @@ def runConsenrich(
             blockCount=int(blockCount),
             stateInit=float(stateInit),
             stateCovarInit=float(stateCovarInit),
-            covarClip=float(covarClip),
             pad=float(pad),
             projectStateDuringFiltering=bool(projectStateDuringFiltering),
             stateLowerBound=0.0,
@@ -1277,6 +1282,10 @@ def runConsenrich(
             storeNLLInD=False,
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
+            useObsBlockScale=bool(useObsBlockScale),
+            useProcBlockScale=bool(useProcBlockScale),
+            useObsPrecReweight=bool(useObsPrecReweight),
+            useProcPrecReweight=bool(useProcPrecReweight),
         )
 
         stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
@@ -1286,7 +1295,6 @@ def runConsenrich(
                 stateForward=stateForward,
                 stateCovarForward=stateCovarForward,
                 pNoiseForward=pNoiseForward,
-                covarClip=float(covarClip),
                 chunkSize=0,
                 stateSmoothed=None,
                 stateCovarSmoothed=None,
@@ -1330,7 +1338,6 @@ def runConsenrich(
                 stateCovarInit=float(stateCovarInit),
                 EM_maxIters=EM_iters_local,
                 EM_rtol=float(EM_rtol),
-                covarClip=float(covarClip),
                 pad=float(pad),
                 EM_scaleLOW=float(EM_scaleLOW),
                 EM_scaleHIGH=float(EM_scaleHIGH),
@@ -1338,6 +1345,10 @@ def runConsenrich(
                 EM_scaleToMedian=bool(EM_scaleToMedian),
                 EM_tNu=float(EM_tNu),
                 returnIntermediates=True,
+                useObsBlockScale=bool(useObsBlockScale),
+                useProcBlockScale=bool(useProcBlockScale),
+                useObsPrecReweight=bool(useObsPrecReweight),
+                useProcPrecReweight=bool(useProcPrecReweight),
             )
             if len(EM_out_local) != 10:
                 raise ValueError(
@@ -1359,8 +1370,11 @@ def runConsenrich(
 
             rScaleLocal = np.asarray(rScaleLocal, dtype=np.float32)
             qScaleLocal = np.asarray(qScaleLocal, dtype=np.float32)
-            lambdaExpLocal = np.asarray(lambdaExpLocal, dtype=np.float32)
-            processPrecExpLocal = np.asarray(processPrecExpLocal, dtype=np.float32)
+            # when reweighting procedure is disabled, these will be None!
+            if lambdaExpLocal is not None:
+                lambdaExpLocal = np.asarray(lambdaExpLocal, dtype=np.float32)
+            if processPrecExpLocal is not None:
+                processPrecExpLocal = np.asarray(processPrecExpLocal, dtype=np.float32)
 
         (
             _phiHatLocal,
@@ -1547,7 +1561,6 @@ def runConsenrich(
                     stateCovarInit=float(stateCovarInit),
                     EM_maxIters=EM_iters_local,
                     EM_rtol=float(EM_rtol),
-                    covarClip=float(covarClip),
                     pad=float(pad),
                     EM_scaleLOW=float(EM_scaleLOW),
                     EM_scaleHIGH=float(EM_scaleHIGH),
@@ -1555,6 +1568,10 @@ def runConsenrich(
                     EM_scaleToMedian=bool(EM_scaleToMedian),
                     EM_tNu=float(EM_tNu),
                     returnIntermediates=True,
+                    useObsBlockScale=bool(useObsBlockScale),
+                    useProcBlockScale=bool(useProcBlockScale),
+                    useObsPrecReweight=bool(useObsPrecReweight),
+                    useProcPrecReweight=bool(useProcPrecReweight),
                 )
                 if len(EM_out_T) != 10:
                     continue
@@ -1572,8 +1589,10 @@ def runConsenrich(
                 ) = EM_out_T
                 rScaleT = np.asarray(rScaleT, dtype=np.float32)
                 qScaleT = np.asarray(qScaleT, dtype=np.float32)
-                lambdaExpT = np.asarray(lambdaExpT, dtype=np.float32)
-                processPrecExpT = np.asarray(processPrecExpT, dtype=np.float32)
+                if lambdaExpT is not None:
+                    lambdaExpT = np.asarray(lambdaExpT, dtype=np.float32)
+                if processPrecExpT is not None:
+                    processPrecExpT = np.asarray(processPrecExpT, dtype=np.float32)
 
             (
                 _phiHatT,
@@ -1713,7 +1732,6 @@ def runConsenrich(
             stateCovarInit=float(stateCovarInit),
             EM_maxIters=int(EM_maxIters),
             EM_rtol=float(EM_rtol),
-            covarClip=float(covarClip),
             pad=float(pad),
             EM_scaleLOW=float(EM_scaleLOW),
             EM_scaleHIGH=float(EM_scaleHIGH),
@@ -1721,6 +1739,10 @@ def runConsenrich(
             EM_scaleToMedian=bool(EM_scaleToMedian),
             EM_tNu=float(EM_tNu),
             returnIntermediates=True,
+            useObsBlockScale=bool(useObsBlockScale),
+            useProcBlockScale=bool(useProcBlockScale),
+            useObsPrecReweight=bool(useObsPrecReweight),
+            useProcPrecReweight=bool(useProcPrecReweight),
         )
 
         if len(EM_out) != 10:
@@ -1744,8 +1766,11 @@ def runConsenrich(
 
         rScale = np.asarray(rScale, dtype=np.float32)
         qScale = np.asarray(qScale, dtype=np.float32)
-        lambdaExp_final = np.asarray(lambdaExp_final, dtype=np.float32)
-        processPrecExp_final = np.asarray(processPrecExp_final, dtype=np.float32)
+        # When reweighting is disabled, these may legitimately be None
+        if lambdaExp_final is not None:
+            lambdaExp_final = np.asarray(lambdaExp_final, dtype=np.float32)
+        if processPrecExp_final is not None:
+            processPrecExp_final = np.asarray(processPrecExp_final, dtype=np.float32)
 
     (
         _phiHat,
@@ -1819,7 +1844,6 @@ def runConsenrich(
                     stateCovarInit=float(stateCovarInit),
                     EM_maxIters=int(jackknifeEM_maxIters),
                     EM_rtol=float(jackknifeEM_rtol),
-                    covarClip=float(covarClip),
                     pad=float(pad),
                     EM_scaleLOW=float(EM_scaleLOW),
                     EM_scaleHIGH=float(EM_scaleHIGH),
@@ -1827,6 +1851,10 @@ def runConsenrich(
                     EM_scaleToMedian=bool(EM_scaleToMedian),
                     EM_tNu=float(EM_tNu),
                     returnIntermediates=True,
+                    useObsBlockScale=bool(useObsBlockScale),
+                    useProcBlockScale=bool(useProcBlockScale),
+                    useObsPrecReweight=bool(useObsPrecReweight),
+                    useProcPrecReweight=bool(useProcPrecReweight),
                 )
 
                 if len(EM_out_LOO) != 10:
@@ -1850,8 +1878,13 @@ def runConsenrich(
 
                 rScale_LOO = np.asarray(rScale_LOO, dtype=np.float32)
                 qScale_LOO = np.asarray(qScale_LOO, dtype=np.float32)
-                lambdaExp_LOO = np.asarray(lambdaExp_LOO, dtype=np.float32)
-                processPrecExp_LOO = np.asarray(processPrecExp_LOO, dtype=np.float32)
+                # When reweighting is disabled, these may legitimately be None
+                if lambdaExp_LOO is not None:
+                    lambdaExp_LOO = np.asarray(lambdaExp_LOO, dtype=np.float32)
+                if processPrecExp_LOO is not None:
+                    processPrecExp_LOO = np.asarray(
+                        processPrecExp_LOO, dtype=np.float32
+                    )
 
             (
                 _,
