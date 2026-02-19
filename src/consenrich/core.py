@@ -108,9 +108,9 @@ class observationParams(NamedTuple):
     while accounting for both region- and replicate-specific noise.
 
 
-    :param minR: Genome-wide lower bound for replicate-specific observation noise scales. In the default implementation, this clip is computed as a small fraction of values in the left-tail of :math:`\mathbf{R} \in \mathbb{R}^{m \times n}` with :func:`consenrich.core.getMuncTrack`.
+    :param minR: Genome-wide lower bound for replicate-specific observation noise scale.
     :type minR: float | None
-    :param maxR: Genome-wide upper bound for the replicate-specific observation noise scales.
+    :param maxR: Genome-wide upper bound for the replicate-specific observation noise scale.
     :type maxR: float | None
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
     :type samplingIters: int | None
@@ -129,39 +129,8 @@ class observationParams(NamedTuple):
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
     :type EB_setNuL: int | None
-    :param pad: A small constant added to the measurement noise variance estimates for numerics.
+    :param pad: A small constant added to the observation noise variance estimates for conditioning
     :type pad: float | None
-    :param EM_tNu: Degrees of freedom :math:`\nu` for the Student-t / Gaussian scale-mixture
-        used for robust reweighting of residuals in :func:`consenrich.cconsenrich.cblockScaleEM`.
-        Larger values push the model toward the regular Gaussian residual model (less downweighting of apparent outliers),
-        and smaller values increase robustness to outliers but can reduce sensitivity to true signal.
-        Values in the range ``[5, 15]`` are reasonable.
-        Users can set to an arbitrarily large value, e.g., :math:`\nu = 1e6` to effectively disable robust reweighting and
-        use a standard Gaussian model for residuals.
-    :type EM_tNu: float | None
-    :param EM_alphaEMA: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Exponential moving-average (EMA) coefficient applied to per-block scale updates in **log space**.
-        After each M-step, we smooth as
-
-        :math:`\log s_b \leftarrow (1-\alpha)\log s_b + \alpha \log \hat{s}_b`,
-
-        where :math:`\hat{s}_b` is the raw per-iteration update. Smaller values give **more smoothing** (slower adaptation).
-        ``1.0`` disables smoothing (use the raw update), and values near ``0.0`` give very strong smoothing (slow adaptation).
-        Note that smoothing voids *guaranteed* non-increasing behavior of the EM objective, but can be helpful for stability and convergence in practice.
-        Values in the range ``[0.05, 0.5]`` are good starting points. A value of ``0.1`` gives a half-life of about 7 iterations, which is sufficient for most datasets.
-
-    :type EM_alphaEMA: float | None
-    :param EM_scaleLOW: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Absolute lower bound on the per-block
-        scale factors (applied after each update) for both ``rScale`` and ``qScale``. Values below ``EM_scaleLOW`` are
-        clipped.
-    :type EM_scaleLOW: float | None
-    :param EM_scaleHIGH: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Absolute upper bound on the per-block
-        scale factors (applied after each update) for both ``rScale`` and ``qScale``. Values above ``EM_scaleHIGH`` are
-        clipped. Increasing this value allows more aggressive optimization during EM but can reduce stability if the plug-in variance template is poor.
-    :type EM_scaleHIGH: float | None
-    :param EM_scaleToMedian: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. If True, per-block scale factors are normalized after each update such that the median scale factor is 1. This can be helpful to avoid degenerate solutions where all scales collapse to very small values (overfitting) or blow up to very large values (underfitting). Note that this normalization voids *guaranteed* monotonic behavior of the EM objective, but can be helpful for stability and convergence in practice.
-    :type EM_scaleToMedian: bool | None
-    :param EM_maxIters: Used in :func:`consenrich.cconsenrich.cblockScaleEM`. Maximum number of EM iterations to perform.
-    :type EM_maxIters: int | None
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cblockScaleEM`
 
     """
@@ -176,16 +145,10 @@ class observationParams(NamedTuple):
     EB_setNu0: int | None
     EB_setNuL: int | None
     pad: float | None
-    EM_tNu: float | None
-    EM_alphaEMA: float | None
-    EM_scaleLOW: float | None
-    EM_scaleHIGH: float | None
-    EM_scaleToMedian: float | None
-    EM_maxIters: int | None
 
 
 class stateParams(NamedTuple):
-    r"""Parameters related to state and uncertainty bounds and initialization.
+    r"""Parameters related to state variables and covariances.
 
     :param stateInit: Initial value of the 'primary' state/signal at the first genomic interval: :math:`x_{[1]}`
     :type stateInit: float
@@ -197,9 +160,29 @@ class stateParams(NamedTuple):
     :type stateLowerBound: float
     :param stateUpperBound: Upper bound for the state estimate.
     :type stateUpperBound: float
-    :param rescaleStateCovar: If True, the state covariance :math:`\mathbf{P}_{[i]}` is rescaled (in segments) after filtering such that observed
-      studentized residuals are consistent with expected values. See :func:`consenrich.cconsenrich.crescaleStateCovar`.
-    :type rescaleStateCovar: bool
+    :param conformalRescale: If True, perform replicate-heldout split-conformal calibration of uncertainty for a
+        hypothetical new replicate at each genomic interval i. This is useful if the usual posterior uncertainty estimate is
+        unsatisfying due to dependence on the assumed model. "calibration scores" are formed by holding out
+        one set of replicates (calibration replicates), fitting the model on the remaining replicates (proper-training
+        replicates), and comparing held-out observations to the fitted predictor. *Under
+        replicate exchangeability*, this routine can yield a finite-sample marginal coverage
+        guarantee for the corresponding prediction intervals at the requested miscoverage level.
+    :type conformalRescale: bool | None
+    :param conformalAlpha: Target split-conformal miscoverage level :math:`\alpha` in (0, 1)`. When conformalRescale is True,
+        the inflation factor is chosen from the :math:`(1-\alpha)` empirical quantile of calibration scores so that the induced
+        prediction intervals for a hypothetical new replicate have marginal coverage at least :math:`1-\alpha`.
+    :type conformalAlpha: float | None
+    :param conformal_numIters: Number of replicate-heldout calibration rounds used to estimate the inflation factor.
+        If set ``> 1``, the routine repeats the replicate split multiple times and aggregates calibration scores across
+        rounds to reduce Monte Carlo variability in the estimated quantile. Note, however, this aggregation across violates the exact single-split reasoning
+        for finite-sample marginal coverage.
+    :type conformal_numIters: int | None
+    :param conformalFinalRefit: If True, refit the final model after selecting the conformal inflation factor--Note that this
+        breaks the standard split-conformal protocol that requires the predictor used at test time is the same "frozen
+        predictor" used to generate calibration scores. If strict guarantees are important and you have enough replicates to allocate a meaningful calibration set, we suggest setting ``conformalFinalRefit=False``.
+        In all cases, the Consenrich implementation can only inflate the original posterior uncertainty, avoiding induced anti-conservative
+        reporting.
+    :type conformalFinalRefit: bool | None
     """
 
     stateInit: float
@@ -207,7 +190,10 @@ class stateParams(NamedTuple):
     boundState: bool
     stateLowerBound: float
     stateUpperBound: float
-    rescaleStateCovar: bool | None
+    conformalRescale: bool | None
+    conformalAlpha: float | None
+    conformal_numIters: int | None
+    conformalFinalRefit: bool | None
 
 
 class samParams(NamedTuple):
@@ -476,6 +462,55 @@ class outputParams(NamedTuple):
     writeMWSR: bool
     writeJackknifeSE: bool
     applyJackknife: bool
+
+
+class fitParams(NamedTuple):
+    r"""Parameters controlling the optimization/fitting procedures.
+
+    These arguments control the optimization routine in :func:`consenrich.cconsenrich.cblockScaleEM`, which iteratively performs the following steps until convergence:
+
+    1. Filter-smoother state estimation *given* current noise scales (E-step)
+    2. Student-t precision reweighting at (replicate, interval) resolution: \(\lambda_{[j,i]}\) and \(\kappa_{[i]}\)
+    3. Block-level noise scale updates: \(r_b\) and \(q_b\)
+
+    :param EM_maxIters: Maximum outer EM iterations.
+    :type EM_maxIters: int
+    :param EM_rtol: Relative improvement tolerance on NLL used in convergence
+    :type EM_rtol: float
+    :param EM_scaleLOW: Lower clipping bound for block scales \(r_b\) and \(q_b\).
+    :type EM_scaleLOW: float
+    :param EM_scaleHIGH: Upper clipping bound for block scales \(r_b\) and \(q_b\) (process uses the same high bound here).
+    :type EM_scaleHIGH: float
+    :param EM_alphaEMA: If in ``(0, 1]``, enables log-domain EMA smoothing for block scales.
+    :type EM_alphaEMA: float
+    :param EM_scaleToMedian: If True, rescales \(r_b\) and \(q_b\) by their medians after each M-step. This can help preserve between-block scale differences for interpretability, but may interfere with convergence of the EM algorithm since it changes the effective objective.
+    :type EM_scaleToMedian: bool
+    :param EM_tNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
+    :type EM_tNu: float
+    :param EM_useObsBlockScale: If True, estimate block observation scales \(r_b\); otherwise fix \(r_b\equiv 1\).
+    :type EM_useObsBlockScale: bool
+    :param EM_useProcBlockScale: If True, estimate block process scales \(q_b\); otherwise fix \(q_b\equiv 1\).
+    :type EM_useProcBlockScale: bool
+    :param EM_useObsPrecReweight: If True, update observation noise precision multipliers \(\lambda_{[j,i]}\) (Student-\(t\) reweighting); otherwise \(\lambda\equiv 1\).
+    :type EM_useObsPrecReweight: bool
+    :param EM_useProcPrecReweight: If True, update process noise precision multipliers \(\kappa_{[i]}\) (Student-\(t\) reweighting); otherwise \(\kappa\equiv 1\).
+    :type EM_useProcPrecReweight: bool
+
+
+    :seealso: :func:`consenrich.cconsenrich.cblockScaleEM`, :func:`consenrich.core.runConsenrich`, :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
+    """
+
+    EM_maxIters: int | None = 50
+    EM_rtol: float | None = 1.0e-4
+    EM_scaleToMedian: bool | None = False
+    EM_tNu: float | None = 10.0
+    EM_alphaEMA: float | None = 0.1
+    EM_scaleLOW: float | None = 0.1
+    EM_scaleHIGH: float | None = 10.0
+    EM_useObsBlockScale: bool | None = True
+    EM_useProcBlockScale: bool | None = True
+    EM_useObsPrecReweight: bool | None = True
+    EM_useProcPrecReweight: bool | None = True
 
 
 def _checkMod(name: str) -> bool:
@@ -947,6 +982,10 @@ def runConsenrich(
     EM_alphaEMA: float = 0.1,
     EM_scaleLOW: float = 0.1,
     EM_scaleHIGH: float = 10.0,
+    EM_useObsBlockScale: bool = True,
+    EM_useProcBlockScale: bool = True,
+    EM_useObsPrecReweight: bool = True,
+    EM_useProcPrecReweight: bool = True,
     returnScales: bool = True,
     applyJackknife: bool = False,
     jackknifeEM_maxIters: int = 5,
@@ -962,18 +1001,11 @@ def runConsenrich(
     conformalAlpha: float = 0.05,
     conformal_numIters: int = 3,
     conformalFinalRefit: bool = True,
-    useObsBlockScale: bool = True,
-    useProcBlockScale: bool = True,
-    useObsPrecReweight: bool = True,
-    useProcPrecReweight: bool = True,
 ):
     r"""Run Consenrich over contiguous genomic intervals
 
-    Consenrich estimates a consensus epigenomic signal from multiple replicate tracks' HTS data.
-
-    Consenrich provides positional uncertainty quantification by propagating variance in a Kalman
-    filter-smoother setup. Observation and process noise scales are calibrated blockwise using a
-    Student-t Gaussian scale-mixture routine with precision-multipliers for both
+    We estimate a consensus epigenomic signal from multiple replicate tracks' HTS data while providing positional uncertainty quantification
+    by propagating variance in a linear filter-smoother setup.
 
     * observation residuals: ``lambdaExp[j,k]`` (conditional measurement variance is ``R[j,k]/lambdaExp[j,k]``)
     * process innovations:  ``processPrecExp[k]`` (conditional process covariance is ``Q[k]/processPrecExp[k]``)
@@ -1133,10 +1165,10 @@ def runConsenrich(
                     lambdaExp=None,
                     processPrecExp=None,
                     # Force the "Gaussian fixed-template" setting for auto-deltaF:
-                    useObsBlockScale=False,
-                    useProcBlockScale=False,
-                    useObsPrecReweight=False,
-                    useProcPrecReweight=False,
+                    EM_useObsBlockScale=False,
+                    EM_useProcBlockScale=False,
+                    EM_useObsPrecReweight=False,
+                    EM_useProcPrecReweight=False,
                 )
                 sumNLL = float(out[3])
 
@@ -1282,10 +1314,10 @@ def runConsenrich(
             storeNLLInD=False,
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
-            useObsBlockScale=bool(useObsBlockScale),
-            useProcBlockScale=bool(useProcBlockScale),
-            useObsPrecReweight=bool(useObsPrecReweight),
-            useProcPrecReweight=bool(useProcPrecReweight),
+            EM_useObsBlockScale=bool(EM_useObsBlockScale),
+            EM_useProcBlockScale=bool(EM_useProcBlockScale),
+            EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
+            EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
         )
 
         stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
@@ -1345,10 +1377,10 @@ def runConsenrich(
                 EM_scaleToMedian=bool(EM_scaleToMedian),
                 EM_tNu=float(EM_tNu),
                 returnIntermediates=True,
-                useObsBlockScale=bool(useObsBlockScale),
-                useProcBlockScale=bool(useProcBlockScale),
-                useObsPrecReweight=bool(useObsPrecReweight),
-                useProcPrecReweight=bool(useProcPrecReweight),
+                EM_useObsBlockScale=bool(EM_useObsBlockScale),
+                EM_useProcBlockScale=bool(EM_useProcBlockScale),
+                EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
+                EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
             )
             if len(EM_out_local) != 10:
                 raise ValueError(
@@ -1568,10 +1600,10 @@ def runConsenrich(
                     EM_scaleToMedian=bool(EM_scaleToMedian),
                     EM_tNu=float(EM_tNu),
                     returnIntermediates=True,
-                    useObsBlockScale=bool(useObsBlockScale),
-                    useProcBlockScale=bool(useProcBlockScale),
-                    useObsPrecReweight=bool(useObsPrecReweight),
-                    useProcPrecReweight=bool(useProcPrecReweight),
+                    EM_useObsBlockScale=bool(EM_useObsBlockScale),
+                    EM_useProcBlockScale=bool(EM_useProcBlockScale),
+                    EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
+                    EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
                 )
                 if len(EM_out_T) != 10:
                     continue
@@ -1739,10 +1771,10 @@ def runConsenrich(
             EM_scaleToMedian=bool(EM_scaleToMedian),
             EM_tNu=float(EM_tNu),
             returnIntermediates=True,
-            useObsBlockScale=bool(useObsBlockScale),
-            useProcBlockScale=bool(useProcBlockScale),
-            useObsPrecReweight=bool(useObsPrecReweight),
-            useProcPrecReweight=bool(useProcPrecReweight),
+            EM_useObsBlockScale=bool(EM_useObsBlockScale),
+            EM_useProcBlockScale=bool(EM_useProcBlockScale),
+            EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
+            EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
         )
 
         if len(EM_out) != 10:
@@ -1851,10 +1883,10 @@ def runConsenrich(
                     EM_scaleToMedian=bool(EM_scaleToMedian),
                     EM_tNu=float(EM_tNu),
                     returnIntermediates=True,
-                    useObsBlockScale=bool(useObsBlockScale),
-                    useProcBlockScale=bool(useProcBlockScale),
-                    useObsPrecReweight=bool(useObsPrecReweight),
-                    useProcPrecReweight=bool(useProcPrecReweight),
+                    EM_useObsBlockScale=bool(EM_useObsBlockScale),
+                    EM_useProcBlockScale=bool(EM_useProcBlockScale),
+                    EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
+                    EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
                 )
 
                 if len(EM_out_LOO) != 10:

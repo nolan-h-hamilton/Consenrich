@@ -55,8 +55,13 @@ def _checkSF(sf, logger, cut_=3.0):
 
     if ratio > cut_:
         logger.warning(
-            "Sample scaling factors (`countingParams.normMethod: SF`) used for library size/coverage normalization are heterogeneous: "
-            f"median={p50:.4g}, p95/p05={ratio:.2f} > {cut_}. __IF this is unexpected__, consider inspecting the alignment files."
+            "Sample scaling factors (`countingParams.normMethod: SF`) used for "
+            "library size/coverage normalization are heterogeneous: "
+            "median=%g, p95/p05=%f > %f. __IF this is unexpected__, consider "
+            "inspecting the alignment files.",
+            p50,
+            ratio,
+            cut_,
         )
 
 
@@ -441,22 +446,39 @@ def getStateArgs(config_path: str) -> core.stateParams:
         "stateParams.stateUpperBound",
         10000.0,
     )
-    rescaleStateCovar_ = _cfgGet(
-        configData,
-        "stateParams.rescaleStateCovar",
-        True,
-    )
     if boundState_:
         if stateLowerBound_ > stateUpperBound_:
             raise ValueError("`stateLowerBound` is greater than `stateUpperBound`.")
-
+    conformalRescale_ = _cfgGet(
+        configData,
+        "stateParams.conformalRescale",
+        False,
+    )
+    conformalAlpha_ = _cfgGet(
+        configData,
+        "stateParams.conformalAlpha",
+        0.05,
+    )
+    conformal_numIters_ = _cfgGet(
+        configData,
+        "stateParams.conformal_numIters",
+        1,
+    )
+    conformalFinalRefit_ = _cfgGet(
+        configData,
+        "stateParams.conformalFinalRefit",
+        False,
+    )
     return core.stateParams(
         stateInit=stateInit_,
         stateCovarInit=stateCovarInit_,
         boundState=boundState_,
         stateLowerBound=stateLowerBound_,
         stateUpperBound=stateUpperBound_,
-        rescaleStateCovar=rescaleStateCovar_,
+        conformalRescale=conformalRescale_,
+        conformalAlpha=conformalAlpha_,
+        conformal_numIters=conformal_numIters_,
+        conformalFinalRefit=conformalFinalRefit_,
     )
 
 
@@ -670,9 +692,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     stateParams = getStateArgs(config_path)
     countingParams = getCountingArgs(config_path)
     matchingExcludeRegionsFileDefault: Optional[str] = genomeParams.blacklistFile
-
     experimentName = _cfgGet(configData, "experimentName", "consenrichExperiment")
-
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
         minQ=_cfgGet(configData, "processParams.minQ", -1.0),
@@ -718,27 +738,35 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
-        EM_tNu=_cfgGet(configData, "observationParams.EM_tNu", 10.0),
-        EM_alphaEMA=_cfgGet(configData, "observationParams.EM_alphaEMA", 0.1),
-        EM_scaleLOW=_cfgGet(
+    )
+
+    fitArgs = core.fitParams(
+        EM_maxIters=_cfgGet(configData, "fitParams.EM_maxIters", 50),
+        EM_rtol=_cfgGet(configData, "fitParams.EM_rtol", 1.0e-4),
+        EM_scaleToMedian=_cfgGet(configData, "fitParams.EM_scaleToMedian", False),
+        EM_tNu=_cfgGet(configData, "fitParams.EM_tNu", 10.0),
+        EM_alphaEMA=_cfgGet(configData, "fitParams.EM_alphaEMA", 0.1),
+        EM_scaleLOW=_cfgGet(configData, "fitParams.EM_scaleLOW", 0.1),
+        EM_scaleHIGH=_cfgGet(configData, "fitParams.EM_scaleHIGH", 10.0),
+        EM_useObsBlockScale=_cfgGet(
             configData,
-            "observationParams.EM_scaleLOW",
-            0.1,
+            "fitParams.EM_useObsBlockScale",
+            True,
         ),
-        EM_scaleHIGH=_cfgGet(
+        EM_useProcBlockScale=_cfgGet(
             configData,
-            "observationParams.EM_scaleHIGH",
-            10.0,
+            "fitParams.EM_useProcBlockScale",
+            True,
         ),
-        EM_scaleToMedian=_cfgGet(
+        EM_useObsPrecReweight=_cfgGet(
             configData,
-            "observationParams.EM_scaleToMedian",
-            False,
+            "fitParams.EM_useObsPrecReweight",
+            True,
         ),
-        EM_maxIters=_cfgGet(
+        EM_useProcPrecReweight=_cfgGet(
             configData,
-            "observationParams.EM_maxIters",
-            50,
+            "fitParams.EM_useProcPrecReweight",
+            True,
         ),
     )
 
@@ -860,6 +888,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "stateArgs": stateParams,
         "samArgs": samArgs,
         "matchingArgs": matchingArgs,
+        "fitArgs": fitArgs,
     }
 
 
@@ -1084,6 +1113,7 @@ def main():
     samArgs = config["samArgs"]
     matchingArgs = config["matchingArgs"]
     plotArgs = config["plotArgs"]
+    fitArgs = config["fitArgs"]
     bamFiles = inputArgs.bamFiles
     bamFilesControl = inputArgs.bamFilesControl
     numSamples = len(bamFiles)
@@ -1117,7 +1147,7 @@ def main():
 
     if args.verbose:
         try:
-            logger.info(f"Consenrich v{__version__}: Initial Configuration\n")
+            logger.info(f"Consenrich [v{__version__}]: Initial Configuration\n")
             config_truncated = {
                 k: v
                 for k, v in config.items()
@@ -1522,13 +1552,22 @@ def main():
                 ),
                 returnScales=True,
                 pad=pad_,
-                EM_tNu=observationArgs.EM_tNu,
-                EM_alphaEMA=observationArgs.EM_alphaEMA,
-                EM_scaleLOW=observationArgs.EM_scaleLOW,
-                EM_scaleHIGH=observationArgs.EM_scaleHIGH,
-                EM_maxIters=observationArgs.EM_maxIters,
-                EM_scaleToMedian=observationArgs.EM_scaleToMedian,
+                EM_maxIters=fitArgs.EM_maxIters,
+                EM_rtol=fitArgs.EM_rtol,
+                EM_scaleToMedian=fitArgs.EM_scaleToMedian,
+                EM_tNu=fitArgs.EM_tNu,
+                EM_alphaEMA=fitArgs.EM_alphaEMA,
+                EM_scaleLOW=fitArgs.EM_scaleLOW,
+                EM_scaleHIGH=fitArgs.EM_scaleHIGH,
+                EM_useObsBlockScale=fitArgs.EM_useObsBlockScale,
+                EM_useProcBlockScale=fitArgs.EM_useProcBlockScale,
+                EM_useObsPrecReweight=fitArgs.EM_useObsPrecReweight,
+                EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
                 applyJackknife=outputArgs.applyJackknife,
+                conformalRescale=stateArgs.conformalRescale,
+                conformalAlpha=stateArgs.conformalAlpha,
+                conformal_numIters=stateArgs.conformal_numIters,
+                conformalFinalRefit=stateArgs.conformalFinalRefit,
             )
         )
 
@@ -1574,7 +1613,7 @@ def main():
             P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
             u2 = (resid * resid + P00_[None, :]) / R_
 
-            nu = float(observationArgs.EM_tNu)
+            nu = float(fitArgs.EM_tNu)
             refU2 = nu / (nu - 2.0) if nu > 2.0 else np.inf
 
             lam = (nu + 1.0) / (nu + u2)
