@@ -2260,23 +2260,19 @@ cpdef tuple cbackwardPass(
     object progressBar=None,
     Py_ssize_t progressIter=10000
 ):
-    r"""Run the backward pass (smoother) for state estimation
+    r"""Run the backward pass (smoother)
 
-    This is the **smoothing** phase of the forward–backward estimator, using the
-    *forward-filtered* outputs from :func:`consenrich.cconsenrich.cforwardPass`.
+    This function executes the smoothing phase of Consenrich's forward–backward state estimation. It operates on
+    outputs from the *forward-filtered* outputs (those returned by :func:`consenrich.cconsenrich.cforwardPass`).
 
-    That is, given the forward-pass sequences as input:
+    That is, given the forward-pass, filtered estimates over genomic intervals :math:`i = 1, \dots, n`,
 
     .. math::
 
         \mathbf{x}_{[i|i]}, \qquad \mathbf{P}_{[i|i]}, \qquad \mathbf{Q}_{[i]},
 
-    this routine computes:
-
-    * smoothed means \(\widetilde{\mathbf{x}}_{[i]}\)
-    * smoothed covariances \(\widetilde{\mathbf{P}}_{[i]}\)
-    * lag-one covariances \(\mathbf{C}_{[i,i+1]}\) (used by :func:`consenrich.cconsenrich.cblockScaleEM`)
-    * post-fit residuals \(r_{j,i}=z_{j,i}-\widetilde{x}_{[i,0]}\)
+    this routine computes the *backward-smoothed* state estimates :math:`\widetilde{\mathbf{x}}_{[i]}`
+    and the *backward-smoothed* covariances :math:`\widetilde{\mathbf{P}}_{[i]}`.
 
 
     :seealso: :func:`consenrich.cconsenrich.cforwardPass`,
@@ -2497,20 +2493,6 @@ cpdef tuple cblockScaleEM(
 ):
     r"""Run the Consenrich filter-smoother estimation loop with iteratively updated observation and process noise [co]variances.
 
-    Definitions
-    -----------
-
-
-    * \(m\) = number of tracks (``trackCount``)
-    * \(n\) = number of intervals (``intervalCount``)
-    * \(B\) = number of blocks (``blockCount``)
-    * \(b(i)\in\{0,\dots,B-1\}\) map interval \(i\) to block index (``intervalToBlockMap``)
-    * \(z_{[j,i]}\) be observation for track \(j\) at interval \(i\)
-    * \(v_{[j,i]}\) be the plug-in observation variance (``matrixPluginMuncInit``)
-    * \(\mathbf{x}_{[i]}\in\mathbb{R}^2\) be the latent state at interval \(i\)
-    * \(\mathbf{F}\) be the transition matrix (``matrixF``)
-    * \(\mathbf{Q}_0\) be the initial process covariance (``matrixQ0``)
-
 
     Take observation and process noise [co]variances:
 
@@ -2520,51 +2502,54 @@ cpdef tuple cblockScaleEM(
         \qquad
         \widetilde{\mathbf{Q}}_{[i]}=\frac{q_{b(i)}\,\mathbf{Q}_0}{\kappa_{[i]}}.
 
-    Here \(r_b>0\) and \(q_b>0\) are block-level scale multipliers, and
-    \(\lambda_{[j,i]}\), \(\kappa_{[i]}\) are Student-\(t\) precision multipliers.
+    Here :math:`r_b>0` and :math:`q_b>0` are block-level scale multipliers, and
+    :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are treated as Student-t precision multipliers.
+
 
     Estimation loop
     ---------------
 
     Repeat until convergence:
 
-    1. **Filter–Smoother estimation**: run the forward filter and RTS backward smoother
-    under the *current* effective noises \(\widetilde{R}\) and \(\widetilde{\mathbf{Q}}\).
-    This yields smoothed moments \(\widetilde{\mathbf{x}}_{[i]}\),
-    \(\widetilde{\mathbf{P}}_{[i]}\), and lag-one covariances
-    \(\widetilde{\mathbf{C}}_{[i,i+1]}\).
+    #. **Filter-Smoother estimation**
 
-    2. **Precision reweighting**:
+    Run the forward filter and backward smoother under the current (given)
+    effective noises :math:`\widetilde{R}` and :math:`\widetilde{\mathbf{Q}}`. This yields smoothed moments
+    :math:`\widetilde{\mathbf{x}}_{[i]}`, :math:`\widetilde{\mathbf{P}}_{[i]}`, and lag-one covariances
+    :math:`\widetilde{\mathbf{C}}_{[i,i+1]}`.
 
-    *Observation weights* \(\lambda_{[j,i]}\) (``EM_useObsPrecReweight``):
+
+    #. **Studentized precision reweighting**:
+
+    *Observation weights* :math:`\lambda_{[j,i]}` (``EM_useObsPrecReweight``):
 
     .. math::
 
         u^2_{[j,i]}=\frac{(z_{[j,i]}-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}
-                            {\widetilde{R}_{[j,i]}}
+                    {\widetilde{R}_{[j,i]}}
         \quad\Rightarrow\quad
         \lambda_{[j,i]} \leftarrow \frac{\nu_R+1}{\nu_R+u^2_{[j,i]}}.
 
-    (in code: ``EM_tNu`` = \(\nu_R\))
+    In code, ``EM_tNu`` corresponds to :math:`\nu_R`.
 
-    *Process weights* \(\kappa_{[i]}\):
+    *Process weights* :math:`\kappa_{[i]}`:
 
-    Let \(\mathbf{w}_{[i]}=\mathbf{x}_{[i]}-\mathbf{F}\mathbf{x}_{[i-1]}\) and define
+    Let :math:`\mathbf{w}_{[i]}=\mathbf{x}_{[i]}-\mathbf{F}\mathbf{x}_{[i-1]}` and define
 
     .. math::
 
-        \Delta_{[i]}=\mathrm{tr}\!\left(\mathbf{Q}_0^{-1}\,\mathbb{E}\left[\mathbf{w}_{[i]}\mathbf{w}_{[i]}^\top\right]\right).
+        \Delta_{[i]}=\textsf{Trace}\!\left(\mathbf{Q}_0^{-1}\,\mathbb{E}\left[\mathbf{w}_{[i]}\mathbf{w}_{[i]}^\top\right]\right).
 
-    Then:
+    Then
 
     .. math::
 
         \kappa_{[i]} \leftarrow \frac{\nu_Q+d}{\nu_Q+\Delta_{[i]}/q_{b(i)}},
 
-    where \(d=2\).
+    where :math:`d=2`.
 
-    3. **Block-level scaling**: update \(r_b\) and/or \(q_b\) using blockwise
-    closed-form averages of sufficient statistics from the E-step.
+    3. **Block-level scaling**: update :math:`r_b` and/or :math:`q_b` using blockwise closed-form averages of
+    sufficient statistics from the E-step.
 
     Observation block scale update:
 
@@ -2580,24 +2565,23 @@ cpdef tuple cblockScaleEM(
 
         q_b \leftarrow \frac{1}{d\,M_b}\sum_{i:\,b(i)=b}\kappa_{[i+1]}\,\Delta_{[i]}.
 
-    Note, if ``EM_alphaEMA`` supplied, we smooth updates with an exponential moving average (EMA) in the log-domain:
+    If ``EM_alphaEMA`` is supplied, we smooth updates with an exponential moving average (EMA) in the log domain:
 
     .. math::
 
-        \log r_b \leftarrow (1-\alpha)\log r_b^{(\mathrm{sm})} + \alpha \log r_b,
-        \qquad
-        \log q_b \leftarrow (1-\alpha_Q)\log q_b^{(\mathrm{sm})} + \alpha_Q \log q_b,
+      \log r_b \leftarrow (1-\alpha)\log r_b^{(\mathrm{sm})} + \alpha \log r_b,
+      \qquad
+      \log q_b \leftarrow (1-\alpha_Q)\log q_b^{(\mathrm{sm})} + \alpha_Q \log q_b.
 
 
-    Objective (negative log-posterior)
+    Objective Function
     ----------------------------------
 
-    Let \(x_{1:n}=\{\mathbf{x}_{[i]}\}_{i=1}^n\), \(\Lambda=\{\lambda_{[j,i]}\}\),
-    and \(\kappa=\{\kappa_{[i]}\}\). Collecting process + observation terms plus
-    Student-\(t\) mixing penalties yields:
+    Let :math:`x_{1:n}=\{\mathbf{x}_{[i]}\}_{i=1}^n`, :math:`\Lambda=\{\lambda_{[j,i]}\}`, and
+    :math:`\kappa=\{\kappa_{[i]}\}`. Collecting process and observation terms and mixing penalties yields:
 
     .. math::
-        :nowrap:
+      :nowrap:
 
         \begin{align}
         \mathcal{J}(x,\Lambda,\kappa,r,q)
@@ -2631,22 +2615,24 @@ cpdef tuple cblockScaleEM(
         \right].
         \end{align}
 
-    We can view the filter-smoother step as an E-step computing expected sufficient statistics under the current effective noises, and the block scaling + precision reweighting steps as M-steps updating parameters to minimize the expected objective.
-    Alternatively, we can view the entire loop as an optimization routine where the filter-smoother step solves a quadratic subproblem with the Gaussian closed-forms, and the reweighting and block-rescaling steps optimize over \(\Lambda\), \(\kappa\), \(r\), and \(q\).
+
+    So the estimation loop maximizing our objective function may be viewed as a coordinate ascent where the filter-smoother
+    solves the quadratic subproblem *conditional* on the current estimates of :math:`\Lambda`, :math:`\kappa`, :math:`r`, and :math:`q`,
+    and reweighting and block rescaling optimize over :math:`\Lambda`, :math:`\kappa`, :math:`r`, and :math:`q`.
 
     :param matrixData: Replicate track data (rows: replicates, columns: genomic intervals).
     :type matrixData: numpy.ndarray[numpy.float32]
-    :param matrixPluginMuncInit: Data-derived observation noise variances \(v_{[j,i]}\). Same per-replicate/per-interval shape as ``matrixData``.
+    :param matrixPluginMuncInit: Data-derived observation noise variances :math:`v_{[j,i]}`. Same per-replicate/per-interval shape as ``matrixData``.
     :type matrixPluginMuncInit: numpy.ndarray[numpy.float32]
-    :param matrixF: Transition matrix \(\mathbf{F}\), shape ``(2, 2)``.
+    :param matrixF: Transition matrix :math:`\mathbf{F}`, shape ``(2, 2)``.
     :type matrixF: numpy.ndarray[numpy.float32]
     :param matrixQ0: Base process noise covariance: :math:`\mathbf{Q}_0 \in \mathbb{R}^{2 \times 2}`
     :type matrixQ0: numpy.ndarray[numpy.float32]
     :param intervalToBlockMap: Mapping from interval index :math:`i` to block index :math:`b(i)`
     :type intervalToBlockMap: numpy.ndarray[numpy.int32]
-    :param blockCount: Number of blocks that are rescaled during optimization. Larger values optimize at a finer resolution, but this introduces risk of overfitting, increased runtime, and stronger amibguity with the precision reweighting.
+    :param blockCount: Number of blocks that are rescaled during optimization. Larger values optimize at a finer resolution, but this introduces risk of overfitting, increased runtime, and potential ambiguity with the precision reweighting procedure.
     :type blockCount: int
-    :param stateInit: Initial state value for the signal-level (first component) of the state vector \(\mathbf{x}_{[0]}\)
+    :param stateInit: Initial state value for the signal-level (first component) of the state vector :math:`\mathbf{x}_{[0]}`
     :type stateInit: float
     :param stateCovarInit: Initial state covariance scale
     :type stateCovarInit: float
@@ -2654,23 +2640,23 @@ cpdef tuple cblockScaleEM(
     :type EM_maxIters: int
     :param EM_rtol: Relative improvement tolerance on NLL used in convergence
     :type EM_rtol: float
-    :param EM_scaleLOW: Lower clipping bound for block scales \(r_b\) and \(q_b\).
+    :param EM_scaleLOW: Lower bound for block scales :math:`r_b` and :math:`q_b`.
     :type EM_scaleLOW: float
-    :param EM_scaleHIGH: Upper clipping bound for block scales \(r_b\) and \(q_b\) (process uses the same high bound here).
+    :param EM_scaleHIGH: Upper bound for block scales :math:`r_b` and :math:`q_b`
     :type EM_scaleHIGH: float
-    :param EM_alphaEMA: If in ``(0, 1]``, enables log-domain EMA smoothing for block scales.
+    :param EM_alphaEMA: If in ``(0, 1]``, enables log-domain EMA smoothing for block scale updates with smoothing factor :math:`\alpha`
     :type EM_alphaEMA: float
-    :param EM_scaleToMedian: If True, rescales \(r_b\) and \(q_b\) by their medians after each M-step. This can help preserve between-block scale differences for interpretability, but may interfere with convergence of the EM algorithm since it changes the effective objective.
+    :param EM_scaleToMedian: If True, rescales :math:`r_b` and :math:`q_b` by their medians after each M-step. This can help preserve between-block scale differences for interpretability, but may interfere with convergence of the EM algorithm since it changes the effective objective.
     :type EM_scaleToMedian: bool
     :param EM_tNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
     :type EM_tNu: float
-    :param EM_useObsBlockScale: If True, estimate block observation scales \(r_b\); otherwise fix \(r_b\equiv 1\).
+    :param EM_useObsBlockScale: If True, estimate block observation scales :math:`r_b`; otherwise fix :math:`r_b\equiv 1`.
     :type EM_useObsBlockScale: bool
-    :param EM_useProcBlockScale: If True, estimate block process scales \(q_b\); otherwise fix \(q_b\equiv 1\).
+    :param EM_useProcBlockScale: If True, estimate block process scales :math:`q_b`; otherwise fix :math:`q_b\equiv 1`.
     :type EM_useProcBlockScale: bool
-    :param EM_useObsPrecReweight: If True, update observation precision multipliers \(\lambda_{[j,i]}\) (Student-\(t\) reweighting); otherwise \(\lambda\equiv 1\).
+    :param EM_useObsPrecReweight: If True, update observation precision multipliers :math:`\lambda_{[j,i]}` (Student-t reweighting); otherwise :math:`\lambda\equiv 1`.
     :type EM_useObsPrecReweight: bool
-    :param EM_useProcPrecReweight: If True, update process precision multipliers \(\kappa_{[i]}\) (Student-\(t\) reweighting); otherwise \(\kappa\equiv 1\).
+    :param EM_useProcPrecReweight: If True, update process precision multipliers :math:`\kappa_{[i]}` (Student-t reweighting); otherwise :math:`\kappa\equiv 1`.
     :type EM_useProcPrecReweight: bool
     :param t_innerIters: Number of inner filter/smoother + reweighting updates per EM outer iteration.
     :type t_innerIters: int
@@ -2687,7 +2673,7 @@ cpdef tuple cblockScaleEM(
 
     * Shumway, R. H. & Stoffer, D. S. (1982): *An approach to time series smoothing and forecasting using the EM algorithm*. DOI: ``10.1111/j.1467-9892.1982.tb00349.x``
 
-    * West, M. (1987): *On scale mixtures of normal distributions*. DOI: ``10.1093/biomet/74.3.646``.
+    * West, M. (1987): *On scale mixtures of normal distributions*. DOI: ``10.1093/biomet/74.3.646``
 
     See Also
     --------

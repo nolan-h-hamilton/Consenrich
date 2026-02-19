@@ -462,12 +462,12 @@ def getStateArgs(config_path: str) -> core.stateParams:
     conformal_numIters_ = _cfgGet(
         configData,
         "stateParams.conformal_numIters",
-        1,
+        3,
     )
     conformalFinalRefit_ = _cfgGet(
         configData,
         "stateParams.conformalFinalRefit",
-        False,
+        True,
     )
     return core.stateParams(
         stateInit=stateInit_,

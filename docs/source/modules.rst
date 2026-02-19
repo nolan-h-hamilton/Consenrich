@@ -16,9 +16,9 @@ API Reference
     :caption: ``core``
     :name: core
 
-The core module implements the main aspects of Consenrich and defines key parameter classes.
+The core module implements the main features of Consenrich and defines key parameter classes for a consistent namespace.
 
-Note that many parameters are documented here for *completeness* and do not need to be tuned in common use-cases.
+Note that many parameters are documented here for *completeness* and do not need to be tuned in common use-cases. See :ref:`notation` for some definitions of key variables and parameters used throughout documentation.
 
 .. autoclass:: consenrich.core.processParams
 .. autoclass:: consenrich.core.plotParams
@@ -181,3 +181,42 @@ To detect 'significant' hits,
 
 
 
+.. _notation:
+
+Notation
+--------
+
+* :math:`m` = number of replicate tracks (rows)
+* :math:`n` = number of genomic intervals (columns)
+* :math:`B` = number of genomic blocks partitioning the main contig (``blockCount``)
+* :math:`b(i)\in\{0,\dots,B-1\}` maps interval :math:`i` to block index (``intervalToBlockMap``)
+* :math:`z_{[j,i]}` is the observation for replicate :math:`j` at genomic interval :math:`i`
+* :math:`v_{[j,i]}` is the observation variance for replicate :math:`j` at genomic interval :math:`i`
+  (:func:`consenrich.core.getMuncTrack`)
+* :math:`\mathbf{x}_{[i]}\in\mathbb{R}^2` is the state vector at interval :math:`i`, where
+
+  * :math:`x_{[i,0]}` denotes the latent signal level at genomic interval :math:`i`
+  * :math:`x_{[i,1]}` denotes the latent signal slope at genomic interval :math:`i`
+
+* :math:`\mathbf{P}_{[i]}\in\mathbb{R}^{2\times 2}` is the state covariance matrix at interval :math:`i`, where
+
+  * :math:`P_{[i,0,0]}` is the variance of the signal level at interval :math:`i`
+  * :math:`P_{[i,1,1]}` is the variance of the signal slope at interval :math:`i`
+  * :math:`P_{[i,0,1]}=P_{[i,1,0]}` is the covariance between signal level and slope at interval :math:`i`
+
+* :math:`\mathbf{F}` is the process model matrix (``matrixF``), where
+
+  * :math:`F_{00}=1` and :math:`F_{01}=\Delta_F`
+  * :math:`F_{10}=0` and :math:`F_{11}=1`
+
+* :math:`\mathbf{Q}_0` is the initial process model noise covariance matrix (``matrixQ0``)
+* :math:`\mathbf{H}` is the observation model matrix (:math:`\mathbf{H}=[1, 0]`)
+* :math:`\mathbf{R}_{[i]}=\textsf{diag}\{v_{[:,i]}\}` is the initial observation-noise covariance at interval :math:`i`
+* :math:`\lambda_{[j,i]}` is the latent precision multiplier for observation :math:`z_{[j,i]}`
+  in a Student-t Gaussian scale-mixture model
+* :math:`\kappa_{[i]}` is the latent precision multiplier for the process transition at interval :math:`i`
+  in a Student-t Gaussian scale-mixture model
+* :math:`\nu_R` is the degrees-of-freedom parameter controlling the heaviness of Student-t tails for observation noise
+* :math:`\nu_Q` is the degrees-of-freedom parameter controlling the heaviness of Student-t tails for process noise
+* :math:`r_b` is the block-level observation noise scale multiplier for block :math:`b`
+* :math:`q_b` is the block-level process noise scale multiplier for block :math:`b`

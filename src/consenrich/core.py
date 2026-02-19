@@ -390,14 +390,6 @@ class matchingParams(NamedTuple):
     :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
         If False, use (only) the wavelet function.
     :type useScalingFunction: bool
-    :param excludeRegionsBedFile: A BED file with regions to exclude from matching
-    :type excludeRegionsBedFile: Optional[str]
-    :param penalizeBy: Specify a positional metric to scale signal estimate values by when matching.
-      For example, ``stateUncertainty`` divides signal values by the square root of the primary state
-      variance :math:`\sqrt{\widetilde{P}_{i,(11)}}` at each position :math:`i`,
-      thereby down-weighting positions where the posterior state uncertainty is
-      high during matching.
-    :type penalizeBy: Optional[str]
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
@@ -1002,28 +994,21 @@ def runConsenrich(
     conformal_numIters: int = 3,
     conformalFinalRefit: bool = True,
 ):
-    r"""Run Consenrich over contiguous genomic intervals
+    r"""Run Consenrich over over a contiguous genomic region (chromosome)
 
-    We estimate a consensus epigenomic signal from multiple replicate tracks' HTS data while providing positional uncertainty quantification
-    by propagating variance in a linear filter-smoother setup.
-
-    * observation residuals: ``lambdaExp[j,k]`` (conditional measurement variance is ``R[j,k]/lambdaExp[j,k]``)
-    * process innovations:  ``processPrecExp[k]`` (conditional process covariance is ``Q[k]/processPrecExp[k]``)
+    We estimate a position-dependent consensus epigenomic signal :math:`\widetilde{x}_{[i,0]}` from multiple replicate
+        tracks' HTS data, and provide positional uncertainty quantification by propagating variance in a linear
+        filter-smoother setup.
 
     This wrapper ties together several fundamental routines written in Cython:
 
-    #. :func:`consenrich.cconsenrich.cforwardPass`: Kalman filter using the final weights when
-       calibration is enabled.
+    #. :func:`consenrich.cconsenrich.cforwardPass`: Forward filter (predict, update)
+    #. :func:`consenrich.cconsenrich.cbackwardPass`: Backward fixed-interval smoother
+    #. :func:`consenrich.cconsenrich.cblockScaleEM`: Joint optimization of process and observation model noise scales with robust studentized reweighting
 
-    #. :func:`consenrich.cconsenrich.cbackwardPass`: RTS smoother.
-
-    #. :func:`consenrich.cconsenrich.cblockScaleEM`: fit blockwise noise scales and infer
-       precision multipliers for the final inference pass.
-
-    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`,
-            :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`,
-            :func:`consenrich.cconsenrich.cblockScaleEM`
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`, :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cblockScaleEM`
     """
+
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
 
@@ -1117,7 +1102,7 @@ def runConsenrich(
         #   Expected squared change in the signal level between adjacent intervals:
         #
         #   E[(x0_{k+1} - x0_k)^2]
-        #     =_mom (mu0_{k+1} - mu0_k)^2 + P00_{k+1} + P00_k - 2*C00_{k,k+1}
+        #     = (mu0_{k+1} - mu0_k)^2 + P00_{k+1} + P00_k - 2*C00_{k,k+1}
         #
         # Intuition:
         # - NLL favors matching the observed tracks
@@ -1989,11 +1974,11 @@ def getPrimaryState(
     stateUpperBound: Optional[float] = None,
     boundState: bool = False,
 ) -> npt.NDArray[np.float32]:
-    r"""Get the primary state estimate from each vector after running Consenrich.
+    r"""Get the primary state variable (*signal level*) from each estimated state vector after running Consenrich.
 
     :param stateVectors: State vectors from :func:`runConsenrich`.
     :type stateVectors: npt.NDArray[np.float32]
-    :return: A one-dimensional numpy array of the primary state estimates.
+    :return: A one-dimensional numpy array of the primary state estimates ( signal level, :math:`\widetilde{x}_{[i,0]}`).
     :rtype: npt.NDArray[np.float32]
     """
     out_ = np.ascontiguousarray(stateVectors[:, 0], dtype=np.float32)
