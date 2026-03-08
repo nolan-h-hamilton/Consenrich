@@ -1485,6 +1485,8 @@ def runConsenrich(
         #   this is the factor we use to inflate the final P00 variance
         #   to achieve coverage
         N = int(scores.size)
+        if N <= 0:
+            return 1.0
         k = int(np.ceil((N + 1) * (1.0 - alphaLocal)))
         q_level = min(1.0, max(0.0, k / float(N)))
 
@@ -1728,6 +1730,12 @@ def runConsenrich(
         )
         matrixMuncFit = np.ascontiguousarray(
             matrixMunc[conformalIdxT, :], dtype=np.float32
+        )
+        logger.info(
+            "conformalRescale with conformalFinalRefit=False: final fit uses %d/%d replicates, so downstream shape/size outputs may differ from original trackCount=%d",
+            int(conformalIdxT.size),
+            int(trackCount),
+            int(trackCount),
         )
 
     lambdaExp_final = None

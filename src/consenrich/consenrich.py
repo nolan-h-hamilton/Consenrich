@@ -1604,9 +1604,23 @@ def main():
             resid = np.asarray(
                 postFitResiduals, dtype=np.float32
             ).T  # make (numIntervals, numSamples)
+            muncForMWSR = np.asarray(muncMat, dtype=np.float32)
+            if resid.shape[0] != muncForMWSR.shape[0]:
+                logger.warning(
+                    "MWSR: residual rows (%d) != munc rows (%d); using interval-median munc for residual rows.",
+                    int(resid.shape[0]),
+                    int(muncForMWSR.shape[0]),
+                )
+                muncForMWSR = np.repeat(
+                    np.nanmedian(muncForMWSR, axis=0, keepdims=True).astype(
+                        np.float32, copy=False
+                    ),
+                    int(resid.shape[0]),
+                    axis=0,
+                )
 
             R_ = rByInterval[None, :] * (
-                np.asarray(muncMat, dtype=np.float32) + np.float32(pad_)
+                muncForMWSR + np.float32(pad_)
             )
             R_ = np.maximum(R_, np.float32(1.0e-12))
 

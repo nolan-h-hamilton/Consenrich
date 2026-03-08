@@ -958,7 +958,7 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     maxBlockLength = sizesArr.max()
     cdef list support = []
     cdef cnp.intp_t i_ = 0
-    while i_ < n-maxBlockLength:
+    while i_ <= n-maxBlockLength:
         if excludeIdxMask[i_:i_ + maxBlockLength].any():
             i_ = i_ + maxBlockLength + 1
             continue
