@@ -5,6 +5,7 @@ import argparse
 import glob
 import logging
 import math
+from multiprocessing.pool import ThreadPool
 import pprint
 import os
 from pathlib import Path
@@ -751,12 +752,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_useObsBlockScale=_cfgGet(
             configData,
             "fitParams.EM_useObsBlockScale",
-            True,
+            False,
         ),
         EM_useProcBlockScale=_cfgGet(
             configData,
             "fitParams.EM_useProcBlockScale",
-            True,
+            False,
         ),
         EM_useObsPrecReweight=_cfgGet(
             configData,
@@ -767,6 +768,31 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "fitParams.EM_useProcPrecReweight",
             True,
+        ),
+        EM_useReplicateBias=_cfgGet(
+            configData,
+            "fitParams.EM_useReplicateBias",
+            True,
+        ),
+        EM_useReplicateScale=_cfgGet(
+            configData,
+            "fitParams.EM_useReplicateScale",
+            True,
+        ),
+        EM_repBiasShrink=_cfgGet(
+            configData,
+            "fitParams.EM_repBiasShrink",
+            0.0,
+        ),
+        EM_repScaleLOW=_cfgGet(
+            configData,
+            "fitParams.EM_repScaleLOW",
+            0.25,  # genome-wide scale applied during EM (as opposed to interval-level, block level)
+        ),
+        EM_repScaleHIGH=_cfgGet(
+            configData,
+            "fitParams.EM_repScaleHIGH",
+            4.0,  # genome-wide scale applied during EM (as opposed to interval-level, block level)
         ),
     )
 
@@ -1467,7 +1493,7 @@ def main():
 
         for j in tqdm(
             range(numSamples),
-            desc="Transforming data / Fitting variance function f(|μ|;Θ)",
+            desc="Transforming data",
             unit=" sample ",
         ):
             logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
@@ -1492,8 +1518,8 @@ def main():
                     - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
                 )
 
-            # compute munc track for each sample independently
-            muncMat[j, :], _ = core.getMuncTrack(
+        def _fitMuncTrack(j: int) -> tuple[int, np.ndarray]:
+            muncTrack, _ = core.getMuncTrack(
                 chromosome,
                 intervals,
                 chromMat[j, :],
@@ -1508,6 +1534,40 @@ def main():
                 EB_setNuL=observationArgs.EB_setNuL,
                 verbose=args.verbose2,
             )
+            return j, muncTrack
+
+        # this has become a bottleneck, so gentle multiprocessing
+        cpuCount = os.cpu_count() or 1
+        muncWorkers = min(
+            numSamples,
+            max(1, cpuCount // 2),
+        )
+        useParallelMunc = (
+            numSamples >= 4 and chromMat.shape[1] >= 5000 and muncWorkers > 1
+        )
+        if useParallelMunc:
+            logger.info(
+                "munc matrix: using ThreadPool with %d workers (numSamples=%d, numIntervals=%d).",
+                int(muncWorkers),
+                int(numSamples),
+                int(chromMat.shape[1]),
+            )
+            with ThreadPool(processes=int(muncWorkers)) as pool:
+                for j, muncTrack in tqdm(
+                    pool.imap(_fitMuncTrack, range(numSamples)),
+                    total=numSamples,
+                    desc="Fitting variance function f(|μ|;Θ)",
+                    unit=" sample ",
+                ):
+                    muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
+        else:
+            for j in tqdm(
+                range(numSamples),
+                desc="Fitting variance function f(|μ|;Θ)",
+                unit=" sample ",
+            ):
+                _, muncTrack = _fitMuncTrack(j)
+                muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-3))
@@ -1532,43 +1592,78 @@ def main():
             maxQ_ = np.float32(max(maxQ_, minQ_))
         logger.info(f"minR={minR_}, maxR={maxR_}, minQ={minQ_}, maxQ={maxQ_}")
         logger.info(f">>>  Running consenrich: {chromosome}  <<<")
-        x, P, postFitResiduals, JackknifeSEVec, rScale, qScale, intervalToBlockMap = (
-            core.runConsenrich(
-                chromMat,
-                muncMat,
-                deltaF_,
-                minQ_,
-                maxQ_,
-                offDiagQ_,
-                stateArgs.stateInit,
-                stateArgs.stateCovarInit,
-                stateArgs.boundState,
-                stateArgs.stateLowerBound,
-                stateArgs.stateUpperBound,
-                blockLenIntervals=(
-                    4 * vec_[0] + 1
-                    if vec_ is not None
-                    else 2 * backgroundBlockSizeIntervals + 1
-                ),
-                returnScales=True,
-                pad=pad_,
-                EM_maxIters=fitArgs.EM_maxIters,
-                EM_rtol=fitArgs.EM_rtol,
-                EM_scaleToMedian=fitArgs.EM_scaleToMedian,
-                EM_tNu=fitArgs.EM_tNu,
-                EM_alphaEMA=fitArgs.EM_alphaEMA,
-                EM_scaleLOW=fitArgs.EM_scaleLOW,
-                EM_scaleHIGH=fitArgs.EM_scaleHIGH,
-                EM_useObsBlockScale=fitArgs.EM_useObsBlockScale,
-                EM_useProcBlockScale=fitArgs.EM_useProcBlockScale,
-                EM_useObsPrecReweight=fitArgs.EM_useObsPrecReweight,
-                EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
-                applyJackknife=outputArgs.applyJackknife,
-                conformalRescale=stateArgs.conformalRescale,
-                conformalAlpha=stateArgs.conformalAlpha,
-                conformal_numIters=stateArgs.conformal_numIters,
-                conformalFinalRefit=stateArgs.conformalFinalRefit,
-            )
+        (
+            x,
+            P,
+            postFitResiduals,
+            JackknifeSEVec,
+            rScale,
+            qScale,
+            replicateBias,
+            replicateScale,
+            intervalToBlockMap,
+        ) = core.runConsenrich(
+            chromMat,
+            muncMat,
+            deltaF_,
+            minQ_,
+            maxQ_,
+            offDiagQ_,
+            stateArgs.stateInit,
+            stateArgs.stateCovarInit,
+            stateArgs.boundState,
+            stateArgs.stateLowerBound,
+            stateArgs.stateUpperBound,
+            blockLenIntervals=(
+                4 * vec_[0] + 1
+                if vec_ is not None
+                else 2 * backgroundBlockSizeIntervals + 1
+            ),
+            returnScales=True,
+            returnReplicateOffsets=True,
+            pad=pad_,
+            EM_maxIters=fitArgs.EM_maxIters,
+            EM_rtol=fitArgs.EM_rtol,
+            EM_scaleToMedian=fitArgs.EM_scaleToMedian,
+            EM_tNu=fitArgs.EM_tNu,
+            EM_alphaEMA=fitArgs.EM_alphaEMA,
+            EM_scaleLOW=fitArgs.EM_scaleLOW,
+            EM_scaleHIGH=fitArgs.EM_scaleHIGH,
+            EM_useObsBlockScale=fitArgs.EM_useObsBlockScale,
+            EM_useProcBlockScale=fitArgs.EM_useProcBlockScale,
+            EM_useObsPrecReweight=fitArgs.EM_useObsPrecReweight,
+            EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
+            EM_useReplicateBias=fitArgs.EM_useReplicateBias,
+            EM_useReplicateScale=fitArgs.EM_useReplicateScale,
+            EM_repBiasShrink=fitArgs.EM_repBiasShrink,
+            EM_repScaleLOW=fitArgs.EM_repScaleLOW,
+            EM_repScaleHIGH=fitArgs.EM_repScaleHIGH,
+            applyJackknife=outputArgs.applyJackknife,
+            conformalRescale=stateArgs.conformalRescale,
+            conformalAlpha=stateArgs.conformalAlpha,
+            conformal_numIters=stateArgs.conformal_numIters,
+            conformalFinalRefit=stateArgs.conformalFinalRefit,
+        )
+        replicateBias = np.asarray(replicateBias, dtype=np.float32)
+        logger.info(
+            "finalReplicateBias[%s]=%s",
+            chromosome,
+            np.array2string(
+                replicateBias,
+                precision=6,
+                floatmode="fixed",
+                separator=", ",
+            ),
+        )
+        logger.info(
+            "finalReplicateScale[%s]=%s",
+            chromosome,
+            np.array2string(
+                np.asarray(replicateScale, dtype=np.float32),
+                precision=6,
+                floatmode="fixed",
+                separator=", ",
+            ),
         )
 
         x_ = core.getPrimaryState(
@@ -1605,6 +1700,9 @@ def main():
                 postFitResiduals, dtype=np.float32
             ).T  # make (numIntervals, numSamples)
             muncForMWSR = np.asarray(muncMat, dtype=np.float32)
+            replicateScaleForMWSR = np.asarray(
+                replicateScale, dtype=np.float32
+            ).reshape(-1, 1)
             if resid.shape[0] != muncForMWSR.shape[0]:
                 logger.warning(
                     "MWSR: residual rows (%d) != munc rows (%d); using interval-median munc for residual rows.",
@@ -1618,9 +1716,24 @@ def main():
                     int(resid.shape[0]),
                     axis=0,
                 )
+            if resid.shape[0] != replicateScaleForMWSR.shape[0]:
+                logger.warning(
+                    "MWSR: residual rows (%d) != replicate-scale rows (%d); using median replicate scale for residual rows.",
+                    int(resid.shape[0]),
+                    int(replicateScaleForMWSR.shape[0]),
+                )
+                replicateScaleForMWSR = np.repeat(
+                    np.nanmedian(replicateScaleForMWSR, axis=0, keepdims=True).astype(
+                        np.float32, copy=False
+                    ),
+                    int(resid.shape[0]),
+                    axis=0,
+                )
 
-            R_ = rByInterval[None, :] * (
-                muncForMWSR + np.float32(pad_)
+            R_ = (
+                replicateScaleForMWSR
+                * rByInterval[None, :]
+                * (muncForMWSR + np.float32(pad_))
             )
             R_ = np.maximum(R_, np.float32(1.0e-12))
 

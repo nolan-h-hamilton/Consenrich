@@ -428,7 +428,7 @@ class outputParams(NamedTuple):
     :param writeMWSR: If True, write a per-interval mean weighted+squared+*studentized* post-fit residual (``MWSR``),
         computed using the smoothed state and its posterior variance from the final filter/smoother pass.
 
-        Let :math:`r_{[j,i]} = \texttt{matrixData}_{[j,i]} - \widetilde{x}_{[i]}` denote the post-fit residual for replicate :math:`j` at interval
+        Let :math:`r_{[j,i]} = \texttt{matrixData}_{[j,i]} - b_j - \widetilde{x}_{[i]}` denote the post-fit residual for replicate :math:`j` at interval
         :math:`i`, where :math:`\widetilde{x}_{[i]}` is the consensus epigenomic signal level estimate. Let :math:`\widetilde{P}_{[00,i]}`
         be the posterior variance of the first state variable (signal level) and let :math:`R_{[j,i]}` be the observation noise variance for replicate :math:`j` at interval :math:`i`.
         Then, the studentized squared residuals :math:`u^2_{[j,i]}` and the mean weighted squared residuals :math:`\textsf{MWSR}[i]` are recorded as:
@@ -462,8 +462,12 @@ class fitParams(NamedTuple):
     These arguments control the optimization routine in :func:`consenrich.cconsenrich.cblockScaleEM`, which iteratively performs the following steps until convergence:
 
     1. Filter-smoother state estimation *given* current noise scales (E-step)
-    2. Student-t precision reweighting at (replicate, interval) resolution: \(\lambda_{[j,i]}\) and \(\kappa_{[i]}\)
+    2. Interval-level Student-t precision reweighting at: \(\lambda_{[j,i]}\) and \(\kappa_{[i]}\)
     3. Block-level noise scale updates: \(r_b\) and \(q_b\)
+    4. Replicate-level observation offset/scale updates: \(b_j\) and \(a_j\)
+
+    Each scale/reweighting resolution is optional. All three are applied by default but are constrained to mitigate redundancy.
+
 
     :param EM_maxIters: Maximum outer EM iterations.
     :type EM_maxIters: int
@@ -487,6 +491,16 @@ class fitParams(NamedTuple):
     :type EM_useObsPrecReweight: bool
     :param EM_useProcPrecReweight: If True, update process noise precision multipliers \(\kappa_{[i]}\) (Student-\(t\) reweighting); otherwise \(\kappa\equiv 1\).
     :type EM_useProcPrecReweight: bool
+    :param EM_useReplicateBias: If True, estimate additive replicate offsets \(b_j\) in the observation equation.
+    :type EM_useReplicateBias: bool
+    :param EM_useReplicateScale: If True, estimate multiplicative replicate variance scales \(a_j\) in the observation equation.
+    :type EM_useReplicateScale: bool
+    :param EM_repBiasShrink: Non-negative shrinkage applied to replicate bias estimates after centering.
+    :type EM_repBiasShrink: float
+    :param EM_repScaleLOW: Lower clipping bound for replicate variance scales \(a_j\).
+    :type EM_repScaleLOW: float
+    :param EM_repScaleHIGH: Upper clipping bound for replicate variance scales \(a_j\).
+    :type EM_repScaleHIGH: float
 
 
     :seealso: :func:`consenrich.cconsenrich.cblockScaleEM`, :func:`consenrich.core.runConsenrich`, :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
@@ -503,6 +517,11 @@ class fitParams(NamedTuple):
     EM_useProcBlockScale: bool | None = True
     EM_useObsPrecReweight: bool | None = True
     EM_useProcPrecReweight: bool | None = True
+    EM_useReplicateBias: bool | None = True
+    EM_useReplicateScale: bool | None = True
+    EM_repBiasShrink: float | None = 0.0
+    EM_repScaleLOW: float | None = 0.25
+    EM_repScaleHIGH: float | None = 4.0
 
 
 def _checkMod(name: str) -> bool:
@@ -978,7 +997,13 @@ def runConsenrich(
     EM_useProcBlockScale: bool = True,
     EM_useObsPrecReweight: bool = True,
     EM_useProcPrecReweight: bool = True,
+    EM_useReplicateBias: bool = True,
+    EM_useReplicateScale: bool = True,
+    EM_repBiasShrink: float = 0.0,
+    EM_repScaleLOW: float = 0.25,
+    EM_repScaleHIGH: float = 4.0,
     returnScales: bool = True,
+    returnReplicateOffsets: bool = False,
     applyJackknife: bool = False,
     jackknifeEM_maxIters: int = 5,
     jackknifeEM_rtol: float = 1.0e-2,
@@ -1267,6 +1292,8 @@ def runConsenrich(
         matrixQ0Local: np.ndarray,
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
+        replicateBias: np.ndarray | None,
+        replicateScale: np.ndarray | None,
     ):
         stateForward = np.empty((intervalCount, 2), dtype=np.float32)
         stateCovarForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
@@ -1299,10 +1326,14 @@ def runConsenrich(
             storeNLLInD=False,
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
+            replicateBias=replicateBias,
+            replicateScale=replicateScale,
             EM_useObsBlockScale=bool(EM_useObsBlockScale),
             EM_useProcBlockScale=bool(EM_useProcBlockScale),
             EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
             EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
+            EM_useReplicateBias=bool(EM_useReplicateBias),
+            EM_useReplicateScale=bool(EM_useReplicateScale),
         )
 
         stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
@@ -1317,8 +1348,10 @@ def runConsenrich(
                 stateCovarSmoothed=None,
                 lagCovSmoothed=None,
                 postFitResiduals=None,
+                replicateBias=replicateBias,
                 progressBar=None,
                 progressIter=0,
+                EM_useReplicateBias=bool(EM_useReplicateBias),
             )
         )
 
@@ -1342,6 +1375,8 @@ def runConsenrich(
             qScaleLocal = np.ones(blockCount, dtype=np.float32)
             lambdaExpLocal = None
             processPrecExpLocal = None
+            replicateBiasLocal = np.zeros(mLocal, dtype=np.float32)
+            replicateScaleLocal = np.ones(mLocal, dtype=np.float32)
         else:
             EM_iters_local = int(min(int(EM_maxIters), 25))
             EM_out_local = cconsenrich.cblockScaleEM(
@@ -1366,10 +1401,15 @@ def runConsenrich(
                 EM_useProcBlockScale=bool(EM_useProcBlockScale),
                 EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
                 EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
+                EM_useReplicateBias=bool(EM_useReplicateBias),
+                EM_useReplicateScale=bool(EM_useReplicateScale),
+                EM_repBiasShrink=float(EM_repBiasShrink),
+                EM_repScaleLOW=float(EM_repScaleLOW),
+                EM_repScaleHIGH=float(EM_repScaleHIGH),
             )
-            if len(EM_out_local) != 10:
+            if len(EM_out_local) != 12:
                 raise ValueError(
-                    "Expected cblockScaleEM(..., returnIntermediates=True) to return >10.0 values "
+                    "Expected cblockScaleEM(..., returnIntermediates=True) to return 12 values "
                     f"(got {len(EM_out_local)})."
                 )
             (
@@ -1383,6 +1423,8 @@ def runConsenrich(
                 _residEMLocal,
                 lambdaExpLocal,
                 processPrecExpLocal,
+                replicateBiasLocal,
+                replicateScaleLocal,
             ) = EM_out_local
 
             rScaleLocal = np.asarray(rScaleLocal, dtype=np.float32)
@@ -1392,6 +1434,8 @@ def runConsenrich(
                 lambdaExpLocal = np.asarray(lambdaExpLocal, dtype=np.float32)
             if processPrecExpLocal is not None:
                 processPrecExpLocal = np.asarray(processPrecExpLocal, dtype=np.float32)
+            replicateBiasLocal = np.asarray(replicateBiasLocal, dtype=np.float32)
+            replicateScaleLocal = np.asarray(replicateScaleLocal, dtype=np.float32)
 
         (
             _phiHatLocal,
@@ -1410,6 +1454,8 @@ def runConsenrich(
             matrixQ0Local=matrixQ0,
             lambdaExp=lambdaExpLocal,
             processPrecExp=processPrecExpLocal,
+            replicateBias=replicateBiasLocal,
+            replicateScale=replicateScaleLocal,
         )
 
         stateSmoothedLocal = np.asarray(stateSmoothedLocal, dtype=np.float32)
@@ -1567,6 +1613,8 @@ def runConsenrich(
                 qScaleT = np.ones(blockCount, dtype=np.float32)
                 lambdaExpT = None
                 processPrecExpT = None
+                replicateBiasT = np.zeros(mT, dtype=np.float32)
+                replicateScaleT = np.ones(mT, dtype=np.float32)
             else:
                 EM_iters_local = int(min(int(EM_maxIters), 25))
                 EM_out_T = cconsenrich.cblockScaleEM(
@@ -1591,8 +1639,13 @@ def runConsenrich(
                     EM_useProcBlockScale=bool(EM_useProcBlockScale),
                     EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
                     EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
+                    EM_useReplicateBias=bool(EM_useReplicateBias),
+                    EM_useReplicateScale=bool(EM_useReplicateScale),
+                    EM_repBiasShrink=float(EM_repBiasShrink),
+                    EM_repScaleLOW=float(EM_repScaleLOW),
+                    EM_repScaleHIGH=float(EM_repScaleHIGH),
                 )
-                if len(EM_out_T) != 10:
+                if len(EM_out_T) != 12:
                     continue
                 (
                     rScaleT,
@@ -1605,6 +1658,8 @@ def runConsenrich(
                     _residEMT,
                     lambdaExpT,
                     processPrecExpT,
+                    replicateBiasT,
+                    replicateScaleT,
                 ) = EM_out_T
                 rScaleT = np.asarray(rScaleT, dtype=np.float32)
                 qScaleT = np.asarray(qScaleT, dtype=np.float32)
@@ -1612,6 +1667,8 @@ def runConsenrich(
                     lambdaExpT = np.asarray(lambdaExpT, dtype=np.float32)
                 if processPrecExpT is not None:
                     processPrecExpT = np.asarray(processPrecExpT, dtype=np.float32)
+                replicateBiasT = np.asarray(replicateBiasT, dtype=np.float32)
+                replicateScaleT = np.asarray(replicateScaleT, dtype=np.float32)
 
             (
                 _phiHatT,
@@ -1630,6 +1687,8 @@ def runConsenrich(
                 matrixQ0Local=matrixQ0_iter,
                 lambdaExp=lambdaExpT,
                 processPrecExp=processPrecExpT,
+                replicateBias=replicateBiasT,
+                replicateScale=replicateScaleT,
             )
 
             muT = np.asarray(stateSmoothedT, dtype=np.float32)[:, 0].astype(
@@ -1740,6 +1799,8 @@ def runConsenrich(
 
     lambdaExp_final = None
     processPrecExp_final = None
+    replicateBias_final = np.zeros(matrixDataFit.shape[0], dtype=np.float32)
+    replicateScale_final = np.ones(matrixDataFit.shape[0], dtype=np.float32)
 
     if disableCalibration:
         rScale = np.ones(blockCount, dtype=np.float32)
@@ -1768,11 +1829,16 @@ def runConsenrich(
             EM_useProcBlockScale=bool(EM_useProcBlockScale),
             EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
             EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
+            EM_useReplicateBias=bool(EM_useReplicateBias),
+            EM_useReplicateScale=bool(EM_useReplicateScale),
+            EM_repBiasShrink=float(EM_repBiasShrink),
+            EM_repScaleLOW=float(EM_repScaleLOW),
+            EM_repScaleHIGH=float(EM_repScaleHIGH),
         )
 
-        if len(EM_out) != 10:
+        if len(EM_out) != 12:
             raise ValueError(
-                "Expected cblockScaleEM(..., returnIntermediates=True) to return 10 values "
+                "Expected cblockScaleEM(..., returnIntermediates=True) to return 12 values "
                 f"(got {len(EM_out)})."
             )
 
@@ -1787,6 +1853,8 @@ def runConsenrich(
             _residEM,
             lambdaExp_final,
             processPrecExp_final,
+            replicateBias_final,
+            replicateScale_final,
         ) = EM_out
 
         rScale = np.asarray(rScale, dtype=np.float32)
@@ -1796,6 +1864,8 @@ def runConsenrich(
             lambdaExp_final = np.asarray(lambdaExp_final, dtype=np.float32)
         if processPrecExp_final is not None:
             processPrecExp_final = np.asarray(processPrecExp_final, dtype=np.float32)
+        replicateBias_final = np.asarray(replicateBias_final, dtype=np.float32)
+        replicateScale_final = np.asarray(replicateScale_final, dtype=np.float32)
 
     (
         _phiHat,
@@ -1814,6 +1884,8 @@ def runConsenrich(
         matrixQ0Local=matrixQ0,
         lambdaExp=lambdaExp_final,
         processPrecExp=processPrecExp_final,
+        replicateBias=replicateBias_final,
+        replicateScale=replicateScale_final,
     )
 
     outStateSmoothed = np.asarray(stateSmoothed, dtype=np.float32)
@@ -1857,6 +1929,8 @@ def runConsenrich(
             if disableCalibration:
                 rScale_LOO = np.ones(blockCount, dtype=np.float32)
                 qScale_LOO = np.ones(blockCount, dtype=np.float32)
+                replicateBias_LOO = np.zeros(matrixData_LOO.shape[0], dtype=np.float32)
+                replicateScale_LOO = np.ones(matrixData_LOO.shape[0], dtype=np.float32)
             else:
                 EM_out_LOO = cconsenrich.cblockScaleEM(
                     matrixData=matrixData_LOO,
@@ -1880,11 +1954,16 @@ def runConsenrich(
                     EM_useProcBlockScale=bool(EM_useProcBlockScale),
                     EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
                     EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
+                    EM_useReplicateBias=bool(EM_useReplicateBias),
+                    EM_useReplicateScale=bool(EM_useReplicateScale),
+                    EM_repBiasShrink=float(EM_repBiasShrink),
+                    EM_repScaleLOW=float(EM_repScaleLOW),
+                    EM_repScaleHIGH=float(EM_repScaleHIGH),
                 )
 
-                if len(EM_out_LOO) != 10:
+                if len(EM_out_LOO) != 12:
                     raise ValueError(
-                        "Expected cblockScaleEM(..., returnIntermediates=True) to return 10 values "
+                        "Expected cblockScaleEM(..., returnIntermediates=True) to return 12 values "
                         f"(got {len(EM_out_LOO)})."
                     )
 
@@ -1899,6 +1978,8 @@ def runConsenrich(
                     _residEM_LOO,
                     lambdaExp_LOO,
                     processPrecExp_LOO,
+                    replicateBias_LOO,
+                    replicateScale_LOO,
                 ) = EM_out_LOO
 
                 rScale_LOO = np.asarray(rScale_LOO, dtype=np.float32)
@@ -1910,6 +1991,8 @@ def runConsenrich(
                     processPrecExp_LOO = np.asarray(
                         processPrecExp_LOO, dtype=np.float32
                     )
+                replicateBias_LOO = np.asarray(replicateBias_LOO, dtype=np.float32)
+                replicateScale_LOO = np.asarray(replicateScale_LOO, dtype=np.float32)
 
             (
                 _,
@@ -1928,6 +2011,8 @@ def runConsenrich(
                 matrixQ0Local=matrixQ0_LOO,
                 lambdaExp=lambdaExp_LOO,
                 processPrecExp=processPrecExp_LOO,
+                replicateBias=replicateBias_LOO,
+                replicateScale=replicateScale_LOO,
             )
 
             x0_LOO = np.asarray(smoothedState_LOO, dtype=np.float32)[:, 0].astype(
@@ -1957,6 +2042,18 @@ def runConsenrich(
         )
 
     if returnScales:
+        if returnReplicateOffsets:
+            return (
+                outStateSmoothed,
+                outStateCovarSmoothed,
+                outPostFitResiduals,
+                outTrack4,
+                np.asarray(rScale, dtype=np.float32),
+                np.asarray(qScale, dtype=np.float32),
+                np.asarray(replicateBias_final, dtype=np.float32),
+                np.asarray(replicateScale_final, dtype=np.float32),
+                intervalToBlockMap,
+            )
         return (
             outStateSmoothed,
             outStateCovarSmoothed,
