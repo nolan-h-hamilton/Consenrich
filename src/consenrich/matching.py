@@ -189,11 +189,7 @@ def matchWavelet(
 
     iters = max(int(iters), 1000)
     defQuantile = 0.50
-    chromMin = int(intervals[0])
-    chromMax = int(intervals[-1])
-    chromMid = chromMin + (chromMax - chromMin) // 2  # for split
-    halfLeftMask = intervals < chromMid
-    halfRightMask = ~halfLeftMask
+    splitRepeats = 4
     excludeMaskGlobal = np.zeros(len(intervals), dtype=np.uint8)
     if excludeRegionsBedFile is not None:
         excludeMaskGlobal = core.getBedMask(
@@ -281,14 +277,14 @@ def matchWavelet(
 
     def sampleBlockMaxima(
         resp: np.ndarray,
-        halfMask: np.ndarray,
+        subsetMask: np.ndarray,
         relWindowBins: int,
         nsamp: int,
         seed: int,
         eps: float,
     ):
         exMask = excludeMaskGlobal.astype(np.uint8).copy()
-        exMask |= (~halfMask).astype(np.uint8)
+        exMask |= (~subsetMask).astype(np.uint8)
         vals = np.array(
             cconsenrich.csampleBlockStats(
                 intervals.astype(np.uint32),
@@ -301,11 +297,87 @@ def matchWavelet(
             ),
             dtype=float,
         )
-        if len(vals) == 0:
-            return vals
-        low = np.quantile(vals, 0.005)
-        high = np.quantile(vals, 0.995)
-        return vals[(vals > low) & (vals < high)]
+        return vals
+
+    def cauchyCombinePVals(pVals: np.ndarray) -> float:
+        p = np.asarray(pVals, dtype=np.float64)
+        if p.size == 0:
+            return 1.0
+        if p.size == 1:
+            return float(np.clip(p[0], 1.0e-12, 1.0))
+        p = np.clip(p, 1.0e-12, 1.0 - 1.0e-12)
+        t = np.tan(np.pi * (0.5 - p))
+        return float(np.clip(0.5 - (np.arctan(np.mean(t)) / np.pi), 1.0e-12, 1.0))
+
+    def buildBlockedSplitMasks(
+        resp: np.ndarray,
+        relWindowBins: int,
+        seed: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        # block-level split, reduce leakage
+        n = int(resp.size)
+        if n < 10:
+            return np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+
+        eligible = excludeMaskGlobal == 0
+        blockLenBins = max(int(8 * relWindowBins), 128)
+        blockStarts = np.arange(0, n, blockLenBins, dtype=np.intp)
+
+        blocks = []
+        blockMedian = []
+        blockIQR = []
+        minEligible = max(8, relWindowBins)
+        for s in blockStarts:
+            e = min(n, int(s + blockLenBins))
+            localEligible = eligible[s:e]
+            if int(np.count_nonzero(localEligible)) < int(minEligible):
+                continue
+            localVals = resp[s:e][localEligible]
+            if localVals.size < 4:
+                continue
+            q25, q75 = np.quantile(localVals, [0.25, 0.75])
+            blocks.append((int(s), int(e)))
+            blockMedian.append(float(np.median(localVals)))
+            blockIQR.append(float(q75 - q25))
+
+        if len(blocks) < 4:
+            return np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+
+        blockMedianArr = np.asarray(blockMedian, dtype=np.float64)
+        blockIQRArr = np.asarray(blockIQR, dtype=np.float64)
+        medCut = float(np.median(blockMedianArr))
+        iqrCut = float(np.median(blockIQRArr))
+        strata = 2 * (blockMedianArr > medCut).astype(np.int8) + (
+            blockIQRArr > iqrCut
+        ).astype(np.int8)
+
+        splitAssign = np.full(n, -1, dtype=np.int8)
+        rngSplit = np.random.default_rng(int(seed))
+        for st in range(4):
+            stIdx = np.where(strata == st)[0]
+            if stIdx.size == 0:
+                continue
+            perm = rngSplit.permutation(stIdx)
+            cut = int(perm.size // 2)
+            nullBlocks = perm[:cut]
+            testBlocks = perm[cut:]
+            for bIdx in nullBlocks:
+                s, e = blocks[int(bIdx)]
+                splitAssign[s:e] = 0
+            for bIdx in testBlocks:
+                s, e = blocks[int(bIdx)]
+                splitAssign[s:e] = 1
+
+        # guard zones around split boundaries
+        if relWindowBins > 0:
+            boundaries = np.where(splitAssign[1:] != splitAssign[:-1])[0] + 1
+            for b in boundaries:
+                lo = max(0, int(b - relWindowBins))
+                hi = min(n, int(b + relWindowBins + 1))
+                splitAssign[lo:hi] = -1
+
+        splitAssign[~eligible] = -1
+        return splitAssign == 0, splitAssign == 1
 
     wavelet_set = set(pw.wavelist(kind="discrete"))
     for templateName, cascadeLevel in zip(templateNames, cascadeLevels):
@@ -337,97 +409,103 @@ def matchWavelet(
         relWindowBins = int(((thisMinMatchBp / intervalLengthBp) / 2) + 1)
         relWindowBins = max(relWindowBins, 1)
         natThreshold = parseMinSignalThreshold(minSignalAtMaxima)
-        for nullMask, testMask, tag in [
-            (halfLeftMask, halfRightMask, "R"),
-            (halfRightMask, halfLeftMask, "L"),
-        ]:
+        candidateIdx = relativeMaxima(response, relWindowBins, eps=eps)
+        candidateMask = (
+            (candidateIdx >= relWindowBins)
+            & (candidateIdx < len(response) - relWindowBins)
+            & (excludeMaskGlobal[candidateIdx] == 0)
+            & (values_[candidateIdx] >= natThreshold)
+        )
+        candidateIdx = candidateIdx[candidateMask]
+        if len(candidateIdx) == 0:
+            continue
+        if maxNumMatches is not None and len(candidateIdx) > maxNumMatches:
+            candidateIdx = candidateIdx[
+                np.argsort(values_[candidateIdx])[-maxNumMatches:]
+            ]
+
+        # combine w/ Cauchy
+        pByCandidate: dict[int, list[float]] = {int(i): [] for i in candidateIdx}
+        for _ in range(int(splitRepeats)):
+            nullMask, testMask = buildBlockedSplitMasks(
+                response,
+                relWindowBins,
+                seed=int(rng.integers(1, 10_000_000)),
+            )
+            if (not np.any(nullMask)) or (not np.any(testMask)):
+                continue
+            splitCandidateMask = testMask[candidateIdx]
+            if not np.any(splitCandidateMask):
+                continue
+
             blockMaxima = sampleBlockMaxima(
                 response,
                 nullMask,
                 relWindowBins,
                 nsamp=max(iters, 1000),
-                seed=rng.integers(1, 10_000),
+                seed=int(rng.integers(1, 10_000_000)),
                 eps=eps,
             )
             if len(blockMaxima) < 25:
-                pooledMask = ~excludeMaskGlobal.astype(bool)
-                blockMaxima = sampleBlockMaxima(
-                    response,
-                    pooledMask,
-                    relWindowBins,
-                    nsamp=max(iters, 1000),
-                    seed=rng.integers(1, 10_000),
-                    eps=eps,
-                )
+                continue
 
             ecdfSf = stats.ecdf(blockMaxima).sf
-            candidateIdx = relativeMaxima(response, relWindowBins, eps=eps)
-
-            candidateMask = (
-                (candidateIdx >= relWindowBins)
-                & (candidateIdx < len(response) - relWindowBins)
-                & (testMask[candidateIdx])
-                & (excludeMaskGlobal[candidateIdx] == 0)
-                & (values_[candidateIdx] >= natThreshold)
-            )
-
-            candidateIdx = candidateIdx[candidateMask]
-            if len(candidateIdx) == 0:
-                continue
-            if maxNumMatches is not None and len(candidateIdx) > maxNumMatches:
-                candidateIdx = candidateIdx[
-                    np.argsort(values_[candidateIdx])[-maxNumMatches:]
-                ]
+            splitCandidateIdx = candidateIdx[splitCandidateMask]
             pEmp = np.clip(
-                ecdfSf.evaluate(response[candidateIdx]),
-                np.finfo(np.float32).tiny,
+                ecdfSf.evaluate(response[splitCandidateIdx]),
+                1.0 / (float(len(blockMaxima)) + 1.0),
                 1.0,
             )
-            startsIdx = np.maximum(candidateIdx - relWindowBins, 0)
-            endsIdx = np.minimum(len(values) - 1, candidateIdx + relWindowBins)
-            pointSourcesIdx = []
-            for s, e in zip(startsIdx, endsIdx):
-                pointSourcesIdx.append(np.argmax(values[s : e + 1]) + s)
-            pointSourcesIdx = np.array(pointSourcesIdx)
-            starts = intervals[startsIdx]
-            ends = intervals[endsIdx]
-            pointSourcesAbs = (intervals[pointSourcesIdx]) + max(
-                1, intervalLengthBp // 2
-            )
-            if recenterAtPointSource:
-                starts = pointSourcesAbs - (relWindowBins * intervalLengthBp)
-                ends = pointSourcesAbs + (relWindowBins * intervalLengthBp)
+            for idxVal, pVal in zip(splitCandidateIdx, pEmp):
+                pByCandidate[int(idxVal)].append(float(pVal))
 
-            starts = np.maximum(starts.astype(np.int64, copy=False), chromStart)
-            ends = np.minimum(ends.astype(np.int64, copy=False), chromEnd)
+        keepCandidateIdx = np.array(
+            [k for k, v in pByCandidate.items() if len(v) > 0],
+            dtype=np.int64,
+        )
+        if keepCandidateIdx.size == 0:
+            continue
 
-            pointSourcesRel = (
-                intervals[pointSourcesIdx].astype(np.int64, copy=False) - starts
-            ) + max(1, intervalLengthBp // 2)
-            sqScores = (1 + response[candidateIdx]) ** 2
-            minR, maxR = (
-                float(np.min(sqScores)),
-                float(np.max(sqScores)),
+        startsIdx = np.maximum(keepCandidateIdx - relWindowBins, 0)
+        endsIdx = np.minimum(len(values) - 1, keepCandidateIdx + relWindowBins)
+        pointSourcesIdx = []
+        for s, e in zip(startsIdx, endsIdx):
+            pointSourcesIdx.append(np.argmax(values[s : e + 1]) + s)
+        pointSourcesIdx = np.array(pointSourcesIdx, dtype=np.int64)
+        starts = intervals[startsIdx]
+        ends = intervals[endsIdx]
+        pointSourcesAbs = (intervals[pointSourcesIdx]) + max(1, intervalLengthBp // 2)
+        if recenterAtPointSource:
+            starts = pointSourcesAbs - (relWindowBins * intervalLengthBp)
+            ends = pointSourcesAbs + (relWindowBins * intervalLengthBp)
+
+        starts = np.maximum(starts.astype(np.int64, copy=False), chromStart)
+        ends = np.minimum(ends.astype(np.int64, copy=False), chromEnd)
+
+        pointSourcesRel = (
+            intervals[pointSourcesIdx].astype(np.int64, copy=False) - starts
+        ) + max(1, intervalLengthBp // 2)
+        sqScores = (1 + response[keepCandidateIdx]) ** 2
+        minR, maxR = float(np.min(sqScores)), float(np.max(sqScores))
+        rangeR = max(maxR - minR, 1.0)
+        scores = (250 + 750 * (sqScores - minR) / rangeR).astype(int)
+        for i, idxVal in enumerate(keepCandidateIdx):
+            allRows.append(
+                {
+                    "chromosome": chromosome,
+                    "start": int(starts[i]),
+                    "end": int(ends[i]),
+                    "name": f"{templateName}_{cascadeLevel}_{idxVal}_S",
+                    "score": int(scores[i]),
+                    "strand": ".",
+                    "signal": float(values[idxVal]),
+                    "p_raw": cauchyCombinePVals(np.asarray(pByCandidate[int(idxVal)])),
+                    "pointSource": int(pointSourcesRel[i]),
+                    "templateName": str(templateName),
+                    "cascadeLevel": int(cascadeLevel),
+                    "tag": "S",
+                }
             )
-            rangeR = max(maxR - minR, 1.0)
-            scores = (250 + 750 * (sqScores - minR) / rangeR).astype(int)
-            for i, idxVal in enumerate(candidateIdx):
-                allRows.append(
-                    {
-                        "chromosome": chromosome,
-                        "start": int(starts[i]),
-                        "end": int(ends[i]),
-                        "name": f"{templateName}_{cascadeLevel}_{idxVal}_{tag}",
-                        "score": int(scores[i]),
-                        "strand": ".",
-                        "signal": float(values[idxVal]),
-                        "p_raw": float(pEmp[i]),
-                        "pointSource": int(pointSourcesRel[i]),
-                        "templateName": str(templateName),
-                        "cascadeLevel": int(cascadeLevel),
-                        "tag": str(tag),
-                    }
-                )
 
     if not allRows:
         logger.warning("No matches detected, returning empty DataFrame.")

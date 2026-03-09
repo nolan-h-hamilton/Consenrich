@@ -18,7 +18,9 @@ API Reference
 
 The core module implements the main features of Consenrich and defines key parameter classes for a consistent namespace.
 
-Note that many parameters are documented here for *completeness* and do not need to be tuned in common use-cases. See :ref:`notation` for some definitions of key variables and parameters used throughout documentation.
+.. note::
+
+  Many parameters are documented here for *completeness* and do not need to be tuned in common use-cases. See :ref:`notation` for some definitions of key variables and parameters used throughout documentation.
 
 .. autoclass:: consenrich.core.processParams
 .. autoclass:: consenrich.core.plotParams
@@ -62,7 +64,6 @@ Note that many parameters are documented here for *completeness* and do not need
 
 .. autofunction:: consenrich.constants.getEffectiveGenomeSize
 .. autofunction:: consenrich.constants.getGenomeResourceFile
-.. autofunction:: consenrich.constants.resolveGenomeName
 
 
 
@@ -147,22 +148,22 @@ We refer to :math:`\mathcal{R}` over :math:`i=1 \ldots n` as the *response seque
 
 To detect 'significant' hits,
 
-* We first construct an observed empirical distribution from randomly-sampled genomic blocks. Specifically, we sample :math:`B` blocks and record each :math:`\max(\mathcal{R}_{[b_1]}, \ldots, \mathcal{R}_{[b_K]})`. Note, to mitigate artifacts, the size of each sampled block (:math:`K`) is drawn from a (truncated) geometric distribution with a mean equal to the desired feature size or template length, :math:`T`.
+* We first construct an observed empirical distribution from randomly-sampled genomic blocks. Specifically, we sample :math:`B` blocks and record each :math:`\max(\mathcal{R}_{[b_1]}, \ldots, \mathcal{R}_{[b_K]})`. To reduce leakage and selection bias, the chromosome is split into block-level null/test subsets, with guard zones near split boundaries.
 
 * Relative maxima in the response sequence, i.e., :math:`i^*` such that :math:`\mathcal{R}_{[i^* - 1 \,:\, i^* - T/2]}\, \leq \, \mathcal{R}_{[i^*]} \, \geq \, \mathcal{R}_{[i^* + 1 \,:\, i^* + T/2]}` are retained as candidate matches
 
-* Each candidate is assigned an empirical :math:`p`-value based on its (interpolated) quantile in the sampled distribution. Those satisfying :math:`p < \alpha` are deemed 'significant'. Note that :math:`p`-values are with respect to chromosome-specific empirical distributions.
+* Each candidate is assigned an empirical :math:`p`-value based on its upper-tail ECDF under the null subset maxima (with lower bound :math:`1/(B+1)`). The split is repeated several times, and per-candidate split-level :math:`p`-values are aggregated with a Cauchy combination rule. Those satisfying :math:`p < \alpha` are deemed 'significant'. Note that :math:`p`-values are with respect to chromosome-specific empirical distributions.
 
   * Additional criteria for matching: require the *signal values* at candidate peaks/matches, :math:`{x}_{[i^*]}`, to exceed a cutoff (`matchingParams.minSignalAtMaxima`), and/or require the *length* of the matched feature to exceed a minimum size (`matchingParams.minMatchLengthBP`).
   * Overlapping/adjacent matches can be merged.
 
-.. note:: **Alternating Sampling Scheme**
+.. note:: **Blocked Split + Repeated Combination**
 
-  * Blocks are sampled from the first :math:`M < n` genomic intervals in each contig. The maximum value in each block is recorded to build an empirical distribution. Matches are detected on the remaining :math:`n - M` intervals using this empirical distribution.
+  * The response sequence is partitioned into coarse genomic blocks, stratified by robust block summary statistics, then assigned approximately 50/50 into null/test subsets within each stratum.
 
-  * A second empirical distribution is then built on intervals `n - M \ldots n`. Matches over intervals :math:`1 \ldots M` are then called using the empirical distribution over intervals :math:`n - M \ldots n`.
+  * For each split, null maxima are sampled only from null blocks and candidates are evaluated only on test blocks.
 
-  The size of each block is random: Each is drawn from a truncated geometric distribution with :math:`p=\frac{1}{T}`.
+  * Split-level candidate :math:`p`-values are then combined with a Cauchy combination statistic.
 
 **Generic Defaults**
 
@@ -211,7 +212,7 @@ Notation
 
 * :math:`\mathbf{Q}_0` is the initial process model noise covariance matrix (``matrixQ0``)
 * :math:`\mathbf{H}` is the observation model matrix (:math:`\mathbf{H}=[1, 0]`)
-* :math:`\mathbf{R}_{[i]}=\textsf{diag}\{v_{[:,i]}\}` is the initial observation-noise covariance at interval :math:`i`
+* :math:`\mathbf{R}_{[i]}=\textsf{diag}\{v_{[:,i]}\}` is the base observation-noise covariance at interval :math:`i`
 * :math:`\lambda_{[j,i]}` is the latent precision multiplier for observation :math:`z_{[j,i]}`
   in a Student-t Gaussian scale-mixture model
 * :math:`\kappa_{[i]}` is the latent precision multiplier for the process transition at interval :math:`i`
@@ -220,3 +221,19 @@ Notation
 * :math:`\nu_Q` is the degrees-of-freedom parameter controlling the heaviness of Student-t tails for process noise
 * :math:`r_b` is the block-level observation noise scale multiplier for block :math:`b`
 * :math:`q_b` is the block-level process noise scale multiplier for block :math:`b`
+* :math:`a_j` is the replicate-level observation variance scale multiplier for replicate :math:`j`
+* :math:`b_j` is the replicate-level additive observation offset for replicate :math:`j`
+
+The effective observation model used in EM is:
+
+.. math::
+
+  z_{[j,i]} = x_{[i,0]} + b_j + \varepsilon_{[j,i]},
+  \qquad
+  \mathrm{Var}(\varepsilon_{[j,i]}) = \frac{a_j\,r_{b(i)}\,v_{[j,i]}}{\lambda_{[j,i]}}.
+
+Resolution of scaling terms:
+
+* :math:`v_{[j,i]}` and :math:`\lambda_{[j,i]}` operate at replicate-interval resolution
+* :math:`r_b` and :math:`q_b` operate at block resolution via :math:`b(i)`
+* :math:`a_j` and :math:`b_j` operate at replicate resolution

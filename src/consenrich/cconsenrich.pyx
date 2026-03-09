@@ -958,7 +958,7 @@ cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     maxBlockLength = sizesArr.max()
     cdef list support = []
     cdef cnp.intp_t i_ = 0
-    while i_ < n-maxBlockLength:
+    while i_ <= n-maxBlockLength:
         if excludeIdxMask[i_:i_ + maxBlockLength].any():
             i_ = i_ + maxBlockLength + 1
             continue
@@ -1705,6 +1705,8 @@ cpdef object cTransform(
     else:
         wLocal = w_local
         wGlobal = w_global
+    if not useIRLS:
+        wLocal = 0.0
 
     # 0,0 --> skip both local+global baseline subtraction
     if not disableLocalBackground and wLocal == 0.0 and wGlobal == 0.0:
@@ -1943,10 +1945,14 @@ cpdef tuple cforwardPass(
     bint storeNLLInD=False,
     object lambdaExp=None,
     object processPrecExp=None,
+    object replicateBias=None,
+    object replicateScale=None,
     bint EM_useObsBlockScale=True,
     bint EM_useProcBlockScale=True,
     bint EM_useObsPrecReweight=True,
     bint EM_useProcPrecReweight=True,
+    bint EM_useReplicateBias=False,
+    bint EM_useReplicateScale=False,
 ):
     r"""Run the forward pass (filter) for state estimation
 
@@ -1985,6 +1991,12 @@ cpdef tuple cforwardPass(
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
     cdef cnp.float32_t[::1] processPrecExpView
     cdef bint useProcPrec = (EM_useProcPrecReweight and (processPrecExp is not None))
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
+    cdef cnp.float32_t[::1] replicateBiasView
+    cdef bint useReplicateBias = (EM_useReplicateBias and (replicateBias is not None))
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateScaleArr
+    cdef cnp.float32_t[::1] replicateScaleView
+    cdef bint useReplicateScale = (EM_useReplicateScale and (replicateScale is not None))
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] stateVector = np.array([stateInit, 0.0], dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateCovar = (np.eye(2, dtype=np.float32) * np.float32(stateCovarInit))
     cdef cnp.float32_t[::1] stateVectorView = stateVector
@@ -2018,6 +2030,8 @@ cpdef tuple cforwardPass(
     cdef double procPrec
     cdef double procPrecMin = 0.2
     cdef double procPrecMax = 4.0 # 1/kappa
+    cdef double biasJ
+    cdef double scaleJ
 
     cdef double LOG2PI = log(6.2831853071795864769)
 
@@ -2028,6 +2042,14 @@ cpdef tuple cforwardPass(
     if useProcPrec:
         processPrecExpArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> processPrecExp
         processPrecExpView = processPrecExpArr
+
+    if useReplicateBias:
+        replicateBiasArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> replicateBias
+        replicateBiasView = replicateBiasArr
+
+    if useReplicateScale:
+        replicateScaleArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> replicateScale
+        replicateScaleView = replicateScaleArr
 
     # Check edge cases here once before loops
     if intervalCount <= 0 or trackCount <= 0:
@@ -2057,6 +2079,14 @@ cpdef tuple cforwardPass(
     if useProcPrec:
         if processPrecExpArr.shape[0] != intervalCount:
             raise ValueError("processPrecExp length must match intervalCount")
+
+    if useReplicateBias:
+        if replicateBiasArr.shape[0] != trackCount:
+            raise ValueError("replicateBias length must match trackCount")
+
+    if useReplicateScale:
+        if replicateScaleArr.shape[0] != trackCount:
+            raise ValueError("replicateScale length must match trackCount")
 
     # dStatVector[k]: diagnostic scalar statistic for interval k that can optionally store NLL[k]
     # If storeNLLInD and returnNLL then dStatVector[k] stores NLL[k]
@@ -2157,11 +2187,25 @@ cpdef tuple cforwardPass(
             intervalNLL = 0.0
 
         for j in range(trackCount):
-            innov = (<double>dataView[j, k]) - (<double>stateVectorView[0])
+            if useReplicateBias:
+                biasJ = <double>replicateBiasView[j]
+            else:
+                biasJ = 0.0
+
+            if useReplicateScale:
+                scaleJ = <double>replicateScaleView[j]
+                if scaleJ < 1.0e-8:
+                    scaleJ = 1.0e-8
+            else:
+                scaleJ = 1.0
+
+            innov = (<double>dataView[j, k]) - biasJ - (<double>stateVectorView[0])
 
             baseVar = (<double>muncMatView[j, k]) + (<double>pad)
 
-            measVar = (<double>rScaleB) * baseVar
+            measVar = scaleJ * (<double>rScaleB) * baseVar
+            if measVar < 1.0e-12:
+                measVar = 1.0e-12
 
             if useLambda:
                 w = <double>lambdaExpView[j, k]
@@ -2257,8 +2301,10 @@ cpdef tuple cbackwardPass(
     object stateCovarSmoothed=None,
     object lagCovSmoothed=None,
     object postFitResiduals=None,
+    object replicateBias=None,
     object progressBar=None,
-    Py_ssize_t progressIter=10000
+    Py_ssize_t progressIter=10000,
+    bint EM_useReplicateBias=False,
 ):
     r"""Run the backward pass (smoother)
 
@@ -2296,11 +2342,14 @@ cpdef tuple cbackwardPass(
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarSmoothedArr
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] lagCovSmoothedArr
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResidualsArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
 
     cdef cnp.float32_t[:, ::1] stateSmoothedView
     cdef cnp.float32_t[:, :, ::1] stateCovarSmoothedView
     cdef cnp.float32_t[:, :, ::1] lagCovSmoothedView
     cdef cnp.float32_t[:, ::1] postFitResidualsView
+    cdef cnp.float32_t[::1] replicateBiasView
+    cdef bint useReplicateBias = (EM_useReplicateBias and (replicateBias is not None))
     cdef double F00, F01, F10, F11
     cdef double xPred0, xPred1
     cdef double Q00, Q01, Q10, Q11
@@ -2319,6 +2368,7 @@ cpdef tuple cbackwardPass(
     cdef double JD00, JD01, JD10, JD11
 
     cdef double innov
+    cdef double biasJ
 
     if stateSmoothed is not None:
         stateSmoothedArr = <cnp.ndarray[cnp.float32_t, ndim=2, mode="c"]> stateSmoothed
@@ -2345,6 +2395,12 @@ cpdef tuple cbackwardPass(
     lagCovSmoothedView = lagCovSmoothedArr
     postFitResidualsView = postFitResidualsArr
 
+    if useReplicateBias:
+        replicateBiasArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> replicateBias
+        replicateBiasView = replicateBiasArr
+        if replicateBiasArr.shape[0] != trackCount:
+            raise ValueError("replicateBias length must match trackCount")
+
     F00 = <double>fView[0, 0]
     F01 = <double>fView[0, 1]
     F10 = <double>fView[1, 0]
@@ -2366,8 +2422,12 @@ cpdef tuple cbackwardPass(
         stateCovarSmoothedView[intervalCount - 1, 1, 1] = stateCovarForwardView[intervalCount - 1, 1, 1]
 
         for j in range(trackCount):
+            if useReplicateBias:
+                biasJ = <double>replicateBiasView[j]
+            else:
+                biasJ = 0.0
             postFitResidualsView[intervalCount - 1, j] = <cnp.float32_t>(
-                (<double>dataView[j, intervalCount - 1]) - (<double>stateSmoothedView[intervalCount - 1, 0])
+                (<double>dataView[j, intervalCount - 1]) - biasJ - (<double>stateSmoothedView[intervalCount - 1, 0])
             )
 
         #  `k = intervalCount - 2`...`k=0`
@@ -2460,7 +2520,11 @@ cpdef tuple cbackwardPass(
                 lagCovSmoothedView[k, 1, 1] = <cnp.float32_t>C11
 
             for j in range(trackCount):
-                innov = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                if useReplicateBias:
+                    biasJ = <double>replicateBiasView[j]
+                else:
+                    biasJ = 0.0
+                innov = (<double>dataView[j, k]) - biasJ - (<double>stateSmoothedView[k, 0])
                 postFitResidualsView[k, j] = <cnp.float32_t>innov
 
     return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
@@ -2488,6 +2552,11 @@ cpdef tuple cblockScaleEM(
     bint EM_useProcBlockScale=True,
     bint EM_useObsPrecReweight=True,
     bint EM_useProcPrecReweight=True,
+    bint EM_useReplicateBias=True,
+    bint EM_useReplicateScale=True,
+    float EM_repBiasShrink=0.0,
+    float EM_repScaleLOW=0.25,
+    float EM_repScaleHIGH=4.0,
     Py_ssize_t t_innerIters=3,
     bint returnIntermediates=False,
 ):
@@ -2498,12 +2567,19 @@ cpdef tuple cblockScaleEM(
 
     .. math::
 
-        \widetilde{R}_{[j,i]}=\frac{r_{b(i)}\,v_{[j,i]}}{\lambda_{[j,i]}},
+        \widetilde{R}_{[j,i]}=\frac{a_j\,r_{b(i)}\,v_{[j,i]}}{\lambda_{[j,i]}},
         \qquad
         \widetilde{\mathbf{Q}}_{[i]}=\frac{q_{b(i)}\,\mathbf{Q}_0}{\kappa_{[i]}}.
 
-    Here :math:`r_b>0` and :math:`q_b>0` are block-level scale multipliers, and
-    :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are treated as Student-t precision multipliers.
+    We also include replicate-level additive offsets in the observation mean:
+
+    .. math::
+
+        z_{[j,i]} = x_{[i,0]} + b_j + \epsilon_{[j,i]}.
+
+    Here :math:`r_b>0` and :math:`q_b>0` are block-level scale multipliers, :math:`a_j>0` and
+    :math:`b_j` are replicate-level multipliers/offsets, and :math:`\lambda_{[j,i]}` and
+    :math:`\kappa_{[i]}` are Student-t precision multipliers.
 
 
     Estimation loop
@@ -2525,7 +2601,7 @@ cpdef tuple cblockScaleEM(
 
     .. math::
 
-        u^2_{[j,i]}=\frac{(z_{[j,i]}-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}
+        u^2_{[j,i]}=\frac{(z_{[j,i]}-b_j-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}
                     {\widetilde{R}_{[j,i]}}
         \quad\Rightarrow\quad
         \lambda_{[j,i]} \leftarrow \frac{\nu_R+1}{\nu_R+u^2_{[j,i]}}.
@@ -2557,13 +2633,16 @@ cpdef tuple cblockScaleEM(
 
         r_b \leftarrow \frac{1}{N_b}\sum_{(j,i):\,b(i)=b}
         \lambda_{[j,i]}\,
-        \frac{(z_{[j,i]}-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}{v_{[j,i]}}.
+        \frac{(z_{[j,i]}-b_j-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}{a_j\,v_{[j,i]}}.
 
     Process block scale update:
 
     .. math::
 
         q_b \leftarrow \frac{1}{d\,M_b}\sum_{i:\,b(i)=b}\kappa_{[i+1]}\,\Delta_{[i]}.
+
+    4. **Replicate-level updates**: update :math:`b_j` and :math:`a_j` from weighted residual moments at
+    replicate resolution while holding block and interval-level terms fixed.
 
     If ``EM_alphaEMA`` is supplied, we smooth updates with an exponential moving average (EMA) in the log domain:
 
@@ -2584,7 +2663,7 @@ cpdef tuple cblockScaleEM(
       :nowrap:
 
         \begin{align}
-        \mathcal{J}(x,\Lambda,\kappa,r,q)
+        \mathcal{J}(x,\Lambda,\kappa,r,q,a,b)
         &=
         \frac12\sum_{i=2}^{n}
         \left[
@@ -2597,9 +2676,9 @@ cpdef tuple cblockScaleEM(
         &\quad+
         \frac12\sum_{i=1}^{n}\sum_{j=1}^m
         \left[
-        \log\!\left(\frac{r_{b(i)}v_{[j,i]}}{\lambda_{[j,i]}}\right)
+        \log\!\left(\frac{a_j r_{b(i)}v_{[j,i]}}{\lambda_{[j,i]}}\right)
         +
-        (z_{[j,i]}-x_{[i,0]})^2\,\frac{\lambda_{[j,i]}}{r_{b(i)}v_{[j,i]}}
+        (z_{[j,i]}-b_j-x_{[i,0]})^2\,\frac{\lambda_{[j,i]}}{a_j r_{b(i)}v_{[j,i]}}
         \right] \\
         &\quad+
         \sum_{i=1}^{n}\sum_{j=1}^m
@@ -2617,8 +2696,8 @@ cpdef tuple cblockScaleEM(
 
 
     So the estimation loop maximizing our objective function may be viewed as a coordinate ascent where the filter-smoother
-    solves the quadratic subproblem *conditional* on the current estimates of :math:`\Lambda`, :math:`\kappa`, :math:`r`, and :math:`q`,
-    and reweighting and block rescaling optimize over :math:`\Lambda`, :math:`\kappa`, :math:`r`, and :math:`q`.
+    solves the quadratic subproblem *conditional* on the current estimates of :math:`\Lambda`, :math:`\kappa`, :math:`r`, :math:`q`, :math:`a`, and :math:`b`,
+    and reweighting plus scale/offset updates optimize over :math:`\Lambda`, :math:`\kappa`, :math:`r`, :math:`q`, :math:`a`, and :math:`b`.
 
     :param matrixData: Replicate track data (rows: replicates, columns: genomic intervals).
     :type matrixData: numpy.ndarray[numpy.float32]
@@ -2658,13 +2737,17 @@ cpdef tuple cblockScaleEM(
     :type EM_useObsPrecReweight: bool
     :param EM_useProcPrecReweight: If True, update process precision multipliers :math:`\kappa_{[i]}` (Student-t reweighting); otherwise :math:`\kappa\equiv 1`.
     :type EM_useProcPrecReweight: bool
+    :param EM_useReplicateBias: If True, update replicate-level additive offsets :math:`b_j`.
+    :type EM_useReplicateBias: bool
+    :param EM_useReplicateScale: If True, update replicate-level observation variance scales :math:`a_j`.
+    :type EM_useReplicateScale: bool
     :param t_innerIters: Number of inner filter/smoother + reweighting updates per EM outer iteration.
     :type t_innerIters: int
     :param returnIntermediates: If True, also return smoothed states/covariances, residuals, and (if enabled) precision multipliers.
     :type returnIntermediates: bool
 
     :returns: A tuple ``(rScale, qScale, itersDone, finalNLL)``. If ``returnIntermediates=True``,
-            additionally returns ``(stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals, lambdaExp, processPrecExp)``.
+            additionally returns ``(stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals, lambdaExp, processPrecExp, replicateBias, replicateScale)``.
     :rtype: tuple
 
 
@@ -2698,6 +2781,10 @@ cpdef tuple cblockScaleEM(
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] qScaleArr = np.ones(blockCount, dtype=np.float32)
     cdef cnp.float32_t[::1] rScaleView = rScaleArr
     cdef cnp.float32_t[::1] qScaleView = qScaleArr
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateScaleArr = np.ones(trackCount, dtype=np.float32)
+    cdef cnp.float32_t[::1] replicateBiasView = replicateBiasArr
+    cdef cnp.float32_t[::1] replicateScaleView = replicateScaleArr
 
     # Allocate latent precision multipliers only if enabled
     cdef object lambdaExp = None
@@ -2793,6 +2880,14 @@ cpdef tuple cblockScaleEM(
     cdef cnp.ndarray[cnp.float64_t, ndim=1] prevQLog = np.zeros(blockCount, dtype=np.float64)
     cdef double[::1] prevRLogView = prevRLog
     cdef double[::1] prevQLogView = prevQLog
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasNum = np.zeros(trackCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasDen = np.zeros(trackCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] repScaleStat = np.zeros(trackCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] repScaleCount = np.zeros(trackCount, dtype=np.int32)
+    cdef double[::1] repBiasNumView = repBiasNum
+    cdef double[::1] repBiasDenView = repBiasDen
+    cdef double[::1] repScaleStatView = repScaleStat
+    cdef cnp.int32_t[::1] repScaleCountView = repScaleCount
     cdef double maxAbsLogDelta = 0.0
     cdef Py_ssize_t stableIters = 0
     cdef Py_ssize_t patienceTarget = 2
@@ -2817,13 +2912,20 @@ cpdef tuple cblockScaleEM(
     cdef Py_ssize_t nClipRHigh
     cdef Py_ssize_t nClipQLow
     cdef Py_ssize_t nClipQHigh
+    cdef double repBiasCenter
+    cdef double repScaleLOW
+    cdef double repScaleHIGH
+    cdef double repBiasShrink
+    cdef double invVar
+    cdef double denomNoRep
+    cdef double yMinusState
 
     if intervalCount <= 5:
         if returnIntermediates:
             return (
                 rScaleArr, qScaleArr, 0, float(previousNLL),
                 stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-                lambdaExp, processPrecExp
+                lambdaExp, processPrecExp, replicateBiasArr, replicateScaleArr
             )
         return (rScaleArr, qScaleArr, 0, float(previousNLL))
 
@@ -2844,6 +2946,15 @@ cpdef tuple cblockScaleEM(
     F = MAT2_make(f00, f01, f10, f11)
     Ft = MAT2_transpose(F)
     Q0inv = MAT2_make(q0Inv00, q0Inv01, q0Inv10, q0Inv11)
+    repScaleLOW = <double>EM_repScaleLOW
+    if repScaleLOW < 1.0e-4:
+        repScaleLOW = 1.0e-4
+    repScaleHIGH = <double>EM_repScaleHIGH
+    if repScaleHIGH < repScaleLOW:
+        repScaleHIGH = repScaleLOW
+    repBiasShrink = <double>EM_repBiasShrink
+    if repBiasShrink < 0.0:
+        repBiasShrink = 0.0
 
     for i in range(EM_maxIters):
         itersDone = i + 1
@@ -2876,10 +2987,14 @@ cpdef tuple cblockScaleEM(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
+                replicateBias=replicateBiasArr,
+                replicateScale=replicateScaleArr,
                 EM_useObsBlockScale=EM_useObsBlockScale,
                 EM_useProcBlockScale=EM_useProcBlockScale,
                 EM_useObsPrecReweight=EM_useObsPrecReweight,
                 EM_useProcPrecReweight=EM_useProcPrecReweight,
+                EM_useReplicateBias=EM_useReplicateBias,
+                EM_useReplicateScale=EM_useReplicateScale,
             )
 
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPass(
@@ -2893,8 +3008,10 @@ cpdef tuple cblockScaleEM(
                 stateCovarSmoothed=stateCovarSmoothed,
                 lagCovSmoothed=lagCovSmoothed,
                 postFitResiduals=postFitResiduals,
+                replicateBias=replicateBiasArr,
                 progressBar=None,
                 progressIter=0,
+                EM_useReplicateBias=EM_useReplicateBias,
             )
 
             # -----------------------------
@@ -2913,6 +3030,8 @@ cpdef tuple cblockScaleEM(
 
                         for j in range(trackCount):
                             muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                            if muncPlusPad < 1.0e-12:
+                                muncPlusPad = 1.0e-12
 
                             # If observation block scaling is disabled, treat rScale[b] as 1.0
                             if EM_useObsBlockScale:
@@ -2920,7 +3039,16 @@ cpdef tuple cblockScaleEM(
                             else:
                                 Rkj = 1.0 * muncPlusPad
 
-                            res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                            if EM_useReplicateScale:
+                                tmpVal = <double>replicateScaleView[j]
+                                if tmpVal < 1.0e-8:
+                                    tmpVal = 1.0e-8
+                                Rkj = Rkj * tmpVal
+
+                            if EM_useReplicateBias:
+                                res = (<double>dataView[j, k]) - (<double>replicateBiasView[j]) - (<double>stateSmoothedView[k, 0])
+                            else:
+                                res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
                             tmpVal = (res*res + p00k)
                             u2 = tmpVal / Rkj
 
@@ -3021,10 +3149,14 @@ cpdef tuple cblockScaleEM(
             storeNLLInD=False,
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
+            replicateBias=replicateBiasArr,
+            replicateScale=replicateScaleArr,
             EM_useObsBlockScale=EM_useObsBlockScale,
             EM_useProcBlockScale=EM_useProcBlockScale,
             EM_useObsPrecReweight=EM_useObsPrecReweight,
             EM_useProcPrecReweight=EM_useProcPrecReweight,
+            EM_useReplicateBias=EM_useReplicateBias,
+            EM_useReplicateScale=EM_useReplicateScale,
         )[3])
 
         relImprovement = (previousNLL - currentNLL) / (fabs(previousNLL) + 1.0)
@@ -3056,12 +3188,20 @@ cpdef tuple cblockScaleEM(
                         res = <double>residualView[k, j]
 
                         muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                        if muncPlusPad < 1.0e-12:
+                            muncPlusPad = 1.0e-12
                         tmpVal = (res*res + p00k)
 
                         if EM_useObsPrecReweight:
                             w = <double>lambdaExpView[j, k]
                         else:
                             w = 1.0
+
+                        if EM_useReplicateScale:
+                            denomNoRep = <double>replicateScaleView[j]
+                            if denomNoRep < 1.0e-8:
+                                denomNoRep = 1.0e-8
+                            muncPlusPad = muncPlusPad * denomNoRep
 
                         rStatSumView[b] += w * (tmpVal / muncPlusPad)
                         rWeightCountView[b] += 1
@@ -3127,6 +3267,126 @@ cpdef tuple cblockScaleEM(
 
                     qStatSumView[b] += kappa_ * delta
                     qStatCountView[b] += 1
+
+            # -----------------------------
+            # M-step sufficient stats for replicate bias and scale
+            #   y[j,k] = x[k] + bias[j] + e[j,k]
+            #   Var[e[j,k]] = replicateScale[j] * r[b(k)] * (munc[j,k] + pad) / lambda[j,k]
+            # -----------------------------
+            if EM_useReplicateBias or EM_useReplicateScale:
+                for j in range(trackCount):
+                    repBiasNumView[j] = 0.0
+                    repBiasDenView[j] = 0.0
+                    repScaleStatView[j] = 0.0
+                    repScaleCountView[j] = 0
+
+                if EM_useReplicateBias:
+                    for k in range(intervalCount):
+                        b = <Py_ssize_t>blockMapView[k]
+                        if b < 0 or b >= blockCount:
+                            continue
+
+                        for j in range(trackCount):
+                            muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                            if muncPlusPad < 1.0e-12:
+                                muncPlusPad = 1.0e-12
+
+                            if EM_useObsBlockScale:
+                                denomNoRep = (<double>rScaleView[b]) * muncPlusPad
+                            else:
+                                denomNoRep = 1.0 * muncPlusPad
+                            if denomNoRep < 1.0e-12:
+                                denomNoRep = 1.0e-12
+
+                            if EM_useObsPrecReweight:
+                                w = <double>lambdaExpView[j, k]
+                            else:
+                                w = 1.0
+
+                            if EM_useReplicateScale:
+                                tmpVal = <double>replicateScaleView[j]
+                                if tmpVal < 1.0e-8:
+                                    tmpVal = 1.0e-8
+                                invVar = w / (denomNoRep * tmpVal)
+                            else:
+                                invVar = w / denomNoRep
+
+                            yMinusState = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                            repBiasNumView[j] += invVar * yMinusState
+                            repBiasDenView[j] += invVar
+
+                    repBiasCenter = 0.0
+                    denomNoRep = 0.0
+                    for j in range(trackCount):
+                        if repBiasDenView[j] > 0.0:
+                            replicateBiasView[j] = <cnp.float32_t>(repBiasNumView[j] / repBiasDenView[j])
+                            repBiasCenter += repBiasDenView[j] * (<double>replicateBiasView[j])
+                            denomNoRep += repBiasDenView[j]
+                        else:
+                            replicateBiasView[j] = <cnp.float32_t>0.0
+                            denomNoRep += 1.0
+
+                    if denomNoRep > 0.0:
+                        repBiasCenter = repBiasCenter / denomNoRep
+                    else:
+                        repBiasCenter = 0.0
+
+                    for j in range(trackCount):
+                        tmpVal = (<double>replicateBiasView[j]) - repBiasCenter
+                        if repBiasShrink > 0.0:
+                            tmpVal = tmpVal / (1.0 + repBiasShrink)
+                        replicateBiasView[j] = <cnp.float32_t>tmpVal
+                else:
+                    for j in range(trackCount):
+                        replicateBiasView[j] = <cnp.float32_t>0.0
+
+                if EM_useReplicateScale:
+                    for k in range(intervalCount):
+                        b = <Py_ssize_t>blockMapView[k]
+                        if b < 0 or b >= blockCount:
+                            continue
+
+                        p00k = <double>stateCovarSmoothedView[k, 0, 0]
+                        if p00k < 0.0:
+                            p00k = 0.0
+
+                        for j in range(trackCount):
+                            muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                            if muncPlusPad < 1.0e-12:
+                                muncPlusPad = 1.0e-12
+
+                            if EM_useObsBlockScale:
+                                denomNoRep = (<double>rScaleView[b]) * muncPlusPad
+                            else:
+                                denomNoRep = 1.0 * muncPlusPad
+                            if denomNoRep < 1.0e-12:
+                                denomNoRep = 1.0e-12
+
+                            if EM_useObsPrecReweight:
+                                w = <double>lambdaExpView[j, k]
+                            else:
+                                w = 1.0
+
+                            if EM_useReplicateBias:
+                                res = (<double>dataView[j, k]) - (<double>replicateBiasView[j]) - (<double>stateSmoothedView[k, 0])
+                            else:
+                                res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                            tmpVal = (res * res + p00k)
+                            repScaleStatView[j] += w * (tmpVal / denomNoRep)
+                            repScaleCountView[j] += 1
+
+                    for j in range(trackCount):
+                        if repScaleCountView[j] > 0:
+                            replicateScaleView[j] = <cnp.float32_t>(
+                                repScaleStatView[j] / (<double>repScaleCountView[j])
+                            )
+                        if replicateScaleView[j] < <cnp.float32_t>repScaleLOW:
+                            replicateScaleView[j] = <cnp.float32_t>repScaleLOW
+                        elif replicateScaleView[j] > <cnp.float32_t>repScaleHIGH:
+                            replicateScaleView[j] = <cnp.float32_t>repScaleHIGH
+                else:
+                    for j in range(trackCount):
+                        replicateScaleView[j] = <cnp.float32_t>1.0
 
             nClipRLow = 0
             nClipRHigh = 0
@@ -3329,7 +3589,7 @@ cpdef tuple cblockScaleEM(
         return (
             rScaleArr, qScaleArr, itersDone, float(previousNLL),
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-            lambdaExp, processPrecExp
+            lambdaExp, processPrecExp, replicateBiasArr, replicateScaleArr
         )
 
     return (rScaleArr, qScaleArr, itersDone, float(previousNLL))
@@ -3476,75 +3736,10 @@ cpdef double cDenseMean(
     uint64_t seed=0,
     bint verbose = <bint>False,
 ):
-    r"""Estimate a 'dense' baseline to subtract from each replicate's transformed count track
-
-    If calling this function outside of the default implementation, note that the input is
-    assumed to have been normalized by sequencing depth / library size and transformed to
-    log-scale.
-
-    Data is modeled with a simple Gaussian mixture:
-
-    .. math::
-
-      p(y) = \pi \cdot \mathcal{N}(y;\,\mu_1,\sigma_1^2) + (1-\pi) \cdot \mathcal{N}(y;\,\mu_2,\sigma_2^2).
-
-    We maximize the likelihood with respect to :math:`\mu_2 \geq \mu_1` using an expectation-maximization routine.
-
-    **E-step**: For each observation :math:`y_i`, define
-
-    .. math::
-
-      \ell_{i1} = \log \pi + \log \mathcal{N}(y_i;\mu_1,\sigma_1^2),
-      \qquad
-      \ell_{i2} = \log (1-\pi) + \log \mathcal{N}(y_i;\mu_2,\sigma_2^2).
-
-    .. math::
-
-      \ell_i = \log\!\left(\exp(\ell_{i1}) + \exp(\ell_{i2})\right),
-
-    and the component-1 weight
-
-    .. math::
-
-      w_i = \exp(\ell_{i1} - \ell_i),
-          \qquad
-          1-w_i = \exp(\ell_{i2} - \ell_i).
+    r"""Use a Gaussian mixture to estimate a 'dense' baseline to subtract from each replicate's transformed count track
 
 
-    **M-step**
-
-    Let
-
-    .. math::
-
-      W = \sum_{i=1}^n w_i, \qquad W' = \sum_{i=1}^n (1-w_i) = n - W.
-
-    *Update*
-
-    .. math::
-
-      \pi \leftarrow \frac{W}{n},
-
-    .. math::
-
-      \mu_1 \leftarrow \frac{\sum_{i=1}^n w_i y_i}{W},
-      \qquad
-      \mu_2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i}{W'},
-
-    (the order of the two components is swapped if :math:`\mu_1 > \mu_2` ) and
-
-    .. math::
-
-      \sigma_1^2 \leftarrow \frac{\sum_{i=1}^n w_i y_i^2}{W} - \mu_1^2,
-      \qquad
-      \sigma_2^2 \leftarrow \frac{\sum_{i=1}^n (1-w_i) y_i^2}{W'} - \mu_2^2.
-
-    We enforce a variance floor and a minimum / maximum value for :math:`\pi` for stability.
-
-    The returned value is the estimated 'dense' baseline :math:`\mu_2 \geq \mu_1`. This value is used
-    in a weighted average with :func:`consenrich.cconsenrich.clocalBaseline` for centering replicates' transformed
-    count tracks.
-
+    Note, this step is potentially redundant if using replicate-level bias terms in the observation model.
     """
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] y
