@@ -8,8 +8,6 @@ import math
 import os
 import re
 import tempfile
-import subprocess
-import shutil
 from typing import Tuple, List, Optional
 from pathlib import Path
 
@@ -25,6 +23,10 @@ import consenrich.cconsenrich as cconsenrich
 import consenrich.detrorm as detrorm
 import consenrich.matching as matching
 import consenrich.misc_util as misc_util
+
+
+TEST_DATA_DIR = Path(__file__).resolve().parent / "data"
+FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
 
 
 @pytest.mark.correctness
@@ -284,194 +286,104 @@ def testGetContextSizeBootstrapWidthVariance():
 
 @pytest.mark.correctness
 def testReadSegmentsFragmentsGrouped():
-    bgzipBin = shutil.which("bgzip")
-    tabixBin = shutil.which("tabix")
-    if bgzipBin is None or tabixBin is None:
-        pytest.skip("bgzip/tabix not available")
+    gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
+    groupMapPath = FRAGMENTS_DIR / "barcode_groups.tsv"
 
-    with tempfile.TemporaryDirectory() as tempDir:
-        tempPath = Path(tempDir)
-        plainPath = tempPath / "fragments.tsv"
-        gzPath = tempPath / "fragments.tsv.gz"
-        groupMapPath = tempPath / "barcode_groups.tsv"
+    counts = core.readSegments(
+        sources=[
+            core.inputSource(
+                path=str(gzPath),
+                sourceKind="FRAGMENTS",
+                barcodeGroupMapFile=str(groupMapPath),
+                selectGroups=["clusterA"],
+                countMode="cutsite",
+            ),
+            core.inputSource(
+                path=str(gzPath),
+                sourceKind="FRAGMENTS",
+                barcodeGroupMapFile=str(groupMapPath),
+                selectGroups=["clusterB"],
+                countMode="cutsite",
+            ),
+        ],
+        chromosome="chr1",
+        start=0,
+        end=40,
+        intervalSizeBP=10,
+        readLengths=[1, 1],
+        scaleFactors=[1.0, 1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=0,
+        offsetStr="0,0",
+        maxInsertSize=0,
+        pairedEndMode=0,
+        inferFragmentLength=0,
+        countEndsOnly=False,
+        minMappingQuality=0,
+        minTemplateLength=0,
+        fragmentLengths=[0, 0],
+    )
 
-        plainPath.write_text(
-            "\n".join(
-                [
-                    "chr1\t5\t15\tBC_A\t1",
-                    "chr1\t12\t18\tBC_B\t1",
-                    "chr1\t22\t31\tBC_A\t2",
-                ]
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        groupMapPath.write_text(
-            "\n".join(
-                [
-                    "BC_A\tclusterA",
-                    "BC_B\tclusterB",
-                ]
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-
-        with gzPath.open("wb") as outHandle:
-            proc = subprocess.run(
-                [bgzipBin, "-f", "-c", str(plainPath)],
-                stdout=outHandle,
-                stderr=subprocess.PIPE,
-                check=False,
-            )
-        assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")
-        subprocess.run(
-            [tabixBin, "-f", "-p", "bed", str(gzPath)],
-            check=True,
-        )
-
-        counts = core.readSegments(
-            sources=[
-                core.inputSource(
-                    path=str(gzPath),
-                    sourceKind="FRAGMENTS",
-                    barcodeGroupMapFile=str(groupMapPath),
-                    selectGroups=["clusterA"],
-                    countMode="cutsite",
-                ),
-                core.inputSource(
-                    path=str(gzPath),
-                    sourceKind="FRAGMENTS",
-                    barcodeGroupMapFile=str(groupMapPath),
-                    selectGroups=["clusterB"],
-                    countMode="cutsite",
-                ),
-            ],
-            chromosome="chr1",
-            start=0,
-            end=40,
-            intervalSizeBP=10,
-            readLengths=[1, 1],
-            scaleFactors=[1.0, 1.0],
-            oneReadPerBin=0,
-            samThreads=1,
-            samFlagExclude=0,
-            offsetStr="0,0",
-            maxInsertSize=0,
-            pairedEndMode=0,
-            inferFragmentLength=0,
-            countEndsOnly=False,
-            minMappingQuality=0,
-            minTemplateLength=0,
-            fragmentLengths=[0, 0],
-        )
-
-        assert counts.shape == (2, 4)
-        assert np.allclose(counts[0], np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float32))
-        assert np.allclose(counts[1], np.array([0.0, 2.0, 0.0, 0.0], dtype=np.float32))
+    assert counts.shape == (2, 4)
+    assert np.allclose(counts[0], np.array([2.0, 2.0, 2.0, 4.0], dtype=np.float32))
+    assert np.allclose(counts[1], np.array([0.0, 4.0, 2.0, 0.0], dtype=np.float32))
 
 
 @pytest.mark.correctness
 def testReadSegmentsFragmentsDefaultToCutSites():
-    bgzipBin = shutil.which("bgzip")
-    tabixBin = shutil.which("tabix")
-    if bgzipBin is None or tabixBin is None:
-        pytest.skip("bgzip/tabix not available")
+    gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
+    allowListPath = FRAGMENTS_DIR / "allow_BC_A.txt"
 
-    with tempfile.TemporaryDirectory() as tempDir:
-        tempPath = Path(tempDir)
-        plainPath = tempPath / "fragments.tsv"
-        gzPath = tempPath / "fragments.tsv.gz"
-
-        plainPath.write_text(
-            "chr1\t5\t15\tBC_A\t1\n",
-            encoding="utf-8",
-        )
-
-        with gzPath.open("wb") as outHandle:
-            proc = subprocess.run(
-                [bgzipBin, "-f", "-c", str(plainPath)],
-                stdout=outHandle,
-                stderr=subprocess.PIPE,
-                check=False,
+    counts = core.readSegments(
+        sources=[
+            core.inputSource(
+                path=str(gzPath),
+                sourceKind="FRAGMENTS",
+                barcodeAllowListFile=str(allowListPath),
             )
-        assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")
-        subprocess.run([tabixBin, "-f", "-p", "bed", str(gzPath)], check=True)
+        ],
+        chromosome="chr1",
+        start=0,
+        end=20,
+        intervalSizeBP=10,
+        readLengths=[1],
+        scaleFactors=[1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=0,
+        fragmentLengths=[0],
+    )
 
-        counts = core.readSegments(
-            sources=[core.inputSource(path=str(gzPath), sourceKind="FRAGMENTS")],
-            chromosome="chr1",
-            start=0,
-            end=20,
-            intervalSizeBP=10,
-            readLengths=[1],
-            scaleFactors=[1.0],
-            oneReadPerBin=0,
-            samThreads=1,
-            samFlagExclude=0,
-            fragmentLengths=[0],
-        )
-
-        assert np.allclose(counts[0], np.array([1.0, 1.0], dtype=np.float32))
+    assert np.allclose(counts[0], np.array([2.0, 2.0], dtype=np.float32))
 
 
 @pytest.mark.correctness
 def testFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
-    bgzipBin = shutil.which("bgzip")
-    tabixBin = shutil.which("tabix")
-    if bgzipBin is None or tabixBin is None:
-        pytest.skip("bgzip/tabix not available")
+    gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
+    allowListPath = FRAGMENTS_DIR / "allow_BC_A.txt"
 
-    with tempfile.TemporaryDirectory() as tempDir:
-        tempPath = Path(tempDir)
-        plainPath = tempPath / "fragments.tsv"
-        gzPath = tempPath / "fragments.tsv.gz"
-        allowListPath = tempPath / "allow.txt"
+    mappedCount, _ = ccounts.ccounts_getAlignmentMappedReadCount(
+        str(gzPath),
+        sourceKind="FRAGMENTS",
+        barcodeAllowListFile=str(allowListPath),
+        countMode="cutsite",
+    )
+    cellCount = ccounts.ccounts_getFragmentCellCount(
+        str(gzPath),
+        barcodeAllowListFile=str(allowListPath),
+    )
+    scaleFactor = detrorm.getScaleFactorPerMillion(
+        str(gzPath),
+        [],
+        10,
+        sourceKind="FRAGMENTS",
+        barcodeAllowListFile=str(allowListPath),
+        countMode="cutsite",
+        groupCellCount=cellCount,
+        fragmentsGroupNorm="CELLS",
+    )
 
-        plainPath.write_text(
-            "\n".join(
-                [
-                    "chr1\t5\t15\tBC_A\t1",
-                    "chr1\t22\t31\tBC_A\t2",
-                    "chr1\t40\t50\tBC_B\t3",
-                ]
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        allowListPath.write_text("BC_A\n", encoding="utf-8")
-
-        with gzPath.open("wb") as outHandle:
-            proc = subprocess.run(
-                [bgzipBin, "-f", "-c", str(plainPath)],
-                stdout=outHandle,
-                stderr=subprocess.PIPE,
-                check=False,
-            )
-        assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")
-        subprocess.run([tabixBin, "-f", "-p", "bed", str(gzPath)], check=True)
-
-        mappedCount, _ = ccounts.ccounts_getAlignmentMappedReadCount(
-            str(gzPath),
-            sourceKind="FRAGMENTS",
-            barcodeAllowListFile=str(allowListPath),
-            countMode="cutsite",
-        )
-        cellCount = ccounts.ccounts_getFragmentCellCount(
-            str(gzPath),
-            barcodeAllowListFile=str(allowListPath),
-        )
-        scaleFactor = detrorm.getScaleFactorPerMillion(
-            str(gzPath),
-            [],
-            10,
-            sourceKind="FRAGMENTS",
-            barcodeAllowListFile=str(allowListPath),
-            countMode="cutsite",
-            groupCellCount=cellCount,
-            fragmentsGroupNorm="CELLS",
-        )
-
-        assert mappedCount == 6
-        assert cellCount == 1
-        assert scaleFactor == pytest.approx((1_000_000 / 6.0) * 100.0)
+    assert mappedCount == 12
+    assert cellCount == 1
+    assert scaleFactor == pytest.approx((1_000_000 / 12.0) * 100.0)
