@@ -9,6 +9,7 @@ from libc.stdlib cimport malloc, free
 cnp.import_array()
 
 
+# see ccounts_backend for reference
 cdef extern from "native/ccounts_backend.h":
     ctypedef enum ccounts_sourceKind:
         ccounts_sourceKindBAM
@@ -141,6 +142,7 @@ cdef ccounts_sourceConfig _makeSourceConfig(
     bytes barcodeGroupMapBytes=b"",
 ):
     cdef ccounts_sourceConfig sourceConfig
+    # keep byte strings for the duration of wrapper calls
     sourceConfig.path = pathBytes
     sourceConfig.sourceKind = _getSourceKindCode(sourceKind)
     if len(referenceBytes) > 0:
@@ -329,6 +331,7 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     if excludeChromosomes is not None:
         excludeCount = len(excludeChromosomes)
         if excludeCount > 0:
+            # hold encoded chromosome names in a python list (alive for whole functino call)
             excludePointers = <const char**>malloc(excludeCount * sizeof(const char*))
             if excludePointers == NULL:
                 raise MemoryError("failed to allocate exclude chromosome pointers")
@@ -421,6 +424,7 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     if intervalSizeBP <= 0 or end <= start:
         raise ValueError("invalid interval size or genomic segment")
 
+    # the native backend writes one float per evenly spaced interval
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
     counts = np.zeros(numIntervals, dtype=np.float32)
 
@@ -443,6 +447,7 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     countOptions.pairedEndMode = pairedEndMode
     countOptions.inferFragmentLength = inferFragmentLength
 
+    # open once here so region counting can reuse the initialized native handle
     result = ccounts_openSource(&sourceConfig, &sourceHandle)
     _raiseIfError(result)
     try:
