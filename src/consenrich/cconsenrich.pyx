@@ -10,15 +10,66 @@ cimport cython
 import os
 import numpy as np
 from scipy import ndimage
+from . import ccounts as ccountsModule
 cimport numpy as cnp
-from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
-from pysam.libcalignmentfile cimport AlignmentFile, AlignedSegment
+from libc.stdint cimport int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
 from cython.parallel import prange
 from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
 from libc.stdlib cimport rand, srand, RAND_MAX, malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport printf, fprintf, stderr
+
+cdef extern from "htslib/hts.h":
+    ctypedef struct htsFile
+    ctypedef struct hts_idx_t
+    ctypedef struct hts_itr_t
+    ctypedef long long hts_pos_t
+
+    int hts_set_threads(htsFile* fp, int n)
+    void hts_idx_destroy(hts_idx_t* idx)
+    void hts_itr_destroy(hts_itr_t* itr)
+
+
+cdef extern from "htslib/sam.h":
+    ctypedef struct samFile
+
+    ctypedef struct bam1_core_t:
+        int32_t tid
+        int32_t pos
+        uint16_t bin
+        uint8_t qual
+        uint16_t l_qname
+        uint16_t n_cigar
+        uint16_t flag
+        int32_t l_qseq
+        int32_t mtid
+        int32_t mpos
+        int64_t isize
+
+    ctypedef struct bam1_t:
+        bam1_core_t core
+
+    ctypedef struct sam_hdr_t:
+        int32_t n_targets
+        uint32_t* target_len
+        char** target_name
+
+    samFile* sam_open(const char* fn, const char* mode)
+    int sam_close(samFile* fp)
+    sam_hdr_t* sam_hdr_read(samFile* fp)
+    void sam_hdr_destroy(sam_hdr_t* h)
+    bam1_t* bam_init1()
+    void bam_destroy1(bam1_t* b)
+    int sam_read1(samFile* fp, sam_hdr_t* h, bam1_t* b)
+    hts_idx_t* sam_index_load(htsFile* fp, const char* fn)
+    int sam_hdr_name2tid(sam_hdr_t* h, const char* ref)
+    hts_itr_t* sam_itr_queryi(hts_idx_t* idx, int tid, hts_pos_t beg, hts_pos_t end)
+    int sam_itr_next(htsFile* htsfp, hts_itr_t* itr, bam1_t* r)
+    hts_pos_t bam_endpos(bam1_t* b)
+    uint32_t* bam_get_cigar(bam1_t* b)
+    hts_pos_t bam_cigar2qlen(int n_cigar, uint32_t* cigar)
+
 cnp.import_array()
 
 # ========
@@ -563,14 +614,14 @@ cpdef uint64_t cgetFirstChromRead(str bamFile, str chromosome, uint64_t chromLen
     :rtype: uint64_t
     """
 
-    cdef AlignmentFile aln = AlignmentFile(bamFile, 'rb', threads=samThreads)
-    cdef AlignedSegment read
-    for read in aln.fetch(contig=chromosome, start=0, end=chromLength):
-        if not (read.flag & samFlagExclude):
-            aln.close()
-            return read.reference_start
-    aln.close()
-    return 0
+    cdef tuple chromRange = ccountsModule.ccounts_getAlignmentChromRange(
+        bamFile,
+        chromosome,
+        chromLength,
+        samThreads,
+        samFlagExclude,
+    )
+    return <uint64_t>chromRange[0]
 
 
 cpdef uint64_t cgetLastChromRead(str bamFile, str chromosome, uint64_t chromLength, uint32_t samThreads, int samFlagExclude):
@@ -593,15 +644,14 @@ cpdef uint64_t cgetLastChromRead(str bamFile, str chromosome, uint64_t chromLeng
     :rtype: uint64_t
     """
 
-    cdef uint64_t start_ = chromLength - min((chromLength // 2), 1_000_000)
-    cdef uint64_t lastPos = 0
-    cdef AlignmentFile aln = AlignmentFile(bamFile, 'rb', threads=samThreads)
-    cdef AlignedSegment read
-    for read in aln.fetch(contig=chromosome, start=start_, end=chromLength):
-        if not (read.flag & samFlagExclude):
-            lastPos = read.reference_end
-    aln.close()
-    return lastPos
+    cdef tuple chromRange = ccountsModule.ccounts_getAlignmentChromRange(
+        bamFile,
+        chromosome,
+        chromLength,
+        samThreads,
+        samFlagExclude,
+    )
+    return <uint64_t>chromRange[1]
 
 
 
@@ -621,28 +671,13 @@ cpdef uint32_t cgetReadLength(str bamFile, uint32_t minReads, uint32_t samThread
     :return: Median read length from the BAM file.
     :rtype: uint32_t
     """
-    cdef uint32_t observedReads = 0
-    cdef uint32_t currentIterations = 0
-    cdef AlignmentFile aln = AlignmentFile(bamFile, 'rb', threads=samThreads)
-    cdef AlignedSegment read
-    cdef cnp.ndarray[cnp.uint32_t, ndim=1] readLengths = np.zeros(maxIterations, dtype=np.uint32)
-    cdef uint32_t i = 0
-    if <uint32_t>aln.mapped < minReads:
-        aln.close()
-        return 0
-    for read in aln.fetch():
-        if not (observedReads < minReads and currentIterations < maxIterations):
-            break
-        if not (read.flag & samFlagExclude):
-            # meets critera -> add it
-            readLengths[i] = read.query_length
-            observedReads += 1
-            i += 1
-        currentIterations += 1
-    aln.close()
-    if observedReads < minReads:
-        return 0
-    return <uint32_t>np.median(readLengths[:observedReads])
+    return <uint32_t>ccountsModule.ccounts_getAlignmentReadLength(
+        bamFile,
+        minReads,
+        samThreads,
+        maxIterations,
+        samFlagExclude,
+    )
 
 
 cpdef cnp.float32_t[:] creadBamSegment(
@@ -668,208 +703,38 @@ cpdef cnp.float32_t[:] creadBamSegment(
 ):
     r"""Count reads in a BAM file for a given chromosome.
     """
+    cdef int64_t resolvedExtendBP = extendBP
+    cdef cnp.ndarray values
 
-    cdef Py_ssize_t numIntervals
-    cdef int64_t width = <int64_t>end - <int64_t>start
+    weightByOverlap = weightByOverlap
+    ignoreTLEN = ignoreTLEN
 
-    if intervalSizeBP <= 0 or width <= 0:
-        numIntervals = 0
-    else:
-        numIntervals = <Py_ssize_t>((width + intervalSizeBP - 1) // intervalSizeBP)
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] values_np = np.zeros(numIntervals, dtype=np.float32)
-    cdef cnp.float32_t[::1] values = values_np
-
-    if numIntervals <= 0:
-        return values
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] delta_np = np.zeros(numIntervals + 1, dtype=np.float32)
-    cdef cnp.float32_t[::1] delta = delta_np
-
-    cdef AlignmentFile aln = None
-    cdef AlignedSegment read
-
-    cdef int64_t start64 = <int64_t>start
-    cdef int64_t end64 = <int64_t>end
-    cdef int64_t step64 = <int64_t>intervalSizeBP
-
-    cdef Py_ssize_t index0, index1, b_, midIndex
-    cdef Py_ssize_t lastIndex = numIntervals - 1
-
-    cdef bint readIsForward
-    cdef int64_t readStart, readEnd
-    cdef int64_t binStart, binEnd
-    cdef int64_t overlapStart, overlapEnd, overlap
-    cdef int64_t adjStart, adjEnd, fivePrime, mid, tlen, atlen
-
-    cdef uint16_t flag
-    cdef int64_t minTLEN = minTemplateLength
-    cdef int minMapQ = <int>minMappingQuality
-
-    cdef Py_ssize_t i
-    cdef cnp.float32_t run
-
-    if minTLEN < 0:
-        minTLEN = readLength
-
-    if inferFragmentLength > 0 and pairedEndMode <= 0 and extendBP <= 0:
-        extendBP = cgetFragmentLength(
+    if inferFragmentLength > 0 and pairedEndMode <= 0 and resolvedExtendBP <= 0:
+        resolvedExtendBP = cgetFragmentLength(
             bamFile,
             samThreads=samThreads,
             samFlagExclude=samFlagExclude,
         )
 
-    try:
-        aln = AlignmentFile(bamFile, "rb", threads=samThreads)
-        with aln:
-            for read in aln.fetch(chromosome, start64, end64):
-                flag = <uint16_t>read.flag
-
-                if ((flag & samFlagExclude) != 0) or (read.mapping_quality < minMapQ):
-                    continue
-
-                readIsForward = ((flag & 16) == 0)
-                readStart = <int64_t>read.reference_start
-                readEnd = <int64_t>read.reference_end
-
-                if pairedEndMode > 0:
-                    if ((flag & 2) == 0):
-                        continue
-                    if ((flag & 128) != 0):
-                        continue
-                    if ((flag & 8) != 0) or (read.next_reference_id != read.reference_id):
-                        continue
-
-                    tlen = <int64_t>read.template_length
-                    atlen = tlen if tlen >= 0 else -tlen
-                    if atlen == 0 or atlen < minTLEN:
-                        continue
-
-                    if maxInsertSize > 0 and atlen > maxInsertSize:
-                        continue
-
-                    if not ignoreTLEN:
-                        if atlen < minTLEN:
-                            continue
-
-                    if tlen >= 0:
-                        adjStart = readStart
-                        adjEnd = readStart + atlen
-                    else:
-                        adjEnd = readEnd
-                        adjStart = adjEnd - atlen
-
-                    if (shiftForwardStrand53 != 0) or (shiftReverseStrand53 != 0):
-                        if readIsForward:
-                            adjStart += shiftForwardStrand53
-                            adjEnd += shiftForwardStrand53
-                        else:
-                            adjStart -= shiftReverseStrand53
-                            adjEnd -= shiftReverseStrand53
-
-                else:
-                    if readIsForward:
-                        fivePrime = readStart + shiftForwardStrand53
-                    else:
-                        fivePrime = (readEnd - 1) - shiftReverseStrand53
-
-                    if extendBP > 0:
-                        if readIsForward:
-                            adjStart = fivePrime
-                            adjEnd = fivePrime + extendBP
-                        else:
-                            adjEnd = fivePrime + 1
-                            adjStart = adjEnd - extendBP
-                    elif (shiftForwardStrand53 != 0) or (shiftReverseStrand53 != 0):
-                        if readIsForward:
-                            adjStart = readStart + shiftForwardStrand53
-                            adjEnd = readEnd + shiftForwardStrand53
-                        else:
-                            adjStart = readStart - shiftReverseStrand53
-                            adjEnd = readEnd - shiftReverseStrand53
-                    else:
-                        adjStart = readStart
-                        adjEnd = readEnd
-
-                if adjEnd <= start64 or adjStart >= end64:
-                    continue
-                if adjStart < start64:
-                    adjStart = start64
-                if adjEnd > end64:
-                    adjEnd = end64
-
-                if oneReadPerBin:
-                    mid = (adjStart + adjEnd) // 2
-                    midIndex = <Py_ssize_t>((mid - start64) // step64)
-                    if 0 <= midIndex <= lastIndex:
-                        values[midIndex] += <cnp.float32_t>1.0
-                    continue
-
-                index0 = <Py_ssize_t>((adjStart - start64) // step64)
-                index1 = <Py_ssize_t>(((adjEnd - 1) - start64) // step64)
-
-                if index0 < 0:
-                    index0 = 0
-                if index1 > lastIndex:
-                    index1 = lastIndex
-                if index0 > lastIndex or index1 < 0 or index0 > index1:
-                    continue
-
-                if not weightByOverlap:
-                    # build difference arrays for the coverage sum later
-                    # [..., S +=1, ..., E -=1, ...]
-                    # one-pass cum. sum --> indices over [S, E] += 1, E -= 1 to mark end of range
-                    delta[index0] += <cnp.float32_t>1.0
-                    delta[index1 + 1] -= <cnp.float32_t>1.0
-                else:
-                    if index0 == index1:
-                        binStart = start64 + (<int64_t>index0) * step64
-                        binEnd = binStart + step64
-                        if binEnd > end64:
-                            binEnd = end64
-
-                        overlapStart = adjStart if adjStart > binStart else binStart
-                        overlapEnd = adjEnd if adjEnd < binEnd else binEnd
-                        overlap = overlapEnd - overlapStart
-                        if overlap > 0:
-                            values[index0] += (<cnp.float32_t>overlap / <cnp.float32_t>(binEnd - binStart))
-                    else:
-                        binStart = start64 + (<int64_t>index0) * step64
-                        binEnd = binStart + step64
-                        if binEnd > end64:
-                            binEnd = end64
-
-                        overlapStart = adjStart if adjStart > binStart else binStart
-                        overlapEnd = adjEnd if adjEnd < binEnd else binEnd
-                        overlap = overlapEnd - overlapStart
-                        if overlap > 0:
-                            values[index0] += (<cnp.float32_t>overlap / <cnp.float32_t>(binEnd - binStart))
-
-                        binStart = start64 + (<int64_t>index1) * step64
-                        binEnd = binStart + step64
-                        if binEnd > end64:
-                            binEnd = end64
-
-                        overlapStart = adjStart if adjStart > binStart else binStart
-                        overlapEnd = adjEnd if adjEnd < binEnd else binEnd
-                        overlap = overlapEnd - overlapStart
-                        if overlap > 0:
-                            values[index1] += (<cnp.float32_t>overlap / <cnp.float32_t>(binEnd - binStart))
-
-                        if index1 > index0 + 1:
-                            delta[index0 + 1] += <cnp.float32_t>1.0
-                            delta[index1] -= <cnp.float32_t>1.0
-
-    finally:
-        if aln is not None:
-            aln.close()
-
-    if not oneReadPerBin:
-        run = <cnp.float32_t>0.0
-        for i in range(numIntervals):
-            run += delta[i]
-            values[i] += run
-
+    values = ccountsModule.ccounts_countAlignmentRegion(
+        bamFile,
+        chromosome,
+        start,
+        end,
+        intervalSizeBP,
+        readLength,
+        oneReadPerBin,
+        samThreads,
+        samFlagExclude,
+        shiftForwardStrand53=shiftForwardStrand53,
+        shiftReverseStrand53=shiftReverseStrand53,
+        extendBP=resolvedExtendBP,
+        maxInsertSize=maxInsertSize,
+        pairedEndMode=pairedEndMode,
+        inferFragmentLength=0,
+        minMappingQuality=minMappingQuality,
+        minTemplateLength=minTemplateLength,
+    )
     return values
 
 
@@ -1066,14 +931,11 @@ cpdef int64_t cgetFragmentLength(
     int64_t earlyExit=250,
     int64_t randSeed=42,
 ):
-
     cdef object rng = default_rng(randSeed)
     cdef int64_t regionLen, numRollSteps
     cdef int numChunks
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rawArr
     cdef cnp.ndarray[cnp.float64_t, ndim=1] medArr
-    cdef AlignmentFile aln
-    cdef AlignedSegment readSeg
     cdef list blockCenters
     cdef list bestLags
     cdef int i, j, idxVal
@@ -1098,20 +960,11 @@ cpdef int64_t cgetFragmentLength(
     cdef int64_t minInsertSize
     cdef int64_t requiredSamplesPE
     cdef int64_t tlen
-
-    # rather than taking chromosome start end
-    # look at contigs present and use the largest few
-    cdef tuple contigs
-    cdef tuple lengths
     cdef cnp.ndarray[cnp.int64_t, ndim=1] lengthsArr
     cdef Py_ssize_t contigIdx
-    cdef str contig
+    cdef int contigTid
     cdef int64_t contigLen
     cdef int kTop
-
-    # Single end tracks
-    # fwd[i] is forward 5prime end count at offset i
-    # rev[i] is reverse 5prime end count at offset i
     cdef cnp.ndarray[cnp.float64_t, ndim=1] fwd
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rev
     cdef double[::1] fwdView
@@ -1126,22 +979,25 @@ cpdef int64_t cgetFragmentLength(
     cdef int localMinLag
     cdef int localMaxLag
     cdef int localLagStep
-
-    # FFT buffers
     cdef int nFFT
     cdef object Ff
     cdef object Fr
     cdef object corr
-
-    # paired end sample buffer for median
     cdef cnp.ndarray[cnp.int32_t, ndim=1] tlenArr
     cdef cnp.ndarray[cnp.int32_t, ndim=1] tlenWork
     cdef cnp.int32_t[::1] tlenWorkView
     cdef int tlenN
     cdef int midIdx
     cdef cnp.int32_t medPE
+    cdef cnp.ndarray[cnp.uint32_t, ndim=1] bestLagsArr
+    cdef bytes bamFileBytes = bamFile.encode("utf-8")
+    cdef samFile* fileHandle = NULL
+    cdef sam_hdr_t* header = NULL
+    cdef hts_idx_t* indexHandle = NULL
+    cdef hts_itr_t* iteratorHandle = NULL
+    cdef bam1_t* record = NULL
+    cdef hts_pos_t queryLength = 0
 
-    # avoid out of bounds access in tight loops
     earlyExit = min(earlyExit, iters)
     samThreadsInternal = <int>samThreads
     cpuCountObj = os.cpu_count()
@@ -1166,36 +1022,69 @@ cpdef int64_t cgetFragmentLength(
     if lagStep < 1:
         lagStep = 1
 
-    aln = AlignmentFile(bamFile, "rb", threads=samThreadsInternal)
-    try:
-        contigs = aln.references
-        lengths = aln.lengths
+    fileHandle = sam_open(bamFileBytes, "r")
+    if fileHandle == NULL:
+        return <int64_t>fallBack
 
-        if contigs is None or len(contigs) == 0:
+    try:
+        if samThreadsInternal > 1:
+            hts_set_threads(<htsFile*>fileHandle, samThreadsInternal)
+
+        header = sam_hdr_read(fileHandle)
+        if header == NULL or header.n_targets <= 0:
             return <int64_t>fallBack
 
-        lengthsArr = np.asarray(lengths, dtype=np.int64)
-        kTop = 3 if len(contigs) >= 3 else (2 if len(contigs) >= 2 else 1)
+        indexHandle = sam_index_load(<htsFile*>fileHandle, bamFileBytes)
+        if indexHandle == NULL:
+            return <int64_t>fallBack
+
+        record = bam_init1()
+        if record == NULL:
+            return <int64_t>fallBack
+
+        lengthsArr = np.empty(header.n_targets, dtype=np.int64)
+        for contigIdx in range(header.n_targets):
+            lengthsArr[contigIdx] = <int64_t>header.target_len[contigIdx]
+
+        kTop = 3 if header.n_targets >= 3 else (2 if header.n_targets >= 2 else 1)
         topContigsIdx = np.argpartition(lengthsArr, -kTop)[-kTop:]
         topContigsIdx = topContigsIdx[np.argsort(lengthsArr[topContigsIdx])[::-1]]
 
-        # detect paired end and estimate read length
         for contigIdx in topContigsIdx:
-            contig = contigs[contigIdx]
-            for readSeg in aln.fetch(contig):
-                readFlag = readSeg.flag
+            contigTid = <int>contigIdx
+            contigLen = <int64_t>lengthsArr[contigTid]
+            if contigLen <= 0:
+                continue
+
+            iteratorHandle = sam_itr_queryi(indexHandle, contigTid, 0, <hts_pos_t>contigLen)
+            if iteratorHandle == NULL:
+                continue
+
+            while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
+                readFlag = <int>record.core.flag
                 if (readFlag & samFlagExclude) != 0:
                     continue
 
-                if not isPairedEnd:
-                    if (readFlag & 1) != 0:
-                        isPairedEnd = <bint>1
+                if not isPairedEnd and (readFlag & 1) != 0:
+                    isPairedEnd = <bint>1
 
-                if numReadLengthSamples < iters:
-                    avgReadLength += readSeg.query_length
-                    numReadLengthSamples += 1
-                else:
+                if numReadLengthSamples >= iters:
                     break
+
+                queryLength = record.core.l_qseq
+                if queryLength <= 0 and record.core.n_cigar > 0:
+                    queryLength = bam_cigar2qlen(record.core.n_cigar, bam_get_cigar(record))
+                if queryLength <= 0:
+                    continue
+
+                avgReadLength += <double>queryLength
+                numReadLengthSamples += 1
+
+            hts_itr_destroy(iteratorHandle)
+            iteratorHandle = NULL
+
+            if numReadLengthSamples >= iters:
+                break
 
         if numReadLengthSamples <= 0:
             return <int64_t>fallBack
@@ -1207,23 +1096,29 @@ cpdef int64_t cgetFragmentLength(
         if minInsertSize > maxInsertSize:
             minInsertSize = maxInsertSize
 
-        # paired end: abs(TLEN) median over proper read1 pairs
         if isPairedEnd:
             requiredSamplesPE = max(iters, 2000)
-
             tlenArr = np.empty(requiredSamplesPE, dtype=np.int32)
             tlenN = 0
 
             for contigIdx in topContigsIdx:
                 if tlenN >= requiredSamplesPE:
                     break
-                contig = contigs[contigIdx]
 
-                for readSeg in aln.fetch(contig):
+                contigTid = <int>contigIdx
+                contigLen = <int64_t>lengthsArr[contigTid]
+                if contigLen <= 0:
+                    continue
+
+                iteratorHandle = sam_itr_queryi(indexHandle, contigTid, 0, <hts_pos_t>contigLen)
+                if iteratorHandle == NULL:
+                    continue
+
+                while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
                     if tlenN >= requiredSamplesPE:
                         break
 
-                    readFlag = readSeg.flag
+                    readFlag = <int>record.core.flag
                     if (readFlag & samFlagExclude) != 0:
                         continue
                     if (readFlag & 2) == 0:
@@ -1231,7 +1126,7 @@ cpdef int64_t cgetFragmentLength(
                     if (readFlag & 64) == 0:
                         continue
 
-                    tlen = <int64_t>readSeg.template_length
+                    tlen = <int64_t>record.core.isize
                     if tlen == 0:
                         continue
                     if tlen < 0:
@@ -1242,6 +1137,9 @@ cpdef int64_t cgetFragmentLength(
 
                     tlenArr[tlenN] = <cnp.int32_t>tlen
                     tlenN += 1
+
+                hts_itr_destroy(iteratorHandle)
+                iteratorHandle = NULL
 
             if tlenN < max(500, requiredSamplesPE // 5):
                 return <int64_t>fallBack
@@ -1258,18 +1156,6 @@ cpdef int64_t cgetFragmentLength(
                 return <int64_t>fallBack
             return <int64_t>medPE
 
-        # single end
-        # - coarse bins select blocks with high local signal
-        # - build fwd and rev 5prime end tracks in each block
-        # - score lag by cross covariance via FFT correlation
-        #
-        # corr[lag] = sum_i fwd0[i] * rev0[i + lag]
-        # fwd0 = fwd - mean(fwd)
-        # rev0 = rev - mean(rev)
-        #
-        # fragmentLen ~= lag + 1
-        # reverse 5prime end is reference_end - 1
-
         bestLags = []
         blockHalf = blockSize // 2
 
@@ -1283,16 +1169,13 @@ cpdef int64_t cgetFragmentLength(
             nFFT <<= 1
 
         for contigIdx in topContigsIdx:
-            contig = contigs[contigIdx]
-            contigLen = <int64_t>lengthsArr[contigIdx]
+            contigTid = <int>contigIdx
+            contigLen = <int64_t>lengthsArr[contigTid]
             regionLen = contigLen
 
             if regionLen < blockSize or regionLen <= 0:
                 continue
 
-            # coarse bin replicate
-            # rawArr[j] counts reads with reference_start in bin j
-            # medArr is a local median envelope
             numRollSteps = regionLen // rollingChunkSize
             if numRollSteps <= 0:
                 numRollSteps = 1
@@ -1301,16 +1184,21 @@ cpdef int64_t cgetFragmentLength(
             rawArr = np.zeros(numChunks, dtype=np.float64)
             medArr = np.zeros(numChunks, dtype=np.float64)
 
-            for readSeg in aln.fetch(contig):
-                readFlag = readSeg.flag
+            iteratorHandle = sam_itr_queryi(indexHandle, contigTid, 0, <hts_pos_t>contigLen)
+            if iteratorHandle == NULL:
+                continue
+
+            while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
+                readFlag = <int>record.core.flag
                 if (readFlag & samFlagExclude) != 0:
                     continue
-                j = <int>(readSeg.reference_start // rollingChunkSize)
+                j = <int>(record.core.pos // rollingChunkSize)
                 if 0 <= j < numChunks:
                     rawArr[j] += 1.0
 
-            # rolling local median filter
-            # kernel size tied to blockSize
+            hts_itr_destroy(iteratorHandle)
+            iteratorHandle = NULL
+
             winSize = <int>(blockSize // rollingChunkSize)
             if winSize < 1:
                 winSize = 1
@@ -1318,7 +1206,6 @@ cpdef int64_t cgetFragmentLength(
                 winSize += 1
             medArr[:] = ndimage.median_filter(rawArr, size=winSize, mode="nearest")
 
-            # pick top bins then thin by a seen mask
             takeK = iters if iters < numChunks else numChunks
             unsortedIdx = np.argpartition(medArr, -takeK)[-takeK:]
             unsortedVals = medArr[unsortedIdx]
@@ -1345,7 +1232,6 @@ cpdef int64_t cgetFragmentLength(
                 rng.shuffle(blockCenters)
 
             for idxVal in blockCenters:
-                # map bin center to genomic coordinates
                 blockStartBP = idxVal*rollingChunkSize + (rollingChunkSize // 2) - blockHalf
                 if blockStartBP < 0:
                     blockStartBP = 0
@@ -1356,19 +1242,25 @@ cpdef int64_t cgetFragmentLength(
                     if blockStartBP < 0:
                         continue
 
-                # 5prime end tracks
-                # forward uses reference_start
-                # reverse uses reference_end - 1
                 fwd.fill(0.0)
                 rev.fill(0.0)
 
-                for readSeg in aln.fetch(contig, blockStartBP, blockEndBP):
-                    readFlag = readSeg.flag
+                iteratorHandle = sam_itr_queryi(
+                    indexHandle,
+                    contigTid,
+                    <hts_pos_t>blockStartBP,
+                    <hts_pos_t>blockEndBP,
+                )
+                if iteratorHandle == NULL:
+                    continue
+
+                while sam_itr_next(<htsFile*>fileHandle, iteratorHandle, record) >= 0:
+                    readFlag = <int>record.core.flag
                     if (readFlag & samFlagExclude) != 0:
                         continue
 
-                    readStart = <int64_t>readSeg.reference_start
-                    readEnd = <int64_t>readSeg.reference_end
+                    readStart = <int64_t>record.core.pos
+                    readEnd = <int64_t>bam_endpos(record)
                     if readStart < blockStartBP or readEnd > blockEndBP:
                         continue
                     if readEnd <= readStart:
@@ -1384,6 +1276,9 @@ cpdef int64_t cgetFragmentLength(
                         if 0 <= i < blockSize:
                             revView[i] += 1.0
 
+                hts_itr_destroy(iteratorHandle)
+                iteratorHandle = NULL
+
                 maxValidLag = maxInsertSize if (maxInsertSize < blockSize) else (blockSize - 1)
                 localMinLag = <int>minInsertSize
                 localMaxLag = <int>maxValidLag
@@ -1391,7 +1286,6 @@ cpdef int64_t cgetFragmentLength(
                     continue
                 localLagStep = <int>lagStep
 
-                # low count blocks contribute mostly noise
                 fwdSum = 0.0
                 revSum = 0.0
                 for i in range(blockSize):
@@ -1408,8 +1302,6 @@ cpdef int64_t cgetFragmentLength(
                     fwdView[i] = fwdView[i] - fwdMean
                     revView[i] = revView[i] - revMean
 
-                # corr[lag] = sum_i fwd0[i] * rev0[i + lag]
-                # zero padding to nFFT >= 2*blockSize makes this linear for lag in [0, blockSize-1]
                 Ff = np.fft.rfft(fwd, nFFT)
                 Fr = np.fft.rfft(rev, nFFT)
                 corr = np.fft.irfft(np.conj(Ff) * Fr, nFFT)
@@ -1436,13 +1328,21 @@ cpdef int64_t cgetFragmentLength(
                 break
 
     finally:
-        aln.close()
+        if iteratorHandle != NULL:
+            hts_itr_destroy(iteratorHandle)
+        if record != NULL:
+            bam_destroy1(record)
+        if indexHandle != NULL:
+            hts_idx_destroy(indexHandle)
+        if header != NULL:
+            sam_hdr_destroy(header)
+        if fileHandle != NULL:
+            sam_close(fileHandle)
 
     if len(bestLags) < 3:
         return fallBack
 
     bestLagsArr = np.asarray(bestLags, dtype=np.uint32)
-
     med = <int64_t>(np.median(bestLagsArr) + 1.0 + 0.5)
 
     if med < minInsertSize:
@@ -1861,7 +1761,7 @@ cpdef protectCovariance22(object A, double eigFloor=1.0e-4):
 
 
                 # rewrite/padViewgiven 2x2 + SPD (and pad):
-                # A = λ_2*(I) + (λ_1 - λ_2)*(vv^T), where v <--> λ_1
+                # A = lambda_2*(I) + (lambda_1 - lambda_2)*(vv^T), where v <--> lambda_1
                 ptr_F64[0] = EIG2 + LAM*eigvecFirstSquared
                 ptr_F64[3] = EIG2 + LAM*eigvecSecondSquared
                 ptr_F64[1] = LAM*eigvecProd
@@ -2308,7 +2208,7 @@ cpdef tuple cbackwardPass(
 ):
     r"""Run the backward pass (smoother)
 
-    This function executes the smoothing phase of Consenrich's forward–backward state estimation. It operates on
+    This function executes the smoothing phase of Consenrich's forward-backward state estimation. It operates on
     outputs from the *forward-filtered* outputs (those returned by :func:`consenrich.cconsenrich.cforwardPass`).
 
     That is, given the forward-pass, filtered estimates over genomic intervals :math:`i = 1, \dots, n`,

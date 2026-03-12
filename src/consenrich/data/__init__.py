@@ -1,0 +1,1 @@
+"""packaged genome resource files"""

@@ -1,11 +1,6 @@
 Installation
 -----------------
 
-.. toctree::
-   :maxdepth: 1
-   :caption: Installation
-   :name: Installation
-
 
 From PyPI
 ~~~~~~~~~~
@@ -19,15 +14,6 @@ To install the latest version, run:
   % python -m pip install consenrich --upgrade
 
 If a binary is not available for your platform or you wish to optimize compiler flags for your hardware, consider building from source.
-
-Previous Versions
-""""""""""""""""""""""""""
-
-To install a specific version of Consenrich from PyPI, e.g., ``0.1.13b1``:
-
-.. code-block:: console
-
-  % python -m pip install consenrich==0.1.13b1
 
 Conda
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -55,7 +41,6 @@ For instance, save the following contents to a file named ``environment.yaml``:
     - pandas>=2.3.0
     - samtools>=1.20
     - bedtools>=2.30.0
-    - pysam>=0.23.3
     - pybedtools>=0.11.2
     - ucsc-bedgraphtobigwig
     - PyYAML>=6.0.2
@@ -78,16 +63,16 @@ If using `mamba <https://mamba.readthedocs.io/en/latest/>`_, or `micromamba <htt
 From Source
 ~~~~~~~~~~~~~~
 
-**Note**, some features require `samtools <http://www.htslib.org/download/>`_ and `bedtools <https://bedtools.readthedocs.io/en/latest/content/installation.html>`_ to be installed and available in your ``$PATH``.
+Some features require `samtools <http://www.htslib.org/download/>`_ and `bedtools <https://bedtools.readthedocs.io/en/latest/content/installation.html>`_ in your ``$PATH``.
 
 
 .. admonition:: Guidance: C Compiler
   :class: tip
   :collapsible: closed
 
-  To build from source, you will need a C compiler (e.g., `gcc` or `clang`) to build the Cython extensions.
+  To build from source, you will need a C compiler such as `gcc` or `clang`.
 
-  *It's likely that a C compiler is already available on your system (run``gcc --version`` or ``clang --version`` in a terminal)*.
+  A compiler is often already present. Check with ``gcc --version`` or ``clang --version``.
 
   If not, try one of the following:
 
@@ -109,5 +94,4 @@ Set the working directory and install:
 
   % cd Consenrich
   % python -m pip install .
-
 

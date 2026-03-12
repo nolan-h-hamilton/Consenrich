@@ -4,7 +4,6 @@ requires = [
     "wheel",
     "cython>=3.0",
     "numpy>=2.1.0",
-    "pysam>=0.23.3",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -14,6 +13,7 @@ version = "0.9.5a1"
 description = "Genome-wide estimation of signals hidden in noisy multi-sample HTS datasets"
 authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11"
 
 dependencies = [
@@ -21,7 +21,6 @@ dependencies = [
     "numpy>=2.1",
     "scipy>=1.15",
     "pandas>=2.3.0",
-    "pysam>=0.23.3",
     "pybedtools>=0.11.2",
     "PyYAML>=6.0.2",
     "PyWavelets>=1.9.0",
@@ -51,9 +50,21 @@ plot = [
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true
+license-files = [
+    "LICENSE",
+    "THIRD_PARTY_LICENSES.md",
+    "HTSLIB_LICENSE.txt",
+    "HTSCODECS_LICENSE.md",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+include = ["consenrich", "consenrich.*"]
 
 [tool.setuptools.package-data]
-consenrich = ["src/consenrich/data/*"]
+consenrich = ["native/*"]
+"consenrich.data" = ["*.bed", "*.sizes"]
 
 [project.scripts]
 consenrich = "consenrich.consenrich:main"
@@ -61,5 +72,5 @@ consenrich = "consenrich.consenrich:main"
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-*"
 skip  = "*-musllinux_*"
-
-
+test-requires = ["pytest"]
+test-command = 'bash -lc "cd {project}/tests && HOME=/tmp pytest -q test_config.py test_core.py"'

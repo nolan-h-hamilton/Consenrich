@@ -12,10 +12,9 @@ import logging
 import re
 import numpy as np
 import pandas as pd
-import pybedtools as bed
-import pysam as sam
 
 from scipy import signal, ndimage
+from . import ccounts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,67 +27,61 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def checkBamFile(bamFile: str) -> bool:
-    r"""Check that the bam file exists and is indexed
+def checkAlignmentFile(alignmentFile: str) -> bool:
+    r"""Check that an alignment file exists and is indexed
 
     Assumes the bam file is sorted by coordinates
     """
-    has_index = False
-    if not os.path.exists(bamFile):
-        raise FileNotFoundError(f"Could not find {bamFile}")
-    try:
-        bamfile = sam.AlignmentFile(bamFile, "rb")
-        has_index = bamfile.check_index()
-        bamfile.close()
-    except AttributeError as aex:
-        logger.info(f"Alignments must be in BAM format:\n{aex}")
-        raise
-    except ValueError as vex:
-        has_index = False
-        pass
-
-    if not has_index:
-        try:
-            logger.info(
-                f"Could not find index file for {bamFile}. Calling pysam.index()"
-            )
-            sam.index(bamFile)
-            has_index = True
-        except Exception as ex:
-            logger.warning(
-                f"Encountered the following exception\n{ex}\nCould not create index file for {bamFile}: is it sorted?"
-            )
-
-    return has_index
+    if not os.path.exists(alignmentFile):
+        raise FileNotFoundError(f"Could not find {alignmentFile}")
+    return bool(
+        ccounts.ccounts_checkAlignmentPath(
+            alignmentFile,
+            sourceKind="CRAM" if str(alignmentFile).lower().endswith(".cram") else "BAM",
+            buildIndex=True,
+        )
+    )
 
 
-def bamsArePairedEnd(bamFiles: List[str], maxReads: int = 1_000) -> List[bool]:
+def checkBamFile(bamFile: str) -> bool:
+    r"""Backward-compatible alias for alignment file checks"""
+
+    return checkAlignmentFile(bamFile)
+
+
+def alignmentFilesArePairedEnd(
+    alignmentFiles: List[str], maxReads: int = 1_000
+) -> List[bool]:
     """
-    Take a list of BAM files, return a list (bool) indicating whether
-    each BAM contains paired-end reads (True) or only single-end reads (False).
+    Take a list of alignment files, return a list indicating whether
+    each file contains paired-end reads
 
-    :param bamFiles: List of paths to BAM files
-    :type bamFiles: List[str]
-    :param maxReads: Maximum number of reads to check in each BAM file
+    :param alignmentFiles: List of paths to alignment files
+    :type alignmentFiles: List[str]
+    :param maxReads: Maximum number of reads to check in each file
     :type maxReads: int
-    :return: List of booleans corresponding to each BAM file
+    :return: List of booleans corresponding to each input file
     :rtype: List[bool]
     """
 
     results = []
-    for path in bamFiles:
-        paired = False
-        seen = 0
-        with sam.AlignmentFile(path, "rb") as bam:
-            for rec in bam.fetch(until_eof=True):
-                if rec.is_paired:
-                    paired = True
-                    break
-                seen += 1
-                if maxReads is not None and seen >= maxReads:
-                    break
-        results.append(paired)
+    for path in alignmentFiles:
+        results.append(
+            bool(
+                ccounts.ccounts_isAlignmentPairedEnd(
+                    path,
+                    maxReads=maxReads,
+                    sourceKind="CRAM" if str(path).lower().endswith(".cram") else "BAM",
+                )
+            )
+        )
     return results
+
+
+def bamsArePairedEnd(bamFiles: List[str], maxReads: int = 1_000) -> List[bool]:
+    r"""Backward-compatible alias for alignment file detection"""
+
+    return alignmentFilesArePairedEnd(bamFiles, maxReads=maxReads)
 
 
 def getChromSizesDict(
