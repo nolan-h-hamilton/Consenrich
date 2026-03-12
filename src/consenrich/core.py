@@ -323,9 +323,9 @@ class countingParams(NamedTuple):
       during IRLS for the local baseline computation. Using smaller values near `0.0` will downweight peaks more and reduce the
       risk of removing true signal. Typical range is ``(0, 0.75]``.
     :type asymPos: float, optional
-    :param logOffset: A small constant added to read normalized counts before log-transforming (pseudocount). For example,  :math:`\log(x + 1)` for ``logOffset = 1``. Default is ``1.0``.
+    :param logOffset: Constant added to normalized counts before the count-aware transform (pseudocount). The default transform is :math:`\mathrm{asinh}(x + \mathrm{offset})`, which handles zeros and small counts better than :math:`\log(1+x)` while matching :math:`\log(2x)` asymptotically. Default is ``1.0``.
     :type logOffset: float, optional
-    :param logMult: Multiplicative factor applied to log-scaled and normalized counts. For example, setting ``logMult = 1 / \log(2)`` will yield log2-scaled counts after transformation, and setting ``logMult = 1.0`` yields natural log-scaled counts.
+    :param logMult: Multiplicative factor applied after the transform. Default ``1.0`` yields asinh-scaled values; set to :math:`1/\log(2)` for log2-like scaling at large values.
     :type logMult: float, optional
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
