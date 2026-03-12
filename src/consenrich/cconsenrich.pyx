@@ -1646,6 +1646,14 @@ cpdef cEMA(cnp.ndarray x, double alpha):
 
 
 cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(1.0)):
+    r"""Count-aware monotonic transform: scale * asinh(x + offset).
+
+    Uses asinh instead of log for epigenomic count data:
+    - asinh is defined for all real x (handles zeros and negatives without clamping)
+    - More linear for small counts (better variance stabilization)
+    - Handles negative values (e.g. control-normalized) without special casing
+    - Matches log(2x) asymptotically for large x
+    """
     cdef cnp.ndarray[cnp.float64_t, ndim=1] arr = np.ascontiguousarray(x, dtype=np.float64)
     cdef Py_ssize_t n = arr.shape[0]
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
@@ -1656,7 +1664,7 @@ cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double
     cdef Py_ssize_t i
     cdef double xval, u
 
-    # scale * log(x + offset)
+    # scale * asinh(x + offset) -- count-aware default for epigenomic assays
     if offset_ <= 0.0:
         offset_ = 1.0
 
@@ -1664,9 +1672,7 @@ cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double
         for i in range(n):
             xval = arrView[i]
             u = xval + offset_
-            if u <= 0.0:
-                u = offset_ # keep defined if x has negatives
-            outView[i] = scale_ * log(u)
+            outView[i] = scale_ * asinh(u)
 
     return (out, -1.0)
 
