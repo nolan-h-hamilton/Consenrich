@@ -11,7 +11,7 @@ Consenrich Homepage
    examples
    modules
 
-Consenrich is a regularized state-space estimator for quantitative genome-wide signal tracks from multi-sample epigenomic HTS data.
+Consenrich infers consensus signal tracks from multiple noisy, sparse, and heterogeneous genomic signal tracks.
 
 .. image:: ../images/noise.png
   :alt: Simplified schematic of Consenrich

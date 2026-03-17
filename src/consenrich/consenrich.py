@@ -175,7 +175,7 @@ def _expandWildCards(pathList: List[str]) -> List[str]:
 def _inferSourceKind(path: str) -> str:
     lowerPath = str(path).lower()
     if lowerPath.endswith(".cram"):
-        return "CRAM"
+        raise ValueError("CRAM inputs are no longer supported.")
     if "fragments" in os.path.basename(lowerPath):
         return "FRAGMENTS"
     return "BAM"
@@ -189,46 +189,57 @@ def _normalizeSourceKind(sourceKind: Optional[str], path: str) -> str:
         if normalizedKind == "AUTO":
             normalizedKind = _inferSourceKind(path)
 
+    if normalizedKind == "CRAM":
+        raise ValueError("CRAM inputs are no longer supported.")
     if normalizedKind not in core.SUPPORTED_SOURCE_KINDS:
-        raise ValueError(
-            f"Unsupported source kind `{normalizedKind}` for `{path}`."
-        )
+        raise ValueError(f"Unsupported source kind `{normalizedKind}` for `{path}`.")
     return normalizedKind
 
 
 def _coerceInputSource(
     sourceConfig: Union[str, Mapping[str, Any]],
     defaultRole: str,
+    defaultBarcodeTag: str | None = None,
+    defaultFragmentCountMode: str | None = None,
+    defaultFragmentPositionsAreOffset: bool = True,
 ) -> core.inputSource:
     if isinstance(sourceConfig, str):
         path = sourceConfig
         sourceKind = None
         sampleName = None
         role = defaultRole
-        referenceFASTA = None
-        barcodeTag = None
+        barcodeTag = defaultBarcodeTag
         barcodeAllowListFile = None
         barcodeGroupMapFile = None
         selectGroups = None
         countMode = None
-        fragmentPositionsAreOffset = True
+        fragmentPositionsAreOffset = defaultFragmentPositionsAreOffset
     elif isinstance(sourceConfig, Mapping):
         path = str(sourceConfig.get("path", "")).strip()
         sourceKind = sourceConfig.get("format", sourceConfig.get("sourceKind", None))
         sampleName = sourceConfig.get("name", None)
         role = str(sourceConfig.get("role", defaultRole)).strip().lower()
-        referenceFASTA = sourceConfig.get(
-            "referenceFASTA",
-            sourceConfig.get("referenceFasta", None),
-        )
-        barcodeTag = sourceConfig.get("barcodeTag", None)
+        barcodeTag = sourceConfig.get("barcodeTag", defaultBarcodeTag)
         barcodeAllowListFile = sourceConfig.get("barcodeAllowListFile", None)
         barcodeGroupMapFile = sourceConfig.get("barcodeGroupMapFile", None)
         selectGroups = sourceConfig.get("selectGroups", None)
+        clusterId = sourceConfig.get("clusterId", None)
         countMode = sourceConfig.get("countMode", None)
         fragmentPositionsAreOffset = bool(
-            sourceConfig.get("fragmentPositionsAreOffset", True)
+            sourceConfig.get(
+                "fragmentPositionsAreOffset",
+                defaultFragmentPositionsAreOffset,
+            )
         )
+        if clusterId is not None and selectGroups is not None:
+            raise ValueError(
+                f"Use either `clusterId` or `selectGroups` for `{path}`, not both."
+            )
+        if clusterId is not None:
+            clusterId = str(clusterId).strip()
+            if not clusterId:
+                raise ValueError(f"`clusterId` must be non-empty for `{path}`.")
+            selectGroups = [clusterId]
     else:
         raise TypeError("Each input source must be a path string or a mapping.")
 
@@ -253,7 +264,6 @@ def _coerceInputSource(
         sourceKind=_normalizeSourceKind(sourceKind, normalizedPath),
         role=role,
         sampleName=sampleName,
-        referenceFASTA=referenceFASTA,
         barcodeTag=barcodeTag,
         barcodeAllowListFile=barcodeAllowListFile,
         barcodeGroupMapFile=barcodeGroupMapFile,
@@ -277,12 +287,13 @@ def _buildLegacyInputSources(pathList: List[str], role: str) -> List[core.inputS
 def _getSourceCountMode(
     source: core.inputSource,
     countEndsOnly: bool,
+    defaultFragmentCountMode: str = "cutsite",
 ) -> str:
     countMode = str(source.countMode or "").strip().lower()
     if countMode:
         return countMode
     if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-        return "cutsite"
+        return str(defaultFragmentCountMode).strip().lower()
     return "cutsite" if bool(countEndsOnly) else "coverage"
 
 
@@ -325,7 +336,9 @@ def _resolveDeltaFAutoParams(
         return deltaFFixed, False, deltaFFixed, deltaFFixed
 
     effectiveFragmentLengths: List[float] = []
-    for source, readLength, fragmentLength in zip(sources, readLengths, fragmentLengths):
+    for source, readLength, fragmentLength in zip(
+        sources, readLengths, fragmentLengths
+    ):
         sourceKind = str(source.sourceKind).upper()
         candidateLength = float(fragmentLength)
         if sourceKind == core.FRAGMENTS_SOURCE_KIND and float(readLength) > 0.0:
@@ -394,7 +407,6 @@ def getReadLengths(
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
                 sourceKind=str(source.sourceKind).upper(),
-                referenceFASTA=source.referenceFASTA,
             )
             for source in treatmentSources
         ]
@@ -450,6 +462,19 @@ def getEffectiveGenomeSizes(
 
 def getInputArgs(config_path: str) -> core.inputParams:
     configData = loadConfig(config_path)
+    defaultBarcodeTag = _cfgGet(configData, "scParams.barcodeTag", "CB")
+    defaultFragmentCountMode = _cfgGet(
+        configData,
+        "scParams.defaultCountMode",
+        "cutsite",
+    )
+    defaultFragmentPositionsAreOffset = bool(
+        _cfgGet(
+            configData,
+            "scParams.fragmentPositionsAreOffset",
+            True,
+        )
+    )
 
     sampleConfigs = _cfgGet(configData, "inputParams.samples", None)
     treatmentSources: List[core.inputSource]
@@ -458,7 +483,13 @@ def getInputArgs(config_path: str) -> core.inputParams:
         if not isinstance(sampleConfigs, list) or len(sampleConfigs) == 0:
             raise ValueError("`inputParams.samples` must be a non-empty list.")
         allSources = [
-            _coerceInputSource(sourceConfig, defaultRole="treatment")
+            _coerceInputSource(
+                sourceConfig,
+                defaultRole="treatment",
+                defaultBarcodeTag=defaultBarcodeTag,
+                defaultFragmentCountMode=defaultFragmentCountMode,
+                defaultFragmentPositionsAreOffset=defaultFragmentPositionsAreOffset,
+            )
             for sourceConfig in sampleConfigs
         ]
         treatmentSources = [
@@ -469,7 +500,9 @@ def getInputArgs(config_path: str) -> core.inputParams:
         ]
     else:
         bamFilesRaw = _cfgGet(configData, "inputParams.bamFiles", []) or []
-        bamFilesControlRaw = _cfgGet(configData, "inputParams.bamFilesControl", []) or []
+        bamFilesControlRaw = (
+            _cfgGet(configData, "inputParams.bamFilesControl", []) or []
+        )
         treatmentSources = _buildLegacyInputSources(bamFilesRaw, role="treatment")
         controlSources = _buildLegacyInputSources(
             bamFilesControlRaw,
@@ -649,6 +682,7 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
             for chromName in chromosomesList
             if chromName not in excludeChromsList
         ]
+    chromosomesList = list(dict.fromkeys(chromosomesList))
     if not chromosomesList:
         raise ValueError(
             "No valid chromosomes found after excluding specified chromosomes."
@@ -776,10 +810,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     fragmentsGroupNorm_ = _cfgGet(
         configData,
         "countingParams.fragmentsGroupNorm",
-        "NONE",
+        _cfgGet(configData, "scParams.fragmentsGroupNorm", "NONE"),
     )
     if str(fragmentsGroupNorm_).upper() not in ["NONE", "CELLS"]:
-        raise ValueError("`countingParams.fragmentsGroupNorm` must be `NONE` or `CELLS`.")
+        raise ValueError(
+            "`countingParams.fragmentsGroupNorm` must be `NONE` or `CELLS`."
+        )
 
     fragmentLengths: Optional[List[int]] = _cfgGet(
         configData,
@@ -840,7 +876,6 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.logMult",
         1.0,
     )
-
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
         backgroundBlockSizeBP=backgroundBlockSizeBP_,
@@ -857,6 +892,53 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         asymPos=asymPos_,
         logOffset=logOffset_,
         logMult=logMult_,
+    )
+
+
+def getScArgs(config_path: str) -> core.scParams:
+    configData = loadConfig(config_path)
+
+    barcodeTag_ = _cfgGet(configData, "scParams.barcodeTag", "CB")
+    defaultCountMode_ = _cfgGet(
+        configData,
+        "scParams.defaultCountMode",
+        "cutsite",
+    )
+    if str(defaultCountMode_).strip().lower() not in [
+        "coverage",
+        "cov",
+        "cutsite",
+        "cut",
+        "cutsites",
+        "fiveprime",
+        "5p",
+        "five_prime",
+        "center",
+        "centre",
+        "midpoint",
+    ]:
+        raise ValueError("`scParams.defaultCountMode` is not supported.")
+
+    fragmentsGroupNorm_ = _cfgGet(
+        configData,
+        "scParams.fragmentsGroupNorm",
+        _cfgGet(configData, "countingParams.fragmentsGroupNorm", "NONE"),
+    )
+    if str(fragmentsGroupNorm_).upper() not in ["NONE", "CELLS"]:
+        raise ValueError("`scParams.fragmentsGroupNorm` must be `NONE` or `CELLS`.")
+
+    fragmentPositionsAreOffset_ = bool(
+        _cfgGet(
+            configData,
+            "scParams.fragmentPositionsAreOffset",
+            True,
+        )
+    )
+    return core.scParams(
+        barcodeTag=barcodeTag_,
+        defaultCountMode=defaultCountMode_,
+        fragmentsGroupNorm=fragmentsGroupNorm_,
+        fragmentPositionsAreOffset=fragmentPositionsAreOffset_,
     )
 
 
@@ -942,6 +1024,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     stateParams = getStateArgs(config_path)
     countingParams = getCountingArgs(config_path)
+    scArgs = getScArgs(config_path)
     matchingExcludeRegionsFileDefault: Optional[str] = genomeParams.blacklistFile
     experimentName = _cfgGet(configData, "experimentName", "consenrichExperiment")
     processArgs = core.processParams(
@@ -997,8 +1080,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_scaleToMedian=_cfgGet(configData, "fitParams.EM_scaleToMedian", False),
         EM_tNu=_cfgGet(configData, "fitParams.EM_tNu", 10.0),
         EM_alphaEMA=_cfgGet(configData, "fitParams.EM_alphaEMA", 0.1),
-        EM_scaleLOW=_cfgGet(configData, "fitParams.EM_scaleLOW", 0.1),
-        EM_scaleHIGH=_cfgGet(configData, "fitParams.EM_scaleHIGH", 10.0),
+        EM_scaleLOW=_cfgGet(configData, "fitParams.EM_scaleLOW", 0.5),
+        EM_scaleHIGH=_cfgGet(configData, "fitParams.EM_scaleHIGH", 4.0),
         EM_useObsBlockScale=_cfgGet(
             configData,
             "fitParams.EM_useObsBlockScale",
@@ -1037,7 +1120,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_repScaleLOW=_cfgGet(
             configData,
             "fitParams.EM_repScaleLOW",
-            0.25,  # genome-wide scale applied during EM (as opposed to interval-level, block level)
+            0.5,  # genome-wide scale applied during EM (as opposed to interval-level, block level)
         ),
         EM_repScaleHIGH=_cfgGet(
             configData,
@@ -1180,6 +1263,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "matchingParams.methodFDR",
             None,
         ),
+        useSplitEmpiricalNull=_cfgGet(
+            configData,
+            "matchingParams.useSplitEmpiricalNull",
+            False,
+        ),
     )
 
     return {
@@ -1188,6 +1276,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "inputArgs": inputParams,
         "outputArgs": outputParams,
         "countingArgs": countingParams,
+        "scArgs": scArgs,
         "processArgs": processArgs,
         "plotArgs": plotArgs,
         "observationArgs": observationArgs,
@@ -1426,6 +1515,12 @@ def main():
         dest="matchMethodFDR",
         help="Method for FDR correction of p-values, e.g., 'BH'",
     )
+    parser.add_argument(
+        "--match-use-split-null",
+        action="store_true",
+        dest="matchUseSplitEmpiricalNull",
+        help="If set, augment the pooled empirical null with blocked held-out fold nulls",
+    )
     parser.add_argument("--verbose", action="store_true", help="If set, logs config")
     parser.add_argument(
         "--verbose2",
@@ -1463,6 +1558,7 @@ def main():
             merge=True,  # always merge for CLI use -- either way, both files produced
             massQuantileCutoff=args.matchMassQuantileCutoff,
             methodFDR=args.matchMethodFDR,
+            useSplitEmpiricalNull=args.matchUseSplitEmpiricalNull,
         )
         logger.info(f"Finished matching. Written to {outName}")
         sys.exit(0)
@@ -1485,6 +1581,7 @@ def main():
     inputArgs = config["inputArgs"]
     outputArgs = config["outputArgs"]
     countingArgs = config["countingArgs"]
+    scArgs = config["scArgs"]
     processArgs = config["processArgs"]
     observationArgs = config["observationArgs"]
     stateArgs = config["stateArgs"]
@@ -1495,7 +1592,9 @@ def main():
     treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
     controlSources = _listOrEmpty(getattr(inputArgs, "controlSources", None))
     if not treatmentSources:
-        treatmentSources = _buildLegacyInputSources(inputArgs.bamFiles, role="treatment")
+        treatmentSources = _buildLegacyInputSources(
+            inputArgs.bamFiles, role="treatment"
+        )
     if not controlSources:
         controlSources = _buildLegacyInputSources(
             _listOrEmpty(inputArgs.bamFilesControl),
@@ -1545,6 +1644,7 @@ def main():
             config_truncated["outputArgs"] = outputArgs
             config_truncated["genomeArgs"] = genomeArgs
             config_truncated["countingArgs"] = countingArgs
+            config_truncated["scArgs"] = scArgs
             config_truncated["processArgs"] = processArgs
             config_truncated["observationArgs"] = observationArgs
             config_truncated["stateArgs"] = stateArgs
@@ -1581,9 +1681,8 @@ def main():
         )
         normMethod_ = "CPM"
     for source in treatmentSources + controlSources:
-        if (
-            str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND
-            and not bool(source.fragmentPositionsAreOffset)
+        if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND and not bool(
+            source.fragmentPositionsAreOffset
         ):
             logger.warning(
                 f"Fragments source `{source.path}` is marked as not pre-offset but fragments inputs are assumed to already contain Tn5-adjusted insertion positions"
@@ -1591,11 +1690,19 @@ def main():
     readLengthsBamFiles = getReadLengths(inputArgs, countingArgs, samArgs)
     effectiveGenomeSizes = getEffectiveGenomeSizes(genomeArgs, readLengthsBamFiles)
     treatmentCountModes = [
-        _getSourceCountMode(source, bool(samArgs.countEndsOnly))
+        _getSourceCountMode(
+            source,
+            bool(samArgs.countEndsOnly),
+            str(scArgs.defaultCountMode or "cutsite"),
+        )
         for source in treatmentSources
     ]
     controlCountModes = [
-        _getSourceCountMode(source, bool(samArgs.countEndsOnly))
+        _getSourceCountMode(
+            source,
+            bool(samArgs.countEndsOnly),
+            str(scArgs.defaultCountMode or "cutsite"),
+        )
         for source in controlSources
     ]
     treatmentAllowLists, treatmentSelectedCellCounts, treatmentNormTempPaths = (
@@ -1643,7 +1750,6 @@ def main():
                     samArgs.samThreads,
                     samArgs.samFlagExclude,
                     sourceKind=str(source.sourceKind).upper(),
-                    referenceFASTA=source.referenceFASTA,
                 )
                 for source in controlSources
             ]
@@ -1696,12 +1802,11 @@ def main():
                             genomeArgs.chromSizesFile,
                             samArgs.samThreads,
                             sourceKind=str(source.sourceKind).upper(),
-                            referenceFASTA=source.referenceFASTA,
                             barcodeAllowListFile=barcodeAllowListPath,
                             countMode=countMode,
                             oneReadPerBin=samArgs.oneReadPerBin,
                             groupCellCount=groupCellCount,
-                            fragmentsGroupNorm=countingArgs.fragmentsGroupNorm,
+                            fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                         )
                         for source, effectiveGenomeSize, readLength, barcodeAllowListPath, countMode, groupCellCount in zip(
                             treatmentSources,
@@ -1731,8 +1836,6 @@ def main():
                         fixControl=countingArgs.fixControl,
                         sourceKindA=str(sourceA.sourceKind).upper(),
                         sourceKindB=str(sourceB.sourceKind).upper(),
-                        referenceFASTAA=sourceA.referenceFASTA,
-                        referenceFASTAB=sourceB.referenceFASTA,
                         barcodeAllowListFileA=barcodeAllowListPathA,
                         barcodeAllowListFileB=barcodeAllowListPathB,
                         countModeA=countModeA,
@@ -1740,7 +1843,7 @@ def main():
                         oneReadPerBin=samArgs.oneReadPerBin,
                         groupCellCountA=groupCellCountA,
                         groupCellCountB=groupCellCountB,
-                        fragmentsGroupNorm=countingArgs.fragmentsGroupNorm,
+                        fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
                     for sourceA, sourceB, effectiveGenomeSizeA, effectiveGenomeSizeB, readLengthA, readLengthB, barcodeAllowListPathA, barcodeAllowListPathB, countModeA, countModeB, groupCellCountA, groupCellCountB in zip(
                         treatmentSources,
@@ -1775,12 +1878,11 @@ def main():
                         excludeForNorm,
                         intervalSizeBP,
                         sourceKind=str(source.sourceKind).upper(),
-                        referenceFASTA=source.referenceFASTA,
                         barcodeAllowListFile=barcodeAllowListPath,
                         countMode=countMode,
                         oneReadPerBin=samArgs.oneReadPerBin,
                         groupCellCount=groupCellCount,
-                        fragmentsGroupNorm=countingArgs.fragmentsGroupNorm,
+                        fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
                     for source, barcodeAllowListPath, countMode, groupCellCount in zip(
                         treatmentSources,
@@ -1799,12 +1901,11 @@ def main():
                         genomeArgs.chromSizesFile,
                         samArgs.samThreads,
                         sourceKind=str(source.sourceKind).upper(),
-                        referenceFASTA=source.referenceFASTA,
                         barcodeAllowListFile=barcodeAllowListPath,
                         countMode=countMode,
                         oneReadPerBin=samArgs.oneReadPerBin,
                         groupCellCount=groupCellCount,
-                        fragmentsGroupNorm=countingArgs.fragmentsGroupNorm,
+                        fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
                     for source, effectiveGenomeSize, readLength, barcodeAllowListPath, countMode, groupCellCount in zip(
                         treatmentSources,
@@ -1824,12 +1925,14 @@ def main():
             except OSError:
                 pass
 
-    deltaFCenter_, autoDeltaF_, autoDeltaFLow_, autoDeltaFHigh_ = _resolveDeltaFAutoParams(
-        deltaF_,
-        intervalSizeBP,
-        treatmentSources,
-        readLengthsBamFiles,
-        fragmentLengthsTreatment,
+    deltaFCenter_, autoDeltaF_, autoDeltaFLow_, autoDeltaFHigh_ = (
+        _resolveDeltaFAutoParams(
+            deltaF_,
+            intervalSizeBP,
+            treatmentSources,
+            readLengthsBamFiles,
+            fragmentLengthsTreatment,
+        )
     )
     if autoDeltaF_:
         logger.info(
@@ -1855,7 +1958,6 @@ def main():
             samArgs.samThreads,
             samArgs.samFlagExclude,
             sourceKinds=[str(source.sourceKind).upper() for source in treatmentSources],
-            referenceFASTAs=[source.referenceFASTA for source in treatmentSources],
         )
         chromosomeStart = max(0, (chromosomeStart - (chromosomeStart % intervalSizeBP)))
         chromosomeEnd = max(0, (chromosomeEnd - (chromosomeEnd % intervalSizeBP)))
@@ -2332,6 +2434,7 @@ def main():
                 merge=matchingArgs.merge,
                 massQuantileCutoff=matchingArgs.massQuantileCutoff,
                 methodFDR=matchingArgs.methodFDR,
+                useSplitEmpiricalNull=matchingArgs.useSplitEmpiricalNull,
             )
 
             logger.info(f"Finished matching. Written to {outName}")

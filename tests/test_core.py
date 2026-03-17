@@ -143,6 +143,44 @@ def testMatchWaveletGlobalFallbackRetainsCandidates():
     assert float(df["signal"].max()) >= 6.0
 
 
+@pytest.mark.matching
+def testMatchWaveletSplitEmpiricalNullIsOptional():
+    intervals = np.arange(0, 1000, 10, dtype=int)
+    values = np.zeros(intervals.size, dtype=float)
+    values[18:25] = np.array([0.0, 2.0, 5.0, 8.0, 5.0, 2.0, 0.0], dtype=float)
+    values[58:65] = np.array([0.0, 1.5, 4.0, 7.0, 4.0, 1.5, 0.0], dtype=float)
+
+    dfGlobal, _ = matching.matchWavelet(
+        chromosome="chr1",
+        intervals=intervals,
+        values=values,
+        templateNames=["haar"],
+        cascadeLevels=[3],
+        iters=1000,
+        alpha=1.0,
+        minMatchLengthBP=40,
+        minSignalAtMaxima=-1,
+        randSeed=42,
+    )
+    dfSplit, _ = matching.matchWavelet(
+        chromosome="chr1",
+        intervals=intervals,
+        values=values,
+        templateNames=["haar"],
+        cascadeLevels=[3],
+        iters=1000,
+        alpha=1.0,
+        minMatchLengthBP=40,
+        minSignalAtMaxima=-1,
+        randSeed=42,
+        useSplitEmpiricalNull=True,
+    )
+
+    assert len(dfGlobal) >= 1
+    assert len(dfSplit) >= 1
+    assert set(dfGlobal.columns) == set(dfSplit.columns)
+
+
 @pytest.mark.correctness
 def testZeroCenteredBackgroundUpdate():
     x = np.linspace(-1.0, 1.0, 64, dtype=np.float32)
@@ -356,6 +394,43 @@ def testReadSegmentsFragmentsDefaultToCutSites():
     )
 
     assert np.allclose(counts[0], np.array([2.0, 2.0], dtype=np.float32))
+
+
+@pytest.mark.correctness
+def testReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
+    gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
+    allowListPath = tmp_path / "allow_AB.txt"
+    allowListPath.write_text("BC_A\nBC_B\n", encoding="ascii")
+
+    expectedByMode = {
+        "coverage": np.array([2.0, 5.0, 4.0, 3.0], dtype=np.float32),
+        "cutsite": np.array([2.0, 6.0, 4.0, 4.0], dtype=np.float32),
+        "center": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
+    }
+
+    for countMode, expected in expectedByMode.items():
+        counts = core.readSegments(
+            sources=[
+                core.inputSource(
+                    path=str(gzPath),
+                    sourceKind="FRAGMENTS",
+                    barcodeAllowListFile=str(allowListPath),
+                    countMode=countMode,
+                )
+            ],
+            chromosome="chr1",
+            start=0,
+            end=40,
+            intervalSizeBP=10,
+            readLengths=[1],
+            scaleFactors=[1.0],
+            oneReadPerBin=0,
+            samThreads=1,
+            samFlagExclude=0,
+            fragmentLengths=[0],
+        )
+
+        assert np.allclose(counts[0], expected), countMode
 
 
 @pytest.mark.correctness

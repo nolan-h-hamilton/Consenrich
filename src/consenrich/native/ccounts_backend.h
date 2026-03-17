@@ -12,8 +12,7 @@ extern "C"
     typedef enum ccounts_sourceKind
     {
         ccounts_sourceKindBAM = 0,
-        ccounts_sourceKindCRAM = 1,
-        ccounts_sourceKindFragments = 2
+        ccounts_sourceKindFragments = 1
     } ccounts_sourceKind;
 
     typedef enum ccounts_countMode
@@ -27,13 +26,12 @@ extern "C"
     /**
      * @brief input source-specific configuration
      *
-     * describes one BAM, CRAM, or fragments input plus fasta ref, barcode filter, etc.
+     * describes one BAM or fragments input plus barcode filter state
      */
     typedef struct ccounts_sourceConfig
     {
         const char *path;
         ccounts_sourceKind sourceKind;
-        const char *referenceFASTA;
         const char *barcodeTag;
         const char *barcodeAllowListFile;
         const char *barcodeGroupMapFile;

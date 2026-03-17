@@ -13,7 +13,10 @@
 #include <string.h>
 
 /**
- * @brief Structure for both alignment file input _and_ sc-ATAC fragments file input with tabix index + barcode filtering allowlist
+ * @brief native handle for one open source
+ *
+ * keeps the htslib state for either alignments
+ * or tabix fragments, plus any loaded allowlist
  */
 struct ccounts_sourceHandle
 {
@@ -49,7 +52,7 @@ static int ccounts_hasValue(const char *value)
 
 static int ccounts_isAlignmentKind(ccounts_sourceKind sourceKind)
 {
-    return sourceKind == ccounts_sourceKindBAM || sourceKind == ccounts_sourceKindCRAM;
+    return sourceKind == ccounts_sourceKindBAM;
 }
 
 static int ccounts_compareUint32(const void *left, const void *right)
@@ -145,11 +148,6 @@ static ccounts_result ccounts_applySourceConfig(
     if (threadCount > 1 && hts_set_threads((htsFile *)fileHandle, threadCount) != 0)
     {
         return ccounts_makeResult(-1, "failed to set htslib thread count");
-    }
-    if (ccounts_hasValue(sourceConfig->referenceFASTA) &&
-        hts_set_fai_filename((htsFile *)fileHandle, sourceConfig->referenceFASTA) != 0)
-    {
-        return ccounts_makeResult(-1, "failed to set CRAM reference fasta");
     }
     return ccounts_makeOk();
 }
@@ -263,6 +261,7 @@ static ccounts_result ccounts_loadBarcodeAllowList(
     fclose(allowListFile);
     if (barcodeAllowCount > 1)
     {
+        // keep allowlist sorted so membership checks stay cheap
         qsort(
             barcodeAllowList,
             (size_t)barcodeAllowCount,
@@ -297,7 +296,7 @@ static int ccounts_barcodeAllowed(
     {
         return 1;
     }
-    // allow list is _sorted_, so quick access via binary search
+    // allowlist stays sorted so this can stay a binary search
     while (low <= high)
     {
         mid = low + ((high - low) / 2);
@@ -401,6 +400,7 @@ static ccounts_result ccounts_openFragmentsSource(
         return ccounts_makeResult(-1, "failed to open fragments source");
     }
 
+    // note, fragments support expects a bgzip file plus tabix index
     sourceHandle->tbxHandle = tbx_index_load(sourceConfig->path);
     if (sourceHandle->tbxHandle == NULL)
     {
@@ -449,7 +449,7 @@ static ccounts_result ccounts_openAlignmentFile(
     }
     if (!ccounts_isAlignmentKind(sourceConfig->sourceKind))
     {
-        return ccounts_makeResult(-1, "source kind is not BAM or CRAM");
+        return ccounts_makeResult(-1, "source kind is not BAM");
     }
 
     fileHandle = sam_open(sourceConfig->path, "r");
@@ -657,6 +657,7 @@ ccounts_result ccounts_getReadLength(
 
     if (!ccounts_isAlignmentKind(sourceConfig->sourceKind))
     {
+        // fragments -- FFR: check if necessary
         kstring_t lineBuffer = {0, 0, NULL};
         htsFile *fragmentsHandle = NULL;
         int iteratorCode = 0;
@@ -825,6 +826,9 @@ ccounts_result ccounts_getReadLength(
     return ccounts_makeOk();
 }
 
+/**
+ * @brief get the start and end coordinates of the region covered by alignments/fragments on a contig
+ */
 ccounts_result ccounts_getChromRange(
     const ccounts_sourceConfig *sourceConfig,
     const char *chromosome,
@@ -1119,7 +1123,8 @@ ccounts_result ccounts_getMappedReadCount(
             {
                 continue;
             }
-            // emitted count matches the signal actually written downstream
+            // if the fragment count is missing or malformed, assume it's a single read
+            // if its present, use it to scale the read count
             emittedCount = (uint64_t)(fragmentCount > 0 ? fragmentCount : 1);
             if (!oneReadPerBin &&
                 ((ccounts_countMode)countMode == ccounts_countModeCutSite ||
@@ -1183,6 +1188,9 @@ ccounts_result ccounts_getMappedReadCount(
     return ccounts_makeOk();
 }
 
+/**
+ * @brief get the number of unique cell barcodes observed in a tabix/fragments file
+ */
 ccounts_result ccounts_getCellCount(
     const ccounts_sourceConfig *sourceConfig,
     uint64_t *cellCountOut)
@@ -1226,7 +1234,7 @@ ccounts_result ccounts_getCellCount(
         ccounts_closeSource(sourceHandle);
         return ccounts_makeResult(-1, "failed to initialize barcode set");
     }
-
+    // iterate through the fragments file, collect allowed barcodes
     while ((iteratorCode = hts_getline(sourceHandle->fragmentsHandle, '\n', &lineBuffer)) >= 0)
     {
         cursor = lineBuffer.s;
@@ -1247,6 +1255,7 @@ ccounts_result ccounts_getCellCount(
                 barcodeLength = fieldLength;
                 break;
             }
+            // move after hitting barcode
             if (*cursor == '\t')
             {
                 ++cursor;
@@ -1286,6 +1295,7 @@ ccounts_result ccounts_getCellCount(
                 ccounts_closeSource(sourceHandle);
                 return ccounts_makeResult(-1, "failed to store barcode value");
             }
+            // keep only distinct allowed barcodes
             barcodeIndex = kh_put(ccounts_barcodeSet, barcodeSet, barcodeCopy, &absent);
             if (absent < 0)
             {
@@ -1355,6 +1365,7 @@ ccounts_result ccounts_openSource(
     }
     sourceHandle->sourceKind = sourceConfig->sourceKind;
 
+    // open once here so repeated region work can reuse the same handle
     if (ccounts_isAlignmentKind(sourceConfig->sourceKind))
     {
         result = ccounts_openAlignmentFile(sourceConfig, 0, &sourceHandle->fileHandle, &sourceHandle->header);
@@ -1407,6 +1418,9 @@ void ccounts_closeSource(ccounts_sourceHandle *sourceHandle)
     free(sourceHandle);
 }
 
+/**
+ * @ brief Count coverage for a specified region and options, writing to countBuffer
+ */
 ccounts_result ccounts_countRegion(
     ccounts_sourceHandle *sourceHandle,
     const ccounts_region *region,
@@ -1473,6 +1487,7 @@ ccounts_result ccounts_countRegion(
         {
             return ccounts_makeResult(-1, "failed to allocate fragments region string");
         }
+        // tabix queries use 1-based closed coordinates
         snprintf(
             regionString,
             regionStringLength,
@@ -1487,7 +1502,7 @@ ccounts_result ccounts_countRegion(
             return ccounts_makeResult(-1, "failed to open fragments region iterator");
         }
 
-        // O(numFragments + numBins) via a counting array and a delta array (rather than previous O(numFragments * numBins) naive iteration)
+        // use a delta buffer so span coverage stays linear in fragments plus bins
         deltaBuffer = (float *)calloc(countBufferLength + 1U, sizeof(float));
         if (deltaBuffer == NULL)
         {
@@ -1557,6 +1572,7 @@ ccounts_result ccounts_countRegion(
             if ((ccounts_countMode)countOptions->countMode == ccounts_countModeCenter ||
                 countOptions->oneReadPerBin)
             {
+                // oneReadPerBin --> fragments marked by their center
                 midPoint = (fragStart + fragEnd) / 2;
                 if (midPoint < start64 || midPoint >= end64)
                 {

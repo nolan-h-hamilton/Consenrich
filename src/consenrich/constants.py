@@ -82,7 +82,6 @@ EFFECTIVE_GENOME_SIZES = {
     },
 }
 
-
 def resolveGenomeName(genome: str) -> str:
     r"""Standardize the genome name for consistency
     :param genome: Name of the genome. See :class:`consenrich.core.genomeParams`.

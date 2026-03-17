@@ -6,6 +6,7 @@ import consenrich.consenrich as consenrich
 import consenrich.constants as constants
 import consenrich.misc_util as misc_util
 import types
+import gzip
 
 
 class stopAfterResolve(Exception):
@@ -159,6 +160,25 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
     assert matchingDotted.templateNames == matchingNested.templateNames
 
 
+def test_readConfigDeduplicatesChromosomes(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    genomeParams.chromosomes: [chr1, chr2, chr1, chr2, chr3]
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_dedup.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+
+    assert configParsed["genomeArgs"].chromosomes == ["chr1", "chr2", "chr3"]
+
+
 def test_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
@@ -207,6 +227,112 @@ def test_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
     assert inputArgs.treatmentSources[1].fragmentPositionsAreOffset is False
     assert configParsed["countingArgs"].normMethod == "CPM"
     assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
+
+
+def test_readConfigScParamsProvideFragmentsDefaults(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    fragmentsPath = tmp_path / "smallTest.fragments.tsv.gz"
+    fragmentsPath.write_text("", encoding="utf-8")
+
+    configYaml = f"""
+    experimentName: sampleExperiment
+    inputParams:
+      samples:
+        - path: {fragmentsPath}
+          format: fragments
+          role: treatment
+    genomeParams.name: testGenome
+    scParams.defaultCountMode: center
+    scParams.fragmentsGroupNorm: CELLS
+    scParams.fragmentPositionsAreOffset: false
+    scParams.barcodeTag: CR
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_sc_defaults.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+    source = configParsed["inputArgs"].treatmentSources[0]
+
+    assert source.countMode is None
+    assert source.fragmentPositionsAreOffset is False
+    assert source.barcodeTag == "CR"
+    assert configParsed["scArgs"].defaultCountMode == "center"
+    assert configParsed["scArgs"].fragmentsGroupNorm == "CELLS"
+    assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
+
+
+def test_readConfigAcceptsClusterIdAlias(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    fragmentsPath = tmp_path / "smallTest.fragments.tsv.gz"
+    fragmentsPath.write_text("", encoding="utf-8")
+    groupMapPath = tmp_path / "groups.tsv"
+    groupMapPath.write_text("BC_A\tclusterA\n", encoding="utf-8")
+
+    configYaml = f"""
+    experimentName: sampleExperiment
+    inputParams:
+      samples:
+        - path: {fragmentsPath}
+          format: fragments
+          role: treatment
+          barcodeGroupMapFile: {groupMapPath}
+          clusterId: clusterA
+    genomeParams.name: testGenome
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_cluster_id.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+    source = configParsed["inputArgs"].treatmentSources[0]
+
+    assert source.selectGroups == ["clusterA"]
+
+
+def test_readConfigMatchingDefaultsToGlobalEmpiricalNull(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_matching_default.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+
+    assert configParsed["matchingArgs"].useSplitEmpiricalNull is False
+
+
+def test_readConfigRejectsCRAMSources(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams:
+      samples:
+        - path: sample.cram
+          format: cram
+          role: treatment
+    genomeParams:
+      name: hg38
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_cram.yaml", configYaml)
+    with pytest.raises(ValueError, match="CRAM inputs are no longer supported"):
+        readConfig(str(configPath))
+
+
 
 
 def test_sortBedGraphInPlace(tmp_path):

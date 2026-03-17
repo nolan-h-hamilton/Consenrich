@@ -33,7 +33,6 @@ def getScaleFactor1x(
     chromSizesFile: str,
     samThreads: int,
     sourceKind: str | None = None,
-    referenceFASTA: str | None = None,
     barcodeAllowListFile: str | None = None,
     countMode: str | None = None,
     oneReadPerBin: int = 0,
@@ -68,7 +67,9 @@ def getScaleFactor1x(
                 continue
             effectiveGenomeSize -= chromSizes[chrom]
     if sourceKind is None:
-        sourceKind = "CRAM" if str(bamFile).lower().endswith(".cram") else "BAM"
+        if str(bamFile).lower().endswith(".cram"):
+            raise ValueError("CRAM inputs are no longer supported.")
+        sourceKind = "BAM"
     sourceKind = str(sourceKind).upper()
     if sourceKind == "FRAGMENTS":
         raise ValueError(
@@ -80,7 +81,6 @@ def getScaleFactor1x(
         excludeChromosomes=excludeChroms,
         threadCount=samThreads,
         sourceKind=sourceKind,
-        referenceFASTA=referenceFASTA or "",
         barcodeAllowListFile=barcodeAllowListFile or "",
         countMode=countMode or "coverage",
         oneReadPerBin=oneReadPerBin,
@@ -98,7 +98,6 @@ def getScaleFactorPerMillion(
     excludeChroms: List[str],
     intervalSizeBP: int,
     sourceKind: str | None = None,
-    referenceFASTA: str | None = None,
     barcodeAllowListFile: str | None = None,
     countMode: str | None = None,
     oneReadPerBin: int = 0,
@@ -117,13 +116,14 @@ def getScaleFactorPerMillion(
     if not os.path.exists(bamFile):
         raise FileNotFoundError(f"BAM file {bamFile} does not exist.")
     if sourceKind is None:
-        sourceKind = "CRAM" if str(bamFile).lower().endswith(".cram") else "BAM"
+        if str(bamFile).lower().endswith(".cram"):
+            raise ValueError("CRAM inputs are no longer supported.")
+        sourceKind = "BAM"
     sourceKind = str(sourceKind).upper()
     totalMappedReads, _ = ccounts.ccounts_getAlignmentMappedReadCount(
         bamFile,
         excludeChromosomes=excludeChroms,
         sourceKind=sourceKind,
-        referenceFASTA=referenceFASTA or "",
         barcodeAllowListFile=barcodeAllowListFile or "",
         countMode=countMode or "coverage",
         oneReadPerBin=oneReadPerBin,
@@ -158,8 +158,6 @@ def getPairScaleFactors(
     fixControl: bool = True,
     sourceKindA: str | None = None,
     sourceKindB: str | None = None,
-    referenceFASTAA: str | None = None,
-    referenceFASTAB: str | None = None,
     barcodeAllowListFileA: str | None = None,
     barcodeAllowListFileB: str | None = None,
     countModeA: str | None = None,
@@ -202,7 +200,6 @@ def getPairScaleFactors(
             excludeChroms,
             intervalSizeBP,
             sourceKind=sourceKindA,
-            referenceFASTA=referenceFASTAA,
             barcodeAllowListFile=barcodeAllowListFileA,
             countMode=countModeA,
             oneReadPerBin=oneReadPerBin,
@@ -214,7 +211,6 @@ def getPairScaleFactors(
             excludeChroms,
             intervalSizeBP,
             sourceKind=sourceKindB,
-            referenceFASTA=referenceFASTAB,
             barcodeAllowListFile=barcodeAllowListFileB,
             countMode=countModeB,
             oneReadPerBin=oneReadPerBin,
@@ -230,7 +226,6 @@ def getPairScaleFactors(
             chromSizesFile,
             samThreads,
             sourceKind=sourceKindA,
-            referenceFASTA=referenceFASTAA,
             barcodeAllowListFile=barcodeAllowListFileA,
             countMode=countModeA,
             oneReadPerBin=oneReadPerBin,
@@ -245,7 +240,6 @@ def getPairScaleFactors(
             chromSizesFile,
             samThreads,
             sourceKind=sourceKindB,
-            referenceFASTA=referenceFASTAB,
             barcodeAllowListFile=barcodeAllowListFileB,
             countMode=countModeB,
             oneReadPerBin=oneReadPerBin,

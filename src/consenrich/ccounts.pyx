@@ -13,7 +13,6 @@ cnp.import_array()
 cdef extern from "native/ccounts_backend.h":
     ctypedef enum ccounts_sourceKind:
         ccounts_sourceKindBAM
-        ccounts_sourceKindCRAM
         ccounts_sourceKindFragments
 
     ctypedef enum ccounts_countMode:
@@ -25,7 +24,6 @@ cdef extern from "native/ccounts_backend.h":
     ctypedef struct ccounts_sourceConfig:
         const char* path
         ccounts_sourceKind sourceKind
-        const char* referenceFASTA
         const char* barcodeTag
         const char* barcodeAllowListFile
         const char* barcodeGroupMapFile
@@ -127,8 +125,6 @@ cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):
     cdef str normalizedKind = str(sourceKind).strip().upper()
     if normalizedKind == "BAM":
         return ccounts_sourceKindBAM
-    if normalizedKind == "CRAM":
-        return ccounts_sourceKindCRAM
     if normalizedKind == "FRAGMENTS":
         return ccounts_sourceKindFragments
     raise ValueError(f"Unsupported source kind `{sourceKind}`")
@@ -137,7 +133,6 @@ cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):
 cdef ccounts_sourceConfig _makeSourceConfig(
     bytes pathBytes,
     str sourceKind,
-    bytes referenceBytes,
     bytes barcodeAllowListBytes=b"",
     bytes barcodeGroupMapBytes=b"",
 ):
@@ -145,10 +140,7 @@ cdef ccounts_sourceConfig _makeSourceConfig(
     # keep byte strings for the duration of wrapper calls
     sourceConfig.path = pathBytes
     sourceConfig.sourceKind = _getSourceKindCode(sourceKind)
-    if len(referenceBytes) > 0:
-        sourceConfig.referenceFASTA = referenceBytes
-    else:
-        sourceConfig.referenceFASTA = NULL
+    # barcode tags are handled in the higher-level alignment path for now
     sourceConfig.barcodeTag = NULL
     if len(barcodeAllowListBytes) > 0:
         sourceConfig.barcodeAllowListFile = barcodeAllowListBytes
@@ -185,16 +177,13 @@ cdef void _raiseIfError(ccounts_result result):
 cpdef bint ccounts_checkAlignmentPath(
     str alignmentPath,
     str sourceKind="BAM",
-    str referenceFASTA="",
     bint buildIndex=False,
     int threadCount=0,
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
-    cdef bytes referenceBytes = referenceFASTA.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
-        referenceBytes,
     )
     cdef ccounts_result result
     cdef int hasIndex = 0
@@ -214,14 +203,11 @@ cpdef bint ccounts_isAlignmentPairedEnd(
     int maxReads=1000,
     int threadCount=0,
     str sourceKind="BAM",
-    str referenceFASTA="",
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
-    cdef bytes referenceBytes = referenceFASTA.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
-        referenceBytes,
     )
     cdef ccounts_result result
     cdef int isPairedEnd = 0
@@ -243,14 +229,11 @@ cpdef int ccounts_getAlignmentReadLength(
     int maxIterations,
     int flagExclude,
     str sourceKind="BAM",
-    str referenceFASTA="",
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
-    cdef bytes referenceBytes = referenceFASTA.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
-        referenceBytes,
     )
     cdef ccounts_result result
     cdef uint32_t readLength = 0
@@ -274,15 +257,12 @@ cpdef tuple ccounts_getAlignmentChromRange(
     int threadCount,
     int flagExclude,
     str sourceKind="BAM",
-    str referenceFASTA="",
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
-    cdef bytes referenceBytes = referenceFASTA.encode("utf-8")
     cdef bytes chromosomeBytes = chromosome.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
-        referenceBytes,
     )
     cdef ccounts_result result
     cdef uint64_t startValue = 0
@@ -306,18 +286,15 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     excludeChromosomes=None,
     int threadCount=0,
     str sourceKind="BAM",
-    str referenceFASTA="",
     str barcodeAllowListFile="",
     str countMode="coverage",
     int oneReadPerBin=0,
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
-    cdef bytes referenceBytes = referenceFASTA.encode("utf-8")
     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
-        referenceBytes,
         barcodeAllowListBytes,
     )
     cdef ccounts_result result
@@ -331,7 +308,7 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     if excludeChromosomes is not None:
         excludeCount = len(excludeChromosomes)
         if excludeCount > 0:
-            # hold encoded chromosome names in a python list (alive for whole functino call)
+            # keep encoded names alive for the whole native call
             excludePointers = <const char**>malloc(excludeCount * sizeof(const char*))
             if excludePointers == NULL:
                 raise MemoryError("failed to allocate exclude chromosome pointers")
@@ -367,7 +344,6 @@ cpdef int ccounts_getFragmentCellCount(
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         "FRAGMENTS",
-        b"",
         barcodeAllowListBytes,
     )
     cdef ccounts_result result
@@ -397,21 +373,18 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     int minMappingQuality=0,
     int minTemplateLength=-1,
     str sourceKind="BAM",
-    str referenceFASTA="",
     str barcodeAllowListFile="",
     str barcodeGroupMapFile="",
     str countMode="coverage",
 ):
     cdef int numIntervals
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
-    cdef bytes referenceBytes = referenceFASTA.encode("utf-8")
     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
     cdef bytes barcodeGroupMapBytes = barcodeGroupMapFile.encode("utf-8")
     cdef bytes chromosomeBytes = chromosome.encode("utf-8")
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
-        referenceBytes,
         barcodeAllowListBytes,
         barcodeGroupMapBytes,
     )
@@ -428,11 +401,13 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
     counts = np.zeros(numIntervals, dtype=np.float32)
 
+    # keep bytes-backed strings alive until the native call returns
     region.chromosome = chromosomeBytes
     region.start = <uint32_t>start
     region.end = <uint32_t>end
     region.intervalSizeBP = <uint32_t>intervalSizeBP
 
+    # keep the python wrapper thin and pass raw knobs straight through
     countOptions.threadCount = threadCount
     countOptions.flagExclude = flagExclude
     countOptions.countMode = _getCountModeCode(countMode)

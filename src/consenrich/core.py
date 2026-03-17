@@ -44,7 +44,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-ALIGNMENT_SOURCE_KINDS = ("BAM", "CRAM")
+ALIGNMENT_SOURCE_KINDS = ("BAM",)
 FRAGMENTS_SOURCE_KIND = "FRAGMENTS"
 SUPPORTED_SOURCE_KINDS = ALIGNMENT_SOURCE_KINDS + (FRAGMENTS_SOURCE_KIND,)
 
@@ -82,8 +82,8 @@ class plotParams(NamedTuple):
 class processParams(NamedTuple):
     r"""Parameters related to the process model of Consenrich.
 
-    :param deltaF: Controls the integration step size between the signal 'slope' :math:`\dot{x}_{[i]}`
-        and the signal 'level' :math:`x_{[i]}`. If ``deltaF < 0``, the CLI centers a narrow
+    :param deltaF: Integration step size in the two-state transition
+        :math:`x_{[i+1,0]} = x_{[i,0]} + \delta_F x_{[i,1]}`. If ``deltaF < 0``, the CLI centers a narrow
         search around ``intervalSizeBP / medianFragmentLength``.
     :type deltaF: float
     :param minQ: Minimum process noise scale (diagonal in :math:`\mathbf{Q}_{[i]}`)
@@ -108,8 +108,9 @@ class processParams(NamedTuple):
 class observationParams(NamedTuple):
     r"""Parameters related to the observation model of Consenrich.
 
-    The observation model is used to integrate sequence alignment data from the multiple replicates
-    while accounting for both region- and replicate-specific noise.
+    The observation model supplies the plugin variance track used by the inner filter-smoother.
+    With ``fitParams.EM_useIntervalMunc=True``, the outer loop replaces the initial per-replicate
+    plugin variances with a shared interval-level track estimated from expected residual squares.
 
 
     :param minR: Genome-wide lower bound for replicate-specific observation noise scale.
@@ -243,14 +244,12 @@ class inputSource(NamedTuple):
 
     :param path: Path to an alignment or fragments file
     :type path: str
-    :param sourceKind: One of ``BAM``, ``CRAM``, or ``FRAGMENTS``
+    :param sourceKind: One of ``BAM`` or ``FRAGMENTS``
     :type sourceKind: str
     :param role: ``treatment`` or ``control``
     :type role: str
     :param sampleName: Optional sample label
     :type sampleName: str | None
-    :param referenceFASTA: Optional reference FASTA for CRAM
-    :type referenceFASTA: str | None
     :param barcodeTag: Optional alignment tag used to read cell barcodes
     :type barcodeTag: str | None
     :param barcodeAllowListFile: Optional barcode allowlist path
@@ -258,6 +257,7 @@ class inputSource(NamedTuple):
     :param barcodeGroupMapFile: Optional barcode to group map path
     :type barcodeGroupMapFile: str | None
     :param selectGroups: Optional subset of barcode groups to keep
+      config may also use ``clusterId`` as a one-group alias
     :type selectGroups: List[str] | None
     :param countMode: Optional counting mode label
       fragments inputs default to `cutsite`
@@ -271,7 +271,6 @@ class inputSource(NamedTuple):
     sourceKind: str = "BAM"
     role: str = "treatment"
     sampleName: str | None = None
-    referenceFASTA: str | None = None
     barcodeTag: str | None = None
     barcodeAllowListFile: str | None = None
     barcodeGroupMapFile: str | None = None
@@ -408,6 +407,26 @@ class countingParams(NamedTuple):
     logMult: float | None
 
 
+class scParams(NamedTuple):
+    r"""Parameters related to single-cell and fragments inputs
+
+    :param barcodeTag: Default alignment tag used to read cell barcodes from single-cell BAM inputs
+    :type barcodeTag: str | None
+    :param defaultCountMode: Default count mode for fragments inputs when a source does not set `countMode`
+    :type defaultCountMode: str | None
+    :param fragmentsGroupNorm: Optional extra normalization for fragments pseudobulks
+      `NONE` keeps library-size scaling only and `CELLS` additionally divides by selected cell count
+    :type fragmentsGroupNorm: str | None
+    :param fragmentPositionsAreOffset: If True, fragments are assumed to already encode Tn5-adjusted insertion endpoints
+    :type fragmentPositionsAreOffset: bool
+    """
+
+    barcodeTag: str | None = "CB"
+    defaultCountMode: str | None = "cutsite"
+    fragmentsGroupNorm: str | None = "NONE"
+    fragmentPositionsAreOffset: bool = True
+
+
 class matchingParams(NamedTuple):
     r"""Parameters related to the matching algorithm.
 
@@ -444,6 +463,8 @@ class matchingParams(NamedTuple):
     :type eps: float
     :param massQuantileCutoff: Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' ``((avgSignal*length)/intervalLength)``. To diable, set ``< 0``.
     :type massQuantileCutoff: float
+    :param useSplitEmpiricalNull: If True, augment the pooled empirical null with blocked held-out fold nulls
+    :type useSplitEmpiricalNull: bool
     :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
     """
 
@@ -463,6 +484,7 @@ class matchingParams(NamedTuple):
     eps: Optional[float]
     massQuantileCutoff: Optional[float]
     methodFDR: str | None
+    useSplitEmpiricalNull: bool | None
 
 
 class outputParams(NamedTuple):
@@ -479,18 +501,23 @@ class outputParams(NamedTuple):
     :param writeMWSR: If True, write a per-interval mean weighted+squared+*studentized* post-fit residual (``MWSR``),
         computed using the smoothed state and its posterior variance from the final filter/smoother pass.
 
-        Let :math:`r_{[j,i]} = \texttt{matrixData}_{[j,i]} - b_j - \widetilde{x}_{[i]}` denote the post-fit residual for replicate :math:`j` at interval
-        :math:`i`, where :math:`\widetilde{x}_{[i]}` is the consensus epigenomic signal level estimate. Let :math:`\widetilde{P}_{[00,i]}`
-        be the posterior variance of the first state variable (signal level) and let :math:`R_{[j,i]}` be the observation noise variance for replicate :math:`j` at interval :math:`i`.
-        Then, the studentized squared residuals :math:`u^2_{[j,i]}` and the mean weighted squared residuals :math:`\textsf{MWSR}[i]` are recorded as:
+        Let :math:`g_{[i]}` denote the shared interval background, :math:`b_j` the replicate bias,
+        :math:`\widetilde{x}_{[i,0]}` the smoothed signal level, and :math:`\widetilde{P}_{[i,0,0]}`
+        the corresponding posterior variance. With observation variance :math:`R_{[j,i]}`, define
+        the studentized residual moment
 
         .. math::
 
-          u^2_{[j,i]} = \frac{r_{[j,i]}^2 + \widetilde{P}_{[00,i]}}{R_{[j,i]}},
-          \qquad
-          \textsf{MWSR}[i] = \frac{1}{m}\sum_{j=1}^{m} u^2_{[j,i]}.
+          u^2_{[j,i]} = \frac{(y_{[j,i]} - g_{[i]} - b_j - \widetilde{x}_{[i,0]})^2 + \widetilde{P}_{[i,0,0]}}{R_{[j,i]}}.
 
-        which is consistent with the EM routine in :func:`consenrich.cconsenrich.cblockScaleEM`
+        Consenrich then reports the lambda-weighted mean of :math:`u^2_{[j,i]}`, rescaled by the
+        Student-:math:`t` reference moment:
+
+        .. math::
+
+          \textsf{MWSR}[i] =
+          \frac{\sum_j \lambda_{[j,i]} u^2_{[j,i]}}{\sum_j \lambda_{[j,i]}}
+          \cdot \frac{1}{\nu / (\nu - 2)}.
     :type writeMWSR: bool
     :param writeJackknifeSE: If True, write the standard error of the signal level estimates across jackknife replicates to bedGraph. This is only relevant if `applyJackknife` is True.
     :type writeJackknifeSE: bool
@@ -510,12 +537,20 @@ class outputParams(NamedTuple):
 class fitParams(NamedTuple):
     r"""Parameters controlling the optimization/fitting procedures.
 
-    These arguments control the optimization routine in :func:`consenrich.cconsenrich.cblockScaleEM`, which iteratively performs the following steps until convergence:
+    These arguments control both the inner routine in :func:`consenrich.cconsenrich.cblockScaleEM`
+    and the outer calibration loop in :func:`consenrich.core.runConsenrich`.
 
-    1. Filter-smoother state estimation *given* current noise scales (E-step)
+    Inner loop:
+
+    1. Filter-smoother state estimation *given* current noise scales
     2. Interval-level Student-t precision reweighting at: \(\lambda_{[j,i]}\) and \(\kappa_{[i]}\)
     3. Block-level noise scale updates: \(r_b\) and \(q_b\)
     4. Replicate-level observation offset/scale updates: \(b_j\) and \(a_j\)
+
+    Outer loop:
+
+    1. update a shared zero-centered background track \(g_i\)
+    2. optionally update a shared interval-level plugin variance track \(v_i\)
 
     Each scale/reweighting resolution is optional. All three are applied by default but are constrained to mitigate redundancy.
 
@@ -601,7 +636,9 @@ def _checkMod(name: str) -> bool:
 
 
 def _inferAlignmentSourceKind(path: str) -> str:
-    return "CRAM" if str(path).lower().endswith(".cram") else "BAM"
+    if str(path).lower().endswith(".cram"):
+        raise ValueError("CRAM inputs are no longer supported.")
+    return "BAM"
 
 
 def getChromRanges(
@@ -611,7 +648,6 @@ def getChromRanges(
     samThreads: int,
     samFlagExclude: int,
     sourceKind: str = "BAM",
-    referenceFASTA: str | None = None,
 ) -> Tuple[int, int]:
     r"""Get the start and end positions of reads in a chromosome from a BAM file.
 
@@ -637,7 +673,6 @@ def getChromRanges(
         samThreads,
         samFlagExclude,
         sourceKind=sourceKind,
-        referenceFASTA=referenceFASTA or "",
     )
     return int(start), int(end)
 
@@ -649,7 +684,6 @@ def getChromRangesJoint(
     samThreads: int,
     samFlagExclude: int,
     sourceKinds: List[str] | None = None,
-    referenceFASTAs: List[str | None] | None = None,
 ) -> Tuple[int, int]:
     r"""For multiple BAM files, reconcile a single start and end position over which to count reads,
     where the start and end positions are defined by the first and last reads across all BAM files.
@@ -673,12 +707,9 @@ def getChromRangesJoint(
     ends = []
     if sourceKinds is None:
         sourceKinds = [_inferAlignmentSourceKind(path) for path in bamFiles]
-    if referenceFASTAs is None:
-        referenceFASTAs = [None] * len(bamFiles)
-    for bam_, sourceKind, referenceFASTA in zip(
+    for bam_, sourceKind in zip(
         bamFiles,
         sourceKinds,
-        referenceFASTAs,
     ):
         start, end = getChromRanges(
             bam_,
@@ -687,7 +718,6 @@ def getChromRangesJoint(
             samThreads=samThreads,
             samFlagExclude=samFlagExclude,
             sourceKind=sourceKind,
-            referenceFASTA=referenceFASTA,
         )
         starts.append(start)
         ends.append(end)
@@ -701,7 +731,6 @@ def getReadLength(
     samThreads: int,
     samFlagExclude: int,
     sourceKind: str = "BAM",
-    referenceFASTA: str | None = None,
 ) -> int:
     r"""Infer read length from mapped reads in a BAM file.
 
@@ -732,7 +761,6 @@ def getReadLength(
         maxIterations,
         samFlagExclude,
         sourceKind=sourceKind,
-        referenceFASTA=referenceFASTA or "",
     )
     if init_rlen == 0:
         raise ValueError(
@@ -748,7 +776,6 @@ def getReadLengths(
     samThreads: int,
     samFlagExclude: int,
     sourceKinds: List[str] | None = None,
-    referenceFASTAs: List[str | None] | None = None,
 ) -> List[int]:
     r"""Get read lengths for a list of BAM files.
 
@@ -756,8 +783,6 @@ def getReadLengths(
     """
     if sourceKinds is None:
         sourceKinds = [_inferAlignmentSourceKind(path) for path in bamFiles]
-    if referenceFASTAs is None:
-        referenceFASTAs = [None] * len(bamFiles)
     return [
         getReadLength(
             bamFile,
@@ -766,12 +791,10 @@ def getReadLengths(
             samThreads=samThreads,
             samFlagExclude=samFlagExclude,
             sourceKind=sourceKind,
-            referenceFASTA=referenceFASTA,
         )
-        for bamFile, sourceKind, referenceFASTA in zip(
+        for bamFile, sourceKind in zip(
             bamFiles,
             sourceKinds,
-            referenceFASTAs,
         )
     ]
 
@@ -904,7 +927,6 @@ def readSegments(
 
     sourcePaths = getSourcePaths(sources)
     sourceKinds = getSourceKinds(sources)
-    referenceFASTAs = [source.referenceFASTA for source in sources]
     offsetParts = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
     counts = np.empty((len(sources), numIntervals), dtype=np.float32)
@@ -1006,7 +1028,6 @@ def readSegments(
                     minMappingQuality=0,
                     minTemplateLength=0,
                     sourceKind=sourceKind,
-                    referenceFASTA="",
                     barcodeAllowListFile=barcodeAllowListFile or "",
                     barcodeGroupMapFile="",
                     countMode=countMode,
@@ -1031,7 +1052,6 @@ def readSegments(
                     minMappingQuality=minMappingQuality,
                     minTemplateLength=minTemplateLength,
                     sourceKind=sourceKind,
-                    referenceFASTA=referenceFASTAs[sourceIndex] or "",
                     barcodeAllowListFile="",
                     barcodeGroupMapFile="",
                     countMode="coverage",
@@ -1406,10 +1426,32 @@ def runConsenrich(
 ):
     r"""Run Consenrich over a contiguous genomic region
 
-    We estimate a position-dependent consensus epigenomic signal :math:`\widetilde{x}_{[i,0]}` from multiple replicate
-        tracks' HTS data, and provide positional uncertainty quantification from a linear
-        filter-smoother setup. If ``conformalRescale=True``, the primary uncertainty output is
-        calibrated for future-replicate prediction.
+    Consenrich estimates a shared signal level from multiple replicate tracks using a two-state
+    linear smoother plus an outer calibration loop.
+
+    The observation model is
+
+    .. math::
+
+      y_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
+      \qquad
+      \mathrm{Var}(\epsilon_{[j,i]}) =
+      \frac{a_j r_{b(i)} (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
+
+    Here :math:`g_{[i]}` is a shared zero-centered smooth background, :math:`b_j` and :math:`a_j`
+    are replicate-level bias and variance factors, and :math:`v_{[j,i]}` is the plugin observation
+    variance supplied by ``matrixMunc`` or by the outer interval-level variance update.
+
+    The latent state follows
+
+    .. math::
+
+      \mathbf{x}_{[i+1]} = \mathbf{F}(\delta_F)\mathbf{x}_{[i]} + \eta_{[i]},
+      \qquad
+      \mathrm{Var}(\eta_{[i]}) = \frac{q_{b(i)} \mathbf{Q}_0}{\kappa_{[i]}}.
+
+    If ``conformalRescale=True``, the primary variance output is calibrated for future-replicate
+    prediction rather than interpreted as a pure latent-state posterior variance.
 
     This wrapper ties together several fundamental routines written in Cython:
 

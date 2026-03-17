@@ -2460,8 +2460,10 @@ cpdef tuple cblockScaleEM(
     Py_ssize_t t_innerIters=3,
     bint returnIntermediates=False,
 ):
-    r"""Run the Consenrich filter-smoother estimation loop with iteratively updated observation and process noise [co]variances.
+    r"""Run the inner Consenrich filter-smoother loop with iteratively updated observation and process noise [co]variances.
 
+    This routine is the inner fit used by :func:`consenrich.core.runConsenrich`. Any shared
+    interval background has already been removed from ``matrixData`` before this step.
 
     Take observation and process noise [co]variances:
 
