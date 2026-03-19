@@ -1,127 +1,80 @@
 API Reference
 ---------------
 
-
-.. toctree::
-   :maxdepth: 1
-   :caption: API
-   :name: API
-
+.. _API:
 
 ``consenrich.core``
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. toctree::
-    :maxdepth: 2
-    :caption: ``core``
-    :name: core
-
-The core module implements the main features of Consenrich and defines key parameter classes for a consistent namespace.
+Primary model and configuration interfaces.
 
 .. note::
 
-  Many parameters are documented here for *completeness* and do not need to be tuned in common use-cases. See :ref:`notation` for some definitions of key variables and parameters used throughout documentation.
+  Many parameters do not require tuning in practice but are listed here for completeness.
 
-.. autoclass:: consenrich.core.processParams
-.. autoclass:: consenrich.core.plotParams
-.. autoclass:: consenrich.core.observationParams
-.. autoclass:: consenrich.core.stateParams
+Notation
+""""""""
+
+For interval :math:`i` and replicate :math:`j`:
+
+* :math:`y_{[j,i]}` is the observed track value
+* :math:`\mathbf{x}_{[i]} = (x_{[i,0]}, x_{[i,1]})^\top` is the latent level/slope state
+* :math:`g_{[i]}` is the shared zero-centered background
+* :math:`b_j` and :math:`a_j` are replicate bias and observation-scale terms
+* :math:`v_{[j,i]}` is the plugin observation variance track
+* :math:`b(i)` maps interval :math:`i` to block :math:`b`
+* :math:`q_b` is the block process scale
+* :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are Student-t precision weights
+
+Model
+"""""
+
+**Observations**
+
+.. math::
+
+  y_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
+  \qquad
+  \mathrm{Var}(\epsilon_{[j,i]}) =
+  \frac{a_j (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
+
+**Prior**
+
+The latent state vector :math:`\mathbf{x}_{[i]}` evolves according to intentionally simple dynamics to mitigate overfitting while capturing local structure.
+
+.. math::
+
+  \mathbf{x}_{[i+1]} = \mathbf{F}(\delta_F)\mathbf{x}_{[i]} + \eta_{[i]},
+  \qquad
+  \mathrm{Var}(\eta_{[i]}) = \frac{q_{b(i)} \mathbf{Q}_0}{\kappa_{[i]}}.
+
+Here :math:`g_{[i]}` is a shared zero-centered smooth background. The outer loop updates
+:math:`g_{[i]}` and, optionally, a shared interval-level plugin variance track.
+
 .. autoclass:: consenrich.core.inputParams
-.. autoclass:: consenrich.core.outputParams
 .. autoclass:: consenrich.core.genomeParams
 .. autoclass:: consenrich.core.countingParams
-.. autoclass:: consenrich.core.samParams
+.. autoclass:: consenrich.core.scParams
+.. autoclass:: consenrich.core.processParams
+.. autoclass:: consenrich.core.observationParams
+.. autoclass:: consenrich.core.stateParams
+.. autoclass:: consenrich.core.outputParams
 .. autoclass:: consenrich.core.matchingParams
-.. autofunction:: consenrich.core.readBamSegments
-.. autofunction:: consenrich.core.getMuncTrack
-.. autofunction:: consenrich.core.fitVarianceFunction
-.. autofunction:: consenrich.core.EB_computePriorStrength
+
+Primary functions
+""""""""""""""""""
+
 .. autofunction:: consenrich.core.runConsenrich
-.. autofunction:: consenrich.core.constructMatrixF
-.. autofunction:: consenrich.core.constructMatrixQ
-.. autofunction:: consenrich.core.constructMatrixH
+.. autofunction:: consenrich.core.readSegments
+.. autofunction:: consenrich.core.getMuncTrack
+.. autofunction:: consenrich.core.getContextSize
 
-``consenrich.detrorm``
-~~~~~~~~~~~~~~~~~~~~~~
-
-.. toctree::
-    :maxdepth: 2
-    :caption: ``detrorm``
-    :name: detrorm
-
-.. autofunction:: consenrich.detrorm.getScaleFactor1x
-.. autofunction:: consenrich.detrorm.getScaleFactorPerMillion
-.. autofunction:: consenrich.detrorm.getPairScaleFactors
-
-
-``consenrich.constants``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. toctree::
-    :maxdepth: 2
-    :caption: ``constants``
-    :name: constants
-
-.. autofunction:: consenrich.constants.getEffectiveGenomeSize
-.. autofunction:: consenrich.constants.getGenomeResourceFile
-
-
-
-Cython functions: ``consenrich.cconsenrich``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. toctree::
-    :maxdepth: 2
-    :caption: ``cconsenrich``
-    :name: cconsenrich
-
-Several computationally burdensome tasks are implemented in cython:
-
-.. autofunction:: consenrich.cconsenrich.creadBamSegment
-.. autofunction:: consenrich.cconsenrich.csampleBlockStats
-.. autofunction:: consenrich.cconsenrich.cgetFragmentLength
-.. autofunction:: consenrich.cconsenrich.cTransform
-.. autofunction:: consenrich.cconsenrich.cDenseMean
-.. autofunction:: consenrich.cconsenrich.clocalBaseline
-.. autofunction:: consenrich.cconsenrich.cPAVA
-.. autofunction:: consenrich.cconsenrich.cforwardPass
-.. autofunction:: consenrich.cconsenrich.cbackwardPass
-.. autofunction:: consenrich.cconsenrich.cblockScaleEM
-.. autofunction:: consenrich.cconsenrich.cEMA
-.. autofunction:: consenrich.cconsenrich.cmeanVarPairs
-.. autofunction:: consenrich.cconsenrich.projectToBox
-
-
-.. _match:
+.. _matching:
 
 ``consenrich.matching``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. toctree::
-    :maxdepth: 2
-    :caption: `matching`
-    :name: matching
-
-
 (Experimental) Detect genomic regions showing both **enrichment** and **non-random structure**
-
-
-Denote a noisy signal over fixed-length genomic intervals,
-
-.. math::
-
-  {\mathbf{x}} = \{{x}_{[i]}\}_{i=1}^{i=n}.
-
-**Aim**: Determine a set of *structured peaks*, i.e., genomic regions where :math:`x_{[a:b]}` exhibits both:
-
-#. *Enrichment* (large relative amplitude)
-#. *Non-random structure* defined by a robust template (polynomial, oscillatory, etc.)
-
-Prioritizing genomic regions that are both enriched and agree with a prescribed structure may be appealing for several reasons. Namely,
-
-* **Targeted detection** of biologically relevant signal patterns in a given assay (e.g., see related works analyzing peak-shape `Cremona et al., 2015 <https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-015-0787-6>`_, `Parodi et al., 2017 <https://doi.org/10.1093/bioinformatics/btx201>`_)
-* **Improved confidence** that the identified genomic regions are not due to stochastic noise, which is characteristically unstructured.
-* **Speed**: Runs in seconds/minutes using efficient numerical methods to compute large chromosome-scale convolutions (fast fourier transform (FFT)-based, overlap-add (OA), etc.)
 
 Algorithm Overview
 """""""""""""""""""""""
@@ -129,41 +82,13 @@ Algorithm Overview
 To detect structured peaks, we run an approach akin to `matched filtering <https://en.wikipedia.org/wiki/Matched_filter>`_, with
 *templates* derived from approximated discrete `wavelets <https://pywavelets.readthedocs.io/en/latest/ref/wavelets.html>`_ (or their corresponding scaling functions).
 
-Note, other bases for defining templates may be considered in the future, e.g., splines, polynomials, etc.
-Wavelet-based templates are convenient and possess several desirable properties for detecting structured peaks: multi-scale representation,
-compact support, orthogonality, etc. For relevant background, `Fournier et al '95 <https://multires.caltech.edu/teaching/courses/waveletcourse/sig95.course.pdf>`_, and/or `Mallat and Hwan '92 <https://ieeexplore.ieee.org/abstract/document/119727>`_ may be useful reading.
+To call matches:
 
-
-Denote the cross-correlation between the signal track and a matching template :math:`\boldsymbol{\xi}` as:
-
-.. math::
-
-  \{\mathcal{R}_{[i]}\}_{i=1}^{i=n} = {\mathbf{x}} \star \boldsymbol{\xi},
-
-.. math::
-
-  \mathcal{R}_{[i]} = \sum_{t=1}^{t=T} {x}_{[i+t-1]} \cdot \xi_{[t]}.
-
-We refer to :math:`\mathcal{R}` over :math:`i=1 \ldots n` as the *response sequence*. The response will be greatest in genomic regions with a high read density and structural similarity to the template :math:`\boldsymbol{\xi}`.
-
-To detect 'significant' hits,
-
-* We first construct an observed empirical distribution from randomly-sampled genomic blocks. Specifically, we sample :math:`B` blocks and record each :math:`\max(\mathcal{R}_{[b_1]}, \ldots, \mathcal{R}_{[b_K]})`. To reduce leakage and selection bias, the chromosome is split into block-level null/test subsets, with guard zones near split boundaries.
-
-* Relative maxima in the response sequence, i.e., :math:`i^*` such that :math:`\mathcal{R}_{[i^* - 1 \,:\, i^* - T/2]}\, \leq \, \mathcal{R}_{[i^*]} \, \geq \, \mathcal{R}_{[i^* + 1 \,:\, i^* + T/2]}` are retained as candidate matches
-
-* Each candidate is assigned an empirical :math:`p`-value based on its upper-tail ECDF under the null subset maxima (with lower bound :math:`1/(B+1)`). The split is repeated several times, and per-candidate split-level :math:`p`-values are aggregated with a Cauchy combination rule. Those satisfying :math:`p < \alpha` are deemed 'significant'. Note that :math:`p`-values are with respect to chromosome-specific empirical distributions.
-
-  * Additional criteria for matching: require the *signal values* at candidate peaks/matches, :math:`{x}_{[i^*]}`, to exceed a cutoff (`matchingParams.minSignalAtMaxima`), and/or require the *length* of the matched feature to exceed a minimum size (`matchingParams.minMatchLengthBP`).
-  * Overlapping/adjacent matches can be merged.
-
-.. note:: **Blocked Split + Repeated Combination**
-
-  * The response sequence is partitioned into coarse genomic blocks, stratified by robust block summary statistics, then assigned approximately 50/50 into null/test subsets within each stratum.
-
-  * For each split, null maxima are sampled only from null blocks and candidates are evaluated only on test blocks.
-
-  * Split-level candidate :math:`p`-values are then combined with a Cauchy combination statistic.
+* relative maxima of the response are retained as candidates
+* by default, a pooled empirical null is built from sampled block maxima, after trimming the extreme upper tail
+* optional blocked folds can add held-out null/test evaluations
+* candidate :math:`p`-values come from the pooled null alone by default, or from a pooled-plus-fold combination when split nulls are enabled
+* signal and length filters are applied, and adjacent matches can be merged
 
 **Generic Defaults**
 
@@ -179,61 +104,3 @@ To detect 'significant' hits,
 ---
 
 .. autofunction:: consenrich.matching.matchWavelet
-
-
-
-.. _notation:
-
-Notation
---------
-
-* :math:`m` = number of replicate tracks (rows)
-* :math:`n` = number of genomic intervals (columns)
-* :math:`B` = number of genomic blocks partitioning the main contig (``blockCount``)
-* :math:`b(i)\in\{0,\dots,B-1\}` maps interval :math:`i` to block index (``intervalToBlockMap``)
-* :math:`z_{[j,i]}` is the observation for replicate :math:`j` at genomic interval :math:`i`
-* :math:`v_{[j,i]}` is the observation variance for replicate :math:`j` at genomic interval :math:`i`
-  (:func:`consenrich.core.getMuncTrack`)
-* :math:`\mathbf{x}_{[i]}\in\mathbb{R}^2` is the state vector at interval :math:`i`, where
-
-  * :math:`x_{[i,0]}` denotes the latent signal level at genomic interval :math:`i`
-  * :math:`x_{[i,1]}` denotes the latent signal slope at genomic interval :math:`i`
-
-* :math:`\mathbf{P}_{[i]}\in\mathbb{R}^{2\times 2}` is the state covariance matrix at interval :math:`i`, where
-
-  * :math:`P_{[i,0,0]}` is the variance of the signal level at interval :math:`i`
-  * :math:`P_{[i,1,1]}` is the variance of the signal slope at interval :math:`i`
-  * :math:`P_{[i,0,1]}=P_{[i,1,0]}` is the covariance between signal level and slope at interval :math:`i`
-
-* :math:`\mathbf{F}` is the process model matrix (``matrixF``), where
-
-  * :math:`F_{00}=1` and :math:`F_{01}=\Delta_F`
-  * :math:`F_{10}=0` and :math:`F_{11}=1`
-
-* :math:`\mathbf{Q}_0` is the initial process model noise covariance matrix (``matrixQ0``)
-* :math:`\mathbf{H}` is the observation model matrix (:math:`\mathbf{H}=[1, 0]`)
-* :math:`\mathbf{R}_{[i]}=\textsf{diag}\{v_{[:,i]}\}` is the base observation-noise covariance at interval :math:`i`
-* :math:`\lambda_{[j,i]}` is the latent precision multiplier for observation :math:`z_{[j,i]}`
-  in a Student-t Gaussian scale-mixture model
-* :math:`\kappa_{[i]}` is the latent precision multiplier for the process transition at interval :math:`i`
-  in a Student-t Gaussian scale-mixture model
-* :math:`\nu_R` is the degrees-of-freedom parameter controlling the heaviness of Student-t tails for observation noise
-* :math:`\nu_Q` is the degrees-of-freedom parameter controlling the heaviness of Student-t tails for process noise
-* :math:`r_b` is the block-level observation noise scale multiplier for block :math:`b`
-* :math:`q_b` is the block-level process noise scale multiplier for block :math:`b`
-* :math:`a_j` is the replicate-level observation variance scale multiplier for replicate :math:`j`
-* :math:`b_j` is the replicate-level additive observation offset for replicate :math:`j`
-
-The effective observation model used in EM is:
-
-.. math::
-
-  z_{[j,i]} = x_{[i,0]} + b_j + \varepsilon_{[j,i]},
-  \qquad
-  \mathrm{Var}(\varepsilon_{[j,i]}) = \frac{a_j\,r_{b(i)}\,v_{[j,i]}}{\lambda_{[j,i]}}.
-
-Resolution of scaling terms:
-
-* :math:`v_{[j,i]}` and :math:`\lambda_{[j,i]}` operate at replicate-interval resolution
-* :math:`r_b` and :math:`q_b` operate at block resolution via :math:`b(i)`
-* :math:`a_j` and :math:`b_j` operate at replicate resolution

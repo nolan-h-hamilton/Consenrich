@@ -5,11 +5,16 @@
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+import os
 import sys
 from pathlib import Path
 
 
-sys.path.insert(0, str(Path('..', 'src').resolve()))
+docsRoot = Path(__file__).resolve().parents[1]
+repoRoot = docsRoot.parent
+os.environ.setdefault("HOME", str(docsRoot.resolve()))
+os.environ.setdefault("XDG_CACHE_HOME", str((docsRoot / ".cache").resolve()))
+sys.path.insert(0, str((repoRoot / "src").resolve()))
 project = 'consenrich'
 copyright = '2025, Nolan H. Hamilton'
 author = 'Nolan H. Hamilton'

@@ -4,7 +4,6 @@ r"""Module implementing (experimental) 'structured peak detection' features usin
 import logging
 import os
 import math
-from pybedtools import BedTool
 from typing import List, Optional
 import pandas as pd
 import pywt as pw
@@ -51,10 +50,6 @@ def autoMinLengthIntervals(
     return min(max(int(hlen), initLen), maxLen)
 
 
-def scalarClip(value: float, low: float, high: float) -> float:
-    return low if value < low else high if value > high else value
-
-
 def castableToFloat(value) -> bool:
     if value is None:
         return False
@@ -99,8 +94,9 @@ def matchWavelet(
     weights: Optional[npt.NDArray[np.float64]] = None,
     eps: float = 1.0e-3,
     methodFDR: str | None = None,
+    useSplitEmpiricalNull: bool = False,
 ) -> pd.DataFrame:
-    r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function–based templates.
+    r"""Detect structured peaks in Consenrich tracks by matching wavelet- or scaling-function-based templates.
 
     :param chromosome: Chromosome name for the input intervals and values.
     :type chromosome: str
@@ -140,6 +136,8 @@ def matchWavelet(
     :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
         inequalities when identifying discrete relative maxima.
     :type eps: float
+    :param useSplitEmpiricalNull: If True, combine the pooled null with blocked held-out fold nulls
+    :type useSplitEmpiricalNull: bool
     :seealso: :class:`consenrich.core.matchingParams`, :func:`cconsenrich.csampleBlockStats`, :ref:`matching`
     :return: A pandas DataFrame with detected matches
     :rtype: pd.DataFrame
@@ -189,7 +187,7 @@ def matchWavelet(
 
     iters = max(int(iters), 1000)
     defQuantile = 0.50
-    splitRepeats = 4
+    splitFolds = 4
     excludeMaskGlobal = np.zeros(len(intervals), dtype=np.uint8)
     if excludeRegionsBedFile is not None:
         excludeMaskGlobal = core.getBedMask(
@@ -297,27 +295,57 @@ def matchWavelet(
             ),
             dtype=float,
         )
+        finiteMask = np.isfinite(vals)
+        vals = vals[finiteMask]
+        if vals.size >= 100:
+            upperCut = np.quantile(
+                vals,
+                0.995,
+                method="interpolated_inverted_cdf",
+            )
+            vals = vals[vals <= upperCut]
         return vals
 
-    def cauchyCombinePVals(pVals: np.ndarray) -> float:
+    def cauchyCombinePVals(
+        pVals: np.ndarray,
+        weights: Optional[np.ndarray] = None,
+    ) -> float:
         p = np.asarray(pVals, dtype=np.float64)
         if p.size == 0:
             return 1.0
         if p.size == 1:
             return float(np.clip(p[0], 1.0e-12, 1.0))
         p = np.clip(p, 1.0e-12, 1.0 - 1.0e-12)
+        if weights is None:
+            w = np.full(p.size, 1.0 / float(p.size), dtype=np.float64)
+        else:
+            w = np.asarray(weights, dtype=np.float64)
+            if w.size != p.size:
+                raise ValueError("weights must match pVals length")
+            w = np.clip(w, 0.0, np.inf)
+            if float(np.sum(w)) <= 0.0:
+                w = np.full(p.size, 1.0 / float(p.size), dtype=np.float64)
+            else:
+                w = w / float(np.sum(w))
         t = np.tan(np.pi * (0.5 - p))
-        return float(np.clip(0.5 - (np.arctan(np.mean(t)) / np.pi), 1.0e-12, 1.0))
+        return float(
+            np.clip(
+                0.5 - (np.arctan(np.sum(w * t)) / np.pi),
+                1.0e-12,
+                1.0,
+            )
+        )
 
-    def buildBlockedSplitMasks(
+    def buildBlockedFoldAssignments(
         resp: np.ndarray,
         relWindowBins: int,
         seed: int,
-    ) -> tuple[np.ndarray, np.ndarray]:
+        numFolds: int,
+    ) -> np.ndarray:
         # block-level split, reduce leakage
         n = int(resp.size)
         if n < 10:
-            return np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+            return np.full(n, -1, dtype=np.int16)
 
         eligible = excludeMaskGlobal == 0
         blockLenBins = max(int(8 * relWindowBins), 128)
@@ -341,7 +369,7 @@ def matchWavelet(
             blockIQR.append(float(q75 - q25))
 
         if len(blocks) < 4:
-            return np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+            return np.full(n, -1, dtype=np.int16)
 
         blockMedianArr = np.asarray(blockMedian, dtype=np.float64)
         blockIQRArr = np.asarray(blockIQR, dtype=np.float64)
@@ -351,33 +379,28 @@ def matchWavelet(
             blockIQRArr > iqrCut
         ).astype(np.int8)
 
-        splitAssign = np.full(n, -1, dtype=np.int8)
+        foldAssign = np.full(n, -1, dtype=np.int16)
         rngSplit = np.random.default_rng(int(seed))
+        numFolds = max(int(numFolds), 2)
         for st in range(4):
             stIdx = np.where(strata == st)[0]
             if stIdx.size == 0:
                 continue
             perm = rngSplit.permutation(stIdx)
-            cut = int(perm.size // 2)
-            nullBlocks = perm[:cut]
-            testBlocks = perm[cut:]
-            for bIdx in nullBlocks:
+            for localFoldIndex, bIdx in enumerate(perm):
                 s, e = blocks[int(bIdx)]
-                splitAssign[s:e] = 0
-            for bIdx in testBlocks:
-                s, e = blocks[int(bIdx)]
-                splitAssign[s:e] = 1
+                foldAssign[s:e] = int(localFoldIndex % numFolds)
 
         # guard zones around split boundaries
         if relWindowBins > 0:
-            boundaries = np.where(splitAssign[1:] != splitAssign[:-1])[0] + 1
+            boundaries = np.where(foldAssign[1:] != foldAssign[:-1])[0] + 1
             for b in boundaries:
                 lo = max(0, int(b - relWindowBins))
                 hi = min(n, int(b + relWindowBins + 1))
-                splitAssign[lo:hi] = -1
+                foldAssign[lo:hi] = -1
 
-        splitAssign[~eligible] = -1
-        return splitAssign == 0, splitAssign == 1
+        foldAssign[~eligible] = -1
+        return foldAssign
 
     wavelet_set = set(pw.wavelist(kind="discrete"))
     for templateName, cascadeLevel in zip(templateNames, cascadeLevels):
@@ -408,8 +431,9 @@ def matchWavelet(
             thisMinMatchBp += intervalLengthBp - (thisMinMatchBp % intervalLengthBp)
         relWindowBins = int(((thisMinMatchBp / intervalLengthBp) / 2) + 1)
         relWindowBins = max(relWindowBins, 1)
+        candidateWindowBins = max(1, int(np.ceil(relWindowBins / 2.0)))
         natThreshold = parseMinSignalThreshold(minSignalAtMaxima)
-        candidateIdx = relativeMaxima(response, relWindowBins, eps=eps)
+        candidateIdx = relativeMaxima(response, candidateWindowBins, eps=eps)
         candidateMask = (
             (candidateIdx >= relWindowBins)
             & (candidateIdx < len(response) - relWindowBins)
@@ -424,47 +448,74 @@ def matchWavelet(
                 np.argsort(values_[candidateIdx])[-maxNumMatches:]
             ]
 
-        # combine w/ Cauchy
-        pByCandidate: dict[int, list[float]] = {int(i): [] for i in candidateIdx}
-        for _ in range(int(splitRepeats)):
-            nullMask, testMask = buildBlockedSplitMasks(
+        if useSplitEmpiricalNull:
+            foldAssign = buildBlockedFoldAssignments(
                 response,
                 relWindowBins,
                 seed=int(rng.integers(1, 10_000_000)),
+                numFolds=int(splitFolds),
             )
-            if (not np.any(nullMask)) or (not np.any(testMask)):
-                continue
-            splitCandidateMask = testMask[candidateIdx]
-            if not np.any(splitCandidateMask):
-                continue
+            pooledNullMask = foldAssign >= 0
+            if int(np.count_nonzero(pooledNullMask)) < max(8, relWindowBins):
+                pooledNullMask = excludeMaskGlobal == 0
+        else:
+            foldAssign = np.full(len(response), -1, dtype=np.int16)
+            pooledNullMask = excludeMaskGlobal == 0
 
-            blockMaxima = sampleBlockMaxima(
-                response,
-                nullMask,
-                relWindowBins,
-                nsamp=max(iters, 1000),
-                seed=int(rng.integers(1, 10_000_000)),
-                eps=eps,
-            )
-            if len(blockMaxima) < 25:
-                continue
-
-            ecdfSf = stats.ecdf(blockMaxima).sf
-            splitCandidateIdx = candidateIdx[splitCandidateMask]
-            pEmp = np.clip(
-                ecdfSf.evaluate(response[splitCandidateIdx]),
-                1.0 / (float(len(blockMaxima)) + 1.0),
-                1.0,
-            )
-            for idxVal, pVal in zip(splitCandidateIdx, pEmp):
-                pByCandidate[int(idxVal)].append(float(pVal))
-
-        keepCandidateIdx = np.array(
-            [k for k, v in pByCandidate.items() if len(v) > 0],
-            dtype=np.int64,
+        pooledBlockMaxima = sampleBlockMaxima(
+            response,
+            pooledNullMask,
+            relWindowBins,
+            nsamp=max(iters, 1000),
+            seed=int(rng.integers(1, 10_000_000)),
+            eps=eps,
         )
-        if keepCandidateIdx.size == 0:
+        if len(pooledBlockMaxima) < 25:
             continue
+
+        pooledEcdfSf = stats.ecdf(pooledBlockMaxima).sf
+        pooledP = np.clip(
+            pooledEcdfSf.evaluate(response[candidateIdx]),
+            1.0 / (float(len(pooledBlockMaxima)) + 1.0),
+            1.0,
+        )
+
+        pByCandidate: dict[int, list[float]] = {int(i): [] for i in candidateIdx}
+        pooledPByCandidate: dict[int, float] = {
+            int(i): float(pVal) for i, pVal in zip(candidateIdx, pooledP)
+        }
+        if useSplitEmpiricalNull:
+            for foldIndex in np.unique(foldAssign[foldAssign >= 0]):
+                testMask = foldAssign == int(foldIndex)
+                nullMask = (foldAssign >= 0) & (~testMask)
+                if (not np.any(nullMask)) or (not np.any(testMask)):
+                    continue
+                splitCandidateMask = testMask[candidateIdx]
+                if not np.any(splitCandidateMask):
+                    continue
+
+                blockMaxima = sampleBlockMaxima(
+                    response,
+                    nullMask,
+                    relWindowBins,
+                    nsamp=max(iters, 1000),
+                    seed=int(rng.integers(1, 10_000_000)),
+                    eps=eps,
+                )
+                if len(blockMaxima) < 25:
+                    continue
+
+                ecdfSf = stats.ecdf(blockMaxima).sf
+                splitCandidateIdx = candidateIdx[splitCandidateMask]
+                pEmp = np.clip(
+                    ecdfSf.evaluate(response[splitCandidateIdx]),
+                    1.0 / (float(len(blockMaxima)) + 1.0),
+                    1.0,
+                )
+                for idxVal, pVal in zip(splitCandidateIdx, pEmp):
+                    pByCandidate[int(idxVal)].append(float(pVal))
+
+        keepCandidateIdx = candidateIdx.astype(np.int64, copy=False)
 
         startsIdx = np.maximum(keepCandidateIdx - relWindowBins, 0)
         endsIdx = np.minimum(len(values) - 1, keepCandidateIdx + relWindowBins)
@@ -499,7 +550,30 @@ def matchWavelet(
                     "score": int(scores[i]),
                     "strand": ".",
                     "signal": float(values[idxVal]),
-                    "p_raw": cauchyCombinePVals(np.asarray(pByCandidate[int(idxVal)])),
+                    "p_raw": (
+                        float(pooledPByCandidate[int(idxVal)])
+                        if not useSplitEmpiricalNull
+                        else cauchyCombinePVals(
+                            np.asarray(
+                                [pooledPByCandidate[int(idxVal)]]
+                                + pByCandidate[int(idxVal)],
+                                dtype=np.float64,
+                            ),
+                            weights=(
+                                np.asarray([1.0], dtype=np.float64)
+                                if len(pByCandidate[int(idxVal)]) == 0
+                                else np.asarray(
+                                    [0.25]
+                                    + [
+                                        0.75
+                                        / float(len(pByCandidate[int(idxVal)]))
+                                        for _ in pByCandidate[int(idxVal)]
+                                    ],
+                                    dtype=np.float64,
+                                )
+                            ),
+                        )
+                    ),
                     "pointSource": int(pointSourcesRel[i]),
                     "templateName": str(templateName),
                     "cascadeLevel": int(cascadeLevel),
@@ -585,6 +659,7 @@ def runMatchingAlgorithm(
     merge: bool = True,
     massQuantileCutoff: float = -1.0,
     methodFDR: str | None = None,
+    useSplitEmpiricalNull: bool = False,
 ):
     r"""Wraps :func:`matchWavelet` for genome-wide matching given a bedGraph file"""
     cols = ["chromosome", "start", "end", "value"]
@@ -600,6 +675,12 @@ def runMatchingAlgorithm(
             "value": np.float64,
         },
     )
+    bedGraphDF.sort_values(
+        by=["chromosome", "start", "end"],
+        kind="mergesort",
+        inplace=True,
+    )
+    bedGraphDF.reset_index(drop=True, inplace=True)
     chromosomes = bedGraphDF["chromosome"].unique().tolist()
 
     weightsDF = None
@@ -671,6 +752,7 @@ def runMatchingAlgorithm(
             weights,
             eps,
             methodFDR,
+            useSplitEmpiricalNull,
         )
 
         if df__.empty:

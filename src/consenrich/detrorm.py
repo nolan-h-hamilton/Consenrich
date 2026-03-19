@@ -6,8 +6,6 @@ import logging
 import re
 import numpy as np
 import pandas as pd
-import pybedtools as bed
-import pysam as sam
 
 from scipy import signal, ndimage
 
@@ -24,6 +22,7 @@ logger = logging.getLogger(__name__)
 from .misc_util import getChromSizesDict
 from .constants import EFFECTIVE_GENOME_SIZES
 from .cconsenrich import cgetFragmentLength, cEMA
+from . import ccounts
 
 
 def getScaleFactor1x(
@@ -33,6 +32,12 @@ def getScaleFactor1x(
     excludeChroms: List[str],
     chromSizesFile: str,
     samThreads: int,
+    sourceKind: str | None = None,
+    barcodeAllowListFile: str | None = None,
+    countMode: str | None = None,
+    oneReadPerBin: int = 0,
+    groupCellCount: int | None = None,
+    fragmentsGroupNorm: str | None = None,
 ) -> float:
     r"""Generic normalization factor based on effective genome size and number of mapped reads in non-excluded chromosomes.
 
@@ -61,14 +66,25 @@ def getScaleFactor1x(
             if chrom not in chromSizes:
                 continue
             effectiveGenomeSize -= chromSizes[chrom]
-    totalMappedReads: int = -1
-    with sam.AlignmentFile(bamFile, "rb", threads=samThreads) as aln:
-        totalMappedReads = aln.mapped
-        if excludeChroms is not None:
-            idxStats = aln.get_index_statistics()
-            for element in idxStats:
-                if element.contig in excludeChroms:
-                    totalMappedReads -= element.mapped
+    if sourceKind is None:
+        if str(bamFile).lower().endswith(".cram"):
+            raise ValueError("CRAM inputs are no longer supported.")
+        sourceKind = "BAM"
+    sourceKind = str(sourceKind).upper()
+    if sourceKind == "FRAGMENTS":
+        raise ValueError(
+            "EGS/RPGC normalization is not supported for fragments sources use CPM/RPKM instead"
+        )
+
+    totalMappedReads, _ = ccounts.ccounts_getAlignmentMappedReadCount(
+        bamFile,
+        excludeChromosomes=excludeChroms,
+        threadCount=samThreads,
+        sourceKind=sourceKind,
+        barcodeAllowListFile=barcodeAllowListFile or "",
+        countMode=countMode or "coverage",
+        oneReadPerBin=oneReadPerBin,
+    )
     if totalMappedReads <= 0 or effectiveGenomeSize <= 0:
         raise ValueError(
             f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}."
@@ -78,7 +94,15 @@ def getScaleFactor1x(
 
 
 def getScaleFactorPerMillion(
-    bamFile: str, excludeChroms: List[str], intervalSizeBP: int
+    bamFile: str,
+    excludeChroms: List[str],
+    intervalSizeBP: int,
+    sourceKind: str | None = None,
+    barcodeAllowListFile: str | None = None,
+    countMode: str | None = None,
+    oneReadPerBin: int = 0,
+    groupCellCount: int | None = None,
+    fragmentsGroupNorm: str | None = None,
 ) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
@@ -91,19 +115,31 @@ def getScaleFactorPerMillion(
     """
     if not os.path.exists(bamFile):
         raise FileNotFoundError(f"BAM file {bamFile} does not exist.")
-    totalMappedReads: int = 0
-    with sam.AlignmentFile(bamFile, "rb") as aln:
-        totalMappedReads = aln.mapped
-        if excludeChroms is not None:
-            idxStats = aln.get_index_statistics()
-            for element in idxStats:
-                if element.contig in excludeChroms:
-                    totalMappedReads -= element.mapped
+    if sourceKind is None:
+        if str(bamFile).lower().endswith(".cram"):
+            raise ValueError("CRAM inputs are no longer supported.")
+        sourceKind = "BAM"
+    sourceKind = str(sourceKind).upper()
+    totalMappedReads, _ = ccounts.ccounts_getAlignmentMappedReadCount(
+        bamFile,
+        excludeChromosomes=excludeChroms,
+        sourceKind=sourceKind,
+        barcodeAllowListFile=barcodeAllowListFile or "",
+        countMode=countMode or "coverage",
+        oneReadPerBin=oneReadPerBin,
+    )
     if totalMappedReads <= 0:
         raise ValueError(
             f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}."
         )
     scalePM = round((1_000_000 / totalMappedReads) * (1000 / intervalSizeBP), 5)
+    fragmentsGroupNorm = str(fragmentsGroupNorm or "NONE").strip().upper()
+    if sourceKind == "FRAGMENTS" and fragmentsGroupNorm == "CELLS":
+        if groupCellCount is None or groupCellCount <= 0:
+            raise ValueError(
+                "fragmentsGroupNorm=CELLS requires a positive selected cell count"
+            )
+        scalePM = scalePM / float(groupCellCount)
     return scalePM
 
 
@@ -120,6 +156,16 @@ def getPairScaleFactors(
     intervalSizeBP: int,
     normMethod: str = "EGS",
     fixControl: bool = True,
+    sourceKindA: str | None = None,
+    sourceKindB: str | None = None,
+    barcodeAllowListFileA: str | None = None,
+    barcodeAllowListFileB: str | None = None,
+    countModeA: str | None = None,
+    countModeB: str | None = None,
+    oneReadPerBin: int = 0,
+    groupCellCountA: int | None = None,
+    groupCellCountB: int | None = None,
+    fragmentsGroupNorm: str | None = None,
 ) -> Tuple[float, float]:
     r"""Scale treatment:control data based on effective genome size or reads per million.
 
@@ -153,11 +199,23 @@ def getPairScaleFactors(
             bamFileA,
             excludeChroms,
             intervalSizeBP,
+            sourceKind=sourceKindA,
+            barcodeAllowListFile=barcodeAllowListFileA,
+            countMode=countModeA,
+            oneReadPerBin=oneReadPerBin,
+            groupCellCount=groupCellCountA,
+            fragmentsGroupNorm=fragmentsGroupNorm,
         )
         scaleFactorB = getScaleFactorPerMillion(
             bamFileB,
             excludeChroms,
             intervalSizeBP,
+            sourceKind=sourceKindB,
+            barcodeAllowListFile=barcodeAllowListFileB,
+            countMode=countModeB,
+            oneReadPerBin=oneReadPerBin,
+            groupCellCount=groupCellCountB,
+            fragmentsGroupNorm=fragmentsGroupNorm,
         )
     else:
         scaleFactorA = getScaleFactor1x(
@@ -167,6 +225,12 @@ def getPairScaleFactors(
             excludeChroms,
             chromSizesFile,
             samThreads,
+            sourceKind=sourceKindA,
+            barcodeAllowListFile=barcodeAllowListFileA,
+            countMode=countModeA,
+            oneReadPerBin=oneReadPerBin,
+            groupCellCount=groupCellCountA,
+            fragmentsGroupNorm=fragmentsGroupNorm,
         )
         scaleFactorB = getScaleFactor1x(
             bamFileB,
@@ -175,6 +239,12 @@ def getPairScaleFactors(
             excludeChroms,
             chromSizesFile,
             samThreads,
+            sourceKind=sourceKindB,
+            barcodeAllowListFile=barcodeAllowListFileB,
+            countMode=countModeB,
+            oneReadPerBin=oneReadPerBin,
+            groupCellCount=groupCellCountB,
+            fragmentsGroupNorm=fragmentsGroupNorm,
         )
 
     coverageA = 1.0 / scaleFactorA if scaleFactorA > 0.0 else 0.0
