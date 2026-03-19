@@ -11,6 +11,10 @@ on:
         description: 'branches tested'
         required: false
         default: 'main'
+      publish_to_pypi:
+        description: 'publish built artifacts to PyPI'
+        required: false
+        default: 'false'
 
 jobs:
   build:
@@ -32,7 +36,11 @@ jobs:
           - name: macos-arm64
             runs-on: macos-15
             cibw_archs_macos: arm64
-            brew_prefix: /opt/homebrew
+
+          # x86_64 mac
+          - name: macos-x86_64
+            runs-on: macos-15-intel
+            cibw_archs_macos: x86_64
 
 
     runs-on: ${{ matrix.runs-on }}
@@ -45,33 +53,24 @@ jobs:
         with:
           output-dir: dist
         env:
-          CIBW_BUILD: "cp311-* cp312-* cp313-*"
-          CIBW_SKIP: "*-musllinux_*"
+          CIBW_BUILD: "cp311-* cp312-* cp313-* cp314-*"
           CIBW_ARCHS_LINUX: ${{ matrix.cibw_archs_linux }}
           CIBW_ARCHS_MACOS: ${{ matrix.cibw_archs_macos }}
 
           CIBW_BEFORE_ALL_LINUX: |
-            bash -eux -c '
-              if command -v yum >/dev/null 2>&1; then
-                yum -y install zlib-devel
-              elif command -v dnf >/dev/null 2>&1; then
-                dnf -y install zlib-devel
-              elif command -v microdnf >/dev/null 2>&1; then
-                microdnf -y install zlib-devel
-              else
-                echo "No supported package manager found" >&2
-                exit 1
-              fi
-            '
-
-          CIBW_BEFORE_ALL_MACOS: |
-            export HOMEBREW_NO_AUTO_UPDATE=1
-            brew list libomp >/dev/null 2>&1 || brew install libomp
-
-          CIBW_ENVIRONMENT_MACOS: >
-            MACOSX_DEPLOYMENT_TARGET=26.0
-            CPPFLAGS="-I${{ matrix.brew_prefix }}/opt/libomp/include"
-            LDFLAGS="-L${{ matrix.brew_prefix }}/opt/libomp/lib -Wl,-rpath,${{ matrix.brew_prefix }}/opt/libomp/lib"
+            set -eu
+            if command -v apk >/dev/null 2>&1; then
+              apk add --no-cache zlib-dev bzip2-dev xz-dev
+            elif command -v yum >/dev/null 2>&1; then
+              yum -y install zlib-devel bzip2-devel xz-devel
+            elif command -v dnf >/dev/null 2>&1; then
+              dnf -y install zlib-devel bzip2-devel xz-devel
+            elif command -v microdnf >/dev/null 2>&1; then
+              microdnf -y install zlib-devel bzip2-devel xz-devel
+            else
+              echo "No supported package manager found" >&2
+              exit 1
+            fi
 
       - if: matrix.name == 'linux-x86_64'
         name: Build source distribution
@@ -88,7 +87,7 @@ jobs:
           path: dist/*
 
   publish:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:

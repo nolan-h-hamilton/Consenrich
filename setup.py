@@ -222,16 +222,6 @@ base_compile = [
     "-mtune=generic",
 ]
 
-if sys.platform == "darwin":
-    omp_compile = ["-Xpreprocessor", "-fopenmp"]
-    omp_link = ["-lomp"]
-elif sys.platform.startswith("linux"):
-    omp_compile = ["-fopenmp"]
-    omp_link = ["-fopenmp"]
-else:
-    omp_compile = []
-    omp_link = []
-
 
 class buildConsenrichExt(build_ext):
     def run(self):
@@ -248,8 +238,7 @@ extensions = [
         libraries=getBundledHtslibLibraries(),
         library_dirs=get_library_dirs(),
         extra_objects=getBundledHtslibExtraObjects(),
-        extra_compile_args=base_compile + omp_compile,
-        extra_link_args=omp_link,
+        extra_compile_args=base_compile,
     ),
     Extension(
         "consenrich.ccounts",

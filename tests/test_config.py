@@ -381,7 +381,7 @@ def test_resolveDeltaFAutoParams():
     )
 
     assert autoDeltaF is True
-    assert deltaFCenter == pytest.approx(50.0 / 135.0)
+    assert deltaFCenter == pytest.approx(0.5 * 50.0 / 135.0)
     assert deltaFLow < deltaFCenter
     assert deltaFHigh > deltaFCenter
 

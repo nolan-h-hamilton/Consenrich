@@ -23,7 +23,7 @@ For interval :math:`i` and replicate :math:`j`:
 * :math:`b_j` and :math:`a_j` are replicate bias and observation-scale terms
 * :math:`v_{[j,i]}` is the plugin observation variance track
 * :math:`b(i)` maps interval :math:`i` to block :math:`b`
-* :math:`r_b` and :math:`q_b` are block observation/process scales
+* :math:`q_b` is the block process scale
 * :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are Student-t precision weights
 
 Model
@@ -36,7 +36,7 @@ Model
   y_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
   \qquad
   \mathrm{Var}(\epsilon_{[j,i]}) =
-  \frac{a_j r_{b(i)} (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
+  \frac{a_j (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
 
 **Prior**
 

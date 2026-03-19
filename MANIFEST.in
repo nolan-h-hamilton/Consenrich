@@ -16,4 +16,4 @@ prune vendor/htslib/samples
 prune vendor/htslib/htscodecs/tests
 prune vendor/htslib/htscodecs/javascript
 recursive-exclude vendor/htslib *.o *.a
-global-exclude .gitignore .gitattributes .gitmodules .cirrus.yml
+global-exclude .git .gitignore .gitattributes .gitmodules .cirrus.yml

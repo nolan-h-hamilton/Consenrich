@@ -233,8 +233,6 @@ def testIntervalMuncUpdateIsPositive():
         replicateBias=np.zeros(m, dtype=np.float32),
         replicateScale=np.ones(m, dtype=np.float32),
         backgroundTrack=np.zeros(n, dtype=np.float32),
-        rScale=np.ones(6, dtype=np.float32),
-        intervalToBlockMap=(np.arange(n, dtype=np.int32) // 8).astype(np.int32),
         lambdaExp=None,
         pad=1.0e-4,
         minR=1.0e-3,
@@ -293,6 +291,70 @@ def testRunConsenrichOuterEMSmoke():
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert postFitResiduals.shape == (n, m)
     assert NIS.shape == (n,)
+
+
+@pytest.mark.correctness
+def testRunConsenrichOuterEMReusesObservationEBSettings(monkeypatch):
+    captured: dict[str, object] = {}
+    originalEstimator = core._estimateIntervalMuncTrack
+
+    def _wrappedEstimator(*args, **kwargs):
+        captured["binQuantileCutoff"] = kwargs.get("binQuantileCutoff")
+        captured["EB_minLin"] = kwargs.get("EB_minLin")
+        captured["EB_use"] = kwargs.get("EB_use")
+        captured["EB_setNu0"] = kwargs.get("EB_setNu0")
+        captured["EB_setNuL"] = kwargs.get("EB_setNuL")
+        return originalEstimator(*args, **kwargs)
+
+    monkeypatch.setattr(core, "_estimateIntervalMuncTrack", _wrappedEstimator)
+
+    n = 48
+    m = 3
+    grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
+    signalTrack = np.sin(grid).astype(np.float32)
+    matrixData = np.vstack(
+        [
+            signalTrack + 0.04 * np.cos(grid),
+            signalTrack - 0.03 * np.cos(grid),
+            signalTrack + 0.02 * np.sin(2.0 * grid),
+        ]
+    ).astype(np.float32)
+    matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
+
+    core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.1,
+        minQ=1.0e-3,
+        maxQ=1.0,
+        offDiagQ=0.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=8,
+        autoDeltaF=False,
+        EM_maxIters=2,
+        EM_outerIters=1,
+        EM_useIntervalBackground=False,
+        EM_useIntervalMunc=True,
+        intervalMuncBinQuantileCutoff=0.8,
+        intervalMuncEB_minLin=0.125,
+        intervalMuncEB_use=False,
+        intervalMuncEB_setNu0=17,
+        intervalMuncEB_setNuL=11,
+        conformalRescale=False,
+        applyJackknife=False,
+    )
+
+    assert captured == {
+        "binQuantileCutoff": 0.8,
+        "EB_minLin": 0.125,
+        "EB_use": False,
+        "EB_setNu0": 17,
+        "EB_setNuL": 11,
+    }
 
 
 @pytest.mark.correctness

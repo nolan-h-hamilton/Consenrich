@@ -356,7 +356,7 @@ def _resolveDeltaFAutoParams(
 
     deltaFCenter = float(
         np.clip(
-            float(intervalSizeBP) / max(medianFragmentLength, 1.0),
+            0.5 * float(intervalSizeBP) / max(medianFragmentLength, 1.0),
             1.0e-4,
             2.0,
         )
@@ -1029,7 +1029,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     experimentName = _cfgGet(configData, "experimentName", "consenrichExperiment")
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
-        minQ=_cfgGet(configData, "processParams.minQ", -1.0),
+        minQ=_cfgGet(configData, "processParams.minQ", 0.001),
         maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
             configData,
@@ -1071,22 +1071,17 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
-        pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
+        pad=_cfgGet(configData, "observationParams.pad", 1.0e-3),
     )
 
     fitArgs = core.fitParams(
         EM_maxIters=_cfgGet(configData, "fitParams.EM_maxIters", 50),
         EM_rtol=_cfgGet(configData, "fitParams.EM_rtol", 1.0e-4),
         EM_scaleToMedian=_cfgGet(configData, "fitParams.EM_scaleToMedian", False),
-        EM_tNu=_cfgGet(configData, "fitParams.EM_tNu", 10.0),
-        EM_alphaEMA=_cfgGet(configData, "fitParams.EM_alphaEMA", 0.1),
+        EM_tNu=_cfgGet(configData, "fitParams.EM_tNu", 8.0),
+        EM_alphaEMA=_cfgGet(configData, "fitParams.EM_alphaEMA", 0.05),
         EM_scaleLOW=_cfgGet(configData, "fitParams.EM_scaleLOW", 0.5),
-        EM_scaleHIGH=_cfgGet(configData, "fitParams.EM_scaleHIGH", 4.0),
-        EM_useObsBlockScale=_cfgGet(
-            configData,
-            "fitParams.EM_useObsBlockScale",
-            False,
-        ),
+        EM_scaleHIGH=_cfgGet(configData, "fitParams.EM_scaleHIGH", 5.0),
         EM_useProcBlockScale=_cfgGet(
             configData,
             "fitParams.EM_useProcBlockScale",
@@ -1120,7 +1115,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_repScaleLOW=_cfgGet(
             configData,
             "fitParams.EM_repScaleLOW",
-            0.5,  # genome-wide scale applied during EM (as opposed to interval-level, block level)
+            0.25,  # genome-wide scale applied during EM (as opposed to interval-level, block level)
         ),
         EM_repScaleHIGH=_cfgGet(
             configData,
@@ -1140,12 +1135,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_useIntervalMunc=_cfgGet(
             configData,
             "fitParams.EM_useIntervalMunc",
-            True,
+            False,
         ),
         EM_intervalMuncEMA=_cfgGet(
             configData,
             "fitParams.EM_intervalMuncEMA",
-            0.5,
+            0.25,
         ),
         EM_useIntervalBackground=_cfgGet(
             configData,
@@ -2178,7 +2173,6 @@ def main():
             P,
             postFitResiduals,
             JackknifeSEVec,
-            rScale,
             qScale,
             replicateBias,
             replicateScale,
@@ -2210,7 +2204,6 @@ def main():
             EM_alphaEMA=fitArgs.EM_alphaEMA,
             EM_scaleLOW=fitArgs.EM_scaleLOW,
             EM_scaleHIGH=fitArgs.EM_scaleHIGH,
-            EM_useObsBlockScale=fitArgs.EM_useObsBlockScale,
             EM_useProcBlockScale=fitArgs.EM_useProcBlockScale,
             EM_useObsPrecReweight=fitArgs.EM_useObsPrecReweight,
             EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
@@ -2225,6 +2218,11 @@ def main():
             EM_intervalMuncEMA=fitArgs.EM_intervalMuncEMA,
             EM_useIntervalBackground=fitArgs.EM_useIntervalBackground,
             EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
+            intervalMuncBinQuantileCutoff=observationArgs.binQuantileCutoff,
+            intervalMuncEB_minLin=observationArgs.EB_minLin,
+            intervalMuncEB_use=observationArgs.EB_use,
+            intervalMuncEB_setNu0=observationArgs.EB_setNu0,
+            intervalMuncEB_setNuL=observationArgs.EB_setNuL,
             autoDeltaF=autoDeltaF_,
             autoDeltaF_low=autoDeltaFLow_,
             autoDeltaF_high=autoDeltaFHigh_,
@@ -2284,9 +2282,6 @@ def main():
 
         if outputArgs.writeMWSR:
             cols_.append("MWSR")
-            rByInterval = np.asarray(rScale, dtype=np.float32)[
-                np.asarray(intervalToBlockMap, dtype=np.int32)
-            ]
             resid = np.asarray(
                 postFitResiduals, dtype=np.float32
             ).T  # make (numIntervals, numSamples)
@@ -2321,11 +2316,7 @@ def main():
                     axis=0,
                 )
 
-            R_ = (
-                replicateScaleForMWSR
-                * rByInterval[None, :]
-                * (muncForMWSR + np.float32(pad_))
-            )
+            R_ = replicateScaleForMWSR * (muncForMWSR + np.float32(pad_))
             R_ = np.maximum(R_, np.float32(1.0e-12))
 
             P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)

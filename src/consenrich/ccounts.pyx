@@ -397,7 +397,6 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     if intervalSizeBP <= 0 or end <= start:
         raise ValueError("invalid interval size or genomic segment")
 
-    # the native backend writes one float per evenly spaced interval
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
     counts = np.zeros(numIntervals, dtype=np.float32)
 
@@ -406,8 +405,6 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     region.start = <uint32_t>start
     region.end = <uint32_t>end
     region.intervalSizeBP = <uint32_t>intervalSizeBP
-
-    # keep the python wrapper thin and pass raw knobs straight through
     countOptions.threadCount = threadCount
     countOptions.flagExclude = flagExclude
     countOptions.countMode = _getCountModeCode(countMode)

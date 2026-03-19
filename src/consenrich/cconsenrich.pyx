@@ -14,7 +14,6 @@ from . import ccounts as ccountsModule
 cimport numpy as cnp
 from libc.stdint cimport int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
-from cython.parallel import prange
 from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
 from libc.stdlib cimport rand, srand, RAND_MAX, malloc, free
 from libc.string cimport memcpy
@@ -1825,7 +1824,6 @@ cpdef tuple cforwardPass(
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixF,
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQ0,
     cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap,
-    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] rScale,
     cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] qScale,
     Py_ssize_t blockCount,
     float stateInit,
@@ -1847,7 +1845,6 @@ cpdef tuple cforwardPass(
     object processPrecExp=None,
     object replicateBias=None,
     object replicateScale=None,
-    bint EM_useObsBlockScale=True,
     bint EM_useProcBlockScale=True,
     bint EM_useObsPrecReweight=True,
     bint EM_useProcPrecReweight=True,
@@ -1870,7 +1867,6 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[:, ::1] fView = matrixF
     cdef cnp.float32_t[:, ::1] q0View = matrixQ0
     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
-    cdef cnp.float32_t[::1] rScaleView = rScale
     cdef cnp.float32_t[::1] qScaleView = qScale
     cdef Py_ssize_t trackCount = dataView.shape[0]
     cdef Py_ssize_t intervalCount = dataView.shape[1]
@@ -1923,7 +1919,7 @@ cpdef tuple cforwardPass(
     cdef double sumNLL = 0.0
     cdef double intervalNLL = 0.0
     cdef double sumDStat = 0.0
-    cdef float rScaleB, qScaleB
+    cdef float qScaleB
     cdef double w
     cdef double wMin = 0.2
     cdef double wMax = 5.0
@@ -1964,8 +1960,6 @@ cpdef tuple cforwardPass(
     if blockCount <= 0:
         raise ValueError("blockCount must be positive")
 
-    if EM_useObsBlockScale and (rScale.shape[0] < blockCount):
-        raise ValueError("rScale length must be >= blockCount when EM_useObsBlockScale=True")
     if EM_useProcBlockScale and (qScale.shape[0] < blockCount):
         raise ValueError("qScale length must be >= blockCount when EM_useProcBlockScale=True")
 
@@ -2020,11 +2014,7 @@ cpdef tuple cforwardPass(
         # --------------------------------------------------------
         # _Blockwise_ noise scale updates
         # --------------------------------------------------------
-        rScaleB = <float>1.0
         qScaleB = <float>1.0
-
-        if EM_useObsBlockScale:
-            rScaleB = rScaleView[blockId]
 
         if EM_useProcBlockScale:
             qScaleB = qScaleView[blockId]
@@ -2103,7 +2093,7 @@ cpdef tuple cforwardPass(
 
             baseVar = (<double>muncMatView[j, k]) + (<double>pad)
 
-            measVar = scaleJ * (<double>rScaleB) * baseVar
+            measVar = scaleJ * baseVar
             if measVar < 1.0e-12:
                 measVar = 1.0e-12
 
@@ -2448,7 +2438,6 @@ cpdef tuple cblockScaleEM(
     float EM_alphaEMA_Q=1.0,
     bint EM_scaleToMedian=False,
     float EM_tNu=10.0,
-    bint EM_useObsBlockScale=True,
     bint EM_useProcBlockScale=True,
     bint EM_useObsPrecReweight=True,
     bint EM_useProcPrecReweight=True,
@@ -2469,7 +2458,7 @@ cpdef tuple cblockScaleEM(
 
     .. math::
 
-        \widetilde{R}_{[j,i]}=\frac{a_j\,r_{b(i)}\,v_{[j,i]}}{\lambda_{[j,i]}},
+        \widetilde{R}_{[j,i]}=\frac{a_j\,v_{[j,i]}}{\lambda_{[j,i]}},
         \qquad
         \widetilde{\mathbf{Q}}_{[i]}=\frac{q_{b(i)}\,\mathbf{Q}_0}{\kappa_{[i]}}.
 
@@ -2479,7 +2468,7 @@ cpdef tuple cblockScaleEM(
 
         z_{[j,i]} = x_{[i,0]} + b_j + \epsilon_{[j,i]}.
 
-    Here :math:`r_b>0` and :math:`q_b>0` are block-level scale multipliers, :math:`a_j>0` and
+    Here :math:`q_b>0` is the block-level process scale, :math:`a_j>0` and
     :math:`b_j` are replicate-level multipliers/offsets, and :math:`\lambda_{[j,i]}` and
     :math:`\kappa_{[i]}` are Student-t precision multipliers.
 
@@ -2526,16 +2515,8 @@ cpdef tuple cblockScaleEM(
 
     where :math:`d=2`.
 
-    3. **Block-level scaling**: update :math:`r_b` and/or :math:`q_b` using blockwise closed-form averages of
+    3. **Block-level scaling**: update :math:`q_b` using blockwise closed-form averages of
     sufficient statistics from the E-step.
-
-    Observation block scale update:
-
-    .. math::
-
-        r_b \leftarrow \frac{1}{N_b}\sum_{(j,i):\,b(i)=b}
-        \lambda_{[j,i]}\,
-        \frac{(z_{[j,i]}-b_j-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}{a_j\,v_{[j,i]}}.
 
     Process block scale update:
 
@@ -2550,8 +2531,6 @@ cpdef tuple cblockScaleEM(
 
     .. math::
 
-      \log r_b \leftarrow (1-\alpha)\log r_b^{(\mathrm{sm})} + \alpha \log r_b,
-      \qquad
       \log q_b \leftarrow (1-\alpha_Q)\log q_b^{(\mathrm{sm})} + \alpha_Q \log q_b.
 
 
@@ -2565,7 +2544,7 @@ cpdef tuple cblockScaleEM(
       :nowrap:
 
         \begin{align}
-        \mathcal{J}(x,\Lambda,\kappa,r,q,a,b)
+        \mathcal{J}(x,\Lambda,\kappa,q,a,b)
         &=
         \frac12\sum_{i=2}^{n}
         \left[
@@ -2578,9 +2557,9 @@ cpdef tuple cblockScaleEM(
         &\quad+
         \frac12\sum_{i=1}^{n}\sum_{j=1}^m
         \left[
-        \log\!\left(\frac{a_j r_{b(i)}v_{[j,i]}}{\lambda_{[j,i]}}\right)
+        \log\!\left(\frac{a_j v_{[j,i]}}{\lambda_{[j,i]}}\right)
         +
-        (z_{[j,i]}-b_j-x_{[i,0]})^2\,\frac{\lambda_{[j,i]}}{a_j r_{b(i)}v_{[j,i]}}
+        (z_{[j,i]}-b_j-x_{[i,0]})^2\,\frac{\lambda_{[j,i]}}{a_j v_{[j,i]}}
         \right] \\
         &\quad+
         \sum_{i=1}^{n}\sum_{j=1}^m
@@ -2598,8 +2577,8 @@ cpdef tuple cblockScaleEM(
 
 
     So the estimation loop maximizing our objective function may be viewed as a coordinate ascent where the filter-smoother
-    solves the quadratic subproblem *conditional* on the current estimates of :math:`\Lambda`, :math:`\kappa`, :math:`r`, :math:`q`, :math:`a`, and :math:`b`,
-    and reweighting plus scale/offset updates optimize over :math:`\Lambda`, :math:`\kappa`, :math:`r`, :math:`q`, :math:`a`, and :math:`b`.
+    solves the quadratic subproblem *conditional* on the current estimates of :math:`\Lambda`, :math:`\kappa`, :math:`q`, :math:`a`, and :math:`b`,
+    and reweighting plus scale/offset updates optimize over :math:`\Lambda`, :math:`\kappa`, :math:`q`, :math:`a`, and :math:`b`.
 
     :param matrixData: Replicate track data (rows: replicates, columns: genomic intervals).
     :type matrixData: numpy.ndarray[numpy.float32]
@@ -2621,18 +2600,16 @@ cpdef tuple cblockScaleEM(
     :type EM_maxIters: int
     :param EM_rtol: Relative improvement tolerance on NLL used in convergence
     :type EM_rtol: float
-    :param EM_scaleLOW: Lower bound for block scales :math:`r_b` and :math:`q_b`.
+    :param EM_scaleLOW: Lower bound for block process scales :math:`q_b`.
     :type EM_scaleLOW: float
-    :param EM_scaleHIGH: Upper bound for block scales :math:`r_b` and :math:`q_b`
+    :param EM_scaleHIGH: Upper bound for block process scales :math:`q_b`
     :type EM_scaleHIGH: float
-    :param EM_alphaEMA: If in ``(0, 1]``, enables log-domain EMA smoothing for block scale updates with smoothing factor :math:`\alpha`
+    :param EM_alphaEMA: If in ``(0, 1]``, enables log-domain EMA smoothing for block process scale updates with smoothing factor :math:`\alpha`
     :type EM_alphaEMA: float
-    :param EM_scaleToMedian: If True, rescales :math:`r_b` and :math:`q_b` by their medians after each M-step. This can help preserve between-block scale differences for interpretability, but may interfere with convergence of the EM algorithm since it changes the effective objective.
+    :param EM_scaleToMedian: If True, rescales :math:`q_b` by its median after each M-step. This can help preserve between-block scale differences for interpretability, but may interfere with convergence of the EM algorithm since it changes the effective objective.
     :type EM_scaleToMedian: bool
     :param EM_tNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
     :type EM_tNu: float
-    :param EM_useObsBlockScale: If True, estimate block observation scales :math:`r_b`; otherwise fix :math:`r_b\equiv 1`.
-    :type EM_useObsBlockScale: bool
     :param EM_useProcBlockScale: If True, estimate block process scales :math:`q_b`; otherwise fix :math:`q_b\equiv 1`.
     :type EM_useProcBlockScale: bool
     :param EM_useObsPrecReweight: If True, update observation precision multipliers :math:`\lambda_{[j,i]}` (Student-t reweighting); otherwise :math:`\lambda\equiv 1`.
@@ -2648,7 +2625,7 @@ cpdef tuple cblockScaleEM(
     :param returnIntermediates: If True, also return smoothed states/covariances, residuals, and (if enabled) precision multipliers.
     :type returnIntermediates: bool
 
-    :returns: A tuple ``(rScale, qScale, itersDone, finalNLL)``. If ``returnIntermediates=True``,
+    :returns: A tuple ``(qScale, itersDone, finalNLL)``. If ``returnIntermediates=True``,
             additionally returns ``(stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals, lambdaExp, processPrecExp, replicateBias, replicateScale)``.
     :rtype: tuple
 
@@ -2678,10 +2655,8 @@ cpdef tuple cblockScaleEM(
     cdef cnp.float32_t[:, ::1] fView = matrixF
     cdef cnp.float32_t[:, ::1] q0View = matrixQ0
 
-    # Always allocate scales (but optionally keep them fixed at 1.0 if disabled)
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] rScaleArr = np.ones(blockCount, dtype=np.float32)
+    # qScale can optionally be held fixed at 1.0 if disabled
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] qScaleArr = np.ones(blockCount, dtype=np.float32)
-    cdef cnp.float32_t[::1] rScaleView = rScaleArr
     cdef cnp.float32_t[::1] qScaleView = qScaleArr
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateScaleArr = np.ones(trackCount, dtype=np.float32)
@@ -2756,31 +2731,18 @@ cpdef tuple cblockScaleEM(
     cdef double dState = 2.0
     cdef double tmpVal
     cdef double procNu = 4.0*EM_tNu
-    cdef double procScaleLOW = EM_scaleLOW
     cdef double procScaleHIGH = EM_scaleHIGH
 
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rStatSum = np.zeros(blockCount, dtype=np.float64)
-    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] rWeightCount = np.zeros(blockCount, dtype=np.int32)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] qStatSum = np.zeros(blockCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] qStatCount = np.zeros(blockCount, dtype=np.int32)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] qWeightSum = np.zeros(blockCount, dtype=np.float64)
-    cdef double[::1] rStatSumView = rStatSum
-    cdef cnp.int32_t[::1] rWeightCountView = rWeightCount
     cdef double[::1] qStatSumView = qStatSum
     cdef cnp.int32_t[::1] qStatCountView = qStatCount
-    cdef double[::1] qWeightSumView = qWeightSum
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rScaleLogTmp = np.zeros(blockCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] qScaleLogTmp = np.zeros(blockCount, dtype=np.float64)
-    cdef double[::1] rLogView = rScaleLogTmp
     cdef double[::1] qLogView = qScaleLogTmp
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] rScaleLogSm = np.zeros(blockCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] qScaleLogSm = np.zeros(blockCount, dtype=np.float64)
-    cdef double[::1] rLogSmView = rScaleLogSm
     cdef double[::1] qLogSmView = qScaleLogSm
     cdef double alphaQ
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] prevRLog = np.zeros(blockCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] prevQLog = np.zeros(blockCount, dtype=np.float64)
-    cdef double[::1] prevRLogView = prevRLog
     cdef double[::1] prevQLogView = prevQLog
     cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasNum = np.zeros(trackCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasDen = np.zeros(trackCount, dtype=np.float64)
@@ -2794,24 +2756,14 @@ cpdef tuple cblockScaleEM(
     cdef Py_ssize_t stableIters = 0
     cdef Py_ssize_t patienceTarget = 2
     cdef double thetaTol = 0.1
-    cdef double rMed
     cdef double qMed
-    cdef double rMedRaw
     cdef double qMedRaw
-    cdef double rMean
     cdef double qMean
-    cdef double rMin
-    cdef double rMax
     cdef double qMin
     cdef double qMax
-    cdef Py_ssize_t nEmptyRBlocks
     cdef Py_ssize_t nEmptyQBlocks
-    cdef Py_ssize_t minRCount
-    cdef Py_ssize_t maxRCount
     cdef Py_ssize_t minQCount
     cdef Py_ssize_t maxQCount
-    cdef Py_ssize_t nClipRLow
-    cdef Py_ssize_t nClipRHigh
     cdef Py_ssize_t nClipQLow
     cdef Py_ssize_t nClipQHigh
     cdef double repBiasCenter
@@ -2825,11 +2777,11 @@ cpdef tuple cblockScaleEM(
     if intervalCount <= 5:
         if returnIntermediates:
             return (
-                rScaleArr, qScaleArr, 0, float(previousNLL),
+                qScaleArr, 0, float(previousNLL),
                 stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
                 lambdaExp, processPrecExp, replicateBiasArr, replicateScaleArr
             )
-        return (rScaleArr, qScaleArr, 0, float(previousNLL))
+        return (qScaleArr, 0, float(previousNLL))
 
     if blockCount <= 0:
         raise ValueError("blockCount must be positive")
@@ -2869,7 +2821,6 @@ cpdef tuple cblockScaleEM(
                 matrixF=matrixF,
                 matrixQ0=matrixQ0,
                 intervalToBlockMap=intervalToBlockMap,
-                rScale=rScaleArr,
                 qScale=qScaleArr,
                 blockCount=blockCount,
                 stateInit=stateInit,
@@ -2891,7 +2842,6 @@ cpdef tuple cblockScaleEM(
                 processPrecExp=processPrecExp,
                 replicateBias=replicateBiasArr,
                 replicateScale=replicateScaleArr,
-                EM_useObsBlockScale=EM_useObsBlockScale,
                 EM_useProcBlockScale=EM_useProcBlockScale,
                 EM_useObsPrecReweight=EM_useObsPrecReweight,
                 EM_useProcPrecReweight=EM_useProcPrecReweight,
@@ -2934,12 +2884,7 @@ cpdef tuple cblockScaleEM(
                             muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
                             if muncPlusPad < 1.0e-12:
                                 muncPlusPad = 1.0e-12
-
-                            # If observation block scaling is disabled, treat rScale[b] as 1.0
-                            if EM_useObsBlockScale:
-                                Rkj = (<double>rScaleView[b]) * muncPlusPad
-                            else:
-                                Rkj = 1.0 * muncPlusPad
+                            Rkj = muncPlusPad
 
                             if EM_useReplicateScale:
                                 tmpVal = <double>replicateScaleView[j]
@@ -3031,7 +2976,6 @@ cpdef tuple cblockScaleEM(
             matrixF=matrixF,
             matrixQ0=matrixQ0,
             intervalToBlockMap=intervalToBlockMap,
-            rScale=rScaleArr,
             qScale=qScaleArr,
             blockCount=blockCount,
             stateInit=stateInit,
@@ -3053,7 +2997,6 @@ cpdef tuple cblockScaleEM(
             processPrecExp=processPrecExp,
             replicateBias=replicateBiasArr,
             replicateScale=replicateScaleArr,
-            EM_useObsBlockScale=EM_useObsBlockScale,
             EM_useProcBlockScale=EM_useProcBlockScale,
             EM_useObsPrecReweight=EM_useObsPrecReweight,
             EM_useProcPrecReweight=EM_useProcPrecReweight,
@@ -3067,46 +3010,8 @@ cpdef tuple cblockScaleEM(
 
         with nogil:
             for b in range(blockCount):
-                rStatSumView[b] = 0.0
-                rWeightCountView[b] = 0
                 qStatSumView[b] = 0.0
                 qStatCountView[b] = 0
-                qWeightSumView[b] = 0.0
-
-            # -----------------------------
-            # M-step sufficient stats for rScale (optional)
-            # -----------------------------
-            if EM_useObsBlockScale:
-                for k in range(intervalCount):
-                    b = <Py_ssize_t>blockMapView[k]
-                    if b < 0 or b >= blockCount:
-                        continue
-
-                    p00k = <double>stateCovarSmoothedView[k, 0, 0]
-                    if p00k < 0.0:
-                        p00k = 0.0
-
-                    for j in range(trackCount):
-                        res = <double>residualView[k, j]
-
-                        muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                        if muncPlusPad < 1.0e-12:
-                            muncPlusPad = 1.0e-12
-                        tmpVal = (res*res + p00k)
-
-                        if EM_useObsPrecReweight:
-                            w = <double>lambdaExpView[j, k]
-                        else:
-                            w = 1.0
-
-                        if EM_useReplicateScale:
-                            denomNoRep = <double>replicateScaleView[j]
-                            if denomNoRep < 1.0e-8:
-                                denomNoRep = 1.0e-8
-                            muncPlusPad = muncPlusPad * denomNoRep
-
-                        rStatSumView[b] += w * (tmpVal / muncPlusPad)
-                        rWeightCountView[b] += 1
 
             # -----------------------------
             # M-step sufficient stats for qScale (optional)
@@ -3173,7 +3078,7 @@ cpdef tuple cblockScaleEM(
             # -----------------------------
             # M-step sufficient stats for replicate bias and scale
             #   y[j,k] = x[k] + bias[j] + e[j,k]
-            #   Var[e[j,k]] = replicateScale[j] * r[b(k)] * (munc[j,k] + pad) / lambda[j,k]
+            #   Var[e[j,k]] = replicateScale[j] * (munc[j,k] + pad) / lambda[j,k]
             # -----------------------------
             if EM_useReplicateBias or EM_useReplicateScale:
                 for j in range(trackCount):
@@ -3193,10 +3098,7 @@ cpdef tuple cblockScaleEM(
                             if muncPlusPad < 1.0e-12:
                                 muncPlusPad = 1.0e-12
 
-                            if EM_useObsBlockScale:
-                                denomNoRep = (<double>rScaleView[b]) * muncPlusPad
-                            else:
-                                denomNoRep = 1.0 * muncPlusPad
+                            denomNoRep = muncPlusPad
                             if denomNoRep < 1.0e-12:
                                 denomNoRep = 1.0e-12
 
@@ -3257,10 +3159,7 @@ cpdef tuple cblockScaleEM(
                             if muncPlusPad < 1.0e-12:
                                 muncPlusPad = 1.0e-12
 
-                            if EM_useObsBlockScale:
-                                denomNoRep = (<double>rScaleView[b]) * muncPlusPad
-                            else:
-                                denomNoRep = 1.0 * muncPlusPad
+                            denomNoRep = muncPlusPad
                             if denomNoRep < 1.0e-12:
                                 denomNoRep = 1.0e-12
 
@@ -3290,27 +3189,12 @@ cpdef tuple cblockScaleEM(
                     for j in range(trackCount):
                         replicateScaleView[j] = <cnp.float32_t>1.0
 
-            nClipRLow = 0
-            nClipRHigh = 0
             nClipQLow = 0
             nClipQHigh = 0
 
             for b in range(blockCount):
-                if EM_useObsBlockScale and (rWeightCountView[b] > 0):
-                    rScaleView[b] = <cnp.float32_t>(rStatSumView[b] / (<double>rWeightCountView[b]))
-
                 if EM_useProcBlockScale and (qStatCountView[b] > 0):
                     qScaleView[b] = <cnp.float32_t>(qStatSumView[b] / (dState * (<double>qStatCountView[b])))
-
-                if EM_useObsBlockScale:
-                    if rScaleView[b] < <cnp.float32_t>EM_scaleLOW:
-                        rScaleView[b] = <cnp.float32_t>EM_scaleLOW
-                        nClipRLow += 1
-                    elif rScaleView[b] > <cnp.float32_t>EM_scaleHIGH:
-                        rScaleView[b] = <cnp.float32_t>EM_scaleHIGH
-                        nClipRHigh += 1
-                else:
-                    rScaleView[b] = <cnp.float32_t>1.0
 
                 if EM_useProcBlockScale:
                     if qScaleView[b] < <cnp.float32_t>EM_scaleLOW:
@@ -3329,14 +3213,7 @@ cpdef tuple cblockScaleEM(
                 elif alphaQ < 0.0:
                     alphaQ = 0.0
 
-                # log-domain smoothing only for enabled scales
                 for b in range(blockCount):
-                    if EM_useObsBlockScale:
-                        tmpVal = <double>rScaleView[b]
-                        rLogView[b] = log(tmpVal)
-                    else:
-                        rLogView[b] = 0.0  # log(1)
-
                     if EM_useProcBlockScale:
                         tmpVal = <double>qScaleView[b]
                         qLogView[b] = log(tmpVal)
@@ -3345,63 +3222,34 @@ cpdef tuple cblockScaleEM(
 
                 if i == 0:
                     for b in range(blockCount):
-                        rLogSmView[b] = rLogView[b]
                         qLogSmView[b] = qLogView[b]
                 else:
                     for b in range(blockCount):
-                        if EM_useObsBlockScale:
-                            rLogSmView[b] = (1.0 - <double>EM_alphaEMA) * rLogSmView[b] + (<double>EM_alphaEMA) * rLogView[b]
-                        else:
-                            rLogSmView[b] = 0.0
                         if EM_useProcBlockScale:
                             qLogSmView[b] = (1.0 - alphaQ) * qLogSmView[b] + alphaQ * qLogView[b]
                         else:
                             qLogSmView[b] = 0.0
 
                 for b in range(blockCount):
-                    if EM_useObsBlockScale:
-                        rScaleView[b] = <cnp.float32_t>exp(rLogSmView[b])
-                    else:
-                        rScaleView[b] = <cnp.float32_t>1.0
                     if EM_useProcBlockScale:
                         qScaleView[b] = <cnp.float32_t>exp(qLogSmView[b])
                     else:
                         qScaleView[b] = <cnp.float32_t>1.0
 
-        rMin = 1.0e16
-        rMax = -1.0e16
         qMin = 1.0e16
         qMax = -1.0e16
-        rMean = 0.0
         qMean = 0.0
-        nEmptyRBlocks = 0
         nEmptyQBlocks = 0
-        minRCount = intervalCount * trackCount + 1
-        maxRCount = 0
         minQCount = intervalCount + 1
         maxQCount = 0
 
         for b in range(blockCount):
-            if (<double>rScaleView[b]) < rMin:
-                rMin = <double>rScaleView[b]
-            if (<double>rScaleView[b]) > rMax:
-                rMax = <double>rScaleView[b]
-
             if (<double>qScaleView[b]) < qMin:
                 qMin = <double>qScaleView[b]
             if (<double>qScaleView[b]) > qMax:
                 qMax = <double>qScaleView[b]
 
-            rMean += <double>rScaleView[b]
             qMean += <double>qScaleView[b]
-
-            if rWeightCountView[b] <= 0:
-                nEmptyRBlocks += 1
-            else:
-                if rWeightCountView[b] < minRCount:
-                    minRCount = rWeightCountView[b]
-                if rWeightCountView[b] > maxRCount:
-                    maxRCount = rWeightCountView[b]
 
             if qStatCountView[b] <= 0:
                 nEmptyQBlocks += 1
@@ -3412,37 +3260,23 @@ cpdef tuple cblockScaleEM(
                     maxQCount = qStatCountView[b]
 
         if blockCount > 0:
-            rMean = rMean / (<double>blockCount)
             qMean = qMean / (<double>blockCount)
         else:
-            rMean = 0.0
             qMean = 0.0
 
-        rMedRaw = <double>_medianCopy_F32(<float*>&rScaleView[0], blockCount)
         qMedRaw = <double>_medianCopy_F32(<float*>&qScaleView[0], blockCount)
 
         fprintf(
             stderr,
-            "\t[cblockScaleEM] block-level noise scales: "
-            "r[med=%.6g mean=%.6g] "
-            "q[med=%.6g mean=%.6g]\n",
-            rMedRaw, rMean,
+            "\t[cblockScaleEM] q[med=%.6g mean=%.6g]\n",
             qMedRaw, qMean,
         )
 
         if EM_scaleToMedian:
-            rMed = <double>_medianCopy_F32(<float*>&rScaleView[0], blockCount)
             qMed = <double>_medianCopy_F32(<float*>&qScaleView[0], blockCount)
 
-            if rMed > 0.0 or qMed > 0.0:
+            if qMed > 0.0:
                 with nogil:
-                    if EM_useObsBlockScale and (rMed > 0.0):
-                        for b in range(blockCount):
-                            rScaleView[b] = <cnp.float32_t>((<double>rScaleView[b]) / rMed)
-                    if (not EM_useObsBlockScale):
-                        for b in range(blockCount):
-                            rScaleView[b] = <cnp.float32_t>1.0
-
                     if EM_useProcBlockScale and (qMed > 0.0):
                         for b in range(blockCount):
                             qScaleView[b] = <cnp.float32_t>((<double>qScaleView[b]) / qMed)
@@ -3453,19 +3287,10 @@ cpdef tuple cblockScaleEM(
         maxAbsLogDelta = 0.0
         if i == 0:
             for b in range(blockCount):
-                tmpVal = <double>rScaleView[b]
-                prevRLogView[b] = log(tmpVal)
-
                 tmpVal = <double>qScaleView[b]
                 prevQLogView[b] = log(tmpVal)
         else:
             for b in range(blockCount):
-                tmpVal = <double>rScaleView[b]
-                tmpVal = log(tmpVal)
-                if fabs(tmpVal - prevRLogView[b]) > maxAbsLogDelta:
-                    maxAbsLogDelta = fabs(tmpVal - prevRLogView[b])
-                prevRLogView[b] = tmpVal
-
                 tmpVal = <double>qScaleView[b]
                 tmpVal = log(tmpVal)
                 if fabs(tmpVal - prevQLogView[b]) > maxAbsLogDelta:
@@ -3489,12 +3314,12 @@ cpdef tuple cblockScaleEM(
 
     if returnIntermediates:
         return (
-            rScaleArr, qScaleArr, itersDone, float(previousNLL),
+            qScaleArr, itersDone, float(previousNLL),
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
             lambdaExp, processPrecExp, replicateBiasArr, replicateScaleArr
         )
 
-    return (rScaleArr, qScaleArr, itersDone, float(previousNLL))
+    return (qScaleArr, itersDone, float(previousNLL))
 
 
 cdef double cOtsu(

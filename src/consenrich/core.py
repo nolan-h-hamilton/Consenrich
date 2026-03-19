@@ -84,7 +84,7 @@ class processParams(NamedTuple):
 
     :param deltaF: Integration step size in the two-state transition
         :math:`x_{[i+1,0]} = x_{[i,0]} + \delta_F x_{[i,1]}`. If ``deltaF < 0``, the CLI centers a narrow
-        search around ``intervalSizeBP / medianFragmentLength``.
+        search around ``0.5 * intervalSizeBP / medianFragmentLength``.
     :type deltaF: float
     :param minQ: Minimum process noise scale (diagonal in :math:`\mathbf{Q}_{[i]}`)
         on the primary state variable (signal level). If ``minQ < 0`` (default), a small
@@ -544,7 +544,7 @@ class fitParams(NamedTuple):
 
     1. Filter-smoother state estimation *given* current noise scales
     2. Interval-level Student-t precision reweighting at: \(\lambda_{[j,i]}\) and \(\kappa_{[i]}\)
-    3. Block-level noise scale updates: \(r_b\) and \(q_b\)
+    3. Block-level process scale updates: \(q_b\)
     4. Replicate-level observation offset/scale updates: \(b_j\) and \(a_j\)
 
     Outer loop:
@@ -552,25 +552,24 @@ class fitParams(NamedTuple):
     1. update a shared zero-centered background track \(g_i\)
     2. optionally update a shared interval-level plugin variance track \(v_i\)
 
-    Each scale/reweighting resolution is optional. All three are applied by default but are constrained to mitigate redundancy.
+    Each scale/reweighting resolution is optional. The default fit keeps replicate-level calibration
+    and robust precision reweighting on, while leaving the shared interval-level variance update off.
 
 
     :param EM_maxIters: Maximum outer EM iterations.
     :type EM_maxIters: int
     :param EM_rtol: Relative improvement tolerance on NLL used in convergence
     :type EM_rtol: float
-    :param EM_scaleLOW: Lower clipping bound for block scales \(r_b\) and \(q_b\).
+    :param EM_scaleLOW: Lower clipping bound for block process scales \(q_b\).
     :type EM_scaleLOW: float
-    :param EM_scaleHIGH: Upper clipping bound for block scales \(r_b\) and \(q_b\) (process uses the same high bound here).
+    :param EM_scaleHIGH: Upper clipping bound for block process scales \(q_b\).
     :type EM_scaleHIGH: float
-    :param EM_alphaEMA: If in ``(0, 1]``, enables log-domain EMA smoothing for block scales.
+    :param EM_alphaEMA: If in ``(0, 1]``, enables log-domain EMA smoothing for block process scales.
     :type EM_alphaEMA: float
-    :param EM_scaleToMedian: If True, rescales \(r_b\) and \(q_b\) by their medians after each M-step. This can help preserve between-block scale differences for interpretability, but may interfere with convergence of the EM algorithm since it changes the effective objective.
+    :param EM_scaleToMedian: If True, rescales \(q_b\) by its median after each M-step. This can help preserve between-block scale differences for interpretability, but may interfere with convergence of the EM algorithm since it changes the effective objective.
     :type EM_scaleToMedian: bool
     :param EM_tNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
     :type EM_tNu: float
-    :param EM_useObsBlockScale: If True, estimate block observation scales \(r_b\); otherwise fix \(r_b\equiv 1\).
-    :type EM_useObsBlockScale: bool
     :param EM_useProcBlockScale: If True, estimate block process scales \(q_b\); otherwise fix \(q_b\equiv 1\).
     :type EM_useProcBlockScale: bool
     :param EM_useObsPrecReweight: If True, update observation noise precision multipliers \(\lambda_{[j,i]}\) (Student-\(t\) reweighting); otherwise \(\lambda\equiv 1\).
@@ -592,6 +591,7 @@ class fitParams(NamedTuple):
     :param EM_outerRtol: Relative tolerance used to stop the outer background/variance loop early.
     :type EM_outerRtol: float
     :param EM_useIntervalMunc: If True, update a shared interval-level observation variance track from smoothed residual second moments.
+        Default is False.
     :type EM_useIntervalMunc: bool
     :param EM_intervalMuncEMA: EMA weight used when updating the shared interval-level observation variance track.
     :type EM_intervalMuncEMA: float
@@ -607,11 +607,10 @@ class fitParams(NamedTuple):
     EM_maxIters: int | None = 50
     EM_rtol: float | None = 1.0e-4
     EM_scaleToMedian: bool | None = False
-    EM_tNu: float | None = 10.0
+    EM_tNu: float | None = 8.0
     EM_alphaEMA: float | None = 0.1
     EM_scaleLOW: float | None = 0.1
     EM_scaleHIGH: float | None = 10.0
-    EM_useObsBlockScale: bool | None = True
     EM_useProcBlockScale: bool | None = True
     EM_useObsPrecReweight: bool | None = True
     EM_useProcPrecReweight: bool | None = True
@@ -622,7 +621,7 @@ class fitParams(NamedTuple):
     EM_repScaleHIGH: float | None = 4.0
     EM_outerIters: int | None = 3
     EM_outerRtol: float | None = 1.0e-3
-    EM_useIntervalMunc: bool | None = True
+    EM_useIntervalMunc: bool | None = False
     EM_intervalMuncEMA: float | None = 0.5
     EM_useIntervalBackground: bool | None = True
     EM_backgroundSmoothness: float | None = 1.0
@@ -1388,11 +1387,10 @@ def runConsenrich(
     EM_maxIters: int = 50,
     EM_rtol: float = 1.0e-4,
     EM_scaleToMedian: bool = False,
-    EM_tNu: float = 10.0,
+    EM_tNu: float = 8.0,
     EM_alphaEMA: float = 0.1,
     EM_scaleLOW: float = 0.1,
     EM_scaleHIGH: float = 10.0,
-    EM_useObsBlockScale: bool = True,
     EM_useProcBlockScale: bool = True,
     EM_useObsPrecReweight: bool = True,
     EM_useProcPrecReweight: bool = True,
@@ -1403,10 +1401,15 @@ def runConsenrich(
     EM_repScaleHIGH: float = 4.0,
     EM_outerIters: int = 3,
     EM_outerRtol: float = 1.0e-3,
-    EM_useIntervalMunc: bool = True,
+    EM_useIntervalMunc: bool = False,
     EM_intervalMuncEMA: float = 0.5,
     EM_useIntervalBackground: bool = True,
     EM_backgroundSmoothness: float = 1.0,
+    intervalMuncBinQuantileCutoff: float = 0.5,
+    intervalMuncEB_minLin: float = 1.0,
+    intervalMuncEB_use: bool = True,
+    intervalMuncEB_setNu0: int | None = None,
+    intervalMuncEB_setNuL: int | None = None,
     returnScales: bool = True,
     returnReplicateOffsets: bool = False,
     applyJackknife: bool = False,
@@ -1436,11 +1439,13 @@ def runConsenrich(
       y_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
       \qquad
       \mathrm{Var}(\epsilon_{[j,i]}) =
-      \frac{a_j r_{b(i)} (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
+      \frac{a_j (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
 
     Here :math:`g_{[i]}` is a shared zero-centered smooth background, :math:`b_j` and :math:`a_j`
     are replicate-level bias and variance factors, and :math:`v_{[j,i]}` is the plugin observation
-    variance supplied by ``matrixMunc`` or by the outer interval-level variance update.
+    variance supplied by ``matrixMunc`` or by the outer interval-level variance update. When
+    ``EM_useIntervalMunc=True``, the outer variance update reuses the same EB shrinkage settings
+    used to build the initial observation-noise track, unless the caller overrides them here.
 
     The latent state follows
 
@@ -1527,7 +1532,6 @@ def runConsenrich(
             deltaFInit = float(np.sqrt(deltaFMin * deltaFMax))
         deltaFInit = float(np.clip(deltaFInit, deltaFMin, deltaFMax))
 
-        rScaleUnity = np.ones(blockCount, dtype=np.float32)
         qScaleUnity = np.ones(blockCount, dtype=np.float32)
         nLocal = int(matrixDataLocal.shape[1])
         mLocal = int(matrixDataLocal.shape[0])
@@ -1549,7 +1553,7 @@ def runConsenrich(
         #   score(deltaF) = NLL(deltaF) + [intervalCount * log(eps + roughness(deltaF))]
         #
         # NLL(deltaF):
-        #   Gaussian forward-pass negative log likelihood under fixed rScale=qScale=1, no reweighting
+        #   Gaussian forward-pass negative log likelihood under fixed qScale=1, no reweighting
         #
         # roughness(deltaF):
         #   Expected squared change in the signal level between adjacent intervals:
@@ -1582,7 +1586,6 @@ def runConsenrich(
                     matrixF=matrixF_candidate,
                     matrixQ0=matrixQ0_candidate,
                     intervalToBlockMap=intervalToBlockMap,
-                    rScale=rScaleUnity,
                     qScale=qScaleUnity,
                     blockCount=int(blockCount),
                     stateInit=float(stateInit),
@@ -1603,7 +1606,6 @@ def runConsenrich(
                     lambdaExp=None,
                     processPrecExp=None,
                     # Force the "Gaussian fixed-template" setting for auto-deltaF:
-                    EM_useObsBlockScale=False,
                     EM_useProcBlockScale=False,
                     EM_useObsPrecReweight=False,
                     EM_useProcPrecReweight=False,
@@ -1714,7 +1716,6 @@ def runConsenrich(
         *,
         matrixDataLocal: np.ndarray,
         matrixMuncLocal: np.ndarray,
-        rScale: np.ndarray,
         qScale: np.ndarray,
         matrixFLocal: np.ndarray,
         matrixQ0Local: np.ndarray,
@@ -1734,7 +1735,6 @@ def runConsenrich(
             matrixF=matrixFLocal,
             matrixQ0=matrixQ0Local,
             intervalToBlockMap=intervalToBlockMap,
-            rScale=rScale,
             qScale=qScale,
             blockCount=int(blockCount),
             stateInit=float(stateInit),
@@ -1756,7 +1756,6 @@ def runConsenrich(
             processPrecExp=processPrecExp,
             replicateBias=replicateBias,
             replicateScale=replicateScale,
-            EM_useObsBlockScale=bool(EM_useObsBlockScale),
             EM_useProcBlockScale=bool(EM_useProcBlockScale),
             EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
             EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
@@ -1809,7 +1808,6 @@ def runConsenrich(
         if disableCalibration or mLocal < 2:
             currentBackground = np.zeros(nLocal, dtype=np.float32)
             currentMunc = np.ascontiguousarray(matrixMuncLocal, dtype=np.float32)
-            rScaleLocal = np.ones(blockCount, dtype=np.float32)
             qScaleLocal = np.ones(blockCount, dtype=np.float32)
             lambdaExpLocal = None
             processPrecExpLocal = None
@@ -1826,7 +1824,6 @@ def runConsenrich(
             ) = _runForwardBackward(
                 matrixDataLocal=matrixDataLocal,
                 matrixMuncLocal=currentMunc,
-                rScale=rScaleLocal,
                 qScale=qScaleLocal,
                 matrixFLocal=matrixFLocal,
                 matrixQ0Local=matrixQ0Local,
@@ -1838,7 +1835,6 @@ def runConsenrich(
             return {
                 "matrixMunc": currentMunc,
                 "background": currentBackground,
-                "rScale": rScaleLocal,
                 "qScale": qScaleLocal,
                 "lambdaExp": lambdaExpLocal,
                 "processPrecExp": processPrecExpLocal,
@@ -1865,7 +1861,6 @@ def runConsenrich(
 
         lambdaExpLocal = None
         processPrecExpLocal = None
-        rScaleLocal = np.ones(blockCount, dtype=np.float32)
         qScaleLocal = np.ones(blockCount, dtype=np.float32)
         replicateBiasLocal = np.zeros(mLocal, dtype=np.float32)
         replicateScaleLocal = np.ones(mLocal, dtype=np.float32)
@@ -1903,7 +1898,6 @@ def runConsenrich(
                 EM_scaleToMedian=bool(EM_scaleToMedian),
                 EM_tNu=float(EM_tNu),
                 returnIntermediates=True,
-                EM_useObsBlockScale=bool(EM_useObsBlockScale),
                 EM_useProcBlockScale=bool(EM_useProcBlockScale),
                 EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
                 EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
@@ -1913,14 +1907,13 @@ def runConsenrich(
                 EM_repScaleLOW=float(EM_repScaleLOW),
                 EM_repScaleHIGH=float(EM_repScaleHIGH),
             )
-            if len(EM_out_local) != 12:
+            if len(EM_out_local) != 11:
                 raise ValueError(
-                    "Expected cblockScaleEM(..., returnIntermediates=True) to return 12 values "
+                    "Expected cblockScaleEM(..., returnIntermediates=True) to return 11 values "
                     f"(got {len(EM_out_local)})."
                 )
 
             (
-                rScaleLocal,
                 qScaleLocal,
                 _itersEMDoneLocal,
                 _nllEMLocal,
@@ -1934,7 +1927,6 @@ def runConsenrich(
                 replicateScaleLocal,
             ) = EM_out_local
 
-            rScaleLocal = np.asarray(rScaleLocal, dtype=np.float32)
             qScaleLocal = np.asarray(qScaleLocal, dtype=np.float32)
             if lambdaExpLocal is not None:
                 lambdaExpLocal = np.asarray(lambdaExpLocal, dtype=np.float32)
@@ -1951,12 +1943,8 @@ def runConsenrich(
 
             nextBackground = currentBackground
             if bool(EM_useIntervalBackground):
-                intervalObsScale = np.asarray(rScaleLocal, dtype=np.float32)[
-                    intervalToBlockMap
-                ]
                 invVarMatrix = 1.0 / (
                     np.maximum(replicateScaleLocal[:, None], 1.0e-8)
-                    * np.maximum(intervalObsScale[None, :], 1.0e-8)
                     * np.maximum(currentMunc, 1.0e-8)
                 )
                 if lambdaExpLocal is not None:
@@ -1982,15 +1970,15 @@ def runConsenrich(
                     replicateBias=replicateBiasLocal,
                     replicateScale=replicateScaleLocal,
                     backgroundTrack=nextBackground,
-                    rScale=rScaleLocal,
-                    intervalToBlockMap=intervalToBlockMap,
                     lambdaExp=lambdaExpLocal,
                     pad=float(pad),
                     minR=float(np.maximum(1.0e-8, np.nanmin(currentMunc))),
                     maxR=float(np.maximum(np.nanmax(currentMunc), np.nanmin(currentMunc))),
-                    binQuantileCutoff=0.5,
-                    EB_minLin=1.0,
-                    EB_use=True,
+                    binQuantileCutoff=float(intervalMuncBinQuantileCutoff),
+                    EB_minLin=float(intervalMuncEB_minLin),
+                    EB_use=bool(intervalMuncEB_use),
+                    EB_setNu0=intervalMuncEB_setNu0,
+                    EB_setNuL=intervalMuncEB_setNuL,
                 )
                 if outerAlpha < 1.0:
                     currentTrack = np.asarray(currentMunc[0, :], dtype=np.float32)
@@ -2038,7 +2026,6 @@ def runConsenrich(
         ) = _runForwardBackward(
             matrixDataLocal=dataAdjusted,
             matrixMuncLocal=currentMunc,
-            rScale=rScaleLocal,
             qScale=qScaleLocal,
             matrixFLocal=matrixFLocal,
             matrixQ0Local=matrixQ0Local,
@@ -2050,7 +2037,6 @@ def runConsenrich(
         return {
             "matrixMunc": currentMunc,
             "background": currentBackground,
-            "rScale": np.asarray(rScaleLocal, dtype=np.float32),
             "qScale": np.asarray(qScaleLocal, dtype=np.float32),
             "lambdaExp": lambdaExpLocal,
             "processPrecExp": processPrecExpLocal,
@@ -2243,7 +2229,6 @@ def runConsenrich(
     processPrecExp_final = fitFinal["processPrecExp"]
     replicateBias_final = np.asarray(fitFinal["replicateBias"], dtype=np.float32)
     replicateScale_final = np.asarray(fitFinal["replicateScale"], dtype=np.float32)
-    rScale = np.asarray(fitFinal["rScale"], dtype=np.float32)
     qScale = np.asarray(fitFinal["qScale"], dtype=np.float32)
     matrixMuncFit = np.asarray(fitFinal["matrixMunc"], dtype=np.float32)
     sumNLL = float(fitFinal["sumNLL"])
@@ -2310,12 +2295,8 @@ def runConsenrich(
         outTrack4 = np.sqrt(jackknifeVar0, dtype=np.float32)
 
     if conformalRescale and conformalQhat != 1.0:
-        rByInterval = np.asarray(rScale, dtype=np.float32)[
-            np.asarray(intervalToBlockMap, dtype=np.int32)
-        ]
         fittedObsVar = (
             np.asarray(replicateScale_final, dtype=np.float32).reshape(-1, 1)
-            * rByInterval[None, :]
             * (np.asarray(matrixMuncFit, dtype=np.float32) + np.float32(pad))
         )
         refObsVar = np.nanmedian(fittedObsVar, axis=0).astype(np.float32, copy=False)
@@ -2343,7 +2324,6 @@ def runConsenrich(
                 outStateCovarSmoothed,
                 outPostFitResiduals,
                 outTrack4,
-                np.asarray(rScale, dtype=np.float32),
                 np.asarray(qScale, dtype=np.float32),
                 np.asarray(replicateBias_final, dtype=np.float32),
                 np.asarray(replicateScale_final, dtype=np.float32),
@@ -2354,7 +2334,6 @@ def runConsenrich(
             outStateCovarSmoothed,
             outPostFitResiduals,
             outTrack4,
-            np.asarray(rScale, dtype=np.float32),
             np.asarray(qScale, dtype=np.float32),
             intervalToBlockMap,
         )
@@ -2834,8 +2813,6 @@ def _estimateIntervalMuncTrack(
     replicateBias: np.ndarray,
     replicateScale: np.ndarray,
     backgroundTrack: np.ndarray,
-    rScale: np.ndarray,
-    intervalToBlockMap: np.ndarray,
     lambdaExp: np.ndarray | None,
     pad: float = 1.0e-4,
     minR: float = 1.0e-3,
@@ -2858,10 +2835,6 @@ def _estimateIntervalMuncTrack(
     if stateArr.shape[0] != dataArr.shape[1]:
         raise ValueError("stateSmoothed must align with interval axis")
 
-    intervalScale = np.asarray(rScale, dtype=np.float64)[
-        np.asarray(intervalToBlockMap, dtype=np.int32)
-    ].reshape(1, -1)
-    intervalScale = np.maximum(intervalScale, 1.0e-8)
     scaleArr = np.maximum(scaleArr, 1.0e-8)
 
     stateLevel = stateArr[:, 0].reshape(1, -1)
@@ -2875,7 +2848,7 @@ def _estimateIntervalMuncTrack(
         lambdaArr = np.asarray(lambdaExp, dtype=np.float64)
 
     rawVarTrack = np.mean(
-        lambdaArr * residualSq / (scaleArr * intervalScale),
+        lambdaArr * residualSq / scaleArr,
         axis=0,
         dtype=np.float64,
     )
