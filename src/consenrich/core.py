@@ -87,11 +87,11 @@ class processParams(NamedTuple):
         search around ``0.5 * intervalSizeBP / medianFragmentLength``.
     :type deltaF: float
     :param minQ: Minimum process noise scale (diagonal in :math:`\mathbf{Q}_{[i]}`)
-        on the primary state variable (signal level). If ``minQ < 0`` (default), a small
+        on the primary state variable (signal level). If ``minQ < 0``, a small
         value scales the minimum observation noise level (``observationParams.minR``) and is used
         for numerical stability.
     :type minQ: float
-    :param maxQ: Maximum process noise scale. If ``maxQ < 0`` (default), no effective upper bound is enforced.
+    :param maxQ: Maximum process noise scale. If ``maxQ < 0``, no effective upper bound is enforced.
     :type maxQ: float
     :param offDiagQ: Off-diagonal value in the process noise covariance :math:`\mathbf{Q}_{[i,01]}`
     :type offDiagQ: float
@@ -99,10 +99,10 @@ class processParams(NamedTuple):
 
     """
 
-    deltaF: float
-    minQ: float
-    maxQ: float
-    offDiagQ: float
+    deltaF: float = -1.0
+    minQ: float = 2.5e-4
+    maxQ: float = 1000.0
+    offDiagQ: float = 0.0
 
 
 class observationParams(NamedTuple):
@@ -607,11 +607,11 @@ class fitParams(NamedTuple):
     EM_maxIters: int | None = 50
     EM_rtol: float | None = 1.0e-4
     EM_scaleToMedian: bool | None = False
-    EM_tNu: float | None = 8.0
-    EM_alphaEMA: float | None = 0.1
-    EM_scaleLOW: float | None = 0.1
-    EM_scaleHIGH: float | None = 10.0
-    EM_useProcBlockScale: bool | None = True
+    EM_tNu: float | None = 10.0
+    EM_alphaEMA: float | None = 0.05
+    EM_scaleLOW: float | None = 0.5
+    EM_scaleHIGH: float | None = 5.0
+    EM_useProcBlockScale: bool | None = False
     EM_useObsPrecReweight: bool | None = True
     EM_useProcPrecReweight: bool | None = True
     EM_useReplicateBias: bool | None = True
@@ -622,7 +622,7 @@ class fitParams(NamedTuple):
     EM_outerIters: int | None = 3
     EM_outerRtol: float | None = 1.0e-3
     EM_useIntervalMunc: bool | None = False
-    EM_intervalMuncEMA: float | None = 0.5
+    EM_intervalMuncEMA: float | None = 0.25
     EM_useIntervalBackground: bool | None = True
     EM_backgroundSmoothness: float | None = 1.0
 
@@ -1387,11 +1387,11 @@ def runConsenrich(
     EM_maxIters: int = 50,
     EM_rtol: float = 1.0e-4,
     EM_scaleToMedian: bool = False,
-    EM_tNu: float = 8.0,
-    EM_alphaEMA: float = 0.1,
-    EM_scaleLOW: float = 0.1,
-    EM_scaleHIGH: float = 10.0,
-    EM_useProcBlockScale: bool = True,
+    EM_tNu: float = 10.0,
+    EM_alphaEMA: float = 0.05,
+    EM_scaleLOW: float = 0.5,
+    EM_scaleHIGH: float = 5.0,
+    EM_useProcBlockScale: bool = False,
     EM_useObsPrecReweight: bool = True,
     EM_useProcPrecReweight: bool = True,
     EM_useReplicateBias: bool = True,
@@ -1402,7 +1402,7 @@ def runConsenrich(
     EM_outerIters: int = 3,
     EM_outerRtol: float = 1.0e-3,
     EM_useIntervalMunc: bool = False,
-    EM_intervalMuncEMA: float = 0.5,
+    EM_intervalMuncEMA: float = 0.25,
     EM_useIntervalBackground: bool = True,
     EM_backgroundSmoothness: float = 1.0,
     intervalMuncBinQuantileCutoff: float = 0.5,

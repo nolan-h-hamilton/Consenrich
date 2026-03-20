@@ -67,6 +67,38 @@ def _checkSF(sf, logger, cut_=3.0):
         )
 
 
+def _getSmallWorkerCount(taskCount: int, maxWorkers: int = 4) -> int:
+    cpuCount = os.cpu_count() or 1
+    return min(taskCount, max(1, cpuCount // 2), maxWorkers)
+
+
+def _threadMapMaybe(
+    items,
+    func,
+    label: str,
+    allowThreads: bool = True,
+    minItems: int = 4,
+    maxWorkers: int = 4,
+):
+    itemList = list(items)
+    if len(itemList) == 0:
+        return []
+
+    workerCount = _getSmallWorkerCount(len(itemList), maxWorkers=maxWorkers)
+    usePool = allowThreads and len(itemList) >= minItems and workerCount > 1
+    if usePool:
+        logger.info(
+            "%s: using ThreadPool with %d workers (n=%d).",
+            label,
+            int(workerCount),
+            int(len(itemList)),
+        )
+        with ThreadPool(processes=int(workerCount)) as pool:
+            return list(pool.map(func, itemList))
+
+    return [func(item) for item in itemList]
+
+
 def _resolveFragmentLengthPairs(
     treatmentFragmentLengths: Optional[Sequence[Union[int, float]]],
     controlFragmentLengths: Optional[Sequence[Union[int, float]]],
@@ -397,30 +429,37 @@ def getReadLengths(
     if not isinstance(inputArgs.bamFiles, list) or len(inputArgs.bamFiles) == 0:
         raise ValueError("bam files list is empty")
 
-    treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
-    if treatmentSources:
-        return [
-            core.getReadLength(
-                source.path,
-                100,
-                1000,
-                samArgs.samThreads,
-                samArgs.samFlagExclude,
-                sourceKind=str(source.sourceKind).upper(),
-            )
-            for source in treatmentSources
-        ]
+    allowThreads = int(samArgs.samThreads) <= 1
 
-    return [
-        core.getReadLength(
-            bamFile,
+    def _getReadLengthForTask(task) -> int:
+        path, sourceKind = task
+        return core.getReadLength(
+            path,
             100,
             1000,
             samArgs.samThreads,
             samArgs.samFlagExclude,
+            sourceKind=sourceKind,
         )
-        for bamFile in inputArgs.bamFiles
-    ]
+
+    treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
+    if treatmentSources:
+        return _threadMapMaybe(
+            [
+                (source.path, str(source.sourceKind).upper())
+                for source in treatmentSources
+            ],
+            _getReadLengthForTask,
+            "read lengths",
+            allowThreads=allowThreads,
+        )
+
+    return _threadMapMaybe(
+        [(bamFile, "BAM") for bamFile in inputArgs.bamFiles],
+        _getReadLengthForTask,
+        "read lengths",
+        allowThreads=allowThreads,
+    )
 
 
 def checkMatchingEnabled(matchingArgs: core.matchingParams) -> bool:
@@ -1029,7 +1068,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     experimentName = _cfgGet(configData, "experimentName", "consenrichExperiment")
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
-        minQ=_cfgGet(configData, "processParams.minQ", 0.001),
+        minQ=_cfgGet(configData, "processParams.minQ", 2.5e-4),
         maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
             configData,
@@ -1078,7 +1117,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_maxIters=_cfgGet(configData, "fitParams.EM_maxIters", 50),
         EM_rtol=_cfgGet(configData, "fitParams.EM_rtol", 1.0e-4),
         EM_scaleToMedian=_cfgGet(configData, "fitParams.EM_scaleToMedian", False),
-        EM_tNu=_cfgGet(configData, "fitParams.EM_tNu", 8.0),
+        EM_tNu=_cfgGet(configData, "fitParams.EM_tNu", 10.0),
         EM_alphaEMA=_cfgGet(configData, "fitParams.EM_alphaEMA", 0.05),
         EM_scaleLOW=_cfgGet(configData, "fitParams.EM_scaleLOW", 0.5),
         EM_scaleHIGH=_cfgGet(configData, "fitParams.EM_scaleHIGH", 5.0),
@@ -1715,30 +1754,41 @@ def main():
     methodFDR_: Optional[str] = matchingArgs.methodFDR
     fragmentLengthsTreatment: List[int] = []
     fragmentLengthsControl: List[int] = []
+    setupAllowThreads = int(samArgs.samThreads) <= 1
     sf: np.ndarray = np.empty((numSamples,), dtype=float)
+
+    def _estimateFragmentLengthForSource(source: core.inputSource) -> int:
+        if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
+            return 0
+        fragmentLength = int(
+            cconsenrich.cgetFragmentLength(
+                source.path,
+                samThreads=samArgs.samThreads,
+                samFlagExclude=samArgs.samFlagExclude,
+                maxInsertSize=samArgs.maxInsertSize,
+            )
+        )
+        logger.info(
+            "Estimated fragment length for %s: %d",
+            source.path,
+            fragmentLength,
+        )
+        return fragmentLength
+
     if countingArgs.fragmentLengths is not None:
         fragmentLengthsTreatment = list(countingArgs.fragmentLengths)
     else:
-        for source in treatmentSources:
-            if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-                fragmentLengthsTreatment.append(0)
-            else:
-                fragmentLengthsTreatment.append(
-                    cconsenrich.cgetFragmentLength(
-                        source.path,
-                        samThreads=samArgs.samThreads,
-                        samFlagExclude=samArgs.samFlagExclude,
-                        maxInsertSize=samArgs.maxInsertSize,
-                    )
-                )
-                logger.info(
-                    f"Estimated fragment length for {source.path}: {fragmentLengthsTreatment[-1]}"
-                )
+        fragmentLengthsTreatment = _threadMapMaybe(
+            treatmentSources,
+            _estimateFragmentLengthForSource,
+            "fragment lengths",
+            allowThreads=setupAllowThreads,
+        )
 
     try:
         if controlsPresent:
-            readLengthsControlBamFiles = [
-                core.getReadLength(
+            def _getReadLengthForSource(source: core.inputSource) -> int:
+                return core.getReadLength(
                     source.path,
                     100,
                     1000,
@@ -1746,8 +1796,13 @@ def main():
                     samArgs.samFlagExclude,
                     sourceKind=str(source.sourceKind).upper(),
                 )
-                for source in controlSources
-            ]
+
+            readLengthsControlBamFiles = _threadMapMaybe(
+                controlSources,
+                _getReadLengthForSource,
+                "control read lengths",
+                allowThreads=setupAllowThreads,
+            )
             effectiveGenomeSizesControl = [
                 constants.getEffectiveGenomeSize(genomeArgs.genomeName, readLength)
                 for readLength in readLengthsControlBamFiles
@@ -1756,21 +1811,12 @@ def main():
             if countingArgs.fragmentLengthsControl is not None:
                 fragmentLengthsControl = list(countingArgs.fragmentLengthsControl)
             elif not countingArgs.useTreatmentFragmentLengths:
-                for source in controlSources:
-                    if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-                        fragmentLengthsControl.append(0)
-                    else:
-                        fragmentLengthsControl.append(
-                            cconsenrich.cgetFragmentLength(
-                                source.path,
-                                samThreads=samArgs.samThreads,
-                                samFlagExclude=samArgs.samFlagExclude,
-                                maxInsertSize=samArgs.maxInsertSize,
-                            )
-                        )
-                        logger.info(
-                            f"Estimated fragment length for {source.path}: {fragmentLengthsControl[-1]}"
-                        )
+                fragmentLengthsControl = _threadMapMaybe(
+                    controlSources,
+                    _estimateFragmentLengthForSource,
+                    "control fragment lengths",
+                    allowThreads=setupAllowThreads,
+                )
             if countingArgs.useTreatmentFragmentLengths:
                 logger.info(
                     "`countingParams.useTreatmentFragmentLengths=True`"
@@ -1787,36 +1833,63 @@ def main():
                 controlScaleFactors = scaleFactorsControl
                 initialTreatmentScaleFactors = np.ones((len(bamFiles),), dtype=float)
             else:
+                def _getInitialTreatmentScaleFactor(task) -> float:
+                    (
+                        source,
+                        effectiveGenomeSize,
+                        readLength,
+                        barcodeAllowListPath,
+                        countMode,
+                        groupCellCount,
+                    ) = task
+                    return detrorm.getScaleFactor1x(
+                        source.path,
+                        effectiveGenomeSize,
+                        readLength,
+                        excludeForNorm,
+                        genomeArgs.chromSizesFile,
+                        samArgs.samThreads,
+                        sourceKind=str(source.sourceKind).upper(),
+                        barcodeAllowListFile=barcodeAllowListPath,
+                        countMode=countMode,
+                        oneReadPerBin=samArgs.oneReadPerBin,
+                        groupCellCount=groupCellCount,
+                        fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
+                    )
+
                 try:
-                    initialTreatmentScaleFactors = [
-                        detrorm.getScaleFactor1x(
-                            source.path,
-                            effectiveGenomeSize,
-                            readLength,
-                            excludeForNorm,
-                            genomeArgs.chromSizesFile,
-                            samArgs.samThreads,
-                            sourceKind=str(source.sourceKind).upper(),
-                            barcodeAllowListFile=barcodeAllowListPath,
-                            countMode=countMode,
-                            oneReadPerBin=samArgs.oneReadPerBin,
-                            groupCellCount=groupCellCount,
-                            fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
-                        )
-                        for source, effectiveGenomeSize, readLength, barcodeAllowListPath, countMode, groupCellCount in zip(
+                    initialTreatmentScaleFactors = _threadMapMaybe(
+                        zip(
                             treatmentSources,
                             effectiveGenomeSizes,
                             fragmentLengthsTreatment,
                             treatmentAllowLists,
                             treatmentCountModes,
                             treatmentSelectedCellCounts,
-                        )
-                    ]
+                        ),
+                        _getInitialTreatmentScaleFactor,
+                        "initial treatment scale factors",
+                        allowThreads=setupAllowThreads,
+                    )
                 except Exception:
                     initialTreatmentScaleFactors = [1.0] * len(bamFiles)
 
-                pairScalingFactors = [
-                    detrorm.getPairScaleFactors(
+                def _getPairScaleFactors(task):
+                    (
+                        sourceA,
+                        sourceB,
+                        effectiveGenomeSizeA,
+                        effectiveGenomeSizeB,
+                        readLengthA,
+                        readLengthB,
+                        barcodeAllowListPathA,
+                        barcodeAllowListPathB,
+                        countModeA,
+                        countModeB,
+                        groupCellCountA,
+                        groupCellCountB,
+                    ) = task
+                    return detrorm.getPairScaleFactors(
                         sourceA.path,
                         sourceB.path,
                         effectiveGenomeSizeA,
@@ -1840,7 +1913,9 @@ def main():
                         groupCellCountB=groupCellCountB,
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
-                    for sourceA, sourceB, effectiveGenomeSizeA, effectiveGenomeSizeB, readLengthA, readLengthB, barcodeAllowListPathA, barcodeAllowListPathB, countModeA, countModeB, groupCellCountA, groupCellCountB in zip(
+
+                pairScalingFactors = _threadMapMaybe(
+                    zip(
                         treatmentSources,
                         controlSources,
                         effectiveGenomeSizes,
@@ -1853,8 +1928,11 @@ def main():
                         controlCountModes,
                         treatmentSelectedCellCounts,
                         controlSelectedCellCounts,
-                    )
-                ]
+                    ),
+                    _getPairScaleFactors,
+                    "pair scale factors",
+                    allowThreads=setupAllowThreads,
+                )
                 treatScaleFactors = []
                 controlScaleFactors = []
                 for scaleFactorA, scaleFactorB in pairScalingFactors:
@@ -1867,8 +1945,9 @@ def main():
 
         if scaleFactors is None and not controlsPresent:
             if normMethod_ in ["RPKM", "CPM"]:
-                scaleFactors = [
-                    detrorm.getScaleFactorPerMillion(
+                def _getScaleFactorPerMillion(task) -> float:
+                    source, barcodeAllowListPath, countMode, groupCellCount = task
+                    return detrorm.getScaleFactorPerMillion(
                         source.path,
                         excludeForNorm,
                         intervalSizeBP,
@@ -1879,16 +1958,29 @@ def main():
                         groupCellCount=groupCellCount,
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
-                    for source, barcodeAllowListPath, countMode, groupCellCount in zip(
+
+                scaleFactors = _threadMapMaybe(
+                    zip(
                         treatmentSources,
                         treatmentAllowLists,
                         treatmentCountModes,
                         treatmentSelectedCellCounts,
-                    )
-                ]
+                    ),
+                    _getScaleFactorPerMillion,
+                    "scale factors",
+                    allowThreads=setupAllowThreads,
+                )
             elif normMethod_ in ["EGS", "RPGC"]:
-                scaleFactors = [
-                    detrorm.getScaleFactor1x(
+                def _getScaleFactor1x(task) -> float:
+                    (
+                        source,
+                        effectiveGenomeSize,
+                        readLength,
+                        barcodeAllowListPath,
+                        countMode,
+                        groupCellCount,
+                    ) = task
+                    return detrorm.getScaleFactor1x(
                         source.path,
                         effectiveGenomeSize,
                         readLength,
@@ -1902,15 +1994,20 @@ def main():
                         groupCellCount=groupCellCount,
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
-                    for source, effectiveGenomeSize, readLength, barcodeAllowListPath, countMode, groupCellCount in zip(
+
+                scaleFactors = _threadMapMaybe(
+                    zip(
                         treatmentSources,
                         effectiveGenomeSizes,
                         fragmentLengthsTreatment,
                         treatmentAllowLists,
                         treatmentCountModes,
                         treatmentSelectedCellCounts,
-                    )
-                ]
+                    ),
+                    _getScaleFactor1x,
+                    "scale factors",
+                    allowThreads=setupAllowThreads,
+                )
             elif normMethod_ in ["SF"]:
                 waitForMatrix = True
     finally:
@@ -2067,13 +2164,15 @@ def main():
             minQ_ = 0.0
             maxQ_ = 1e4
 
-        for j in tqdm(
-            range(numSamples),
-            desc="Transforming data",
-            unit=" sample ",
-        ):
-            logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
-            chromMat[j, :] = cconsenrich.cTransform(
+        smoothAlpha = None
+        if countingArgs.smoothSpanBP > 0:
+            smoothAlpha = 1.0 - math.pow(
+                0.5,
+                2.0 / (countingArgs.smoothSpanBP / intervalSizeBP),
+            )
+
+        def _transformTrack(j: int) -> tuple[int, np.ndarray]:
+            transformed = cconsenrich.cTransform(
                 chromMat[j, :],
                 blockLength=backgroundBlockSizeIntervals,
                 verbose=args.verbose2,
@@ -2086,13 +2185,38 @@ def main():
                 logOffset=countingArgs.logOffset,
                 logMult=countingArgs.logMult,
             )
+            if smoothAlpha is not None:
+                transformed = cconsenrich.cEMA(transformed, smoothAlpha)
+            return j, np.asarray(transformed, dtype=np.float32)
 
-            if countingArgs.smoothSpanBP > 0:
-                chromMat[j, :] = cconsenrich.cEMA(
-                    chromMat[j, :],
-                    1.0
-                    - math.pow(0.5, 2.0 / (countingArgs.smoothSpanBP / intervalSizeBP)),
-                )
+        transformWorkers = _getSmallWorkerCount(numSamples, maxWorkers=4)
+        useParallelTransform = (
+            numSamples >= 4 and chromMat.shape[1] >= 5000 and transformWorkers > 1
+        )
+        if useParallelTransform:
+            logger.info(
+                "transform matrix: using ThreadPool with %d workers (numSamples=%d, numIntervals=%d).",
+                int(transformWorkers),
+                int(numSamples),
+                int(chromMat.shape[1]),
+            )
+            with ThreadPool(processes=int(transformWorkers)) as pool:
+                for j, transformed in tqdm(
+                    pool.imap(_transformTrack, range(numSamples)),
+                    total=numSamples,
+                    desc="Transforming data",
+                    unit=" sample ",
+                ):
+                    chromMat[j, :] = transformed
+        else:
+            for j in tqdm(
+                range(numSamples),
+                desc="Transforming data",
+                unit=" sample ",
+            ):
+                logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
+                _, transformed = _transformTrack(j)
+                chromMat[j, :] = transformed
 
         def _fitMuncTrack(j: int) -> tuple[int, np.ndarray]:
             muncTrack, _ = core.getMuncTrack(

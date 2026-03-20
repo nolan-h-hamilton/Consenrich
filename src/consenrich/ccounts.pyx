@@ -61,14 +61,14 @@ cdef extern from "native/ccounts_backend.h":
         int buildIndex,
         int threadCount,
         int* hasIndexOut
-    )
+    ) nogil
 
     ccounts_result ccounts_isPairedEnd(
         const ccounts_sourceConfig* sourceConfig,
         int threadCount,
         int maxReads,
         int* isPairedEndOut
-    )
+    ) nogil
 
     ccounts_result ccounts_getReadLength(
         const ccounts_sourceConfig* sourceConfig,
@@ -77,7 +77,7 @@ cdef extern from "native/ccounts_backend.h":
         int maxIterations,
         int flagExclude,
         uint32_t* readLengthOut
-    )
+    ) nogil
 
     ccounts_result ccounts_getChromRange(
         const ccounts_sourceConfig* sourceConfig,
@@ -87,7 +87,7 @@ cdef extern from "native/ccounts_backend.h":
         int flagExclude,
         uint64_t* startOut,
         uint64_t* endOut
-    )
+    ) nogil
 
     ccounts_result ccounts_getMappedReadCount(
         const ccounts_sourceConfig* sourceConfig,
@@ -98,19 +98,19 @@ cdef extern from "native/ccounts_backend.h":
         uint8_t oneReadPerBin,
         uint64_t* mappedReadCountOut,
         uint64_t* unmappedReadCountOut
-    )
+    ) nogil
 
     ccounts_result ccounts_getCellCount(
         const ccounts_sourceConfig* sourceConfig,
         uint64_t* cellCountOut
-    )
+    ) nogil
 
     ccounts_result ccounts_openSource(
         const ccounts_sourceConfig* sourceConfig,
         ccounts_sourceHandle** sourceHandleOut
-    )
+    ) nogil
 
-    void ccounts_closeSource(ccounts_sourceHandle* sourceHandle)
+    void ccounts_closeSource(ccounts_sourceHandle* sourceHandle) nogil
 
     ccounts_result ccounts_countRegion(
         ccounts_sourceHandle* sourceHandle,
@@ -118,7 +118,7 @@ cdef extern from "native/ccounts_backend.h":
         const ccounts_countOptions* countOptions,
         float* countBuffer,
         size_t countBufferLength
-    )
+    ) nogil
 
 
 cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):
@@ -188,12 +188,13 @@ cpdef bint ccounts_checkAlignmentPath(
     cdef ccounts_result result
     cdef int hasIndex = 0
 
-    result = ccounts_checkAlignmentFile(
-        &sourceConfig,
-        1 if buildIndex else 0,
-        threadCount,
-        &hasIndex,
-    )
+    with nogil:
+        result = ccounts_checkAlignmentFile(
+            &sourceConfig,
+            1 if buildIndex else 0,
+            threadCount,
+            &hasIndex,
+        )
     _raiseIfError(result)
     return hasIndex != 0
 
@@ -212,12 +213,13 @@ cpdef bint ccounts_isAlignmentPairedEnd(
     cdef ccounts_result result
     cdef int isPairedEnd = 0
 
-    result = ccounts_isPairedEnd(
-        &sourceConfig,
-        threadCount,
-        maxReads,
-        &isPairedEnd,
-    )
+    with nogil:
+        result = ccounts_isPairedEnd(
+            &sourceConfig,
+            threadCount,
+            maxReads,
+            &isPairedEnd,
+        )
     _raiseIfError(result)
     return isPairedEnd != 0
 
@@ -238,14 +240,15 @@ cpdef int ccounts_getAlignmentReadLength(
     cdef ccounts_result result
     cdef uint32_t readLength = 0
 
-    result = ccounts_getReadLength(
-        &sourceConfig,
-        threadCount,
-        minReads,
-        maxIterations,
-        flagExclude,
-        &readLength,
-    )
+    with nogil:
+        result = ccounts_getReadLength(
+            &sourceConfig,
+            threadCount,
+            minReads,
+            maxIterations,
+            flagExclude,
+            &readLength,
+        )
     _raiseIfError(result)
     return int(readLength)
 
@@ -260,6 +263,7 @@ cpdef tuple ccounts_getAlignmentChromRange(
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef bytes chromosomeBytes = chromosome.encode("utf-8")
+    cdef const char* chromosomePtr = chromosomeBytes
     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
         pathBytes,
         sourceKind,
@@ -268,15 +272,16 @@ cpdef tuple ccounts_getAlignmentChromRange(
     cdef uint64_t startValue = 0
     cdef uint64_t endValue = 0
 
-    result = ccounts_getChromRange(
-        &sourceConfig,
-        chromosomeBytes,
-        chromLength,
-        threadCount,
-        flagExclude,
-        &startValue,
-        &endValue,
-    )
+    with nogil:
+        result = ccounts_getChromRange(
+            &sourceConfig,
+            chromosomePtr,
+            chromLength,
+            threadCount,
+            flagExclude,
+            &startValue,
+            &endValue,
+        )
     _raiseIfError(result)
     return int(startValue), int(endValue)
 
@@ -303,6 +308,7 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     cdef const char** excludePointers = NULL
     cdef int excludeCount = 0
     cdef int index
+    cdef uint8_t countModeCode = _getCountModeCode(countMode)
     cdef list excludeBytes = []
 
     if excludeChromosomes is not None:
@@ -317,16 +323,17 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
                 excludePointers[index] = excludeBytes[index]
 
     try:
-        result = ccounts_getMappedReadCount(
-            &sourceConfig,
-            threadCount,
-            excludePointers,
-            excludeCount,
-            _getCountModeCode(countMode),
-            oneReadPerBin,
-            &mappedReadCount,
-            &unmappedReadCount,
-        )
+        with nogil:
+            result = ccounts_getMappedReadCount(
+                &sourceConfig,
+                threadCount,
+                excludePointers,
+                excludeCount,
+                countModeCode,
+                oneReadPerBin,
+                &mappedReadCount,
+                &unmappedReadCount,
+            )
         _raiseIfError(result)
     finally:
         if excludePointers != NULL:
@@ -349,7 +356,8 @@ cpdef int ccounts_getFragmentCellCount(
     cdef ccounts_result result
     cdef uint64_t cellCount = 0
 
-    result = ccounts_getCellCount(&sourceConfig, &cellCount)
+    with nogil:
+        result = ccounts_getCellCount(&sourceConfig, &cellCount)
     _raiseIfError(result)
     return int(cellCount)
 
@@ -420,19 +428,22 @@ cpdef cnp.ndarray ccounts_countAlignmentRegion(
     countOptions.inferFragmentLength = inferFragmentLength
 
     # open once here so region counting can reuse the initialized native handle
-    result = ccounts_openSource(&sourceConfig, &sourceHandle)
+    with nogil:
+        result = ccounts_openSource(&sourceConfig, &sourceHandle)
     _raiseIfError(result)
     try:
-        result = ccounts_countRegion(
-            sourceHandle,
-            &region,
-            &countOptions,
-            &counts[0],
-            numIntervals,
-        )
+        with nogil:
+            result = ccounts_countRegion(
+                sourceHandle,
+                &region,
+                &countOptions,
+                &counts[0],
+                numIntervals,
+            )
         _raiseIfError(result)
     finally:
         if sourceHandle != NULL:
-            ccounts_closeSource(sourceHandle)
+            with nogil:
+                ccounts_closeSource(sourceHandle)
 
     return counts

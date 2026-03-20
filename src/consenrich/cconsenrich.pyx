@@ -1536,38 +1536,119 @@ cdef bint _cEMA(const double* xPtr, double* outPtr,
     return <bint>0
 
 
+cdef bint _cEMA_F32(const float* xPtr, float* outPtr,
+                    Py_ssize_t n, float alpha) nogil:
+    cdef Py_ssize_t i
+    if alpha > 1.0 or alpha < 0.0:
+        return <bint>1
+
+    outPtr[0] = xPtr[0]
+
+    for i in range(1, n):
+        outPtr[i] = alpha*xPtr[i] + (1.0 - alpha)*outPtr[i - 1]
+
+    for i in range(n - 2, -1, -1):
+        outPtr[i] = alpha*outPtr[i] + (1.0 - alpha)*outPtr[i + 1]
+
+    return <bint>0
+
+
 cpdef cEMA(cnp.ndarray x, double alpha):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] x1 = np.ascontiguousarray(x, dtype=np.float64)
-    cdef Py_ssize_t n = x1.shape[0]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
-    _cEMA(<const double*>x1.data, <double*>out.data, n, alpha)
-    return out
+    cdef Py_ssize_t n
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] x1_F32
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out_F32
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] x1_F64
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64
+
+    if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
+        x1_F32 = np.ascontiguousarray(x, dtype=np.float32)
+        n = x1_F32.shape[0]
+        out_F32 = np.empty(n, dtype=np.float32)
+        _cEMA_F32(<const float*>x1_F32.data, <float*>out_F32.data, n, <float>alpha)
+        return out_F32
+
+    x1_F64 = np.ascontiguousarray(x, dtype=np.float64)
+    n = x1_F64.shape[0]
+    out_F64 = np.empty(n, dtype=np.float64)
+    _cEMA(<const double*>x1_F64.data, <double*>out_F64.data, n, alpha)
+    return out_F64
 
 
-cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(1.0)):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] arr = np.ascontiguousarray(x, dtype=np.float64)
-    cdef Py_ssize_t n = arr.shape[0]
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(n, dtype=np.float64)
-    cdef double[::1] arrView = arr
-    cdef double[::1] outView = out
-    cdef double offset_ = offset
-    cdef double scale_ = scale
+cdef void _monoLog_F32(
+    const float* arrPtr,
+    float* outPtr,
+    Py_ssize_t n,
+    float offset,
+    float scale,
+) noexcept nogil:
+    cdef Py_ssize_t i
+    cdef float xval, u
+
+    for i in range(n):
+        xval = arrPtr[i]
+        u = xval + offset
+        if u <= 0.0:
+            u = offset
+        outPtr[i] = scale * <float>log(<double>u)
+
+
+cdef void _monoLog_F64(
+    const double* arrPtr,
+    double* outPtr,
+    Py_ssize_t n,
+    double offset,
+    double scale,
+) noexcept nogil:
     cdef Py_ssize_t i
     cdef double xval, u
 
-    # scale * log(x + offset)
+    for i in range(n):
+        xval = arrPtr[i]
+        u = xval + offset
+        if u <= 0.0:
+            u = offset
+        outPtr[i] = scale * log(u)
+
+
+cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(1.0)):
+    cdef Py_ssize_t n
+    cdef double offset_ = offset
+    cdef double scale_ = scale
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] arr_F32
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out_F32
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] arr_F64
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64
+
     if offset_ <= 0.0:
         offset_ = 1.0
 
-    with nogil:
-        for i in range(n):
-            xval = arrView[i]
-            u = xval + offset_
-            if u <= 0.0:
-                u = offset_ # keep defined if x has negatives
-            outView[i] = scale_ * log(u)
+    if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
+        arr_F32 = np.ascontiguousarray(x, dtype=np.float32)
+        n = arr_F32.shape[0]
+        out_F32 = np.empty(n, dtype=np.float32)
+        with nogil:
+            _monoLog_F32(
+                <const float*>arr_F32.data,
+                <float*>out_F32.data,
+                n,
+                <float>offset_,
+                <float>scale_,
+            )
+        return (out_F32, -1.0)
 
-    return (out, -1.0)
+    arr_F64 = np.ascontiguousarray(x, dtype=np.float64)
+    n = arr_F64.shape[0]
+    out_F64 = np.empty(n, dtype=np.float64)
+    with nogil:
+        _monoLog_F64(
+            <const double*>arr_F64.data,
+            <double*>out_F64.data,
+            n,
+            offset_,
+            scale_,
+        )
+
+    return (out_F64, -1.0)
 
 
 cpdef object cTransform(
