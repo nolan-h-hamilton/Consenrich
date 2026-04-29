@@ -8,14 +8,9 @@ import math
 import logging
 import os
 import re
-import sys
 import tempfile
 from typing import Tuple, List, Optional
 from pathlib import Path
-
-SRC_DIR = Path(__file__).resolve().parents[1] / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 import pandas as pd
 import pytest

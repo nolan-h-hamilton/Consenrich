@@ -2,16 +2,11 @@
 
 import json
 import logging
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
-
-SRC_DIR = Path(__file__).resolve().parents[1] / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 import consenrich.consenrich as consenrich_cli
 import consenrich.peaks as peaks
