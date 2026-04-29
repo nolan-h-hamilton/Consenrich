@@ -1,20 +1,17 @@
 import textwrap
-import pytest
-from consenrich.consenrich import readConfig
+import sys
 from pathlib import Path
+
+import pytest
+
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from consenrich.consenrich import readConfig
 import consenrich.consenrich as consenrich
 import consenrich.constants as constants
 import consenrich.misc_util as misc_util
-import types
-import gzip
-
-
-class stopAfterResolve(Exception):
-    pass
-
-
-class stopOnFirstControlEstimate(Exception):
-    pass
 
 
 def writeConfigFile(tmpPath, fileName, yamlText):
@@ -52,8 +49,6 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
         "alignmentFilesArePairedEnd",
         fakeAlignmentFilesArePairedEnd,
     )
-    monkeypatch.setattr(misc_util, "checkBamFile", fakeCheckAlignmentFile)
-    monkeypatch.setattr(misc_util, "bamsArePairedEnd", fakeAlignmentFilesArePairedEnd)
 
 
 def test_ensureInput():
@@ -116,7 +111,6 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
 
     assert bool(inputDotted.bamFilesControl) is False
     assert bool(inputNested.bamFilesControl) is False
-    assert inputDotted.pairedEnd == inputNested.pairedEnd
 
     genomeDotted = configDotted["genomeArgs"]
     genomeNested = configNested["genomeArgs"]
@@ -157,7 +151,10 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
     assert type(matchingDotted) is type(matchingNested)
 
     assert samDotted.samThreads == samNested.samThreads
-    assert matchingDotted.templateNames == matchingNested.templateNames
+    assert matchingDotted.enabled == matchingNested.enabled
+    assert matchingDotted.thresholdZ == matchingNested.thresholdZ
+    assert matchingDotted.nestedRoccoIters == matchingNested.nestedRoccoIters
+    assert matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
 
 
 def test_readConfigDeduplicatesChromosomes(
@@ -177,6 +174,245 @@ def test_readConfigDeduplicatesChromosomes(
     configParsed = readConfig(str(configPath))
 
     assert configParsed["genomeArgs"].chromosomes == ["chr1", "chr2", "chr3"]
+
+
+def test_readConfigAPNDisablesProcPrecReweight(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    fitParams.EM_useAPN: true
+    fitParams.EM_useProcPrecReweight: true
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_apn.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+
+    assert configParsed["fitArgs"].EM_useAPN is True
+    assert configParsed["fitArgs"].EM_useProcPrecReweight is False
+
+
+def test_readConfigUsesEMUseField(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configFieldYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    fitParams.EM_use: false
+    """
+    configFieldPath = writeConfigFile(tmp_path, "config_em_use.yaml", configFieldYaml)
+    parsedField = readConfig(str(configFieldPath))
+    assert parsedField["fitArgs"].EM_use is False
+
+
+def test_readConfigDefaultsEMTNuToEightAndAllowsOverride(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configDefaultYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+    parsedDefault = readConfig(
+        str(writeConfigFile(tmp_path, "config_em_tnu_default.yaml", configDefaultYaml))
+    )
+    assert parsedDefault["fitArgs"].EM_tNu == pytest.approx(8.0)
+
+    configOverrideYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    fitParams.EM_tNu: 4.0
+    """
+    parsedOverride = readConfig(
+        str(writeConfigFile(tmp_path, "config_em_tnu_override.yaml", configOverrideYaml))
+    )
+    assert parsedOverride["fitArgs"].EM_tNu == pytest.approx(4.0)
+
+
+def test_readConfigUsesInnerAndOuterEMToleranceFields(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    fitParams.EM_innerRtol: 1.0e-6
+    fitParams.EM_outerRtol: 2.5e-3
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_em_tol.yaml", configYaml)
+    parsed = readConfig(str(configPath))
+
+    assert parsed["fitArgs"].EM_innerRtol == pytest.approx(1.0e-6)
+    assert parsed["fitArgs"].EM_outerRtol == pytest.approx(2.5e-3)
+    assert not hasattr(parsed["fitArgs"], "EM_rtol")
+
+
+def test_readConfigUsesEffectiveInfoRescaleField(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configDefaultYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+    parsedDefault = readConfig(
+        str(
+            writeConfigFile(
+                tmp_path, "config_effective_info_default.yaml", configDefaultYaml
+            )
+        )
+    )
+    assert parsedDefault["stateArgs"].effectiveInfoRescale is True
+    assert parsedDefault["stateArgs"].effectiveInfoBlockLengthBP == 50_000
+
+    configExplicitYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    stateParams.effectiveInfoRescale: false
+    stateParams.effectiveInfoBlockLengthBP: 25000
+    """
+    parsedExplicit = readConfig(
+        str(
+            writeConfigFile(
+                tmp_path, "config_effective_info_false.yaml", configExplicitYaml
+            )
+        )
+    )
+    assert parsedExplicit["stateArgs"].effectiveInfoRescale is False
+    assert parsedExplicit["stateArgs"].effectiveInfoBlockLengthBP == 25_000
+
+    configAliasYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    stateParams.effectiveInfoBlockLength: 75000
+    """
+    parsedAlias = readConfig(
+        str(
+            writeConfigFile(
+                tmp_path,
+                "config_effective_info_alias.yaml",
+                configAliasYaml,
+            )
+        )
+    )
+    assert parsedAlias["stateArgs"].effectiveInfoBlockLengthBP == 75_000
+
+
+def testResolveEffectiveInfoBandwidthIntervals():
+    assert consenrich._resolveEffectiveInfoBandwidthIntervals((11, 7, 15), 45) == 11
+    assert consenrich._resolveEffectiveInfoBandwidthIntervals(None, 45) == 11
+
+
+def testResolveEffectiveInfoBlockLengthIntervals():
+    assert (
+        consenrich._resolveEffectiveInfoBlockLengthIntervals(50_000, 25, 10_000)
+        == 2000
+    )
+    assert (
+        consenrich._resolveEffectiveInfoBlockLengthIntervals(50_000, 100, 200)
+        == 200
+    )
+    assert consenrich._resolveEffectiveInfoBlockLengthIntervals(0, 25, 123) == 123
+
+
+def test_readConfigNumNearestRequiresExplicitSparseBed(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    sparseBedPath = tmp_path / "explicit_sparse.bed"
+    sparseBedPath.write_text("chrTest\t0\t100\n", encoding="utf-8")
+
+    configNoExplicit = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.numNearest: 17
+    """
+    configNoExplicitPath = writeConfigFile(
+        tmp_path,
+        "config_no_explicit_sparse.yaml",
+        configNoExplicit,
+    )
+    parsedNoExplicit = readConfig(str(configNoExplicitPath))
+    assert parsedNoExplicit["observationArgs"].numNearest == 0
+
+    configExplicit = f"""
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    genomeParams.sparseBedFile: {sparseBedPath}
+    observationParams.numNearest: 17
+    """
+    configExplicitPath = writeConfigFile(
+        tmp_path,
+        "config_explicit_sparse.yaml",
+        configExplicit,
+    )
+    parsedExplicit = readConfig(str(configExplicitPath))
+    assert parsedExplicit["observationArgs"].numNearest == 17
+
+
+def test_readConfigRestrictLocalAR1ToSparseBedRequiresAvailableSparseBed(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    sparseBedPath = tmp_path / "explicit_sparse.bed"
+    sparseBedPath.write_text("chrTest\t0\t100\n", encoding="utf-8")
+
+    configNoSparse = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.restrictLocalAR1ToSparseBed: true
+    """
+    configNoSparsePath = writeConfigFile(
+        tmp_path,
+        "config_restrict_local_ar1_no_sparse.yaml",
+        configNoSparse,
+    )
+    parsedNoSparse = readConfig(str(configNoSparsePath))
+    assert parsedNoSparse["observationArgs"].restrictLocalAR1ToSparseBed is False
+
+    configExplicitSparse = f"""
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    genomeParams.sparseBedFile: {sparseBedPath}
+    observationParams.restrictLocalAR1ToSparseBed: true
+    """
+    configExplicitSparsePath = writeConfigFile(
+        tmp_path,
+        "config_restrict_local_ar1_explicit_sparse.yaml",
+        configExplicitSparse,
+    )
+    parsedExplicitSparse = readConfig(str(configExplicitSparsePath))
+    assert (
+        parsedExplicitSparse["observationArgs"].restrictLocalAR1ToSparseBed is True
+    )
 
 
 def test_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -205,7 +441,7 @@ def test_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
           role: treatment
           barcodeGroupMapFile: {groupMapPath}
           selectGroups: [clusterA]
-          fragmentPositionsAreOffset: false
+          fragmentPositionMode: fragmentEndpoints
     genomeParams.name: testGenome
     countingParams.normMethod: CPM
     countingParams.fragmentsGroupNorm: CELLS
@@ -224,7 +460,7 @@ def test_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
     assert inputArgs.treatmentSources[0].sampleName == "trt1"
     assert inputArgs.treatmentSources[1].sourceKind == "FRAGMENTS"
     assert inputArgs.treatmentSources[1].selectGroups == ["clusterA"]
-    assert inputArgs.treatmentSources[1].fragmentPositionsAreOffset is False
+    assert inputArgs.treatmentSources[1].fragmentPositionMode == "fragmentEndpoints"
     assert configParsed["countingArgs"].normMethod == "CPM"
     assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
 
@@ -247,7 +483,7 @@ def test_readConfigScParamsProvideFragmentsDefaults(
     genomeParams.name: testGenome
     scParams.defaultCountMode: center
     scParams.fragmentsGroupNorm: CELLS
-    scParams.fragmentPositionsAreOffset: false
+    scParams.defaultFragmentPositionMode: fragmentEndpoints
     scParams.barcodeTag: CR
     """
 
@@ -256,43 +492,47 @@ def test_readConfigScParamsProvideFragmentsDefaults(
     source = configParsed["inputArgs"].treatmentSources[0]
 
     assert source.countMode is None
-    assert source.fragmentPositionsAreOffset is False
+    assert source.fragmentPositionMode == "fragmentEndpoints"
     assert source.barcodeTag == "CR"
     assert configParsed["scArgs"].defaultCountMode == "center"
     assert configParsed["scArgs"].fragmentsGroupNorm == "CELLS"
     assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
 
 
-def test_readConfigAcceptsClusterIdAlias(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+def test_readConfigUsesExplicitBamInputModeRead1(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
-    fragmentsPath = tmp_path / "smallTest.fragments.tsv.gz"
-    fragmentsPath.write_text("", encoding="utf-8")
-    groupMapPath = tmp_path / "groups.tsv"
-    groupMapPath.write_text("BC_A\tclusterA\n", encoding="utf-8")
 
-    configYaml = f"""
-    experimentName: sampleExperiment
-    inputParams:
-      samples:
-        - path: {fragmentsPath}
-          format: fragments
-          role: treatment
-          barcodeGroupMapFile: {groupMapPath}
-          clusterId: clusterA
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
+    samParams.bamInputMode: read1
     """
 
-    configPath = writeConfigFile(tmp_path, "config_cluster_id.yaml", configYaml)
+    configPath = writeConfigFile(tmp_path, "config_macs_like_bam.yaml", configYaml)
     configParsed = readConfig(str(configPath))
-    source = configParsed["inputArgs"].treatmentSources[0]
+    samArgs = configParsed["samArgs"]
 
-    assert source.selectGroups == ["clusterA"]
+    assert samArgs.bamInputMode == "read1"
+    assert samArgs.defaultCountMode == "coverage"
+    assert samArgs.inferFragmentLength == 0
 
 
-def test_readConfigMatchingDefaultsToGlobalEmpiricalNull(
+def test_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls():
+    treatment, control = consenrich._resolveExtendFrom5pBPPairs(
+        [150, 180],
+        [90, 110],
+    )
+
+    assert treatment == [150, 180]
+    assert control == [150, 180]
+
+
+def test_readConfigMatchingDefaultsToROCCO(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
@@ -307,7 +547,17 @@ def test_readConfigMatchingDefaultsToGlobalEmpiricalNull(
     configPath = writeConfigFile(tmp_path, "config_matching_default.yaml", configYaml)
     configParsed = readConfig(str(configPath))
 
-    assert configParsed["matchingArgs"].useSplitEmpiricalNull is False
+    assert configParsed["matchingArgs"].enabled is True
+    assert configParsed["matchingArgs"].numBootstrap == 128
+    assert configParsed["matchingArgs"].thresholdZ == pytest.approx(2.0)
+    assert configParsed["matchingArgs"].gamma == pytest.approx(0.5)
+    assert configParsed["matchingArgs"].nestedRoccoIters == 3
+    assert configParsed["matchingArgs"].nestedRoccoBudgetScale == pytest.approx(0.5)
+    assert not hasattr(configParsed["matchingArgs"], "minMatchLengthBP")
+    assert not hasattr(configParsed["matchingArgs"], "merge")
+    assert not hasattr(configParsed["matchingArgs"], "mergeGapBP")
+    assert configParsed["countingArgs"].intervalSizeBP == 25
+    assert not hasattr(configParsed["countingArgs"], "smoothSpanBP")
 
 
 def test_readConfigRejectsCRAMSources(
@@ -377,7 +627,7 @@ def test_resolveDeltaFAutoParams():
         intervalSizeBP=50,
         sources=sources,
         readLengths=[75, 120],
-        fragmentLengths=[150, 0],
+        characteristicLengths=[150, 0],
     )
 
     assert autoDeltaF is True
@@ -390,7 +640,7 @@ def test_resolveDeltaFAutoParams():
         intervalSizeBP=50,
         sources=sources,
         readLengths=[75, 120],
-        fragmentLengths=[150, 0],
+        characteristicLengths=[150, 0],
     )
 
     assert autoDeltaFFixed is False
@@ -399,187 +649,14 @@ def test_resolveDeltaFAutoParams():
     assert deltaFHighFixed == pytest.approx(0.25)
 
 
-def makeFakeArgs(config="dummy.yaml", verbose=False, verbose2=False):
-    return types.SimpleNamespace(
-        config=config,
-        matchBedGraph=None,
-        matchTemplate=None,
-        matchLevel=None,
-        matchAlpha=0.05,
-        matchMinMatchLengthBP=-1,
-        matchIters=50000,
-        matchMinSignalAtMaxima="q:0.75",
-        matchMaxNumMatches=1000000,
-        matchMergeGapBP=-1,
-        matchUseWavelet=False,
-        matchRandSeed=42,
-        matchExcludeBed=None,
-        matchAutoLengthQuantile=0.90,
-        matchMethodFDR=None,
-        matchIsLogScale=False,
-        verbose=verbose,
-        verbose2=verbose2,
-    )
+def test_prioritizeLargestChromosomePlanMovesLargestFirst():
+    chromosomePlans = [
+        {"chromosome": "chr2", "numIntervals": 120},
+        {"chromosome": "chr1", "numIntervals": 400},
+        {"chromosome": "chr3", "numIntervals": 85},
+    ]
 
+    prioritized = consenrich._prioritizeLargestChromosomePlan(chromosomePlans)
 
-def makeFakeConfig(useTreatmentFragmentLengths: bool):
-    inputArgs = types.SimpleNamespace(
-        bamFiles=["t1.bam", "t2.bam"],
-        bamFilesControl=["c1.bam", "c2.bam"],
-        pairedEnd=False,
-    )
-
-    genomeArgs = types.SimpleNamespace(
-        genomeName="testGenome",
-        chromSizesFile="fake.chrom.sizes",
-        excludeChroms=[],
-        excludeForNorm=[],
-        sparseBedFile=None,
-        chromosomes=["chrTest"],
-    )
-
-    countingArgs = types.SimpleNamespace(
-        intervalSizeBP=25,
-        scaleDown=False,
-        scaleFactors=None,
-        scaleFactorsControl=None,
-        numReads=100,
-        applyAsinh=False,
-        applyLog=False,
-        applySqrt=False,
-        rescaleToTreatmentCoverage=False,
-        normMethod="EGS",
-        noTransform=False,
-        trimLeftTail=0.0,
-        fragmentLengths=None,
-        fragmentLengthsControl=None,
-        useTreatmentFragmentLengths=useTreatmentFragmentLengths,
-        fragmentsGroupNorm="NONE",
-    )
-
-    processArgs = types.SimpleNamespace(
-        deltaF=-1.0,
-        minQ=-1.0,
-        maxQ=10000,
-        offDiagQ=1.0e-3,
-        dStatAlpha=2.0,
-        dStatd=1.0,
-        dStatPC=1.0,
-        dStatUseMean=False,
-        scaleResidualsByP11=True,
-    )
-
-    observationArgs = types.SimpleNamespace(
-        numNearest=25,
-        minR=-1.0,
-        maxR=10000,
-        useALV=True,
-        useConstantNoiseLevel=False,
-        noGlobal=False,
-        localWeight=0.333,
-        globalWeight=0.667,
-        approximationWindowLengthBP=25000,
-        lowPassWindowLengthBP=50000,
-        lowPassFilterType="median",
-        returnCenter=True,
-        shrinkOffset=1 - 0.05,
-        kappaALV=50.0,
-    )
-
-    stateArgs = types.SimpleNamespace(
-        stateInit=0.0,
-        stateCovarInit=1000.0,
-        boundState=True,
-        stateLowerBound=0.0,
-        stateUpperBound=10000.0,
-    )
-
-    samArgs = types.SimpleNamespace(
-        samThreads=1,
-        samFlagExclude=3844,
-        maxInsertSize=1000,
-        oneReadPerBin=0,
-        chunkSize=1_000_000,
-        offsetStr="0,0",
-        pairedEndMode=0,
-        inferFragmentLength=1,
-        countEndsOnly=False,
-        minMappingQuality=0,
-        minTemplateLength=-1,
-    )
-
-    matchingArgs = types.SimpleNamespace(
-        templateNames=[],
-        cascadeLevels=[],
-        minMatchLengthBP=-1,
-        alpha=0.05,
-        iters=25000,
-        maxNumMatches=100000,
-        minSignalAtMaxima="q:0.75",
-        merge=True,
-        mergeGapBP=-1,
-        useScalingFunction=True,
-        excludeRegionsBedFile=None,
-        randSeed=42,
-        penalizeBy=None,
-        eps=1.0e-2,
-        autoLengthQuantile=0.90,
-        methodFDR=None,
-    )
-
-    plotArgs = types.SimpleNamespace(
-        plotStateEstimatesHistogram=False,
-        plotResidualsHistogram=False,
-        plotStateStdHistogram=False,
-        plotPrefix="test",
-        plotDirectory=".",
-    )
-
-    outputArgs = types.SimpleNamespace(
-        convertToBigWig=False,
-        roundDigits=3,
-        writeResiduals=False,
-        writeMuncTrace=False,
-        writeStateStd=False,
-    )
-
-    return {
-        "experimentName": "testExperiment",
-        "genomeArgs": genomeArgs,
-        "inputArgs": inputArgs,
-        "outputArgs": outputArgs,
-        "countingArgs": countingArgs,
-        "processArgs": processArgs,
-        "observationArgs": observationArgs,
-        "stateArgs": stateArgs,
-        "samArgs": samArgs,
-        "matchingArgs": matchingArgs,
-        "plotArgs": plotArgs,
-    }
-
-
-def patchMainEntry(monkeypatch: pytest.MonkeyPatch, useTreatmentFragmentLengths: bool):
-    monkeypatch.setattr(
-        consenrich.argparse.ArgumentParser,
-        "parse_args",
-        lambda self: makeFakeArgs(),
-    )
-    monkeypatch.setattr(consenrich.os.path, "exists", lambda p: True)
-    monkeypatch.setattr(
-        consenrich,
-        "readConfig",
-        lambda p: makeFakeConfig(useTreatmentFragmentLengths),
-    )
-    monkeypatch.setattr(consenrich, "getReadLengths", lambda *a, **k: [50, 50])
-    monkeypatch.setattr(
-        consenrich,
-        "getEffectiveGenomeSizes",
-        lambda *a, **k: [1000, 1000],
-    )
-    monkeypatch.setattr(consenrich.core, "getReadLength", lambda *a, **k: 50)
-    monkeypatch.setattr(
-        consenrich.constants,
-        "getEffectiveGenomeSize",
-        lambda *a, **k: 1000,
-    )
-    monkeypatch.setattr(consenrich, "checkMatchingEnabled", lambda *a, **k: False)
+    assert [plan["chromosome"] for plan in prioritized] == ["chr1", "chr2", "chr3"]
+    assert [plan["numIntervals"] for plan in prioritized] == [400, 120, 85]

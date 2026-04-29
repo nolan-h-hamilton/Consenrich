@@ -7,36 +7,24 @@ Consenrich core functions and classes.
 import logging
 import os
 import warnings
+from functools import lru_cache
 from tempfile import NamedTemporaryFile
 from typing import (
     Any,
-    Callable,
-    DefaultDict,
     List,
     NamedTuple,
     Optional,
     Tuple,
-    Literal,
 )
 
-from importlib.util import find_spec
 import numpy as np
 import numpy.typing as npt
-from numpy.lib.stride_tricks import as_strided
 from scipy import ndimage, signal, stats, optimize, special, sparse
 from scipy.sparse import linalg as sparse_linalg
 from tqdm import tqdm
 from itrigamma import itrigamma
 from . import cconsenrich
 from . import ccounts
-from . import __version__
-
-MATHFONT = {
-    "text.usetex": False,
-    "mathtext.fontset": "cm",
-    "font.family": "serif",
-    "font.serif": ["DejaVu Serif"],
-}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,38 +33,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ALIGNMENT_SOURCE_KINDS = ("BAM",)
-FRAGMENTS_SOURCE_KIND = "FRAGMENTS"
+FRAGMENTS_SOURCE_KIND = "FRAGMENTS"  # 10x
 SUPPORTED_SOURCE_KINDS = ALIGNMENT_SOURCE_KINDS + (FRAGMENTS_SOURCE_KIND,)
-
-
-class plotParams(NamedTuple):
-    r"""(Experimental) Parameters related to plotting filter results and diagnostics.
-
-    :param plotPrefix: Prefix for output plot filenames.
-    :type plotPrefix: str or None
-    :param plotStateEstimatesHistogram: If True, plot a histogram of post-fit primary state estimates
-    :type plotStateEstimatesHistogram: bool
-    :param plotMWSRHistogram: If True, plot a histogram of post-fit weighted squared residuals (MWSR).
-    :type plotMWSRHistogram: bool
-    :param plotHeightInches: Height of output plots in inches.
-    :type plotHeightInches: float
-    :param plotWidthInches: Width of output plots in inches.
-    :type plotWidthInches: float
-    :param plotDPI: DPI of output plots (png)
-    :type plotDPI: int
-    :param plotDirectory: Directory where plots will be written.
-    :type plotDirectory: str or None
-
-    :seealso: :func:`plotStateEstimatesHistogram`, :func:`plotMWSRHistogram`, :class:`outputParams`
-    """
-
-    plotPrefix: str | None = None
-    plotStateEstimatesHistogram: bool = False
-    plotMWSRHistogram: bool = False
-    plotHeightInches: float = 6.0
-    plotWidthInches: float = 8.0
-    plotDPI: int = 300
-    plotDirectory: str | None = None
+SUPPORTED_BAM_INPUT_MODES = ("auto", "fragments", "reads", "read1")
+SUPPORTED_FRAGMENT_POSITION_MODES = ("insertionendpoints", "fragmentendpoints")
+SUPPORTED_COUNT_MODES = (
+    "coverage",
+    "cutsite",
+    "fiveprime",
+    "center",
+)
 
 
 class processParams(NamedTuple):
@@ -109,13 +75,11 @@ class observationParams(NamedTuple):
     r"""Parameters related to the observation model of Consenrich.
 
     The observation model supplies the plugin variance track used by the inner filter-smoother.
-    With ``fitParams.EM_useIntervalMunc=True``, the outer loop replaces the initial per-replicate
-    plugin variances with a shared interval-level track estimated from expected residual squares.
 
 
-    :param minR: Genome-wide lower bound for replicate-specific observation noise scale.
+    :param minR: Genome-wide lower bound for replicate-specific observation noise levels.
     :type minR: float | None
-    :param maxR: Genome-wide upper bound for the replicate-specific observation noise scale.
+    :param maxR: Genome-wide upper bound for the replicate-specific observation noise levels.
     :type maxR: float | None
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
     :type samplingIters: int | None
@@ -124,7 +88,7 @@ class observationParams(NamedTuple):
       If `None` or ` < 1`, then this value is inferred using :func:`consenrich.core.getContextSize`.
     :type samplingBlockSizeBP: int | None
     :param binQuantileCutoff: When fitting the variance function, pairs :math:`(\lvert \mu_b \rvert, \sigma^2_b)` are binned by their (absolute) means. This parameter sets the quantile of variances within each bin to use when fitting the global mean-variance trend.
-      Increasing this value toward `1.0` can raise the prior trend for measurement uncertainty and yield stiffer signal estimates overall.
+      Increasing this value toward `1.0` can raise the prior trend for observation noise levels and therefore yield stiffer signal estimates overall.
     :type binQuantileCutoff: float | None
     :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
     :type EB_minLin: float | None
@@ -134,9 +98,15 @@ class observationParams(NamedTuple):
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
     :type EB_setNuL: int | None
+    :param numNearest: If ``> 0`` and an explicit sparse BED is supplied, estimate the local observation variance from the nearest sparse regions instead of the default rolling AR(1) local variance.
+      In this sparse-nearest mode, the same nearest sparse blocks also define a signed local intercept track that is subtracted before fitting and evaluating the global mean-variance prior.
+    :type numNearest: int | None
+    :param restrictLocalAR1ToSparseBed: If True, and a sparse BED mask is supplied to :func:`consenrich.core.getMuncTrack`, restrict the default rolling AR(1) local observation noise level estimates to windows fully contained in sparse BED regions.
+      This only affects the local rolling AR(1) model, the global prior fit and sparse-nearest mode are unchanged.
+    :type restrictLocalAR1ToSparseBed: bool | None
     :param pad: A small constant added to the observation noise variance estimates for conditioning
     :type pad: float | None
-    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cblockScaleEM`
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cinnerEM`
 
     """
 
@@ -149,6 +119,8 @@ class observationParams(NamedTuple):
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
+    numNearest: int | None
+    restrictLocalAR1ToSparseBed: bool | None
     pad: float | None
 
 
@@ -165,20 +137,13 @@ class stateParams(NamedTuple):
     :type stateLowerBound: float
     :param stateUpperBound: Upper bound for the state estimate.
     :type stateUpperBound: float
-    :param conformalRescale: If True, perform replicate-heldout split-conformal calibration for a
-        hypothetical new replicate at each genomic interval. The resulting uncertainty is predictive,
-        not purely latent-state posterior variance.
-    :type conformalRescale: bool | None
-    :param conformalAlpha: Target split-conformal miscoverage level :math:`\alpha` in (0, 1)`. When conformalRescale is True,
-        the inflation factor is chosen from the :math:`(1-\alpha)` empirical quantile of calibration scores.
-    :type conformalAlpha: float | None
-    :param conformal_numIters: Number of replicate-heldout calibration rounds used to estimate the inflation factor.
-        If set ``> 1``, the routine repeats the replicate split and pools scores across rounds.
-    :type conformal_numIters: int | None
-    :param conformalFinalRefit: If True, refit the final model after selecting the conformal inflation factor.
-        This breaks the strict frozen-predictor split-conformal setup. In all cases, Consenrich only inflates
-        predictive uncertainty.
-    :type conformalFinalRefit: bool | None
+    :param effectiveInfoRescale: If True, inflate the default model-based uncertainty track by
+        block-level effective-information correction factors estimated from standardized
+        one-step-ahead innovations via Bartlett/Newey-West long-run variance.
+    :type effectiveInfoRescale: bool | None
+    :param effectiveInfoBlockLengthBP: Genomic block length, in bp, for HAC
+        uncertainty scaling. Non-positive values fall back to chromosome-wide scaling.
+    :type effectiveInfoBlockLengthBP: int | None
     """
 
     stateInit: float
@@ -186,10 +151,8 @@ class stateParams(NamedTuple):
     boundState: bool
     stateLowerBound: float
     stateUpperBound: float
-    conformalRescale: bool | None
-    conformalAlpha: float | None
-    conformal_numIters: int | None
-    conformalFinalRefit: bool | None
+    effectiveInfoRescale: bool | None
+    effectiveInfoBlockLengthBP: int | None
 
 
 class samParams(NamedTuple):
@@ -203,21 +166,30 @@ class samParams(NamedTuple):
     :type oneReadPerBin: int
     :param chunkSize: maximum number of intervals' data to hold in memory before flushing to disk.
     :type chunkSize: int
-    :param offsetStr: A string of two comma-separated integers -- first for the 5' shift on forward strand, second for the 5' shift on reverse strand.
-    :type offsetStr: str
+    :param bamInputMode: Default interpretation for BAM inputs.
+        ``auto`` resolves to fragment spans for paired-end BAM and per-read tags for single-end BAM.
+        ``fragments`` uses proper template spans, ``reads`` counts each alignment independently,
+        and ``read1`` uses only the first mate from paired-end BAM in a MACS3 ``-f BAM`` mode.
+    :type bamInputMode: str
+    :param defaultCountMode: Default count mode for BAM inputs when a source does not set ``countMode``.
+    :type defaultCountMode: str
+    :param shiftForward5p: 5' shift applied to forward-strand alignments.
+    :type shiftForward5p: int
+    :param shiftReverse5p: 5' shift applied to reverse-strand alignments.
+    :type shiftReverse5p: int
+    :param extendFrom5pBP: Optional extension length or list of extension lengths for BAM inputs operating
+        in ``reads`` or ``read1`` mode. When omitted and ``inferFragmentLength > 0``, treatment BAMs are
+        inferred and paired controls reuse those inferred lengths.
+    :type extendFrom5pBP: List[int] | int | None
     :param maxInsertSize: Maximum frag length/insert to consider when estimating fragment length.
     :type maxInsertSize: int
     :param inferFragmentLength: Intended for single-end data: if > 0, the maximum correlation lag
        (avg.) between *strand-specific* read tracks is taken as the fragment length estimate and used to
-       extend reads from 5'. Ignored if data is paired-end, `countEndsOnly`, or `fragmentLengths` is provided.
-       important when targeting broader marks (e.g., ChIP-seq H3K27me3).
+       extend reads from shifted 5' ends when ``bamInputMode`` resolves to ``reads`` or ``read1``.
+       This is often important when targeting broader marks (e.g., ChIP-seq H3K27me3).
     :type inferFragmentLength: int
-    :param countEndsOnly: If True, only the 5' read lengths contribute to counting.
-    :type countEndsOnly: Optional[bool]
     :param minMappingQuality: Minimum mapping quality (MAPQ) for reads to be counted.
     :type minMappingQuality: Optional[int]
-    :param fragmentLengths: If supplied, a list of estimated fragment lengths for each BAM file.
-        These are values are used to extend reads. Note, these values will override `TLEN` attributes in paired-end data
 
     .. tip::
 
@@ -229,14 +201,15 @@ class samParams(NamedTuple):
     samFlagExclude: int
     oneReadPerBin: int
     chunkSize: int
-    offsetStr: Optional[str] = "0,0"
+    bamInputMode: str | None = "auto"
+    defaultCountMode: str | None = "coverage"
+    shiftForward5p: int | None = 0
+    shiftReverse5p: int | None = 0
+    extendFrom5pBP: List[int] | int | None = None
     maxInsertSize: Optional[int] = 1000
-    pairedEndMode: Optional[int] = 0
     inferFragmentLength: Optional[int] = 0
-    countEndsOnly: Optional[bool] = False
     minMappingQuality: Optional[int] = 0
     minTemplateLength: Optional[int] = -1
-    fragmentLengths: Optional[List[int]] = None
 
 
 class inputSource(NamedTuple):
@@ -257,14 +230,14 @@ class inputSource(NamedTuple):
     :param barcodeGroupMapFile: Optional barcode to group map path
     :type barcodeGroupMapFile: str | None
     :param selectGroups: Optional subset of barcode groups to keep
-      config may also use ``clusterId`` as a one-group alias
     :type selectGroups: List[str] | None
     :param countMode: Optional counting mode label
-      fragments inputs default to `cutsite`
+      BAM inputs default to `coverage`; fragments inputs default to `cutsite`
     :type countMode: str | None
-    :param fragmentPositionsAreOffset: If True, fragment endpoints are assumed to
-      already represent Tn5-adjusted insertion positions
-    :type fragmentPositionsAreOffset: bool
+    :param bamInputMode: Optional BAM interpretation override for this source
+    :type bamInputMode: str | None
+    :param fragmentPositionMode: Optional fragments endpoint interpretation label
+    :type fragmentPositionMode: str | None
     """
 
     path: str
@@ -276,7 +249,8 @@ class inputSource(NamedTuple):
     barcodeGroupMapFile: str | None = None
     selectGroups: List[str] | None = None
     countMode: str | None = None
-    fragmentPositionsAreOffset: bool = True
+    bamInputMode: str | None = None
+    fragmentPositionMode: str | None = None
 
 
 class inputParams(NamedTuple):
@@ -288,8 +262,6 @@ class inputParams(NamedTuple):
     :param bamFilesControl: A list of paths to distinct coordinate-sorted and
         indexed control BAM files. e.g., IgG control inputs for ChIP-seq.
     :type bamFilesControl: List[str], optional
-    :param pairedEnd: Deprecated: Paired-end/Single-end is inferred automatically from the alignment flags in input BAM files.
-    :type pairedEnd: Optional[bool]
     :param treatmentSources: Parsed treatment input sources
     :type treatmentSources: List[inputSource] | None
     :param controlSources: Parsed control input sources
@@ -298,7 +270,6 @@ class inputParams(NamedTuple):
 
     bamFiles: List[str]
     bamFilesControl: Optional[List[str]]
-    pairedEnd: Optional[bool]
     treatmentSources: List[inputSource] | None = None
     controlSources: List[inputSource] | None = None
 
@@ -309,7 +280,7 @@ class genomeParams(NamedTuple):
     :param genomeName: If supplied, default resources for the assembly (sizes file, blacklist, and 'sparse' regions) in `src/consenrich/data` are used.
       ``ce10, ce11, dm6, hg19, hg38, mm10, mm39`` have default resources available.
     :type genomeName: str
-    :param chromSizesFile: A two-column TSV-like file with chromosome names and sizes (in base pairs).
+    :param chromSizesFile: A two-column TSV file with chromosome names and sizes (in base pairs).
     :type chromSizesFile: str
     :param blacklistFile: A BED file with regions to exclude.
     :type blacklistFile: str, optional
@@ -346,7 +317,7 @@ class countingParams(NamedTuple):
         - ``EGS``: Effective Genome Size normalization (see :func:`consenrich.detrorm.getScaleFactor1x`)
           only appropriate for alignment coverage, not fragments pseudobulks
 
-        - ``SF``: Median of ratios style scale factors (see :func:`consenrich.cconsenrich.cSF`). Restricted to analyses with ``>= 3`` samples (no input control).
+        - ``SF``: Median of ratios scale factors (see :func:`consenrich.cconsenrich.cSF`). Restricted to analyses with ``>= 3`` samples (no input control).
 
         - ``RPKM`` / ``CPM``: Scale factors based on emitted counts per million mapped units
           fragments pseudobulks use emitted insertions rather than raw fragment totals
@@ -355,28 +326,17 @@ class countingParams(NamedTuple):
     :param fragmentsGroupNorm: Optional extra normalization for fragments pseudobulks
       `NONE` keeps library-size scaling only and `CELLS` additionally divides by selected cell count
     :type fragmentsGroupNorm: str | None
-    :param fragmentLengths: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end data.
-    :type fragmentLengths: List[int], optional
-    :param fragmentLengthsControl: List of fragment lengths (bp) to use for extending reads from 5' ends when counting single-end with control data.
-    :type fragmentLengthsControl: List[int], optional
-    :param useTreatmentFragmentLengths: If True, use fragment lengths estimated from treatment BAM files for control BAM files, too.
-    :type useTreatmentFragmentLengths: bool, optional
     :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
     :type fixControl: bool, optional
-    :param globalWeight: Relative weight assigned to the global 'dense' baseline when combining with local baseline estimates. Higher values increase the influence of the global baseline. For instance, ``globalWeight = 2`` results in a weighted average where the global baseline contributes `2/3` of the final baseline estimate; whereas ``globalWeight = 1`` results in equal weighting between global and local baselines.
-      Users with input control samples may consider increasing this value to avoid redundancy (artificial local trends have presumably been accounted for in the control, leaving less signal to be modeled locally).
+    :param globalWeight: Preprocessing centering weight. Any positive value applies subtraction of the dense centering offset estimated from the transformed coverage track, while non-positive values skip preprocessing centering entirely.
     :type globalWeight: float, optional
-    :param asymPos: *Relative* weight assigned to positive residuals to induce asymmetry in reweighting. Used
-      during IRLS for the local baseline computation. Using smaller values near `0.0` will downweight peaks more and reduce the
-      risk of removing true signal. Typical range is ``(0, 0.75]``.
-    :type asymPos: float, optional
     :param logOffset: A small constant added to read normalized counts before log-transforming (pseudocount). For example,  :math:`\log(x + 1)` for ``logOffset = 1``. Default is ``1.0``.
     :type logOffset: float, optional
     :param logMult: Multiplicative factor applied to log-scaled and normalized counts. For example, setting ``logMult = 1 / \log(2)`` will yield log2-scaled counts after transformation, and setting ``logMult = 1.0`` yields natural log-scaled counts.
     :type logMult: float, optional
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
-    .. admonition:: Treatment vs. Control Fragment Lengths in Single-End Data
+    .. admonition:: Treatment vs. Control Extension Lengths in Single-End Data
       :class: tip
       :collapsible: closed
 
@@ -385,24 +345,19 @@ class countingParams(NamedTuple):
       strand-specific coverage tracks.
 
       This can create artifacts during counting, so it is common to use the estimated treatment
-      fragment length for both treatment and control samples. The argument
-      ``observationParams.useTreatmentFragmentLengths`` enables this behavior.
+      fragment length for both treatment and control samples. Consenrich resolves inferred
+      control extension lengths from their paired treatments.
 
     """
 
     intervalSizeBP: int | None
     backgroundBlockSizeBP: int | None
-    smoothSpanBP: int | None
     scaleFactors: List[float] | None
     scaleFactorsControl: List[float] | None
     normMethod: str | None
     fragmentsGroupNorm: str | None
-    fragmentLengths: List[int] | None
-    fragmentLengthsControl: List[int] | None
-    useTreatmentFragmentLengths: bool | None
     fixControl: bool | None
     globalWeight: float | None
-    asymPos: float | None
     logOffset: float | None
     logMult: float | None
 
@@ -417,74 +372,71 @@ class scParams(NamedTuple):
     :param fragmentsGroupNorm: Optional extra normalization for fragments pseudobulks
       `NONE` keeps library-size scaling only and `CELLS` additionally divides by selected cell count
     :type fragmentsGroupNorm: str | None
-    :param fragmentPositionsAreOffset: If True, fragments are assumed to already encode Tn5-adjusted insertion endpoints
-    :type fragmentPositionsAreOffset: bool
+    :param defaultFragmentPositionMode: Default fragments endpoint interpretation mode.
+    :type defaultFragmentPositionMode: str | None
     """
 
     barcodeTag: str | None = "CB"
     defaultCountMode: str | None = "cutsite"
     fragmentsGroupNorm: str | None = "NONE"
-    fragmentPositionsAreOffset: bool = True
+    defaultFragmentPositionMode: str | None = "insertionEndpoints"
 
 
 class matchingParams(NamedTuple):
-    r"""Parameters related to the matching algorithm.
+    r"""Parameters related to post-fit peak calling.
 
-    See :ref:`matching` for an overview of the approach.
+    Consenrich uses the within-package dynamic-programming peak caller based on ROCCO.
 
-    :param templateNames: A list of str values -- each entry references a mother wavelet (or its corresponding scaling function). e.g., `[haar, db2]`
-    :type templateNames: List[str]
-    :param cascadeLevels: Number of cascade iterations, or 'levels', used to define wavelet-based templates
-        Must have the same length as `templateNames`, with each entry aligned to the
-        corresponding template. e.g., given templateNames `[haar, db2]`, then `[2,2]` would use 2 cascade levels for both templates.
-    :type cascadeLevels: List[int]
-    :param iters: Number of randomly drawn contiguous blocks used to build
-        an empirical null for significance evaluation. See :func:`cconsenrich.csampleBlockStats`.
-    :type iters: int
-    :param alpha: Primary significance threshold on detected matches. Specifically, the
-        minimum corrected empirical p-value approximated from randomly sampled blocks in the
-        response sequence.
-    :type alpha: float
-    :param minMatchLengthBP: Within a window of `minMatchLengthBP` length (bp), relative maxima in
-        the signal-template convolution :math:`\mathcal{R}_{[\ast]}` must be greater in value than
-        others to qualify as matches. If set to a value less than 1, the minimum length is determined
-        via :func:`consenrich.matching.autoMinLengthIntervals` (default behavior).
-    :type minMatchLengthBP: Optional[int]
-    :param minSignalAtMaxima: Secondary/optional threshold coupled with ``alpha``. Requires the *signal value*, :math:`\widetilde{x}_{[i^*]}`,
-        at relative maxima in the response sequence, :math:`\mathcal{R}_{[i^*]}`, to be greater than this threshold.
-        If a ``str`` value is provided, looks for 'q:quantileValue', e.g., 'q:0.90'. The threshold is then set to the
-        corresponding quantile of the non-zero signal estimates in the distribution of transformed values.
-    :type minSignalAtMaxima: Optional[str | float]
-    :param useScalingFunction: If True, use (only) the scaling function to build the matching template.
-        If False, use (only) the wavelet function.
-    :type useScalingFunction: bool
-    :param eps: Tolerance parameter for relative maxima detection in the response sequence. Set to zero to enforce strict
-        inequalities when identifying discrete relative maxima.
-    :type eps: float
-    :param massQuantileCutoff: Quantile cutoff for filtering initial (unmerged) matches based on their 'mass' ``((avgSignal*length)/intervalLength)``. To diable, set ``< 0``.
-    :type massQuantileCutoff: float
-    :param useSplitEmpiricalNull: If True, augment the pooled empirical null with blocked held-out fold nulls
-    :type useSplitEmpiricalNull: bool
-    :seealso: :func:`cconsenrich.csampleBlockStats`, :ref:`matching`, :class:`outputParams`.
+    :param enabled: If True, run post-fit ROCCO peak calling on the emitted state bedGraph.
+    :type enabled: bool
+    :param randSeed: Random seed used for bootstrap calibration and any stochastic tie-breaking.
+    :type randSeed: Optional[int]
+    :param tau0: Shrinkage-score pseudovariance parameter; direct ROCCO
+        scoring uses the fitted Consenrich state values.
+    :type tau0: Optional[float]
+    :param numBootstrap: Number of dependent wild-bootstrap null draws used for budget calibration.
+    :type numBootstrap: Optional[int]
+    :param thresholdZ: One-sided null tail threshold on the ROCCO score, on a Gaussian ``z`` scale.
+    :type thresholdZ: Optional[float]
+    :param dependenceSpan: Optional fixed dependence span in intervals for bootstrap calibration.
+        If not provided, it is estimated from the score track.
+    :type dependenceSpan: Optional[int]
+    :param gamma: ROCCO boundary penalty. Non-negative values are used directly
+        (default ``0.5``); negative values request data-driven estimation from
+        local score scale and context size.
+    :type gamma: Optional[float]
+    :param selectionPenalty: Optional direct per-bin selection penalty override.
+    :type selectionPenalty: Optional[float]
+    :param gammaScale: Multiplicative scale used when converting estimated context size into
+        a ROCCO boundary penalty.
+    :type gammaScale: Optional[float]
+    :param nestedRoccoIters: Number of nested, monotone-shrinking local ROCCO refinement
+        iterations to run within first-pass peak regions. Set to ``0`` to disable.
+    :type nestedRoccoIters: Optional[int]
+    :param nestedRoccoBudgetScale: Optional fraction of each eligible parent peak region
+        available to the nested local ROCCO subproblem. Values below ``1`` make the local
+        pass stricter. The default is ``0.5``.
+    :type nestedRoccoBudgetScale: Optional[float]
+    :param exportFilterUncertaintyMultiplier: Non-negative multiplier ``c`` in the
+        final export filter ``medianState < -c * median(local uncertainty)``.
+        The default is ``2.5``. Setting ``c=0`` requires exported peaks to have
+        positive median signal.
+    :type exportFilterUncertaintyMultiplier: Optional[float]
+    :seealso: :mod:`consenrich.peaks`, :class:`outputParams`.
     """
 
-    templateNames: List[str]
-    cascadeLevels: List[int]
-    iters: int
-    alpha: float
-    useScalingFunction: Optional[bool]
-    minMatchLengthBP: Optional[int]
-    maxNumMatches: Optional[int]
-    minSignalAtMaxima: Optional[str | float]
-    merge: Optional[bool]
-    mergeGapBP: Optional[int]
-    excludeRegionsBedFile: Optional[str]
-    penalizeBy: Optional[str]
+    enabled: bool
     randSeed: Optional[int]
-    eps: Optional[float]
-    massQuantileCutoff: Optional[float]
-    methodFDR: str | None
-    useSplitEmpiricalNull: bool | None
+    tau0: Optional[float]
+    numBootstrap: Optional[int]
+    thresholdZ: Optional[float]
+    dependenceSpan: Optional[int]
+    gamma: Optional[float]
+    selectionPenalty: Optional[float]
+    gammaScale: Optional[float]
+    nestedRoccoIters: Optional[int]
+    nestedRoccoBudgetScale: Optional[float]
+    exportFilterUncertaintyMultiplier: Optional[float]
 
 
 class outputParams(NamedTuple):
@@ -494,31 +446,12 @@ class outputParams(NamedTuple):
     :type convertToBigWig: bool
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
-    :param writeUncertainty: If True, write the primary uncertainty track to bedGraph. By default this is
-        :math:`\sqrt{\widetilde{P}_{[i,0,0]}}`. With ``conformalRescale=True`` it becomes a calibrated
-        future-replicate predictive standard deviation.
+    :param writeUncertainty: If True, write the state uncertainty track to bedGraph. By default this is
+        :math:`\sqrt{c_{\mathrm{eff},i}\,\widetilde{P}_{[i,0,0]}}` when
+        ``stateParams.effectiveInfoRescale=True``, where :math:`c_{\mathrm{eff},i} \ge 1`
+        is a correction factor estimated from
+        standardized innovations. Otherwise it is :math:`\sqrt{\widetilde{P}_{[i,0,0]}}`.
     :type writeUncertainty: bool
-    :param writeMWSR: If True, write a per-interval mean weighted+squared+*studentized* post-fit residual (``MWSR``),
-        computed using the smoothed state and its posterior variance from the final filter/smoother pass.
-
-        Let :math:`g_{[i]}` denote the shared interval background, :math:`b_j` the replicate bias,
-        :math:`\widetilde{x}_{[i,0]}` the smoothed signal level, and :math:`\widetilde{P}_{[i,0,0]}`
-        the corresponding posterior variance. With observation variance :math:`R_{[j,i]}`, define
-        the studentized residual moment
-
-        .. math::
-
-          u^2_{[j,i]} = \frac{(y_{[j,i]} - g_{[i]} - b_j - \widetilde{x}_{[i,0]})^2 + \widetilde{P}_{[i,0,0]}}{R_{[j,i]}}.
-
-        Consenrich then reports the lambda-weighted mean of :math:`u^2_{[j,i]}`, rescaled by the
-        Student-:math:`t` reference moment:
-
-        .. math::
-
-          \textsf{MWSR}[i] =
-          \frac{\sum_j \lambda_{[j,i]} u^2_{[j,i]}}{\sum_j \lambda_{[j,i]}}
-          \cdot \frac{1}{\nu / (\nu - 2)}.
-    :type writeMWSR: bool
     :param writeJackknifeSE: If True, write the standard error of the signal level estimates across jackknife replicates to bedGraph. This is only relevant if `applyJackknife` is True.
     :type writeJackknifeSE: bool
     :param applyJackknife: If True, estimate replicate-level sampling variability in the signal level estimates with the jackknife
@@ -529,7 +462,6 @@ class outputParams(NamedTuple):
     convertToBigWig: bool
     roundDigits: int
     writeUncertainty: bool
-    writeMWSR: bool
     writeJackknifeSE: bool
     applyJackknife: bool
 
@@ -537,101 +469,70 @@ class outputParams(NamedTuple):
 class fitParams(NamedTuple):
     r"""Parameters controlling the optimization/fitting procedures.
 
-    These arguments control both the inner routine in :func:`consenrich.cconsenrich.cblockScaleEM`
+    These arguments control both the inner routine in :func:`consenrich.cconsenrich.cinnerEM`
     and the outer calibration loop in :func:`consenrich.core.runConsenrich`.
 
     Inner loop:
 
     1. Filter-smoother state estimation *given* current noise scales
     2. Interval-level Student-t precision reweighting at: \(\lambda_{[j,i]}\) and \(\kappa_{[i]}\)
-    3. Block-level process scale updates: \(q_b\)
-    4. Replicate-level observation offset/scale updates: \(b_j\) and \(a_j\)
+    3. Replicate-level observation offset updates: \(b_j\)
 
     Outer loop:
 
     1. update a shared zero-centered background track \(g_i\)
-    2. optionally update a shared interval-level plugin variance track \(v_i\)
 
-    Each scale/reweighting resolution is optional. The default fit keeps replicate-level calibration
-    and robust precision reweighting on, while leaving the shared interval-level variance update off.
+    The default fit keeps replicate-level bias calibration and robust precision reweighting on.
 
 
-    :param EM_maxIters: Maximum outer EM iterations.
+    :param EM_maxIters: Maximum inner EM iterations.
     :type EM_maxIters: int
-    :param EM_rtol: Relative improvement tolerance on NLL used in convergence
-    :type EM_rtol: float
-    :param EM_scaleLOW: Lower clipping bound for block process scales \(q_b\).
-    :type EM_scaleLOW: float
-    :param EM_scaleHIGH: Upper clipping bound for block process scales \(q_b\).
-    :type EM_scaleHIGH: float
-    :param EM_alphaEMA: If in ``(0, 1]``, enables log-domain EMA smoothing for block process scales.
-    :type EM_alphaEMA: float
-    :param EM_scaleToMedian: If True, rescales \(q_b\) by its median after each M-step. This can help preserve between-block scale differences for interpretability, but may interfere with convergence of the EM algorithm since it changes the effective objective.
-    :type EM_scaleToMedian: bool
+    :param EM_use: If False, skip the iterative EM / outer calibration updates entirely and treat the input observation variance track as a fixed plugin.
+      This is compatible with ``EM_useAPN=True`` for adaptive process-noise filtering without iterative refitting.
+    :type EM_use: bool
+    :param EM_innerRtol: Relative tolerance used for the inner NLL stabilization test.
+      The inner loop is treated as stable once
+      ``abs(NLL_k - NLL_{k-1}) <= EM_innerRtol * max(abs(NLL_k), abs(NLL_{k-1}), 1)``
+      for two consecutive iterations.
+    :type EM_innerRtol: float
     :param EM_tNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
     :type EM_tNu: float
-    :param EM_useProcBlockScale: If True, estimate block process scales \(q_b\); otherwise fix \(q_b\equiv 1\).
-    :type EM_useProcBlockScale: bool
     :param EM_useObsPrecReweight: If True, update observation noise precision multipliers \(\lambda_{[j,i]}\) (Student-\(t\) reweighting); otherwise \(\lambda\equiv 1\).
     :type EM_useObsPrecReweight: bool
     :param EM_useProcPrecReweight: If True, update process noise precision multipliers \(\kappa_{[i]}\) (Student-\(t\) reweighting); otherwise \(\kappa\equiv 1\).
     :type EM_useProcPrecReweight: bool
+    :param EM_useAPN: If True, use the adaptive-process-noise (APN) D-statistic update during filtering.
+      This option disables ``EM_useProcPrecReweight``.
+    :type EM_useAPN: bool
     :param EM_useReplicateBias: If True, estimate additive replicate offsets \(b_j\) in the observation equation.
     :type EM_useReplicateBias: bool
-    :param EM_useReplicateScale: If True, estimate multiplicative replicate variance scales \(a_j\) in the observation equation.
-    :type EM_useReplicateScale: bool
     :param EM_repBiasShrink: Non-negative shrinkage applied to replicate bias estimates after centering.
     :type EM_repBiasShrink: float
-    :param EM_repScaleLOW: Lower clipping bound for replicate variance scales \(a_j\).
-    :type EM_repScaleLOW: float
-    :param EM_repScaleHIGH: Upper clipping bound for replicate variance scales \(a_j\).
-    :type EM_repScaleHIGH: float
-    :param EM_outerIters: Number of outer alternations between the inner Kalman-EM fit, shared background update, and interval-level observation variance update.
+    :param EM_outerIters: Number of outer alternations between the inner Kalman-EM fit and shared background update.
     :type EM_outerIters: int
-    :param EM_outerRtol: Relative tolerance used to stop the outer background/variance loop early.
+    :param EM_outerRtol: Relative tolerance used to stop the outer background loop early.
+      The outer loop stops once the maximum pointwise background update is at most
+      ``EM_outerRtol * max(max(abs(g_next)), max(abs(g_cur)), 1)``.
     :type EM_outerRtol: float
-    :param EM_useIntervalMunc: If True, update a shared interval-level observation variance track from smoothed residual second moments.
-        Default is False.
-    :type EM_useIntervalMunc: bool
-    :param EM_intervalMuncEMA: EMA weight used when updating the shared interval-level observation variance track.
-    :type EM_intervalMuncEMA: float
-    :param EM_useIntervalBackground: If True, update a shared smooth interval-level background with a zero-sum constraint during the outer EM loop.
-    :type EM_useIntervalBackground: bool
     :param EM_backgroundSmoothness: Multiplier applied to the second-difference roughness penalty used for the shared background update.
     :type EM_backgroundSmoothness: float
 
 
-    :seealso: :func:`consenrich.cconsenrich.cblockScaleEM`, :func:`consenrich.core.runConsenrich`, :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
+    :seealso: :func:`consenrich.cconsenrich.cinnerEM`, :func:`consenrich.core.runConsenrich`, :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
     """
 
     EM_maxIters: int | None = 50
-    EM_rtol: float | None = 1.0e-4
-    EM_scaleToMedian: bool | None = False
-    EM_tNu: float | None = 10.0
-    EM_alphaEMA: float | None = 0.05
-    EM_scaleLOW: float | None = 0.5
-    EM_scaleHIGH: float | None = 5.0
-    EM_useProcBlockScale: bool | None = False
+    EM_use: bool | None = True
+    EM_innerRtol: float | None = 1.0e-4
+    EM_tNu: float | None = 8.0
     EM_useObsPrecReweight: bool | None = True
     EM_useProcPrecReweight: bool | None = True
+    EM_useAPN: bool | None = False
     EM_useReplicateBias: bool | None = True
-    EM_useReplicateScale: bool | None = True
     EM_repBiasShrink: float | None = 0.0
-    EM_repScaleLOW: float | None = 0.25
-    EM_repScaleHIGH: float | None = 4.0
     EM_outerIters: int | None = 3
     EM_outerRtol: float | None = 1.0e-3
-    EM_useIntervalMunc: bool | None = False
-    EM_intervalMuncEMA: float | None = 0.25
-    EM_useIntervalBackground: bool | None = True
     EM_backgroundSmoothness: float | None = 1.0
-
-
-def _checkMod(name: str) -> bool:
-    try:
-        return find_spec(name) is not None
-    except Exception:
-        return False
 
 
 def _inferAlignmentSourceKind(path: str) -> str:
@@ -870,9 +771,7 @@ def _writeFragmentsAllowList(
         return None, None
 
     if len(allowSet) == 0:
-        raise ValueError(
-            f"No barcodes selected for fragments source `{source.path}`"
-        )
+        raise ValueError(f"No barcodes selected for fragments source `{source.path}`")
 
     with NamedTemporaryFile(
         mode="w",
@@ -893,6 +792,113 @@ def getFragmentsSelectedBarcodeCount(source: inputSource) -> int | None:
     return len(allowSet)
 
 
+def _normalizeCountMode(
+    countMode: str | None,
+    defaultMode: str,
+) -> str:
+    normalizedMode = str(countMode or defaultMode).strip().lower()
+    if normalizedMode not in SUPPORTED_COUNT_MODES:
+        raise ValueError(f"Unsupported countMode `{countMode}`")
+    if normalizedMode == "coverage":
+        return "coverage"
+    if normalizedMode == "cutsite":
+        return "cutsite"
+    if normalizedMode == "fiveprime":
+        return "fiveprime"
+    return "center"
+
+
+def _normalizeBamInputMode(bamInputMode: str | None) -> str:
+    normalizedMode = str(bamInputMode or "auto").strip().lower()
+    if normalizedMode not in SUPPORTED_BAM_INPUT_MODES:
+        raise ValueError(f"Unsupported bamInputMode `{bamInputMode}`")
+    return normalizedMode
+
+
+def _normalizeFragmentPositionMode(fragmentPositionMode: str | None) -> str:
+    normalizedMode = (
+        str(fragmentPositionMode or "insertionEndpoints")
+        .strip()
+        .replace("_", "")
+        .replace("-", "")
+        .lower()
+    )
+    if normalizedMode not in SUPPORTED_FRAGMENT_POSITION_MODES:
+        raise ValueError(f"Unsupported fragmentPositionMode `{fragmentPositionMode}`")
+    return normalizedMode
+
+
+@lru_cache(maxsize=None)
+def _isAlignmentSourcePairedEnd(alignmentPath: str) -> bool:
+    return bool(
+        ccounts.ccounts_isAlignmentPairedEnd(
+            alignmentPath,
+            maxReads=1_000,
+            sourceKind="BAM",
+        )
+    )
+
+
+def _resolveSourceBamInputMode(
+    source: inputSource,
+    defaultBamInputMode: str | None,
+) -> str:
+    normalizedMode = _normalizeBamInputMode(source.bamInputMode or defaultBamInputMode)
+    if str(source.sourceKind).upper() not in ALIGNMENT_SOURCE_KINDS:
+        return "reads"
+    if normalizedMode != "auto":
+        return normalizedMode
+    return "fragments" if _isAlignmentSourcePairedEnd(source.path) else "reads"
+
+
+def _resolveSourceFlagExclude(
+    samFlagExclude: int,
+    sourceBamInputMode: str,
+) -> int:
+    if sourceBamInputMode == "read1":
+        return int(samFlagExclude) | 8 | 128
+    return int(samFlagExclude)
+
+
+def _resolveExtendFrom5pBP(
+    extendFrom5pBP: List[int] | int | None,
+    sources: List[inputSource],
+) -> list[int]:
+    alignmentIndices = [
+        index
+        for index, source in enumerate(sources)
+        if str(source.sourceKind).upper() in ALIGNMENT_SOURCE_KINDS
+    ]
+    resolvedValues = [0] * len(sources)
+
+    if extendFrom5pBP is None:
+        return resolvedValues
+
+    if isinstance(extendFrom5pBP, int):
+        configuredValues = [int(extendFrom5pBP)]
+    else:
+        configuredValues = [int(value) for value in extendFrom5pBP]
+
+    if len(configuredValues) == 0:
+        return resolvedValues
+
+    if len(configuredValues) == 1:
+        configuredValues = configuredValues * len(alignmentIndices)
+    elif len(configuredValues) == len(alignmentIndices):
+        pass
+    elif len(configuredValues) == len(sources):
+        return configuredValues
+    else:
+        raise ValueError(
+            "`extendFrom5pBP` length must match BAM sources length, "
+            f"all sources length, or 1: {len(configuredValues)}"
+        )
+
+    for sourceIndex, extendBP in zip(alignmentIndices, configuredValues):
+        resolvedValues[sourceIndex] = int(extendBP)
+    return resolvedValues
+
+
 def readSegments(
     sources: List[inputSource],
     chromosome: str,
@@ -904,18 +910,24 @@ def readSegments(
     oneReadPerBin: int,
     samThreads: int,
     samFlagExclude: int,
-    offsetStr: Optional[str] = "0,0",
+    bamInputMode: str | None = "auto",
+    defaultCountMode: str | None = "coverage",
+    shiftForward5p: int | None = 0,
+    shiftReverse5p: int | None = 0,
+    extendFrom5pBP: List[int] | int | None = None,
     maxInsertSize: Optional[int] = 1000,
-    pairedEndMode: Optional[int] = 0,
     inferFragmentLength: Optional[int] = 0,
-    countEndsOnly: Optional[bool] = False,
     minMappingQuality: Optional[int] = 0,
     minTemplateLength: Optional[int] = -1,
-    fragmentLengths: Optional[List[int]] = None,
 ) -> npt.NDArray[np.float32]:
     r"""Read binned tracks from generic input sources
 
-    this is the source-agnostic entry point for counting
+    this is the source-agnostic entry point for counting.
+
+    For BAM inputs, ``bamInputMode`` controls whether we count template spans, per-read alignments,
+    or only read1 tags from paired-end BAM. Combine ``shiftForward5p`` / ``shiftReverse5p`` with
+    ``extendFrom5pBP`` or ``inferFragmentLength`` to emulate MACS ``--shift`` and ``--extsize``
+    behavior.
     """
 
     if len(sources) == 0:
@@ -926,75 +938,12 @@ def readSegments(
 
     sourcePaths = getSourcePaths(sources)
     sourceKinds = getSourceKinds(sources)
-    offsetParts = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
     counts = np.empty((len(sources), numIntervals), dtype=np.float32)
     tempPaths: list[str] = []
-
-    if isinstance(fragmentLengths, int):
-        fragmentLengths = [fragmentLengths] * len(sources)
-
-    if fragmentLengths is None:
-        fragmentLengths = [0] * len(sources)
-
-    if pairedEndMode and fragmentLengths is not None and all(
-        sourceKind in ALIGNMENT_SOURCE_KINDS for sourceKind in sourceKinds
-    ):
-        if isinstance(fragmentLengths, list) and len(fragmentLengths) != len(sources):
-            if len(fragmentLengths) == 1:
-                fragmentLengths = fragmentLengths * len(sources)
-            else:
-                raise ValueError(
-                    f"`fragmentLengths` length must match `sources` length: {len(fragmentLengths)} != {len(sources)}.",
-                )
-
-        pairedEndMode = 0
-        inferFragmentLength = 0
-
-    elif pairedEndMode and all(
-        sourceKind in ALIGNMENT_SOURCE_KINDS for sourceKind in sourceKinds
-    ):
-        fragmentLengths = [0] * len(sources)
-        inferFragmentLength = 0
-
-    if (
-        not pairedEndMode
-        and (fragmentLengths is None or len(fragmentLengths) == 0)
-        and all(sourceKind in ALIGNMENT_SOURCE_KINDS for sourceKind in sourceKinds)
-    ):
-        inferFragmentLength = 1
-        fragmentLengths = [-1] * len(sources)
-
-    if isinstance(countEndsOnly, bool) and countEndsOnly:
-        inferFragmentLength = 0
-        pairedEndMode = 0
-        fragmentLengths = [0] * len(sources)
-
-    if inferFragmentLength > 0 and all(
-        sourceKind in ALIGNMENT_SOURCE_KINDS for sourceKind in sourceKinds
-    ) and any(
-        fragmentLength <= 0 for fragmentLength in fragmentLengths
-    ):
-        return readBamSegments(
-            bamFiles=sourcePaths,
-            chromosome=chromosome,
-            start=start,
-            end=end,
-            intervalSizeBP=intervalSizeBP,
-            readLengths=readLengths,
-            scaleFactors=scaleFactors,
-            oneReadPerBin=oneReadPerBin,
-            samThreads=samThreads,
-            samFlagExclude=samFlagExclude,
-            offsetStr=offsetStr,
-            maxInsertSize=maxInsertSize,
-            pairedEndMode=pairedEndMode,
-            inferFragmentLength=inferFragmentLength,
-            countEndsOnly=countEndsOnly,
-            minMappingQuality=minMappingQuality,
-            minTemplateLength=minTemplateLength,
-            fragmentLengths=fragmentLengths,
-        )
+    defaultBamInputMode = _normalizeBamInputMode(bamInputMode)
+    defaultBamCountMode = _normalizeCountMode(defaultCountMode, "coverage")
+    resolvedExtendValues = _resolveExtendFrom5pBP(extendFrom5pBP, sources)
 
     try:
         for sourceIndex, sourcePath in enumerate(sourcePaths):
@@ -1005,9 +954,8 @@ def readSegments(
                 tempPaths.append(tempPath)
 
             if sourceKind == FRAGMENTS_SOURCE_KIND:
-                countMode = str(source.countMode or "").strip().lower()
-                if not countMode:
-                    countMode = "cutsite"
+                countMode = _normalizeCountMode(source.countMode, "cutsite")
+                _normalizeFragmentPositionMode(source.fragmentPositionMode)
                 counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
                     sourcePath,
                     chromosome,
@@ -1032,6 +980,39 @@ def readSegments(
                     countMode=countMode,
                 )
             else:
+                countMode = _normalizeCountMode(
+                    source.countMode,
+                    defaultBamCountMode,
+                )
+                sourceBamInputMode = _resolveSourceBamInputMode(
+                    source,
+                    defaultBamInputMode,
+                )
+                sourceExtendBP = int(resolvedExtendValues[sourceIndex])
+                sourceFlagExclude = _resolveSourceFlagExclude(
+                    samFlagExclude,
+                    sourceBamInputMode,
+                )
+                sourceInferFragmentLength = int(inferFragmentLength or 0)
+                sourcePairedEndMode = 1 if sourceBamInputMode == "fragments" else 0
+
+                if sourcePairedEndMode > 0:
+                    if sourceExtendBP > 0 or sourceInferFragmentLength > 0:
+                        raise ValueError(
+                            "`extendFrom5pBP` and `inferFragmentLength` require "
+                            "`bamInputMode` `reads` or `read1`."
+                        )
+                    sourceInferFragmentLength = 0
+                elif sourceInferFragmentLength > 0 and sourceExtendBP <= 0:
+                    sourceExtendBP = int(
+                        cconsenrich.cgetFragmentLength(
+                            sourcePath,
+                            samThreads=samThreads,
+                            samFlagExclude=sourceFlagExclude,
+                            maxInsertSize=maxInsertSize,
+                        )
+                    )
+                sourceInferFragmentLength = 0
                 counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
                     sourcePath,
                     chromosome,
@@ -1041,19 +1022,19 @@ def readSegments(
                     readLengths[sourceIndex],
                     oneReadPerBin,
                     samThreads,
-                    samFlagExclude,
-                    shiftForwardStrand53=int(offsetParts[0]),
-                    shiftReverseStrand53=int(offsetParts[1]),
-                    extendBP=fragmentLengths[sourceIndex],
+                    sourceFlagExclude,
+                    shiftForwardStrand53=int(shiftForward5p or 0),
+                    shiftReverseStrand53=int(shiftReverse5p or 0),
+                    extendBP=sourceExtendBP,
                     maxInsertSize=maxInsertSize,
-                    pairedEndMode=pairedEndMode,
-                    inferFragmentLength=inferFragmentLength,
+                    pairedEndMode=sourcePairedEndMode,
+                    inferFragmentLength=sourceInferFragmentLength,
                     minMappingQuality=minMappingQuality,
                     minTemplateLength=minTemplateLength,
                     sourceKind=sourceKind,
                     barcodeAllowListFile="",
                     barcodeGroupMapFile="",
-                    countMode="coverage",
+                    countMode=countMode,
                 )
             np.multiply(
                 counts[sourceIndex, :],
@@ -1081,14 +1062,15 @@ def readBamSegments(
     oneReadPerBin: int,
     samThreads: int,
     samFlagExclude: int,
-    offsetStr: Optional[str] = "0,0",
+    bamInputMode: str | None = "auto",
+    defaultCountMode: str | None = "coverage",
+    shiftForward5p: int | None = 0,
+    shiftReverse5p: int | None = 0,
+    extendFrom5pBP: List[int] | int | None = None,
     maxInsertSize: Optional[int] = 1000,
-    pairedEndMode: Optional[int] = 0,
     inferFragmentLength: Optional[int] = 0,
-    countEndsOnly: Optional[bool] = False,
     minMappingQuality: Optional[int] = 0,
     minTemplateLength: Optional[int] = -1,
-    fragmentLengths: Optional[List[int]] = None,
 ) -> npt.NDArray[np.float32]:
     r"""Calculate coverage tracks for each BAM file.
 
@@ -1112,21 +1094,26 @@ def readBamSegments(
     :type samThreads: int
     :param samFlagExclude: See :class:`samParams`.
     :type samFlagExclude: int
-    :param offsetStr: See :class:`samParams`.
-    :type offsetStr: str
+    :param bamInputMode: See :class:`samParams`.
+    :type bamInputMode: str
+    :param defaultCountMode: See :class:`samParams`.
+    :type defaultCountMode: str
+    :param shiftForward5p: See :class:`samParams`.
+    :type shiftForward5p: int
+    :param shiftReverse5p: See :class:`samParams`.
+    :type shiftReverse5p: int
+    :param extendFrom5pBP: See :class:`samParams`.
+    :type extendFrom5pBP: Optional[List[int] | int]
     :param maxInsertSize: See :class:`samParams`.
     :type maxInsertSize: int
-    :param pairedEndMode: See :class:`samParams`.
-    :type pairedEndMode: int
     :param inferFragmentLength: See :class:`samParams`.
     :type inferFragmentLength: int
     :param minMappingQuality: See :class:`samParams`.
     :type minMappingQuality: int
     :param minTemplateLength: See :class:`samParams`.
     :type minTemplateLength: Optional[int]
-    :param fragmentLengths: If supplied, a list of estimated fragment lengths for each BAM file.
-        These are values are used to extend reads. Note, these values will override `TLEN` attributes in paired-end data
-    :type fragmentLengths: Optional[List[int]]
+
+    This is a BAM-only convenience wrapper over :func:`readSegments`.
     """
 
     segmentSize_ = end - start
@@ -1141,80 +1128,33 @@ def readBamSegments(
     if len(readLengths) != len(bamFiles) or len(scaleFactors) != len(bamFiles):
         raise ValueError("readLengths and scaleFactors must match bamFiles length")
 
-    offsetStr = ((str(offsetStr) or "0,0").replace(" ", "")).split(",")
-
-    numIntervals = ((end - start - 1) // intervalSizeBP) + 1
-    counts = np.empty((len(bamFiles), numIntervals), dtype=np.float32)
-
-    if pairedEndMode and fragmentLengths is not None:
-        if isinstance(fragmentLengths, list) and len(fragmentLengths) != len(bamFiles):
-            if len(fragmentLengths) == 1:
-                fragmentLengths = fragmentLengths * len(bamFiles)
-            else:
-                raise ValueError(
-                    f"`fragmentLengths` length must match `bamFiles` length: {len(fragmentLengths)} != {len(bamFiles)}.",
-                )
-
-        if isinstance(fragmentLengths, int):
-            fragmentLengths = [fragmentLengths] * len(bamFiles)
-
-        pairedEndMode = 0
-        inferFragmentLength = 0
-
-    elif pairedEndMode:
-        # paired end w/ out fragment lengths provided --> use TLEN attribute for each properly paired read
-        fragmentLengths = [0] * len(bamFiles)
-        inferFragmentLength = 0
-
-    if not pairedEndMode and (fragmentLengths is None or len(fragmentLengths) == 0):
-        # single-end without user-supplied fragment length -->
-        # ... estimate fragment lengths as the peak lag_k in
-        # ... cross-correlation(forwardReadsTrack,backwardReadsTrack, lag_k)
-        inferFragmentLength = 1
-        fragmentLengths = [-1] * len(bamFiles)
-
-    if isinstance(countEndsOnly, bool) and countEndsOnly:
-        # No fragment length extension, just count 5' ends
-        # ... May be preferred for high-resolution analyses in deeply-sequenced HTS
-        # ...  data but note the drift in interpretation for processParams.deltaF,
-        # ... consider setting deltaF \propto (readLength / intervalSizeBP)
-        inferFragmentLength = 0
-        pairedEndMode = 0
-        fragmentLengths = [0] * len(bamFiles)
-
-    for j, bam in tqdm(
-        enumerate(bamFiles),
-        desc="Building count matrix",
-        unit=" bam files",
-        total=len(bamFiles),
-    ):
-        arr = cconsenrich.creadBamSegment(
-            bam,
-            chromosome,
-            start,
-            end,
-            intervalSizeBP,
-            readLengths[j],
-            oneReadPerBin,
-            samThreads,
-            samFlagExclude,
-            int(offsetStr[0]),
-            int(offsetStr[1]),
-            fragmentLengths[j],
-            maxInsertSize,
-            pairedEndMode,
-            inferFragmentLength,
-            minMappingQuality,
-            minTemplateLength,
-        )
-
-        counts[j, :] = arr
-        np.multiply(
-            counts[j, :],
-            np.float32(scaleFactors[j]),
-            out=counts[j, :],
-        )
-    return counts
+    return readSegments(
+        [
+            inputSource(
+                path=bamPath,
+                sourceKind="BAM",
+            )
+            for bamPath in bamFiles
+        ],
+        chromosome,
+        start,
+        end,
+        intervalSizeBP,
+        readLengths,
+        scaleFactors,
+        oneReadPerBin,
+        samThreads,
+        samFlagExclude,
+        bamInputMode=bamInputMode,
+        defaultCountMode=defaultCountMode,
+        shiftForward5p=shiftForward5p,
+        shiftReverse5p=shiftReverse5p,
+        extendFrom5pBP=extendFrom5pBP,
+        maxInsertSize=maxInsertSize,
+        inferFragmentLength=inferFragmentLength,
+        minMappingQuality=minMappingQuality,
+        minTemplateLength=minTemplateLength,
+    )
 
 
 def constructMatrixF(deltaF: float) -> npt.NDArray[np.float32]:
@@ -1343,29 +1283,556 @@ def constructMatrixQ(
     return Q
 
 
-def constructMatrixH(
-    m: int, coefficients: Optional[np.ndarray] = None
-) -> npt.NDArray[np.float32]:
-    r"""Build the observation model matrix :math:`\mathbf{H}`.
+def estimateAutoDeltaF(
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    minQ: float,
+    offDiagQ: float,
+    stateInit: float,
+    stateCovarInit: float,
+    blockLenIntervals: int,
+    pad: float = 1.0e-4,
+    autoDeltaF_low: float = 1.0e-4,
+    autoDeltaF_high: float = 2.0,
+    autoDeltaF_init: float = 0.01,
+    autoDeltaF_maxEvals: int = 25,
+    useWhiteAccel: bool = False,
+    useDiscreteConstAccel: bool = False,
+) -> float:
+    r"""Estimate ``deltaF`` from one transformed chromosome matrix."""
+    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
+    matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
 
-    :param m: Number of observations.
-    :type m: int
-    :param coefficients: Optional coefficients for the observation model,
-        which can be used to weight the observations manually.
-    :type coefficients: Optional[np.ndarray]
-    :return: The observation model matrix :math:`\mathbf{H}`.
-    :rtype: npt.NDArray[np.float32]
+    if matrixData.ndim == 1:
+        matrixData = matrixData[None, :]
+    elif matrixData.ndim != 2:
+        raise ValueError(f"matrixData must be 1D or 2D (got ndim={matrixData.ndim})")
 
-    :seealso: :class:`observationParams`, class:`inputParams`
+    if matrixMunc.ndim == 1:
+        matrixMunc = matrixMunc[None, :]
+    elif matrixMunc.ndim != 2:
+        raise ValueError(f"matrixMunc must be 1D or 2D (got ndim={matrixMunc.ndim})")
+
+    if matrixData.shape != matrixMunc.shape:
+        raise ValueError("matrixData and matrixMunc must have identical shapes")
+
+    trackCount, intervalCount = matrixData.shape
+    if intervalCount < 2:
+        raise ValueError("need at least 2 intervals for autoDeltaF estimation")
+
+    blockLenIntervals_ = max(int(blockLenIntervals), 1)
+    blockCount = int(np.ceil(intervalCount / float(blockLenIntervals_)))
+    intervalToBlockMap = (
+        np.arange(intervalCount, dtype=np.int32) // blockLenIntervals_
+    ).astype(np.int32)
+    intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
+
+    def buildMatrixF(deltaFLocal: float) -> np.ndarray:
+        return constructMatrixF(float(deltaFLocal)).astype(np.float32, copy=False)
+
+    def buildMatrixQ0(deltaFLocal: float) -> np.ndarray:
+        return constructMatrixQ(
+            minDiagQ=float(minQ),
+            offDiagQ=float(offDiagQ),
+            useWhiteAccel=bool(useWhiteAccel),
+            useDiscreteConstAccel=bool(useDiscreteConstAccel),
+            deltaF=float(deltaFLocal),
+        ).astype(np.float32, copy=False)
+
+    deltaFMin = float(autoDeltaF_low)
+    deltaFMax = float(autoDeltaF_high)
+    if (
+        (not np.isfinite(deltaFMin))
+        or (not np.isfinite(deltaFMax))
+        or deltaFMin <= 0.0
+        or deltaFMax <= deltaFMin
+    ):
+        deltaFMin, deltaFMax = 1.0e-4, 1.0
+
+    deltaFInit = float(autoDeltaF_init)
+    if (not np.isfinite(deltaFInit)) or deltaFInit <= 0.0:
+        deltaFInit = float(np.sqrt(deltaFMin * deltaFMax))
+    deltaFInit = float(np.clip(deltaFInit, deltaFMin, deltaFMax))
+
+    qScaleUnity = np.ones(blockCount, dtype=np.float32)
+
+    stateForward = np.empty((intervalCount, 2), dtype=np.float32)
+    stateCovarForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
+    pNoiseForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
+    vectorD = np.empty(intervalCount, dtype=np.float32)
+
+    stateSmoothed = np.empty((intervalCount, 2), dtype=np.float32)
+    stateCovarSmoothed = np.empty((intervalCount, 2, 2), dtype=np.float32)
+    lagCovSmoothed = np.empty((max(intervalCount - 1, 1), 2, 2), dtype=np.float32)
+    postFitResiduals = np.empty((intervalCount, trackCount), dtype=np.float32)
+
+    def _penNLL(deltaF_candidate: float) -> tuple[float, float]:
+        deltaF_candidate = float(deltaF_candidate)
+        if (not np.isfinite(deltaF_candidate)) or deltaF_candidate <= 0.0:
+            return float(1.0e16), float(1.0e16)
+
+        try:
+            matrixF_candidate = buildMatrixF(deltaF_candidate)
+            matrixQ0_candidate = buildMatrixQ0(deltaF_candidate)
+        except Exception:
+            return float(1.0e16), float(1.0e16)
+
+        try:
+            out = cconsenrich.cforwardPass(
+                matrixData=matrixData,
+                matrixPluginMuncInit=matrixMunc,
+                matrixF=matrixF_candidate,
+                matrixQ0=matrixQ0_candidate,
+                intervalToBlockMap=intervalToBlockMap,
+                qScale=qScaleUnity,
+                blockCount=int(blockCount),
+                stateInit=float(stateInit),
+                stateCovarInit=float(stateCovarInit),
+                pad=float(pad),
+                projectStateDuringFiltering=False,
+                stateLowerBound=0.0,
+                stateUpperBound=0.0,
+                chunkSize=0,
+                stateForward=stateForward,
+                stateCovarForward=stateCovarForward,
+                pNoiseForward=pNoiseForward,
+                vectorD=vectorD,
+                progressBar=None,
+                progressIter=0,
+                returnNLL=True,
+                storeNLLInD=False,
+                lambdaExp=None,
+                processPrecExp=None,
+                EM_useObsPrecReweight=False,
+                EM_useProcPrecReweight=False,
+                EM_useAPN=False,
+            )
+            sumNLL = float(out[3])
+
+            cconsenrich.cbackwardPass(
+                matrixData=matrixData,
+                matrixF=matrixF_candidate,
+                stateForward=stateForward,
+                stateCovarForward=stateCovarForward,
+                pNoiseForward=pNoiseForward,
+                chunkSize=0,
+                stateSmoothed=stateSmoothed,
+                stateCovarSmoothed=stateCovarSmoothed,
+                lagCovSmoothed=lagCovSmoothed,
+                postFitResiduals=postFitResiduals,
+                progressBar=None,
+                progressIter=0,
+            )
+
+            if intervalCount <= 1:
+                return float(sumNLL), 0.0
+
+            mu = stateSmoothed.astype(np.float64, copy=False)
+            P = stateCovarSmoothed.astype(np.float64, copy=False)
+            C = lagCovSmoothed.astype(np.float64, copy=False)
+
+            L = intervalCount - 1
+            deltaMu0 = mu[1:, 0] - mu[:-1, 0]
+            expDelta2 = (
+                (deltaMu0 * deltaMu0) + P[1:, 0, 0] + P[:-1, 0, 0] - 2.0 * C[:L, 0, 0]
+            )
+            expDelta2 = np.maximum(expDelta2, 0.0)
+            roughnessMean = float(np.mean(expDelta2))
+            return float(sumNLL), float(roughnessMean)
+        except Exception:
+            return float(1.0e16), float(1.0e16)
+
+    tLOW = float(np.log(deltaFMin))
+    tHIGH = float(np.log(deltaFMax))
+
+    gridDeltaF = np.exp(np.linspace(tLOW, tHIGH, num=16, dtype=np.float64))
+    gridTerms = []
+    for d in gridDeltaF:
+        sumNLL_g, rough_g = _penNLL(float(d))
+        if sumNLL_g >= 1.0e16 or rough_g >= 1.0e16:
+            continue
+
+        nll_per_obs = sumNLL_g / (float(trackCount) * float(intervalCount))
+        rough_log = float(np.log1p(rough_g))
+        if np.isfinite(nll_per_obs) and np.isfinite(rough_log):
+            gridTerms.append((float(nll_per_obs), float(rough_log)))
+
+    if gridTerms:
+        nll_ref = float(np.median([t[0] for t in gridTerms]))
+        rough_ref = float(np.median([t[1] for t in gridTerms]))
+    else:
+        nll_ref = 1.0
+        rough_ref = 1.0
+    nll_ref = float(max(nll_ref, 1.0e-12))
+    rough_ref = float(max(rough_ref, 1.0e-12))
+
+    def deltaF_score(deltaF_candidate: float, w1=0.95, w2=0.05) -> float:
+        sumNLL, roughnessMean = _penNLL(deltaF_candidate)
+        nll_term = (sumNLL / (float(trackCount) * float(intervalCount))) / nll_ref
+        rough_term = float(np.log1p(roughnessMean)) / rough_ref
+        return float((w1 * nll_term) + (w2 * rough_term))
+
+    def obj(t: float) -> float:
+        return float(deltaF_score(float(np.exp(float(t)))))
+
+    try:
+        res = optimize.minimize_scalar(
+            obj,
+            bounds=(tLOW, tHIGH),
+            method="bounded",
+            options={"maxiter": int(autoDeltaF_maxEvals), "xatol": 1.0e-4},
+        )
+        if (not res.success) or (not np.isfinite(res.x)):
+            bestDeltaF = deltaFInit
+        else:
+            bestDeltaF = float(np.exp(float(res.x)))
+    except Exception:
+        bestDeltaF = deltaFInit
+
+    bestDeltaF = float(np.clip(bestDeltaF, deltaFMin, deltaFMax))
+    bestScore = float(deltaF_score(bestDeltaF))
+    logger.info(
+        "autoDeltaF search completed: bestDeltaF=%s\tbestScore=%.4e",
+        bestDeltaF,
+        bestScore,
+    )
+    return float(bestDeltaF)
+
+
+def _bartlettEffectiveInfoCorrection(
+    standardizedInnovations: np.ndarray,
+    bandwidth: int,
+    eps: float = 1.0e-12,
+) -> dict[str, float | int]:
+    r"""Estimate a Bartlett/Newey-West effective correction factor for the state variance.
+
+    The input should already be a matrix of standardized innovations with rows corresponding
+    to replicates and columns to intervals.
     """
-    if coefficients is None:
-        coefficients = np.ones(m, dtype=np.float32)
-    elif isinstance(coefficients, list):
-        coefficients = np.array(coefficients, dtype=np.float32)
-    initMatrixH = np.empty((m, 2), dtype=np.float32)
-    initMatrixH[:, 0] = coefficients.astype(np.float32)
-    initMatrixH[:, 1] = np.zeros(m, dtype=np.float32)
-    return initMatrixH
+
+    z = np.asarray(standardizedInnovations, dtype=np.float64)
+    if z.ndim == 1:
+        z = z[None, :]
+    elif z.ndim != 2:
+        raise ValueError("`standardizedInnovations` must be 1D or 2D")
+
+    bw = max(int(bandwidth), 0)
+    if z.size == 0 or bw <= 0:
+        return {
+            "bandwidth": int(bw),
+            "gamma0": 0.0,
+            "lrv": 0.0,
+            "correctionFactor": 1.0,
+            "effectiveInfoFraction": 1.0,
+            "effectiveSampleSizeFraction": 1.0,
+            "numSeries": 0,
+            "seriesLength": 0,
+        }
+
+    centeredSeries: list[np.ndarray] = []
+    for j in range(int(z.shape[0])):
+        zj = np.asarray(z[j], dtype=np.float64)
+        zj = zj[np.isfinite(zj)]
+        if zj.size < 2:
+            continue
+        zj = zj - float(np.mean(zj))
+        centeredSeries.append(zj)
+
+    if not centeredSeries:
+        return {
+            "bandwidth": int(bw),
+            "gamma0": 0.0,
+            "lrv": 0.0,
+            "correctionFactor": 1.0,
+            "effectiveInfoFraction": 1.0,
+            "effectiveSampleSizeFraction": 1.0,
+            "numSeries": 0,
+            "seriesLength": 0,
+        }
+
+    maxUsableLag = min(int(bw), max(int(arr.size) - 1 for arr in centeredSeries))
+    if maxUsableLag <= 0:
+        gamma0List = [
+            float(np.dot(arr, arr) / max(int(arr.size), 1)) for arr in centeredSeries
+        ]
+        gamma0 = float(np.mean(gamma0List)) if gamma0List else 0.0
+        correctionFactor = float(max(1.0, gamma0))
+        effectiveInfoFraction = float(1.0 / correctionFactor)
+        return {
+            "bandwidth": int(maxUsableLag),
+            "gamma0": float(max(gamma0, 0.0)),
+            "lrv": float(max(gamma0, 0.0)),
+            "correctionFactor": float(correctionFactor),
+            "effectiveInfoFraction": float(effectiveInfoFraction),
+            "effectiveSampleSizeFraction": float(effectiveInfoFraction),
+            "numSeries": int(len(centeredSeries)),
+            "seriesLength": int(max(arr.size for arr in centeredSeries)),
+        }
+
+    gamma = np.zeros(maxUsableLag + 1, dtype=np.float64)
+    for h in range(maxUsableLag + 1):
+        gammaHList: list[float] = []
+        for arr in centeredSeries:
+            t = int(arr.size)
+            if t <= h:
+                continue
+            if h == 0:
+                gammaH = float(np.dot(arr, arr) / float(t))
+            else:
+                gammaH = float(np.dot(arr[h:], arr[:-h]) / float(t - h))
+            if np.isfinite(gammaH):
+                gammaHList.append(gammaH)
+        gamma[h] = float(np.mean(gammaHList)) if gammaHList else np.nan
+
+    gamma0 = float(gamma[0]) if np.isfinite(gamma[0]) else 0.0
+    if gamma0 <= float(eps):
+        return {
+            "bandwidth": int(maxUsableLag),
+            "gamma0": float(max(gamma0, 0.0)),
+            "lrv": float(max(gamma0, 0.0)),
+            "correctionFactor": 1.0,
+            "effectiveInfoFraction": 1.0,
+            "effectiveSampleSizeFraction": 1.0,
+            "numSeries": int(len(centeredSeries)),
+            "seriesLength": int(max(arr.size for arr in centeredSeries)),
+        }
+
+    lrv = gamma0
+    for h in range(1, maxUsableLag + 1):
+        gammaH = float(gamma[h]) if np.isfinite(gamma[h]) else 0.0
+        weight = 1.0 - (float(h) / float(maxUsableLag + 1))
+        lrv += 2.0 * weight * gammaH
+
+    correctionFactor = float(max(1.0, lrv))
+    effectiveInfoFraction = float(1.0 / correctionFactor)
+    return {
+        "bandwidth": int(maxUsableLag),
+        "gamma0": float(max(gamma0, 0.0)),
+        "lrv": float(max(lrv, 0.0)),
+        "correctionFactor": float(correctionFactor),
+        "effectiveInfoFraction": float(effectiveInfoFraction),
+        "effectiveSampleSizeFraction": float(effectiveInfoFraction),
+        "numSeries": int(len(centeredSeries)),
+        "seriesLength": int(max(arr.size for arr in centeredSeries)),
+    }
+
+
+def _shrunkenBlockEffectiveInfoCorrection(
+    standardizedInnovations: np.ndarray,
+    bandwidth: int,
+    blockLengthIntervals: int | None,
+    eps: float = 1.0e-12,
+) -> dict[str, Any]:
+    r"""Estimate blockwise HAC factors shrunk toward the chromosome-wide HAC factor"""
+
+    z = np.asarray(standardizedInnovations, dtype=np.float64)
+    if z.ndim == 1:
+        z = z[None, :]
+    elif z.ndim != 2:
+        raise ValueError("`standardizedInnovations` must be 1D or 2D")
+
+    n = int(z.shape[1])
+    bw = max(int(bandwidth), 0)
+    chrDiag = _bartlettEffectiveInfoCorrection(z, bandwidth=int(bw), eps=float(eps))
+    chrFactor = float(chrDiag.get("correctionFactor", 1.0))
+    if (not np.isfinite(chrFactor)) or chrFactor <= 0.0:
+        chrFactor = 1.0
+    chrFactor = float(max(1.0, chrFactor))
+
+    if n <= 0:
+        out = dict(chrDiag)
+        out.update(
+            {
+                "chromosomeFactor": chrFactor,
+                "blockLengthIntervals": 0,
+                "numBlocks": 0,
+                "intervalFactors": np.ones(0, dtype=np.float32),
+                "blockFactorMin": chrFactor,
+                "blockFactorMedian": chrFactor,
+                "blockFactorMax": chrFactor,
+                "shrinkageWeightMean": 0.0,
+            }
+        )
+        return out
+
+    if blockLengthIntervals is None:
+        # case: whole-chromosome blocks
+        blockLen = n
+    else:
+        blockLen = int(blockLengthIntervals)
+        if blockLen <= 0:
+            blockLen = n
+    blockLen = max(1, min(int(blockLen), n))
+
+    factors = np.full(n, chrFactor, dtype=np.float64)
+    rawBlockFactors: list[float] = []
+    shrunkBlockFactors: list[float] = []
+    shrinkageWeights: list[float] = []
+    for start in range(0, n, blockLen):
+        end = min(start + blockLen, n)
+        blockZ = z[:, start:end]
+        blockBw = min(int(bw), max(int(end - start) - 1, 0))
+        # raw block factors are from HAC alone
+        blockDiag = _bartlettEffectiveInfoCorrection(
+            blockZ,
+            bandwidth=int(blockBw),
+            eps=float(eps),
+        )
+        rawFactor = float(blockDiag.get("correctionFactor", chrFactor))
+        if (
+            int(blockDiag.get("numSeries", 0)) <= 0
+            or int(blockDiag.get("seriesLength", 0)) <= 1
+            or (not np.isfinite(rawFactor))
+            or rawFactor <= 0.0
+        ):
+            rawFactor = chrFactor
+            weight = 0.0
+        else:
+            rawFactor = float(max(1.0, rawFactor))
+            usedBw = max(int(blockDiag.get("bandwidth", 0)), 0)
+            seriesLength = max(int(blockDiag.get("seriesLength", 0)), 0)
+            numSeries = max(int(blockDiag.get("numSeries", 0)), 0)
+
+            # shrink wrt the effective number of observations in the block
+            effObs = float(numSeries) * (
+                float(seriesLength) / float(max(2 * usedBw + 1, 1))
+            )
+            weight = float(effObs / (effObs + 1.0)) if effObs > 0.0 else 0.0
+            weight = float(np.clip(weight, 0.0, 1.0))
+
+        # shrink block factors toward chromosome-level
+        shrunkFactor = float(
+            np.exp(
+                weight * np.log(max(rawFactor, float(eps)))
+                + (1.0 - weight) * np.log(max(chrFactor, float(eps)))
+            )
+        )
+        if (not np.isfinite(shrunkFactor)) or shrunkFactor <= 0.0:
+            shrunkFactor = chrFactor
+        shrunkFactor = float(max(1.0, shrunkFactor))
+        factors[start:end] = shrunkFactor
+        rawBlockFactors.append(float(rawFactor))
+        shrunkBlockFactors.append(float(shrunkFactor))
+        shrinkageWeights.append(float(weight))
+
+    out = dict(chrDiag)
+    out.update(
+        {
+            "chromosomeFactor": chrFactor,
+            "blockLengthIntervals": int(blockLen),
+            "numBlocks": int(len(shrunkBlockFactors)),
+            "intervalFactors": factors.astype(np.float32, copy=False),
+            "blockFactorMin": float(np.min(shrunkBlockFactors)),
+            "blockFactorMedian": float(np.median(shrunkBlockFactors)),
+            "blockFactorMax": float(np.max(shrunkBlockFactors)),
+            "rawBlockFactorMin": float(np.min(rawBlockFactors)),
+            "rawBlockFactorMedian": float(np.median(rawBlockFactors)),
+            "rawBlockFactorMax": float(np.max(rawBlockFactors)),
+            "shrinkageWeightMean": float(np.mean(shrinkageWeights)),
+        }
+    )
+    return out
+
+
+def _computeInnovationEffectiveInfoDiagnostics(
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    stateForward: np.ndarray,
+    stateCovarForward: np.ndarray,
+    pNoiseForward: np.ndarray,
+    matrixF: np.ndarray,
+    replicateBias: np.ndarray | None,
+    lambdaExp: np.ndarray | None,
+    pad: float,
+    effectiveInfoBandwidthIntervals: int | None,
+    effectiveInfoBlockLengthIntervals: int | None = None,
+) -> dict[str, Any]:
+    r"""Estimate the variance correction factor from one-step forward innovations."""
+
+    n = int(matrixData.shape[1])
+    if effectiveInfoBandwidthIntervals is None:
+        bw = max(1, min(32, n // 8))
+    else:
+        bw = max(int(effectiveInfoBandwidthIntervals), 0)
+
+    if n < 3 or bw <= 0:
+        return {
+            "bandwidth": int(max(bw, 0)),
+            "gamma0": 0.0,
+            "lrv": 0.0,
+            "correctionFactor": 1.0,
+            "effectiveInfoFraction": 1.0,
+            "effectiveSampleSizeFraction": 1.0,
+            "numSeries": 0,
+            "seriesLength": max(0, n - 1),
+            "blockLengthIntervals": 0,
+            "numBlocks": 0,
+            "intervalFactors": np.ones(n, dtype=np.float32),
+        }
+
+    dataArr = np.asarray(matrixData, dtype=np.float64)
+    muncArr = np.asarray(matrixMunc, dtype=np.float64)
+    stateForwardArr = np.asarray(stateForward, dtype=np.float64)
+    stateCovarForwardArr = np.asarray(stateCovarForward, dtype=np.float64)
+    pNoiseForwardArr = np.asarray(pNoiseForward, dtype=np.float64)
+    matrixFArr = np.asarray(matrixF, dtype=np.float64)
+
+    biasArr = np.zeros((dataArr.shape[0], 1), dtype=np.float64)
+    if replicateBias is not None:
+        biasArr = np.asarray(replicateBias, dtype=np.float64)[:, None]
+    # state-transition
+    f00 = float(matrixFArr[0, 0])
+    f01 = float(matrixFArr[0, 1])
+
+    # get one-step predictions and innovation variances from the forward pass
+    xPred = f00 * stateForwardArr[:-1, 0].astype(
+        np.float64, copy=False
+    ) + f01 * stateForwardArr[:-1, 1].astype(np.float64, copy=False)
+
+    pPred00 = (
+        (f00 * f00) * stateCovarForwardArr[:-1, 0, 0].astype(np.float64, copy=False)
+        + (f00 * f01)
+        * (
+            stateCovarForwardArr[:-1, 0, 1].astype(np.float64, copy=False)
+            + stateCovarForwardArr[:-1, 1, 0].astype(np.float64, copy=False)
+        )
+        + (f01 * f01) * stateCovarForwardArr[:-1, 1, 1].astype(np.float64, copy=False)
+        + pNoiseForwardArr[:-1, 0, 0].astype(np.float64, copy=False)
+    )
+    pPred00 = np.maximum(pPred00, 0.0)
+    # plugin observation noise level
+    obsVar = muncArr[:, 1:] + float(pad)
+    if lambdaExp is not None:
+        lambdaArr = np.asarray(lambdaExp, dtype=np.float64)[:, 1:]
+        lambdaArr = np.maximum(lambdaArr, 1.0e-8)
+        obsVar = obsVar / lambdaArr
+    obsVar = np.maximum(obsVar, 1.0e-12)
+
+    totalVar = np.sqrt(np.maximum(obsVar + pPred00[None, :], 1.0e-12))
+    z = (dataArr[:, 1:] - biasArr - xPred[None, :]) / totalVar
+    diag = _shrunkenBlockEffectiveInfoCorrection(
+        z,
+        bandwidth=int(bw),
+        blockLengthIntervals=effectiveInfoBlockLengthIntervals,
+    )
+    innovationFactors = np.asarray(
+        diag.get("intervalFactors", np.ones(max(0, n - 1), dtype=np.float32)),
+        dtype=np.float32,
+    )
+    intervalFactors = np.ones(n, dtype=np.float32)
+    if innovationFactors.size:
+        intervalFactors[0] = innovationFactors[0]
+        intervalFactors[1:] = innovationFactors[: n - 1]
+    correctionFactor = (
+        float(np.median(intervalFactors)) if intervalFactors.size else 1.0
+    )
+    diag["intervalFactors"] = intervalFactors
+    diag["correctionFactor"] = float(max(1.0, correctionFactor))
+    diag["effectiveInfoFraction"] = float(
+        1.0 / max(float(diag["correctionFactor"]), 1.0e-12)
+    )
+    diag["effectiveSampleSizeFraction"] = float(diag["effectiveInfoFraction"])
+    return diag
 
 
 def runConsenrich(
@@ -1385,36 +1852,21 @@ def runConsenrich(
     pad: float = 1.0e-4,
     disableCalibration: bool = False,
     EM_maxIters: int = 50,
-    EM_rtol: float = 1.0e-4,
-    EM_scaleToMedian: bool = False,
-    EM_tNu: float = 10.0,
-    EM_alphaEMA: float = 0.05,
-    EM_scaleLOW: float = 0.5,
-    EM_scaleHIGH: float = 5.0,
-    EM_useProcBlockScale: bool = False,
+    EM_innerRtol: float = 1.0e-4,
+    EM_tNu: float = 8.0,
     EM_useObsPrecReweight: bool = True,
     EM_useProcPrecReweight: bool = True,
+    EM_useAPN: bool = False,
     EM_useReplicateBias: bool = True,
-    EM_useReplicateScale: bool = True,
     EM_repBiasShrink: float = 0.0,
-    EM_repScaleLOW: float = 0.25,
-    EM_repScaleHIGH: float = 4.0,
     EM_outerIters: int = 3,
     EM_outerRtol: float = 1.0e-3,
-    EM_useIntervalMunc: bool = False,
-    EM_intervalMuncEMA: float = 0.25,
-    EM_useIntervalBackground: bool = True,
     EM_backgroundSmoothness: float = 1.0,
-    intervalMuncBinQuantileCutoff: float = 0.5,
-    intervalMuncEB_minLin: float = 1.0,
-    intervalMuncEB_use: bool = True,
-    intervalMuncEB_setNu0: int | None = None,
-    intervalMuncEB_setNuL: int | None = None,
     returnScales: bool = True,
     returnReplicateOffsets: bool = False,
     applyJackknife: bool = False,
     jackknifeEM_maxIters: int = 5,
-    jackknifeEM_rtol: float = 1.0e-2,
+    jackknifeEM_innerRtol: float = 1.0e-2,
     useWhiteAccel: bool = False,
     useDiscreteConstAccel: bool = False,
     autoDeltaF: bool = True,
@@ -1422,10 +1874,9 @@ def runConsenrich(
     autoDeltaF_high: float = 2.0,
     autoDeltaF_init: float = 0.01,
     autoDeltaF_maxEvals: int = 25,
-    conformalRescale: bool = False,
-    conformalAlpha: float = 0.05,
-    conformal_numIters: int = 3,
-    conformalFinalRefit: bool = True,
+    effectiveInfoRescale: bool = True,
+    effectiveInfoBandwidthIntervals: int | None = None,
+    effectiveInfoBlockLengthIntervals: int | None = None,
 ):
     r"""Run Consenrich over a contiguous genomic region
 
@@ -1439,13 +1890,11 @@ def runConsenrich(
       y_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
       \qquad
       \mathrm{Var}(\epsilon_{[j,i]}) =
-      \frac{a_j (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
+      \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[j,i]}}.
 
-    Here :math:`g_{[i]}` is a shared zero-centered smooth background, :math:`b_j` and :math:`a_j`
-    are replicate-level bias and variance factors, and :math:`v_{[j,i]}` is the plugin observation
-    variance supplied by ``matrixMunc`` or by the outer interval-level variance update. When
-    ``EM_useIntervalMunc=True``, the outer variance update reuses the same EB shrinkage settings
-    used to build the initial observation-noise track, unless the caller overrides them here.
+    Here :math:`g_{[i]}` is a shared zero-centered smooth background, :math:`b_j`
+    is a replicate-level bias term, and :math:`v_{[j,i]}` is the plugin observation
+    variance supplied by ``matrixMunc``.
 
     The latent state follows
 
@@ -1453,18 +1902,22 @@ def runConsenrich(
 
       \mathbf{x}_{[i+1]} = \mathbf{F}(\delta_F)\mathbf{x}_{[i]} + \eta_{[i]},
       \qquad
-      \mathrm{Var}(\eta_{[i]}) = \frac{q_{b(i)} \mathbf{Q}_0}{\kappa_{[i]}}.
+      \mathrm{Var}(\eta_{[i]}) = \frac{\mathbf{Q}_0}{\kappa_{[i]}}.
 
-    If ``conformalRescale=True``, the primary variance output is calibrated for future-replicate
-    prediction rather than interpreted as a pure latent-state posterior variance.
+    If ``EM_useAPN=True``, the forward filter instead uses the adaptive-process-noise
+    D-statistic update to scale :math:`\mathbf{Q}_0` and process-precision reweighting is disabled.
+
+    If ``effectiveInfoRescale=True``, the default state variance output is
+    multiplied by effective-information correction factors estimated from
+    standardized one-step-ahead innovations via Bartlett/Newey-West long-run variance.
 
     This wrapper ties together several fundamental routines written in Cython:
 
     #. :func:`consenrich.cconsenrich.cforwardPass`: Forward filter (predict, update)
     #. :func:`consenrich.cconsenrich.cbackwardPass`: Backward fixed-interval smoother
-    #. :func:`consenrich.cconsenrich.cblockScaleEM`: Joint optimization of process and observation model noise scales with robust studentized reweighting
+    #. :func:`consenrich.cconsenrich.cinnerEM`: Joint optimization of robust precision reweighting and replicate-level observation calibration
 
-    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`, :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cblockScaleEM`
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`, :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cinnerEM`
     """
 
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
@@ -1490,16 +1943,29 @@ def runConsenrich(
     if applyJackknife and trackCount < 3:
         raise ValueError("`applyJackknife` requires at least 3 replicates")
 
-    if conformalRescale and applyJackknife:
-        raise ValueError(
-            "`conformalRescale` is mutually exclusive with `applyJackknife`"
-        )
+    EM_useAPN = bool(EM_useAPN)
+    if EM_useAPN:
+        EM_useProcPrecReweight = False
 
     blockCount = int(np.ceil(intervalCount / float(blockLenIntervals)))
     intervalToBlockMap = (
         np.arange(intervalCount, dtype=np.int32) // blockLenIntervals
     ).astype(np.int32)
     intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
+    if effectiveInfoBandwidthIntervals is None:
+        effectiveInfoBandwidthIntervals = max(int((int(blockLenIntervals) - 1) // 4), 1)
+    else:
+        effectiveInfoBandwidthIntervals = max(int(effectiveInfoBandwidthIntervals), 1)
+    if effectiveInfoBlockLengthIntervals is None:
+        effectiveInfoBlockLengthIntervals = int(intervalCount)
+    else:
+        effectiveInfoBlockLengthIntervals = int(effectiveInfoBlockLengthIntervals)
+        if effectiveInfoBlockLengthIntervals <= 0:
+            effectiveInfoBlockLengthIntervals = int(intervalCount)
+    effectiveInfoBlockLengthIntervals = max(
+        1,
+        min(int(effectiveInfoBlockLengthIntervals), int(intervalCount)),
+    )
 
     # some pnoise/Q templates can depend on deltaF, hence the wrappers
     def buildMatrixF(deltaFLocal: float) -> np.ndarray:
@@ -1517,198 +1983,22 @@ def runConsenrich(
         ).astype(np.float32, copy=False)
 
     def _autoDeltaF(matrixDataLocal: np.ndarray, matrixMuncLocal: np.ndarray) -> float:
-        deltaFMin = float(autoDeltaF_low)
-        deltaFMax = float(autoDeltaF_high)
-        if (
-            (not np.isfinite(deltaFMin))
-            or (not np.isfinite(deltaFMax))
-            or deltaFMin <= 0.0
-            or deltaFMax <= deltaFMin
-        ):
-            deltaFMin, deltaFMax = 1.0e-4, 1.0
-
-        deltaFInit = float(autoDeltaF_init)
-        if (not np.isfinite(deltaFInit)) or deltaFInit <= 0.0:
-            deltaFInit = float(np.sqrt(deltaFMin * deltaFMax))
-        deltaFInit = float(np.clip(deltaFInit, deltaFMin, deltaFMax))
-
-        qScaleUnity = np.ones(blockCount, dtype=np.float32)
-        nLocal = int(matrixDataLocal.shape[1])
-        mLocal = int(matrixDataLocal.shape[0])
-
-        # Note reuse of buffers, each score requires a single filter-smoother iter
-        stateForward = np.empty((nLocal, 2), dtype=np.float32)
-        stateCovarForward = np.empty((nLocal, 2, 2), dtype=np.float32)
-        pNoiseForward = np.empty((nLocal, 2, 2), dtype=np.float32)
-        vectorD = np.empty(nLocal, dtype=np.float32)
-
-        stateSmoothed = np.empty((nLocal, 2), dtype=np.float32)
-        stateCovarSmoothed = np.empty((nLocal, 2, 2), dtype=np.float32)
-        lagCovSmoothed = np.empty((max(nLocal - 1, 1), 2, 2), dtype=np.float32)
-        postFitResiduals = np.empty((nLocal, mLocal), dtype=np.float32)
-
-        # ------------------------------------------------------------
-        # 'auto' deltaF section
-        #
-        #   score(deltaF) = NLL(deltaF) + [intervalCount * log(eps + roughness(deltaF))]
-        #
-        # NLL(deltaF):
-        #   Gaussian forward-pass negative log likelihood under fixed qScale=1, no reweighting
-        #
-        # roughness(deltaF):
-        #   Expected squared change in the signal level between adjacent intervals:
-        #
-        #   E[(x0_{k+1} - x0_k)^2]
-        #     = (mu0_{k+1} - mu0_k)^2 + P00_{k+1} + P00_k - 2*C00_{k,k+1}
-        #
-        # Intuition:
-        # - NLL favors matching the observed tracks
-        # - roughness penalizes back-and-forth sensitivity to noise
-        # - log(.) makes the penalty less dependent on absolute scale
-        #
-        # ------------------------------------------------------------
-        def _penNLL(deltaF_candidate: float):
-            deltaF_candidate = float(deltaF_candidate)
-            if (not np.isfinite(deltaF_candidate)) or deltaF_candidate <= 0.0:
-                return float(1.0e16), float(1.0e16)
-
-            try:
-                # update these during search since they're partially determined by deltaF
-                matrixF_candidate = buildMatrixF(deltaF_candidate)
-                matrixQ0_candidate = buildMatrixQ0(deltaF_candidate)
-            except Exception:
-                return float(1.0e16), float(1.0e16)
-
-            try:
-                out = cconsenrich.cforwardPass(
-                    matrixData=matrixDataLocal,
-                    matrixPluginMuncInit=matrixMuncLocal,
-                    matrixF=matrixF_candidate,
-                    matrixQ0=matrixQ0_candidate,
-                    intervalToBlockMap=intervalToBlockMap,
-                    qScale=qScaleUnity,
-                    blockCount=int(blockCount),
-                    stateInit=float(stateInit),
-                    stateCovarInit=float(stateCovarInit),
-                    pad=float(pad),
-                    projectStateDuringFiltering=False,
-                    stateLowerBound=0.0,
-                    stateUpperBound=0.0,
-                    chunkSize=0,
-                    stateForward=stateForward,
-                    stateCovarForward=stateCovarForward,
-                    pNoiseForward=pNoiseForward,
-                    vectorD=vectorD,
-                    progressBar=None,
-                    progressIter=0,
-                    returnNLL=True,
-                    storeNLLInD=False,
-                    lambdaExp=None,
-                    processPrecExp=None,
-                    # Force the "Gaussian fixed-template" setting for auto-deltaF:
-                    EM_useProcBlockScale=False,
-                    EM_useObsPrecReweight=False,
-                    EM_useProcPrecReweight=False,
-                )
-                sumNLL = float(out[3])
-
-                cconsenrich.cbackwardPass(
-                    matrixData=matrixDataLocal,
-                    matrixF=matrixF_candidate,
-                    stateForward=stateForward,
-                    stateCovarForward=stateCovarForward,
-                    pNoiseForward=pNoiseForward,
-                    chunkSize=0,
-                    stateSmoothed=stateSmoothed,
-                    stateCovarSmoothed=stateCovarSmoothed,
-                    lagCovSmoothed=lagCovSmoothed,
-                    postFitResiduals=postFitResiduals,
-                    progressBar=None,
-                    progressIter=0,
-                )
-
-                if nLocal <= 1:
-                    return float(sumNLL), 0.0
-
-                mu = stateSmoothed.astype(np.float64, copy=False)
-                P = stateCovarSmoothed.astype(np.float64, copy=False)
-                C = lagCovSmoothed.astype(np.float64, copy=False)
-
-                L = nLocal - 1
-                deltaMu0 = mu[1:, 0] - mu[:-1, 0]
-
-                # expected roughness
-                expDelta2 = (
-                    (deltaMu0 * deltaMu0)
-                    + P[1:, 0, 0]
-                    + P[:-1, 0, 0]
-                    - 2.0 * C[:L, 0, 0]
-                )
-                expDelta2 = np.maximum(expDelta2, 0.0)
-                roughnessMean = float(np.mean(expDelta2))
-
-                return float(sumNLL), float(roughnessMean)
-            except Exception:
-                return float(1.0e16), float(1.0e16)
-
-        # Search over t = log(deltaF)
-        tLOW = float(np.log(deltaFMin))
-        tHIGH = float(np.log(deltaFMax))
-
-        # warm start grid and set scale refs so w1,w2 are meaningful:
-        gridDeltaF = np.exp(np.linspace(tLOW, tHIGH, num=16, dtype=np.float64))
-        gridTerms = []
-        for d in gridDeltaF:
-            sumNLL_g, rough_g = _penNLL(float(d))
-            if sumNLL_g >= 1.0e16 or rough_g >= 1.0e16:
-                continue
-
-            nll_per_obs = sumNLL_g / (float(mLocal) * float(nLocal))
-            rough_log = float(np.log1p(rough_g))
-            if np.isfinite(nll_per_obs) and np.isfinite(rough_log):
-                gridTerms.append((float(nll_per_obs), float(rough_log)))
-
-        if gridTerms:
-            nll_ref = float(np.median([t[0] for t in gridTerms]))
-            rough_ref = float(np.median([t[1] for t in gridTerms]))
-        else:
-            nll_ref = 1.0
-            rough_ref = 1.0
-        nll_ref = float(max(nll_ref, 1.0e-12))
-        rough_ref = float(max(rough_ref, 1.0e-12))
-
-        def deltaF_score(deltaF_candidate: float, w1=0.95, w2=0.05) -> float:
-            sumNLL, roughnessMean = _penNLL(deltaF_candidate)
-            #   score = w1*(nll_per_obs / nll_ref) + w2*(log1p(roughness)/rough_ref)
-            nll_term = (sumNLL / (float(mLocal) * float(nLocal))) / nll_ref
-            rough_term = float(np.log1p(roughnessMean)) / rough_ref
-            return float((w1 * nll_term) + (w2 * rough_term))
-
-        def obj(t: float) -> float:
-            return float(deltaF_score(float(np.exp(float(t)))))
-
-        try:
-            res = optimize.minimize_scalar(
-                obj,
-                bounds=(tLOW, tHIGH),
-                method="bounded",
-                options={"maxiter": int(autoDeltaF_maxEvals), "xatol": 1.0e-4},
-            )
-            if (not res.success) or (not np.isfinite(res.x)):
-                bestDeltaF = deltaFInit
-            else:
-                bestDeltaF = float(np.exp(float(res.x)))
-        except Exception:
-            bestDeltaF = deltaFInit
-
-        bestDeltaF = float(np.clip(bestDeltaF, deltaFMin, deltaFMax))
-
-        bestScore = float(deltaF_score(bestDeltaF))
-        logger.info(
-            f"autoDeltaF search completed: bestDeltaF={bestDeltaF}\tbestScore={bestScore:.4e}"
+        return estimateAutoDeltaF(
+            matrixData=matrixDataLocal,
+            matrixMunc=matrixMuncLocal,
+            minQ=float(minQ),
+            offDiagQ=float(offDiagQ),
+            stateInit=float(stateInit),
+            stateCovarInit=float(stateCovarInit),
+            blockLenIntervals=int(blockLenIntervals),
+            pad=float(pad),
+            autoDeltaF_low=float(autoDeltaF_low),
+            autoDeltaF_high=float(autoDeltaF_high),
+            autoDeltaF_init=float(autoDeltaF_init),
+            autoDeltaF_maxEvals=int(autoDeltaF_maxEvals),
+            useWhiteAccel=bool(useWhiteAccel),
+            useDiscreteConstAccel=bool(useDiscreteConstAccel),
         )
-
-        return float(bestDeltaF)
 
     inferDeltaF = bool(autoDeltaF) or (deltaF < 0.0)
 
@@ -1722,7 +2012,6 @@ def runConsenrich(
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
         replicateBias: np.ndarray | None,
-        replicateScale: np.ndarray | None,
     ):
         stateForward = np.empty((intervalCount, 2), dtype=np.float32)
         stateCovarForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
@@ -1755,12 +2044,12 @@ def runConsenrich(
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
             replicateBias=replicateBias,
-            replicateScale=replicateScale,
-            EM_useProcBlockScale=bool(EM_useProcBlockScale),
             EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
             EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
+            EM_useAPN=bool(EM_useAPN),
             EM_useReplicateBias=bool(EM_useReplicateBias),
-            EM_useReplicateScale=bool(EM_useReplicateScale),
+            APN_minQ=float(minQ),
+            APN_maxQ=float(maxQ),
         )
 
         stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
@@ -1786,6 +2075,9 @@ def runConsenrich(
         return (
             phiHat,
             sumNLL,
+            stateForward,
+            stateCovarForward,
+            pNoiseForward,
             stateSmoothed,
             stateCovarSmoothed,
             lagCovSmoothed,
@@ -1793,14 +2085,14 @@ def runConsenrich(
             NIS,
         )
 
-    def _fitCalibratedModel(
+    def _fitOuter(
         *,
         matrixDataLocal: np.ndarray,
         matrixMuncLocal: np.ndarray,
         matrixFLocal: np.ndarray,
         matrixQ0Local: np.ndarray,
         emMaxItersLocal: int,
-        emRtolLocal: float,
+        emInnerRtolLocal: float,
     ) -> dict[str, np.ndarray | float | None]:
         mLocal = int(matrixDataLocal.shape[0])
         nLocal = int(matrixDataLocal.shape[1])
@@ -1812,10 +2104,12 @@ def runConsenrich(
             lambdaExpLocal = None
             processPrecExpLocal = None
             replicateBiasLocal = np.zeros(mLocal, dtype=np.float32)
-            replicateScaleLocal = np.ones(mLocal, dtype=np.float32)
             (
                 _phiHatLocal,
                 sumNLLLocal,
+                stateForwardLocal,
+                stateCovarForwardLocal,
+                pNoiseForwardLocal,
                 stateSmoothedLocal,
                 stateCovarSmoothedLocal,
                 lagCovSmoothedLocal,
@@ -1830,7 +2124,6 @@ def runConsenrich(
                 lambdaExp=lambdaExpLocal,
                 processPrecExp=processPrecExpLocal,
                 replicateBias=replicateBiasLocal,
-                replicateScale=replicateScaleLocal,
             )
             return {
                 "matrixMunc": currentMunc,
@@ -1839,7 +2132,11 @@ def runConsenrich(
                 "lambdaExp": lambdaExpLocal,
                 "processPrecExp": processPrecExpLocal,
                 "replicateBias": replicateBiasLocal,
-                "replicateScale": replicateScaleLocal,
+                "stateForward": np.asarray(stateForwardLocal, dtype=np.float32),
+                "stateCovarForward": np.asarray(
+                    stateCovarForwardLocal, dtype=np.float32
+                ),
+                "pNoiseForward": np.asarray(pNoiseForwardLocal, dtype=np.float32),
                 "stateSmoothed": np.asarray(stateSmoothedLocal, dtype=np.float32),
                 "stateCovarSmoothed": np.asarray(
                     stateCovarSmoothedLocal, dtype=np.float32
@@ -1851,19 +2148,12 @@ def runConsenrich(
             }
 
         currentBackground = np.zeros(nLocal, dtype=np.float32)
-        if bool(EM_useIntervalMunc):
-            sharedTrack = np.mean(matrixMuncLocal, axis=0, dtype=np.float64).astype(
-                np.float32, copy=False
-            )
-            currentMunc = np.broadcast_to(sharedTrack[None, :], (mLocal, nLocal)).copy()
-        else:
-            currentMunc = np.ascontiguousarray(matrixMuncLocal, dtype=np.float32)
+        currentMunc = np.ascontiguousarray(matrixMuncLocal, dtype=np.float32)
 
         lambdaExpLocal = None
         processPrecExpLocal = None
         qScaleLocal = np.ones(blockCount, dtype=np.float32)
         replicateBiasLocal = np.zeros(mLocal, dtype=np.float32)
-        replicateScaleLocal = np.ones(mLocal, dtype=np.float32)
         stateSmoothedLocal = None
         stateCovarSmoothedLocal = None
         lagCovSmoothedLocal = None
@@ -1872,7 +2162,6 @@ def runConsenrich(
         sumNLLLocal = np.nan
 
         outerIters = max(1, int(EM_outerIters))
-        outerAlpha = float(np.clip(EM_intervalMuncEMA, 0.0, 1.0))
         outerTol = float(max(EM_outerRtol, 0.0))
 
         for outerIter in range(outerIters):
@@ -1880,7 +2169,7 @@ def runConsenrich(
                 matrixDataLocal - currentBackground[None, :],
                 dtype=np.float32,
             )
-            EM_out_local = cconsenrich.cblockScaleEM(
+            EM_out_local = cconsenrich.cinnerEM(
                 matrixData=dataAdjusted,
                 matrixPluginMuncInit=currentMunc,
                 matrixF=matrixFLocal,
@@ -1890,26 +2179,21 @@ def runConsenrich(
                 stateInit=float(stateInit),
                 stateCovarInit=float(stateCovarInit),
                 EM_maxIters=int(emMaxItersLocal),
-                EM_rtol=float(emRtolLocal),
+                EM_innerRtol=float(emInnerRtolLocal),
                 pad=float(pad),
-                EM_scaleLOW=float(EM_scaleLOW),
-                EM_scaleHIGH=float(EM_scaleHIGH),
-                EM_alphaEMA=float(EM_alphaEMA),
-                EM_scaleToMedian=bool(EM_scaleToMedian),
                 EM_tNu=float(EM_tNu),
                 returnIntermediates=True,
-                EM_useProcBlockScale=bool(EM_useProcBlockScale),
                 EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
                 EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
+                EM_useAPN=bool(EM_useAPN),
                 EM_useReplicateBias=bool(EM_useReplicateBias),
-                EM_useReplicateScale=bool(EM_useReplicateScale),
                 EM_repBiasShrink=float(EM_repBiasShrink),
-                EM_repScaleLOW=float(EM_repScaleLOW),
-                EM_repScaleHIGH=float(EM_repScaleHIGH),
+                APN_minQ=float(minQ),
+                APN_maxQ=float(maxQ),
             )
-            if len(EM_out_local) != 11:
+            if len(EM_out_local) != 10:
                 raise ValueError(
-                    "Expected cblockScaleEM(..., returnIntermediates=True) to return 11 values "
+                    "Expected cinnerEM(..., returnIntermediates=True) to return 10 values "
                     f"(got {len(EM_out_local)})."
                 )
 
@@ -1924,7 +2208,6 @@ def runConsenrich(
                 lambdaExpLocal,
                 processPrecExpLocal,
                 replicateBiasLocal,
-                replicateScaleLocal,
             ) = EM_out_local
 
             qScaleLocal = np.asarray(qScaleLocal, dtype=np.float32)
@@ -1933,7 +2216,6 @@ def runConsenrich(
             if processPrecExpLocal is not None:
                 processPrecExpLocal = np.asarray(processPrecExpLocal, dtype=np.float32)
             replicateBiasLocal = np.asarray(replicateBiasLocal, dtype=np.float32)
-            replicateScaleLocal = np.asarray(replicateScaleLocal, dtype=np.float32)
             stateSmoothedLocal = np.asarray(stateSmoothedLocal, dtype=np.float32)
             stateCovarSmoothedLocal = np.asarray(
                 stateCovarSmoothedLocal, dtype=np.float32
@@ -1941,74 +2223,43 @@ def runConsenrich(
             lagCovSmoothedLocal = np.asarray(lagCovSmoothedLocal, dtype=np.float32)
             postFitResidualsLocal = np.asarray(postFitResidualsLocal, dtype=np.float32)
 
-            nextBackground = currentBackground
-            if bool(EM_useIntervalBackground):
-                invVarMatrix = 1.0 / (
-                    np.maximum(replicateScaleLocal[:, None], 1.0e-8)
-                    * np.maximum(currentMunc, 1.0e-8)
-                )
-                if lambdaExpLocal is not None:
-                    invVarMatrix *= np.asarray(lambdaExpLocal, dtype=np.float32)
-                residualMatrix = (
-                    np.asarray(matrixDataLocal, dtype=np.float32)
-                    - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
-                    - np.asarray(stateSmoothedLocal[:, 0][None, :], dtype=np.float32)
-                )
-                nextBackground = _solveZeroCenteredBackground(
-                    residualMatrix=residualMatrix,
-                    invVarMatrix=invVarMatrix,
-                    blockLenIntervals=int(blockLenIntervals),
-                    backgroundSmoothness=float(EM_backgroundSmoothness),
-                )
-
-            nextMunc = currentMunc
-            if bool(EM_useIntervalMunc):
-                nextTrack = _estimateIntervalMuncTrack(
-                    matrixData=matrixDataLocal,
-                    stateSmoothed=stateSmoothedLocal,
-                    stateCovarSmoothed=stateCovarSmoothedLocal,
-                    replicateBias=replicateBiasLocal,
-                    replicateScale=replicateScaleLocal,
-                    backgroundTrack=nextBackground,
-                    lambdaExp=lambdaExpLocal,
-                    pad=float(pad),
-                    minR=float(np.maximum(1.0e-8, np.nanmin(currentMunc))),
-                    maxR=float(np.maximum(np.nanmax(currentMunc), np.nanmin(currentMunc))),
-                    binQuantileCutoff=float(intervalMuncBinQuantileCutoff),
-                    EB_minLin=float(intervalMuncEB_minLin),
-                    EB_use=bool(intervalMuncEB_use),
-                    EB_setNu0=intervalMuncEB_setNu0,
-                    EB_setNuL=intervalMuncEB_setNuL,
-                )
-                if outerAlpha < 1.0:
-                    currentTrack = np.asarray(currentMunc[0, :], dtype=np.float32)
-                    nextTrack = (
-                        ((1.0 - outerAlpha) * currentTrack)
-                        + (outerAlpha * nextTrack)
-                    ).astype(np.float32, copy=False)
-                nextMunc = np.broadcast_to(nextTrack[None, :], (mLocal, nLocal)).copy()
+            invVarMatrix = 1.0 / np.maximum(currentMunc, 1.0e-8)
+            if lambdaExpLocal is not None:
+                invVarMatrix *= np.asarray(lambdaExpLocal, dtype=np.float32)
+            residualMatrix = (
+                np.asarray(matrixDataLocal, dtype=np.float32)
+                - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
+                - np.asarray(stateSmoothedLocal[:, 0][None, :], dtype=np.float32)
+            )
+            nextBackground = _solveZeroCenteredBackground(
+                residualMatrix=residualMatrix,
+                invVarMatrix=invVarMatrix,
+                blockLenIntervals=int(blockLenIntervals),
+                backgroundSmoothness=float(EM_backgroundSmoothness),
+            )
 
             bgChange = float(
-                np.max(np.abs(np.asarray(nextBackground) - np.asarray(currentBackground)))
-            )
-            muncChange = float(
                 np.max(
-                    np.abs(
-                        np.log(np.maximum(nextMunc[0, :], 1.0e-8))
-                        - np.log(np.maximum(currentMunc[0, :], 1.0e-8))
-                    )
+                    np.abs(np.asarray(nextBackground) - np.asarray(currentBackground))
                 )
             )
+            bgScale = float(
+                max(
+                    np.max(np.abs(np.asarray(nextBackground))),
+                    np.max(np.abs(np.asarray(currentBackground))),
+                    1.0,
+                )
+            )
+            bgTol = float(outerTol * bgScale)
             currentBackground = np.asarray(nextBackground, dtype=np.float32)
-            currentMunc = np.ascontiguousarray(nextMunc, dtype=np.float32)
             logger.info(
-                "outerEM[%d/%d]: backgroundShift=%.6g muncShift=%.6g",
+                "outerEM[%d/%d]: backgroundShift=%.6g\tthreshold=%.6g",
                 int(outerIter + 1),
                 int(outerIters),
                 float(bgChange),
-                float(muncChange),
+                float(bgTol),
             )
-            if max(bgChange, muncChange) <= outerTol:
+            if bgChange <= bgTol:
                 break
 
         dataAdjusted = np.ascontiguousarray(
@@ -2018,6 +2269,9 @@ def runConsenrich(
         (
             _phiHatLocal,
             sumNLLLocal,
+            stateForwardLocal,
+            stateCovarForwardLocal,
+            pNoiseForwardLocal,
             stateSmoothedLocal,
             stateCovarSmoothedLocal,
             lagCovSmoothedLocal,
@@ -2032,7 +2286,6 @@ def runConsenrich(
             lambdaExp=lambdaExpLocal,
             processPrecExp=processPrecExpLocal,
             replicateBias=replicateBiasLocal,
-            replicateScale=replicateScaleLocal,
         )
         return {
             "matrixMunc": currentMunc,
@@ -2041,7 +2294,9 @@ def runConsenrich(
             "lambdaExp": lambdaExpLocal,
             "processPrecExp": processPrecExpLocal,
             "replicateBias": np.asarray(replicateBiasLocal, dtype=np.float32),
-            "replicateScale": np.asarray(replicateScaleLocal, dtype=np.float32),
+            "stateForward": np.asarray(stateForwardLocal, dtype=np.float32),
+            "stateCovarForward": np.asarray(stateCovarForwardLocal, dtype=np.float32),
+            "pNoiseForward": np.asarray(pNoiseForwardLocal, dtype=np.float32),
             "stateSmoothed": np.asarray(stateSmoothedLocal, dtype=np.float32),
             "stateCovarSmoothed": np.asarray(stateCovarSmoothedLocal, dtype=np.float32),
             "lagCovSmoothed": np.asarray(lagCovSmoothedLocal, dtype=np.float32),
@@ -2050,188 +2305,32 @@ def runConsenrich(
             "sumNLL": float(sumNLLLocal),
         }
 
-    def _conformal_FutureRepQHat(
-        deltaFBase: float,
-    ) -> tuple[float, np.ndarray | None, float]:
-        mLocal = int(trackCount)
-        if mLocal < 2:
-            logger.warning("conformalRescale: trackCount < 2 --> setting qhat=1.0")
-            return 1.0, None, float(deltaFBase)
-
-        alphaLocal = float(conformalAlpha)
-        if alphaLocal <= 0.0 or alphaLocal >= 1.0:
-            logger.warning(
-                "conformalRescale: invalid conformalAlpha=%.3g --> using default 0.1",
-                float(conformalAlpha),
-            )
-            alphaLocal = 0.1
-        alphaLocal = float(np.clip(alphaLocal, 1.0e-6, 0.5))
-
-        rng = np.random.default_rng()
-        all_scores = []
-        idxT0 = None
-        deltaF0 = float(deltaFBase)
-
-        iters = int(max(1, int(conformal_numIters)))
-        for _ in range(iters):
-            perm = rng.permutation(mLocal).astype(np.int32, copy=False)
-            splitIdx = int(mLocal // 2)
-            idxT = perm[:splitIdx]
-            idxC = perm[splitIdx:]
-
-            if idxT0 is None:
-                idxT0 = np.asarray(idxT, dtype=np.int32).copy()
-
-            if idxT.size < 1 or idxC.size < 1:
-                continue
-
-            matrixDataT = np.ascontiguousarray(matrixData[idxT, :], dtype=np.float32)
-            matrixMuncT = np.ascontiguousarray(matrixMunc[idxT, :], dtype=np.float32)
-
-            if inferDeltaF and (not conformalFinalRefit):
-                deltaF_iter = _autoDeltaF(matrixDataT, matrixMuncT)
-            else:
-                deltaF_iter = float(deltaFBase)
-
-            if idxT0 is not None and idxT0.size == idxT.size and np.all(idxT0 == idxT):
-                deltaF0 = float(deltaF_iter)
-
-            try:
-                matrixF_iter = buildMatrixF(float(deltaF_iter))
-                matrixQ0_iter = buildMatrixQ0(float(deltaF_iter))
-            except Exception:
-                continue
-
-            fitT = _fitCalibratedModel(
-                matrixDataLocal=matrixDataT,
-                matrixMuncLocal=matrixMuncT,
-                matrixFLocal=matrixF_iter,
-                matrixQ0Local=matrixQ0_iter,
-                emMaxItersLocal=int(min(int(EM_maxIters), 25)),
-                emRtolLocal=float(EM_rtol),
-            )
-
-            muT = np.asarray(fitT["stateSmoothed"], dtype=np.float32)[:, 0].astype(
-                np.float64, copy=False
-            )
-            vT = np.asarray(fitT["stateCovarSmoothed"], dtype=np.float32)[:, 0, 0].astype(
-                np.float64, copy=False
-            )
-            vT = np.maximum(vT, 0.0)
-
-            conformalMaxPoints = 100_000
-            for j in idxC:
-                y = matrixData[int(j), :].astype(np.float64, copy=False)
-                Rj = matrixMunc[int(j), :].astype(np.float64, copy=False)
-                futVar = np.sqrt(np.maximum(vT + Rj + float(pad), 1.0e-8))
-                s = np.abs(y - muT) / futVar
-                if s.size > int(conformalMaxPoints):
-                    stride = int(np.ceil(s.size / float(conformalMaxPoints)))
-                    s = s[::stride]
-                if s.size:
-                    all_scores.append(s.astype(np.float64, copy=False))
-
-        if not all_scores:
-            logger.warning("conformalRescale: no finite scores --> setting qhat=1.0")
-            return 1.0, idxT0, float(deltaF0)
-
-        scores = np.concatenate(all_scores, axis=0)
-        scores = scores[np.isfinite(scores)]
-
-        conformalMaxPoints = 100_000
-        if scores.size > int(conformalMaxPoints):
-            stride = int(np.ceil(scores.size / float(conformalMaxPoints)))
-            scores = scores[::stride]
-
-        N = int(scores.size)
-        if N <= 0:
-            logger.warning(
-                "conformalRescale: empty scores after filtering --> setting qhat=1.0"
-            )
-            return 1.0, idxT0, float(deltaF0)
-
-        k = int(np.ceil((N + 1) * (1.0 - alphaLocal)))
-        q_level = min(1.0, max(0.0, k / float(N)))
-
-        try:
-            qhat = float(np.quantile(scores, q_level, method="higher"))
-        except TypeError:
-            qhat = float(np.quantile(scores, q_level, interpolation="higher"))
-
-        if (not np.isfinite(qhat)) or qhat <= 0.0:
-            qhat = 1.0
-        qhat = float(max(1.0, qhat))
-
-        logger.info(
-            "conformalRescale(future_replicate): alpha=%.3g N=%d qhat=%.6g",
-            float(alphaLocal),
-            int(N),
-            float(qhat),
-        )
-        return float(qhat), idxT0, float(deltaF0)
-
-    conformalQhat = 1.0
-    conformalIdxT = None
+    if inferDeltaF:
+        deltaF = _autoDeltaF(matrixData, matrixMunc)
     deltaF_fit = float(deltaF)
-
-    if conformalRescale:
-        if (not np.isfinite(deltaF_fit)) or (float(deltaF_fit) <= 0.0):
-            deltaF_fit = float(autoDeltaF_init)
-        deltaF_fit = float(max(deltaF_fit, 1.0e-8))
-        if inferDeltaF and conformalFinalRefit:
-            deltaF = _autoDeltaF(matrixData, matrixMunc)
-            deltaF_fit = float(deltaF)
-        conformalQhat, conformalIdxT, deltaF0 = _conformal_FutureRepQHat(deltaF_fit)
-        if (
-            (not conformalFinalRefit)
-            and (conformalIdxT is not None)
-            and (conformalIdxT.size >= 1)
-        ):
-            deltaF_fit = float(deltaF0)
-    else:
-        if inferDeltaF:
-            deltaF = _autoDeltaF(matrixData, matrixMunc)
-        deltaF_fit = float(deltaF)
 
     matrixF = buildMatrixF(float(deltaF_fit))
     matrixQ0 = buildMatrixQ0(float(deltaF_fit))
 
     matrixDataFit = matrixData
     matrixMuncFit = matrixMunc
-    if (
-        conformalRescale
-        and (not conformalFinalRefit)
-        and (conformalIdxT is not None)
-        and (conformalIdxT.size >= 1)
-    ):
-        matrixDataFit = np.ascontiguousarray(
-            matrixData[conformalIdxT, :], dtype=np.float32
-        )
-        matrixMuncFit = np.ascontiguousarray(
-            matrixMunc[conformalIdxT, :], dtype=np.float32
-        )
-        logger.info(
-            "conformalRescale with conformalFinalRefit=False: final fit uses %d/%d replicates, so downstream shape/size outputs may differ from original trackCount=%d",
-            int(conformalIdxT.size),
-            int(trackCount),
-            int(trackCount),
-        )
 
-    fitFinal = _fitCalibratedModel(
+    fitFinal = _fitOuter(
         matrixDataLocal=matrixDataFit,
         matrixMuncLocal=matrixMuncFit,
         matrixFLocal=matrixF,
         matrixQ0Local=matrixQ0,
         emMaxItersLocal=int(EM_maxIters),
-        emRtolLocal=float(EM_rtol),
+        emInnerRtolLocal=float(EM_innerRtol),
     )
     lambdaExp_final = fitFinal["lambdaExp"]
-    processPrecExp_final = fitFinal["processPrecExp"]
     replicateBias_final = np.asarray(fitFinal["replicateBias"], dtype=np.float32)
-    replicateScale_final = np.asarray(fitFinal["replicateScale"], dtype=np.float32)
     qScale = np.asarray(fitFinal["qScale"], dtype=np.float32)
     matrixMuncFit = np.asarray(fitFinal["matrixMunc"], dtype=np.float32)
     sumNLL = float(fitFinal["sumNLL"])
+    stateForward = np.asarray(fitFinal["stateForward"], dtype=np.float32)
+    stateCovarForward = np.asarray(fitFinal["stateCovarForward"], dtype=np.float32)
+    pNoiseForward = np.asarray(fitFinal["pNoiseForward"], dtype=np.float32)
     stateSmoothed = np.asarray(fitFinal["stateSmoothed"], dtype=np.float32)
     stateCovarSmoothed = np.asarray(fitFinal["stateCovarSmoothed"], dtype=np.float32)
     postFitResiduals = np.asarray(fitFinal["postFitResiduals"], dtype=np.float32)
@@ -2241,13 +2340,11 @@ def runConsenrich(
     outStateCovarSmoothed = np.asarray(stateCovarSmoothed, dtype=np.float32)
     outPostFitResiduals = np.asarray(postFitResiduals, dtype=np.float32)
 
-    fullState0 = outStateSmoothed[:, 0].astype(np.float64, copy=False)
     outTrack4 = NIS
 
     # Jackknife:
     # If deltaF was inferred, each leave-one-out fit re-runs the same deltaF search
     # on the reduced replicate set. If deltaF was provided, deltaF stays fixed.
-    # - note conformal/jackknife are mutually exclusive
 
     if applyJackknife:
         meanLOO_x0 = np.zeros(intervalCount, dtype=np.float64)
@@ -2272,13 +2369,13 @@ def runConsenrich(
                 matrixF_LOO = matrixF
                 matrixQ0_LOO = matrixQ0
 
-            fitLOO = _fitCalibratedModel(
+            fitLOO = _fitOuter(
                 matrixDataLocal=matrixData_LOO,
                 matrixMuncLocal=matrixMunc_LOO,
                 matrixFLocal=matrixF_LOO,
                 matrixQ0Local=matrixQ0_LOO,
                 emMaxItersLocal=int(jackknifeEM_maxIters),
-                emRtolLocal=float(jackknifeEM_rtol),
+                emInnerRtolLocal=float(jackknifeEM_innerRtol),
             )
             x0_LOO = np.asarray(fitLOO["stateSmoothed"], dtype=np.float32)[:, 0].astype(
                 np.float64, copy=False
@@ -2294,19 +2391,83 @@ def runConsenrich(
         jackknifeVar0 = jackknifeVar0.astype(np.float32, copy=False)
         outTrack4 = np.sqrt(jackknifeVar0, dtype=np.float32)
 
-    if conformalRescale and conformalQhat != 1.0:
-        fittedObsVar = (
-            np.asarray(replicateScale_final, dtype=np.float32).reshape(-1, 1)
-            * (np.asarray(matrixMuncFit, dtype=np.float32) + np.float32(pad))
+    if effectiveInfoRescale:
+        dataAdjustedFit = np.ascontiguousarray(
+            matrixDataFit
+            - np.asarray(fitFinal["background"], dtype=np.float32)[None, :],
+            dtype=np.float32,
         )
-        refObsVar = np.nanmedian(fittedObsVar, axis=0).astype(np.float32, copy=False)
-        refObsVar = np.maximum(refObsVar, np.float32(0.0))
-        predictiveVar = (
-            outStateCovarSmoothed[:, 0, 0].astype(np.float32, copy=False) + refObsVar
+        effectiveInfoDiag = _computeInnovationEffectiveInfoDiagnostics(
+            matrixData=dataAdjustedFit,
+            matrixMunc=matrixMuncFit,
+            stateForward=stateForward,
+            stateCovarForward=stateCovarForward,
+            pNoiseForward=pNoiseForward,
+            matrixF=matrixF,
+            replicateBias=replicateBias_final,
+            lambdaExp=lambdaExp_final,
+            pad=float(pad),
+            effectiveInfoBandwidthIntervals=effectiveInfoBandwidthIntervals,
+            effectiveInfoBlockLengthIntervals=effectiveInfoBlockLengthIntervals,
         )
-        predictiveVar = np.maximum(predictiveVar, np.float32(1.0e-12))
-        outStateCovarSmoothed[:, 0, 0] = predictiveVar * np.float32(
-            conformalQhat * conformalQhat
+        correctionFactors = np.asarray(
+            effectiveInfoDiag.get(
+                "intervalFactors",
+                np.full(intervalCount, effectiveInfoDiag["correctionFactor"]),
+            ),
+            dtype=np.float32,
+        )
+        if correctionFactors.size != intervalCount:
+            correctionFactors = np.full(
+                intervalCount,
+                float(effectiveInfoDiag["correctionFactor"]),
+                dtype=np.float32,
+            )
+        correctionFactors = np.maximum(correctionFactors, np.float32(1.0))
+        outStateCovarSmoothed[:, 0, 0] = (
+            outStateCovarSmoothed[:, 0, 0].astype(np.float32, copy=False)
+            * correctionFactors
+        )
+        logger.info(
+            "Effective-information uncertainty correction applied: "
+            "bandwidth=%d blockLengthIntervals=%d blocks=%d "
+            "gamma0=%.6g lrv=%.6g chrFactor=%.6g factorMedian=%.6g "
+            "factorRange=[%.6g, %.6g] shrinkageWeightMean=%.6g",
+            int(effectiveInfoDiag["bandwidth"]),
+            int(effectiveInfoDiag.get("blockLengthIntervals", intervalCount)),
+            int(effectiveInfoDiag.get("numBlocks", 1)),
+            float(effectiveInfoDiag["gamma0"]),
+            float(effectiveInfoDiag["lrv"]),
+            float(effectiveInfoDiag.get("chromosomeFactor", 1.0)),
+            float(effectiveInfoDiag["correctionFactor"]),
+            float(
+                effectiveInfoDiag.get(
+                    "blockFactorMin",
+                    effectiveInfoDiag["correctionFactor"],
+                )
+            ),
+            float(
+                effectiveInfoDiag.get(
+                    "blockFactorMax",
+                    effectiveInfoDiag["correctionFactor"],
+                )
+            ),
+            float(effectiveInfoDiag.get("shrinkageWeightMean", 0.0)),
+        )
+    else:
+        logger.info(
+            "Effective-information uncertainty correction bypassed: effectiveInfoRescale=False "
+            "(effectiveInfoBandwidthIntervals=%s, effectiveInfoBlockLengthIntervals=%s)",
+            (
+                "auto"
+                if effectiveInfoBandwidthIntervals is None
+                else int(effectiveInfoBandwidthIntervals)
+            ),
+            (
+                "chromosome"
+                if effectiveInfoBlockLengthIntervals is None
+                else int(effectiveInfoBlockLengthIntervals)
+            ),
         )
 
     if boundState:
@@ -2326,7 +2487,6 @@ def runConsenrich(
                 outTrack4,
                 np.asarray(qScale, dtype=np.float32),
                 np.asarray(replicateBias_final, dtype=np.float32),
-                np.asarray(replicateScale_final, dtype=np.float32),
                 intervalToBlockMap,
             )
         return (
@@ -2409,219 +2569,12 @@ def getBedMask(
     ).astype(np.bool_)
 
 
-def _forPlotsSampleBlockStats(
-    values_: npt.NDArray[np.float32],
-    blockSize_: int,
-    numBlocks_: int,
-    statFunction_: Callable = np.mean,
-    randomSeed_: int = 42,
-):
-    r"""Pure python helper for plotting distributions of block-sampled statistics.
-
-    Intended for use in the plotting functions, not as an alternative to
-    the Cython ``cconsenrich.csampleBlockStats`` function used in the
-    `matching` module. Call on 32bit numpy arrays so that copies are not made.
-
-    :param values: One-dimensional array of values to sample blocks from.
-    :type values: np.ndarray
-    :param blockSize: Length of each block to sample.
-    :type blockSize: int
-    :param numBlocks: Number of blocks to sample.
-    :type numBlocks: int
-    """
-    np.random.seed(randomSeed_)
-
-    if type(values_) == npt.NDArray[np.float32]:
-        x = values_
-    else:
-        x = np.ascontiguousarray(values_, dtype=np.float32)
-    n = x.shape[0]
-    if blockSize_ > n:
-        logger.warning(
-            f"`blockSize>values.size`...setting `blockSize` = {max(n // 2, 1)}."
-        )
-        blockSize_ = int(max(n // 2, 1))
-
-    maxStart = n - blockSize_ + 1
-
-    # avoid copies
-    blockView = as_strided(
-        x,
-        shape=(maxStart, blockSize_),
-        strides=(x.strides[0], x.strides[0]),
-    )
-    starts = np.random.randint(0, maxStart, size=numBlocks_)
-    return statFunction_(blockView[starts], axis=1)
-
-
-def plotStateEstimatesHistogram(
-    chromosome: str,
-    plotPrefix: str,
-    primaryStateValues: npt.NDArray[np.float32],
-    blockSize: int = 10,
-    numBlocks: int = 10_000,
-    statFunction: Callable = np.mean,
-    randomSeed: int = 42,
-    roundPrecision: int = 4,
-    plotHeightInches: float = 8.0,
-    plotWidthInches: float = 10.0,
-    plotDPI: int = 300,
-    plotDirectory: str | None = None,
-) -> str | None:
-    r"""(Experimental) Plot a histogram of block-sampled (within-chromosome) primary state estimates.
-
-    :param plotPrefix: Prefixes the output filename
-    :type plotPrefix: str
-    :param primaryStateValues: 1D 32bit float array of primary state estimates, i.e., :math:`\widetilde{\mathbf{x}}_{[i,1]}`,
-        that is, ``stateSmoothed[0,:]`` from :func:`runConsenrich`. See also :func:`getPrimaryState`.
-    :type primaryStateValues: npt.NDArray[np.float32]
-    :param blockSize: Number of contiguous intervals to sample per block.
-    :type blockSize: int
-    :param numBlocks: Number of samples to draw
-    :type numBlocks: int
-    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
-    :type statFunction: Callable
-    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
-    :type plotDirectory: str | None
-    """
-
-    if _checkMod("matplotlib"):
-        import matplotlib.pyplot as plt
-        import matplotlib as mpl
-    else:
-        logger.warning("matplotlib not found...returning None")
-        return None
-
-    if plotDirectory is None:
-        plotDirectory = os.getcwd()
-    elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
-    elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
-
-    plotFileName = os.path.join(
-        plotDirectory,
-        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_state.v{__version__}.png",
-    )
-    binnedStateEstimates = _forPlotsSampleBlockStats(
-        values_=primaryStateValues,
-        blockSize_=blockSize,
-        numBlocks_=numBlocks,
-        statFunction_=statFunction,
-        randomSeed_=randomSeed,
-    )
-    with mpl.rc_context(MATHFONT):
-        plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
-        x = np.asarray(binnedStateEstimates, dtype=np.float64).ravel()
-        binnedStateEstimates = x.astype(np.float32, copy=False)
-
-        plt.hist(
-            binnedStateEstimates,
-            color="blue",
-            alpha=1.0,
-            edgecolor="black",
-            fill=False,
-        )
-        plt.title(
-            rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Posterior Signal Estimates $\widetilde{{x}}_{{[1 : n]}}$",
-        )
-        plt.savefig(plotFileName, dpi=plotDPI)
-        plt.close()
-    if os.path.exists(plotFileName):
-        logger.info(f"Wrote state estimate histogram to {plotFileName}")
-        return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
-    return None
-
-
-def plotMWSRHistogram(
-    chromosome: str,
-    plotPrefix: str,
-    MWSR: npt.NDArray[np.float32],
-    blockSize: int = 10,
-    numBlocks: int = 10_000,
-    statFunction: Callable = np.mean,
-    randomSeed: int = 42,
-    roundPrecision: int = 4,
-    plotHeightInches: float = 8.0,
-    plotWidthInches: float = 10.0,
-    plotDPI: int = 300,
-    plotDirectory: str | None = None,
-) -> str | None:
-    r"""(Experimental) Plot a histogram of block-sampled weighted squared residuals (post-fit MWSR).
-
-    :param plotPrefix: Prefixes the output filename
-    :type plotPrefix: str
-    :param blockSize: Number of contiguous intervals to sample per block.
-    :type blockSize: int
-    :param numBlocks: Number of samples to draw
-    :type numBlocks: int
-    :param statFunction: Numpy callable function to compute on each sampled block (e.g., `np.mean`, `np.median`).
-    :type statFunction: Callable
-    :param plotDirectory: If provided, saves the plot to this directory. The directory should exist.
-    :type plotDirectory: str | None
-
-    :seealso: :func:`runConsenrich`, :class:`outputParams`
-    """
-
-    if _checkMod("matplotlib"):
-        import matplotlib.pyplot as plt
-        import matplotlib as mpl
-    else:
-        logger.warning("matplotlib not found...returning None")
-        return None
-
-    if plotDirectory is None:
-        plotDirectory = os.getcwd()
-    elif not os.path.exists(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} does not exist")
-    elif not os.path.isdir(plotDirectory):
-        raise ValueError(f"`plotDirectory` {plotDirectory} is not a directory")
-
-    plotFileName = os.path.join(
-        plotDirectory,
-        f"consenrichPlot_hist_{chromosome}_{plotPrefix}_MWSR.v{__version__}.png",
-    )
-    binnedMWSR = _forPlotsSampleBlockStats(
-        values_=MWSR,
-        blockSize_=blockSize,
-        numBlocks_=numBlocks,
-        statFunction_=statFunction,
-        randomSeed_=randomSeed,
-    )
-    with mpl.rc_context(MATHFONT):
-        plt.figure(figsize=(plotWidthInches, plotHeightInches), dpi=plotDPI)
-        x = np.asarray(binnedMWSR, dtype=np.float64).ravel()
-        if x.size:
-            lowerLim, upperLim = np.quantile(x, [0, 0.99])
-            x = x[(x >= lowerLim) & (x <= upperLim)]
-        binnedMWSR = x.astype(np.float32, copy=False)
-
-        plt.hist(
-            binnedMWSR,
-            color="blue",
-            alpha=1.0,
-            edgecolor="black",
-            fill=False,
-        )
-        plt.title(
-            rf"Histogram: {numBlocks} sampled blocks ({blockSize} contiguous intervals each): Weighted Squared Residuals (MWSR)",
-        )
-        plt.savefig(plotFileName, dpi=plotDPI)
-        plt.close()
-    if os.path.exists(plotFileName):
-        logger.info(f"Wrote MWSR histogram to {plotFileName}")
-        return plotFileName
-    logger.warning(f"Failed to create histogram. {plotFileName} not written.")
-    return None
-
-
 def fitVarianceFunction(
     jointlySortedMeans: np.ndarray,
     jointlySortedVariances: np.ndarray,
     eps: float = 1.0e-2,
     binQuantileCutoff: float = 0.5,
-    EB_minLin: float = 1.0,
+    EB_minLin: float = 0.0,
 ) -> np.ndarray:
     means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
     variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
@@ -2718,7 +2671,7 @@ def evalVarianceFunction(
     coeffs: np.ndarray,
     meanTrack: np.ndarray,
     eps: float = 1.0e-2,
-    EB_minLin: float = 0.01,
+    EB_minLin: float = 0.0,
 ) -> np.ndarray:
     absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
     if coeffs is None or np.asarray(coeffs).size == 0:
@@ -2772,7 +2725,9 @@ def _solveZeroCenteredBackground(
     residualArr = np.asarray(residualMatrix, dtype=np.float64)
     invVarArr = np.asarray(invVarMatrix, dtype=np.float64)
     if residualArr.ndim != 2 or invVarArr.shape != residualArr.shape:
-        raise ValueError("residualMatrix and invVarMatrix must have identical 2D shapes")
+        raise ValueError(
+            "residualMatrix and invVarMatrix must have identical 2D shapes"
+        )
 
     intervalCount = int(residualArr.shape[1])
     if intervalCount < 1:
@@ -2806,102 +2761,6 @@ def _solveZeroCenteredBackground(
     return backgroundTrack.astype(np.float32, copy=False)
 
 
-def _estimateIntervalMuncTrack(
-    matrixData: np.ndarray,
-    stateSmoothed: np.ndarray,
-    stateCovarSmoothed: np.ndarray,
-    replicateBias: np.ndarray,
-    replicateScale: np.ndarray,
-    backgroundTrack: np.ndarray,
-    lambdaExp: np.ndarray | None,
-    pad: float = 1.0e-4,
-    minR: float = 1.0e-3,
-    maxR: float = 1.0e4,
-    binQuantileCutoff: float = 0.5,
-    EB_minLin: float = 1.0,
-    EB_use: bool = True,
-    EB_setNu0: int | None = None,
-    EB_setNuL: int | None = None,
-) -> npt.NDArray[np.float32]:
-    dataArr = np.asarray(matrixData, dtype=np.float64)
-    stateArr = np.asarray(stateSmoothed, dtype=np.float64)
-    covArr = np.asarray(stateCovarSmoothed, dtype=np.float64)
-    biasArr = np.asarray(replicateBias, dtype=np.float64).reshape(-1, 1)
-    scaleArr = np.asarray(replicateScale, dtype=np.float64).reshape(-1, 1)
-    backgroundArr = np.asarray(backgroundTrack, dtype=np.float64).reshape(1, -1)
-
-    if dataArr.ndim != 2:
-        raise ValueError("matrixData must be 2D")
-    if stateArr.shape[0] != dataArr.shape[1]:
-        raise ValueError("stateSmoothed must align with interval axis")
-
-    scaleArr = np.maximum(scaleArr, 1.0e-8)
-
-    stateLevel = stateArr[:, 0].reshape(1, -1)
-    stateVar = np.maximum(covArr[:, 0, 0], 0.0).reshape(1, -1)
-    residualSq = (dataArr - backgroundArr - biasArr - stateLevel) ** 2
-    residualSq += stateVar
-
-    if lambdaExp is None:
-        lambdaArr = np.ones_like(dataArr, dtype=np.float64)
-    else:
-        lambdaArr = np.asarray(lambdaExp, dtype=np.float64)
-
-    rawVarTrack = np.mean(
-        lambdaArr * residualSq / scaleArr,
-        axis=0,
-        dtype=np.float64,
-    )
-    rawVarTrack = np.maximum(rawVarTrack, max(float(minR), 1.0e-8)) + float(pad)
-
-    ampTrack = np.abs(
-        np.asarray(stateSmoothed[:, 0], dtype=np.float64)
-        + np.asarray(backgroundTrack, dtype=np.float64)
-    )
-    mask = np.isfinite(ampTrack) & np.isfinite(rawVarTrack) & (rawVarTrack > 0.0)
-    if np.count_nonzero(mask) < 4:
-        clippedTrack = np.clip(rawVarTrack, float(minR), float(maxR))
-        return clippedTrack.astype(np.float32, copy=False)
-
-    ampMasked = ampTrack[mask]
-    rawMasked = rawVarTrack[mask]
-    order = np.argsort(ampMasked)
-    priorCoef = fitVarianceFunction(
-        ampMasked[order],
-        rawMasked[order],
-        eps=float(pad),
-        binQuantileCutoff=float(binQuantileCutoff),
-        EB_minLin=float(EB_minLin),
-    )
-    priorTrack = evalVarianceFunction(
-        priorCoef,
-        ampTrack,
-        eps=float(pad),
-        EB_minLin=float(EB_minLin),
-    ).astype(np.float64, copy=False)
-
-    if not EB_use:
-        clippedTrack = np.clip(priorTrack, float(minR), float(maxR))
-        return clippedTrack.astype(np.float32, copy=False)
-
-    if EB_setNuL is not None and EB_setNuL > 3:
-        nuLocal = float(EB_setNuL)
-    else:
-        nuLocal = float(max(4, dataArr.shape[0]))
-
-    if EB_setNu0 is not None and EB_setNu0 > 4:
-        nuPrior = float(EB_setNu0)
-    else:
-        nuPrior = EB_computePriorStrength(rawMasked, priorTrack[mask], nuLocal)
-
-    posteriorTrack = np.array(priorTrack, dtype=np.float64, copy=True)
-    posteriorTrack[mask] = (
-        (nuLocal * rawVarTrack[mask]) + (nuPrior * priorTrack[mask])
-    ) / (nuLocal + nuPrior)
-    posteriorTrack = np.clip(posteriorTrack, float(minR), float(maxR))
-    return posteriorTrack.astype(np.float32, copy=False)
-
-
 def getMuncTrack(
     chromosome: str,
     intervals: np.ndarray,
@@ -2914,17 +2773,21 @@ def getMuncTrack(
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
     binQuantileCutoff: float = 0.5,
-    EB_minLin: float = 1.0,
+    EB_minLin: float = 0.0,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
+    sparseIntervalIndices: Optional[np.ndarray] = None,
+    sparseRegionMask: Optional[np.ndarray] = None,
+    numNearest: int = 0,
+    restrictLocalAR1ToSparseBed: bool = False,
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
     eps: float = 1.0e-2,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
-    For an individual experimental sample (replicate), quantify *positional* data uncertainty over genomic intervals :math:`i=1,2,\ldots n` spanning ``chromosome``.
+    For an individual experimental sample (replicate), quantify *positional* observation noise levels over genomic intervals :math:`i=1,2,\ldots n` spanning ``chromosome``.
     These tracks (per-sample) comprise the ``matrixMunc`` input to :func:`runConsenrich`, :math:`\mathbf{R}[:,:] \in \mathbb{R}^{m \times n}`.
 
     Variance is modeled as a function of the absolute mean signal level. For ``EB_use=True``, local variance estimates are shrunk toward a signal level dependent global variance fit.
@@ -2940,7 +2803,7 @@ def getMuncTrack(
 
     """
 
-    AR1_PARAMCT = 3
+    AR1_PARAMCT = 3  # intercept, AR(1) coefficient, innovation variance
     if samplingBlockSizeBP is None:
         samplingBlockSizeBP = intervalSizeBP * (11 * (AR1_PARAMCT))
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
@@ -2954,6 +2817,96 @@ def getMuncTrack(
     else:
         excludeMaskArr = np.ascontiguousarray(excludeMask, dtype=np.uint8)
 
+    localObsExcludeMaskArr = excludeMaskArr
+    if restrictLocalAR1ToSparseBed:
+        if sparseRegionMask is None:
+            logger.warning(
+                "restrictLocalAR1ToSparseBed=True but sparseRegionMask is not provided; "
+                "using the unrestricted rolling AR(1) local observation-variance estimate.",
+            )
+        else:
+            sparseRegionMaskArr = np.ascontiguousarray(
+                sparseRegionMask,
+                dtype=np.uint8,
+            ).ravel()
+            if sparseRegionMaskArr.shape != excludeMaskArr.shape:
+                raise ValueError(
+                    "sparseRegionMask must match the shape of intervals/values.",
+                )
+            localObsExcludeMaskArr = np.ascontiguousarray(
+                np.logical_or(
+                    excludeMaskArr != 0,
+                    sparseRegionMaskArr == 0,
+                ),
+                dtype=np.uint8,
+            )
+
+    def _estimateSparseNearestObsTracks() -> tuple[np.ndarray, np.ndarray] | None:
+        if sparseIntervalIndices is None or int(numNearest) <= 0:
+            return None
+
+        sparseIdx = np.asarray(sparseIntervalIndices, dtype=np.intp).ravel()
+        if sparseIdx.size == 0:
+            return None
+
+        sparseIdx = np.unique(sparseIdx)
+        sparseIdx = sparseIdx[(sparseIdx >= 0) & (sparseIdx < valuesArr.size)]
+        if sparseIdx.size == 0:
+            return None
+
+        blockLen = int(max(4, min(localWindowIntervals, valuesArr.size)))
+        if blockLen < 2:
+            return None
+
+        halfLen = blockLen // 2
+        maxStart = max(0, int(valuesArr.size) - blockLen)
+        blockStarts = np.clip(sparseIdx - halfLen, 0, maxStart).astype(
+            np.intp,
+            copy=False,
+        )
+        blockSizes = np.full(blockStarts.shape, blockLen, dtype=np.intp)
+
+        if np.any(excludeMaskArr):
+            excludeCum = np.concatenate(
+                (
+                    np.array([0], dtype=np.int64),
+                    np.cumsum(excludeMaskArr.astype(np.int64, copy=False)),
+                )
+            )
+            validMask = (
+                excludeCum[blockStarts + blockLen] - excludeCum[blockStarts]
+            ) == 0
+            blockStarts = blockStarts[validMask]
+            blockSizes = blockSizes[validMask]
+            sparseIdx = sparseIdx[validMask]
+            if sparseIdx.size == 0:
+                return None
+
+        sparseMeanTrack, sparseVarTrack = cconsenrich.cSparseNearestMeanVarTrack(
+            valuesArr,
+            np.ascontiguousarray(sparseIdx, dtype=np.intp),
+            np.ascontiguousarray(blockStarts, dtype=np.intp),
+            np.ascontiguousarray(blockSizes, dtype=np.intp),
+            int(numNearest),
+            useInnovationVar=True,
+            aggregateMeanAbs=False,
+        )
+        sparseMeanTrack = np.asarray(sparseMeanTrack, dtype=np.float64)
+        sparseVarTrack = np.asarray(sparseVarTrack, dtype=np.float64)
+        sparseMeanTrack[~np.isfinite(sparseMeanTrack)] = 0.0
+        sparseVarTrack[~np.isfinite(sparseVarTrack)] = np.nan
+        return sparseMeanTrack, sparseVarTrack
+
+    sparseInterceptTrack: np.ndarray | None = None
+    sparseObsVarTrack: np.ndarray | None = None
+    valuesForPriorFitArr = valuesArr.astype(np.float64, copy=False)
+    sparseObsTracks = _estimateSparseNearestObsTracks()
+    if sparseObsTracks is not None:
+        sparseInterceptTrack, sparseObsVarTrack = sparseObsTracks
+        valuesForPriorFitArr = (
+            valuesArr.astype(np.float64, copy=False) - sparseInterceptTrack
+        )
+
     # Global:
     # ... Variance as function of |mean|, globally, as observed in distinct, randomly drawn genomic
     # ... blocks. Within fixed-size blocks, it's assumed that an AR(1) process can, on average,
@@ -2961,7 +2914,7 @@ def getMuncTrack(
     # ... reflects noise
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
-        valuesArr,
+        np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32),
         blockSizeIntervals,
         samplingIters,
         randomSeed,
@@ -2985,7 +2938,7 @@ def getMuncTrack(
         eps=eps,
     )
 
-    meanTrack = valuesArr.astype(np.float32, copy=True)
+    meanTrack = np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32)
     if useEMA:
         meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
     meanTrack = np.abs(meanTrack)
@@ -2997,12 +2950,17 @@ def getMuncTrack(
         return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
 
     # Local:
-    # ... 'Rolling' AR(1) innovation variance estimates over a sliding window
-    obsVarTrack = cconsenrich.crolling_AR1_IVar(
-        valuesArr,
-        localWindowIntervals,
-        excludeMaskArr,
-    ).astype(np.float64, copy=False)
+    # ... default: rolling AR(1) innovation variance over a sliding window
+    # ... optional sparse-bed restriction: invalidate any local window leaving sparse regions
+    # ... sparse-nearest mode: aggregate region mean/variance stats at the nearest sparse blocks
+    if sparseObsVarTrack is not None:
+        obsVarTrack = sparseObsVarTrack
+    else:
+        obsVarTrack = cconsenrich.crolling_AR1_IVar(
+            valuesArr,
+            localWindowIntervals,
+            localObsExcludeMaskArr,
+        ).astype(np.float64, copy=False)
 
     # Note, negative values are a flag from `cconsenrich.crolling_AR1_IVar`
     # ... -- set as _NaN_ -- and handle later during shrinkage
@@ -3014,8 +2972,8 @@ def getMuncTrack(
     # ...     EB_localQuantile == 0 --> use binQuantileCutoff
     # ...     EB_localQuantile > 0 --> use supplied quantile value (x100)
     # ... NOTE: Useful heuristic for parity with the global model and tempering effects of
-    # ...    spurious measurements in sparse genomic regions where estimated uncertainty
-    # ...    is often artificially deflated. Note that the quantile filter _centered_,
+    # ...    spurious measurements in sparse genomic regions where estimated noise levels
+    # ...    are often artificially deflated. Note that the quantile filter _centered_,
     # ...    unlike innovations
     if EB_localQuantile >= 0.0:
         quantile_ = (
@@ -3308,7 +3266,9 @@ def _bootstrapLocalPeakLogWidthVariance(
         bootResiduals = rng.choice(residuals, size=localY.size, replace=True)
         bootResiduals = bootResiduals - float(np.mean(bootResiduals))
         localYBoot = localFit + bootResiduals
-        widthBoot = _estimateLocalPeakWidth(localYBoot, localPeakIdx, peakSearchRadius=2)
+        widthBoot = _estimateLocalPeakWidth(
+            localYBoot, localPeakIdx, peakSearchRadius=2
+        )
         if widthBoot is None:
             continue
         bootLogWidths.append(float(np.log(widthBoot)))
@@ -3327,7 +3287,7 @@ def getContextSize(
     bandZ: float = 1.0,
     maxOrder: int = 5,
 ) -> tuple[int, int, int]:
-    r"""Estimate a characteristic feature width from local peak widths
+    r"""(Experimental) Heuristic estimator for characteristic feature width from local peak widths
 
     Candidate features are detected on a smoothed log-scale track, half-height
     widths are measured locally, and width uncertainty is estimated by a local
@@ -3521,16 +3481,16 @@ def getContextSize(
             options={"xatol": 1e-4, "maxiter": 50},
         )
 
-    # Take the posterior at each feature given fixed tauSqHat (~parametric EB~)
+    # Take the posterior at each feature given fixed tauSqHat
     # ... (or backup MoM estimate if optimization failed)
     tauSqHat: float = 0.0
     if getattr(res, "success", False):
         tauSqHat = float(res.x)
-        logger.info(f"tau^2 MLE plugin = {tauSqHat:.6f}")
+        logger.info(f"Between-feature variance (tau^2): {tauSqHat:.6f}")
     else:
         tauSqHat = tau2Mom
         logger.warning(
-            f"Failed to solve for tau^2 MLE...using MoM estimate tau^2 = {tau2Mom:.6f}.",
+            f"Failed to solve for tau^2...using MoM estimate tau^2 = {tau2Mom:.6f}.",
         )
 
     #   Posterior variance sigma^2[i] + tau^2 used to compute weights
@@ -3538,7 +3498,7 @@ def getContextSize(
     vHat = np.maximum(vHat, 1e-12)
     wHat = 1.0 / vHat
 
-    # Get point estimate, band limits on natural scale
+    # Get point estimate and bounds on natural scale
     muHat = float(np.sum(wHat * sHatArr) / np.sum(wHat))
     muVar = float(1.0 / np.sum(wHat))
     predStd = float(np.sqrt(max(0.0, tauSqHat + muVar)))
@@ -3552,9 +3512,5 @@ def getContextSize(
         pointEstimate = min(pointEstimate, float(maxSpan))
         widthLower = min(widthLower, float(maxSpan))
         widthUpper = min(widthUpper, float(maxSpan))
-
-    logger.info(
-        f"Natural scale: pointEstimate={pointEstimate:.4f}, Lower={widthLower:.4f}, Upper={widthUpper:.4f}"
-    )
 
     return int(pointEstimate), int(widthLower), int(widthUpper)

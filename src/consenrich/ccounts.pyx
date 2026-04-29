@@ -16,10 +16,10 @@ cdef extern from "native/ccounts_backend.h":
         ccounts_sourceKindFragments
 
     ctypedef enum ccounts_countMode:
-        ccounts_countModeCoverage
-        ccounts_countModeCutSite
-        ccounts_countModeFivePrime
-        ccounts_countModeCenter
+        ccounts_countModeCoverage # default, count every covered base across the full read or fragment span
+        ccounts_countModeCutSite  # strand-aware cut indices, e.g. true cleavage/insertion sites
+        ccounts_countModeFivePrime # count only the strand-aware 5' end of each read or fragment
+        ccounts_countModeCenter # count only the midpoint of the read or inferred/observed fragment span
 
     ctypedef struct ccounts_sourceConfig:
         const char* path
@@ -155,13 +155,13 @@ cdef ccounts_sourceConfig _makeSourceConfig(
 
 cdef uint8_t _getCountModeCode(str countMode):
     cdef str normalizedMode = str(countMode).strip().lower()
-    if normalizedMode in ["coverage", "cov", "0"]:
+    if normalizedMode in ["coverage", "0"]:
         return <uint8_t>ccounts_countModeCoverage
-    if normalizedMode in ["cutsite", "cut", "cutsites", "1"]:
+    if normalizedMode in ["cutsite", "1"]:
         return <uint8_t>ccounts_countModeCutSite
-    if normalizedMode in ["fiveprime", "5p", "five_prime", "2"]:
+    if normalizedMode in ["fiveprime", "2"]:
         return <uint8_t>ccounts_countModeFivePrime
-    if normalizedMode in ["center", "centre", "midpoint", "3"]:
+    if normalizedMode in ["center", "3"]:
         return <uint8_t>ccounts_countModeCenter
     raise ValueError(f"Unsupported countMode `{countMode}`")
 

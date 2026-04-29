@@ -85,28 +85,29 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``:
   :name: demoHistoneChIPSeq.yaml
 
   experimentName: demoHistoneChIPSeq
-  genomeParams.name: hg38
-  genomeParams.chromosomes: [chr21, chr22] # remove this line to run genome-wide
-  genomeParams.excludeForNorm: [chrX, chrY]
-  inputParams.bamFiles: [ENCFF793ZHL.bam,
-  ENCFF647VPO.bam,
-  ENCFF809VKT.bam,
-  ENCFF295EFL.bam]
 
-  inputParams.bamFilesControl: [ENCFF444WVG.bam,
-  ENCFF619NYP.bam,
-  ENCFF898LKJ.bam,
-  ENCFF490MWV.bam]
+  genomeParams:
+    name: hg38
+    chromosomes: [chr21, chr22] # remove this line to run genome-wide
+    excludeForNorm: [chrX, chrY]
 
-  # Optional: call 'structured peaks' via `consenrich.matching`
-  matchingParams.templateNames: [haar, haar, db2, db2, sym3, sym3]
-  matchingParams.cascadeLevels: [1,2,1,2,1,2]
+  inputParams:
+    bamFiles:
+      - ENCFF793ZHL.bam
+      - ENCFF647VPO.bam
+      - ENCFF809VKT.bam
+      - ENCFF295EFL.bam
+    bamFilesControl:
+      - ENCFF444WVG.bam
+      - ENCFF619NYP.bam
+      - ENCFF898LKJ.bam
+      - ENCFF490MWV.bam
 
 
 .. admonition:: Control Inputs
   :class: tip
 
-  Omit ``inputParams.bamFilesControl`` for ATAC-seq, DNase-seq, Cut&Run, and other assays where no control is available or applicable.
+  You can omit ``inputParams.bamFilesControl`` for ATAC-seq, DNase-seq, Cut&Run, and other assays where no input control is available or applicable.
 
 
 Run Consenrich
@@ -120,38 +121,10 @@ Run Consenrich
 Results
 """"""""""""""""""""""""""
 
-* We display Consenrich results (blue) over a 150 kb locus in human chromosome 22
+* We display Consenrich results (blue) over a 250 kb locus in human chromosome 22
 
 
 .. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
   :alt: Output Consenrich Signal Estimates
     :width: 600px
     :align: left
-
-
-.. _tips:
-
-Miscellaneous Guidance
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Consensus Peak Calling + Downstream Differential Analyses
-""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-
-Consenrich can improve between-group differential analyses that depend on a good set of initial 'candidate' consensus peaks (see `Enhanced Consensus Peak Calling and Differential Analyses in Complex Human Disease <https://www.biorxiv.org/content/10.1101/2025.02.05.636702v2>`_ in the manuscript preprint.)
-
-`ROCCO <https://github.com/nolan-h-hamilton/ROCCO>`_ can accept Consenrich bigWig files as input and is well-suited to leverage high-resolution open chromatin signal estimates while balancing regularity for simultaneous broad/narrow peak calling.
-
-For example, to run the `Consenrich+ROCCO` protocol as it is used in the manuscript,
-
-.. code-block:: console
-
- % python -m pip install rocco --upgrade
- % rocco -i <experimentName>_consenrich_state.bw \
-    -g hg38 -o consenrichRocco_<experimentName>.bed \
-    # <...>
-
-* Only Consenrich+ROCCO has been benchmarked for differential accessibility analyses to date, but alternative peak calling methods can be considered downstream, too. For example, the :ref:`matching` algorithm packaged that is packaged with Consenrich.
-
-* Other methods supporting bedGraph/bigWig input, e.g., `MACS' bdgpeakcall <https://macs3-project.github.io/MACS/docs/bdgpeakcall.html>`_, `LanceOTron <https://lanceotron.molbiol.ox.ac.uk>`_ may also be effective.
-
-

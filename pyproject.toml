@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "consenrich"
-version = "0.10.0a0"
+version = "0.10.2a0"
 description = "Genome-wide estimation of signals hidden in noisy multi-sample HTS datasets"
 authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
 readme = "README.md"
@@ -24,7 +24,6 @@ dependencies = [
     "pybedtools>=0.11.2",
     "PyYAML>=6.0.2",
     "PyWavelets>=1.9.0",
-    "matplotlib",
     "tqdm",
     "itrigamma>=0.1.0a",
 ]
@@ -41,12 +40,6 @@ docs = [
     "sphinx-copybutton>=0.5.0",
     "sphinxcontrib-bibtex>=2.4.0",
 ]
-plot = [
-    "plotext",
-    "seaborn",
-    "matplotlib",
-]
-
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true
