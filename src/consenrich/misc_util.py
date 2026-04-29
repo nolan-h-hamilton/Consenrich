@@ -44,13 +44,6 @@ def checkAlignmentFile(alignmentFile: str) -> bool:
         )
     )
 
-
-def checkBamFile(bamFile: str) -> bool:
-    r"""Backward-compatible alias for alignment file checks"""
-
-    return checkAlignmentFile(bamFile)
-
-
 def alignmentFilesArePairedEnd(
     alignmentFiles: List[str], maxReads: int = 1_000
 ) -> List[bool]:
@@ -80,13 +73,6 @@ def alignmentFilesArePairedEnd(
             )
         )
     return results
-
-
-def bamsArePairedEnd(bamFiles: List[str], maxReads: int = 1_000) -> List[bool]:
-    r"""Backward-compatible alias for alignment file detection"""
-
-    return alignmentFilesArePairedEnd(bamFiles, maxReads=maxReads)
-
 
 def getChromSizesDict(
     sizes_file: str,

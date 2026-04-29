@@ -1446,6 +1446,7 @@ ccounts_result ccounts_countRegion(
     int64_t templateLength = 0;
     int64_t absoluteTemplateLength = 0;
     int64_t midPoint = 0;
+    int64_t cutPosition = 0;
     size_t index0 = 0;
     size_t index1 = 0;
 
@@ -1814,6 +1815,57 @@ ccounts_result ccounts_countRegion(
         {
             continue;
         }
+
+        if (countOptions->oneReadPerBin ||
+            (ccounts_countMode)countOptions->countMode == ccounts_countModeCenter)
+        {
+            midPoint = (adjStart + adjEnd) / 2;
+            if (midPoint >= start64 && midPoint < end64)
+            {
+                intervalIndex = (size_t)((midPoint - start64) / step64);
+                if (intervalIndex < countBufferLength)
+                {
+                    countBuffer[intervalIndex] += 1.0f;
+                }
+            }
+            continue;
+        }
+
+        if ((ccounts_countMode)countOptions->countMode == ccounts_countModeCutSite ||
+            (ccounts_countMode)countOptions->countMode == ccounts_countModeFivePrime)
+        {
+            if (countOptions->pairedEndMode > 0)
+            {
+                cutPosition = adjStart;
+                if (cutPosition >= start64 && cutPosition < end64)
+                {
+                    intervalIndex = (size_t)((cutPosition - start64) / step64);
+                    if (intervalIndex < countBufferLength)
+                    {
+                        countBuffer[intervalIndex] += 1.0f;
+                    }
+                }
+                cutPosition = adjEnd - 1;
+                if (cutPosition >= start64 && cutPosition < end64)
+                {
+                    intervalIndex = (size_t)((cutPosition - start64) / step64);
+                    if (intervalIndex < countBufferLength)
+                    {
+                        countBuffer[intervalIndex] += 1.0f;
+                    }
+                }
+            }
+            else if (fivePrime >= start64 && fivePrime < end64)
+            {
+                intervalIndex = (size_t)((fivePrime - start64) / step64);
+                if (intervalIndex < countBufferLength)
+                {
+                    countBuffer[intervalIndex] += 1.0f;
+                }
+            }
+            continue;
+        }
+
         if (adjStart < start64)
         {
             adjStart = start64;
@@ -1821,17 +1873,6 @@ ccounts_result ccounts_countRegion(
         if (adjEnd > end64)
         {
             adjEnd = end64;
-        }
-
-        if (countOptions->oneReadPerBin)
-        {
-            midPoint = (adjStart + adjEnd) / 2;
-            intervalIndex = (size_t)((midPoint - start64) / step64);
-            if (intervalIndex < countBufferLength)
-            {
-                countBuffer[intervalIndex] += 1.0f;
-            }
-            continue;
         }
 
         index0 = (size_t)((adjStart - start64) / step64);
