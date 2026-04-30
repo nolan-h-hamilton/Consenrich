@@ -211,6 +211,157 @@ def testZeroCenteredBackgroundUpdate():
     assert abs(float(np.mean(background))) < 1.0e-5
     assert float(np.std(background)) > 0.0
 
+    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0)
+    rhsTrack = np.sum(
+        invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
+        axis=0,
+    )
+    lam = core._backgroundPenaltyFromSpan(
+        blockLenIntervals=8,
+        backgroundSmoothness=1.0,
+    )
+    systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
+    systemMat = systemMat + (lam * core._buildSecondDiffPenalty(weightTrack.size))
+    constraintVec = np.ones(weightTrack.size, dtype=np.float64)
+    kktMat = core.sparse.bmat(
+        [
+            [systemMat, constraintVec[:, None]],
+            [constraintVec[None, :], None],
+        ],
+        format="csc",
+    )
+    rhsVec = np.concatenate([rhsTrack, np.zeros(1, dtype=np.float64)])
+    expected = core.sparse_linalg.spsolve(kktMat, rhsVec)[:-1]
+    expected -= np.mean(expected, dtype=np.float64)
+
+    assert np.allclose(background, expected.astype(np.float32), atol=1.0e-4)
+
+
+@pytest.mark.correctness
+def testZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    residualMatrix = np.vstack(
+        [
+            np.linspace(-0.25, 0.25, 96, dtype=np.float32),
+            np.linspace(0.25, -0.25, 96, dtype=np.float32),
+        ]
+    )
+    invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
+
+    def _forbidSpsolve(*args, **kwargs):
+        raise AssertionError("background update should use the banded solver")
+
+    monkeypatch.setattr(core.sparse_linalg, "spsolve", _forbidSpsolve)
+
+    background = core._solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
+        blockLenIntervals=8,
+        backgroundSmoothness=1.0,
+    )
+
+    assert background.shape == (96,)
+    assert np.isfinite(background).all()
+    assert abs(float(np.mean(background))) < 1.0e-5
+
+
+@pytest.mark.correctness
+def testBackgroundUpdateCanSkipZeroCentering():
+    n = 72
+    x = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
+    residualMatrix = np.vstack(
+        [
+            0.75 + 0.2 * np.sin(x),
+            0.75 + 0.1 * np.cos(x),
+        ]
+    ).astype(np.float32)
+    invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
+
+    centered = core._solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
+        blockLenIntervals=8,
+        backgroundSmoothness=1.0,
+    )
+    uncentered = core._solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
+        blockLenIntervals=8,
+        backgroundSmoothness=1.0,
+        zeroCenter=False,
+    )
+
+    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0)
+    rhsTrack = np.sum(
+        invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
+        axis=0,
+    )
+    lam = core._backgroundPenaltyFromSpan(
+        blockLenIntervals=8,
+        backgroundSmoothness=1.0,
+    )
+    systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
+    systemMat = systemMat + (lam * core._buildSecondDiffPenalty(weightTrack.size))
+    expectedUncentered = core.sparse_linalg.spsolve(systemMat.tocsc(), rhsTrack)
+
+    assert abs(float(np.mean(centered))) < 1.0e-5
+    assert abs(float(np.mean(uncentered))) > 0.5
+    assert np.allclose(
+        uncentered,
+        expectedUncentered.astype(np.float32),
+        atol=1.0e-4,
+    )
+
+
+@pytest.mark.correctness
+def testReplicateBiasCanSkipZeroCentering():
+    n = 24
+    m = 3
+    matrixData = np.full((m, n), 2.0, dtype=np.float32)
+    matrixMunc = np.full((m, n), 10.0, dtype=np.float32)
+    matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
+    matrixQ0 = core.constructMatrixQ(
+        minDiagQ=1.0e-6,
+        offDiagQ=0.0,
+    ).astype(np.float32, copy=False)
+    intervalToBlockMap = np.zeros(n, dtype=np.int32)
+
+    commonKwargs = dict(
+        matrixData=matrixData,
+        matrixPluginMuncInit=matrixMunc,
+        matrixF=matrixF,
+        matrixQ0=matrixQ0,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=1,
+        stateInit=0.0,
+        stateCovarInit=1.0e-8,
+        EM_maxIters=1,
+        EM_innerRtol=0.0,
+        pad=1.0e-4,
+        EM_tNu=8.0,
+        EM_useObsPrecReweight=False,
+        EM_useProcPrecReweight=False,
+        EM_useAPN=False,
+        EM_useReplicateBias=True,
+        EM_repBiasShrink=0.0,
+        returnIntermediates=True,
+        t_innerIters=1,
+    )
+
+    centeredBias = cconsenrich.cinnerEM(
+        **commonKwargs,
+        EM_zeroCenterReplicateBias=True,
+    )[-1]
+    uncenteredBias = cconsenrich.cinnerEM(
+        **commonKwargs,
+        EM_zeroCenterReplicateBias=False,
+    )[-1]
+
+    assert abs(float(np.mean(centeredBias))) < 1.0e-5
+    assert abs(float(np.mean(uncenteredBias))) > 1.0
+    assert np.all(np.asarray(uncenteredBias) > 1.0)
+
 
 @pytest.mark.correctness
 def testFitParamsDropsProcBlockScaleOptions():
@@ -485,6 +636,29 @@ def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
     assert muncTrack.shape == values.shape
     assert np.isfinite(muncTrack).all()
     assert support > 0.0
+
+
+@pytest.mark.correctness
+def testMeanVarPairSampleSizesStayWithinTrackLength():
+    intervals = np.arange(1024, dtype=np.uint32)
+    values = np.linspace(-0.5, 0.5, intervals.size, dtype=np.float32)
+    excludeMask = np.zeros(intervals.size, dtype=np.uint8)
+
+    means, variances, starts, ends = cconsenrich.cmeanVarPairs(
+        intervals,
+        values,
+        900,
+        256,
+        42,
+        excludeMask,
+    )
+
+    assert means.shape == (256,)
+    assert variances.shape == (256,)
+    assert starts.shape == ends.shape == (256,)
+    assert np.all(starts >= 0)
+    assert np.all(ends <= values.size)
+    assert np.all(ends > starts)
 
 
 @pytest.mark.correctness

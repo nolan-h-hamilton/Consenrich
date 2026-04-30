@@ -1084,6 +1084,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "fitParams.EM_useReplicateBias",
             True,
         ),
+        EM_zeroCenterBackground=_cfgGet(
+            configData,
+            "fitParams.EM_zeroCenterBackground",
+            True,
+        ),
+        EM_zeroCenterReplicateBias=_cfgGet(
+            configData,
+            "fitParams.EM_zeroCenterReplicateBias",
+            True,
+        ),
         EM_repBiasShrink=_cfgGet(
             configData,
             "fitParams.EM_repBiasShrink",
@@ -2441,6 +2451,8 @@ def main():
             EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
             EM_useAPN=fitArgs.EM_useAPN,
             EM_useReplicateBias=fitArgs.EM_useReplicateBias,
+            EM_zeroCenterBackground=fitArgs.EM_zeroCenterBackground,
+            EM_zeroCenterReplicateBias=fitArgs.EM_zeroCenterReplicateBias,
             EM_repBiasShrink=fitArgs.EM_repBiasShrink,
             EM_outerIters=fitArgs.EM_outerIters,
             EM_outerRtol=fitArgs.EM_outerRtol,

@@ -480,7 +480,7 @@ class fitParams(NamedTuple):
 
     Outer loop:
 
-    1. update a shared zero-centered background track \(g_i\)
+    1. update a shared background track \(g_i\), optionally constrained to have mean zero
 
     The default fit keeps replicate-level bias calibration and robust precision reweighting on.
 
@@ -506,7 +506,11 @@ class fitParams(NamedTuple):
     :type EM_useAPN: bool
     :param EM_useReplicateBias: If True, estimate additive replicate offsets \(b_j\) in the observation equation.
     :type EM_useReplicateBias: bool
-    :param EM_repBiasShrink: Non-negative shrinkage applied to replicate bias estimates after centering.
+    :param EM_zeroCenterBackground: If True, enforce the identifiability constraint that the shared smooth background has mean zero.
+    :type EM_zeroCenterBackground: bool
+    :param EM_zeroCenterReplicateBias: If True, enforce the identifiability constraint that replicate offsets have weighted mean zero.
+    :type EM_zeroCenterReplicateBias: bool
+    :param EM_repBiasShrink: Non-negative shrinkage applied to replicate bias estimates after optional centering.
     :type EM_repBiasShrink: float
     :param EM_outerIters: Number of outer alternations between the inner Kalman-EM fit and shared background update.
     :type EM_outerIters: int
@@ -529,6 +533,8 @@ class fitParams(NamedTuple):
     EM_useProcPrecReweight: bool | None = True
     EM_useAPN: bool | None = False
     EM_useReplicateBias: bool | None = True
+    EM_zeroCenterBackground: bool | None = True
+    EM_zeroCenterReplicateBias: bool | None = True
     EM_repBiasShrink: float | None = 0.0
     EM_outerIters: int | None = 3
     EM_outerRtol: float | None = 1.0e-3
@@ -1858,6 +1864,8 @@ def runConsenrich(
     EM_useProcPrecReweight: bool = True,
     EM_useAPN: bool = False,
     EM_useReplicateBias: bool = True,
+    EM_zeroCenterBackground: bool = True,
+    EM_zeroCenterReplicateBias: bool = True,
     EM_repBiasShrink: float = 0.0,
     EM_outerIters: int = 3,
     EM_outerRtol: float = 1.0e-3,
@@ -1892,9 +1900,12 @@ def runConsenrich(
       \mathrm{Var}(\epsilon_{[j,i]}) =
       \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[j,i]}}.
 
-    Here :math:`g_{[i]}` is a shared zero-centered smooth background, :math:`b_j`
-    is a replicate-level bias term, and :math:`v_{[j,i]}` is the plugin observation
-    variance supplied by ``matrixMunc``.
+    Here :math:`g_{[i]}` is a shared smooth background, :math:`b_j` is a
+    replicate-level bias term, and :math:`v_{[j,i]}` is the plugin observation
+    variance supplied by ``matrixMunc``. By default, identifiability is enforced
+    by zero-centering the shared background and replicate offsets; those constraints
+    can be disabled with ``EM_zeroCenterBackground=False`` and
+    ``EM_zeroCenterReplicateBias=False``.
 
     The latent state follows
 
@@ -1907,7 +1918,7 @@ def runConsenrich(
     If ``EM_useAPN=True``, the forward filter instead uses the adaptive-process-noise
     D-statistic update to scale :math:`\mathbf{Q}_0` and process-precision reweighting is disabled.
 
-    If ``effectiveInfoRescale=True``, the default state variance output is
+    If ``effectiveInfoRescale=True``, the default state uncertainty output is
     multiplied by effective-information correction factors estimated from
     standardized one-step-ahead innovations via Bartlett/Newey-West long-run variance.
 
@@ -2187,6 +2198,7 @@ def runConsenrich(
                 EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
                 EM_useAPN=bool(EM_useAPN),
                 EM_useReplicateBias=bool(EM_useReplicateBias),
+                EM_zeroCenterReplicateBias=bool(EM_zeroCenterReplicateBias),
                 EM_repBiasShrink=float(EM_repBiasShrink),
                 APN_minQ=float(minQ),
                 APN_maxQ=float(maxQ),
@@ -2236,6 +2248,7 @@ def runConsenrich(
                 invVarMatrix=invVarMatrix,
                 blockLenIntervals=int(blockLenIntervals),
                 backgroundSmoothness=float(EM_backgroundSmoothness),
+                zeroCenter=bool(EM_zeroCenterBackground),
             )
 
             bgChange = float(
@@ -2721,9 +2734,10 @@ def _solveZeroCenteredBackground(
     invVarMatrix: np.ndarray,
     blockLenIntervals: int,
     backgroundSmoothness: float = 1.0,
+    zeroCenter: bool = True,
 ) -> npt.NDArray[np.float32]:
-    residualArr = np.asarray(residualMatrix, dtype=np.float64)
-    invVarArr = np.asarray(invVarMatrix, dtype=np.float64)
+    residualArr = np.asarray(residualMatrix, dtype=np.float32)
+    invVarArr = np.asarray(invVarMatrix, dtype=np.float32)
     if residualArr.ndim != 2 or invVarArr.shape != residualArr.shape:
         raise ValueError(
             "residualMatrix and invVarMatrix must have identical 2D shapes"
@@ -2733,32 +2747,26 @@ def _solveZeroCenteredBackground(
     if intervalCount < 1:
         return np.zeros(0, dtype=np.float32)
 
-    weightTrack = np.sum(invVarArr, axis=0)
-    rhsTrack = np.sum(invVarArr * residualArr, axis=0)
+    weightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
+    rhsTrack = np.einsum(
+        "ij,ij->j",
+        invVarArr,
+        residualArr,
+        dtype=np.float64,
+    )
     if not np.any(weightTrack > 0.0):
         return np.zeros(intervalCount, dtype=np.float32)
 
-    systemMat = sparse.diags(weightTrack, offsets=0, format="csr")
-    penaltyMat = _buildSecondDiffPenalty(intervalCount)
     lam = _backgroundPenaltyFromSpan(
         blockLenIntervals=blockLenIntervals,
         backgroundSmoothness=backgroundSmoothness,
     )
-    systemMat = systemMat + (lam * penaltyMat)
-
-    constraintVec = np.ones(intervalCount, dtype=np.float64)
-    kktMat = sparse.bmat(
-        [
-            [systemMat, constraintVec[:, None]],
-            [constraintVec[None, :], None],
-        ],
-        format="csc",
+    return cconsenrich.csolveZeroCenteredBackground(
+        np.ascontiguousarray(weightTrack, dtype=np.float64),
+        np.ascontiguousarray(rhsTrack, dtype=np.float64),
+        float(lam),
+        bool(zeroCenter),
     )
-    rhsVec = np.concatenate([rhsTrack, np.zeros(1, dtype=np.float64)])
-    solutionVec = sparse_linalg.spsolve(kktMat, rhsVec)
-    backgroundTrack = np.asarray(solutionVec[:-1], dtype=np.float64)
-    backgroundTrack -= np.mean(backgroundTrack, dtype=np.float64)
-    return backgroundTrack.astype(np.float32, copy=False)
 
 
 def getMuncTrack(

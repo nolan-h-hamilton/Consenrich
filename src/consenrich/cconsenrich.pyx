@@ -312,6 +312,153 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
         varOutView[regionIndex] = <float>(RSS / pairCountDouble / divRSS)
 
 
+cdef inline double _secondDiffPenaltyDiag(Py_ssize_t n, Py_ssize_t i, double lam) noexcept nogil:
+    if n < 3 or lam <= 0.0:
+        return 0.0
+    if n == 3:
+        if i == 1:
+            return 4.0 * lam
+        return lam
+    if i == 0 or i == n - 1:
+        return lam
+    if i == 1 or i == n - 2:
+        return 5.0 * lam
+    return 6.0 * lam
+
+
+cdef inline double _secondDiffPenaltyOff1(Py_ssize_t n, Py_ssize_t i, double lam) noexcept nogil:
+    if n < 3 or lam <= 0.0:
+        return 0.0
+    if n == 3:
+        return -2.0 * lam
+    if i == 0 or i == n - 2:
+        return -2.0 * lam
+    return -4.0 * lam
+
+
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] csolveZeroCenteredBackground(
+    cnp.ndarray[cnp.float64_t, ndim=1] weightTrack,
+    cnp.ndarray[cnp.float64_t, ndim=1] rhsTrack,
+    double lam,
+    bint zeroCenter=True,
+):
+    r"""Solve the second-difference background update.
+
+    Solves ``(diag(weightTrack) + lam * D2.T @ D2) x = rhsTrack`` using a
+    pentadiagonal LDL' factorization. If ``zeroCenter`` is true, also applies
+    the identifiability constraint ``sum(x) = 0`` via a Lagrange multiplier.
+    """
+
+    cdef Py_ssize_t n = weightTrack.shape[0]
+    cdef Py_ssize_t i
+    cdef double minPivot = 1.0e-12
+    cdef double offVal
+    cdef double l2Val
+    cdef double sumRhs = 0.0
+    cdef double sumConstraint = 0.0
+    cdef double mu = 0.0
+    cdef double denomOne
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] diag
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] rhs
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] constraintSolve
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] firstLower
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out
+    cdef double[::1] diagView
+    cdef double[::1] rhsView
+    cdef double[::1] constraintView
+    cdef double[::1] firstLowerView
+    cdef cnp.float32_t[::1] outView
+
+    if rhsTrack.shape[0] != n:
+        raise ValueError("weightTrack and rhsTrack must have the same length")
+
+    out = np.zeros(n, dtype=np.float32)
+    if n <= 0:
+        return out
+    if n == 1:
+        if not zeroCenter:
+            denomOne = <double>weightTrack[0]
+            if denomOne < minPivot:
+                denomOne = minPivot
+            out[0] = <cnp.float32_t>((<double>rhsTrack[0]) / denomOne)
+        return out
+
+    diag = np.ascontiguousarray(weightTrack, dtype=np.float64)
+    rhs = np.ascontiguousarray(rhsTrack, dtype=np.float64)
+    constraintSolve = np.ones(n, dtype=np.float64)
+    firstLower = np.zeros(n, dtype=np.float64)
+
+    diagView = diag
+    rhsView = rhs
+    constraintView = constraintSolve
+    firstLowerView = firstLower
+    outView = out
+
+    with nogil:
+        for i in range(n):
+            diagView[i] = diagView[i] + _secondDiffPenaltyDiag(n, i, lam)
+            if diagView[i] < minPivot:
+                diagView[i] = minPivot
+
+        # Pentadiagonal LDL' factorization. The second lower diagonal is
+        # lam / diag[i - 2] and can be recomputed, so only the first lower
+        # diagonal needs storage.
+        offVal = _secondDiffPenaltyOff1(n, 0, lam)
+        firstLowerView[1] = offVal / diagView[0]
+        diagView[1] = diagView[1] - firstLowerView[1] * firstLowerView[1] * diagView[0]
+        if diagView[1] < minPivot:
+            diagView[1] = minPivot
+
+        for i in range(2, n):
+            offVal = _secondDiffPenaltyOff1(n, i - 1, lam)
+            firstLowerView[i] = (offVal - lam * firstLowerView[i - 1]) / diagView[i - 1]
+            diagView[i] = (
+                diagView[i]
+                - firstLowerView[i] * firstLowerView[i] * diagView[i - 1]
+                - (lam * lam) / diagView[i - 2]
+            )
+            if diagView[i] < minPivot:
+                diagView[i] = minPivot
+
+        # Forward solve for two RHS vectors: the data RHS and A^{-1}1 for
+        # the zero-sum Lagrange multiplier.
+        rhsView[1] = rhsView[1] - firstLowerView[1] * rhsView[0]
+        constraintView[1] = constraintView[1] - firstLowerView[1] * constraintView[0]
+        for i in range(2, n):
+            l2Val = lam / diagView[i - 2]
+            rhsView[i] = rhsView[i] - firstLowerView[i] * rhsView[i - 1] - l2Val * rhsView[i - 2]
+            constraintView[i] = constraintView[i] - firstLowerView[i] * constraintView[i - 1] - l2Val * constraintView[i - 2]
+
+        for i in range(n):
+            rhsView[i] = rhsView[i] / diagView[i]
+            constraintView[i] = constraintView[i] / diagView[i]
+
+        # Backward solve.
+        rhsView[n - 2] = rhsView[n - 2] - firstLowerView[n - 1] * rhsView[n - 1]
+        constraintView[n - 2] = constraintView[n - 2] - firstLowerView[n - 1] * constraintView[n - 1]
+        for i in range(n - 3, -1, -1):
+            l2Val = lam / diagView[i]
+            rhsView[i] = rhsView[i] - firstLowerView[i + 1] * rhsView[i + 1] - l2Val * rhsView[i + 2]
+            constraintView[i] = constraintView[i] - firstLowerView[i + 1] * constraintView[i + 1] - l2Val * constraintView[i + 2]
+
+        if zeroCenter:
+            for i in range(n):
+                sumRhs += rhsView[i]
+                sumConstraint += constraintView[i]
+            if fabs(sumConstraint) > minPivot:
+                mu = sumRhs / sumConstraint
+            else:
+                mu = sumRhs / <double>n
+
+            for i in range(n):
+                outView[i] = <cnp.float32_t>(rhsView[i] - mu * constraintView[i])
+        else:
+            for i in range(n):
+                outView[i] = <cnp.float32_t>rhsView[i]
+
+    return out
+
+
 cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
     # CALLERS: `_partitionLt`, `_nthElement`
 
@@ -1418,12 +1565,22 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     rng = default_rng(randSeed)
     valuesArray = np.ascontiguousarray(values, dtype=np.float64)
     valuesView = valuesArray
-    sizesArray = np.full(iters, blockSize, dtype=np.intp)
     outMeans = np.empty(iters, dtype=np.float32)
     outVars = np.empty(iters, dtype=np.float32)
     valuesLength = <Py_ssize_t>valuesArray.size
     maxBlockLength = <Py_ssize_t>blockSize
+    if valuesLength <= 0 or maxBlockLength <= 0 or iters <= 0:
+        outMeans[:] = 0.0
+        outVars[:] = 0.0
+        emptyStarts = np.empty(0, dtype=np.intp)
+        emptyEnds = np.empty(0, dtype=np.intp)
+        return outMeans, outVars, emptyStarts, emptyEnds
+
     geomProb = 1.0 / (<double>maxBlockLength)
+    sizesArray = rng.geometric(geomProb, size=iters).astype(np.intp, copy=False)
+    np.maximum(sizesArray, <cnp.intp_t>min(5, valuesLength), out=sizesArray)
+    np.minimum(sizesArray, <cnp.intp_t>min(5*maxBlockLength, valuesLength), out=sizesArray)
+    maxBlockLength = <Py_ssize_t>sizesArray.max()
     supportList = []
     scanIndex = 0
 
@@ -1443,9 +1600,6 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
 
     supportArr = np.asarray(supportList, dtype=np.intp)
     starts_ = rng.choice(supportArr, size=iters, replace=True).astype(np.intp)
-    sizesArray = rng.geometric(geomProb, size=<int>starts_.size).astype(np.intp, copy=False)
-    np.maximum(sizesArray, <cnp.intp_t>5, out=sizesArray)
-    np.minimum(sizesArray, 5*maxBlockLength, out=sizesArray)
     ends = starts_ + sizesArray
 
     startsView = starts_
@@ -2542,6 +2696,7 @@ cpdef tuple cinnerEM(
     bint EM_useProcPrecReweight=True,
     bint EM_useAPN=False,
     bint EM_useReplicateBias=True,
+    bint EM_zeroCenterReplicateBias=True,
     float EM_repBiasShrink=0.0,
     float APN_minQ=1.0e-4,
     float APN_maxQ=1000.0,
@@ -2697,6 +2852,8 @@ cpdef tuple cinnerEM(
     :type EM_useProcPrecReweight: bool
     :param EM_useReplicateBias: If True, update replicate-level additive offsets :math:`b_j`.
     :type EM_useReplicateBias: bool
+    :param EM_zeroCenterReplicateBias: If True, center replicate offsets to weighted mean zero after each update.
+    :type EM_zeroCenterReplicateBias: bool
     :param t_innerIters: Number of inner filter/smoother + reweighting updates per EM outer iteration.
     :type t_innerIters: int
     :param returnIntermediates: If True, also return smoothed states/covariances, residuals, and (if enabled) precision multipliers.
@@ -3105,13 +3262,15 @@ cpdef tuple cinnerEM(
                         replicateBiasView[j] = <cnp.float32_t>0.0
                         denomNoRep += 1.0
 
-                if denomNoRep > 0.0:
+                if EM_zeroCenterReplicateBias and denomNoRep > 0.0:
                     repBiasCenter = repBiasCenter / denomNoRep
                 else:
                     repBiasCenter = 0.0
 
                 for j in range(trackCount):
-                    tmpVal = (<double>replicateBiasView[j]) - repBiasCenter
+                    tmpVal = <double>replicateBiasView[j]
+                    if EM_zeroCenterReplicateBias:
+                        tmpVal = tmpVal - repBiasCenter
                     if repBiasShrink > 0.0:
                         tmpVal = tmpVal / (1.0 + repBiasShrink)
                     replicateBiasView[j] = <cnp.float32_t>tmpVal

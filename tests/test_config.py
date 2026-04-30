@@ -209,6 +209,49 @@ def test_readConfigUsesEMUseField(
     assert parsedField["fitArgs"].EM_use is False
 
 
+def test_readConfigUsesZeroCenterIdentifiabilityFields(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configDefaultYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+    parsedDefault = readConfig(
+        str(
+            writeConfigFile(
+                tmp_path,
+                "config_zero_center_default.yaml",
+                configDefaultYaml,
+            )
+        )
+    )
+    assert parsedDefault["fitArgs"].EM_zeroCenterBackground is True
+    assert parsedDefault["fitArgs"].EM_zeroCenterReplicateBias is True
+
+    configOverrideYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    fitParams.EM_zeroCenterBackground: false
+    fitParams.EM_zeroCenterReplicateBias: false
+    """
+    parsedOverride = readConfig(
+        str(
+            writeConfigFile(
+                tmp_path,
+                "config_zero_center_override.yaml",
+                configOverrideYaml,
+            )
+        )
+    )
+    assert parsedOverride["fitArgs"].EM_zeroCenterBackground is False
+    assert parsedOverride["fitArgs"].EM_zeroCenterReplicateBias is False
+
+
 def test_readConfigDefaultsEMTNuToEightAndAllowsOverride(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
