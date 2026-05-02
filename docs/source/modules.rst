@@ -27,7 +27,7 @@ For interval :math:`i` and replicate :math:`j`:
 Model
 """""
 
-**Observations**
+**Observation Model**
 
 .. math::
 
@@ -36,7 +36,7 @@ Model
   \mathrm{Var}(\epsilon_{[j,i]}) =
   \frac{a_j (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
 
-**Prior**
+**Prior Process Model**
 
 The latent state vector :math:`\mathbf{x}_{[i]}` evolves according to a first-order process with fat-tailed innovations:
 
@@ -47,7 +47,8 @@ The latent state vector :math:`\mathbf{x}_{[i]}` evolves according to a first-or
   \mathrm{Var}(\eta_{[i]}) = \frac{q_{b(i)} \mathbf{Q}_0}{\kappa_{[i]}}.
 
 Here :math:`g_{[i]}` is a shared zero-centered smooth background. The outer loop updates
-:math:`g_{[i]}` while the plugin observation-variance track stays fixed within each inner solve.
+:math:`g_{[i]}` while the data-derived (or given) observation-variance track stays fixed
+within each inner solve.
 
 .. autoclass:: consenrich.core.inputParams
 .. autoclass:: consenrich.core.genomeParams
@@ -65,10 +66,33 @@ Primary functions
 .. autofunction:: consenrich.core.runConsenrich
 .. autofunction:: consenrich.core.readSegments
 .. autofunction:: consenrich.core.getMuncTrack
-.. autofunction:: consenrich.core.getContextSize
+.. autofunction:: consenrich.core.chooseDependenceLength
+.. autofunction:: consenrich.core.chooseFeatureLength
 
 ``consenrich.peaks``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. autofunction:: consenrich.peaks.getROCCOBudget
 .. autofunction:: consenrich.peaks.solveRocco
+
+
+Normalization by Input Type
+""""""""""""""""""""""""""""""""""
+
+``countingParams.normMethod`` is interpreted according to the input type:
+
+* ``BAM`` inputs are raw alignments. Consenrich estimates read or fragment lengths,
+  counts signal over genomic intervals, and applies the requested library-size
+  normalization method such as ``EGS``, ``RPGC``, ``RPKM``, ``CPM``, or ``SF`` before
+  transformation.
+
+* ``FRAGMENTS`` inputs are 10x fragments files. Consenrich counts emitted
+  insertions or fragment endpoints according to the fragments settings and uses
+  ``CPM``/``RPKM`` scaling. ``EGS`` and ``RPGC`` are not used for fragments;
+  ``countingParams.fragmentsGroupNorm: CELLS`` can additionally divide by the
+  number of selected cells. Fragments file support is currently experimental.
+
+* ``BEDGRAPH`` inputs are treated as **pre-normalized** continuous tracks. Consenrich
+  bins them by *overlap-weighted* mean signal and uses unit-scaling by default.
+  Provide ``countingParams.scaleFactors`` (and ``scaleFactorsControl`` when using
+  controls) to apply explicit multiplicative scaling. Bedgraph file inputs are currently experimental.

@@ -31,6 +31,202 @@ TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
 
 
+def _emaReference(x: np.ndarray, alpha: float) -> np.ndarray:
+    out = np.empty_like(x)
+    if x.dtype == np.float32:
+        alpha_ = np.float32(alpha)
+        oneMinusAlpha = np.float32(1.0) - alpha_
+    else:
+        alpha_ = float(alpha)
+        oneMinusAlpha = 1.0 - alpha_
+
+    out[0] = x[0]
+    for i in range(1, x.shape[0]):
+        out[i] = alpha_ * x[i] + oneMinusAlpha * out[i - 1]
+    for i in range(x.shape[0] - 2, -1, -1):
+        out[i] = alpha_ * out[i] + oneMinusAlpha * out[i + 1]
+    return out
+
+
+def _monoLogReference(x: np.ndarray, offset: float, scale: float) -> np.ndarray:
+    out = np.empty_like(x)
+    if x.dtype == np.float32:
+        offset_ = np.float32(offset if offset > 0.0 else 1.0)
+        scale_ = np.float32(scale)
+        for i, value in enumerate(x):
+            u = np.float32(value + offset_)
+            if u <= np.float32(0.0):
+                u = offset_
+            out[i] = np.float32(scale_ * np.float32(math.log(float(u))))
+    else:
+        offset_ = float(offset if offset > 0.0 else 1.0)
+        scale_ = float(scale)
+        for i, value in enumerate(x):
+            u = float(value) + offset_
+            if u <= 0.0:
+                u = offset_
+            out[i] = scale_ * math.log(u)
+    return out
+
+
+def _logRatioReference(
+    treatment: np.ndarray,
+    control: np.ndarray,
+    offset: float,
+    scale: float,
+) -> np.ndarray:
+    out = np.empty_like(treatment)
+    if treatment.dtype == np.float32:
+        offset_ = np.float32(offset if offset > 0.0 else 1.0)
+        scale_ = np.float32(scale)
+        for i, (treatValue, controlValue) in enumerate(zip(treatment, control)):
+            t = np.float32(treatValue + offset_)
+            c = np.float32(controlValue + offset_)
+            if t <= np.float32(0.0):
+                t = offset_
+            if c <= np.float32(0.0):
+                c = offset_
+            out[i] = np.float32(
+                scale_
+                * np.float32(math.log(float(t)) - math.log(float(c)))
+            )
+    else:
+        offset_ = float(offset if offset > 0.0 else 1.0)
+        scale_ = float(scale)
+        for i, (treatValue, controlValue) in enumerate(zip(treatment, control)):
+            t = float(treatValue) + offset_
+            c = float(controlValue) + offset_
+            if t <= 0.0:
+                t = offset_
+            if c <= 0.0:
+                c = offset_
+            out[i] = scale_ * (math.log(t) - math.log(c))
+    return out
+
+
+def _expectedCSF(chromMat: np.ndarray, centerMedian: bool = True) -> np.ndarray:
+    chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
+    logMat = np.log(chromMat_.astype(np.float64))
+    refLog = logMat.mean(axis=0)
+    scaleFactors = np.exp(np.median(logMat - refLog, axis=1))
+    scaleFactors = np.clip(scaleFactors, 0.2, 5.0)
+
+    if centerMedian:
+        centerLog = np.median(np.log(scaleFactors + 1.0e-8))
+        scaleFactors = np.clip(scaleFactors / np.exp(centerLog), 0.2, 5.0)
+
+    return 1.0 / scaleFactors
+
+
+@pytest.mark.correctness
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def testCEMAUsesSameBidirectionalKernelForFloat32AndFloat64(dtype):
+    x = np.array([0.0, 2.0, -1.0, 5.0, 4.0, 7.0], dtype=dtype)
+    alpha = 0.35
+
+    out = cconsenrich.cEMA(x, alpha)
+    expected = _emaReference(x, alpha)
+
+    assert out.dtype == dtype
+    if dtype == np.float32:
+        np.testing.assert_allclose(out, expected, rtol=1.0e-6, atol=1.0e-7)
+    else:
+        np.testing.assert_allclose(out, expected, rtol=1.0e-14, atol=1.0e-14)
+
+
+@pytest.mark.correctness
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def testMonoFuncUsesSameLogKernelForFloat32AndFloat64(dtype):
+    x = np.array([-3.0, -0.25, 0.0, 2.5, 9.0], dtype=dtype)
+
+    out, sentinel = cconsenrich.monoFunc(x, offset=0.75, scale=1.7)
+    expected = _monoLogReference(x, offset=0.75, scale=1.7)
+
+    assert sentinel == pytest.approx(-1.0)
+    assert out.dtype == dtype
+    np.testing.assert_array_equal(out, expected)
+
+
+@pytest.mark.correctness
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def testTransformLogRatioKernelMatchesReferenceForFloat32AndFloat64(dtype):
+    treatment = np.array([9.0, -4.0, 0.0, 12.0, 4.0], dtype=dtype)
+    control = np.array([2.0, 5.0, -3.0, 3.0, 4.0], dtype=dtype)
+    out = np.empty_like(treatment)
+
+    returned = cconsenrich.cTransformWithInputInto(
+        treatment,
+        control,
+        out,
+        logOffset=0.5,
+        logMult=1.3,
+    )
+    allocated = cconsenrich.cTransformWithInput(
+        treatment,
+        control,
+        logOffset=0.5,
+        logMult=1.3,
+    )
+    expected = _logRatioReference(treatment, control, offset=0.5, scale=1.3)
+
+    assert returned is out
+    assert out.dtype == dtype
+    assert allocated.dtype == dtype
+    np.testing.assert_array_equal(out, expected)
+    np.testing.assert_array_equal(allocated, expected)
+
+
+@pytest.mark.correctness
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def testTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64(dtype):
+    x = np.array([-2.0, -0.5, 0.0, 3.0, 8.0], dtype=dtype)
+    inPlace = x.copy()
+
+    returned = cconsenrich.cTransformInPlace(
+        inPlace,
+        blockLength=5,
+        w_global=0.0,
+        logOffset=0.75,
+        logMult=1.7,
+    )
+    allocated = cconsenrich.cTransform(
+        x,
+        blockLength=5,
+        w_global=0.0,
+        logOffset=0.75,
+        logMult=1.7,
+    )
+    expected = _monoLogReference(x, offset=0.75, scale=1.7)
+
+    assert returned is inPlace
+    assert inPlace.dtype == dtype
+    assert allocated.dtype == dtype
+    np.testing.assert_array_equal(inPlace, expected)
+    np.testing.assert_array_equal(allocated, expected)
+
+
+@pytest.mark.correctness
+def testCSFMedianSelectionHandlesOddLengthDuplicates():
+    base = (20.0 + (np.arange(601, dtype=np.float32) % 17)).astype(np.float32)
+    factors = np.array([0.75, 1.0, 1.0], dtype=np.float32)
+    chromMat = factors[:, None] * base[None, :]
+
+    out = cconsenrich.cSF(chromMat, centerMedian=True, minRefDist=1)
+
+    np.testing.assert_allclose(out, _expectedCSF(chromMat), rtol=1.0e-7, atol=1.0e-7)
+
+
+@pytest.mark.correctness
+def testCSFMedianSelectionHandlesEvenLengthDuplicates():
+    base = (30.0 + (np.arange(600, dtype=np.float32) % 23)).astype(np.float32)
+    factors = np.array([0.75, 1.25, 1.25, 2.0], dtype=np.float32)
+    chromMat = factors[:, None] * base[None, :]
+
+    out = cconsenrich.cSF(chromMat, centerMedian=True, minRefDist=1)
+
+    np.testing.assert_allclose(out, _expectedCSF(chromMat), rtol=1.0e-7, atol=1.0e-7)
+
+
 @pytest.mark.correctness
 def testCTransformWithInputReturnsFloat32LogRatio():
     treatment = np.array([9.0, 0.0, 4.0], dtype=np.float32)
@@ -66,6 +262,76 @@ def testCTransformWithInputReturnsFloat64LogRatio():
     assert out.dtype == np.float64
     assert np.allclose(out, expected)
     assert out[1] < 0.0
+
+
+@pytest.mark.correctness
+def testCTransformWithInputIntoWritesOutputInPlace():
+    treatment = np.array([9.0, 0.0, 4.0], dtype=np.float32)
+    control = np.array([2.0, 5.0, 4.0], dtype=np.float32)
+    out = np.empty_like(treatment)
+
+    returned = cconsenrich.cTransformWithInputInto(
+        treatment,
+        control,
+        out,
+        logOffset=1.0,
+        logMult=1.0,
+    )
+    expected = cconsenrich.cTransformWithInput(
+        treatment,
+        control,
+        logOffset=1.0,
+        logMult=1.0,
+    )
+
+    assert returned is out
+    assert out.dtype == np.float32
+    assert np.allclose(out, expected)
+    assert out[1] < 0.0
+
+
+@pytest.mark.correctness
+def testCTransformInPlacePureLogMutatesFloat32Array():
+    x = np.array([0.0, 3.0, 8.0], dtype=np.float32)
+    original = x.copy()
+
+    returned = cconsenrich.cTransformInPlace(
+        x,
+        blockLength=5,
+        w_global=0.0,
+        logOffset=1.0,
+        logMult=2.0,
+    )
+
+    assert returned is x
+    assert x.dtype == np.float32
+    assert np.allclose(x, (2.0 * np.log(original + 1.0)).astype(np.float32))
+
+
+@pytest.mark.correctness
+def testCTransformInPlaceMatchesAllocatingTransformForFloat64():
+    x = np.linspace(0.0, 5.0, 256, dtype=np.float64)
+    x[120:140] += 10.0
+    expected = cconsenrich.cTransform(
+        x,
+        blockLength=21,
+        w_global=1.0,
+        logOffset=1.0,
+        logMult=1.0,
+    )
+    in_place = x.copy()
+
+    returned = cconsenrich.cTransformInPlace(
+        in_place,
+        blockLength=21,
+        w_global=1.0,
+        logOffset=1.0,
+        logMult=1.0,
+    )
+
+    assert returned is in_place
+    assert in_place.dtype == np.float64
+    assert np.allclose(in_place, expected)
 
 
 @pytest.mark.correctness
@@ -531,6 +797,10 @@ def testBartlettEffectiveInfoCorrectionIID():
 
     assert diag["numSeries"] == 4
     assert diag["bandwidth"] == 16
+    assert diag["kernel"] == "bartlett"
+    assert diag["finiteRunCount"] == 4
+    assert diag["pairCount0"] == 4 * 512
+    assert diag["clippedInnovationCount"] == 0
     assert diag["gamma0"] > 0.0
     assert diag["correctionFactor"] >= 1.0
     assert diag["correctionFactor"] < 1.5
@@ -539,45 +809,90 @@ def testBartlettEffectiveInfoCorrectionIID():
 
 
 @pytest.mark.correctness
+def testBartlettEffectiveInfoCorrectionAdaptiveBandwidthUsesCap():
+    rng = np.random.default_rng(17)
+    z = rng.normal(size=(3, 256)).astype(np.float32)
+
+    diag = core._bartlettEffectiveInfoCorrection(z, bandwidth=None, maxBandwidth=20)
+
+    assert diag["adaptiveBandwidth"] is True
+    assert diag["kernel"] == "bartlett"
+    assert 1 <= diag["bandwidth"] <= 20
+    assert diag["maxBandwidth"] == 20
+
+
+@pytest.mark.correctness
 def testBartlettEffectiveInfoCorrectionAR1PositiveAutocorrelation():
     rng = np.random.default_rng(8)
     m = 4
-    n = 512
-    phi = 0.85
+    n = 4096
+    phi = 0.5
     z = np.zeros((m, n), dtype=np.float64)
-    innovations = rng.normal(size=(m, n))
+    innovations = rng.normal(scale=np.sqrt(1.0 - phi * phi), size=(m, n))
+    z[:, 0] = rng.normal(size=m)
     for j in range(m):
         for i in range(1, n):
             z[j, i] = phi * z[j, i - 1] + innovations[j, i]
 
-    diag = core._bartlettEffectiveInfoCorrection(z.astype(np.float32), bandwidth=16)
+    diag = core._bartlettEffectiveInfoCorrection(z.astype(np.float32), bandwidth=80)
+    expectedLRV = (1.0 + phi) / (1.0 - phi)
 
     assert diag["numSeries"] == m
     assert diag["gamma0"] > 0.0
     assert diag["correctionFactor"] > 1.5
+    assert diag["correctionFactor"] == pytest.approx(expectedLRV, rel=0.35)
     assert diag["effectiveInfoFraction"] < 0.7
 
 
 @pytest.mark.correctness
-def testShrunkenBlockEffectiveInfoCorrectionTracksLocalHAC():
+def testBartlettEffectiveInfoCorrectionDoesNotBridgeMissingGaps():
+    z = np.array([[1.0, 1.0, np.nan, -1.0, -1.0]], dtype=np.float64)
+
+    diag = core._bartlettEffectiveInfoCorrection(z, bandwidth=1)
+
+    assert diag["finiteRunCount"] == 2
+    assert diag["pairCount0"] == 4
+    assert np.asarray(diag["pairCounts"])[1] == 2
+
+
+@pytest.mark.correctness
+def testBartlettEffectiveInfoCorrectionNegativeAutocorrelationDoesNotDeflate():
+    z = np.tile(np.array([1.0, -1.0], dtype=np.float64), 128)[None, :]
+
+    diag = core._bartlettEffectiveInfoCorrection(z, bandwidth=8)
+
+    assert diag["lrv"] <= diag["gamma0"]
+    assert diag["correctionFactor"] == pytest.approx(1.0)
+
+
+@pytest.mark.correctness
+def testShrunkenBlockEffectiveInfoCorrectionTracksLocalAutocorrelationSmoothly():
     rng = np.random.default_rng(9)
-    n = 128
+    n = 256
     z = np.zeros((1, n), dtype=np.float64)
-    z[:, :64] = rng.normal(scale=0.4, size=(1, 64))
-    z[:, 64:] = rng.normal(scale=2.0, size=(1, 64))
+    z[:, :128] = rng.normal(size=(1, 128))
+    phi = 0.85
+    innovations = rng.normal(scale=np.sqrt(1.0 - phi * phi), size=128)
+    z[0, 128] = rng.normal()
+    for i in range(129, n):
+        z[0, i] = phi * z[0, i - 1] + innovations[i - 128]
 
     diag = core._shrunkenBlockEffectiveInfoCorrection(
         z,
-        bandwidth=4,
+        bandwidth=12,
         blockLengthIntervals=64,
     )
     factors = np.asarray(diag["intervalFactors"], dtype=np.float64)
 
-    assert diag["numBlocks"] == 2
+    assert diag["numBlocks"] > 2
     assert factors.shape == (n,)
     assert np.all(factors >= 1.0)
-    assert float(np.median(factors[64:])) > float(np.median(factors[:64]))
+    assert float(np.median(factors[160:])) > float(np.median(factors[:96]))
+    assert abs(float(factors[64] - factors[63])) < float(
+        np.max(factors) - np.min(factors)
+    )
     assert diag["blockFactorMax"] >= diag["blockFactorMin"]
+    assert diag["shrinkageWeightMean"] < 1.0
 
 
 @pytest.mark.correctness
@@ -1080,7 +1395,7 @@ def testRunConsenrichDisableCalibrationUsesPluginAndAPN(
 
 
 @pytest.mark.correctness
-def testGetContextSizeBootstrapWidthVariance():
+def testChooseFeatureLengthBootstrapWidthVarianceAndContextCompat():
     grid = np.arange(512, dtype=np.float64)
     vals = np.zeros_like(grid)
     for center, amp, sigma in [
@@ -1092,7 +1407,7 @@ def testGetContextSizeBootstrapWidthVariance():
     ]:
         vals += amp * np.exp(-0.5 * ((grid - center) / sigma) ** 2)
 
-    pointEstimate, widthLower, widthUpper = core.getContextSize(
+    pointEstimate, widthLower, widthUpper, diagnostics = core.chooseFeatureLength(
         vals.astype(np.float32),
         minSpan=3,
         maxSpan=64,
@@ -1104,6 +1419,38 @@ def testGetContextSizeBootstrapWidthVariance():
     assert pointEstimate <= 64
     assert widthLower >= 1
     assert widthUpper >= widthLower
+    assert diagnostics["method"] == "feature_peak_width_random_effects"
+
+@pytest.mark.correctness
+def testChooseDependenceLengthUsesAutocorrelationAndIncrements():
+    rng = np.random.default_rng(123)
+    n = 512
+    base = np.empty(n, dtype=np.float64)
+    base[0] = 0.0
+    for i in range(1, n):
+        base[i] = 0.85 * base[i - 1] + rng.normal(scale=0.5)
+    chromMat = np.vstack(
+        [
+            base + rng.normal(scale=0.05, size=n),
+            base + rng.normal(scale=0.05, size=n),
+            base + rng.normal(scale=0.05, size=n),
+        ]
+    ).astype(np.float32)
+
+    pointSpan, lowerSpan, upperSpan, diagnostics = core.chooseDependenceLength(
+        chromMat,
+        intervalSizeBP=25,
+        minSpan=3,
+        maxSpan=64,
+    )
+
+    assert 3 <= pointSpan <= 64
+    assert 3 <= lowerSpan <= pointSpan <= upperSpan <= 64
+    assert diagnostics["method"] == "dependence_acf_increment"
+    assert diagnostics["context_size_bp"] == pointSpan * 50 + 1
+    assert diagnostics["finite_count"] == n
+    assert len(diagnostics["acf"]) == 64
+    assert len(diagnostics["increment_variance"]) == 64
 
 
 @pytest.mark.correctness
@@ -1242,6 +1589,41 @@ def testCCountsCountBedGraphRegionWeightedByOverlap(tmp_path):
     )
 
     assert counts.dtype == np.float32
+    assert np.allclose(counts, np.array([4.0, 8.0], dtype=np.float32))
+
+
+@pytest.mark.correctness
+def testCCountsCountIndexedBedGraphRegionWeightedByOverlap(tmp_path):
+    pysam = pytest.importorskip("pysam")
+    bedGraphPath = tmp_path / "toy.sorted.bedGraph"
+    bedGraphPath.write_text(
+        "\n".join(
+            [
+                "chr1\t0\t25\t2.0",
+                "chr1\t25\t75\t6.0",
+                "chr1\t75\t100\t10.0",
+                "chr2\t0\t100\t99.0",
+            ]
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    indexedPath = Path(pysam.tabix_index(str(bedGraphPath), preset="bed", force=True))
+
+    counts = ccounts.ccounts_countAlignmentRegion(
+        str(indexedPath),
+        "chr1",
+        0,
+        100,
+        50,
+        0,
+        0,
+        1,
+        0,
+        sourceKind="BEDGRAPH",
+    )
+
+    assert (tmp_path / "toy.sorted.bedGraph.gz.tbi").is_file()
     assert np.allclose(counts, np.array([4.0, 8.0], dtype=np.float32))
 
 

@@ -20,9 +20,9 @@ import numpy as np
 import pandas as pd
 import yaml
 from tqdm import tqdm
-from scipy import stats
 
 import consenrich.core as core
+import consenrich.ccounts as ccounts
 import consenrich.misc_util as misc_util
 import consenrich.constants as constants
 import consenrich.detrorm as detrorm
@@ -36,6 +36,15 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _pyBigWigAvailable() -> bool:
+    try:
+        import pyBigWig  # noqa: F401
+    except Exception:
+        return False
+    return True
 
 
 def _checkSF(sf, logger, cut_=3.0):
@@ -70,6 +79,95 @@ def _checkSF(sf, logger, cut_=3.0):
 def _getSmallWorkerCount(taskCount: int, maxWorkers: int = 4) -> int:
     cpuCount = os.cpu_count() or 1
     return min(taskCount, max(1, cpuCount // 2), maxWorkers)
+
+
+_MEMORY_UNSET = object()
+
+
+def _getAvailableMemoryBytes() -> int | None:
+    try:
+        import psutil  # type: ignore
+
+        available = int(psutil.virtual_memory().available)
+        if available > 0:
+            return available
+    except Exception:
+        pass
+
+    try:
+        with open("/proc/meminfo", "r", encoding="ascii") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) * 1024
+    except OSError:
+        pass
+
+    try:
+        pages = int(os.sysconf("SC_PHYS_PAGES"))
+        pageSize = int(os.sysconf("SC_PAGE_SIZE"))
+        total = pages * pageSize
+        if total > 0:
+            return total // 4
+    except (AttributeError, OSError, ValueError):
+        pass
+
+    return None
+
+
+def _getMuncWorkerCount(
+    numSamples: int,
+    numIntervals: int,
+    sharedArrays=(),
+    availableMemoryBytes=_MEMORY_UNSET,
+    logger_=logger,
+) -> int:
+    numSamples = int(numSamples)
+    numIntervals = int(numIntervals)
+    if numSamples <= 0:
+        return 1
+
+    cpuCount = os.cpu_count() or 1
+    cpuWorkers = min(numSamples, max(1, cpuCount // 2))
+    if cpuWorkers <= 1:
+        return 1
+
+    if availableMemoryBytes is _MEMORY_UNSET:
+        availableMemoryBytes = _getAvailableMemoryBytes()
+    if availableMemoryBytes is None:
+        return cpuWorkers
+
+    try:
+        availableBytes = int(availableMemoryBytes)
+    except (TypeError, ValueError):
+        return cpuWorkers
+    if availableBytes <= 0:
+        return cpuWorkers
+
+    sharedBytes = 0
+    for arr in sharedArrays:
+        if arr is not None:
+            sharedBytes += int(getattr(arr, "nbytes", 0) or 0)
+
+    scratchBytes = max(
+        int(64 * max(numIntervals, 0)) + (64 * 1024 * 1024),
+        128 * 1024 * 1024,
+    )
+    memoryBudget = int(max(0, availableBytes - sharedBytes) * 0.5)
+    memoryWorkers = max(1, memoryBudget // scratchBytes)
+    workers = max(1, min(cpuWorkers, memoryWorkers))
+    if workers < cpuWorkers and logger_ is not None:
+        logger_.info(
+            "munc matrix: reducing workers from %d to %d based on memory estimate "
+            "(available=%.2f GiB, shared=%.2f GiB, perWorker=%.2f GiB).",
+            int(cpuWorkers),
+            int(workers),
+            availableBytes / (1024**3),
+            sharedBytes / (1024**3),
+            scratchBytes / (1024**3),
+        )
+    return workers
 
 
 def _threadMapMaybe(
@@ -213,6 +311,100 @@ def _inferSourceKind(path: str) -> str:
     if "fragments" in os.path.basename(lowerPath):
         return "FRAGMENTS"
     return "BAM"
+
+
+def _isCompressedBedGraphPath(path: str) -> bool:
+    return str(path).lower().endswith((".gz", ".bgz", ".bgzf"))
+
+
+def _bedGraphTabixIndexExists(path: str) -> bool:
+    return os.path.exists(f"{path}.tbi") or os.path.exists(f"{path}.csi")
+
+
+def _existingIndexedBedGraphPath(path: str) -> Optional[str]:
+    if _isCompressedBedGraphPath(path) and _bedGraphTabixIndexExists(path):
+        return path
+    compressedPath = f"{path}.gz"
+    if (
+        not _isCompressedBedGraphPath(path)
+        and os.path.exists(compressedPath)
+        and _bedGraphTabixIndexExists(compressedPath)
+    ):
+        return compressedPath
+    return None
+
+
+def _buildBedGraphTabixIndex(path: str) -> str:
+    sourcePath = str(path)
+    targetPath = (
+        sourcePath if _isCompressedBedGraphPath(sourcePath) else f"{sourcePath}.gz"
+    )
+    sourceDir = os.path.dirname(os.path.abspath(sourcePath)) or "."
+    tempCompressedPath = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix="consenrich_bedgraph_index_",
+            suffix=".bedGraph.gz",
+            delete=False,
+            dir=sourceDir,
+        ) as tempCompressedHandle:
+            tempCompressedPath = tempCompressedHandle.name
+
+        ccounts.ccounts_indexBedGraphPath(sourcePath, tempCompressedPath)
+        os.replace(tempCompressedPath, targetPath)
+        for indexSuffix in [".tbi", ".csi"]:
+            tempIndexPath = f"{tempCompressedPath}{indexSuffix}"
+            targetIndexPath = f"{targetPath}{indexSuffix}"
+            if os.path.exists(tempIndexPath):
+                os.replace(tempIndexPath, targetIndexPath)
+        tempCompressedPath = ""
+        return targetPath
+    finally:
+        for tempPath in [
+            tempCompressedPath,
+            f"{tempCompressedPath}.tbi" if tempCompressedPath else "",
+            f"{tempCompressedPath}.csi" if tempCompressedPath else "",
+        ]:
+            if tempPath and os.path.exists(tempPath):
+                try:
+                    os.remove(tempPath)
+                except OSError:
+                    pass
+
+
+def _ensureBedGraphIndexed(path: str, logger_: logging.Logger = logger) -> str:
+    indexedPath = _existingIndexedBedGraphPath(path)
+    if indexedPath is not None:
+        if indexedPath != path:
+            logger_.info(
+                "Using existing indexed bedGraph copy %s for unindexed input %s.",
+                indexedPath,
+                path,
+            )
+        return indexedPath
+
+    targetPath = path if _isCompressedBedGraphPath(path) else f"{path}.gz"
+    logger_.info(
+        "BedGraph input %s has no tabix index; creating %s and tabix index for random access.",
+        path,
+        targetPath,
+    )
+    return _buildBedGraphTabixIndex(path)
+
+
+def _prepareBedGraphSources(
+    sources: Sequence[core.inputSource],
+    logger_: logging.Logger = logger,
+) -> List[core.inputSource]:
+    preparedSources: List[core.inputSource] = []
+    for source in sources:
+        if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
+            indexedPath = _ensureBedGraphIndexed(source.path, logger_)
+            if indexedPath != source.path:
+                source = source._replace(path=indexedPath)
+        preparedSources.append(source)
+    return preparedSources
 
 
 def _normalizeSourceKind(sourceKind: Optional[str], path: str) -> str:
@@ -573,9 +765,11 @@ def getEffectiveGenomeSizes(
             "Read lengths must be a non-empty list. Try calling `getReadLengths` first."
         )
     return [
-        0
-        if int(readLength) <= 0
-        else constants.getEffectiveGenomeSize(genomeName, readLength)
+        (
+            0
+            if int(readLength) <= 0
+            else constants.getEffectiveGenomeSize(genomeName, readLength)
+        )
         for readLength in readLengths
     ]
 
@@ -622,9 +816,6 @@ def getInputArgs(config_path: str) -> core.inputParams:
             role="control",
         )
 
-    bamFiles = core.getSourcePaths(treatmentSources)
-    bamFilesControl = core.getSourcePaths(controlSources)
-
     if len(treatmentSources) == 0:
         raise ValueError("No input sources provided in the configuration.")
 
@@ -637,12 +828,17 @@ def getInputArgs(config_path: str) -> core.inputParams:
             "Number of control sources must be 0, 1, or the same as number of treatment sources"
         )
 
+    treatmentSources = _prepareBedGraphSources(treatmentSources)
+    controlSources = _prepareBedGraphSources(controlSources)
+
     if len(controlSources) == 1:
         logger.info(
-            f"Only one control given: Using {bamFilesControl[0]} for all treatment files."
+            f"Only one control given: Using {controlSources[0].path} for all treatment files."
         )
         controlSources = controlSources * len(treatmentSources)
-        bamFilesControl = core.getSourcePaths(controlSources)
+
+    bamFiles = core.getSourcePaths(treatmentSources)
+    bamFilesControl = core.getSourcePaths(controlSources)
 
     if not bamFiles or not isinstance(bamFiles, list):
         raise ValueError("No input source paths found")
@@ -674,7 +870,7 @@ def getOutputArgs(config_path: str) -> core.outputParams:
     convertToBigWig_ = _cfgGet(
         configData,
         "outputParams.convertToBigWig",
-        True if shutil.which("bedGraphToBigWig") else False,
+        _pyBigWigAvailable(),
     )
 
     roundDigits_ = _cfgGet(configData, "outputParams.roundDigits", 3)
@@ -824,6 +1020,11 @@ def getStateArgs(config_path: str) -> core.stateParams:
         "stateParams.effectiveInfoBlockLengthBP",
         _cfgGet(configData, "stateParams.effectiveInfoBlockLength", 50_000),
     )
+    effectiveInfoBandwidthBP_ = _cfgGet(
+        configData,
+        "stateParams.effectiveInfoBandwidthBP",
+        None,
+    )
     return core.stateParams(
         stateInit=stateInit_,
         stateCovarInit=stateCovarInit_,
@@ -832,6 +1033,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
         stateUpperBound=stateUpperBound_,
         effectiveInfoRescale=effectiveInfoRescale_,
         effectiveInfoBlockLengthBP=effectiveInfoBlockLengthBP_,
+        effectiveInfoBandwidthBP=effectiveInfoBandwidthBP_,
     )
 
 
@@ -923,12 +1125,15 @@ def getCountingArgs(config_path: str) -> core.countingParams:
 
 
 def _resolveEffectiveInfoBandwidthIntervals(
-    contextVector: tuple[int, int, int] | None,
-    blockLenIntervals: int,
-) -> int:
-    if contextVector is not None:
-        return max(int(contextVector[0]), 1)
-    return max(int((int(blockLenIntervals) - 1) // 4), 1)
+    effectiveInfoBandwidthBP: int | float | None,
+    intervalSizeBP: int,
+) -> int | None:
+    if effectiveInfoBandwidthBP is None or float(effectiveInfoBandwidthBP) <= 0.0:
+        return None
+    return max(
+        1,
+        int(np.ceil(float(effectiveInfoBandwidthBP) / float(intervalSizeBP))),
+    )
 
 
 def _resolveEffectiveInfoBlockLengthIntervals(
@@ -958,15 +1163,11 @@ def getScArgs(config_path: str) -> core.scParams:
     )
     if str(defaultCountMode_).strip().lower() not in [
         "coverage",
-        "cov",
         "cutsite",
-        "cut",
         "cutsites",
         "fiveprime",
         "5p",
-        "five_prime",
         "center",
-        "centre",
         "midpoint",
     ]:
         raise ValueError("`scParams.defaultCountMode` is not supported.")
@@ -1073,7 +1274,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "observationParams.EB_minLin",
-                0.0,
+                1.0,
             )
         ),
         EB_use=_cfgGet(
@@ -1143,12 +1344,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_outerIters=_cfgGet(
             configData,
             "fitParams.EM_outerIters",
-            8,
+            5,
         ),
         EM_outerRtol=_cfgGet(
             configData,
             "fitParams.EM_outerRtol",
-            1.0e-2,
+            0.01,
         ),
         EM_backgroundSmoothness=_cfgGet(
             configData,
@@ -1259,24 +1460,9 @@ def convertBedGraphToBigWig(
     if suffixes is None:
         # at least look for `state` bedGraph
         suffixes = ["state"]
-    path_ = ""
-    warningMessage = (
-        "Could not find UCSC bedGraphToBigWig binary utility."
-        "If you need bigWig files instead of the default, human-readable bedGraph files,"
-        "you can download the `bedGraphToBigWig` binary from https://hgdownload.soe.ucsc.edu/admin/exe/<operatingSystem, architecture>"
-        "OR install via conda (conda install -c bioconda ucsc-bedgraphtobigwig)."
+    logger.info(
+        "Attempting to generate bigWig files from bedGraph format via pyBigWig..."
     )
-
-    logger.info("Attempting to generate bigWig files from bedGraph format...")
-    try:
-        path_ = shutil.which("bedGraphToBigWig")
-    except Exception:
-        logger.warning(f"\n{warningMessage}\n")
-        path_ = ""
-    if path_ is None or len(path_) == 0:
-        logger.warning(f"\n{warningMessage}\n")
-    else:
-        logger.info(f"Using bedGraphToBigWig from {path_}")
     for suffix in suffixes:
         bedgraph = f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
         if not os.path.exists(bedgraph):
@@ -1296,32 +1482,17 @@ def convertBedGraphToBigWig(
             continue
         bigwig = f"{experimentName}_consenrich_{suffix}.v{__version__}.bw"
         logger.info(f"Start: {bedgraph} --> {bigwig}...")
-        ucscSucceeded = False
-        if path_ is not None and len(path_) > 0:
-            try:
-                subprocess.run([path_, bedgraph, chromSizesFile, bigwig], check=True)
-                ucscSucceeded = True
-            except Exception as e:
-                logger.warning(
-                    f"bedGraph-->bigWig conversion with\n\n\t`bedGraphToBigWig {bedgraph} {chromSizesFile} {bigwig}`\nraised: \n{e}\n\n"
-                )
-        if not ucscSucceeded:
-            try:
-                logger.info(
-                    "Trying pyBigWig streaming fallback for %s --> %s...",
-                    bedgraph,
-                    bigwig,
-                )
-                _convertBedGraphToBigWigPyBigWig(
-                    bedgraph,
-                    chromSizesFile,
-                    bigwig,
-                )
-            except Exception as e:
-                logger.warning(
-                    f"pyBigWig bedGraph-->bigWig fallback for {bedgraph} raised:\n{e}\n"
-                )
-                continue
+        try:
+            _convertBedGraphToBigWigPyBigWig(
+                bedgraph,
+                chromSizesFile,
+                bigwig,
+            )
+        except Exception as e:
+            logger.warning(
+                f"pyBigWig bedGraph-->bigWig conversion for {bedgraph} raised:\n{e}\n"
+            )
+            continue
         if os.path.exists(bigwig) and os.path.getsize(bigwig) > 100:
             logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
 
@@ -1336,16 +1507,35 @@ def _convertBedGraphToBigWigPyBigWig(
         import pyBigWig
     except Exception as e:
         raise RuntimeError(
-            "pyBigWig is not installed; cannot use streaming bigWig fallback"
+            "pyBigWig is not installed; cannot convert bedGraph files to bigWig"
         ) from e
 
     chromSizes: List[Tuple[str, int]] = []
+    chromSizeByName: Dict[str, int] = {}
     with open(chromSizesFile, "r", encoding="utf-8") as handle:
-        for line in handle:
+        for lineNumber, line in enumerate(handle, start=1):
             parts = line.rstrip("\n").split()
-            if len(parts) < 2:
+            if len(parts) == 0 or parts[0].startswith("#"):
                 continue
-            chromSizes.append((str(parts[0]), int(parts[1])))
+            if len(parts) < 2:
+                raise ValueError(
+                    f"Malformed chromosome sizes row {lineNumber} in {chromSizesFile}"
+                )
+            chrom = str(parts[0])
+            try:
+                chromSize = int(parts[1])
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid chromosome size on row {lineNumber} in {chromSizesFile}"
+                ) from e
+            if chromSize <= 0:
+                raise ValueError(
+                    f"Chromosome {chrom} has non-positive size on row {lineNumber}"
+                )
+            if chrom in chromSizeByName:
+                raise ValueError(f"Duplicate chromosome {chrom} in {chromSizesFile}")
+            chromSizes.append((chrom, chromSize))
+            chromSizeByName[chrom] = chromSize
     if len(chromSizes) == 0:
         raise ValueError(f"No chromosome sizes found in {chromSizesFile}")
 
@@ -1353,6 +1543,10 @@ def _convertBedGraphToBigWigPyBigWig(
     outDir = os.path.dirname(os.path.abspath(bigwigPath)) or "."
     tempPath = ""
     bw = None
+    seenEntry = False
+    lastChrom = ""
+    lastStart = -1
+    lastEnd = -1
     try:
         with tempfile.NamedTemporaryFile(
             prefix="consenrich_bigwig_",
@@ -1362,20 +1556,85 @@ def _convertBedGraphToBigWigPyBigWig(
         ) as tempHandle:
             tempPath = tempHandle.name
         bw = pyBigWig.open(tempPath, "w")
-        bw.addHeader(chromSizes)
+        bw.addHeader(sorted(chromSizes, key=lambda item: item[0]))
         chroms: List[str] = []
         starts: List[int] = []
         ends: List[int] = []
         values: List[float] = []
         with open(bedgraphPath, "r", encoding="utf-8") as handle:
-            for line in handle:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) < 4:
+            for lineNumber, line in enumerate(handle, start=1):
+                stripped = line.strip()
+                if (
+                    not stripped
+                    or stripped.startswith("#")
+                    or stripped == "track"
+                    or stripped.startswith("track ")
+                    or stripped == "browser"
+                    or stripped.startswith("browser ")
+                ):
                     continue
-                chroms.append(str(parts[0]))
-                starts.append(int(parts[1]))
-                ends.append(int(parts[2]))
-                values.append(float(parts[3]))
+                parts = stripped.split()
+                if len(parts) != 4:
+                    raise ValueError(
+                        f"Malformed bedGraph row {lineNumber} in {bedgraphPath}: "
+                        "expected 4 columns"
+                    )
+                chrom = str(parts[0])
+                if chrom not in chromSizeByName:
+                    raise ValueError(
+                        f"Chromosome {chrom} on bedGraph row {lineNumber} is not "
+                        f"present in {chromSizesFile}"
+                    )
+                try:
+                    start = int(parts[1])
+                    end = int(parts[2])
+                except ValueError as e:
+                    raise ValueError(
+                        f"Invalid bedGraph coordinates on row {lineNumber} in "
+                        f"{bedgraphPath}"
+                    ) from e
+                try:
+                    value = float(parts[3])
+                except ValueError as e:
+                    raise ValueError(
+                        f"Invalid bedGraph value on row {lineNumber} in {bedgraphPath}"
+                    ) from e
+                if not np.isfinite(value):
+                    raise ValueError(
+                        f"Non-finite bedGraph value on row {lineNumber} in {bedgraphPath}"
+                    )
+                if start < 0:
+                    raise ValueError(
+                        f"Negative start coordinate on bedGraph row {lineNumber}"
+                    )
+                if end <= start:
+                    raise ValueError(
+                        f"End coordinate must be greater than start on bedGraph row "
+                        f"{lineNumber}"
+                    )
+                if end > chromSizeByName[chrom]:
+                    raise ValueError(
+                        f"End coordinate {end} on bedGraph row {lineNumber} exceeds "
+                        f"{chrom} size of {chromSizeByName[chrom]}"
+                    )
+                if seenEntry:
+                    if chrom < lastChrom or (chrom == lastChrom and start < lastStart):
+                        raise ValueError(
+                            f"bedGraph input is not sorted at row {lineNumber}; sort "
+                            "with LC_ALL=C sort -k1,1 -k2,2n -k3,3n"
+                        )
+                    if chrom == lastChrom and start < lastEnd:
+                        raise ValueError(
+                            f"Overlapping bedGraph interval at row {lineNumber}"
+                        )
+                chroms.append(chrom)
+                starts.append(start)
+                ends.append(end)
+                values.append(value)
+                seenEntry = True
+                lastChrom = chrom
+                lastStart = start
+                lastEnd = end
                 if len(chroms) >= chunkSize_:
                     bw.addEntries(chroms, starts, ends=ends, values=values)
                     chroms.clear()
@@ -1384,6 +1643,8 @@ def _convertBedGraphToBigWigPyBigWig(
                     values.clear()
         if len(chroms) > 0:
             bw.addEntries(chroms, starts, ends=ends, values=values)
+        if not seenEntry:
+            raise ValueError(f"No bedGraph intervals found in {bedgraphPath}")
         bw.close()
         bw = None
         os.replace(tempPath, bigwigPath)
@@ -1607,9 +1868,7 @@ def main():
     treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
     controlSources = _listOrEmpty(getattr(inputArgs, "controlSources", None))
     if not treatmentSources:
-        treatmentSources = _buildPathInputSources(
-            inputArgs.bamFiles, role="treatment"
-        )
+        treatmentSources = _buildPathInputSources(inputArgs.bamFiles, role="treatment")
     if not controlSources:
         controlSources = _buildPathInputSources(
             _listOrEmpty(inputArgs.bamFilesControl),
@@ -1636,7 +1895,7 @@ def main():
     )
     if samplingBlockSizeBP_ is None or samplingBlockSizeBP_ <= 0:
         samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
-    vec_: Optional[np.ndarray] = None
+    vec_: Optional[Tuple[int, int, int]] = None
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
@@ -1700,18 +1959,18 @@ def main():
             "  --> using CPM/RPKM ..."
         )
         normMethod_ = "CPM"
-    if anyBedGraph and not allBedGraph and (
-        countingArgs.scaleFactors is None
-        or (controlsPresent and countingArgs.scaleFactorsControl is None)
+    if (
+        anyBedGraph
+        and not allBedGraph
+        and (
+            countingArgs.scaleFactors is None
+            or (controlsPresent and countingArgs.scaleFactorsControl is None)
+        )
     ):
         raise ValueError(
             "Mixed BEDGRAPH and read-count sources require explicit "
             "`countingParams.scaleFactors`"
-            + (
-                " and `countingParams.scaleFactorsControl`."
-                if controlsPresent
-                else "."
-            )
+            + (" and `countingParams.scaleFactorsControl`." if controlsPresent else ".")
         )
     if allBedGraph and normMethod_ in ["EGS", "RPGC", "RPKM", "CPM"]:
         logger.info(
@@ -2188,14 +2447,12 @@ def main():
                     minTemplateLength=samArgs.minTemplateLength,
                 )
                 logger.info(f"(trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
-                chromMat[j_, :] = np.asarray(
-                    cconsenrich.cTransformWithInput(
-                        pairMatrix[0, :],
-                        pairMatrix[1, :],
-                        logOffset=countingArgs.logOffset,
-                        logMult=countingArgs.logMult,
-                    ),
-                    dtype=np.float32,
+                cconsenrich.cTransformWithInputInto(
+                    pairMatrix[0, :],
+                    pairMatrix[1, :],
+                    chromMat[j_, :],
+                    logOffset=countingArgs.logOffset,
+                    logMult=countingArgs.logMult,
                 )
                 j_ += 1
         else:
@@ -2224,28 +2481,45 @@ def main():
             )
 
         if backgroundBlockSizeBP_ < 0:
-            vec_ = core.getContextSize(
-                stats.trim_mean(chromMat, proportiontocut=0.1, axis=0)
+            depPoint, depLower, depUpper, depDiagnostics = core.chooseDependenceLength(
+                chromMat,
+                intervalSizeBP,
+                minSpan=3,
+                maxSpan=64,
             )
-            backgroundBlockSizeBP_ = vec_[0] * (2 * intervalSizeBP) + 1
+            vec_ = (int(depPoint), int(depLower), int(depUpper))
+            backgroundBlockSizeBP_ = int(depDiagnostics["context_size_bp"])
             backgroundBlockSizeIntervals = backgroundBlockSizeBP_ // intervalSizeBP
             logger.info(
-                f"`countingParams.backgroundBlockSizeBP < 0` --> getContextSize(): {backgroundBlockSizeBP_} bp"
+                "`countingParams.backgroundBlockSizeBP < 0` --> "
+                "chooseDependenceLength(): %d bp (span=%d, lower=%d, upper=%d)",
+                int(backgroundBlockSizeBP_),
+                int(depPoint),
+                int(depLower),
+                int(depUpper),
             )
 
         if samplingBlockSizeBP_ < 0:
             if backgroundBlockSizeBP_ > 0:
                 samplingBlockSizeBP_ = backgroundBlockSizeBP_
             else:
-                samplingBlockSizeBP_ = (
-                    core.getContextSize(
-                        stats.trim_mean(chromMat, proportiontocut=0.1, axis=0)
-                    )[0]
-                    * (2 * intervalSizeBP)
-                    + 1
+                depPoint, depLower, depUpper, depDiagnostics = (
+                    core.chooseDependenceLength(
+                        chromMat,
+                        intervalSizeBP,
+                        minSpan=3,
+                        maxSpan=64,
+                    )
                 )
+                vec_ = (int(depPoint), int(depLower), int(depUpper))
+                samplingBlockSizeBP_ = int(depDiagnostics["context_size_bp"])
                 logger.info(
-                    f"`observationParams.samplingBlockSizeBP < 0` --> getContextSize(): {samplingBlockSizeBP_} bp"
+                    "`observationParams.samplingBlockSizeBP < 0` --> "
+                    "chooseDependenceLength(): %d bp (span=%d, lower=%d, upper=%d)",
+                    int(samplingBlockSizeBP_),
+                    int(depPoint),
+                    int(depLower),
+                    int(depUpper),
                 )
 
         denseCenterContextSizeBP = (
@@ -2285,8 +2559,8 @@ def main():
             minQ_ = 0.0
             maxQ_ = 1e4
 
-        def _transformTrack(j: int) -> tuple[int, np.ndarray]:
-            transformed = cconsenrich.cTransform(
+        def _transformTrack(j: int) -> int:
+            cconsenrich.cTransformInPlace(
                 chromMat[j, :],
                 blockLength=denseCenterBlockSizeIntervals,
                 verbose=args.verbose2,
@@ -2294,7 +2568,7 @@ def main():
                 logOffset=countingArgs.logOffset,
                 logMult=countingArgs.logMult,
             )
-            return j, np.asarray(transformed, dtype=np.float32)
+            return j
 
         if controlsPresent:
             logger.info(
@@ -2314,13 +2588,13 @@ def main():
                     int(chromMat.shape[1]),
                 )
                 with ThreadPool(processes=int(transformWorkers)) as pool:
-                    for j, transformed in tqdm(
+                    for _ in tqdm(
                         pool.imap(_transformTrack, range(numSamples)),
                         total=numSamples,
                         desc="Transforming data",
                         unit=" sample ",
                     ):
-                        chromMat[j, :] = transformed
+                        pass
             else:
                 for j in tqdm(
                     range(numSamples),
@@ -2328,8 +2602,7 @@ def main():
                     unit=" sample ",
                 ):
                     logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
-                    _, transformed = _transformTrack(j)
-                    chromMat[j, :] = transformed
+                    _transformTrack(j)
 
         useSparseNearest = bool(
             observationArgs.numNearest is not None
@@ -2343,6 +2616,8 @@ def main():
 
         sparseIntervalIndices = None
         sparseRegionMask = None
+        muncIntervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
+        muncEmptyExcludeMask = np.zeros(numIntervals, dtype=np.uint8)
         if useSparseNearest:
             sparseIntervalIndices = _loadSparseIntervalIndices(
                 genomeArgs.sparseBedFile,
@@ -2392,14 +2667,23 @@ def main():
                     getattr(observationArgs, "restrictLocalAR1ToSparseBed", False)
                 ),
                 verbose=args.verbose2,
+                intervalsArr=muncIntervalsArr,
+                excludeMaskArr=muncEmptyExcludeMask,
             )
             return j, muncTrack
 
         # this has become a bottleneck, so gentle multiprocessing
-        cpuCount = os.cpu_count() or 1
-        muncWorkers = min(
+        muncWorkers = _getMuncWorkerCount(
             numSamples,
-            max(1, cpuCount // 2),
+            chromMat.shape[1],
+            sharedArrays=(
+                chromMat,
+                muncMat,
+                muncIntervalsArr,
+                muncEmptyExcludeMask,
+                sparseIntervalIndices,
+                sparseRegionMask,
+            ),
         )
         useParallelMunc = (
             numSamples >= 4 and chromMat.shape[1] >= 5000 and muncWorkers > 1
@@ -2493,8 +2777,8 @@ def main():
             else 2 * backgroundBlockSizeIntervals + 1
         )
         effectiveInfoBandwidthIntervals_ = _resolveEffectiveInfoBandwidthIntervals(
-            vec_,
-            blockLenIntervals_,
+            stateArgs.effectiveInfoBandwidthBP,
+            intervalSizeBP,
         )
         effectiveInfoBlockLengthIntervals_ = _resolveEffectiveInfoBlockLengthIntervals(
             stateArgs.effectiveInfoBlockLengthBP,
@@ -2502,9 +2786,13 @@ def main():
             numIntervals,
         )
         logger.info(
-            "Effective-information intervals for %s: bandwidth=%d blockLength=%d",
+            "Effective-information intervals for %s: bandwidth=%s blockLength=%d",
             chromosome,
-            int(effectiveInfoBandwidthIntervals_),
+            (
+                "adaptive"
+                if effectiveInfoBandwidthIntervals_ is None
+                else str(int(effectiveInfoBandwidthIntervals_))
+            ),
             int(effectiveInfoBlockLengthIntervals_),
         )
         (

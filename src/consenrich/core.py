@@ -89,7 +89,7 @@ class observationParams(NamedTuple):
     :type samplingIters: int | None
     :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
       Note, during sampling, each block's size (unit: genomic intervals) is drawn from truncated :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSize})` to reduce artifacts from fixed-size blocks.
-      If `None` or ` < 1`, then this value is inferred using :func:`consenrich.core.getContextSize`.
+      If `None` or ` < 1`, then this value is inferred using :func:`consenrich.core.chooseDependenceLength`.
     :type samplingBlockSizeBP: int | None
     :param binQuantileCutoff: When fitting the variance function, pairs :math:`(\lvert \mu_b \rvert, \sigma^2_b)` are binned by their (absolute) means. This parameter sets the quantile of variances within each bin to use when fitting the global mean-variance trend.
       Increasing this value toward `1.0` can raise the prior trend for observation noise levels and therefore yield stiffer signal estimates overall.
@@ -147,13 +147,20 @@ class stateParams(NamedTuple):
     :type stateLowerBound: float
     :param stateUpperBound: Upper bound for the state estimate.
     :type stateUpperBound: float
-    :param effectiveInfoRescale: If True, inflate the default model-based uncertainty track by
-        block-level effective-information correction factors estimated from standardized
-        one-step-ahead innovations via Bartlett/Newey-West long-run variance.
+    :param effectiveInfoRescale: If True, inflate the default model-based uncertainty track
+        using effective-information correction factors estimated from standardized
+        one-step-ahead forward innovations.
     :type effectiveInfoRescale: bool | None
-    :param effectiveInfoBlockLengthBP: Genomic block length, in bp, for HAC
-        uncertainty scaling. Non-positive values fall back to chromosome-wide scaling.
+    :param effectiveInfoBlockLengthBP: Genomic window length, in bp, used to localize
+        the uncertainty inflation factors along the chromosome. Each local window estimates
+        a HAC correction factor, then Consenrich shrinks and interpolates those factors to
+        an interval-level correction track. Non-positive values fall back to one
+        chromosome-wide correction factor.
     :type effectiveInfoBlockLengthBP: int | None
+    :param effectiveInfoBandwidthBP: Optional Newey-West/Bartlett lag bandwidth, in bp,
+        used inside each HAC estimate. This controls how many nearby innovation lags enter
+        the long-run variance sum. Non-positive values use an adaptive lag bandwidth.
+    :type effectiveInfoBandwidthBP: int | None
     """
 
     stateInit: float
@@ -163,6 +170,7 @@ class stateParams(NamedTuple):
     stateUpperBound: float
     effectiveInfoRescale: bool | None
     effectiveInfoBlockLengthBP: int | None
+    effectiveInfoBandwidthBP: int | None
 
 
 class samParams(NamedTuple):
@@ -320,7 +328,7 @@ class countingParams(NamedTuple):
         The default value is generally robust, but users may consider increasing this value when expected feature size is large and/or sequencing depth
         is low (less than :math:`\approx 5 \textsf{million}`, depending on assay).
     :type intervalSizeBP: int
-    :param backgroundBlockSizeBP: Length (bp) of blocks used to estimate local statistics (background, noise, etc.). If a negative value is provided (default), this value is inferred from the data using :func:`consenrich.core.getContextSize`.
+    :param backgroundBlockSizeBP: Length (bp) of blocks used to estimate local statistics (background, noise, etc.). If a negative value is provided (default), this value is inferred from the data using :func:`consenrich.core.chooseDependenceLength`.
     :type backgroundBlockSizeBP: int
     :param normMethod: Method used to normalize read counts for sequencing depth / library size.
 
@@ -620,7 +628,7 @@ def getChromRangesJoint(
     :return: Tuple of start and end positions.
     :rtype: Tuple[int, int]
 
-    :seealso: :func:`getChromRanges`, :func:`cconsenrich.cgetFirstChromRead`, :func:`cconsenrich.cgetLastChromRead`
+    :seealso: :func:`getChromRanges`
     """
     starts = []
     ends = []
@@ -1544,11 +1552,133 @@ def estimateAutoDeltaF(
     return float(bestDeltaF)
 
 
+def _centeredFiniteRunsForHAC(
+    standardizedInnovations: np.ndarray,
+    winsorLimit: float = 8.0,
+) -> tuple[list[np.ndarray], int, int, int, int]:
+    r"""Return centered, clipped contiguous finite innovation runs for HAC."""
+
+    z = np.asarray(standardizedInnovations, dtype=np.float64)
+    if z.ndim == 1:
+        z = z[None, :]
+    elif z.ndim != 2:
+        raise ValueError("`standardizedInnovations` must be 1D or 2D")
+
+    runs: list[np.ndarray] = []
+    numSeries = 0
+    runCount = 0
+    clippedCount = 0
+    maxSeriesLength = 0
+    winsorLimit = float(max(winsorLimit, 0.0))
+
+    for j in range(int(z.shape[0])):
+        row = np.asarray(z[j], dtype=np.float64)
+        finiteMask = np.isfinite(row)
+        finiteCount = int(np.count_nonzero(finiteMask))
+        if finiteCount < 2:
+            continue
+
+        numSeries += 1
+        maxSeriesLength = max(maxSeriesLength, finiteCount)
+        centered = row.copy()
+        centered[finiteMask] = centered[finiteMask] - float(
+            np.mean(centered[finiteMask])
+        )
+
+        finiteIdx = np.flatnonzero(finiteMask)
+        breaks = np.concatenate(
+            (
+                np.array([0], dtype=np.intp),
+                np.flatnonzero(np.diff(finiteIdx) > 1).astype(np.intp) + 1,
+                np.array([finiteIdx.size], dtype=np.intp),
+            )
+        )
+        for b in range(breaks.size - 1):
+            lo = int(breaks[b])
+            hi = int(breaks[b + 1])
+            if hi <= lo:
+                continue
+            run = np.asarray(centered[finiteIdx[lo:hi]], dtype=np.float64)
+            if winsorLimit > 0.0:
+                clipped = np.clip(run, -winsorLimit, winsorLimit)
+                clippedCount += int(np.count_nonzero(clipped != run))
+                run = clipped
+            runs.append(np.ascontiguousarray(run, dtype=np.float64))
+            runCount += 1
+
+    return runs, numSeries, runCount, maxSeriesLength, clippedCount
+
+
+def _pairWeightedAutocovariancesFromRuns(
+    runs: list[np.ndarray],
+    maxLag: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    maxLag = max(int(maxLag), 0)
+    gamma = np.zeros(maxLag + 1, dtype=np.float64)
+    pairCounts = np.zeros(maxLag + 1, dtype=np.int64)
+
+    for h in range(maxLag + 1):
+        numerator = 0.0
+        pairCount = 0
+        for run in runs:
+            t = int(run.size)
+            if t <= h:
+                continue
+            if h == 0:
+                numerator += float(np.dot(run, run))
+                pairCount += t
+            else:
+                numerator += float(np.dot(run[h:], run[:-h]))
+                pairCount += t - h
+        pairCounts[h] = int(pairCount)
+        gamma[h] = numerator / float(pairCount) if pairCount > 0 else np.nan
+
+    return gamma, pairCounts
+
+
+def _selectAdaptiveHACBandwidth(
+    gamma: np.ndarray,
+    pairCounts: np.ndarray,
+    maxBandwidth: int,
+    eps: float = 1.0e-12,
+    threshold: float = 0.05,
+    consecutive: int = 3,
+) -> int:
+    maxBandwidth = max(int(maxBandwidth), 1)
+    if gamma.size <= 1:
+        return 1
+
+    gamma0 = float(gamma[0]) if np.isfinite(gamma[0]) else 0.0
+    if gamma0 <= float(eps):
+        return 1
+
+    usableMax = min(maxBandwidth, int(gamma.size) - 1)
+    consecutive = max(int(consecutive), 1)
+    threshold = float(abs(threshold))
+    for h in range(1, usableMax + 1):
+        hi = h + consecutive
+        if hi > usableMax + 1:
+            break
+        ok = True
+        for lag in range(h, hi):
+            if int(pairCounts[lag]) <= 0:
+                ok = False
+                break
+            rho = float(gamma[lag]) / gamma0
+            if (not np.isfinite(rho)) or abs(rho) >= threshold:
+                ok = False
+                break
+        if ok:
+            return max(int(h), 1)
+    return max(int(usableMax), 1)
+
+
 def _bartlettEffectiveInfoCorrection(
     standardizedInnovations: np.ndarray,
-    bandwidth: int,
+    bandwidth: int | None,
     eps: float = 1.0e-12,
-) -> dict[str, float | int]:
+    maxBandwidth: int | None = None,
+) -> dict[str, Any]:
     r"""Estimate a Bartlett/Newey-West effective correction factor for the state variance.
 
     The input should already be a matrix of standardized innovations with rows corresponding
@@ -1561,10 +1691,21 @@ def _bartlettEffectiveInfoCorrection(
     elif z.ndim != 2:
         raise ValueError("`standardizedInnovations` must be 1D or 2D")
 
-    bw = max(int(bandwidth), 0)
-    if z.size == 0 or bw <= 0:
+    requestedBw = None if bandwidth is None else int(bandwidth)
+    adaptive = requestedBw is None or requestedBw <= 0
+    maxSeriesPossible = max(int(z.shape[1]) - 1, 1)
+    if maxBandwidth is None or int(maxBandwidth) <= 0:
+        maxBandwidthResolved = min(maxSeriesPossible, 256)
+    else:
+        maxBandwidthResolved = min(max(int(maxBandwidth), 1), maxSeriesPossible)
+
+    if z.size == 0:
         return {
-            "bandwidth": int(bw),
+            "bandwidth": 0,
+            "requestedBandwidth": int(requestedBw or 0),
+            "maxBandwidth": int(maxBandwidthResolved),
+            "adaptiveBandwidth": bool(adaptive),
+            "kernel": "bartlett",
             "gamma0": 0.0,
             "lrv": 0.0,
             "correctionFactor": 1.0,
@@ -1572,74 +1713,105 @@ def _bartlettEffectiveInfoCorrection(
             "effectiveSampleSizeFraction": 1.0,
             "numSeries": 0,
             "seriesLength": 0,
+            "finiteRunCount": 0,
+            "pairCount0": 0,
+            "pairCountMin": 0,
+            "pairCounts": np.zeros(1, dtype=np.int64),
+            "clippedInnovationCount": 0,
         }
 
-    centeredSeries: list[np.ndarray] = []
-    for j in range(int(z.shape[0])):
-        zj = np.asarray(z[j], dtype=np.float64)
-        zj = zj[np.isfinite(zj)]
-        if zj.size < 2:
-            continue
-        zj = zj - float(np.mean(zj))
-        centeredSeries.append(zj)
-
-    if not centeredSeries:
+    runs, numSeries, runCount, maxSeriesLength, clippedCount = _centeredFiniteRunsForHAC(
+        z,
+        winsorLimit=8.0,
+    )
+    if not runs:
         return {
-            "bandwidth": int(bw),
+            "bandwidth": 0,
+            "requestedBandwidth": int(requestedBw or 0),
+            "maxBandwidth": int(maxBandwidthResolved),
+            "adaptiveBandwidth": bool(adaptive),
+            "kernel": "bartlett",
             "gamma0": 0.0,
             "lrv": 0.0,
             "correctionFactor": 1.0,
             "effectiveInfoFraction": 1.0,
             "effectiveSampleSizeFraction": 1.0,
-            "numSeries": 0,
-            "seriesLength": 0,
+            "numSeries": int(numSeries),
+            "seriesLength": int(maxSeriesLength),
+            "finiteRunCount": int(runCount),
+            "pairCount0": 0,
+            "pairCountMin": 0,
+            "pairCounts": np.zeros(1, dtype=np.int64),
+            "clippedInnovationCount": int(clippedCount),
         }
 
-    maxUsableLag = min(int(bw), max(int(arr.size) - 1 for arr in centeredSeries))
-    if maxUsableLag <= 0:
-        gamma0List = [
-            float(np.dot(arr, arr) / max(int(arr.size), 1)) for arr in centeredSeries
-        ]
-        gamma0 = float(np.mean(gamma0List)) if gamma0List else 0.0
+    maxRunLag = max(max(int(run.size) - 1 for run in runs), 0)
+    gammaMaxLag = min(
+        maxBandwidthResolved if adaptive else max(int(requestedBw or 0), 0),
+        maxRunLag,
+    )
+    if gammaMaxLag <= 0:
+        gamma, pairCounts = _pairWeightedAutocovariancesFromRuns(runs, 0)
+        gamma0 = float(gamma[0]) if np.isfinite(gamma[0]) else 0.0
         correctionFactor = float(max(1.0, gamma0))
         effectiveInfoFraction = float(1.0 / correctionFactor)
         return {
-            "bandwidth": int(maxUsableLag),
+            "bandwidth": 0,
+            "requestedBandwidth": int(requestedBw or 0),
+            "maxBandwidth": int(maxBandwidthResolved),
+            "adaptiveBandwidth": bool(adaptive),
+            "kernel": "bartlett",
             "gamma0": float(max(gamma0, 0.0)),
             "lrv": float(max(gamma0, 0.0)),
             "correctionFactor": float(correctionFactor),
             "effectiveInfoFraction": float(effectiveInfoFraction),
             "effectiveSampleSizeFraction": float(effectiveInfoFraction),
-            "numSeries": int(len(centeredSeries)),
-            "seriesLength": int(max(arr.size for arr in centeredSeries)),
+            "numSeries": int(numSeries),
+            "seriesLength": int(maxSeriesLength),
+            "finiteRunCount": int(runCount),
+            "pairCount0": int(pairCounts[0]) if pairCounts.size else 0,
+            "pairCountMin": int(pairCounts[0]) if pairCounts.size else 0,
+            "pairCounts": pairCounts,
+            "clippedInnovationCount": int(clippedCount),
         }
 
-    gamma = np.zeros(maxUsableLag + 1, dtype=np.float64)
-    for h in range(maxUsableLag + 1):
-        gammaHList: list[float] = []
-        for arr in centeredSeries:
-            t = int(arr.size)
-            if t <= h:
-                continue
-            if h == 0:
-                gammaH = float(np.dot(arr, arr) / float(t))
-            else:
-                gammaH = float(np.dot(arr[h:], arr[:-h]) / float(t - h))
-            if np.isfinite(gammaH):
-                gammaHList.append(gammaH)
-        gamma[h] = float(np.mean(gammaHList)) if gammaHList else np.nan
+    gamma, pairCounts = _pairWeightedAutocovariancesFromRuns(runs, int(gammaMaxLag))
+    if adaptive:
+        maxUsableLag = _selectAdaptiveHACBandwidth(
+            gamma,
+            pairCounts,
+            maxBandwidth=int(gammaMaxLag),
+            eps=float(eps),
+            threshold=0.05,
+            consecutive=3,
+        )
+    else:
+        maxUsableLag = min(max(int(requestedBw or 0), 0), int(gammaMaxLag))
 
     gamma0 = float(gamma[0]) if np.isfinite(gamma[0]) else 0.0
     if gamma0 <= float(eps):
         return {
             "bandwidth": int(maxUsableLag),
+            "requestedBandwidth": int(requestedBw or 0),
+            "maxBandwidth": int(maxBandwidthResolved),
+            "adaptiveBandwidth": bool(adaptive),
+            "kernel": "bartlett",
             "gamma0": float(max(gamma0, 0.0)),
             "lrv": float(max(gamma0, 0.0)),
             "correctionFactor": 1.0,
             "effectiveInfoFraction": 1.0,
             "effectiveSampleSizeFraction": 1.0,
-            "numSeries": int(len(centeredSeries)),
-            "seriesLength": int(max(arr.size for arr in centeredSeries)),
+            "numSeries": int(numSeries),
+            "seriesLength": int(maxSeriesLength),
+            "finiteRunCount": int(runCount),
+            "pairCount0": int(pairCounts[0]) if pairCounts.size else 0,
+            "pairCountMin": (
+                int(np.min(pairCounts[: maxUsableLag + 1]))
+                if pairCounts.size
+                else 0
+            ),
+            "pairCounts": pairCounts[: maxUsableLag + 1].copy(),
+            "clippedInnovationCount": int(clippedCount),
         }
 
     lrv = gamma0
@@ -1652,23 +1824,37 @@ def _bartlettEffectiveInfoCorrection(
     effectiveInfoFraction = float(1.0 / correctionFactor)
     return {
         "bandwidth": int(maxUsableLag),
+        "requestedBandwidth": int(requestedBw or 0),
+        "maxBandwidth": int(maxBandwidthResolved),
+        "adaptiveBandwidth": bool(adaptive),
+        "kernel": "bartlett",
         "gamma0": float(max(gamma0, 0.0)),
         "lrv": float(max(lrv, 0.0)),
         "correctionFactor": float(correctionFactor),
         "effectiveInfoFraction": float(effectiveInfoFraction),
         "effectiveSampleSizeFraction": float(effectiveInfoFraction),
-        "numSeries": int(len(centeredSeries)),
-        "seriesLength": int(max(arr.size for arr in centeredSeries)),
+        "numSeries": int(numSeries),
+        "seriesLength": int(maxSeriesLength),
+        "finiteRunCount": int(runCount),
+        "pairCount0": int(pairCounts[0]) if pairCounts.size else 0,
+        "pairCountMin": (
+            int(np.min(pairCounts[: maxUsableLag + 1]))
+            if pairCounts.size
+            else 0
+        ),
+        "pairCounts": pairCounts[: maxUsableLag + 1].copy(),
+        "clippedInnovationCount": int(clippedCount),
     }
 
 
 def _shrunkenBlockEffectiveInfoCorrection(
     standardizedInnovations: np.ndarray,
-    bandwidth: int,
+    bandwidth: int | None,
     blockLengthIntervals: int | None,
     eps: float = 1.0e-12,
+    maxBandwidth: int | None = None,
 ) -> dict[str, Any]:
-    r"""Estimate blockwise HAC factors shrunk toward the chromosome-wide HAC factor"""
+    r"""Estimate overlapping-window HAC factors shrunk toward chromosome-wide HAC."""
 
     z = np.asarray(standardizedInnovations, dtype=np.float64)
     if z.ndim == 1:
@@ -1677,8 +1863,13 @@ def _shrunkenBlockEffectiveInfoCorrection(
         raise ValueError("`standardizedInnovations` must be 1D or 2D")
 
     n = int(z.shape[1])
-    bw = max(int(bandwidth), 0)
-    chrDiag = _bartlettEffectiveInfoCorrection(z, bandwidth=int(bw), eps=float(eps))
+    chrDiag = _bartlettEffectiveInfoCorrection(
+        z,
+        bandwidth=bandwidth,
+        eps=float(eps),
+        maxBandwidth=maxBandwidth,
+    )
+    bw = max(int(chrDiag.get("bandwidth", 0)), 0)
     chrFactor = float(chrDiag.get("correctionFactor", 1.0))
     if (not np.isfinite(chrFactor)) or chrFactor <= 0.0:
         chrFactor = 1.0
@@ -1709,11 +1900,21 @@ def _shrunkenBlockEffectiveInfoCorrection(
             blockLen = n
     blockLen = max(1, min(int(blockLen), n))
 
-    factors = np.full(n, chrFactor, dtype=np.float64)
+    if blockLen >= n:
+        windowStarts = [0]
+    else:
+        step = max(1, blockLen // 2)
+        windowStarts = list(range(0, max(n - blockLen + 1, 1), step))
+        lastStart = max(n - blockLen, 0)
+        if windowStarts[-1] != lastStart:
+            windowStarts.append(lastStart)
+
     rawBlockFactors: list[float] = []
     shrunkBlockFactors: list[float] = []
     shrinkageWeights: list[float] = []
-    for start in range(0, n, blockLen):
+    centers: list[float] = []
+    priorEff = float(max(50, 2 * (2 * bw + 1)))
+    for start in windowStarts:
         end = min(start + blockLen, n)
         blockZ = z[:, start:end]
         blockBw = min(int(bw), max(int(end - start) - 1, 0))
@@ -1735,14 +1936,9 @@ def _shrunkenBlockEffectiveInfoCorrection(
         else:
             rawFactor = float(max(1.0, rawFactor))
             usedBw = max(int(blockDiag.get("bandwidth", 0)), 0)
-            seriesLength = max(int(blockDiag.get("seriesLength", 0)), 0)
-            numSeries = max(int(blockDiag.get("numSeries", 0)), 0)
-
-            # shrink wrt the effective number of observations in the block
-            effObs = float(numSeries) * (
-                float(seriesLength) / float(max(2 * usedBw + 1, 1))
-            )
-            weight = float(effObs / (effObs + 1.0)) if effObs > 0.0 else 0.0
+            pairCount0 = max(int(blockDiag.get("pairCount0", 0)), 0)
+            effObs = float(pairCount0) / float(max(2 * usedBw + 1, 1))
+            weight = float(effObs / (effObs + priorEff)) if effObs > 0.0 else 0.0
             weight = float(np.clip(weight, 0.0, 1.0))
 
         # shrink block factors toward chromosome-level
@@ -1755,10 +1951,20 @@ def _shrunkenBlockEffectiveInfoCorrection(
         if (not np.isfinite(shrunkFactor)) or shrunkFactor <= 0.0:
             shrunkFactor = chrFactor
         shrunkFactor = float(max(1.0, shrunkFactor))
-        factors[start:end] = shrunkFactor
+        centers.append(0.5 * float(start + end - 1))
         rawBlockFactors.append(float(rawFactor))
         shrunkBlockFactors.append(float(shrunkFactor))
         shrinkageWeights.append(float(weight))
+
+    if len(centers) == 0:
+        factors = np.full(n, chrFactor, dtype=np.float64)
+    elif len(centers) == 1:
+        factors = np.full(n, shrunkBlockFactors[0], dtype=np.float64)
+    else:
+        positions = np.arange(n, dtype=np.float64)
+        logFactors = np.log(np.maximum(np.asarray(shrunkBlockFactors), float(eps)))
+        factors = np.exp(np.interp(positions, np.asarray(centers), logFactors))
+        factors = np.maximum(factors, 1.0)
 
     out = dict(chrDiag)
     out.update(
@@ -1767,6 +1973,8 @@ def _shrunkenBlockEffectiveInfoCorrection(
             "blockLengthIntervals": int(blockLen),
             "numBlocks": int(len(shrunkBlockFactors)),
             "intervalFactors": factors.astype(np.float32, copy=False),
+            "overlapFraction": 0.5 if len(windowStarts) > 1 else 0.0,
+            "priorEff": float(priorEff),
             "blockFactorMin": float(np.min(shrunkBlockFactors)),
             "blockFactorMedian": float(np.median(shrunkBlockFactors)),
             "blockFactorMax": float(np.max(shrunkBlockFactors)),
@@ -1791,18 +1999,36 @@ def _computeInnovationEffectiveInfoDiagnostics(
     pad: float,
     effectiveInfoBandwidthIntervals: int | None,
     effectiveInfoBlockLengthIntervals: int | None = None,
+    maxEffectiveInfoBandwidthIntervals: int | None = None,
 ) -> dict[str, Any]:
     r"""Estimate the variance correction factor from one-step forward innovations."""
 
     n = int(matrixData.shape[1])
-    if effectiveInfoBandwidthIntervals is None:
-        bw = max(1, min(32, n // 8))
+    if (
+        effectiveInfoBandwidthIntervals is None
+        or int(effectiveInfoBandwidthIntervals) <= 0
+    ):
+        requestedBw = None
     else:
-        bw = max(int(effectiveInfoBandwidthIntervals), 0)
+        requestedBw = max(int(effectiveInfoBandwidthIntervals), 1)
 
-    if n < 3 or bw <= 0:
+    if maxEffectiveInfoBandwidthIntervals is None or int(
+        maxEffectiveInfoBandwidthIntervals
+    ) <= 0:
+        maxBw = min(max(n - 2, 1), 256)
+    else:
+        maxBw = max(
+            1,
+            min(int(maxEffectiveInfoBandwidthIntervals), max(n - 2, 1)),
+        )
+
+    if n < 3:
         return {
-            "bandwidth": int(max(bw, 0)),
+            "bandwidth": 0,
+            "requestedBandwidth": int(requestedBw or 0),
+            "maxBandwidth": int(maxBw),
+            "adaptiveBandwidth": requestedBw is None,
+            "kernel": "bartlett",
             "gamma0": 0.0,
             "lrv": 0.0,
             "correctionFactor": 1.0,
@@ -1810,6 +2036,10 @@ def _computeInnovationEffectiveInfoDiagnostics(
             "effectiveSampleSizeFraction": 1.0,
             "numSeries": 0,
             "seriesLength": max(0, n - 1),
+            "finiteRunCount": 0,
+            "pairCount0": 0,
+            "pairCountMin": 0,
+            "clippedInnovationCount": 0,
             "blockLengthIntervals": 0,
             "numBlocks": 0,
             "intervalFactors": np.ones(n, dtype=np.float32),
@@ -1857,8 +2087,9 @@ def _computeInnovationEffectiveInfoDiagnostics(
     z = (dataArr[:, 1:] - biasArr - xPred[None, :]) / totalVar
     diag = _shrunkenBlockEffectiveInfoCorrection(
         z,
-        bandwidth=int(bw),
+        bandwidth=requestedBw,
         blockLengthIntervals=effectiveInfoBlockLengthIntervals,
+        maxBandwidth=int(maxBw),
     )
     innovationFactors = np.asarray(
         diag.get("intervalFactors", np.ones(max(0, n - 1), dtype=np.float32)),
@@ -1959,7 +2190,10 @@ def runConsenrich(
 
     If ``effectiveInfoRescale=True``, the default state uncertainty output is
     multiplied by effective-information correction factors estimated from
-    standardized one-step-ahead innovations via Bartlett/Newey-West long-run variance.
+    standardized one-step-ahead forward innovations. The HAC bandwidth controls the
+    maximum innovation lag in the Bartlett/Newey-West long-run variance sum; the
+    block length controls the genomic window over which local correction factors
+    are estimated before shrinkage and interpolation.
 
     This wrapper ties together several fundamental routines written in Cython:
 
@@ -2002,10 +2236,17 @@ def runConsenrich(
         np.arange(intervalCount, dtype=np.int32) // blockLenIntervals
     ).astype(np.int32)
     intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
-    if effectiveInfoBandwidthIntervals is None:
-        effectiveInfoBandwidthIntervals = max(int((int(blockLenIntervals) - 1) // 4), 1)
+    if (
+        effectiveInfoBandwidthIntervals is None
+        or int(effectiveInfoBandwidthIntervals) <= 0
+    ):
+        effectiveInfoBandwidthIntervals = None
     else:
         effectiveInfoBandwidthIntervals = max(int(effectiveInfoBandwidthIntervals), 1)
+    maxEffectiveInfoBandwidthIntervals = max(
+        1,
+        min(int((int(blockLenIntervals) - 1) // 4), 256),
+    )
     if effectiveInfoBlockLengthIntervals is None:
         effectiveInfoBlockLengthIntervals = int(intervalCount)
     else:
@@ -2461,6 +2702,7 @@ def runConsenrich(
             pad=float(pad),
             effectiveInfoBandwidthIntervals=effectiveInfoBandwidthIntervals,
             effectiveInfoBlockLengthIntervals=effectiveInfoBlockLengthIntervals,
+            maxEffectiveInfoBandwidthIntervals=maxEffectiveInfoBandwidthIntervals,
         )
         correctionFactors = np.asarray(
             effectiveInfoDiag.get(
@@ -2482,12 +2724,19 @@ def runConsenrich(
         )
         logger.info(
             "Effective-information uncertainty correction applied: "
-            "bandwidth=%d blockLengthIntervals=%d blocks=%d "
+            "kernel=%s bandwidth=%d adaptive=%s blockLengthIntervals=%d blocks=%d "
+            "finiteRuns=%d pairCount0=%d pairCountMin=%d clipped=%d "
             "gamma0=%.6g lrv=%.6g chrFactor=%.6g factorMedian=%.6g "
             "factorRange=[%.6g, %.6g] shrinkageWeightMean=%.6g",
+            str(effectiveInfoDiag.get("kernel", "bartlett")),
             int(effectiveInfoDiag["bandwidth"]),
+            bool(effectiveInfoDiag.get("adaptiveBandwidth", False)),
             int(effectiveInfoDiag.get("blockLengthIntervals", intervalCount)),
             int(effectiveInfoDiag.get("numBlocks", 1)),
+            int(effectiveInfoDiag.get("finiteRunCount", 0)),
+            int(effectiveInfoDiag.get("pairCount0", 0)),
+            int(effectiveInfoDiag.get("pairCountMin", 0)),
+            int(effectiveInfoDiag.get("clippedInnovationCount", 0)),
             float(effectiveInfoDiag["gamma0"]),
             float(effectiveInfoDiag["lrv"]),
             float(effectiveInfoDiag.get("chromosomeFactor", 1.0)),
@@ -2782,31 +3031,31 @@ def _sparseSupportWeights(
     """
     intervalCount = int(intervalCount)
     if intervalCount <= 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=np.float32)
 
     sparseIdx = np.asarray(sparseIntervalIndices, dtype=np.intp).ravel()
     sparseIdx = sparseIdx[(sparseIdx >= 0) & (sparseIdx < intervalCount)]
     if sparseIdx.size == 0:
-        return np.zeros(intervalCount, dtype=np.float64)
+        return np.zeros(intervalCount, dtype=np.float32)
     sparseIdx = np.unique(sparseIdx)
 
     ellIntervals = float(ellIntervals)
     if (not np.isfinite(ellIntervals)) or ellIntervals <= 0.0:
-        weights = np.zeros(intervalCount, dtype=np.float64)
+        weights = np.zeros(intervalCount, dtype=np.float32)
         weights[sparseIdx] = 1.0
         return weights
 
-    counts = np.zeros(intervalCount, dtype=np.float64)
+    counts = np.zeros(intervalCount, dtype=np.float32)
     counts[sparseIdx] = 1.0
 
     decay = float(np.exp(-1.0 / ellIntervals))
-    left = np.empty(intervalCount, dtype=np.float64)
+    left = np.empty(intervalCount, dtype=np.float32)
     running = 0.0
     for i in range(intervalCount):
         running = (running * decay) + counts[i]
         left[i] = running
 
-    right = np.empty(intervalCount, dtype=np.float64)
+    right = np.empty(intervalCount, dtype=np.float32)
     running = 0.0
     for i in range(intervalCount - 1, -1, -1):
         running = (running * decay) + counts[i]
@@ -2815,13 +3064,13 @@ def _sparseSupportWeights(
     nEff = left + right - counts
     supportPrior = float(supportPrior)
     if (not np.isfinite(supportPrior)) or supportPrior <= 0.0:
-        weights = np.zeros(intervalCount, dtype=np.float64)
+        weights = np.zeros(intervalCount, dtype=np.float32)
         weights[nEff > 0.0] = 1.0
         return weights
 
     weights = nEff / (nEff + supportPrior)
     weights[~np.isfinite(weights)] = 0.0
-    return weights
+    return weights.astype(np.float32, copy=False)
 
 
 def _solveZeroCenteredBackground(
@@ -2889,6 +3138,8 @@ def getMuncTrack(
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
     eps: float = 1.0e-2,
+    intervalsArr: Optional[np.ndarray] = None,
+    excludeMaskArr: Optional[np.ndarray] = None,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -2914,13 +3165,26 @@ def getMuncTrack(
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
 
     localWindowIntervals = max(4, (blockSizeIntervals + 1))
-    intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
+    if intervalsArr is None:
+        intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32).reshape(-1)
+    else:
+        intervalsArr = np.ascontiguousarray(intervalsArr, dtype=np.uint32).reshape(-1)
     valuesArr = np.ascontiguousarray(values, dtype=np.float32)
+    if intervalsArr.shape[0] != valuesArr.size:
+        raise ValueError("intervalsArr must match values length")
 
     if excludeMask is None:
-        excludeMaskArr = np.zeros_like(intervalsArr, dtype=np.uint8)
+        if excludeMaskArr is None:
+            excludeMaskArr = np.zeros_like(intervalsArr, dtype=np.uint8)
+        else:
+            excludeMaskArr = np.ascontiguousarray(
+                excludeMaskArr,
+                dtype=np.uint8,
+            ).reshape(-1)
     else:
-        excludeMaskArr = np.ascontiguousarray(excludeMask, dtype=np.uint8)
+        excludeMaskArr = np.ascontiguousarray(excludeMask, dtype=np.uint8).reshape(-1)
+    if excludeMaskArr.shape != intervalsArr.shape:
+        raise ValueError("excludeMaskArr must match intervals/values length")
 
     localObsExcludeMaskArr = excludeMaskArr
     if restrictLocalAR1ToSparseBed:
@@ -3026,8 +3290,8 @@ def getMuncTrack(
             useInnovationVar=True,
             aggregateMeanAbs=False,
         )
-        sparseMeanTrack = np.asarray(sparseMeanTrack, dtype=np.float64)
-        sparseVarTrack = np.asarray(sparseVarTrack, dtype=np.float64)
+        sparseMeanTrack = np.asarray(sparseMeanTrack, dtype=np.float32)
+        sparseVarTrack = np.asarray(sparseVarTrack, dtype=np.float32)
         sparseMeanTrack[~np.isfinite(sparseMeanTrack)] = 0.0
         sparseVarTrack[~np.isfinite(sparseVarTrack)] = np.nan
         return sparseMeanTrack, sparseVarTrack, sparseIdx
@@ -3035,7 +3299,7 @@ def getMuncTrack(
     sparseInterceptTrack: np.ndarray | None = None
     sparseObsVarTrack: np.ndarray | None = None
     sparseSupportWeightTrack: np.ndarray | None = None
-    valuesForPriorFitArr = valuesArr.astype(np.float64, copy=False)
+    valuesForPriorFitArr = valuesArr
     sparseObsTracks = _estimateSparseNearestObsTracks()
     if sparseObsTracks is not None:
         sparseInterceptTrack, sparseObsVarTrack, sparseSupportIdx = sparseObsTracks
@@ -3053,9 +3317,7 @@ def getMuncTrack(
             float(sparseSupportPrior),
         )
         sparseInterceptTrack = sparseInterceptTrack * sparseSupportWeightTrack
-        valuesForPriorFitArr = (
-            valuesArr.astype(np.float64, copy=False) - sparseInterceptTrack
-        )
+        valuesForPriorFitArr = valuesArr - sparseInterceptTrack
         if verbose:
             logger.info(
                 "Sparse-nearest support: ell=%.2f intervals, median weight=%.4f, max weight=%.4f",
@@ -3114,18 +3376,18 @@ def getMuncTrack(
         valuesArr,
         localWindowIntervals,
         localObsExcludeMaskArr,
-    ).astype(np.float64, copy=False)
+    ).astype(np.float32, copy=False)
     fallbackObsVarTrack[fallbackObsVarTrack < 0.0] = np.nan
 
     if sparseObsVarTrack is not None:
-        sparseObsVarTrack = sparseObsVarTrack.astype(np.float64, copy=False)
+        sparseObsVarTrack = sparseObsVarTrack.astype(np.float32, copy=False)
         sparseObsVarTrack[sparseObsVarTrack < 0.0] = np.nan
         if sparseSupportWeightTrack is None:
-            sparseSupportWeightTrack = np.ones_like(sparseObsVarTrack, dtype=np.float64)
-        supportWeight = np.asarray(sparseSupportWeightTrack, dtype=np.float64)
+            sparseSupportWeightTrack = np.ones_like(sparseObsVarTrack, dtype=np.float32)
+        supportWeight = np.asarray(sparseSupportWeightTrack, dtype=np.float32)
         supportWeight = np.clip(supportWeight, 0.0, 1.0)
 
-        obsVarTrack = np.array(fallbackObsVarTrack, dtype=np.float64, copy=True)
+        obsVarTrack = np.array(fallbackObsVarTrack, dtype=np.float32, copy=True)
         finSparse = np.isfinite(sparseObsVarTrack)
         finFallback = np.isfinite(fallbackObsVarTrack)
         finBoth = finSparse & finFallback
@@ -3208,15 +3470,13 @@ def getMuncTrack(
     finMask_prior2: Optional[np.ndarray] = None
     finMask_both2: Optional[np.ndarray] = None
 
-    priorTrackF64 = priorTrack.astype(np.float64, copy=False)
-
     if EB_setNu0 is not None and EB_setNu0 > 4:
         # check if Nu_0 is specified before computing
         Nu_0 = float(EB_setNu0)
         logger.info(f"Using fixed/specified Nu_0={Nu_0:.2f}")
     else:
         # finite/non-zero mask _BEFORE_ Nu_0 fit
-        priorFinite = priorTrackF64[np.isfinite(priorTrackF64)]
+        priorFinite = priorTrack[np.isfinite(priorTrack)]
         obsFinite = obsVarTrack[np.isfinite(obsVarTrack)]
         medPrior = float(np.median(priorFinite)) if priorFinite.size else 0.0
         medObs = float(np.median(obsFinite)) if obsFinite.size else 0.0
@@ -3225,7 +3485,7 @@ def getMuncTrack(
         minScale_obs = (1.0e-2 * medObs) + 1.0e-4
 
         finMask_obs = np.isfinite(obsVarTrack) & (obsVarTrack > minScale_obs)
-        finMask_prior = np.isfinite(priorTrackF64) & (priorTrackF64 > minScale_prior)
+        finMask_prior = np.isfinite(priorTrack) & (priorTrack > minScale_prior)
         finMask_both = finMask_obs & finMask_prior
 
         # only pass matched finite pairs into EB_computePriorStrength
@@ -3237,7 +3497,7 @@ def getMuncTrack(
         else:
             Nu_0 = EB_computePriorStrength(
                 obsVarTrack[finMask_both],
-                priorTrackF64[finMask_both],
+                priorTrack[finMask_both],
                 Nu_L,
             )
 
@@ -3250,7 +3510,7 @@ def getMuncTrack(
     posteriorSampleSize: float = Nu_L + Nu_0
 
     # --- Shrinkage ---
-    posteriorVarTrack = np.array(priorTrackF64, dtype=np.float64, copy=True)
+    posteriorVarTrack = np.array(priorTrack, dtype=np.float32, copy=True)
 
     # check if bounds/masks already exist (i.e., computed during Nu_0 fit), reuse them
     # ... otherwise compute them for the first time here
@@ -3456,14 +3716,231 @@ def _bootstrapLocalPeakLogWidthVariance(
     return logWidth, float(max(1.0e-6, np.var(bootLogWidths, ddof=1)))
 
 
-def getContextSize(
+def _normalizeSpanBounds(
+    n: int,
+    minSpan: int | None,
+    maxSpan: int | None,
+) -> tuple[int, int]:
+    minSpan_ = 3 if minSpan is None else int(minSpan)
+    minSpan_ = max(1, minSpan_)
+    maxSpan_ = (
+        int(max(10, min(50, np.floor(np.log2(max(int(n), 1) + 1) * 2))))
+        if maxSpan is None
+        else int(maxSpan)
+    )
+    if maxSpan_ <= 0:
+        raise ValueError("`maxSpan` must be positive.")
+    if maxSpan_ < minSpan_:
+        maxSpan_ = minSpan_
+    return minSpan_, maxSpan_
+
+
+def _fallbackLengthResult(
+    n: int,
+    minSpan: int,
+    maxSpan: int,
+    method: str,
+    intervalSizeBP: int | None = None,
+    reason: str | None = None,
+) -> tuple[int, int, int, dict[str, Any]]:
+    point = int(np.clip(int(round(np.sqrt(max(int(n), 1)))), minSpan, maxSpan))
+    contextSizeBP = (
+        None if intervalSizeBP is None else int(point * (2 * int(intervalSizeBP)) + 1)
+    )
+    diagnostics: dict[str, Any] = {
+        "method": str(method),
+        "fallback": True,
+        "fallback_reason": reason,
+        "point_span": int(point),
+        "lower_span": int(point),
+        "upper_span": int(point),
+        "min_span": int(minSpan),
+        "max_span": int(maxSpan),
+        "finite_count": int(n),
+        "context_size_bp": contextSizeBP,
+    }
+    return int(point), int(point), int(point), diagnostics
+
+
+def _acfCrossingLag(acf: np.ndarray, threshold: float) -> int | None:
+    acfArr = np.asarray(acf, dtype=np.float64)
+    if acfArr.size < 3:
+        return None
+    threshold_ = float(threshold)
+    for i in range(0, acfArr.size - 2):
+        window = acfArr[i : i + 3]
+        if np.all(np.isfinite(window)) and np.all(np.abs(window) < threshold_):
+            return int(i + 1)
+    return None
+
+
+def chooseDependenceLength(
+    chromMat: np.ndarray,
+    intervalSizeBP: int,
+    minSpan: int | None = 3,
+    maxSpan: int | None = 64,
+    trim: float = 0.10,
+) -> tuple[int, int, int, dict[str, Any]]:
+    r"""Choose local dependence length for model-fitting context sizes.
+
+    This estimator targets autocorrelation scale in the transformed signal/background
+    track. It is intended for background, MUNC, local variance, and sampling block
+    sizes, not primary ROCCO peak morphology.
+    """
+
+    arr = np.asarray(chromMat)
+    n = int(arr.shape[-1]) if arr.ndim > 0 else 0
+    minSpan_, maxSpan_ = _normalizeSpanBounds(n, minSpan, maxSpan)
+    intervalSizeBP_ = max(int(intervalSizeBP), 1)
+    if n < max(8, minSpan_ + 3):
+        return _fallbackLengthResult(
+            n,
+            minSpan_,
+            maxSpan_,
+            "sqrt_fallback",
+            intervalSizeBP_,
+            "too_few_intervals",
+        )
+
+    contextTrack = np.asarray(
+        cconsenrich.ctrimMeanAxis0(arr, float(trim)),
+        dtype=np.float64,
+    )
+    finiteMask = np.isfinite(contextTrack)
+    finiteVals = np.asarray(contextTrack[finiteMask], dtype=np.float64)
+    finiteCount = int(finiteVals.size)
+    if finiteCount < max(20, minSpan_ + 3):
+        return _fallbackLengthResult(
+            finiteCount,
+            minSpan_,
+            maxSpan_,
+            "sqrt_fallback",
+            intervalSizeBP_,
+            "too_few_finite_values",
+        )
+
+    center = float(np.median(finiteVals))
+    scale = 1.4826 * float(np.median(np.abs(finiteVals - center)))
+    if (not np.isfinite(scale)) or scale <= 0.0:
+        scale = float(np.std(finiteVals, ddof=1)) if finiteCount >= 2 else 0.0
+    if (not np.isfinite(scale)) or scale <= 0.0:
+        scale = 1.0
+
+    lo, hi = np.quantile(finiteVals, [0.005, 0.995])
+    lo = float(max(float(lo), center - (8.0 * scale)))
+    hi = float(min(float(hi), center + (8.0 * scale)))
+    if (not np.isfinite(lo)) or (not np.isfinite(hi)) or hi <= lo:
+        lo = center - (8.0 * scale)
+        hi = center + (8.0 * scale)
+
+    y = np.full(contextTrack.shape, np.nan, dtype=np.float64)
+    y[finiteMask] = np.clip(contextTrack[finiteMask], lo, hi) - center
+    acf, incrementVariance, pairCounts, gamma0, finiteCountKernel = (
+        cconsenrich.cdependenceLengthStats(
+            np.ascontiguousarray(y, dtype=np.float64),
+            int(maxSpan_),
+        )
+    )
+    acf = np.asarray(acf, dtype=np.float64)
+    incrementVariance = np.asarray(incrementVariance, dtype=np.float64)
+    pairCounts = np.asarray(pairCounts, dtype=np.int64)
+    gamma0 = float(gamma0)
+    if (not np.isfinite(gamma0)) or gamma0 <= 0.0:
+        return _fallbackLengthResult(
+            finiteCount,
+            minSpan_,
+            maxSpan_,
+            "sqrt_fallback",
+            intervalSizeBP_,
+            "zero_or_invalid_gamma0",
+        )
+
+    crossingLag = _acfCrossingLag(acf, 0.10)
+    if crossingLag is None:
+        acfForIAT = acf
+    else:
+        acfForIAT = acf[:crossingLag]
+    positiveAcf = np.clip(acfForIAT[np.isfinite(acfForIAT)], 0.0, None)
+    iatSpan = int(np.ceil(0.5 + float(np.sum(positiveAcf))))
+    iatSpan = int(np.clip(iatSpan, minSpan_, maxSpan_))
+
+    validInc = incrementVariance[
+        np.isfinite(incrementVariance) & (pairCounts > 0)
+    ]
+    plateau = float("nan")
+    incrementElbow: int | None = None
+    if validInc.size > 0:
+        tailStart = int(np.floor(0.75 * validInc.size))
+        plateauVals = validInc[tailStart:]
+        if plateauVals.size == 0:
+            plateauVals = validInc
+        plateau = float(np.median(plateauVals))
+        if np.isfinite(plateau) and plateau > 0.0:
+            threshold = 0.90 * plateau
+            for idx, value in enumerate(incrementVariance, start=1):
+                if np.isfinite(value) and value >= threshold:
+                    incrementElbow = int(idx)
+                    break
+
+    candidates = [int(iatSpan)]
+    if crossingLag is not None:
+        candidates.append(int(crossingLag))
+    if incrementElbow is not None:
+        candidates.append(int(incrementElbow))
+    pointSpan = int(round(float(np.median(np.asarray(candidates, dtype=np.float64)))))
+    pointSpan = int(np.clip(pointSpan, minSpan_, maxSpan_))
+
+    lowerCrossing = _acfCrossingLag(acf, 0.20)
+    upperCrossing = _acfCrossingLag(acf, 0.05)
+    lowerSpan = int(lowerCrossing) if lowerCrossing is not None else pointSpan
+    upperSpan = int(upperCrossing) if upperCrossing is not None else pointSpan
+    lowerSpan = int(np.clip(min(lowerSpan, pointSpan), minSpan_, maxSpan_))
+    upperSpan = int(np.clip(max(upperSpan, pointSpan), minSpan_, maxSpan_))
+    contextSizeBP = int(pointSpan * (2 * intervalSizeBP_) + 1)
+
+    diagnostics: dict[str, Any] = {
+        "method": "dependence_acf_increment",
+        "fallback": False,
+        "point_span": int(pointSpan),
+        "lower_span": int(lowerSpan),
+        "upper_span": int(upperSpan),
+        "context_size_bp": int(contextSizeBP),
+        "interval_size_bp": int(intervalSizeBP_),
+        "min_span": int(minSpan_),
+        "max_span": int(maxSpan_),
+        "trim": float(trim),
+        "finite_count": int(finiteCountKernel),
+        "center": float(center),
+        "scale": float(scale),
+        "clip_lo": float(lo),
+        "clip_hi": float(hi),
+        "gamma0": float(gamma0),
+        "crossing_lag": None if crossingLag is None else int(crossingLag),
+        "relaxed_crossing_lag": (
+            None if lowerCrossing is None else int(lowerCrossing)
+        ),
+        "strict_crossing_lag": None if upperCrossing is None else int(upperCrossing),
+        "iat_span": int(iatSpan),
+        "increment_plateau": float(plateau),
+        "increment_elbow": None if incrementElbow is None else int(incrementElbow),
+        "candidate_spans": [int(v) for v in candidates],
+        "acf": [float(v) if np.isfinite(v) else None for v in acf],
+        "increment_variance": [
+            float(v) if np.isfinite(v) else None for v in incrementVariance
+        ],
+        "pair_counts": [int(v) for v in pairCounts],
+    }
+    return int(pointSpan), int(lowerSpan), int(upperSpan), diagnostics
+
+
+def chooseFeatureLength(
     vals: np.ndarray,
     minSpan: int | None = 3,
     maxSpan: int | None = 64,
     bandZ: float = 1.0,
     maxOrder: int = 5,
-) -> tuple[int, int, int]:
-    r"""(Experimental) Heuristic estimator for characteristic feature width from local peak widths
+) -> tuple[int, int, int, dict[str, Any]]:
+    r"""Choose typical feature/peak length from local peak morphology.
 
     Candidate features are detected on a smoothed log-scale track, half-height
     widths are measured locally, and width uncertainty is estimated by a local
@@ -3471,29 +3948,32 @@ def getContextSize(
     """
     y = np.asarray(vals, dtype=np.float64)
     n = int(y.size)
-    if n < 100:
-        raise ValueError(
-            "input `vals` is too small for context size estimation...set `countingParams.backgroundBlockSizeBP` manually."
+    minSpan_, maxSpan_ = _normalizeSpanBounds(n, minSpan, maxSpan)
+    finiteMask = np.isfinite(y)
+    finiteCount = int(np.count_nonzero(finiteMask))
+    if finiteCount < 100:
+        return _fallbackLengthResult(
+            finiteCount,
+            minSpan_,
+            maxSpan_,
+            "feature_sqrt_fallback",
+            reason="too_few_finite_values",
         )
-
-    minSpan = 3 if minSpan is None else int(minSpan)
-    maxSpan = (
-        int(max(10, min(50, np.floor(np.log2(n + 1) * 2))))
-        if maxSpan is None
-        else int(maxSpan)
-    )
-    if maxSpan <= 0:
-        raise ValueError("`maxSpan` must be positive.")
+    y = np.where(finiteMask, y, 0.0)
 
     yPos = np.clip(y, 0.0, None)
     yLog = np.log1p(yPos)
     posLog = yLog[y > 0]
     if posLog.size <= max(1, int(maxOrder)):
-        raise ValueError(
-            "Insufficient positive elements found...set `countingParams.backgroundBlockSizeBP` manually."
+        return _fallbackLengthResult(
+            int(posLog.size),
+            minSpan_,
+            maxSpan_,
+            "feature_sqrt_fallback",
+            reason="too_few_positive_values",
         )
 
-    smoothSize = min(int(max(1, minSpan)), int(maxSpan / 2))
+    smoothSize = min(int(max(1, minSpan_)), int(maxSpan_ / 2))
     yLogSmooth = ndimage.uniform_filter1d(yLog, size=smoothSize, mode="nearest")
     kMinFeatures = int(max(1, (2 * np.log2(n + 1))))
     thrLog = float(np.mean(posLog))
@@ -3553,9 +4033,12 @@ def getContextSize(
     )
 
     if chosenFeatures.size == 0:
-        raise ValueError(
-            "Could not identify features for context size estimation...using largest values as features... "
-            "Consider setting `countingParams.backgroundBlockSizeBP` manually..."
+        return _fallbackLengthResult(
+            n,
+            minSpan_,
+            maxSpan_,
+            "feature_sqrt_fallback",
+            reason="no_candidate_peaks",
         )
 
     chosenFeatures = np.unique(chosenFeatures.astype(np.int64))
@@ -3567,8 +4050,8 @@ def getContextSize(
     featureBaselines = np.empty(chosenFeatures.size, dtype=np.float64)
     for i, idx in enumerate(chosenFeatures):
         # FFR: this might be redundant in practice...perhaps just take quantile over full window?
-        left = max(0, idx - maxSpan)
-        right = min(n - 1, idx + maxSpan)
+        left = max(0, idx - maxSpan_)
+        right = min(n - 1, idx + maxSpan_)
 
         leftQ = float(np.quantile(yLog[left : idx + 1], baseQ))
         rightQ = float(np.quantile(yLog[idx : right + 1], baseQ))
@@ -3580,10 +4063,16 @@ def getContextSize(
         chosenFeatures = chosenFeatures[keepMask]
         featureScores = featureScores[keepMask]
 
-    kKeep = int(min(1000, featureScores.size, max(kMinFeatures, n // max(8, maxSpan))))
+    kKeep = int(
+        min(1000, featureScores.size, max(kMinFeatures, n // max(8, maxSpan_)))
+    )
     if kKeep <= 0:
-        raise ValueError(
-            "No features found for context size estimation...supply `countingParams.backgroundBlockSizeBP` manually"
+        return _fallbackLengthResult(
+            n,
+            minSpan_,
+            maxSpan_,
+            "feature_sqrt_fallback",
+            reason="no_scored_peaks",
         )
 
     # we use the top-scoring kKeep features for estimation
@@ -3593,7 +4082,7 @@ def getContextSize(
 
     # for each feature, estimate width on log scale and use a local bootstrap
     # to quantify width uncertainty
-    noiseWindow = int(min(maxSpan, 32))
+    noiseWindow = int(min(maxSpan_, 32))
     sHatList: list[float] = []
     sigma2List: list[float] = []
 
@@ -3610,8 +4099,12 @@ def getContextSize(
         sigma2List.append(sigmaS2)
 
     if len(sHatList) == 0:
-        raise ValueError(
-            "Failed to estimate context size from feature widths due to insufficient valid features...set `countingParams.backgroundBlockSizeBP` manually.",
+        return _fallbackLengthResult(
+            n,
+            minSpan_,
+            maxSpan_,
+            "feature_sqrt_fallback",
+            reason="no_valid_widths",
         )
 
     # Method-of-moments estimate given observed variance of log-widths
@@ -3684,9 +4177,32 @@ def getContextSize(
     widthLower = max(1.0, float(np.exp(logLower)))
     widthUpper = max(1.0, float(np.exp(logUpper)), widthLower)
 
-    if maxSpan > 0:
-        pointEstimate = min(pointEstimate, float(maxSpan))
-        widthLower = min(widthLower, float(maxSpan))
-        widthUpper = min(widthUpper, float(maxSpan))
+    pointEstimate = float(np.clip(pointEstimate, minSpan_, maxSpan_))
+    widthLower = float(np.clip(widthLower, minSpan_, maxSpan_))
+    widthUpper = float(np.clip(max(widthUpper, widthLower), minSpan_, maxSpan_))
 
-    return int(pointEstimate), int(widthLower), int(widthUpper)
+    point = int(round(pointEstimate))
+    lower = int(round(min(widthLower, point)))
+    upper = int(round(max(widthUpper, point)))
+    diagnostics: dict[str, Any] = {
+        "method": "feature_peak_width_random_effects",
+        "fallback": False,
+        "point_span": int(point),
+        "lower_span": int(lower),
+        "upper_span": int(upper),
+        "min_span": int(minSpan_),
+        "max_span": int(maxSpan_),
+        "num_intervals": int(n),
+        "finite_count": int(finiteCount),
+        "num_candidate_peaks": int(chosenFeatures.size),
+        "num_retained_peaks": int(featureIndexArray.size),
+        "num_valid_widths": int(nFeat),
+        "best_order": int(bestOrder),
+        "best_peak_score": float(bestScore),
+        "threshold_log": float(thrLog),
+        "smooth_size": int(smoothSize),
+        "mean_log_width": float(muHat),
+        "between_feature_variance": float(tauSqHat),
+        "predictive_log_width_sd": float(predStd),
+    }
+    return int(point), int(lower), int(upper), diagnostics

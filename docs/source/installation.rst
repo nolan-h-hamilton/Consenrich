@@ -42,7 +42,7 @@ For instance, save the following contents to a file named ``environment.yaml``:
     - samtools>=1.20
     - bedtools>=2.30.0
     - pybedtools>=0.11.2
-    - ucsc-bedgraphtobigwig
+    - pybigwig>=0.3.24
     - PyYAML>=6.0.2
     - PyWavelets>=1.9.0
 
@@ -94,4 +94,3 @@ Set the working directory and install:
 
   % cd Consenrich
   % python -m pip install .
-

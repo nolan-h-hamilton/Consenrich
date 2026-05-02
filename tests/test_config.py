@@ -1,4 +1,5 @@
 import textwrap
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -45,6 +46,45 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
         "alignmentFilesArePairedEnd",
         fakeAlignmentFilesArePairedEnd,
     )
+
+
+def test_munc_worker_count_unknown_memory_uses_cpu_cap(monkeypatch):
+    monkeypatch.setattr(consenrich.os, "cpu_count", lambda: 8)
+
+    workers = consenrich._getMuncWorkerCount(
+        10,
+        1000,
+        availableMemoryBytes=None,
+        logger_=None,
+    )
+
+    assert workers == 4
+
+
+def test_munc_worker_count_low_memory_keeps_one_worker(monkeypatch):
+    monkeypatch.setattr(consenrich.os, "cpu_count", lambda: 8)
+
+    workers = consenrich._getMuncWorkerCount(
+        10,
+        1000,
+        availableMemoryBytes=64 * 1024 * 1024,
+        logger_=None,
+    )
+
+    assert workers == 1
+
+
+def test_munc_worker_count_moderate_memory_caps_below_cpu(monkeypatch):
+    monkeypatch.setattr(consenrich.os, "cpu_count", lambda: 16)
+
+    workers = consenrich._getMuncWorkerCount(
+        10,
+        1000,
+        availableMemoryBytes=1024 * 1024 * 1024,
+        logger_=None,
+    )
+
+    assert workers == 4
 
 
 def test_ensureInput():
@@ -323,6 +363,7 @@ def test_readConfigUsesEffectiveInfoRescaleField(
     )
     assert parsedDefault["stateArgs"].effectiveInfoRescale is True
     assert parsedDefault["stateArgs"].effectiveInfoBlockLengthBP == 50_000
+    assert parsedDefault["stateArgs"].effectiveInfoBandwidthBP is None
 
     configExplicitYaml = """
     experimentName: testExperiment
@@ -330,6 +371,7 @@ def test_readConfigUsesEffectiveInfoRescaleField(
     genomeParams.name: testGenome
     stateParams.effectiveInfoRescale: false
     stateParams.effectiveInfoBlockLengthBP: 25000
+    stateParams.effectiveInfoBandwidthBP: 500
     """
     parsedExplicit = readConfig(
         str(
@@ -340,6 +382,7 @@ def test_readConfigUsesEffectiveInfoRescaleField(
     )
     assert parsedExplicit["stateArgs"].effectiveInfoRescale is False
     assert parsedExplicit["stateArgs"].effectiveInfoBlockLengthBP == 25_000
+    assert parsedExplicit["stateArgs"].effectiveInfoBandwidthBP == 500
 
     configAliasYaml = """
     experimentName: testExperiment
@@ -360,8 +403,11 @@ def test_readConfigUsesEffectiveInfoRescaleField(
 
 
 def testResolveEffectiveInfoBandwidthIntervals():
-    assert consenrich._resolveEffectiveInfoBandwidthIntervals((11, 7, 15), 45) == 11
-    assert consenrich._resolveEffectiveInfoBandwidthIntervals(None, 45) == 11
+    assert consenrich._resolveEffectiveInfoBandwidthIntervals(None, 25) is None
+    assert consenrich._resolveEffectiveInfoBandwidthIntervals(0, 25) is None
+    assert consenrich._resolveEffectiveInfoBandwidthIntervals(-100, 25) is None
+    assert consenrich._resolveEffectiveInfoBandwidthIntervals(250, 25) == 10
+    assert consenrich._resolveEffectiveInfoBandwidthIntervals(260, 25) == 11
 
 
 def testResolveEffectiveInfoBlockLengthIntervals():
@@ -528,11 +574,19 @@ def test_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
     assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
 
 
-def test_readConfigSamplesSupportBedGraph(tmp_path, monkeypatch: pytest.MonkeyPatch):
+def test_readConfigSamplesSupportBedGraph(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
     bedGraphPath = tmp_path / "sample.bedGraph"
-    bedGraphPath.write_text("chrTest\t0\t50\t3.0\n", encoding="ascii")
+    bedGraphPath.write_text(
+        "track type=bedGraph\nbrowser position chrTest:1-50\nchrTest\t0\t50\t3.0\n",
+        encoding="ascii",
+    )
+    indexedPath = Path(f"{bedGraphPath}.gz")
 
     configYaml = f"""
     experimentName: sampleExperiment
@@ -544,21 +598,43 @@ def test_readConfigSamplesSupportBedGraph(tmp_path, monkeypatch: pytest.MonkeyPa
     """
 
     configPath = writeConfigFile(tmp_path, "config_bedgraph.yaml", configYaml)
+    caplog.set_level(logging.INFO, logger=consenrich.logger.name)
     configParsed = readConfig(str(configPath))
     inputArgs = configParsed["inputArgs"]
 
     assert inputArgs.treatmentSources is not None
     assert inputArgs.treatmentSources[0].sourceKind == "BEDGRAPH"
-    assert inputArgs.bamFiles == [str(bedGraphPath)]
+    assert inputArgs.bamFiles == [str(indexedPath)]
+    assert inputArgs.treatmentSources[0].path == str(indexedPath)
+    assert bedGraphPath.exists()
+    assert indexedPath.exists()
+    assert Path(f"{indexedPath}.tbi").exists()
+    assert "has no tabix index" in caplog.text
+    counts = consenrich.core.readSegments(
+        inputArgs.treatmentSources,
+        "chrTest",
+        0,
+        50,
+        50,
+        [0],
+        [1.0],
+        0,
+        1,
+        0,
+    )
+    np.testing.assert_allclose(counts, np.array([[3.0]], dtype=np.float32))
 
 
 def test_readConfigSamplesSupportExplicitBedGraphFormat(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
     signalPath = tmp_path / "sample.signal"
     signalPath.write_text("chrTest\t0\t50\t3.0\n", encoding="ascii")
+    indexedPath = Path(f"{signalPath}.gz")
 
     configYaml = f"""
     experimentName: sampleExperiment
@@ -571,11 +647,16 @@ def test_readConfigSamplesSupportExplicitBedGraphFormat(
     """
 
     configPath = writeConfigFile(tmp_path, "config_bedgraph_format.yaml", configYaml)
+    caplog.set_level(logging.INFO, logger=consenrich.logger.name)
     configParsed = readConfig(str(configPath))
     inputArgs = configParsed["inputArgs"]
 
     assert inputArgs.treatmentSources is not None
     assert inputArgs.treatmentSources[0].sourceKind == "BEDGRAPH"
+    assert inputArgs.bamFiles == [str(indexedPath)]
+    assert indexedPath.exists()
+    assert Path(f"{indexedPath}.tbi").exists()
+    assert "has no tabix index" in caplog.text
 
 
 def test_readConfigScParamsProvideFragmentsDefaults(
@@ -694,6 +775,103 @@ def test_readConfigRejectsCRAMSources(
     configPath = writeConfigFile(tmp_path, "config_cram.yaml", configYaml)
     with pytest.raises(ValueError, match="CRAM inputs are no longer supported"):
         readConfig(str(configPath))
+
+
+def _readBigWigIntervals(path: Path, chroms: list[str]) -> dict[str, list[tuple]]:
+    pyBigWig = pytest.importorskip("pyBigWig")
+    bw = pyBigWig.open(str(path))
+    try:
+        return {chrom: list(bw.intervals(chrom) or []) for chrom in chroms}
+    finally:
+        bw.close()
+
+
+def test_convertBedGraphToBigWigPyBigWigWritesExpectedTrack(tmp_path):
+    pyBigWig = pytest.importorskip("pyBigWig")
+
+    bedGraphPath = tmp_path / "toy.bedGraph"
+    chromSizesPath = tmp_path / "toy.chrom.sizes"
+    pyBigWigPath = tmp_path / "pybigwig.bw"
+    bedGraphPath.write_text(
+        "\n".join(
+            [
+                "track type=bedGraph name=toy",
+                "browser position chr1:1-20",
+                "chr1 0 10 0.5",
+                "chr1\t10\t20\t2.25",
+                "chr10 0 5 10.0",
+                "chr2\t0\t8\t2.0",
+            ]
+        )
+        + "\n",
+        encoding="ascii",
+    )
+    chromSizesPath.write_text(
+        "chr1\t100\nchr2\t100\nchr10\t100\n",
+        encoding="ascii",
+    )
+
+    consenrich._convertBedGraphToBigWigPyBigWig(
+        str(bedGraphPath),
+        str(chromSizesPath),
+        str(pyBigWigPath),
+        chunkSize=2,
+    )
+
+    chroms = ["chr1", "chr2", "chr10"]
+    assert _readBigWigIntervals(pyBigWigPath, chroms) == {
+        "chr1": [(0, 10, 0.5), (10, 20, 2.25)],
+        "chr2": [(0, 8, 2.0)],
+        "chr10": [(0, 5, 10.0)],
+    }
+
+    handle = pyBigWig.open(str(pyBigWigPath))
+    try:
+        header = handle.header()
+    finally:
+        handle.close()
+    assert header["nBasesCovered"] == 33
+    assert header["minVal"] == 0
+    assert header["maxVal"] == 10
+    assert header["sumData"] == 93
+    assert header["sumSquared"] == 585
+
+
+def test_convertBedGraphToBigWigPyBigWigRejectsOutOfBounds(tmp_path):
+    pytest.importorskip("pyBigWig")
+    bedGraphPath = tmp_path / "bad.bedGraph"
+    chromSizesPath = tmp_path / "bad.chrom.sizes"
+    bigWigPath = tmp_path / "bad.bw"
+    bedGraphPath.write_text("chr1\t90\t101\t1.0\n", encoding="ascii")
+    chromSizesPath.write_text("chr1\t100\n", encoding="ascii")
+
+    with pytest.raises(ValueError, match="exceeds chr1 size"):
+        consenrich._convertBedGraphToBigWigPyBigWig(
+            str(bedGraphPath),
+            str(chromSizesPath),
+            str(bigWigPath),
+        )
+    assert not bigWigPath.exists()
+
+
+def test_convertBedGraphToBigWigPyBigWigRejectsEmptyBedGraph(tmp_path):
+    pytest.importorskip("pyBigWig")
+    bedGraphPath = tmp_path / "empty.bedGraph"
+    chromSizesPath = tmp_path / "empty.chrom.sizes"
+    bigWigPath = tmp_path / "empty.bw"
+    bedGraphPath.write_text(
+        "track type=bedGraph name=empty\nbrowser position chr1:1-10\n",
+        encoding="ascii",
+    )
+    chromSizesPath.write_text("chr1\t100\n", encoding="ascii")
+
+    with pytest.raises(ValueError, match="No bedGraph intervals"):
+        consenrich._convertBedGraphToBigWigPyBigWig(
+            str(bedGraphPath),
+            str(chromSizesPath),
+            str(bigWigPath),
+        )
+    assert not bigWigPath.exists()
 
 
 

@@ -110,10 +110,10 @@ def testEmpiricalMirroredNullStrengthensThreshold():
 def testEstimateGammaForROCCOUsesLowerContextBound(monkeypatch):
     scoreTrack = np.linspace(-0.5, 3.5, 256, dtype=np.float64)
 
-    def _fakeGetContextSize(vals, minSpan=3, maxSpan=64):
-        return 12, 7, 20
+    def _fakeChooseFeatureLength(vals, minSpan=3, maxSpan=64):
+        return 12, 7, 20, {"method": "feature_peak_width_random_effects"}
 
-    monkeypatch.setattr(peaks.core, "getContextSize", _fakeGetContextSize)
+    monkeypatch.setattr(peaks.core, "chooseFeatureLength", _fakeChooseFeatureLength)
     gamma, details = peaks.estimateROCCOGamma(
         scoreTrack,
         gamma=-1.0,

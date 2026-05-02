@@ -867,10 +867,12 @@ def _resolveRoccoDependenceSpanDetails(
     try:
         if n >= 100:
             positiveVals = np.clip(values, 0.0, None)
-            contextSize, contextLower, contextUpper = core.getContextSize(
-                positiveVals,
-                minSpan=3,
-                maxSpan=min(64, max(12, n // 8)),
+            contextSize, contextLower, contextUpper, featureDetails = (
+                core.chooseFeatureLength(
+                    positiveVals,
+                    minSpan=3,
+                    maxSpan=min(64, max(12, n // 8)),
+                )
             )
             point = max(int(contextSize), 2)
             lower = max(min(int(contextLower), point), 2)
@@ -879,10 +881,10 @@ def _resolveRoccoDependenceSpanDetails(
                 "point": int(point),
                 "lower": int(lower),
                 "upper": int(upper),
-                "method": "getContextSize",
+                "method": str(featureDetails.get("method", "chooseFeatureLength")),
             }
     except Exception as ex:
-        logger.info("getContextSize fallback for ROCCO budget span: %s", ex)
+        logger.info("chooseFeatureLength fallback for ROCCO budget span: %s", ex)
 
     fallback = max(min(int(round(np.sqrt(n))), 64), 4)
     return {

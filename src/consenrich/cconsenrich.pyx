@@ -10,7 +10,6 @@ cimport cython
 import os
 import numpy as np
 from scipy import ndimage
-from . import ccounts as ccountsModule
 cimport numpy as cnp
 from libc.stdint cimport int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
@@ -76,6 +75,13 @@ cnp.import_array()
 # ========
 cdef const float __INV_LN2_FLOAT = <float>1.44269504
 cdef const double __INV_LN2_DOUBLE = <double>1.44269504088896340
+# these bound the precision multipliers during EM updates
+cdef const double __EM_PRECISION_MULTIPLIER_MIN = <double>0.1
+cdef const double __EM_PRECISION_MULTIPLIER_MAX = <double>10.0
+
+ctypedef fused real_t:
+    float
+    double
 
 # ===============
 # inline/helpers
@@ -118,70 +124,6 @@ cdef inline int _maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, co
             outMask[i] = <uint8_t>0
         i += 1
     return 0
-
-
-cdef inline bint _projectToBox(
-    cnp.float32_t[::1] vectorX,
-    cnp.float32_t[:, ::1] matrixP,
-    cnp.float32_t stateLowerBound,
-    cnp.float32_t stateUpperBound,
-    cnp.float32_t eps
-) nogil:
-    # CALLERS: `projectToBox`
-
-    cdef cnp.float32_t initX_i0
-    cdef cnp.float32_t projectedX_i0
-    cdef cnp.float32_t P00
-    cdef cnp.float32_t P10
-    cdef cnp.float32_t P11
-    cdef cnp.float32_t padded_P00
-    cdef cnp.float32_t newP11
-
-    # Note, the following is straightforward algebraically, but some hand-waving here
-    # ... for future reference if I forget the intuition/context later on or somebody
-    # ... wants to change/debug. Essentially, finding a point in the feasible region
-    # ... that minimizes -weighted- distance to the unconstrained/infeasible solution.
-    # ... Weighting is determined by inverse state covariance P^{-1}_[i]
-    # ... So a WLS-like QP:
-    # ...   argmin (x^{*}_[i] - x^{unconstrained}_[i])^T (P^-1_{[i]}) (x^{*}_[i] - x^{unconstrained}_[i])
-    # ...   such that: lower <= x^{*}_[i,0] <= upper
-    # ... in our case (single-variable in box), solution is a simle truncation
-    # ... with a corresponding scaled-update to x_[i,1] based on their covariance
-    # ... REFERENCE: Simon, 2006 (IET survey paper on constrained linear filters)
-
-    initX_i0 = vectorX[0]
-
-    if initX_i0 >= stateLowerBound and initX_i0 <= stateUpperBound:
-        return <bint>0 # no change if in bounds
-
-    # projection in our case --> truncated box on first state variable
-    projectedX_i0 = initX_i0
-    if projectedX_i0 < stateLowerBound:
-        projectedX_i0 = stateLowerBound
-    if projectedX_i0 > stateUpperBound:
-        projectedX_i0 = stateUpperBound
-
-    P00 = matrixP[0, 0]
-    P10 = matrixP[1, 0]
-    P11 = matrixP[1, 1]
-    padded_P00 = P00 if P00 > eps else eps
-
-    # FIRST, adjust second state according to its original value + an update
-    # ... given the covariance between first,second variables that
-    # ... is scaled by the size of projection in the first state
-    vectorX[1] = <cnp.float32_t>(vectorX[1] + (P10 / padded_P00)*(projectedX_i0 - initX_i0))
-
-    # SECOND, set the projected first state variable
-    # ...  and the second state's variance
-    vectorX[0] = projectedX_i0
-    newP11 = <cnp.float32_t>(P11 - (P10*P10) / padded_P00)
-
-    matrixP[0, 0] = eps
-    matrixP[0, 1] = <cnp.float32_t>0.0 # first state fixed --> covar = 0
-    matrixP[1, 0] = <cnp.float32_t>0.0
-    matrixP[1, 1] = newP11 if newP11 > eps else eps
-
-    return <bint>1
 
 
 cdef inline void _regionMeanVar(double[::1] valuesView,
@@ -461,40 +403,33 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csolveZeroCenteredBackground(
     return out
 
 
-cdef inline bint _fSwap(float* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
-    # CALLERS: `_partitionLt`, `_nthElement`
-
-    cdef float tmp = swapInArray_[i]
+cdef inline bint _swapReal(real_t* swapInArray_, Py_ssize_t i, Py_ssize_t j) noexcept nogil:
+    cdef real_t tmp = swapInArray_[i]
     swapInArray_[i] = swapInArray_[j]
     swapInArray_[j] = tmp
     return <bint>0
 
 
-cdef inline Py_ssize_t _partitionLt(float* vals_, Py_ssize_t left, Py_ssize_t right, Py_ssize_t pivot) nogil:
-    # CALLERS: `_nthElement`
-
-    cdef float pv = vals_[pivot]
+cdef inline Py_ssize_t _partitionLtReal(real_t* vals_, Py_ssize_t left, Py_ssize_t right, Py_ssize_t pivot) noexcept nogil:
+    cdef real_t pv = vals_[pivot]
     cdef Py_ssize_t store = left
     cdef Py_ssize_t i
-    _fSwap(vals_, pivot, right)
+    _swapReal(vals_, pivot, right)
     for i in range(left, right):
         if vals_[i] < pv:
-            _fSwap(vals_, store, i)
+            _swapReal(vals_, store, i)
             store += 1
-    _fSwap(vals_, store, right)
+    _swapReal(vals_, store, right)
     return store
 
 
-cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nogil:
-    # CALLERS: `csampleBlockStats`, `_quantileInPlaceF32`
-
+cdef inline bint _nthElementReal(real_t* sortedVals_, Py_ssize_t n, Py_ssize_t k) noexcept nogil:
     cdef Py_ssize_t left = 0
     cdef Py_ssize_t right = n - 1
     cdef Py_ssize_t pivot, idx
     while left < right:
-        # FFR: check whether this avoids a cast
         pivot = (left + right) >> 1
-        idx = _partitionLt(sortedVals_, left, right, pivot)
+        idx = _partitionLtReal(sortedVals_, left, right, pivot)
         if k == idx:
             return <bint>0
         elif k < idx:
@@ -504,62 +439,40 @@ cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) nog
     return <bint>0
 
 
-cdef inline bint _dSwap(double* swapInArray_, Py_ssize_t i, Py_ssize_t j) nogil:
-    # CALLERS: `_partitionLt_F64`, `_nthElement_F64`
+cdef inline bint _nthElement(float* sortedVals_, Py_ssize_t n, Py_ssize_t k) noexcept nogil:
+    # CALLERS: `_quantileInplaceF32`
 
-    cdef double tmp = swapInArray_[i]
-    swapInArray_[i] = swapInArray_[j]
-    swapInArray_[j] = tmp
-    return <bint>0
+    return _nthElementReal(sortedVals_, n, k)
 
 
-cdef inline Py_ssize_t _partitionLt_F64(double* vals_, Py_ssize_t left, Py_ssize_t right, Py_ssize_t pivot) nogil:
-    # CALLERS: `_nthElement_F64`
+cdef inline bint _nthElement_F64(double* sortedVals_, Py_ssize_t n, Py_ssize_t k) noexcept nogil:
+    # CALLERS: `cSF`, `_quantileInplaceF64`
 
-    cdef double pv = vals_[pivot]
-    cdef Py_ssize_t store = left
-    cdef Py_ssize_t i
-    _dSwap(vals_, pivot, right)
-    for i in range(left, right):
-        if vals_[i] < pv:
-            _dSwap(vals_, store, i)
-            store += 1
-    _dSwap(vals_, store, right)
-    return store
+    return _nthElementReal(sortedVals_, n, k)
 
 
-cdef inline bint _nthElement_F64(double* sortedVals_, Py_ssize_t n, Py_ssize_t k) nogil:
-    # CALLERS: `cSF`
-
-    cdef Py_ssize_t left = 0
-    cdef Py_ssize_t right = n - 1
-    cdef Py_ssize_t pivot, idx
-    while left < right:
-        pivot = (left + right) >> 1
-        idx = _partitionLt_F64(sortedVals_, left, right, pivot)
-        if k == idx:
-            return <bint>0
-        elif k < idx:
-            right = idx - 1
-        else:
-            left = idx + 1
-    return <bint>0
-
-
-cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) nogil:
-    #CALLERS: ccalibrateStateCovarScalesRobust
-
+cdef inline real_t _quantileInplaceReal(real_t* vals_, Py_ssize_t n, real_t q, real_t emptyValue) noexcept nogil:
     cdef Py_ssize_t k
     if n <= 0:
-        return 1.0
-    if q <= 0.0:
+        return emptyValue
+    if q <= <real_t>0.0:
         k = 0
-    elif q >= 1.0:
+    elif q >= <real_t>1.0:
         k = n - 1
     else:
-        k = <Py_ssize_t>floorf(q * <float>(n - 1))
-    _nthElement(vals_, n, k)
+        k = <Py_ssize_t>floor(<double>(q * <real_t>(n - 1)))
+    _nthElementReal(vals_, n, k)
     return vals_[k]
+
+
+cdef inline double _quantileInplaceF64(double* vals_, Py_ssize_t n, double q) noexcept nogil:
+    return <double>_quantileInplaceReal(vals_, n, q, <double>0.0)
+
+
+cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) noexcept nogil:
+    # CALLERS: `_medianCopy_F32`
+
+    return <float>_quantileInplaceReal(vals_, n, q, <float>1.0)
 
 
 cdef inline double _U01() nogil:
@@ -605,6 +518,188 @@ cdef inline float _medianCopy_F32(const float* src, Py_ssize_t n) noexcept nogil
     med = _quantileInplaceF32(buf, n, <float>0.5)
     free(buf)
     return med
+
+
+cdef inline void _insertionSortF64(double* vals_, Py_ssize_t n) noexcept nogil:
+    cdef Py_ssize_t i, j
+    cdef double key
+    for i in range(1, n):
+        key = vals_[i]
+        j = i
+        while j > 0 and vals_[j - 1] > key:
+            vals_[j] = vals_[j - 1]
+            j -= 1
+        vals_[j] = key
+
+
+cpdef cnp.ndarray[cnp.float64_t, ndim=1] ctrimMeanAxis0(
+    cnp.ndarray values,
+    double trim=0.10,
+):
+    r"""Column-wise finite trimmed mean for replicate-by-interval matrices."""
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] values2d
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] values1d
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out
+    cdef double[:, ::1] valuesView
+    cdef double[::1] values1dView
+    cdef double[::1] outView
+    cdef Py_ssize_t rowCount, colCount, rowIndex, colIndex
+    cdef Py_ssize_t validCount, trimCount, loIndex, hiIndex, workIndex
+    cdef double* work
+    cdef double value
+    cdef double sumValue
+
+    if values.ndim == 1:
+        values1d = np.ascontiguousarray(values, dtype=np.float64)
+        out = np.empty(values1d.shape[0], dtype=np.float64)
+        values1dView = values1d
+        outView = out
+        with nogil:
+            for colIndex in range(values1dView.shape[0]):
+                value = values1dView[colIndex]
+                if isfinite(value):
+                    outView[colIndex] = value
+                else:
+                    outView[colIndex] = NAN
+        return out
+
+    if values.ndim != 2:
+        raise ValueError("values must be one- or two-dimensional")
+
+    values2d = np.ascontiguousarray(values, dtype=np.float64)
+    rowCount = <Py_ssize_t>values2d.shape[0]
+    colCount = <Py_ssize_t>values2d.shape[1]
+    out = np.empty(colCount, dtype=np.float64)
+    if colCount <= 0:
+        return out
+    if rowCount <= 0:
+        out[:] = np.nan
+        return out
+
+    if trim < 0.0:
+        trim = 0.0
+    elif trim >= 0.5:
+        trim = 0.499999
+
+    work = <double*>malloc(rowCount * sizeof(double))
+    if work == NULL:
+        raise MemoryError("failed to allocate trimmed-mean work buffer")
+
+    valuesView = values2d
+    outView = out
+    try:
+        with nogil:
+            for colIndex in range(colCount):
+                validCount = 0
+                for rowIndex in range(rowCount):
+                    value = valuesView[rowIndex, colIndex]
+                    if isfinite(value):
+                        work[validCount] = value
+                        validCount += 1
+
+                if validCount <= 0:
+                    outView[colIndex] = NAN
+                    continue
+
+                _insertionSortF64(work, validCount)
+                trimCount = <Py_ssize_t>floor(trim * <double>validCount)
+                loIndex = trimCount
+                hiIndex = validCount - trimCount
+                if hiIndex <= loIndex:
+                    loIndex = 0
+                    hiIndex = validCount
+
+                sumValue = 0.0
+                for workIndex in range(loIndex, hiIndex):
+                    sumValue += work[workIndex]
+                outView[colIndex] = sumValue / <double>(hiIndex - loIndex)
+    finally:
+        free(work)
+
+    return out
+
+
+cpdef tuple cdependenceLengthStats(
+    cnp.ndarray[cnp.float64_t, ndim=1] centeredTrack,
+    int maxSpan,
+):
+    r"""Autocorrelation and normalized increment variance over finite runs."""
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] trackArr = np.ascontiguousarray(
+        centeredTrack,
+        dtype=np.float64,
+    )
+    cdef Py_ssize_t n = <Py_ssize_t>trackArr.shape[0]
+    cdef Py_ssize_t maxSpan_ = <Py_ssize_t>max(maxSpan, 0)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] acfNum = np.zeros(maxSpan_, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] incNum = np.zeros(maxSpan_, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] acf = np.zeros(maxSpan_, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] inc = np.zeros(maxSpan_, dtype=np.float64)
+    cdef cnp.ndarray[cnp.int64_t, ndim=1] pairCounts = np.zeros(maxSpan_, dtype=np.int64)
+    cdef double[::1] trackView = trackArr
+    cdef double[::1] acfNumView = acfNum
+    cdef double[::1] incNumView = incNum
+    cdef double[::1] acfView = acf
+    cdef double[::1] incView = inc
+    cdef int64_t[::1] pairCountView = pairCounts
+    cdef Py_ssize_t i, lag, runStart, runEnd, j
+    cdef Py_ssize_t finiteCount = 0
+    cdef double value, nextValue, diff
+    cdef double gamma0Sum = 0.0
+    cdef double gamma0 = 0.0
+
+    if n <= 0 or maxSpan_ <= 0:
+        return acf, inc, pairCounts, float(gamma0), int(finiteCount)
+
+    with nogil:
+        for i in range(n):
+            value = trackView[i]
+            if isfinite(value):
+                finiteCount += 1
+                gamma0Sum += value * value
+
+        if finiteCount > 0:
+            gamma0 = gamma0Sum / <double>finiteCount
+
+        if gamma0 > 0.0 and isfinite(gamma0):
+            i = 0
+            while i < n:
+                while i < n and not isfinite(trackView[i]):
+                    i += 1
+                runStart = i
+                while i < n and isfinite(trackView[i]):
+                    i += 1
+                runEnd = i
+                if runEnd - runStart > 1:
+                    for lag in range(1, maxSpan_ + 1):
+                        if runEnd - runStart <= lag:
+                            break
+                        for j in range(runStart, runEnd - lag):
+                            value = trackView[j]
+                            nextValue = trackView[j + lag]
+                            acfNumView[lag - 1] += value * nextValue
+                            diff = nextValue - value
+                            incNumView[lag - 1] += diff * diff
+                            pairCountView[lag - 1] += 1
+
+            for lag in range(maxSpan_):
+                if pairCountView[lag] > 0:
+                    acfView[lag] = (
+                        acfNumView[lag] / <double>pairCountView[lag]
+                    ) / gamma0
+                    incView[lag] = (
+                        0.5 * incNumView[lag] / <double>pairCountView[lag]
+                    ) / gamma0
+                else:
+                    acfView[lag] = NAN
+                    incView[lag] = NAN
+        else:
+            for lag in range(maxSpan_):
+                acfView[lag] = NAN
+                incView[lag] = NAN
+
+    return acf, inc, pairCounts, float(gamma0), int(finiteCount)
 
 
 # ===========================
@@ -662,349 +757,6 @@ cdef inline MAT2 MAT2_clipDiagNonneg(MAT2 A) noexcept nogil:
 
 cdef inline double MAT2_traceProd(MAT2 A, MAT2 B) noexcept nogil:
     return A.a00*B.a00 + A.a01*B.a10 + A.a10*B.a01 + A.a11*B.a11
-
-
-# ===========================
-
-cpdef int stepAdjustment(int value, int intervalSizeBP, int pushForward=0):
-    r"""Adjusts a value to the nearest multiple of intervalSizeBP, optionally pushing it forward.
-
-    .. todo:: refactor caller + this function into one cython func
-
-    :param value: The value to adjust.
-    :type value: int
-    :param intervalSizeBP: The step size to adjust to.
-    :type intervalSizeBP: int
-    :param pushForward: If non-zero, pushes the value forward by intervalSizeBP
-    :type pushForward: int
-    :return: The adjusted value.
-    :rtype: int
-    """
-    return max(0, (value-(value % intervalSizeBP))) + pushForward*intervalSizeBP
-
-
-cpdef uint64_t cgetFirstChromRead(str bamFile, str chromosome, uint64_t chromLength, uint32_t samThreads, int samFlagExclude):
-    r"""Get the start position of the first read in a BAM file for a given chromosome.
-
-
-    .. todo:: refactor caller + this function into one cython func
-
-    :param bamFile: See :func:`consenrich.core.inputParams`.
-    :type bamFile: str
-    :param chromosome: Chromosome name.
-    :type chromosome: str
-    :param chromLength: Length of the chromosome in base pairs.
-    :type chromLength: uint64_t
-    :param samThreads: Number of threads to use for reading the BAM file.
-    :type samThreads: uint32_t
-    :param samFlagExclude: SAM flags to exclude reads (e.g., unmapped,
-    :type samFlagExclude: int
-    :return: Start position of the first read in the chromosome, or 0 if no reads are found.
-    :rtype: uint64_t
-    """
-
-    cdef tuple chromRange = ccountsModule.ccounts_getAlignmentChromRange(
-        bamFile,
-        chromosome,
-        chromLength,
-        samThreads,
-        samFlagExclude,
-    )
-    return <uint64_t>chromRange[0]
-
-
-cpdef uint64_t cgetLastChromRead(str bamFile, str chromosome, uint64_t chromLength, uint32_t samThreads, int samFlagExclude):
-    r"""Get the end position of the last read in a BAM file for a given chromosome.
-
-
-    .. todo:: refactor caller + this function into one cython func
-
-    :param bamFile: See :func:`consenrich.core.inputParams`.
-    :type bamFile: str
-    :param chromosome: Chromosome name.
-    :type chromosome: str
-    :param chromLength: Length of the chromosome in base pairs.
-    :type chromLength: uint64_t
-    :param samThreads: Number of threads to use for reading the BAM file.
-    :type samThreads: uint32_t
-    :param samFlagExclude: See :class:`consenrich.core.samParams`.
-    :type samFlagExclude: int
-    :return: End position of the last read in the chromosome, or 0 if no reads are found.
-    :rtype: uint64_t
-    """
-
-    cdef tuple chromRange = ccountsModule.ccounts_getAlignmentChromRange(
-        bamFile,
-        chromosome,
-        chromLength,
-        samThreads,
-        samFlagExclude,
-    )
-    return <uint64_t>chromRange[1]
-
-
-
-cpdef uint32_t cgetReadLength(str bamFile, uint32_t minReads, uint32_t samThreads, uint32_t maxIterations, int samFlagExclude):
-    r"""Get the median read length from a BAM file after fetching a specified number of reads.
-
-    :param bamFile: see :class:`consenrich.core.inputParams`.
-    :type bamFile: str
-    :param minReads: Minimum number of reads to consider for the median calculation.
-    :type minReads: uint32_t
-    :param samThreads: See :class:`consenrich.core.samParams`.
-    :type samThreads: uint32_t
-    :param maxIterations: Maximum number of reads to iterate over.
-    :type maxIterations: uint32_t
-    :param samFlagExclude: See :class:`consenrich.core.samParams`.
-    :type samFlagExclude: int
-    :return: Median read length from the BAM file.
-    :rtype: uint32_t
-    """
-    return <uint32_t>ccountsModule.ccounts_getAlignmentReadLength(
-        bamFile,
-        minReads,
-        samThreads,
-        maxIterations,
-        samFlagExclude,
-    )
-
-
-cpdef cnp.float32_t[:] creadBamSegment(
-    str bamFile,
-    str chromosome,
-    uint32_t start,
-    uint32_t end,
-    uint32_t intervalSizeBP,
-    int64_t readLength,
-    uint8_t oneReadPerBin,
-    uint16_t samThreads,
-    uint16_t samFlagExclude,
-    int64_t shiftForwardStrand53=0,
-    int64_t shiftReverseStrand53=0,
-    int64_t extendBP=0,
-    int64_t maxInsertSize=1000,
-    int64_t pairedEndMode=0,
-    int64_t inferFragmentLength=0,
-    int64_t minMappingQuality=0,
-    int64_t minTemplateLength=-1,
-    uint8_t weightByOverlap=1,
-    uint8_t ignoreTLEN=1,
-):
-    r"""Count reads in a BAM file for a given chromosome.
-    """
-    cdef int64_t resolvedExtendBP = extendBP
-    cdef cnp.ndarray values
-
-    weightByOverlap = weightByOverlap
-    ignoreTLEN = ignoreTLEN
-
-    if inferFragmentLength > 0 and pairedEndMode <= 0 and resolvedExtendBP <= 0:
-        resolvedExtendBP = cgetFragmentLength(
-            bamFile,
-            samThreads=samThreads,
-            samFlagExclude=samFlagExclude,
-        )
-
-    values = ccountsModule.ccounts_countAlignmentRegion(
-        bamFile,
-        chromosome,
-        start,
-        end,
-        intervalSizeBP,
-        readLength,
-        oneReadPerBin,
-        samThreads,
-        samFlagExclude,
-        shiftForwardStrand53=shiftForwardStrand53,
-        shiftReverseStrand53=shiftReverseStrand53,
-        extendBP=resolvedExtendBP,
-        maxInsertSize=maxInsertSize,
-        pairedEndMode=pairedEndMode,
-        inferFragmentLength=0,
-        minMappingQuality=minMappingQuality,
-        minTemplateLength=minTemplateLength,
-    )
-    return values
-
-
-cdef void _blockMax(double[::1] valuesView,
-                    Py_ssize_t[::1] blockStartIndices,
-                    Py_ssize_t[::1] blockSizes,
-                    double[::1] outputView,
-                    double eps = 0.0) noexcept:
-
-    cdef Py_ssize_t iterIndex, elementIndex, startIndex, blockLength
-    cdef double currentMax, currentValue
-    cdef Py_ssize_t firstIdx, lastIdx, centerIdx
-
-    for iterIndex in range(outputView.shape[0]):
-        startIndex = blockStartIndices[iterIndex]
-        blockLength = blockSizes[iterIndex]
-
-        currentMax = valuesView[startIndex]
-        for elementIndex in range(1, blockLength):
-            currentValue = valuesView[startIndex + elementIndex]
-            if currentValue > currentMax:
-                currentMax = currentValue
-
-        firstIdx = -1
-        lastIdx = -1
-        if eps > 0.0:
-            # only run if eps tol is non-zero
-            for elementIndex in range(blockLength):
-                currentValue = valuesView[startIndex + elementIndex]
-                # NOTE: this is intended to mirror the +- eps tol
-                if currentValue >= currentMax - eps:
-                    if firstIdx == -1:
-                        firstIdx = elementIndex
-                    lastIdx = elementIndex
-
-        if firstIdx == -1:
-            # case: we didn't find a tie or eps == 0
-            outputView[iterIndex] = currentMax
-        else:
-            # case: there's a tie for eps > 0, pick center
-            centerIdx = (firstIdx + lastIdx) // 2
-            outputView[iterIndex] = valuesView[startIndex + centerIdx]
-
-
-cpdef double[::1] csampleBlockStats(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
-                        cnp.ndarray[cnp.float64_t, ndim=1] values,
-                        int expectedBlockSize,
-                        int iters,
-                        int randSeed,
-                        cnp.ndarray[cnp.uint8_t, ndim=1] excludeIdxMask,
-                        double eps = <double>0.0):
-    r"""Sample contiguous blocks in the response sequence (xCorr), record maxima, and repeat.
-
-    Used to build an empirical null distribution and determine significance of response outputs.
-    The size of blocks is drawn from a truncated geometric distribution, preserving rough equality
-    in expectation but allowing for variability to account for the sampling across different phases
-    in the response sequence.
-
-    :param values: The response sequence to sample from.
-    :type values: cnp.ndarray[cnp.float64_t, ndim=1]
-    :param expectedBlockSize: The expected size (geometric) of the blocks to sample.
-    :type expectedBlockSize: int
-    :param iters: The number of blocks to sample.
-    :type iters: int
-    :param randSeed: Random seed for reproducibility.
-    :type randSeed: int
-    :return: An array of sampled block maxima.
-    :rtype: cnp.ndarray[cnp.float64_t, ndim=1]
-    :seealso: :func:`consenrich.peaks.getROCCOBudget`
-    """
-    np.random.seed(randSeed)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArr = np.ascontiguousarray(values, dtype=np.float64)
-    cdef double[::1] valuesView = valuesArr
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] sizesArr
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] startsArr
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out = np.empty(iters, dtype=np.float64)
-    cdef Py_ssize_t maxBlockLength, maxSize, minSize
-    cdef Py_ssize_t n = <Py_ssize_t>intervals.size
-    cdef double maxBlockScale = <double>3.0
-    cdef double minBlockScale = <double> (1.0 / 3.0)
-
-    minSize = <Py_ssize_t> max(3, expectedBlockSize*minBlockScale)
-    maxSize = <Py_ssize_t> min(maxBlockScale*expectedBlockSize, n)
-    sizesArr = np.random.geometric(1.0 / expectedBlockSize, size=iters).astype(np.intp, copy=False)
-    np.clip(sizesArr, minSize, maxSize, out=sizesArr)
-    maxBlockLength = sizesArr.max()
-    cdef list support = []
-    cdef cnp.intp_t i_ = 0
-    while i_ <= n-maxBlockLength:
-        if excludeIdxMask[i_:i_ + maxBlockLength].any():
-            i_ = i_ + maxBlockLength + 1
-            continue
-        support.append(i_)
-        i_ = i_ + 1
-
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] starts_ = np.random.choice(
-        support,
-        size=iters,
-        replace=True,
-        p=None
-        ).astype(np.intp)
-
-    cdef Py_ssize_t[::1] startsView = starts_
-    cdef Py_ssize_t[::1] sizesView = sizesArr
-    cdef double[::1] outView = out
-    _blockMax(valuesView, startsView, sizesView, outView, eps)
-    return out
-
-
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] cSparseMax(
-        cnp.float32_t[::1] vals,
-        dict sparseMap,
-        double topFrac = <double>0.25):
-
-    cdef Py_ssize_t n = <Py_ssize_t>vals.shape[0]
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
-    cdef float[::1] outView = out
-    cdef double sumTop, tmp
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] exBuf
-    cdef float[::1] exView
-    cdef list nearestList
-    cdef object k, v
-    cdef Py_ssize_t maxNearest = 0
-    cdef cnp.ndarray[cnp.intp_t, ndim=1] neighborIdxs
-    cdef cnp.intp_t[::1] neighborIdxView
-    cdef Py_ssize_t i, j
-    cdef Py_ssize_t numNearest, numRetained, startIdx
-
-    nearestList = [None] * n
-    for k, v in sparseMap.items():
-        i = <Py_ssize_t>k
-        if 0 <= i < n:
-            nearestList[i] = v
-            numNearest = (<cnp.ndarray>v).shape[0]
-            if numNearest > maxNearest:
-                maxNearest = numNearest
-    if maxNearest < 1:
-        maxNearest = 1
-    exBuf = np.empty(maxNearest, dtype=np.float32)
-    exView = exBuf
-    cdef float* trackPtr = &vals[0]
-    cdef float* exPtr
-    cdef cnp.intp_t* nbPtr
-
-    for i in range(n):
-        v = nearestList[i]
-        if v is None:
-            outView[i] = <float>0.0
-            continue
-        neighborIdxs = <cnp.ndarray[cnp.intp_t, ndim=1]>v
-        neighborIdxView = neighborIdxs
-        numNearest = neighborIdxView.shape[0]
-        if numNearest <= 0:
-            outView[i] = <float>0.0
-            continue
-        if numNearest > exView.shape[0]:
-            exBuf = np.empty(numNearest, dtype=np.float32)
-            exView = exBuf
-        nbPtr = &neighborIdxView[0]
-        exPtr = &exView[0]
-        with nogil:
-            for j in range(numNearest):
-                exPtr[j] = trackPtr[nbPtr[j]]
-        tmp = topFrac*<double>numNearest
-        numRetained = <Py_ssize_t>tmp
-        if tmp > <double>numRetained:
-            numRetained += 1
-        if numRetained < 1:
-            numRetained = 1
-        elif numRetained > numNearest:
-            numRetained = numNearest
-        startIdx = numNearest - numRetained
-
-        with nogil:
-            _nthElement(exPtr, numNearest, startIdx)
-            sumTop = 0.0
-            for j in range(startIdx, numNearest):
-                sumTop += <double>exPtr[j]
-        outView[i] = <float>(sumTop / <double>numRetained)
-
-    return out
 
 
 cpdef int64_t cgetFragmentLength(
@@ -1522,16 +1274,6 @@ cpdef cnp.ndarray[cnp.uint8_t, ndim=1] cbedMask(
     return mask
 
 
-cpdef void projectToBox(
-    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] vectorX,
-    cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixP,
-    cnp.float32_t stateLowerBound,
-    cnp.float32_t stateUpperBound,
-    cnp.float32_t eps
-):
-    _projectToBox(vectorX, matrixP, stateLowerBound, stateUpperBound, eps)
-
-
 cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           cnp.ndarray[cnp.float32_t, ndim=1] values,
                           int blockSize,
@@ -1609,7 +1351,17 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
     meansView = outMeans
     varsView = outVars
 
-    _regionMeanVar(valuesView, startsView, sizesView, meansView, varsView, zeroPenalty, zeroThresh, useInnovationVar, useSampleVar)
+    _regionMeanVar(
+        valuesView,
+        startsView,
+        sizesView,
+        meansView,
+        varsView,
+        zeroPenalty,
+        zeroThresh,
+        useInnovationVar,
+        useSampleVar,
+    )
 
     return outMeans, outVars, starts_, ends
 
@@ -1745,29 +1497,10 @@ cpdef tuple cSparseNearestMeanVarTrack(
     return outMeans, outVars
 
 
-cdef bint _cEMA(const double* xPtr, double* outPtr,
-                    Py_ssize_t n, double alpha) nogil:
+cdef bint _cEMA(const real_t* xPtr, real_t* outPtr,
+                Py_ssize_t n, real_t alpha) noexcept nogil:
     cdef Py_ssize_t i
-    if alpha > 1.0 or alpha < 0.0:
-        return <bint>1
-
-    outPtr[0] = xPtr[0]
-
-    # forward
-    for i in range(1, n):
-        outPtr[i] = alpha*xPtr[i] + (1.0 - alpha)*outPtr[i - 1]
-
-    # back
-    for i in range(n - 2, -1, -1):
-        outPtr[i] = alpha*outPtr[i] + (1.0 - alpha)*outPtr[i + 1]
-
-    return <bint>0
-
-
-cdef bint _cEMA_F32(const float* xPtr, float* outPtr,
-                    Py_ssize_t n, float alpha) nogil:
-    cdef Py_ssize_t i
-    if alpha > 1.0 or alpha < 0.0:
+    if alpha > <real_t>1.0 or alpha < <real_t>0.0:
         return <bint>1
 
     outPtr[0] = xPtr[0]
@@ -1792,7 +1525,7 @@ cpdef cEMA(cnp.ndarray x, double alpha):
         x1_F32 = np.ascontiguousarray(x, dtype=np.float32)
         n = x1_F32.shape[0]
         out_F32 = np.empty(n, dtype=np.float32)
-        _cEMA_F32(<const float*>x1_F32.data, <float*>out_F32.data, n, <float>alpha)
+        _cEMA(<const float*>x1_F32.data, <float*>out_F32.data, n, <float>alpha)
         return out_F32
 
     x1_F64 = np.ascontiguousarray(x, dtype=np.float64)
@@ -1802,82 +1535,43 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out_F64
 
 
-cdef void _monoLog_F32(
-    const float* arrPtr,
-    float* outPtr,
+cdef void _monoLog(
+    const real_t* arrPtr,
+    real_t* outPtr,
     Py_ssize_t n,
-    float offset,
-    float scale,
+    real_t offset,
+    real_t scale,
 ) noexcept nogil:
     cdef Py_ssize_t i
-    cdef float xval, u
+    cdef real_t xval, u
 
     for i in range(n):
         xval = arrPtr[i]
         u = xval + offset
-        if u <= 0.0:
+        if u <= <real_t>0.0:
             u = offset
-        outPtr[i] = scale * <float>log(<double>u)
+        outPtr[i] = scale * <real_t>log(<double>u)
 
 
-cdef void _monoLog_F64(
-    const double* arrPtr,
-    double* outPtr,
+cdef void _logRatio(
+    const real_t* treatmentPtr,
+    const real_t* controlPtr,
+    real_t* outPtr,
     Py_ssize_t n,
-    double offset,
-    double scale,
+    real_t offset,
+    real_t scale,
 ) noexcept nogil:
     cdef Py_ssize_t i
-    cdef double xval, u
-
-    for i in range(n):
-        xval = arrPtr[i]
-        u = xval + offset
-        if u <= 0.0:
-            u = offset
-        outPtr[i] = scale * log(u)
-
-
-cdef void _logRatio_F32(
-    const float* treatmentPtr,
-    const float* controlPtr,
-    float* outPtr,
-    Py_ssize_t n,
-    float offset,
-    float scale,
-) noexcept nogil:
-    cdef Py_ssize_t i
-    cdef float t, c
+    cdef real_t t, c
 
     for i in range(n):
         t = treatmentPtr[i] + offset
         c = controlPtr[i] + offset
-        if t <= 0.0:
+        if t <= <real_t>0.0:
             t = offset
-        if c <= 0.0:
+        if c <= <real_t>0.0:
             c = offset
-        outPtr[i] = scale * <float>(log(<double>t) - log(<double>c))
-
-
-cdef void _logRatio_F64(
-    const double* treatmentPtr,
-    const double* controlPtr,
-    double* outPtr,
-    Py_ssize_t n,
-    double offset,
-    double scale,
-) noexcept nogil:
-    cdef Py_ssize_t i
-    cdef double t, c
-
-    for i in range(n):
-        t = treatmentPtr[i] + offset
-        c = controlPtr[i] + offset
-        if t <= 0.0:
-            t = offset
-        if c <= 0.0:
-            c = offset
-        outPtr[i] = scale * (log(t) - log(c))
+        outPtr[i] = scale * <real_t>(log(<double>t) - log(<double>c))
 
 
 cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(1.0)):
@@ -1897,7 +1591,7 @@ cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double
         n = arr_F32.shape[0]
         out_F32 = np.empty(n, dtype=np.float32)
         with nogil:
-            _monoLog_F32(
+            _monoLog(
                 <const float*>arr_F32.data,
                 <float*>out_F32.data,
                 n,
@@ -1910,7 +1604,7 @@ cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double
     n = arr_F64.shape[0]
     out_F64 = np.empty(n, dtype=np.float64)
     with nogil:
-        _monoLog_F64(
+        _monoLog(
             <const double*>arr_F64.data,
             <double*>out_F64.data,
             n,
@@ -1934,17 +1628,12 @@ cpdef object cTransformWithInput(
     relative to control.
     """
     cdef Py_ssize_t n
-    cdef double offset_ = logOffset
-    cdef double scale_ = logMult
     cdef cnp.ndarray[cnp.float32_t, ndim=1] treat_F32
     cdef cnp.ndarray[cnp.float32_t, ndim=1] control_F32
     cdef cnp.ndarray[cnp.float32_t, ndim=1] out_F32
     cdef cnp.ndarray[cnp.float64_t, ndim=1] treat_F64
     cdef cnp.ndarray[cnp.float64_t, ndim=1] control_F64
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64
-
-    if offset_ <= 0.0:
-        offset_ = 1.0
 
     if (
         isinstance(treatment, np.ndarray)
@@ -1958,16 +1647,13 @@ cpdef object cTransformWithInput(
             raise ValueError("treatment and control must have the same length")
         n = treat_F32.shape[0]
         out_F32 = np.empty(n, dtype=np.float32)
-        with nogil:
-            _logRatio_F32(
-                <const float*>treat_F32.data,
-                <const float*>control_F32.data,
-                <float*>out_F32.data,
-                n,
-                <float>offset_,
-                <float>scale_,
-            )
-        return out_F32
+        return cTransformWithInputInto(
+            treat_F32,
+            control_F32,
+            out_F32,
+            logOffset=logOffset,
+            logMult=logMult,
+        )
 
     treat_F64 = np.ascontiguousarray(treatment, dtype=np.float64).reshape(-1)
     control_F64 = np.ascontiguousarray(control, dtype=np.float64).reshape(-1)
@@ -1975,16 +1661,199 @@ cpdef object cTransformWithInput(
         raise ValueError("treatment and control must have the same length")
     n = treat_F64.shape[0]
     out_F64 = np.empty(n, dtype=np.float64)
+    return cTransformWithInputInto(
+        treat_F64,
+        control_F64,
+        out_F64,
+        logOffset=logOffset,
+        logMult=logMult,
+    )
+
+
+cpdef object cTransformWithInputInto(
+    object treatment,
+    object control,
+    object out,
+    double logOffset=<double>(1.0),
+    double logMult=<double>(1.0),
+):
+    r"""Write the treatment/control log-ratio transform into ``out``."""
+    cdef Py_ssize_t n
+    cdef double offset_ = logOffset
+    cdef double scale_ = logMult
+    cdef object outObj = out
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] treat_F32
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] control_F32
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out_F32
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] treat_F64
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] control_F64
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64
+
+    if offset_ <= 0.0:
+        offset_ = 1.0
+
+    if not isinstance(outObj, np.ndarray):
+        raise TypeError("out must be a NumPy ndarray")
+    if outObj.ndim != 1:
+        raise ValueError("out must be one-dimensional")
+    if not outObj.flags.c_contiguous:
+        raise ValueError("out must be C-contiguous")
+
+    if (<cnp.ndarray>outObj).dtype == np.float32:
+        treat_F32 = np.ascontiguousarray(treatment, dtype=np.float32).reshape(-1)
+        control_F32 = np.ascontiguousarray(control, dtype=np.float32).reshape(-1)
+        out_F32 = outObj
+        if treat_F32.size != control_F32.size:
+            raise ValueError("treatment and control must have the same length")
+        if out_F32.size != treat_F32.size:
+            raise ValueError("out must have the same length as treatment and control")
+        n = treat_F32.shape[0]
+        with nogil:
+            _logRatio(
+                <const float*>treat_F32.data,
+                <const float*>control_F32.data,
+                <float*>out_F32.data,
+                n,
+                <float>offset_,
+                <float>scale_,
+            )
+        return out
+
+    if (<cnp.ndarray>outObj).dtype == np.float64:
+        treat_F64 = np.ascontiguousarray(treatment, dtype=np.float64).reshape(-1)
+        control_F64 = np.ascontiguousarray(control, dtype=np.float64).reshape(-1)
+        out_F64 = outObj
+        if treat_F64.size != control_F64.size:
+            raise ValueError("treatment and control must have the same length")
+        if out_F64.size != treat_F64.size:
+            raise ValueError("out must have the same length as treatment and control")
+        n = treat_F64.shape[0]
+        with nogil:
+            _logRatio(
+                <const double*>treat_F64.data,
+                <const double*>control_F64.data,
+                <double*>out_F64.data,
+                n,
+                offset_,
+                scale_,
+            )
+        return out
+
+    raise TypeError("out dtype must be float32 or float64")
+
+
+cpdef object cTransformInPlace(
+    object x,
+    Py_ssize_t blockLength,
+    double w_global=<double>1.0,
+    bint verbose=<bint>False,
+    double logOffset=<double>(1.0),
+    double logMult=<double>(1.0)
+):
+    r"""Transform a contiguous coverage track in-place."""
+    cdef Py_ssize_t blockLenTarget, n, i
+    cdef double offset_ = logOffset
+    cdef double scale_ = logMult
+    cdef object arrObj = x
+    cdef cnp.ndarray zArr_F32
+    cdef float[::1] zView_F32
+    cdef float centerOffsetF32
+    cdef cnp.ndarray zArr_F64
+    cdef double[::1] zView_F64
+    cdef double centerOffsetF64
+
+    if offset_ <= 0.0:
+        offset_ = 1.0
+
+    if not isinstance(arrObj, np.ndarray):
+        raise TypeError("x must be a NumPy ndarray")
+    if arrObj.ndim != 1:
+        raise ValueError("x must be one-dimensional")
+    if not arrObj.flags.c_contiguous:
+        raise ValueError("x must be C-contiguous")
+
+    if w_global <= 0.0:
+        if (<cnp.ndarray>arrObj).dtype == np.float32:
+            zArr_F32 = arrObj
+            n = zArr_F32.shape[0]
+            with nogil:
+                _monoLog(
+                    <const float*>zArr_F32.data,
+                    <float*>zArr_F32.data,
+                    n,
+                    <float>offset_,
+                    <float>scale_,
+                )
+            return x
+        elif (<cnp.ndarray>arrObj).dtype == np.float64:
+            zArr_F64 = arrObj
+            n = zArr_F64.shape[0]
+            with nogil:
+                _monoLog(
+                    <const double*>zArr_F64.data,
+                    <double*>zArr_F64.data,
+                    n,
+                    offset_,
+                    scale_,
+                )
+            return x
+        raise TypeError("x dtype must be float32 or float64")
+
+    blockLenTarget = <Py_ssize_t>max(min(blockLength, 50000), 3)
+    if blockLenTarget % 2 == 0:
+        blockLenTarget += 1
+        if blockLenTarget > 50000:
+            blockLenTarget -= 2
+
+    # F32
+    if (<cnp.ndarray>arrObj).dtype == np.float32:
+        zArr_F32 = arrObj
+        zView_F32 = zArr_F32
+        n = zArr_F32.shape[0]
+        with nogil:
+            _monoLog(
+                <const float*>zArr_F32.data,
+                <float*>zArr_F32.data,
+                n,
+                <float>offset_,
+                <float>scale_,
+            )
+        centerOffsetF32 = <float>cDenseMean(
+            zArr_F32,
+            blockLenTarget=blockLenTarget,
+            verbose=verbose,
+        )
+
+        with nogil:
+            for i in range(n):
+                zView_F32[i] = zView_F32[i] - centerOffsetF32
+        return x
+
+    # F64
+    if (<cnp.ndarray>arrObj).dtype != np.float64:
+        raise TypeError("x dtype must be float32 or float64")
+    zArr_F64 = arrObj
+    zView_F64 = zArr_F64
+    n = zArr_F64.shape[0]
     with nogil:
-        _logRatio_F64(
-            <const double*>treat_F64.data,
-            <const double*>control_F64.data,
-            <double*>out_F64.data,
+        _monoLog(
+            <const double*>zArr_F64.data,
+            <double*>zArr_F64.data,
             n,
             offset_,
             scale_,
         )
-    return out_F64
+    centerOffsetF64 = <double>cDenseMean(
+        zArr_F64,
+        blockLenTarget=blockLenTarget,
+        verbose=verbose,
+    )
+
+    with nogil:
+        for i in range(n):
+            zView_F64[i] = zView_F64[i] - centerOffsetF64
+
+    return x
 
 
 cpdef object cTransform(
@@ -1996,182 +1865,21 @@ cpdef object cTransform(
     double logMult=<double>(1.0)
 ):
     r"""Transform a coverage track and optionally subtract a dense centering offset."""
-    cdef Py_ssize_t blockLenTarget, n, i
-    cdef object momRes
-    cdef cnp.ndarray outArr
-    cdef cnp.ndarray zArr_F32
-    cdef float[::1] zView_F32, outView_F32
-    cdef float centerOffsetF32
-    cdef cnp.ndarray zArr_F64
-    cdef double[::1] zView_F64, outView_F64
-    cdef double centerOffsetF64
+    cdef object outArr
 
-    if w_global <= 0.0:
-        momRes = monoFunc(x, offset=logOffset, scale=logMult)
-        if (<cnp.ndarray>x).dtype == np.float32:
-            return np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
-        else:
-            return np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
+    if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
+        outArr = np.array(x, dtype=np.float32, copy=True, order="C").reshape(-1)
+    else:
+        outArr = np.array(x, dtype=np.float64, copy=True, order="C").reshape(-1)
 
-    blockLenTarget = <Py_ssize_t>max(min(blockLength, 50000), 3)
-    if blockLenTarget % 2 == 0:
-        blockLenTarget += 1
-        if blockLenTarget > 50000:
-            blockLenTarget -= 2
-
-
-    n = (<cnp.ndarray>x).size
-    # F32
-    if (<cnp.ndarray>x).dtype == np.float32:
-        momRes = monoFunc(x, offset=logOffset, scale=logMult)
-        zArr_F32 = np.ascontiguousarray(momRes[0], dtype=np.float32).reshape(-1)
-        zView_F32 = zArr_F32
-        n = zArr_F32.shape[0]
-        outArr = np.empty(n, dtype=np.float32)
-        outView_F32 = outArr
-        centerOffsetF32 = <float>cDenseMean(
-            zArr_F32,
-            blockLenTarget=blockLenTarget,
-            verbose=verbose,
-        )
-
-        with nogil:
-            for i in range(n):
-                outView_F32[i] = zView_F32[i] - centerOffsetF32
-        return outArr
-
-    # F64
-    momRes = monoFunc(x, offset=logOffset, scale=logMult)
-    zArr_F64 = np.ascontiguousarray(momRes[0], dtype=np.float64).reshape(-1)
-    zView_F64 = zArr_F64
-    n = zArr_F64.shape[0]
-    outArr = np.empty(n, dtype=np.float64)
-    outView_F64 = outArr
-    centerOffsetF64 = <double>cDenseMean(
-        zArr_F64,
-        blockLenTarget=blockLenTarget,
+    return cTransformInPlace(
+        outArr,
+        blockLength=blockLength,
+        w_global=w_global,
         verbose=verbose,
+        logOffset=logOffset,
+        logMult=logMult,
     )
-
-    with nogil:
-        for i in range(n):
-            outView_F64[i] = zView_F64[i] - centerOffsetF64
-
-    return outArr
-
-
-cpdef protectCovariance22(object A, double eigFloor=1.0e-4):
-    cdef cnp.ndarray arr
-    cdef double a_, b_, c_
-    cdef double TRACE, DET, EIG1, EIG2
-    cdef float TRACE_F32, DET_F32, EIG1_F32, EIG2_F32, LAM_F32
-    cdef double eigvecFirstComponent, eigvecSecondComponent, invn, eigvecFirstSquared, eigvecSecondSquared, eigvecProd, LAM
-    cdef double* ptr_F64
-    cdef float* ptr_F32
-    arr = <cnp.ndarray>A
-
-    # F64
-    if arr.dtype == np.float64:
-        ptr_F64 = <double*>arr.data
-        with nogil:
-            a_ = ptr_F64[0]
-            c_ = ptr_F64[3]
-            b_ = 0.5*(ptr_F64[1] + ptr_F64[2])
-
-            if b_ == 0.0:
-                if a_ < eigFloor: a_ = eigFloor
-                if c_ < eigFloor: c_ = eigFloor
-                ptr_F64[0] = a_
-                ptr_F64[1] = 0.0
-                ptr_F64[2] = 0.0
-                ptr_F64[3] = c_
-            else:
-                TRACE = a_ + c_
-                DET = sqrt(0.25*(a_ - c_)*(a_ - c_) + (b_*b_))
-                EIG1 = <double>(TRACE + 2*DET)/2.0
-                EIG2 = <double>(TRACE - 2*DET)/2.0
-
-                if EIG1 < eigFloor: EIG1 = eigFloor
-                if EIG2 < eigFloor: EIG2 = eigFloor
-
-                if fabs(EIG1 - c_) > fabs(EIG1 - a_):
-                    eigvecFirstComponent = EIG1 - c_
-                    eigvecSecondComponent = b_
-                else:
-                    eigvecFirstComponent = b_
-                    eigvecSecondComponent = EIG1 - a_
-
-                if eigvecFirstComponent == 0.0 and eigvecSecondComponent == 0.0:
-                    eigvecFirstComponent = <double>1.0
-                    eigvecSecondComponent = <double>0.0
-
-                invn = 1.0 / sqrt((eigvecFirstComponent*eigvecFirstComponent) + (eigvecSecondComponent*eigvecSecondComponent))
-                eigvecFirstComponent *= invn
-                eigvecSecondComponent *= invn
-
-                eigvecFirstSquared = (eigvecFirstComponent*eigvecFirstComponent)
-                eigvecSecondSquared = (eigvecSecondComponent*eigvecSecondComponent)
-                eigvecProd = eigvecFirstComponent*eigvecSecondComponent
-                LAM = EIG1 - EIG2
-
-
-                # rewrite/padViewgiven 2x2 + SPD (and pad):
-                # A = lambda_2*(I) + (lambda_1 - lambda_2)*(vv^T), where v <--> lambda_1
-                ptr_F64[0] = EIG2 + LAM*eigvecFirstSquared
-                ptr_F64[3] = EIG2 + LAM*eigvecSecondSquared
-                ptr_F64[1] = LAM*eigvecProd
-                ptr_F64[2] = ptr_F64[1]
-        return A
-
-    # F32
-    if arr.dtype == np.float32:
-        ptr_F32 = <float*>arr.data
-        with nogil:
-            a_ = <double>ptr_F32[0]
-            c_ = <double>ptr_F32[3]
-            b_ = 0.5*((<double>ptr_F32[1]) + (<double>ptr_F32[2]))
-
-            if b_ == 0.0:
-                if a_ < eigFloor: a_ = eigFloor
-                if c_ < eigFloor: c_ = eigFloor
-                ptr_F32[0] = <float>a_
-                ptr_F32[1] = <float>0.0
-                ptr_F32[2] = <float>0.0
-                ptr_F32[3] = <float>c_
-            else:
-                TRACE_F32 = <float>(a_ + c_)
-                DET_F32 = <float>(sqrt(0.25*(a_ - c_)*(a_-c_) + (b_*b_)))
-                EIG1_F32 = <float>((TRACE_F32 + 2*DET_F32) / 2.0)
-                EIG2_F32 = <float>(TRACE_F32 - 2*DET_F32) / 2.0
-
-                if EIG1_F32 < eigFloor: EIG1_F32 = eigFloor
-                if EIG2_F32 < eigFloor: EIG2_F32 = eigFloor
-
-                if fabs(EIG1_F32 - c_) > fabs(EIG1_F32 - a_):
-                    eigvecFirstComponent = EIG1_F32 - c_
-                    eigvecSecondComponent = b_
-                else:
-                    eigvecFirstComponent = b_
-                    eigvecSecondComponent = EIG1_F32 - a_
-
-                if eigvecFirstComponent == 0.0 and eigvecSecondComponent == 0.0:
-                    eigvecFirstComponent = 1.0
-                    eigvecSecondComponent = 0.0
-
-                invn = 1.0 / sqrt(eigvecFirstComponent*eigvecFirstComponent + eigvecSecondComponent*eigvecSecondComponent)
-                eigvecFirstComponent *= invn
-                eigvecSecondComponent *= invn
-
-                eigvecFirstSquared = eigvecFirstComponent*eigvecFirstComponent
-                eigvecSecondSquared = eigvecSecondComponent*eigvecSecondComponent
-                eigvecProd = eigvecFirstComponent*eigvecSecondComponent
-                LAM_F32 = EIG1_F32 - EIG2_F32
-
-                ptr_F32[0] = <float>(EIG2_F32 + LAM_F32*eigvecFirstSquared)
-                ptr_F32[3] = <float>(EIG2_F32 + LAM_F32*eigvecSecondSquared)
-                ptr_F32[1] = <float>(LAM_F32*eigvecProd)
-                ptr_F32[2] = ptr_F32[1]
-        return A
 
 
 cpdef tuple cforwardPass(
@@ -2279,11 +1987,11 @@ cpdef tuple cforwardPass(
     cdef double sumDStat = 0.0
     cdef float qScaleB
     cdef double w
-    cdef double wMin = 0.125
-    cdef double wMax = 8.0
+    cdef double wMin = __EM_PRECISION_MULTIPLIER_MIN
+    cdef double wMax = __EM_PRECISION_MULTIPLIER_MAX
     cdef double procPrec
-    cdef double procPrecMin = 0.125
-    cdef double procPrecMax = 8.0
+    cdef double procPrecMin = __EM_PRECISION_MULTIPLIER_MIN
+    cdef double procPrecMax = __EM_PRECISION_MULTIPLIER_MAX
     cdef double biasJ
     cdef double qDiagBase
     cdef double apnScale = 1.0
@@ -3070,11 +2778,11 @@ cpdef tuple cinnerEM(
     cdef double delta
     cdef double u2
     cdef double w
-    cdef double wMin = 0.1
-    cdef double wMax = 10.0
+    cdef double wMin = __EM_PRECISION_MULTIPLIER_MIN
+    cdef double wMax = __EM_PRECISION_MULTIPLIER_MAX
     cdef double kappa_
-    cdef double kappaMin_ = 0.1
-    cdef double kappaMax_ = 10.0
+    cdef double kappaMin_ = __EM_PRECISION_MULTIPLIER_MIN
+    cdef double kappaMax_ = __EM_PRECISION_MULTIPLIER_MAX
     cdef double dState = 2.0
     cdef double tmpVal
     cdef double procNu = EM_tNu
@@ -3906,6 +3614,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
                 # y[i] = values[startIndex+i+1] i=0,1,...n-2
                 sumXSeq = sumY - currentValue
                 sumYSeq = sumY - previousValue
+
                 meanAll = sumY / blockLengthDouble
                 gamma0_num = sumSqY - (blockLengthDouble * meanAll * meanAll)
                 if gamma0_num < 0.0:
@@ -4105,7 +3814,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     # enforce _minimum distance_ between selected reference columns!
     # ... since we're working with adjacent genomic intervals, best
     # ... to avoid local correlations skewing the SF calculation.
-    # FFR: consider coupling minRefDist with `getContextSize`
+    # FFR: consider coupling minRefDist with `chooseDependenceLength`
     cdef Py_ssize_t lastSelected = -minRefDist
     cdef Py_ssize_t prevSelected = -1
     cdef Py_ssize_t selectedCount = 0
