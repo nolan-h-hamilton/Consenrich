@@ -14,6 +14,7 @@ cdef extern from "native/ccounts_backend.h":
     ctypedef enum ccounts_sourceKind:
         ccounts_sourceKindBAM
         ccounts_sourceKindFragments
+        ccounts_sourceKindBedGraph
 
     ctypedef enum ccounts_countMode:
         ccounts_countModeCoverage # default, count every covered base across the full read or fragment span
@@ -127,6 +128,8 @@ cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):
         return ccounts_sourceKindBAM
     if normalizedKind == "FRAGMENTS":
         return ccounts_sourceKindFragments
+    if normalizedKind == "BEDGRAPH":
+        return ccounts_sourceKindBedGraph
     raise ValueError(f"Unsupported source kind `{sourceKind}`")
 
 

@@ -32,6 +32,43 @@ FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
 
 
 @pytest.mark.correctness
+def testCTransformWithInputReturnsFloat32LogRatio():
+    treatment = np.array([9.0, 0.0, 4.0], dtype=np.float32)
+    control = np.array([2.0, 5.0, 4.0], dtype=np.float32)
+
+    out = cconsenrich.cTransformWithInput(
+        treatment,
+        control,
+        logOffset=1.0,
+        logMult=1.0,
+    )
+    expected = np.log(treatment + 1.0) - np.log(control + 1.0)
+
+    assert out.dtype == np.float32
+    assert np.allclose(out, expected.astype(np.float32))
+    assert out[1] < 0.0
+    assert out[2] == pytest.approx(0.0)
+
+
+@pytest.mark.correctness
+def testCTransformWithInputReturnsFloat64LogRatio():
+    treatment = np.array([15.0, 2.0], dtype=np.float64)
+    control = np.array([3.0, 8.0], dtype=np.float64)
+
+    out = cconsenrich.cTransformWithInput(
+        treatment,
+        control,
+        logOffset=0.5,
+        logMult=1.0 / np.log(2.0),
+    )
+    expected = (np.log(treatment + 0.5) - np.log(control + 0.5)) / np.log(2.0)
+
+    assert out.dtype == np.float64
+    assert np.allclose(out, expected)
+    assert out[1] < 0.0
+
+
+@pytest.mark.correctness
 def testDenseMeanBlockShrinkageIsConservative():
     rng = np.random.default_rng(7)
     x = np.concatenate(
@@ -83,6 +120,69 @@ def testDenseMeanBlockMeanElbowKeepsBackgroundEstimate():
     assert global_only > 7.0
     assert block_shrunk < 2.0
     assert block_shrunk < global_only - 5.0
+
+
+@pytest.mark.correctness
+def testDenseMeanExcludesBlocksByIntervalLevelMedianCutoff(capfd):
+    block_len = 101
+    low_block = np.full(block_len, 1.0, dtype=np.float32)
+    mixed_high_median_block = np.concatenate(
+        [
+            np.full(49, 1.0, dtype=np.float32),
+            np.full(52, 10.0, dtype=np.float32),
+        ]
+    )
+    x = np.concatenate(
+        [low_block.copy() for _ in range(96)]
+        + [mixed_high_median_block.copy() for _ in range(4)]
+    ).astype(np.float32)
+
+    cconsenrich.cDenseMean(
+        x,
+        blockLenTarget=block_len,
+        itersEM=50,
+        verbose=True,
+    )
+
+    captured = capfd.readouterr().out
+    match = re.search(r"excludedHighMedianBlocks=(\d+)", captured)
+    assert match is not None
+    assert int(match.group(1)) == 4
+
+
+@pytest.mark.correctness
+def testDenseMeanPenalizesHighBlockUpperQuartile(capfd):
+    block_len = 101
+    low_block = np.full(block_len, 1.0, dtype=np.float32)
+    high_q75_block = np.concatenate(
+        [
+            np.full(70, 1.0, dtype=np.float32),
+            np.full(31, 10.0, dtype=np.float32),
+        ]
+    )
+    x = np.concatenate(
+        [low_block.copy() for _ in range(92)]
+        + [high_q75_block.copy() for _ in range(8)]
+    ).astype(np.float32)
+
+    cconsenrich.cDenseMean(
+        x,
+        blockLenTarget=block_len,
+        itersEM=50,
+        verbose=True,
+    )
+
+    captured = capfd.readouterr().out
+    excluded_match = re.search(r"excludedHighMedianBlocks=(\d+)", captured)
+    q75_match = re.search(r"q75PenaltyMax=([0-9.]+)", captured)
+    min_weight_match = re.search(r"minWeight=([0-9.]+)", captured)
+
+    assert excluded_match is not None
+    assert int(excluded_match.group(1)) == 0
+    assert q75_match is not None
+    assert float(q75_match.group(1)) > 1.0
+    assert min_weight_match is not None
+    assert float(min_weight_match.group(1)) < 0.5
 
 
 def _writeSyntheticBam(tmp_path: Path, fileName: str, records: list[dict]) -> Path:
@@ -574,22 +674,53 @@ def testRunConsenrichEffectiveInfoRescaleInflatesDefaultUncertainty(
 
 
 @pytest.mark.correctness
+def testGetBedMaskUsesIntervalSpanOverlap(tmp_path):
+    bedPath = tmp_path / "regions.bed"
+    bedPath.write_text("chrTest\t110\t120\n", encoding="utf-8")
+    intervals = np.array([0, 100, 200], dtype=np.uint32)
+
+    mask = core.getBedMask("chrTest", str(bedPath), intervals)
+
+    assert mask.tolist() == [False, True, False]
+
+
+@pytest.mark.correctness
+def testSparseSupportWeightsUseExponentialDistanceDecay():
+    weights = core._sparseSupportWeights(
+        np.array([2], dtype=np.intp),
+        intervalCount=6,
+        ellIntervals=2.0,
+        supportPrior=1.0,
+    )
+    expectedNEff = np.exp(-np.abs(np.arange(6) - 2) / 2.0)
+    expected = expectedNEff / (expectedNEff + 1.0)
+
+    assert np.allclose(weights, expected)
+    assert weights[2] > weights[1] > weights[0]
+
+
+@pytest.mark.correctness
 def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
     intervals = np.arange(0, 400, 25, dtype=np.uint32)
     values = np.linspace(0.1, 1.6, intervals.size, dtype=np.float32)
-    sparseIntervalIndices = np.array([1, 5, 9, 13], dtype=np.intp)
+    sparseIntervalIndices = np.array([1, 2, 3, 4, 9, 10, 11, 12], dtype=np.intp)
     fakeVarTrack = np.linspace(0.2, 0.5, intervals.size, dtype=np.float32)
+    fakeRollingVarTrack = np.linspace(0.3, 0.7, intervals.size, dtype=np.float32)
     fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
     fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
+    seen: dict[str, np.ndarray] = {}
 
     def _fakeSparseNearest(*args, **kwargs):
+        seen["sparse_centers"] = np.asarray(args[1]).copy()
+        seen["block_starts"] = np.asarray(args[2]).copy()
+        seen["block_sizes"] = np.asarray(args[3]).copy()
         return (
             np.zeros(intervals.size, dtype=np.float32),
             fakeVarTrack.copy(),
         )
 
-    def _forbidRolling(*args, **kwargs):
-        raise AssertionError("rolling AR1 path should not be used")
+    def _fakeRolling(*args, **kwargs):
+        return fakeRollingVarTrack.copy()
 
     def _fakeMeanVarPairs(*args, **kwargs):
         starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
@@ -603,6 +734,10 @@ def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
         meanTrackArr = np.asarray(meanTrack, dtype=np.float32)
         return np.maximum(0.25, meanTrackArr + 0.1).astype(np.float32)
 
+    def _fakeEBComputePriorStrength(localVars, priorVars, nuLocal):
+        seen["local_vars"] = np.asarray(localVars).copy()
+        return 10.0
+
     monkeypatch.setattr(
         cconsenrich,
         "cSparseNearestMeanVarTrack",
@@ -611,7 +746,7 @@ def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         cconsenrich,
         "crolling_AR1_IVar",
-        _forbidRolling,
+        _fakeRolling,
     )
     monkeypatch.setattr(
         cconsenrich,
@@ -620,6 +755,7 @@ def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(core, "fitVarianceFunction", _fakeFitVarianceFunction)
     monkeypatch.setattr(core, "evalVarianceFunction", _fakeEvalVarianceFunction)
+    monkeypatch.setattr(core, "EB_computePriorStrength", _fakeEBComputePriorStrength)
 
     muncTrack, support = core.getMuncTrack(
         chromosome="chrTest",
@@ -630,9 +766,29 @@ def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
         samplingIters=64,
         sparseIntervalIndices=sparseIntervalIndices,
         numNearest=3,
+        sparseSupportScaleBP=50,
+        sparseSupportPrior=1.0,
+        EB_localQuantile=-1.0,
         EB_use=True,
     )
 
+    supportWeights = core._sparseSupportWeights(
+        sparseIntervalIndices,
+        intervals.size,
+        ellIntervals=2.0,
+        supportPrior=1.0,
+    )
+    expectedLocalVars = (
+        supportWeights * fakeVarTrack.astype(np.float64)
+        + (1.0 - supportWeights) * fakeRollingVarTrack.astype(np.float64)
+    )
+    sparseSet = set(sparseIntervalIndices.tolist())
+    for blockStart, blockSize in zip(seen["block_starts"], seen["block_sizes"]):
+        blockRange = range(int(blockStart), int(blockStart + blockSize))
+        assert all(idx in sparseSet for idx in blockRange)
+
+    assert np.array_equal(seen["sparse_centers"], sparseIntervalIndices)
+    assert np.allclose(seen["local_vars"], expectedLocalVars)
     assert muncTrack.shape == values.shape
     assert np.isfinite(muncTrack).all()
     assert support > 0.0
@@ -667,9 +823,10 @@ def testGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
 ):
     intervals = np.arange(0, 400, 25, dtype=np.uint32)
     values = np.linspace(-0.4, 1.1, intervals.size, dtype=np.float32)
-    sparseIntervalIndices = np.array([1, 5, 9, 13], dtype=np.intp)
+    sparseIntervalIndices = np.array([1, 2, 3, 4, 9, 10, 11, 12], dtype=np.intp)
     sparseMeanTrack = np.linspace(-0.2, 0.3, intervals.size, dtype=np.float32)
     sparseVarTrack = np.linspace(0.2, 0.5, intervals.size, dtype=np.float32)
+    fakeRollingVarTrack = np.linspace(0.3, 0.7, intervals.size, dtype=np.float32)
     fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
     fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
     seen: dict[str, np.ndarray] = {}
@@ -677,8 +834,8 @@ def testGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
     def _fakeSparseNearest(*args, **kwargs):
         return sparseMeanTrack.copy(), sparseVarTrack.copy()
 
-    def _forbidRolling(*args, **kwargs):
-        raise AssertionError("rolling AR1 path should not be used")
+    def _fakeRolling(*args, **kwargs):
+        return fakeRollingVarTrack.copy()
 
     def _fakeMeanVarPairs(intervalsArg, valuesArg, *args, **kwargs):
         seen["prior_fit_values"] = np.asarray(valuesArg).copy()
@@ -706,7 +863,7 @@ def testGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
     monkeypatch.setattr(
         cconsenrich,
         "crolling_AR1_IVar",
-        _forbidRolling,
+        _fakeRolling,
     )
     monkeypatch.setattr(
         cconsenrich,
@@ -726,10 +883,21 @@ def testGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
         samplingIters=64,
         sparseIntervalIndices=sparseIntervalIndices,
         numNearest=3,
+        sparseSupportScaleBP=50,
+        sparseSupportPrior=1.0,
+        EB_localQuantile=-1.0,
         EB_use=True,
     )
 
-    expectedResidual = values.astype(np.float32) - sparseMeanTrack.astype(np.float32)
+    supportWeights = core._sparseSupportWeights(
+        sparseIntervalIndices,
+        intervals.size,
+        ellIntervals=2.0,
+        supportPrior=1.0,
+    )
+    expectedResidual = values.astype(np.float64) - (
+        supportWeights * sparseMeanTrack.astype(np.float64)
+    )
     expectedMagnitude = np.abs(expectedResidual)
 
     assert np.allclose(seen["prior_fit_values"], expectedResidual)
@@ -1041,6 +1209,93 @@ def testReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
         )
 
         assert np.allclose(counts[0], expected), countMode
+
+
+@pytest.mark.correctness
+def testCCountsCountBedGraphRegionWeightedByOverlap(tmp_path):
+    bedGraphPath = tmp_path / "toy.bedGraph"
+    bedGraphPath.write_text(
+        "\n".join(
+            [
+                "track type=bedGraph",
+                "chr1 0 25 2.0",
+                "chr1 25 75 6.0",
+                "chr1 75 100 10.0",
+                "chr2 0 100 99.0",
+            ]
+        )
+        + "\n",
+        encoding="ascii",
+    )
+
+    counts = ccounts.ccounts_countAlignmentRegion(
+        str(bedGraphPath),
+        "chr1",
+        0,
+        100,
+        50,
+        0,
+        0,
+        1,
+        0,
+        sourceKind="BEDGRAPH",
+    )
+
+    assert counts.dtype == np.float32
+    assert np.allclose(counts, np.array([4.0, 8.0], dtype=np.float32))
+
+
+@pytest.mark.correctness
+def testReadSegmentsBedGraphScalesNativeCounts(tmp_path):
+    bedGraphPath = tmp_path / "toy.bdg"
+    bedGraphPath.write_text(
+        "chr1\t0\t10\t1.5\n"
+        "chr1\t10\t20\t2.5\n"
+        "chr1\t20\t30\t4.0\n",
+        encoding="ascii",
+    )
+
+    counts = core.readSegments(
+        sources=[
+            core.inputSource(
+                path=str(bedGraphPath),
+                sourceKind="BEDGRAPH",
+            )
+        ],
+        chromosome="chr1",
+        start=0,
+        end=30,
+        intervalSizeBP=10,
+        readLengths=[0],
+        scaleFactors=[2.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=0,
+    )
+
+    assert counts.shape == (1, 3)
+    assert np.allclose(counts[0], np.array([3.0, 5.0, 8.0], dtype=np.float32))
+
+
+@pytest.mark.correctness
+def testBedGraphChromRangeAndReadLength(tmp_path):
+    bedGraphPath = tmp_path / "range.bedGraph"
+    bedGraphPath.write_text(
+        "chr2\t0\t10\t9\n"
+        "chr1\t25\t50\t2\n"
+        "chr1\t5\t20\t3\n",
+        encoding="ascii",
+    )
+
+    assert core.getReadLength(str(bedGraphPath), 10, 100, 1, 0, "BEDGRAPH") == 0
+    assert core.getChromRangesJoint(
+        [str(bedGraphPath)],
+        "chr1",
+        chromSize=100,
+        samThreads=1,
+        samFlagExclude=0,
+        sourceKinds=["BEDGRAPH"],
+    ) == (5, 50)
 
 
 @pytest.mark.correctness

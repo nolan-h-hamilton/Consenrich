@@ -34,7 +34,11 @@ logger = logging.getLogger(__name__)
 
 ALIGNMENT_SOURCE_KINDS = ("BAM",)
 FRAGMENTS_SOURCE_KIND = "FRAGMENTS"  # 10x
-SUPPORTED_SOURCE_KINDS = ALIGNMENT_SOURCE_KINDS + (FRAGMENTS_SOURCE_KIND,)
+BEDGRAPH_SOURCE_KIND = "BEDGRAPH"
+SUPPORTED_SOURCE_KINDS = ALIGNMENT_SOURCE_KINDS + (
+    FRAGMENTS_SOURCE_KIND,
+    BEDGRAPH_SOURCE_KIND,
+)
 SUPPORTED_BAM_INPUT_MODES = ("auto", "fragments", "reads", "read1")
 SUPPORTED_FRAGMENT_POSITION_MODES = ("insertionendpoints", "fragmentendpoints")
 SUPPORTED_COUNT_MODES = (
@@ -101,6 +105,10 @@ class observationParams(NamedTuple):
     :param numNearest: If ``> 0`` and an explicit sparse BED is supplied, estimate the local observation variance from the nearest sparse regions instead of the default rolling AR(1) local variance.
       In this sparse-nearest mode, the same nearest sparse blocks also define a signed local intercept track that is subtracted before fitting and evaluating the global mean-variance prior.
     :type numNearest: int | None
+    :param sparseSupportScaleBP: Exponential length scale :math:`\ell`, in bp, used to soften sparse-nearest estimates by support density. If unset or non-positive, defaults to the local observation window scale.
+    :type sparseSupportScaleBP: float | None
+    :param sparseSupportPrior: Positive pseudo-count :math:`k` in ``n_eff / (n_eff + k)``. Smaller values make sparse evidence dominate more aggressively; values ``<= 0`` disable soft blending where sparse support exists.
+    :type sparseSupportPrior: float | None
     :param restrictLocalAR1ToSparseBed: If True, and a sparse BED mask is supplied to :func:`consenrich.core.getMuncTrack`, restrict the default rolling AR(1) local observation noise level estimates to windows fully contained in sparse BED regions.
       This only affects the local rolling AR(1) model, the global prior fit and sparse-nearest mode are unchanged.
     :type restrictLocalAR1ToSparseBed: bool | None
@@ -120,6 +128,8 @@ class observationParams(NamedTuple):
     EB_setNu0: int | None
     EB_setNuL: int | None
     numNearest: int | None
+    sparseSupportScaleBP: float | None
+    sparseSupportPrior: float | None
     restrictLocalAR1ToSparseBed: bool | None
     pad: float | None
 
@@ -215,9 +225,9 @@ class samParams(NamedTuple):
 class inputSource(NamedTuple):
     r"""Describes one input source for counting
 
-    :param path: Path to an alignment or fragments file
+    :param path: Path to an alignment, fragments, or bedGraph file
     :type path: str
-    :param sourceKind: One of ``BAM`` or ``FRAGMENTS``
+    :param sourceKind: One of ``BAM``, ``FRAGMENTS``, or ``BEDGRAPH``
     :type sourceKind: str
     :param role: ``treatment`` or ``control``
     :type role: str
@@ -542,8 +552,11 @@ class fitParams(NamedTuple):
 
 
 def _inferAlignmentSourceKind(path: str) -> str:
-    if str(path).lower().endswith(".cram"):
+    lowerPath = str(path).lower()
+    if lowerPath.endswith(".cram"):
         raise ValueError("CRAM inputs are no longer supported.")
+    if lowerPath.endswith((".bedgraph", ".bedgraph.gz", ".bdg", ".bdg.gz")):
+        return BEDGRAPH_SOURCE_KIND
     return "BAM"
 
 
@@ -660,6 +673,8 @@ def getReadLength(
 
     :seealso: :func:`consenrich.ccounts.ccounts_getAlignmentReadLength`
     """
+    if str(sourceKind).upper() == BEDGRAPH_SOURCE_KIND:
+        return 0
     init_rlen = ccounts.ccounts_getAlignmentReadLength(
         bamFile,
         numReads,
@@ -959,7 +974,31 @@ def readSegments(
             if tempPath is not None:
                 tempPaths.append(tempPath)
 
-            if sourceKind == FRAGMENTS_SOURCE_KIND:
+            if sourceKind == BEDGRAPH_SOURCE_KIND:
+                counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
+                    sourcePath,
+                    chromosome,
+                    start,
+                    end,
+                    intervalSizeBP,
+                    0,
+                    0,
+                    samThreads,
+                    0,
+                    shiftForwardStrand53=0,
+                    shiftReverseStrand53=0,
+                    extendBP=0,
+                    maxInsertSize=0,
+                    pairedEndMode=0,
+                    inferFragmentLength=0,
+                    minMappingQuality=0,
+                    minTemplateLength=0,
+                    sourceKind=sourceKind,
+                    barcodeAllowListFile="",
+                    barcodeGroupMapFile="",
+                    countMode="coverage",
+                )
+            elif sourceKind == FRAGMENTS_SOURCE_KIND:
                 countMode = _normalizeCountMode(source.countMode, "cutsite")
                 _normalizeFragmentPositionMode(source.fragmentPositionMode)
                 counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
@@ -2235,7 +2274,7 @@ def runConsenrich(
             lagCovSmoothedLocal = np.asarray(lagCovSmoothedLocal, dtype=np.float32)
             postFitResidualsLocal = np.asarray(postFitResidualsLocal, dtype=np.float32)
 
-            invVarMatrix = 1.0 / np.maximum(currentMunc, 1.0e-8)
+            invVarMatrix = 1.0 / np.maximum(currentMunc + float(pad), 1.0e-8)
             if lambdaExpLocal is not None:
                 invVarMatrix *= np.asarray(lambdaExpLocal, dtype=np.float32)
             residualMatrix = (
@@ -2729,6 +2768,62 @@ def _backgroundPenaltyFromSpan(
     return float(max(1.0, float(backgroundSmoothness) * penalty))
 
 
+def _sparseSupportWeights(
+    sparseIntervalIndices: np.ndarray,
+    intervalCount: int,
+    ellIntervals: float,
+    supportPrior: float,
+) -> np.ndarray:
+    r"""Compute soft sparse support weights from exponential distance decay.
+
+    ``n_eff[i] = sum_j exp(-abs(i - sparse_j) / ell)`` is evaluated exactly in
+    linear time using left/right recurrences over the sorted sparse interval
+    indices, then converted to ``n_eff / (n_eff + supportPrior)``.
+    """
+    intervalCount = int(intervalCount)
+    if intervalCount <= 0:
+        return np.empty(0, dtype=np.float64)
+
+    sparseIdx = np.asarray(sparseIntervalIndices, dtype=np.intp).ravel()
+    sparseIdx = sparseIdx[(sparseIdx >= 0) & (sparseIdx < intervalCount)]
+    if sparseIdx.size == 0:
+        return np.zeros(intervalCount, dtype=np.float64)
+    sparseIdx = np.unique(sparseIdx)
+
+    ellIntervals = float(ellIntervals)
+    if (not np.isfinite(ellIntervals)) or ellIntervals <= 0.0:
+        weights = np.zeros(intervalCount, dtype=np.float64)
+        weights[sparseIdx] = 1.0
+        return weights
+
+    counts = np.zeros(intervalCount, dtype=np.float64)
+    counts[sparseIdx] = 1.0
+
+    decay = float(np.exp(-1.0 / ellIntervals))
+    left = np.empty(intervalCount, dtype=np.float64)
+    running = 0.0
+    for i in range(intervalCount):
+        running = (running * decay) + counts[i]
+        left[i] = running
+
+    right = np.empty(intervalCount, dtype=np.float64)
+    running = 0.0
+    for i in range(intervalCount - 1, -1, -1):
+        running = (running * decay) + counts[i]
+        right[i] = running
+
+    nEff = left + right - counts
+    supportPrior = float(supportPrior)
+    if (not np.isfinite(supportPrior)) or supportPrior <= 0.0:
+        weights = np.zeros(intervalCount, dtype=np.float64)
+        weights[nEff > 0.0] = 1.0
+        return weights
+
+    weights = nEff / (nEff + supportPrior)
+    weights[~np.isfinite(weights)] = 0.0
+    return weights
+
+
 def _solveZeroCenteredBackground(
     residualMatrix: np.ndarray,
     invVarMatrix: np.ndarray,
@@ -2788,6 +2883,8 @@ def getMuncTrack(
     sparseIntervalIndices: Optional[np.ndarray] = None,
     sparseRegionMask: Optional[np.ndarray] = None,
     numNearest: int = 0,
+    sparseSupportScaleBP: Optional[float] = None,
+    sparseSupportPrior: float = 1.0,
     restrictLocalAR1ToSparseBed: bool = False,
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
@@ -2849,7 +2946,7 @@ def getMuncTrack(
                 dtype=np.uint8,
             )
 
-    def _estimateSparseNearestObsTracks() -> tuple[np.ndarray, np.ndarray] | None:
+    def _estimateSparseNearestObsTracks() -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         if sparseIntervalIndices is None or int(numNearest) <= 0:
             return None
 
@@ -2866,13 +2963,43 @@ def getMuncTrack(
         if blockLen < 2:
             return None
 
-        halfLen = blockLen // 2
-        maxStart = max(0, int(valuesArr.size) - blockLen)
-        blockStarts = np.clip(sparseIdx - halfLen, 0, maxStart).astype(
-            np.intp,
-            copy=False,
+        blockStarts = np.empty(sparseIdx.shape, dtype=np.intp)
+        blockSizes = np.empty(sparseIdx.shape, dtype=np.intp)
+        retainedCenters = np.empty(sparseIdx.shape, dtype=np.intp)
+        retainedCount = 0
+        runBreaks = np.concatenate(
+            (
+                np.array([0], dtype=np.intp),
+                np.flatnonzero(np.diff(sparseIdx) > 1).astype(np.intp) + 1,
+                np.array([sparseIdx.size], dtype=np.intp),
+            )
         )
-        blockSizes = np.full(blockStarts.shape, blockLen, dtype=np.intp)
+        for runPos in range(runBreaks.size - 1):
+            runLo = int(runBreaks[runPos])
+            runHi = int(runBreaks[runPos + 1])
+            runStart = int(sparseIdx[runLo])
+            runEnd = int(sparseIdx[runHi - 1]) + 1
+            runLen = runEnd - runStart
+            if runLen < 4:
+                continue
+            runBlockLen = min(blockLen, runLen)
+            halfLen = runBlockLen // 2
+            for center in sparseIdx[runLo:runHi]:
+                blockStart = int(center) - halfLen
+                if blockStart < runStart:
+                    blockStart = runStart
+                if blockStart + runBlockLen > runEnd:
+                    blockStart = runEnd - runBlockLen
+                retainedCenters[retainedCount] = int(center)
+                blockStarts[retainedCount] = blockStart
+                blockSizes[retainedCount] = runBlockLen
+                retainedCount += 1
+
+        if retainedCount == 0:
+            return None
+        sparseIdx = retainedCenters[:retainedCount]
+        blockStarts = blockStarts[:retainedCount]
+        blockSizes = blockSizes[:retainedCount]
 
         if np.any(excludeMaskArr):
             excludeCum = np.concatenate(
@@ -2903,17 +3030,39 @@ def getMuncTrack(
         sparseVarTrack = np.asarray(sparseVarTrack, dtype=np.float64)
         sparseMeanTrack[~np.isfinite(sparseMeanTrack)] = 0.0
         sparseVarTrack[~np.isfinite(sparseVarTrack)] = np.nan
-        return sparseMeanTrack, sparseVarTrack
+        return sparseMeanTrack, sparseVarTrack, sparseIdx
 
     sparseInterceptTrack: np.ndarray | None = None
     sparseObsVarTrack: np.ndarray | None = None
+    sparseSupportWeightTrack: np.ndarray | None = None
     valuesForPriorFitArr = valuesArr.astype(np.float64, copy=False)
     sparseObsTracks = _estimateSparseNearestObsTracks()
     if sparseObsTracks is not None:
-        sparseInterceptTrack, sparseObsVarTrack = sparseObsTracks
+        sparseInterceptTrack, sparseObsVarTrack, sparseSupportIdx = sparseObsTracks
+        if sparseSupportScaleBP is None or float(sparseSupportScaleBP) <= 0.0:
+            ellIntervals = float(localWindowIntervals)
+        else:
+            ellIntervals = max(
+                1.0,
+                float(sparseSupportScaleBP) / float(intervalSizeBP),
+            )
+        sparseSupportWeightTrack = _sparseSupportWeights(
+            sparseSupportIdx,
+            valuesArr.size,
+            ellIntervals,
+            float(sparseSupportPrior),
+        )
+        sparseInterceptTrack = sparseInterceptTrack * sparseSupportWeightTrack
         valuesForPriorFitArr = (
             valuesArr.astype(np.float64, copy=False) - sparseInterceptTrack
         )
+        if verbose:
+            logger.info(
+                "Sparse-nearest support: ell=%.2f intervals, median weight=%.4f, max weight=%.4f",
+                ellIntervals,
+                float(np.median(sparseSupportWeightTrack)),
+                float(np.max(sparseSupportWeightTrack)),
+            )
 
     # Global:
     # ... Variance as function of |mean|, globally, as observed in distinct, randomly drawn genomic
@@ -2961,14 +3110,33 @@ def getMuncTrack(
     # ... default: rolling AR(1) innovation variance over a sliding window
     # ... optional sparse-bed restriction: invalidate any local window leaving sparse regions
     # ... sparse-nearest mode: aggregate region mean/variance stats at the nearest sparse blocks
+    fallbackObsVarTrack = cconsenrich.crolling_AR1_IVar(
+        valuesArr,
+        localWindowIntervals,
+        localObsExcludeMaskArr,
+    ).astype(np.float64, copy=False)
+    fallbackObsVarTrack[fallbackObsVarTrack < 0.0] = np.nan
+
     if sparseObsVarTrack is not None:
-        obsVarTrack = sparseObsVarTrack
+        sparseObsVarTrack = sparseObsVarTrack.astype(np.float64, copy=False)
+        sparseObsVarTrack[sparseObsVarTrack < 0.0] = np.nan
+        if sparseSupportWeightTrack is None:
+            sparseSupportWeightTrack = np.ones_like(sparseObsVarTrack, dtype=np.float64)
+        supportWeight = np.asarray(sparseSupportWeightTrack, dtype=np.float64)
+        supportWeight = np.clip(supportWeight, 0.0, 1.0)
+
+        obsVarTrack = np.array(fallbackObsVarTrack, dtype=np.float64, copy=True)
+        finSparse = np.isfinite(sparseObsVarTrack)
+        finFallback = np.isfinite(fallbackObsVarTrack)
+        finBoth = finSparse & finFallback
+        obsVarTrack[finBoth] = (
+            supportWeight[finBoth] * sparseObsVarTrack[finBoth]
+            + (1.0 - supportWeight[finBoth]) * fallbackObsVarTrack[finBoth]
+        )
+        sparseOnly = finSparse & ~finFallback
+        obsVarTrack[sparseOnly] = sparseObsVarTrack[sparseOnly]
     else:
-        obsVarTrack = cconsenrich.crolling_AR1_IVar(
-            valuesArr,
-            localWindowIntervals,
-            localObsExcludeMaskArr,
-        ).astype(np.float64, copy=False)
+        obsVarTrack = fallbackObsVarTrack
 
     # Note, negative values are a flag from `cconsenrich.crolling_AR1_IVar`
     # ... -- set as _NaN_ -- and handle later during shrinkage

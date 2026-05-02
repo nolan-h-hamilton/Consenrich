@@ -4,11 +4,11 @@
 {
     "distutils": {
         "depends": [
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayobject.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayscalars.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarrayobject.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarraytypes.h",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ufuncobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/arrayscalars.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarrayobject.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ndarraytypes.h",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/_core/include/numpy/ufuncobject.h",
             "src/consenrich/native/ccounts_backend.h"
         ],
         "extra_compile_args": [
@@ -23,7 +23,7 @@
         ],
         "include_dirs": [
             "src/consenrich",
-            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/_core/include",
+            "/private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/_core/include",
             "/Users/nhh/Consenrich/vendor/htslib",
             "/Users/nhh/Consenrich/vendor/htslib/htslib",
             "/Users/nhh/miniforge3/envs/py312/include",
@@ -1163,7 +1163,7 @@ static int __Pyx_init_co_variables(void) {
 #include <stdio.h>
 
     /* Using NumPy API declarations from "numpy/__init__.cython-30.pxd" */
-    
+
 #include "numpy/arrayobject.h"
 #include "numpy/ndarrayobject.h"
 #include "numpy/ndarraytypes.h"
@@ -1411,7 +1411,7 @@ static const char *__pyx_filename;
 
 static const char* const __pyx_f[] = {
   "src/consenrich/ccounts.pyx",
-  "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd",
+  "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd",
   "cpython/type.pxd",
 };
 /* #### Code section: utility_code_proto_before_types ### */
@@ -1633,17 +1633,17 @@ typedef struct {
 
 /* #### Code section: numeric_typedefs ### */
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":744
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":744
  * # in Cython to enable them only on the right systems.
- * 
+ *
  * ctypedef npy_int8       int8_t             # <<<<<<<<<<<<<<
  * ctypedef npy_int16      int16_t
  * ctypedef npy_int32      int32_t
 */
 typedef npy_int8 __pyx_t_5numpy_int8_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":745
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":745
+ *
  * ctypedef npy_int8       int8_t
  * ctypedef npy_int16      int16_t             # <<<<<<<<<<<<<<
  * ctypedef npy_int32      int32_t
@@ -1651,35 +1651,35 @@ typedef npy_int8 __pyx_t_5numpy_int8_t;
 */
 typedef npy_int16 __pyx_t_5numpy_int16_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":746
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":746
  * ctypedef npy_int8       int8_t
  * ctypedef npy_int16      int16_t
  * ctypedef npy_int32      int32_t             # <<<<<<<<<<<<<<
  * ctypedef npy_int64      int64_t
- * 
+ *
 */
 typedef npy_int32 __pyx_t_5numpy_int32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":747
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":747
  * ctypedef npy_int16      int16_t
  * ctypedef npy_int32      int32_t
  * ctypedef npy_int64      int64_t             # <<<<<<<<<<<<<<
- * 
+ *
  * ctypedef npy_uint8      uint8_t
 */
 typedef npy_int64 __pyx_t_5numpy_int64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":749
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":749
  * ctypedef npy_int64      int64_t
- * 
+ *
  * ctypedef npy_uint8      uint8_t             # <<<<<<<<<<<<<<
  * ctypedef npy_uint16     uint16_t
  * ctypedef npy_uint32     uint32_t
 */
 typedef npy_uint8 __pyx_t_5numpy_uint8_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":750
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":750
+ *
  * ctypedef npy_uint8      uint8_t
  * ctypedef npy_uint16     uint16_t             # <<<<<<<<<<<<<<
  * ctypedef npy_uint32     uint32_t
@@ -1687,35 +1687,35 @@ typedef npy_uint8 __pyx_t_5numpy_uint8_t;
 */
 typedef npy_uint16 __pyx_t_5numpy_uint16_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":751
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":751
  * ctypedef npy_uint8      uint8_t
  * ctypedef npy_uint16     uint16_t
  * ctypedef npy_uint32     uint32_t             # <<<<<<<<<<<<<<
  * ctypedef npy_uint64     uint64_t
- * 
+ *
 */
 typedef npy_uint32 __pyx_t_5numpy_uint32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":752
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":752
  * ctypedef npy_uint16     uint16_t
  * ctypedef npy_uint32     uint32_t
  * ctypedef npy_uint64     uint64_t             # <<<<<<<<<<<<<<
- * 
+ *
  * ctypedef npy_float32    float32_t
 */
 typedef npy_uint64 __pyx_t_5numpy_uint64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":754
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":754
  * ctypedef npy_uint64     uint64_t
- * 
+ *
  * ctypedef npy_float32    float32_t             # <<<<<<<<<<<<<<
  * ctypedef npy_float64    float64_t
  * #ctypedef npy_float80    float80_t
 */
 typedef npy_float32 __pyx_t_5numpy_float32_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":755
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":755
+ *
  * ctypedef npy_float32    float32_t
  * ctypedef npy_float64    float64_t             # <<<<<<<<<<<<<<
  * #ctypedef npy_float80    float80_t
@@ -1723,65 +1723,65 @@ typedef npy_float32 __pyx_t_5numpy_float32_t;
 */
 typedef npy_float64 __pyx_t_5numpy_float64_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":762
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":762
  * ctypedef double complex complex128_t
- * 
+ *
  * ctypedef npy_longlong   longlong_t             # <<<<<<<<<<<<<<
  * ctypedef npy_ulonglong  ulonglong_t
- * 
+ *
 */
 typedef npy_longlong __pyx_t_5numpy_longlong_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":763
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":763
+ *
  * ctypedef npy_longlong   longlong_t
  * ctypedef npy_ulonglong  ulonglong_t             # <<<<<<<<<<<<<<
- * 
+ *
  * ctypedef npy_intp       intp_t
 */
 typedef npy_ulonglong __pyx_t_5numpy_ulonglong_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":765
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":765
  * ctypedef npy_ulonglong  ulonglong_t
- * 
+ *
  * ctypedef npy_intp       intp_t             # <<<<<<<<<<<<<<
  * ctypedef npy_uintp      uintp_t
- * 
+ *
 */
 typedef npy_intp __pyx_t_5numpy_intp_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":766
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":766
+ *
  * ctypedef npy_intp       intp_t
  * ctypedef npy_uintp      uintp_t             # <<<<<<<<<<<<<<
- * 
+ *
  * ctypedef npy_double     float_t
 */
 typedef npy_uintp __pyx_t_5numpy_uintp_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":768
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":768
  * ctypedef npy_uintp      uintp_t
- * 
+ *
  * ctypedef npy_double     float_t             # <<<<<<<<<<<<<<
  * ctypedef npy_double     double_t
  * ctypedef npy_longdouble longdouble_t
 */
 typedef npy_double __pyx_t_5numpy_float_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":769
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":769
+ *
  * ctypedef npy_double     float_t
  * ctypedef npy_double     double_t             # <<<<<<<<<<<<<<
  * ctypedef npy_longdouble longdouble_t
- * 
+ *
 */
 typedef npy_double __pyx_t_5numpy_double_t;
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":770
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":770
  * ctypedef npy_double     float_t
  * ctypedef npy_double     double_t
  * ctypedef npy_longdouble longdouble_t             # <<<<<<<<<<<<<<
- * 
+ *
  * ctypedef float complex       cfloat_t
 */
 typedef npy_longdouble __pyx_t_5numpy_longdouble_t;
@@ -1834,9 +1834,9 @@ struct __pyx_opt_args_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCount;
 struct __pyx_opt_args_10consenrich_7ccounts_ccounts_getFragmentCellCount;
 struct __pyx_opt_args_10consenrich_7ccounts_ccounts_countAlignmentRegion;
 
-/* "consenrich/ccounts.pyx":133
- * 
- * 
+/* "consenrich/ccounts.pyx":136
+ *
+ *
  * cdef ccounts_sourceConfig _makeSourceConfig(             # <<<<<<<<<<<<<<
  *     bytes pathBytes,
  *     str sourceKind,
@@ -1847,9 +1847,9 @@ struct __pyx_opt_args_10consenrich_7ccounts__makeSourceConfig {
   PyObject *barcodeGroupMapBytes;
 };
 
-/* "consenrich/ccounts.pyx":177
- * 
- * 
+/* "consenrich/ccounts.pyx":180
+ *
+ *
  * cpdef bint ccounts_checkAlignmentPath(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str sourceKind="BAM",
@@ -1861,9 +1861,9 @@ struct __pyx_opt_args_10consenrich_7ccounts_ccounts_checkAlignmentPath {
   int threadCount;
 };
 
-/* "consenrich/ccounts.pyx":202
- * 
- * 
+/* "consenrich/ccounts.pyx":205
+ *
+ *
  * cpdef bint ccounts_isAlignmentPairedEnd(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int maxReads=1000,
@@ -1875,9 +1875,9 @@ struct __pyx_opt_args_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd {
   PyObject *sourceKind;
 };
 
-/* "consenrich/ccounts.pyx":227
- * 
- * 
+/* "consenrich/ccounts.pyx":230
+ *
+ *
  * cpdef int ccounts_getAlignmentReadLength(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int minReads,
@@ -1887,9 +1887,9 @@ struct __pyx_opt_args_10consenrich_7ccounts_ccounts_getAlignmentReadLength {
   PyObject *sourceKind;
 };
 
-/* "consenrich/ccounts.pyx":256
- * 
- * 
+/* "consenrich/ccounts.pyx":259
+ *
+ *
  * cpdef tuple ccounts_getAlignmentChromRange(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
@@ -1899,9 +1899,9 @@ struct __pyx_opt_args_10consenrich_7ccounts_ccounts_getAlignmentChromRange {
   PyObject *sourceKind;
 };
 
-/* "consenrich/ccounts.pyx":289
- * 
- * 
+/* "consenrich/ccounts.pyx":292
+ *
+ *
  * cpdef tuple ccounts_getAlignmentMappedReadCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     excludeChromosomes=None,
@@ -1916,9 +1916,9 @@ struct __pyx_opt_args_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCount 
   int oneReadPerBin;
 };
 
-/* "consenrich/ccounts.pyx":345
- * 
- * 
+/* "consenrich/ccounts.pyx":348
+ *
+ *
  * cpdef int ccounts_getFragmentCellCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str barcodeAllowListFile="",
@@ -1928,9 +1928,9 @@ struct __pyx_opt_args_10consenrich_7ccounts_ccounts_getFragmentCellCount {
   PyObject *barcodeAllowListFile;
 };
 
-/* "consenrich/ccounts.pyx":365
- * 
- * 
+/* "consenrich/ccounts.pyx":368
+ *
+ *
  * cpdef cnp.ndarray ccounts_countAlignmentRegion(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
@@ -3135,7 +3135,7 @@ typedef struct {
   __Pyx_CachedCFunction __pyx_umethod_PyDict_Type_values;
   PyObject *__pyx_tuple[6];
   PyObject *__pyx_codeobj_tab[7];
-  PyObject *__pyx_string_tab[90];
+  PyObject *__pyx_string_tab[91];
   PyObject *__pyx_number_tab[3];
 /* #### Code section: module_state_contents ### */
 /* CommonTypesMetaclass.module_state_decls */
@@ -3196,77 +3196,78 @@ static __pyx_mstatetype * const __pyx_mstate_global = &__pyx_mstate_global_stati
 #define __pyx_kp_u_numpy__core_umath_failed_to_impo __pyx_string_tab[16]
 #define __pyx_kp_u_src_consenrich_ccounts_pyx __pyx_string_tab[17]
 #define __pyx_n_u_BAM __pyx_string_tab[18]
-#define __pyx_n_u_FRAGMENTS __pyx_string_tab[19]
-#define __pyx_n_u_Pyx_PyDict_NextRef __pyx_string_tab[20]
-#define __pyx_n_u_alignmentPath __pyx_string_tab[21]
-#define __pyx_n_u_asyncio_coroutines __pyx_string_tab[22]
-#define __pyx_n_u_barcodeAllowListFile __pyx_string_tab[23]
-#define __pyx_n_u_barcodeGroupMapFile __pyx_string_tab[24]
-#define __pyx_n_u_buildIndex __pyx_string_tab[25]
-#define __pyx_n_u_ccounts_checkAlignmentPath __pyx_string_tab[26]
-#define __pyx_n_u_ccounts_countAlignmentRegion __pyx_string_tab[27]
-#define __pyx_n_u_ccounts_getAlignmentChromRange __pyx_string_tab[28]
-#define __pyx_n_u_ccounts_getAlignmentMappedReadCo __pyx_string_tab[29]
-#define __pyx_n_u_ccounts_getAlignmentReadLength __pyx_string_tab[30]
-#define __pyx_n_u_ccounts_getFragmentCellCount __pyx_string_tab[31]
-#define __pyx_n_u_ccounts_isAlignmentPairedEnd __pyx_string_tab[32]
-#define __pyx_n_u_center __pyx_string_tab[33]
-#define __pyx_n_u_chromLength __pyx_string_tab[34]
-#define __pyx_n_u_chromosome __pyx_string_tab[35]
-#define __pyx_n_u_cline_in_traceback __pyx_string_tab[36]
-#define __pyx_n_u_consenrich_ccounts __pyx_string_tab[37]
-#define __pyx_n_u_countMode __pyx_string_tab[38]
-#define __pyx_n_u_coverage __pyx_string_tab[39]
-#define __pyx_n_u_cutsite __pyx_string_tab[40]
-#define __pyx_n_u_dtype __pyx_string_tab[41]
-#define __pyx_n_u_end __pyx_string_tab[42]
-#define __pyx_n_u_excludeChromosomes __pyx_string_tab[43]
-#define __pyx_n_u_extendBP __pyx_string_tab[44]
-#define __pyx_n_u_fiveprime __pyx_string_tab[45]
-#define __pyx_n_u_flagExclude __pyx_string_tab[46]
-#define __pyx_n_u_float32 __pyx_string_tab[47]
-#define __pyx_n_u_func __pyx_string_tab[48]
-#define __pyx_n_u_inferFragmentLength __pyx_string_tab[49]
-#define __pyx_n_u_intervalSizeBP __pyx_string_tab[50]
-#define __pyx_n_u_is_coroutine __pyx_string_tab[51]
-#define __pyx_n_u_items __pyx_string_tab[52]
-#define __pyx_n_u_lower __pyx_string_tab[53]
-#define __pyx_n_u_main __pyx_string_tab[54]
-#define __pyx_n_u_maxInsertSize __pyx_string_tab[55]
-#define __pyx_n_u_maxIterations __pyx_string_tab[56]
-#define __pyx_n_u_maxReads __pyx_string_tab[57]
-#define __pyx_n_u_minMappingQuality __pyx_string_tab[58]
-#define __pyx_n_u_minReads __pyx_string_tab[59]
-#define __pyx_n_u_minTemplateLength __pyx_string_tab[60]
-#define __pyx_n_u_module __pyx_string_tab[61]
-#define __pyx_n_u_name __pyx_string_tab[62]
-#define __pyx_n_u_np __pyx_string_tab[63]
-#define __pyx_n_u_numpy __pyx_string_tab[64]
-#define __pyx_n_u_oneReadPerBin __pyx_string_tab[65]
-#define __pyx_n_u_pairedEndMode __pyx_string_tab[66]
-#define __pyx_n_u_pop __pyx_string_tab[67]
-#define __pyx_n_u_qualname __pyx_string_tab[68]
-#define __pyx_n_u_readLength __pyx_string_tab[69]
-#define __pyx_n_u_set_name __pyx_string_tab[70]
-#define __pyx_n_u_setdefault __pyx_string_tab[71]
-#define __pyx_n_u_shiftForwardStrand53 __pyx_string_tab[72]
-#define __pyx_n_u_shiftReverseStrand53 __pyx_string_tab[73]
-#define __pyx_n_u_sourceKind __pyx_string_tab[74]
-#define __pyx_n_u_start __pyx_string_tab[75]
-#define __pyx_n_u_strip __pyx_string_tab[76]
-#define __pyx_n_u_test __pyx_string_tab[77]
-#define __pyx_n_u_threadCount __pyx_string_tab[78]
-#define __pyx_n_u_upper __pyx_string_tab[79]
-#define __pyx_n_u_values __pyx_string_tab[80]
-#define __pyx_n_u_zeros __pyx_string_tab[81]
-#define __pyx_kp_b__2 __pyx_string_tab[82]
-#define __pyx_kp_b_iso88591_Q_q_a_1_Q_Q_9Cq __pyx_string_tab[83]
-#define __pyx_kp_b_iso88591_a_q_7_1_a_a_Qa_Qa_3aq __pyx_string_tab[84]
-#define __pyx_kp_b_iso88591_q_7_1_9_7_1_a_a_c_3d_Q_j_T_6_3c __pyx_string_tab[85]
-#define __pyx_kp_b_iso88591_q_7_1_Q_a_q_Q_a_Q_Q_Q_3a_Cq __pyx_string_tab[86]
-#define __pyx_kp_b_iso88591_q_7_1_a_A_a_A_2_1_Q_s_1_nF_s_k __pyx_string_tab[87]
-#define __pyx_kp_b_iso88591_q_a_q_a_Q_Q_3aq __pyx_string_tab[88]
-#define __pyx_kp_b_iso88591_q_q_a_1_A_Q_Q_s __pyx_string_tab[89]
+#define __pyx_n_u_BEDGRAPH __pyx_string_tab[19]
+#define __pyx_n_u_FRAGMENTS __pyx_string_tab[20]
+#define __pyx_n_u_Pyx_PyDict_NextRef __pyx_string_tab[21]
+#define __pyx_n_u_alignmentPath __pyx_string_tab[22]
+#define __pyx_n_u_asyncio_coroutines __pyx_string_tab[23]
+#define __pyx_n_u_barcodeAllowListFile __pyx_string_tab[24]
+#define __pyx_n_u_barcodeGroupMapFile __pyx_string_tab[25]
+#define __pyx_n_u_buildIndex __pyx_string_tab[26]
+#define __pyx_n_u_ccounts_checkAlignmentPath __pyx_string_tab[27]
+#define __pyx_n_u_ccounts_countAlignmentRegion __pyx_string_tab[28]
+#define __pyx_n_u_ccounts_getAlignmentChromRange __pyx_string_tab[29]
+#define __pyx_n_u_ccounts_getAlignmentMappedReadCo __pyx_string_tab[30]
+#define __pyx_n_u_ccounts_getAlignmentReadLength __pyx_string_tab[31]
+#define __pyx_n_u_ccounts_getFragmentCellCount __pyx_string_tab[32]
+#define __pyx_n_u_ccounts_isAlignmentPairedEnd __pyx_string_tab[33]
+#define __pyx_n_u_center __pyx_string_tab[34]
+#define __pyx_n_u_chromLength __pyx_string_tab[35]
+#define __pyx_n_u_chromosome __pyx_string_tab[36]
+#define __pyx_n_u_cline_in_traceback __pyx_string_tab[37]
+#define __pyx_n_u_consenrich_ccounts __pyx_string_tab[38]
+#define __pyx_n_u_countMode __pyx_string_tab[39]
+#define __pyx_n_u_coverage __pyx_string_tab[40]
+#define __pyx_n_u_cutsite __pyx_string_tab[41]
+#define __pyx_n_u_dtype __pyx_string_tab[42]
+#define __pyx_n_u_end __pyx_string_tab[43]
+#define __pyx_n_u_excludeChromosomes __pyx_string_tab[44]
+#define __pyx_n_u_extendBP __pyx_string_tab[45]
+#define __pyx_n_u_fiveprime __pyx_string_tab[46]
+#define __pyx_n_u_flagExclude __pyx_string_tab[47]
+#define __pyx_n_u_float32 __pyx_string_tab[48]
+#define __pyx_n_u_func __pyx_string_tab[49]
+#define __pyx_n_u_inferFragmentLength __pyx_string_tab[50]
+#define __pyx_n_u_intervalSizeBP __pyx_string_tab[51]
+#define __pyx_n_u_is_coroutine __pyx_string_tab[52]
+#define __pyx_n_u_items __pyx_string_tab[53]
+#define __pyx_n_u_lower __pyx_string_tab[54]
+#define __pyx_n_u_main __pyx_string_tab[55]
+#define __pyx_n_u_maxInsertSize __pyx_string_tab[56]
+#define __pyx_n_u_maxIterations __pyx_string_tab[57]
+#define __pyx_n_u_maxReads __pyx_string_tab[58]
+#define __pyx_n_u_minMappingQuality __pyx_string_tab[59]
+#define __pyx_n_u_minReads __pyx_string_tab[60]
+#define __pyx_n_u_minTemplateLength __pyx_string_tab[61]
+#define __pyx_n_u_module __pyx_string_tab[62]
+#define __pyx_n_u_name __pyx_string_tab[63]
+#define __pyx_n_u_np __pyx_string_tab[64]
+#define __pyx_n_u_numpy __pyx_string_tab[65]
+#define __pyx_n_u_oneReadPerBin __pyx_string_tab[66]
+#define __pyx_n_u_pairedEndMode __pyx_string_tab[67]
+#define __pyx_n_u_pop __pyx_string_tab[68]
+#define __pyx_n_u_qualname __pyx_string_tab[69]
+#define __pyx_n_u_readLength __pyx_string_tab[70]
+#define __pyx_n_u_set_name __pyx_string_tab[71]
+#define __pyx_n_u_setdefault __pyx_string_tab[72]
+#define __pyx_n_u_shiftForwardStrand53 __pyx_string_tab[73]
+#define __pyx_n_u_shiftReverseStrand53 __pyx_string_tab[74]
+#define __pyx_n_u_sourceKind __pyx_string_tab[75]
+#define __pyx_n_u_start __pyx_string_tab[76]
+#define __pyx_n_u_strip __pyx_string_tab[77]
+#define __pyx_n_u_test __pyx_string_tab[78]
+#define __pyx_n_u_threadCount __pyx_string_tab[79]
+#define __pyx_n_u_upper __pyx_string_tab[80]
+#define __pyx_n_u_values __pyx_string_tab[81]
+#define __pyx_n_u_zeros __pyx_string_tab[82]
+#define __pyx_kp_b__2 __pyx_string_tab[83]
+#define __pyx_kp_b_iso88591_Q_q_a_1_Q_Q_9Cq __pyx_string_tab[84]
+#define __pyx_kp_b_iso88591_a_q_7_1_a_a_Qa_Qa_3aq __pyx_string_tab[85]
+#define __pyx_kp_b_iso88591_q_7_1_9_7_1_a_a_c_3d_Q_j_T_6_3c __pyx_string_tab[86]
+#define __pyx_kp_b_iso88591_q_7_1_Q_a_q_Q_a_Q_Q_Q_3a_Cq __pyx_string_tab[87]
+#define __pyx_kp_b_iso88591_q_7_1_a_A_a_A_2_1_Q_s_1_nF_s_k __pyx_string_tab[88]
+#define __pyx_kp_b_iso88591_q_a_q_a_Q_Q_3aq __pyx_string_tab[89]
+#define __pyx_kp_b_iso88591_q_q_a_1_A_Q_Q_s __pyx_string_tab[90]
 #define __pyx_int_0 __pyx_number_tab[0]
 #define __pyx_int_neg_1 __pyx_number_tab[1]
 #define __pyx_int_1000 __pyx_number_tab[2]
@@ -3302,7 +3303,7 @@ static CYTHON_SMALL_CODE int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_ptype_5numpy_ufunc);
   for (int i=0; i<6; ++i) { Py_CLEAR(clear_module_state->__pyx_tuple[i]); }
   for (int i=0; i<7; ++i) { Py_CLEAR(clear_module_state->__pyx_codeobj_tab[i]); }
-  for (int i=0; i<90; ++i) { Py_CLEAR(clear_module_state->__pyx_string_tab[i]); }
+  for (int i=0; i<91; ++i) { Py_CLEAR(clear_module_state->__pyx_string_tab[i]); }
   for (int i=0; i<3; ++i) { Py_CLEAR(clear_module_state->__pyx_number_tab[i]); }
 /* #### Code section: module_state_clear_contents ### */
 /* CommonTypesMetaclass.module_state_clear */
@@ -3344,7 +3345,7 @@ static CYTHON_SMALL_CODE int __pyx_m_traverse(PyObject *m, visitproc visit, void
   Py_VISIT(traverse_module_state->__pyx_ptype_5numpy_ufunc);
   for (int i=0; i<6; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_tuple[i]); }
   for (int i=0; i<7; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_codeobj_tab[i]); }
-  for (int i=0; i<90; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_string_tab[i]); }
+  for (int i=0; i<91; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_string_tab[i]); }
   for (int i=0; i<3; ++i) { __Pyx_VISIT_CONST(traverse_module_state->__pyx_number_tab[i]); }
 /* #### Code section: module_state_traverse_contents ### */
 /* CommonTypesMetaclass.module_state_traverse */
@@ -3359,9 +3360,9 @@ return 0;
 #endif
 /* #### Code section: module_code ### */
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
  *         cdef int type_num
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp itemsize(self) noexcept nogil:
  *             return PyDataType_ELSIZE(self)
@@ -3370,19 +3371,19 @@ return 0;
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_Descr *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":245
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":245
  *         @property
  *         cdef inline npy_intp itemsize(self) noexcept nogil:
  *             return PyDataType_ELSIZE(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyDataType_ELSIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":243
  *         cdef int type_num
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp itemsize(self) noexcept nogil:
  *             return PyDataType_ELSIZE(self)
@@ -3393,9 +3394,9 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_D
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
  *             return PyDataType_ELSIZE(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp alignment(self) noexcept nogil:
  *             return PyDataType_ALIGNMENT(self)
@@ -3404,19 +3405,19 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_8itemsize_itemsize(PyArray_D
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_9alignment_alignment(PyArray_Descr *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":249
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":249
  *         @property
  *         cdef inline npy_intp alignment(self) noexcept nogil:
  *             return PyDataType_ALIGNMENT(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         # Use fields/names with care as they may be NULL.  You must check
 */
   __pyx_r = PyDataType_ALIGNMENT(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":247
  *             return PyDataType_ELSIZE(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp alignment(self) noexcept nogil:
  *             return PyDataType_ALIGNMENT(self)
@@ -3427,7 +3428,7 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_5dtype_9alignment_alignment(PyArray
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
  *         # Use fields/names with care as they may be NULL.  You must check
  *         # for this using PyDataType_HASFIELDS.
  *         @property             # <<<<<<<<<<<<<<
@@ -3441,11 +3442,11 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   PyObject *__pyx_t_1;
   __Pyx_RefNannySetupContext("fields", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":255
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":255
  *         @property
  *         cdef inline object fields(self):
  *             return <object>PyDataType_FIELDS(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __Pyx_XDECREF(__pyx_r);
@@ -3454,7 +3455,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   __pyx_r = ((PyObject *)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":253
  *         # Use fields/names with care as they may be NULL.  You must check
  *         # for this using PyDataType_HASFIELDS.
  *         @property             # <<<<<<<<<<<<<<
@@ -3469,9 +3470,9 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_6fields_fields(PyArray_Desc
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
  *             return <object>PyDataType_FIELDS(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline tuple names(self):
  *             return <tuple>PyDataType_NAMES(self)
@@ -3483,11 +3484,11 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   PyObject *__pyx_t_1;
   __Pyx_RefNannySetupContext("names", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":259
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":259
  *         @property
  *         cdef inline tuple names(self):
  *             return <tuple>PyDataType_NAMES(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         # Use PyDataType_HASSUBARRAY to test whether this field is
 */
   __Pyx_XDECREF(__pyx_r);
@@ -3496,9 +3497,9 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   __pyx_r = ((PyObject*)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":257
  *             return <object>PyDataType_FIELDS(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline tuple names(self):
  *             return <tuple>PyDataType_NAMES(self)
@@ -3511,7 +3512,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
  *         # valid (the pointer can be NULL). Most users should access
  *         # this field via the inline helper method PyDataType_SHAPE.
  *         @property             # <<<<<<<<<<<<<<
@@ -3522,17 +3523,17 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_5dtype_5names_names(PyArray_Descr 
 static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarray(PyArray_Descr *__pyx_v_self) {
   PyArray_ArrayDescr *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":266
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":266
  *         @property
  *         cdef inline PyArray_ArrayDescr* subarray(self) noexcept nogil:
  *             return PyDataType_SUBARRAY(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyDataType_SUBARRAY(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":264
  *         # valid (the pointer can be NULL). Most users should access
  *         # this field via the inline helper method PyDataType_SHAPE.
  *         @property             # <<<<<<<<<<<<<<
@@ -3545,9 +3546,9 @@ static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarra
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
  *             return PyDataType_SUBARRAY(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_uint64 flags(self) noexcept nogil:
  *             """The data types flags."""
@@ -3556,19 +3557,19 @@ static CYTHON_INLINE PyArray_ArrayDescr *__pyx_f_5numpy_5dtype_8subarray_subarra
 static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr *__pyx_v_self) {
   npy_uint64 __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":271
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":271
  *         cdef inline npy_uint64 flags(self) noexcept nogil:
  *             """The data types flags."""
  *             return PyDataType_FLAGS(self)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = PyDataType_FLAGS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":268
  *             return PyDataType_SUBARRAY(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_uint64 flags(self) noexcept nogil:
  *             """The data types flags."""
@@ -3579,9 +3580,9 @@ static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
  *     ctypedef class numpy.broadcast [object PyArrayMultiIterObject, check_size ignore]:
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline int numiter(self) noexcept nogil:
  *             """The number of arrays that need to be broadcast to the same shape."""
@@ -3590,19 +3591,19 @@ static CYTHON_INLINE npy_uint64 __pyx_f_5numpy_5dtype_5flags_flags(PyArray_Descr
 static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMultiIterObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":283
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":283
  *         cdef inline int numiter(self) noexcept nogil:
  *             """The number of arrays that need to be broadcast to the same shape."""
  *             return PyArray_MultiIter_NUMITER(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_MultiIter_NUMITER(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":280
  *     ctypedef class numpy.broadcast [object PyArrayMultiIterObject, check_size ignore]:
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline int numiter(self) noexcept nogil:
  *             """The number of arrays that need to be broadcast to the same shape."""
@@ -3613,9 +3614,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMulti
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
  *             return PyArray_MultiIter_NUMITER(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp size(self) noexcept nogil:
  *             """The total broadcasted size."""
@@ -3624,19 +3625,19 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_7numiter_numiter(PyArrayMulti
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":288
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":288
  *         cdef inline npy_intp size(self) noexcept nogil:
  *             """The total broadcasted size."""
  *             return PyArray_MultiIter_SIZE(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_MultiIter_SIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":285
  *             return PyArray_MultiIter_NUMITER(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp size(self) noexcept nogil:
  *             """The total broadcasted size."""
@@ -3647,9 +3648,9 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiI
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
  *             return PyArray_MultiIter_SIZE(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp index(self) noexcept nogil:
  *             """The current (1-d) index into the broadcasted result."""
@@ -3658,19 +3659,19 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_4size_size(PyArrayMultiI
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":293
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":293
  *         cdef inline npy_intp index(self) noexcept nogil:
  *             """The current (1-d) index into the broadcasted result."""
  *             return PyArray_MultiIter_INDEX(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_MultiIter_INDEX(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":290
  *             return PyArray_MultiIter_SIZE(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp index(self) noexcept nogil:
  *             """The current (1-d) index into the broadcasted result."""
@@ -3681,9 +3682,9 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMult
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
  *             return PyArray_MultiIter_INDEX(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline int nd(self) noexcept nogil:
  *             """The number of dimensions in the broadcasted result."""
@@ -3692,19 +3693,19 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_9broadcast_5index_index(PyArrayMult
 static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":298
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":298
  *         cdef inline int nd(self) noexcept nogil:
  *             """The number of dimensions in the broadcasted result."""
  *             return PyArray_MultiIter_NDIM(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_MultiIter_NDIM(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":295
  *             return PyArray_MultiIter_INDEX(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline int nd(self) noexcept nogil:
  *             """The number of dimensions in the broadcasted result."""
@@ -3715,9 +3716,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
  *             return PyArray_MultiIter_NDIM(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp* dimensions(self) noexcept nogil:
  *             """The shape of the broadcasted result."""
@@ -3726,19 +3727,19 @@ static CYTHON_INLINE int __pyx_f_5numpy_9broadcast_2nd_nd(PyArrayMultiIterObject
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions(PyArrayMultiIterObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":303
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":303
  *         cdef inline npy_intp* dimensions(self) noexcept nogil:
  *             """The shape of the broadcasted result."""
  *             return PyArray_MultiIter_DIMS(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_MultiIter_DIMS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":300
  *             return PyArray_MultiIter_NDIM(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp* dimensions(self) noexcept nogil:
  *             """The shape of the broadcasted result."""
@@ -3749,9 +3750,9 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
  *             return PyArray_MultiIter_DIMS(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline void** iters(self) noexcept nogil:
  *             """An array of iterator objects that holds the iterators for the arrays to be broadcast together.
@@ -3760,19 +3761,19 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_9broadcast_10dimensions_dimensions
 static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiIterObject *__pyx_v_self) {
   void **__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":309
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":309
  *             """An array of iterator objects that holds the iterators for the arrays to be broadcast together.
  *             On return, the iterators are adjusted for broadcasting."""
  *             return PyArray_MultiIter_ITERS(self)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = PyArray_MultiIter_ITERS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":305
  *             return PyArray_MultiIter_DIMS(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline void** iters(self) noexcept nogil:
  *             """An array of iterator objects that holds the iterators for the arrays to be broadcast together.
@@ -3783,9 +3784,9 @@ static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiI
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
  *         # Instead, we use properties that map to the corresponding C-API functions.
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline PyObject* base(self) noexcept nogil:
  *             """Returns a borrowed reference to the object owning the data/memory.
@@ -3794,19 +3795,19 @@ static CYTHON_INLINE void **__pyx_f_5numpy_9broadcast_5iters_iters(PyArrayMultiI
 static CYTHON_INLINE PyObject *__pyx_f_5numpy_7ndarray_4base_base(PyArrayObject *__pyx_v_self) {
   PyObject *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":327
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":327
  *             """Returns a borrowed reference to the object owning the data/memory.
  *             """
  *             return PyArray_BASE(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_BASE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":323
  *         # Instead, we use properties that map to the corresponding C-API functions.
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline PyObject* base(self) noexcept nogil:
  *             """Returns a borrowed reference to the object owning the data/memory.
@@ -3817,9 +3818,9 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_7ndarray_4base_base(PyArrayObject 
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
  *             return PyArray_BASE(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline dtype descr(self):
  *             """Returns an owned reference to the dtype of the array.
@@ -3831,11 +3832,11 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   PyArray_Descr *__pyx_t_1;
   __Pyx_RefNannySetupContext("descr", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":333
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":333
  *             """Returns an owned reference to the dtype of the array.
  *             """
  *             return <dtype>PyArray_DESCR(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __Pyx_XDECREF((PyObject *)__pyx_r);
@@ -3844,9 +3845,9 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   __pyx_r = ((PyArray_Descr *)__pyx_t_1);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":329
  *             return PyArray_BASE(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline dtype descr(self):
  *             """Returns an owned reference to the dtype of the array.
@@ -3859,9 +3860,9 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
  *             return <dtype>PyArray_DESCR(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline int ndim(self) noexcept nogil:
  *             """Returns the number of dimensions in the array.
@@ -3870,19 +3871,19 @@ static CYTHON_INLINE PyArray_Descr *__pyx_f_5numpy_7ndarray_5descr_descr(PyArray
 static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx_v_self) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":339
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":339
  *             """Returns the number of dimensions in the array.
  *             """
  *             return PyArray_NDIM(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_NDIM(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":335
  *             return <dtype>PyArray_DESCR(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline int ndim(self) noexcept nogil:
  *             """Returns the number of dimensions in the array.
@@ -3893,9 +3894,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
  *             return PyArray_NDIM(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp *shape(self) noexcept nogil:
  *             """Returns a pointer to the dimensions/shape of the array.
@@ -3904,19 +3905,19 @@ static CYTHON_INLINE int __pyx_f_5numpy_7ndarray_4ndim_ndim(PyArrayObject *__pyx
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":347
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":347
  *             Can return NULL for 0-dimensional arrays.
  *             """
  *             return PyArray_DIMS(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_DIMS(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":341
  *             return PyArray_NDIM(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp *shape(self) noexcept nogil:
  *             """Returns a pointer to the dimensions/shape of the array.
@@ -3927,9 +3928,9 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObjec
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
  *             return PyArray_DIMS(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp *strides(self) noexcept nogil:
  *             """Returns a pointer to the strides of the array.
@@ -3938,19 +3939,19 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_5shape_shape(PyArrayObjec
 static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayObject *__pyx_v_self) {
   npy_intp *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":354
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":354
  *             The number of elements matches the number of dimensions of the array (ndim).
  *             """
  *             return PyArray_STRIDES(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_STRIDES(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":349
  *             return PyArray_DIMS(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp *strides(self) noexcept nogil:
  *             """Returns a pointer to the strides of the array.
@@ -3961,9 +3962,9 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayO
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
  *             return PyArray_STRIDES(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp size(self) noexcept nogil:
  *             """Returns the total size (in number of elements) of the array.
@@ -3972,19 +3973,19 @@ static CYTHON_INLINE npy_intp *__pyx_f_5numpy_7ndarray_7strides_strides(PyArrayO
 static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *__pyx_v_self) {
   npy_intp __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":360
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":360
  *             """Returns the total size (in number of elements) of the array.
  *             """
  *             return PyArray_SIZE(self)             # <<<<<<<<<<<<<<
- * 
+ *
  *         @property
 */
   __pyx_r = PyArray_SIZE(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":356
  *             return PyArray_STRIDES(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline npy_intp size(self) noexcept nogil:
  *             """Returns the total size (in number of elements) of the array.
@@ -3995,9 +3996,9 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
  *             return PyArray_SIZE(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline char* data(self) noexcept nogil:
  *             """The pointer to the data buffer as a char*.
@@ -4006,19 +4007,19 @@ static CYTHON_INLINE npy_intp __pyx_f_5numpy_7ndarray_4size_size(PyArrayObject *
 static CYTHON_INLINE char *__pyx_f_5numpy_7ndarray_4data_data(PyArrayObject *__pyx_v_self) {
   char *__pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":369
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":369
  *             of `PyArray_DATA()` instead, which returns a 'void*'.
  *             """
  *             return PyArray_BYTES(self)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = PyArray_BYTES(__pyx_v_self);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":362
  *             return PyArray_SIZE(self)
- * 
+ *
  *         @property             # <<<<<<<<<<<<<<
  *         cdef inline char* data(self) noexcept nogil:
  *             """The pointer to the data buffer as a char*.
@@ -4029,12 +4030,12 @@ static CYTHON_INLINE char *__pyx_f_5numpy_7ndarray_4data_data(PyArrayObject *__p
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
  * ctypedef long double complex clongdouble_t
- * 
+ *
  * cdef inline object PyArray_MultiIterNew1(a):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(1, <void*>a)
- * 
+ *
 */
 
 static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__pyx_v_a) {
@@ -4046,11 +4047,11 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew1", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":778
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":778
+ *
  * cdef inline object PyArray_MultiIterNew1(a):
  *     return PyArray_MultiIterNew(1, <void*>a)             # <<<<<<<<<<<<<<
- * 
+ *
  * cdef inline object PyArray_MultiIterNew2(a, b):
 */
   __Pyx_XDECREF(__pyx_r);
@@ -4060,12 +4061,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":777
  * ctypedef long double complex clongdouble_t
- * 
+ *
  * cdef inline object PyArray_MultiIterNew1(a):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(1, <void*>a)
- * 
+ *
 */
 
   /* function exit code */
@@ -4079,12 +4080,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew1(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
  *     return PyArray_MultiIterNew(1, <void*>a)
- * 
+ *
  * cdef inline object PyArray_MultiIterNew2(a, b):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)
- * 
+ *
 */
 
 static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__pyx_v_a, PyObject *__pyx_v_b) {
@@ -4096,11 +4097,11 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew2", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":781
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":781
+ *
  * cdef inline object PyArray_MultiIterNew2(a, b):
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)             # <<<<<<<<<<<<<<
- * 
+ *
  * cdef inline object PyArray_MultiIterNew3(a, b, c):
 */
   __Pyx_XDECREF(__pyx_r);
@@ -4110,12 +4111,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":780
  *     return PyArray_MultiIterNew(1, <void*>a)
- * 
+ *
  * cdef inline object PyArray_MultiIterNew2(a, b):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)
- * 
+ *
 */
 
   /* function exit code */
@@ -4129,12 +4130,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew2(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)
- * 
+ *
  * cdef inline object PyArray_MultiIterNew3(a, b, c):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)
- * 
+ *
 */
 
 static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__pyx_v_a, PyObject *__pyx_v_b, PyObject *__pyx_v_c) {
@@ -4146,11 +4147,11 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew3", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":784
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":784
+ *
  * cdef inline object PyArray_MultiIterNew3(a, b, c):
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)             # <<<<<<<<<<<<<<
- * 
+ *
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):
 */
   __Pyx_XDECREF(__pyx_r);
@@ -4160,12 +4161,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":783
  *     return PyArray_MultiIterNew(2, <void*>a, <void*>b)
- * 
+ *
  * cdef inline object PyArray_MultiIterNew3(a, b, c):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)
- * 
+ *
 */
 
   /* function exit code */
@@ -4179,12 +4180,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew3(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)
- * 
+ *
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)
- * 
+ *
 */
 
 static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__pyx_v_a, PyObject *__pyx_v_b, PyObject *__pyx_v_c, PyObject *__pyx_v_d) {
@@ -4196,11 +4197,11 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew4", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":787
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":787
+ *
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)             # <<<<<<<<<<<<<<
- * 
+ *
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):
 */
   __Pyx_XDECREF(__pyx_r);
@@ -4210,12 +4211,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":786
  *     return PyArray_MultiIterNew(3, <void*>a, <void*>b, <void*> c)
- * 
+ *
  * cdef inline object PyArray_MultiIterNew4(a, b, c, d):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)
- * 
+ *
 */
 
   /* function exit code */
@@ -4229,12 +4230,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew4(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)
- * 
+ *
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)
- * 
+ *
 */
 
 static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__pyx_v_a, PyObject *__pyx_v_b, PyObject *__pyx_v_c, PyObject *__pyx_v_d, PyObject *__pyx_v_e) {
@@ -4246,11 +4247,11 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("PyArray_MultiIterNew5", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":790
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":790
+ *
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)             # <<<<<<<<<<<<<<
- * 
+ *
  * cdef inline tuple PyDataType_SHAPE(dtype d):
 */
   __Pyx_XDECREF(__pyx_r);
@@ -4260,12 +4261,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   __pyx_t_1 = 0;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":789
  *     return PyArray_MultiIterNew(4, <void*>a, <void*>b, <void*>c, <void*> d)
- * 
+ *
  * cdef inline object PyArray_MultiIterNew5(a, b, c, d, e):             # <<<<<<<<<<<<<<
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)
- * 
+ *
 */
 
   /* function exit code */
@@ -4279,9 +4280,9 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyArray_MultiIterNew5(PyObject *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)
- * 
+ *
  * cdef inline tuple PyDataType_SHAPE(dtype d):             # <<<<<<<<<<<<<<
  *     if PyDataType_HASSUBARRAY(d):
  *         return <tuple>d.subarray.shape
@@ -4294,8 +4295,8 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   PyObject *__pyx_t_2;
   __Pyx_RefNannySetupContext("PyDataType_SHAPE", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
+ *
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):             # <<<<<<<<<<<<<<
  *         return <tuple>d.subarray.shape
@@ -4304,7 +4305,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   __pyx_t_1 = PyDataType_HASSUBARRAY(__pyx_v_d);
   if (__pyx_t_1) {
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":794
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":794
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):
  *         return <tuple>d.subarray.shape             # <<<<<<<<<<<<<<
@@ -4317,8 +4318,8 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
     __pyx_r = ((PyObject*)__pyx_t_2);
     goto __pyx_L0;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
- * 
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":793
+ *
  * cdef inline tuple PyDataType_SHAPE(dtype d):
  *     if PyDataType_HASSUBARRAY(d):             # <<<<<<<<<<<<<<
  *         return <tuple>d.subarray.shape
@@ -4326,12 +4327,12 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
 */
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":796
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":796
  *         return <tuple>d.subarray.shape
  *     else:
  *         return ()             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   /*else*/ {
     __Pyx_XDECREF(__pyx_r);
@@ -4340,9 +4341,9 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
     goto __pyx_L0;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":792
  *     return PyArray_MultiIterNew(5, <void*>a, <void*>b, <void*>c, <void*> d, <void*> e)
- * 
+ *
  * cdef inline tuple PyDataType_SHAPE(dtype d):             # <<<<<<<<<<<<<<
  *     if PyDataType_HASSUBARRAY(d):
  *         return <tuple>d.subarray.shape
@@ -4355,9 +4356,9 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_PyDataType_SHAPE(PyArray_Descr *__
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
  *     int _import_umath() except -1
- * 
+ *
  * cdef inline void set_array_base(ndarray arr, object base) except *:             # <<<<<<<<<<<<<<
  *     Py_INCREF(base) # important to do this before stealing the reference below!
  *     PyArray_SetBaseObject(arr, base)
@@ -4369,27 +4370,27 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":996
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":996
+ *
  * cdef inline void set_array_base(ndarray arr, object base) except *:
  *     Py_INCREF(base) # important to do this before stealing the reference below!             # <<<<<<<<<<<<<<
  *     PyArray_SetBaseObject(arr, base)
- * 
+ *
 */
   Py_INCREF(__pyx_v_base);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":997
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":997
  * cdef inline void set_array_base(ndarray arr, object base) except *:
  *     Py_INCREF(base) # important to do this before stealing the reference below!
  *     PyArray_SetBaseObject(arr, base)             # <<<<<<<<<<<<<<
- * 
+ *
  * cdef inline object get_array_base(ndarray arr):
 */
   __pyx_t_1 = PyArray_SetBaseObject(__pyx_v_arr, __pyx_v_base); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(1, 997, __pyx_L1_error)
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":995
  *     int _import_umath() except -1
- * 
+ *
  * cdef inline void set_array_base(ndarray arr, object base) except *:             # <<<<<<<<<<<<<<
  *     Py_INCREF(base) # important to do this before stealing the reference below!
  *     PyArray_SetBaseObject(arr, base)
@@ -4402,9 +4403,9 @@ static CYTHON_INLINE void __pyx_f_5numpy_set_array_base(PyArrayObject *__pyx_v_a
   __pyx_L0:;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
  *     PyArray_SetBaseObject(arr, base)
- * 
+ *
  * cdef inline object get_array_base(ndarray arr):             # <<<<<<<<<<<<<<
  *     base = PyArray_BASE(arr)
  *     if base is NULL:
@@ -4417,8 +4418,8 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   int __pyx_t_1;
   __Pyx_RefNannySetupContext("get_array_base", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1000
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1000
+ *
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)             # <<<<<<<<<<<<<<
  *     if base is NULL:
@@ -4426,7 +4427,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
 */
   __pyx_v_base = PyArray_BASE(__pyx_v_arr);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)
  *     if base is NULL:             # <<<<<<<<<<<<<<
@@ -4436,18 +4437,18 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   __pyx_t_1 = (__pyx_v_base == NULL);
   if (__pyx_t_1) {
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1002
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1002
  *     base = PyArray_BASE(arr)
  *     if base is NULL:
  *         return None             # <<<<<<<<<<<<<<
  *     return <object>base
- * 
+ *
 */
     __Pyx_XDECREF(__pyx_r);
     __pyx_r = Py_None; __Pyx_INCREF(Py_None);
     goto __pyx_L0;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1001
  * cdef inline object get_array_base(ndarray arr):
  *     base = PyArray_BASE(arr)
  *     if base is NULL:             # <<<<<<<<<<<<<<
@@ -4456,11 +4457,11 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
 */
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1003
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1003
  *     if base is NULL:
  *         return None
  *     return <object>base             # <<<<<<<<<<<<<<
- * 
+ *
  * # Versions of the import_* functions which are more suitable for
 */
   __Pyx_XDECREF(__pyx_r);
@@ -4468,9 +4469,9 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   __pyx_r = ((PyObject *)__pyx_v_base);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":999
  *     PyArray_SetBaseObject(arr, base)
- * 
+ *
  * cdef inline object get_array_base(ndarray arr):             # <<<<<<<<<<<<<<
  *     base = PyArray_BASE(arr)
  *     if base is NULL:
@@ -4483,7 +4484,7 @@ static CYTHON_INLINE PyObject *__pyx_f_5numpy_get_array_base(PyArrayObject *__py
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
  * # Versions of the import_* functions which are more suitable for
  * # Cython code.
  * cdef inline int import_array() except -1:             # <<<<<<<<<<<<<<
@@ -4509,7 +4510,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_array", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -4525,7 +4526,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1009
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1009
  * cdef inline int import_array() except -1:
  *     try:
  *         __pyx_import_array()             # <<<<<<<<<<<<<<
@@ -4534,7 +4535,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
 */
       __pyx_t_4 = _import_array(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(1, 1009, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -4548,12 +4549,12 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1010
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1010
  *     try:
  *         __pyx_import_array()
  *     except Exception:             # <<<<<<<<<<<<<<
  *         raise ImportError("numpy._core.multiarray failed to import")
- * 
+ *
 */
     __pyx_t_4 = __Pyx_PyErr_ExceptionMatches(((PyObject *)(((PyTypeObject*)PyExc_Exception))));
     if (__pyx_t_4) {
@@ -4563,11 +4564,11 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1011
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1011
  *         __pyx_import_array()
  *     except Exception:
  *         raise ImportError("numpy._core.multiarray failed to import")             # <<<<<<<<<<<<<<
- * 
+ *
  * cdef inline int import_umath() except -1:
 */
       __pyx_t_9 = NULL;
@@ -4585,7 +4586,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1008
  * # Cython code.
  * cdef inline int import_array() except -1:
  *     try:             # <<<<<<<<<<<<<<
@@ -4601,7 +4602,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1007
  * # Versions of the import_* functions which are more suitable for
  * # Cython code.
  * cdef inline int import_array() except -1:             # <<<<<<<<<<<<<<
@@ -4625,9 +4626,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_array(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
  *         raise ImportError("numpy._core.multiarray failed to import")
- * 
+ *
  * cdef inline int import_umath() except -1:             # <<<<<<<<<<<<<<
  *     try:
  *         _import_umath()
@@ -4651,8 +4652,8 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_umath", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+ *
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
  *         _import_umath()
@@ -4667,7 +4668,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1015
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1015
  * cdef inline int import_umath() except -1:
  *     try:
  *         _import_umath()             # <<<<<<<<<<<<<<
@@ -4676,8 +4677,8 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
 */
       __pyx_t_4 = _import_umath(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(1, 1015, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
- * 
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+ *
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
  *         _import_umath()
@@ -4690,12 +4691,12 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1016
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1016
  *     try:
  *         _import_umath()
  *     except Exception:             # <<<<<<<<<<<<<<
  *         raise ImportError("numpy._core.umath failed to import")
- * 
+ *
 */
     __pyx_t_4 = __Pyx_PyErr_ExceptionMatches(((PyObject *)(((PyTypeObject*)PyExc_Exception))));
     if (__pyx_t_4) {
@@ -4705,11 +4706,11 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1017
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1017
  *         _import_umath()
  *     except Exception:
  *         raise ImportError("numpy._core.umath failed to import")             # <<<<<<<<<<<<<<
- * 
+ *
  * cdef inline int import_ufunc() except -1:
 */
       __pyx_t_9 = NULL;
@@ -4727,8 +4728,8 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
- * 
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1014
+ *
  * cdef inline int import_umath() except -1:
  *     try:             # <<<<<<<<<<<<<<
  *         _import_umath()
@@ -4743,9 +4744,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1013
  *         raise ImportError("numpy._core.multiarray failed to import")
- * 
+ *
  * cdef inline int import_umath() except -1:             # <<<<<<<<<<<<<<
  *     try:
  *         _import_umath()
@@ -4767,9 +4768,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_umath(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
  *         raise ImportError("numpy._core.umath failed to import")
- * 
+ *
  * cdef inline int import_ufunc() except -1:             # <<<<<<<<<<<<<<
  *     try:
  *         _import_umath()
@@ -4793,8 +4794,8 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("import_ufunc", 0);
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+ *
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
  *         _import_umath()
@@ -4809,7 +4810,7 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     __Pyx_XGOTREF(__pyx_t_3);
     /*try:*/ {
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1021
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1021
  * cdef inline int import_ufunc() except -1:
  *     try:
  *         _import_umath()             # <<<<<<<<<<<<<<
@@ -4818,8 +4819,8 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
 */
       __pyx_t_4 = _import_umath(); if (unlikely(__pyx_t_4 == ((int)-1))) __PYX_ERR(1, 1021, __pyx_L3_error)
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
- * 
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+ *
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
  *         _import_umath()
@@ -4832,12 +4833,12 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     goto __pyx_L8_try_end;
     __pyx_L3_error:;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1022
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1022
  *     try:
  *         _import_umath()
  *     except Exception:             # <<<<<<<<<<<<<<
  *         raise ImportError("numpy._core.umath failed to import")
- * 
+ *
 */
     __pyx_t_4 = __Pyx_PyErr_ExceptionMatches(((PyObject *)(((PyTypeObject*)PyExc_Exception))));
     if (__pyx_t_4) {
@@ -4847,12 +4848,12 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
       __Pyx_XGOTREF(__pyx_t_6);
       __Pyx_XGOTREF(__pyx_t_7);
 
-      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1023
+      /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1023
  *         _import_umath()
  *     except Exception:
  *         raise ImportError("numpy._core.umath failed to import")             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
       __pyx_t_9 = NULL;
       __pyx_t_10 = 1;
@@ -4869,8 +4870,8 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     }
     goto __pyx_L5_except_error;
 
-    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
- * 
+    /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1020
+ *
  * cdef inline int import_ufunc() except -1:
  *     try:             # <<<<<<<<<<<<<<
  *         _import_umath()
@@ -4885,9 +4886,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
     __pyx_L8_try_end:;
   }
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1019
  *         raise ImportError("numpy._core.umath failed to import")
- * 
+ *
  * cdef inline int import_ufunc() except -1:             # <<<<<<<<<<<<<<
  *     try:
  *         _import_umath()
@@ -4909,9 +4910,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
- * 
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
+ *
+ *
  * cdef inline bint is_timedelta64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
  *     """
  *     Cython equivalent of `isinstance(obj, np.timedelta64)`
@@ -4920,19 +4921,19 @@ static CYTHON_INLINE int __pyx_f_5numpy_import_ufunc(void) {
 static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_obj) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1038
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1038
  *     bool
  *     """
  *     return PyObject_TypeCheck(obj, &PyTimedeltaArrType_Type)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = PyObject_TypeCheck(__pyx_v_obj, (&PyTimedeltaArrType_Type));
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
- * 
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1026
+ *
+ *
  * cdef inline bint is_timedelta64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
  *     """
  *     Cython equivalent of `isinstance(obj, np.timedelta64)`
@@ -4943,9 +4944,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
- * 
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
+ *
+ *
  * cdef inline bint is_datetime64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
  *     """
  *     Cython equivalent of `isinstance(obj, np.datetime64)`
@@ -4954,19 +4955,19 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_timedelta64_object(PyObject *__pyx_v_
 static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_obj) {
   int __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1053
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1053
  *     bool
  *     """
  *     return PyObject_TypeCheck(obj, &PyDatetimeArrType_Type)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = PyObject_TypeCheck(__pyx_v_obj, (&PyDatetimeArrType_Type));
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
- * 
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1041
+ *
+ *
  * cdef inline bint is_datetime64_object(object obj) noexcept:             # <<<<<<<<<<<<<<
  *     """
  *     Cython equivalent of `isinstance(obj, np.datetime64)`
@@ -4977,9 +4978,9 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_o
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
- * 
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
+ *
+ *
  * cdef inline npy_datetime get_datetime64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
  *     """
  *     returns the int64 value underlying scalar numpy datetime64 object
@@ -4988,19 +4989,19 @@ static CYTHON_INLINE int __pyx_f_5numpy_is_datetime64_object(PyObject *__pyx_v_o
 static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *__pyx_v_obj) {
   npy_datetime __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1063
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1063
  *     also needed.  That can be found using `get_datetime64_unit`.
  *     """
  *     return (<PyDatetimeScalarObject*>obj).obval             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = ((PyDatetimeScalarObject *)__pyx_v_obj)->obval;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
- * 
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1056
+ *
+ *
  * cdef inline npy_datetime get_datetime64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
  *     """
  *     returns the int64 value underlying scalar numpy datetime64 object
@@ -5011,9 +5012,9 @@ static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
- * 
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
+ *
+ *
  * cdef inline npy_timedelta get_timedelta64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
  *     """
  *     returns the int64 value underlying scalar numpy timedelta64 object
@@ -5022,19 +5023,19 @@ static CYTHON_INLINE npy_datetime __pyx_f_5numpy_get_datetime64_value(PyObject *
 static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject *__pyx_v_obj) {
   npy_timedelta __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1070
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1070
  *     returns the int64 value underlying scalar numpy timedelta64 object
  *     """
  *     return (<PyTimedeltaScalarObject*>obj).obval             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = ((PyTimedeltaScalarObject *)__pyx_v_obj)->obval;
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
- * 
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1066
+ *
+ *
  * cdef inline npy_timedelta get_timedelta64_value(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
  *     """
  *     returns the int64 value underlying scalar numpy timedelta64 object
@@ -5045,9 +5046,9 @@ static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject
   return __pyx_r;
 }
 
-/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
- * 
- * 
+/* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
+ *
+ *
  * cdef inline NPY_DATETIMEUNIT get_datetime64_unit(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
  *     """
  *     returns the unit part of the dtype for a numpy datetime64 object.
@@ -5056,19 +5057,19 @@ static CYTHON_INLINE npy_timedelta __pyx_f_5numpy_get_timedelta64_value(PyObject
 static CYTHON_INLINE NPY_DATETIMEUNIT __pyx_f_5numpy_get_datetime64_unit(PyObject *__pyx_v_obj) {
   NPY_DATETIMEUNIT __pyx_r;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1077
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1077
  *     returns the unit part of the dtype for a numpy datetime64 object.
  *     """
  *     return <NPY_DATETIMEUNIT>(<PyDatetimeScalarObject*>obj).obmeta.base             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = ((NPY_DATETIMEUNIT)((PyDatetimeScalarObject *)__pyx_v_obj)->obmeta.base);
   goto __pyx_L0;
 
-  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-33hxwprm/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
- * 
- * 
+  /* "../../../private/var/folders/nr/fbk6s7yx2714rsg0q_v76gpm0000gn/T/pip-build-env-nwa48kpa/overlay/lib/python3.12/site-packages/numpy/__init__.cython-30.pxd":1073
+ *
+ *
  * cdef inline NPY_DATETIMEUNIT get_datetime64_unit(object obj) noexcept nogil:             # <<<<<<<<<<<<<<
  *     """
  *     returns the unit part of the dtype for a numpy datetime64 object.
@@ -5079,9 +5080,9 @@ static CYTHON_INLINE NPY_DATETIMEUNIT __pyx_f_5numpy_get_datetime64_unit(PyObjec
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":124
- * 
- * 
+/* "consenrich/ccounts.pyx":125
+ *
+ *
  * cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):             # <<<<<<<<<<<<<<
  *     cdef str normalizedKind = str(sourceKind).strip().upper()
  *     if normalizedKind == "BAM":
@@ -5104,14 +5105,14 @@ static ccounts_sourceKind __pyx_f_10consenrich_7ccounts__getSourceKindCode(PyObj
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("_getSourceKindCode", 0);
 
-  /* "consenrich/ccounts.pyx":125
- * 
+  /* "consenrich/ccounts.pyx":126
+ *
  * cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):
  *     cdef str normalizedKind = str(sourceKind).strip().upper()             # <<<<<<<<<<<<<<
  *     if normalizedKind == "BAM":
  *         return ccounts_sourceKindBAM
 */
-  __pyx_t_5 = __Pyx_PyUnicode_Unicode(__pyx_v_sourceKind); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 125, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyUnicode_Unicode(__pyx_v_sourceKind); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 126, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __pyx_t_4 = __pyx_t_5;
   __Pyx_INCREF(__pyx_t_4);
@@ -5121,7 +5122,7 @@ static ccounts_sourceKind __pyx_f_10consenrich_7ccounts__getSourceKindCode(PyObj
     __pyx_t_3 = __Pyx_PyObject_FastCallMethod((PyObject*)__pyx_mstate_global->__pyx_n_u_strip, __pyx_callargs+__pyx_t_6, (1-__pyx_t_6) | (1*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 125, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 126, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
   __pyx_t_2 = __pyx_t_3;
@@ -5132,23 +5133,23 @@ static ccounts_sourceKind __pyx_f_10consenrich_7ccounts__getSourceKindCode(PyObj
     __pyx_t_1 = __Pyx_PyObject_FastCallMethod((PyObject*)__pyx_mstate_global->__pyx_n_u_upper, __pyx_callargs+__pyx_t_6, (1-__pyx_t_6) | (1*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 125, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 126, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
   __pyx_v_normalizedKind = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":126
+  /* "consenrich/ccounts.pyx":127
  * cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):
  *     cdef str normalizedKind = str(sourceKind).strip().upper()
  *     if normalizedKind == "BAM":             # <<<<<<<<<<<<<<
  *         return ccounts_sourceKindBAM
  *     if normalizedKind == "FRAGMENTS":
 */
-  __pyx_t_7 = (__Pyx_PyUnicode_Equals(__pyx_v_normalizedKind, __pyx_mstate_global->__pyx_n_u_BAM, Py_EQ)); if (unlikely((__pyx_t_7 < 0))) __PYX_ERR(0, 126, __pyx_L1_error)
+  __pyx_t_7 = (__Pyx_PyUnicode_Equals(__pyx_v_normalizedKind, __pyx_mstate_global->__pyx_n_u_BAM, Py_EQ)); if (unlikely((__pyx_t_7 < 0))) __PYX_ERR(0, 127, __pyx_L1_error)
   if (__pyx_t_7) {
 
-    /* "consenrich/ccounts.pyx":127
+    /* "consenrich/ccounts.pyx":128
  *     cdef str normalizedKind = str(sourceKind).strip().upper()
  *     if normalizedKind == "BAM":
  *         return ccounts_sourceKindBAM             # <<<<<<<<<<<<<<
@@ -5158,7 +5159,7 @@ static ccounts_sourceKind __pyx_f_10consenrich_7ccounts__getSourceKindCode(PyObj
     __pyx_r = ccounts_sourceKindBAM;
     goto __pyx_L0;
 
-    /* "consenrich/ccounts.pyx":126
+    /* "consenrich/ccounts.pyx":127
  * cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):
  *     cdef str normalizedKind = str(sourceKind).strip().upper()
  *     if normalizedKind == "BAM":             # <<<<<<<<<<<<<<
@@ -5167,50 +5168,79 @@ static ccounts_sourceKind __pyx_f_10consenrich_7ccounts__getSourceKindCode(PyObj
 */
   }
 
-  /* "consenrich/ccounts.pyx":128
+  /* "consenrich/ccounts.pyx":129
  *     if normalizedKind == "BAM":
  *         return ccounts_sourceKindBAM
  *     if normalizedKind == "FRAGMENTS":             # <<<<<<<<<<<<<<
  *         return ccounts_sourceKindFragments
- *     raise ValueError(f"Unsupported source kind `{sourceKind}`")
+ *     if normalizedKind == "BEDGRAPH":
 */
-  __pyx_t_7 = (__Pyx_PyUnicode_Equals(__pyx_v_normalizedKind, __pyx_mstate_global->__pyx_n_u_FRAGMENTS, Py_EQ)); if (unlikely((__pyx_t_7 < 0))) __PYX_ERR(0, 128, __pyx_L1_error)
+  __pyx_t_7 = (__Pyx_PyUnicode_Equals(__pyx_v_normalizedKind, __pyx_mstate_global->__pyx_n_u_FRAGMENTS, Py_EQ)); if (unlikely((__pyx_t_7 < 0))) __PYX_ERR(0, 129, __pyx_L1_error)
   if (__pyx_t_7) {
 
-    /* "consenrich/ccounts.pyx":129
+    /* "consenrich/ccounts.pyx":130
  *         return ccounts_sourceKindBAM
  *     if normalizedKind == "FRAGMENTS":
  *         return ccounts_sourceKindFragments             # <<<<<<<<<<<<<<
- *     raise ValueError(f"Unsupported source kind `{sourceKind}`")
- * 
+ *     if normalizedKind == "BEDGRAPH":
+ *         return ccounts_sourceKindBedGraph
 */
     __pyx_r = ccounts_sourceKindFragments;
     goto __pyx_L0;
 
-    /* "consenrich/ccounts.pyx":128
+    /* "consenrich/ccounts.pyx":129
  *     if normalizedKind == "BAM":
  *         return ccounts_sourceKindBAM
  *     if normalizedKind == "FRAGMENTS":             # <<<<<<<<<<<<<<
  *         return ccounts_sourceKindFragments
+ *     if normalizedKind == "BEDGRAPH":
+*/
+  }
+
+  /* "consenrich/ccounts.pyx":131
+ *     if normalizedKind == "FRAGMENTS":
+ *         return ccounts_sourceKindFragments
+ *     if normalizedKind == "BEDGRAPH":             # <<<<<<<<<<<<<<
+ *         return ccounts_sourceKindBedGraph
+ *     raise ValueError(f"Unsupported source kind `{sourceKind}`")
+*/
+  __pyx_t_7 = (__Pyx_PyUnicode_Equals(__pyx_v_normalizedKind, __pyx_mstate_global->__pyx_n_u_BEDGRAPH, Py_EQ)); if (unlikely((__pyx_t_7 < 0))) __PYX_ERR(0, 131, __pyx_L1_error)
+  if (__pyx_t_7) {
+
+    /* "consenrich/ccounts.pyx":132
+ *         return ccounts_sourceKindFragments
+ *     if normalizedKind == "BEDGRAPH":
+ *         return ccounts_sourceKindBedGraph             # <<<<<<<<<<<<<<
+ *     raise ValueError(f"Unsupported source kind `{sourceKind}`")
+ *
+*/
+    __pyx_r = ccounts_sourceKindBedGraph;
+    goto __pyx_L0;
+
+    /* "consenrich/ccounts.pyx":131
+ *     if normalizedKind == "FRAGMENTS":
+ *         return ccounts_sourceKindFragments
+ *     if normalizedKind == "BEDGRAPH":             # <<<<<<<<<<<<<<
+ *         return ccounts_sourceKindBedGraph
  *     raise ValueError(f"Unsupported source kind `{sourceKind}`")
 */
   }
 
-  /* "consenrich/ccounts.pyx":130
- *     if normalizedKind == "FRAGMENTS":
- *         return ccounts_sourceKindFragments
+  /* "consenrich/ccounts.pyx":133
+ *     if normalizedKind == "BEDGRAPH":
+ *         return ccounts_sourceKindBedGraph
  *     raise ValueError(f"Unsupported source kind `{sourceKind}`")             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_t_3 = NULL;
-  __pyx_t_2 = __Pyx_PyUnicode_Unicode(__pyx_v_sourceKind); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 130, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyUnicode_Unicode(__pyx_v_sourceKind); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 133, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   __pyx_t_8[0] = __pyx_mstate_global->__pyx_kp_u_Unsupported_source_kind;
   __pyx_t_8[1] = __pyx_t_2;
   __pyx_t_8[2] = __pyx_mstate_global->__pyx_kp_u_;
   __pyx_t_5 = __Pyx_PyUnicode_Join(__pyx_t_8, 3, 25 + __Pyx_PyUnicode_GET_LENGTH(__pyx_t_2) + 1, 127 | __Pyx_PyUnicode_MAX_CHAR_VALUE(__pyx_t_2));
-  if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 130, __pyx_L1_error)
+  if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 133, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __pyx_t_6 = 1;
@@ -5219,16 +5249,16 @@ static ccounts_sourceKind __pyx_f_10consenrich_7ccounts__getSourceKindCode(PyObj
     __pyx_t_1 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_ValueError)), __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 130, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 133, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
   __Pyx_Raise(__pyx_t_1, 0, 0, 0);
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-  __PYX_ERR(0, 130, __pyx_L1_error)
+  __PYX_ERR(0, 133, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":124
- * 
- * 
+  /* "consenrich/ccounts.pyx":125
+ *
+ *
  * cdef ccounts_sourceKind _getSourceKindCode(str sourceKind):             # <<<<<<<<<<<<<<
  *     cdef str normalizedKind = str(sourceKind).strip().upper()
  *     if normalizedKind == "BAM":
@@ -5249,9 +5279,9 @@ static ccounts_sourceKind __pyx_f_10consenrich_7ccounts__getSourceKindCode(PyObj
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":133
- * 
- * 
+/* "consenrich/ccounts.pyx":136
+ *
+ *
  * cdef ccounts_sourceConfig _makeSourceConfig(             # <<<<<<<<<<<<<<
  *     bytes pathBytes,
  *     str sourceKind,
@@ -5280,7 +5310,7 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
     }
   }
 
-  /* "consenrich/ccounts.pyx":141
+  /* "consenrich/ccounts.pyx":144
  *     cdef ccounts_sourceConfig sourceConfig
  *     # keep byte strings for the duration of wrapper calls
  *     sourceConfig.path = pathBytes             # <<<<<<<<<<<<<<
@@ -5289,22 +5319,22 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
 */
   if (unlikely(__pyx_v_pathBytes == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "expected bytes, NoneType found");
-    __PYX_ERR(0, 141, __pyx_L1_error)
+    __PYX_ERR(0, 144, __pyx_L1_error)
   }
-  __pyx_t_1 = __Pyx_PyBytes_AsString(__pyx_v_pathBytes); if (unlikely((!__pyx_t_1) && PyErr_Occurred())) __PYX_ERR(0, 141, __pyx_L1_error)
+  __pyx_t_1 = __Pyx_PyBytes_AsString(__pyx_v_pathBytes); if (unlikely((!__pyx_t_1) && PyErr_Occurred())) __PYX_ERR(0, 144, __pyx_L1_error)
   __pyx_v_sourceConfig.path = __pyx_t_1;
 
-  /* "consenrich/ccounts.pyx":142
+  /* "consenrich/ccounts.pyx":145
  *     # keep byte strings for the duration of wrapper calls
  *     sourceConfig.path = pathBytes
  *     sourceConfig.sourceKind = _getSourceKindCode(sourceKind)             # <<<<<<<<<<<<<<
  *     # barcode tags are handled in the higher-level alignment path for now
  *     sourceConfig.barcodeTag = NULL
 */
-  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__getSourceKindCode(__pyx_v_sourceKind); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 142, __pyx_L1_error)
+  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__getSourceKindCode(__pyx_v_sourceKind); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 145, __pyx_L1_error)
   __pyx_v_sourceConfig.sourceKind = __pyx_t_2;
 
-  /* "consenrich/ccounts.pyx":144
+  /* "consenrich/ccounts.pyx":147
  *     sourceConfig.sourceKind = _getSourceKindCode(sourceKind)
  *     # barcode tags are handled in the higher-level alignment path for now
  *     sourceConfig.barcodeTag = NULL             # <<<<<<<<<<<<<<
@@ -5313,7 +5343,7 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
 */
   __pyx_v_sourceConfig.barcodeTag = NULL;
 
-  /* "consenrich/ccounts.pyx":145
+  /* "consenrich/ccounts.pyx":148
  *     # barcode tags are handled in the higher-level alignment path for now
  *     sourceConfig.barcodeTag = NULL
  *     if len(barcodeAllowListBytes) > 0:             # <<<<<<<<<<<<<<
@@ -5322,13 +5352,13 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
 */
   if (unlikely(__pyx_v_barcodeAllowListBytes == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-    __PYX_ERR(0, 145, __pyx_L1_error)
+    __PYX_ERR(0, 148, __pyx_L1_error)
   }
-  __pyx_t_3 = __Pyx_PyBytes_GET_SIZE(__pyx_v_barcodeAllowListBytes); if (unlikely(__pyx_t_3 == ((Py_ssize_t)-1))) __PYX_ERR(0, 145, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyBytes_GET_SIZE(__pyx_v_barcodeAllowListBytes); if (unlikely(__pyx_t_3 == ((Py_ssize_t)-1))) __PYX_ERR(0, 148, __pyx_L1_error)
   __pyx_t_4 = (__pyx_t_3 > 0);
   if (__pyx_t_4) {
 
-    /* "consenrich/ccounts.pyx":146
+    /* "consenrich/ccounts.pyx":149
  *     sourceConfig.barcodeTag = NULL
  *     if len(barcodeAllowListBytes) > 0:
  *         sourceConfig.barcodeAllowListFile = barcodeAllowListBytes             # <<<<<<<<<<<<<<
@@ -5337,12 +5367,12 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
 */
     if (unlikely(__pyx_v_barcodeAllowListBytes == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "expected bytes, NoneType found");
-      __PYX_ERR(0, 146, __pyx_L1_error)
+      __PYX_ERR(0, 149, __pyx_L1_error)
     }
-    __pyx_t_5 = __Pyx_PyBytes_AsString(__pyx_v_barcodeAllowListBytes); if (unlikely((!__pyx_t_5) && PyErr_Occurred())) __PYX_ERR(0, 146, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_PyBytes_AsString(__pyx_v_barcodeAllowListBytes); if (unlikely((!__pyx_t_5) && PyErr_Occurred())) __PYX_ERR(0, 149, __pyx_L1_error)
     __pyx_v_sourceConfig.barcodeAllowListFile = __pyx_t_5;
 
-    /* "consenrich/ccounts.pyx":145
+    /* "consenrich/ccounts.pyx":148
  *     # barcode tags are handled in the higher-level alignment path for now
  *     sourceConfig.barcodeTag = NULL
  *     if len(barcodeAllowListBytes) > 0:             # <<<<<<<<<<<<<<
@@ -5352,7 +5382,7 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
     goto __pyx_L3;
   }
 
-  /* "consenrich/ccounts.pyx":148
+  /* "consenrich/ccounts.pyx":151
  *         sourceConfig.barcodeAllowListFile = barcodeAllowListBytes
  *     else:
  *         sourceConfig.barcodeAllowListFile = NULL             # <<<<<<<<<<<<<<
@@ -5364,7 +5394,7 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
   }
   __pyx_L3:;
 
-  /* "consenrich/ccounts.pyx":149
+  /* "consenrich/ccounts.pyx":152
  *     else:
  *         sourceConfig.barcodeAllowListFile = NULL
  *     if len(barcodeGroupMapBytes) > 0:             # <<<<<<<<<<<<<<
@@ -5373,13 +5403,13 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
 */
   if (unlikely(__pyx_v_barcodeGroupMapBytes == Py_None)) {
     PyErr_SetString(PyExc_TypeError, "object of type 'NoneType' has no len()");
-    __PYX_ERR(0, 149, __pyx_L1_error)
+    __PYX_ERR(0, 152, __pyx_L1_error)
   }
-  __pyx_t_3 = __Pyx_PyBytes_GET_SIZE(__pyx_v_barcodeGroupMapBytes); if (unlikely(__pyx_t_3 == ((Py_ssize_t)-1))) __PYX_ERR(0, 149, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyBytes_GET_SIZE(__pyx_v_barcodeGroupMapBytes); if (unlikely(__pyx_t_3 == ((Py_ssize_t)-1))) __PYX_ERR(0, 152, __pyx_L1_error)
   __pyx_t_4 = (__pyx_t_3 > 0);
   if (__pyx_t_4) {
 
-    /* "consenrich/ccounts.pyx":150
+    /* "consenrich/ccounts.pyx":153
  *         sourceConfig.barcodeAllowListFile = NULL
  *     if len(barcodeGroupMapBytes) > 0:
  *         sourceConfig.barcodeGroupMapFile = barcodeGroupMapBytes             # <<<<<<<<<<<<<<
@@ -5388,12 +5418,12 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
 */
     if (unlikely(__pyx_v_barcodeGroupMapBytes == Py_None)) {
       PyErr_SetString(PyExc_TypeError, "expected bytes, NoneType found");
-      __PYX_ERR(0, 150, __pyx_L1_error)
+      __PYX_ERR(0, 153, __pyx_L1_error)
     }
-    __pyx_t_6 = __Pyx_PyBytes_AsString(__pyx_v_barcodeGroupMapBytes); if (unlikely((!__pyx_t_6) && PyErr_Occurred())) __PYX_ERR(0, 150, __pyx_L1_error)
+    __pyx_t_6 = __Pyx_PyBytes_AsString(__pyx_v_barcodeGroupMapBytes); if (unlikely((!__pyx_t_6) && PyErr_Occurred())) __PYX_ERR(0, 153, __pyx_L1_error)
     __pyx_v_sourceConfig.barcodeGroupMapFile = __pyx_t_6;
 
-    /* "consenrich/ccounts.pyx":149
+    /* "consenrich/ccounts.pyx":152
  *     else:
  *         sourceConfig.barcodeAllowListFile = NULL
  *     if len(barcodeGroupMapBytes) > 0:             # <<<<<<<<<<<<<<
@@ -5403,31 +5433,31 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
     goto __pyx_L4;
   }
 
-  /* "consenrich/ccounts.pyx":152
+  /* "consenrich/ccounts.pyx":155
  *         sourceConfig.barcodeGroupMapFile = barcodeGroupMapBytes
  *     else:
  *         sourceConfig.barcodeGroupMapFile = NULL             # <<<<<<<<<<<<<<
  *     return sourceConfig
- * 
+ *
 */
   /*else*/ {
     __pyx_v_sourceConfig.barcodeGroupMapFile = NULL;
   }
   __pyx_L4:;
 
-  /* "consenrich/ccounts.pyx":153
+  /* "consenrich/ccounts.pyx":156
  *     else:
  *         sourceConfig.barcodeGroupMapFile = NULL
  *     return sourceConfig             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = __pyx_v_sourceConfig;
   goto __pyx_L0;
 
-  /* "consenrich/ccounts.pyx":133
- * 
- * 
+  /* "consenrich/ccounts.pyx":136
+ *
+ *
  * cdef ccounts_sourceConfig _makeSourceConfig(             # <<<<<<<<<<<<<<
  *     bytes pathBytes,
  *     str sourceKind,
@@ -5441,9 +5471,9 @@ static ccounts_sourceConfig __pyx_f_10consenrich_7ccounts__makeSourceConfig(PyOb
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":156
- * 
- * 
+/* "consenrich/ccounts.pyx":159
+ *
+ *
  * cdef uint8_t _getCountModeCode(str countMode):             # <<<<<<<<<<<<<<
  *     cdef str normalizedMode = str(countMode).strip().lower()
  *     if normalizedMode in ["coverage", "0"]:
@@ -5468,14 +5498,14 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("_getCountModeCode", 0);
 
-  /* "consenrich/ccounts.pyx":157
- * 
+  /* "consenrich/ccounts.pyx":160
+ *
  * cdef uint8_t _getCountModeCode(str countMode):
  *     cdef str normalizedMode = str(countMode).strip().lower()             # <<<<<<<<<<<<<<
  *     if normalizedMode in ["coverage", "0"]:
  *         return <uint8_t>ccounts_countModeCoverage
 */
-  __pyx_t_5 = __Pyx_PyUnicode_Unicode(__pyx_v_countMode); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 157, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyUnicode_Unicode(__pyx_v_countMode); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 160, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __pyx_t_4 = __pyx_t_5;
   __Pyx_INCREF(__pyx_t_4);
@@ -5485,7 +5515,7 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
     __pyx_t_3 = __Pyx_PyObject_FastCallMethod((PyObject*)__pyx_mstate_global->__pyx_n_u_strip, __pyx_callargs+__pyx_t_6, (1-__pyx_t_6) | (1*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 157, __pyx_L1_error)
+    if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 160, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_3);
   }
   __pyx_t_2 = __pyx_t_3;
@@ -5496,13 +5526,13 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
     __pyx_t_1 = __Pyx_PyObject_FastCallMethod((PyObject*)__pyx_mstate_global->__pyx_n_u_lower, __pyx_callargs+__pyx_t_6, (1-__pyx_t_6) | (1*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_2); __pyx_t_2 = 0;
     __Pyx_DECREF(__pyx_t_3); __pyx_t_3 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 157, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 160, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
   __pyx_v_normalizedMode = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":158
+  /* "consenrich/ccounts.pyx":161
  * cdef uint8_t _getCountModeCode(str countMode):
  *     cdef str normalizedMode = str(countMode).strip().lower()
  *     if normalizedMode in ["coverage", "0"]:             # <<<<<<<<<<<<<<
@@ -5511,20 +5541,20 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
 */
   __Pyx_INCREF(__pyx_v_normalizedMode);
   __pyx_t_7 = __pyx_v_normalizedMode;
-  __pyx_t_9 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_coverage, Py_EQ)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 158, __pyx_L1_error)
+  __pyx_t_9 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_coverage, Py_EQ)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 161, __pyx_L1_error)
   if (!__pyx_t_9) {
   } else {
     __pyx_t_8 = __pyx_t_9;
     goto __pyx_L4_bool_binop_done;
   }
-  __pyx_t_9 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_0, Py_EQ)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 158, __pyx_L1_error)
+  __pyx_t_9 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_0, Py_EQ)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 161, __pyx_L1_error)
   __pyx_t_8 = __pyx_t_9;
   __pyx_L4_bool_binop_done:;
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_9 = __pyx_t_8;
   if (__pyx_t_9) {
 
-    /* "consenrich/ccounts.pyx":159
+    /* "consenrich/ccounts.pyx":162
  *     cdef str normalizedMode = str(countMode).strip().lower()
  *     if normalizedMode in ["coverage", "0"]:
  *         return <uint8_t>ccounts_countModeCoverage             # <<<<<<<<<<<<<<
@@ -5534,7 +5564,7 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
     __pyx_r = ((uint8_t)ccounts_countModeCoverage);
     goto __pyx_L0;
 
-    /* "consenrich/ccounts.pyx":158
+    /* "consenrich/ccounts.pyx":161
  * cdef uint8_t _getCountModeCode(str countMode):
  *     cdef str normalizedMode = str(countMode).strip().lower()
  *     if normalizedMode in ["coverage", "0"]:             # <<<<<<<<<<<<<<
@@ -5543,7 +5573,7 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
 */
   }
 
-  /* "consenrich/ccounts.pyx":160
+  /* "consenrich/ccounts.pyx":163
  *     if normalizedMode in ["coverage", "0"]:
  *         return <uint8_t>ccounts_countModeCoverage
  *     if normalizedMode in ["cutsite", "1"]:             # <<<<<<<<<<<<<<
@@ -5552,20 +5582,20 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
 */
   __Pyx_INCREF(__pyx_v_normalizedMode);
   __pyx_t_7 = __pyx_v_normalizedMode;
-  __pyx_t_8 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_cutsite, Py_EQ)); if (unlikely((__pyx_t_8 < 0))) __PYX_ERR(0, 160, __pyx_L1_error)
+  __pyx_t_8 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_cutsite, Py_EQ)); if (unlikely((__pyx_t_8 < 0))) __PYX_ERR(0, 163, __pyx_L1_error)
   if (!__pyx_t_8) {
   } else {
     __pyx_t_9 = __pyx_t_8;
     goto __pyx_L7_bool_binop_done;
   }
-  __pyx_t_8 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_1, Py_EQ)); if (unlikely((__pyx_t_8 < 0))) __PYX_ERR(0, 160, __pyx_L1_error)
+  __pyx_t_8 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_1, Py_EQ)); if (unlikely((__pyx_t_8 < 0))) __PYX_ERR(0, 163, __pyx_L1_error)
   __pyx_t_9 = __pyx_t_8;
   __pyx_L7_bool_binop_done:;
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_8 = __pyx_t_9;
   if (__pyx_t_8) {
 
-    /* "consenrich/ccounts.pyx":161
+    /* "consenrich/ccounts.pyx":164
  *         return <uint8_t>ccounts_countModeCoverage
  *     if normalizedMode in ["cutsite", "1"]:
  *         return <uint8_t>ccounts_countModeCutSite             # <<<<<<<<<<<<<<
@@ -5575,7 +5605,7 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
     __pyx_r = ((uint8_t)ccounts_countModeCutSite);
     goto __pyx_L0;
 
-    /* "consenrich/ccounts.pyx":160
+    /* "consenrich/ccounts.pyx":163
  *     if normalizedMode in ["coverage", "0"]:
  *         return <uint8_t>ccounts_countModeCoverage
  *     if normalizedMode in ["cutsite", "1"]:             # <<<<<<<<<<<<<<
@@ -5584,7 +5614,7 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
 */
   }
 
-  /* "consenrich/ccounts.pyx":162
+  /* "consenrich/ccounts.pyx":165
  *     if normalizedMode in ["cutsite", "1"]:
  *         return <uint8_t>ccounts_countModeCutSite
  *     if normalizedMode in ["fiveprime", "2"]:             # <<<<<<<<<<<<<<
@@ -5593,20 +5623,20 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
 */
   __Pyx_INCREF(__pyx_v_normalizedMode);
   __pyx_t_7 = __pyx_v_normalizedMode;
-  __pyx_t_9 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_fiveprime, Py_EQ)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 162, __pyx_L1_error)
+  __pyx_t_9 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_fiveprime, Py_EQ)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 165, __pyx_L1_error)
   if (!__pyx_t_9) {
   } else {
     __pyx_t_8 = __pyx_t_9;
     goto __pyx_L10_bool_binop_done;
   }
-  __pyx_t_9 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_2, Py_EQ)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 162, __pyx_L1_error)
+  __pyx_t_9 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_2, Py_EQ)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 165, __pyx_L1_error)
   __pyx_t_8 = __pyx_t_9;
   __pyx_L10_bool_binop_done:;
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_9 = __pyx_t_8;
   if (__pyx_t_9) {
 
-    /* "consenrich/ccounts.pyx":163
+    /* "consenrich/ccounts.pyx":166
  *         return <uint8_t>ccounts_countModeCutSite
  *     if normalizedMode in ["fiveprime", "2"]:
  *         return <uint8_t>ccounts_countModeFivePrime             # <<<<<<<<<<<<<<
@@ -5616,7 +5646,7 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
     __pyx_r = ((uint8_t)ccounts_countModeFivePrime);
     goto __pyx_L0;
 
-    /* "consenrich/ccounts.pyx":162
+    /* "consenrich/ccounts.pyx":165
  *     if normalizedMode in ["cutsite", "1"]:
  *         return <uint8_t>ccounts_countModeCutSite
  *     if normalizedMode in ["fiveprime", "2"]:             # <<<<<<<<<<<<<<
@@ -5625,7 +5655,7 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
 */
   }
 
-  /* "consenrich/ccounts.pyx":164
+  /* "consenrich/ccounts.pyx":167
  *     if normalizedMode in ["fiveprime", "2"]:
  *         return <uint8_t>ccounts_countModeFivePrime
  *     if normalizedMode in ["center", "3"]:             # <<<<<<<<<<<<<<
@@ -5634,30 +5664,30 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
 */
   __Pyx_INCREF(__pyx_v_normalizedMode);
   __pyx_t_7 = __pyx_v_normalizedMode;
-  __pyx_t_8 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_center, Py_EQ)); if (unlikely((__pyx_t_8 < 0))) __PYX_ERR(0, 164, __pyx_L1_error)
+  __pyx_t_8 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_n_u_center, Py_EQ)); if (unlikely((__pyx_t_8 < 0))) __PYX_ERR(0, 167, __pyx_L1_error)
   if (!__pyx_t_8) {
   } else {
     __pyx_t_9 = __pyx_t_8;
     goto __pyx_L13_bool_binop_done;
   }
-  __pyx_t_8 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_3, Py_EQ)); if (unlikely((__pyx_t_8 < 0))) __PYX_ERR(0, 164, __pyx_L1_error)
+  __pyx_t_8 = (__Pyx_PyUnicode_Equals(__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_3, Py_EQ)); if (unlikely((__pyx_t_8 < 0))) __PYX_ERR(0, 167, __pyx_L1_error)
   __pyx_t_9 = __pyx_t_8;
   __pyx_L13_bool_binop_done:;
   __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
   __pyx_t_8 = __pyx_t_9;
   if (__pyx_t_8) {
 
-    /* "consenrich/ccounts.pyx":165
+    /* "consenrich/ccounts.pyx":168
  *         return <uint8_t>ccounts_countModeFivePrime
  *     if normalizedMode in ["center", "3"]:
  *         return <uint8_t>ccounts_countModeCenter             # <<<<<<<<<<<<<<
  *     raise ValueError(f"Unsupported countMode `{countMode}`")
- * 
+ *
 */
     __pyx_r = ((uint8_t)ccounts_countModeCenter);
     goto __pyx_L0;
 
-    /* "consenrich/ccounts.pyx":164
+    /* "consenrich/ccounts.pyx":167
  *     if normalizedMode in ["fiveprime", "2"]:
  *         return <uint8_t>ccounts_countModeFivePrime
  *     if normalizedMode in ["center", "3"]:             # <<<<<<<<<<<<<<
@@ -5666,21 +5696,21 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
 */
   }
 
-  /* "consenrich/ccounts.pyx":166
+  /* "consenrich/ccounts.pyx":169
  *     if normalizedMode in ["center", "3"]:
  *         return <uint8_t>ccounts_countModeCenter
  *     raise ValueError(f"Unsupported countMode `{countMode}`")             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_t_3 = NULL;
-  __pyx_t_2 = __Pyx_PyUnicode_Unicode(__pyx_v_countMode); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 166, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyUnicode_Unicode(__pyx_v_countMode); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 169, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   __pyx_t_10[0] = __pyx_mstate_global->__pyx_kp_u_Unsupported_countMode;
   __pyx_t_10[1] = __pyx_t_2;
   __pyx_t_10[2] = __pyx_mstate_global->__pyx_kp_u_;
   __pyx_t_5 = __Pyx_PyUnicode_Join(__pyx_t_10, 3, 23 + __Pyx_PyUnicode_GET_LENGTH(__pyx_t_2) + 1, 127 | __Pyx_PyUnicode_MAX_CHAR_VALUE(__pyx_t_2));
-  if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 166, __pyx_L1_error)
+  if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 169, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
   __pyx_t_6 = 1;
@@ -5689,16 +5719,16 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
     __pyx_t_1 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_ValueError)), __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 166, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 169, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
   __Pyx_Raise(__pyx_t_1, 0, 0, 0);
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-  __PYX_ERR(0, 166, __pyx_L1_error)
+  __PYX_ERR(0, 169, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":156
- * 
- * 
+  /* "consenrich/ccounts.pyx":159
+ *
+ *
  * cdef uint8_t _getCountModeCode(str countMode):             # <<<<<<<<<<<<<<
  *     cdef str normalizedMode = str(countMode).strip().lower()
  *     if normalizedMode in ["coverage", "0"]:
@@ -5720,9 +5750,9 @@ static uint8_t __pyx_f_10consenrich_7ccounts__getCountModeCode(PyObject *__pyx_v
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":169
- * 
- * 
+/* "consenrich/ccounts.pyx":172
+ *
+ *
  * cdef void _raiseIfError(ccounts_result result):             # <<<<<<<<<<<<<<
  *     if result.errorCode == 0:
  *         return
@@ -5741,8 +5771,8 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
   int __pyx_clineno = 0;
   __Pyx_RefNannySetupContext("_raiseIfError", 0);
 
-  /* "consenrich/ccounts.pyx":170
- * 
+  /* "consenrich/ccounts.pyx":173
+ *
  * cdef void _raiseIfError(ccounts_result result):
  *     if result.errorCode == 0:             # <<<<<<<<<<<<<<
  *         return
@@ -5751,7 +5781,7 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
   __pyx_t_1 = (__pyx_v_result.errorCode == 0);
   if (__pyx_t_1) {
 
-    /* "consenrich/ccounts.pyx":171
+    /* "consenrich/ccounts.pyx":174
  * cdef void _raiseIfError(ccounts_result result):
  *     if result.errorCode == 0:
  *         return             # <<<<<<<<<<<<<<
@@ -5760,8 +5790,8 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
 */
     goto __pyx_L0;
 
-    /* "consenrich/ccounts.pyx":170
- * 
+    /* "consenrich/ccounts.pyx":173
+ *
  * cdef void _raiseIfError(ccounts_result result):
  *     if result.errorCode == 0:             # <<<<<<<<<<<<<<
  *         return
@@ -5769,7 +5799,7 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
 */
   }
 
-  /* "consenrich/ccounts.pyx":172
+  /* "consenrich/ccounts.pyx":175
  *     if result.errorCode == 0:
  *         return
  *     if result.errorMessage != NULL:             # <<<<<<<<<<<<<<
@@ -5779,21 +5809,21 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
   __pyx_t_1 = (__pyx_v_result.errorMessage != NULL);
   if (unlikely(__pyx_t_1)) {
 
-    /* "consenrich/ccounts.pyx":173
+    /* "consenrich/ccounts.pyx":176
  *         return
  *     if result.errorMessage != NULL:
  *         raise RuntimeError((<bytes>result.errorMessage).decode("utf-8"))             # <<<<<<<<<<<<<<
  *     raise RuntimeError("native ccounts backend failed")
- * 
+ *
 */
     __pyx_t_3 = NULL;
-    __pyx_t_4 = __Pyx_PyBytes_FromString(__pyx_v_result.errorMessage); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 173, __pyx_L1_error)
+    __pyx_t_4 = __Pyx_PyBytes_FromString(__pyx_v_result.errorMessage); if (unlikely(!__pyx_t_4)) __PYX_ERR(0, 176, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_4);
     if (unlikely(__pyx_t_4 == Py_None)) {
       PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "decode");
-      __PYX_ERR(0, 173, __pyx_L1_error)
+      __PYX_ERR(0, 176, __pyx_L1_error)
     }
-    __pyx_t_5 = __Pyx_decode_bytes(((PyObject*)__pyx_t_4), 0, PY_SSIZE_T_MAX, NULL, NULL, PyUnicode_DecodeUTF8); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 173, __pyx_L1_error)
+    __pyx_t_5 = __Pyx_decode_bytes(((PyObject*)__pyx_t_4), 0, PY_SSIZE_T_MAX, NULL, NULL, PyUnicode_DecodeUTF8); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 176, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
     __Pyx_DECREF(__pyx_t_4); __pyx_t_4 = 0;
     __pyx_t_6 = 1;
@@ -5802,14 +5832,14 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
       __pyx_t_2 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_RuntimeError)), __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
       __Pyx_XDECREF(__pyx_t_3); __pyx_t_3 = 0;
       __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-      if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 173, __pyx_L1_error)
+      if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 176, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_2);
     }
     __Pyx_Raise(__pyx_t_2, 0, 0, 0);
     __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-    __PYX_ERR(0, 173, __pyx_L1_error)
+    __PYX_ERR(0, 176, __pyx_L1_error)
 
-    /* "consenrich/ccounts.pyx":172
+    /* "consenrich/ccounts.pyx":175
  *     if result.errorCode == 0:
  *         return
  *     if result.errorMessage != NULL:             # <<<<<<<<<<<<<<
@@ -5818,12 +5848,12 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
 */
   }
 
-  /* "consenrich/ccounts.pyx":174
+  /* "consenrich/ccounts.pyx":177
  *     if result.errorMessage != NULL:
  *         raise RuntimeError((<bytes>result.errorMessage).decode("utf-8"))
  *     raise RuntimeError("native ccounts backend failed")             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_t_5 = NULL;
   __pyx_t_6 = 1;
@@ -5831,16 +5861,16 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
     PyObject *__pyx_callargs[2] = {__pyx_t_5, __pyx_mstate_global->__pyx_kp_u_native_ccounts_backend_failed};
     __pyx_t_2 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_RuntimeError)), __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 174, __pyx_L1_error)
+    if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 177, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_2);
   }
   __Pyx_Raise(__pyx_t_2, 0, 0, 0);
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
-  __PYX_ERR(0, 174, __pyx_L1_error)
+  __PYX_ERR(0, 177, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":169
- * 
- * 
+  /* "consenrich/ccounts.pyx":172
+ *
+ *
  * cdef void _raiseIfError(ccounts_result result):             # <<<<<<<<<<<<<<
  *     if result.errorCode == 0:
  *         return
@@ -5857,15 +5887,15 @@ static void __pyx_f_10consenrich_7ccounts__raiseIfError(ccounts_result __pyx_v_r
   __Pyx_RefNannyFinishContext();
 }
 
-/* "consenrich/ccounts.pyx":177
- * 
- * 
+/* "consenrich/ccounts.pyx":180
+ *
+ *
  * cpdef bint ccounts_checkAlignmentPath(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str sourceKind="BAM",
 */
 
-static PyObject *__pyx_pw_10consenrich_7ccounts_1ccounts_checkAlignmentPath(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_1ccounts_checkAlignmentPath(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -5875,7 +5905,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 static int __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(PyObject *__pyx_v_alignmentPath, CYTHON_UNUSED int __pyx_skip_dispatch, struct __pyx_opt_args_10consenrich_7ccounts_ccounts_checkAlignmentPath *__pyx_optional_args) {
   PyObject *__pyx_v_sourceKind = ((PyObject*)__pyx_mstate_global->__pyx_n_u_BAM);
 
-  /* "consenrich/ccounts.pyx":180
+  /* "consenrich/ccounts.pyx":183
  *     str alignmentPath,
  *     str sourceKind="BAM",
  *     bint buildIndex=False,             # <<<<<<<<<<<<<<
@@ -5909,7 +5939,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(PyObject *__
     }
   }
 
-  /* "consenrich/ccounts.pyx":183
+  /* "consenrich/ccounts.pyx":186
  *     int threadCount=0,
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -5918,35 +5948,35 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(PyObject *__
 */
   if (unlikely(__pyx_v_alignmentPath == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 183, __pyx_L1_error)
+    __PYX_ERR(0, 186, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 183, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 186, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_pathBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":184
+  /* "consenrich/ccounts.pyx":187
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(             # <<<<<<<<<<<<<<
  *         pathBytes,
  *         sourceKind,
 */
-  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 184, __pyx_L1_error)
+  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 187, __pyx_L1_error)
   __pyx_v_sourceConfig = __pyx_t_2;
 
-  /* "consenrich/ccounts.pyx":189
+  /* "consenrich/ccounts.pyx":192
  *     )
  *     cdef ccounts_result result
  *     cdef int hasIndex = 0             # <<<<<<<<<<<<<<
- * 
+ *
  *     with nogil:
 */
   __pyx_v_hasIndex = 0;
 
-  /* "consenrich/ccounts.pyx":191
+  /* "consenrich/ccounts.pyx":194
  *     cdef int hasIndex = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_checkAlignmentFile(
  *             &sourceConfig,
@@ -5957,7 +5987,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(PyObject *__
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/ccounts.pyx":194
+        /* "consenrich/ccounts.pyx":197
  *         result = ccounts_checkAlignmentFile(
  *             &sourceConfig,
  *             1 if buildIndex else 0,             # <<<<<<<<<<<<<<
@@ -5970,8 +6000,8 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(PyObject *__
           __pyx_t_3 = 0;
         }
 
-        /* "consenrich/ccounts.pyx":192
- * 
+        /* "consenrich/ccounts.pyx":195
+ *
  *     with nogil:
  *         result = ccounts_checkAlignmentFile(             # <<<<<<<<<<<<<<
  *             &sourceConfig,
@@ -5980,9 +6010,9 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(PyObject *__
         __pyx_v_result = ccounts_checkAlignmentFile((&__pyx_v_sourceConfig), __pyx_t_3, __pyx_v_threadCount, (&__pyx_v_hasIndex));
       }
 
-      /* "consenrich/ccounts.pyx":191
+      /* "consenrich/ccounts.pyx":194
  *     cdef int hasIndex = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_checkAlignmentFile(
  *             &sourceConfig,
@@ -5997,28 +6027,28 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(PyObject *__
       }
   }
 
-  /* "consenrich/ccounts.pyx":198
+  /* "consenrich/ccounts.pyx":201
  *             &hasIndex,
  *         )
  *     _raiseIfError(result)             # <<<<<<<<<<<<<<
  *     return hasIndex != 0
- * 
+ *
 */
-  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 198, __pyx_L1_error)
+  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 201, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":199
+  /* "consenrich/ccounts.pyx":202
  *         )
  *     _raiseIfError(result)
  *     return hasIndex != 0             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = (__pyx_v_hasIndex != 0);
   goto __pyx_L0;
 
-  /* "consenrich/ccounts.pyx":177
- * 
- * 
+  /* "consenrich/ccounts.pyx":180
+ *
+ *
  * cpdef bint ccounts_checkAlignmentPath(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str sourceKind="BAM",
@@ -6036,7 +6066,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(PyObject *__
 }
 
 /* Python wrapper */
-static PyObject *__pyx_pw_10consenrich_7ccounts_1ccounts_checkAlignmentPath(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_1ccounts_checkAlignmentPath(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6044,7 +6074,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyMethodDef __pyx_mdef_10consenrich_7ccounts_1ccounts_checkAlignmentPath = {"ccounts_checkAlignmentPath", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_10consenrich_7ccounts_1ccounts_checkAlignmentPath, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_10consenrich_7ccounts_1ccounts_checkAlignmentPath(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_1ccounts_checkAlignmentPath(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6077,51 +6107,51 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_alignmentPath,&__pyx_mstate_global->__pyx_n_u_sourceKind,&__pyx_mstate_global->__pyx_n_u_buildIndex,&__pyx_mstate_global->__pyx_n_u_threadCount,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 177, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 180, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 177, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 180, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 177, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 180, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 177, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 180, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 177, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 180, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_checkAlignmentPath", 0) < (0)) __PYX_ERR(0, 177, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_checkAlignmentPath", 0) < (0)) __PYX_ERR(0, 180, __pyx_L3_error)
       if (!values[1]) values[1] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_n_u_BAM));
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_checkAlignmentPath", 0, 1, 4, i); __PYX_ERR(0, 177, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_checkAlignmentPath", 0, 1, 4, i); __PYX_ERR(0, 180, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 177, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 180, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 177, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 180, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 177, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 180, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 177, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 180, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -6130,10 +6160,10 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     __pyx_v_alignmentPath = ((PyObject*)values[0]);
     __pyx_v_sourceKind = ((PyObject*)values[1]);
     if (values[2]) {
-      __pyx_v_buildIndex = __Pyx_PyObject_IsTrue(values[2]); if (unlikely((__pyx_v_buildIndex == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 180, __pyx_L3_error)
+      __pyx_v_buildIndex = __Pyx_PyObject_IsTrue(values[2]); if (unlikely((__pyx_v_buildIndex == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 183, __pyx_L3_error)
     } else {
 
-      /* "consenrich/ccounts.pyx":180
+      /* "consenrich/ccounts.pyx":183
  *     str alignmentPath,
  *     str sourceKind="BAM",
  *     bint buildIndex=False,             # <<<<<<<<<<<<<<
@@ -6143,14 +6173,14 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       __pyx_v_buildIndex = ((int)0);
     }
     if (values[3]) {
-      __pyx_v_threadCount = __Pyx_PyLong_As_int(values[3]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 181, __pyx_L3_error)
+      __pyx_v_threadCount = __Pyx_PyLong_As_int(values[3]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 184, __pyx_L3_error)
     } else {
       __pyx_v_threadCount = ((int)0);
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("ccounts_checkAlignmentPath", 0, 1, 4, __pyx_nargs); __PYX_ERR(0, 177, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("ccounts_checkAlignmentPath", 0, 1, 4, __pyx_nargs); __PYX_ERR(0, 180, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -6161,13 +6191,13 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 178, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 179, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 181, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 182, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_7ccounts_ccounts_checkAlignmentPath(__pyx_self, __pyx_v_alignmentPath, __pyx_v_sourceKind, __pyx_v_buildIndex, __pyx_v_threadCount);
 
-  /* "consenrich/ccounts.pyx":177
- * 
- * 
+  /* "consenrich/ccounts.pyx":180
+ *
+ *
  * cpdef bint ccounts_checkAlignmentPath(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str sourceKind="BAM",
@@ -6205,8 +6235,8 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_ccounts_checkAlignmentPath(CYTHO
   __pyx_t_2.sourceKind = __pyx_v_sourceKind;
   __pyx_t_2.buildIndex = __pyx_v_buildIndex;
   __pyx_t_2.threadCount = __pyx_v_threadCount;
-  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(__pyx_v_alignmentPath, 1, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 177, __pyx_L1_error)
-  __pyx_t_3 = __Pyx_PyBool_FromLong(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 177, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_checkAlignmentPath(__pyx_v_alignmentPath, 1, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 180, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyBool_FromLong(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 180, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
   __pyx_r = __pyx_t_3;
   __pyx_t_3 = 0;
@@ -6223,15 +6253,15 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_ccounts_checkAlignmentPath(CYTHO
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":202
- * 
- * 
+/* "consenrich/ccounts.pyx":205
+ *
+ *
  * cpdef bint ccounts_isAlignmentPairedEnd(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int maxReads=1000,
 */
 
-static PyObject *__pyx_pw_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6266,7 +6296,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd(PyObject *
     }
   }
 
-  /* "consenrich/ccounts.pyx":208
+  /* "consenrich/ccounts.pyx":211
  *     str sourceKind="BAM",
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -6275,35 +6305,35 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd(PyObject *
 */
   if (unlikely(__pyx_v_alignmentPath == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 208, __pyx_L1_error)
+    __PYX_ERR(0, 211, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 208, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 211, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_pathBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":209
+  /* "consenrich/ccounts.pyx":212
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(             # <<<<<<<<<<<<<<
  *         pathBytes,
  *         sourceKind,
 */
-  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 209, __pyx_L1_error)
+  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 212, __pyx_L1_error)
   __pyx_v_sourceConfig = __pyx_t_2;
 
-  /* "consenrich/ccounts.pyx":214
+  /* "consenrich/ccounts.pyx":217
  *     )
  *     cdef ccounts_result result
  *     cdef int isPairedEnd = 0             # <<<<<<<<<<<<<<
- * 
+ *
  *     with nogil:
 */
   __pyx_v_isPairedEnd = 0;
 
-  /* "consenrich/ccounts.pyx":216
+  /* "consenrich/ccounts.pyx":219
  *     cdef int isPairedEnd = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_isPairedEnd(
  *             &sourceConfig,
@@ -6314,8 +6344,8 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd(PyObject *
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/ccounts.pyx":217
- * 
+        /* "consenrich/ccounts.pyx":220
+ *
  *     with nogil:
  *         result = ccounts_isPairedEnd(             # <<<<<<<<<<<<<<
  *             &sourceConfig,
@@ -6324,9 +6354,9 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd(PyObject *
         __pyx_v_result = ccounts_isPairedEnd((&__pyx_v_sourceConfig), __pyx_v_threadCount, __pyx_v_maxReads, (&__pyx_v_isPairedEnd));
       }
 
-      /* "consenrich/ccounts.pyx":216
+      /* "consenrich/ccounts.pyx":219
  *     cdef int isPairedEnd = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_isPairedEnd(
  *             &sourceConfig,
@@ -6341,28 +6371,28 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd(PyObject *
       }
   }
 
-  /* "consenrich/ccounts.pyx":223
+  /* "consenrich/ccounts.pyx":226
  *             &isPairedEnd,
  *         )
  *     _raiseIfError(result)             # <<<<<<<<<<<<<<
  *     return isPairedEnd != 0
- * 
+ *
 */
-  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 223, __pyx_L1_error)
+  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 226, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":224
+  /* "consenrich/ccounts.pyx":227
  *         )
  *     _raiseIfError(result)
  *     return isPairedEnd != 0             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = (__pyx_v_isPairedEnd != 0);
   goto __pyx_L0;
 
-  /* "consenrich/ccounts.pyx":202
- * 
- * 
+  /* "consenrich/ccounts.pyx":205
+ *
+ *
  * cpdef bint ccounts_isAlignmentPairedEnd(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int maxReads=1000,
@@ -6380,7 +6410,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd(PyObject *
 }
 
 /* Python wrapper */
-static PyObject *__pyx_pw_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6388,7 +6418,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyMethodDef __pyx_mdef_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd = {"ccounts_isAlignmentPairedEnd", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6421,51 +6451,51 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_alignmentPath,&__pyx_mstate_global->__pyx_n_u_maxReads,&__pyx_mstate_global->__pyx_n_u_threadCount,&__pyx_mstate_global->__pyx_n_u_sourceKind,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 202, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 205, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 202, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 205, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 202, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 205, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 202, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 205, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 202, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 205, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_isAlignmentPairedEnd", 0) < (0)) __PYX_ERR(0, 202, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_isAlignmentPairedEnd", 0) < (0)) __PYX_ERR(0, 205, __pyx_L3_error)
       if (!values[3]) values[3] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_n_u_BAM));
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_isAlignmentPairedEnd", 0, 1, 4, i); __PYX_ERR(0, 202, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_isAlignmentPairedEnd", 0, 1, 4, i); __PYX_ERR(0, 205, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 202, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 205, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 202, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 205, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 202, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 205, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 202, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 205, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -6473,12 +6503,12 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     }
     __pyx_v_alignmentPath = ((PyObject*)values[0]);
     if (values[1]) {
-      __pyx_v_maxReads = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_maxReads == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 204, __pyx_L3_error)
+      __pyx_v_maxReads = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_maxReads == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 207, __pyx_L3_error)
     } else {
       __pyx_v_maxReads = ((int)0x3E8);
     }
     if (values[2]) {
-      __pyx_v_threadCount = __Pyx_PyLong_As_int(values[2]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 205, __pyx_L3_error)
+      __pyx_v_threadCount = __Pyx_PyLong_As_int(values[2]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 208, __pyx_L3_error)
     } else {
       __pyx_v_threadCount = ((int)0);
     }
@@ -6486,7 +6516,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("ccounts_isAlignmentPairedEnd", 0, 1, 4, __pyx_nargs); __PYX_ERR(0, 202, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("ccounts_isAlignmentPairedEnd", 0, 1, 4, __pyx_nargs); __PYX_ERR(0, 205, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -6497,8 +6527,8 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 203, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 206, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 206, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 209, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_7ccounts_2ccounts_isAlignmentPairedEnd(__pyx_self, __pyx_v_alignmentPath, __pyx_v_maxReads, __pyx_v_threadCount, __pyx_v_sourceKind);
 
   /* function exit code */
@@ -6533,8 +6563,8 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_2ccounts_isAlignmentPairedEnd(CY
   __pyx_t_2.maxReads = __pyx_v_maxReads;
   __pyx_t_2.threadCount = __pyx_v_threadCount;
   __pyx_t_2.sourceKind = __pyx_v_sourceKind;
-  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd(__pyx_v_alignmentPath, 1, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 202, __pyx_L1_error)
-  __pyx_t_3 = __Pyx_PyBool_FromLong(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 202, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_isAlignmentPairedEnd(__pyx_v_alignmentPath, 1, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 205, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyBool_FromLong(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 205, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
   __pyx_r = __pyx_t_3;
   __pyx_t_3 = 0;
@@ -6551,15 +6581,15 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_2ccounts_isAlignmentPairedEnd(CY
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":227
- * 
- * 
+/* "consenrich/ccounts.pyx":230
+ *
+ *
  * cpdef int ccounts_getAlignmentReadLength(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int minReads,
 */
 
-static PyObject *__pyx_pw_10consenrich_7ccounts_5ccounts_getAlignmentReadLength(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_5ccounts_getAlignmentReadLength(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6586,7 +6616,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentReadLength(PyObject
     }
   }
 
-  /* "consenrich/ccounts.pyx":235
+  /* "consenrich/ccounts.pyx":238
  *     str sourceKind="BAM",
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -6595,35 +6625,35 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentReadLength(PyObject
 */
   if (unlikely(__pyx_v_alignmentPath == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 235, __pyx_L1_error)
+    __PYX_ERR(0, 238, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 235, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 238, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_pathBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":236
+  /* "consenrich/ccounts.pyx":239
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(             # <<<<<<<<<<<<<<
  *         pathBytes,
  *         sourceKind,
 */
-  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 236, __pyx_L1_error)
+  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 239, __pyx_L1_error)
   __pyx_v_sourceConfig = __pyx_t_2;
 
-  /* "consenrich/ccounts.pyx":241
+  /* "consenrich/ccounts.pyx":244
  *     )
  *     cdef ccounts_result result
  *     cdef uint32_t readLength = 0             # <<<<<<<<<<<<<<
- * 
+ *
  *     with nogil:
 */
   __pyx_v_readLength = 0;
 
-  /* "consenrich/ccounts.pyx":243
+  /* "consenrich/ccounts.pyx":246
  *     cdef uint32_t readLength = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_getReadLength(
  *             &sourceConfig,
@@ -6634,8 +6664,8 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentReadLength(PyObject
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/ccounts.pyx":244
- * 
+        /* "consenrich/ccounts.pyx":247
+ *
  *     with nogil:
  *         result = ccounts_getReadLength(             # <<<<<<<<<<<<<<
  *             &sourceConfig,
@@ -6644,9 +6674,9 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentReadLength(PyObject
         __pyx_v_result = ccounts_getReadLength((&__pyx_v_sourceConfig), __pyx_v_threadCount, __pyx_v_minReads, __pyx_v_maxIterations, __pyx_v_flagExclude, (&__pyx_v_readLength));
       }
 
-      /* "consenrich/ccounts.pyx":243
+      /* "consenrich/ccounts.pyx":246
  *     cdef uint32_t readLength = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_getReadLength(
  *             &sourceConfig,
@@ -6661,28 +6691,28 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentReadLength(PyObject
       }
   }
 
-  /* "consenrich/ccounts.pyx":252
+  /* "consenrich/ccounts.pyx":255
  *             &readLength,
  *         )
  *     _raiseIfError(result)             # <<<<<<<<<<<<<<
  *     return int(readLength)
- * 
+ *
 */
-  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 252, __pyx_L1_error)
+  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 255, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":253
+  /* "consenrich/ccounts.pyx":256
  *         )
  *     _raiseIfError(result)
  *     return int(readLength)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = ((int)__pyx_v_readLength);
   goto __pyx_L0;
 
-  /* "consenrich/ccounts.pyx":227
- * 
- * 
+  /* "consenrich/ccounts.pyx":230
+ *
+ *
  * cpdef int ccounts_getAlignmentReadLength(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int minReads,
@@ -6700,7 +6730,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentReadLength(PyObject
 }
 
 /* Python wrapper */
-static PyObject *__pyx_pw_10consenrich_7ccounts_5ccounts_getAlignmentReadLength(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_5ccounts_getAlignmentReadLength(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6708,7 +6738,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyMethodDef __pyx_mdef_10consenrich_7ccounts_5ccounts_getAlignmentReadLength = {"ccounts_getAlignmentReadLength", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_10consenrich_7ccounts_5ccounts_getAlignmentReadLength, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_10consenrich_7ccounts_5ccounts_getAlignmentReadLength(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_5ccounts_getAlignmentReadLength(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6743,74 +6773,74 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_alignmentPath,&__pyx_mstate_global->__pyx_n_u_minReads,&__pyx_mstate_global->__pyx_n_u_threadCount,&__pyx_mstate_global->__pyx_n_u_maxIterations,&__pyx_mstate_global->__pyx_n_u_flagExclude,&__pyx_mstate_global->__pyx_n_u_sourceKind,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 227, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 230, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 230, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 230, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 230, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 230, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 230, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 230, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_getAlignmentReadLength", 0) < (0)) __PYX_ERR(0, 227, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_getAlignmentReadLength", 0) < (0)) __PYX_ERR(0, 230, __pyx_L3_error)
       if (!values[5]) values[5] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_n_u_BAM));
       for (Py_ssize_t i = __pyx_nargs; i < 5; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentReadLength", 0, 5, 6, i); __PYX_ERR(0, 227, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentReadLength", 0, 5, 6, i); __PYX_ERR(0, 230, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 230, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 230, __pyx_L3_error)
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 230, __pyx_L3_error)
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 230, __pyx_L3_error)
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 230, __pyx_L3_error)
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 227, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 230, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
       if (!values[5]) values[5] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_n_u_BAM));
     }
     __pyx_v_alignmentPath = ((PyObject*)values[0]);
-    __pyx_v_minReads = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_minReads == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 229, __pyx_L3_error)
-    __pyx_v_threadCount = __Pyx_PyLong_As_int(values[2]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 230, __pyx_L3_error)
-    __pyx_v_maxIterations = __Pyx_PyLong_As_int(values[3]); if (unlikely((__pyx_v_maxIterations == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 231, __pyx_L3_error)
-    __pyx_v_flagExclude = __Pyx_PyLong_As_int(values[4]); if (unlikely((__pyx_v_flagExclude == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 232, __pyx_L3_error)
+    __pyx_v_minReads = __Pyx_PyLong_As_int(values[1]); if (unlikely((__pyx_v_minReads == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 232, __pyx_L3_error)
+    __pyx_v_threadCount = __Pyx_PyLong_As_int(values[2]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 233, __pyx_L3_error)
+    __pyx_v_maxIterations = __Pyx_PyLong_As_int(values[3]); if (unlikely((__pyx_v_maxIterations == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 234, __pyx_L3_error)
+    __pyx_v_flagExclude = __Pyx_PyLong_As_int(values[4]); if (unlikely((__pyx_v_flagExclude == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 235, __pyx_L3_error)
     __pyx_v_sourceKind = ((PyObject*)values[5]);
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentReadLength", 0, 5, 6, __pyx_nargs); __PYX_ERR(0, 227, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentReadLength", 0, 5, 6, __pyx_nargs); __PYX_ERR(0, 230, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -6821,8 +6851,8 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 228, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 233, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 231, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 236, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_7ccounts_4ccounts_getAlignmentReadLength(__pyx_self, __pyx_v_alignmentPath, __pyx_v_minReads, __pyx_v_threadCount, __pyx_v_maxIterations, __pyx_v_flagExclude, __pyx_v_sourceKind);
 
   /* function exit code */
@@ -6855,8 +6885,8 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_4ccounts_getAlignmentReadLength(
   __Pyx_XDECREF(__pyx_r);
   __pyx_t_2.__pyx_n = 1;
   __pyx_t_2.sourceKind = __pyx_v_sourceKind;
-  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentReadLength(__pyx_v_alignmentPath, __pyx_v_minReads, __pyx_v_threadCount, __pyx_v_maxIterations, __pyx_v_flagExclude, 1, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 227, __pyx_L1_error)
-  __pyx_t_3 = __Pyx_PyLong_From_int(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 227, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentReadLength(__pyx_v_alignmentPath, __pyx_v_minReads, __pyx_v_threadCount, __pyx_v_maxIterations, __pyx_v_flagExclude, 1, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 230, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyLong_From_int(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 230, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
   __pyx_r = __pyx_t_3;
   __pyx_t_3 = 0;
@@ -6873,15 +6903,15 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_4ccounts_getAlignmentReadLength(
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":256
- * 
- * 
+/* "consenrich/ccounts.pyx":259
+ *
+ *
  * cpdef tuple ccounts_getAlignmentChromRange(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
 */
 
-static PyObject *__pyx_pw_10consenrich_7ccounts_7ccounts_getAlignmentChromRange(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_7ccounts_getAlignmentChromRange(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -6916,7 +6946,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
     }
   }
 
-  /* "consenrich/ccounts.pyx":264
+  /* "consenrich/ccounts.pyx":267
  *     str sourceKind="BAM",
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -6925,14 +6955,14 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
 */
   if (unlikely(__pyx_v_alignmentPath == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 264, __pyx_L1_error)
+    __PYX_ERR(0, 267, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 264, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 267, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_pathBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":265
+  /* "consenrich/ccounts.pyx":268
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef bytes chromosomeBytes = chromosome.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -6941,54 +6971,54 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
 */
   if (unlikely(__pyx_v_chromosome == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 265, __pyx_L1_error)
+    __PYX_ERR(0, 268, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_chromosome); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 265, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_chromosome); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 268, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_chromosomeBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":266
+  /* "consenrich/ccounts.pyx":269
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef bytes chromosomeBytes = chromosome.encode("utf-8")
  *     cdef const char* chromosomePtr = chromosomeBytes             # <<<<<<<<<<<<<<
  *     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(
  *         pathBytes,
 */
-  __pyx_t_2 = __Pyx_PyBytes_AsString(__pyx_v_chromosomeBytes); if (unlikely((!__pyx_t_2) && PyErr_Occurred())) __PYX_ERR(0, 266, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_PyBytes_AsString(__pyx_v_chromosomeBytes); if (unlikely((!__pyx_t_2) && PyErr_Occurred())) __PYX_ERR(0, 269, __pyx_L1_error)
   __pyx_v_chromosomePtr = __pyx_t_2;
 
-  /* "consenrich/ccounts.pyx":267
+  /* "consenrich/ccounts.pyx":270
  *     cdef bytes chromosomeBytes = chromosome.encode("utf-8")
  *     cdef const char* chromosomePtr = chromosomeBytes
  *     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(             # <<<<<<<<<<<<<<
  *         pathBytes,
  *         sourceKind,
 */
-  __pyx_t_3 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 267, __pyx_L1_error)
+  __pyx_t_3 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 270, __pyx_L1_error)
   __pyx_v_sourceConfig = __pyx_t_3;
 
-  /* "consenrich/ccounts.pyx":272
+  /* "consenrich/ccounts.pyx":275
  *     )
  *     cdef ccounts_result result
  *     cdef uint64_t startValue = 0             # <<<<<<<<<<<<<<
  *     cdef uint64_t endValue = 0
- * 
+ *
 */
   __pyx_v_startValue = 0;
 
-  /* "consenrich/ccounts.pyx":273
+  /* "consenrich/ccounts.pyx":276
  *     cdef ccounts_result result
  *     cdef uint64_t startValue = 0
  *     cdef uint64_t endValue = 0             # <<<<<<<<<<<<<<
- * 
+ *
  *     with nogil:
 */
   __pyx_v_endValue = 0;
 
-  /* "consenrich/ccounts.pyx":275
+  /* "consenrich/ccounts.pyx":278
  *     cdef uint64_t endValue = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_getChromRange(
  *             &sourceConfig,
@@ -6999,8 +7029,8 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/ccounts.pyx":276
- * 
+        /* "consenrich/ccounts.pyx":279
+ *
  *     with nogil:
  *         result = ccounts_getChromRange(             # <<<<<<<<<<<<<<
  *             &sourceConfig,
@@ -7009,9 +7039,9 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
         __pyx_v_result = ccounts_getChromRange((&__pyx_v_sourceConfig), __pyx_v_chromosomePtr, __pyx_v_chromLength, __pyx_v_threadCount, __pyx_v_flagExclude, (&__pyx_v_startValue), (&__pyx_v_endValue));
       }
 
-      /* "consenrich/ccounts.pyx":275
+      /* "consenrich/ccounts.pyx":278
  *     cdef uint64_t endValue = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_getChromRange(
  *             &sourceConfig,
@@ -7026,25 +7056,25 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
       }
   }
 
-  /* "consenrich/ccounts.pyx":285
+  /* "consenrich/ccounts.pyx":288
  *             &endValue,
  *         )
  *     _raiseIfError(result)             # <<<<<<<<<<<<<<
  *     return int(startValue), int(endValue)
- * 
+ *
 */
-  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 285, __pyx_L1_error)
+  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 288, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":286
+  /* "consenrich/ccounts.pyx":289
  *         )
  *     _raiseIfError(result)
  *     return int(startValue), int(endValue)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __Pyx_XDECREF(__pyx_r);
   __pyx_t_4 = NULL;
-  __pyx_t_5 = __Pyx_PyLong_From_uint64_t(__pyx_v_startValue); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 286, __pyx_L1_error)
+  __pyx_t_5 = __Pyx_PyLong_From_uint64_t(__pyx_v_startValue); if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 289, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_5);
   __pyx_t_6 = 1;
   {
@@ -7052,11 +7082,11 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
     __pyx_t_1 = __Pyx_PyObject_FastCall((PyObject*)(&PyLong_Type), __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_5); __pyx_t_5 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 286, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 289, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
   __pyx_t_4 = NULL;
-  __pyx_t_7 = __Pyx_PyLong_From_uint64_t(__pyx_v_endValue); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 286, __pyx_L1_error)
+  __pyx_t_7 = __Pyx_PyLong_From_uint64_t(__pyx_v_endValue); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 289, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __pyx_t_6 = 1;
   {
@@ -7064,24 +7094,24 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
     __pyx_t_5 = __Pyx_PyObject_FastCall((PyObject*)(&PyLong_Type), __pyx_callargs+__pyx_t_6, (2-__pyx_t_6) | (__pyx_t_6*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_4); __pyx_t_4 = 0;
     __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-    if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 286, __pyx_L1_error)
+    if (unlikely(!__pyx_t_5)) __PYX_ERR(0, 289, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_5);
   }
-  __pyx_t_7 = PyTuple_New(2); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 286, __pyx_L1_error)
+  __pyx_t_7 = PyTuple_New(2); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 289, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_7);
   __Pyx_GIVEREF(__pyx_t_1);
-  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_7, 0, __pyx_t_1) != (0)) __PYX_ERR(0, 286, __pyx_L1_error);
+  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_7, 0, __pyx_t_1) != (0)) __PYX_ERR(0, 289, __pyx_L1_error);
   __Pyx_GIVEREF(__pyx_t_5);
-  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_7, 1, __pyx_t_5) != (0)) __PYX_ERR(0, 286, __pyx_L1_error);
+  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_7, 1, __pyx_t_5) != (0)) __PYX_ERR(0, 289, __pyx_L1_error);
   __pyx_t_1 = 0;
   __pyx_t_5 = 0;
   __pyx_r = ((PyObject*)__pyx_t_7);
   __pyx_t_7 = 0;
   goto __pyx_L0;
 
-  /* "consenrich/ccounts.pyx":256
- * 
- * 
+  /* "consenrich/ccounts.pyx":259
+ *
+ *
  * cpdef tuple ccounts_getAlignmentChromRange(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
@@ -7104,7 +7134,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(Py
 }
 
 /* Python wrapper */
-static PyObject *__pyx_pw_10consenrich_7ccounts_7ccounts_getAlignmentChromRange(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_7ccounts_getAlignmentChromRange(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -7112,7 +7142,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyMethodDef __pyx_mdef_10consenrich_7ccounts_7ccounts_getAlignmentChromRange = {"ccounts_getAlignmentChromRange", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_10consenrich_7ccounts_7ccounts_getAlignmentChromRange, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_10consenrich_7ccounts_7ccounts_getAlignmentChromRange(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_7ccounts_getAlignmentChromRange(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -7147,59 +7177,59 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_alignmentPath,&__pyx_mstate_global->__pyx_n_u_chromosome,&__pyx_mstate_global->__pyx_n_u_chromLength,&__pyx_mstate_global->__pyx_n_u_threadCount,&__pyx_mstate_global->__pyx_n_u_flagExclude,&__pyx_mstate_global->__pyx_n_u_sourceKind,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 256, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 259, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 259, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 259, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 259, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 259, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 259, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 259, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_getAlignmentChromRange", 0) < (0)) __PYX_ERR(0, 256, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_getAlignmentChromRange", 0) < (0)) __PYX_ERR(0, 259, __pyx_L3_error)
       if (!values[5]) values[5] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_n_u_BAM));
       for (Py_ssize_t i = __pyx_nargs; i < 5; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentChromRange", 0, 5, 6, i); __PYX_ERR(0, 256, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentChromRange", 0, 5, 6, i); __PYX_ERR(0, 259, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 259, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 259, __pyx_L3_error)
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 259, __pyx_L3_error)
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 259, __pyx_L3_error)
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 259, __pyx_L3_error)
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 256, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 259, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -7207,14 +7237,14 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     }
     __pyx_v_alignmentPath = ((PyObject*)values[0]);
     __pyx_v_chromosome = ((PyObject*)values[1]);
-    __pyx_v_chromLength = __Pyx_PyLong_As_unsigned_PY_LONG_LONG(values[2]); if (unlikely((__pyx_v_chromLength == (unsigned PY_LONG_LONG)-1) && PyErr_Occurred())) __PYX_ERR(0, 259, __pyx_L3_error)
-    __pyx_v_threadCount = __Pyx_PyLong_As_int(values[3]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 260, __pyx_L3_error)
-    __pyx_v_flagExclude = __Pyx_PyLong_As_int(values[4]); if (unlikely((__pyx_v_flagExclude == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 261, __pyx_L3_error)
+    __pyx_v_chromLength = __Pyx_PyLong_As_unsigned_PY_LONG_LONG(values[2]); if (unlikely((__pyx_v_chromLength == (unsigned PY_LONG_LONG)-1) && PyErr_Occurred())) __PYX_ERR(0, 262, __pyx_L3_error)
+    __pyx_v_threadCount = __Pyx_PyLong_As_int(values[3]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 263, __pyx_L3_error)
+    __pyx_v_flagExclude = __Pyx_PyLong_As_int(values[4]); if (unlikely((__pyx_v_flagExclude == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 264, __pyx_L3_error)
     __pyx_v_sourceKind = ((PyObject*)values[5]);
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentChromRange", 0, 5, 6, __pyx_nargs); __PYX_ERR(0, 256, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentChromRange", 0, 5, 6, __pyx_nargs); __PYX_ERR(0, 259, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -7225,9 +7255,9 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 257, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_chromosome), (&PyUnicode_Type), 1, "chromosome", 1))) __PYX_ERR(0, 258, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 262, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 260, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_chromosome), (&PyUnicode_Type), 1, "chromosome", 1))) __PYX_ERR(0, 261, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 265, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_7ccounts_6ccounts_getAlignmentChromRange(__pyx_self, __pyx_v_alignmentPath, __pyx_v_chromosome, __pyx_v_chromLength, __pyx_v_threadCount, __pyx_v_flagExclude, __pyx_v_sourceKind);
 
   /* function exit code */
@@ -7259,7 +7289,7 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_6ccounts_getAlignmentChromRange(
   __Pyx_XDECREF(__pyx_r);
   __pyx_t_2.__pyx_n = 1;
   __pyx_t_2.sourceKind = __pyx_v_sourceKind;
-  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(__pyx_v_alignmentPath, __pyx_v_chromosome, __pyx_v_chromLength, __pyx_v_threadCount, __pyx_v_flagExclude, 1, &__pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 256, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentChromRange(__pyx_v_alignmentPath, __pyx_v_chromosome, __pyx_v_chromLength, __pyx_v_threadCount, __pyx_v_flagExclude, 1, &__pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 259, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -7276,15 +7306,15 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_6ccounts_getAlignmentChromRange(
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":289
- * 
- * 
+/* "consenrich/ccounts.pyx":292
+ *
+ *
  * cpdef tuple ccounts_getAlignmentMappedReadCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     excludeChromosomes=None,
 */
 
-static PyObject *__pyx_pw_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -7293,7 +7323,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 ); /*proto*/
 static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCount(PyObject *__pyx_v_alignmentPath, CYTHON_UNUSED int __pyx_skip_dispatch, struct __pyx_opt_args_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCount *__pyx_optional_args) {
 
-  /* "consenrich/ccounts.pyx":291
+  /* "consenrich/ccounts.pyx":294
  * cpdef tuple ccounts_getAlignmentMappedReadCount(
  *     str alignmentPath,
  *     excludeChromosomes=None,             # <<<<<<<<<<<<<<
@@ -7366,7 +7396,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
     }
   }
 
-  /* "consenrich/ccounts.pyx":298
+  /* "consenrich/ccounts.pyx":301
  *     int oneReadPerBin=0,
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -7375,14 +7405,14 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
   if (unlikely(__pyx_v_alignmentPath == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 298, __pyx_L1_error)
+    __PYX_ERR(0, 301, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 298, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 301, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_pathBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":299
+  /* "consenrich/ccounts.pyx":302
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -7391,14 +7421,14 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
   if (unlikely(__pyx_v_barcodeAllowListFile == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 299, __pyx_L1_error)
+    __PYX_ERR(0, 302, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_barcodeAllowListFile); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 299, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_barcodeAllowListFile); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 302, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_barcodeAllowListBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":300
+  /* "consenrich/ccounts.pyx":303
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
  *     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(             # <<<<<<<<<<<<<<
@@ -7407,10 +7437,10 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
   __pyx_t_3.__pyx_n = 1;
   __pyx_t_3.barcodeAllowListBytes = __pyx_v_barcodeAllowListBytes;
-  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, &__pyx_t_3); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 300, __pyx_L1_error)
+  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, &__pyx_t_3); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 303, __pyx_L1_error)
   __pyx_v_sourceConfig = __pyx_t_2;
 
-  /* "consenrich/ccounts.pyx":306
+  /* "consenrich/ccounts.pyx":309
  *     )
  *     cdef ccounts_result result
  *     cdef uint64_t mappedReadCount = 0             # <<<<<<<<<<<<<<
@@ -7419,7 +7449,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
   __pyx_v_mappedReadCount = 0;
 
-  /* "consenrich/ccounts.pyx":307
+  /* "consenrich/ccounts.pyx":310
  *     cdef ccounts_result result
  *     cdef uint64_t mappedReadCount = 0
  *     cdef uint64_t unmappedReadCount = 0             # <<<<<<<<<<<<<<
@@ -7428,7 +7458,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
   __pyx_v_unmappedReadCount = 0;
 
-  /* "consenrich/ccounts.pyx":308
+  /* "consenrich/ccounts.pyx":311
  *     cdef uint64_t mappedReadCount = 0
  *     cdef uint64_t unmappedReadCount = 0
  *     cdef const char** excludePointers = NULL             # <<<<<<<<<<<<<<
@@ -7437,7 +7467,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
   __pyx_v_excludePointers = NULL;
 
-  /* "consenrich/ccounts.pyx":309
+  /* "consenrich/ccounts.pyx":312
  *     cdef uint64_t unmappedReadCount = 0
  *     cdef const char** excludePointers = NULL
  *     cdef int excludeCount = 0             # <<<<<<<<<<<<<<
@@ -7446,31 +7476,31 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
   __pyx_v_excludeCount = 0;
 
-  /* "consenrich/ccounts.pyx":311
+  /* "consenrich/ccounts.pyx":314
  *     cdef int excludeCount = 0
  *     cdef int index
  *     cdef uint8_t countModeCode = _getCountModeCode(countMode)             # <<<<<<<<<<<<<<
  *     cdef list excludeBytes = []
- * 
+ *
 */
-  __pyx_t_4 = __pyx_f_10consenrich_7ccounts__getCountModeCode(__pyx_v_countMode); if (unlikely(__pyx_t_4 == ((uint8_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 311, __pyx_L1_error)
+  __pyx_t_4 = __pyx_f_10consenrich_7ccounts__getCountModeCode(__pyx_v_countMode); if (unlikely(__pyx_t_4 == ((uint8_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 314, __pyx_L1_error)
   __pyx_v_countModeCode = __pyx_t_4;
 
-  /* "consenrich/ccounts.pyx":312
+  /* "consenrich/ccounts.pyx":315
  *     cdef int index
  *     cdef uint8_t countModeCode = _getCountModeCode(countMode)
  *     cdef list excludeBytes = []             # <<<<<<<<<<<<<<
- * 
+ *
  *     if excludeChromosomes is not None:
 */
-  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 312, __pyx_L1_error)
+  __pyx_t_1 = PyList_New(0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 315, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_excludeBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":314
+  /* "consenrich/ccounts.pyx":317
  *     cdef list excludeBytes = []
- * 
+ *
  *     if excludeChromosomes is not None:             # <<<<<<<<<<<<<<
  *         excludeCount = len(excludeChromosomes)
  *         if excludeCount > 0:
@@ -7478,17 +7508,17 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
   __pyx_t_5 = (__pyx_v_excludeChromosomes != Py_None);
   if (__pyx_t_5) {
 
-    /* "consenrich/ccounts.pyx":315
- * 
+    /* "consenrich/ccounts.pyx":318
+ *
  *     if excludeChromosomes is not None:
  *         excludeCount = len(excludeChromosomes)             # <<<<<<<<<<<<<<
  *         if excludeCount > 0:
  *             # keep encoded names alive for the whole native call
 */
-    __pyx_t_6 = PyObject_Length(__pyx_v_excludeChromosomes); if (unlikely(__pyx_t_6 == ((Py_ssize_t)-1))) __PYX_ERR(0, 315, __pyx_L1_error)
+    __pyx_t_6 = PyObject_Length(__pyx_v_excludeChromosomes); if (unlikely(__pyx_t_6 == ((Py_ssize_t)-1))) __PYX_ERR(0, 318, __pyx_L1_error)
     __pyx_v_excludeCount = __pyx_t_6;
 
-    /* "consenrich/ccounts.pyx":316
+    /* "consenrich/ccounts.pyx":319
  *     if excludeChromosomes is not None:
  *         excludeCount = len(excludeChromosomes)
  *         if excludeCount > 0:             # <<<<<<<<<<<<<<
@@ -7498,7 +7528,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
     __pyx_t_5 = (__pyx_v_excludeCount > 0);
     if (__pyx_t_5) {
 
-      /* "consenrich/ccounts.pyx":318
+      /* "consenrich/ccounts.pyx":321
  *         if excludeCount > 0:
  *             # keep encoded names alive for the whole native call
  *             excludePointers = <const char**>malloc(excludeCount * sizeof(const char*))             # <<<<<<<<<<<<<<
@@ -7507,7 +7537,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
       __pyx_v_excludePointers = ((char const **)malloc((__pyx_v_excludeCount * (sizeof(char const *)))));
 
-      /* "consenrich/ccounts.pyx":319
+      /* "consenrich/ccounts.pyx":322
  *             # keep encoded names alive for the whole native call
  *             excludePointers = <const char**>malloc(excludeCount * sizeof(const char*))
  *             if excludePointers == NULL:             # <<<<<<<<<<<<<<
@@ -7517,7 +7547,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
       __pyx_t_5 = (__pyx_v_excludePointers == NULL);
       if (unlikely(__pyx_t_5)) {
 
-        /* "consenrich/ccounts.pyx":320
+        /* "consenrich/ccounts.pyx":323
  *             excludePointers = <const char**>malloc(excludeCount * sizeof(const char*))
  *             if excludePointers == NULL:
  *                 raise MemoryError("failed to allocate exclude chromosome pointers")             # <<<<<<<<<<<<<<
@@ -7530,14 +7560,14 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
           PyObject *__pyx_callargs[2] = {__pyx_t_7, __pyx_mstate_global->__pyx_kp_u_failed_to_allocate_exclude_chrom};
           __pyx_t_1 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_MemoryError)), __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
           __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
-          if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 320, __pyx_L1_error)
+          if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 323, __pyx_L1_error)
           __Pyx_GOTREF(__pyx_t_1);
         }
         __Pyx_Raise(__pyx_t_1, 0, 0, 0);
         __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-        __PYX_ERR(0, 320, __pyx_L1_error)
+        __PYX_ERR(0, 323, __pyx_L1_error)
 
-        /* "consenrich/ccounts.pyx":319
+        /* "consenrich/ccounts.pyx":322
  *             # keep encoded names alive for the whole native call
  *             excludePointers = <const char**>malloc(excludeCount * sizeof(const char*))
  *             if excludePointers == NULL:             # <<<<<<<<<<<<<<
@@ -7546,7 +7576,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
       }
 
-      /* "consenrich/ccounts.pyx":321
+      /* "consenrich/ccounts.pyx":324
  *             if excludePointers == NULL:
  *                 raise MemoryError("failed to allocate exclude chromosome pointers")
  *             for index in range(excludeCount):             # <<<<<<<<<<<<<<
@@ -7558,36 +7588,36 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
       for (__pyx_t_11 = 0; __pyx_t_11 < __pyx_t_10; __pyx_t_11+=1) {
         __pyx_v_index = __pyx_t_11;
 
-        /* "consenrich/ccounts.pyx":322
+        /* "consenrich/ccounts.pyx":325
  *                 raise MemoryError("failed to allocate exclude chromosome pointers")
  *             for index in range(excludeCount):
  *                 excludeBytes.append(str(excludeChromosomes[index]).encode("utf-8"))             # <<<<<<<<<<<<<<
  *                 excludePointers[index] = excludeBytes[index]
- * 
+ *
 */
-        __pyx_t_1 = __Pyx_GetItemInt(__pyx_v_excludeChromosomes, __pyx_v_index, int, 1, __Pyx_PyLong_From_int, 0, 0, 0, 1, __Pyx_ReferenceSharing_FunctionArgument); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 322, __pyx_L1_error)
+        __pyx_t_1 = __Pyx_GetItemInt(__pyx_v_excludeChromosomes, __pyx_v_index, int, 1, __Pyx_PyLong_From_int, 0, 0, 0, 1, __Pyx_ReferenceSharing_FunctionArgument); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 325, __pyx_L1_error)
         __Pyx_GOTREF(__pyx_t_1);
-        __pyx_t_7 = __Pyx_PyObject_Unicode(__pyx_t_1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 322, __pyx_L1_error)
+        __pyx_t_7 = __Pyx_PyObject_Unicode(__pyx_t_1); if (unlikely(!__pyx_t_7)) __PYX_ERR(0, 325, __pyx_L1_error)
         __Pyx_GOTREF(__pyx_t_7);
         __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-        __pyx_t_1 = PyUnicode_AsUTF8String(((PyObject*)__pyx_t_7)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 322, __pyx_L1_error)
+        __pyx_t_1 = PyUnicode_AsUTF8String(((PyObject*)__pyx_t_7)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 325, __pyx_L1_error)
         __Pyx_GOTREF(__pyx_t_1);
         __Pyx_DECREF(__pyx_t_7); __pyx_t_7 = 0;
-        __pyx_t_12 = __Pyx_PyList_Append(__pyx_v_excludeBytes, __pyx_t_1); if (unlikely(__pyx_t_12 == ((int)-1))) __PYX_ERR(0, 322, __pyx_L1_error)
+        __pyx_t_12 = __Pyx_PyList_Append(__pyx_v_excludeBytes, __pyx_t_1); if (unlikely(__pyx_t_12 == ((int)-1))) __PYX_ERR(0, 325, __pyx_L1_error)
         __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
 
-        /* "consenrich/ccounts.pyx":323
+        /* "consenrich/ccounts.pyx":326
  *             for index in range(excludeCount):
  *                 excludeBytes.append(str(excludeChromosomes[index]).encode("utf-8"))
  *                 excludePointers[index] = excludeBytes[index]             # <<<<<<<<<<<<<<
- * 
+ *
  *     try:
 */
-        __pyx_t_13 = __Pyx_PyObject_AsString(__Pyx_PyList_GET_ITEM(__pyx_v_excludeBytes, __pyx_v_index)); if (unlikely((!__pyx_t_13) && PyErr_Occurred())) __PYX_ERR(0, 323, __pyx_L1_error)
+        __pyx_t_13 = __Pyx_PyObject_AsString(__Pyx_PyList_GET_ITEM(__pyx_v_excludeBytes, __pyx_v_index)); if (unlikely((!__pyx_t_13) && PyErr_Occurred())) __PYX_ERR(0, 326, __pyx_L1_error)
         (__pyx_v_excludePointers[__pyx_v_index]) = __pyx_t_13;
       }
 
-      /* "consenrich/ccounts.pyx":316
+      /* "consenrich/ccounts.pyx":319
  *     if excludeChromosomes is not None:
  *         excludeCount = len(excludeChromosomes)
  *         if excludeCount > 0:             # <<<<<<<<<<<<<<
@@ -7596,26 +7626,26 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 */
     }
 
-    /* "consenrich/ccounts.pyx":314
+    /* "consenrich/ccounts.pyx":317
  *     cdef list excludeBytes = []
- * 
+ *
  *     if excludeChromosomes is not None:             # <<<<<<<<<<<<<<
  *         excludeCount = len(excludeChromosomes)
  *         if excludeCount > 0:
 */
   }
 
-  /* "consenrich/ccounts.pyx":325
+  /* "consenrich/ccounts.pyx":328
  *                 excludePointers[index] = excludeBytes[index]
- * 
+ *
  *     try:             # <<<<<<<<<<<<<<
  *         with nogil:
  *             result = ccounts_getMappedReadCount(
 */
   /*try:*/ {
 
-    /* "consenrich/ccounts.pyx":326
- * 
+    /* "consenrich/ccounts.pyx":329
+ *
  *     try:
  *         with nogil:             # <<<<<<<<<<<<<<
  *             result = ccounts_getMappedReadCount(
@@ -7627,7 +7657,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
         __Pyx_FastGIL_Remember();
         /*try:*/ {
 
-          /* "consenrich/ccounts.pyx":327
+          /* "consenrich/ccounts.pyx":330
  *     try:
  *         with nogil:
  *             result = ccounts_getMappedReadCount(             # <<<<<<<<<<<<<<
@@ -7637,8 +7667,8 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
           __pyx_v_result = ccounts_getMappedReadCount((&__pyx_v_sourceConfig), __pyx_v_threadCount, __pyx_v_excludePointers, __pyx_v_excludeCount, __pyx_v_countModeCode, __pyx_v_oneReadPerBin, (&__pyx_v_mappedReadCount), (&__pyx_v_unmappedReadCount));
         }
 
-        /* "consenrich/ccounts.pyx":326
- * 
+        /* "consenrich/ccounts.pyx":329
+ *
  *     try:
  *         with nogil:             # <<<<<<<<<<<<<<
  *             result = ccounts_getMappedReadCount(
@@ -7654,43 +7684,43 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
         }
     }
 
-    /* "consenrich/ccounts.pyx":337
+    /* "consenrich/ccounts.pyx":340
  *                 &unmappedReadCount,
  *             )
  *         _raiseIfError(result)             # <<<<<<<<<<<<<<
  *     finally:
  *         if excludePointers != NULL:
 */
-    __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 337, __pyx_L9_error)
+    __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 340, __pyx_L9_error)
   }
 
-  /* "consenrich/ccounts.pyx":339
+  /* "consenrich/ccounts.pyx":342
  *         _raiseIfError(result)
  *     finally:
  *         if excludePointers != NULL:             # <<<<<<<<<<<<<<
  *             free(<void*>excludePointers)
- * 
+ *
 */
   /*finally:*/ {
     /*normal exit:*/{
       __pyx_t_5 = (__pyx_v_excludePointers != NULL);
       if (__pyx_t_5) {
 
-        /* "consenrich/ccounts.pyx":340
+        /* "consenrich/ccounts.pyx":343
  *     finally:
  *         if excludePointers != NULL:
  *             free(<void*>excludePointers)             # <<<<<<<<<<<<<<
- * 
+ *
  *     return int(mappedReadCount), int(unmappedReadCount)
 */
         free(((void *)__pyx_v_excludePointers));
 
-        /* "consenrich/ccounts.pyx":339
+        /* "consenrich/ccounts.pyx":342
  *         _raiseIfError(result)
  *     finally:
  *         if excludePointers != NULL:             # <<<<<<<<<<<<<<
  *             free(<void*>excludePointers)
- * 
+ *
 */
       }
       goto __pyx_L10;
@@ -7715,21 +7745,21 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
         __pyx_t_5 = (__pyx_v_excludePointers != NULL);
         if (__pyx_t_5) {
 
-          /* "consenrich/ccounts.pyx":340
+          /* "consenrich/ccounts.pyx":343
  *     finally:
  *         if excludePointers != NULL:
  *             free(<void*>excludePointers)             # <<<<<<<<<<<<<<
- * 
+ *
  *     return int(mappedReadCount), int(unmappedReadCount)
 */
           free(((void *)__pyx_v_excludePointers));
 
-          /* "consenrich/ccounts.pyx":339
+          /* "consenrich/ccounts.pyx":342
  *         _raiseIfError(result)
  *     finally:
  *         if excludePointers != NULL:             # <<<<<<<<<<<<<<
  *             free(<void*>excludePointers)
- * 
+ *
 */
         }
       }
@@ -7748,16 +7778,16 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
     __pyx_L10:;
   }
 
-  /* "consenrich/ccounts.pyx":342
+  /* "consenrich/ccounts.pyx":345
  *             free(<void*>excludePointers)
- * 
+ *
  *     return int(mappedReadCount), int(unmappedReadCount)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __Pyx_XDECREF(__pyx_r);
   __pyx_t_7 = NULL;
-  __pyx_t_21 = __Pyx_PyLong_From_uint64_t(__pyx_v_mappedReadCount); if (unlikely(!__pyx_t_21)) __PYX_ERR(0, 342, __pyx_L1_error)
+  __pyx_t_21 = __Pyx_PyLong_From_uint64_t(__pyx_v_mappedReadCount); if (unlikely(!__pyx_t_21)) __PYX_ERR(0, 345, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_21);
   __pyx_t_8 = 1;
   {
@@ -7765,11 +7795,11 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
     __pyx_t_1 = __Pyx_PyObject_FastCall((PyObject*)(&PyLong_Type), __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_21); __pyx_t_21 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 342, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 345, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
   __pyx_t_7 = NULL;
-  __pyx_t_22 = __Pyx_PyLong_From_uint64_t(__pyx_v_unmappedReadCount); if (unlikely(!__pyx_t_22)) __PYX_ERR(0, 342, __pyx_L1_error)
+  __pyx_t_22 = __Pyx_PyLong_From_uint64_t(__pyx_v_unmappedReadCount); if (unlikely(!__pyx_t_22)) __PYX_ERR(0, 345, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_22);
   __pyx_t_8 = 1;
   {
@@ -7777,24 +7807,24 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
     __pyx_t_21 = __Pyx_PyObject_FastCall((PyObject*)(&PyLong_Type), __pyx_callargs+__pyx_t_8, (2-__pyx_t_8) | (__pyx_t_8*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
     __Pyx_XDECREF(__pyx_t_7); __pyx_t_7 = 0;
     __Pyx_DECREF(__pyx_t_22); __pyx_t_22 = 0;
-    if (unlikely(!__pyx_t_21)) __PYX_ERR(0, 342, __pyx_L1_error)
+    if (unlikely(!__pyx_t_21)) __PYX_ERR(0, 345, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_21);
   }
-  __pyx_t_22 = PyTuple_New(2); if (unlikely(!__pyx_t_22)) __PYX_ERR(0, 342, __pyx_L1_error)
+  __pyx_t_22 = PyTuple_New(2); if (unlikely(!__pyx_t_22)) __PYX_ERR(0, 345, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_22);
   __Pyx_GIVEREF(__pyx_t_1);
-  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_22, 0, __pyx_t_1) != (0)) __PYX_ERR(0, 342, __pyx_L1_error);
+  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_22, 0, __pyx_t_1) != (0)) __PYX_ERR(0, 345, __pyx_L1_error);
   __Pyx_GIVEREF(__pyx_t_21);
-  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_22, 1, __pyx_t_21) != (0)) __PYX_ERR(0, 342, __pyx_L1_error);
+  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_22, 1, __pyx_t_21) != (0)) __PYX_ERR(0, 345, __pyx_L1_error);
   __pyx_t_1 = 0;
   __pyx_t_21 = 0;
   __pyx_r = ((PyObject*)__pyx_t_22);
   __pyx_t_22 = 0;
   goto __pyx_L0;
 
-  /* "consenrich/ccounts.pyx":289
- * 
- * 
+  /* "consenrich/ccounts.pyx":292
+ *
+ *
  * cpdef tuple ccounts_getAlignmentMappedReadCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     excludeChromosomes=None,
@@ -7818,7 +7848,7 @@ static PyObject *__pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCou
 }
 
 /* Python wrapper */
-static PyObject *__pyx_pw_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -7826,7 +7856,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyMethodDef __pyx_mdef_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount = {"ccounts_getAlignmentMappedReadCount", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -7862,44 +7892,44 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_alignmentPath,&__pyx_mstate_global->__pyx_n_u_excludeChromosomes,&__pyx_mstate_global->__pyx_n_u_threadCount,&__pyx_mstate_global->__pyx_n_u_sourceKind,&__pyx_mstate_global->__pyx_n_u_barcodeAllowListFile,&__pyx_mstate_global->__pyx_n_u_countMode,&__pyx_mstate_global->__pyx_n_u_oneReadPerBin,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 289, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 292, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  7:
         values[6] = __Pyx_ArgRef_FASTCALL(__pyx_args, 6);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_getAlignmentMappedReadCount", 0) < (0)) __PYX_ERR(0, 289, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_getAlignmentMappedReadCount", 0) < (0)) __PYX_ERR(0, 292, __pyx_L3_error)
 
-      /* "consenrich/ccounts.pyx":291
+      /* "consenrich/ccounts.pyx":294
  * cpdef tuple ccounts_getAlignmentMappedReadCount(
  *     str alignmentPath,
  *     excludeChromosomes=None,             # <<<<<<<<<<<<<<
@@ -7911,37 +7941,37 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
       if (!values[4]) values[4] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_kp_u__2));
       if (!values[5]) values[5] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_n_u_coverage));
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentMappedReadCount", 0, 1, 7, i); __PYX_ERR(0, 289, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentMappedReadCount", 0, 1, 7, i); __PYX_ERR(0, 292, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  7:
         values[6] = __Pyx_ArgRef_FASTCALL(__pyx_args, 6);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 292, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 289, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 292, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -7953,7 +7983,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     __pyx_v_alignmentPath = ((PyObject*)values[0]);
     __pyx_v_excludeChromosomes = values[1];
     if (values[2]) {
-      __pyx_v_threadCount = __Pyx_PyLong_As_int(values[2]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 292, __pyx_L3_error)
+      __pyx_v_threadCount = __Pyx_PyLong_As_int(values[2]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 295, __pyx_L3_error)
     } else {
       __pyx_v_threadCount = ((int)0);
     }
@@ -7961,14 +7991,14 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     __pyx_v_barcodeAllowListFile = ((PyObject*)values[4]);
     __pyx_v_countMode = ((PyObject*)values[5]);
     if (values[6]) {
-      __pyx_v_oneReadPerBin = __Pyx_PyLong_As_int(values[6]); if (unlikely((__pyx_v_oneReadPerBin == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 296, __pyx_L3_error)
+      __pyx_v_oneReadPerBin = __Pyx_PyLong_As_int(values[6]); if (unlikely((__pyx_v_oneReadPerBin == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 299, __pyx_L3_error)
     } else {
       __pyx_v_oneReadPerBin = ((int)0);
     }
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentMappedReadCount", 0, 1, 7, __pyx_nargs); __PYX_ERR(0, 289, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("ccounts_getAlignmentMappedReadCount", 0, 1, 7, __pyx_nargs); __PYX_ERR(0, 292, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -7979,15 +8009,15 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 290, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 293, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_barcodeAllowListFile), (&PyUnicode_Type), 1, "barcodeAllowListFile", 1))) __PYX_ERR(0, 294, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_countMode), (&PyUnicode_Type), 1, "countMode", 1))) __PYX_ERR(0, 295, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 293, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 296, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_barcodeAllowListFile), (&PyUnicode_Type), 1, "barcodeAllowListFile", 1))) __PYX_ERR(0, 297, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_countMode), (&PyUnicode_Type), 1, "countMode", 1))) __PYX_ERR(0, 298, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_7ccounts_8ccounts_getAlignmentMappedReadCount(__pyx_self, __pyx_v_alignmentPath, __pyx_v_excludeChromosomes, __pyx_v_threadCount, __pyx_v_sourceKind, __pyx_v_barcodeAllowListFile, __pyx_v_countMode, __pyx_v_oneReadPerBin);
 
-  /* "consenrich/ccounts.pyx":289
- * 
- * 
+  /* "consenrich/ccounts.pyx":292
+ *
+ *
  * cpdef tuple ccounts_getAlignmentMappedReadCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     excludeChromosomes=None,
@@ -8027,7 +8057,7 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_8ccounts_getAlignmentMappedReadC
   __pyx_t_2.barcodeAllowListFile = __pyx_v_barcodeAllowListFile;
   __pyx_t_2.countMode = __pyx_v_countMode;
   __pyx_t_2.oneReadPerBin = __pyx_v_oneReadPerBin;
-  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCount(__pyx_v_alignmentPath, 1, &__pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 289, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_getAlignmentMappedReadCount(__pyx_v_alignmentPath, 1, &__pyx_t_2); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 292, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -8044,15 +8074,15 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_8ccounts_getAlignmentMappedReadC
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":345
- * 
- * 
+/* "consenrich/ccounts.pyx":348
+ *
+ *
  * cpdef int ccounts_getFragmentCellCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str barcodeAllowListFile="",
 */
 
-static PyObject *__pyx_pw_10consenrich_7ccounts_11ccounts_getFragmentCellCount(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_11ccounts_getFragmentCellCount(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -8081,7 +8111,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(PyObject *
     }
   }
 
-  /* "consenrich/ccounts.pyx":349
+  /* "consenrich/ccounts.pyx":352
  *     str barcodeAllowListFile="",
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -8090,14 +8120,14 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(PyObject *
 */
   if (unlikely(__pyx_v_alignmentPath == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 349, __pyx_L1_error)
+    __PYX_ERR(0, 352, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 349, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 352, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_pathBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":350
+  /* "consenrich/ccounts.pyx":353
  * ):
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -8106,14 +8136,14 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(PyObject *
 */
   if (unlikely(__pyx_v_barcodeAllowListFile == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 350, __pyx_L1_error)
+    __PYX_ERR(0, 353, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_barcodeAllowListFile); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 350, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_barcodeAllowListFile); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 353, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_barcodeAllowListBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":351
+  /* "consenrich/ccounts.pyx":354
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
  *     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(             # <<<<<<<<<<<<<<
@@ -8122,21 +8152,21 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(PyObject *
 */
   __pyx_t_3.__pyx_n = 1;
   __pyx_t_3.barcodeAllowListBytes = __pyx_v_barcodeAllowListBytes;
-  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_mstate_global->__pyx_n_u_FRAGMENTS, &__pyx_t_3); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 351, __pyx_L1_error)
+  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_mstate_global->__pyx_n_u_FRAGMENTS, &__pyx_t_3); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 354, __pyx_L1_error)
   __pyx_v_sourceConfig = __pyx_t_2;
 
-  /* "consenrich/ccounts.pyx":357
+  /* "consenrich/ccounts.pyx":360
  *     )
  *     cdef ccounts_result result
  *     cdef uint64_t cellCount = 0             # <<<<<<<<<<<<<<
- * 
+ *
  *     with nogil:
 */
   __pyx_v_cellCount = 0;
 
-  /* "consenrich/ccounts.pyx":359
+  /* "consenrich/ccounts.pyx":362
  *     cdef uint64_t cellCount = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_getCellCount(&sourceConfig, &cellCount)
  *     _raiseIfError(result)
@@ -8147,8 +8177,8 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(PyObject *
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/ccounts.pyx":360
- * 
+        /* "consenrich/ccounts.pyx":363
+ *
  *     with nogil:
  *         result = ccounts_getCellCount(&sourceConfig, &cellCount)             # <<<<<<<<<<<<<<
  *     _raiseIfError(result)
@@ -8157,9 +8187,9 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(PyObject *
         __pyx_v_result = ccounts_getCellCount((&__pyx_v_sourceConfig), (&__pyx_v_cellCount));
       }
 
-      /* "consenrich/ccounts.pyx":359
+      /* "consenrich/ccounts.pyx":362
  *     cdef uint64_t cellCount = 0
- * 
+ *
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_getCellCount(&sourceConfig, &cellCount)
  *     _raiseIfError(result)
@@ -8174,28 +8204,28 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(PyObject *
       }
   }
 
-  /* "consenrich/ccounts.pyx":361
+  /* "consenrich/ccounts.pyx":364
  *     with nogil:
  *         result = ccounts_getCellCount(&sourceConfig, &cellCount)
  *     _raiseIfError(result)             # <<<<<<<<<<<<<<
  *     return int(cellCount)
- * 
+ *
 */
-  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 361, __pyx_L1_error)
+  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 364, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":362
+  /* "consenrich/ccounts.pyx":365
  *         result = ccounts_getCellCount(&sourceConfig, &cellCount)
  *     _raiseIfError(result)
  *     return int(cellCount)             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_r = ((int)__pyx_v_cellCount);
   goto __pyx_L0;
 
-  /* "consenrich/ccounts.pyx":345
- * 
- * 
+  /* "consenrich/ccounts.pyx":348
+ *
+ *
  * cpdef int ccounts_getFragmentCellCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str barcodeAllowListFile="",
@@ -8214,7 +8244,7 @@ static int __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(PyObject *
 }
 
 /* Python wrapper */
-static PyObject *__pyx_pw_10consenrich_7ccounts_11ccounts_getFragmentCellCount(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_11ccounts_getFragmentCellCount(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -8222,7 +8252,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyMethodDef __pyx_mdef_10consenrich_7ccounts_11ccounts_getFragmentCellCount = {"ccounts_getFragmentCellCount", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_10consenrich_7ccounts_11ccounts_getFragmentCellCount, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_10consenrich_7ccounts_11ccounts_getFragmentCellCount(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_11ccounts_getFragmentCellCount(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -8253,35 +8283,35 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_alignmentPath,&__pyx_mstate_global->__pyx_n_u_barcodeAllowListFile,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 345, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 348, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 345, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 348, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 345, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 348, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_getFragmentCellCount", 0) < (0)) __PYX_ERR(0, 345, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_getFragmentCellCount", 0) < (0)) __PYX_ERR(0, 348, __pyx_L3_error)
       if (!values[1]) values[1] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_kp_u__2));
       for (Py_ssize_t i = __pyx_nargs; i < 1; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_getFragmentCellCount", 0, 1, 2, i); __PYX_ERR(0, 345, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_getFragmentCellCount", 0, 1, 2, i); __PYX_ERR(0, 348, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 345, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 348, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 345, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 348, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -8292,7 +8322,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("ccounts_getFragmentCellCount", 0, 1, 2, __pyx_nargs); __PYX_ERR(0, 345, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("ccounts_getFragmentCellCount", 0, 1, 2, __pyx_nargs); __PYX_ERR(0, 348, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -8303,8 +8333,8 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 346, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_barcodeAllowListFile), (&PyUnicode_Type), 1, "barcodeAllowListFile", 1))) __PYX_ERR(0, 347, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 349, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_barcodeAllowListFile), (&PyUnicode_Type), 1, "barcodeAllowListFile", 1))) __PYX_ERR(0, 350, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_7ccounts_10ccounts_getFragmentCellCount(__pyx_self, __pyx_v_alignmentPath, __pyx_v_barcodeAllowListFile);
 
   /* function exit code */
@@ -8337,8 +8367,8 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_10ccounts_getFragmentCellCount(C
   __Pyx_XDECREF(__pyx_r);
   __pyx_t_2.__pyx_n = 1;
   __pyx_t_2.barcodeAllowListFile = __pyx_v_barcodeAllowListFile;
-  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(__pyx_v_alignmentPath, 1, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 345, __pyx_L1_error)
-  __pyx_t_3 = __Pyx_PyLong_From_int(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 345, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_10consenrich_7ccounts_ccounts_getFragmentCellCount(__pyx_v_alignmentPath, 1, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1) && PyErr_Occurred())) __PYX_ERR(0, 348, __pyx_L1_error)
+  __pyx_t_3 = __Pyx_PyLong_From_int(__pyx_t_1); if (unlikely(!__pyx_t_3)) __PYX_ERR(0, 348, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_3);
   __pyx_r = __pyx_t_3;
   __pyx_t_3 = 0;
@@ -8355,15 +8385,15 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_10ccounts_getFragmentCellCount(C
   return __pyx_r;
 }
 
-/* "consenrich/ccounts.pyx":365
- * 
- * 
+/* "consenrich/ccounts.pyx":368
+ *
+ *
  * cpdef cnp.ndarray ccounts_countAlignmentRegion(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
 */
 
-static PyObject *__pyx_pw_10consenrich_7ccounts_13ccounts_countAlignmentRegion(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_13ccounts_countAlignmentRegion(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -8468,7 +8498,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
   __pyx_pybuffernd_counts.data = NULL;
   __pyx_pybuffernd_counts.rcbuffer = &__pyx_pybuffer_counts;
 
-  /* "consenrich/ccounts.pyx":389
+  /* "consenrich/ccounts.pyx":392
  * ):
  *     cdef int numIntervals
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -8477,14 +8507,14 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   if (unlikely(__pyx_v_alignmentPath == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 389, __pyx_L1_error)
+    __PYX_ERR(0, 392, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 389, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_alignmentPath); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 392, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_pathBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":390
+  /* "consenrich/ccounts.pyx":393
  *     cdef int numIntervals
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -8493,14 +8523,14 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   if (unlikely(__pyx_v_barcodeAllowListFile == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 390, __pyx_L1_error)
+    __PYX_ERR(0, 393, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_barcodeAllowListFile); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 390, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_barcodeAllowListFile); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 393, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_barcodeAllowListBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":391
+  /* "consenrich/ccounts.pyx":394
  *     cdef bytes pathBytes = alignmentPath.encode("utf-8")
  *     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
  *     cdef bytes barcodeGroupMapBytes = barcodeGroupMapFile.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -8509,14 +8539,14 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   if (unlikely(__pyx_v_barcodeGroupMapFile == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 391, __pyx_L1_error)
+    __PYX_ERR(0, 394, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_barcodeGroupMapFile); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 391, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_barcodeGroupMapFile); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 394, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_barcodeGroupMapBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":392
+  /* "consenrich/ccounts.pyx":395
  *     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
  *     cdef bytes barcodeGroupMapBytes = barcodeGroupMapFile.encode("utf-8")
  *     cdef bytes chromosomeBytes = chromosome.encode("utf-8")             # <<<<<<<<<<<<<<
@@ -8525,14 +8555,14 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   if (unlikely(__pyx_v_chromosome == Py_None)) {
     PyErr_Format(PyExc_AttributeError, "'NoneType' object has no attribute '%.30s'", "encode");
-    __PYX_ERR(0, 392, __pyx_L1_error)
+    __PYX_ERR(0, 395, __pyx_L1_error)
   }
-  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_chromosome); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 392, __pyx_L1_error)
+  __pyx_t_1 = PyUnicode_AsUTF8String(__pyx_v_chromosome); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 395, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_v_chromosomeBytes = ((PyObject*)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":393
+  /* "consenrich/ccounts.pyx":396
  *     cdef bytes barcodeGroupMapBytes = barcodeGroupMapFile.encode("utf-8")
  *     cdef bytes chromosomeBytes = chromosome.encode("utf-8")
  *     cdef ccounts_sourceConfig sourceConfig = _makeSourceConfig(             # <<<<<<<<<<<<<<
@@ -8542,10 +8572,10 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
   __pyx_t_3.__pyx_n = 2;
   __pyx_t_3.barcodeAllowListBytes = __pyx_v_barcodeAllowListBytes;
   __pyx_t_3.barcodeGroupMapBytes = __pyx_v_barcodeGroupMapBytes;
-  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, &__pyx_t_3); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 393, __pyx_L1_error)
+  __pyx_t_2 = __pyx_f_10consenrich_7ccounts__makeSourceConfig(__pyx_v_pathBytes, __pyx_v_sourceKind, &__pyx_t_3); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 396, __pyx_L1_error)
   __pyx_v_sourceConfig = __pyx_t_2;
 
-  /* "consenrich/ccounts.pyx":399
+  /* "consenrich/ccounts.pyx":402
  *         barcodeGroupMapBytes,
  *     )
  *     cdef ccounts_sourceHandle* sourceHandle = NULL             # <<<<<<<<<<<<<<
@@ -8554,12 +8584,12 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_sourceHandle = NULL;
 
-  /* "consenrich/ccounts.pyx":405
+  /* "consenrich/ccounts.pyx":408
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1] counts
- * 
+ *
  *     if intervalSizeBP <= 0 or end <= start:             # <<<<<<<<<<<<<<
  *         raise ValueError("invalid interval size or genomic segment")
- * 
+ *
 */
   __pyx_t_5 = (__pyx_v_intervalSizeBP <= 0);
   if (!__pyx_t_5) {
@@ -8572,11 +8602,11 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
   __pyx_L4_bool_binop_done:;
   if (unlikely(__pyx_t_4)) {
 
-    /* "consenrich/ccounts.pyx":406
- * 
+    /* "consenrich/ccounts.pyx":409
+ *
  *     if intervalSizeBP <= 0 or end <= start:
  *         raise ValueError("invalid interval size or genomic segment")             # <<<<<<<<<<<<<<
- * 
+ *
  *     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
 */
     __pyx_t_6 = NULL;
@@ -8585,49 +8615,49 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
       PyObject *__pyx_callargs[2] = {__pyx_t_6, __pyx_mstate_global->__pyx_kp_u_invalid_interval_size_or_genomic};
       __pyx_t_1 = __Pyx_PyObject_FastCall((PyObject*)(((PyTypeObject*)PyExc_ValueError)), __pyx_callargs+__pyx_t_7, (2-__pyx_t_7) | (__pyx_t_7*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET));
       __Pyx_XDECREF(__pyx_t_6); __pyx_t_6 = 0;
-      if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 406, __pyx_L1_error)
+      if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 409, __pyx_L1_error)
       __Pyx_GOTREF(__pyx_t_1);
     }
     __Pyx_Raise(__pyx_t_1, 0, 0, 0);
     __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
-    __PYX_ERR(0, 406, __pyx_L1_error)
+    __PYX_ERR(0, 409, __pyx_L1_error)
 
-    /* "consenrich/ccounts.pyx":405
+    /* "consenrich/ccounts.pyx":408
  *     cdef cnp.ndarray[cnp.float32_t, ndim=1] counts
- * 
+ *
  *     if intervalSizeBP <= 0 or end <= start:             # <<<<<<<<<<<<<<
  *         raise ValueError("invalid interval size or genomic segment")
- * 
+ *
 */
   }
 
-  /* "consenrich/ccounts.pyx":408
+  /* "consenrich/ccounts.pyx":411
  *         raise ValueError("invalid interval size or genomic segment")
- * 
+ *
  *     numIntervals = ((end - start - 1) // intervalSizeBP) + 1             # <<<<<<<<<<<<<<
  *     counts = np.zeros(numIntervals, dtype=np.float32)
- * 
+ *
 */
   __pyx_v_numIntervals = ((((__pyx_v_end - __pyx_v_start) - 1) / __pyx_v_intervalSizeBP) + 1);
 
-  /* "consenrich/ccounts.pyx":409
- * 
+  /* "consenrich/ccounts.pyx":412
+ *
  *     numIntervals = ((end - start - 1) // intervalSizeBP) + 1
  *     counts = np.zeros(numIntervals, dtype=np.float32)             # <<<<<<<<<<<<<<
- * 
+ *
  *     # keep bytes-backed strings alive until the native call returns
 */
   __pyx_t_6 = NULL;
-  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 409, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 412, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_zeros); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 409, __pyx_L1_error)
+  __pyx_t_9 = __Pyx_PyObject_GetAttrStr(__pyx_t_8, __pyx_mstate_global->__pyx_n_u_zeros); if (unlikely(!__pyx_t_9)) __PYX_ERR(0, 412, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_9);
   __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
-  __pyx_t_8 = __Pyx_PyLong_From_int(__pyx_v_numIntervals); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 409, __pyx_L1_error)
+  __pyx_t_8 = __Pyx_PyLong_From_int(__pyx_v_numIntervals); if (unlikely(!__pyx_t_8)) __PYX_ERR(0, 412, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_8);
-  __Pyx_GetModuleGlobalName(__pyx_t_10, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 409, __pyx_L1_error)
+  __Pyx_GetModuleGlobalName(__pyx_t_10, __pyx_mstate_global->__pyx_n_u_np); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 412, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_10);
-  __pyx_t_11 = __Pyx_PyObject_GetAttrStr(__pyx_t_10, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 409, __pyx_L1_error)
+  __pyx_t_11 = __Pyx_PyObject_GetAttrStr(__pyx_t_10, __pyx_mstate_global->__pyx_n_u_float32); if (unlikely(!__pyx_t_11)) __PYX_ERR(0, 412, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_11);
   __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
   __pyx_t_7 = 1;
@@ -8644,19 +8674,19 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
   #endif
   {
     PyObject *__pyx_callargs[2 + ((CYTHON_VECTORCALL) ? 1 : 0)] = {__pyx_t_6, __pyx_t_8};
-    __pyx_t_10 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 409, __pyx_L1_error)
+    __pyx_t_10 = __Pyx_MakeVectorcallBuilderKwds(1); if (unlikely(!__pyx_t_10)) __PYX_ERR(0, 412, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_10);
-    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_11, __pyx_t_10, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 409, __pyx_L1_error)
+    if (__Pyx_VectorcallBuilder_AddArg(__pyx_mstate_global->__pyx_n_u_dtype, __pyx_t_11, __pyx_t_10, __pyx_callargs+2, 0) < (0)) __PYX_ERR(0, 412, __pyx_L1_error)
     __pyx_t_1 = __Pyx_Object_Vectorcall_CallFromBuilder((PyObject*)__pyx_t_9, __pyx_callargs+__pyx_t_7, (2-__pyx_t_7) | (__pyx_t_7*__Pyx_PY_VECTORCALL_ARGUMENTS_OFFSET), __pyx_t_10);
     __Pyx_XDECREF(__pyx_t_6); __pyx_t_6 = 0;
     __Pyx_DECREF(__pyx_t_8); __pyx_t_8 = 0;
     __Pyx_DECREF(__pyx_t_11); __pyx_t_11 = 0;
     __Pyx_DECREF(__pyx_t_10); __pyx_t_10 = 0;
     __Pyx_DECREF(__pyx_t_9); __pyx_t_9 = 0;
-    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 409, __pyx_L1_error)
+    if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 412, __pyx_L1_error)
     __Pyx_GOTREF(__pyx_t_1);
   }
-  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 409, __pyx_L1_error)
+  if (!(likely(((__pyx_t_1) == Py_None) || likely(__Pyx_TypeTest(__pyx_t_1, __pyx_mstate_global->__pyx_ptype_5numpy_ndarray))))) __PYX_ERR(0, 412, __pyx_L1_error)
   {
     __Pyx_BufFmt_StackElem __pyx_stack[1];
     __Pyx_SafeReleaseBuffer(&__pyx_pybuffernd_counts.rcbuffer->pybuffer);
@@ -8672,22 +8702,22 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
       __pyx_t_13 = __pyx_t_14 = __pyx_t_15 = 0;
     }
     __pyx_pybuffernd_counts.diminfo[0].strides = __pyx_pybuffernd_counts.rcbuffer->pybuffer.strides[0]; __pyx_pybuffernd_counts.diminfo[0].shape = __pyx_pybuffernd_counts.rcbuffer->pybuffer.shape[0];
-    if (unlikely((__pyx_t_12 < 0))) __PYX_ERR(0, 409, __pyx_L1_error)
+    if (unlikely((__pyx_t_12 < 0))) __PYX_ERR(0, 412, __pyx_L1_error)
   }
   __pyx_v_counts = ((PyArrayObject *)__pyx_t_1);
   __pyx_t_1 = 0;
 
-  /* "consenrich/ccounts.pyx":412
- * 
+  /* "consenrich/ccounts.pyx":415
+ *
  *     # keep bytes-backed strings alive until the native call returns
  *     region.chromosome = chromosomeBytes             # <<<<<<<<<<<<<<
  *     region.start = <uint32_t>start
  *     region.end = <uint32_t>end
 */
-  __pyx_t_16 = __Pyx_PyBytes_AsString(__pyx_v_chromosomeBytes); if (unlikely((!__pyx_t_16) && PyErr_Occurred())) __PYX_ERR(0, 412, __pyx_L1_error)
+  __pyx_t_16 = __Pyx_PyBytes_AsString(__pyx_v_chromosomeBytes); if (unlikely((!__pyx_t_16) && PyErr_Occurred())) __PYX_ERR(0, 415, __pyx_L1_error)
   __pyx_v_region.chromosome = __pyx_t_16;
 
-  /* "consenrich/ccounts.pyx":413
+  /* "consenrich/ccounts.pyx":416
  *     # keep bytes-backed strings alive until the native call returns
  *     region.chromosome = chromosomeBytes
  *     region.start = <uint32_t>start             # <<<<<<<<<<<<<<
@@ -8696,7 +8726,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_region.start = ((uint32_t)__pyx_v_start);
 
-  /* "consenrich/ccounts.pyx":414
+  /* "consenrich/ccounts.pyx":417
  *     region.chromosome = chromosomeBytes
  *     region.start = <uint32_t>start
  *     region.end = <uint32_t>end             # <<<<<<<<<<<<<<
@@ -8705,7 +8735,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_region.end = ((uint32_t)__pyx_v_end);
 
-  /* "consenrich/ccounts.pyx":415
+  /* "consenrich/ccounts.pyx":418
  *     region.start = <uint32_t>start
  *     region.end = <uint32_t>end
  *     region.intervalSizeBP = <uint32_t>intervalSizeBP             # <<<<<<<<<<<<<<
@@ -8714,7 +8744,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_region.intervalSizeBP = ((uint32_t)__pyx_v_intervalSizeBP);
 
-  /* "consenrich/ccounts.pyx":416
+  /* "consenrich/ccounts.pyx":419
  *     region.end = <uint32_t>end
  *     region.intervalSizeBP = <uint32_t>intervalSizeBP
  *     countOptions.threadCount = threadCount             # <<<<<<<<<<<<<<
@@ -8723,7 +8753,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.threadCount = __pyx_v_threadCount;
 
-  /* "consenrich/ccounts.pyx":417
+  /* "consenrich/ccounts.pyx":420
  *     region.intervalSizeBP = <uint32_t>intervalSizeBP
  *     countOptions.threadCount = threadCount
  *     countOptions.flagExclude = flagExclude             # <<<<<<<<<<<<<<
@@ -8732,17 +8762,17 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.flagExclude = __pyx_v_flagExclude;
 
-  /* "consenrich/ccounts.pyx":418
+  /* "consenrich/ccounts.pyx":421
  *     countOptions.threadCount = threadCount
  *     countOptions.flagExclude = flagExclude
  *     countOptions.countMode = _getCountModeCode(countMode)             # <<<<<<<<<<<<<<
  *     countOptions.oneReadPerBin = oneReadPerBin
  *     countOptions.shiftForwardStrand53 = shiftForwardStrand53
 */
-  __pyx_t_17 = __pyx_f_10consenrich_7ccounts__getCountModeCode(__pyx_v_countMode); if (unlikely(__pyx_t_17 == ((uint8_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 418, __pyx_L1_error)
+  __pyx_t_17 = __pyx_f_10consenrich_7ccounts__getCountModeCode(__pyx_v_countMode); if (unlikely(__pyx_t_17 == ((uint8_t)-1) && PyErr_Occurred())) __PYX_ERR(0, 421, __pyx_L1_error)
   __pyx_v_countOptions.countMode = __pyx_t_17;
 
-  /* "consenrich/ccounts.pyx":419
+  /* "consenrich/ccounts.pyx":422
  *     countOptions.flagExclude = flagExclude
  *     countOptions.countMode = _getCountModeCode(countMode)
  *     countOptions.oneReadPerBin = oneReadPerBin             # <<<<<<<<<<<<<<
@@ -8751,7 +8781,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.oneReadPerBin = __pyx_v_oneReadPerBin;
 
-  /* "consenrich/ccounts.pyx":420
+  /* "consenrich/ccounts.pyx":423
  *     countOptions.countMode = _getCountModeCode(countMode)
  *     countOptions.oneReadPerBin = oneReadPerBin
  *     countOptions.shiftForwardStrand53 = shiftForwardStrand53             # <<<<<<<<<<<<<<
@@ -8760,7 +8790,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.shiftForwardStrand53 = __pyx_v_shiftForwardStrand53;
 
-  /* "consenrich/ccounts.pyx":421
+  /* "consenrich/ccounts.pyx":424
  *     countOptions.oneReadPerBin = oneReadPerBin
  *     countOptions.shiftForwardStrand53 = shiftForwardStrand53
  *     countOptions.shiftReverseStrand53 = shiftReverseStrand53             # <<<<<<<<<<<<<<
@@ -8769,7 +8799,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.shiftReverseStrand53 = __pyx_v_shiftReverseStrand53;
 
-  /* "consenrich/ccounts.pyx":422
+  /* "consenrich/ccounts.pyx":425
  *     countOptions.shiftForwardStrand53 = shiftForwardStrand53
  *     countOptions.shiftReverseStrand53 = shiftReverseStrand53
  *     countOptions.readLength = readLength             # <<<<<<<<<<<<<<
@@ -8778,7 +8808,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.readLength = __pyx_v_readLength;
 
-  /* "consenrich/ccounts.pyx":423
+  /* "consenrich/ccounts.pyx":426
  *     countOptions.shiftReverseStrand53 = shiftReverseStrand53
  *     countOptions.readLength = readLength
  *     countOptions.extendBP = extendBP             # <<<<<<<<<<<<<<
@@ -8787,7 +8817,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.extendBP = __pyx_v_extendBP;
 
-  /* "consenrich/ccounts.pyx":424
+  /* "consenrich/ccounts.pyx":427
  *     countOptions.readLength = readLength
  *     countOptions.extendBP = extendBP
  *     countOptions.minMappingQuality = minMappingQuality             # <<<<<<<<<<<<<<
@@ -8796,7 +8826,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.minMappingQuality = __pyx_v_minMappingQuality;
 
-  /* "consenrich/ccounts.pyx":425
+  /* "consenrich/ccounts.pyx":428
  *     countOptions.extendBP = extendBP
  *     countOptions.minMappingQuality = minMappingQuality
  *     countOptions.minTemplateLength = minTemplateLength             # <<<<<<<<<<<<<<
@@ -8805,7 +8835,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.minTemplateLength = __pyx_v_minTemplateLength;
 
-  /* "consenrich/ccounts.pyx":426
+  /* "consenrich/ccounts.pyx":429
  *     countOptions.minMappingQuality = minMappingQuality
  *     countOptions.minTemplateLength = minTemplateLength
  *     countOptions.maxInsertSize = maxInsertSize             # <<<<<<<<<<<<<<
@@ -8814,26 +8844,26 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   __pyx_v_countOptions.maxInsertSize = __pyx_v_maxInsertSize;
 
-  /* "consenrich/ccounts.pyx":427
+  /* "consenrich/ccounts.pyx":430
  *     countOptions.minTemplateLength = minTemplateLength
  *     countOptions.maxInsertSize = maxInsertSize
  *     countOptions.pairedEndMode = pairedEndMode             # <<<<<<<<<<<<<<
  *     countOptions.inferFragmentLength = inferFragmentLength
- * 
+ *
 */
   __pyx_v_countOptions.pairedEndMode = __pyx_v_pairedEndMode;
 
-  /* "consenrich/ccounts.pyx":428
+  /* "consenrich/ccounts.pyx":431
  *     countOptions.maxInsertSize = maxInsertSize
  *     countOptions.pairedEndMode = pairedEndMode
  *     countOptions.inferFragmentLength = inferFragmentLength             # <<<<<<<<<<<<<<
- * 
+ *
  *     # open once here so region counting can reuse the initialized native handle
 */
   __pyx_v_countOptions.inferFragmentLength = __pyx_v_inferFragmentLength;
 
-  /* "consenrich/ccounts.pyx":431
- * 
+  /* "consenrich/ccounts.pyx":434
+ *
  *     # open once here so region counting can reuse the initialized native handle
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_openSource(&sourceConfig, &sourceHandle)
@@ -8845,7 +8875,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
       __Pyx_FastGIL_Remember();
       /*try:*/ {
 
-        /* "consenrich/ccounts.pyx":432
+        /* "consenrich/ccounts.pyx":435
  *     # open once here so region counting can reuse the initialized native handle
  *     with nogil:
  *         result = ccounts_openSource(&sourceConfig, &sourceHandle)             # <<<<<<<<<<<<<<
@@ -8855,8 +8885,8 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
         __pyx_v_result = ccounts_openSource((&__pyx_v_sourceConfig), (&__pyx_v_sourceHandle));
       }
 
-      /* "consenrich/ccounts.pyx":431
- * 
+      /* "consenrich/ccounts.pyx":434
+ *
  *     # open once here so region counting can reuse the initialized native handle
  *     with nogil:             # <<<<<<<<<<<<<<
  *         result = ccounts_openSource(&sourceConfig, &sourceHandle)
@@ -8872,16 +8902,16 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
       }
   }
 
-  /* "consenrich/ccounts.pyx":433
+  /* "consenrich/ccounts.pyx":436
  *     with nogil:
  *         result = ccounts_openSource(&sourceConfig, &sourceHandle)
  *     _raiseIfError(result)             # <<<<<<<<<<<<<<
  *     try:
  *         with nogil:
 */
-  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 433, __pyx_L1_error)
+  __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 436, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":434
+  /* "consenrich/ccounts.pyx":437
  *         result = ccounts_openSource(&sourceConfig, &sourceHandle)
  *     _raiseIfError(result)
  *     try:             # <<<<<<<<<<<<<<
@@ -8890,7 +8920,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
   /*try:*/ {
 
-    /* "consenrich/ccounts.pyx":435
+    /* "consenrich/ccounts.pyx":438
  *     _raiseIfError(result)
  *     try:
  *         with nogil:             # <<<<<<<<<<<<<<
@@ -8903,7 +8933,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
         __Pyx_FastGIL_Remember();
         /*try:*/ {
 
-          /* "consenrich/ccounts.pyx":440
+          /* "consenrich/ccounts.pyx":443
  *                 &region,
  *                 &countOptions,
  *                 &counts[0],             # <<<<<<<<<<<<<<
@@ -8912,7 +8942,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 */
           __pyx_t_18 = 0;
 
-          /* "consenrich/ccounts.pyx":436
+          /* "consenrich/ccounts.pyx":439
  *     try:
  *         with nogil:
  *             result = ccounts_countRegion(             # <<<<<<<<<<<<<<
@@ -8922,7 +8952,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
           __pyx_v_result = ccounts_countRegion(__pyx_v_sourceHandle, (&__pyx_v_region), (&__pyx_v_countOptions), (&(*__Pyx_BufPtrStrided1d(__pyx_t_5numpy_float32_t *, __pyx_pybuffernd_counts.rcbuffer->pybuffer.buf, __pyx_t_18, __pyx_pybuffernd_counts.diminfo[0].strides))), __pyx_v_numIntervals);
         }
 
-        /* "consenrich/ccounts.pyx":435
+        /* "consenrich/ccounts.pyx":438
  *     _raiseIfError(result)
  *     try:
  *         with nogil:             # <<<<<<<<<<<<<<
@@ -8939,17 +8969,17 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
         }
     }
 
-    /* "consenrich/ccounts.pyx":443
+    /* "consenrich/ccounts.pyx":446
  *                 numIntervals,
  *             )
  *         _raiseIfError(result)             # <<<<<<<<<<<<<<
  *     finally:
  *         if sourceHandle != NULL:
 */
-    __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 443, __pyx_L10_error)
+    __pyx_f_10consenrich_7ccounts__raiseIfError(__pyx_v_result); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 446, __pyx_L10_error)
   }
 
-  /* "consenrich/ccounts.pyx":445
+  /* "consenrich/ccounts.pyx":448
  *         _raiseIfError(result)
  *     finally:
  *         if sourceHandle != NULL:             # <<<<<<<<<<<<<<
@@ -8961,12 +8991,12 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
       __pyx_t_4 = (__pyx_v_sourceHandle != NULL);
       if (__pyx_t_4) {
 
-        /* "consenrich/ccounts.pyx":446
+        /* "consenrich/ccounts.pyx":449
  *     finally:
  *         if sourceHandle != NULL:
  *             with nogil:             # <<<<<<<<<<<<<<
  *                 ccounts_closeSource(sourceHandle)
- * 
+ *
 */
         {
             PyThreadState * _save;
@@ -8974,22 +9004,22 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
             __Pyx_FastGIL_Remember();
             /*try:*/ {
 
-              /* "consenrich/ccounts.pyx":447
+              /* "consenrich/ccounts.pyx":450
  *         if sourceHandle != NULL:
  *             with nogil:
  *                 ccounts_closeSource(sourceHandle)             # <<<<<<<<<<<<<<
- * 
+ *
  *     return counts
 */
               ccounts_closeSource(__pyx_v_sourceHandle);
             }
 
-            /* "consenrich/ccounts.pyx":446
+            /* "consenrich/ccounts.pyx":449
  *     finally:
  *         if sourceHandle != NULL:
  *             with nogil:             # <<<<<<<<<<<<<<
  *                 ccounts_closeSource(sourceHandle)
- * 
+ *
 */
             /*finally:*/ {
               /*normal exit:*/{
@@ -9001,7 +9031,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
             }
         }
 
-        /* "consenrich/ccounts.pyx":445
+        /* "consenrich/ccounts.pyx":448
  *         _raiseIfError(result)
  *     finally:
  *         if sourceHandle != NULL:             # <<<<<<<<<<<<<<
@@ -9035,12 +9065,12 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
         __pyx_t_4 = (__pyx_v_sourceHandle != NULL);
         if (__pyx_t_4) {
 
-          /* "consenrich/ccounts.pyx":446
+          /* "consenrich/ccounts.pyx":449
  *     finally:
  *         if sourceHandle != NULL:
  *             with nogil:             # <<<<<<<<<<<<<<
  *                 ccounts_closeSource(sourceHandle)
- * 
+ *
 */
           {
               PyThreadState * _save;
@@ -9048,22 +9078,22 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
               __Pyx_FastGIL_Remember();
               /*try:*/ {
 
-                /* "consenrich/ccounts.pyx":447
+                /* "consenrich/ccounts.pyx":450
  *         if sourceHandle != NULL:
  *             with nogil:
  *                 ccounts_closeSource(sourceHandle)             # <<<<<<<<<<<<<<
- * 
+ *
  *     return counts
 */
                 ccounts_closeSource(__pyx_v_sourceHandle);
               }
 
-              /* "consenrich/ccounts.pyx":446
+              /* "consenrich/ccounts.pyx":449
  *     finally:
  *         if sourceHandle != NULL:
  *             with nogil:             # <<<<<<<<<<<<<<
  *                 ccounts_closeSource(sourceHandle)
- * 
+ *
 */
               /*finally:*/ {
                 /*normal exit:*/{
@@ -9075,7 +9105,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
               }
           }
 
-          /* "consenrich/ccounts.pyx":445
+          /* "consenrich/ccounts.pyx":448
  *         _raiseIfError(result)
  *     finally:
  *         if sourceHandle != NULL:             # <<<<<<<<<<<<<<
@@ -9099,9 +9129,9 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
     __pyx_L11:;
   }
 
-  /* "consenrich/ccounts.pyx":449
+  /* "consenrich/ccounts.pyx":452
  *                 ccounts_closeSource(sourceHandle)
- * 
+ *
  *     return counts             # <<<<<<<<<<<<<<
 */
   __Pyx_XDECREF((PyObject *)__pyx_r);
@@ -9109,9 +9139,9 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
   __pyx_r = ((PyArrayObject *)__pyx_v_counts);
   goto __pyx_L0;
 
-  /* "consenrich/ccounts.pyx":365
- * 
- * 
+  /* "consenrich/ccounts.pyx":368
+ *
+ *
  * cpdef cnp.ndarray ccounts_countAlignmentRegion(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
@@ -9148,7 +9178,7 @@ static PyArrayObject *__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion
 }
 
 /* Python wrapper */
-static PyObject *__pyx_pw_10consenrich_7ccounts_13ccounts_countAlignmentRegion(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_13ccounts_countAlignmentRegion(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -9156,7 +9186,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
 static PyMethodDef __pyx_mdef_10consenrich_7ccounts_13ccounts_countAlignmentRegion = {"ccounts_countAlignmentRegion", (PyCFunction)(void(*)(void))(__Pyx_PyCFunction_FastCallWithKeywords)__pyx_pw_10consenrich_7ccounts_13ccounts_countAlignmentRegion, __Pyx_METH_FASTCALL|METH_KEYWORDS, 0};
-static PyObject *__pyx_pw_10consenrich_7ccounts_13ccounts_countAlignmentRegion(PyObject *__pyx_self, 
+static PyObject *__pyx_pw_10consenrich_7ccounts_13ccounts_countAlignmentRegion(PyObject *__pyx_self,
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 #else
@@ -9206,174 +9236,174 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   {
     PyObject ** const __pyx_pyargnames[] = {&__pyx_mstate_global->__pyx_n_u_alignmentPath,&__pyx_mstate_global->__pyx_n_u_chromosome,&__pyx_mstate_global->__pyx_n_u_start,&__pyx_mstate_global->__pyx_n_u_end,&__pyx_mstate_global->__pyx_n_u_intervalSizeBP,&__pyx_mstate_global->__pyx_n_u_readLength,&__pyx_mstate_global->__pyx_n_u_oneReadPerBin,&__pyx_mstate_global->__pyx_n_u_threadCount,&__pyx_mstate_global->__pyx_n_u_flagExclude,&__pyx_mstate_global->__pyx_n_u_shiftForwardStrand53,&__pyx_mstate_global->__pyx_n_u_shiftReverseStrand53,&__pyx_mstate_global->__pyx_n_u_extendBP,&__pyx_mstate_global->__pyx_n_u_maxInsertSize,&__pyx_mstate_global->__pyx_n_u_pairedEndMode,&__pyx_mstate_global->__pyx_n_u_inferFragmentLength,&__pyx_mstate_global->__pyx_n_u_minMappingQuality,&__pyx_mstate_global->__pyx_n_u_minTemplateLength,&__pyx_mstate_global->__pyx_n_u_sourceKind,&__pyx_mstate_global->__pyx_n_u_barcodeAllowListFile,&__pyx_mstate_global->__pyx_n_u_barcodeGroupMapFile,&__pyx_mstate_global->__pyx_n_u_countMode,0};
     const Py_ssize_t __pyx_kwds_len = (__pyx_kwds) ? __Pyx_NumKwargs_FASTCALL(__pyx_kwds) : 0;
-    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 365, __pyx_L3_error)
+    if (unlikely(__pyx_kwds_len) < 0) __PYX_ERR(0, 368, __pyx_L3_error)
     if (__pyx_kwds_len > 0) {
       switch (__pyx_nargs) {
         case 21:
         values[20] = __Pyx_ArgRef_FASTCALL(__pyx_args, 20);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[20])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[20])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 20:
         values[19] = __Pyx_ArgRef_FASTCALL(__pyx_args, 19);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[19])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[19])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 19:
         values[18] = __Pyx_ArgRef_FASTCALL(__pyx_args, 18);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[18])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[18])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 18:
         values[17] = __Pyx_ArgRef_FASTCALL(__pyx_args, 17);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[17])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[17])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 17:
         values[16] = __Pyx_ArgRef_FASTCALL(__pyx_args, 16);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[16])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[16])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 16:
         values[15] = __Pyx_ArgRef_FASTCALL(__pyx_args, 15);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[15])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[15])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 15:
         values[14] = __Pyx_ArgRef_FASTCALL(__pyx_args, 14);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[14])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[14])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 14:
         values[13] = __Pyx_ArgRef_FASTCALL(__pyx_args, 13);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[13])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[13])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 13:
         values[12] = __Pyx_ArgRef_FASTCALL(__pyx_args, 12);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[12])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[12])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 12:
         values[11] = __Pyx_ArgRef_FASTCALL(__pyx_args, 11);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[11])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[11])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 11:
         values[10] = __Pyx_ArgRef_FASTCALL(__pyx_args, 10);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[10])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[10])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 10:
         values[9] = __Pyx_ArgRef_FASTCALL(__pyx_args, 9);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[9])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[9])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  9:
         values[8] = __Pyx_ArgRef_FASTCALL(__pyx_args, 8);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[8])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[8])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  8:
         values[7] = __Pyx_ArgRef_FASTCALL(__pyx_args, 7);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[7])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[7])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  7:
         values[6] = __Pyx_ArgRef_FASTCALL(__pyx_args, 6);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  6:
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  5:
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  4:
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  3:
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  2:
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  1:
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  0: break;
         default: goto __pyx_L5_argtuple_error;
       }
       const Py_ssize_t kwd_pos_args = __pyx_nargs;
-      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_countAlignmentRegion", 0) < (0)) __PYX_ERR(0, 365, __pyx_L3_error)
+      if (__Pyx_ParseKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, 0, values, kwd_pos_args, __pyx_kwds_len, "ccounts_countAlignmentRegion", 0) < (0)) __PYX_ERR(0, 368, __pyx_L3_error)
       if (!values[17]) values[17] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_n_u_BAM));
       if (!values[18]) values[18] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_kp_u__2));
       if (!values[19]) values[19] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_kp_u__2));
       if (!values[20]) values[20] = __Pyx_NewRef(((PyObject*)__pyx_mstate_global->__pyx_n_u_coverage));
       for (Py_ssize_t i = __pyx_nargs; i < 9; i++) {
-        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_countAlignmentRegion", 0, 9, 21, i); __PYX_ERR(0, 365, __pyx_L3_error) }
+        if (unlikely(!values[i])) { __Pyx_RaiseArgtupleInvalid("ccounts_countAlignmentRegion", 0, 9, 21, i); __PYX_ERR(0, 368, __pyx_L3_error) }
       }
     } else {
       switch (__pyx_nargs) {
         case 21:
         values[20] = __Pyx_ArgRef_FASTCALL(__pyx_args, 20);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[20])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[20])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 20:
         values[19] = __Pyx_ArgRef_FASTCALL(__pyx_args, 19);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[19])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[19])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 19:
         values[18] = __Pyx_ArgRef_FASTCALL(__pyx_args, 18);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[18])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[18])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 18:
         values[17] = __Pyx_ArgRef_FASTCALL(__pyx_args, 17);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[17])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[17])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 17:
         values[16] = __Pyx_ArgRef_FASTCALL(__pyx_args, 16);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[16])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[16])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 16:
         values[15] = __Pyx_ArgRef_FASTCALL(__pyx_args, 15);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[15])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[15])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 15:
         values[14] = __Pyx_ArgRef_FASTCALL(__pyx_args, 14);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[14])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[14])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 14:
         values[13] = __Pyx_ArgRef_FASTCALL(__pyx_args, 13);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[13])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[13])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 13:
         values[12] = __Pyx_ArgRef_FASTCALL(__pyx_args, 12);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[12])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[12])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 12:
         values[11] = __Pyx_ArgRef_FASTCALL(__pyx_args, 11);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[11])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[11])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 11:
         values[10] = __Pyx_ArgRef_FASTCALL(__pyx_args, 10);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[10])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[10])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case 10:
         values[9] = __Pyx_ArgRef_FASTCALL(__pyx_args, 9);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[9])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[9])) __PYX_ERR(0, 368, __pyx_L3_error)
         CYTHON_FALLTHROUGH;
         case  9:
         values[8] = __Pyx_ArgRef_FASTCALL(__pyx_args, 8);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[8])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[8])) __PYX_ERR(0, 368, __pyx_L3_error)
         values[7] = __Pyx_ArgRef_FASTCALL(__pyx_args, 7);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[7])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[7])) __PYX_ERR(0, 368, __pyx_L3_error)
         values[6] = __Pyx_ArgRef_FASTCALL(__pyx_args, 6);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[6])) __PYX_ERR(0, 368, __pyx_L3_error)
         values[5] = __Pyx_ArgRef_FASTCALL(__pyx_args, 5);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[5])) __PYX_ERR(0, 368, __pyx_L3_error)
         values[4] = __Pyx_ArgRef_FASTCALL(__pyx_args, 4);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[4])) __PYX_ERR(0, 368, __pyx_L3_error)
         values[3] = __Pyx_ArgRef_FASTCALL(__pyx_args, 3);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[3])) __PYX_ERR(0, 368, __pyx_L3_error)
         values[2] = __Pyx_ArgRef_FASTCALL(__pyx_args, 2);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[2])) __PYX_ERR(0, 368, __pyx_L3_error)
         values[1] = __Pyx_ArgRef_FASTCALL(__pyx_args, 1);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[1])) __PYX_ERR(0, 368, __pyx_L3_error)
         values[0] = __Pyx_ArgRef_FASTCALL(__pyx_args, 0);
-        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 365, __pyx_L3_error)
+        if (!CYTHON_ASSUME_SAFE_MACROS && unlikely(!values[0])) __PYX_ERR(0, 368, __pyx_L3_error)
         break;
         default: goto __pyx_L5_argtuple_error;
       }
@@ -9384,50 +9414,50 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
     }
     __pyx_v_alignmentPath = ((PyObject*)values[0]);
     __pyx_v_chromosome = ((PyObject*)values[1]);
-    __pyx_v_start = __Pyx_PyLong_As_int(values[2]); if (unlikely((__pyx_v_start == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 368, __pyx_L3_error)
-    __pyx_v_end = __Pyx_PyLong_As_int(values[3]); if (unlikely((__pyx_v_end == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 369, __pyx_L3_error)
-    __pyx_v_intervalSizeBP = __Pyx_PyLong_As_int(values[4]); if (unlikely((__pyx_v_intervalSizeBP == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 370, __pyx_L3_error)
-    __pyx_v_readLength = __Pyx_PyLong_As_int(values[5]); if (unlikely((__pyx_v_readLength == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 371, __pyx_L3_error)
-    __pyx_v_oneReadPerBin = __Pyx_PyLong_As_int(values[6]); if (unlikely((__pyx_v_oneReadPerBin == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 372, __pyx_L3_error)
-    __pyx_v_threadCount = __Pyx_PyLong_As_int(values[7]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 373, __pyx_L3_error)
-    __pyx_v_flagExclude = __Pyx_PyLong_As_int(values[8]); if (unlikely((__pyx_v_flagExclude == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 374, __pyx_L3_error)
+    __pyx_v_start = __Pyx_PyLong_As_int(values[2]); if (unlikely((__pyx_v_start == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 371, __pyx_L3_error)
+    __pyx_v_end = __Pyx_PyLong_As_int(values[3]); if (unlikely((__pyx_v_end == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 372, __pyx_L3_error)
+    __pyx_v_intervalSizeBP = __Pyx_PyLong_As_int(values[4]); if (unlikely((__pyx_v_intervalSizeBP == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 373, __pyx_L3_error)
+    __pyx_v_readLength = __Pyx_PyLong_As_int(values[5]); if (unlikely((__pyx_v_readLength == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 374, __pyx_L3_error)
+    __pyx_v_oneReadPerBin = __Pyx_PyLong_As_int(values[6]); if (unlikely((__pyx_v_oneReadPerBin == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 375, __pyx_L3_error)
+    __pyx_v_threadCount = __Pyx_PyLong_As_int(values[7]); if (unlikely((__pyx_v_threadCount == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 376, __pyx_L3_error)
+    __pyx_v_flagExclude = __Pyx_PyLong_As_int(values[8]); if (unlikely((__pyx_v_flagExclude == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 377, __pyx_L3_error)
     if (values[9]) {
-      __pyx_v_shiftForwardStrand53 = __Pyx_PyLong_As_int(values[9]); if (unlikely((__pyx_v_shiftForwardStrand53 == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 375, __pyx_L3_error)
+      __pyx_v_shiftForwardStrand53 = __Pyx_PyLong_As_int(values[9]); if (unlikely((__pyx_v_shiftForwardStrand53 == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 378, __pyx_L3_error)
     } else {
       __pyx_v_shiftForwardStrand53 = ((int)0);
     }
     if (values[10]) {
-      __pyx_v_shiftReverseStrand53 = __Pyx_PyLong_As_int(values[10]); if (unlikely((__pyx_v_shiftReverseStrand53 == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 376, __pyx_L3_error)
+      __pyx_v_shiftReverseStrand53 = __Pyx_PyLong_As_int(values[10]); if (unlikely((__pyx_v_shiftReverseStrand53 == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 379, __pyx_L3_error)
     } else {
       __pyx_v_shiftReverseStrand53 = ((int)0);
     }
     if (values[11]) {
-      __pyx_v_extendBP = __Pyx_PyLong_As_int(values[11]); if (unlikely((__pyx_v_extendBP == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 377, __pyx_L3_error)
+      __pyx_v_extendBP = __Pyx_PyLong_As_int(values[11]); if (unlikely((__pyx_v_extendBP == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 380, __pyx_L3_error)
     } else {
       __pyx_v_extendBP = ((int)0);
     }
     if (values[12]) {
-      __pyx_v_maxInsertSize = __Pyx_PyLong_As_int(values[12]); if (unlikely((__pyx_v_maxInsertSize == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 378, __pyx_L3_error)
+      __pyx_v_maxInsertSize = __Pyx_PyLong_As_int(values[12]); if (unlikely((__pyx_v_maxInsertSize == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 381, __pyx_L3_error)
     } else {
       __pyx_v_maxInsertSize = ((int)0x3E8);
     }
     if (values[13]) {
-      __pyx_v_pairedEndMode = __Pyx_PyLong_As_int(values[13]); if (unlikely((__pyx_v_pairedEndMode == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 379, __pyx_L3_error)
+      __pyx_v_pairedEndMode = __Pyx_PyLong_As_int(values[13]); if (unlikely((__pyx_v_pairedEndMode == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 382, __pyx_L3_error)
     } else {
       __pyx_v_pairedEndMode = ((int)0);
     }
     if (values[14]) {
-      __pyx_v_inferFragmentLength = __Pyx_PyLong_As_int(values[14]); if (unlikely((__pyx_v_inferFragmentLength == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 380, __pyx_L3_error)
+      __pyx_v_inferFragmentLength = __Pyx_PyLong_As_int(values[14]); if (unlikely((__pyx_v_inferFragmentLength == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 383, __pyx_L3_error)
     } else {
       __pyx_v_inferFragmentLength = ((int)0);
     }
     if (values[15]) {
-      __pyx_v_minMappingQuality = __Pyx_PyLong_As_int(values[15]); if (unlikely((__pyx_v_minMappingQuality == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 381, __pyx_L3_error)
+      __pyx_v_minMappingQuality = __Pyx_PyLong_As_int(values[15]); if (unlikely((__pyx_v_minMappingQuality == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 384, __pyx_L3_error)
     } else {
       __pyx_v_minMappingQuality = ((int)0);
     }
     if (values[16]) {
-      __pyx_v_minTemplateLength = __Pyx_PyLong_As_int(values[16]); if (unlikely((__pyx_v_minTemplateLength == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 382, __pyx_L3_error)
+      __pyx_v_minTemplateLength = __Pyx_PyLong_As_int(values[16]); if (unlikely((__pyx_v_minTemplateLength == (int)-1) && PyErr_Occurred())) __PYX_ERR(0, 385, __pyx_L3_error)
     } else {
       __pyx_v_minTemplateLength = ((int)-1);
     }
@@ -9438,7 +9468,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   goto __pyx_L6_skip;
   __pyx_L5_argtuple_error:;
-  __Pyx_RaiseArgtupleInvalid("ccounts_countAlignmentRegion", 0, 9, 21, __pyx_nargs); __PYX_ERR(0, 365, __pyx_L3_error)
+  __Pyx_RaiseArgtupleInvalid("ccounts_countAlignmentRegion", 0, 9, 21, __pyx_nargs); __PYX_ERR(0, 368, __pyx_L3_error)
   __pyx_L6_skip:;
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L3_error:;
@@ -9449,12 +9479,12 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 366, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_chromosome), (&PyUnicode_Type), 1, "chromosome", 1))) __PYX_ERR(0, 367, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 383, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_barcodeAllowListFile), (&PyUnicode_Type), 1, "barcodeAllowListFile", 1))) __PYX_ERR(0, 384, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_barcodeGroupMapFile), (&PyUnicode_Type), 1, "barcodeGroupMapFile", 1))) __PYX_ERR(0, 385, __pyx_L1_error)
-  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_countMode), (&PyUnicode_Type), 1, "countMode", 1))) __PYX_ERR(0, 386, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_alignmentPath), (&PyUnicode_Type), 1, "alignmentPath", 1))) __PYX_ERR(0, 369, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_chromosome), (&PyUnicode_Type), 1, "chromosome", 1))) __PYX_ERR(0, 370, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_sourceKind), (&PyUnicode_Type), 1, "sourceKind", 1))) __PYX_ERR(0, 386, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_barcodeAllowListFile), (&PyUnicode_Type), 1, "barcodeAllowListFile", 1))) __PYX_ERR(0, 387, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_barcodeGroupMapFile), (&PyUnicode_Type), 1, "barcodeGroupMapFile", 1))) __PYX_ERR(0, 388, __pyx_L1_error)
+  if (unlikely(!__Pyx_ArgTypeTest(((PyObject *)__pyx_v_countMode), (&PyUnicode_Type), 1, "countMode", 1))) __PYX_ERR(0, 389, __pyx_L1_error)
   __pyx_r = __pyx_pf_10consenrich_7ccounts_12ccounts_countAlignmentRegion(__pyx_self, __pyx_v_alignmentPath, __pyx_v_chromosome, __pyx_v_start, __pyx_v_end, __pyx_v_intervalSizeBP, __pyx_v_readLength, __pyx_v_oneReadPerBin, __pyx_v_threadCount, __pyx_v_flagExclude, __pyx_v_shiftForwardStrand53, __pyx_v_shiftReverseStrand53, __pyx_v_extendBP, __pyx_v_maxInsertSize, __pyx_v_pairedEndMode, __pyx_v_inferFragmentLength, __pyx_v_minMappingQuality, __pyx_v_minTemplateLength, __pyx_v_sourceKind, __pyx_v_barcodeAllowListFile, __pyx_v_barcodeGroupMapFile, __pyx_v_countMode);
 
   /* function exit code */
@@ -9497,7 +9527,7 @@ static PyObject *__pyx_pf_10consenrich_7ccounts_12ccounts_countAlignmentRegion(C
   __pyx_t_2.barcodeAllowListFile = __pyx_v_barcodeAllowListFile;
   __pyx_t_2.barcodeGroupMapFile = __pyx_v_barcodeGroupMapFile;
   __pyx_t_2.countMode = __pyx_v_countMode;
-  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion(__pyx_v_alignmentPath, __pyx_v_chromosome, __pyx_v_start, __pyx_v_end, __pyx_v_intervalSizeBP, __pyx_v_readLength, __pyx_v_oneReadPerBin, __pyx_v_threadCount, __pyx_v_flagExclude, 1, &__pyx_t_2)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 365, __pyx_L1_error)
+  __pyx_t_1 = ((PyObject *)__pyx_f_10consenrich_7ccounts_ccounts_countAlignmentRegion(__pyx_v_alignmentPath, __pyx_v_chromosome, __pyx_v_start, __pyx_v_end, __pyx_v_intervalSizeBP, __pyx_v_readLength, __pyx_v_oneReadPerBin, __pyx_v_threadCount, __pyx_v_flagExclude, 1, &__pyx_t_2)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 368, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -9985,7 +10015,7 @@ static CYTHON_SMALL_CODE int __pyx_pymod_exec_ccounts(PyObject *__pyx_pyinit_mod
         Py_FatalError("failed to import 'refnanny' module");
   }
   #endif
-  
+
 __Pyx_RefNannySetupContext("PyInit_ccounts", 0);
   __Pyx_init_runtime_version();
   if (__Pyx_check_binary_version(__PYX_LIMITED_VERSION_HEX, __Pyx_get_runtime_version(), CYTHON_COMPILING_IN_LIMITED_API) < (0)) __PYX_ERR(0, 1, __pyx_L1_error)
@@ -10023,10 +10053,10 @@ __Pyx_RefNannySetupContext("PyInit_ccounts", 0);
 
   /* "consenrich/ccounts.pyx":3
  * # cython: boundscheck=False, wraparound=False, cdivision=True, nonecheck=False, initializedcheck=False, language_level=3
- * 
+ *
  * import numpy as np             # <<<<<<<<<<<<<<
  * cimport numpy as cnp
- * 
+ *
 */
   __pyx_t_1 = __Pyx_Import(__pyx_mstate_global->__pyx_n_u_numpy, 0, 0, NULL, 0); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 3, __pyx_L1_error)
   __pyx_t_2 = __pyx_t_1;
@@ -10036,128 +10066,128 @@ __Pyx_RefNannySetupContext("PyInit_ccounts", 0);
 
   /* "consenrich/ccounts.pyx":9
  * from libc.stdlib cimport malloc, free
- * 
+ *
  * cnp.import_array()             # <<<<<<<<<<<<<<
- * 
- * 
+ *
+ *
 */
   __pyx_t_3 = __pyx_f_5numpy_import_array(); if (unlikely(__pyx_t_3 == ((int)-1))) __PYX_ERR(0, 9, __pyx_L1_error)
 
-  /* "consenrich/ccounts.pyx":177
- * 
- * 
+  /* "consenrich/ccounts.pyx":180
+ *
+ *
  * cpdef bint ccounts_checkAlignmentPath(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str sourceKind="BAM",
 */
-  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_1ccounts_checkAlignmentPath, 0, __pyx_mstate_global->__pyx_n_u_ccounts_checkAlignmentPath, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[0])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 177, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_1ccounts_checkAlignmentPath, 0, __pyx_mstate_global->__pyx_n_u_ccounts_checkAlignmentPath, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[0])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 180, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_2);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_2, __pyx_mstate_global->__pyx_tuple[0]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_checkAlignmentPath, __pyx_t_2) < (0)) __PYX_ERR(0, 177, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_checkAlignmentPath, __pyx_t_2) < (0)) __PYX_ERR(0, 180, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
-  /* "consenrich/ccounts.pyx":202
- * 
- * 
+  /* "consenrich/ccounts.pyx":205
+ *
+ *
  * cpdef bint ccounts_isAlignmentPairedEnd(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int maxReads=1000,
 */
-  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd, 0, __pyx_mstate_global->__pyx_n_u_ccounts_isAlignmentPairedEnd, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[1])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 202, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_3ccounts_isAlignmentPairedEnd, 0, __pyx_mstate_global->__pyx_n_u_ccounts_isAlignmentPairedEnd, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[1])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 205, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_2);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_2, __pyx_mstate_global->__pyx_tuple[1]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_isAlignmentPairedEnd, __pyx_t_2) < (0)) __PYX_ERR(0, 202, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_isAlignmentPairedEnd, __pyx_t_2) < (0)) __PYX_ERR(0, 205, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
-  /* "consenrich/ccounts.pyx":227
- * 
- * 
+  /* "consenrich/ccounts.pyx":230
+ *
+ *
  * cpdef int ccounts_getAlignmentReadLength(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int minReads,
 */
-  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_5ccounts_getAlignmentReadLength, 0, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentReadLength, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[2])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 227, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_5ccounts_getAlignmentReadLength, 0, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentReadLength, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[2])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 230, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_2);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_2, __pyx_mstate_global->__pyx_tuple[2]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentReadLength, __pyx_t_2) < (0)) __PYX_ERR(0, 227, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentReadLength, __pyx_t_2) < (0)) __PYX_ERR(0, 230, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
-  /* "consenrich/ccounts.pyx":256
- * 
- * 
+  /* "consenrich/ccounts.pyx":259
+ *
+ *
  * cpdef tuple ccounts_getAlignmentChromRange(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
 */
-  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_7ccounts_getAlignmentChromRange, 0, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentChromRange, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[3])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 256, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_7ccounts_getAlignmentChromRange, 0, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentChromRange, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[3])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 259, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_2);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_2, __pyx_mstate_global->__pyx_tuple[2]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentChromRange, __pyx_t_2) < (0)) __PYX_ERR(0, 256, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentChromRange, __pyx_t_2) < (0)) __PYX_ERR(0, 259, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
-  /* "consenrich/ccounts.pyx":289
- * 
- * 
+  /* "consenrich/ccounts.pyx":292
+ *
+ *
  * cpdef tuple ccounts_getAlignmentMappedReadCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     excludeChromosomes=None,
 */
-  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount, 0, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentMappedReadCo, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[4])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 289, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_9ccounts_getAlignmentMappedReadCount, 0, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentMappedReadCo, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[4])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 292, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_2);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_2, __pyx_mstate_global->__pyx_tuple[3]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentMappedReadCo, __pyx_t_2) < (0)) __PYX_ERR(0, 289, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_getAlignmentMappedReadCo, __pyx_t_2) < (0)) __PYX_ERR(0, 292, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
-  /* "consenrich/ccounts.pyx":345
- * 
- * 
+  /* "consenrich/ccounts.pyx":348
+ *
+ *
  * cpdef int ccounts_getFragmentCellCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str barcodeAllowListFile="",
 */
-  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_11ccounts_getFragmentCellCount, 0, __pyx_mstate_global->__pyx_n_u_ccounts_getFragmentCellCount, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[5])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 345, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_11ccounts_getFragmentCellCount, 0, __pyx_mstate_global->__pyx_n_u_ccounts_getFragmentCellCount, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[5])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 348, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_2);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_2, __pyx_mstate_global->__pyx_tuple[4]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_getFragmentCellCount, __pyx_t_2) < (0)) __PYX_ERR(0, 345, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_getFragmentCellCount, __pyx_t_2) < (0)) __PYX_ERR(0, 348, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
-  /* "consenrich/ccounts.pyx":365
- * 
- * 
+  /* "consenrich/ccounts.pyx":368
+ *
+ *
  * cpdef cnp.ndarray ccounts_countAlignmentRegion(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
 */
-  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_13ccounts_countAlignmentRegion, 0, __pyx_mstate_global->__pyx_n_u_ccounts_countAlignmentRegion, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[6])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 365, __pyx_L1_error)
+  __pyx_t_2 = __Pyx_CyFunction_New(&__pyx_mdef_10consenrich_7ccounts_13ccounts_countAlignmentRegion, 0, __pyx_mstate_global->__pyx_n_u_ccounts_countAlignmentRegion, NULL, __pyx_mstate_global->__pyx_n_u_consenrich_ccounts, __pyx_mstate_global->__pyx_d, ((PyObject *)__pyx_mstate_global->__pyx_codeobj_tab[6])); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 368, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
   #if CYTHON_COMPILING_IN_CPYTHON && PY_VERSION_HEX >= 0x030E0000
   PyUnstable_Object_EnableDeferredRefcount(__pyx_t_2);
   #endif
   __Pyx_CyFunction_SetDefaultsTuple(__pyx_t_2, __pyx_mstate_global->__pyx_tuple[5]);
-  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_countAlignmentRegion, __pyx_t_2) < (0)) __PYX_ERR(0, 365, __pyx_L1_error)
+  if (PyDict_SetItem(__pyx_mstate_global->__pyx_d, __pyx_mstate_global->__pyx_n_u_ccounts_countAlignmentRegion, __pyx_t_2) < (0)) __PYX_ERR(0, 368, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_2); __pyx_t_2 = 0;
 
   /* "consenrich/ccounts.pyx":1
  * # cython: boundscheck=False, wraparound=False, cdivision=True, nonecheck=False, initializedcheck=False, language_level=3             # <<<<<<<<<<<<<<
- * 
+ *
  * import numpy as np
 */
   __pyx_t_2 = __Pyx_PyDict_NewPresized(0); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 1, __pyx_L1_error)
@@ -10218,69 +10248,69 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
   CYTHON_UNUSED_VAR(__pyx_mstate);
   __Pyx_RefNannySetupContext("__Pyx_InitCachedConstants", 0);
 
-  /* "consenrich/ccounts.pyx":177
- * 
- * 
+  /* "consenrich/ccounts.pyx":180
+ *
+ *
  * cpdef bint ccounts_checkAlignmentPath(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str sourceKind="BAM",
 */
-  __pyx_mstate_global->__pyx_tuple[0] = PyTuple_Pack(3, __pyx_mstate_global->__pyx_n_u_BAM, Py_False, __pyx_mstate_global->__pyx_int_0); if (unlikely(!__pyx_mstate_global->__pyx_tuple[0])) __PYX_ERR(0, 177, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[0] = PyTuple_Pack(3, __pyx_mstate_global->__pyx_n_u_BAM, Py_False, __pyx_mstate_global->__pyx_int_0); if (unlikely(!__pyx_mstate_global->__pyx_tuple[0])) __PYX_ERR(0, 180, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[0]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[0]);
 
-  /* "consenrich/ccounts.pyx":202
- * 
- * 
+  /* "consenrich/ccounts.pyx":205
+ *
+ *
  * cpdef bint ccounts_isAlignmentPairedEnd(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int maxReads=1000,
 */
-  __pyx_mstate_global->__pyx_tuple[1] = PyTuple_Pack(3, __pyx_mstate_global->__pyx_int_1000, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_n_u_BAM); if (unlikely(!__pyx_mstate_global->__pyx_tuple[1])) __PYX_ERR(0, 202, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[1] = PyTuple_Pack(3, __pyx_mstate_global->__pyx_int_1000, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_n_u_BAM); if (unlikely(!__pyx_mstate_global->__pyx_tuple[1])) __PYX_ERR(0, 205, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[1]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[1]);
 
-  /* "consenrich/ccounts.pyx":227
- * 
- * 
+  /* "consenrich/ccounts.pyx":230
+ *
+ *
  * cpdef int ccounts_getAlignmentReadLength(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     int minReads,
 */
-  __pyx_mstate_global->__pyx_tuple[2] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_n_u_BAM); if (unlikely(!__pyx_mstate_global->__pyx_tuple[2])) __PYX_ERR(0, 227, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[2] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_n_u_BAM); if (unlikely(!__pyx_mstate_global->__pyx_tuple[2])) __PYX_ERR(0, 230, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[2]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[2]);
 
-  /* "consenrich/ccounts.pyx":289
- * 
- * 
+  /* "consenrich/ccounts.pyx":292
+ *
+ *
  * cpdef tuple ccounts_getAlignmentMappedReadCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     excludeChromosomes=None,
 */
-  __pyx_mstate_global->__pyx_tuple[3] = PyTuple_Pack(6, Py_None, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_n_u_BAM, __pyx_mstate_global->__pyx_kp_u__2, __pyx_mstate_global->__pyx_n_u_coverage, __pyx_mstate_global->__pyx_int_0); if (unlikely(!__pyx_mstate_global->__pyx_tuple[3])) __PYX_ERR(0, 289, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[3] = PyTuple_Pack(6, Py_None, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_n_u_BAM, __pyx_mstate_global->__pyx_kp_u__2, __pyx_mstate_global->__pyx_n_u_coverage, __pyx_mstate_global->__pyx_int_0); if (unlikely(!__pyx_mstate_global->__pyx_tuple[3])) __PYX_ERR(0, 292, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[3]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[3]);
 
-  /* "consenrich/ccounts.pyx":345
- * 
- * 
+  /* "consenrich/ccounts.pyx":348
+ *
+ *
  * cpdef int ccounts_getFragmentCellCount(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str barcodeAllowListFile="",
 */
-  __pyx_mstate_global->__pyx_tuple[4] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_kp_u__2); if (unlikely(!__pyx_mstate_global->__pyx_tuple[4])) __PYX_ERR(0, 345, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[4] = PyTuple_Pack(1, __pyx_mstate_global->__pyx_kp_u__2); if (unlikely(!__pyx_mstate_global->__pyx_tuple[4])) __PYX_ERR(0, 348, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[4]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[4]);
 
-  /* "consenrich/ccounts.pyx":365
- * 
- * 
+  /* "consenrich/ccounts.pyx":368
+ *
+ *
  * cpdef cnp.ndarray ccounts_countAlignmentRegion(             # <<<<<<<<<<<<<<
  *     str alignmentPath,
  *     str chromosome,
 */
-  __pyx_mstate_global->__pyx_tuple[5] = PyTuple_Pack(12, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_1000, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_neg_1, __pyx_mstate_global->__pyx_n_u_BAM, __pyx_mstate_global->__pyx_kp_u__2, __pyx_mstate_global->__pyx_kp_u__2, __pyx_mstate_global->__pyx_n_u_coverage); if (unlikely(!__pyx_mstate_global->__pyx_tuple[5])) __PYX_ERR(0, 365, __pyx_L1_error)
+  __pyx_mstate_global->__pyx_tuple[5] = PyTuple_Pack(12, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_1000, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_0, __pyx_mstate_global->__pyx_int_neg_1, __pyx_mstate_global->__pyx_n_u_BAM, __pyx_mstate_global->__pyx_kp_u__2, __pyx_mstate_global->__pyx_kp_u__2, __pyx_mstate_global->__pyx_n_u_coverage); if (unlikely(!__pyx_mstate_global->__pyx_tuple[5])) __PYX_ERR(0, 368, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_mstate_global->__pyx_tuple[5]);
   __Pyx_GIVEREF(__pyx_mstate_global->__pyx_tuple[5]);
   #if CYTHON_IMMORTAL_CONSTANTS
@@ -10313,31 +10343,31 @@ static int __Pyx_InitCachedConstants(__pyx_mstatetype *__pyx_mstate) {
 static int __Pyx_InitConstants(__pyx_mstatetype *__pyx_mstate) {
   CYTHON_UNUSED_VAR(__pyx_mstate);
   {
-    const struct { const unsigned int length: 9; } index[] = {{1},{1},{1},{1},{1},{4},{179},{23},{25},{0},{1},{8},{46},{40},{29},{39},{34},{26},{3},{9},{20},{13},{18},{20},{19},{10},{26},{28},{30},{35},{30},{28},{28},{6},{11},{10},{18},{18},{9},{8},{7},{5},{3},{18},{8},{9},{11},{7},{8},{19},{14},{13},{5},{5},{8},{13},{13},{8},{17},{8},{17},{10},{8},{2},{5},{13},{13},{3},{12},{10},{12},{10},{20},{20},{10},{5},{5},{8},{11},{5},{6},{5},{0},{94},{90},{419},{120},{293},{91},{89}};
-    #if (CYTHON_COMPRESS_STRINGS) == 2 /* compression: bz2 (1461 bytes) */
-const char* const cstring = "BZh91AY&SY\247\210\360K\000\001\264\377\377\377\377\377\377\377\353\377\377\277\277~\001\377\377\377\363\300@@@@@@@@@@@@\000@\000P\005\036\013\221\222\310\210K\006\320h\232I\220\323\"=&i\244\217$\362`M'\250h\320hi\246\232\000\332M\250\001\241\264h\322d\320\364\236\024\304A\200\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\032\t\240\223ji\036\247\250\3226\241\351\250b\032hh2\032h\000\000\000\000\000\000\000\r\020`\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\004\211 \005=50#T\360OQ\222\007\250\365=OP\006\200\000\000\000\000\000\003G\220\232=K\251@\314\275\220\366\371\271y\277\307\327]\204\234.\271\016&\177\357\3744\332l@\322\032\033\022w\240\306s\240\326\255)P\220P4\230\362\302.\326\316 \262\272\226\204ERJu\261r\264B\266\3302 \246P\221Li, \232\200\t&\321\005\010R\245\314\224\205\266*\005\177=V\nK\033((L\0368\213\t\023s\357-i\324\335\003\t,\255\352\rr\363^\354\r\"\251a\205\365F\035%\277\242\256\205\031\tjt\0254\014\204\2152mHE\035\346EQ*M`\033n\235}\313\374z\\{\314/V\375\345\206\023\272\230\270X\373H%\017\373\311\030\333\336\377\242\321\001(T\250\300Bu\214|\301af\342\352\306x\031\231\304\271@\223(m\250\330Qi\222f\242W\355\243\202\247\305\305\247\251i\361\234J\n\023I\235\n=*D\362+\262\340\023\272(\263\207E\230S\243~},\345\024\017@\241$\314#\346=V\274]+[\001\260\031\r\333\330\244\026\330t\n\355Z\327\245k<\230(dR[\"\225\301\264\360\235}B|\221\022\"\211Y8\330\223e\240\211\324:\357C\211K\202\253\"\3025\027\001\210\320\335\333v3Qc\204XA\202&;\320\343/D\303;\372\365\"\243\2202\251\212L\272\026M\221\343a\272\210`\343\362\313e\267\346\327\222\257\253\265*i\376)\277\307\325~:\365\240\352\2738{\335\333\271'\332p\342\315\373\306X\302x\216\214)\361\302U\234[e\334\305\210\375\031)e\246\004\021\334\306K\324\212}\005\270O1\020W\261X\244\n\270eG\310\021F\224\010\333\317\006\222;\314\022P*3\363\221\022\221\350\021\030D\315\nHS_\236\254\261\224\245\251\267^^\356l\246\032y\016\2041\206\215\306\374\327Ue\225\033\204\\\2518\357\261k;u\366\304Wx\326|\330\244""\346p\206\261\020^@\246\266\360\334\354K\014\314X\226\325\202E\341Q\330\330\262\300t\\\376^V\256\241\007\230\203\351\017\271\"]|\201\201\006\031\264\302\210~\332\320\201\\a\201]J\2452\240\322o\213\276p\2539*\333\213\372\310\302\342\364\030\335\331*\340\340\351\315\321\234\302Qc3@\362\3336\324\367\2033\337\264\370\246\332\345\315Be\331 \3355M\274\307D\202y\016t\247F-\003@\335\243Q\264\307\033\2317\016W-\301\245\237\204\274\"|\n\353S\341\273\326\262\202m'&\213/\307\216\256\321\342\323\210F\221~Wj\220\276\354\360\333[eF]4\034\230W\221t\301P\375\341\031\223\321MN\021\023X\304\342K\033\006\023\032\301\314G\014K\306`\215Ch\234T\243\001\"M\235\014\254\t9S\215\222kP\214\210\364\006\004s\301\330d\036\342\025\021\"\\\245\215D\004O\364)p\006\r\014t'\t\032o\317>\216\031\221,g&\201\232\262W\270l\254\220\267l:{6\222\252\271\004\007J\325]\225\272\351\\\003\020\347\270d\2576r\350\305f,W6;\346\233<\304\305u\266M%\267\247{c`\343J%\30513l\203\n\303K\330 \2036{\311bT\2337\346Y2\226\345t\"\277\022\262\311(\010\205\023\327(\272\010\223lP\364_u\312\221&!\r\364\021\261\243xRN\203\346S\242\017c\021\017lae\016q\2311[\300\252\000\334\232\325\220\367\234^\026*o\026\325RQ\277\0200\337\222*C4\010\017X\353\0068yJ3\255\024\360\030\023\320\320W]D\257\315e\230v;7\026\207\031V\2345k-\026\2404\330@2$\010G \227/1K<\246\310\330*F\022D\341\236\343\211)\n\2120\341Br\205\315\335i\233_\001\362\004.\002\024\300\337xh\236\311\026\310\004\336\242\201y\257\354\016\361\324\034\373j9\270nkV\226\234X\204\212\376N\014\301\303tZ\342\334\336\341\006\243!u\\\3061\\\020P\243\373;\323R\360\320\246i4[\311*g\204\312\243\372|\203\316\377\353\255\203\002\207\205=\246M\032\254r\335\002c\371\"]\322\025\210\251\333\305Pb\221dr\021D\2718\213{\030\213\315<\t\234\371\317\215!b\17715\316E\332\177\262\351v\016\021e\325\253$;/WV\314\032\200\t\021n\207\032yv\312z_\002&\252\273\312@\347\007\0325*\233EcFW\275\031X\324\247\205\005\016]\253\033\033\030\023M\257\215\025b\256\242\231R\302v\241\214\266w\032\003\360\036S13 oS\275F\210\336""\331\222z\217\376\252k\267p\323\223\267\361\025\327f\022\001\2079I\"p\273!\001\204\222\256\325h\252\350\304\\0\036\346/\370\273\222)\302\204\205<G\202X";
-    PyObject *data = __Pyx_DecompressString(cstring, 1461, 2);
+    const struct { const unsigned int length: 9; } index[] = {{1},{1},{1},{1},{1},{4},{179},{23},{25},{0},{1},{8},{46},{40},{29},{39},{34},{26},{3},{8},{9},{20},{13},{18},{20},{19},{10},{26},{28},{30},{35},{30},{28},{28},{6},{11},{10},{18},{18},{9},{8},{7},{5},{3},{18},{8},{9},{11},{7},{8},{19},{14},{13},{5},{5},{8},{13},{13},{8},{17},{8},{17},{10},{8},{2},{5},{13},{13},{3},{12},{10},{12},{10},{20},{20},{10},{5},{5},{8},{11},{5},{6},{5},{0},{94},{90},{419},{120},{293},{91},{89}};
+    #if (CYTHON_COMPRESS_STRINGS) == 2 /* compression: bz2 (1486 bytes) */
+const char* const cstring = "BZh91AY&SYq\244p\236\000\001\270\377\377\377\377\377\377\377\353\377\377\277\377~\001\377\377\377\363\300@@@@@@@@@@@@\000@\000P\005\036\013\223\206\245\3130\223\203\003$S\020\247\345O\3254\363Q\264\322G\2244\336\202\232444=@\323\324\006\203\365#\365@\000m'\352O)\350#\322g\250\236Ph\202\247\264\323S\311=\010\221\350\322~\250\302\032f\241\243\020\000\000\000\310h\000h\032b\032\017I\240\r\004\320I\204\r\021\033P\364\322a\006\200\014\203@\000\000\000\000\000\000\0004A\200\002`\000&\000\000\000\000\000\000\000\000\000\000\000\000\t\"&\246\320\236\246\202m\n\236\230\236\251\350@\302h\000\001\220\000\000\0312\000\000\006L\232=K\261 cGh=\336\277[\257\3767avRg]\201\331\342\337\357\3742fL\302\006Hd3\t5\020f8\220c\232P\222A!\222a\264:.\307\244Ad\353X!\353\202U-W+D+ms:\014Pt\214O\260\260r2\000\202fC\222B\206&\212P\027\030R\0258\253\260PY\230\221$\300\331\235\354 G\213\201c\251G\216_\005\241\233he(e\272\363`\253W\337J\336\376\025\310\302\276<\263\220\332\3500\2544\026\345:\225\331<J-\013\003)\353 6\3346\265\260\355[\332\327be\3147\246\006\027\330\\\270\030\373H$\317\373\311\030\333\336\377\242\315\001(T\250\300B\213\203\0378V[\033\332\221\266\003;dK\230\t3\006\316ml\326\031(5\022\303J8*|\\ZZv\037\032\"PP\233\346t&\364\251\023\310\261\251@*\361\3271'f4\315W6|\255d\230(\300\240\362 [\350<\321w\2711j\006\300h7\036\246h\230\330t\013Sb\363\346\305\315,\031\304\274\3319W\376iDU\302\241Y\341>z\212\250o\337g'\2378-y\207\225Sf\323\336E\3312\213\336\371\237|\304\356\216\237\272\2136\033b\220\245\204\213\356\332n\244\025\3061%\256\356L\311{m\260\230\206\013[b\252\3408\230\025\220A\200h\324\2153:z\250I7b\352d\223\351$9\230\260\242[\010\033\006\333\334:\335\232\273\246\203Cr\036\0144\300Z\021Z\tqA\024\243\203\210\035\371\r!\254b\332\213\234\005\311\337\264J\350Lx\212yR\266\214\275\376QY\033\335\233s\304L9W\022\352n\210\255\233\254K\224Yxs\325W4\367DF\025r\302+\3621\360\246\001y\034\223\325u\336\214\273\355\032Rx\262\215\234g\014e9\215k\005\320\207\024\203\204\366\225\203\232\316\030!+\301""\225\252\240\223Q\240\201\225A\006\004\nkM\267:\355ff+JU\202E\341Q\327\357K\021\315g\371\201Z\345B\0171\007\316\037fD\271R\006\004\030g\317\t\241\373k\002\005e\206%t\352\223\312cJ\036\305}\244\205\344C\r\017\276Bw\007\220\0217P\314||\205n\226'J\032b\244\003\246ea-\340cM7[\235\035\336\266\344\223\027gs|\333\036\006\032P\n\2405IT\214\230\014\201\232\321\223\356\260\317\275\237x\360\232\033\303%\247\226P\036\253\311\315U~\377\367d\210\354<\014,\244b\313\207\r\274\003\034+\227\006\022\212\325\230\027\226\362n\355\3159V(\302\3010M\300\315#2\300BMN\021\024,bq%\215b\323\032\301\314G\013\270\014\301\032\206\3218\251F\002D\232\371\231X\022r\250\215rk\020\214\210\364\006$s\301\326d\036\342\025\021\"Y\235\215D\004O\364]\020a\220\303I3\244l\246\232\260\345\305\020\314w\370\014m\317=\343Z\316\353~\303\225\256\322\025\316\000\341\303j\235\223i\342\\\221\2045W\014B\206\275\030d\263&K\231\206\244c\246$I\315\230\214\027\033g\006\255G='\207:$Y\230r\371\206\306\3248\346\346\232\020\310\261\032\351\270\263\350-\320\322D\374Y\226A8;\247\252p{\234x30\234\357\323<\345\000\224\010Cy\004k\361\300''A\364\025\023A\354b!\355|W3\234fLT\342U\000m\315j\310{\316/\013\0257\212URQ\303\020-\277$T\206h\020\036\251\325\232\311)\327\216h\305\311/*\223 \234\353!M\313,\277\263\332\270\2649\345{/\333\215aj\003e\203\206l\244\233*\216\255\257\026\323rj\227)\210e\3409\264\2440\202\344B\252)S\206\357\343\301O\351\357\037\020E\320D ~h\216\242FL`\026\364\224\016\236\037@\354\245q\217UISz\357~\315%\354J2-xo\362\006\t\004[\032\332\370\002)\010\221X\220KtA\312\314\375\245\352\213\2744!E\324\021\3200\246\362\032\357\366\367\006\233\373}\035\335\325\016\352\375hf\242\263\277\322\001M\372\002\224\204Y&\030\345\256%\310\317\033\204\317\325\252L\233\343\205\212\260\024\361\363\037\026\306ulFn2z\257\350\272zh\311\313\261a\340\355+\2273\340\322\000N'@\\r\036\031r\336\311,;C-d#\215LE0\332\325il\"\230[/FV5&B@\363\\\323\006`\314\030\001\316\265l\204j\224D\026\006\003\031!\203\026\030\323v?\001\345A\212\014\201\275O\004\332""\003F\274\223\323\177\365SY\271\206\224\235\275\210\271r\273H\005\272%$\211\303\032B\002\322J\345\213\210\252\350\304Y0\036\346/\370\273\222)\302\204\203\215#\204\360";
+    PyObject *data = __Pyx_DecompressString(cstring, 1486, 2);
     if (unlikely(!data)) __PYX_ERR(0, 1, __pyx_L1_error)
     const char* const bytes = __Pyx_PyBytes_AsString(data);
     #if !CYTHON_ASSUME_SAFE_MACROS
     if (likely(bytes)); else { Py_DECREF(data); __PYX_ERR(0, 1, __pyx_L1_error) }
     #endif
-    #elif (CYTHON_COMPRESS_STRINGS) != 0 /* compression: zlib (1376 bytes) */
-const char* const cstring = "x\332\225TMs\0237\030\216\251)N\342\020;!\244M\234D.\005\303t0\r\241\245\320\322\216\343\306\014-\311\330\201^\273(\273\262\275d-\255W\332\0203\323\226\243\217{\324q\217>\372\230c\216\034\367\270G\377\004~\002\257\326\237\t\231v\232QV\322\253W\357\307\363<\362\253o7\357o\3551J\366\230 H\324\261@\305\226\2503\212L\216\014b\231\007\304\301\202X-\304\205c\352\2028\312\211\242\362N\371\356\203\037\036 L\r\344\220\327D\027\034q\367@\2670\347\204#VE\007\256i\t\223\"\321\262\t\317\243gU\324b.\242\204\030H0d\203\337\344\005Q'\024q\"\324\002\3450\245L`a2\252\301u\223\326r\3100\035Hb\036\021u\273\204-N\362\177P\356\3326s\004\204\324\231K\305.3\010z5i\346\314ut\202\016M(\363\325/\33004\010L\252\330\264\372e`\313b:\364\207\310\261n\271p[\257;\254\3018k\020d3\223B\277\334\244G\3302\r\024\355`\211\270\371\226 \346\240\032\241\254a\352Pv\255A\250\2408*O\217J\341\350\000\353\207\004\322\366\223Q\267a\267\362\232\316\034\222o\270\000\014v\034\334B\343J\314\206*y\322\315m`Q\377\304\203;\372=\235QN(\320Q\2777\310\226\267[\307\333\205\335\322~\341\351\356\316\336\313\027\232Vn\035\303\377\257@\231\266G\216\305>4m\2315\252\n-C\\\314[T7Y\03621\027h\"\374\000;:\340W\000D\336<7\271(A\336\201\355)\370\330\273\330\216L@\253\361\214\032\000X?\265\246\327\211~X\230\014>:Q\323\350d\237\324\200\320\341Y\215\214O\212\n\364}Lk\344\242SHl\023c\237`\243\250\016/rQ\207\317\t\255\215S\303i\311\301\021/EbYgn\232|\242Z\220\225\261C\r\235(v#\366\007\201FB\320-\200G3A\212\016\326\211\242u\214\177~\020s$?\235\035\301\203\201F\\\301MP\240R?\211\320R\362*\216\202r\340\004\354\333\345*h\306v\314\006\251Z\270\266\323w\253Z\014\213\255\373\232Vu\251\256A\352*q\206\335\364\253\033j\361\005Hq\273\014\035i#\"!k\203\003\207\304\321\264\006\206\262\341{\374\014\nv\204\362V\033\241\3364p\301a\243\240\343\r\223*\224\341\241U\\\220\211h\201ax\360\2224l\013\236H?1Dc\206k\021\r\376(n\300L\355H\264\360\023\242n\224\211\263mR{\010\253\202\304f\266\2465!n\337\337\031q\245i\360\340\007Q`\005}cx\031\274nVE\2119o\260c\274\000""\310\251\361\335Vd\333'\000-'#[\364\264\177\207\227\315\005\206w\001?O\220G\020.\340[w\206r\201\237\202\010)\227\360\267\304a<\230\272\351Wz\213\327\302kK0z\361U\371\244s\245\323\354\306\302\370\335\340\356\317'8LL\303\370\360\371\324\345/e\2547=\023&\322A\372\233\316f\230\234kW\302$l\262~\0326\321\276\027O{i/\033\306g\333\217\274\242\327\014\246n\371\270\267\266~&n.\310\375x\362\3604{\272y6\307 \315\206\304\3034P\232\217\375\277\273\225.\016\307\221\267\332\270\335|\027\373pmj}#\\[\017\323\013\341\365e52k\341\312j\270\232\t\241\035\260\303vaQE\314\\\234\373Vp\353\321\311\362i\3544\035\306\263\376J\347a7\333\375\264$\030\275x\276\203?$\247.'\336\375\343\351rAnI\303\277\341W\302\304\325\366k\031\223\351^|\311{\t\366\357\375\005\177\313\327\203;\217N\026N \324\\{\277}\344U<\352\227:_u\n\252\226\331v^B\0353\355;\336cYQ\213\234\267\"\301w&\230\311\310\337|h4\345\315\313\346\3044\027\254A\376\216Z\007)\005\266\232owb\023\263wUF\027\223\262\020Y\001\2703\363\360\326p\316\371M(ff6B\371\206\277\351\027\374?\273\233\335\302\010\345\313\341\334\3250\271\024,\251\370\2514\014o\374\271\3565\245\262\366\022K\320\034\356%f\333O\344g\320\0040\221\212\242\365\200\246M\240(9uNS\0238G\265\235\327\030R-\257\311\312P\001 \237\201\320\346&Gd8#7%\212\277dQ6\375\330\273Xo\371\013\245\347\276\014\026\026A\033\377G\2007}\300A%\216G\340f$\264\223\r\262\367\373e\253\342\342W\202++2\007`&\226=.\263\320z\204\301%\231\355%\327%\355\224\300\367\311\351\245\323l\230\234\017\3467$\367\263a\352\272w\350\247a\221Ly\323rIbh5\225\221O\001\257\242\337\014n?>\311BQ\271\367\351\367\340\273\001\215Lw2J\371\2751\031\367@\004\003\022\316\215\001;cF\202\331U\220)V\311b\3362\274\334>F\301|\326_\004\266+\301\0244\367)?\027\360\361\237T\234c\001\036=\310\253\007Z\210(\370\327\360\031\2719\014\3775\240~&\374\231\300?)\230?\002\367\331\241\021";
-    PyObject *data = __Pyx_DecompressString(cstring, 1376, 1);
+    #elif (CYTHON_COMPRESS_STRINGS) != 0 /* compression: zlib (1384 bytes) */
+const char* const cstring = "x\332\225TMs\0237\030\216\251)\371p\210\235\020\322&N\"\227\202a:\230\206\320Rhi\3071IJK2\266\241\327.\312\256l/YK\353\2256\304\314\264\345\350\343\036u\334\243\217>\346\230#\307=\356\321?\201\237\300\253\365gB\246\235f\224\225\364Jz?\236\347y\375\352\333\215\373\233\373\214\222}&\010\0225,P\241)j\214\"\223#\203X\346\001q\260 V\023q\341\230\272 \216\272DQq\273x\367\301\017\017\020\246\006r\310k\242\013\216\270{\240[\230s\302\021\253\240\003\327\264\204I\221h\332\204\347\320\263\nj2\027QB\014$\030\262\341\336\370\003Q#\024q\"\324\002e1\245L`a2\252\301s\223V\263\3100\035\010b\036\021\365z\007[\234\344\376\240\334\265m\346\010p\2513\227\212=f\020\364j\334\314\231\353\350\004\035\232\220\346\253_\260ah\340\230T\260i\365\322\300\226\305t\250\017\221c\335r\341\265^sX\235qV'\310f&\205z\271I\217\260e\032(\332\301\022q\363-A\314AUBY\335\324!\355j\235PAq\224\236\036\245\302\321\001\326\017\t\204\355\005\243n\335n\3464\2359$Ww\001\030\3548\270\211F\231\230u\225\362\3705\267\216E\355\223\033\334\321\357\351\214rB\201\216\332\275~\264\234\335<\336\312\357mm?\335-\347\213\277\356\224\363\273{\333\373/_hZ\261y\014\377O\201:m\237\034\2132\024o\231U\252\022.\202\177\314\233T7Y\016\"2\027\350\"\374\000;:\340\230\007d\336<7\271\330\201\370}\333.\334\261\367\260\035\231\200^\343\0315\000\270^\n\232^#\372a~\334\371\360DM\303\2232\251\002\261\203\263*\031\235\024\024\370eL\253\344\242S\010l\023\243L\260QP\207\027]Q\207\317\t\255\216B\303\351\216\203#~\n\304\262\316\2744\371X\266 /c\233\032:Q,G*\350;\032\nB\267\000\036\315\004I:X'\212\336\021\017\271\276\317\241\014uv\004\215\003\205\270\202\233\240D\325\005$BK\311\2540t\312\201\023\260o\025+\240\035\3331\353\244b\341\352v\357Z\305bXl\336\327\264\212Ku\rBW\2103\250\246\227\335@\223/@\222[E\250H\033\022\tQ\353\0348$\216\246\3251\244\r\337\343g\220\260#\324m\265\021\252\267\201\013\016\033\005\035\257\233T\241\014\rWrA&\242\t\206\301\301KR\267-h\225^`\360\306\014\327\"\032\374Q\\\207\231\332\221x\341\247D\275(\022g\313\244\366\000V\005\211""\315lMk\200\337\336}g\310\225\246A\343\367\275\300\n\352\306\320!\274fV\304\016s\336`\307x\001\220S\343\273\315\310V&\000-'C[\324\342\277C\207s\201\241?\340g\n\342\010\302\005|k\316@.\360\223\020!\345\022\376\2268\214\007\0237\375Rw\341Zxm\021F7\276\"\237\264\257\264\033\235X\030\277\033\334\375\371\004\207\223S0>|>q\371K\031\353NM\207\223\251 \365M{#L\314\266Ja\0026\031?\005\233h\337\215\247\274\224\227\t\3433\255G^\301k\004\023\267|\334]];\3437\033d\177<yx\2329\3358\033\243\037f]\342A\030H\315\307\376\337\235R\007\207#\317\233-\334j\274\213}\2706\261\266\036\256\256\205\251\371\360\372\222\032\351\325py%\\I\207P\016\330a;\277\240<\246/\216}+\270\365\350d\3514v\232\n\343\031\177\271\375\260\223\351|\232\022\214n<\327\306\037\022\023\227'\337\375\343\351r^nJ\303\277\341\227\302\311\253\255\3272&S\335\370\242\367\022\354\337\373\363\376\246\257\007w\036\235\314\237\200\253\331V\271u\344\225<\352\357\264\277j\347U.3\255\234\204<\246[w\274\307\262\244\026YoY\302\335\351`:-\177\363\241\320\2447'\033c\323l\260\n\361\333j\035$\025\330j\276\335\216\215\315\336U\031=L\310|d\005\340\316\314\203W\2039\3537 \231\351\231\010\345\033\376\206\237\367\377\354lt\362C\224/\207\263W\303\304b\260\250\374'S0\274\321\347\272\327\220\312\332\235\\\204\342pwr\246\365D~\006E\000\023\311\310[\027h\332\000\212\022\023\34745\206s\224\333y\215!U\362\252,\r\024\000\362\351\013mv|D\2063rS\242\370K\026d\303\217\275\213u\227\276Pz\356\311`~\001\264\361\177\004x\323\007\034T\340x\004nZB9\231 s\277\227\266J.~%\270\262,\263\000\346\344\222\307e\006J\2170\270$3\335\304\232\244\355\035\270\373\344\364\322i&L\314\005s\353\222\373\2310y\335;\364S\260H$\275)\271(1\224\232L\313]\300\253\3407\202\333\217O2\220T\366}\352=\334]\207B\246\332i\245\374\356\210\214{ \202>\t\347F\237\235\021#\301\314\n\310\024\253`1o\t:\267\207Q0\227\361\027\200\355R0\001\305}\312\317\005|\374'\025\347X\200\246\007yuA\013\021\005\377\352>-7\006\356\277\006\324\317\270?\343\370'\005\363G\351\006\243N";
+    PyObject *data = __Pyx_DecompressString(cstring, 1384, 1);
     if (unlikely(!data)) __PYX_ERR(0, 1, __pyx_L1_error)
     const char* const bytes = __Pyx_PyBytes_AsString(data);
     #if !CYTHON_ASSUME_SAFE_MACROS
     if (likely(bytes)); else { Py_DECREF(data); __PYX_ERR(0, 1, __pyx_L1_error) }
     #endif
-    #else /* compression: none (2461 bytes) */
-const char* const bytes = "`0123NoneNote that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.Unsupported countMode `Unsupported source kind `?add_notefailed to allocate exclude chromosome pointersinvalid interval size or genomic segmentnative ccounts backend failednumpy._core.multiarray failed to importnumpy._core.umath failed to importsrc/consenrich/ccounts.pyxBAMFRAGMENTS__Pyx_PyDict_NextRefalignmentPathasyncio.coroutinesbarcodeAllowListFilebarcodeGroupMapFilebuildIndexccounts_checkAlignmentPathccounts_countAlignmentRegionccounts_getAlignmentChromRangeccounts_getAlignmentMappedReadCountccounts_getAlignmentReadLengthccounts_getFragmentCellCountccounts_isAlignmentPairedEndcenterchromLengthchromosomecline_in_tracebackconsenrich.ccountscountModecoveragecutsitedtypeendexcludeChromosomesextendBPfiveprimeflagExcludefloat32__func__inferFragmentLengthintervalSizeBP_is_coroutineitemslower__main__maxInsertSizemaxIterationsmaxReadsminMappingQualityminReadsminTemplateLength__module____name__npnumpyoneReadPerBinpairedEndModepop__qualname__readLength__set_name__setdefaultshiftForwardStrand53shiftReverseStrand53sourceKindstartstrip__test__threadCountuppervalueszeros\320\000%\240Q\340\023\024\330\024\025\330\024\025\340\004\033\230=\250\007\250q\260\001\330\004-\320->\270a\330\010\t\330\010\t\360\006\000\005\031\230\001\340\t\n\330\010\021\320\021+\2501\330\014\r\210Q\330\014\021\320\021!\240\021\330\014\r\330\014\r\210Q\340\004\021\220\021\220!\330\004\013\2109\220C\220q\320\000&\240a\340\035\036\340\004\033\230=\250\007\250q\260\001\330\004'\320';\2707\300!\3001\330\004-\320->\270a\330\010\t\330\010\t\330\010\t\360\006\000\005\037\230a\340\t\n\330\010\021\320\021%\240Q\240a\240~\260Q\260a\330\004\021\220\021\220!\330\004\013\2103\210a\210q\200\001\360\024\000\036\037\330\035\036\330\021\022\330\026\027\330\026\027\330\034\035\330\032\033\330\033\034\330\023\024\330\035\036\330\034\035""\330\022\023\360\006\000\005\034\230=\250\007\250q\260\001\330\004'\320';\2707\300!\3001\330\004&\320&9\270\027\300\001\300\021\330\004!\240\032\2507\260!\2601\330\004-\320->\270a\330\010\t\330\010\t\330\010\t\330\010\t\340\004.\250a\360\014\000\005\010\200\177\220c\230\022\2303\230d\240#\240Q\330\010\016\210j\230\001\230\021\340\004\025\220T\230\022\2306\240\022\2403\240c\320)9\270\022\2701\330\004\r\210R\210v\220Q\220n\240F\250\"\250A\360\006\000\005\013\210.\230\001\330\004\n\210)\220:\230Q\330\004\n\210'\220\032\2301\330\004\n\320\n\034\230J\240a\330\004\020\220\017\230q\330\004\020\220\017\230q\330\004\020\220\r\320\035.\250a\250q\330\004\020\320\020!\240\021\330\004\020\320\020(\250\001\330\004\020\320\020(\250\001\330\004\020\220\016\230a\330\004\020\220\014\230A\330\004\020\320\020%\240Q\330\004\020\320\020%\240Q\330\004\020\320\020!\240\021\330\004\020\320\020!\240\021\330\004\020\320\020'\240q\360\006\000\n\013\330\010\021\320\021#\2401\240A\240^\2601\260A\330\004\021\220\021\220!\330\004\005\330\r\016\330\014\025\320\025(\250\001\330\020\021\330\020\021\220\021\330\020\021\220\021\330\020\021\220\026\220q\230\001\330\020\021\340\010\025\220Q\220a\340\010\013\210=\230\003\2301\330\021\022\330\020#\2401\240A\340\004\013\2101\200\001\360\014\000\024\025\340\004\033\230=\250\007\250q\260\001\330\004!\240\032\2507\260!\2601\330\004%\240Q\330\004-\320->\270a\330\010\t\330\010\t\360\006\000\005 \230q\330\004\035\230Q\340\t\n\330\010\021\320\021&\240a\330\014\r\210Q\330\014\r\330\014\r\330\014\r\330\014\r\330\014\r\210Q\330\014\r\210Q\340\004\021\220\021\220!\330\004\013\2103\210a\210}\230C\230q\240\001\200\001\340\027\030\330\024\025\330\023\024\330\035\036\330\022\023\330\026\027\340\004\033\230=\250\007\250q\260\001\330\004'\320';\2707\300!\3001\330\004-\320->\270a\330\010\t\330\010\t\330\010\t\360\006\000\005%\240A\330\004&\240a\330\004(\250\001\330\004\034\230A\340\004!\320!2\260!\2601\330\004\035\230Q\340\004\007\320\007\032\230'\240\021\330\010\027\220s""\230!\2301\330\010\013\210=\230\002\230!\340\014\036\230n\250F\260!\260=\300\002\300!\330\014\017\320\017\037\230s\240!\330\020\026\220k\240\021\240!\330\014\020\220\t\230\025\230a\230q\330\020\034\230G\2401\240C\240q\320(:\270!\2707\300'\310\021\310!\330\020\037\230q\240\t\250\034\260Q\260a\340\004\005\330\r\016\330\014\025\320\025/\250q\330\020\021\220\021\330\020\021\330\020\021\330\020\021\330\020\021\330\020\021\330\020\021\220\021\330\020\021\220\021\340\010\025\220Q\220a\340\010\013\320\013\033\2303\230a\330\014\020\220\001\220\027\230\001\340\004\013\2103\210a\320\017!\240\023\240A\240Q\320\000(\250\001\360\014\000\024\025\340\004\033\230=\250\007\250q\260\001\330\004-\320->\270a\330\010\t\330\010\t\360\006\000\005 \230q\340\t\n\330\010\021\320\021&\240a\330\014\r\210Q\330\014\r\330\014\r\330\014\r\330\014\r\330\014\r\210Q\340\004\021\220\021\220!\330\004\013\2103\210a\210q\320\000'\240q\340\021\022\330\024\025\330\023\024\340\004\033\230=\250\007\250q\260\001\330\004-\320->\270a\330\010\t\330\010\t\360\006\000\005\034\2301\340\t\n\330\010\021\320\021$\240A\330\014\r\210Q\330\014\r\330\014\r\330\014\r\210Q\340\004\021\220\021\220!\330\004\013\210<\220s\230!";
+    #else /* compression: none (2469 bytes) */
+const char* const bytes = "`0123NoneNote that Cython is deliberately stricter than PEP-484 and rejects subclasses of builtin types. If you need to pass subclasses then set the 'annotation_typing' directive to False.Unsupported countMode `Unsupported source kind `?add_notefailed to allocate exclude chromosome pointersinvalid interval size or genomic segmentnative ccounts backend failednumpy._core.multiarray failed to importnumpy._core.umath failed to importsrc/consenrich/ccounts.pyxBAMBEDGRAPHFRAGMENTS__Pyx_PyDict_NextRefalignmentPathasyncio.coroutinesbarcodeAllowListFilebarcodeGroupMapFilebuildIndexccounts_checkAlignmentPathccounts_countAlignmentRegionccounts_getAlignmentChromRangeccounts_getAlignmentMappedReadCountccounts_getAlignmentReadLengthccounts_getFragmentCellCountccounts_isAlignmentPairedEndcenterchromLengthchromosomecline_in_tracebackconsenrich.ccountscountModecoveragecutsitedtypeendexcludeChromosomesextendBPfiveprimeflagExcludefloat32__func__inferFragmentLengthintervalSizeBP_is_coroutineitemslower__main__maxInsertSizemaxIterationsmaxReadsminMappingQualityminReadsminTemplateLength__module____name__npnumpyoneReadPerBinpairedEndModepop__qualname__readLength__set_name__setdefaultshiftForwardStrand53shiftReverseStrand53sourceKindstartstrip__test__threadCountuppervalueszeros\320\000%\240Q\340\023\024\330\024\025\330\024\025\340\004\033\230=\250\007\250q\260\001\330\004-\320->\270a\330\010\t\330\010\t\360\006\000\005\031\230\001\340\t\n\330\010\021\320\021+\2501\330\014\r\210Q\330\014\021\320\021!\240\021\330\014\r\330\014\r\210Q\340\004\021\220\021\220!\330\004\013\2109\220C\220q\320\000&\240a\340\035\036\340\004\033\230=\250\007\250q\260\001\330\004'\320';\2707\300!\3001\330\004-\320->\270a\330\010\t\330\010\t\330\010\t\360\006\000\005\037\230a\340\t\n\330\010\021\320\021%\240Q\240a\240~\260Q\260a\330\004\021\220\021\220!\330\004\013\2103\210a\210q\200\001\360\024\000\036\037\330\035\036\330\021\022\330\026\027\330\026\027\330\034\035\330\032\033\330\033\034\330\023\024\330\035\036\330""\034\035\330\022\023\360\006\000\005\034\230=\250\007\250q\260\001\330\004'\320';\2707\300!\3001\330\004&\320&9\270\027\300\001\300\021\330\004!\240\032\2507\260!\2601\330\004-\320->\270a\330\010\t\330\010\t\330\010\t\330\010\t\340\004.\250a\360\014\000\005\010\200\177\220c\230\022\2303\230d\240#\240Q\330\010\016\210j\230\001\230\021\340\004\025\220T\230\022\2306\240\022\2403\240c\320)9\270\022\2701\330\004\r\210R\210v\220Q\220n\240F\250\"\250A\360\006\000\005\013\210.\230\001\330\004\n\210)\220:\230Q\330\004\n\210'\220\032\2301\330\004\n\320\n\034\230J\240a\330\004\020\220\017\230q\330\004\020\220\017\230q\330\004\020\220\r\320\035.\250a\250q\330\004\020\320\020!\240\021\330\004\020\320\020(\250\001\330\004\020\320\020(\250\001\330\004\020\220\016\230a\330\004\020\220\014\230A\330\004\020\320\020%\240Q\330\004\020\320\020%\240Q\330\004\020\320\020!\240\021\330\004\020\320\020!\240\021\330\004\020\320\020'\240q\360\006\000\n\013\330\010\021\320\021#\2401\240A\240^\2601\260A\330\004\021\220\021\220!\330\004\005\330\r\016\330\014\025\320\025(\250\001\330\020\021\330\020\021\220\021\330\020\021\220\021\330\020\021\220\026\220q\230\001\330\020\021\340\010\025\220Q\220a\340\010\013\210=\230\003\2301\330\021\022\330\020#\2401\240A\340\004\013\2101\200\001\360\014\000\024\025\340\004\033\230=\250\007\250q\260\001\330\004!\240\032\2507\260!\2601\330\004%\240Q\330\004-\320->\270a\330\010\t\330\010\t\360\006\000\005 \230q\330\004\035\230Q\340\t\n\330\010\021\320\021&\240a\330\014\r\210Q\330\014\r\330\014\r\330\014\r\330\014\r\330\014\r\210Q\330\014\r\210Q\340\004\021\220\021\220!\330\004\013\2103\210a\210}\230C\230q\240\001\200\001\340\027\030\330\024\025\330\023\024\330\035\036\330\022\023\330\026\027\340\004\033\230=\250\007\250q\260\001\330\004'\320';\2707\300!\3001\330\004-\320->\270a\330\010\t\330\010\t\330\010\t\360\006\000\005%\240A\330\004&\240a\330\004(\250\001\330\004\034\230A\340\004!\320!2\260!\2601\330\004\035\230Q\340\004\007\320\007\032\230'\240\021\330\010""\027\220s\230!\2301\330\010\013\210=\230\002\230!\340\014\036\230n\250F\260!\260=\300\002\300!\330\014\017\320\017\037\230s\240!\330\020\026\220k\240\021\240!\330\014\020\220\t\230\025\230a\230q\330\020\034\230G\2401\240C\240q\320(:\270!\2707\300'\310\021\310!\330\020\037\230q\240\t\250\034\260Q\260a\340\004\005\330\r\016\330\014\025\320\025/\250q\330\020\021\220\021\330\020\021\330\020\021\330\020\021\330\020\021\330\020\021\330\020\021\220\021\330\020\021\220\021\340\010\025\220Q\220a\340\010\013\320\013\033\2303\230a\330\014\020\220\001\220\027\230\001\340\004\013\2103\210a\320\017!\240\023\240A\240Q\320\000(\250\001\360\014\000\024\025\340\004\033\230=\250\007\250q\260\001\330\004-\320->\270a\330\010\t\330\010\t\360\006\000\005 \230q\340\t\n\330\010\021\320\021&\240a\330\014\r\210Q\330\014\r\330\014\r\330\014\r\330\014\r\330\014\r\210Q\340\004\021\220\021\220!\330\004\013\2103\210a\210q\320\000'\240q\340\021\022\330\024\025\330\023\024\340\004\033\230=\250\007\250q\260\001\330\004-\320->\270a\330\010\t\330\010\t\360\006\000\005\034\2301\340\t\n\330\010\021\320\021$\240A\330\014\r\210Q\330\014\r\330\014\r\330\014\r\210Q\340\004\021\220\021\220!\330\004\013\210<\220s\230!";
     PyObject *data = NULL;
     CYTHON_UNUSED_VAR(__Pyx_DecompressString);
     #endif
     PyObject **stringtab = __pyx_mstate->__pyx_string_tab;
     Py_ssize_t pos = 0;
-    for (int i = 0; i < 82; i++) {
+    for (int i = 0; i < 83; i++) {
       Py_ssize_t bytes_length = index[i].length;
       PyObject *string = PyUnicode_DecodeUTF8(bytes + pos, bytes_length, NULL);
       if (likely(string) && i >= 18) PyUnicode_InternInPlace(&string);
@@ -10348,7 +10378,7 @@ const char* const bytes = "`0123NoneNote that Cython is deliberately stricter th
       stringtab[i] = string;
       pos += bytes_length;
     }
-    for (int i = 82; i < 90; i++) {
+    for (int i = 83; i < 91; i++) {
       Py_ssize_t bytes_length = index[i].length;
       PyObject *string = PyBytes_FromStringAndSize(bytes + pos, bytes_length);
       stringtab[i] = string;
@@ -10359,14 +10389,14 @@ const char* const bytes = "`0123NoneNote that Cython is deliberately stricter th
       }
     }
     Py_XDECREF(data);
-    for (Py_ssize_t i = 0; i < 90; i++) {
+    for (Py_ssize_t i = 0; i < 91; i++) {
       if (unlikely(PyObject_Hash(stringtab[i]) == -1)) {
         __PYX_ERR(0, 1, __pyx_L1_error)
       }
     }
     #if CYTHON_IMMORTAL_CONSTANTS
     {
-      PyObject **table = stringtab + 82;
+      PyObject **table = stringtab + 83;
       for (Py_ssize_t i=0; i<8; ++i) {
         #if CYTHON_COMPILING_IN_CPYTHON_FREETHREADING
         #if PY_VERSION_HEX < 0x030E0000
@@ -10440,37 +10470,37 @@ static int __Pyx_CreateCodeObjects(__pyx_mstatetype *__pyx_mstate) {
   PyObject* tuple_dedup_map = PyDict_New();
   if (unlikely(!tuple_dedup_map)) return -1;
   {
-    const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 177};
+    const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 180};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_alignmentPath, __pyx_mstate->__pyx_n_u_sourceKind, __pyx_mstate->__pyx_n_u_buildIndex, __pyx_mstate->__pyx_n_u_threadCount};
     __pyx_mstate_global->__pyx_codeobj_tab[0] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_ccounts_pyx, __pyx_mstate->__pyx_n_u_ccounts_checkAlignmentPath, __pyx_mstate->__pyx_kp_b_iso88591_Q_q_a_1_Q_Q_9Cq, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[0])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 202};
+    const __Pyx_PyCode_New_function_description descr = {4, 0, 0, 4, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 205};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_alignmentPath, __pyx_mstate->__pyx_n_u_maxReads, __pyx_mstate->__pyx_n_u_threadCount, __pyx_mstate->__pyx_n_u_sourceKind};
     __pyx_mstate_global->__pyx_codeobj_tab[1] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_ccounts_pyx, __pyx_mstate->__pyx_n_u_ccounts_isAlignmentPairedEnd, __pyx_mstate->__pyx_kp_b_iso88591_q_q_a_1_A_Q_Q_s, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[1])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {6, 0, 0, 6, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 227};
+    const __Pyx_PyCode_New_function_description descr = {6, 0, 0, 6, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 230};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_alignmentPath, __pyx_mstate->__pyx_n_u_minReads, __pyx_mstate->__pyx_n_u_threadCount, __pyx_mstate->__pyx_n_u_maxIterations, __pyx_mstate->__pyx_n_u_flagExclude, __pyx_mstate->__pyx_n_u_sourceKind};
     __pyx_mstate_global->__pyx_codeobj_tab[2] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_ccounts_pyx, __pyx_mstate->__pyx_n_u_ccounts_getAlignmentReadLength, __pyx_mstate->__pyx_kp_b_iso88591_q_a_q_a_Q_Q_3aq, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[2])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {6, 0, 0, 6, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 256};
+    const __Pyx_PyCode_New_function_description descr = {6, 0, 0, 6, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 259};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_alignmentPath, __pyx_mstate->__pyx_n_u_chromosome, __pyx_mstate->__pyx_n_u_chromLength, __pyx_mstate->__pyx_n_u_threadCount, __pyx_mstate->__pyx_n_u_flagExclude, __pyx_mstate->__pyx_n_u_sourceKind};
     __pyx_mstate_global->__pyx_codeobj_tab[3] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_ccounts_pyx, __pyx_mstate->__pyx_n_u_ccounts_getAlignmentChromRange, __pyx_mstate->__pyx_kp_b_iso88591_q_7_1_Q_a_q_Q_a_Q_Q_Q_3a_Cq, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[3])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {7, 0, 0, 7, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 289};
+    const __Pyx_PyCode_New_function_description descr = {7, 0, 0, 7, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 292};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_alignmentPath, __pyx_mstate->__pyx_n_u_excludeChromosomes, __pyx_mstate->__pyx_n_u_threadCount, __pyx_mstate->__pyx_n_u_sourceKind, __pyx_mstate->__pyx_n_u_barcodeAllowListFile, __pyx_mstate->__pyx_n_u_countMode, __pyx_mstate->__pyx_n_u_oneReadPerBin};
     __pyx_mstate_global->__pyx_codeobj_tab[4] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_ccounts_pyx, __pyx_mstate->__pyx_n_u_ccounts_getAlignmentMappedReadCo, __pyx_mstate->__pyx_kp_b_iso88591_q_7_1_a_A_a_A_2_1_Q_s_1_nF_s_k, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[4])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 345};
+    const __Pyx_PyCode_New_function_description descr = {2, 0, 0, 2, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 348};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_alignmentPath, __pyx_mstate->__pyx_n_u_barcodeAllowListFile};
     __pyx_mstate_global->__pyx_codeobj_tab[5] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_ccounts_pyx, __pyx_mstate->__pyx_n_u_ccounts_getFragmentCellCount, __pyx_mstate->__pyx_kp_b_iso88591_a_q_7_1_a_a_Qa_Qa_3aq, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[5])) goto bad;
   }
   {
-    const __Pyx_PyCode_New_function_description descr = {21, 0, 0, 21, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 365};
+    const __Pyx_PyCode_New_function_description descr = {21, 0, 0, 21, (unsigned int)(CO_OPTIMIZED|CO_NEWLOCALS), 368};
     PyObject* const varnames[] = {__pyx_mstate->__pyx_n_u_alignmentPath, __pyx_mstate->__pyx_n_u_chromosome, __pyx_mstate->__pyx_n_u_start, __pyx_mstate->__pyx_n_u_end, __pyx_mstate->__pyx_n_u_intervalSizeBP, __pyx_mstate->__pyx_n_u_readLength, __pyx_mstate->__pyx_n_u_oneReadPerBin, __pyx_mstate->__pyx_n_u_threadCount, __pyx_mstate->__pyx_n_u_flagExclude, __pyx_mstate->__pyx_n_u_shiftForwardStrand53, __pyx_mstate->__pyx_n_u_shiftReverseStrand53, __pyx_mstate->__pyx_n_u_extendBP, __pyx_mstate->__pyx_n_u_maxInsertSize, __pyx_mstate->__pyx_n_u_pairedEndMode, __pyx_mstate->__pyx_n_u_inferFragmentLength, __pyx_mstate->__pyx_n_u_minMappingQuality, __pyx_mstate->__pyx_n_u_minTemplateLength, __pyx_mstate->__pyx_n_u_sourceKind, __pyx_mstate->__pyx_n_u_barcodeAllowListFile, __pyx_mstate->__pyx_n_u_barcodeGroupMapFile, __pyx_mstate->__pyx_n_u_countMode};
     __pyx_mstate_global->__pyx_codeobj_tab[6] = __Pyx_PyCode_New(descr, varnames, __pyx_mstate->__pyx_kp_u_src_consenrich_ccounts_pyx, __pyx_mstate->__pyx_n_u_ccounts_countAlignmentRegion, __pyx_mstate->__pyx_kp_b_iso88591_q_7_1_9_7_1_a_a_c_3d_Q_j_T_6_3c, tuple_dedup_map); if (unlikely(!__pyx_mstate_global->__pyx_codeobj_tab[6])) goto bad;
   }
@@ -10485,12 +10515,12 @@ static int __Pyx_CreateCodeObjects(__pyx_mstatetype *__pyx_mstate) {
 static int __Pyx_InitGlobals(void) {
   /* PythonCompatibility.init */
   if (likely(__Pyx_init_co_variables() == 0)); else
-  
+
   if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 1, __pyx_L1_error)
 
   /* CommonTypesMetaclass.init */
   if (likely(__pyx_CommonTypesMetaclass_init(__pyx_m) == 0)); else
-  
+
   if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 1, __pyx_L1_error)
 
   /* CachedMethodType.init */
@@ -10504,12 +10534,12 @@ static int __Pyx_InitGlobals(void) {
       }
   } // error handling follows
   #endif
-  
+
   if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 1, __pyx_L1_error)
 
   /* CythonFunctionShared.init */
   if (likely(__pyx_CyFunction_init(__pyx_m) == 0)); else
-  
+
   if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 1, __pyx_L1_error)
 
   return 0;
@@ -13023,13 +13053,13 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
     __Pyx_SafeReleaseBuffer(buf);
     return -1;
   }
-  
+
 /* BufferFallbackError */
   static void __Pyx_RaiseBufferFallbackError(void) {
     PyErr_SetString(PyExc_ValueError,
        "Buffer acquisition failed on assignment; and then reacquiring the old buffer failed too!");
   }
-  
+
 /* TypeImport */
   #ifndef __PYX_HAVE_RT_ImportType_3_2_4
   #define __PYX_HAVE_RT_ImportType_3_2_4
@@ -13112,7 +13142,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       return NULL;
   }
   #endif
-  
+
 /* HasAttr (used by ImportImpl) */
   #if __PYX_LIMITED_VERSION_HEX < 0x030d0000
   static CYTHON_INLINE int __Pyx_HasAttr(PyObject *o, PyObject *n) {
@@ -13131,7 +13161,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       }
   }
   #endif
-  
+
 /* ImportImpl (used by Import) */
   static int __Pyx__Import_GetModule(PyObject *qualname, PyObject **module) {
       PyObject *imported_module = PyImport_GetModule(qualname);
@@ -13245,12 +13275,12 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       Py_XDECREF(empty_dict);
       return module;
   }
-  
+
 /* Import */
   static PyObject *__Pyx_Import(PyObject *name, PyObject *const *imported_names, Py_ssize_t len_imported_names, PyObject *qualname, int level) {
       return __Pyx__Import(name, imported_names, len_imported_names, qualname, __pyx_mstate_global->__pyx_d, level);
   }
-  
+
 /* dict_setdefault (used by FetchCommonType) */
   static CYTHON_INLINE PyObject *__Pyx_PyDict_SetDefault(PyObject *d, PyObject *key, PyObject *default_value) {
       PyObject* value;
@@ -13268,7 +13298,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   #endif
       return value;
   }
-  
+
 /* LimitedApiGetTypeDict (used by SetItemOnTypeDict) */
   #if CYTHON_COMPILING_IN_LIMITED_API
   static Py_ssize_t __Pyx_GetTypeDictOffset(void) {
@@ -13304,7 +13334,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       return *(PyObject**)((char*)tp + tp_dictoffset);
   }
   #endif
-  
+
 /* SetItemOnTypeDict (used by FixUpExtensionType) */
   static int __Pyx__SetItemOnTypeDict(PyTypeObject *tp, PyObject *k, PyObject *v) {
       int result;
@@ -13326,7 +13356,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       }
       return result;
   }
-  
+
 /* FixUpExtensionType (used by FetchCommonType) */
   static int __Pyx_fix_up_extension_type_from_spec(PyType_Spec *spec, PyTypeObject *type) {
   #if __PYX_LIMITED_VERSION_HEX > 0x030900B1
@@ -13427,7 +13457,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   #endif  // PY_VERSION_HEX > 0x030900B1
       return 0;
   }
-  
+
 /* AddModuleRef (used by FetchSharedCythonModule) */
   #if CYTHON_COMPILING_IN_CPYTHON_FREETHREADING
     static PyObject *__Pyx_PyImport_AddModuleObjectRef(PyObject *name) {
@@ -13472,12 +13502,12 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
         return module;
     }
   #endif
-  
+
 /* FetchSharedCythonModule (used by FetchCommonType) */
   static PyObject *__Pyx_FetchSharedCythonABIModule(void) {
       return __Pyx_PyImport_AddModuleRef(__PYX_ABI_MODULE_NAME);
   }
-  
+
 /* FetchCommonType (used by CommonTypesMetaclass) */
   #if __PYX_LIMITED_VERSION_HEX < 0x030C0000
   static PyObject* __Pyx_PyType_FromMetaclass(PyTypeObject *metaclass, PyObject *module, PyType_Spec *spec, PyObject *bases) {
@@ -13582,7 +13612,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       cached_type = NULL;
       goto done;
   }
-  
+
 /* CommonTypesMetaclass (used by CythonFunctionShared) */
   static PyObject* __pyx_CommonTypesMetaclass_get_module(CYTHON_UNUSED PyObject *self, CYTHON_UNUSED void* context) {
       return PyUnicode_FromString(__PYX_ABI_MODULE_NAME);
@@ -13632,7 +13662,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       }
       return 0;
   }
-  
+
 /* CallTypeTraverse (used by CythonFunctionShared) */
   #if !CYTHON_USE_TYPE_SPECS || (!CYTHON_COMPILING_IN_LIMITED_API && PY_VERSION_HEX < 0x03090000)
   #else
@@ -13651,7 +13681,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       return 0;
   }
   #endif
-  
+
 /* PyMethodNew (used by CythonFunctionShared) */
   #if CYTHON_COMPILING_IN_LIMITED_API
   static PyObject *__Pyx_PyMethod_New(PyObject *func, PyObject *self, PyObject *typ) {
@@ -13677,7 +13707,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       return PyMethod_New(func, self);
   }
   #endif
-  
+
 /* PyVectorcallFastCallDict (used by CythonFunctionShared) */
   #if CYTHON_METH_FASTCALL && CYTHON_VECTORCALL
   static PyObject *__Pyx_PyVectorcall_FastCallDict_kw(PyObject *func, __pyx_vectorcallfunc vc, PyObject *const *args, size_t nargs, PyObject *kw)
@@ -13767,7 +13797,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       return __Pyx_PyVectorcall_FastCallDict_kw(func, vc, args, nargs, kw);
   }
   #endif
-  
+
 /* CythonFunctionShared (used by CythonFunction) */
   #if CYTHON_COMPILING_IN_LIMITED_API
   static CYTHON_INLINE int __Pyx__IsSameCyOrCFunctionNoMethod(PyObject *func, void (*cfunc)(void)) {
@@ -14776,7 +14806,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       m->func_annotations = dict;
       Py_INCREF(dict);
   }
-  
+
 /* CythonFunction */
   static PyObject *__Pyx_CyFunction_New(PyMethodDef *ml, int flags, PyObject* qualname,
                                         PyObject *closure, PyObject *module, PyObject* globals, PyObject* code) {
@@ -14789,7 +14819,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       }
       return op;
   }
-  
+
 /* CLineInTraceback (used by AddTraceback) */
   #if CYTHON_CLINE_IN_TRACEBACK && CYTHON_CLINE_IN_TRACEBACK_RUNTIME
   #if CYTHON_COMPILING_IN_LIMITED_API && __PYX_LIMITED_VERSION_HEX < 0x030A0000
@@ -14826,7 +14856,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       return c_line;
   }
   #endif
-  
+
 /* CodeObjectCache (used by AddTraceback) */
   static int __pyx_bisect_code_objects(__Pyx_CodeObjectCacheEntry* entries, int count, int code_line) {
       int start = 0, mid = 0, end = count - 1;
@@ -14946,7 +14976,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   #endif
   #endif
   }
-  
+
 /* AddTraceback */
   #include "compile.h"
   #include "frameobject.h"
@@ -15083,7 +15113,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       Py_XDECREF(py_frame);
   }
   #endif
-  
+
 /* CIntFromPyVerify */
   #define __PYX_VERIFY_RETURN_INT(target_type, func_type, func_value)\
       __PYX__VERIFY_RETURN_INT(target_type, func_type, func_value, 0)
@@ -15105,7 +15135,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           }\
           return (target_type) value;\
       }
-  
+
 /* Declarations */
   #if CYTHON_CCOMPLEX && (1) && (!0 || __cplusplus)
     #ifdef __cplusplus
@@ -15125,7 +15155,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
         return z;
       }
   #endif
-  
+
 /* Arithmetic */
   #if CYTHON_CCOMPLEX && (1) && (!0 || __cplusplus)
   #else
@@ -15259,7 +15289,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           }
       #endif
   #endif
-  
+
 /* Declarations */
   #if CYTHON_CCOMPLEX && (1) && (!0 || __cplusplus)
     #ifdef __cplusplus
@@ -15279,7 +15309,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
         return z;
       }
   #endif
-  
+
 /* Arithmetic */
   #if CYTHON_CCOMPLEX && (1) && (!0 || __cplusplus)
   #else
@@ -15413,7 +15443,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           }
       #endif
   #endif
-  
+
 /* Declarations */
   #if CYTHON_CCOMPLEX && (1) && (!0 || __cplusplus)
     #ifdef __cplusplus
@@ -15433,7 +15463,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
         return z;
       }
   #endif
-  
+
 /* Arithmetic */
   #if CYTHON_CCOMPLEX && (1) && (!0 || __cplusplus)
   #else
@@ -15567,7 +15597,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           }
       #endif
   #endif
-  
+
 /* CIntFromPy */
   static CYTHON_INLINE int __Pyx_PyLong_As_int(PyObject *x) {
   #ifdef __Pyx_HAS_GCC_DIAGNOSTIC
@@ -15817,7 +15847,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           "can't convert negative value to int");
       return (int) -1;
   }
-  
+
 /* CIntFromPy */
   static CYTHON_INLINE unsigned PY_LONG_LONG __Pyx_PyLong_As_unsigned_PY_LONG_LONG(PyObject *x) {
   #ifdef __Pyx_HAS_GCC_DIAGNOSTIC
@@ -16067,7 +16097,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           "can't convert negative value to unsigned PY_LONG_LONG");
       return (unsigned PY_LONG_LONG) -1;
   }
-  
+
 /* CIntToPy */
   static CYTHON_INLINE PyObject* __Pyx_PyLong_From_uint32_t(uint32_t value) {
   #ifdef __Pyx_HAS_GCC_DIAGNOSTIC
@@ -16136,7 +16166,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   #endif
       }
   }
-  
+
 /* CIntToPy */
   static CYTHON_INLINE PyObject* __Pyx_PyLong_From_int(int value) {
   #ifdef __Pyx_HAS_GCC_DIAGNOSTIC
@@ -16205,7 +16235,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   #endif
       }
   }
-  
+
 /* CIntToPy */
   static CYTHON_INLINE PyObject* __Pyx_PyLong_From_uint64_t(uint64_t value) {
   #ifdef __Pyx_HAS_GCC_DIAGNOSTIC
@@ -16274,7 +16304,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   #endif
       }
   }
-  
+
 /* FormatTypeName */
   #if CYTHON_COMPILING_IN_LIMITED_API && __PYX_LIMITED_VERSION_HEX < 0x030d0000
   static __Pyx_TypeName
@@ -16313,7 +16343,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       goto done;
   }
   #endif
-  
+
 /* CIntToPy */
   static CYTHON_INLINE PyObject* __Pyx_PyLong_From_long(long value) {
   #ifdef __Pyx_HAS_GCC_DIAGNOSTIC
@@ -16382,7 +16412,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
   #endif
       }
   }
-  
+
 /* CIntFromPy */
   static CYTHON_INLINE long __Pyx_PyLong_As_long(PyObject *x) {
   #ifdef __Pyx_HAS_GCC_DIAGNOSTIC
@@ -16632,7 +16662,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           "can't convert negative value to long");
       return (long) -1;
   }
-  
+
 /* FastTypeChecks */
   #if CYTHON_COMPILING_IN_CPYTHON
   static int __Pyx_InBases(PyTypeObject *a, PyTypeObject *b) {
@@ -16719,7 +16749,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       return (PyErr_GivenExceptionMatches(err, exc_type1) || PyErr_GivenExceptionMatches(err, exc_type2));
   }
   #endif
-  
+
 /* GetRuntimeVersion */
   #if __PYX_LIMITED_VERSION_HEX < 0x030b0000
   void __Pyx_init_runtime_version(void) {
@@ -16752,7 +16782,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       return __Pyx_cached_runtime_version;
   #endif
   }
-  
+
 /* CheckBinaryVersion */
   static int __Pyx_check_binary_version(unsigned long ct_version, unsigned long rt_version, int allow_newer) {
       const unsigned long MAJOR_MINOR = 0xFFFF0000UL;
@@ -16775,7 +16805,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
           return PyErr_WarnEx(NULL, message, 1);
       }
   }
-  
+
 /* NewCodeObj */
   #if CYTHON_COMPILING_IN_LIMITED_API
       static PyObject* __Pyx__PyCode_New(int a, int p, int k, int l, int s, int f,
@@ -16916,7 +16946,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       Py_DECREF(varnames_tuple);
       return code_obj;
   }
-  
+
 /* DecompressString */
   static PyObject *__Pyx_DecompressString(const char *s, Py_ssize_t length, int algo) {
       PyObject *module = NULL, *decompress, *compressed_bytes, *decompressed;
@@ -16980,7 +17010,7 @@ static const char* __Pyx_BufFmt_CheckString(__Pyx_BufFmt_Context* ctx, const cha
       Py_DECREF(methodname);
       return NULL;
   }
-  
+
 #include <string.h>
 static CYTHON_INLINE Py_ssize_t __Pyx_ssize_strlen(const char *s) {
     size_t len = strlen(s);
@@ -17521,7 +17551,7 @@ static CYTHON_INLINE PyObject * __Pyx_PyLong_FromSize_t(size_t ival) {
       return 0;
   }
   #endif
-  
+
 /* #### Code section: utility_code_pragmas_end ### */
 #ifdef _MSC_VER
 #pragma warning( pop )

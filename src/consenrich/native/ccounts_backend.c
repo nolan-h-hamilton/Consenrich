@@ -7,6 +7,8 @@
 #include <htslib/tbx.h>
 
 #include <ctype.h>
+#include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -26,6 +28,7 @@ struct ccounts_sourceHandle
     hts_idx_t *indexHandle;
     htsFile *fragmentsHandle;
     tbx_t *tbxHandle;
+    htsFile *bedGraphHandle;
     char **barcodeAllowList;
     int barcodeAllowCount;
 };
@@ -364,6 +367,66 @@ static int ccounts_parseInt64Field(
     return 1;
 }
 
+static int ccounts_parseDoubleField(
+    const char *fieldStart,
+    size_t fieldLength,
+    double *valueOut)
+{
+    char stackBuffer[128];
+    char *fieldCopy = stackBuffer;
+    char *endPtr = NULL;
+    double value = 0.0;
+
+    if (valueOut != NULL)
+    {
+        *valueOut = 0.0;
+    }
+    if (fieldStart == NULL || fieldLength == 0U)
+    {
+        return 0;
+    }
+    if (fieldLength >= sizeof(stackBuffer))
+    {
+        fieldCopy = (char *)malloc(fieldLength + 1U);
+        if (fieldCopy == NULL)
+        {
+            return 0;
+        }
+    }
+    memcpy(fieldCopy, fieldStart, fieldLength);
+    fieldCopy[fieldLength] = '\0';
+
+    errno = 0;
+    value = strtod(fieldCopy, &endPtr);
+    if (fieldCopy != stackBuffer)
+    {
+        free(fieldCopy);
+    }
+    if (endPtr == fieldCopy || *endPtr != '\0' || errno == ERANGE || !isfinite(value))
+    {
+        return 0;
+    }
+    if (valueOut != NULL)
+    {
+        *valueOut = value;
+    }
+    return 1;
+}
+
+static int ccounts_stringFieldEquals(
+    const char *fieldStart,
+    size_t fieldLength,
+    const char *target)
+{
+    size_t targetLength = 0U;
+    if (fieldStart == NULL || target == NULL)
+    {
+        return 0;
+    }
+    targetLength = strlen(target);
+    return targetLength == fieldLength && strncmp(fieldStart, target, fieldLength) == 0;
+}
+
 static char *ccounts_copyStringField(
     const char *fieldStart,
     size_t fieldLength)
@@ -420,6 +483,23 @@ static ccounts_result ccounts_openFragmentsSource(
         hts_close(sourceHandle->fragmentsHandle);
         sourceHandle->fragmentsHandle = NULL;
         return result;
+    }
+    return ccounts_makeOk();
+}
+
+static ccounts_result ccounts_openBedGraphSource(
+    const ccounts_sourceConfig *sourceConfig,
+    ccounts_sourceHandle *sourceHandle)
+{
+    if (sourceConfig == NULL || sourceHandle == NULL || !ccounts_hasValue(sourceConfig->path))
+    {
+        return ccounts_makeResult(-1, "bedGraph source config is invalid");
+    }
+
+    sourceHandle->bedGraphHandle = hts_open(sourceConfig->path, "r");
+    if (sourceHandle->bedGraphHandle == NULL)
+    {
+        return ccounts_makeResult(-1, "failed to open bedGraph source");
     }
     return ccounts_makeOk();
 }
@@ -548,6 +628,21 @@ ccounts_result ccounts_checkAlignmentFile(
         return ccounts_makeOk();
     }
 
+    if (sourceConfig->sourceKind == ccounts_sourceKindBedGraph)
+    {
+        fragmentsHandle = hts_open(sourceConfig->path, "r");
+        if (fragmentsHandle == NULL)
+        {
+            return ccounts_makeResult(-1, "failed to open bedGraph source");
+        }
+        if (hasIndexOut != NULL)
+        {
+            *hasIndexOut = 0;
+        }
+        hts_close(fragmentsHandle);
+        return ccounts_makeOk();
+    }
+
     fragmentsHandle = hts_open(sourceConfig->path, "r");
     if (fragmentsHandle == NULL)
     {
@@ -653,6 +748,11 @@ ccounts_result ccounts_getReadLength(
     if (maxIterations < minReads)
     {
         maxIterations = minReads;
+    }
+
+    if (sourceConfig->sourceKind == ccounts_sourceKindBedGraph)
+    {
+        return ccounts_makeOk();
     }
 
     if (!ccounts_isAlignmentKind(sourceConfig->sourceKind))
@@ -863,6 +963,114 @@ ccounts_result ccounts_getChromRange(
     {
         return ccounts_makeResult(-1, "failed to initialize source handle");
     }
+    if (sourceHandle->sourceKind == ccounts_sourceKindBedGraph)
+    {
+        kstring_t lineBuffer = {0, 0, NULL};
+        int iteratorCode = 0;
+        int seenRecord = 0;
+        int64_t bgStart = 0;
+        int64_t bgEnd = 0;
+        uint64_t minStart = 0;
+        uint64_t maxEnd = 0;
+
+        if (sourceHandle->bedGraphHandle == NULL)
+        {
+            ccounts_closeSource(sourceHandle);
+            return ccounts_makeResult(-1, "bedGraph source handle is not initialized");
+        }
+
+        while ((iteratorCode = hts_getline(sourceHandle->bedGraphHandle, '\n', &lineBuffer)) >= 0)
+        {
+            const char *cursor = lineBuffer.s;
+            const char *lineStart = NULL;
+            const char *fieldStart = NULL;
+            size_t fieldLength = 0U;
+            const char *chromStart = NULL;
+            size_t chromLength = 0U;
+            int fieldIndex = 0;
+            int validRecord = 1;
+
+            while (*cursor != '\0' && isspace((unsigned char)(*cursor)))
+            {
+                ++cursor;
+            }
+            lineStart = cursor;
+            if (*lineStart == '\0' || *lineStart == '#' ||
+                strncmp(lineStart, "track", 5U) == 0 ||
+                strncmp(lineStart, "browser", 7U) == 0)
+            {
+                continue;
+            }
+
+            while (fieldIndex < 3 && *cursor != '\0' && *cursor != '\n' && *cursor != '\r')
+            {
+                fieldStart = cursor;
+                while (*cursor != '\0' && *cursor != '\n' && *cursor != '\r' &&
+                       !isspace((unsigned char)(*cursor)))
+                {
+                    ++cursor;
+                }
+                fieldLength = (size_t)(cursor - fieldStart);
+                if (fieldIndex == 0)
+                {
+                    chromStart = fieldStart;
+                    chromLength = fieldLength;
+                }
+                else if (fieldIndex == 1 && !ccounts_parseInt64Field(fieldStart, fieldLength, &bgStart))
+                {
+                    validRecord = 0;
+                    break;
+                }
+                else if (fieldIndex == 2 && !ccounts_parseInt64Field(fieldStart, fieldLength, &bgEnd))
+                {
+                    validRecord = 0;
+                    break;
+                }
+                while (*cursor != '\0' && isspace((unsigned char)(*cursor)))
+                {
+                    ++cursor;
+                }
+                ++fieldIndex;
+            }
+
+            if (!validRecord || fieldIndex < 3 || bgStart < 0 || bgEnd <= bgStart ||
+                !ccounts_stringFieldEquals(chromStart, chromLength, chromosome))
+            {
+                continue;
+            }
+            if (!seenRecord)
+            {
+                minStart = (uint64_t)bgStart;
+                maxEnd = (uint64_t)bgEnd;
+                seenRecord = 1;
+            }
+            else
+            {
+                if ((uint64_t)bgStart < minStart)
+                {
+                    minStart = (uint64_t)bgStart;
+                }
+                if ((uint64_t)bgEnd > maxEnd)
+                {
+                    maxEnd = (uint64_t)bgEnd;
+                }
+            }
+        }
+        if (lineBuffer.s != NULL)
+        {
+            free(lineBuffer.s);
+        }
+        if (startOut != NULL && seenRecord)
+        {
+            *startOut = minStart;
+        }
+        if (endOut != NULL && seenRecord)
+        {
+            *endOut = maxEnd;
+        }
+        ccounts_closeSource(sourceHandle);
+        return ccounts_makeOk();
+    }
     if (sourceHandle->sourceKind == ccounts_sourceKindFragments)
     {
         kstring_t lineBuffer = {0, 0, NULL};
@@ -1048,6 +1256,88 @@ ccounts_result ccounts_getMappedReadCount(
     if (sourceHandle == NULL)
     {
         return ccounts_makeResult(-1, "failed to initialize source handle");
+    }
+    if (sourceHandle->sourceKind == ccounts_sourceKindBedGraph)
+    {
+        kstring_t lineBuffer = {0, 0, NULL};
+        int iteratorCode = 0;
+        double totalSignal = 0.0;
+
+        if (sourceHandle->bedGraphHandle == NULL)
+        {
+            ccounts_closeSource(sourceHandle);
+            return ccounts_makeResult(-1, "bedGraph source handle is not initialized");
+        }
+        while ((iteratorCode = hts_getline(sourceHandle->bedGraphHandle, '\n', &lineBuffer)) >= 0)
+        {
+            const char *cursor = lineBuffer.s;
+            const char *lineStart = NULL;
+            const char *fieldStart = NULL;
+            size_t fieldLength = 0U;
+            const char *chromStart = NULL;
+            size_t chromLength = 0U;
+            double value = 0.0;
+            int fieldIndex = 0;
+            int validRecord = 1;
+
+            while (*cursor != '\0' && isspace((unsigned char)(*cursor)))
+            {
+                ++cursor;
+            }
+            lineStart = cursor;
+            if (*lineStart == '\0' || *lineStart == '#' ||
+                strncmp(lineStart, "track", 5U) == 0 ||
+                strncmp(lineStart, "browser", 7U) == 0)
+            {
+                continue;
+            }
+
+            while (fieldIndex < 4 && *cursor != '\0' && *cursor != '\n' && *cursor != '\r')
+            {
+                fieldStart = cursor;
+                while (*cursor != '\0' && *cursor != '\n' && *cursor != '\r' &&
+                       !isspace((unsigned char)(*cursor)))
+                {
+                    ++cursor;
+                }
+                fieldLength = (size_t)(cursor - fieldStart);
+                if (fieldIndex == 0)
+                {
+                    chromStart = fieldStart;
+                    chromLength = fieldLength;
+                }
+                else if (fieldIndex == 3 && !ccounts_parseDoubleField(fieldStart, fieldLength, &value))
+                {
+                    validRecord = 0;
+                    break;
+                }
+                while (*cursor != '\0' && isspace((unsigned char)(*cursor)))
+                {
+                    ++cursor;
+                }
+                ++fieldIndex;
+            }
+
+            if (!validRecord || fieldIndex < 4 ||
+                ccounts_stringFieldInList(chromStart, chromLength, excludeChromosomes, excludeChromosomeCount))
+            {
+                continue;
+            }
+            if (value > 0.0)
+            {
+                totalSignal += value;
+            }
+        }
+        if (lineBuffer.s != NULL)
+        {
+            free(lineBuffer.s);
+        }
+        if (mappedReadCountOut != NULL)
+        {
+            *mappedReadCountOut = (uint64_t)(totalSignal + 0.5);
+        }
+        ccounts_closeSource(sourceHandle);
+        return ccounts_makeOk();
     }
     if (sourceHandle->sourceKind == ccounts_sourceKindFragments)
     {
@@ -1376,6 +1666,15 @@ ccounts_result ccounts_openSource(
         }
         sourceHandle->indexHandle = sam_index_load((htsFile *)sourceHandle->fileHandle, sourceConfig->path);
     }
+    else if (sourceConfig->sourceKind == ccounts_sourceKindBedGraph)
+    {
+        result = ccounts_openBedGraphSource(sourceConfig, sourceHandle);
+        if (result.errorCode != 0)
+        {
+            free(sourceHandle);
+            return result;
+        }
+    }
     else
     {
         result = ccounts_openFragmentsSource(sourceConfig, sourceHandle);
@@ -1410,6 +1709,10 @@ void ccounts_closeSource(ccounts_sourceHandle *sourceHandle)
     if (sourceHandle->fragmentsHandle != NULL)
     {
         hts_close(sourceHandle->fragmentsHandle);
+    }
+    if (sourceHandle->bedGraphHandle != NULL)
+    {
+        hts_close(sourceHandle->bedGraphHandle);
     }
     ccounts_freeBarcodeAllowList(
         sourceHandle->barcodeAllowList,
@@ -1453,6 +1756,167 @@ ccounts_result ccounts_countRegion(
     if (sourceHandle == NULL || region == NULL || countOptions == NULL || countBuffer == NULL)
     {
         return ccounts_makeResult(-1, "count request is invalid");
+    }
+    if (sourceHandle->sourceKind == ccounts_sourceKindBedGraph)
+    {
+        kstring_t lineBuffer = {0, 0, NULL};
+        int iteratorCode = 0;
+        double *sumBuffer = NULL;
+        double *weightBuffer = NULL;
+
+        if (sourceHandle->bedGraphHandle == NULL)
+        {
+            return ccounts_makeResult(-1, "bedGraph source handle is not initialized");
+        }
+
+        start64 = (int64_t)region->start;
+        end64 = (int64_t)region->end;
+        step64 = (int64_t)region->intervalSizeBP;
+        if (step64 <= 0 || end64 <= start64)
+        {
+            return ccounts_makeResult(-1, "bedGraph count request has invalid coordinates");
+        }
+
+        sumBuffer = (double *)calloc(countBufferLength, sizeof(double));
+        weightBuffer = (double *)calloc(countBufferLength, sizeof(double));
+        if (sumBuffer == NULL || weightBuffer == NULL)
+        {
+            if (sumBuffer != NULL)
+            {
+                free(sumBuffer);
+            }
+            if (weightBuffer != NULL)
+            {
+                free(weightBuffer);
+            }
+            return ccounts_makeResult(-1, "failed to allocate bedGraph buffers");
+        }
+
+        while ((iteratorCode = hts_getline(sourceHandle->bedGraphHandle, '\n', &lineBuffer)) >= 0)
+        {
+            const char *cursor = lineBuffer.s;
+            const char *lineStart = NULL;
+            const char *fieldStart = NULL;
+            size_t fieldLength = 0U;
+            const char *chromStart = NULL;
+            size_t chromLength = 0U;
+            int fieldIndex = 0;
+            int validRecord = 1;
+            int64_t bgStart = 0;
+            int64_t bgEnd = 0;
+            int64_t overlapStart = 0;
+            int64_t overlapEnd = 0;
+            int64_t binStart = 0;
+            int64_t binEnd = 0;
+            int64_t bpOverlap = 0;
+            double value = 0.0;
+            size_t index = 0;
+
+            while (*cursor != '\0' && isspace((unsigned char)(*cursor)))
+            {
+                ++cursor;
+            }
+            lineStart = cursor;
+            if (*lineStart == '\0' || *lineStart == '#' ||
+                strncmp(lineStart, "track", 5U) == 0 ||
+                strncmp(lineStart, "browser", 7U) == 0)
+            {
+                continue;
+            }
+
+            while (fieldIndex < 4 && *cursor != '\0' && *cursor != '\n' && *cursor != '\r')
+            {
+                fieldStart = cursor;
+                while (*cursor != '\0' && *cursor != '\n' && *cursor != '\r' &&
+                       !isspace((unsigned char)(*cursor)))
+                {
+                    ++cursor;
+                }
+                fieldLength = (size_t)(cursor - fieldStart);
+                if (fieldIndex == 0)
+                {
+                    chromStart = fieldStart;
+                    chromLength = fieldLength;
+                }
+                else if (fieldIndex == 1 && !ccounts_parseInt64Field(fieldStart, fieldLength, &bgStart))
+                {
+                    validRecord = 0;
+                    break;
+                }
+                else if (fieldIndex == 2 && !ccounts_parseInt64Field(fieldStart, fieldLength, &bgEnd))
+                {
+                    validRecord = 0;
+                    break;
+                }
+                else if (fieldIndex == 3 && !ccounts_parseDoubleField(fieldStart, fieldLength, &value))
+                {
+                    validRecord = 0;
+                    break;
+                }
+                while (*cursor != '\0' && isspace((unsigned char)(*cursor)))
+                {
+                    ++cursor;
+                }
+                ++fieldIndex;
+            }
+
+            if (!validRecord || fieldIndex < 4 || bgEnd <= bgStart ||
+                !ccounts_stringFieldEquals(chromStart, chromLength, region->chromosome))
+            {
+                continue;
+            }
+
+            adjStart = bgStart < start64 ? start64 : bgStart;
+            adjEnd = bgEnd > end64 ? end64 : bgEnd;
+            if (adjEnd <= adjStart)
+            {
+                continue;
+            }
+
+            index0 = (size_t)((adjStart - start64) / step64);
+            index1 = (size_t)(((adjEnd - 1) - start64) / step64);
+            if (index0 >= countBufferLength)
+            {
+                continue;
+            }
+            if (index1 >= countBufferLength)
+            {
+                index1 = countBufferLength - 1U;
+            }
+            for (index = index0; index <= index1; ++index)
+            {
+                binStart = start64 + (int64_t)index * step64;
+                binEnd = binStart + step64;
+                if (binEnd > end64)
+                {
+                    binEnd = end64;
+                }
+                overlapStart = adjStart > binStart ? adjStart : binStart;
+                overlapEnd = adjEnd < binEnd ? adjEnd : binEnd;
+                bpOverlap = overlapEnd - overlapStart;
+                if (bpOverlap <= 0)
+                {
+                    continue;
+                }
+                sumBuffer[index] += value * (double)bpOverlap;
+                weightBuffer[index] += (double)bpOverlap;
+            }
+        }
+
+        for (intervalIndex = 0; intervalIndex < countBufferLength; ++intervalIndex)
+        {
+            if (weightBuffer[intervalIndex] > 0.0)
+            {
+                countBuffer[intervalIndex] = (float)(sumBuffer[intervalIndex] / weightBuffer[intervalIndex]);
+            }
+        }
+        if (lineBuffer.s != NULL)
+        {
+            free(lineBuffer.s);
+        }
+        free(sumBuffer);
+        free(weightBuffer);
+        return ccounts_makeOk();
     }
     if (sourceHandle->sourceKind == ccounts_sourceKindFragments)
     {

@@ -12,7 +12,8 @@ extern "C"
     typedef enum ccounts_sourceKind
     {
         ccounts_sourceKindBAM = 0,
-        ccounts_sourceKindFragments = 1
+        ccounts_sourceKindFragments = 1,
+        ccounts_sourceKindBedGraph = 2
     } ccounts_sourceKind;
 
     typedef enum ccounts_countMode

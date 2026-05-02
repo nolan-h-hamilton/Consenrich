@@ -208,6 +208,8 @@ def _inferSourceKind(path: str) -> str:
     lowerPath = str(path).lower()
     if lowerPath.endswith(".cram"):
         raise ValueError("CRAM inputs are no longer supported.")
+    if lowerPath.endswith((".bedgraph", ".bedgraph.gz", ".bdg", ".bdg.gz")):
+        return core.BEDGRAPH_SOURCE_KIND
     if "fragments" in os.path.basename(lowerPath):
         return "FRAGMENTS"
     return "BAM"
@@ -311,6 +313,8 @@ def _getSourceCountMode(
     defaultBamCountMode: str = "coverage",
     defaultFragmentCountMode: str = "cutsite",
 ) -> str:
+    if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
+        return "coverage"
     countMode = core._normalizeCountMode(
         source.countMode,
         (
@@ -410,23 +414,26 @@ def _prioritizeLargestChromosomePlan(
 
 
 @lru_cache(maxsize=8)
-def _readSparseStartsByChrom(sparseBedFile: str) -> dict[str, np.ndarray]:
+def _readSparseRegionsByChrom(sparseBedFile: str) -> dict[str, np.ndarray]:
     sparseFrame = pd.read_csv(
         sparseBedFile,
         sep="\t",
         header=None,
-        usecols=[0, 1],
-        names=["chrom", "start"],
-        dtype={"chrom": str, "start": np.int64},
+        usecols=[0, 1, 2],
+        names=["chrom", "start", "end"],
+        dtype={"chrom": str, "start": np.int64, "end": np.int64},
         engine="c",
     )
-    sparseStartsByChrom: dict[str, np.ndarray] = {}
+    sparseFrame = sparseFrame[sparseFrame["end"] > sparseFrame["start"]]
+    sparseRegionsByChrom: dict[str, np.ndarray] = {}
     for chromName, chromFrame in sparseFrame.groupby("chrom", sort=False):
-        sparseStartsByChrom[str(chromName)] = chromFrame["start"].to_numpy(
+        chromRegions = chromFrame.loc[:, ["start", "end"]].to_numpy(
             dtype=np.int64,
-            copy=False,
+            copy=True,
         )
-    return sparseStartsByChrom
+        order = np.argsort(chromRegions[:, 0], kind="mergesort")
+        sparseRegionsByChrom[str(chromName)] = chromRegions[order, :]
+    return sparseRegionsByChrom
 
 
 def _loadSparseIntervalIndices(
@@ -434,19 +441,39 @@ def _loadSparseIntervalIndices(
     chromosome: str,
     intervals: np.ndarray,
 ) -> np.ndarray:
-    sparseStarts = _readSparseStartsByChrom(str(sparseBedFile)).get(
+    sparseRegions = _readSparseRegionsByChrom(str(sparseBedFile)).get(
         str(chromosome),
-        np.empty(0, dtype=np.int64),
+        np.empty((0, 2), dtype=np.int64),
     )
-    if sparseStarts.size == 0:
+    if sparseRegions.size == 0:
         return np.empty(0, dtype=np.intp)
 
     intervalStarts = np.asarray(intervals, dtype=np.int64)
-    sparseIdx = np.searchsorted(intervalStarts, sparseStarts, side="right") - 1
-    sparseIdx = sparseIdx[(sparseIdx >= 0) & (sparseIdx < intervalStarts.size)]
+    if intervalStarts.size == 0:
+        return np.empty(0, dtype=np.intp)
+    if intervalStarts.size == 1:
+        intervalSize = 1
+    else:
+        intervalSize = int(intervalStarts[1] - intervalStarts[0])
+        if intervalSize <= 0:
+            raise ValueError("intervals must be strictly increasing")
+    intervalEnds = intervalStarts + int(intervalSize)
+
+    sparseMask = np.zeros(intervalStarts.size, dtype=bool)
+    for bedStart, bedEnd in sparseRegions:
+        firstIdx = int(np.searchsorted(intervalEnds, int(bedStart), side="right"))
+        lastIdx = int(np.searchsorted(intervalStarts, int(bedEnd), side="left"))
+        if firstIdx < 0:
+            firstIdx = 0
+        if lastIdx > intervalStarts.size:
+            lastIdx = intervalStarts.size
+        if lastIdx > firstIdx:
+            sparseMask[firstIdx:lastIdx] = True
+
+    sparseIdx = np.flatnonzero(sparseMask)
     if sparseIdx.size == 0:
         return np.empty(0, dtype=np.intp)
-    return np.unique(sparseIdx.astype(np.intp, copy=False))
+    return sparseIdx.astype(np.intp, copy=False)
 
 
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
@@ -546,7 +573,9 @@ def getEffectiveGenomeSizes(
             "Read lengths must be a non-empty list. Try calling `getReadLengths` first."
         )
     return [
-        constants.getEffectiveGenomeSize(genomeName, readLength)
+        0
+        if int(readLength) <= 0
+        else constants.getEffectiveGenomeSize(genomeName, readLength)
         for readLength in readLengths
     ]
 
@@ -1055,6 +1084,18 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
         numNearest=numNearestResolved,
+        sparseSupportScaleBP=_cfgGet(
+            configData,
+            "observationParams.sparseSupportScaleBP",
+            -1.0,
+        ),
+        sparseSupportPrior=float(
+            _cfgGet(
+                configData,
+                "observationParams.sparseSupportPrior",
+                1.0,
+            )
+        ),
         restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-3),
     )
@@ -1645,12 +1686,38 @@ def main():
         str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND
         for source in treatmentSources + controlSources
     )
+    anyBedGraph = any(
+        str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND
+        for source in treatmentSources + controlSources
+    )
+    allBedGraph = all(
+        str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND
+        for source in treatmentSources + controlSources
+    )
     if anyFragments and normMethod_ in ["EGS", "RPGC"]:
         logger.warning(
             "Fragments inputs use insertion-based depth normalization not EGS/RPGC"
             "  --> using CPM/RPKM ..."
         )
         normMethod_ = "CPM"
+    if anyBedGraph and not allBedGraph and (
+        countingArgs.scaleFactors is None
+        or (controlsPresent and countingArgs.scaleFactorsControl is None)
+    ):
+        raise ValueError(
+            "Mixed BEDGRAPH and read-count sources require explicit "
+            "`countingParams.scaleFactors`"
+            + (
+                " and `countingParams.scaleFactorsControl`."
+                if controlsPresent
+                else "."
+            )
+        )
+    if allBedGraph and normMethod_ in ["EGS", "RPGC", "RPKM", "CPM"]:
+        logger.info(
+            "BEDGRAPH inputs are treated as already scaled tracks; using unit "
+            "scale factors unless explicit scale factors are provided."
+        )
     for source in treatmentSources + controlSources:
         if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
             core._normalizeFragmentPositionMode(
@@ -1728,7 +1795,7 @@ def main():
         source: core.inputSource,
         sourceFlagExclude: int,
     ) -> int:
-        if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
+        if str(source.sourceKind).upper() not in core.ALIGNMENT_SOURCE_KINDS:
             return 0
         fragmentLength = int(
             cconsenrich.cgetFragmentLength(
@@ -1747,7 +1814,7 @@ def main():
 
     def _resolveCharacteristicFragmentLength(task) -> int:
         source, sourceBamInputMode, configuredExtendBP = task
-        if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
+        if str(source.sourceKind).upper() not in core.ALIGNMENT_SOURCE_KINDS:
             return 0
         if sourceBamInputMode == "fragments" and (
             int(configuredExtendBP) > 0 or int(samArgs.inferFragmentLength or 0) > 0
@@ -1794,7 +1861,7 @@ def main():
         configuredExtendBP: int,
         characteristicFragmentLength: int,
     ) -> int:
-        if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
+        if str(source.sourceKind).upper() not in core.ALIGNMENT_SOURCE_KINDS:
             return 0
         if sourceBamInputMode == "fragments":
             return 0
@@ -1853,14 +1920,17 @@ def main():
                 "control read lengths",
                 allowThreads=setupAllowThreads,
             )
-            effectiveGenomeSizesControl = [
-                constants.getEffectiveGenomeSize(genomeArgs.genomeName, readLength)
-                for readLength in readLengthsControlBamFiles
-            ]
+            effectiveGenomeSizesControl = getEffectiveGenomeSizes(
+                genomeArgs,
+                readLengthsControlBamFiles,
+            )
 
             if scaleFactors is not None and scaleFactorsControl is not None:
                 treatScaleFactors = scaleFactors
                 controlScaleFactors = scaleFactorsControl
+            elif allBedGraph:
+                treatScaleFactors = scaleFactors or [1.0] * len(treatmentSources)
+                controlScaleFactors = scaleFactorsControl or [1.0] * len(controlSources)
             else:
 
                 def _getPairScaleFactors(task):
@@ -1933,7 +2003,9 @@ def main():
             controlScaleFactors = scaleFactorsControl
 
         if scaleFactors is None and not controlsPresent:
-            if normMethod_ in ["RPKM", "CPM"]:
+            if allBedGraph and normMethod_ != "SF":
+                scaleFactors = [1.0] * len(treatmentSources)
+            elif normMethod_ in ["RPKM", "CPM"]:
 
                 def _getScaleFactorPerMillion(task) -> float:
                     source, barcodeAllowListPath, countMode, groupCellCount = task
@@ -2116,7 +2188,15 @@ def main():
                     minTemplateLength=samArgs.minTemplateLength,
                 )
                 logger.info(f"(trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
-                chromMat[j_, :] = np.maximum(pairMatrix[0, :] - pairMatrix[1, :], 0.0)
+                chromMat[j_, :] = np.asarray(
+                    cconsenrich.cTransformWithInput(
+                        pairMatrix[0, :],
+                        pairMatrix[1, :],
+                        logOffset=countingArgs.logOffset,
+                        logMult=countingArgs.logMult,
+                    ),
+                    dtype=np.float32,
+                )
                 j_ += 1
         else:
             chromMat = core.readSegments(
@@ -2216,34 +2296,40 @@ def main():
             )
             return j, np.asarray(transformed, dtype=np.float32)
 
-        transformWorkers = _getSmallWorkerCount(numSamples, maxWorkers=4)
-        useParallelTransform = (
-            numSamples >= 4 and chromMat.shape[1] >= 5000 and transformWorkers > 1
-        )
-        if useParallelTransform:
+        if controlsPresent:
             logger.info(
-                "transform matrix: using ThreadPool with %d workers (numSamples=%d, numIntervals=%d).",
-                int(transformWorkers),
-                int(numSamples),
-                int(chromMat.shape[1]),
+                "Skipping ordinary count transform: treatment/control tracks "
+                "were already transformed as log-ratios.",
             )
-            with ThreadPool(processes=int(transformWorkers)) as pool:
-                for j, transformed in tqdm(
-                    pool.imap(_transformTrack, range(numSamples)),
-                    total=numSamples,
+        else:
+            transformWorkers = _getSmallWorkerCount(numSamples, maxWorkers=4)
+            useParallelTransform = (
+                numSamples >= 4 and chromMat.shape[1] >= 5000 and transformWorkers > 1
+            )
+            if useParallelTransform:
+                logger.info(
+                    "transform matrix: using ThreadPool with %d workers (numSamples=%d, numIntervals=%d).",
+                    int(transformWorkers),
+                    int(numSamples),
+                    int(chromMat.shape[1]),
+                )
+                with ThreadPool(processes=int(transformWorkers)) as pool:
+                    for j, transformed in tqdm(
+                        pool.imap(_transformTrack, range(numSamples)),
+                        total=numSamples,
+                        desc="Transforming data",
+                        unit=" sample ",
+                    ):
+                        chromMat[j, :] = transformed
+            else:
+                for j in tqdm(
+                    range(numSamples),
                     desc="Transforming data",
                     unit=" sample ",
                 ):
+                    logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
+                    _, transformed = _transformTrack(j)
                     chromMat[j, :] = transformed
-        else:
-            for j in tqdm(
-                range(numSamples),
-                desc="Transforming data",
-                unit=" sample ",
-            ):
-                logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
-                _, transformed = _transformTrack(j)
-                chromMat[j, :] = transformed
 
         useSparseNearest = bool(
             observationArgs.numNearest is not None
@@ -2300,6 +2386,8 @@ def main():
                 sparseIntervalIndices=sparseIntervalIndices,
                 sparseRegionMask=sparseRegionMask,
                 numNearest=int(observationArgs.numNearest or 0),
+                sparseSupportScaleBP=observationArgs.sparseSupportScaleBP,
+                sparseSupportPrior=float(observationArgs.sparseSupportPrior or 0.0),
                 restrictLocalAR1ToSparseBed=bool(
                     getattr(observationArgs, "restrictLocalAR1ToSparseBed", False)
                 ),

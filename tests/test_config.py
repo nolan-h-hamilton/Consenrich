@@ -1,6 +1,7 @@
 import textwrap
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from consenrich.consenrich import readConfig
@@ -453,6 +454,30 @@ def test_readConfigRestrictLocalAR1ToSparseBedRequiresAvailableSparseBed(
     )
 
 
+def test_loadSparseIntervalIndicesUsesBedSpan(tmp_path):
+    sparseBedPath = tmp_path / "sparse_regions.bed"
+    sparseBedPath.write_text(
+        "\n".join(
+            [
+                "chrTest\t110\t120",
+                "chrTest\t150\t226",
+                "chrOther\t0\t1000",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    intervals = np.arange(0, 300, 50, dtype=np.uint32)
+
+    indices = consenrich._loadSparseIntervalIndices(
+        str(sparseBedPath),
+        "chrTest",
+        intervals,
+    )
+
+    assert indices.tolist() == [2, 3, 4]
+
+
 def test_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
@@ -501,6 +526,56 @@ def test_readConfigSampleSources(tmp_path, monkeypatch: pytest.MonkeyPatch):
     assert inputArgs.treatmentSources[1].fragmentPositionMode == "fragmentEndpoints"
     assert configParsed["countingArgs"].normMethod == "CPM"
     assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
+
+
+def test_readConfigSamplesSupportBedGraph(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    bedGraphPath = tmp_path / "sample.bedGraph"
+    bedGraphPath.write_text("chrTest\t0\t50\t3.0\n", encoding="ascii")
+
+    configYaml = f"""
+    experimentName: sampleExperiment
+    inputParams:
+      samples:
+        - path: {bedGraphPath}
+          role: treatment
+    genomeParams.name: testGenome
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_bedgraph.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+    inputArgs = configParsed["inputArgs"]
+
+    assert inputArgs.treatmentSources is not None
+    assert inputArgs.treatmentSources[0].sourceKind == "BEDGRAPH"
+    assert inputArgs.bamFiles == [str(bedGraphPath)]
+
+
+def test_readConfigSamplesSupportExplicitBedGraphFormat(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    signalPath = tmp_path / "sample.signal"
+    signalPath.write_text("chrTest\t0\t50\t3.0\n", encoding="ascii")
+
+    configYaml = f"""
+    experimentName: sampleExperiment
+    inputParams:
+      samples:
+        - path: {signalPath}
+          format: bedGraph
+          role: treatment
+    genomeParams.name: testGenome
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_bedgraph_format.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+    inputArgs = configParsed["inputArgs"]
+
+    assert inputArgs.treatmentSources is not None
+    assert inputArgs.treatmentSources[0].sourceKind == "BEDGRAPH"
 
 
 def test_readConfigScParamsProvideFragmentsDefaults(
