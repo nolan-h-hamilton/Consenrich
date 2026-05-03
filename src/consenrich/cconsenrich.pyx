@@ -1514,6 +1514,145 @@ cdef bint _cEMA(const real_t* xPtr, real_t* outPtr,
     return <bint>0
 
 
+cdef inline Py_ssize_t _bsplineSpan(
+    const double* knotsPtr,
+    Py_ssize_t nBasis,
+    int degree,
+    double x,
+) noexcept nogil:
+    cdef Py_ssize_t low = degree
+    cdef Py_ssize_t high = nBasis
+    cdef Py_ssize_t mid
+
+    if x <= knotsPtr[degree]:
+        return degree
+    if x >= knotsPtr[nBasis]:
+        return nBasis - 1
+
+    while low < high:
+        mid = low + ((high - low) >> 1)
+        if x < knotsPtr[mid]:
+            high = mid
+        elif x >= knotsPtr[mid + 1]:
+            low = mid + 1
+        else:
+            return mid
+    return nBasis - 1
+
+
+cdef inline double _deBoorValue(
+    const double* knotsPtr,
+    const double* betaPtr,
+    Py_ssize_t nBasis,
+    int degree,
+    double x,
+    double* work,
+) noexcept nogil:
+    cdef Py_ssize_t span = _bsplineSpan(knotsPtr, nBasis, degree, x)
+    cdef int j, r
+    cdef Py_ssize_t idx
+    cdef double denom, alpha
+
+    for j in range(degree + 1):
+        idx = span - degree + j
+        if idx < 0:
+            idx = 0
+        elif idx >= nBasis:
+            idx = nBasis - 1
+        work[j] = betaPtr[idx]
+
+    for r in range(1, degree + 1):
+        for j in range(degree, r - 1, -1):
+            idx = span - degree + j
+            denom = knotsPtr[idx + degree - r + 1] - knotsPtr[idx]
+            if denom == 0.0:
+                alpha = 0.0
+            else:
+                alpha = (x - knotsPtr[idx]) / denom
+            work[j] = ((1.0 - alpha) * work[j - 1]) + (alpha * work[j])
+
+    return work[degree]
+
+
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] cEvalPSplineLogVarianceTrend(
+    object meanTrack,
+    object knots,
+    object beta,
+    int degree,
+    double xMin,
+    double xMax,
+    double logFloor,
+    double logCap,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] meanArr = np.ascontiguousarray(meanTrack, dtype=np.float64).ravel()
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] knotsArr = np.ascontiguousarray(knots, dtype=np.float64).ravel()
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] betaArr = np.ascontiguousarray(beta, dtype=np.float64).ravel()
+    cdef Py_ssize_t n = meanArr.shape[0]
+    cdef Py_ssize_t nBasis = betaArr.shape[0]
+    cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
+    cdef const double* meanPtr = <const double*>meanArr.data
+    cdef const double* knotsPtr = <const double*>knotsArr.data
+    cdef const double* betaPtr = <const double*>betaArr.data
+    cdef cnp.float32_t* outPtr = <cnp.float32_t*>out.data
+    cdef double* work = NULL
+    cdef Py_ssize_t i
+    cdef double x, logOut
+
+    if n == 0:
+        return out
+
+    if degree < 0 or knotsArr.shape[0] == 0 or nBasis == 0:
+        logOut = betaPtr[0] if nBasis > 0 else logFloor
+        if not isfinite(logOut):
+            logOut = logCap if logOut > 0.0 else logFloor
+        if logOut < logFloor:
+            logOut = logFloor
+        elif logOut > logCap:
+            logOut = logCap
+        for i in range(n):
+            outPtr[i] = <cnp.float32_t>exp(logOut)
+        return out
+
+    work = <double*>malloc((degree + 1) * sizeof(double))
+    if work == NULL:
+        raise MemoryError("failed to allocate P-spline work buffer")
+
+    try:
+        with nogil:
+            for i in range(n):
+                x = meanPtr[i]
+                if not isfinite(x):
+                    logOut = logFloor
+                else:
+                    if x < 0.0:
+                        x = -x
+                    x = log1p(x)
+                    if x < xMin:
+                        x = xMin
+                    elif x > xMax:
+                        x = xMax
+                    logOut = _deBoorValue(
+                        knotsPtr,
+                        betaPtr,
+                        nBasis,
+                        degree,
+                        x,
+                        work,
+                    )
+                    if not isfinite(logOut):
+                        logOut = logCap if logOut > 0.0 else logFloor
+
+                if logOut < logFloor:
+                    logOut = logFloor
+                elif logOut > logCap:
+                    logOut = logCap
+                outPtr[i] = <cnp.float32_t>exp(logOut)
+    finally:
+        free(work)
+
+    return out
+
+
 cpdef cEMA(cnp.ndarray x, double alpha):
     cdef Py_ssize_t n
     cdef cnp.ndarray[cnp.float32_t, ndim=1] x1_F32
@@ -3515,16 +3654,14 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     double maxBeta=0.99,
     double pairsRegLambda = 1.0,
+    bint useInnovationVar = <bint>True,
 ):
-    r"""Estimate the innovation variance of a rolling AR(1) model for a 1D array of values
+    r"""Estimate a rolling AR(1)-based variance track for a 1D array of values
 
-    This routine is used during the observation noise level estimation to capture local variability
-    as a complement to to the global prior trend. The innovation variance is the variance of the noise
-    term in an AR(1) model, and can be used as a measure of local variability after accounting
-    for simple autocorrelation. The AR(1) model assumes that each value is a linear function
-    of the previous value plus noise. Here, in the 'local model' component, we estimate parameters
-    in sliding windows. Keep `values` small in size such that the AR(1) is a plausible approximation
-    to shared local epigenomic signals.
+    If ``useInnovationVar`` is true, returns the one-step AR(1) innovation variance.
+    If false, returns the local stationary/marginal AR(1) variance. MUNC uses the
+    marginal target because it is consumed as a diagonal observation variance by the
+    downstream state-space smoother.
     """
 
     cdef Py_ssize_t numIntervals=values.shape[0]
@@ -3641,11 +3778,13 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
                 if oneMinusBetaSq < 0.0:
                     oneMinusBetaSq = 0.0
 
-                innoVar = gamma0 * oneMinusBetaSq
-                if innoVar < 0.0:
-                    innoVar = 0.0
-
-                varAtView[startIndex]=<cnp.float32_t>innoVar
+                if useInnovationVar:
+                    innoVar = gamma0 * oneMinusBetaSq
+                    if innoVar < 0.0:
+                        innoVar = 0.0
+                    varAtView[startIndex]=<cnp.float32_t>innoVar
+                else:
+                    varAtView[startIndex]=<cnp.float32_t>gamma0
 
             if startIndex < maxStartIndex:
                 # slide window forward --> (previousSum - leavingValue) + enteringValue
@@ -3664,111 +3803,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             varOutView[regionIndex] = varAtView[startIndex]
 
     return varOut
-
-
-cpdef cnp.ndarray[cnp.float64_t, ndim=1] cPAVA(
-    cnp.ndarray x,
-    cnp.ndarray postWeight):
-    r"""PAVA for isotonic regression
-
-    This code aims for the notation and algorithm of Busing 2022 (JSS, ``DOI: 10.18637/jss.v102.c01``).
-
-    From Busing:
-
-        > Observe that the violation 8 = x3 > x4 = 2 is solved by combining two values, 8 and 2, resulting
-        > in a (new) block value of 5, i.e., (8 + 2)/2 = 5. Instead of immediately turning
-        > around and start solving down block violation, we may first look ahead for the next
-        > value in the sequence, k-up, for if this element is smaller than or equal to 5, the
-        > next value can immediately be pooled into the current block, i.e., (8 + 2 + 2)/3 = 4.
-        > Looking ahead can be continued until the next element is larger than the current block
-        > value or if we reach the end of the sequence.
-
-    :param x: 1D array to be fitted as nondecreasing
-    :type x: cnp.ndarray, (either f32 or f64)
-    :param postWeight: 1D array of weights corresponding to each observed value.
-      These are the number of 'observations' associated to each 'unique' value in `x`. Intuition: more weight to values with more observations.
-    :type postWeight: cnp.ndarray
-    :return: PAVA-fitted values
-    :rtype: cnp.ndarray, (either f32 or f64)
-    """
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] xArr = np.ascontiguousarray(x, dtype=np.float64).ravel()
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] wArr = np.ascontiguousarray(postWeight, dtype=np.float64).ravel()
-    cdef Py_ssize_t n = xArr.shape[0]
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] xBlock = np.empty(n, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] wBlock = np.empty(n, dtype=np.float64)
-    # right boundaries for each block
-    cdef cnp.ndarray[cnp.int64_t,  ndim=1] rBlock = np.empty(n, dtype=np.int64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] predicted = np.empty(n, dtype=np.float64)
-    cdef double[:] xV = xArr
-    cdef double[:] wV = wArr
-    cdef double[:] xB = xBlock
-    cdef double[:] wB = wBlock
-    cdef long[:] rB = rBlock
-    cdef double[:] predicted_ = predicted
-    cdef Py_ssize_t i, k, j, f, t, b
-    cdef double xCur, W, S
-
-    b = 1
-    xB[0] = xV[0]
-    wB[0] = wV[0]
-    rB[0] = 0
-
-    i = 1 # index over elements
-    while i < n:
-        # proceed assuming monotonic+unique: new block at each index
-        b += 1
-        xCur = xV[i]
-        W = wV[i]
-
-        # not monotonic -- discard 'new' block, element goes to a previously existing block
-        if xB[b - 2] > xCur:
-            # reset
-            b -= 1
-            S = wB[b - 1]*xB[b - 1] + W*xCur
-            W = W + wB[b - 1]
-            # update the level/weighted average
-            xCur = S / W
-
-            # Busing: until the current pooled level does not break monotonicity, keep merging elements into the block
-            while i < n - 1 and xCur >= xV[i + 1]:
-                i += 1
-                S = S + (wV[i]*xV[i])
-                W = W + wV[i]
-                xCur = S / W
-
-            # if the now-current block level may break monotonicity with previous block(s) merge backwards
-            # ... note that this should only happen once, as we have already ensured monotonicity when creating previous blocks
-            while b > 1 and xB[b - 2] > xCur:
-                b -= 1
-                S = S + (wB[b - 1]*xB[b - 1])
-                W = W + wB[b - 1]
-                xCur = S / W
-
-        # update block-level stats, boundaries
-        xB[b - 1] = xCur
-        wB[b - 1] = W
-        rB[b - 1] = i
-        i += 1
-
-    # We have monotonicity at the --block level-- and right boundaries, xB stored
-    # ... expand blocks back to get predicted values for all original elements
-    f = n - 1
-    for k in range(b - 1, -1, -1):
-        # case: we hit the first block
-        if k == 0:
-            # ... so 'next' block starts at index 0
-            t = 0
-        else:
-            # current block's first element is previous block's right boundary + 1
-            t = rB[k - 1] + 1
-        for j in range(f, t - 1, -1):
-            predicted_[j] = xB[k]
-        f = t - 1
-
-    return predicted
-
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,

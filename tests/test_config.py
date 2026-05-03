@@ -193,6 +193,33 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
     assert matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
 
 
+def test_readConfigObservationTrendDefaultsRemoveLinearEnvelope(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_trend_defaults.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+    observationArgs = configParsed["observationArgs"]
+    removed = "EB" + "_minLin"
+
+    assert removed not in observationArgs._fields
+    assert observationArgs.trendNumBasis == 60
+    assert observationArgs.trendMinObsPerBasis == 25.0
+    assert observationArgs.trendMinEdf == 3.0
+    assert observationArgs.trendMaxEdf == 30.0
+    assert observationArgs.trendLambdaMin == 1.0e-6
+    assert observationArgs.trendLambdaMax == 1.0e6
+    assert observationArgs.trendLambdaGridSize == 41
+
+
 def test_readConfigDeduplicatesChromosomes(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):

@@ -19,7 +19,7 @@ from typing import (
 
 import numpy as np
 import numpy.typing as npt
-from scipy import ndimage, signal, stats, optimize, special, sparse
+from scipy import ndimage, signal, stats, optimize, special, sparse, interpolate
 from scipy.sparse import linalg as sparse_linalg
 from tqdm import tqdm
 from itrigamma import itrigamma
@@ -85,23 +85,32 @@ class observationParams(NamedTuple):
     :type minR: float | None
     :param maxR: Genome-wide upper bound for the replicate-specific observation noise levels.
     :type maxR: float | None
-    :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitVarianceFunction`.
+    :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitPSplineLogVarianceTrend`.
     :type samplingIters: int | None
     :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
       Note, during sampling, each block's size (unit: genomic intervals) is drawn from truncated :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSize})` to reduce artifacts from fixed-size blocks.
       If `None` or ` < 1`, then this value is inferred using :func:`consenrich.core.chooseDependenceLength`.
     :type samplingBlockSizeBP: int | None
-    :param binQuantileCutoff: When fitting the variance function, pairs :math:`(\lvert \mu_b \rvert, \sigma^2_b)` are binned by their (absolute) means. This parameter sets the quantile of variances within each bin to use when fitting the global mean-variance trend.
-      Increasing this value toward `1.0` can raise the prior trend for observation noise levels and therefore yield stiffer signal estimates overall.
-    :type binQuantileCutoff: float | None
-    :param EB_minLin: Require that the fitted trend in :func:`consenrich.core.getMuncTrack` satisfy: :math:`\textsf{variance} \geq \textsf{minLin} \cdot |\textsf{mean}|`. See :func:`fitVarianceFunction`.
-    :type EB_minLin: float | None
     :param EB_use: If True, shrink 'local' noise estimates to a prior trend dependent on amplitude. See  :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool | None
     :param EB_setNu0: If provided, manually set :math:`\nu_0` to this value (rather than computing via :func:`consenrich.core.EB_computePriorStrength`).
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
     :type EB_setNuL: int | None
+    :param trendNumBasis: Upper bound on P-spline basis functions for the global log-variance trend.
+    :type trendNumBasis: int | None
+    :param trendMinObsPerBasis: Minimum effective trend observations per fitted spline basis function.
+    :type trendMinObsPerBasis: float | None
+    :param trendMinEdf: Minimum effective degrees of freedom accepted during guarded GCV selection.
+    :type trendMinEdf: float | None
+    :param trendMaxEdf: Maximum effective degrees of freedom accepted during guarded GCV selection. If unset, a conservative default cap is used.
+    :type trendMaxEdf: float | None
+    :param trendLambdaMin: Lower endpoint for the guarded GCV smoothing-parameter grid.
+    :type trendLambdaMin: float | None
+    :param trendLambdaMax: Upper endpoint for the guarded GCV smoothing-parameter grid.
+    :type trendLambdaMax: float | None
+    :param trendLambdaGridSize: Number of points in the guarded GCV smoothing-parameter grid.
+    :type trendLambdaGridSize: int | None
     :param numNearest: If ``> 0`` and an explicit sparse BED is supplied, estimate the local observation variance from the nearest sparse regions instead of the default rolling AR(1) local variance.
       In this sparse-nearest mode, the same nearest sparse blocks also define a signed local intercept track that is subtracted before fitting and evaluating the global mean-variance prior.
     :type numNearest: int | None
@@ -114,7 +123,7 @@ class observationParams(NamedTuple):
     :type restrictLocalAR1ToSparseBed: bool | None
     :param pad: A small constant added to the observation noise variance estimates for conditioning
     :type pad: float | None
-    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cinnerEM`
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitPSplineLogVarianceTrend`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cinnerEM`
 
     """
 
@@ -122,11 +131,16 @@ class observationParams(NamedTuple):
     maxR: float | None
     samplingIters: int | None
     samplingBlockSizeBP: int | None
-    binQuantileCutoff: float | None
-    EB_minLin: float | None
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
+    trendNumBasis: int | None
+    trendMinObsPerBasis: float | None
+    trendMinEdf: float | None
+    trendMaxEdf: float | None
+    trendLambdaMin: float | None
+    trendLambdaMax: float | None
+    trendLambdaGridSize: int | None
     numNearest: int | None
     sparseSupportScaleBP: float | None
     sparseSupportPrior: float | None
@@ -540,7 +554,7 @@ class fitParams(NamedTuple):
     :type EM_backgroundSmoothness: float
 
 
-    :seealso: :func:`consenrich.cconsenrich.cinnerEM`, :func:`consenrich.core.runConsenrich`, :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
+    :seealso: :func:`consenrich.cconsenrich.cinnerEM`, :func:`consenrich.core.runConsenrich`, :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitPSplineLogVarianceTrend`
     """
 
     EM_maxIters: int | None = 50
@@ -2870,123 +2884,479 @@ def getBedMask(
     ).astype(np.bool_)
 
 
-def fitVarianceFunction(
-    jointlySortedMeans: np.ndarray,
-    jointlySortedVariances: np.ndarray,
-    eps: float = 1.0e-2,
-    binQuantileCutoff: float = 0.5,
-    EB_minLin: float = 0.0,
+class PSplineLogVarianceTrend(NamedTuple):
+    r"""Guarded-GCV P-spline fit for a log-variance trend."""
+
+    knots: np.ndarray
+    degree: int
+    beta: np.ndarray
+    xMin: float
+    xMax: float
+    lambdaHat: float
+    edf: float
+    gcv: float
+    lambdaAtBoundary: bool
+    finiteCount: int
+    diagnostics: dict[str, Any]
+
+
+def _weightedQuantile(
+    values: np.ndarray,
+    weights: np.ndarray,
+    probs: np.ndarray,
 ) -> np.ndarray:
-    means = np.asarray(jointlySortedMeans, dtype=np.float64).ravel()
-    variances = np.asarray(jointlySortedVariances, dtype=np.float64).ravel()
-    absMeans = np.abs(means)
-    n = absMeans.size
+    valuesArr = np.asarray(values, dtype=np.float64).ravel()
+    weightsArr = np.asarray(weights, dtype=np.float64).ravel()
+    probsArr = np.asarray(probs, dtype=np.float64).ravel()
+    order = np.argsort(valuesArr)
+    valuesArr = valuesArr[order]
+    weightsArr = weightsArr[order]
+    weightsArr = np.maximum(weightsArr, 0.0)
+    totalWeight = float(np.sum(weightsArr))
+    if totalWeight <= 0.0 or valuesArr.size == 0:
+        return np.full(probsArr.shape, np.nan, dtype=np.float64)
+    cdf = np.cumsum(weightsArr)
+    return np.interp(
+        np.clip(probsArr, 0.0, 1.0) * totalWeight,
+        cdf,
+        valuesArr,
+    )
 
-    sortIdx = np.argsort(absMeans)
-    absMeans = absMeans[sortIdx]
-    variances = variances[sortIdx]
-    variances = np.maximum(variances, EB_minLin * absMeans) + eps
 
-    # --- determine bins for isotonic regression ---
-    binCount = int(1 + np.log2(n + 1, dtype=np.float64))
-    binCount = max(4, binCount)
-    binEdges = np.linspace(0, n, binCount + 1, dtype=np.int64)
-    binEdges = np.unique(binEdges)
-    if binEdges.size < 2:
-        binEdges = np.array([0, n], dtype=np.int64)
-
-    binnedAbsMeans = []
-    binnedVariances = []
-    binWeights = []
-    for k in range(binEdges.size - 1):
-        i = int(binEdges[k])
-        j = int(binEdges[k + 1])
-        if j <= i:
-            continue
-        # - mean of abs means defines x-axis for isotonic regression
-        # - quantile of variances defines y-axis
-        # - bin weight is number of points in bin
-        binnedAbsMeans.append(np.median(absMeans[i:j]))
-        binnedVariances.append(np.quantile(variances[i:j], binQuantileCutoff))
-        binWeights.append(float(j - i))
-
-    try:
-        counts = [int(w) for w in binWeights]
-        if counts:
-            msg = (
-                f"{len(counts)} bins; n/bin: "
-                f"min binSize={min(counts)}, median binSize={int(np.median(counts))}, max binSize={max(counts)}"
+def _psplineKnots(
+    xMin: float,
+    xMax: float,
+    numBasis: int,
+    degree: int,
+    x: np.ndarray | None = None,
+    weights: np.ndarray | None = None,
+) -> np.ndarray:
+    degree = int(max(0, degree))
+    numBasis = int(max(numBasis, degree + 1))
+    if (not np.isfinite(xMin)) or (not np.isfinite(xMax)) or xMax <= xMin:
+        xMin = float(xMin) if np.isfinite(xMin) else 0.0
+        xMax = xMin + 1.0
+    internalCount = max(0, int(numBasis) - int(degree) - 1)
+    if internalCount > 0:
+        probs = np.linspace(0.0, 1.0, internalCount + 2, dtype=np.float64)[1:-1]
+        if x is not None and weights is not None:
+            internal = _weightedQuantile(
+                np.asarray(x, dtype=np.float64),
+                np.asarray(weights, dtype=np.float64),
+                probs,
             )
+            internal = internal[np.isfinite(internal)]
         else:
-            msg = "0 bins; n/bin: []"
-        logger.info(f"Bins: {msg}")
-    except Exception:
-        pass
-
-    absMeans = np.asarray(binnedAbsMeans, dtype=np.float64)
-    variances = np.asarray(binnedVariances, dtype=np.float64)
-    weights = np.asarray(binWeights, dtype=np.float64)
-
-    # one bin --> skip PAVA
-    if absMeans.size < 2:
-        logger.warning(
-            "Skipping PAVA (isotonic regression) since only one bin was determined..."
+            internal = np.linspace(xMin, xMax, internalCount + 2, dtype=np.float64)[
+                1:-1
+            ]
+        minGap = max((xMax - xMin) * 1.0e-10, 1.0e-12)
+        internal = internal[(internal > xMin + minGap) & (internal < xMax - minGap)]
+        internal = np.unique(internal)
+    else:
+        internal = np.empty(0, dtype=np.float64)
+    return np.concatenate(
+        (
+            np.full(degree + 1, xMin, dtype=np.float64),
+            internal,
+            np.full(degree + 1, xMax, dtype=np.float64),
         )
-        m0 = (
-            float(absMeans[0])
-            if absMeans.size == 1
-            else float(np.median(np.abs(means)))
+    )
+
+
+def _supportLimitedBasisCount(
+    x: np.ndarray,
+    weights: np.ndarray,
+    requestedBasis: int,
+    degree: int,
+    minObsPerBasis: float,
+) -> tuple[int, float, int]:
+    minBasis = int(max(1, degree + 1))
+    requested = int(max(requestedBasis, minBasis))
+    weightsArr = np.asarray(weights, dtype=np.float64).ravel()
+    totalWeight = float(np.sum(weightsArr))
+    weightSq = float(np.sum(np.square(weightsArr)))
+    nEff = (totalWeight * totalWeight / weightSq) if weightSq > 0.0 else 0.0
+    minObs = float(max(minObsPerBasis, 1.0))
+    basisByObs = int(np.floor(nEff / minObs))
+    uniqueCount = int(np.unique(np.asarray(x, dtype=np.float64).ravel()).size)
+    basisBySupport = max(minBasis, min(uniqueCount, max(minBasis, basisByObs)))
+    return int(max(minBasis, min(requested, basisBySupport))), float(nEff), uniqueCount
+
+
+def _bsplineDesign(x: np.ndarray, knots: np.ndarray, degree: int) -> np.ndarray:
+    xArr = np.asarray(x, dtype=np.float64).ravel()
+    return np.asarray(
+        interpolate.BSpline.design_matrix(
+            xArr,
+            np.asarray(knots, dtype=np.float64),
+            int(degree),
+            extrapolate=False,
+        ).toarray(),
+        dtype=np.float64,
+    )
+
+
+def _coefficientDiffPenalty(numBasis: int, order: int) -> np.ndarray:
+    numBasis = int(numBasis)
+    order = int(max(order, 0))
+    if order == 0:
+        return np.eye(numBasis, dtype=np.float64)
+    if numBasis <= order:
+        return np.zeros((numBasis, numBasis), dtype=np.float64)
+    diff = np.diff(np.eye(numBasis, dtype=np.float64), n=order, axis=0)
+    return diff.T @ diff
+
+
+def fitPSplineLogVarianceTrend(
+    blockMeans: np.ndarray,
+    blockVariances: np.ndarray,
+    weights: np.ndarray | None = None,
+    eps: float = 1.0e-2,
+    trendNumBasis: int = 60,
+    trendMinObsPerBasis: float = 25.0,
+    trendSplineDegree: int = 2,
+    trendPenaltyOrder: int = 2,
+    trendLambdaMin: float = 1.0e-6,
+    trendLambdaMax: float = 1.0e6,
+    trendLambdaGridSize: int = 41,
+    trendMinEdf: float = 3.0,
+    trendMaxEdf: float | None = 30.0,
+) -> PSplineLogVarianceTrend:
+    r"""Fit a P-spline trend to ``log(variance)`` versus ``log1p(abs(mean))``.
+
+    Smoothing-parameter selection is guarded GCV only. The fit intentionally
+    imposes no monotonicity constraint and no signal-dependent linear floor.
+    """
+
+    means = np.asarray(blockMeans, dtype=np.float64).ravel()
+    variances = np.asarray(blockVariances, dtype=np.float64).ravel()
+    if weights is None:
+        weightsArr = np.ones_like(means, dtype=np.float64)
+    else:
+        weightsArr = np.asarray(weights, dtype=np.float64).ravel()
+        if weightsArr.size != means.size:
+            raise ValueError("weights must have the same length as blockMeans")
+
+    if variances.size != means.size:
+        raise ValueError("blockMeans and blockVariances must have the same length")
+
+    floor = float(max(float(eps), 1.0e-12))
+    x = np.log1p(np.abs(means))
+    y = np.log(np.maximum(variances, floor))
+    mask = (
+        np.isfinite(x)
+        & np.isfinite(y)
+        & np.isfinite(weightsArr)
+        & (weightsArr > 0.0)
+    )
+    x = x[mask]
+    y = y[mask]
+    weightsArr = weightsArr[mask]
+
+    if x.size == 0:
+        y0 = float(np.log(floor))
+        return PSplineLogVarianceTrend(
+            knots=np.empty(0, dtype=np.float64),
+            degree=-1,
+            beta=np.array([y0], dtype=np.float64),
+            xMin=0.0,
+            xMax=0.0,
+            lambdaHat=0.0,
+            edf=1.0,
+            gcv=0.0,
+            lambdaAtBoundary=False,
+            finiteCount=0,
+            diagnostics={"fallback": "no_finite_pairs"},
         )
-        v0 = (
-            float(variances[0])
-            if variances.size == 1
-            else float(
-                np.quantile(
-                    np.maximum(
-                        np.asarray(jointlySortedVariances, float),
-                        EB_minLin * np.abs(np.asarray(jointlySortedMeans, float)),
-                    )
-                    + eps,
-                    binQuantileCutoff,
-                )
+
+    order = np.argsort(x)
+    x = x[order]
+    y = y[order]
+    weightsArr = weightsArr[order]
+
+    xMin = float(x[0])
+    xMax = float(x[-1])
+    if x.size < max(4, int(trendSplineDegree) + 2) or xMax <= xMin:
+        y0 = float(np.average(y, weights=weightsArr))
+        return PSplineLogVarianceTrend(
+            knots=np.empty(0, dtype=np.float64),
+            degree=-1,
+            beta=np.array([y0], dtype=np.float64),
+            xMin=xMin,
+            xMax=xMax,
+            lambdaHat=0.0,
+            edf=1.0,
+            gcv=0.0,
+            lambdaAtBoundary=False,
+            finiteCount=int(x.size),
+            diagnostics={"fallback": "constant_trend"},
+        )
+
+    degree = int(max(0, trendSplineDegree))
+    requestedBasis = int(max(int(trendNumBasis), degree + 1))
+    numBasis, nEff, uniqueXCount = _supportLimitedBasisCount(
+        x=x,
+        weights=weightsArr,
+        requestedBasis=requestedBasis,
+        degree=degree,
+        minObsPerBasis=trendMinObsPerBasis,
+    )
+    knots = _psplineKnots(
+        xMin,
+        xMax,
+        numBasis,
+        degree,
+        x=x,
+        weights=weightsArr,
+    )
+    B = _bsplineDesign(np.clip(x, xMin, xMax), knots, degree)
+    numBasis = int(B.shape[1])
+    penalty = _coefficientDiffPenalty(numBasis, int(trendPenaltyOrder))
+
+    sqrtW = np.sqrt(weightsArr)
+    BW = B * sqrtW[:, None]
+    yW = y * sqrtW
+    gram = BW.T @ BW
+    rhs = BW.T @ yW
+
+    lamMin = float(trendLambdaMin)
+    lamMax = float(trendLambdaMax)
+    if (not np.isfinite(lamMin)) or lamMin <= 0.0:
+        lamMin = 1.0e-6
+    if (not np.isfinite(lamMax)) or lamMax <= lamMin:
+        lamMax = 1.0e6
+    gridSize = int(max(3, trendLambdaGridSize))
+    lambdaGrid = np.logspace(np.log10(lamMin), np.log10(lamMax), gridSize)
+
+    minEdf = float(min(max(1.0, trendMinEdf), max(float(numBasis), 1.0)))
+    if trendMaxEdf is None or not np.isfinite(float(trendMaxEdf)):
+        maxEdf = min(float(numBasis - 1), 30.0)
+    else:
+        maxEdf = float(trendMaxEdf)
+    maxEdf = max(minEdf, min(maxEdf, float(numBasis)))
+    best: tuple[float, float, float, np.ndarray] | None = None
+    bestRejected: tuple[float, float, float, np.ndarray] | None = None
+    ridge = 1.0e-10 * max(float(np.trace(gram)) / max(numBasis, 1), 1.0)
+
+    for lam in lambdaGrid:
+        A = gram + (float(lam) * penalty)
+        try:
+            beta = np.linalg.solve(A + ridge * np.eye(numBasis), rhs)
+            edf = float(np.trace(np.linalg.solve(A + ridge * np.eye(numBasis), gram)))
+        except np.linalg.LinAlgError:
+            continue
+
+        fitted = B @ beta
+        residSS = float(np.sum(weightsArr * np.square(y - fitted)))
+        R = float(max(x.size, 1))
+        denom = 1.0 - (edf / R)
+        if abs(denom) < 1.0e-8:
+            gcv = float("inf")
+        else:
+            gcv = float((residSS / R) / (denom * denom))
+        if not np.isfinite(gcv):
+            continue
+
+        candidate = (gcv, float(lam), edf, beta)
+        if bestRejected is None or gcv < bestRejected[0]:
+            bestRejected = candidate
+
+        if edf < minEdf:
+            continue
+        if maxEdf is not None and edf > maxEdf:
+            continue
+        if best is None or gcv < best[0]:
+            best = candidate
+
+    if best is None:
+        if bestRejected is None:
+            y0 = float(np.average(y, weights=weightsArr))
+            return PSplineLogVarianceTrend(
+                knots=np.empty(0, dtype=np.float64),
+                degree=-1,
+                beta=np.array([y0], dtype=np.float64),
+                xMin=xMin,
+                xMax=xMax,
+                lambdaHat=0.0,
+                edf=1.0,
+                gcv=0.0,
+                lambdaAtBoundary=False,
+                finiteCount=int(x.size),
+                diagnostics={"fallback": "constant_after_solve_failure"},
             )
-        )
-        v0 = max(v0, EB_minLin * m0)
-        return np.vstack([np.array([m0], np.float32), np.array([v0], np.float32)])
+        best = bestRejected
 
-    # isotonic regression via PAVA
-    varsFit = cconsenrich.cPAVA(variances, weights)
-    breaks = np.empty(varsFit.size, dtype=bool)
-    breaks[0] = True
-    breaks[1:] = varsFit[1:] != varsFit[:-1]
+    gcvHat, lambdaHat, edfHat, betaHat = best
+    lambdaAtBoundary = bool(
+        np.isclose(lambdaHat, lambdaGrid[0]) or np.isclose(lambdaHat, lambdaGrid[-1])
+    )
+    return PSplineLogVarianceTrend(
+        knots=knots.astype(np.float64, copy=False),
+        degree=degree,
+        beta=np.asarray(betaHat, dtype=np.float64),
+        xMin=xMin,
+        xMax=xMax,
+        lambdaHat=float(lambdaHat),
+        edf=float(edfHat),
+        gcv=float(gcvHat),
+        lambdaAtBoundary=lambdaAtBoundary,
+        finiteCount=int(x.size),
+        diagnostics={
+            "lambda_grid_min": float(lambdaGrid[0]),
+            "lambda_grid_max": float(lambdaGrid[-1]),
+            "lambda_at_boundary": lambdaAtBoundary,
+            "num_basis": int(numBasis),
+            "requested_num_basis": int(requestedBasis),
+            "support_limited_num_basis": int(numBasis),
+            "trend_n_eff": float(nEff),
+            "trend_unique_x": int(uniqueXCount),
+            "trend_min_obs_per_basis": float(max(trendMinObsPerBasis, 1.0)),
+            "trend_min_edf": float(minEdf),
+            "trend_max_edf": float(maxEdf),
+            "knot_mode": "weighted_quantile",
+            "degree": int(degree),
+            "penalty_order": int(trendPenaltyOrder),
+        },
+    )
 
-    coefAMu = absMeans[breaks]
-    coefVar = varsFit[breaks]
 
-    # lower envelope
-    coefVar = np.maximum(coefVar, EB_minLin * coefAMu)
-    return np.vstack([coefAMu.astype(np.float32), coefVar.astype(np.float32)])
-
-
-def evalVarianceFunction(
-    coeffs: np.ndarray,
+def evalPSplineLogVarianceTrend(
+    trend: PSplineLogVarianceTrend,
     meanTrack: np.ndarray,
     eps: float = 1.0e-2,
-    EB_minLin: float = 0.0,
+    maxVariance: float | None = None,
 ) -> np.ndarray:
-    absMeans = np.abs(np.asarray(meanTrack, dtype=np.float64).ravel())
-    if coeffs is None or np.asarray(coeffs).size == 0:
-        return np.full(absMeans.shape, np.nan, dtype=np.float32)
+    floor = float(max(eps, 1.0e-12))
+    if maxVariance is None or not np.isfinite(float(maxVariance)) or maxVariance <= floor:
+        cap = float(np.finfo(np.float32).max)
+    else:
+        cap = float(maxVariance)
+    logFloor = float(np.log(floor))
+    logCap = float(np.log(cap))
+    return cconsenrich.cEvalPSplineLogVarianceTrend(
+        meanTrack,
+        np.asarray(trend.knots, dtype=np.float64),
+        np.asarray(trend.beta, dtype=np.float64),
+        int(trend.degree),
+        float(trend.xMin),
+        float(trend.xMax),
+        logFloor,
+        logCap,
+    )
 
-    coefAMu = np.asarray(coeffs[0], dtype=np.float64).ravel()
-    coefVar = np.asarray(coeffs[1], dtype=np.float64).ravel()
-    if coefAMu.size == 0:
-        return np.full(absMeans.shape, np.nan, dtype=np.float32)
 
-    # keep in range used to fit
-    x = np.clip(absMeans, coefAMu[0], coefAMu[-1])
-    varsEval = np.interp(x, coefAMu, coefVar)
-    return varsEval.astype(np.float32)
+def _formatPSplineTrendSummary(
+    trend: PSplineLogVarianceTrend,
+    supportAbsMeans: np.ndarray,
+    eps: float,
+    maxVariance: float | None = None,
+    pointCount: int = 9,
+) -> str:
+    support = np.asarray(supportAbsMeans, dtype=np.float64).ravel()
+    support = support[np.isfinite(support) & (support >= 0.0)]
+    if support.size == 0:
+        support = np.expm1(
+            np.linspace(float(trend.xMin), float(trend.xMax), int(pointCount))
+        )
+    probs = np.linspace(0.0, 1.0, int(max(pointCount, 2)), dtype=np.float64)
+    amp = np.unique(np.quantile(support, probs))
+    pred = evalPSplineLogVarianceTrend(
+        trend,
+        amp,
+        eps=eps,
+        maxVariance=maxVariance,
+    )
+    predSd = np.sqrt(np.maximum(np.asarray(pred, dtype=np.float64), 0.0))
+    pairs = ", ".join(
+        f"{float(a):.4g}->{float(sd):.4g}" for a, sd in zip(amp, predSd)
+    )
+    diagnostics = getattr(trend, "diagnostics", {})
+    beta = getattr(trend, "beta", np.empty(0, dtype=np.float64))
+    basisCount = diagnostics.get("num_basis", len(beta))
+    requestedBasis = diagnostics.get("requested_num_basis", len(beta))
+    return (
+        "MUNC P-spline |mean|-SD trend: "
+        f"lambda={getattr(trend, 'lambdaHat', float('nan')):.4g} "
+        f"edf={getattr(trend, 'edf', float('nan')):.3g} "
+        f"basis={basisCount}/{requestedBasis} "
+        f"n_eff={diagnostics.get('trend_n_eff', float('nan')):.1f} "
+        f"unique_x={diagnostics.get('trend_unique_x', 0)} "
+        f"edf_cap={diagnostics.get('trend_max_edf', float('nan')):.3g} "
+        f"lambda_at_boundary={getattr(trend, 'lambdaAtBoundary', False)} "
+        f"|mean|->sd[{pairs}]"
+    )
+
+
+def _formatMuncVarianceDiagnostics(
+    localVarianceTrack: np.ndarray,
+    globalVarianceTrack: np.ndarray,
+    finalVarianceTrack: np.ndarray,
+    supportAbsMeans: np.ndarray,
+) -> str:
+    probs = np.asarray([0.05, 0.25, 0.50, 0.75, 0.95], dtype=np.float64)
+    labels = ("p05", "p25", "p50", "p75", "p95")
+
+    def _sdQuantiles(name: str, values: np.ndarray) -> str:
+        arr = np.asarray(values, dtype=np.float64).ravel()
+        arr = arr[np.isfinite(arr) & (arr >= 0.0)]
+        if arr.size == 0:
+            return f"{name}[empty]"
+        sd = np.sqrt(arr)
+        quantiles = np.quantile(sd, probs)
+        pairs = ",".join(
+            f"{label}={float(value):.4g}"
+            for label, value in zip(labels, quantiles)
+        )
+        return f"{name}[n={arr.size},{pairs}]"
+
+    support = np.asarray(supportAbsMeans, dtype=np.float64).ravel()
+    support = support[np.isfinite(support) & (support >= 0.0)]
+    if support.size == 0:
+        tailSummary = "tail_support(|mean|)[empty]"
+    else:
+        tailProbs = np.asarray([0.90, 0.95, 0.99], dtype=np.float64)
+        tailVals = np.quantile(support, tailProbs)
+        tailParts = [
+            f"q{int(prob * 100):02d}={float(value):.4g}:n>={int(np.count_nonzero(support >= value))}"
+            for prob, value in zip(tailProbs, tailVals)
+        ]
+        tailParts.append(f"max={float(np.max(support)):.4g}")
+        tailSummary = f"tail_support(|mean|)[n={support.size},{','.join(tailParts)}]"
+
+    return (
+        "MUNC variance SD diagnostics: "
+        f"{_sdQuantiles('L', localVarianceTrack)} "
+        f"{_sdQuantiles('G', globalVarianceTrack)} "
+        f"{_sdQuantiles('V0', finalVarianceTrack)} "
+        f"{tailSummary}"
+    )
+
+
+def _clipVarianceTrack(
+    values: np.ndarray,
+    floor: float,
+    cap: float | None = None,
+    fillNaN: bool = True,
+) -> np.ndarray:
+    floor_ = float(max(float(floor), 1.0e-12))
+    cap_ = (
+        float(np.finfo(np.float32).max)
+        if cap is None or (not np.isfinite(float(cap))) or float(cap) <= floor_
+        else float(cap)
+    )
+    out = np.asarray(values, dtype=np.float64)
+    if fillNaN:
+        out = np.nan_to_num(out, nan=floor_, posinf=cap_, neginf=floor_)
+        np.clip(out, floor_, cap_, out=out)
+    else:
+        posInfMask = np.isposinf(out)
+        negInfMask = np.isneginf(out)
+        out[posInfMask] = cap_
+        out[negInfMask] = np.nan
+        finiteMask = np.isfinite(out)
+        out[finiteMask] = np.clip(out[finiteMask], floor_, cap_)
+    return out.astype(np.float32)
 
 
 def _buildSecondDiffPenalty(intervalCount: int) -> sparse.csr_matrix:
@@ -3124,11 +3494,16 @@ def getMuncTrack(
     excludeMask: Optional[np.ndarray] = None,
     useEMA: Optional[bool] = True,
     excludeFitCoefs: Optional[Tuple[int, ...]] = None,
-    binQuantileCutoff: float = 0.5,
-    EB_minLin: float = 0.0,
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
+    trendNumBasis: int = 60,
+    trendMinObsPerBasis: float = 25.0,
+    trendMinEdf: float = 3.0,
+    trendMaxEdf: float | None = 30.0,
+    trendLambdaMin: float = 1.0e-6,
+    trendLambdaMax: float = 1.0e6,
+    trendLambdaGridSize: int = 41,
     sparseIntervalIndices: Optional[np.ndarray] = None,
     sparseRegionMask: Optional[np.ndarray] = None,
     numNearest: int = 0,
@@ -3138,6 +3513,8 @@ def getMuncTrack(
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
     eps: float = 1.0e-2,
+    varianceFloor: float | None = None,
+    varianceCap: float | None = None,
     intervalsArr: Optional[np.ndarray] = None,
     excludeMaskArr: Optional[np.ndarray] = None,
 ) -> tuple[npt.NDArray[np.float32], float]:
@@ -3159,7 +3536,15 @@ def getMuncTrack(
 
     """
 
-    AR1_PARAMCT = 3  # intercept, AR(1) coefficient, innovation variance
+    AR1_PARAMCT = 3  # intercept, AR(1) coefficient, variance
+    varianceFloor_ = float(max(eps, varianceFloor or eps, 1.0e-12))
+    varianceCap_ = (
+        None
+        if varianceCap is None
+        or (not np.isfinite(float(varianceCap)))
+        or float(varianceCap) <= varianceFloor_
+        else float(varianceCap)
+    )
     if samplingBlockSizeBP is None:
         samplingBlockSizeBP = intervalSizeBP * (11 * (AR1_PARAMCT))
     blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
@@ -3287,7 +3672,7 @@ def getMuncTrack(
             np.ascontiguousarray(blockStarts, dtype=np.intp),
             np.ascontiguousarray(blockSizes, dtype=np.intp),
             int(numNearest),
-            useInnovationVar=True,
+            useInnovationVar=False,
             aggregateMeanAbs=False,
         )
         sparseMeanTrack = np.asarray(sparseMeanTrack, dtype=np.float32)
@@ -3328,9 +3713,8 @@ def getMuncTrack(
 
     # Global:
     # ... Variance as function of |mean|, globally, as observed in distinct, randomly drawn genomic
-    # ... blocks. Within fixed-size blocks, it's assumed that an AR(1) process can, on average,
-    # ... account for a large fraction of desired signal, and the (residual) innovation variance
-    # ... reflects noise
+    # ... blocks. Within fixed-size blocks, an AR(1) fit captures local autocorrelation, while
+    # ... the stationary/marginal AR(1) variance is used as the diagonal observation-variance target.
     blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
         intervalsArr,
         np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32),
@@ -3338,7 +3722,7 @@ def getMuncTrack(
         samplingIters,
         randomSeed,
         excludeMaskArr,
-        useInnovationVar=True,
+        useInnovationVar=False,
     )
 
     meanAbs = np.abs(blockMeans)
@@ -3349,39 +3733,75 @@ def getMuncTrack(
     order = np.argsort(meanAbs_Masked)
     meanAbs_Sorted = meanAbs_Masked[order]
     var_Sorted = var_Masked[order]
-    opt = fitVarianceFunction(
+    opt = fitPSplineLogVarianceTrend(
         meanAbs_Sorted,
         var_Sorted,
-        binQuantileCutoff=binQuantileCutoff,
-        EB_minLin=EB_minLin,
         eps=eps,
+        trendNumBasis=trendNumBasis,
+        trendMinObsPerBasis=trendMinObsPerBasis,
+        trendMinEdf=trendMinEdf,
+        trendMaxEdf=trendMaxEdf,
+        trendLambdaMin=trendLambdaMin,
+        trendLambdaMax=trendLambdaMax,
+        trendLambdaGridSize=trendLambdaGridSize,
+    )
+    logger.info(
+        _formatPSplineTrendSummary(
+            opt,
+            meanAbs_Sorted,
+            eps=varianceFloor_,
+            maxVariance=varianceCap_,
+        )
     )
 
     meanTrack = np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32)
     if useEMA:
         meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
     meanTrack = np.abs(meanTrack)
-    priorTrack = evalVarianceFunction(opt, meanTrack, EB_minLin=EB_minLin).astype(
-        np.float32, copy=False
+    priorTrack = evalPSplineLogVarianceTrend(
+        opt,
+        meanTrack,
+        eps=varianceFloor_,
+        maxVariance=varianceCap_,
+    )
+    priorTrack = _clipVarianceTrack(
+        priorTrack,
+        floor=varianceFloor_,
+        cap=varianceCap_,
     )
 
     if not EB_use:
-        return priorTrack.astype(np.float32), np.sum(mask) / float(len(blockMeans))
+        return priorTrack.astype(np.float32, copy=False), np.sum(mask) / float(
+            len(blockMeans)
+        )
 
     # Local:
-    # ... default: rolling AR(1) innovation variance over a sliding window
+    # ... default: rolling AR(1) marginal variance over a sliding window
     # ... optional sparse-bed restriction: invalidate any local window leaving sparse regions
     # ... sparse-nearest mode: aggregate region mean/variance stats at the nearest sparse blocks
     fallbackObsVarTrack = cconsenrich.crolling_AR1_IVar(
         valuesArr,
         localWindowIntervals,
         localObsExcludeMaskArr,
+        useInnovationVar=False,
     ).astype(np.float32, copy=False)
     fallbackObsVarTrack[fallbackObsVarTrack < 0.0] = np.nan
+    fallbackObsVarTrack = _clipVarianceTrack(
+        fallbackObsVarTrack,
+        floor=varianceFloor_,
+        cap=varianceCap_,
+        fillNaN=False,
+    )
 
     if sparseObsVarTrack is not None:
         sparseObsVarTrack = sparseObsVarTrack.astype(np.float32, copy=False)
         sparseObsVarTrack[sparseObsVarTrack < 0.0] = np.nan
+        sparseObsVarTrack = _clipVarianceTrack(
+            sparseObsVarTrack,
+            floor=varianceFloor_,
+            cap=varianceCap_,
+            fillNaN=False,
+        )
         if sparseSupportWeightTrack is None:
             sparseSupportWeightTrack = np.ones_like(sparseObsVarTrack, dtype=np.float32)
         supportWeight = np.asarray(sparseSupportWeightTrack, dtype=np.float32)
@@ -3404,18 +3824,15 @@ def getMuncTrack(
     # ... -- set as _NaN_ -- and handle later during shrinkage
     obsVarTrack[obsVarTrack < 0.0] = np.nan
 
-    # ~Corresponds~ to `binQuantileCutoff` that is applied in the global/prior fit:
-    # ... Optionally, run a quantile filter over the local variance track
+    # Optionally, run a quantile filter over the local variance track.
     # ...     EB_localQuantile < 0 --> disable
-    # ...     EB_localQuantile == 0 --> use binQuantileCutoff
+    # ...     EB_localQuantile == 0 --> median filter
     # ...     EB_localQuantile > 0 --> use supplied quantile value (x100)
-    # ... NOTE: Useful heuristic for parity with the global model and tempering effects of
-    # ...    spurious measurements in sparse genomic regions where estimated noise levels
-    # ...    are often artificially deflated. Note that the quantile filter _centered_,
-    # ...    unlike innovations
+    # ... NOTE: Useful heuristic for tempering spurious measurements in sparse genomic
+    # ...    regions where estimated noise levels are often artificially deflated.
     if EB_localQuantile >= 0.0:
         quantile_ = (
-            float(binQuantileCutoff)
+            0.5
             if EB_localQuantile == 0.0
             else float(EB_localQuantile)
         )
@@ -3446,14 +3863,25 @@ def getMuncTrack(
             # immediately after, replace sentinel inf --> NaN
             tmp[nanMask] = np.nan
             tmp[~np.isfinite(tmp)] = np.nan
-            obsVarTrack = tmp + eps
+            obsVarTrack = _clipVarianceTrack(
+                tmp + varianceFloor_,
+                floor=varianceFloor_,
+                cap=varianceCap_,
+                fillNaN=False,
+            )
         else:
             ndimage.percentile_filter(
-                obsVarTrack + eps,
+                obsVarTrack + varianceFloor_,
                 size=win + 2,
                 percentile=pct,
                 mode="nearest",
                 output=obsVarTrack,
+            )
+            obsVarTrack = _clipVarianceTrack(
+                obsVarTrack,
+                floor=varianceFloor_,
+                cap=varianceCap_,
+                fillNaN=False,
             )
 
     # df / effective sample size for local variance
@@ -3496,15 +3924,25 @@ def getMuncTrack(
             Nu_0 = float(1.0e6)
         else:
             Nu_0 = EB_computePriorStrength(
-                obsVarTrack[finMask_both],
-                priorTrack[finMask_both],
+                obsVarTrack,
+                priorTrack,
                 Nu_L,
+                thinStride=max(localWindowIntervals, blockSizeIntervals, 1),
             )
 
         # reuse masks during shrinkage (no need to recompute)
         finMask_obs2 = finMask_obs
         finMask_prior2 = finMask_prior
         finMask_both2 = finMask_both
+
+    Nu_0_cap = 50.0 * float(Nu_L)
+    if np.isfinite(Nu_0_cap) and Nu_0 > Nu_0_cap:
+        logger.info(
+            "Capping Nu_0=%.2f at 50*Nu_L=%.2f",
+            float(Nu_0),
+            float(Nu_0_cap),
+        )
+        Nu_0 = float(Nu_0_cap)
 
     logger.info(f"Nu_0={Nu_0:.2f}, Nu_L={Nu_L:.2f}")
     posteriorSampleSize: float = Nu_L + Nu_0
@@ -3532,8 +3970,12 @@ def getMuncTrack(
 
     # Case: both prior and obs yield meaningful estimates --> proper shrinkage
     posteriorVarTrack[finMask_both2] = (
-        Nu_L * obsVarTrack[finMask_both2] + Nu_0 * posteriorVarTrack[finMask_both2]
-    ) / posteriorSampleSize
+        (
+            Nu_L * obsVarTrack[finMask_both2].astype(np.float64)
+            + Nu_0 * posteriorVarTrack[finMask_both2].astype(np.float64)
+        )
+        / posteriorSampleSize
+    ).astype(np.float32)
 
     # Case: prior is missing but obs value is valid --> use the local estimate
     # ... (shouldn't really happen, but JIC for completeness)
@@ -3553,6 +3995,21 @@ def getMuncTrack(
         )
         posteriorVarTrack[finMask_neither2] = np.nan
 
+    posteriorVarTrack = _clipVarianceTrack(
+        posteriorVarTrack,
+        floor=varianceFloor_,
+        cap=varianceCap_,
+    )
+
+    logger.info(
+        _formatMuncVarianceDiagnostics(
+            obsVarTrack,
+            priorTrack,
+            posteriorVarTrack,
+            meanAbs_Sorted,
+        )
+    )
+
     if verbose:
         logger.info(
             f"Median variance after shrinkage: {float(np.nanmedian(posteriorVarTrack)):.4f}",
@@ -3564,46 +4021,77 @@ def getMuncTrack(
 
 
 def EB_computePriorStrength(
-    localModelVariances: np.ndarray, globalModelVariances: np.ndarray, Nu_local: float
+    localModelVariances: np.ndarray,
+    globalModelVariances: np.ndarray,
+    Nu_local: float,
+    thinStride: int = 1,
 ) -> float:
     r"""Compute :math:`\nu_0` to determine 'prior strength'
 
     The prior model strength is determined by 'excess' dispersion beyond sampling noise at the local level.
 
-    :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) innovation variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
+    :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) marginal variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
     :type localModelVariances: np.ndarray
-    :param globalModelVariances: Global model variance estimates from the absMean-variance trend fit (:func:`consenrich.core.fitVarianceFunction`).
+    :param globalModelVariances: Global model variance estimates from the absMean-variance trend fit (:func:`consenrich.core.fitPSplineLogVarianceTrend`).
     :type globalModelVariances: np.ndarray
     :param Nu_local: Effective sample size/degrees of freedom for the local model.
     :type Nu_local: float
+    :param thinStride: Deterministic interval stride used to thin serially dependent local/global pairs before moment matching.
+    :type thinStride: int
     :return: Estimated prior strength :math:`\nu_{0}`.
     :rtype: float
 
-    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitVarianceFunction`
+    :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitPSplineLogVarianceTrend`
     """
 
-    localModelVariancesArr = np.asarray(localModelVariances, dtype=np.float64)
-    globalModelVariancesArr = np.asarray(globalModelVariances, dtype=np.float64)
+    localModelVariancesArr = np.asarray(localModelVariances, dtype=np.float64).ravel()
+    globalModelVariancesArr = np.asarray(globalModelVariances, dtype=np.float64).ravel()
+    if localModelVariancesArr.shape != globalModelVariancesArr.shape:
+        raise ValueError(
+            "localModelVariances and globalModelVariances must have the same shape"
+        )
 
-    ratioMask = (localModelVariancesArr > 0.0) & (globalModelVariancesArr > 0.0)
-    if np.count_nonzero(ratioMask) < (0.10) * localModelVariancesArr.size:
+    ratioMask = (
+        np.isfinite(localModelVariancesArr)
+        & np.isfinite(globalModelVariancesArr)
+        & (localModelVariancesArr > 0.0)
+        & (globalModelVariancesArr > 0.0)
+    )
+    candidateIdx = np.flatnonzero(ratioMask)
+    if candidateIdx.size < max(4, int(np.ceil((0.10) * localModelVariancesArr.size))):
         logger.warning(
             f"Insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
         )
         return float(1.0e6)
 
-    varRatioArr = localModelVariancesArr[ratioMask] / globalModelVariancesArr[ratioMask]
+    stride = max(int(thinStride or 1), 1)
+    if stride > 1:
+        phases = candidateIdx % stride
+        phaseCounts = np.bincount(phases, minlength=stride)
+        bestPhase = int(np.argmax(phaseCounts))
+        candidateIdx = candidateIdx[phases == bestPhase]
+
+    if candidateIdx.size < 4:
+        logger.warning(
+            f"After thinning, insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
+        )
+        return float(1.0e6)
+
+    varRatioArr = (
+        localModelVariancesArr[candidateIdx] / globalModelVariancesArr[candidateIdx]
+    )
     varRatioArr = varRatioArr[np.isfinite(varRatioArr) & (varRatioArr > 0.0)]
-    if varRatioArr.size < (0.10) * localModelVariancesArr.size:
+    if varRatioArr.size < 4:
         logger.warning(
             f"After masking, insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
         )
         return float(1.0e6)
 
     logVarRatioArr = np.log(varRatioArr)
-    clipSmall = np.quantile(logVarRatioArr, 0.001)
-    clipBig = np.quantile(logVarRatioArr, 0.999)
-    np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
+    if logVarRatioArr.size >= 20:
+        clipSmall = np.quantile(logVarRatioArr, 0.01)
+        clipBig = np.quantile(logVarRatioArr, 0.99)
+        np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
 
     varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
     trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))

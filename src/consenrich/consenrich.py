@@ -1251,6 +1251,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     restrictLocalAR1ToSparseBedResolved = bool(
         restrictLocalAR1ToSparseBedRequested and sparseBedAvailable
     )
+    trendMaxEdfCfg = _cfgGet(configData, "observationParams.trendMaxEdf", 30.0)
 
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", -1.0),
@@ -1265,18 +1266,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.samplingBlockSizeBP",
             -1,
         ),
-        binQuantileCutoff=_cfgGet(
-            configData,
-            "observationParams.binQuantileCutoff",
-            0.5,
-        ),
-        EB_minLin=float(
-            _cfgGet(
-                configData,
-                "observationParams.EB_minLin",
-                1.0,
-            )
-        ),
         EB_use=_cfgGet(
             configData,
             "observationParams.EB_use",
@@ -1284,6 +1273,21 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
+        trendNumBasis=int(_cfgGet(configData, "observationParams.trendNumBasis", 60)),
+        trendMinObsPerBasis=float(
+            _cfgGet(configData, "observationParams.trendMinObsPerBasis", 25.0)
+        ),
+        trendMinEdf=float(_cfgGet(configData, "observationParams.trendMinEdf", 3.0)),
+        trendMaxEdf=None if trendMaxEdfCfg is None else float(trendMaxEdfCfg),
+        trendLambdaMin=float(
+            _cfgGet(configData, "observationParams.trendLambdaMin", 1.0e-6)
+        ),
+        trendLambdaMax=float(
+            _cfgGet(configData, "observationParams.trendLambdaMax", 1.0e6)
+        ),
+        trendLambdaGridSize=int(
+            _cfgGet(configData, "observationParams.trendLambdaGridSize", 41)
+        ),
         numNearest=numNearestResolved,
         sparseSupportScaleBP=_cfgGet(
             configData,
@@ -1298,7 +1302,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             )
         ),
         restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
-        pad=_cfgGet(configData, "observationParams.pad", 1.0e-3),
+        pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
     )
 
     EM_useAPN_ = bool(_cfgGet(configData, "fitParams.EM_useAPN", False))
@@ -2652,12 +2656,17 @@ def main():
                 intervalSizeBP,
                 samplingIters=observationArgs.samplingIters,
                 samplingBlockSizeBP=samplingBlockSizeBP_,
-                binQuantileCutoff=observationArgs.binQuantileCutoff,
-                EB_minLin=observationArgs.EB_minLin,
                 randomSeed=42 + j,
                 EB_use=observationArgs.EB_use,
                 EB_setNu0=observationArgs.EB_setNu0,
                 EB_setNuL=observationArgs.EB_setNuL,
+                trendNumBasis=observationArgs.trendNumBasis,
+                trendMinObsPerBasis=observationArgs.trendMinObsPerBasis,
+                trendMinEdf=observationArgs.trendMinEdf,
+                trendMaxEdf=observationArgs.trendMaxEdf,
+                trendLambdaMin=observationArgs.trendLambdaMin,
+                trendLambdaMax=observationArgs.trendLambdaMax,
+                trendLambdaGridSize=observationArgs.trendLambdaGridSize,
                 sparseIntervalIndices=sparseIntervalIndices,
                 sparseRegionMask=sparseRegionMask,
                 numNearest=int(observationArgs.numNearest or 0),
@@ -2667,6 +2676,8 @@ def main():
                     getattr(observationArgs, "restrictLocalAR1ToSparseBed", False)
                 ),
                 verbose=args.verbose2,
+                varianceFloor=minR_ if minR_ is not None and minR_ > 0.0 else None,
+                varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
                 intervalsArr=muncIntervalsArr,
                 excludeMaskArr=muncEmptyExcludeMask,
             )
@@ -2713,11 +2724,28 @@ def main():
                 muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-4))
+            finiteMunc = muncMat[np.isfinite(muncMat)]
+            minR_ = np.float32(
+                max(
+                    np.quantile(finiteMunc, 0.01) if finiteMunc.size else 1.0e-4,
+                    1.0e-4,
+                )
+            )
             logger.info(
                 "observationParams.minR < 0 or observationParams.maxR < 0 --> applying minimal numerically stable bounds for conditioning",
             )
-            muncMat = muncMat.astype(np.float32, copy=False)
+        muncMat = np.nan_to_num(
+            muncMat.astype(np.float32, copy=False),
+            nan=np.float32(minR_),
+            posinf=np.float32(maxR_),
+            neginf=np.float32(minR_),
+        )
+        np.clip(
+            muncMat,
+            np.float32(minR_),
+            np.float32(maxR_),
+            out=muncMat,
+        )
         minQ_ = processArgs.minQ
         maxQ_ = processArgs.maxQ
 
