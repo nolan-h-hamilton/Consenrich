@@ -1010,30 +1010,12 @@ def getStateArgs(config_path: str) -> core.stateParams:
     if boundState_:
         if stateLowerBound_ > stateUpperBound_:
             raise ValueError("`stateLowerBound` is greater than `stateUpperBound`.")
-    effectiveInfoRescale_ = _cfgGet(
-        configData,
-        "stateParams.effectiveInfoRescale",
-        True,
-    )
-    effectiveInfoBlockLengthBP_ = _cfgGet(
-        configData,
-        "stateParams.effectiveInfoBlockLengthBP",
-        _cfgGet(configData, "stateParams.effectiveInfoBlockLength", 50_000),
-    )
-    effectiveInfoBandwidthBP_ = _cfgGet(
-        configData,
-        "stateParams.effectiveInfoBandwidthBP",
-        None,
-    )
     return core.stateParams(
         stateInit=stateInit_,
         stateCovarInit=stateCovarInit_,
         boundState=boundState_,
         stateLowerBound=stateLowerBound_,
         stateUpperBound=stateUpperBound_,
-        effectiveInfoRescale=effectiveInfoRescale_,
-        effectiveInfoBlockLengthBP=effectiveInfoBlockLengthBP_,
-        effectiveInfoBandwidthBP=effectiveInfoBandwidthBP_,
     )
 
 
@@ -1124,34 +1106,6 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     )
 
 
-def _resolveEffectiveInfoBandwidthIntervals(
-    effectiveInfoBandwidthBP: int | float | None,
-    intervalSizeBP: int,
-) -> int | None:
-    if effectiveInfoBandwidthBP is None or float(effectiveInfoBandwidthBP) <= 0.0:
-        return None
-    return max(
-        1,
-        int(np.ceil(float(effectiveInfoBandwidthBP) / float(intervalSizeBP))),
-    )
-
-
-def _resolveEffectiveInfoBlockLengthIntervals(
-    effectiveInfoBlockLengthBP: int | float | None,
-    intervalSizeBP: int,
-    intervalCount: int,
-) -> int:
-    if effectiveInfoBlockLengthBP is None or float(effectiveInfoBlockLengthBP) <= 0.0:
-        return max(int(intervalCount), 1)
-    return max(
-        1,
-        min(
-            int(np.ceil(float(effectiveInfoBlockLengthBP) / float(intervalSizeBP))),
-            max(int(intervalCount), 1),
-        ),
-    )
-
-
 def getScArgs(config_path: str) -> core.scParams:
     configData = loadConfig(config_path)
 
@@ -1194,6 +1148,200 @@ def getScArgs(config_path: str) -> core.scParams:
     )
 
 
+def getUncertaintyCalibrationArgs(
+    config_path: str,
+) -> core.uncertaintyCalibrationParams:
+    configData = loadConfig(config_path)
+    enabledDefault = True
+    blockDefault = None
+    padDefault = _cfgGet(configData, "observationParams.pad", 1.0e-4)
+    maxScores = _cfgGet(
+        configData,
+        "uncertaintyCalibrationParams.maxScores",
+        _cfgGet(configData, "uncertaintyCalibration.maxScores", None),
+    )
+    maxHeldoutCells = _cfgGet(
+        configData,
+        "uncertaintyCalibrationParams.maxHeldoutCells",
+        _cfgGet(configData, "uncertaintyCalibration.maxHeldoutCells", None),
+    )
+    if maxScores is None and maxHeldoutCells is None:
+        maxScores = core.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES
+    return core.uncertaintyCalibrationParams(
+        enabled=bool(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.enabled",
+                _cfgGet(configData, "uncertaintyCalibration.enabled", enabledDefault),
+            )
+        ),
+        folds=int(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.folds",
+                _cfgGet(configData, "uncertaintyCalibration.folds", 5),
+            )
+        ),
+        blockSizeBP=_cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.blockSizeBP",
+            _cfgGet(configData, "uncertaintyCalibration.blockSizeBP", blockDefault),
+        ),
+        holdoutFraction=_cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.holdoutFraction",
+            _cfgGet(configData, "uncertaintyCalibration.holdoutFraction", None),
+        ),
+        heldoutReplicateFraction=_cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.heldoutReplicateFraction",
+            _cfgGet(
+                configData,
+                "uncertaintyCalibration.heldoutReplicateFraction",
+                None,
+            ),
+        ),
+        maxScores=int(maxScores) if maxScores is not None else maxScores,
+        maxHeldoutCells=(
+            int(maxHeldoutCells) if maxHeldoutCells is not None else maxHeldoutCells
+        ),
+        maxDiagnosticRows=int(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.maxDiagnosticRows",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.maxDiagnosticRows",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS,
+                ),
+            )
+        ),
+        minHeldoutCells=int(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.minHeldoutCells",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.minHeldoutCells",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS,
+                ),
+            )
+        ),
+        targets=tuple(
+            float(x)
+            for x in _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.targets",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.targets",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
+                ),
+            )
+        ),
+        minFactor=float(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.minFactor",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.minFactor",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
+                ),
+            )
+        ),
+        maxFactor=float(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.maxFactor",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.maxFactor",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
+                ),
+            )
+        ),
+        factorMin=_cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.factorMin",
+            _cfgGet(configData, "uncertaintyCalibration.factorMin", None),
+        ),
+        factorMax=_cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.factorMax",
+            _cfgGet(configData, "uncertaintyCalibration.factorMax", None),
+        ),
+        ridge=float(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.ridge",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.ridge",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE,
+                ),
+            )
+        ),
+        wisWeight=float(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.wisWeight",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.wisWeight",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT,
+                ),
+            )
+        ),
+        aObsPenalty=float(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.aObsPenalty",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.aObsPenalty",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
+                ),
+            )
+        ),
+        aObsPriorStrength=_cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.aObsPriorStrength",
+            _cfgGet(configData, "uncertaintyCalibration.aObsPriorStrength", None),
+        ),
+        calibrationEMIters=int(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.calibrationEMIters",
+                _cfgGet(configData, "uncertaintyCalibration.calibrationEMIters", 2),
+            )
+        ),
+        seed=int(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.seed",
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.seed",
+                    core.UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
+                ),
+            )
+        ),
+        pad=_cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.pad",
+            _cfgGet(configData, "uncertaintyCalibration.pad", padDefault),
+        ),
+        writeDiagnostics=bool(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.writeDiagnostics",
+                _cfgGet(configData, "uncertaintyCalibration.writeDiagnostics", False),
+            )
+        ),
+    )
+
+
 def readConfig(config_path: str) -> Dict[str, Any]:
     r"""Read and parse the configuration file for Consenrich.
 
@@ -1208,6 +1356,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     stateParams = getStateArgs(config_path)
     countingParams = getCountingArgs(config_path)
     scArgs = getScArgs(config_path)
+    uncertaintyCalibrationArgs = getUncertaintyCalibrationArgs(config_path)
     experimentName = _cfgGet(configData, "experimentName", "consenrichExperiment")
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
@@ -1450,6 +1599,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "processArgs": processArgs,
         "observationArgs": observationArgs,
         "stateArgs": stateParams,
+        "uncertaintyCalibrationArgs": uncertaintyCalibrationArgs,
         "samArgs": samArgs,
         "matchingArgs": matchingArgs,
         "fitArgs": fitArgs,
@@ -1866,6 +2016,7 @@ def main():
     processArgs = config["processArgs"]
     observationArgs = config["observationArgs"]
     stateArgs = config["stateArgs"]
+    uncertaintyCalibrationArgs = config["uncertaintyCalibrationArgs"]
     samArgs = config["samArgs"]
     matchingArgs = config["matchingArgs"]
     fitArgs = config["fitArgs"]
@@ -1923,6 +2074,9 @@ def main():
             config_truncated["processArgs"] = processArgs
             config_truncated["observationArgs"] = observationArgs
             config_truncated["stateArgs"] = stateArgs
+            config_truncated["uncertaintyCalibrationArgs"] = (
+                uncertaintyCalibrationArgs
+            )
             config_truncated["samArgs"] = samArgs
             pretty = pprint.pformat(
                 config_truncated,
@@ -2804,24 +2958,8 @@ def main():
             if vec_ is not None
             else 2 * backgroundBlockSizeIntervals + 1
         )
-        effectiveInfoBandwidthIntervals_ = _resolveEffectiveInfoBandwidthIntervals(
-            stateArgs.effectiveInfoBandwidthBP,
-            intervalSizeBP,
-        )
-        effectiveInfoBlockLengthIntervals_ = _resolveEffectiveInfoBlockLengthIntervals(
-            stateArgs.effectiveInfoBlockLengthBP,
-            intervalSizeBP,
-            numIntervals,
-        )
-        logger.info(
-            "Effective-information intervals for %s: bandwidth=%s blockLength=%d",
-            chromosome,
-            (
-                "adaptive"
-                if effectiveInfoBandwidthIntervals_ is None
-                else str(int(effectiveInfoBandwidthIntervals_))
-            ),
-            int(effectiveInfoBlockLengthIntervals_),
+        useCrossFitUncertainty = bool(
+            outputArgs.writeUncertainty and uncertaintyCalibrationArgs.enabled
         )
         (
             x,
@@ -2866,9 +3004,6 @@ def main():
             autoDeltaF_high=autoDeltaFHigh_,
             autoDeltaF_init=deltaFCenter_,
             applyJackknife=outputArgs.applyJackknife,
-            effectiveInfoRescale=stateArgs.effectiveInfoRescale,
-            effectiveInfoBandwidthIntervals=effectiveInfoBandwidthIntervals_,
-            effectiveInfoBlockLengthIntervals=effectiveInfoBlockLengthIntervals_,
         )
         replicateBias = np.asarray(replicateBias, dtype=np.float32)
         logger.info(
@@ -2889,6 +3024,77 @@ def main():
             boundState=stateArgs.boundState,
         )
         P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
+        uncertaintyTrack = np.sqrt(P00_).astype(np.float32, copy=False)
+
+        if useCrossFitUncertainty:
+            from consenrich import uncertainty as uncertainty_module
+
+            calibrationRunKwargs = dict(
+                deltaF=deltaFCenter_,
+                minQ=minQ_,
+                maxQ=maxQ_,
+                offDiagQ=offDiagQ_,
+                stateInit=stateArgs.stateInit,
+                stateCovarInit=stateArgs.stateCovarInit,
+                boundState=stateArgs.boundState,
+                stateLowerBound=stateArgs.stateLowerBound,
+                stateUpperBound=stateArgs.stateUpperBound,
+                blockLenIntervals=blockLenIntervals_,
+                returnScales=True,
+                returnReplicateOffsets=True,
+                pad=pad_,
+                disableCalibration=(not bool(fitArgs.EM_use)),
+                EM_maxIters=fitArgs.EM_maxIters,
+                EM_innerRtol=fitArgs.EM_innerRtol,
+                EM_tNu=fitArgs.EM_tNu,
+                EM_useObsPrecReweight=fitArgs.EM_useObsPrecReweight,
+                EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
+                EM_useAPN=fitArgs.EM_useAPN,
+                EM_useReplicateBias=fitArgs.EM_useReplicateBias,
+                EM_zeroCenterBackground=fitArgs.EM_zeroCenterBackground,
+                EM_zeroCenterReplicateBias=fitArgs.EM_zeroCenterReplicateBias,
+                EM_repBiasShrink=fitArgs.EM_repBiasShrink,
+                EM_outerIters=fitArgs.EM_outerIters,
+                EM_outerRtol=fitArgs.EM_outerRtol,
+                EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
+                autoDeltaF=False,
+                autoDeltaF_low=autoDeltaFLow_,
+                autoDeltaF_high=autoDeltaFHigh_,
+                autoDeltaF_init=deltaFCenter_,
+                applyJackknife=False,
+            )
+            calibrationPrefix = (
+                f"consenrichOutput_{experimentName}_uncertaintyCalibration"
+                f".v{__version__}"
+            )
+            calibrationResult = (
+                uncertainty_module.calibrateChromosomeStateUncertainty(
+                    matrixData=chromMat,
+                    matrixMunc=muncMat,
+                    fullState=x,
+                    fullCovar=P,
+                    fullReplicateBias=replicateBias,
+                    intervals=intervals,
+                    intervalSizeBP=intervalSizeBP,
+                    params=uncertaintyCalibrationArgs,
+                    runKwargs=calibrationRunKwargs,
+                    pad=pad_,
+                    outPrefix=calibrationPrefix,
+                    chromosome=chromosome,
+                )
+            )
+            uncertaintyTrack = np.asarray(
+                calibrationResult.calibratedUncertainty,
+                dtype=np.float32,
+            )
+            logger.info(
+                "Cross-fit uncertainty calibration applied for %s: "
+                "factorMedian=%.6g aObs=%.6g heldoutCells=%d",
+                chromosome,
+                float(np.median(calibrationResult.factor)),
+                float(calibrationResult.model.get("a_obs_factor", np.nan)),
+                int(calibrationResult.model.get("heldout_cells", 0)),
+            )
 
         df = pd.DataFrame(
             {
@@ -2900,7 +3106,7 @@ def main():
         )
 
         if outputArgs.writeUncertainty:
-            df["uncertainty"] = np.sqrt(P00_).astype(np.float32, copy=False)
+            df["uncertainty"] = uncertaintyTrack
 
         cols_ = ["Chromosome", "Start", "End", "State"]
 

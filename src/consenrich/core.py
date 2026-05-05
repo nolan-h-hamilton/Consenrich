@@ -161,20 +161,6 @@ class stateParams(NamedTuple):
     :type stateLowerBound: float
     :param stateUpperBound: Upper bound for the state estimate.
     :type stateUpperBound: float
-    :param effectiveInfoRescale: If True, inflate the default model-based uncertainty track
-        using effective-information correction factors estimated from standardized
-        one-step-ahead forward innovations.
-    :type effectiveInfoRescale: bool | None
-    :param effectiveInfoBlockLengthBP: Genomic window length, in bp, used to localize
-        the uncertainty inflation factors along the chromosome. Each local window estimates
-        a HAC correction factor, then Consenrich shrinks and interpolates those factors to
-        an interval-level correction track. Non-positive values fall back to one
-        chromosome-wide correction factor.
-    :type effectiveInfoBlockLengthBP: int | None
-    :param effectiveInfoBandwidthBP: Optional Newey-West/Bartlett lag bandwidth, in bp,
-        used inside each HAC estimate. This controls how many nearby innovation lags enter
-        the long-run variance sum. Non-positive values use an adaptive lag bandwidth.
-    :type effectiveInfoBandwidthBP: int | None
     """
 
     stateInit: float
@@ -182,9 +168,87 @@ class stateParams(NamedTuple):
     boundState: bool
     stateLowerBound: float
     stateUpperBound: float
-    effectiveInfoRescale: bool | None
-    effectiveInfoBlockLengthBP: int | None
-    effectiveInfoBandwidthBP: int | None
+
+
+UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR = 1.0e-12
+UNCERTAINTY_CALIBRATION_FEATURE_POSITIVE_FLOOR = 1.0e-12
+UNCERTAINTY_CALIBRATION_FEATURE_SCALE_FLOOR = 1.0e-8
+UNCERTAINTY_CALIBRATION_FEATURE_MAD_NORMAL_SCALE = 1.4826
+UNCERTAINTY_CALIBRATION_FEATURE_HIGH_SIGNAL_QUANTILE = 0.90
+UNCERTAINTY_CALIBRATION_FEATURE_NAMES = (
+    "intercept",
+    "log_state_variance",
+    "log_mean_observation_variance",
+    "abs_state",
+    "abs_state_delta",
+    "high_signal",
+)
+UNCERTAINTY_CALIBRATION_AUTO_BLOCK_MIN_BP = 50_000
+UNCERTAINTY_CALIBRATION_AUTO_BLOCK_INTERVAL_MULTIPLIER = 100
+UNCERTAINTY_CALIBRATION_MIN_BLOCK_INTERVALS = 8
+UNCERTAINTY_CALIBRATION_MIN_FOLDS = 2
+UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES = 1
+UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MIN = 0.10
+UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MAX = 0.30
+UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_EM_ITERS = 1
+UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS = (0.50, 0.80, 0.90, 0.95)
+UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR = 1.0e-6
+UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN = 0.05
+UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX = 20.0
+UNCERTAINTY_CALIBRATION_FACTOR_MIN_FLOOR = 1.0e-6
+UNCERTAINTY_CALIBRATION_FACTOR_MAX_MIN_RATIO = 1.01
+UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN = 0.25
+UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX = 4.0
+UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE = 1.0e-2
+UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT = 0.05
+UNCERTAINTY_CALIBRATION_WIS_WEIGHT = UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT
+UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY = 1.0e-2
+UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH = (
+    UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY
+)
+UNCERTAINTY_CALIBRATION_WIS_SCALE_MULTIPLIER = 2.0
+UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES = 10
+UNCERTAINTY_CALIBRATION_SCORE_SD_DECILES = (
+    UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES
+)
+UNCERTAINTY_CALIBRATION_SCORE_STATE_ABS_QUANTILE = 0.90
+UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE = 4096
+UNCERTAINTY_CALIBRATION_SCORE_REPLICATE_CODE_STRIDE = 32
+UNCERTAINTY_CALIBRATION_SUMMARY_MEDIAN_QUANTILE = 0.50
+UNCERTAINTY_CALIBRATION_SUMMARY_Q90_QUANTILE = 0.90
+UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES = 200_000
+UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS = 50_000
+UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS = 1_000
+UNCERTAINTY_CALIBRATION_DEFAULT_SEED = 1729
+UNCERTAINTY_CALIBRATION_DIAGNOSTIC_SEED_OFFSET = 10_000
+UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE = np.float32(1.0e30)
+
+
+class uncertaintyCalibrationParams(NamedTuple):
+    r"""Parameters for cross-fit chromosome state-uncertainty calibration."""
+
+    enabled: bool = True
+    folds: int = 5
+    blockSizeBP: int | str | None = None
+    holdoutFraction: float | None = None
+    heldoutReplicateFraction: float | None = None
+    maxScores: int = UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES
+    maxHeldoutCells: int | None = None
+    maxDiagnosticRows: int = UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS
+    minHeldoutCells: int = UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS
+    targets: tuple[float, ...] = UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS
+    minFactor: float = UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN
+    maxFactor: float = UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX
+    factorMin: float | None = None
+    factorMax: float | None = None
+    ridge: float = UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE
+    wisWeight: float = UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT
+    aObsPenalty: float = UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY
+    aObsPriorStrength: float | None = None
+    calibrationEMIters: int = 2
+    seed: int = UNCERTAINTY_CALIBRATION_DEFAULT_SEED
+    pad: float | None = None
+    writeDiagnostics: bool = False
 
 
 class samParams(NamedTuple):
@@ -478,11 +542,10 @@ class outputParams(NamedTuple):
     :type convertToBigWig: bool
     :param roundDigits: Number of decimal places to round output values (bedGraph)
     :type roundDigits: int
-    :param writeUncertainty: If True, write the state uncertainty track to bedGraph. By default this is
-        :math:`\sqrt{c_{\mathrm{eff},i}\,\widetilde{P}_{[i,0,0]}}` when
-        ``stateParams.effectiveInfoRescale=True``, where :math:`c_{\mathrm{eff},i} \ge 1`
-        is a correction factor estimated from
-        standardized innovations. Otherwise it is :math:`\sqrt{\widetilde{P}_{[i,0,0]}}`.
+    :param writeUncertainty: If True, write the state uncertainty track to bedGraph.
+        The default uncalibrated track is :math:`\sqrt{\widetilde{P}_{[i,0,0]}}`;
+        when uncertainty calibration is enabled, the caller may replace it with the
+        cross-fit calibrated state-variance track.
     :type writeUncertainty: bool
     :param writeJackknifeSE: If True, write the standard error of the signal level estimates across jackknife replicates to bedGraph. This is only relevant if `applyJackknife` is True.
     :type writeJackknifeSE: bool
@@ -1566,565 +1629,6 @@ def estimateAutoDeltaF(
     return float(bestDeltaF)
 
 
-def _centeredFiniteRunsForHAC(
-    standardizedInnovations: np.ndarray,
-    winsorLimit: float = 8.0,
-) -> tuple[list[np.ndarray], int, int, int, int]:
-    r"""Return centered, clipped contiguous finite innovation runs for HAC."""
-
-    z = np.asarray(standardizedInnovations, dtype=np.float64)
-    if z.ndim == 1:
-        z = z[None, :]
-    elif z.ndim != 2:
-        raise ValueError("`standardizedInnovations` must be 1D or 2D")
-
-    runs: list[np.ndarray] = []
-    numSeries = 0
-    runCount = 0
-    clippedCount = 0
-    maxSeriesLength = 0
-    winsorLimit = float(max(winsorLimit, 0.0))
-
-    for j in range(int(z.shape[0])):
-        row = np.asarray(z[j], dtype=np.float64)
-        finiteMask = np.isfinite(row)
-        finiteCount = int(np.count_nonzero(finiteMask))
-        if finiteCount < 2:
-            continue
-
-        numSeries += 1
-        maxSeriesLength = max(maxSeriesLength, finiteCount)
-        centered = row.copy()
-        centered[finiteMask] = centered[finiteMask] - float(
-            np.mean(centered[finiteMask])
-        )
-
-        finiteIdx = np.flatnonzero(finiteMask)
-        breaks = np.concatenate(
-            (
-                np.array([0], dtype=np.intp),
-                np.flatnonzero(np.diff(finiteIdx) > 1).astype(np.intp) + 1,
-                np.array([finiteIdx.size], dtype=np.intp),
-            )
-        )
-        for b in range(breaks.size - 1):
-            lo = int(breaks[b])
-            hi = int(breaks[b + 1])
-            if hi <= lo:
-                continue
-            run = np.asarray(centered[finiteIdx[lo:hi]], dtype=np.float64)
-            if winsorLimit > 0.0:
-                clipped = np.clip(run, -winsorLimit, winsorLimit)
-                clippedCount += int(np.count_nonzero(clipped != run))
-                run = clipped
-            runs.append(np.ascontiguousarray(run, dtype=np.float64))
-            runCount += 1
-
-    return runs, numSeries, runCount, maxSeriesLength, clippedCount
-
-
-def _pairWeightedAutocovariancesFromRuns(
-    runs: list[np.ndarray],
-    maxLag: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    maxLag = max(int(maxLag), 0)
-    gamma = np.zeros(maxLag + 1, dtype=np.float64)
-    pairCounts = np.zeros(maxLag + 1, dtype=np.int64)
-
-    for h in range(maxLag + 1):
-        numerator = 0.0
-        pairCount = 0
-        for run in runs:
-            t = int(run.size)
-            if t <= h:
-                continue
-            if h == 0:
-                numerator += float(np.dot(run, run))
-                pairCount += t
-            else:
-                numerator += float(np.dot(run[h:], run[:-h]))
-                pairCount += t - h
-        pairCounts[h] = int(pairCount)
-        gamma[h] = numerator / float(pairCount) if pairCount > 0 else np.nan
-
-    return gamma, pairCounts
-
-
-def _selectAdaptiveHACBandwidth(
-    gamma: np.ndarray,
-    pairCounts: np.ndarray,
-    maxBandwidth: int,
-    eps: float = 1.0e-12,
-    threshold: float = 0.05,
-    consecutive: int = 3,
-) -> int:
-    maxBandwidth = max(int(maxBandwidth), 1)
-    if gamma.size <= 1:
-        return 1
-
-    gamma0 = float(gamma[0]) if np.isfinite(gamma[0]) else 0.0
-    if gamma0 <= float(eps):
-        return 1
-
-    usableMax = min(maxBandwidth, int(gamma.size) - 1)
-    consecutive = max(int(consecutive), 1)
-    threshold = float(abs(threshold))
-    for h in range(1, usableMax + 1):
-        hi = h + consecutive
-        if hi > usableMax + 1:
-            break
-        ok = True
-        for lag in range(h, hi):
-            if int(pairCounts[lag]) <= 0:
-                ok = False
-                break
-            rho = float(gamma[lag]) / gamma0
-            if (not np.isfinite(rho)) or abs(rho) >= threshold:
-                ok = False
-                break
-        if ok:
-            return max(int(h), 1)
-    return max(int(usableMax), 1)
-
-
-def _bartlettEffectiveInfoCorrection(
-    standardizedInnovations: np.ndarray,
-    bandwidth: int | None,
-    eps: float = 1.0e-12,
-    maxBandwidth: int | None = None,
-) -> dict[str, Any]:
-    r"""Estimate a Bartlett/Newey-West effective correction factor for the state variance.
-
-    The input should already be a matrix of standardized innovations with rows corresponding
-    to replicates and columns to intervals.
-    """
-
-    z = np.asarray(standardizedInnovations, dtype=np.float64)
-    if z.ndim == 1:
-        z = z[None, :]
-    elif z.ndim != 2:
-        raise ValueError("`standardizedInnovations` must be 1D or 2D")
-
-    requestedBw = None if bandwidth is None else int(bandwidth)
-    adaptive = requestedBw is None or requestedBw <= 0
-    maxSeriesPossible = max(int(z.shape[1]) - 1, 1)
-    if maxBandwidth is None or int(maxBandwidth) <= 0:
-        maxBandwidthResolved = min(maxSeriesPossible, 256)
-    else:
-        maxBandwidthResolved = min(max(int(maxBandwidth), 1), maxSeriesPossible)
-
-    if z.size == 0:
-        return {
-            "bandwidth": 0,
-            "requestedBandwidth": int(requestedBw or 0),
-            "maxBandwidth": int(maxBandwidthResolved),
-            "adaptiveBandwidth": bool(adaptive),
-            "kernel": "bartlett",
-            "gamma0": 0.0,
-            "lrv": 0.0,
-            "correctionFactor": 1.0,
-            "effectiveInfoFraction": 1.0,
-            "effectiveSampleSizeFraction": 1.0,
-            "numSeries": 0,
-            "seriesLength": 0,
-            "finiteRunCount": 0,
-            "pairCount0": 0,
-            "pairCountMin": 0,
-            "pairCounts": np.zeros(1, dtype=np.int64),
-            "clippedInnovationCount": 0,
-        }
-
-    runs, numSeries, runCount, maxSeriesLength, clippedCount = _centeredFiniteRunsForHAC(
-        z,
-        winsorLimit=8.0,
-    )
-    if not runs:
-        return {
-            "bandwidth": 0,
-            "requestedBandwidth": int(requestedBw or 0),
-            "maxBandwidth": int(maxBandwidthResolved),
-            "adaptiveBandwidth": bool(adaptive),
-            "kernel": "bartlett",
-            "gamma0": 0.0,
-            "lrv": 0.0,
-            "correctionFactor": 1.0,
-            "effectiveInfoFraction": 1.0,
-            "effectiveSampleSizeFraction": 1.0,
-            "numSeries": int(numSeries),
-            "seriesLength": int(maxSeriesLength),
-            "finiteRunCount": int(runCount),
-            "pairCount0": 0,
-            "pairCountMin": 0,
-            "pairCounts": np.zeros(1, dtype=np.int64),
-            "clippedInnovationCount": int(clippedCount),
-        }
-
-    maxRunLag = max(max(int(run.size) - 1 for run in runs), 0)
-    gammaMaxLag = min(
-        maxBandwidthResolved if adaptive else max(int(requestedBw or 0), 0),
-        maxRunLag,
-    )
-    if gammaMaxLag <= 0:
-        gamma, pairCounts = _pairWeightedAutocovariancesFromRuns(runs, 0)
-        gamma0 = float(gamma[0]) if np.isfinite(gamma[0]) else 0.0
-        correctionFactor = float(max(1.0, gamma0))
-        effectiveInfoFraction = float(1.0 / correctionFactor)
-        return {
-            "bandwidth": 0,
-            "requestedBandwidth": int(requestedBw or 0),
-            "maxBandwidth": int(maxBandwidthResolved),
-            "adaptiveBandwidth": bool(adaptive),
-            "kernel": "bartlett",
-            "gamma0": float(max(gamma0, 0.0)),
-            "lrv": float(max(gamma0, 0.0)),
-            "correctionFactor": float(correctionFactor),
-            "effectiveInfoFraction": float(effectiveInfoFraction),
-            "effectiveSampleSizeFraction": float(effectiveInfoFraction),
-            "numSeries": int(numSeries),
-            "seriesLength": int(maxSeriesLength),
-            "finiteRunCount": int(runCount),
-            "pairCount0": int(pairCounts[0]) if pairCounts.size else 0,
-            "pairCountMin": int(pairCounts[0]) if pairCounts.size else 0,
-            "pairCounts": pairCounts,
-            "clippedInnovationCount": int(clippedCount),
-        }
-
-    gamma, pairCounts = _pairWeightedAutocovariancesFromRuns(runs, int(gammaMaxLag))
-    if adaptive:
-        maxUsableLag = _selectAdaptiveHACBandwidth(
-            gamma,
-            pairCounts,
-            maxBandwidth=int(gammaMaxLag),
-            eps=float(eps),
-            threshold=0.05,
-            consecutive=3,
-        )
-    else:
-        maxUsableLag = min(max(int(requestedBw or 0), 0), int(gammaMaxLag))
-
-    gamma0 = float(gamma[0]) if np.isfinite(gamma[0]) else 0.0
-    if gamma0 <= float(eps):
-        return {
-            "bandwidth": int(maxUsableLag),
-            "requestedBandwidth": int(requestedBw or 0),
-            "maxBandwidth": int(maxBandwidthResolved),
-            "adaptiveBandwidth": bool(adaptive),
-            "kernel": "bartlett",
-            "gamma0": float(max(gamma0, 0.0)),
-            "lrv": float(max(gamma0, 0.0)),
-            "correctionFactor": 1.0,
-            "effectiveInfoFraction": 1.0,
-            "effectiveSampleSizeFraction": 1.0,
-            "numSeries": int(numSeries),
-            "seriesLength": int(maxSeriesLength),
-            "finiteRunCount": int(runCount),
-            "pairCount0": int(pairCounts[0]) if pairCounts.size else 0,
-            "pairCountMin": (
-                int(np.min(pairCounts[: maxUsableLag + 1]))
-                if pairCounts.size
-                else 0
-            ),
-            "pairCounts": pairCounts[: maxUsableLag + 1].copy(),
-            "clippedInnovationCount": int(clippedCount),
-        }
-
-    lrv = gamma0
-    for h in range(1, maxUsableLag + 1):
-        gammaH = float(gamma[h]) if np.isfinite(gamma[h]) else 0.0
-        weight = 1.0 - (float(h) / float(maxUsableLag + 1))
-        lrv += 2.0 * weight * gammaH
-
-    correctionFactor = float(max(1.0, lrv))
-    effectiveInfoFraction = float(1.0 / correctionFactor)
-    return {
-        "bandwidth": int(maxUsableLag),
-        "requestedBandwidth": int(requestedBw or 0),
-        "maxBandwidth": int(maxBandwidthResolved),
-        "adaptiveBandwidth": bool(adaptive),
-        "kernel": "bartlett",
-        "gamma0": float(max(gamma0, 0.0)),
-        "lrv": float(max(lrv, 0.0)),
-        "correctionFactor": float(correctionFactor),
-        "effectiveInfoFraction": float(effectiveInfoFraction),
-        "effectiveSampleSizeFraction": float(effectiveInfoFraction),
-        "numSeries": int(numSeries),
-        "seriesLength": int(maxSeriesLength),
-        "finiteRunCount": int(runCount),
-        "pairCount0": int(pairCounts[0]) if pairCounts.size else 0,
-        "pairCountMin": (
-            int(np.min(pairCounts[: maxUsableLag + 1]))
-            if pairCounts.size
-            else 0
-        ),
-        "pairCounts": pairCounts[: maxUsableLag + 1].copy(),
-        "clippedInnovationCount": int(clippedCount),
-    }
-
-
-def _shrunkenBlockEffectiveInfoCorrection(
-    standardizedInnovations: np.ndarray,
-    bandwidth: int | None,
-    blockLengthIntervals: int | None,
-    eps: float = 1.0e-12,
-    maxBandwidth: int | None = None,
-) -> dict[str, Any]:
-    r"""Estimate overlapping-window HAC factors shrunk toward chromosome-wide HAC."""
-
-    z = np.asarray(standardizedInnovations, dtype=np.float64)
-    if z.ndim == 1:
-        z = z[None, :]
-    elif z.ndim != 2:
-        raise ValueError("`standardizedInnovations` must be 1D or 2D")
-
-    n = int(z.shape[1])
-    chrDiag = _bartlettEffectiveInfoCorrection(
-        z,
-        bandwidth=bandwidth,
-        eps=float(eps),
-        maxBandwidth=maxBandwidth,
-    )
-    bw = max(int(chrDiag.get("bandwidth", 0)), 0)
-    chrFactor = float(chrDiag.get("correctionFactor", 1.0))
-    if (not np.isfinite(chrFactor)) or chrFactor <= 0.0:
-        chrFactor = 1.0
-    chrFactor = float(max(1.0, chrFactor))
-
-    if n <= 0:
-        out = dict(chrDiag)
-        out.update(
-            {
-                "chromosomeFactor": chrFactor,
-                "blockLengthIntervals": 0,
-                "numBlocks": 0,
-                "intervalFactors": np.ones(0, dtype=np.float32),
-                "blockFactorMin": chrFactor,
-                "blockFactorMedian": chrFactor,
-                "blockFactorMax": chrFactor,
-                "shrinkageWeightMean": 0.0,
-            }
-        )
-        return out
-
-    if blockLengthIntervals is None:
-        # case: whole-chromosome blocks
-        blockLen = n
-    else:
-        blockLen = int(blockLengthIntervals)
-        if blockLen <= 0:
-            blockLen = n
-    blockLen = max(1, min(int(blockLen), n))
-
-    if blockLen >= n:
-        windowStarts = [0]
-    else:
-        step = max(1, blockLen // 2)
-        windowStarts = list(range(0, max(n - blockLen + 1, 1), step))
-        lastStart = max(n - blockLen, 0)
-        if windowStarts[-1] != lastStart:
-            windowStarts.append(lastStart)
-
-    rawBlockFactors: list[float] = []
-    shrunkBlockFactors: list[float] = []
-    shrinkageWeights: list[float] = []
-    centers: list[float] = []
-    priorEff = float(max(50, 2 * (2 * bw + 1)))
-    for start in windowStarts:
-        end = min(start + blockLen, n)
-        blockZ = z[:, start:end]
-        blockBw = min(int(bw), max(int(end - start) - 1, 0))
-        # raw block factors are from HAC alone
-        blockDiag = _bartlettEffectiveInfoCorrection(
-            blockZ,
-            bandwidth=int(blockBw),
-            eps=float(eps),
-        )
-        rawFactor = float(blockDiag.get("correctionFactor", chrFactor))
-        if (
-            int(blockDiag.get("numSeries", 0)) <= 0
-            or int(blockDiag.get("seriesLength", 0)) <= 1
-            or (not np.isfinite(rawFactor))
-            or rawFactor <= 0.0
-        ):
-            rawFactor = chrFactor
-            weight = 0.0
-        else:
-            rawFactor = float(max(1.0, rawFactor))
-            usedBw = max(int(blockDiag.get("bandwidth", 0)), 0)
-            pairCount0 = max(int(blockDiag.get("pairCount0", 0)), 0)
-            effObs = float(pairCount0) / float(max(2 * usedBw + 1, 1))
-            weight = float(effObs / (effObs + priorEff)) if effObs > 0.0 else 0.0
-            weight = float(np.clip(weight, 0.0, 1.0))
-
-        # shrink block factors toward chromosome-level
-        shrunkFactor = float(
-            np.exp(
-                weight * np.log(max(rawFactor, float(eps)))
-                + (1.0 - weight) * np.log(max(chrFactor, float(eps)))
-            )
-        )
-        if (not np.isfinite(shrunkFactor)) or shrunkFactor <= 0.0:
-            shrunkFactor = chrFactor
-        shrunkFactor = float(max(1.0, shrunkFactor))
-        centers.append(0.5 * float(start + end - 1))
-        rawBlockFactors.append(float(rawFactor))
-        shrunkBlockFactors.append(float(shrunkFactor))
-        shrinkageWeights.append(float(weight))
-
-    if len(centers) == 0:
-        factors = np.full(n, chrFactor, dtype=np.float64)
-    elif len(centers) == 1:
-        factors = np.full(n, shrunkBlockFactors[0], dtype=np.float64)
-    else:
-        positions = np.arange(n, dtype=np.float64)
-        logFactors = np.log(np.maximum(np.asarray(shrunkBlockFactors), float(eps)))
-        factors = np.exp(np.interp(positions, np.asarray(centers), logFactors))
-        factors = np.maximum(factors, 1.0)
-
-    out = dict(chrDiag)
-    out.update(
-        {
-            "chromosomeFactor": chrFactor,
-            "blockLengthIntervals": int(blockLen),
-            "numBlocks": int(len(shrunkBlockFactors)),
-            "intervalFactors": factors.astype(np.float32, copy=False),
-            "overlapFraction": 0.5 if len(windowStarts) > 1 else 0.0,
-            "priorEff": float(priorEff),
-            "blockFactorMin": float(np.min(shrunkBlockFactors)),
-            "blockFactorMedian": float(np.median(shrunkBlockFactors)),
-            "blockFactorMax": float(np.max(shrunkBlockFactors)),
-            "rawBlockFactorMin": float(np.min(rawBlockFactors)),
-            "rawBlockFactorMedian": float(np.median(rawBlockFactors)),
-            "rawBlockFactorMax": float(np.max(rawBlockFactors)),
-            "shrinkageWeightMean": float(np.mean(shrinkageWeights)),
-        }
-    )
-    return out
-
-
-def _computeInnovationEffectiveInfoDiagnostics(
-    matrixData: np.ndarray,
-    matrixMunc: np.ndarray,
-    stateForward: np.ndarray,
-    stateCovarForward: np.ndarray,
-    pNoiseForward: np.ndarray,
-    matrixF: np.ndarray,
-    replicateBias: np.ndarray | None,
-    lambdaExp: np.ndarray | None,
-    pad: float,
-    effectiveInfoBandwidthIntervals: int | None,
-    effectiveInfoBlockLengthIntervals: int | None = None,
-    maxEffectiveInfoBandwidthIntervals: int | None = None,
-) -> dict[str, Any]:
-    r"""Estimate the variance correction factor from one-step forward innovations."""
-
-    n = int(matrixData.shape[1])
-    if (
-        effectiveInfoBandwidthIntervals is None
-        or int(effectiveInfoBandwidthIntervals) <= 0
-    ):
-        requestedBw = None
-    else:
-        requestedBw = max(int(effectiveInfoBandwidthIntervals), 1)
-
-    if maxEffectiveInfoBandwidthIntervals is None or int(
-        maxEffectiveInfoBandwidthIntervals
-    ) <= 0:
-        maxBw = min(max(n - 2, 1), 256)
-    else:
-        maxBw = max(
-            1,
-            min(int(maxEffectiveInfoBandwidthIntervals), max(n - 2, 1)),
-        )
-
-    if n < 3:
-        return {
-            "bandwidth": 0,
-            "requestedBandwidth": int(requestedBw or 0),
-            "maxBandwidth": int(maxBw),
-            "adaptiveBandwidth": requestedBw is None,
-            "kernel": "bartlett",
-            "gamma0": 0.0,
-            "lrv": 0.0,
-            "correctionFactor": 1.0,
-            "effectiveInfoFraction": 1.0,
-            "effectiveSampleSizeFraction": 1.0,
-            "numSeries": 0,
-            "seriesLength": max(0, n - 1),
-            "finiteRunCount": 0,
-            "pairCount0": 0,
-            "pairCountMin": 0,
-            "clippedInnovationCount": 0,
-            "blockLengthIntervals": 0,
-            "numBlocks": 0,
-            "intervalFactors": np.ones(n, dtype=np.float32),
-        }
-
-    dataArr = np.asarray(matrixData, dtype=np.float64)
-    muncArr = np.asarray(matrixMunc, dtype=np.float64)
-    stateForwardArr = np.asarray(stateForward, dtype=np.float64)
-    stateCovarForwardArr = np.asarray(stateCovarForward, dtype=np.float64)
-    pNoiseForwardArr = np.asarray(pNoiseForward, dtype=np.float64)
-    matrixFArr = np.asarray(matrixF, dtype=np.float64)
-
-    biasArr = np.zeros((dataArr.shape[0], 1), dtype=np.float64)
-    if replicateBias is not None:
-        biasArr = np.asarray(replicateBias, dtype=np.float64)[:, None]
-    # state-transition
-    f00 = float(matrixFArr[0, 0])
-    f01 = float(matrixFArr[0, 1])
-
-    # get one-step predictions and innovation variances from the forward pass
-    xPred = f00 * stateForwardArr[:-1, 0].astype(
-        np.float64, copy=False
-    ) + f01 * stateForwardArr[:-1, 1].astype(np.float64, copy=False)
-
-    pPred00 = (
-        (f00 * f00) * stateCovarForwardArr[:-1, 0, 0].astype(np.float64, copy=False)
-        + (f00 * f01)
-        * (
-            stateCovarForwardArr[:-1, 0, 1].astype(np.float64, copy=False)
-            + stateCovarForwardArr[:-1, 1, 0].astype(np.float64, copy=False)
-        )
-        + (f01 * f01) * stateCovarForwardArr[:-1, 1, 1].astype(np.float64, copy=False)
-        + pNoiseForwardArr[:-1, 0, 0].astype(np.float64, copy=False)
-    )
-    pPred00 = np.maximum(pPred00, 0.0)
-    # plugin observation noise level
-    obsVar = muncArr[:, 1:] + float(pad)
-    if lambdaExp is not None:
-        lambdaArr = np.asarray(lambdaExp, dtype=np.float64)[:, 1:]
-        lambdaArr = np.maximum(lambdaArr, 1.0e-8)
-        obsVar = obsVar / lambdaArr
-    obsVar = np.maximum(obsVar, 1.0e-12)
-
-    totalVar = np.sqrt(np.maximum(obsVar + pPred00[None, :], 1.0e-12))
-    z = (dataArr[:, 1:] - biasArr - xPred[None, :]) / totalVar
-    diag = _shrunkenBlockEffectiveInfoCorrection(
-        z,
-        bandwidth=requestedBw,
-        blockLengthIntervals=effectiveInfoBlockLengthIntervals,
-        maxBandwidth=int(maxBw),
-    )
-    innovationFactors = np.asarray(
-        diag.get("intervalFactors", np.ones(max(0, n - 1), dtype=np.float32)),
-        dtype=np.float32,
-    )
-    intervalFactors = np.ones(n, dtype=np.float32)
-    if innovationFactors.size:
-        intervalFactors[0] = innovationFactors[0]
-        intervalFactors[1:] = innovationFactors[: n - 1]
-    correctionFactor = (
-        float(np.median(intervalFactors)) if intervalFactors.size else 1.0
-    )
-    diag["intervalFactors"] = intervalFactors
-    diag["correctionFactor"] = float(max(1.0, correctionFactor))
-    diag["effectiveInfoFraction"] = float(
-        1.0 / max(float(diag["correctionFactor"]), 1.0e-12)
-    )
-    diag["effectiveSampleSizeFraction"] = float(diag["effectiveInfoFraction"])
-    return diag
-
-
 def runConsenrich(
     matrixData: np.ndarray,
     matrixMunc: np.ndarray,
@@ -2166,9 +1670,7 @@ def runConsenrich(
     autoDeltaF_high: float = 2.0,
     autoDeltaF_init: float = 0.01,
     autoDeltaF_maxEvals: int = 25,
-    effectiveInfoRescale: bool = True,
-    effectiveInfoBandwidthIntervals: int | None = None,
-    effectiveInfoBlockLengthIntervals: int | None = None,
+    observationMask: np.ndarray | None = None,
 ):
     r"""Run Consenrich over a contiguous genomic region
 
@@ -2202,13 +1704,6 @@ def runConsenrich(
     If ``EM_useAPN=True``, the forward filter instead uses the adaptive-process-noise
     D-statistic update to scale :math:`\mathbf{Q}_0` and process-precision reweighting is disabled.
 
-    If ``effectiveInfoRescale=True``, the default state uncertainty output is
-    multiplied by effective-information correction factors estimated from
-    standardized one-step-ahead forward innovations. The HAC bandwidth controls the
-    maximum innovation lag in the Bartlett/Newey-West long-run variance sum; the
-    block length controls the genomic window over which local correction factors
-    are estimated before shrinkage and interpolation.
-
     This wrapper ties together several fundamental routines written in Cython:
 
     #. :func:`consenrich.cconsenrich.cforwardPass`: Forward filter (predict, update)
@@ -2234,6 +1729,21 @@ def runConsenrich(
     if matrixData.shape != matrixMunc.shape:
         raise ValueError("matrixData and matrixMunc must have identical shapes")
 
+    if observationMask is not None:
+        observationMaskArr = np.asarray(observationMask, dtype=bool)
+        if observationMaskArr.ndim == 1:
+            observationMaskArr = np.broadcast_to(
+                observationMaskArr[None, :],
+                matrixData.shape,
+            )
+        if observationMaskArr.shape != matrixData.shape:
+            raise ValueError("observationMask must match matrixData shape")
+        matrixMunc = np.asarray(matrixMunc, dtype=np.float32).copy(order="C")
+        matrixMunc[~observationMaskArr] = (
+            UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE
+        )
+        matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
+
     trackCount, intervalCount = matrixData.shape
     if intervalCount < 2:
         raise ValueError("need at least 2 intervals for smoothing")
@@ -2250,27 +1760,6 @@ def runConsenrich(
         np.arange(intervalCount, dtype=np.int32) // blockLenIntervals
     ).astype(np.int32)
     intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
-    if (
-        effectiveInfoBandwidthIntervals is None
-        or int(effectiveInfoBandwidthIntervals) <= 0
-    ):
-        effectiveInfoBandwidthIntervals = None
-    else:
-        effectiveInfoBandwidthIntervals = max(int(effectiveInfoBandwidthIntervals), 1)
-    maxEffectiveInfoBandwidthIntervals = max(
-        1,
-        min(int((int(blockLenIntervals) - 1) // 4), 256),
-    )
-    if effectiveInfoBlockLengthIntervals is None:
-        effectiveInfoBlockLengthIntervals = int(intervalCount)
-    else:
-        effectiveInfoBlockLengthIntervals = int(effectiveInfoBlockLengthIntervals)
-        if effectiveInfoBlockLengthIntervals <= 0:
-            effectiveInfoBlockLengthIntervals = int(intervalCount)
-    effectiveInfoBlockLengthIntervals = max(
-        1,
-        min(int(effectiveInfoBlockLengthIntervals), int(intervalCount)),
-    )
 
     # some pnoise/Q templates can depend on deltaF, hence the wrappers
     def buildMatrixF(deltaFLocal: float) -> np.ndarray:
@@ -2619,25 +2108,16 @@ def runConsenrich(
     matrixF = buildMatrixF(float(deltaF_fit))
     matrixQ0 = buildMatrixQ0(float(deltaF_fit))
 
-    matrixDataFit = matrixData
-    matrixMuncFit = matrixMunc
-
     fitFinal = _fitOuter(
-        matrixDataLocal=matrixDataFit,
-        matrixMuncLocal=matrixMuncFit,
+        matrixDataLocal=matrixData,
+        matrixMuncLocal=matrixMunc,
         matrixFLocal=matrixF,
         matrixQ0Local=matrixQ0,
         emMaxItersLocal=int(EM_maxIters),
         emInnerRtolLocal=float(EM_innerRtol),
     )
-    lambdaExp_final = fitFinal["lambdaExp"]
     replicateBias_final = np.asarray(fitFinal["replicateBias"], dtype=np.float32)
     qScale = np.asarray(fitFinal["qScale"], dtype=np.float32)
-    matrixMuncFit = np.asarray(fitFinal["matrixMunc"], dtype=np.float32)
-    sumNLL = float(fitFinal["sumNLL"])
-    stateForward = np.asarray(fitFinal["stateForward"], dtype=np.float32)
-    stateCovarForward = np.asarray(fitFinal["stateCovarForward"], dtype=np.float32)
-    pNoiseForward = np.asarray(fitFinal["pNoiseForward"], dtype=np.float32)
     stateSmoothed = np.asarray(fitFinal["stateSmoothed"], dtype=np.float32)
     stateCovarSmoothed = np.asarray(fitFinal["stateCovarSmoothed"], dtype=np.float32)
     postFitResiduals = np.asarray(fitFinal["postFitResiduals"], dtype=np.float32)
@@ -2697,93 +2177,6 @@ def runConsenrich(
         jackknifeVar0 = ((trackCount - 1.0) / float(trackCount)) * M2LOO_x0
         jackknifeVar0 = jackknifeVar0.astype(np.float32, copy=False)
         outTrack4 = np.sqrt(jackknifeVar0, dtype=np.float32)
-
-    if effectiveInfoRescale:
-        dataAdjustedFit = np.ascontiguousarray(
-            matrixDataFit
-            - np.asarray(fitFinal["background"], dtype=np.float32)[None, :],
-            dtype=np.float32,
-        )
-        effectiveInfoDiag = _computeInnovationEffectiveInfoDiagnostics(
-            matrixData=dataAdjustedFit,
-            matrixMunc=matrixMuncFit,
-            stateForward=stateForward,
-            stateCovarForward=stateCovarForward,
-            pNoiseForward=pNoiseForward,
-            matrixF=matrixF,
-            replicateBias=replicateBias_final,
-            lambdaExp=lambdaExp_final,
-            pad=float(pad),
-            effectiveInfoBandwidthIntervals=effectiveInfoBandwidthIntervals,
-            effectiveInfoBlockLengthIntervals=effectiveInfoBlockLengthIntervals,
-            maxEffectiveInfoBandwidthIntervals=maxEffectiveInfoBandwidthIntervals,
-        )
-        correctionFactors = np.asarray(
-            effectiveInfoDiag.get(
-                "intervalFactors",
-                np.full(intervalCount, effectiveInfoDiag["correctionFactor"]),
-            ),
-            dtype=np.float32,
-        )
-        if correctionFactors.size != intervalCount:
-            correctionFactors = np.full(
-                intervalCount,
-                float(effectiveInfoDiag["correctionFactor"]),
-                dtype=np.float32,
-            )
-        correctionFactors = np.maximum(correctionFactors, np.float32(1.0))
-        outStateCovarSmoothed[:, 0, 0] = (
-            outStateCovarSmoothed[:, 0, 0].astype(np.float32, copy=False)
-            * correctionFactors
-        )
-        logger.info(
-            "Effective-information uncertainty correction applied: "
-            "kernel=%s bandwidth=%d adaptive=%s blockLengthIntervals=%d blocks=%d "
-            "finiteRuns=%d pairCount0=%d pairCountMin=%d clipped=%d "
-            "gamma0=%.6g lrv=%.6g chrFactor=%.6g factorMedian=%.6g "
-            "factorRange=[%.6g, %.6g] shrinkageWeightMean=%.6g",
-            str(effectiveInfoDiag.get("kernel", "bartlett")),
-            int(effectiveInfoDiag["bandwidth"]),
-            bool(effectiveInfoDiag.get("adaptiveBandwidth", False)),
-            int(effectiveInfoDiag.get("blockLengthIntervals", intervalCount)),
-            int(effectiveInfoDiag.get("numBlocks", 1)),
-            int(effectiveInfoDiag.get("finiteRunCount", 0)),
-            int(effectiveInfoDiag.get("pairCount0", 0)),
-            int(effectiveInfoDiag.get("pairCountMin", 0)),
-            int(effectiveInfoDiag.get("clippedInnovationCount", 0)),
-            float(effectiveInfoDiag["gamma0"]),
-            float(effectiveInfoDiag["lrv"]),
-            float(effectiveInfoDiag.get("chromosomeFactor", 1.0)),
-            float(effectiveInfoDiag["correctionFactor"]),
-            float(
-                effectiveInfoDiag.get(
-                    "blockFactorMin",
-                    effectiveInfoDiag["correctionFactor"],
-                )
-            ),
-            float(
-                effectiveInfoDiag.get(
-                    "blockFactorMax",
-                    effectiveInfoDiag["correctionFactor"],
-                )
-            ),
-            float(effectiveInfoDiag.get("shrinkageWeightMean", 0.0)),
-        )
-    else:
-        logger.info(
-            "Effective-information uncertainty correction bypassed: effectiveInfoRescale=False "
-            "(effectiveInfoBandwidthIntervals=%s, effectiveInfoBlockLengthIntervals=%s)",
-            (
-                "auto"
-                if effectiveInfoBandwidthIntervals is None
-                else int(effectiveInfoBandwidthIntervals)
-            ),
-            (
-                "chromosome"
-                if effectiveInfoBlockLengthIntervals is None
-                else int(effectiveInfoBlockLengthIntervals)
-            ),
-        )
 
     if boundState:
         np.clip(

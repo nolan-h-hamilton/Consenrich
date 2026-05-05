@@ -253,11 +253,21 @@ extensions = [
         extra_objects=getBundledHtslibExtraObjects(),
         extra_compile_args=base_compile,
     ),
+    Extension(
+        "consenrich.cuncertainty",
+        sources=["src/consenrich/cuncertainty.pyx"],
+        include_dirs=[numpy.get_include(), os.path.join("src", "consenrich")],
+        extra_compile_args=base_compile,
+    ),
 ]
 
 
 setup(
-    ext_modules=cythonize(extensions, language_level="3"),
+    ext_modules=cythonize(
+        extensions,
+        language_level="3",
+        compile_time_env={"USE_OPENMP": False},
+    ),
     cmdclass={"build_ext": buildConsenrichExt},
     zip_safe=False,
 )

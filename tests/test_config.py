@@ -370,7 +370,7 @@ def test_readConfigUsesInnerAndOuterEMToleranceFields(
     assert not hasattr(parsed["fitArgs"], "EM_rtol")
 
 
-def test_readConfigUsesEffectiveInfoRescaleField(
+def test_readConfigUsesUncertaintyCalibrationFields(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
@@ -384,69 +384,52 @@ def test_readConfigUsesEffectiveInfoRescaleField(
     parsedDefault = readConfig(
         str(
             writeConfigFile(
-                tmp_path, "config_effective_info_default.yaml", configDefaultYaml
+                tmp_path,
+                "config_uncertainty_calibration_default.yaml",
+                configDefaultYaml,
             )
         )
     )
-    assert parsedDefault["stateArgs"].effectiveInfoRescale is True
-    assert parsedDefault["stateArgs"].effectiveInfoBlockLengthBP == 50_000
-    assert parsedDefault["stateArgs"].effectiveInfoBandwidthBP is None
+    removedStateFields = tuple(
+        "".join(parts)
+        for parts in (
+            ("effective", "InfoRescale"),
+            ("effective", "InfoBlockLengthBP"),
+            ("effective", "InfoBandwidthBP"),
+        )
+    )
+    for removedField in removedStateFields:
+        assert not hasattr(parsedDefault["stateArgs"], removedField)
+    assert parsedDefault["uncertaintyCalibrationArgs"].enabled is True
+    assert parsedDefault["uncertaintyCalibrationArgs"].blockSizeBP is None
 
     configExplicitYaml = """
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    stateParams.effectiveInfoRescale: false
-    stateParams.effectiveInfoBlockLengthBP: 25000
-    stateParams.effectiveInfoBandwidthBP: 500
+    uncertaintyCalibration.enabled: false
+    uncertaintyCalibration.blockSizeBP: 25000
+    uncertaintyCalibration.folds: 3
+    uncertaintyCalibration.holdoutFraction: 0.2
+    uncertaintyCalibration.maxScores: 1234
+    uncertaintyCalibration.targets: [0.5, 0.9]
     """
     parsedExplicit = readConfig(
         str(
             writeConfigFile(
-                tmp_path, "config_effective_info_false.yaml", configExplicitYaml
-            )
-        )
-    )
-    assert parsedExplicit["stateArgs"].effectiveInfoRescale is False
-    assert parsedExplicit["stateArgs"].effectiveInfoBlockLengthBP == 25_000
-    assert parsedExplicit["stateArgs"].effectiveInfoBandwidthBP == 500
-
-    configAliasYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    stateParams.effectiveInfoBlockLength: 75000
-    """
-    parsedAlias = readConfig(
-        str(
-            writeConfigFile(
                 tmp_path,
-                "config_effective_info_alias.yaml",
-                configAliasYaml,
+                "config_uncertainty_calibration_explicit.yaml",
+                configExplicitYaml,
             )
         )
     )
-    assert parsedAlias["stateArgs"].effectiveInfoBlockLengthBP == 75_000
-
-
-def testResolveEffectiveInfoBandwidthIntervals():
-    assert consenrich._resolveEffectiveInfoBandwidthIntervals(None, 25) is None
-    assert consenrich._resolveEffectiveInfoBandwidthIntervals(0, 25) is None
-    assert consenrich._resolveEffectiveInfoBandwidthIntervals(-100, 25) is None
-    assert consenrich._resolveEffectiveInfoBandwidthIntervals(250, 25) == 10
-    assert consenrich._resolveEffectiveInfoBandwidthIntervals(260, 25) == 11
-
-
-def testResolveEffectiveInfoBlockLengthIntervals():
-    assert (
-        consenrich._resolveEffectiveInfoBlockLengthIntervals(50_000, 25, 10_000)
-        == 2000
-    )
-    assert (
-        consenrich._resolveEffectiveInfoBlockLengthIntervals(50_000, 100, 200)
-        == 200
-    )
-    assert consenrich._resolveEffectiveInfoBlockLengthIntervals(0, 25, 123) == 123
+    explicitArgs = parsedExplicit["uncertaintyCalibrationArgs"]
+    assert explicitArgs.enabled is False
+    assert explicitArgs.blockSizeBP == 25_000
+    assert explicitArgs.folds == 3
+    assert explicitArgs.holdoutFraction == pytest.approx(0.2)
+    assert explicitArgs.maxScores == 1234
+    assert explicitArgs.targets == (0.5, 0.9)
 
 
 def test_readConfigNumNearestRequiresExplicitSparseBed(
