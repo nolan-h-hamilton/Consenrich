@@ -14,7 +14,7 @@ cimport numpy as cnp
 from libc.stdint cimport int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
 from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
-from libc.stdlib cimport rand, srand, RAND_MAX, malloc, free
+from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport printf, fprintf, fflush, stdout, stderr
 
@@ -473,34 +473,6 @@ cdef inline float _quantileInplaceF32(float* vals_, Py_ssize_t n, float q) noexc
     # CALLERS: `_medianCopy_F32`
 
     return <float>_quantileInplaceReal(vals_, n, q, <float>1.0)
-
-
-cdef inline double _U01() nogil:
-    # CALLERS: cDenseMean
-
-    return (<double>rand()) / (<double>RAND_MAX + 1.0)
-
-
-cdef inline Py_ssize_t _rand_int(Py_ssize_t n) nogil:
-    # CALLERS: cDenseMean
-
-    return <Py_ssize_t>(rand() % n)
-
-
-cdef inline Py_ssize_t _geometricDraw(double logq_) nogil:
-    # CALLERS: cDenseMean
-
-    cdef double u = _U01()
-    if u <= 0.0:
-        u = 1.0 / ((<double>RAND_MAX) + 1.0)
-    return <Py_ssize_t>(floor(log(u) / logq_) + 1.0)
-
-
-cdef inline double _log_norm_pdf(double y, double mu, double var) nogil:
-    # CALLERS: cDenseMean
-
-    cdef double z = y - mu
-    return -0.5 * log(6.28318 * var) - 0.5 * (z*z) / var
 
 
 cdef inline float _medianCopy_F32(const float* src, Py_ssize_t n) noexcept nogil:
@@ -1887,7 +1859,8 @@ cpdef object cTransformInPlace(
     double w_global=<double>1.0,
     bint verbose=<bint>False,
     double logOffset=<double>(1.0),
-    double logMult=<double>(1.0)
+    double logMult=<double>(1.0),
+    double blockQuantile=<double>(0.5)
 ):
     r"""Transform a contiguous coverage track in-place."""
     cdef Py_ssize_t blockLenTarget, n, i
@@ -1960,6 +1933,7 @@ cpdef object cTransformInPlace(
         centerOffsetF32 = <float>cDenseMean(
             zArr_F32,
             blockLenTarget=blockLenTarget,
+            blockQuantile=blockQuantile,
             verbose=verbose,
         )
 
@@ -1985,6 +1959,7 @@ cpdef object cTransformInPlace(
     centerOffsetF64 = <double>cDenseMean(
         zArr_F64,
         blockLenTarget=blockLenTarget,
+        blockQuantile=blockQuantile,
         verbose=verbose,
     )
 
@@ -2001,7 +1976,8 @@ cpdef object cTransform(
     double w_global=<double>1.0,
     bint verbose=<bint>False,
     double logOffset=<double>(1.0),
-    double logMult=<double>(1.0)
+    double logMult=<double>(1.0),
+    double blockQuantile=<double>(0.5)
 ):
     r"""Transform a coverage track and optionally subtract a dense centering offset."""
     cdef object outArr
@@ -2018,6 +1994,7 @@ cpdef object cTransform(
         verbose=verbose,
         logOffset=logOffset,
         logMult=logMult,
+        blockQuantile=blockQuantile,
     )
 
 
@@ -3257,391 +3234,66 @@ cpdef tuple cinnerEM(
     return (qScaleArr, itersDone, float(previousNLL))
 
 
-cdef double _cDenseMeanGMM(
-    object x,
-    Py_ssize_t itersEM,
-    bint verbose,
-):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] y
-    cdef cnp.float64_t[::1] yView
-    cdef Py_ssize_t n, i, it, maxIters
-    cdef double pi, mu1, mu2, var1, var2
-    cdef double r, sum_r, sum_1mr
-    cdef double sum_r_y, sum_1mr_y
-    cdef double sum_r_y2, sum_1mr_y2
-    cdef double logp1, logp2, mlog, tll_
-    cdef double loglik, prev_loglik, diff
-    cdef double dense_mu
-    cdef double tol = 1e-8
-    cdef double varFloor = 1e-6
-    cdef double piFloor = 1e-6
-
-    y = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
-    yView = y
-    n = y.size
-    if n == 0:
-        return 0.0
-    if n < 3:
-        return <double>np.mean(y)
-
-    maxIters = itersEM if itersEM > 0 else 50
-    if maxIters < 10:
-        maxIters = 10
-    elif maxIters > 500:
-        maxIters = 500
-
-    cdef double q10 = <double>np.quantile(y, 0.10)
-    cdef double q90 = <double>np.quantile(y, 0.90)
-    cdef double ymean = <double>np.mean(y)
-    cdef double ysd = <double>np.std(y)
-    if ysd < 1e-6:
-        ysd = 1.0
-
-    mu1 = q10
-    mu2 = q90
-    if mu1 == mu2:
-        mu1 = ymean - 0.5 * ysd
-        mu2 = ymean + 0.5 * ysd
-
-    var1 = ysd * ysd
-    var2 = ysd * ysd
-    if var1 < varFloor:
-        var1 = varFloor
-    if var2 < varFloor:
-        var2 = varFloor
-
-    pi = 0.9
-    prev_loglik = -INFINITY
-
-    for it in range(maxIters):
-        sum_r = 0.0
-        sum_1mr = 0.0
-        sum_r_y = 0.0
-        sum_1mr_y = 0.0
-        sum_r_y2 = 0.0
-        sum_1mr_y2 = 0.0
-        loglik = 0.0
-
-        # E-step
-        with nogil:
-            # fix mu1,mu2,var1,var2,pi, collect stats
-            for i in range(n):
-                logp1 = log(pi) + _log_norm_pdf(yView[i], mu1, var1)
-                logp2 = log(1.0 - pi) + _log_norm_pdf(yView[i], mu2, var2)
-
-                mlog = logp1 if logp1 > logp2 else logp2
-                tll_ = mlog + log(exp(logp1 - mlog) + exp(logp2 - mlog))
-                r = exp(logp1 - tll_)
-
-                sum_r += r
-                sum_1mr += (1.0 - r)
-                sum_r_y += r * yView[i]
-                sum_1mr_y += (1.0 - r) * yView[i]
-                sum_r_y2 += r * yView[i] * yView[i]
-                sum_1mr_y2 += (1.0 - r) * yView[i] * yView[i]
-                loglik += tll_
-
-        if sum_r <= 0.0 or sum_1mr <= 0.0:
-            break
-
-        # M-step: sum_r,sum_1mr,... --> update pi, mu1, mu2, var1, var2
-        pi = sum_r / (<double>n)
-        if pi < piFloor:
-            pi = piFloor
-        elif pi > 1.0 - piFloor:
-            pi = 1.0 - piFloor
-
-        mu1 = sum_r_y / sum_r
-        mu2 = sum_1mr_y / sum_1mr
-
-        # E[w*y^2]/E[w] - mu^2
-        var1 = (sum_r_y2 / sum_r) - (mu1 * mu1)
-        var2 = (sum_1mr_y2 / sum_1mr) - (mu2 * mu2)
-
-        if (not isfinite(var1)) or var1 < varFloor:
-            var1 = varFloor
-        if (not isfinite(var2)) or var2 < varFloor:
-            var2 = varFloor
-
-        # enforce mu1 <= mu2
-        if mu1 > mu2:
-            mu1, mu2 = mu2, mu1
-            var1, var2 = var2, var1
-            pi = 1.0 - pi
-
-        diff = loglik - prev_loglik
-        if diff < 0.0:
-            diff = -diff
-
-        if it > 0 and diff < tol * (1.0 + fabs(prev_loglik)):
-            break
-
-        if it >= maxIters-1 and diff >= tol * (1.0 + fabs(prev_loglik)):
-            if verbose:
-                printf(b"\tcconsenrich.cDenseMean: EM did not converge after %ld EM iters, diff=%.6f\n",
-                       <long>it + 1, diff)
-
-        prev_loglik = loglik
-
-    dense_mu = mu2
-
-    if verbose:
-        printf(b"\tcconsenrich.cDenseMean(GMM): center=%.4f\n",
-               dense_mu)
-        fflush(stdout)
-
-    return dense_mu
-
-
 cpdef double cDenseMean(
     object x,
     Py_ssize_t blockLenTarget=250,
-    Py_ssize_t itersEM=1000,
+    double blockQuantile=<double>(0.5),
     bint verbose = <bint>False,
 ):
     r"""Estimate 'dense' offset for a transformed coverage track.
 
-    A two-component Gaussian mixture is first fit genome-wide *and*
-    within individual stratified blocks. Block-level centers are
-    aggregated with penalties for high-curvature and high upper-quartile
-    blocks. Global offset is then pooled with per-block offsets for final
-    estimates.
+    The dense offset is the median of per-block quantiles.
     """
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] y
-    cdef cnp.float64_t[::1] yView
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] blockCenters
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] blockWeights
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] sortedCenters
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] sortedWeights
-    cdef cnp.float64_t[::1] centerView
-    cdef cnp.float64_t[::1] weightView
-    cdef cnp.float64_t[::1] sortedCenterView
-    cdef cnp.float64_t[::1] sortedWeightView
-    cdef Py_ssize_t n, blockLen, numBlocks, blockIdx, blockStart, blockEnd, blockN
-    cdef Py_ssize_t sampleIdx, sampleBlocks, validBlocks, minValidBlocks, minBlockN
-    cdef Py_ssize_t excludedBlocks
-    cdef Py_ssize_t blockLo, blockHi, blockSpan, sortIdx
-    cdef Py_ssize_t targetBlocks = 256
-    cdef Py_ssize_t maxBlocks = 256
-    cdef Py_ssize_t blockItersEM = 50
-    cdef double global_mu, block_mu, block_median, block_spread, track_spread
-    cdef double q25, q75, rho_n, rho_h, rho, h, dense_mu
-    cdef double d2, sumD2, activity, blockWeight
-    cdef double blockQ75, q75Excess, q75Activity, q75ActivitySum, q75ActivityMax
-    cdef double totalWeight, cumWeight, targetWeight, meanWeight, minWeight, jitter
-    cdef double blockMedianUpperQuantile = 0.975
-    cdef double intervalUpperCutoff, blockMedianValue
-    cdef double priorBlocks = 16.0
-    cdef double eps = 1.0e-8
-    cdef object validCenters, validWeights, order, deviations
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] blockQuantiles
+    cdef cnp.float64_t[::1] quantileView
+    cdef Py_ssize_t n, blockLen, numBlocks, blockIdx, blockStart, blockEnd
+    cdef double dense_mu
+    cdef double quantile = blockQuantile
 
     y = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
-    yView = y
     n = y.size
-    # global estimate
-    global_mu = _cDenseMeanGMM(y, itersEM, verbose)
+    if n == 0:
+        return 0.0
 
-    if blockLenTarget <= 0 or n < 100 or (not isfinite(global_mu)):
-        return global_mu
+    if not isfinite(quantile):
+        quantile = 0.5
+    elif quantile < 0.0:
+        quantile = 0.0
+    elif quantile > 1.0:
+        quantile = 1.0
 
-    q25 = <double>np.quantile(y, 0.25)
-    q75 = <double>np.quantile(y, 0.75)
-    intervalUpperCutoff = <double>np.quantile(y, blockMedianUpperQuantile)
-    if not isfinite(intervalUpperCutoff):
-        intervalUpperCutoff = INFINITY
-    track_spread = (q75 - q25) / 1.349
-    if (not isfinite(track_spread)) or track_spread < eps:
-        track_spread = <double>np.std(y)
-    if (not isfinite(track_spread)) or track_spread < eps:
-        track_spread = 1.0
-
-    blockLen = blockLenTarget
-    if blockLen < 3:
-        blockLen = 3
+    if blockLenTarget <= 0:
+        blockLen = n
+    else:
+        blockLen = blockLenTarget
+    if blockLen < 1:
+        blockLen = 1
     if blockLen > n:
         blockLen = n
 
     numBlocks = (n + blockLen - 1) // blockLen
-    if numBlocks < 2:
-        return global_mu
-
-    sampleBlocks = numBlocks if numBlocks <= maxBlocks else targetBlocks
-    minValidBlocks = 4 if sampleBlocks >= 4 else sampleBlocks
-    minBlockN = blockLen // 4
-    if minBlockN < 10:
-        minBlockN = min(blockLen, 10)
-    elif minBlockN > 250:
-        minBlockN = 250
-
-    blockCenters = np.empty(sampleBlocks, dtype=np.float64)
-    blockWeights = np.empty(sampleBlocks, dtype=np.float64)
-    centerView = blockCenters
-    weightView = blockWeights
-    validBlocks = 0
-    excludedBlocks = 0
-    q75ActivitySum = 0.0
-    q75ActivityMax = 0.0
-    for sampleIdx in range(sampleBlocks):
-        # deterministic stratified sample
-        if numBlocks <= maxBlocks:
-            blockIdx = sampleIdx
-        else:
-            blockLo = <Py_ssize_t>floor(
-                (<double>sampleIdx * <double>numBlocks) / <double>sampleBlocks
-            )
-            blockHi = <Py_ssize_t>floor(
-                (<double>(sampleIdx + 1) * <double>numBlocks)
-                / <double>sampleBlocks
-            ) - 1
-            if blockLo < 0:
-                blockLo = 0
-            if blockHi < blockLo:
-                blockHi = blockLo
-            elif blockHi >= numBlocks:
-                blockHi = numBlocks - 1
-            blockSpan = blockHi - blockLo + 1
-            # avoid always picking the same blocks when numBlocks >> sampleBlocks
-            jitter = (<double>(sampleIdx + 1)) * 0.6180339887498949
-            jitter = jitter - floor(jitter)
-            blockIdx = blockLo + <Py_ssize_t>floor(jitter * <double>blockSpan)
-            if blockIdx > blockHi:
-                blockIdx = blockHi
-
+    blockQuantiles = np.empty(numBlocks, dtype=np.float64)
+    quantileView = blockQuantiles
+    for blockIdx in range(numBlocks):
         blockStart = blockIdx * blockLen
         blockEnd = blockStart + blockLen
         if blockEnd > n:
             blockEnd = n
-        blockN = blockEnd - blockStart
-        if blockN < minBlockN:
-            continue
+        quantileView[blockIdx] = <double>np.quantile(
+            y[blockStart:blockEnd],
+            quantile,
+        )
 
-        blockMedianValue = <double>np.median(y[blockStart:blockEnd])
-        if blockMedianValue > intervalUpperCutoff:
-            excludedBlocks += 1
-            continue
-
-        block_mu = _cDenseMeanGMM(y[blockStart:blockEnd], blockItersEM, <bint>False)
-        if not isfinite(block_mu):
-            continue
-
-        sumD2 = 0.0
-        if blockN > 2:
-            with nogil:
-                for sortIdx in range(blockStart + 1, blockEnd - 1):
-                    d2 = (
-                        yView[sortIdx - 1]
-                        - 2.0 * yView[sortIdx]
-                        + yView[sortIdx + 1]
-                    )
-                    sumD2 += d2 * d2
-            activity = (
-                (sumD2 / <double>(blockN - 2))
-                / (track_spread * track_spread + eps)
-            )
-        else:
-            activity = 0.0
-        if (not isfinite(activity)) or activity < 0.0:
-            activity = 0.0
-
-        blockQ75 = <double>np.quantile(y[blockStart:blockEnd], 0.75)
-        q75Excess = (blockQ75 - q75) / (track_spread + eps)
-        if (not isfinite(q75Excess)) or q75Excess < 0.0:
-            q75Activity = 0.0
-        else:
-            q75Activity = q75Excess * q75Excess
-        q75ActivitySum += q75Activity
-        if q75Activity > q75ActivityMax:
-            q75ActivityMax = q75Activity
-
-        # rough blocks and blocks with elevated upper quartiles count less
-        blockWeight = 1.0 / (1.0 + activity + q75Activity)
-        if blockWeight < eps:
-            blockWeight = eps
-
-        centerView[validBlocks] = block_mu
-        weightView[validBlocks] = blockWeight
-        validBlocks += 1
-
-    if validBlocks < minValidBlocks:
-        if verbose:
-            printf(
-                b"\tcconsenrich.cDenseMean(block-shrunk): center=%.4f global=%.4f validBlocks=%zd/%zd fallback=1\n",
-                global_mu, global_mu, validBlocks, sampleBlocks,
-            )
-            fflush(stdout)
-        return global_mu
-
-    validCenters = blockCenters[:validBlocks]
-    validWeights = blockWeights[:validBlocks]
-
-    order = np.argsort(validCenters)
-    sortedCenters = np.ascontiguousarray(validCenters[order], dtype=np.float64)
-    sortedWeights = np.ascontiguousarray(validWeights[order], dtype=np.float64)
-    sortedCenterView = sortedCenters
-    sortedWeightView = sortedWeights
-
-    totalWeight = 0.0
-    minWeight = INFINITY
-    for sortIdx in range(validBlocks):
-        totalWeight += sortedWeightView[sortIdx]
-        if sortedWeightView[sortIdx] < minWeight:
-            minWeight = sortedWeightView[sortIdx]
-
-
-    block_median = <double>np.median(validCenters)
-    if totalWeight > eps:
-        targetWeight = 0.5 * totalWeight
-        cumWeight = 0.0
-        # weighted median of blocks (wrt curvature)
-        for sortIdx in range(validBlocks):
-            cumWeight += sortedWeightView[sortIdx]
-            if cumWeight >= targetWeight:
-                block_median = sortedCenterView[sortIdx]
-                break
-    if validBlocks > 0:
-        meanWeight = totalWeight / <double>validBlocks
-        q75ActivitySum = q75ActivitySum / <double>validBlocks
-    else:
-        meanWeight = 0.0
-
-    # order blocks by absolute deviation from block median
-    # ... for later weighting in pooled mean
-    deviations = np.abs(validCenters - block_median)
-    order = np.argsort(deviations)
-    sortedCenters = np.ascontiguousarray(deviations[order], dtype=np.float64)
-    sortedWeights = np.ascontiguousarray(validWeights[order], dtype=np.float64)
-    sortedCenterView = sortedCenters
-    sortedWeightView = sortedWeights
-
-    # block heterogeneity scale
-    block_spread = <double>np.median(deviations)
-    if totalWeight > eps:
-        targetWeight = 0.5 * totalWeight
-        cumWeight = 0.0
-        for sortIdx in range(validBlocks):
-            cumWeight += sortedWeightView[sortIdx]
-            if cumWeight >= targetWeight:
-                block_spread = sortedCenterView[sortIdx]
-                break
-    block_spread = 1.4826 * block_spread
-
-    rho_n = <double>validBlocks / (<double>validBlocks + priorBlocks)
-    h = block_spread / (0.25 * track_spread + eps)
-    rho_h = 1.0 / (1.0 + h * h)
-    rho = rho_n * rho_h
-
-    dense_mu = global_mu
-    # only pull inflated centers down
-    if block_median < global_mu:
-        dense_mu = global_mu + rho * (block_median - global_mu)
+    dense_mu = <double>np.median(blockQuantiles)
+    if not isfinite(dense_mu):
+        dense_mu = <double>np.quantile(y, quantile)
 
     if verbose:
         printf(
-            b"\tcconsenrich.cDenseMean(block-shrunk): center=%.4f global=%.4f blockMedian=%.4f validBlocks=%zd/%zd excludedHighMedianBlocks=%zd intervalQ95=%.4f rho=%.4f blockSpread=%.4f trackSpread=%.4f meanWeight=%.4f minWeight=%.4f q75PenaltyMean=%.4f q75PenaltyMax=%.4f\n",
-            dense_mu, global_mu, block_median, validBlocks, sampleBlocks,
-            excludedBlocks, intervalUpperCutoff, rho, block_spread, track_spread, meanWeight, minWeight,
-            q75ActivitySum, q75ActivityMax,
+            b"\tcconsenrich.cDenseMean(block-quantile): center=%.4f blocks=%zd blockLen=%zd quantile=%.4f\n",
+            dense_mu, numBlocks, blockLen, quantile,
         )
         fflush(stdout)
 

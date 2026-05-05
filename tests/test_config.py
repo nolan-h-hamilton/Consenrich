@@ -220,6 +220,40 @@ def test_readConfigObservationTrendDefaultsRemoveLinearEnvelope(
     assert observationArgs.trendLambdaGridSize == 41
 
 
+def test_readConfigObservationBlockQuantileDefaultAndOverride(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configDefault = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+    configDefaultPath = writeConfigFile(
+        tmp_path,
+        "config_block_quantile_default.yaml",
+        configDefault,
+    )
+    parsedDefault = readConfig(str(configDefaultPath))
+    assert parsedDefault["observationArgs"].blockQuantile == pytest.approx(0.5)
+
+    configExplicit = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.blockQuantile: 0.25
+    """
+    configExplicitPath = writeConfigFile(
+        tmp_path,
+        "config_block_quantile_explicit.yaml",
+        configExplicit,
+    )
+    parsedExplicit = readConfig(str(configExplicitPath))
+    assert parsedExplicit["observationArgs"].blockQuantile == pytest.approx(0.25)
+
+
 def test_readConfigDeduplicatesChromosomes(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):

@@ -6,7 +6,6 @@
 
 import math
 import os
-import re
 import tempfile
 from typing import Tuple, List, Optional
 from pathlib import Path
@@ -311,12 +310,19 @@ def testCTransformInPlacePureLogMutatesFloat32Array():
 def testCTransformInPlaceMatchesAllocatingTransformForFloat64():
     x = np.linspace(0.0, 5.0, 256, dtype=np.float64)
     x[120:140] += 10.0
+    logged = _monoLogReference(x, offset=1.0, scale=1.0)
+    dense_offset = cconsenrich.cDenseMean(
+        logged,
+        blockLenTarget=21,
+        blockQuantile=0.25,
+    )
     expected = cconsenrich.cTransform(
         x,
         blockLength=21,
         w_global=1.0,
         logOffset=1.0,
         logMult=1.0,
+        blockQuantile=0.25,
     )
     in_place = x.copy()
 
@@ -326,128 +332,87 @@ def testCTransformInPlaceMatchesAllocatingTransformForFloat64():
         w_global=1.0,
         logOffset=1.0,
         logMult=1.0,
+        blockQuantile=0.25,
     )
 
     assert returned is in_place
     assert in_place.dtype == np.float64
     assert np.allclose(in_place, expected)
+    assert np.allclose(in_place, logged - dense_offset)
 
 
 @pytest.mark.correctness
-def testDenseMeanBlockShrinkageIsConservative():
-    rng = np.random.default_rng(7)
-    x = np.concatenate(
-        [
-            rng.normal(1.0, 0.05, 1800),
-            rng.normal(6.0, 0.15, 200),
-        ]
-    ).astype(np.float32)
-
-    global_only = cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=-1,
-        itersEM=200,
-    )
-    block_shrunk = cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=100,
-        itersEM=200,
-    )
-
-    assert block_shrunk <= global_only + 1e-6
-    assert block_shrunk < global_only - 0.25
-
-
-@pytest.mark.correctness
-def testDenseMeanBlockMeanElbowKeepsBackgroundEstimate():
-    rng = np.random.default_rng(8)
-    block_len = 12
+def testDenseMeanUsesMedianOfBlockMediansByDefault():
+    block_len = 5
     blocks = [
-        rng.normal(1.0, 0.02, block_len)
-        for _ in range(240)
-    ] + [
-        rng.normal(8.0, 0.02, block_len)
-        for _ in range(80)
+        np.array([0.0, 1.0, 2.0, 3.0, 20.0], dtype=np.float32),
+        np.array([4.0, 5.0, 6.0, 7.0, 30.0], dtype=np.float32),
+        np.array([8.0, 9.0, 10.0, 11.0, 40.0], dtype=np.float32),
     ]
-    x = np.concatenate(blocks).astype(np.float32)
+    x = np.concatenate(blocks)
+    expected = np.median([np.quantile(block, 0.5) for block in blocks])
 
-    global_only = cconsenrich.cDenseMean(
+    observed = cconsenrich.cDenseMean(
+        x,
+        blockLenTarget=block_len,
+    )
+
+    assert observed == pytest.approx(expected)
+
+
+@pytest.mark.correctness
+def testDenseMeanHonorsBlockQuantileArgument():
+    block_len = 5
+    blocks = [
+        np.array([0.0, 1.0, 2.0, 3.0, 20.0], dtype=np.float32),
+        np.array([4.0, 5.0, 6.0, 7.0, 30.0], dtype=np.float32),
+        np.array([8.0, 9.0, 10.0, 11.0, 40.0], dtype=np.float32),
+    ]
+    x = np.concatenate(blocks)
+    expected = np.median([np.quantile(block, 0.75) for block in blocks])
+
+    observed = cconsenrich.cDenseMean(
+        x,
+        blockLenTarget=block_len,
+        blockQuantile=0.75,
+    )
+
+    assert observed == pytest.approx(expected)
+
+
+@pytest.mark.correctness
+def testDenseMeanNonpositiveBlockLengthUsesWholeTrackMedian():
+    x = np.array([1.0, 2.0, 3.0, 9.0, 20.0, 30.0], dtype=np.float32)
+    expected = np.quantile(x, 0.5)
+
+    observed = cconsenrich.cDenseMean(
         x,
         blockLenTarget=-1,
-        itersEM=100,
-    )
-    block_shrunk = cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=block_len,
-        itersEM=100,
     )
 
-    assert global_only > 7.0
-    assert block_shrunk < 2.0
-    assert block_shrunk < global_only - 5.0
+    assert observed == pytest.approx(expected)
+
 
 
 @pytest.mark.correctness
-def testDenseMeanExcludesBlocksByIntervalLevelMedianCutoff(capfd):
-    block_len = 101
-    low_block = np.full(block_len, 1.0, dtype=np.float32)
-    mixed_high_median_block = np.concatenate(
+def testDenseMeanIncludesFinalPartialBlock():
+    block_len = 4
+    x = np.array([0.0, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0, 13.0, 50.0], dtype=np.float32)
+    expected = np.median(
         [
-            np.full(49, 1.0, dtype=np.float32),
-            np.full(52, 10.0, dtype=np.float32),
+            np.quantile(x[0:4], 0.25),
+            np.quantile(x[4:8], 0.25),
+            np.quantile(x[8:9], 0.25),
         ]
     )
-    x = np.concatenate(
-        [low_block.copy() for _ in range(96)]
-        + [mixed_high_median_block.copy() for _ in range(4)]
-    ).astype(np.float32)
 
-    cconsenrich.cDenseMean(
+    observed = cconsenrich.cDenseMean(
         x,
         blockLenTarget=block_len,
-        itersEM=50,
-        verbose=True,
+        blockQuantile=0.25,
     )
 
-    captured = capfd.readouterr().out
-    match = re.search(r"excludedHighMedianBlocks=(\d+)", captured)
-    assert match is not None
-    assert int(match.group(1)) == 4
-
-
-@pytest.mark.correctness
-def testDenseMeanPenalizesHighBlockUpperQuartile(capfd):
-    block_len = 101
-    low_block = np.full(block_len, 1.0, dtype=np.float32)
-    high_q75_block = np.concatenate(
-        [
-            np.full(70, 1.0, dtype=np.float32),
-            np.full(31, 10.0, dtype=np.float32),
-        ]
-    )
-    x = np.concatenate(
-        [low_block.copy() for _ in range(92)]
-        + [high_q75_block.copy() for _ in range(8)]
-    ).astype(np.float32)
-
-    cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=block_len,
-        itersEM=50,
-        verbose=True,
-    )
-
-    captured = capfd.readouterr().out
-    excluded_match = re.search(r"excludedHighMedianBlocks=(\d+)", captured)
-    q75_match = re.search(r"q75PenaltyMax=([0-9.]+)", captured)
-    min_weight_match = re.search(r"minWeight=([0-9.]+)", captured)
-
-    assert excluded_match is not None
-    assert int(excluded_match.group(1)) == 0
-    assert q75_match is not None
-    assert float(q75_match.group(1)) > 1.0
-    assert min_weight_match is not None
-    assert float(min_weight_match.group(1)) < 0.5
+    assert observed == pytest.approx(expected)
 
 
 def _writeSyntheticBam(tmp_path: Path, fileName: str, records: list[dict]) -> Path:

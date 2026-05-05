@@ -1451,6 +1451,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             )
         ),
         restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
+        blockQuantile=float(
+            _cfgGet(configData, "observationParams.blockQuantile", 0.5)
+        ),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
     )
 
@@ -2725,6 +2728,7 @@ def main():
                 w_global=countingArgs.globalWeight,
                 logOffset=countingArgs.logOffset,
                 logMult=countingArgs.logMult,
+                blockQuantile=observationArgs.blockQuantile,
             )
             return j
 
