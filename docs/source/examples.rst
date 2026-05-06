@@ -79,6 +79,21 @@ Using a YAML Configuration file
    Refer to the ``<process,observation,etc.>Params`` classes in module in the :ref:`API` for complete documentation of configuration options.
 
 
+Process-noise covariance setup
+"""""""""""""""""""""""""""""""""
+
+By default, Consenrich runs a short pre-fit calibration pass that estimates a fixed
+diagonal process-noise covariance from smoothed transition residuals. This sets
+separate level and trend innovation variances before the final estimator runs.
+
+To preserve the legacy scalar process covariance behavior, set:
+
+.. code-block:: yaml
+
+  processParams:
+    processQCalibration: none
+
+
 Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``:
 
 .. code-block:: yaml

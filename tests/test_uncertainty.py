@@ -33,7 +33,6 @@ def _smallRunKwargs():
         returnScales=True,
         returnReplicateOffsets=True,
         applyJackknife=False,
-        autoDeltaF=False,
     )
 
 

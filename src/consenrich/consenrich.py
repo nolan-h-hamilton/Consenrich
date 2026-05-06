@@ -547,64 +547,6 @@ def _prepareFragmentsNormalizationMetadata(
     return allowListPaths, selectedCellCounts, tempPaths
 
 
-def _resolveDeltaFAutoParams(
-    deltaF: float,
-    intervalSizeBP: int,
-    sources: Sequence[core.inputSource],
-    readLengths: Sequence[int | float],
-    characteristicLengths: Sequence[int | float],
-) -> tuple[float, bool, float, float]:
-    if np.isfinite(deltaF) and float(deltaF) > 0.0:
-        deltaFFixed = float(deltaF)
-        return deltaFFixed, False, deltaFFixed, deltaFFixed
-
-    effectiveFragmentLengths: List[float] = []
-    for source, readLength, fragmentLength in zip(
-        sources, readLengths, characteristicLengths
-    ):
-        sourceKind = str(source.sourceKind).upper()
-        candidateLength = float(fragmentLength)
-        if sourceKind == core.FRAGMENTS_SOURCE_KIND and float(readLength) > 0.0:
-            candidateLength = float(readLength)
-        elif candidateLength <= 0.0 and float(readLength) > 0.0:
-            candidateLength = float(readLength)
-
-        if np.isfinite(candidateLength) and candidateLength > 0.0:
-            effectiveFragmentLengths.append(candidateLength)
-
-    if effectiveFragmentLengths:
-        medianFragmentLength = float(np.median(effectiveFragmentLengths))
-    else:
-        medianFragmentLength = float(intervalSizeBP)
-
-    deltaFCenter = float(
-        np.clip(
-            0.5 * float(intervalSizeBP) / max(medianFragmentLength, 1.0),
-            1.0e-4,
-            2.0,
-        )
-    )
-    deltaFSearchLow = float(max(1.0e-4, deltaFCenter * math.exp(-0.25)))
-    deltaFSearchHigh = float(max(deltaFSearchLow, deltaFCenter * math.exp(0.25)))
-    return deltaFCenter, True, deltaFSearchLow, deltaFSearchHigh
-
-
-def _prioritizeLargestChromosomePlan(
-    chromosomePlans: Sequence[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    planList = list(chromosomePlans)
-    if len(planList) <= 1:
-        return planList
-
-    largestIdx = max(
-        range(len(planList)),
-        key=lambda idx: int(planList[idx].get("numIntervals", 0)),
-    )
-    if largestIdx == 0:
-        return planList
-    return [planList[largestIdx]] + planList[:largestIdx] + planList[largestIdx + 1 :]
-
-
 @lru_cache(maxsize=8)
 def _readSparseRegionsByChrom(sparseBedFile: str) -> dict[str, np.ndarray]:
     sparseFrame = pd.read_csv(
@@ -1358,14 +1300,44 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     scArgs = getScArgs(config_path)
     uncertaintyCalibrationArgs = getUncertaintyCalibrationArgs(config_path)
     experimentName = _cfgGet(configData, "experimentName", "consenrichExperiment")
+    processQLevelTargetCfg = _cfgGet(
+        configData,
+        "processParams.processQLevelTarget",
+        None,
+    )
+    processQTrendTargetCfg = _cfgGet(
+        configData,
+        "processParams.processQTrendTarget",
+        None,
+    )
     processArgs = core.processParams(
-        deltaF=_cfgGet(configData, "processParams.deltaF", -1.0),
-        minQ=_cfgGet(configData, "processParams.minQ", 2.5e-4),
+        deltaF=_cfgGet(configData, "processParams.deltaF", 1.0),
+        minQ=_cfgGet(configData, "processParams.minQ", 1.0e-4),
         maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
             configData,
             "processParams.offDiagQ",
             0.0,
+        ),
+        processQCalibration=_cfgGet(
+            configData,
+            "processParams.processQCalibration",
+            core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
+        ),
+        processQCalibIters=int(
+            _cfgGet(configData, "processParams.processQCalibIters", 5)
+        ),
+        processQLevelTarget=(
+            None if processQLevelTargetCfg is None else float(processQLevelTargetCfg)
+        ),
+        processQTrendTarget=(
+            None if processQTrendTargetCfg is None else float(processQTrendTargetCfg)
+        ),
+        processQLevelPriorWeight=float(
+            _cfgGet(configData, "processParams.processQLevelPriorWeight", 0.05)
+        ),
+        processQTrendPriorWeight=float(
+            _cfgGet(configData, "processParams.processQTrendPriorWeight", 25.0)
         ),
     )
 
@@ -1452,7 +1424,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
         blockQuantile=float(
-            _cfgGet(configData, "observationParams.blockQuantile", 0.5)
+            _cfgGet(configData, "observationParams.blockQuantile", 0.75)
         ),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
     )
@@ -1500,7 +1472,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_outerIters=_cfgGet(
             configData,
             "fitParams.EM_outerIters",
-            5,
+            8,
         ),
         EM_outerRtol=_cfgGet(
             configData,
@@ -1587,7 +1559,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(
                 configData,
                 "matchingParams.exportFilterUncertaintyMultiplier",
-                2.5,
+                2.0,
             )
         ),
     )
@@ -2077,9 +2049,7 @@ def main():
             config_truncated["processArgs"] = processArgs
             config_truncated["observationArgs"] = observationArgs
             config_truncated["stateArgs"] = stateArgs
-            config_truncated["uncertaintyCalibrationArgs"] = (
-                uncertaintyCalibrationArgs
-            )
+            config_truncated["uncertaintyCalibrationArgs"] = uncertaintyCalibrationArgs
             config_truncated["samArgs"] = samArgs
             pretty = pprint.pformat(
                 config_truncated,
@@ -2500,24 +2470,8 @@ def main():
             except OSError:
                 pass
 
-    deltaFCenter_, autoDeltaF_, autoDeltaFLow_, autoDeltaFHigh_ = (
-        _resolveDeltaFAutoParams(
-            deltaF_,
-            intervalSizeBP,
-            treatmentSources,
-            readLengthsBamFiles,
-            characteristicFragmentLengthsTreatment,
-        )
-    )
-    if autoDeltaF_:
-        logger.info(
-            "processParams.deltaF < 0 --> centering autoDeltaF at %.6f with bounds [%.6f, %.6f]",
-            deltaFCenter_,
-            autoDeltaFLow_,
-            autoDeltaFHigh_,
-        )
-    else:
-        logger.info("Using fixed deltaF=%.6f", deltaFCenter_)
+    deltaF_ = core._resolveFixedDeltaF(deltaF_)
+    logger.info("Using fixed deltaF=%.6f", deltaF_)
 
     chromSizesDict = misc_util.getChromSizesDict(
         genomeArgs.chromSizesFile,
@@ -2550,11 +2504,6 @@ def main():
                 "numIntervals": int(numIntervals),
             }
         )
-
-    if autoDeltaF_ and chromosomePlans:
-        chromosomePlans = _prioritizeLargestChromosomePlan(chromosomePlans)
-
-    autoDeltaFResolved = not bool(autoDeltaF_)
 
     if chromosomePlans:
         for file_ in os.listdir("."):
@@ -2910,7 +2859,7 @@ def main():
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-4))
-            autoMinQ = max((0.01 * minR_) * (1 + deltaFCenter_), 1.0e-4)
+            autoMinQ = max((0.01 * minR_) * (1 + deltaF_), 1.0e-4)
             logger.info(
                 "processParams.minQ < 0 or processParams.maxQ < 0 --> applying minimal numerically stable bounds for conditioning",
             )
@@ -2925,33 +2874,6 @@ def main():
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
         logger.info(f"minR={minR_}, maxR={maxR_}, minQ={minQ_}, maxQ={maxQ_}")
-        if (not autoDeltaFResolved) and autoDeltaF_:
-            deltaFCenter_ = core.estimateAutoDeltaF(
-                matrixData=chromMat,
-                matrixMunc=muncMat,
-                minQ=float(minQ_),
-                offDiagQ=float(offDiagQ_),
-                stateInit=float(stateArgs.stateInit),
-                stateCovarInit=float(stateArgs.stateCovarInit),
-                blockLenIntervals=(
-                    4 * vec_[0] + 1
-                    if vec_ is not None
-                    else 2 * backgroundBlockSizeIntervals + 1
-                ),
-                pad=float(pad_),
-                autoDeltaF_low=float(autoDeltaFLow_),
-                autoDeltaF_high=float(autoDeltaFHigh_),
-                autoDeltaF_init=float(deltaFCenter_),
-            )
-            autoDeltaF_ = False
-            autoDeltaFLow_ = float(deltaFCenter_)
-            autoDeltaFHigh_ = float(deltaFCenter_)
-            autoDeltaFResolved = True
-            logger.info(
-                "Using fixed deltaF=%.6f estimated from largest processed chromosome %s",
-                deltaFCenter_,
-                chromosome,
-            )
         if not bool(fitArgs.EM_use):
             logger.info(
                 "fitParams.EM_use=False --> skipping iterative EM calibration and using the plugin variance track directly"
@@ -2965,18 +2887,10 @@ def main():
         useCrossFitUncertainty = bool(
             outputArgs.writeUncertainty and uncertaintyCalibrationArgs.enabled
         )
-        (
-            x,
-            P,
-            postFitResiduals,
-            JackknifeSEVec,
-            qScale,
-            replicateBias,
-            intervalToBlockMap,
-        ) = core.runConsenrich(
+        runResult = core.runConsenrich(
             chromMat,
             muncMat,
-            deltaFCenter_,
+            deltaF_,
             minQ_,
             maxQ_,
             offDiagQ_,
@@ -3003,12 +2917,23 @@ def main():
             EM_outerIters=fitArgs.EM_outerIters,
             EM_outerRtol=fitArgs.EM_outerRtol,
             EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
-            autoDeltaF=autoDeltaF_,
-            autoDeltaF_low=autoDeltaFLow_,
-            autoDeltaF_high=autoDeltaFHigh_,
-            autoDeltaF_init=deltaFCenter_,
+            processQCalibration=processArgs.processQCalibration,
+            processQCalibIters=processArgs.processQCalibIters,
+            processQLevelTarget=processArgs.processQLevelTarget,
+            processQTrendTarget=processArgs.processQTrendTarget,
+            processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
+            processQTrendPriorWeight=processArgs.processQTrendPriorWeight,
             applyJackknife=outputArgs.applyJackknife,
         )
+        (
+            x,
+            P,
+            postFitResiduals,
+            JackknifeSEVec,
+            qScale,
+            replicateBias,
+            intervalToBlockMap,
+        ) = runResult[:7]
         replicateBias = np.asarray(replicateBias, dtype=np.float32)
         logger.info(
             "finalReplicateBias[%s]=%s",
@@ -3034,7 +2959,7 @@ def main():
             from consenrich import uncertainty as uncertainty_module
 
             calibrationRunKwargs = dict(
-                deltaF=deltaFCenter_,
+                deltaF=deltaF_,
                 minQ=minQ_,
                 maxQ=maxQ_,
                 offDiagQ=offDiagQ_,
@@ -3061,31 +2986,31 @@ def main():
                 EM_outerIters=fitArgs.EM_outerIters,
                 EM_outerRtol=fitArgs.EM_outerRtol,
                 EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
-                autoDeltaF=False,
-                autoDeltaF_low=autoDeltaFLow_,
-                autoDeltaF_high=autoDeltaFHigh_,
-                autoDeltaF_init=deltaFCenter_,
+                processQCalibration=processArgs.processQCalibration,
+                processQCalibIters=processArgs.processQCalibIters,
+                processQLevelTarget=processArgs.processQLevelTarget,
+                processQTrendTarget=processArgs.processQTrendTarget,
+                processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
+                processQTrendPriorWeight=processArgs.processQTrendPriorWeight,
                 applyJackknife=False,
             )
             calibrationPrefix = (
                 f"consenrichOutput_{experimentName}_uncertaintyCalibration"
                 f".v{__version__}"
             )
-            calibrationResult = (
-                uncertainty_module.calibrateChromosomeStateUncertainty(
-                    matrixData=chromMat,
-                    matrixMunc=muncMat,
-                    fullState=x,
-                    fullCovar=P,
-                    fullReplicateBias=replicateBias,
-                    intervals=intervals,
-                    intervalSizeBP=intervalSizeBP,
-                    params=uncertaintyCalibrationArgs,
-                    runKwargs=calibrationRunKwargs,
-                    pad=pad_,
-                    outPrefix=calibrationPrefix,
-                    chromosome=chromosome,
-                )
+            calibrationResult = uncertainty_module.calibrateChromosomeStateUncertainty(
+                matrixData=chromMat,
+                matrixMunc=muncMat,
+                fullState=x,
+                fullCovar=P,
+                fullReplicateBias=replicateBias,
+                intervals=intervals,
+                intervalSizeBP=intervalSizeBP,
+                params=uncertaintyCalibrationArgs,
+                runKwargs=calibrationRunKwargs,
+                pad=pad_,
+                outPrefix=calibrationPrefix,
+                chromosome=chromosome,
             )
             uncertaintyTrack = np.asarray(
                 calibrationResult.calibratedUncertainty,

@@ -52,9 +52,8 @@ SUPPORTED_COUNT_MODES = (
 class processParams(NamedTuple):
     r"""Parameters related to the process model of Consenrich.
 
-    :param deltaF: Integration step size in the two-state transition
-        :math:`x_{[i+1,0]} = x_{[i,0]} + \delta_F x_{[i,1]}`. If ``deltaF < 0``, the CLI centers a narrow
-        search around ``0.5 * intervalSizeBP / medianFragmentLength``.
+    :param deltaF: Fixed positive integration step size in the two-state
+        transition :math:`x_{[i+1,0]} = x_{[i,0]} + \delta_F x_{[i,1]}`.
     :type deltaF: float
     :param minQ: Minimum process noise scale (diagonal in :math:`\mathbf{Q}_{[i]}`)
         on the primary state variable (signal level). If ``minQ < 0``, a small
@@ -65,14 +64,38 @@ class processParams(NamedTuple):
     :type maxQ: float
     :param offDiagQ: Off-diagonal value in the process noise covariance :math:`\mathbf{Q}_{[i,01]}`
     :type offDiagQ: float
+    :param processQCalibration: Process-noise covariance setup mode. ``"regularizedDiagonal"``
+        runs a short pre-fit calibration pass to estimate a fixed diagonal base
+        covariance :math:`\mathbf{Q}_0 = \mathrm{diag}(q_\mathrm{level}, q_\mathrm{trend})`.
+        ``"none"`` preserves the legacy scalar process covariance.
+    :type processQCalibration: str
+    :param processQCalibIters: Maximum inner EM iterations used by the process-Q
+        warm-up calibration fit.
+    :type processQCalibIters: int
+    :param processQLevelTarget: Optional shrinkage target for level innovation variance.
+        If unset, the resolved ``minQ`` value is used.
+    :type processQLevelTarget: float | None
+    :param processQTrendTarget: Optional shrinkage target for trend innovation variance.
+        If unset, ``0.01 * processQLevelTarget`` is used.
+    :type processQTrendTarget: float | None
+    :param processQLevelPriorWeight: Shrinkage weight toward ``processQLevelTarget``.
+    :type processQLevelPriorWeight: float
+    :param processQTrendPriorWeight: Shrinkage weight toward ``processQTrendTarget``.
+    :type processQTrendPriorWeight: float
     :seealso: :func:`consenrich.core.runConsenrich`
 
     """
 
-    deltaF: float = -1.0
+    deltaF: float = 1.0
     minQ: float = 2.5e-4
     maxQ: float = 1000.0
     offDiagQ: float = 0.0
+    processQCalibration: str = "regularizedDiagonal"
+    processQCalibIters: int = 5
+    processQLevelTarget: float | None = None
+    processQTrendTarget: float | None = None
+    processQLevelPriorWeight: float = 0.05
+    processQTrendPriorWeight: float = 1.0
 
 
 class observationParams(NamedTuple):
@@ -197,7 +220,7 @@ UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_EM_ITERS = 1
 UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS = (0.50, 0.80, 0.90, 0.95)
 UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR = 1.0e-6
 UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN = 0.05
-UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX = 20.0
+UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX = 25.0
 UNCERTAINTY_CALIBRATION_FACTOR_MIN_FLOOR = 1.0e-6
 UNCERTAINTY_CALIBRATION_FACTOR_MAX_MIN_RATIO = 1.01
 UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN = 0.25
@@ -211,9 +234,7 @@ UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH = (
 )
 UNCERTAINTY_CALIBRATION_WIS_SCALE_MULTIPLIER = 2.0
 UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES = 10
-UNCERTAINTY_CALIBRATION_SCORE_SD_DECILES = (
-    UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES
-)
+UNCERTAINTY_CALIBRATION_SCORE_SD_DECILES = UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES
 UNCERTAINTY_CALIBRATION_SCORE_STATE_ABS_QUANTILE = 0.90
 UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE = 4096
 UNCERTAINTY_CALIBRATION_SCORE_REPLICATE_CODE_STRIDE = 32
@@ -1305,6 +1326,186 @@ def constructMatrixF(deltaF: float) -> npt.NDArray[np.float32]:
     return initMatrixF
 
 
+PROCESS_Q_CALIBRATION_NONE = "none"
+PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL = "regularizedDiagonal"
+PROCESS_Q_CALIBRATION_MODES = (
+    PROCESS_Q_CALIBRATION_NONE,
+    PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
+)
+PROCESS_Q_DEFAULT_TREND_TARGET_RATIO = 0.001
+PROCESS_Q_TREND_FLOOR_RATIO = 1.0e-6
+PROCESS_Q_NUMERICAL_FLOOR = 1.0e-8
+
+
+def _resolveFixedDeltaF(deltaF: float) -> float:
+    deltaF_ = float(deltaF)
+    if (not np.isfinite(deltaF_)) or deltaF_ <= 0.0:
+        raise ValueError("deltaF must be a positive finite fixed step size")
+    return deltaF_
+
+
+def _normalizeProcessQCalibration(processQCalibration: str | None) -> str:
+    if processQCalibration is None:
+        return PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
+
+    mode = str(processQCalibration).strip()
+    key = mode.lower().replace("_", "").replace("-", "")
+    if key in {"none", "off", "false", "disabled", "disable"}:
+        return PROCESS_Q_CALIBRATION_NONE
+    if key in {
+        "regularizeddiagonal",
+        "regularizeddiag",
+        "regularized",
+        "diagonal",
+        "diag",
+    }:
+        return PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
+
+    raise ValueError(
+        "`processQCalibration` must be one of "
+        + ", ".join(repr(mode_) for mode_ in PROCESS_Q_CALIBRATION_MODES)
+    )
+
+
+def _checkFinitePositive(name: str, value: float) -> float:
+    value_ = float(value)
+    if (not np.isfinite(value_)) or value_ <= 0.0:
+        raise ValueError(f"`{name}` must be positive and finite")
+    return value_
+
+
+def _checkFiniteNonnegative(name: str, value: float) -> float:
+    value_ = float(value)
+    if (not np.isfinite(value_)) or value_ < 0.0:
+        raise ValueError(f"`{name}` must be nonnegative and finite")
+    return value_
+
+
+def _computeExpectedTransitionResidualSums(
+    stateSmoothed: np.ndarray,
+    stateCovarSmoothed: np.ndarray,
+    lagCovSmoothed: np.ndarray,
+    matrixF: np.ndarray,
+) -> tuple[float, float, int]:
+    r"""Compute expected squared state-transition residual sums.
+
+    ``lagCovSmoothed[k]`` is interpreted as
+    :math:`\mathrm{Cov}(x_k, x_{k+1}\mid y)`, matching
+    :func:`consenrich.cconsenrich.cbackwardPass`.
+    """
+
+    m = np.asarray(stateSmoothed, dtype=np.float64)
+    P = np.asarray(stateCovarSmoothed, dtype=np.float64)
+    C = np.asarray(lagCovSmoothed, dtype=np.float64)
+    F = np.asarray(matrixF, dtype=np.float64)
+
+    if m.ndim != 2 or m.shape[1] != 2:
+        raise ValueError("stateSmoothed must have shape (n, 2)")
+    if P.shape != (m.shape[0], 2, 2):
+        raise ValueError("stateCovarSmoothed must have shape (n, 2, 2)")
+    if C.shape[0] < max(m.shape[0] - 1, 0) or C.shape[1:] != (2, 2):
+        raise ValueError("lagCovSmoothed must have shape (n - 1, 2, 2)")
+    if F.shape != (2, 2):
+        raise ValueError("matrixF must have shape (2, 2)")
+
+    transitionCount = int(m.shape[0] - 1)
+    if transitionCount <= 0:
+        return 0.0, 0.0, 0
+
+    sumLevel = 0.0
+    sumTrend = 0.0
+    Ft = F.T
+    for k in range(transitionCount):
+        x0 = m[k]
+        x1 = m[k + 1]
+        Exx0 = P[k] + np.outer(x0, x0)
+        Exx1 = P[k + 1] + np.outer(x1, x1)
+        Ex0x1 = C[k] + np.outer(x0, x1)
+        Ex1x0 = Ex0x1.T
+        residualSecondMoment = Exx1 - (Ex1x0 @ Ft) - (F @ Ex0x1) + (F @ Exx0 @ Ft)
+        sumLevel += max(float(residualSecondMoment[0, 0]), 0.0)
+        sumTrend += max(float(residualSecondMoment[1, 1]), 0.0)
+
+    return sumLevel, sumTrend, transitionCount
+
+
+def _estimateRegularizedDiagonalProcessQ(
+    *,
+    stateSmoothed: np.ndarray,
+    stateCovarSmoothed: np.ndarray,
+    lagCovSmoothed: np.ndarray,
+    matrixF: np.ndarray,
+    minQ: float,
+    maxQ: float,
+    processQLevelTarget: float | None,
+    processQTrendTarget: float | None,
+    processQLevelPriorWeight: float,
+    processQTrendPriorWeight: float,
+) -> tuple[np.ndarray, dict[str, float]]:
+    qLevelTarget = (
+        max(float(minQ), PROCESS_Q_NUMERICAL_FLOOR)
+        if processQLevelTarget is None
+        else _checkFinitePositive("processQLevelTarget", processQLevelTarget)
+    )
+    qTrendTarget = (
+        qLevelTarget * PROCESS_Q_DEFAULT_TREND_TARGET_RATIO
+        if processQTrendTarget is None
+        else _checkFinitePositive("processQTrendTarget", processQTrendTarget)
+    )
+    levelWeight = _checkFiniteNonnegative(
+        "processQLevelPriorWeight",
+        processQLevelPriorWeight,
+    )
+    trendWeight = _checkFiniteNonnegative(
+        "processQTrendPriorWeight",
+        processQTrendPriorWeight,
+    )
+
+    sumLevel, sumTrend, transitionCount = _computeExpectedTransitionResidualSums(
+        stateSmoothed=stateSmoothed,
+        stateCovarSmoothed=stateCovarSmoothed,
+        lagCovSmoothed=lagCovSmoothed,
+        matrixF=matrixF,
+    )
+    if transitionCount <= 0:
+        raise ValueError("need at least one transition for process-Q calibration")
+
+    rawLevel = sumLevel / float(transitionCount)
+    rawTrend = sumTrend / float(transitionCount)
+    qLevel = (rawLevel + levelWeight * qLevelTarget) / (1.0 + levelWeight)
+    qTrend = (rawTrend + trendWeight * qTrendTarget) / (1.0 + trendWeight)
+
+    levelFloor = max(float(minQ), PROCESS_Q_NUMERICAL_FLOOR)
+    trendFloor = max(
+        qTrendTarget * PROCESS_Q_TREND_FLOOR_RATIO,
+        PROCESS_Q_NUMERICAL_FLOOR,
+    )
+    qLevel = max(float(qLevel), levelFloor)
+    qTrend = max(float(qTrend), trendFloor)
+
+    if np.isfinite(float(maxQ)) and float(maxQ) > 0.0:
+        qLevel = min(qLevel, max(float(maxQ), levelFloor))
+        qTrend = min(qTrend, max(float(maxQ), trendFloor))
+
+    matrixQ = constructMatrixQ(
+        minDiagQ=qLevel,
+        offDiagQ=0.0,
+        Q00=qLevel,
+        Q11=qTrend,
+    ).astype(np.float32, copy=False)
+    return matrixQ, {
+        "q_level": float(qLevel),
+        "q_trend": float(qTrend),
+        "raw_q_level": float(rawLevel),
+        "raw_q_trend": float(rawTrend),
+        "q_level_target": float(qLevelTarget),
+        "q_trend_target": float(qTrendTarget),
+        "q_level_prior_weight": float(levelWeight),
+        "q_trend_prior_weight": float(trendWeight),
+        "transition_count": float(transitionCount),
+    }
+
+
 def constructMatrixQ(
     minDiagQ: float,
     offDiagQ: float = 0.0,
@@ -1416,222 +1617,6 @@ def constructMatrixQ(
     return Q
 
 
-def estimateAutoDeltaF(
-    matrixData: np.ndarray,
-    matrixMunc: np.ndarray,
-    minQ: float,
-    offDiagQ: float,
-    stateInit: float,
-    stateCovarInit: float,
-    blockLenIntervals: int,
-    pad: float = 1.0e-4,
-    autoDeltaF_low: float = 1.0e-4,
-    autoDeltaF_high: float = 2.0,
-    autoDeltaF_init: float = 0.01,
-    autoDeltaF_maxEvals: int = 25,
-    useWhiteAccel: bool = False,
-    useDiscreteConstAccel: bool = False,
-) -> float:
-    r"""Estimate ``deltaF`` from one transformed chromosome matrix."""
-    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
-    matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
-
-    if matrixData.ndim == 1:
-        matrixData = matrixData[None, :]
-    elif matrixData.ndim != 2:
-        raise ValueError(f"matrixData must be 1D or 2D (got ndim={matrixData.ndim})")
-
-    if matrixMunc.ndim == 1:
-        matrixMunc = matrixMunc[None, :]
-    elif matrixMunc.ndim != 2:
-        raise ValueError(f"matrixMunc must be 1D or 2D (got ndim={matrixMunc.ndim})")
-
-    if matrixData.shape != matrixMunc.shape:
-        raise ValueError("matrixData and matrixMunc must have identical shapes")
-
-    trackCount, intervalCount = matrixData.shape
-    if intervalCount < 2:
-        raise ValueError("need at least 2 intervals for autoDeltaF estimation")
-
-    blockLenIntervals_ = max(int(blockLenIntervals), 1)
-    blockCount = int(np.ceil(intervalCount / float(blockLenIntervals_)))
-    intervalToBlockMap = (
-        np.arange(intervalCount, dtype=np.int32) // blockLenIntervals_
-    ).astype(np.int32)
-    intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
-
-    def buildMatrixF(deltaFLocal: float) -> np.ndarray:
-        return constructMatrixF(float(deltaFLocal)).astype(np.float32, copy=False)
-
-    def buildMatrixQ0(deltaFLocal: float) -> np.ndarray:
-        return constructMatrixQ(
-            minDiagQ=float(minQ),
-            offDiagQ=float(offDiagQ),
-            useWhiteAccel=bool(useWhiteAccel),
-            useDiscreteConstAccel=bool(useDiscreteConstAccel),
-            deltaF=float(deltaFLocal),
-        ).astype(np.float32, copy=False)
-
-    deltaFMin = float(autoDeltaF_low)
-    deltaFMax = float(autoDeltaF_high)
-    if (
-        (not np.isfinite(deltaFMin))
-        or (not np.isfinite(deltaFMax))
-        or deltaFMin <= 0.0
-        or deltaFMax <= deltaFMin
-    ):
-        deltaFMin, deltaFMax = 1.0e-4, 1.0
-
-    deltaFInit = float(autoDeltaF_init)
-    if (not np.isfinite(deltaFInit)) or deltaFInit <= 0.0:
-        deltaFInit = float(np.sqrt(deltaFMin * deltaFMax))
-    deltaFInit = float(np.clip(deltaFInit, deltaFMin, deltaFMax))
-
-    qScaleUnity = np.ones(blockCount, dtype=np.float32)
-
-    stateForward = np.empty((intervalCount, 2), dtype=np.float32)
-    stateCovarForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
-    pNoiseForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
-    vectorD = np.empty(intervalCount, dtype=np.float32)
-
-    stateSmoothed = np.empty((intervalCount, 2), dtype=np.float32)
-    stateCovarSmoothed = np.empty((intervalCount, 2, 2), dtype=np.float32)
-    lagCovSmoothed = np.empty((max(intervalCount - 1, 1), 2, 2), dtype=np.float32)
-    postFitResiduals = np.empty((intervalCount, trackCount), dtype=np.float32)
-
-    def _penNLL(deltaF_candidate: float) -> tuple[float, float]:
-        deltaF_candidate = float(deltaF_candidate)
-        if (not np.isfinite(deltaF_candidate)) or deltaF_candidate <= 0.0:
-            return float(1.0e16), float(1.0e16)
-
-        try:
-            matrixF_candidate = buildMatrixF(deltaF_candidate)
-            matrixQ0_candidate = buildMatrixQ0(deltaF_candidate)
-        except Exception:
-            return float(1.0e16), float(1.0e16)
-
-        try:
-            out = cconsenrich.cforwardPass(
-                matrixData=matrixData,
-                matrixPluginMuncInit=matrixMunc,
-                matrixF=matrixF_candidate,
-                matrixQ0=matrixQ0_candidate,
-                intervalToBlockMap=intervalToBlockMap,
-                qScale=qScaleUnity,
-                blockCount=int(blockCount),
-                stateInit=float(stateInit),
-                stateCovarInit=float(stateCovarInit),
-                pad=float(pad),
-                projectStateDuringFiltering=False,
-                stateLowerBound=0.0,
-                stateUpperBound=0.0,
-                chunkSize=0,
-                stateForward=stateForward,
-                stateCovarForward=stateCovarForward,
-                pNoiseForward=pNoiseForward,
-                vectorD=vectorD,
-                progressBar=None,
-                progressIter=0,
-                returnNLL=True,
-                storeNLLInD=False,
-                lambdaExp=None,
-                processPrecExp=None,
-                EM_useObsPrecReweight=False,
-                EM_useProcPrecReweight=False,
-                EM_useAPN=False,
-            )
-            sumNLL = float(out[3])
-
-            cconsenrich.cbackwardPass(
-                matrixData=matrixData,
-                matrixF=matrixF_candidate,
-                stateForward=stateForward,
-                stateCovarForward=stateCovarForward,
-                pNoiseForward=pNoiseForward,
-                chunkSize=0,
-                stateSmoothed=stateSmoothed,
-                stateCovarSmoothed=stateCovarSmoothed,
-                lagCovSmoothed=lagCovSmoothed,
-                postFitResiduals=postFitResiduals,
-                progressBar=None,
-                progressIter=0,
-            )
-
-            if intervalCount <= 1:
-                return float(sumNLL), 0.0
-
-            mu = stateSmoothed.astype(np.float64, copy=False)
-            P = stateCovarSmoothed.astype(np.float64, copy=False)
-            C = lagCovSmoothed.astype(np.float64, copy=False)
-
-            L = intervalCount - 1
-            deltaMu0 = mu[1:, 0] - mu[:-1, 0]
-            expDelta2 = (
-                (deltaMu0 * deltaMu0) + P[1:, 0, 0] + P[:-1, 0, 0] - 2.0 * C[:L, 0, 0]
-            )
-            expDelta2 = np.maximum(expDelta2, 0.0)
-            roughnessMean = float(np.mean(expDelta2))
-            return float(sumNLL), float(roughnessMean)
-        except Exception:
-            return float(1.0e16), float(1.0e16)
-
-    tLOW = float(np.log(deltaFMin))
-    tHIGH = float(np.log(deltaFMax))
-
-    gridDeltaF = np.exp(np.linspace(tLOW, tHIGH, num=16, dtype=np.float64))
-    gridTerms = []
-    for d in gridDeltaF:
-        sumNLL_g, rough_g = _penNLL(float(d))
-        if sumNLL_g >= 1.0e16 or rough_g >= 1.0e16:
-            continue
-
-        nll_per_obs = sumNLL_g / (float(trackCount) * float(intervalCount))
-        rough_log = float(np.log1p(rough_g))
-        if np.isfinite(nll_per_obs) and np.isfinite(rough_log):
-            gridTerms.append((float(nll_per_obs), float(rough_log)))
-
-    if gridTerms:
-        nll_ref = float(np.median([t[0] for t in gridTerms]))
-        rough_ref = float(np.median([t[1] for t in gridTerms]))
-    else:
-        nll_ref = 1.0
-        rough_ref = 1.0
-    nll_ref = float(max(nll_ref, 1.0e-12))
-    rough_ref = float(max(rough_ref, 1.0e-12))
-
-    def deltaF_score(deltaF_candidate: float, w1=0.95, w2=0.05) -> float:
-        sumNLL, roughnessMean = _penNLL(deltaF_candidate)
-        nll_term = (sumNLL / (float(trackCount) * float(intervalCount))) / nll_ref
-        rough_term = float(np.log1p(roughnessMean)) / rough_ref
-        return float((w1 * nll_term) + (w2 * rough_term))
-
-    def obj(t: float) -> float:
-        return float(deltaF_score(float(np.exp(float(t)))))
-
-    try:
-        res = optimize.minimize_scalar(
-            obj,
-            bounds=(tLOW, tHIGH),
-            method="bounded",
-            options={"maxiter": int(autoDeltaF_maxEvals), "xatol": 1.0e-4},
-        )
-        if (not res.success) or (not np.isfinite(res.x)):
-            bestDeltaF = deltaFInit
-        else:
-            bestDeltaF = float(np.exp(float(res.x)))
-    except Exception:
-        bestDeltaF = deltaFInit
-
-    bestDeltaF = float(np.clip(bestDeltaF, deltaFMin, deltaFMax))
-    bestScore = float(deltaF_score(bestDeltaF))
-    logger.info(
-        "autoDeltaF search completed: bestDeltaF=%s\tbestScore=%.4e",
-        bestDeltaF,
-        bestScore,
-    )
-    return float(bestDeltaF)
-
-
 def runConsenrich(
     matrixData: np.ndarray,
     matrixMunc: np.ndarray,
@@ -1668,11 +1653,12 @@ def runConsenrich(
     jackknifeEM_innerRtol: float = 1.0e-2,
     useWhiteAccel: bool = False,
     useDiscreteConstAccel: bool = False,
-    autoDeltaF: bool = True,
-    autoDeltaF_low: float = 1.0e-4,
-    autoDeltaF_high: float = 2.0,
-    autoDeltaF_init: float = 0.01,
-    autoDeltaF_maxEvals: int = 25,
+    processQCalibration: str | None = PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
+    processQCalibIters: int = 5,
+    processQLevelTarget: float | None = None,
+    processQTrendTarget: float | None = None,
+    processQLevelPriorWeight: float = 0.05,
+    processQTrendPriorWeight: float = 1.0,
     observationMask: np.ndarray | None = None,
 ):
     r"""Run Consenrich over a contiguous genomic region
@@ -1712,6 +1698,12 @@ def runConsenrich(
     #. :func:`consenrich.cconsenrich.cforwardPass`: Forward filter (predict, update)
     #. :func:`consenrich.cconsenrich.cbackwardPass`: Backward fixed-interval smoother
     #. :func:`consenrich.cconsenrich.cinnerEM`: Joint optimization of robust precision reweighting and replicate-level observation calibration
+
+    ``processQCalibration="regularizedDiagonal"`` first runs a short warm-up
+    smoother with APN and process-precision reweighting disabled, estimates the
+    fixed diagonal base process covariance from smoothed transition residuals,
+    and then runs the requested final fit with the learned :math:`\mathbf{Q}_0`.
+    ``processQCalibration="none"`` preserves the legacy scalar covariance path.
 
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`, :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cinnerEM`
     """
@@ -1757,6 +1749,7 @@ def runConsenrich(
     EM_useAPN = bool(EM_useAPN)
     if EM_useAPN:
         EM_useProcPrecReweight = False
+    processQCalibrationMode = _normalizeProcessQCalibration(processQCalibration)
 
     blockCount = int(np.ceil(intervalCount / float(blockLenIntervals)))
     intervalToBlockMap = (
@@ -1779,26 +1772,6 @@ def runConsenrich(
             deltaF=float(deltaFLocal),
         ).astype(np.float32, copy=False)
 
-    def _autoDeltaF(matrixDataLocal: np.ndarray, matrixMuncLocal: np.ndarray) -> float:
-        return estimateAutoDeltaF(
-            matrixData=matrixDataLocal,
-            matrixMunc=matrixMuncLocal,
-            minQ=float(minQ),
-            offDiagQ=float(offDiagQ),
-            stateInit=float(stateInit),
-            stateCovarInit=float(stateCovarInit),
-            blockLenIntervals=int(blockLenIntervals),
-            pad=float(pad),
-            autoDeltaF_low=float(autoDeltaF_low),
-            autoDeltaF_high=float(autoDeltaF_high),
-            autoDeltaF_init=float(autoDeltaF_init),
-            autoDeltaF_maxEvals=int(autoDeltaF_maxEvals),
-            useWhiteAccel=bool(useWhiteAccel),
-            useDiscreteConstAccel=bool(useDiscreteConstAccel),
-        )
-
-    inferDeltaF = bool(autoDeltaF) or (deltaF < 0.0)
-
     def _runForwardBackward(
         *,
         matrixDataLocal: np.ndarray,
@@ -1809,6 +1782,8 @@ def runConsenrich(
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
         replicateBias: np.ndarray | None,
+        emUseProcPrecReweightLocal: bool,
+        emUseAPNLocal: bool,
     ):
         stateForward = np.empty((intervalCount, 2), dtype=np.float32)
         stateCovarForward = np.empty((intervalCount, 2, 2), dtype=np.float32)
@@ -1842,8 +1817,8 @@ def runConsenrich(
             processPrecExp=processPrecExp,
             replicateBias=replicateBias,
             EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
-            EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
-            EM_useAPN=bool(EM_useAPN),
+            EM_useProcPrecReweight=bool(emUseProcPrecReweightLocal),
+            EM_useAPN=bool(emUseAPNLocal),
             EM_useReplicateBias=bool(EM_useReplicateBias),
             APN_minQ=float(minQ),
             APN_maxQ=float(maxQ),
@@ -1890,9 +1865,19 @@ def runConsenrich(
         matrixQ0Local: np.ndarray,
         emMaxItersLocal: int,
         emInnerRtolLocal: float,
+        emUseProcPrecReweightLocal: bool | None = None,
+        emUseAPNLocal: bool | None = None,
     ) -> dict[str, np.ndarray | float | None]:
         mLocal = int(matrixDataLocal.shape[0])
         nLocal = int(matrixDataLocal.shape[1])
+        useAPNLocal = bool(EM_useAPN if emUseAPNLocal is None else emUseAPNLocal)
+        useProcPrecLocal = bool(
+            EM_useProcPrecReweight
+            if emUseProcPrecReweightLocal is None
+            else emUseProcPrecReweightLocal
+        )
+        if useAPNLocal:
+            useProcPrecLocal = False
 
         if disableCalibration or mLocal < 2:
             currentBackground = np.zeros(nLocal, dtype=np.float32)
@@ -1921,6 +1906,8 @@ def runConsenrich(
                 lambdaExp=lambdaExpLocal,
                 processPrecExp=processPrecExpLocal,
                 replicateBias=replicateBiasLocal,
+                emUseProcPrecReweightLocal=useProcPrecLocal,
+                emUseAPNLocal=useAPNLocal,
             )
             return {
                 "matrixMunc": currentMunc,
@@ -1981,8 +1968,8 @@ def runConsenrich(
                 EM_tNu=float(EM_tNu),
                 returnIntermediates=True,
                 EM_useObsPrecReweight=bool(EM_useObsPrecReweight),
-                EM_useProcPrecReweight=bool(EM_useProcPrecReweight),
-                EM_useAPN=bool(EM_useAPN),
+                EM_useProcPrecReweight=bool(useProcPrecLocal),
+                EM_useAPN=bool(useAPNLocal),
                 EM_useReplicateBias=bool(EM_useReplicateBias),
                 EM_zeroCenterReplicateBias=bool(EM_zeroCenterReplicateBias),
                 EM_repBiasShrink=float(EM_repBiasShrink),
@@ -2085,6 +2072,8 @@ def runConsenrich(
             lambdaExp=lambdaExpLocal,
             processPrecExp=processPrecExpLocal,
             replicateBias=replicateBiasLocal,
+            emUseProcPrecReweightLocal=useProcPrecLocal,
+            emUseAPNLocal=useAPNLocal,
         )
         return {
             "matrixMunc": currentMunc,
@@ -2104,12 +2093,52 @@ def runConsenrich(
             "sumNLL": float(sumNLLLocal),
         }
 
-    if inferDeltaF:
-        deltaF = _autoDeltaF(matrixData, matrixMunc)
-    deltaF_fit = float(deltaF)
+    deltaF_fit = _resolveFixedDeltaF(deltaF)
 
     matrixF = buildMatrixF(float(deltaF_fit))
     matrixQ0 = buildMatrixQ0(float(deltaF_fit))
+    processQCalibrationInfo: dict[str, float] | None = None
+
+    if processQCalibrationMode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL:
+        warmupIters = max(1, int(processQCalibIters))
+        fitProcessQWarmup = _fitOuter(
+            matrixDataLocal=matrixData,
+            matrixMuncLocal=matrixMunc,
+            matrixFLocal=matrixF,
+            matrixQ0Local=matrixQ0,
+            emMaxItersLocal=warmupIters,
+            emInnerRtolLocal=float(EM_innerRtol),
+            emUseProcPrecReweightLocal=False,
+            emUseAPNLocal=False,
+        )
+        matrixQ0, processQCalibrationInfo = _estimateRegularizedDiagonalProcessQ(
+            stateSmoothed=np.asarray(fitProcessQWarmup["stateSmoothed"]),
+            stateCovarSmoothed=np.asarray(fitProcessQWarmup["stateCovarSmoothed"]),
+            lagCovSmoothed=np.asarray(fitProcessQWarmup["lagCovSmoothed"]),
+            matrixF=matrixF,
+            minQ=float(minQ),
+            maxQ=float(maxQ),
+            processQLevelTarget=processQLevelTarget,
+            processQTrendTarget=processQTrendTarget,
+            processQLevelPriorWeight=float(processQLevelPriorWeight),
+            processQTrendPriorWeight=float(processQTrendPriorWeight),
+        )
+        logger.info(
+            "processQCalibration=%s: q_level=%.6g q_trend=%.6g "
+            "(raw_level=%.6g raw_trend=%.6g target_level=%.6g "
+            "target_trend=%.6g weight_level=%.6g weight_trend=%.6g)",
+            PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
+            processQCalibrationInfo["q_level"],
+            processQCalibrationInfo["q_trend"],
+            processQCalibrationInfo["raw_q_level"],
+            processQCalibrationInfo["raw_q_trend"],
+            processQCalibrationInfo["q_level_target"],
+            processQCalibrationInfo["q_trend_target"],
+            processQCalibrationInfo["q_level_prior_weight"],
+            processQCalibrationInfo["q_trend_prior_weight"],
+        )
+    else:
+        logger.info("processQCalibration=none: using legacy scalar process Q")
 
     fitFinal = _fitOuter(
         matrixDataLocal=matrixData,
@@ -2132,10 +2161,6 @@ def runConsenrich(
 
     outTrack4 = NIS
 
-    # Jackknife:
-    # If deltaF was inferred, each leave-one-out fit re-runs the same deltaF search
-    # on the reduced replicate set. If deltaF was provided, deltaF stays fixed.
-
     if applyJackknife:
         meanLOO_x0 = np.zeros(intervalCount, dtype=np.float64)
         M2LOO_x0 = np.zeros(intervalCount, dtype=np.float64)
@@ -2151,13 +2176,8 @@ def runConsenrich(
                 matrixMunc[keepMask, :], dtype=np.float32
             )
 
-            if inferDeltaF:
-                deltaF_LOO = _autoDeltaF(matrixData_LOO, matrixMunc_LOO)
-                matrixF_LOO = buildMatrixF(float(deltaF_LOO))
-                matrixQ0_LOO = buildMatrixQ0(float(deltaF_LOO))
-            else:
-                matrixF_LOO = matrixF
-                matrixQ0_LOO = matrixQ0
+            matrixF_LOO = matrixF
+            matrixQ0_LOO = matrixQ0
 
             fitLOO = _fitOuter(
                 matrixDataLocal=matrixData_LOO,
@@ -2191,7 +2211,7 @@ def runConsenrich(
 
     if returnScales:
         if returnReplicateOffsets:
-            return (
+            result = (
                 outStateSmoothed,
                 outStateCovarSmoothed,
                 outPostFitResiduals,
@@ -2200,7 +2220,8 @@ def runConsenrich(
                 np.asarray(replicateBias_final, dtype=np.float32),
                 intervalToBlockMap,
             )
-        return (
+            return result
+        result = (
             outStateSmoothed,
             outStateCovarSmoothed,
             outPostFitResiduals,
@@ -2208,13 +2229,15 @@ def runConsenrich(
             np.asarray(qScale, dtype=np.float32),
             intervalToBlockMap,
         )
+        return result
 
-    return (
+    result = (
         outStateSmoothed,
         outStateCovarSmoothed,
         outPostFitResiduals,
         outTrack4,
     )
+    return result
 
 
 def getPrimaryState(
@@ -2441,10 +2464,7 @@ def fitPSplineLogVarianceTrend(
     x = np.log1p(np.abs(means))
     y = np.log(np.maximum(variances, floor))
     mask = (
-        np.isfinite(x)
-        & np.isfinite(y)
-        & np.isfinite(weightsArr)
-        & (weightsArr > 0.0)
+        np.isfinite(x) & np.isfinite(y) & np.isfinite(weightsArr) & (weightsArr > 0.0)
     )
     x = x[mask]
     y = y[mask]
@@ -2624,7 +2644,11 @@ def evalPSplineLogVarianceTrend(
     maxVariance: float | None = None,
 ) -> np.ndarray:
     floor = float(max(eps, 1.0e-12))
-    if maxVariance is None or not np.isfinite(float(maxVariance)) or maxVariance <= floor:
+    if (
+        maxVariance is None
+        or not np.isfinite(float(maxVariance))
+        or maxVariance <= floor
+    ):
         cap = float(np.finfo(np.float32).max)
     else:
         cap = float(maxVariance)
@@ -2664,9 +2688,7 @@ def _formatPSplineTrendSummary(
         maxVariance=maxVariance,
     )
     predSd = np.sqrt(np.maximum(np.asarray(pred, dtype=np.float64), 0.0))
-    pairs = ", ".join(
-        f"{float(a):.4g}->{float(sd):.4g}" for a, sd in zip(amp, predSd)
-    )
+    pairs = ", ".join(f"{float(a):.4g}->{float(sd):.4g}" for a, sd in zip(amp, predSd))
     diagnostics = getattr(trend, "diagnostics", {})
     beta = getattr(trend, "beta", np.empty(0, dtype=np.float64))
     basisCount = diagnostics.get("num_basis", len(beta))
@@ -2701,8 +2723,7 @@ def _formatMuncVarianceDiagnostics(
         sd = np.sqrt(arr)
         quantiles = np.quantile(sd, probs)
         pairs = ",".join(
-            f"{label}={float(value):.4g}"
-            for label, value in zip(labels, quantiles)
+            f"{label}={float(value):.4g}" for label, value in zip(labels, quantiles)
         )
         return f"{name}[n={arr.size},{pairs}]"
 
@@ -2991,7 +3012,9 @@ def getMuncTrack(
                 dtype=np.uint8,
             )
 
-    def _estimateSparseNearestObsTracks() -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    def _estimateSparseNearestObsTracks() -> (
+        tuple[np.ndarray, np.ndarray, np.ndarray] | None
+    ):
         if sparseIntervalIndices is None or int(numNearest) <= 0:
             return None
 
@@ -3227,11 +3250,7 @@ def getMuncTrack(
     # ... NOTE: Useful heuristic for tempering spurious measurements in sparse genomic
     # ...    regions where estimated noise levels are often artificially deflated.
     if EB_localQuantile >= 0.0:
-        quantile_ = (
-            0.5
-            if EB_localQuantile == 0.0
-            else float(EB_localQuantile)
-        )
+        quantile_ = 0.5 if EB_localQuantile == 0.0 else float(EB_localQuantile)
         if quantile_ < 0.0:
             quantile_ = 0.0
         elif quantile_ > 1.0:
@@ -3748,9 +3767,7 @@ def chooseDependenceLength(
     iatSpan = int(np.ceil(0.5 + float(np.sum(positiveAcf))))
     iatSpan = int(np.clip(iatSpan, minSpan_, maxSpan_))
 
-    validInc = incrementVariance[
-        np.isfinite(incrementVariance) & (pairCounts > 0)
-    ]
+    validInc = incrementVariance[np.isfinite(incrementVariance) & (pairCounts > 0)]
     plateau = float("nan")
     incrementElbow: int | None = None
     if validInc.size > 0:
@@ -3800,9 +3817,7 @@ def chooseDependenceLength(
         "clip_hi": float(hi),
         "gamma0": float(gamma0),
         "crossing_lag": None if crossingLag is None else int(crossingLag),
-        "relaxed_crossing_lag": (
-            None if lowerCrossing is None else int(lowerCrossing)
-        ),
+        "relaxed_crossing_lag": (None if lowerCrossing is None else int(lowerCrossing)),
         "strict_crossing_lag": None if upperCrossing is None else int(upperCrossing),
         "iat_span": int(iatSpan),
         "increment_plateau": float(plateau),
@@ -3947,9 +3962,7 @@ def chooseFeatureLength(
         chosenFeatures = chosenFeatures[keepMask]
         featureScores = featureScores[keepMask]
 
-    kKeep = int(
-        min(1000, featureScores.size, max(kMinFeatures, n // max(8, maxSpan_)))
-    )
+    kKeep = int(min(1000, featureScores.size, max(kMinFeatures, n // max(8, maxSpan_))))
     if kKeep <= 0:
         return _fallbackLengthResult(
             n,

@@ -664,7 +664,6 @@ def calibrateChromosomeStateUncertainty(
     fitKwargs["returnScales"] = True
     fitKwargs["returnReplicateOffsets"] = True
     fitKwargs["applyJackknife"] = False
-    fitKwargs["autoDeltaF"] = False
 
     refitSeconds = 0.0
     extractSeconds = 0.0

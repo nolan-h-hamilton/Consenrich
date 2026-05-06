@@ -709,6 +709,69 @@ def testFitParamsDropsProcBlockScaleOptions():
 
 
 @pytest.mark.correctness
+def testExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF():
+    matrixF = core.constructMatrixF(0.5).astype(np.float64, copy=False)
+    stateSmoothed = np.asarray(
+        [
+            [0.0, 1.0],
+            [0.6, 1.2],
+            [1.25, 1.0],
+            [1.75, 1.1],
+        ],
+        dtype=np.float64,
+    )
+    stateCovarSmoothed = np.zeros((4, 2, 2), dtype=np.float64)
+    lagCovSmoothed = np.zeros((3, 2, 2), dtype=np.float64)
+
+    sumLevel, sumTrend, transitionCount = core._computeExpectedTransitionResidualSums(
+        stateSmoothed=stateSmoothed,
+        stateCovarSmoothed=stateCovarSmoothed,
+        lagCovSmoothed=lagCovSmoothed,
+        matrixF=matrixF,
+    )
+
+    assert transitionCount == 3
+    assert sumLevel == pytest.approx((0.1**2) + (0.05**2) + (0.0**2))
+    assert sumTrend == pytest.approx((0.2**2) + ((-0.2) ** 2) + (0.1**2))
+
+
+@pytest.mark.correctness
+def testRegularizedDiagonalProcessQEstimatorShrinksSmoothTrend():
+    matrixF = core.constructMatrixF(1.0).astype(np.float64, copy=False)
+    stateSmoothed = np.asarray(
+        [
+            [0.0, 1.0],
+            [1.2, 1.0],
+            [2.1, 1.0],
+            [3.05, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    stateCovarSmoothed = np.zeros((4, 2, 2), dtype=np.float64)
+    lagCovSmoothed = np.zeros((3, 2, 2), dtype=np.float64)
+
+    matrixQ, info = core._estimateRegularizedDiagonalProcessQ(
+        stateSmoothed=stateSmoothed,
+        stateCovarSmoothed=stateCovarSmoothed,
+        lagCovSmoothed=lagCovSmoothed,
+        matrixF=matrixF,
+        minQ=1.0e-3,
+        maxQ=1.0,
+        processQLevelTarget=None,
+        processQTrendTarget=None,
+        processQLevelPriorWeight=0.05,
+        processQTrendPriorWeight=1.0,
+    )
+
+    assert matrixQ.shape == (2, 2)
+    assert matrixQ[0, 1] == pytest.approx(0.0)
+    assert matrixQ[1, 0] == pytest.approx(0.0)
+    assert info["q_level"] > info["q_trend"]
+    assert info["q_trend_target"] == pytest.approx(1.0e-5)
+    assert np.all(np.isfinite(matrixQ))
+
+
+@pytest.mark.correctness
 def testRunConsenrichOuterEMSmoke():
     rng = np.random.default_rng(0)
     n = 64
@@ -738,9 +801,9 @@ def testRunConsenrichOuterEMSmoke():
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
-        autoDeltaF=False,
         EM_maxIters=3,
         EM_outerIters=2,
+        processQCalibration="none",
         applyJackknife=False,
     )
 
@@ -750,6 +813,67 @@ def testRunConsenrichOuterEMSmoke():
     assert postFitResiduals.shape == (n, m)
     assert NIS.shape == (n,)
     assert np.allclose(qScale, 1.0)
+
+
+@pytest.mark.correctness
+def testRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypatch):
+    rng = np.random.default_rng(7)
+    n = 36
+    m = 3
+    grid = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    signalTrack = (2.0 * grid + 0.2 * np.sin(2.0 * np.pi * grid)).astype(np.float32)
+    matrixData = np.vstack(
+        [
+            signalTrack + 0.03 * rng.normal(size=n) - 0.02,
+            signalTrack + 0.03 * rng.normal(size=n),
+            signalTrack + 0.03 * rng.normal(size=n) + 0.01,
+        ]
+    ).astype(np.float32)
+    matrixMunc = np.full((m, n), 0.12, dtype=np.float32)
+
+    originalInnerEM = cconsenrich.cinnerEM
+    innerEMModes = []
+
+    def _spyInnerEM(*args, **kwargs):
+        innerEMModes.append(
+            (
+                bool(kwargs.get("EM_useProcPrecReweight")),
+                bool(kwargs.get("EM_useAPN")),
+            )
+        )
+        return originalInnerEM(*args, **kwargs)
+
+    monkeypatch.setattr(cconsenrich, "cinnerEM", _spyInnerEM)
+
+    out = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=1.0,
+        minQ=1.0e-3,
+        maxQ=0.5,
+        offDiagQ=0.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=8,
+        EM_maxIters=1,
+        EM_outerIters=1,
+        EM_useProcPrecReweight=True,
+        EM_useAPN=False,
+        processQCalibration="regularizedDiagonal",
+        processQCalibIters=1,
+        applyJackknife=False,
+    )
+
+    assert innerEMModes[0] == (False, False)
+    assert innerEMModes[-1] == (True, False)
+    stateSmoothed, stateCovarSmoothed, *_ = out
+    assert stateSmoothed.shape == (n, 2)
+    assert stateCovarSmoothed.shape == (n, 2, 2)
+    assert np.all(np.isfinite(stateSmoothed))
+    assert np.all(np.isfinite(stateCovarSmoothed))
 
 
 @pytest.mark.correctness
@@ -1565,7 +1689,6 @@ def testRunConsenrichAPNSmoke():
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
-        autoDeltaF=False,
         EM_maxIters=2,
         EM_outerIters=1,
         EM_useProcPrecReweight=True,
@@ -1617,7 +1740,6 @@ def testRunConsenrichDisableCalibrationUsesPluginAndAPN(
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
-        autoDeltaF=False,
         disableCalibration=True,
         EM_useAPN=True,
         EM_useProcPrecReweight=True,

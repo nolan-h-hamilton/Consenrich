@@ -177,6 +177,12 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
     assert type(observationDotted) is type(observationNested)
     assert type(processDotted) is type(processNested)
     assert observationDotted.minR == observationNested.minR
+    assert processDotted.deltaF == pytest.approx(1.0)
+    assert processNested.deltaF == pytest.approx(1.0)
+    assert processDotted.processQCalibration == "regularizedDiagonal"
+    assert processNested.processQCalibration == "regularizedDiagonal"
+    assert processDotted.processQCalibIters == 5
+    assert processNested.processQTrendTarget is None
 
     samDotted = configDotted["samArgs"]
     samNested = configNested["samArgs"]
@@ -191,6 +197,35 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
     assert matchingDotted.thresholdZ == matchingNested.thresholdZ
     assert matchingDotted.nestedRoccoIters == matchingNested.nestedRoccoIters
     assert matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
+
+
+def test_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    processParams:
+      processQCalibration: none
+      processQCalibIters: 3
+      processQLevelTarget: 0.002
+      processQTrendTarget: 0.00002
+      processQLevelPriorWeight: 0.25
+      processQTrendPriorWeight: 2.5
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_process_q.yaml", configYaml)
+    configParsed = readConfig(str(configPath))
+    processArgs = configParsed["processArgs"]
+
+    assert processArgs.processQCalibration == "none"
+    assert processArgs.processQCalibIters == 3
+    assert processArgs.processQLevelTarget == pytest.approx(0.002)
+    assert processArgs.processQTrendTarget == pytest.approx(0.00002)
+    assert processArgs.processQLevelPriorWeight == pytest.approx(0.25)
+    assert processArgs.processQTrendPriorWeight == pytest.approx(2.5)
 
 
 def test_readConfigObservationTrendDefaultsRemoveLinearEnvelope(
@@ -943,55 +978,9 @@ def test_sortBedGraphInPlace(tmp_path):
     ]
 
 
-def test_resolveDeltaFAutoParams():
-    sources = [
-        consenrich.core.inputSource(
-            path="a.bam",
-            sourceKind="BAM",
-            role="treatment",
-        ),
-        consenrich.core.inputSource(
-            path="b.fragments.tsv.gz",
-            sourceKind="FRAGMENTS",
-            role="treatment",
-        ),
-    ]
+def test_resolveFixedDeltaFRequiresPositiveFinite():
+    assert consenrich.core._resolveFixedDeltaF(0.25) == pytest.approx(0.25)
 
-    deltaFCenter, autoDeltaF, deltaFLow, deltaFHigh = consenrich._resolveDeltaFAutoParams(
-        deltaF=-1.0,
-        intervalSizeBP=50,
-        sources=sources,
-        readLengths=[75, 120],
-        characteristicLengths=[150, 0],
-    )
-
-    assert autoDeltaF is True
-    assert deltaFCenter == pytest.approx(0.5 * 50.0 / 135.0)
-    assert deltaFLow < deltaFCenter
-    assert deltaFHigh > deltaFCenter
-
-    deltaFFixed, autoDeltaFFixed, deltaFLowFixed, deltaFHighFixed = consenrich._resolveDeltaFAutoParams(
-        deltaF=0.25,
-        intervalSizeBP=50,
-        sources=sources,
-        readLengths=[75, 120],
-        characteristicLengths=[150, 0],
-    )
-
-    assert autoDeltaFFixed is False
-    assert deltaFFixed == pytest.approx(0.25)
-    assert deltaFLowFixed == pytest.approx(0.25)
-    assert deltaFHighFixed == pytest.approx(0.25)
-
-
-def test_prioritizeLargestChromosomePlanMovesLargestFirst():
-    chromosomePlans = [
-        {"chromosome": "chr2", "numIntervals": 120},
-        {"chromosome": "chr1", "numIntervals": 400},
-        {"chromosome": "chr3", "numIntervals": 85},
-    ]
-
-    prioritized = consenrich._prioritizeLargestChromosomePlan(chromosomePlans)
-
-    assert [plan["chromosome"] for plan in prioritized] == ["chr1", "chr2", "chr3"]
-    assert [plan["numIntervals"] for plan in prioritized] == [400, 120, 85]
+    for badDeltaF in [0.0, -1.0, np.nan, np.inf]:
+        with pytest.raises(ValueError, match="deltaF"):
+            consenrich.core._resolveFixedDeltaF(badDeltaF)
