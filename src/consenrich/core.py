@@ -116,7 +116,7 @@ class processParams(NamedTuple):
         If unset, the resolved ``minQ`` value is used.
     :type processQLevelTarget: float | None
     :param processQTrendTarget: Optional shrinkage target for trend innovation variance.
-        If unset, ``0.01 * processQLevelTarget`` is used.
+        If unset, ``0.001 * processQLevelTarget`` is used.
     :type processQTrendTarget: float | None
     :param processQLevelPriorWeight: Shrinkage weight toward ``processQLevelTarget``.
     :type processQLevelPriorWeight: float
