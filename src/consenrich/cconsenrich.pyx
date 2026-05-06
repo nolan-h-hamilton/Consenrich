@@ -87,6 +87,113 @@ ctypedef fused real_t:
 # inline/helpers
 # ===============
 
+cpdef tuple cExpectedTransitionResidualSums(
+    cnp.ndarray[cnp.float64_t, ndim=2] stateSmoothed,
+    cnp.ndarray[cnp.float64_t, ndim=3] stateCovarSmoothed,
+    cnp.ndarray[cnp.float64_t, ndim=3] lagCovSmoothed,
+    cnp.ndarray[cnp.float64_t, ndim=2] matrixF,
+):
+    cdef Py_ssize_t n = stateSmoothed.shape[0]
+    cdef Py_ssize_t transitionCount = n - 1
+    cdef Py_ssize_t k
+    cdef double f00
+    cdef double f01
+    cdef double f10
+    cdef double f11
+    cdef double x00
+    cdef double x01
+    cdef double x10
+    cdef double x11
+    cdef double y0
+    cdef double y1
+    cdef double exx0_00
+    cdef double exx0_01
+    cdef double exx0_10
+    cdef double exx0_11
+    cdef double exx1_00
+    cdef double exx1_11
+    cdef double ex0x1_00
+    cdef double ex0x1_01
+    cdef double ex0x1_10
+    cdef double ex0x1_11
+    cdef double levelMoment
+    cdef double trendMoment
+    cdef double sumLevel = 0.0
+    cdef double sumTrend = 0.0
+    cdef Py_ssize_t requiredLagCount
+
+    requiredLagCount = transitionCount if transitionCount > 0 else 0
+    if stateSmoothed.shape[1] != 2:
+        raise ValueError("stateSmoothed must have shape (n, 2)")
+    if (
+        stateCovarSmoothed.shape[0] != n
+        or stateCovarSmoothed.shape[1] != 2
+        or stateCovarSmoothed.shape[2] != 2
+    ):
+        raise ValueError("stateCovarSmoothed must have shape (n, 2, 2)")
+    if (
+        lagCovSmoothed.shape[0] < requiredLagCount
+        or lagCovSmoothed.shape[1] != 2
+        or lagCovSmoothed.shape[2] != 2
+    ):
+        raise ValueError("lagCovSmoothed must have shape (n - 1, 2, 2)")
+    if matrixF.shape[0] != 2 or matrixF.shape[1] != 2:
+        raise ValueError("matrixF must have shape (2, 2)")
+    if transitionCount <= 0:
+        return 0.0, 0.0, 0
+
+    f00 = matrixF[0, 0]
+    f01 = matrixF[0, 1]
+    f10 = matrixF[1, 0]
+    f11 = matrixF[1, 1]
+
+    for k in range(transitionCount):
+        x00 = stateSmoothed[k, 0]
+        x01 = stateSmoothed[k, 1]
+        x10 = stateSmoothed[k + 1, 0]
+        x11 = stateSmoothed[k + 1, 1]
+
+        exx0_00 = stateCovarSmoothed[k, 0, 0] + (x00 * x00)
+        exx0_01 = stateCovarSmoothed[k, 0, 1] + (x00 * x01)
+        exx0_10 = stateCovarSmoothed[k, 1, 0] + (x01 * x00)
+        exx0_11 = stateCovarSmoothed[k, 1, 1] + (x01 * x01)
+
+        y0 = x10
+        y1 = x11
+        exx1_00 = stateCovarSmoothed[k + 1, 0, 0] + (y0 * y0)
+        exx1_11 = stateCovarSmoothed[k + 1, 1, 1] + (y1 * y1)
+
+        ex0x1_00 = lagCovSmoothed[k, 0, 0] + (x00 * y0)
+        ex0x1_01 = lagCovSmoothed[k, 0, 1] + (x00 * y1)
+        ex0x1_10 = lagCovSmoothed[k, 1, 0] + (x01 * y0)
+        ex0x1_11 = lagCovSmoothed[k, 1, 1] + (x01 * y1)
+
+        levelMoment = (
+            exx1_00
+            - (2.0 * ((f00 * ex0x1_00) + (f01 * ex0x1_10)))
+            + (f00 * f00 * exx0_00)
+            + (f00 * f01 * exx0_01)
+            + (f01 * f00 * exx0_10)
+            + (f01 * f01 * exx0_11)
+        )
+        trendMoment = (
+            exx1_11
+            - (2.0 * ((f10 * ex0x1_01) + (f11 * ex0x1_11)))
+            + (f10 * f10 * exx0_00)
+            + (f10 * f11 * exx0_01)
+            + (f11 * f10 * exx0_10)
+            + (f11 * f11 * exx0_11)
+        )
+
+        if levelMoment < 0.0:
+            levelMoment = 0.0
+        if trendMoment < 0.0:
+            trendMoment = 0.0
+        sumLevel += levelMoment
+        sumTrend += trendMoment
+
+    return sumLevel, sumTrend, transitionCount
+
 cdef inline Py_ssize_t _getInsertion(const uint32_t* array_, Py_ssize_t n, uint32_t x) nogil:
     # CALLERS: `_maskMembership`, `cbedMask`
 

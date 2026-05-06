@@ -6,6 +6,7 @@ Consenrich core functions and classes.
 
 import logging
 import os
+import time
 import warnings
 from functools import lru_cache
 from tempfile import NamedTemporaryFile
@@ -25,29 +26,68 @@ from tqdm import tqdm
 from itrigamma import itrigamma
 from . import cconsenrich
 from . import ccounts
+from .constants import (
+    ALIGNMENT_SOURCE_KINDS,
+    BEDGRAPH_SOURCE_KIND,
+    FRAGMENTS_SOURCE_KIND,
+    PROCESS_Q_CALIBRATION_MODES,
+    PROCESS_Q_CALIBRATION_NONE,
+    PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
+    PROCESS_Q_DEFAULT_TREND_TARGET_RATIO,
+    PROCESS_Q_NUMERICAL_FLOOR,
+    PROCESS_Q_TREND_FLOOR_RATIO,
+    SUPPORTED_BAM_INPUT_MODES,
+    SUPPORTED_COUNT_MODES,
+    SUPPORTED_FRAGMENT_POSITION_MODES,
+    SUPPORTED_SOURCE_KINDS,
+    UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX,
+    UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN,
+    UNCERTAINTY_CALIBRATION_AUTO_BLOCK_INTERVAL_MULTIPLIER,
+    UNCERTAINTY_CALIBRATION_AUTO_BLOCK_MIN_BP,
+    UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
+    UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH,
+    UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
+    UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
+    UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MAX,
+    UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MIN,
+    UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS,
+    UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES,
+    UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS,
+    UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE,
+    UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
+    UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
+    UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT,
+    UNCERTAINTY_CALIBRATION_DIAGNOSTIC_SEED_OFFSET,
+    UNCERTAINTY_CALIBRATION_FACTOR_MAX_MIN_RATIO,
+    UNCERTAINTY_CALIBRATION_FACTOR_MIN_FLOOR,
+    UNCERTAINTY_CALIBRATION_FEATURE_HIGH_SIGNAL_QUANTILE,
+    UNCERTAINTY_CALIBRATION_FEATURE_MAD_NORMAL_SCALE,
+    UNCERTAINTY_CALIBRATION_FEATURE_NAMES,
+    UNCERTAINTY_CALIBRATION_FEATURE_POSITIVE_FLOOR,
+    UNCERTAINTY_CALIBRATION_FEATURE_SCALE_FLOOR,
+    UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE,
+    UNCERTAINTY_CALIBRATION_MIN_BLOCK_INTERVALS,
+    UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_EM_ITERS,
+    UNCERTAINTY_CALIBRATION_MIN_FOLDS,
+    UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES,
+    UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+    UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE,
+    UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES,
+    UNCERTAINTY_CALIBRATION_SCORE_REPLICATE_CODE_STRIDE,
+    UNCERTAINTY_CALIBRATION_SCORE_SD_DECILES,
+    UNCERTAINTY_CALIBRATION_SCORE_STATE_ABS_QUANTILE,
+    UNCERTAINTY_CALIBRATION_SUMMARY_MEDIAN_QUANTILE,
+    UNCERTAINTY_CALIBRATION_SUMMARY_Q90_QUANTILE,
+    UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
+    UNCERTAINTY_CALIBRATION_WIS_SCALE_MULTIPLIER,
+    UNCERTAINTY_CALIBRATION_WIS_WEIGHT,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-ALIGNMENT_SOURCE_KINDS = ("BAM",)
-FRAGMENTS_SOURCE_KIND = "FRAGMENTS"  # 10x
-BEDGRAPH_SOURCE_KIND = "BEDGRAPH"
-SUPPORTED_SOURCE_KINDS = ALIGNMENT_SOURCE_KINDS + (
-    FRAGMENTS_SOURCE_KIND,
-    BEDGRAPH_SOURCE_KIND,
-)
-SUPPORTED_BAM_INPUT_MODES = ("auto", "fragments", "reads", "read1")
-SUPPORTED_FRAGMENT_POSITION_MODES = ("insertionendpoints", "fragmentendpoints")
-SUPPORTED_COUNT_MODES = (
-    "coverage",
-    "cutsite",
-    "fiveprime",
-    "center",
-)
-
 
 class processParams(NamedTuple):
     r"""Parameters related to the process model of Consenrich.
@@ -194,58 +234,6 @@ class stateParams(NamedTuple):
     boundState: bool
     stateLowerBound: float
     stateUpperBound: float
-
-
-UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR = 1.0e-12
-UNCERTAINTY_CALIBRATION_FEATURE_POSITIVE_FLOOR = 1.0e-12
-UNCERTAINTY_CALIBRATION_FEATURE_SCALE_FLOOR = 1.0e-8
-UNCERTAINTY_CALIBRATION_FEATURE_MAD_NORMAL_SCALE = 1.4826
-UNCERTAINTY_CALIBRATION_FEATURE_HIGH_SIGNAL_QUANTILE = 0.90
-UNCERTAINTY_CALIBRATION_FEATURE_NAMES = (
-    "intercept",
-    "log_state_variance",
-    "log_mean_observation_variance",
-    "abs_state",
-    "abs_state_delta",
-    "high_signal",
-)
-UNCERTAINTY_CALIBRATION_AUTO_BLOCK_MIN_BP = 50_000
-UNCERTAINTY_CALIBRATION_AUTO_BLOCK_INTERVAL_MULTIPLIER = 100
-UNCERTAINTY_CALIBRATION_MIN_BLOCK_INTERVALS = 8
-UNCERTAINTY_CALIBRATION_MIN_FOLDS = 2
-UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES = 1
-UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MIN = 0.10
-UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MAX = 0.30
-UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_EM_ITERS = 1
-UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS = (0.50, 0.80, 0.90, 0.95)
-UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR = 1.0e-6
-UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN = 0.05
-UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX = 25.0
-UNCERTAINTY_CALIBRATION_FACTOR_MIN_FLOOR = 1.0e-6
-UNCERTAINTY_CALIBRATION_FACTOR_MAX_MIN_RATIO = 1.01
-UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN = 0.25
-UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX = 4.0
-UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE = 1.0e-2
-UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT = 0.05
-UNCERTAINTY_CALIBRATION_WIS_WEIGHT = UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT
-UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY = 1.0e-2
-UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH = (
-    UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY
-)
-UNCERTAINTY_CALIBRATION_WIS_SCALE_MULTIPLIER = 2.0
-UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES = 10
-UNCERTAINTY_CALIBRATION_SCORE_SD_DECILES = UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES
-UNCERTAINTY_CALIBRATION_SCORE_STATE_ABS_QUANTILE = 0.90
-UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE = 4096
-UNCERTAINTY_CALIBRATION_SCORE_REPLICATE_CODE_STRIDE = 32
-UNCERTAINTY_CALIBRATION_SUMMARY_MEDIAN_QUANTILE = 0.50
-UNCERTAINTY_CALIBRATION_SUMMARY_Q90_QUANTILE = 0.90
-UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES = 200_000
-UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS = 50_000
-UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS = 1_000
-UNCERTAINTY_CALIBRATION_DEFAULT_SEED = 1729
-UNCERTAINTY_CALIBRATION_DIAGNOSTIC_SEED_OFFSET = 10_000
-UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE = np.float32(1.0e30)
 
 
 class uncertaintyCalibrationParams(NamedTuple):
@@ -1074,11 +1062,28 @@ def readSegments(
     defaultBamInputMode = _normalizeBamInputMode(bamInputMode)
     defaultBamCountMode = _normalizeCountMode(defaultCountMode, "coverage")
     resolvedExtendValues = _resolveExtendFrom5pBP(extendFrom5pBP, sources)
+    totalStart = time.perf_counter()
+    logger.info(
+        "readSegments.start chromosome=%s sources=%d intervals=%d samThreads=%d",
+        chromosome,
+        int(len(sources)),
+        int(numIntervals),
+        int(samThreads),
+    )
 
     try:
         for sourceIndex, sourcePath in enumerate(sourcePaths):
+            sourceStart = time.perf_counter()
             sourceKind = sourceKinds[sourceIndex]
             source = sources[sourceIndex]
+            logger.info(
+                "readSegments.source.start chromosome=%s source=%d/%d kind=%s path=%s",
+                chromosome,
+                int(sourceIndex + 1),
+                int(len(sources)),
+                sourceKind,
+                sourcePath,
+            )
             barcodeAllowListFile, tempPath = _writeFragmentsAllowList(source)
             if tempPath is not None:
                 tempPaths.append(tempPath)
@@ -1195,6 +1200,13 @@ def readSegments(
                 np.float32(scaleFactors[sourceIndex]),
                 out=counts[sourceIndex, :],
             )
+            logger.info(
+                "readSegments.source.done chromosome=%s source=%d/%d elapsed=%.3fs",
+                chromosome,
+                int(sourceIndex + 1),
+                int(len(sources)),
+                time.perf_counter() - sourceStart,
+            )
     finally:
         for tempPath in tempPaths:
             try:
@@ -1202,6 +1214,12 @@ def readSegments(
             except Exception:
                 pass
 
+    logger.info(
+        "readSegments.done chromosome=%s sources=%d elapsed=%.3fs",
+        chromosome,
+        int(len(sources)),
+        time.perf_counter() - totalStart,
+    )
     return counts
 
 
@@ -1326,17 +1344,6 @@ def constructMatrixF(deltaF: float) -> npt.NDArray[np.float32]:
     return initMatrixF
 
 
-PROCESS_Q_CALIBRATION_NONE = "none"
-PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL = "regularizedDiagonal"
-PROCESS_Q_CALIBRATION_MODES = (
-    PROCESS_Q_CALIBRATION_NONE,
-    PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
-)
-PROCESS_Q_DEFAULT_TREND_TARGET_RATIO = 0.001
-PROCESS_Q_TREND_FLOOR_RATIO = 1.0e-6
-PROCESS_Q_NUMERICAL_FLOOR = 1.0e-8
-
-
 def _resolveFixedDeltaF(deltaF: float) -> float:
     deltaF_ = float(deltaF)
     if (not np.isfinite(deltaF_)) or deltaF_ <= 0.0:
@@ -1412,21 +1419,13 @@ def _computeExpectedTransitionResidualSums(
     if transitionCount <= 0:
         return 0.0, 0.0, 0
 
-    sumLevel = 0.0
-    sumTrend = 0.0
-    Ft = F.T
-    for k in range(transitionCount):
-        x0 = m[k]
-        x1 = m[k + 1]
-        Exx0 = P[k] + np.outer(x0, x0)
-        Exx1 = P[k + 1] + np.outer(x1, x1)
-        Ex0x1 = C[k] + np.outer(x0, x1)
-        Ex1x0 = Ex0x1.T
-        residualSecondMoment = Exx1 - (Ex1x0 @ Ft) - (F @ Ex0x1) + (F @ Exx0 @ Ft)
-        sumLevel += max(float(residualSecondMoment[0, 0]), 0.0)
-        sumTrend += max(float(residualSecondMoment[1, 1]), 0.0)
-
-    return sumLevel, sumTrend, transitionCount
+    sumLevel, sumTrend, cTransitionCount = cconsenrich.cExpectedTransitionResidualSums(
+        np.ascontiguousarray(m, dtype=np.float64),
+        np.ascontiguousarray(P, dtype=np.float64),
+        np.ascontiguousarray(C, dtype=np.float64),
+        np.ascontiguousarray(F, dtype=np.float64),
+    )
+    return float(sumLevel), float(sumTrend), int(cTransitionCount)
 
 
 def _estimateRegularizedDiagonalProcessQ(
@@ -1515,9 +1514,6 @@ def constructMatrixQ(
     Q11: Optional[float] = None,
     useIdentity: float = -1.0,
     tol: float = 1.0e-8,  # conservative
-    useWhiteAccel: bool = False,
-    useDiscreteConstAccel: bool = False,
-    deltaF: Optional[float] = None,
 ) -> npt.NDArray[np.float32]:
     r"""Build the (base) process noise covariance matrix :math:`\mathbf{Q}`.
 
@@ -1547,44 +1543,7 @@ def constructMatrixQ(
     if useIdentity > 0.0:
         return np.eye(2, dtype=np.float32) * np.float32(useIdentity)
 
-    if useWhiteAccel and useDiscreteConstAccel:
-        raise ValueError(
-            "Only one of `useWhiteAccel` or `useDiscreteConstAccel` can be True."
-        )
-
     Q = np.empty((2, 2), dtype=np.float32)
-
-    if useWhiteAccel or useDiscreteConstAccel:
-        d = float(offDiagQ) if deltaF is None else float(deltaF)
-        if not np.isfinite(d) or d <= 0.0:
-            raise ValueError(
-                "`deltaF` (or fallback `offDiagQ`) must be a positive finite step size."
-            )
-
-        qa = float(minDiagQ)
-        if not np.isfinite(qa) or qa <= 0.0:
-            raise ValueError(
-                "`minDiagQ` must be positive and finite in accel-based Q overrides."
-            )
-
-        if useWhiteAccel:
-            Q[0, 0] = np.float32(qa * (d**3) / 3.0)
-            Q[0, 1] = np.float32(qa * (d**2) / 2.0)
-            Q[1, 0] = Q[0, 1]
-            Q[1, 1] = np.float32(qa * d)
-        else:
-            Q[0, 0] = np.float32(qa * (d**4) / 4.0)
-            Q[0, 1] = np.float32(qa * (d**3) / 2.0)
-            Q[1, 0] = Q[0, 1]
-            Q[1, 1] = np.float32(qa * (d**2))
-
-        try:
-            np.linalg.cholesky(Q.astype(np.float64, copy=False) + tol * np.eye(2))
-        except Exception as ex:
-            raise ValueError(
-                f"Process noise covariance Q is not positive definite:\n{Q}"
-            ) from ex
-        return Q
 
     Q[0, 0] = np.float32(minDiagQ if Q00 is None else Q00)
     Q[1, 1] = np.float32(minDiagQ if Q11 is None else Q11)
@@ -1651,8 +1610,6 @@ def runConsenrich(
     applyJackknife: bool = False,
     jackknifeEM_maxIters: int = 5,
     jackknifeEM_innerRtol: float = 1.0e-2,
-    useWhiteAccel: bool = False,
-    useDiscreteConstAccel: bool = False,
     processQCalibration: str | None = PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
     processQCalibIters: int = 5,
     processQLevelTarget: float | None = None,
@@ -1756,20 +1713,25 @@ def runConsenrich(
         np.arange(intervalCount, dtype=np.int32) // blockLenIntervals
     ).astype(np.int32)
     intervalToBlockMap[intervalToBlockMap >= blockCount] = blockCount - 1
+    totalStart = time.perf_counter()
+    logger.info(
+        "runConsenrich.core.start tracks=%d intervals=%d blocks=%d EM_maxIters=%d outerIters=%d processQCalibration=%s",
+        int(trackCount),
+        int(intervalCount),
+        int(blockCount),
+        int(EM_maxIters),
+        int(EM_outerIters),
+        processQCalibrationMode,
+    )
 
-    # some pnoise/Q templates can depend on deltaF, hence the wrappers
+    # keep the transition matrix step-dependent while using an explicit base Q
     def buildMatrixF(deltaFLocal: float) -> np.ndarray:
         return constructMatrixF(float(deltaFLocal)).astype(np.float32, copy=False)
 
-    def buildMatrixQ0(deltaFLocal: float) -> np.ndarray:
-        # when deltaF determines Q, pnoise covariance can become ill-conditioned
-        # for extreme step sizes. constructMatrixQ handles validity checks.
+    def buildMatrixQ0(_deltaFLocal: float) -> np.ndarray:
         return constructMatrixQ(
             minDiagQ=float(minQ),
             offDiagQ=float(offDiagQ),
-            useWhiteAccel=bool(useWhiteAccel),
-            useDiscreteConstAccel=bool(useDiscreteConstAccel),
-            deltaF=float(deltaFLocal),
         ).astype(np.float32, copy=False)
 
     def _runForwardBackward(
@@ -2039,7 +2001,7 @@ def runConsenrich(
             bgTol = float(outerTol * bgScale)
             currentBackground = np.asarray(nextBackground, dtype=np.float32)
             logger.info(
-                "outerEM[%d/%d]: backgroundShift=%.6g\tthreshold=%.6g",
+                "outerEM[%d/%d]:\n\tbackgroundShift=%.6g\n\tthreshold=%.6g",
                 int(outerIter + 1),
                 int(outerIters),
                 float(bgChange),
@@ -2101,6 +2063,13 @@ def runConsenrich(
 
     if processQCalibrationMode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL:
         warmupIters = max(1, int(processQCalibIters))
+        stageStart = time.perf_counter()
+        logger.info(
+            "runConsenrich.processQWarmup.start tracks=%d intervals=%d EM_maxIters=%d",
+            int(trackCount),
+            int(intervalCount),
+            int(warmupIters),
+        )
         fitProcessQWarmup = _fitOuter(
             matrixDataLocal=matrixData,
             matrixMuncLocal=matrixMunc,
@@ -2110,6 +2079,10 @@ def runConsenrich(
             emInnerRtolLocal=float(EM_innerRtol),
             emUseProcPrecReweightLocal=False,
             emUseAPNLocal=False,
+        )
+        logger.info(
+            "runConsenrich.processQWarmup.done elapsed=%.3fs",
+            time.perf_counter() - stageStart,
         )
         matrixQ0, processQCalibrationInfo = _estimateRegularizedDiagonalProcessQ(
             stateSmoothed=np.asarray(fitProcessQWarmup["stateSmoothed"]),
@@ -2124,9 +2097,11 @@ def runConsenrich(
             processQTrendPriorWeight=float(processQTrendPriorWeight),
         )
         logger.info(
-            "processQCalibration=%s: q_level=%.6g q_trend=%.6g "
-            "(raw_level=%.6g raw_trend=%.6g target_level=%.6g "
-            "target_trend=%.6g weight_level=%.6g weight_trend=%.6g)",
+            "processQCalibration=%s:\n"
+            "\tq_level=%.6g\tq_trend=%.6g\n"
+            "\traw_level=%.6g\traw_trend=%.6g\n"
+            "\ttarget_level=%.6g\ttarget_trend=%.6g\n"
+            "\tweight_level=%.6g\tweight_trend=%.6g",
             PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
             processQCalibrationInfo["q_level"],
             processQCalibrationInfo["q_trend"],
@@ -2140,6 +2115,14 @@ def runConsenrich(
     else:
         logger.info("processQCalibration=none: using legacy scalar process Q")
 
+    stageStart = time.perf_counter()
+    logger.info(
+        "runConsenrich.finalFit.start tracks=%d intervals=%d EM_maxIters=%d outerIters=%d",
+        int(trackCount),
+        int(intervalCount),
+        int(EM_maxIters),
+        int(EM_outerIters),
+    )
     fitFinal = _fitOuter(
         matrixDataLocal=matrixData,
         matrixMuncLocal=matrixMunc,
@@ -2147,6 +2130,10 @@ def runConsenrich(
         matrixQ0Local=matrixQ0,
         emMaxItersLocal=int(EM_maxIters),
         emInnerRtolLocal=float(EM_innerRtol),
+    )
+    logger.info(
+        "runConsenrich.finalFit.done elapsed=%.3fs",
+        time.perf_counter() - stageStart,
     )
     replicateBias_final = np.asarray(fitFinal["replicateBias"], dtype=np.float32)
     qScale = np.asarray(fitFinal["qScale"], dtype=np.float32)
@@ -2162,6 +2149,12 @@ def runConsenrich(
     outTrack4 = NIS
 
     if applyJackknife:
+        stageStart = time.perf_counter()
+        logger.info(
+            "runConsenrich.jackknife.start replicates=%d EM_maxIters=%d",
+            int(trackCount),
+            int(jackknifeEM_maxIters),
+        )
         meanLOO_x0 = np.zeros(intervalCount, dtype=np.float64)
         M2LOO_x0 = np.zeros(intervalCount, dtype=np.float64)
 
@@ -2200,6 +2193,10 @@ def runConsenrich(
         jackknifeVar0 = ((trackCount - 1.0) / float(trackCount)) * M2LOO_x0
         jackknifeVar0 = jackknifeVar0.astype(np.float32, copy=False)
         outTrack4 = np.sqrt(jackknifeVar0, dtype=np.float32)
+        logger.info(
+            "runConsenrich.jackknife.done elapsed=%.3fs",
+            time.perf_counter() - stageStart,
+        )
 
     if boundState:
         np.clip(
@@ -2208,6 +2205,13 @@ def runConsenrich(
             np.float32(stateUpperBound),
             out=outStateSmoothed[:, 0],
         )
+
+    logger.info(
+        "runConsenrich.core.done tracks=%d intervals=%d elapsed=%.3fs",
+        int(trackCount),
+        int(intervalCount),
+        time.perf_counter() - totalStart,
+    )
 
     if returnScales:
         if returnReplicateOffsets:
@@ -2694,15 +2698,15 @@ def _formatPSplineTrendSummary(
     basisCount = diagnostics.get("num_basis", len(beta))
     requestedBasis = diagnostics.get("requested_num_basis", len(beta))
     return (
-        "MUNC P-spline |mean|-SD trend: "
-        f"lambda={getattr(trend, 'lambdaHat', float('nan')):.4g} "
-        f"edf={getattr(trend, 'edf', float('nan')):.3g} "
-        f"basis={basisCount}/{requestedBasis} "
-        f"n_eff={diagnostics.get('trend_n_eff', float('nan')):.1f} "
-        f"unique_x={diagnostics.get('trend_unique_x', 0)} "
-        f"edf_cap={diagnostics.get('trend_max_edf', float('nan')):.3g} "
-        f"lambda_at_boundary={getattr(trend, 'lambdaAtBoundary', False)} "
-        f"|mean|->sd[{pairs}]"
+        "MUNC P-spline |mean|-SD trend:\n"
+        f"\tlambda={getattr(trend, 'lambdaHat', float('nan')):.4g}\t"
+        f"edf={getattr(trend, 'edf', float('nan')):.3g}\t"
+        f"basis={basisCount}/{requestedBasis}\n"
+        f"\tn_eff={diagnostics.get('trend_n_eff', float('nan')):.1f}\t"
+        f"unique_x={diagnostics.get('trend_unique_x', 0)}\t"
+        f"edf_cap={diagnostics.get('trend_max_edf', float('nan')):.3g}\t"
+        f"lambda_at_boundary={getattr(trend, 'lambdaAtBoundary', False)}\n"
+        f"\t|mean|->sd[{pairs}]"
     )
 
 
@@ -2742,11 +2746,11 @@ def _formatMuncVarianceDiagnostics(
         tailSummary = f"tail_support(|mean|)[n={support.size},{','.join(tailParts)}]"
 
     return (
-        "MUNC variance SD diagnostics: "
-        f"{_sdQuantiles('L', localVarianceTrack)} "
-        f"{_sdQuantiles('G', globalVarianceTrack)} "
-        f"{_sdQuantiles('V0', finalVarianceTrack)} "
-        f"{tailSummary}"
+        "MUNC variance SD diagnostics:\n"
+        f"\t{_sdQuantiles('L', localVarianceTrack)}\n"
+        f"\t{_sdQuantiles('G', globalVarianceTrack)}\n"
+        f"\t{_sdQuantiles('V0', finalVarianceTrack)}\n"
+        f"\t{tailSummary}"
     )
 
 
@@ -3359,7 +3363,7 @@ def getMuncTrack(
         )
         Nu_0 = float(Nu_0_cap)
 
-    logger.info(f"Nu_0={Nu_0:.2f}, Nu_L={Nu_L:.2f}")
+    logger.info("MUNC EB shrinkage:\n\tNu_0=%.2f\n\tNu_L=%.2f", Nu_0, Nu_L)
     posteriorSampleSize: float = Nu_L + Nu_0
 
     # --- Shrinkage ---

@@ -370,9 +370,14 @@ def testCalibrateChromosomeStateUncertaintySmoke(tmp_path):
     with open(modelPath, "r", encoding="utf-8") as handle:
         model = json.load(handle)
     assert "objective" in model
+    assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(model)
     assert model["heldout_cells"] >= model["fit_heldout_cells"]
     assert model["fit_heldout_cells"] <= 12
     assert model["diagnostic_score_rows"] <= 5
+    modelKeys = np.atleast_1d(diagnostics["key"])[
+        np.atleast_1d(diagnostics["record_type"]) == "model"
+    ]
+    assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(modelKeys)
     assert not (tmp_path / "cal.summary.tsv").exists()
     assert not (tmp_path / "cal.scores.tsv.gz").exists()
 

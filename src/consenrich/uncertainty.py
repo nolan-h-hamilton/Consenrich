@@ -34,7 +34,12 @@ def _progressEnabled(params: core.uncertaintyCalibrationParams) -> bool:
 
 
 def _progress(iterable, *, params: core.uncertaintyCalibrationParams, **kwargs):
-    return tqdm(iterable, disable=not _progressEnabled(params), **kwargs)
+    if not _progressEnabled(params):
+        return iterable
+    kwargs.setdefault("mininterval", 0.5)
+    kwargs.setdefault("leave", False)
+    kwargs.setdefault("dynamic_ncols", True)
+    return tqdm(iterable, disable=False, **kwargs)
 
 
 def _firstSet(params: core.uncertaintyCalibrationParams, *names: str, default: Any = None):
@@ -416,6 +421,9 @@ def _fitFactorModel(
         desc="Fitting uncertainty factor",
         unit="iter",
         disable=not _progressEnabled(params),
+        mininterval=0.5,
+        leave=False,
+        dynamic_ncols=True,
     )
 
     def callback(_theta: np.ndarray) -> None:
@@ -672,6 +680,9 @@ def calibrateChromosomeStateUncertainty(
         desc="Extracting held-out scores",
         unit="fold",
         disable=not _progressEnabled(params),
+        mininterval=0.5,
+        leave=False,
+        dynamic_ncols=True,
     )
     for fold, mask in _progress(
         list(enumerate(masks)),
@@ -870,20 +881,14 @@ def calibrateChromosomeStateUncertainty(
         "a_obs_penalty": float(_aObsPenalty(params)),
         "factor_bound_min": float(_factorBounds(params)[0]),
         "factor_bound_max": float(_factorBounds(params)[1]),
-        "factor_min": float(np.min(factor)),
-        "factor_median": float(np.median(factor)),
-        "factor_max": float(np.max(factor)),
     }
     timings["total_seconds"] = time.perf_counter() - totalStart
     model["timings_seconds"] = {key: float(value) for key, value in timings.items()}
     logger.info(
-        "uncertaintyCalibration.fit.done heldoutCells=%s objective=%.6g aObs=%.6g factorMin=%.6g factorMed=%.6g factorMax=%.6g elapsed=%.3fs",
+        "uncertaintyCalibration.fit.done heldoutCells=%s objective=%.6g aObs=%.6g elapsed=%.3fs",
         totalHeldoutCells,
         float(modelMeta.get("objective", np.nan)),
         float(modelMeta.get("a_obs_factor", np.nan)),
-        model["factor_min"],
-        model["factor_median"],
-        model["factor_max"],
         timings["total_seconds"],
     )
     if outPrefix is not None and bool(params.writeDiagnostics):

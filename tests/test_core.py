@@ -736,39 +736,41 @@ def testExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF():
 
 
 @pytest.mark.correctness
-def testRegularizedDiagonalProcessQEstimatorShrinksSmoothTrend():
-    matrixF = core.constructMatrixF(1.0).astype(np.float64, copy=False)
-    stateSmoothed = np.asarray(
-        [
-            [0.0, 1.0],
-            [1.2, 1.0],
-            [2.1, 1.0],
-            [3.05, 1.0],
-        ],
-        dtype=np.float64,
-    )
-    stateCovarSmoothed = np.zeros((4, 2, 2), dtype=np.float64)
-    lagCovSmoothed = np.zeros((3, 2, 2), dtype=np.float64)
+def testExpectedTransitionResidualSumsMatchesPythonReference():
+    rng = np.random.default_rng(123)
+    n = 19
+    matrixF = np.asarray([[1.0, 0.35], [0.02, 0.97]], dtype=np.float64)
+    stateSmoothed = rng.normal(size=(n, 2)).astype(np.float64)
+    rawCov = rng.normal(scale=0.1, size=(n, 2, 2)).astype(np.float64)
+    stateCovarSmoothed = rawCov + np.swapaxes(rawCov, 1, 2)
+    lagCovSmoothed = rng.normal(scale=0.05, size=(n - 1, 2, 2)).astype(np.float64)
 
-    matrixQ, info = core._estimateRegularizedDiagonalProcessQ(
+    expectedLevel = 0.0
+    expectedTrend = 0.0
+    ft = matrixF.T
+    for k in range(n - 1):
+        x0 = stateSmoothed[k]
+        x1 = stateSmoothed[k + 1]
+        exx0 = stateCovarSmoothed[k] + np.outer(x0, x0)
+        exx1 = stateCovarSmoothed[k + 1] + np.outer(x1, x1)
+        ex0x1 = lagCovSmoothed[k] + np.outer(x0, x1)
+        ex1x0 = ex0x1.T
+        residualSecondMoment = exx1 - (ex1x0 @ ft) - (matrixF @ ex0x1) + (
+            matrixF @ exx0 @ ft
+        )
+        expectedLevel += max(float(residualSecondMoment[0, 0]), 0.0)
+        expectedTrend += max(float(residualSecondMoment[1, 1]), 0.0)
+
+    sumLevel, sumTrend, transitionCount = core._computeExpectedTransitionResidualSums(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
         lagCovSmoothed=lagCovSmoothed,
         matrixF=matrixF,
-        minQ=1.0e-3,
-        maxQ=1.0,
-        processQLevelTarget=None,
-        processQTrendTarget=None,
-        processQLevelPriorWeight=0.05,
-        processQTrendPriorWeight=1.0,
     )
 
-    assert matrixQ.shape == (2, 2)
-    assert matrixQ[0, 1] == pytest.approx(0.0)
-    assert matrixQ[1, 0] == pytest.approx(0.0)
-    assert info["q_level"] > info["q_trend"]
-    assert info["q_trend_target"] == pytest.approx(1.0e-5)
-    assert np.all(np.isfinite(matrixQ))
+    assert transitionCount == n - 1
+    assert sumLevel == pytest.approx(expectedLevel, rel=1.0e-12, abs=1.0e-12)
+    assert sumTrend == pytest.approx(expectedTrend, rel=1.0e-12, abs=1.0e-12)
 
 
 @pytest.mark.correctness

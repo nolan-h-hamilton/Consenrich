@@ -9,6 +9,7 @@ from multiprocessing.pool import ThreadPool
 import pprint
 import os
 import tempfile
+import time
 from pathlib import Path
 from collections.abc import Mapping
 from functools import lru_cache
@@ -36,6 +37,16 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _progress(iterable, **kwargs):
+    disable = kwargs.pop("disable", not sys.stderr.isatty())
+    if disable:
+        return iterable
+    kwargs.setdefault("mininterval", 0.5)
+    kwargs.setdefault("leave", False)
+    kwargs.setdefault("dynamic_ncols", True)
+    return tqdm(iterable, disable=False, **kwargs)
 
 
 @lru_cache(maxsize=1)
@@ -2482,7 +2493,12 @@ def main():
         str(source.sourceKind).upper() for source in treatmentSources
     ]
     chromosomePlans: List[Dict[str, Any]] = []
-    for chromosome in chromosomes:
+    for chromosome in _progress(
+        chromosomes,
+        total=len(chromosomes),
+        desc="Planning chromosomes",
+        unit="chrom",
+    ):
         chromosomeStart, chromosomeEnd = core.getChromRangesJoint(
             bamFiles,
             chromosome,
@@ -2513,18 +2529,46 @@ def main():
                 logger.warning(f"Overwriting: {file_}")
                 os.remove(file_)
 
-    for c_, chromPlan in enumerate(chromosomePlans):
+    for c_, chromPlan in enumerate(
+        _progress(
+            chromosomePlans,
+            total=len(chromosomePlans),
+            desc="Processing chromosomes",
+            unit="chrom",
+        )
+    ):
+        chromosomeStartTime = time.perf_counter()
         chromosome = str(chromPlan["chromosome"])
         chromosomeStart = int(chromPlan["start"])
         chromosomeEnd = int(chromPlan["end"])
         numIntervals = int(chromPlan["numIntervals"])
+        logger.info(
+            "chromosome.start %s intervals=%d samples=%d",
+            chromosome,
+            int(numIntervals),
+            int(numSamples),
+        )
         intervals = np.arange(chromosomeStart, chromosomeEnd, intervalSizeBP)
         chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
         if controlsPresent:
-            j_: int = 0
-            for bamA, bamB in zip(bamFiles, bamFilesControl):
-                logger.info(f"Counting (trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
+            for j_, (bamA, bamB) in enumerate(
+                _progress(
+                    zip(bamFiles, bamFilesControl),
+                    total=numSamples,
+                    desc=f"Counting {chromosome}",
+                    unit="sample",
+                )
+            ):
+                countStart = time.perf_counter()
+                logger.info(
+                    "counting.start %s sample=%d/%d treatment=%s control=%s",
+                    chromosome,
+                    int(j_ + 1),
+                    int(numSamples),
+                    bamA,
+                    bamB,
+                )
 
                 pairMatrix: np.ndarray = core.readSegments(
                     [
@@ -2556,7 +2600,6 @@ def main():
                     minMappingQuality=samArgs.minMappingQuality,
                     minTemplateLength=samArgs.minTemplateLength,
                 )
-                logger.info(f"(trt,ctrl) for {chromosome}: ({bamA}, {bamB})")
                 cconsenrich.cTransformWithInputInto(
                     pairMatrix[0, :],
                     pairMatrix[1, :],
@@ -2564,8 +2607,22 @@ def main():
                     logOffset=countingArgs.logOffset,
                     logMult=countingArgs.logMult,
                 )
-                j_ += 1
+                logger.info(
+                    "counting.done %s sample=%d/%d elapsed=%.3fs",
+                    chromosome,
+                    int(j_ + 1),
+                    int(numSamples),
+                    time.perf_counter() - countStart,
+                )
         else:
+            countStart = time.perf_counter()
+            logger.info(
+                "counting.start %s samples=%d intervals=%d samThreads=%d",
+                chromosome,
+                int(numSamples),
+                int(numIntervals),
+                int(samArgs.samThreads),
+            )
             chromMat = core.readSegments(
                 treatmentSources,
                 chromosome,
@@ -2588,6 +2645,12 @@ def main():
                 inferFragmentLength=samArgs.inferFragmentLength,
                 minMappingQuality=samArgs.minMappingQuality,
                 minTemplateLength=samArgs.minTemplateLength,
+            )
+            logger.info(
+                "counting.done %s samples=%d elapsed=%.3fs",
+                chromosome,
+                int(numSamples),
+                time.perf_counter() - countStart,
             )
 
         if backgroundBlockSizeBP_ < 0:
@@ -2687,6 +2750,7 @@ def main():
                 "were already transformed as log-ratios.",
             )
         else:
+            transformStart = time.perf_counter()
             transformWorkers = _getSmallWorkerCount(numSamples, maxWorkers=4)
             useParallelTransform = (
                 numSamples >= 4 and chromMat.shape[1] >= 5000 and transformWorkers > 1
@@ -2699,21 +2763,26 @@ def main():
                     int(chromMat.shape[1]),
                 )
                 with ThreadPool(processes=int(transformWorkers)) as pool:
-                    for _ in tqdm(
+                    for _ in _progress(
                         pool.imap(_transformTrack, range(numSamples)),
                         total=numSamples,
                         desc="Transforming data",
-                        unit=" sample ",
+                        unit="sample",
                     ):
                         pass
             else:
-                for j in tqdm(
+                for j in _progress(
                     range(numSamples),
                     desc="Transforming data",
-                    unit=" sample ",
+                    unit="sample",
                 ):
-                    logger.info(f"\n{chromosome}, sample {j + 1} / {numSamples}...")
                     _transformTrack(j)
+            logger.info(
+                "transform.done %s samples=%d elapsed=%.3fs",
+                chromosome,
+                int(numSamples),
+                time.perf_counter() - transformStart,
+            )
 
         useSparseNearest = bool(
             observationArgs.numNearest is not None
@@ -2806,6 +2875,14 @@ def main():
         useParallelMunc = (
             numSamples >= 4 and chromMat.shape[1] >= 5000 and muncWorkers > 1
         )
+        muncStart = time.perf_counter()
+        logger.info(
+            "munc.start %s samples=%d intervals=%d workers=%d",
+            chromosome,
+            int(numSamples),
+            int(chromMat.shape[1]),
+            int(muncWorkers if useParallelMunc else 1),
+        )
         if useParallelMunc:
             logger.info(
                 "munc matrix: using ThreadPool with %d workers (numSamples=%d, numIntervals=%d).",
@@ -2814,21 +2891,27 @@ def main():
                 int(chromMat.shape[1]),
             )
             with ThreadPool(processes=int(muncWorkers)) as pool:
-                for j, muncTrack in tqdm(
+                for j, muncTrack in _progress(
                     pool.imap(_fitMuncTrack, range(numSamples)),
                     total=numSamples,
                     desc="Fitting variance function f(|mu|;Theta)",
-                    unit=" sample ",
+                    unit="sample",
                 ):
                     muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
         else:
-            for j in tqdm(
+            for j in _progress(
                 range(numSamples),
                 desc="Fitting variance function f(|mu|;Theta)",
-                unit=" sample ",
+                unit="sample",
             ):
                 _, muncTrack = _fitMuncTrack(j)
                 muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
+        logger.info(
+            "munc.done %s samples=%d elapsed=%.3fs",
+            chromosome,
+            int(numSamples),
+            time.perf_counter() - muncStart,
+        )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
             finiteMunc = muncMat[np.isfinite(muncMat)]
@@ -2884,6 +2967,14 @@ def main():
             if vec_ is not None
             else 2 * backgroundBlockSizeIntervals + 1
         )
+        runStart = time.perf_counter()
+        logger.info(
+            "runConsenrich.start %s intervals=%d samples=%d blocks=%d",
+            chromosome,
+            int(numIntervals),
+            int(numSamples),
+            int(np.ceil(numIntervals / float(blockLenIntervals_))),
+        )
         useCrossFitUncertainty = bool(
             outputArgs.writeUncertainty and uncertaintyCalibrationArgs.enabled
         )
@@ -2934,6 +3025,11 @@ def main():
             replicateBias,
             intervalToBlockMap,
         ) = runResult[:7]
+        logger.info(
+            "runConsenrich.done %s elapsed=%.3fs",
+            chromosome,
+            time.perf_counter() - runStart,
+        )
         replicateBias = np.asarray(replicateBias, dtype=np.float32)
         logger.info(
             "finalReplicateBias[%s]=%s",
@@ -3018,9 +3114,8 @@ def main():
             )
             logger.info(
                 "Cross-fit uncertainty calibration applied for %s: "
-                "factorMedian=%.6g aObs=%.6g heldoutCells=%d",
+                "aObs=%.6g heldoutCells=%d",
                 chromosome,
-                float(np.median(calibrationResult.factor)),
                 float(calibrationResult.model.get("a_obs_factor", np.nan)),
                 int(calibrationResult.model.get("heldout_cells", 0)),
             )
@@ -3053,7 +3148,13 @@ def main():
         if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
             suffixes.append("JackknifeSE")
 
-        for col, suffix in zip(cols_[3:], suffixes):
+        writeStart = time.perf_counter()
+        for col, suffix in _progress(
+            zip(cols_[3:], suffixes),
+            total=len(suffixes),
+            desc=f"Writing {chromosome}",
+            unit="track",
+        ):
             logger.info(
                 f"{chromosome}: writing/appending to: consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
             )
@@ -3066,10 +3167,21 @@ def main():
                 float_format="%.4f",
                 lineterminator="\n",
             )
+        logger.info(
+            "chromosome.done %s elapsed=%.3fs outputElapsed=%.3fs",
+            chromosome,
+            time.perf_counter() - chromosomeStartTime,
+            time.perf_counter() - writeStart,
+        )
 
     logger.info("Finished: output in human-readable format")
 
-    for suffix in suffixes:
+    for suffix in _progress(
+        suffixes,
+        total=len(suffixes),
+        desc="Sorting bedGraphs",
+        unit="track",
+    ):
         bedgraphPath = (
             f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
         )
