@@ -1028,7 +1028,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     fixControl_ = _cfgGet(
         configData,
         "countingParams.fixControl",
-        True,
+        False,
     )
     globalWeight_ = _cfgGet(
         configData,
@@ -1351,10 +1351,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(configData, "processParams.processQTrendPriorWeight", 25.0)
         ),
         precisionMultiplierMin=float(
-            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.25)
+            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.1)
         ),
         precisionMultiplierMax=float(
-            _cfgGet(configData, "processParams.precisionMultiplierMax", 4.0)
+            _cfgGet(configData, "processParams.precisionMultiplierMax", 10.0)
         ),
     )
 
@@ -1445,10 +1445,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
         precisionMultiplierMin=float(
-            _cfgGet(configData, "observationParams.precisionMultiplierMin", 0.25)
+            _cfgGet(configData, "observationParams.precisionMultiplierMin", 0.1)
         ),
         precisionMultiplierMax=float(
-            _cfgGet(configData, "observationParams.precisionMultiplierMax", 4.0)
+            _cfgGet(configData, "observationParams.precisionMultiplierMax", 10.0)
         ),
     )
 

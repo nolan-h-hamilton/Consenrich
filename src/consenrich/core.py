@@ -453,7 +453,10 @@ class countingParams(NamedTuple):
     :param fragmentsGroupNorm: Optional extra normalization for fragments pseudobulks
       `NONE` keeps library-size scaling only and `CELLS` additionally divides by selected cell count
     :type fragmentsGroupNorm: str | None
-    :param fixControl: If True, treatment samples are not upscaled, and control samples are not downscaled.
+    :param fixControl: If True, treatment samples are not upscaled, and control
+        samples are not downscaled. If False, treatment/control pairs use
+        MACS-style normalization: the deeper sample is downscaled to the
+        shallower sample.
     :type fixControl: bool, optional
     :param globalWeight: Preprocessing centering weight. Any positive value applies subtraction of the dense centering offset estimated from the transformed coverage track, while non-positive values skip preprocessing centering entirely.
     :type globalWeight: float, optional

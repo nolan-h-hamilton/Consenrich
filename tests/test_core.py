@@ -568,6 +568,59 @@ def testZeroCenteredBackgroundUpdate():
 
 
 @pytest.mark.correctness
+def testZeroCenteredBackgroundUpdateUsesPrecisionWeights():
+    n = 52
+    x = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
+    residualMatrix = np.vstack(
+        [
+            0.35 * np.sin(x) + 0.15,
+            -0.10 * np.cos(x) - 0.05,
+            np.linspace(-0.2, 0.2, n, dtype=np.float32),
+        ]
+    ).astype(np.float32)
+    invVarMatrix = np.vstack(
+        [
+            np.linspace(0.4, 2.0, n, dtype=np.float32),
+            np.linspace(2.0, 0.6, n, dtype=np.float32),
+            np.full(n, 0.9, dtype=np.float32),
+        ]
+    )
+
+    background = core._solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
+        blockLenIntervals=7,
+        backgroundSmoothness=1.3,
+    )
+
+    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0)
+    rhsTrack = np.sum(
+        invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
+        axis=0,
+    )
+    lam = core._backgroundPenaltyFromSpan(
+        blockLenIntervals=7,
+        backgroundSmoothness=1.3,
+    )
+    systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
+    systemMat = systemMat + (lam * core._buildSecondDiffPenalty(weightTrack.size))
+    constraintVec = np.ones(weightTrack.size, dtype=np.float64)
+    kktMat = core.sparse.bmat(
+        [
+            [systemMat, constraintVec[:, None]],
+            [constraintVec[None, :], None],
+        ],
+        format="csc",
+    )
+    rhsVec = np.concatenate([rhsTrack, np.zeros(1, dtype=np.float64)])
+    expected = core.sparse_linalg.spsolve(kktMat, rhsVec)[:-1]
+
+    unweightedRhs = np.sum(residualMatrix.astype(np.float64), axis=0)
+    assert not np.allclose(rhsTrack, unweightedRhs, atol=1.0e-3)
+    assert np.allclose(background, expected.astype(np.float32), atol=1.0e-4)
+
+
+@pytest.mark.correctness
 def testZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -674,7 +727,6 @@ def testReplicateBiasCanSkipZeroCentering():
         EM_useProcPrecReweight=False,
         EM_useAPN=False,
         EM_useReplicateBias=True,
-        EM_repBiasShrink=0.0,
         returnIntermediates=True,
         t_innerIters=1,
     )
@@ -691,6 +743,152 @@ def testReplicateBiasCanSkipZeroCentering():
     assert abs(float(np.mean(centeredBias))) < 1.0e-5
     assert abs(float(np.mean(uncenteredBias))) > 1.0
     assert np.all(np.asarray(uncenteredBias) > 1.0)
+
+
+@pytest.mark.correctness
+def testCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
+    n = 48
+    offsets = np.array([1.25, -0.75, 0.35], dtype=np.float32)
+    trend = np.linspace(-0.1, 0.1, n, dtype=np.float32)
+    matrixData = offsets[:, None] + np.vstack(
+        [
+            0.05 * trend,
+            -0.02 * trend,
+            0.01 * np.sin(np.linspace(0.0, np.pi, n, dtype=np.float32)),
+        ]
+    )
+    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
+    matrixMunc = np.vstack(
+        [
+            np.linspace(0.2, 0.6, n, dtype=np.float32),
+            np.linspace(1.5, 0.4, n, dtype=np.float32),
+            np.full(n, 0.85, dtype=np.float32),
+        ]
+    ).astype(np.float32)
+    matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
+    matrixQ0 = core.constructMatrixQ(
+        minDiagQ=1.0e-12,
+        offDiagQ=0.0,
+    ).astype(np.float32, copy=False)
+    intervalToBlockMap = np.zeros(n, dtype=np.int32)
+    pad = 1.0e-4
+
+    out = cconsenrich.cinnerEM(
+        matrixData=matrixData,
+        matrixPluginMuncInit=matrixMunc,
+        matrixF=matrixF,
+        matrixQ0=matrixQ0,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=1,
+        stateInit=0.0,
+        stateCovarInit=1.0e-10,
+        EM_maxIters=1,
+        EM_innerRtol=0.0,
+        pad=pad,
+        EM_tNu=8.0,
+        EM_useObsPrecReweight=False,
+        EM_useProcPrecReweight=False,
+        EM_useAPN=False,
+        EM_useReplicateBias=True,
+        EM_zeroCenterReplicateBias=True,
+        returnIntermediates=True,
+        t_innerIters=1,
+    )
+    stateSmoothed = np.asarray(out[3], dtype=np.float64)[:, 0]
+    replicateBias = np.asarray(out[-1], dtype=np.float64)
+
+    invVar = 1.0 / np.maximum(matrixMunc.astype(np.float64) + pad, 1.0e-12)
+    den = np.sum(invVar, axis=1)
+    raw = (
+        np.sum(
+            invVar * (matrixData.astype(np.float64) - stateSmoothed[None, :]),
+            axis=1,
+        )
+        / den
+    )
+    expected = raw - (np.sum(den * raw) / np.sum(den))
+
+    assert np.allclose(replicateBias, expected, atol=1.0e-5)
+    assert abs(float(np.sum(den * replicateBias))) < 1.0e-4
+
+
+@pytest.mark.correctness
+def testCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
+    n = 56
+    offsets = np.array([1.4, -0.6, 0.15], dtype=np.float32)
+    grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
+    base = 0.2 * np.sin(grid)
+    matrixData = offsets[:, None] + np.vstack(
+        [
+            base,
+            base + 0.05 * np.cos(grid),
+            base - 0.03 * np.sin(2.0 * grid),
+        ]
+    )
+    matrixData[0, 7] += 4.0
+    matrixData[1, 31] -= 3.5
+    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
+    matrixMunc = np.vstack(
+        [
+            np.linspace(0.12, 1.4, n, dtype=np.float32),
+            np.linspace(1.2, 0.2, n, dtype=np.float32),
+            np.full(n, 0.55, dtype=np.float32),
+        ]
+    ).astype(np.float32)
+    matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
+    matrixQ0 = core.constructMatrixQ(
+        minDiagQ=1.0e-10,
+        offDiagQ=0.0,
+    ).astype(np.float32, copy=False)
+    intervalToBlockMap = np.zeros(n, dtype=np.int32)
+    pad = 1.0e-4
+
+    out = cconsenrich.cinnerEM(
+        matrixData=matrixData,
+        matrixPluginMuncInit=matrixMunc,
+        matrixF=matrixF,
+        matrixQ0=matrixQ0,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=1,
+        stateInit=0.0,
+        stateCovarInit=1.0e-8,
+        EM_maxIters=1,
+        EM_innerRtol=0.0,
+        pad=pad,
+        EM_tNu=2.5,
+        EM_useObsPrecReweight=True,
+        EM_useProcPrecReweight=False,
+        EM_useAPN=False,
+        EM_useReplicateBias=True,
+        EM_zeroCenterReplicateBias=True,
+        obsPrecisionMultiplierMin=0.25,
+        obsPrecisionMultiplierMax=4.0,
+        returnIntermediates=True,
+        t_innerIters=1,
+    )
+    stateSmoothed = np.asarray(out[3], dtype=np.float64)[:, 0]
+    lambdaExp = np.asarray(out[7], dtype=np.float64)
+    replicateBias = np.asarray(out[-1], dtype=np.float64)
+
+    baseInvVar = 1.0 / np.maximum(matrixMunc.astype(np.float64) + pad, 1.0e-12)
+    centerWeight = np.sum(baseInvVar, axis=1)
+    currentInvVar = lambdaExp * baseInvVar
+    den = np.sum(currentInvVar, axis=1)
+    raw = (
+        np.sum(
+            currentInvVar * (matrixData.astype(np.float64) - stateSmoothed[None, :]),
+            axis=1,
+        )
+        / den
+    )
+    alpha = np.sum(centerWeight * raw) / np.sum((centerWeight * centerWeight) / den)
+    expected = raw - alpha * centerWeight / den
+
+    movingCentered = raw - (np.sum(den * raw) / np.sum(den))
+    assert np.max(np.abs(lambdaExp - 1.0)) > 1.0e-3
+    assert not np.allclose(expected, movingCentered, atol=1.0e-4)
+    assert np.allclose(replicateBias, expected, atol=1.0e-5)
+    assert abs(float(np.sum(centerWeight * replicateBias))) < 1.0e-4
 
 
 @pytest.mark.correctness
@@ -1859,7 +2057,7 @@ def testReadSegmentsFragmentsGrouped():
 
 
 @pytest.mark.correctness
-def testReadSegmentsFragmentsDefaultToCutSites():
+def testReadSegmentsFragmentsDefaultToCoverage():
     gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
     allowListPath = FRAGMENTS_DIR / "allow_BC_A.txt"
 
@@ -2233,3 +2431,110 @@ def testFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
     assert mappedCount == 12
     assert cellCount == 1
     assert scaleFactor == pytest.approx((1_000_000 / 12.0) * 100.0)
+
+
+@pytest.mark.correctness
+def testPairScaleFactorsDownscaleDeeperSampleMacsStyle(monkeypatch):
+    depths = {"treatment.bam": 10.0, "control.bam": 4.0}
+
+    def fakeScaleFactor1x(
+        bamFile,
+        effectiveGenomeSize,
+        readLength,
+        excludeChroms,
+        chromSizesFile,
+        samThreads,
+        **kwargs,
+    ):
+        return 1.0 / depths[bamFile]
+
+    monkeypatch.setattr(detrorm, "getScaleFactor1x", fakeScaleFactor1x)
+
+    scaleTreatment, scaleControl = detrorm.getPairScaleFactors(
+        "treatment.bam",
+        "control.bam",
+        1000,
+        1000,
+        100,
+        100,
+        [],
+        "chrom.sizes",
+        1,
+        25,
+        normMethod="EGS",
+        fixControl=False,
+    )
+
+    assert scaleTreatment == pytest.approx(0.4)
+    assert scaleControl == pytest.approx(1.0)
+
+
+@pytest.mark.correctness
+def testPairScaleFactorsCanDownscaleControlByDefault(monkeypatch):
+    depths = {"treatment.bam": 4.0, "control.bam": 10.0}
+
+    def fakeScaleFactor1x(
+        bamFile,
+        effectiveGenomeSize,
+        readLength,
+        excludeChroms,
+        chromSizesFile,
+        samThreads,
+        **kwargs,
+    ):
+        return 1.0 / depths[bamFile]
+
+    monkeypatch.setattr(detrorm, "getScaleFactor1x", fakeScaleFactor1x)
+
+    scaleTreatment, scaleControl = detrorm.getPairScaleFactors(
+        "treatment.bam",
+        "control.bam",
+        1000,
+        1000,
+        100,
+        100,
+        [],
+        "chrom.sizes",
+        1,
+        25,
+        normMethod="EGS",
+    )
+
+    assert scaleTreatment == pytest.approx(1.0)
+    assert scaleControl == pytest.approx(0.4)
+
+
+@pytest.mark.correctness
+def testPairScaleFactorsFixControlKeepsControlFullDepth(monkeypatch):
+    depths = {"treatment.bam": 4.0, "control.bam": 10.0}
+
+    def fakeScaleFactor1x(
+        bamFile,
+        effectiveGenomeSize,
+        readLength,
+        excludeChroms,
+        chromSizesFile,
+        samThreads,
+        **kwargs,
+    ):
+        return 1.0 / depths[bamFile]
+
+    monkeypatch.setattr(detrorm, "getScaleFactor1x", fakeScaleFactor1x)
+
+    scaleTreatment, scaleControl = detrorm.getPairScaleFactors(
+        "treatment.bam",
+        "control.bam",
+        1000,
+        1000,
+        100,
+        100,
+        [],
+        "chrom.sizes",
+        1,
+        25,
+        normMethod="EGS",
+        fixControl=True,
+    )
+
+    assert scaleTreatment == pytest.approx(1.0)
+    assert scaleControl == pytest.approx(1.0)

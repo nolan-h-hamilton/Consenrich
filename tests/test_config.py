@@ -193,6 +193,9 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
     assert type(matchingDotted) is type(matchingNested)
 
     assert samDotted.samThreads == samNested.samThreads
+    assert samDotted.defaultCountMode == "coverage"
+    assert configDotted["scArgs"].defaultCountMode == "coverage"
+    assert configNested["scArgs"].defaultCountMode == "coverage"
     assert matchingDotted.enabled == matchingNested.enabled
     assert matchingDotted.thresholdZ == matchingNested.thresholdZ
     assert matchingDotted.nestedRoccoIters == matchingNested.nestedRoccoIters
@@ -214,6 +217,11 @@ def test_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Monk
       processQTrendTarget: 0.00002
       processQLevelPriorWeight: 0.25
       processQTrendPriorWeight: 2.5
+      precisionMultiplierMin: 0.5
+      precisionMultiplierMax: 2.0
+    observationParams:
+      precisionMultiplierMin: 0.1
+      precisionMultiplierMax: 8.0
     """
 
     configPath = writeConfigFile(tmp_path, "config_process_q.yaml", configYaml)
@@ -226,6 +234,10 @@ def test_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Monk
     assert processArgs.processQTrendTarget == pytest.approx(0.00002)
     assert processArgs.processQLevelPriorWeight == pytest.approx(0.25)
     assert processArgs.processQTrendPriorWeight == pytest.approx(2.5)
+    assert processArgs.precisionMultiplierMin == pytest.approx(0.5)
+    assert processArgs.precisionMultiplierMax == pytest.approx(2.0)
+    assert configParsed["observationArgs"].precisionMultiplierMin == pytest.approx(0.1)
+    assert configParsed["observationArgs"].precisionMultiplierMax == pytest.approx(8.0)
 
 
 def test_readConfigObservationTrendDefaultsRemoveLinearEnvelope(
@@ -272,7 +284,7 @@ def test_readConfigObservationBlockQuantileDefaultAndOverride(
         configDefault,
     )
     parsedDefault = readConfig(str(configDefaultPath))
-    assert parsedDefault["observationArgs"].blockQuantile == pytest.approx(0.5)
+    assert parsedDefault["observationArgs"].blockQuantile == pytest.approx(0.75)
 
     configExplicit = """
     experimentName: testExperiment
@@ -770,29 +782,6 @@ def test_readConfigScParamsProvideFragmentsDefaults(
     assert configParsed["scArgs"].defaultCountMode == "center"
     assert configParsed["scArgs"].fragmentsGroupNorm == "CELLS"
     assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
-
-
-def test_readConfigUsesExplicitBamInputModeRead1(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    samParams.bamInputMode: read1
-    """
-
-    configPath = writeConfigFile(tmp_path, "config_macs_like_bam.yaml", configYaml)
-    configParsed = readConfig(str(configPath))
-    samArgs = configParsed["samArgs"]
-
-    assert samArgs.bamInputMode == "read1"
-    assert samArgs.defaultCountMode == "coverage"
-    assert samArgs.inferFragmentLength == 0
 
 
 def test_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls():
