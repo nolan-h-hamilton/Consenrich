@@ -514,7 +514,7 @@ def _buildPathInputSources(pathList: List[str], role: str) -> List[core.inputSou
 def _getSourceCountMode(
     source: core.inputSource,
     defaultBamCountMode: str = "coverage",
-    defaultFragmentCountMode: str = "cutsite",
+    defaultFragmentCountMode: str = "coverage",
 ) -> str:
     if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
         return "coverage"
@@ -1066,7 +1066,7 @@ def getScArgs(config_path: str) -> core.scParams:
     defaultCountMode_ = _cfgGet(
         configData,
         "scParams.defaultCountMode",
-        "cutsite",
+        "coverage",
     )
     if str(defaultCountMode_).strip().lower() not in [
         "coverage",
@@ -1350,6 +1350,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         processQTrendPriorWeight=float(
             _cfgGet(configData, "processParams.processQTrendPriorWeight", 25.0)
         ),
+        precisionMultiplierMin=float(
+            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.25)
+        ),
+        precisionMultiplierMax=float(
+            _cfgGet(configData, "processParams.precisionMultiplierMax", 4.0)
+        ),
     )
 
     explicitSparseBedFile = _cfgGet(configData, "genomeParams.sparseBedFile", None)
@@ -1438,6 +1444,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(configData, "observationParams.blockQuantile", 0.75)
         ),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
+        precisionMultiplierMin=float(
+            _cfgGet(configData, "observationParams.precisionMultiplierMin", 0.25)
+        ),
+        precisionMultiplierMax=float(
+            _cfgGet(configData, "observationParams.precisionMultiplierMax", 4.0)
+        ),
     )
 
     EM_useAPN_ = bool(_cfgGet(configData, "fitParams.EM_useAPN", False))
@@ -1465,6 +1477,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "fitParams.EM_useReplicateBias",
             True,
         ),
+        fitBackground=_cfgGet(
+            configData,
+            "fitParams.fitBackground",
+            True,
+        ),
         EM_zeroCenterBackground=_cfgGet(
             configData,
             "fitParams.EM_zeroCenterBackground",
@@ -1474,11 +1491,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "fitParams.EM_zeroCenterReplicateBias",
             True,
-        ),
-        EM_repBiasShrink=_cfgGet(
-            configData,
-            "fitParams.EM_repBiasShrink",
-            0.0,
         ),
         EM_outerIters=_cfgGet(
             configData,
@@ -1523,7 +1535,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     inferFragmentLength = _cfgGet(
         configData,
         "samParams.inferFragmentLength",
-        0,
+        None,
     )
     core._normalizeBamInputMode(bamInputMode)
     core._normalizeCountMode(defaultCountMode, "coverage")
@@ -2148,11 +2160,24 @@ def main():
         )
         for source in controlSources
     ]
+    autoInferFragmentLength = (
+        samArgs.inferFragmentLength is None
+        and core._normalizeBamInputMode(samArgs.bamInputMode) == "auto"
+    )
+    inferFragmentLengthRequested = int(samArgs.inferFragmentLength or 0) > 0
+    if autoInferFragmentLength and any(
+        sourceBamInputMode in ("reads", "read1")
+        for sourceBamInputMode in treatmentBamInputModes + controlBamInputModes
+    ):
+        logger.info(
+            "samParams.bamInputMode=auto and samParams.inferFragmentLength omitted: "
+            "single-end BAM sources will be extended by inferred fragment length."
+        )
     treatmentCountModes = [
         _getSourceCountMode(
             source,
             str(samArgs.defaultCountMode or "coverage"),
-            str(scArgs.defaultCountMode or "cutsite"),
+            str(scArgs.defaultCountMode or "coverage"),
         )
         for source in treatmentSources
     ]
@@ -2160,7 +2185,7 @@ def main():
         _getSourceCountMode(
             source,
             str(samArgs.defaultCountMode or "coverage"),
-            str(scArgs.defaultCountMode or "cutsite"),
+            str(scArgs.defaultCountMode or "coverage"),
         )
         for source in controlSources
     ]
@@ -2218,7 +2243,7 @@ def main():
         if str(source.sourceKind).upper() not in core.ALIGNMENT_SOURCE_KINDS:
             return 0
         if sourceBamInputMode == "fragments" and (
-            int(configuredExtendBP) > 0 or int(samArgs.inferFragmentLength or 0) > 0
+            int(configuredExtendBP) > 0 or inferFragmentLengthRequested
         ):
             raise ValueError(
                 "`samParams.extendFrom5pBP` and `samParams.inferFragmentLength` "
@@ -2268,7 +2293,9 @@ def main():
             return 0
         if int(configuredExtendBP) > 0:
             return int(configuredExtendBP)
-        if int(samArgs.inferFragmentLength or 0) > 0:
+        if inferFragmentLengthRequested or (
+            autoInferFragmentLength and sourceBamInputMode in ("reads", "read1")
+        ):
             return int(characteristicFragmentLength)
         return 0
 
@@ -3002,9 +3029,9 @@ def main():
             EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
             EM_useAPN=fitArgs.EM_useAPN,
             EM_useReplicateBias=fitArgs.EM_useReplicateBias,
+            fitBackground=fitArgs.fitBackground,
             EM_zeroCenterBackground=fitArgs.EM_zeroCenterBackground,
             EM_zeroCenterReplicateBias=fitArgs.EM_zeroCenterReplicateBias,
-            EM_repBiasShrink=fitArgs.EM_repBiasShrink,
             EM_outerIters=fitArgs.EM_outerIters,
             EM_outerRtol=fitArgs.EM_outerRtol,
             EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
@@ -3014,6 +3041,10 @@ def main():
             processQTrendTarget=processArgs.processQTrendTarget,
             processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
             processQTrendPriorWeight=processArgs.processQTrendPriorWeight,
+            observationPrecisionMultiplierMin=observationArgs.precisionMultiplierMin,
+            observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
+            processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
+            processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
             applyJackknife=outputArgs.applyJackknife,
         )
         (
@@ -3052,7 +3083,15 @@ def main():
         uncertaintyTrack = np.sqrt(P00_).astype(np.float32, copy=False)
 
         if useCrossFitUncertainty:
-            from consenrich import uncertainty as uncertainty_module
+            try:
+                from consenrich import uncertainty as uncertainty_module
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Cross-fit uncertainty calibration requires the optional "
+                    "`consenrich.uncertainty` module and `consenrich.cuncertainty` "
+                    "extension. Build/install Consenrich with uncertainty support, "
+                    "or set `uncertaintyCalibration.enabled: false`."
+                ) from exc
 
             calibrationRunKwargs = dict(
                 deltaF=deltaF_,
@@ -3076,9 +3115,9 @@ def main():
                 EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
                 EM_useAPN=fitArgs.EM_useAPN,
                 EM_useReplicateBias=fitArgs.EM_useReplicateBias,
+                fitBackground=fitArgs.fitBackground,
                 EM_zeroCenterBackground=fitArgs.EM_zeroCenterBackground,
                 EM_zeroCenterReplicateBias=fitArgs.EM_zeroCenterReplicateBias,
-                EM_repBiasShrink=fitArgs.EM_repBiasShrink,
                 EM_outerIters=fitArgs.EM_outerIters,
                 EM_outerRtol=fitArgs.EM_outerRtol,
                 EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
@@ -3088,6 +3127,10 @@ def main():
                 processQTrendTarget=processArgs.processQTrendTarget,
                 processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
                 processQTrendPriorWeight=processArgs.processQTrendPriorWeight,
+                observationPrecisionMultiplierMin=observationArgs.precisionMultiplierMin,
+                observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
+                processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
+                processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
                 applyJackknife=False,
             )
             calibrationPrefix = (

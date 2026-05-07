@@ -122,6 +122,12 @@ class processParams(NamedTuple):
     :type processQLevelPriorWeight: float
     :param processQTrendPriorWeight: Shrinkage weight toward ``processQTrendTarget``.
     :type processQTrendPriorWeight: float
+    :param precisionMultiplierMin: Lower clamp for process precision multipliers
+        :math:`\kappa_{[i]}` during robust EM reweighting.
+    :type precisionMultiplierMin: float
+    :param precisionMultiplierMax: Upper clamp for process precision multipliers
+        :math:`\kappa_{[i]}` during robust EM reweighting.
+    :type precisionMultiplierMax: float
     :seealso: :func:`consenrich.core.runConsenrich`
 
     """
@@ -136,6 +142,8 @@ class processParams(NamedTuple):
     processQTrendTarget: float | None = None
     processQLevelPriorWeight: float = 0.05
     processQTrendPriorWeight: float = 1.0
+    precisionMultiplierMin: float = 0.25
+    precisionMultiplierMax: float = 4.0
 
 
 class observationParams(NamedTuple):
@@ -188,6 +196,12 @@ class observationParams(NamedTuple):
     :type blockQuantile: float | None
     :param pad: A small constant added to the observation noise variance estimates for conditioning
     :type pad: float | None
+    :param precisionMultiplierMin: Lower clamp for observation precision multipliers
+        :math:`\lambda_{[j,i]}` during robust EM reweighting.
+    :type precisionMultiplierMin: float | None
+    :param precisionMultiplierMax: Upper clamp for observation precision multipliers
+        :math:`\lambda_{[j,i]}` during robust EM reweighting.
+    :type precisionMultiplierMax: float | None
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitPSplineLogVarianceTrend`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cinnerEM`
 
     """
@@ -212,6 +226,8 @@ class observationParams(NamedTuple):
     restrictLocalAR1ToSparseBed: bool | None
     blockQuantile: float | None
     pad: float | None
+    precisionMultiplierMin: float | None = 0.25
+    precisionMultiplierMax: float | None = 4.0
 
 
 class stateParams(NamedTuple):
@@ -239,7 +255,7 @@ class stateParams(NamedTuple):
 class uncertaintyCalibrationParams(NamedTuple):
     r"""Parameters for cross-fit chromosome state-uncertainty calibration."""
 
-    enabled: bool = True
+    enabled: bool = False
     folds: int = 5
     blockSizeBP: int | str | None = None
     holdoutFraction: float | None = None
@@ -286,16 +302,18 @@ class samParams(NamedTuple):
     :param shiftReverse5p: 5' shift applied to reverse-strand alignments.
     :type shiftReverse5p: int
     :param extendFrom5pBP: Optional extension length or list of extension lengths for BAM inputs operating
-        in ``reads`` or ``read1`` mode. When omitted and ``inferFragmentLength > 0``, treatment BAMs are
-        inferred and paired controls reuse those inferred lengths.
+        in ``reads`` or ``read1`` mode. When omitted and fragment extension is requested, treatment BAMs
+        are inferred and paired controls reuse those inferred lengths.
     :type extendFrom5pBP: List[int] | int | None
     :param maxInsertSize: Maximum frag length/insert to consider when estimating fragment length.
     :type maxInsertSize: int
     :param inferFragmentLength: Intended for single-end data: if > 0, the maximum correlation lag
        (avg.) between *strand-specific* read tracks is taken as the fragment length estimate and used to
        extend reads from shifted 5' ends when ``bamInputMode`` resolves to ``reads`` or ``read1``.
+       When omitted in CLI configs and ``bamInputMode`` is ``auto``, single-end BAM inputs are extended
+       by their inferred fragment lengths while paired-end BAM inputs keep fragment spans.
        This is often important when targeting broader marks (e.g., ChIP-seq H3K27me3).
-    :type inferFragmentLength: int
+    :type inferFragmentLength: Optional[int]
     :param minMappingQuality: Minimum mapping quality (MAPQ) for reads to be counted.
     :type minMappingQuality: Optional[int]
 
@@ -315,7 +333,7 @@ class samParams(NamedTuple):
     shiftReverse5p: int | None = 0
     extendFrom5pBP: List[int] | int | None = None
     maxInsertSize: Optional[int] = 1000
-    inferFragmentLength: Optional[int] = 0
+    inferFragmentLength: Optional[int] = None
     minMappingQuality: Optional[int] = 0
     minTemplateLength: Optional[int] = -1
 
@@ -339,8 +357,9 @@ class inputSource(NamedTuple):
     :type barcodeGroupMapFile: str | None
     :param selectGroups: Optional subset of barcode groups to keep
     :type selectGroups: List[str] | None
-    :param countMode: Optional counting mode label
-      BAM inputs default to `coverage`; fragments inputs default to `cutsite`
+    :param countMode: Optional counting mode label.
+      Inputs default to `coverage`; set `cutsite`, `fiveprime`, or `center`
+      explicitly for endpoint-style counting.
     :type countMode: str | None
     :param bamInputMode: Optional BAM interpretation override for this source
     :type bamInputMode: str | None
@@ -485,7 +504,7 @@ class scParams(NamedTuple):
     """
 
     barcodeTag: str | None = "CB"
-    defaultCountMode: str | None = "cutsite"
+    defaultCountMode: str | None = "coverage"
     fragmentsGroupNorm: str | None = "NONE"
     defaultFragmentPositionMode: str | None = "insertionEndpoints"
 
@@ -587,7 +606,7 @@ class fitParams(NamedTuple):
 
     Outer loop:
 
-    1. update a shared background track \(g_i\), optionally constrained to have mean zero
+    1. optionally update a shared background track \(g_i\), optionally constrained to have mean zero
 
     The default fit keeps replicate-level bias calibration and robust precision reweighting on.
 
@@ -613,12 +632,12 @@ class fitParams(NamedTuple):
     :type EM_useAPN: bool
     :param EM_useReplicateBias: If True, estimate additive replicate offsets \(b_j\) in the observation equation.
     :type EM_useReplicateBias: bool
+    :param fitBackground: If True, estimate the shared smooth background track \(g_i\) in the outer EM loop. If False, keep \(g_i \equiv 0\).
+    :type fitBackground: bool
     :param EM_zeroCenterBackground: If True, enforce the identifiability constraint that the shared smooth background has mean zero.
     :type EM_zeroCenterBackground: bool
     :param EM_zeroCenterReplicateBias: If True, enforce the identifiability constraint that replicate offsets have weighted mean zero.
     :type EM_zeroCenterReplicateBias: bool
-    :param EM_repBiasShrink: Non-negative shrinkage applied to replicate bias estimates after optional centering.
-    :type EM_repBiasShrink: float
     :param EM_outerIters: Number of outer alternations between the inner Kalman-EM fit and shared background update.
     :type EM_outerIters: int
     :param EM_outerRtol: Relative tolerance used to stop the outer background loop early.
@@ -642,10 +661,10 @@ class fitParams(NamedTuple):
     EM_useReplicateBias: bool | None = True
     EM_zeroCenterBackground: bool | None = True
     EM_zeroCenterReplicateBias: bool | None = True
-    EM_repBiasShrink: float | None = 0.0
     EM_outerIters: int | None = 3
     EM_outerRtol: float | None = 1.0e-3
     EM_backgroundSmoothness: float | None = 1.0
+    fitBackground: bool | None = True
 
 
 def _inferAlignmentSourceKind(path: str) -> str:
@@ -948,13 +967,21 @@ def _normalizeFragmentPositionMode(fragmentPositionMode: str | None) -> str:
 
 @lru_cache(maxsize=None)
 def _isAlignmentSourcePairedEnd(alignmentPath: str) -> bool:
-    return bool(
-        ccounts.ccounts_isAlignmentPairedEnd(
-            alignmentPath,
-            maxReads=1_000,
-            sourceKind="BAM",
+    try:
+        return bool(
+            cconsenrich.cisAlignmentPairedEnd(
+                alignmentPath,
+                maxReads=1_000,
+            )
         )
-    )
+    except AttributeError:
+        return bool(
+            ccounts.ccounts_isAlignmentPairedEnd(
+                alignmentPath,
+                maxReads=1_000,
+                sourceKind="BAM",
+            )
+        )
 
 
 def _resolveSourceBamInputMode(
@@ -1113,7 +1140,7 @@ def readSegments(
                     countMode="coverage",
                 )
             elif sourceKind == FRAGMENTS_SOURCE_KIND:
-                countMode = _normalizeCountMode(source.countMode, "cutsite")
+                countMode = _normalizeCountMode(source.countMode, "coverage")
                 _normalizeFragmentPositionMode(source.fragmentPositionMode)
                 counts[sourceIndex, :] = ccounts.ccounts_countAlignmentRegion(
                     sourcePath,
@@ -1388,6 +1415,21 @@ def _checkFiniteNonnegative(name: str, value: float) -> float:
     return value_
 
 
+def _checkPrecisionMultiplierBounds(
+    prefix: str,
+    minValue: float,
+    maxValue: float,
+) -> tuple[float, float]:
+    minValue_ = _checkFinitePositive(f"{prefix}PrecisionMultiplierMin", minValue)
+    maxValue_ = _checkFinitePositive(f"{prefix}PrecisionMultiplierMax", maxValue)
+    if maxValue_ < minValue_:
+        raise ValueError(
+            f"`{prefix}PrecisionMultiplierMax` must be >= "
+            f"`{prefix}PrecisionMultiplierMin`"
+        )
+    return minValue_, maxValue_
+
+
 def _computeExpectedTransitionResidualSums(
     stateSmoothed: np.ndarray,
     stateCovarSmoothed: np.ndarray,
@@ -1601,10 +1643,10 @@ def runConsenrich(
     EM_useReplicateBias: bool = True,
     EM_zeroCenterBackground: bool = True,
     EM_zeroCenterReplicateBias: bool = True,
-    EM_repBiasShrink: float = 0.0,
     EM_outerIters: int = 3,
     EM_outerRtol: float = 1.0e-3,
     EM_backgroundSmoothness: float = 1.0,
+    fitBackground: bool = True,
     returnScales: bool = True,
     returnReplicateOffsets: bool = False,
     applyJackknife: bool = False,
@@ -1616,6 +1658,10 @@ def runConsenrich(
     processQTrendTarget: float | None = None,
     processQLevelPriorWeight: float = 0.05,
     processQTrendPriorWeight: float = 1.0,
+    observationPrecisionMultiplierMin: float = 0.25,
+    observationPrecisionMultiplierMax: float = 4.0,
+    processPrecisionMultiplierMin: float = 0.25,
+    processPrecisionMultiplierMax: float = 4.0,
     observationMask: np.ndarray | None = None,
 ):
     r"""Run Consenrich over a contiguous genomic region
@@ -1634,7 +1680,8 @@ def runConsenrich(
 
     Here :math:`g_{[i]}` is a shared smooth background, :math:`b_j` is a
     replicate-level bias term, and :math:`v_{[j,i]}` is the plugin observation
-    variance supplied by ``matrixMunc``. By default, identifiability is enforced
+    variance supplied by ``matrixMunc``. The shared smooth background fit can be
+    disabled with ``fitBackground=False``. By default, identifiability is enforced
     by zero-centering the shared background and replicate offsets; those constraints
     can be disabled with ``EM_zeroCenterBackground=False`` and
     ``EM_zeroCenterReplicateBias=False``.
@@ -1706,6 +1753,22 @@ def runConsenrich(
     EM_useAPN = bool(EM_useAPN)
     if EM_useAPN:
         EM_useProcPrecReweight = False
+    (
+        observationPrecisionMultiplierMin,
+        observationPrecisionMultiplierMax,
+    ) = _checkPrecisionMultiplierBounds(
+        "observation",
+        observationPrecisionMultiplierMin,
+        observationPrecisionMultiplierMax,
+    )
+    (
+        processPrecisionMultiplierMin,
+        processPrecisionMultiplierMax,
+    ) = _checkPrecisionMultiplierBounds(
+        "process",
+        processPrecisionMultiplierMin,
+        processPrecisionMultiplierMax,
+    )
     processQCalibrationMode = _normalizeProcessQCalibration(processQCalibration)
 
     blockCount = int(np.ceil(intervalCount / float(blockLenIntervals)))
@@ -1722,6 +1785,13 @@ def runConsenrich(
         int(EM_maxIters),
         int(EM_outerIters),
         processQCalibrationMode,
+    )
+    logger.info(
+        "precisionMultiplierBounds: obs=[%.6g, %.6g] proc=[%.6g, %.6g]",
+        observationPrecisionMultiplierMin,
+        observationPrecisionMultiplierMax,
+        processPrecisionMultiplierMin,
+        processPrecisionMultiplierMax,
     )
 
     # keep the transition matrix step-dependent while using an explicit base Q
@@ -1782,6 +1852,10 @@ def runConsenrich(
             EM_useProcPrecReweight=bool(emUseProcPrecReweightLocal),
             EM_useAPN=bool(emUseAPNLocal),
             EM_useReplicateBias=bool(EM_useReplicateBias),
+            obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+            obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+            procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
+            procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
             APN_minQ=float(minQ),
             APN_maxQ=float(maxQ),
         )
@@ -1907,7 +1981,8 @@ def runConsenrich(
         NISLocal = None
         sumNLLLocal = np.nan
 
-        outerIters = max(1, int(EM_outerIters))
+        fitBackgroundLocal = bool(fitBackground)
+        outerIters = max(1, int(EM_outerIters)) if fitBackgroundLocal else 1
         outerTol = float(max(EM_outerRtol, 0.0))
 
         for outerIter in range(outerIters):
@@ -1934,7 +2009,10 @@ def runConsenrich(
                 EM_useAPN=bool(useAPNLocal),
                 EM_useReplicateBias=bool(EM_useReplicateBias),
                 EM_zeroCenterReplicateBias=bool(EM_zeroCenterReplicateBias),
-                EM_repBiasShrink=float(EM_repBiasShrink),
+                obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+                obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+                procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
+                procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
                 APN_minQ=float(minQ),
                 APN_maxQ=float(maxQ),
             )
@@ -1970,9 +2048,20 @@ def runConsenrich(
             lagCovSmoothedLocal = np.asarray(lagCovSmoothedLocal, dtype=np.float32)
             postFitResidualsLocal = np.asarray(postFitResidualsLocal, dtype=np.float32)
 
+            if not fitBackgroundLocal:
+                logger.info(
+                    "outerEM[1/1]:\n\tfitBackground=False\n\tbackgroundShift=0",
+                )
+                break
+
             invVarMatrix = 1.0 / np.maximum(currentMunc + float(pad), 1.0e-8)
             if lambdaExpLocal is not None:
-                invVarMatrix *= np.asarray(lambdaExpLocal, dtype=np.float32)
+                obsPrecision = np.clip(
+                    np.asarray(lambdaExpLocal, dtype=np.float32),
+                    float(observationPrecisionMultiplierMin),
+                    float(observationPrecisionMultiplierMax),
+                )
+                invVarMatrix *= obsPrecision
             residualMatrix = (
                 np.asarray(matrixDataLocal, dtype=np.float32)
                 - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
@@ -3080,9 +3169,8 @@ def getMuncTrack(
                     np.cumsum(excludeMaskArr.astype(np.int64, copy=False)),
                 )
             )
-            validMask = (
-                excludeCum[blockStarts + blockLen] - excludeCum[blockStarts]
-            ) == 0
+            blockEnds = blockStarts + blockSizes
+            validMask = (excludeCum[blockEnds] - excludeCum[blockStarts]) == 0
             blockStarts = blockStarts[validMask]
             blockSizes = blockSizes[validMask]
             sparseIdx = sparseIdx[validMask]

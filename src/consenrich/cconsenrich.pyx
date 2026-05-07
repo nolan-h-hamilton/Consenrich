@@ -75,10 +75,6 @@ cnp.import_array()
 # ========
 cdef const float __INV_LN2_FLOAT = <float>1.44269504
 cdef const double __INV_LN2_DOUBLE = <double>1.44269504088896340
-# these bound the precision multipliers during EM updates
-cdef const double __EM_PRECISION_MULTIPLIER_MIN = <double>0.1
-cdef const double __EM_PRECISION_MULTIPLIER_MAX = <double>10.0
-
 ctypedef fused real_t:
     float
     double
@@ -836,6 +832,59 @@ cdef inline MAT2 MAT2_clipDiagNonneg(MAT2 A) noexcept nogil:
 
 cdef inline double MAT2_traceProd(MAT2 A, MAT2 B) noexcept nogil:
     return A.a00*B.a00 + A.a01*B.a10 + A.a10*B.a01 + A.a11*B.a11
+
+
+cpdef bint cisAlignmentPairedEnd(
+    str bamFile,
+    int64_t maxReads=1000,
+    uint16_t samThreads=0,
+    uint16_t samFlagExclude=3844,
+):
+    r"""Return True when sampled alignment records carry the paired-end flag."""
+    cdef bytes bamFileBytes = bamFile.encode("utf-8")
+    cdef samFile* fileHandle = NULL
+    cdef sam_hdr_t* header = NULL
+    cdef bam1_t* record = NULL
+    cdef int64_t sampled = 0
+    cdef int readFlag
+    cdef bint isPairedEnd = <bint>0
+
+    if maxReads < 1:
+        maxReads = 1
+
+    fileHandle = sam_open(bamFileBytes, "r")
+    if fileHandle == NULL:
+        raise FileNotFoundError(f"Could not open alignment file `{bamFile}`")
+
+    try:
+        if samThreads > 1:
+            hts_set_threads(<htsFile*>fileHandle, <int>samThreads)
+
+        header = sam_hdr_read(fileHandle)
+        if header == NULL:
+            raise OSError(f"Could not read alignment header for `{bamFile}`")
+
+        record = bam_init1()
+        if record == NULL:
+            raise MemoryError("failed to allocate BAM record")
+
+        while sampled < maxReads and sam_read1(fileHandle, header, record) >= 0:
+            readFlag = <int>record.core.flag
+            if (readFlag & samFlagExclude) != 0:
+                continue
+            sampled += 1
+            if (readFlag & 1) != 0:
+                isPairedEnd = <bint>1
+                break
+
+        return isPairedEnd
+    finally:
+        if record != NULL:
+            bam_destroy1(record)
+        if header != NULL:
+            sam_hdr_destroy(header)
+        if fileHandle != NULL:
+            sam_close(fileHandle)
 
 
 cpdef int64_t cgetFragmentLength(
@@ -2135,6 +2184,10 @@ cpdef tuple cforwardPass(
     bint EM_useProcPrecReweight=True,
     bint EM_useAPN=False,
     bint EM_useReplicateBias=False,
+    float obsPrecisionMultiplierMin=0.25,
+    float obsPrecisionMultiplierMax=4.0,
+    float procPrecisionMultiplierMin=0.25,
+    float procPrecisionMultiplierMax=4.0,
     float APN_minQ=1.0e-4,
     float APN_maxQ=1000.0,
     float APN_dStatThresh=5.0,
@@ -2210,11 +2263,11 @@ cpdef tuple cforwardPass(
     cdef double sumDStat = 0.0
     cdef float qScaleB
     cdef double w
-    cdef double wMin = __EM_PRECISION_MULTIPLIER_MIN
-    cdef double wMax = __EM_PRECISION_MULTIPLIER_MAX
+    cdef double wMin = <double>obsPrecisionMultiplierMin
+    cdef double wMax = <double>obsPrecisionMultiplierMax
     cdef double procPrec
-    cdef double procPrecMin = __EM_PRECISION_MULTIPLIER_MIN
-    cdef double procPrecMax = __EM_PRECISION_MULTIPLIER_MAX
+    cdef double procPrecMin = <double>procPrecisionMultiplierMin
+    cdef double procPrecMax = <double>procPrecisionMultiplierMax
     cdef double biasJ
     cdef double qDiagBase
     cdef double apnScale = 1.0
@@ -2252,6 +2305,12 @@ cpdef tuple cforwardPass(
 
     if blockCount <= 0:
         raise ValueError("blockCount must be positive")
+
+    if wMin <= 0.0 or wMax <= 0.0 or wMax < wMin:
+        raise ValueError("observation precision multiplier bounds must satisfy 0 < min <= max")
+
+    if procPrecMin <= 0.0 or procPrecMax <= 0.0 or procPrecMax < procPrecMin:
+        raise ValueError("process precision multiplier bounds must satisfy 0 < min <= max")
 
     if qScale.shape[0] < blockCount:
         raise ValueError("qScale length must be >= blockCount")
@@ -2733,12 +2792,15 @@ cpdef tuple cinnerEM(
     float EM_innerRtol=1.0e-4,
     float pad=1.0e-4,
     float EM_tNu=8.0,
+    float obsPrecisionMultiplierMin=0.25,
+    float obsPrecisionMultiplierMax=4.0,
+    float procPrecisionMultiplierMin=0.25,
+    float procPrecisionMultiplierMax=4.0,
     bint EM_useObsPrecReweight=True,
     bint EM_useProcPrecReweight=True,
     bint EM_useAPN=False,
     bint EM_useReplicateBias=True,
     bint EM_zeroCenterReplicateBias=True,
-    float EM_repBiasShrink=0.0,
     float APN_minQ=1.0e-4,
     float APN_maxQ=1000.0,
     float APN_dStatThresh=5.0,
@@ -2887,13 +2949,21 @@ cpdef tuple cinnerEM(
     :type EM_innerRtol: float
     :param EM_tNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
     :type EM_tNu: float
+    :param obsPrecisionMultiplierMin: Lower clamp for observation precision multipliers :math:`\lambda_{[j,i]}`.
+    :type obsPrecisionMultiplierMin: float
+    :param obsPrecisionMultiplierMax: Upper clamp for observation precision multipliers :math:`\lambda_{[j,i]}`.
+    :type obsPrecisionMultiplierMax: float
+    :param procPrecisionMultiplierMin: Lower clamp for process precision multipliers :math:`\kappa_{[i]}`.
+    :type procPrecisionMultiplierMin: float
+    :param procPrecisionMultiplierMax: Upper clamp for process precision multipliers :math:`\kappa_{[i]}`.
+    :type procPrecisionMultiplierMax: float
     :param EM_useObsPrecReweight: If True, update observation precision multipliers :math:`\lambda_{[j,i]}` (Student-t reweighting); otherwise :math:`\lambda\equiv 1`.
     :type EM_useObsPrecReweight: bool
     :param EM_useProcPrecReweight: If True, update process precision multipliers :math:`\kappa_{[i]}` (Student-t reweighting); otherwise :math:`\kappa\equiv 1`.
     :type EM_useProcPrecReweight: bool
     :param EM_useReplicateBias: If True, update replicate-level additive offsets :math:`b_j`.
     :type EM_useReplicateBias: bool
-    :param EM_zeroCenterReplicateBias: If True, center replicate offsets to weighted mean zero after each update.
+    :param EM_zeroCenterReplicateBias: If True, center replicate offsets against fixed plugin inverse-variance weights after each update.
     :type EM_zeroCenterReplicateBias: bool
     :param t_innerIters: Number of inner filter/smoother + reweighting updates per EM outer iteration.
     :type t_innerIters: int
@@ -3001,22 +3071,26 @@ cpdef tuple cinnerEM(
     cdef double delta
     cdef double u2
     cdef double w
-    cdef double wMin = __EM_PRECISION_MULTIPLIER_MIN
-    cdef double wMax = __EM_PRECISION_MULTIPLIER_MAX
+    cdef double wMin = <double>obsPrecisionMultiplierMin
+    cdef double wMax = <double>obsPrecisionMultiplierMax
     cdef double kappa_
-    cdef double kappaMin_ = __EM_PRECISION_MULTIPLIER_MIN
-    cdef double kappaMax_ = __EM_PRECISION_MULTIPLIER_MAX
+    cdef double kappaMin_ = <double>procPrecisionMultiplierMin
+    cdef double kappaMax_ = <double>procPrecisionMultiplierMax
     cdef double dState = 2.0
     cdef double tmpVal
     cdef double procNu = EM_tNu
     cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasNum = np.zeros(trackCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasDen = np.zeros(trackCount, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasCenterWeight = np.zeros(trackCount, dtype=np.float64)
     cdef double[::1] repBiasNumView = repBiasNum
     cdef double[::1] repBiasDenView = repBiasDen
+    cdef double[::1] repBiasCenterWeightView = repBiasCenterWeight
     cdef Py_ssize_t stableIters = 0
     cdef Py_ssize_t patienceTarget = 2
-    cdef double repBiasCenter
-    cdef double repBiasShrink
+    cdef double repBiasAlpha
+    cdef double repBiasProjectionNum
+    cdef double repBiasProjectionDen
+    cdef double repBiasCenterWeightJ
     cdef double invVar
     cdef double denomNoRep
     cdef double yMinusState
@@ -3032,6 +3106,10 @@ cpdef tuple cinnerEM(
 
     if blockCount <= 0:
         raise ValueError("blockCount must be positive")
+    if wMin <= 0.0 or wMax <= 0.0 or wMax < wMin:
+        raise ValueError("observation precision multiplier bounds must satisfy 0 < min <= max")
+    if kappaMin_ <= 0.0 or kappaMax_ <= 0.0 or kappaMax_ < kappaMin_:
+        raise ValueError("process precision multiplier bounds must satisfy 0 < min <= max")
     if intervalToBlockMap.shape[0] < intervalCount:
         raise ValueError("intervalToBlockMap length must match intervalCount")
     if matrixPluginMuncInit.shape[0] != trackCount or matrixPluginMuncInit.shape[1] != intervalCount:
@@ -3047,9 +3125,19 @@ cpdef tuple cinnerEM(
     F = MAT2_make(f00, f01, f10, f11)
     Ft = MAT2_transpose(F)
     Q0inv = MAT2_make(q0Inv00, q0Inv01, q0Inv10, q0Inv11)
-    repBiasShrink = <double>EM_repBiasShrink
-    if repBiasShrink < 0.0:
-        repBiasShrink = 0.0
+
+    with nogil:
+        for j in range(trackCount):
+            repBiasCenterWeightView[j] = 0.0
+        for k in range(intervalCount):
+            b = <Py_ssize_t>blockMapView[k]
+            if b < 0 or b >= blockCount:
+                continue
+            for j in range(trackCount):
+                muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                if muncPlusPad < 1.0e-12:
+                    muncPlusPad = 1.0e-12
+                repBiasCenterWeightView[j] += 1.0 / muncPlusPad
 
     for i in range(EM_maxIters):
         itersDone = i + 1
@@ -3086,6 +3174,10 @@ cpdef tuple cinnerEM(
                 EM_useProcPrecReweight=EM_useProcPrecReweight,
                 EM_useAPN=EM_useAPN,
                 EM_useReplicateBias=EM_useReplicateBias,
+                obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
+                obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
+                procPrecisionMultiplierMin=procPrecisionMultiplierMin,
+                procPrecisionMultiplierMax=procPrecisionMultiplierMax,
                 APN_minQ=APN_minQ,
                 APN_maxQ=APN_maxQ,
                 APN_dStatThresh=APN_dStatThresh,
@@ -3202,6 +3294,73 @@ cpdef tuple cinnerEM(
                         kappa_ = kappaMax_
                     processPrecExpView[k + 1] = <cnp.float32_t>kappa_
 
+        with nogil:
+            # -----------------------------
+            # sufficient stats for replicate-level bias
+            #   y[j,k] = x[k] + bias[j] + e[j,k]
+            #   Var[e[j,k]] = (munc[j,k] + pad) / lambda[j,k]
+            # -----------------------------
+            if EM_useReplicateBias:
+                for j in range(trackCount):
+                    repBiasNumView[j] = 0.0
+                    repBiasDenView[j] = 0.0
+                for k in range(intervalCount):
+                    b = <Py_ssize_t>blockMapView[k]
+                    if b < 0 or b >= blockCount:
+                        continue
+
+                    for j in range(trackCount):
+                        muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                        if muncPlusPad < 1.0e-12:
+                            muncPlusPad = 1.0e-12
+
+                        denomNoRep = muncPlusPad
+                        if denomNoRep < 1.0e-12:
+                            denomNoRep = 1.0e-12
+
+                        if EM_useObsPrecReweight:
+                            w = <double>lambdaExpView[j, k]
+                            if w < wMin:
+                                w = wMin
+                            elif w > wMax:
+                                w = wMax
+                        else:
+                            w = 1.0
+
+                        invVar = w / denomNoRep
+                        yMinusState = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                        repBiasNumView[j] += invVar * yMinusState
+                        repBiasDenView[j] += invVar
+
+                repBiasProjectionNum = 0.0
+                repBiasProjectionDen = 0.0
+                for j in range(trackCount):
+                    if repBiasDenView[j] > 0.0:
+                        tmpVal = repBiasNumView[j] / repBiasDenView[j]
+                        replicateBiasView[j] = <cnp.float32_t>tmpVal
+                        if EM_zeroCenterReplicateBias:
+                            repBiasCenterWeightJ = repBiasCenterWeightView[j]
+                            repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
+                            repBiasProjectionDen += (
+                                repBiasCenterWeightJ * repBiasCenterWeightJ
+                            ) / repBiasDenView[j]
+                    else:
+                        replicateBiasView[j] = <cnp.float32_t>0.0
+
+                if EM_zeroCenterReplicateBias and repBiasProjectionDen > 0.0:
+                    repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
+                else:
+                    repBiasAlpha = 0.0
+
+                for j in range(trackCount):
+                    tmpVal = <double>replicateBiasView[j]
+                    if EM_zeroCenterReplicateBias and repBiasDenView[j] > 0.0:
+                        tmpVal = (
+                            tmpVal
+                            - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
+                        )
+                    replicateBiasView[j] = <cnp.float32_t>tmpVal
+
         currentNLL = (<double>cforwardPass(
             matrixData=matrixData,
             matrixPluginMuncInit=matrixPluginMuncInit,
@@ -3232,6 +3391,10 @@ cpdef tuple cinnerEM(
             EM_useProcPrecReweight=EM_useProcPrecReweight,
             EM_useAPN=EM_useAPN,
             EM_useReplicateBias=EM_useReplicateBias,
+            obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
+            obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
+            procPrecisionMultiplierMin=procPrecisionMultiplierMin,
+            procPrecisionMultiplierMax=procPrecisionMultiplierMax,
             APN_minQ=APN_minQ,
             APN_maxQ=APN_maxQ,
             APN_dStatThresh=APN_dStatThresh,
@@ -3257,64 +3420,6 @@ cpdef tuple cinnerEM(
             absRelChange,
             nllTol,
         )
-
-        with nogil:
-            # -----------------------------
-            # sufficient stats for replicate-level bias
-            #   y[j,k] = x[k] + bias[j] + e[j,k]
-            #   Var[e[j,k]] = (munc[j,k] + pad) / lambda[j,k]
-            # -----------------------------
-            if EM_useReplicateBias:
-                for j in range(trackCount):
-                    repBiasNumView[j] = 0.0
-                    repBiasDenView[j] = 0.0
-                for k in range(intervalCount):
-                    b = <Py_ssize_t>blockMapView[k]
-                    if b < 0 or b >= blockCount:
-                        continue
-
-                    for j in range(trackCount):
-                        muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                        if muncPlusPad < 1.0e-12:
-                            muncPlusPad = 1.0e-12
-
-                        denomNoRep = muncPlusPad
-                        if denomNoRep < 1.0e-12:
-                            denomNoRep = 1.0e-12
-
-                        if EM_useObsPrecReweight:
-                            w = <double>lambdaExpView[j, k]
-                        else:
-                            w = 1.0
-
-                        invVar = w / denomNoRep
-                        yMinusState = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
-                        repBiasNumView[j] += invVar * yMinusState
-                        repBiasDenView[j] += invVar
-
-                repBiasCenter = 0.0
-                denomNoRep = 0.0
-                for j in range(trackCount):
-                    if repBiasDenView[j] > 0.0:
-                        replicateBiasView[j] = <cnp.float32_t>(repBiasNumView[j] / repBiasDenView[j])
-                        repBiasCenter += repBiasDenView[j] * (<double>replicateBiasView[j])
-                        denomNoRep += repBiasDenView[j]
-                    else:
-                        replicateBiasView[j] = <cnp.float32_t>0.0
-                        denomNoRep += 1.0
-
-                if EM_zeroCenterReplicateBias and denomNoRep > 0.0:
-                    repBiasCenter = repBiasCenter / denomNoRep
-                else:
-                    repBiasCenter = 0.0
-
-                for j in range(trackCount):
-                    tmpVal = <double>replicateBiasView[j]
-                    if EM_zeroCenterReplicateBias:
-                        tmpVal = tmpVal - repBiasCenter
-                    if repBiasShrink > 0.0:
-                        tmpVal = tmpVal / (1.0 + repBiasShrink)
-                    replicateBiasView[j] = <cnp.float32_t>tmpVal
 
         if nllDelta <= nllTol:
             stableIters += 1
