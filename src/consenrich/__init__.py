@@ -6,7 +6,6 @@ from importlib import import_module
 
 cconsenrich = import_module(__name__ + ".cconsenrich")
 ccounts = import_module(__name__ + ".ccounts")
-cuncertainty = import_module(__name__ + ".cuncertainty")
 
 from .cconsenrich import *
 from .ccounts import *
@@ -20,7 +19,6 @@ from . import (
     peaks,
     regions,
     state_space,
-    uncertainty,
 )
 from .core import *
 from .misc_util import *
@@ -31,11 +29,27 @@ from .state_space import *
 from .config import *
 from .munc import *
 from .regions import *
-from .uncertainty import *
+
+_optional_import_errors = {}
+try:
+    cuncertainty = import_module(__name__ + ".cuncertainty")
+except ImportError as exc:
+    if exc.name != __name__ + ".cuncertainty":
+        raise
+    _optional_import_errors["cuncertainty"] = exc
+else:
+    try:
+        from . import uncertainty
+        from .uncertainty import *
+    except ImportError as exc:
+        if exc.name != __name__ + ".cuncertainty":
+            raise
+        _optional_import_errors["uncertainty"] = exc
 
 __all__ = sorted(
     name
-    for name in globals()
+    for name, value in globals().items()
     if not name.startswith("_")
     and name not in {"import_module"}
+    and value is not None
 )

@@ -18,10 +18,9 @@ For interval :math:`i` and replicate :math:`j`:
 * :math:`y_{[j,i]}` is the observed track value
 * :math:`\mathbf{x}_{[i]} = (x_{[i,0]}, x_{[i,1]})^\top` is the latent level/slope state
 * :math:`g_{[i]}` is the shared zero-centered background
-* :math:`b_j` and :math:`a_j` are replicate bias and observation-scale terms
+* :math:`b_j` is the replicate bias term
 * :math:`v_{[j,i]}` is the plugin observation variance track derived from the given data
-* :math:`b(i)` maps interval :math:`i` to a block index
-* :math:`q_b` is the corresponding process-noise scale
+* :math:`\mathbf{Q}_0` is the fixed or warm-up-calibrated base process covariance
 * :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are precision weights
 
 Model
@@ -34,7 +33,7 @@ Model
   y_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
   \qquad
   \mathrm{Var}(\epsilon_{[j,i]}) =
-  \frac{a_j (v_{[j,i]} + \mathrm{pad})}{\lambda_{[j,i]}}.
+  \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[j,i]}}.
 
 **Prior Process Model**
 
@@ -44,7 +43,7 @@ The latent state vector :math:`\mathbf{x}_{[i]}` evolves according to a first-or
 
   \mathbf{x}_{[i+1]} = \mathbf{F}(\delta_F)\mathbf{x}_{[i]} + \eta_{[i]},
   \qquad
-  \mathrm{Var}(\eta_{[i]}) = \frac{q_{b(i)} \mathbf{Q}_0}{\kappa_{[i]}}.
+  \mathrm{Var}(\eta_{[i]}) = \frac{\mathbf{Q}_0}{\kappa_{[i]}}.
 
 Here :math:`g_{[i]}` is a shared zero-centered smooth background. The outer loop updates
 :math:`g_{[i]}` while the data-derived (or given) observation-variance track stays fixed

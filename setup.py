@@ -25,6 +25,18 @@ def get_includes():
     ] + getHtslibIncludeDirs()
 
 
+def cythonSourceOrGeneratedC(path):
+    r"""Accept either .pyx or .c extensions"""
+    if os.path.exists(path):
+        return path
+    root, ext = os.path.splitext(path)
+    if ext == ".pyx":
+        generatedC = root + ".c"
+        if os.path.exists(generatedC):
+            return generatedC
+    return path
+
+
 def hasVendoredHtslib():
     return os.path.exists(os.path.join(VENDORED_HTSLIB_DIR, "Makefile"))
 
@@ -233,7 +245,7 @@ class buildConsenrichExt(build_ext):
 extensions = [
     Extension(
         "consenrich.cconsenrich",
-        sources=["src/consenrich/cconsenrich.pyx"],
+        sources=[cythonSourceOrGeneratedC("src/consenrich/cconsenrich.pyx")],
         include_dirs=get_includes(),
         libraries=getBundledHtslibLibraries(),
         library_dirs=get_library_dirs(),
@@ -243,7 +255,7 @@ extensions = [
     Extension(
         "consenrich.ccounts",
         sources=[
-            "src/consenrich/ccounts.pyx",
+            cythonSourceOrGeneratedC("src/consenrich/ccounts.pyx"),
             "src/consenrich/native/ccounts_backend.c",
         ],
         include_dirs=[numpy.get_include(), os.path.join("src", "consenrich")]
@@ -255,7 +267,7 @@ extensions = [
     ),
     Extension(
         "consenrich.cuncertainty",
-        sources=["src/consenrich/cuncertainty.pyx"],
+        sources=[cythonSourceOrGeneratedC("src/consenrich/cuncertainty.pyx")],
         include_dirs=[numpy.get_include(), os.path.join("src", "consenrich")],
         extra_compile_args=base_compile,
     ),
