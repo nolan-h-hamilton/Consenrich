@@ -1334,7 +1334,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "processParams.processQTrendTarget",
         None,
     )
-    processDefaults = core.processParams()
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", 1.0),
         minQ=_cfgGet(configData, "processParams.minQ", 1.0e-4),
@@ -1365,18 +1364,10 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgGet(configData, "processParams.processQTrendPriorWeight", 25.0)
         ),
         precisionMultiplierMin=float(
-            _cfgGet(
-                configData,
-                "processParams.precisionMultiplierMin",
-                processDefaults.precisionMultiplierMin,
-            )
+            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.1)
         ),
         precisionMultiplierMax=float(
-            _cfgGet(
-                configData,
-                "processParams.precisionMultiplierMax",
-                processDefaults.precisionMultiplierMax,
-            )
+            _cfgGet(configData, "processParams.precisionMultiplierMax", 10.0)
         ),
     )
 
