@@ -17,10 +17,9 @@ dependencies:
   - bedtools>=2.30.0
   - pysam>=0.23.3
   - pybedtools>=0.11.2
-  - ucsc-bedgraphtobigwig
+  - pybigwig>=0.3.24
   - PyYAML>=6.0.2
   - PyWavelets>=1.9.0
 
   - pip:
       - consenrich
-

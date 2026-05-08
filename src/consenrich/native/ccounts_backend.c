@@ -1,6 +1,7 @@
 #include "ccounts_backend.h"
 
 #include <htslib/hts.h>
+#include <htslib/bgzf.h>
 #include <htslib/khash.h>
 #include <htslib/sam.h>
 #include <htslib/kstring.h>
@@ -13,6 +14,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 /**
  * @brief native handle for one open source
@@ -53,9 +56,98 @@ static int ccounts_hasValue(const char *value)
     return value != NULL && value[0] != '\0';
 }
 
+static int ccounts_fileExists(const char *path)
+{
+    struct stat statBuffer;
+    return path != NULL && stat(path, &statBuffer) == 0;
+}
+
+static int ccounts_shouldTryTabixIndex(const char *path)
+{
+    char *candidatePath = NULL;
+    size_t pathLength = 0U;
+    int hasIndex = 0;
+
+    if (!ccounts_hasValue(path))
+    {
+        return 0;
+    }
+    if (strstr(path, HTS_IDX_DELIM) != NULL || strstr(path, "://") != NULL)
+    {
+        return 1;
+    }
+
+    pathLength = strlen(path);
+    candidatePath = (char *)malloc(pathLength + 5U);
+    if (candidatePath == NULL)
+    {
+        return 0;
+    }
+
+    snprintf(candidatePath, pathLength + 5U, "%s.csi", path);
+    hasIndex = ccounts_fileExists(candidatePath);
+    if (!hasIndex)
+    {
+        snprintf(candidatePath, pathLength + 5U, "%s.tbi", path);
+        hasIndex = ccounts_fileExists(candidatePath);
+    }
+    free(candidatePath);
+    return hasIndex;
+}
+
+static int ccounts_startsWithDirective(const char *line, const char *directive)
+{
+    size_t index = 0U;
+    char nextChar = '\0';
+
+    if (line == NULL || directive == NULL)
+    {
+        return 0;
+    }
+
+    while (directive[index] != '\0')
+    {
+        if (line[index] == '\0' ||
+            tolower((unsigned char)line[index]) != (unsigned char)directive[index])
+        {
+            return 0;
+        }
+        ++index;
+    }
+
+    nextChar = line[index];
+    return nextChar == '\0' || isspace((unsigned char)nextChar) || nextChar == '=';
+}
+
+static int ccounts_isBedGraphMetaLine(const char *line)
+{
+    if (line == NULL)
+    {
+        return 1;
+    }
+    while (*line != '\0' && isspace((unsigned char)*line))
+    {
+        ++line;
+    }
+    if (*line == '\0' || *line == '#')
+    {
+        return 1;
+    }
+    return ccounts_startsWithDirective(line, "track") ||
+           ccounts_startsWithDirective(line, "browser");
+}
+
 static int ccounts_isAlignmentKind(ccounts_sourceKind sourceKind)
 {
     return sourceKind == ccounts_sourceKindBAM;
+}
+
+static int ccounts_isValidCountMode(uint8_t countMode)
+{
+    return countMode == (uint8_t)ccounts_countModeCoverage ||
+           countMode == (uint8_t)ccounts_countModeCutSite ||
+           countMode == (uint8_t)ccounts_countModeFivePrime ||
+           countMode == (uint8_t)ccounts_countModeCenter;
 }
 
 static int ccounts_compareUint32(const void *left, const void *right)
@@ -501,6 +593,13 @@ static ccounts_result ccounts_openBedGraphSource(
     {
         return ccounts_makeResult(-1, "failed to open bedGraph source");
     }
+    if (ccounts_shouldTryTabixIndex(sourceConfig->path))
+    {
+        sourceHandle->tbxHandle = tbx_index_load3(
+            sourceConfig->path,
+            NULL,
+            HTS_IDX_SAVE_REMOTE | HTS_IDX_SILENT_FAIL);
+    }
     return ccounts_makeOk();
 }
 
@@ -635,9 +734,20 @@ ccounts_result ccounts_checkAlignmentFile(
         {
             return ccounts_makeResult(-1, "failed to open bedGraph source");
         }
+        if (ccounts_shouldTryTabixIndex(sourceConfig->path))
+        {
+            tbxHandle = tbx_index_load3(
+                sourceConfig->path,
+                NULL,
+                HTS_IDX_SAVE_REMOTE | HTS_IDX_SILENT_FAIL);
+        }
         if (hasIndexOut != NULL)
         {
-            *hasIndexOut = 0;
+            *hasIndexOut = tbxHandle != NULL ? 1 : 0;
+        }
+        if (tbxHandle != NULL)
+        {
+            tbx_destroy(tbxHandle);
         }
         hts_close(fragmentsHandle);
         return ccounts_makeOk();
@@ -658,6 +768,96 @@ ccounts_result ccounts_checkAlignmentFile(
         tbx_destroy(tbxHandle);
     }
     hts_close(fragmentsHandle);
+    return ccounts_makeOk();
+}
+
+ccounts_result ccounts_buildBedGraphTabixIndex(
+    const char *sourcePath,
+    const char *targetPath,
+    int threadCount)
+{
+    htsFile *inputHandle = NULL;
+    BGZF *outputHandle = NULL;
+    kstring_t lineBuffer = {0, 0, NULL};
+    int getlineCode = 0;
+    ssize_t writeCode = 0;
+    int closeCode = 0;
+    int indexCode = 0;
+
+    if (!ccounts_hasValue(sourcePath) || !ccounts_hasValue(targetPath))
+    {
+        return ccounts_makeResult(-1, "bedGraph index paths are invalid");
+    }
+
+    inputHandle = hts_open(sourcePath, "r");
+    if (inputHandle == NULL)
+    {
+        return ccounts_makeResult(-1, "failed to open bedGraph source for indexing");
+    }
+
+    outputHandle = bgzf_open(targetPath, "w");
+    if (outputHandle == NULL)
+    {
+        hts_close(inputHandle);
+        return ccounts_makeResult(-1, "failed to open bgzip bedGraph output");
+    }
+    if (threadCount > 1 && bgzf_mt(outputHandle, threadCount, 256) != 0)
+    {
+        bgzf_close(outputHandle);
+        hts_close(inputHandle);
+        return ccounts_makeResult(-1, "failed to set bgzip thread count");
+    }
+
+    while ((getlineCode = hts_getline(inputHandle, '\n', &lineBuffer)) >= 0)
+    {
+        if (ccounts_isBedGraphMetaLine(lineBuffer.s))
+        {
+            continue;
+        }
+        writeCode = bgzf_write(outputHandle, lineBuffer.s, lineBuffer.l);
+        if (writeCode < 0 || writeCode != (ssize_t)lineBuffer.l)
+        {
+            free(lineBuffer.s);
+            bgzf_close(outputHandle);
+            hts_close(inputHandle);
+            return ccounts_makeResult(-1, "failed to write bgzip bedGraph output");
+        }
+        writeCode = bgzf_write(outputHandle, "\n", 1U);
+        if (writeCode != 1)
+        {
+            free(lineBuffer.s);
+            bgzf_close(outputHandle);
+            hts_close(inputHandle);
+            return ccounts_makeResult(-1, "failed to write bgzip bedGraph newline");
+        }
+    }
+
+    free(lineBuffer.s);
+    closeCode = bgzf_close(outputHandle);
+    outputHandle = NULL;
+    hts_close(inputHandle);
+    inputHandle = NULL;
+
+    if (getlineCode < -1)
+    {
+        return ccounts_makeResult(-1, "failed to read bedGraph source for indexing");
+    }
+    if (closeCode != 0)
+    {
+        return ccounts_makeResult(-1, "failed to close bgzip bedGraph output");
+    }
+
+    indexCode = tbx_index_build3(
+        targetPath,
+        NULL,
+        0,
+        threadCount > 0 ? threadCount : 1,
+        &tbx_conf_bed);
+    if (indexCode != 0)
+    {
+        return ccounts_makeResult(-1, "failed to build bedGraph tabix index");
+    }
+
     return ccounts_makeOk();
 }
 
@@ -966,6 +1166,9 @@ ccounts_result ccounts_getChromRange(
     if (sourceHandle->sourceKind == ccounts_sourceKindBedGraph)
     {
         kstring_t lineBuffer = {0, 0, NULL};
+        hts_itr_t *bedGraphIterator = NULL;
+        char regionBuffer[1024];
+        int useBedGraphIterator = 0;
         int iteratorCode = 0;
         int seenRecord = 0;
         int64_t bgStart = 0;
@@ -979,7 +1182,28 @@ ccounts_result ccounts_getChromRange(
             return ccounts_makeResult(-1, "bedGraph source handle is not initialized");
         }
 
-        while ((iteratorCode = hts_getline(sourceHandle->bedGraphHandle, '\n', &lineBuffer)) >= 0)
+        if (sourceHandle->tbxHandle != NULL)
+        {
+            useBedGraphIterator = 1;
+            snprintf(
+                regionBuffer,
+                sizeof(regionBuffer),
+                "%s:%d-%llu",
+                chromosome,
+                1,
+                (unsigned long long)chromLength);
+            bedGraphIterator = tbx_itr_querys(sourceHandle->tbxHandle, regionBuffer);
+        }
+
+        while ((iteratorCode = (useBedGraphIterator
+                                    ? (bedGraphIterator != NULL
+                                           ? tbx_itr_next(
+                                                 sourceHandle->bedGraphHandle,
+                                                 sourceHandle->tbxHandle,
+                                                 bedGraphIterator,
+                                                 &lineBuffer)
+                                           : -1)
+                                    : hts_getline(sourceHandle->bedGraphHandle, '\n', &lineBuffer))) >= 0)
         {
             const char *cursor = lineBuffer.s;
             const char *lineStart = NULL;
@@ -1059,6 +1283,10 @@ ccounts_result ccounts_getChromRange(
         if (lineBuffer.s != NULL)
         {
             free(lineBuffer.s);
+        }
+        if (bedGraphIterator != NULL)
+        {
+            hts_itr_destroy(bedGraphIterator);
         }
         if (startOut != NULL && seenRecord)
         {
@@ -1246,6 +1474,11 @@ ccounts_result ccounts_getMappedReadCount(
     if (unmappedReadCountOut != NULL)
     {
         *unmappedReadCountOut = 0;
+    }
+
+    if (!ccounts_isValidCountMode(countMode))
+    {
+        return ccounts_makeResult(-1, "unsupported count mode");
     }
 
     result = ccounts_openSource(sourceConfig, &sourceHandle);
@@ -1752,14 +1985,26 @@ ccounts_result ccounts_countRegion(
     int64_t cutPosition = 0;
     size_t index0 = 0;
     size_t index1 = 0;
+    int needsSpanCoverage = 0;
 
     if (sourceHandle == NULL || region == NULL || countOptions == NULL || countBuffer == NULL)
     {
         return ccounts_makeResult(-1, "count request is invalid");
     }
+    if (!ccounts_isValidCountMode(countOptions->countMode))
+    {
+        return ccounts_makeResult(-1, "unsupported count mode");
+    }
+    needsSpanCoverage =
+        !countOptions->oneReadPerBin &&
+        (ccounts_countMode)countOptions->countMode == ccounts_countModeCoverage;
     if (sourceHandle->sourceKind == ccounts_sourceKindBedGraph)
     {
         kstring_t lineBuffer = {0, 0, NULL};
+        hts_itr_t *bedGraphIterator = NULL;
+        char *regionString = NULL;
+        size_t regionStringLength = 0U;
+        int useBedGraphIterator = 0;
         int iteratorCode = 0;
         double *sumBuffer = NULL;
         double *weightBuffer = NULL;
@@ -1792,7 +2037,37 @@ ccounts_result ccounts_countRegion(
             return ccounts_makeResult(-1, "failed to allocate bedGraph buffers");
         }
 
-        while ((iteratorCode = hts_getline(sourceHandle->bedGraphHandle, '\n', &lineBuffer)) >= 0)
+        if (sourceHandle->tbxHandle != NULL)
+        {
+            useBedGraphIterator = 1;
+            regionStringLength = strlen(region->chromosome) + 64U;
+            regionString = (char *)malloc(regionStringLength);
+            if (regionString == NULL)
+            {
+                free(sumBuffer);
+                free(weightBuffer);
+                return ccounts_makeResult(-1, "failed to allocate bedGraph region string");
+            }
+            snprintf(
+                regionString,
+                regionStringLength,
+                "%s:%llu-%llu",
+                region->chromosome,
+                (unsigned long long)(region->start + 1U),
+                (unsigned long long)region->end);
+            bedGraphIterator = tbx_itr_querys(sourceHandle->tbxHandle, regionString);
+            free(regionString);
+        }
+
+        while ((iteratorCode = (useBedGraphIterator
+                                    ? (bedGraphIterator != NULL
+                                           ? tbx_itr_next(
+                                                 sourceHandle->bedGraphHandle,
+                                                 sourceHandle->tbxHandle,
+                                                 bedGraphIterator,
+                                                 &lineBuffer)
+                                           : -1)
+                                    : hts_getline(sourceHandle->bedGraphHandle, '\n', &lineBuffer))) >= 0)
         {
             const char *cursor = lineBuffer.s;
             const char *lineStart = NULL;
@@ -1914,6 +2189,10 @@ ccounts_result ccounts_countRegion(
         {
             free(lineBuffer.s);
         }
+        if (bedGraphIterator != NULL)
+        {
+            hts_itr_destroy(bedGraphIterator);
+        }
         free(sumBuffer);
         free(weightBuffer);
         return ccounts_makeOk();
@@ -1967,12 +2246,15 @@ ccounts_result ccounts_countRegion(
             return ccounts_makeResult(-1, "failed to open fragments region iterator");
         }
 
-        // use a delta buffer so span coverage stays linear in fragments plus bins
-        deltaBuffer = (float *)calloc(countBufferLength + 1U, sizeof(float));
-        if (deltaBuffer == NULL)
+        if (needsSpanCoverage)
         {
-            hts_itr_destroy(fragmentsIterator);
-            return ccounts_makeResult(-1, "failed to allocate fragments delta buffer");
+            // use a delta buffer so span coverage stays linear in fragments plus bins
+            deltaBuffer = (float *)calloc(countBufferLength + 1U, sizeof(float));
+            if (deltaBuffer == NULL)
+            {
+                hts_itr_destroy(fragmentsIterator);
+                return ccounts_makeResult(-1, "failed to allocate fragments delta buffer");
+            }
         }
 
         while ((iteratorCode = tbx_itr_next(sourceHandle->fragmentsHandle, sourceHandle->tbxHandle, fragmentsIterator, &lineBuffer)) >= 0)
@@ -2108,11 +2390,14 @@ ccounts_result ccounts_countRegion(
             deltaBuffer[index1 + 1U] -= incrementValue;
         }
 
-        deltaValue = 0.0f;
-        for (intervalIndex = 0; intervalIndex < countBufferLength; ++intervalIndex)
+        if (needsSpanCoverage)
         {
-            deltaValue += deltaBuffer[intervalIndex];
-            countBuffer[intervalIndex] += deltaValue;
+            deltaValue = 0.0f;
+            for (intervalIndex = 0; intervalIndex < countBufferLength; ++intervalIndex)
+            {
+                deltaValue += deltaBuffer[intervalIndex];
+                countBuffer[intervalIndex] += deltaValue;
+            }
         }
 
         if (lineBuffer.s != NULL)
@@ -2147,16 +2432,9 @@ ccounts_result ccounts_countRegion(
         return ccounts_makeResult(-1, "chromosome not found in alignment header");
     }
 
-    deltaBuffer = (float *)calloc(countBufferLength + 1U, sizeof(float));
-    if (deltaBuffer == NULL)
-    {
-        return ccounts_makeResult(-1, "failed to allocate delta buffer");
-    }
-
     record = bam_init1();
     if (record == NULL)
     {
-        free(deltaBuffer);
         return ccounts_makeResult(-1, "failed to allocate bam record");
     }
 
@@ -2168,7 +2446,6 @@ ccounts_result ccounts_countRegion(
     if (iteratorHandle == NULL)
     {
         bam_destroy1(record);
-        free(deltaBuffer);
         return ccounts_makeResult(-1, "failed to open region iterator");
     }
 
@@ -2179,6 +2456,17 @@ ccounts_result ccounts_countRegion(
     minTemplateLength = countOptions->minTemplateLength >= 0
                             ? countOptions->minTemplateLength
                             : countOptions->readLength;
+
+    if (needsSpanCoverage)
+    {
+        deltaBuffer = (float *)calloc(countBufferLength + 1U, sizeof(float));
+        if (deltaBuffer == NULL)
+        {
+            hts_itr_destroy(iteratorHandle);
+            bam_destroy1(record);
+            return ccounts_makeResult(-1, "failed to allocate delta buffer");
+        }
+    }
 
     while (sam_itr_next((htsFile *)sourceHandle->fileHandle, iteratorHandle, record) >= 0)
     {
@@ -2358,11 +2646,14 @@ ccounts_result ccounts_countRegion(
         deltaBuffer[index1 + 1U] -= 1.0f;
     }
 
-    deltaValue = 0.0f;
-    for (intervalIndex = 0; intervalIndex < countBufferLength; ++intervalIndex)
+    if (needsSpanCoverage)
     {
-        deltaValue += deltaBuffer[intervalIndex];
-        countBuffer[intervalIndex] += deltaValue;
+        deltaValue = 0.0f;
+        for (intervalIndex = 0; intervalIndex < countBufferLength; ++intervalIndex)
+        {
+            deltaValue += deltaBuffer[intervalIndex];
+            countBuffer[intervalIndex] += deltaValue;
+        }
     }
 
     hts_itr_destroy(iteratorHandle);

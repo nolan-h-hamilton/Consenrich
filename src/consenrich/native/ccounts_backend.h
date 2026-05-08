@@ -88,6 +88,11 @@ extern "C"
         int threadCount,
         int *hasIndexOut);
 
+    ccounts_result ccounts_buildBedGraphTabixIndex(
+        const char *sourcePath,
+        const char *targetPath,
+        int threadCount);
+
     ccounts_result ccounts_isPairedEnd(
         const ccounts_sourceConfig *sourceConfig,
         int threadCount,

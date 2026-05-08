@@ -7,7 +7,7 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -867,10 +867,12 @@ def _resolveRoccoDependenceSpanDetails(
     try:
         if n >= 100:
             positiveVals = np.clip(values, 0.0, None)
-            contextSize, contextLower, contextUpper = core.getContextSize(
-                positiveVals,
-                minSpan=3,
-                maxSpan=min(64, max(12, n // 8)),
+            contextSize, contextLower, contextUpper, featureDetails = (
+                core.chooseFeatureLength(
+                    positiveVals,
+                    minSpan=3,
+                    maxSpan=min(64, max(12, n // 8)),
+                )
             )
             point = max(int(contextSize), 2)
             lower = max(min(int(contextLower), point), 2)
@@ -879,10 +881,10 @@ def _resolveRoccoDependenceSpanDetails(
                 "point": int(point),
                 "lower": int(lower),
                 "upper": int(upper),
-                "method": "getContextSize",
+                "method": str(featureDetails.get("method", "chooseFeatureLength")),
             }
     except Exception as ex:
-        logger.info("getContextSize fallback for ROCCO budget span: %s", ex)
+        logger.info("chooseFeatureLength fallback for ROCCO budget span: %s", ex)
 
     fallback = max(min(int(round(np.sqrt(n))), 64), 4)
     return {
@@ -3159,6 +3161,7 @@ def solveRocco(
     outPath: str | None = None,
     metaPath: str | None = None,
     verbose: bool = False,
+    stateDiagnosticsByChromosome: Mapping[str, Any] | None = None,
 ) -> str:
     r"""Run Consenrich+ROCCO peak caller directly on bedGraphs."""
     exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
@@ -3371,6 +3374,9 @@ def solveRocco(
         meta["chromosomes"][str(chromosome)] = {
             "n_loci": int(state.size),
             "interval_bp": int(work["interval_bp"]),
+            "state_diagnostics": dict(
+                (stateDiagnosticsByChromosome or {}).get(str(chromosome), {})
+            ),
             "budget": float(budget),
             "objective": float(finalObjective),
             "first_pass_objective": float(objective),

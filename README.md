@@ -1,8 +1,8 @@
 # Consenrich
 
-Consenrich is a regularized estimator of genome-wide consensus signal in noisy multi-replicate HTS data.
+Consenrich is a regularized state-space consensus estimator for genome-wide signal in noisy multi-replicate HTS data.
 
-The underlying method is a linear filter-smoother with explicit accounting for heteroskedasticity across replicates and loci.
+The underlying method is a working linear Gaussian filter-smoother with explicit accounting for heteroskedasticity across replicates and loci.
 
 The resulting estimates and uncertainty tracks can be analyzed directly or used downstream for consensus peak calling, model training, variant prioritization, differential analysis, and other tasks that require reliable high-resolution cohort-level signal estimates.
 

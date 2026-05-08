@@ -64,6 +64,12 @@ cdef extern from "native/ccounts_backend.h":
         int* hasIndexOut
     ) nogil
 
+    ccounts_result ccounts_buildBedGraphTabixIndex(
+        const char* sourcePath,
+        const char* targetPath,
+        int threadCount
+    ) nogil
+
     ccounts_result ccounts_isPairedEnd(
         const ccounts_sourceConfig* sourceConfig,
         int threadCount,
@@ -200,6 +206,27 @@ cpdef bint ccounts_checkAlignmentPath(
         )
     _raiseIfError(result)
     return hasIndex != 0
+
+
+cpdef str ccounts_indexBedGraphPath(
+    str bedGraphPath,
+    str indexedBedGraphPath,
+    int threadCount=0,
+):
+    cdef bytes sourceBytes = bedGraphPath.encode("utf-8")
+    cdef bytes targetBytes = indexedBedGraphPath.encode("utf-8")
+    cdef const char* sourcePath = sourceBytes
+    cdef const char* targetPath = targetBytes
+    cdef ccounts_result result
+
+    with nogil:
+        result = ccounts_buildBedGraphTabixIndex(
+            sourcePath,
+            targetPath,
+            threadCount,
+        )
+    _raiseIfError(result)
+    return indexedBedGraphPath
 
 
 cpdef bint ccounts_isAlignmentPairedEnd(

@@ -155,7 +155,7 @@ def getPairScaleFactors(
     samThreads: int,
     intervalSizeBP: int,
     normMethod: str = "EGS",
-    fixControl: bool = True,
+    fixControl: bool = False,
     sourceKindA: str | None = None,
     sourceKindB: str | None = None,
     barcodeAllowListFileA: str | None = None,
@@ -167,7 +167,7 @@ def getPairScaleFactors(
     groupCellCountB: int | None = None,
     fragmentsGroupNorm: str | None = None,
 ) -> Tuple[float, float]:
-    r"""Scale treatment:control data based on effective genome size or reads per million.
+    r"""Scale treatment:control data to a common sequencing depth.
 
     :param bamFileA: Alignment file for the 'treatment' sample.
     :type bamFileA: str
@@ -190,6 +190,11 @@ def getPairScaleFactors(
     :param intervalSizeBP: Step size for coverage calculation.
     :param: normMethod: Normalization method to use ("EGS" or "RPKM").
     :type normMethod: str
+    This follows standard treatment/control normalization: the deeper sample is
+    scaled down to the shallower sample, and the shallower sample is left at
+    full depth. If ``fixControl`` is true, the control is always left at full
+    depth and only the treatment may be downscaled.
+
     :return: Tuple of scale factors for treatment and control samples.
     :rtype: Tuple[float, float]
     """
@@ -247,36 +252,32 @@ def getPairScaleFactors(
             fragmentsGroupNorm=fragmentsGroupNorm,
         )
 
-    coverageA = 1.0 / scaleFactorA if scaleFactorA > 0.0 else 0.0
-    coverageB = 1.0 / scaleFactorB if scaleFactorB > 0.0 else 0.0
+    depthA = 1.0 / scaleFactorA if scaleFactorA > 0.0 else 0.0
+    depthB = 1.0 / scaleFactorB if scaleFactorB > 0.0 else 0.0
+    if depthA <= 0.0 or depthB <= 0.0:
+        raise ValueError(
+            "Treatment/control depth estimates must be positive: "
+            f"treatment={depthA}, control={depthB}."
+        )
 
     if fixControl:
-        # keep control full depth, never scale it down, never scale it up
+        # Keep control full depth. Downscale treatment only when it is deeper.
         scaleFactorB = 1.0
-
-        # only downscale treatment to the (unscaled) control, never upscale treatment
-        if coverageA > coverageB and coverageA > 0.0:
-            scaleFactorA = scaleFactorA * (coverageB / coverageA)
+        if depthA > depthB:
+            scaleFactorA = depthB / depthA
         else:
             scaleFactorA = 1.0
     else:
-        # downscale higher --> lower (regardless of treatment/control status)
-        if coverageA > coverageB and coverageA > 0.0:
-            scaleFactorA = scaleFactorA * (coverageB / coverageA)
-            scaleFactorB = 1.0
-        elif coverageB > coverageA and coverageB > 0.0:
-            scaleFactorB = scaleFactorB * (coverageA / coverageB)
-            scaleFactorA = 1.0
-        else:
-            scaleFactorA = 1.0
-            scaleFactorB = 1.0
+        # pair normalization: downscale the deeper sample to the
+        # shallower sample, without upscaling either track.
+        targetDepth = min(depthA, depthB)
+        scaleFactorA = targetDepth / depthA
+        scaleFactorB = targetDepth / depthB
 
-    ratio = max(scaleFactorA, scaleFactorB) / max(
-        1.0e-12, min(scaleFactorA, scaleFactorB)
-    )
+    ratio = max(depthA, depthB) / max(1.0e-12, min(depthA, depthB))
     if ratio > 5.0:
         logger.warning(
-            f"Scale factors differ > 5x....\n"
+            f"Treatment/control sequencing depths differ > 5x....\n"
             f"\n\tAre effective genome sizes {effectiveGenomeSizeA} and {effectiveGenomeSizeB} correct?"
             f"\n\tAre read/fragment lengths {readLengthA},{readLengthB} correct?"
         )
