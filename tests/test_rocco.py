@@ -537,7 +537,8 @@ def testSolutionToChromNarrowPeakRowsSplitsSubpeaks():
         solution,
         prefix="splitTest",
         nullScale=0.5,
-        contextSpan=8,
+        subpeakSelectionPenalty=2.0,
+        subpeakBoundaryCost=0.25,
     )
 
     assert len(rows) == 2
@@ -567,8 +568,9 @@ def testSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide():
         solution,
         prefix="wideContextSplitTest",
         nullScale=0.25,
-        contextSpan=64,
         trimScoreFloor=1.0,
+        subpeakSelectionPenalty=1.0,
+        subpeakBoundaryCost=0.25,
     )
 
     assert len(rows) == 2
@@ -597,8 +599,9 @@ def testSolutionToChromNarrowPeakRowsDoesNotLetDominantPeakHideSubpeak():
         solution,
         prefix="dominantSplitTest",
         nullScale=0.25,
-        contextSpan=8,
         trimScoreFloor=1.0,
+        subpeakSelectionPenalty=1.0,
+        subpeakBoundaryCost=0.25,
     )
 
     assert len(rows) == 2
@@ -628,21 +631,23 @@ def testSolutionToChromNarrowPeakRowsTrimsChildFlanksAroundSummit():
         solution,
         prefix="trimTest",
         nullScale=0.25,
-        contextSpan=8,
         trimScoreFloor=1.0,
+        subpeakSelectionPenalty=1.0,
+        subpeakBoundaryCost=0.25,
     )
 
     assert len(rows) == 2
     assert [int(rows[0][1]), int(rows[0][2])] == [int(intervals[20]), int(ends[29])]
     assert [int(rows[1][1]), int(rows[1][2])] == [int(intervals[50]), int(ends[59])]
-    assert all(meta["trimmed_from_parent"] for meta in rowMeta)
-    assert rowMeta[0]["untrimmed_start"] == int(intervals[10])
-    assert rowMeta[1]["untrimmed_end"] == int(ends[69])
+    assert all(meta["split_from_parent"] for meta in rowMeta)
+    assert not any(meta["trimmed_from_parent"] for meta in rowMeta)
+    assert rowMeta[0]["untrimmed_start"] == int(intervals[20])
+    assert rowMeta[1]["untrimmed_end"] == int(ends[59])
     assert all(meta["trim_score_floor"] == pytest.approx(1.0) for meta in rowMeta)
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsDoesNotCollapseAllNegativeChild():
+def testSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin():
     n = 40
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -661,15 +666,15 @@ def testSolutionToChromNarrowPeakRowsDoesNotCollapseAllNegativeChild():
         solution,
         prefix="negativeTrimTest",
         nullScale=0.25,
-        contextSpan=8,
         trimScoreFloor=0.0,
     )
 
     assert len(rows) == 1
-    assert [int(rows[0][1]), int(rows[0][2])] == [int(intervals[10]), int(ends[29])]
+    assert [int(rows[0][1]), int(rows[0][2])] == [int(intervals[20]), int(ends[20])]
     assert rowMeta[0]["trimmed_from_parent"] is False
-    assert rowMeta[0]["untrimmed_start"] == int(intervals[10])
-    assert rowMeta[0]["untrimmed_end"] == int(ends[29])
+    assert rowMeta[0]["split_from_parent"] is True
+    assert rowMeta[0]["untrimmed_start"] == int(intervals[20])
+    assert rowMeta[0]["untrimmed_end"] == int(ends[20])
 
 
 @pytest.mark.correctness
@@ -697,9 +702,10 @@ def testSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP(
         solution,
         prefix="stdFilterTest",
         nullScale=0.25,
-        contextSpan=8,
         uncertainty=uncertainty,
         trimScoreFloor=0.0,
+        subpeakSelectionPenalty=-10.0,
+        subpeakBoundaryCost=0.0,
         returnExportDetails=True,
     )
 
@@ -959,7 +965,7 @@ def testNestedROCCORefinementWritesSubproblemDiagnostics(caplog, tmp_path):
     assert detailRows[0]["chromosome"] == "chrTest"
     assert detailRows[0]["event"] == "subproblem"
     assert detailRows[0]["status"] == "solved"
-    assert detailRows[0]["mode"] == "anchored_min_run_soft_budget"
+    assert detailRows[0]["mode"] == "parent_conditioned_min_run_soft_budget"
     assert detailRows[0]["nonpos_selected"] >= 0
     assert detailRows[0]["min_child_bins"] == 5
     assert detailRows[0]["anchor_selected"] is True

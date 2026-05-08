@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from scipy import signal, stats
+from scipy import stats
 
 from . import cconsenrich
 from . import core
@@ -158,7 +158,7 @@ def shrinkageScoreTrack(
     tau0: float = 1.0,
     returnDetails: bool = False,
 ) -> np.ndarray | Tuple[np.ndarray, Dict[str, float | str]]:
-    r"""Build a posterior-mean-style shrinkage score track for ROCCO."""
+    r"""Build a posterior shrinkage score track for ROCCO."""
     state_ = _asFloatVector("state", state)
     n = int(state_.size)
     tau0_ = float(max(tau0, 0.0))
@@ -1881,23 +1881,65 @@ def _nestedSoftSelectionPenalty(
     }
 
 
-def _solveMinRunPenalizedChainROCCO(
+def _asParentBoundaryCosts(boundaryCosts: npt.ArrayLike, n: int) -> np.ndarray:
+    n_ = int(max(int(n), 1))
+    arr = np.asarray(boundaryCosts, dtype=np.float64).ravel()
+    if arr.size == 1:
+        out = np.full(n_ + 1, float(arr[0]), dtype=np.float64)
+    elif arr.size == n_ + 1:
+        out = arr.astype(np.float64, copy=True)
+    else:
+        raise ValueError(
+            "`boundaryCosts` must be scalar or have length len(scores) + 1"
+        )
+    if not np.all(np.isfinite(out)) or np.any(out < 0.0):
+        raise ValueError("`boundaryCosts` must be finite and non-negative")
+    return out
+
+
+def _parentConditionedSubpeakObjective(
     scores: np.ndarray,
-    gamma: float,
+    mask: np.ndarray,
+    boundaryCosts: np.ndarray,
+    selectionPenalty: float,
+) -> Tuple[float, float, float]:
+    scores_ = np.asarray(scores, dtype=np.float64)
+    mask_ = np.asarray(mask, dtype=bool)
+    costs_ = np.asarray(boundaryCosts, dtype=np.float64)
+    selected = float(np.sum(scores_[mask_]))
+    boundaryPenalty = 0.0
+    previous = False
+    for i, current in enumerate(mask_.tolist()):
+        current_ = bool(current)
+        if current_ != previous:
+            boundaryPenalty += float(costs_[i])
+        previous = current_
+    if previous:
+        boundaryPenalty += float(costs_[mask_.size])
+    objective = float(selected - boundaryPenalty)
+    penalized = float(objective - float(selectionPenalty) * float(np.sum(mask_)))
+    return objective, penalized, float(boundaryPenalty)
+
+
+def _solveParentConditionedSubpeaks(
+    scores: np.ndarray,
+    boundaryCosts: npt.ArrayLike,
     selectionPenalty: float,
     minRunBins: int,
+    anchorIndex: int | None = None,
 ) -> Tuple[np.ndarray, float, Dict[str, Any]]:
     scores_ = np.asarray(scores, dtype=np.float64)
     if scores_.ndim != 1 or scores_.size == 0:
         raise ValueError("`scores` must be a non-empty one-dimensional array")
     if not np.all(np.isfinite(scores_)):
         raise ValueError("`scores` contains non-finite values")
-    gamma_ = float(max(float(gamma), 0.0))
+    costs_ = _asParentBoundaryCosts(boundaryCosts, int(scores_.size))
     penalty_ = float(selectionPenalty)
     if not np.isfinite(penalty_):
         raise ValueError("`selectionPenalty` must be finite")
 
     n = int(scores_.size)
+    anchor = None if anchorIndex is None else int(np.clip(int(anchorIndex), 0, n - 1))
     minRunBins_ = int(min(max(int(minRunBins), 1), n))
     numStates = int(minRunBins_ + 1)
     negInf = -math.inf
@@ -1908,178 +1950,7 @@ def _solveMinRunPenalizedChainROCCO(
     prevCounts = np.full(numStates, largeCount, dtype=np.int64)
     prevValues[0] = 0.0
     prevCounts[0] = 0
-    back = np.full((n, numStates), -1, dtype=np.int16)
-
-    def _better(
-        value: float,
-        count: int,
-        bestValue: float,
-        bestCount: int,
-    ) -> bool:
-        if value > bestValue + eps:
-            return True
-        if abs(value - bestValue) <= eps and count < bestCount:
-            return True
-        return False
-
-    for i in range(n):
-        adjustedScore = float(scores_[i] - penalty_)
-        newValues = np.full(numStates, negInf, dtype=np.float64)
-        newCounts = np.full(numStates, largeCount, dtype=np.int64)
-        transitionCost = 0.0 if i == 0 else gamma_
-
-        if np.isfinite(prevValues[0]):
-            newValues[0] = prevValues[0]
-            newCounts[0] = prevCounts[0]
-            back[i, 0] = 0
-
-            candidateValue = prevValues[0] - transitionCost + adjustedScore
-            candidateCount = int(prevCounts[0] + 1)
-            if _better(candidateValue, candidateCount, newValues[1], newCounts[1]):
-                newValues[1] = candidateValue
-                newCounts[1] = candidateCount
-                back[i, 1] = 0
-
-        if np.isfinite(prevValues[minRunBins_]):
-            candidateValue = prevValues[minRunBins_] - transitionCost
-            candidateCount = int(prevCounts[minRunBins_])
-            if _better(candidateValue, candidateCount, newValues[0], newCounts[0]):
-                newValues[0] = candidateValue
-                newCounts[0] = candidateCount
-                back[i, 0] = minRunBins_
-
-        for state in range(1, minRunBins_):
-            if not np.isfinite(prevValues[state]):
-                continue
-            nextState = int(state + 1)
-            candidateValue = prevValues[state] + adjustedScore
-            candidateCount = int(prevCounts[state] + 1)
-            if _better(
-                candidateValue,
-                candidateCount,
-                newValues[nextState],
-                newCounts[nextState],
-            ):
-                newValues[nextState] = candidateValue
-                newCounts[nextState] = candidateCount
-                back[i, nextState] = state
-
-        if np.isfinite(prevValues[minRunBins_]):
-            candidateValue = prevValues[minRunBins_] + adjustedScore
-            candidateCount = int(prevCounts[minRunBins_] + 1)
-            if _better(
-                candidateValue,
-                candidateCount,
-                newValues[minRunBins_],
-                newCounts[minRunBins_],
-            ):
-                newValues[minRunBins_] = candidateValue
-                newCounts[minRunBins_] = candidateCount
-                back[i, minRunBins_] = minRunBins_
-
-        prevValues = newValues
-        prevCounts = newCounts
-
-    bestState = 0
-    bestValue = float(prevValues[0])
-    bestCount = int(prevCounts[0])
-    if _better(
-        float(prevValues[minRunBins_]),
-        int(prevCounts[minRunBins_]),
-        bestValue,
-        bestCount,
-    ):
-        bestState = int(minRunBins_)
-        bestValue = float(prevValues[minRunBins_])
-        bestCount = int(prevCounts[minRunBins_])
-
-    mask = np.zeros(n, dtype=bool)
-    state = int(bestState)
-    for i in range(n - 1, -1, -1):
-        if state > 0:
-            mask[i] = True
-        prevState = int(back[i, state])
-        if prevState < 0:
-            break
-        state = prevState
-
-    solution = mask.astype(np.uint8)
-    objective = _roccoObjectiveForSolution(scores_, solution, gamma_)
-    penalizedObjective = float(objective - penalty_ * float(bestCount))
-    runs = _selectedRunBounds(mask)
-    return (
-        mask,
-        float(objective),
-        {
-            "mode": "min_run_penalty",
-            "penalized_objective": float(penalizedObjective),
-            "selected_count": int(bestCount),
-            "selected_fraction": float(bestCount / max(n, 1)),
-            "selection_penalty": float(penalty_),
-            "gamma": float(gamma_),
-            "min_run_bins": int(minRunBins_),
-            "num_runs": int(len(runs)),
-        },
-    )
-
-
-def _anchorFallbackWindowMask(
-    scores: np.ndarray,
-    anchorIndex: int,
-    minRunBins: int,
-) -> np.ndarray:
-    scores_ = np.asarray(scores, dtype=np.float64)
-    n = int(scores_.size)
-    mask = np.zeros(n, dtype=bool)
-    if n <= 0:
-        return mask
-    anchor = int(np.clip(int(anchorIndex), 0, n - 1))
-    width = int(min(max(int(minRunBins), 1), n))
-    leftMin = int(max(0, anchor - width + 1))
-    leftMax = int(min(anchor, n - width))
-    bestStart = leftMin
-    bestScore = -math.inf
-    cumsum = np.concatenate(([0.0], np.cumsum(scores_, dtype=np.float64)))
-    for start in range(leftMin, leftMax + 1):
-        score = float(cumsum[start + width] - cumsum[start])
-        if score > bestScore:
-            bestScore = score
-            bestStart = int(start)
-    mask[bestStart : bestStart + width] = True
-    return mask
-
-
-def _solveAnchoredMinRunPenalizedChainROCCO(
-    scores: np.ndarray,
-    gamma: float,
-    selectionPenalty: float,
-    minRunBins: int,
-    anchorIndex: int,
-) -> Tuple[np.ndarray, float, Dict[str, Any]]:
-    scores_ = np.asarray(scores, dtype=np.float64)
-    if scores_.ndim != 1 or scores_.size == 0:
-        raise ValueError("`scores` must be a non-empty one-dimensional array")
-    if not np.all(np.isfinite(scores_)):
-        raise ValueError("`scores` contains non-finite values")
-    gamma_ = float(max(float(gamma), 0.0))
-    penalty_ = float(selectionPenalty)
-    if not np.isfinite(penalty_):
-        raise ValueError("`selectionPenalty` must be finite")
-
-    n = int(scores_.size)
-    anchor = int(np.clip(int(anchorIndex), 0, n - 1))
-    minRunBins_ = int(min(max(int(minRunBins), 1), n))
-    numStates = int(minRunBins_ + 1)
-    negInf = -math.inf
-    eps = 1.0e-12
-    largeCount = n + 1
-
-    prevValues = np.full((2, numStates), negInf, dtype=np.float64)
-    prevCounts = np.full((2, numStates), largeCount, dtype=np.int64)
-    prevValues[0, 0] = 0.0
-    prevCounts[0, 0] = 0
-    backState = np.full((n, 2, numStates), -1, dtype=np.int16)
-    backSeen = np.full((n, 2, numStates), -1, dtype=np.int8)
+    backState = np.full((n, numStates), -1, dtype=np.int16)
 
     def _better(
         value: float,
@@ -2096,160 +1967,137 @@ def _solveAnchoredMinRunPenalizedChainROCCO(
     def _update(
         values: np.ndarray,
         counts: np.ndarray,
-        newSeen: int,
         newState: int,
         value: float,
         count: int,
-        prevSeen: int,
         prevState: int,
         i: int,
     ) -> None:
         if _better(
             float(value),
             int(count),
-            float(values[newSeen, newState]),
-            int(counts[newSeen, newState]),
+            float(values[newState]),
+            int(counts[newState]),
         ):
-            values[newSeen, newState] = float(value)
-            counts[newSeen, newState] = int(count)
-            backSeen[i, newSeen, newState] = int(prevSeen)
-            backState[i, newSeen, newState] = int(prevState)
+            values[newState] = float(value)
+            counts[newState] = int(count)
+            backState[i, newState] = int(prevState)
 
     for i in range(n):
         adjustedScore = float(scores_[i] - penalty_)
-        newValues = np.full((2, numStates), negInf, dtype=np.float64)
-        newCounts = np.full((2, numStates), largeCount, dtype=np.int64)
-        transitionCost = 0.0 if i == 0 else gamma_
-        forceOn = bool(i == anchor)
+        newValues = np.full(numStates, negInf, dtype=np.float64)
+        newCounts = np.full(numStates, largeCount, dtype=np.int64)
+        transitionCost = float(costs_[i])
+        forceOn = bool(anchor is not None and i == anchor)
 
-        for seen in (0, 1):
-            # Choose x_i = 0. A run may end only after reaching minRunBins_.
-            if not forceOn:
-                if np.isfinite(prevValues[seen, 0]):
-                    _update(
-                        newValues,
-                        newCounts,
-                        seen,
-                        0,
-                        float(prevValues[seen, 0]),
-                        int(prevCounts[seen, 0]),
-                        seen,
-                        0,
-                        i,
-                    )
-                if np.isfinite(prevValues[seen, minRunBins_]):
-                    _update(
-                        newValues,
-                        newCounts,
-                        seen,
-                        0,
-                        float(prevValues[seen, minRunBins_] - transitionCost),
-                        int(prevCounts[seen, minRunBins_]),
-                        seen,
-                        minRunBins_,
-                        i,
-                    )
-
-            # Choose x_i = 1.
-            newSeen = int(seen or forceOn)
-            if np.isfinite(prevValues[seen, 0]):
+        if not forceOn:
+            if np.isfinite(prevValues[0]):
                 _update(
                     newValues,
                     newCounts,
-                    newSeen,
-                    1,
-                    float(prevValues[seen, 0] - transitionCost + adjustedScore),
-                    int(prevCounts[seen, 0] + 1),
-                    seen,
+                    0,
+                    float(prevValues[0]),
+                    int(prevCounts[0]),
                     0,
                     i,
                 )
-            for state in range(1, minRunBins_):
-                if not np.isfinite(prevValues[seen, state]):
-                    continue
+            if np.isfinite(prevValues[minRunBins_]):
                 _update(
                     newValues,
                     newCounts,
-                    newSeen,
-                    state + 1,
-                    float(prevValues[seen, state] + adjustedScore),
-                    int(prevCounts[seen, state] + 1),
-                    seen,
-                    state,
-                    i,
-                )
-            if np.isfinite(prevValues[seen, minRunBins_]):
-                _update(
-                    newValues,
-                    newCounts,
-                    newSeen,
-                    minRunBins_,
-                    float(prevValues[seen, minRunBins_] + adjustedScore),
-                    int(prevCounts[seen, minRunBins_] + 1),
-                    seen,
+                    0,
+                    float(prevValues[minRunBins_] - transitionCost),
+                    int(prevCounts[minRunBins_]),
                     minRunBins_,
                     i,
                 )
+
+        if np.isfinite(prevValues[0]):
+            _update(
+                newValues,
+                newCounts,
+                1,
+                float(prevValues[0] - transitionCost + adjustedScore),
+                int(prevCounts[0] + 1),
+                0,
+                i,
+            )
+        for state in range(1, minRunBins_):
+            if not np.isfinite(prevValues[state]):
+                continue
+            _update(
+                newValues,
+                newCounts,
+                state + 1,
+                float(prevValues[state] + adjustedScore),
+                int(prevCounts[state] + 1),
+                state,
+                i,
+            )
+        if np.isfinite(prevValues[minRunBins_]):
+            _update(
+                newValues,
+                newCounts,
+                minRunBins_,
+                float(prevValues[minRunBins_] + adjustedScore),
+                int(prevCounts[minRunBins_] + 1),
+                minRunBins_,
+                i,
+            )
 
         prevValues = newValues
         prevCounts = newCounts
 
     finalCandidates = [
-        (float(prevValues[1, 0]), int(prevCounts[1, 0]), 1, 0),
+        (float(prevValues[0]), int(prevCounts[0]), 0),
         (
-            float(prevValues[1, minRunBins_]),
-            int(prevCounts[1, minRunBins_]),
-            1,
+            float(prevValues[minRunBins_] - costs_[n]),
+            int(prevCounts[minRunBins_]),
             minRunBins_,
         ),
     ]
-    bestValue, bestCount, bestSeen, bestState = max(
+    bestValue, bestCount, bestState = max(
         finalCandidates,
         key=lambda item: (item[0], -item[1]),
     )
-    fallbackUsed = False
     if not np.isfinite(bestValue):
-        mask = _anchorFallbackWindowMask(scores_, anchor, minRunBins_)
-        fallbackUsed = True
-    else:
-        mask = np.zeros(n, dtype=bool)
-        seen = int(bestSeen)
-        state = int(bestState)
-        for i in range(n - 1, -1, -1):
-            if state > 0:
-                mask[i] = True
-            prevState = int(backState[i, seen, state])
-            prevSeen = int(backSeen[i, seen, state])
-            if prevState < 0 or prevSeen < 0:
-                break
-            state = prevState
-            seen = prevSeen
-
-    if not bool(mask[anchor]):
-        fallbackMask = _anchorFallbackWindowMask(scores_, anchor, minRunBins_)
-        mask |= fallbackMask
-        fallbackUsed = True
-
-    solution = mask.astype(np.uint8)
-    objective = _roccoObjectiveForSolution(scores_, solution, gamma_)
-    selectedCount = int(np.sum(solution))
-    penalizedObjective = float(objective - penalty_ * float(selectedCount))
+        raise RuntimeError("parent-conditioned subpeak DP found no feasible path")
+    mask = np.zeros(n, dtype=bool)
+    state = int(bestState)
+    for i in range(n - 1, -1, -1):
+        if state > 0:
+            mask[i] = True
+        prevState = int(backState[i, state])
+        if prevState < 0:
+            break
+        state = prevState
+    objective, penalizedObjective, boundaryPenalty = _parentConditionedSubpeakObjective(
+        scores_,
+        mask,
+        costs_,
+        penalty_,
+    )
+    selectedCount = int(np.sum(mask))
+    if anchor is not None and not bool(mask[anchor]):
+        raise RuntimeError("parent-conditioned subpeak DP violated anchor constraint")
     runs = _selectedRunBounds(mask)
     return (
         mask,
         float(objective),
         {
-            "mode": "anchored_min_run_penalty",
+            "mode": "parent_conditioned_min_run_dp",
             "penalized_objective": float(penalizedObjective),
             "selected_count": int(selectedCount),
             "selected_fraction": float(selectedCount / max(n, 1)),
             "selection_penalty": float(penalty_),
-            "gamma": float(gamma_),
+            "boundary_cost_min": float(np.min(costs_)),
+            "boundary_cost_max": float(np.max(costs_)),
+            "boundary_penalty": float(boundaryPenalty),
             "min_run_bins": int(minRunBins_),
             "num_runs": int(len(runs)),
-            "anchor_index": int(anchor),
-            "anchor_selected": bool(mask[anchor]),
-            "anchor_fallback_window": bool(fallbackUsed),
+            "anchor_index": None if anchor is None else int(anchor),
+            "anchor_selected": bool(True if anchor is None else mask[anchor]),
+            "anchor_fallback_window": False,
         },
     )
 
@@ -2372,7 +2220,7 @@ def _refineNestedROCCOSolution(
         "selection_penalty": float(selectionPenalty_),
         "budget_scale": float(budgetScale),
         "score_shift": float(selectionPenalty_),
-        "subproblem_mode": "anchored_min_run_penalty",
+        "subproblem_mode": "parent_conditioned_min_run_dp",
         "subproblem_max_iter": int(subproblemMaxIter),
         "min_region_bins": int(minRegionBins_),
         "min_region_bp": None if minRegionBP_ is None else int(minRegionBP_),
@@ -2480,15 +2328,15 @@ def _refineNestedROCCOSolution(
                 )
                 localBudgetPenalty = float(localSelectionPenalty)
                 localMask, _localObjective, localDetails = (
-                    _solveAnchoredMinRunPenalizedChainROCCO(
+                    _solveParentConditionedSubpeaks(
                         localScores,
-                        gamma=localGamma,
+                        boundaryCosts=localGamma,
                         selectionPenalty=localSelectionPenalty,
                         minRunBins=localMinChildBins,
                         anchorIndex=anchorLocal,
                     )
                 )
-                localMode = "anchored_min_run_soft_budget"
+                localMode = "parent_conditioned_min_run_soft_budget"
                 budgetConstrainedRegions += 1
             else:
                 localSelectionPenalty, localPenaltyDetails = (
@@ -2500,15 +2348,15 @@ def _refineNestedROCCOSolution(
                 )
                 localBudgetPenalty = float(localSelectionPenalty)
                 localMask, _localObjective, localDetails = (
-                    _solveAnchoredMinRunPenalizedChainROCCO(
+                    _solveParentConditionedSubpeaks(
                         localScores,
-                        gamma=localGamma,
+                        boundaryCosts=localGamma,
                         selectionPenalty=localSelectionPenalty,
                         minRunBins=localMinChildBins,
                         anchorIndex=anchorLocal,
                     )
                 )
-                localMode = "anchored_min_run_penalty"
+                localMode = "parent_conditioned_min_run_dp"
             localEmptySolution = False
             localAnchorFallbackUsed = bool(
                 localDetails.get("anchor_fallback_window", False)
@@ -2522,21 +2370,9 @@ def _refineNestedROCCOSolution(
                 localEmptySolution = True
                 emptyLocalSolutions += 1
                 parentErasureViolations += 1
-                localMask = _anchorFallbackWindowMask(
-                    localScores,
-                    anchorLocal,
-                    localMinChildBins,
-                )
-                localAnchorFallbackUsed = True
+                localMask = previous[start : end + 1].copy()
             if not bool(localMask[anchorLocal]):
                 anchorSurvivalViolations += 1
-                localMask = np.asarray(localMask, dtype=bool)
-                localMask |= _anchorFallbackWindowMask(
-                    localScores,
-                    anchorLocal,
-                    localMinChildBins,
-                )
-                localAnchorFallbackUsed = True
             if localAnchorFallbackUsed:
                 anchorFallbackWindows += 1
             newMask[start : end + 1] = localMask
@@ -2772,96 +2608,30 @@ def _readAlignedConsenrichBedGraphs(
     return out
 
 
-def _selectSubpeakSummits(
-    segmentState: np.ndarray,
-    nullScale: float,
-    contextSpan: int,
-) -> np.ndarray:
-    segState = np.asarray(segmentState, dtype=np.float64)
-    n = int(segState.size)
-    if n == 0:
-        return np.zeros(0, dtype=np.int64)
-
-    globalPeak = int(np.argmax(segState))
-    if n < 4:
-        return np.asarray([globalPeak], dtype=np.int64)
-
-    candidatePeaks, _ = signal.find_peaks(
-        segState,
-    )
-    if candidatePeaks.size == 0:
-        return np.asarray([globalPeak], dtype=np.int64)
-
-    blockMaxExcess = float(max(np.max(segState) - np.min(segState), 0.0))
-    nullProminence = float(max(float(nullScale), 1.0e-6))
-    prominenceThreshold = float(
-        max(nullProminence, min(0.25 * blockMaxExcess, 4.0 * nullProminence))
-    )
-    if candidatePeaks.size > 0:
-        prominences = signal.peak_prominences(segState, candidatePeaks)[0]
-        candidatePeaks = candidatePeaks[prominences >= prominenceThreshold]
-    if candidatePeaks.size == 0:
-        return np.asarray([globalPeak], dtype=np.int64)
-    if globalPeak not in set(candidatePeaks.tolist()):
-        candidatePeaks = np.sort(
-            np.unique(
-                np.concatenate(
-                    [
-                        np.asarray(candidatePeaks, dtype=np.int64),
-                        np.asarray([globalPeak], dtype=np.int64),
-                    ]
-                )
-            )
-        )
-
-    kept = sorted(set(int(idx) for idx in candidatePeaks.tolist()))
-
-    if len(kept) <= 1:
-        return np.asarray([globalPeak], dtype=np.int64)
-
-    while len(kept) > 1:
-        removed = False
-        for i in range(len(kept) - 1):
-            left = int(kept[i])
-            right = int(kept[i + 1])
-            valley = left + int(np.argmin(segState[left : right + 1]))
-            leftProm = float(segState[left] - segState[valley])
-            rightProm = float(segState[right] - segState[valley])
-            if min(leftProm, rightProm) >= prominenceThreshold:
-                continue
-            if float(segState[left]) >= float(segState[right]):
-                drop = right
-            else:
-                drop = left
-            kept = [idx for idx in kept if idx != drop]
-            removed = True
-            break
-        if not removed:
-            break
-
-    if len(kept) == 0:
-        kept = [globalPeak]
-    if globalPeak not in kept:
-        kept.append(globalPeak)
-    kept = sorted(set(kept))
-    return np.asarray(kept, dtype=np.int64)
-
-
-def _splitSelectedSegment(
+def _solveParentConditionedSubpeakSegments(
+    segmentScores: np.ndarray,
     segmentState: np.ndarray,
     startIdx: int,
     endIdx: int,
-    nullScale: float,
-    contextSpan: int,
+    selectionPenalty: float,
+    boundaryCost: float,
+    minRunBins: int,
 ) -> List[Dict[str, int | float | bool]]:
+    segScores = np.asarray(segmentScores, dtype=np.float64)
     segState = np.asarray(segmentState, dtype=np.float64)
-    summits = _selectSubpeakSummits(
-        segState,
-        nullScale=float(nullScale),
-        contextSpan=int(contextSpan),
+    if segScores.size != segState.size:
+        raise ValueError("`segmentScores` and `segmentState` must match")
+    anchorLocal = int(np.argmax(segScores))
+    localMask, _objective, details = _solveParentConditionedSubpeaks(
+        segScores,
+        boundaryCosts=float(max(float(boundaryCost), 0.0)),
+        selectionPenalty=float(selectionPenalty),
+        minRunBins=int(max(int(minRunBins), 1)),
+        anchorIndex=anchorLocal,
     )
-    if summits.size <= 1:
-        summitLocal = int(summits[0]) if summits.size == 1 else int(np.argmax(segState))
+    runs = _selectedRunBounds(localMask)
+    if len(runs) == 0:
+        summitLocal = int(np.argmax(segState))
         return [
             {
                 "start_idx": int(startIdx),
@@ -2870,28 +2640,13 @@ def _splitSelectedSegment(
                 "segment_length_bins": int(max(endIdx - startIdx + 1, 0)),
                 "num_subpeaks": 1,
                 "split_from_parent": False,
+                "subpeak_objective": float(details["penalized_objective"]),
+                "subpeak_boundary_penalty": float(details["boundary_penalty"]),
             }
         ]
-
-    splitPoints: List[int] = []
-    sortedSummits = np.sort(summits.astype(np.int64, copy=False))
-    for left, right in zip(sortedSummits[:-1], sortedSummits[1:]):
-        valleyLocal = int(left + np.argmin(segState[left : right + 1]))
-        splitPoints.append(valleyLocal)
-
-    localRanges: List[Tuple[int, int]] = []
-    localStart = 0
-    for splitLocal in splitPoints:
-        splitLocal_ = int(splitLocal)
-        if splitLocal_ > localStart:
-            localRanges.append((localStart, splitLocal_ - 1))
-        localStart = int(splitLocal) + 1
-    if localStart <= int(segState.size - 1):
-        localRanges.append((localStart, int(segState.size - 1)))
-
     out: List[Dict[str, int | float | bool]] = []
-    numSubpeaks = int(len(localRanges))
-    for localLeft, localRight in localRanges:
+    numSubpeaks = int(len(runs))
+    for localLeft, localRight in runs:
         childState = segState[localLeft : localRight + 1]
         summitLocal = int(localLeft + np.argmax(childState))
         out.append(
@@ -2901,7 +2656,11 @@ def _splitSelectedSegment(
                 "summit_idx": int(startIdx + summitLocal),
                 "segment_length_bins": int(localRight - localLeft + 1),
                 "num_subpeaks": int(numSubpeaks),
-                "split_from_parent": True,
+                "split_from_parent": bool(
+                    numSubpeaks > 1 or localLeft > 0 or localRight < segState.size - 1
+                ),
+                "subpeak_objective": float(details["penalized_objective"]),
+                "subpeak_boundary_penalty": float(details["boundary_penalty"]),
             }
         )
     return out
@@ -2954,10 +2713,12 @@ def _solutionToChromNarrowPeakRows(
     solution: np.ndarray,
     prefix: str,
     nullScale: float,
-    contextSpan: int,
     uncertainty: np.ndarray | None = None,
     splitSubpeaks: bool = True,
     trimScoreFloor: float | None = 0.0,
+    subpeakSelectionPenalty: float | None = None,
+    subpeakBoundaryCost: float | None = None,
+    minSubpeakBins: int = 1,
     dropMedianSignalBelowNegativeLocalP: bool = True,
     exportFilterUncertaintyMultiplier: float = (
         _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
@@ -3002,12 +2763,22 @@ def _solutionToChromNarrowPeakRows(
 
         segState = np.asarray(state_[startIdx : endIdx + 1], dtype=np.float64)
         if splitSubpeaks:
-            childSegments = _splitSelectedSegment(
+            childSegments = _solveParentConditionedSubpeakSegments(
+                scores_[startIdx : endIdx + 1],
                 segState,
                 startIdx=startIdx,
                 endIdx=endIdx,
-                nullScale=float(nullScale),
-                contextSpan=int(contextSpan),
+                selectionPenalty=(
+                    float(max(float(nullScale), 0.0))
+                    if subpeakSelectionPenalty is None
+                    else float(subpeakSelectionPenalty)
+                ),
+                boundaryCost=(
+                    float(max(float(nullScale), 0.0))
+                    if subpeakBoundaryCost is None
+                    else float(subpeakBoundaryCost)
+                ),
+                minRunBins=int(max(int(minSubpeakBins), 1)),
             )
         else:
             summitLocal = int(np.argmax(segState))
@@ -3019,6 +2790,8 @@ def _solutionToChromNarrowPeakRows(
                     "segment_length_bins": int(max(endIdx - startIdx + 1, 0)),
                     "num_subpeaks": 1,
                     "split_from_parent": False,
+                    "subpeak_objective": 0.0,
+                    "subpeak_boundary_penalty": 0.0,
                 }
             ]
         for child in childSegments:
@@ -3096,6 +2869,10 @@ def _solutionToChromNarrowPeakRows(
                     "max_score": float(np.max(childScores)),
                     "num_subpeaks": int(child["num_subpeaks"]),
                     "split_from_parent": bool(child["split_from_parent"]),
+                    "subpeak_objective": float(child["subpeak_objective"]),
+                    "subpeak_boundary_penalty": float(
+                        child["subpeak_boundary_penalty"]
+                    ),
                     "trimmed_from_parent": bool(wasTrimmed),
                     "trim_score_floor": (
                         None if trimScoreFloor is None else float(trimScoreFloor)
@@ -3213,7 +2990,7 @@ def solveRocco(
             "nested_rocco_jaccard": float(_NESTED_ROCCO_JACCARD_DEFAULT),
             "nested_rocco_min_parent_steps": int(_NESTED_ROCCO_MIN_PARENT_STEPS),
             "nested_rocco_min_child_steps": int(_NESTED_ROCCO_MIN_CHILD_STEPS),
-            "nested_rocco_subproblem_policy": "anchored_exact_min_run_soft_budget_penalty",
+            "nested_rocco_subproblem_policy": "parent_conditioned_min_run_dp",
             "nested_rocco_diagnostics": bool(verbose),
             "nested_rocco_subproblem_details": nestedRoccoSubproblemDetailsPath,
             "export_trim": "summit_component_score_above_floor",
@@ -3363,9 +3140,11 @@ def solveRocco(
             solution,
             prefix="consenrichROCCO",
             nullScale=float(nullScale),
-            contextSpan=int(budgetDetails.get("dependence_span", 4)),
             uncertainty=uncertainty,
             trimScoreFloor=float(exportTrimScoreFloor),
+            subpeakSelectionPenalty=float(solveDetails["selection_penalty"]),
+            subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
+            minSubpeakBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
             exportFilterUncertaintyMultiplier=float(exportFilterUncertaintyMultiplier_),
             returnExportDetails=True,
         )
