@@ -300,6 +300,13 @@ def testRunROCCOAlgorithmFromBedGraphs(tmp_path):
         randSeed=11,
         outPath=str(outPath),
         metaPath=str(metaPath),
+        stateDiagnosticsByChromosome={
+            "chr19": {
+                "state_roughness": {
+                    "overall_mean_abs_diff": 1.25,
+                },
+            },
+        },
     )
 
     assert Path(resultPath).is_file()
@@ -309,6 +316,10 @@ def testRunROCCOAlgorithmFromBedGraphs(tmp_path):
     assert meta["settings"]["null_calibration_method"] == "stationary_null_dwb"
     assert meta["pooled_null_floor"] is None
     assert meta["budget_shrinkage"] is None
+    assert meta["chromosomes"]["chr19"]["state_diagnostics"]["state_roughness"][
+        "overall_mean_abs_diff"
+    ] == pytest.approx(1.25)
+    assert meta["chromosomes"]["chr22"]["state_diagnostics"] == {}
     for chrom in meta["chromosomes"].values():
         assert "budget_pre_shrink" in chrom["budget_details"]
         assert "budget_post_shrink" in chrom["budget_details"]

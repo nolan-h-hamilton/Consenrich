@@ -24,6 +24,7 @@ from tqdm import tqdm
 
 import consenrich.core as core
 import consenrich.ccounts as ccounts
+import consenrich.diagnostics as diagnostics
 import consenrich.misc_util as misc_util
 import consenrich.constants as constants
 import consenrich.detrorm as detrorm
@@ -37,6 +38,18 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _fmtDiagnosticFloat(value: Any) -> str:
+    if value is None:
+        return "NA"
+    try:
+        value_ = float(value)
+    except (TypeError, ValueError):
+        return "NA"
+    if not np.isfinite(value_):
+        return "NA"
+    return f"{value_:.6g}"
 
 
 def _progress(iterable, **kwargs):
@@ -2556,6 +2569,8 @@ def main():
                 logger.warning(f"Overwriting: {file_}")
                 os.remove(file_)
 
+    stateDiagnosticsByChromosome: Dict[str, Any] = {}
+
     for c_, chromPlan in enumerate(
         _progress(
             chromosomePlans,
@@ -3046,6 +3061,7 @@ def main():
             processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
             processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
             applyJackknife=outputArgs.applyJackknife,
+            returnDiagnostics=True,
         )
         (
             x,
@@ -3056,6 +3072,11 @@ def main():
             replicateBias,
             intervalToBlockMap,
         ) = runResult[:7]
+        runDiagnostics = (
+            runResult[7]
+            if len(runResult) > 7 and isinstance(runResult[7], Mapping)
+            else {}
+        )
         logger.info(
             "runConsenrich.done %s elapsed=%.3fs",
             chromosome,
@@ -3079,6 +3100,60 @@ def main():
             stateUpperBound=stateArgs.stateUpperBound,
             boundState=stateArgs.boundState,
         )
+        roughnessBlockLen = diagnostics.resolveUncertaintyBlockSizeIntervals(
+            uncertaintyCalibrationArgs.blockSizeBP,
+            intervalSizeBP,
+            len(x_),
+        )
+        stateRoughness = diagnostics.summarizeStateRoughness(
+            x_,
+            blockLenIntervals=roughnessBlockLen,
+            intervalSizeBP=intervalSizeBP,
+        )
+        roughnessStrata = {
+            str(row.get("stratum", "")): row
+            for row in stateRoughness.get("signal_strata", [])
+            if isinstance(row, Mapping)
+        }
+        logger.info(
+            "stateRoughness[%s]: block=%d intervals (%s bp) meanAbsDiff=%s "
+            "blockMedian=%s blockQ90=%s signalLow/Mid/High=%s/%s/%s",
+            chromosome,
+            int(stateRoughness["block_len_intervals"]),
+            _fmtDiagnosticFloat(stateRoughness.get("block_len_bp")),
+            _fmtDiagnosticFloat(stateRoughness.get("overall_mean_abs_diff")),
+            _fmtDiagnosticFloat(stateRoughness.get("block_mean_abs_diff_median")),
+            _fmtDiagnosticFloat(stateRoughness.get("block_mean_abs_diff_q90")),
+            _fmtDiagnosticFloat(
+                roughnessStrata.get("signal_abs_q00_50", {}).get("mean_abs_diff")
+            ),
+            _fmtDiagnosticFloat(
+                roughnessStrata.get("signal_abs_q50_90", {}).get("mean_abs_diff")
+            ),
+            _fmtDiagnosticFloat(
+                roughnessStrata.get("signal_abs_q90_100", {}).get("mean_abs_diff")
+            ),
+        )
+        precisionBoundaryHits = dict(
+            runDiagnostics.get("precision_reweighting_boundary_hits", {})
+        )
+        obsBoundaryHits = dict(precisionBoundaryHits.get("observation", {}))
+        procBoundaryHits = dict(precisionBoundaryHits.get("process", {}))
+        logger.info(
+            "precisionReweight.boundaryHits[%s]: obs lower=%d upper=%d total=%d; "
+            "proc lower=%d upper=%d total=%d",
+            chromosome,
+            int(obsBoundaryHits.get("lower", 0)),
+            int(obsBoundaryHits.get("upper", 0)),
+            int(obsBoundaryHits.get("total", 0)),
+            int(procBoundaryHits.get("lower", 0)),
+            int(procBoundaryHits.get("upper", 0)),
+            int(procBoundaryHits.get("total", 0)),
+        )
+        stateDiagnosticsByChromosome[chromosome] = {
+            "state_roughness": stateRoughness,
+            "precision_reweighting_boundary_hits": precisionBoundaryHits,
+        }
         P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
         uncertaintyTrack = np.sqrt(P00_).astype(np.float32, copy=False)
 
@@ -3272,6 +3347,7 @@ def main():
                 ),
                 randSeed=matchingArgs.randSeed,
                 verbose=bool(args.verbose),
+                stateDiagnosticsByChromosome=stateDiagnosticsByChromosome,
             )
 
             logger.info("Finished ROCCO peak calling. Written to %s", outName)

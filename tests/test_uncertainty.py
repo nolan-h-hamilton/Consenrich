@@ -5,6 +5,7 @@ import json
 
 import consenrich.cuncertainty as cuncertainty
 import consenrich.core as core
+import consenrich.diagnostics as diagnostic_utils
 import consenrich.uncertainty as uncertainty
 
 
@@ -371,9 +372,28 @@ def testCalibrateChromosomeStateUncertaintySmoke(tmp_path):
         model = json.load(handle)
     assert "objective" in model
     assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(model)
+    assert model["state_roughness"]["block_len_intervals"] == (
+        diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
+            params.blockSizeBP,
+            25,
+            n,
+        )
+    )
+    assert model["state_roughness"]["overall_mean_abs_diff"] is not None
     assert model["heldout_cells"] >= model["fit_heldout_cells"]
     assert model["fit_heldout_cells"] <= 12
     assert model["diagnostic_score_rows"] <= 5
+    coverageRows = model["state_uncertainty_coverage"]
+    coverageFitRows = model["state_uncertainty_coverage_fit"]
+    assert any(row["stratum"] == "overall" for row in coverageRows)
+    assert any(str(row["stratum"]).startswith("signal_abs_q") for row in coverageRows)
+    overallRows = [row for row in coverageRows if row["stratum"] == "overall"]
+    overallFitRows = [row for row in coverageFitRows if row["stratum"] == "overall"]
+    assert {row["target"] for row in overallRows} == set(params.targets)
+    assert {row["target"] for row in overallFitRows} == set(params.targets)
+    assert all(row["n"] == model["heldout_cells"] for row in overallRows)
+    assert all(row["n"] == model["fit_heldout_cells"] for row in overallFitRows)
+    assert all("coverage_before" in row and "coverage_after" in row for row in coverageRows)
     modelKeys = np.atleast_1d(diagnostics["key"])[
         np.atleast_1d(diagnostics["record_type"]) == "model"
     ]

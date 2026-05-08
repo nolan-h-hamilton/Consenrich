@@ -6,6 +6,7 @@
 
 import math
 import os
+import inspect
 import tempfile
 from typing import Tuple, List, Optional
 from pathlib import Path
@@ -19,6 +20,7 @@ import scipy.signal as spySig  # renamed to avoid conflict with any `signal` var
 import consenrich.core as core
 import consenrich.ccounts as ccounts
 import consenrich.cconsenrich as cconsenrich
+import consenrich.diagnostics as diagnostics
 import consenrich.detrorm as detrorm
 import consenrich.misc_util as misc_util
 import consenrich.peaks as peaks
@@ -892,6 +894,67 @@ def testCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
 
 
 @pytest.mark.correctness
+def testSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata():
+    state = np.asarray(
+        [
+            0.0,
+            1.0,
+            2.0,
+            5.0,
+            6.0,
+            9.0,
+            10.0,
+            12.0,
+            16.0,
+            30.0,
+            34.0,
+            42.0,
+        ],
+        dtype=np.float64,
+    )
+
+    summary = diagnostics.summarizeStateRoughness(
+        state,
+        blockLenIntervals=3,
+        intervalSizeBP=25,
+    )
+
+    assert summary["block_len_intervals"] == 3
+    assert summary["block_len_bp"] == 75
+    assert summary["n_blocks"] == 4
+    assert summary["n_differences"] == 8
+    assert summary["overall_mean_abs_diff"] == pytest.approx(3.0)
+    assert summary["block_mean_abs_diff_median"] == pytest.approx(2.5)
+    assert summary["block_mean_abs_diff_q90"] == pytest.approx(5.1)
+    strata = {row["stratum"]: row for row in summary["signal_strata"]}
+    assert strata["signal_abs_q00_50"]["mean_abs_diff"] == pytest.approx(1.5)
+    assert strata["signal_abs_q50_90"]["mean_abs_diff"] == pytest.approx(3.0)
+    assert strata["signal_abs_q90_100"]["mean_abs_diff"] == pytest.approx(6.0)
+
+
+@pytest.mark.correctness
+def testSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight():
+    summary = diagnostics.summarizePrecisionBoundaryHits(
+        observationPrecision=np.asarray(
+            [[0.1, 1.0, 10.0], [0.10000001, 10.0, 3.0]],
+            dtype=np.float64,
+        ),
+        observationPrecisionMin=0.1,
+        observationPrecisionMax=10.0,
+        processPrecision=np.asarray([0.2, 0.2, 5.0, 3.0, 0.2], dtype=np.float64),
+        processPrecisionMin=0.2,
+        processPrecisionMax=5.0,
+    )
+
+    assert summary["observation"]["total"] == 6
+    assert summary["observation"]["lower"] == 2
+    assert summary["observation"]["upper"] == 2
+    assert summary["process"]["total"] == 4
+    assert summary["process"]["lower"] == 2
+    assert summary["process"]["upper"] == 1
+
+
+@pytest.mark.correctness
 def testFitParamsDropsProcBlockScaleOptions():
     removedFields = {
         "EM_scaleToMedian",
@@ -1325,6 +1388,45 @@ def testMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport():
     assert "q95=" in summary
     assert "q99=" in summary
     assert "max=4" in summary
+
+
+@pytest.mark.correctness
+def testDefaultProcessPrecisionMultiplierBoundsAreTight():
+    assert core.processParams().precisionMultiplierMin == pytest.approx(0.5)
+    assert core.processParams().precisionMultiplierMax == pytest.approx(2.0)
+
+    signature = inspect.signature(core.runConsenrich)
+    assert signature.parameters["processPrecisionMultiplierMin"].default == pytest.approx(0.5)
+    assert signature.parameters["processPrecisionMultiplierMax"].default == pytest.approx(2.0)
+
+
+@pytest.mark.correctness
+def testCheckStateUncertaintyCoverageOverallAndStrata():
+    target = 2.0 * stats.norm.cdf(1.0) - 1.0
+    residual = np.array([0.0, 0.5, 1.5, 3.0], dtype=np.float64)
+    before = np.ones_like(residual)
+    after = np.full_like(residual, 2.0)
+    strata = {
+        "low_signal": np.array([True, True, False, False]),
+        "high_signal": np.array([False, False, True, True]),
+    }
+
+    rows = core.checkStateUncertaintyCoverage(
+        residual,
+        before,
+        after,
+        targets=(target,),
+        strata=strata,
+    )
+
+    byStratum = {row["stratum"]: row for row in rows}
+    assert byStratum["overall"]["n"] == 4
+    assert byStratum["overall"]["coverage_before"] == pytest.approx(0.5)
+    assert byStratum["overall"]["coverage_after"] == pytest.approx(0.75)
+    assert byStratum["overall"]["mean_width_before"] == pytest.approx(2.0)
+    assert byStratum["overall"]["mean_width_after"] == pytest.approx(4.0)
+    assert byStratum["low_signal"]["coverage_before"] == pytest.approx(1.0)
+    assert byStratum["high_signal"]["coverage_after"] == pytest.approx(0.5)
 
 
 @pytest.mark.correctness

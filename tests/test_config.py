@@ -183,6 +183,14 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
     assert processNested.processQCalibration == "regularizedDiagonal"
     assert processDotted.processQCalibIters == 5
     assert processNested.processQTrendTarget is None
+    assert processDotted.precisionMultiplierMin == pytest.approx(0.5)
+    assert processDotted.precisionMultiplierMax == pytest.approx(2.0)
+    assert processNested.precisionMultiplierMin == pytest.approx(0.5)
+    assert processNested.precisionMultiplierMax == pytest.approx(2.0)
+    assert observationDotted.precisionMultiplierMin == pytest.approx(0.1)
+    assert observationDotted.precisionMultiplierMax == pytest.approx(10.0)
+    assert observationNested.precisionMultiplierMin == pytest.approx(0.1)
+    assert observationNested.precisionMultiplierMax == pytest.approx(10.0)
 
     samDotted = configDotted["samArgs"]
     samNested = configNested["samArgs"]

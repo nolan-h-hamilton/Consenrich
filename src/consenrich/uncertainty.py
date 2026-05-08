@@ -15,6 +15,7 @@ from scipy import optimize, stats
 from tqdm import tqdm
 
 from . import core
+from . import diagnostics
 from . import cuncertainty as _cuncertainty
 
 
@@ -129,21 +130,10 @@ def _resolveBlockSizeIntervals(
     intervalSizeBP: int,
     n: int,
 ) -> int:
-    if blockSizeBP is None or str(blockSizeBP).lower() == "auto":
-        targetBP = max(
-            core.UNCERTAINTY_CALIBRATION_AUTO_BLOCK_MIN_BP,
-            core.UNCERTAINTY_CALIBRATION_AUTO_BLOCK_INTERVAL_MULTIPLIER
-            * int(intervalSizeBP),
-        )
-    else:
-        targetBP = int(blockSizeBP)
-    minBlockIntervals = core.UNCERTAINTY_CALIBRATION_MIN_BLOCK_INTERVALS
-    return int(
-        np.clip(
-            round(targetBP / max(int(intervalSizeBP), 1)),
-            minBlockIntervals,
-            max(n, minBlockIntervals),
-        )
+    return diagnostics.resolveUncertaintyBlockSizeIntervals(
+        blockSizeBP,
+        intervalSizeBP,
+        n,
     )
 
 
@@ -349,6 +339,29 @@ def _scoreSamplingCodes(
         + sdCode * 2
         + highSignal
     )
+
+
+def _signalLevelCoverageStrata(signalAbs: np.ndarray) -> dict[str, np.ndarray]:
+    signalAbs = np.asarray(signalAbs, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(signalAbs)
+    if not np.any(finite):
+        return {}
+    quantiles = np.asarray([0.0, 0.2, 0.4, 0.6, 0.8, 1.0], dtype=np.float64)
+    cuts = np.nanquantile(signalAbs[finite], quantiles)
+    strata: dict[str, np.ndarray] = {}
+    for idx in range(len(quantiles) - 1):
+        lo = float(cuts[idx])
+        hi = float(cuts[idx + 1])
+        if idx == 0:
+            mask = finite & (signalAbs <= hi)
+        else:
+            mask = finite & (signalAbs > lo) & (signalAbs <= hi)
+        if not np.any(mask):
+            continue
+        strata[
+            f"signal_abs_q{int(quantiles[idx] * 100):02d}_{int(quantiles[idx + 1] * 100):02d}"
+        ] = mask
+    return strata
 
 
 def _fitFactorModel(
@@ -635,6 +648,11 @@ def calibrateChromosomeStateUncertainty(
     fullState0 = fullStateArr[:, 0] if fullStateArr.ndim == 2 else fullStateArr.reshape(-1)
     if fullState0.shape[0] != n:
         raise ValueError("fullState must match the number of matrixData columns")
+    stateRoughness = diagnostics.summarizeStateRoughness(
+        fullState0,
+        blockLenIntervals=blockLen,
+        intervalSizeBP=intervalSizeBP,
+    )
     if fullP is None:
         if fullCovar is None:
             raise ValueError("either fullP or fullCovar is required")
@@ -800,6 +818,49 @@ def calibrateChromosomeStateUncertainty(
             core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
         )
     )
+    heldFactorAll = factor[intervalIndex].astype(np.float64)
+    sdBeforeAll = np.sqrt(
+        np.maximum(
+            pState + obsVar,
+            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+        )
+    )
+    sdAfterAll = np.sqrt(
+        np.maximum(
+            heldFactorAll * pState + aObsFactor * obsVar,
+            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+        )
+    )
+    signalAbsHeldout = np.abs(fullState0[intervalIndex])
+    stateCoverage = core.checkStateUncertaintyCoverage(
+        residual,
+        sdBeforeAll,
+        sdAfterAll,
+        targets=tuple(float(t) for t in params.targets),
+        strata=_signalLevelCoverageStrata(signalAbsHeldout),
+    )
+    signalAbsFit = np.abs(fullState0[intervalIndexFit])
+    stateCoverageFit = core.checkStateUncertaintyCoverage(
+        residualFit,
+        sdBefore,
+        sdAfter,
+        targets=tuple(float(t) for t in params.targets),
+        strata=_signalLevelCoverageStrata(signalAbsFit),
+    )
+    coverageOverall = [
+        row for row in stateCoverage if str(row.get("stratum", "")) == "overall"
+    ]
+    if coverageOverall:
+        logger.info(
+            "uncertaintyCalibration.coverage.all %s",
+            " ".join(
+                "target={target:.3g} before={coverage_before:.3f} after={coverage_after:.3f} n={n}".format(
+                    **row
+                )
+                for row in coverageOverall
+                if row.get("coverage_after") is not None
+            ),
+        )
     stageStart = time.perf_counter()
     scores = pd.DataFrame(
         {
@@ -860,6 +921,7 @@ def calibrateChromosomeStateUncertainty(
         "feature_center": [float(x) for x in featureCenter],
         "feature_scale": [float(x) for x in featureScale],
         "block_len_intervals": int(blockLen),
+        "state_roughness": stateRoughness,
         "holdout_replicates_per_block": int(holdoutCount),
         "heldout_cells": totalHeldoutCells,
         "fit_heldout_cells": int(residualFit.size),
@@ -881,6 +943,8 @@ def calibrateChromosomeStateUncertainty(
         "a_obs_penalty": float(_aObsPenalty(params)),
         "factor_bound_min": float(_factorBounds(params)[0]),
         "factor_bound_max": float(_factorBounds(params)[1]),
+        "state_uncertainty_coverage": stateCoverage,
+        "state_uncertainty_coverage_fit": stateCoverageFit,
     }
     timings["total_seconds"] = time.perf_counter() - totalStart
     model["timings_seconds"] = {key: float(value) for key, value in timings.items()}

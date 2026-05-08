@@ -42,8 +42,6 @@ from .constants import (
     SUPPORTED_SOURCE_KINDS,
     UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX,
     UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN,
-    UNCERTAINTY_CALIBRATION_AUTO_BLOCK_INTERVAL_MULTIPLIER,
-    UNCERTAINTY_CALIBRATION_AUTO_BLOCK_MIN_BP,
     UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
     UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH,
     UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
@@ -66,7 +64,6 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_FEATURE_POSITIVE_FLOOR,
     UNCERTAINTY_CALIBRATION_FEATURE_SCALE_FLOOR,
     UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE,
-    UNCERTAINTY_CALIBRATION_MIN_BLOCK_INTERVALS,
     UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_EM_ITERS,
     UNCERTAINTY_CALIBRATION_MIN_FOLDS,
     UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES,
@@ -82,6 +79,7 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_WIS_SCALE_MULTIPLIER,
     UNCERTAINTY_CALIBRATION_WIS_WEIGHT,
 )
+from .diagnostics import metadataFloat, summarizePrecisionBoundaryHits
 
 logging.basicConfig(
     level=logging.INFO,
@@ -142,8 +140,8 @@ class processParams(NamedTuple):
     processQTrendTarget: float | None = None
     processQLevelPriorWeight: float = 0.05
     processQTrendPriorWeight: float = 1.0
-    precisionMultiplierMin: float = 0.25
-    precisionMultiplierMax: float = 4.0
+    precisionMultiplierMin: float = 0.5
+    precisionMultiplierMax: float = 2.0
 
 
 class observationParams(NamedTuple):
@@ -277,6 +275,101 @@ class uncertaintyCalibrationParams(NamedTuple):
     seed: int = UNCERTAINTY_CALIBRATION_DEFAULT_SEED
     pad: float | None = None
     writeDiagnostics: bool = False
+
+
+def checkStateUncertaintyCoverage(
+    residual: npt.ArrayLike,
+    uncertaintyBefore: npt.ArrayLike,
+    uncertaintyAfter: npt.ArrayLike | None = None,
+    targets: tuple[float, ...] = UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
+    *,
+    strata: dict[str, npt.ArrayLike] | None = None,
+    minUncertainty: float = UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+) -> list[dict[str, float | int | str | None]]:
+    r"""Empirical coverage of held-out residuals under state uncertainty.
+
+    ``uncertaintyBefore`` and ``uncertaintyAfter`` are standard deviations for
+    the same held-out residuals, typically the predictive state-plus-observation
+    SD before and after the block-holdout uncertainty calibration.
+    """
+
+    residualArr = np.asarray(residual, dtype=np.float64).reshape(-1)
+    beforeArr = np.asarray(uncertaintyBefore, dtype=np.float64).reshape(-1)
+    if residualArr.shape != beforeArr.shape:
+        raise ValueError("residual and uncertaintyBefore must have the same shape")
+    afterArr = None
+    if uncertaintyAfter is not None:
+        afterArr = np.asarray(uncertaintyAfter, dtype=np.float64).reshape(-1)
+        if afterArr.shape != residualArr.shape:
+            raise ValueError("uncertaintyAfter must have the same shape as residual")
+
+    valid = np.isfinite(residualArr) & np.isfinite(beforeArr) & (beforeArr > 0.0)
+    if afterArr is not None:
+        valid &= np.isfinite(afterArr) & (afterArr > 0.0)
+
+    stratumMasks: list[tuple[str, np.ndarray]] = [("overall", valid)]
+    if strata:
+        for name, mask in strata.items():
+            maskArr = np.asarray(mask, dtype=bool).reshape(-1)
+            if maskArr.shape != residualArr.shape:
+                raise ValueError(f"stratum {name!r} must match residual shape")
+            stratumMasks.append((str(name), valid & maskArr))
+
+    rows: list[dict[str, float | int | str | None]] = []
+    for stratum, mask in stratumMasks:
+        resid = np.abs(residualArr[mask])
+        before = np.maximum(beforeArr[mask], float(minUncertainty))
+        after = (
+            np.maximum(afterArr[mask], float(minUncertainty))
+            if afterArr is not None
+            else None
+        )
+        n = int(resid.size)
+        for target in tuple(float(x) for x in targets):
+            targetClipped = float(
+                np.clip(
+                    target,
+                    UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
+                    1.0 - UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
+                )
+            )
+            z = float(stats.norm.ppf(0.5 + 0.5 * targetClipped))
+            if n == 0:
+                coverageBefore = np.nan
+                meanWidthBefore = np.nan
+                medianWidthBefore = np.nan
+                coverageAfter = None if after is None else np.nan
+                meanWidthAfter = None if after is None else np.nan
+                medianWidthAfter = None if after is None else np.nan
+            else:
+                widthBefore = 2.0 * z * before
+                coverageBefore = float(np.mean(resid <= z * before))
+                meanWidthBefore = float(np.mean(widthBefore))
+                medianWidthBefore = float(np.median(widthBefore))
+                if after is None:
+                    coverageAfter = None
+                    meanWidthAfter = None
+                    medianWidthAfter = None
+                else:
+                    widthAfter = 2.0 * z * after
+                    coverageAfter = float(np.mean(resid <= z * after))
+                    meanWidthAfter = float(np.mean(widthAfter))
+                    medianWidthAfter = float(np.median(widthAfter))
+            rows.append(
+                {
+                    "stratum": stratum,
+                    "target": float(target),
+                    "z": z,
+                    "n": n,
+                    "coverage_before": coverageBefore,
+                    "coverage_after": coverageAfter,
+                    "mean_width_before": meanWidthBefore,
+                    "mean_width_after": meanWidthAfter,
+                    "median_width_before": medianWidthBefore,
+                    "median_width_after": medianWidthAfter,
+                }
+            )
+    return rows
 
 
 class samParams(NamedTuple):
@@ -1663,9 +1756,10 @@ def runConsenrich(
     processQTrendPriorWeight: float = 1.0,
     observationPrecisionMultiplierMin: float = 0.25,
     observationPrecisionMultiplierMax: float = 4.0,
-    processPrecisionMultiplierMin: float = 0.25,
-    processPrecisionMultiplierMax: float = 4.0,
+    processPrecisionMultiplierMin: float = 0.5,
+    processPrecisionMultiplierMax: float = 2.0,
     observationMask: np.ndarray | None = None,
+    returnDiagnostics: bool = False,
 ):
     r"""Run Consenrich over a contiguous genomic region
 
@@ -2233,6 +2327,29 @@ def runConsenrich(
     stateCovarSmoothed = np.asarray(fitFinal["stateCovarSmoothed"], dtype=np.float32)
     postFitResiduals = np.asarray(fitFinal["postFitResiduals"], dtype=np.float32)
     NIS = np.asarray(fitFinal["NIS"], dtype=np.float32)
+    processQCalibrationMetadata = (
+        None
+        if processQCalibrationInfo is None
+        else {key: metadataFloat(value) for key, value in processQCalibrationInfo.items()}
+    )
+    runDiagnostics = {
+        "final_nll": metadataFloat(float(fitFinal.get("sumNLL", np.nan))),
+        "precision_reweighting_boundary_hits": summarizePrecisionBoundaryHits(
+            observationPrecision=(
+                fitFinal.get("lambdaExp") if bool(EM_useObsPrecReweight) else None
+            ),
+            observationPrecisionMin=float(observationPrecisionMultiplierMin),
+            observationPrecisionMax=float(observationPrecisionMultiplierMax),
+            processPrecision=(
+                fitFinal.get("processPrecExp")
+                if bool(EM_useProcPrecReweight) and not bool(EM_useAPN)
+                else None
+            ),
+            processPrecisionMin=float(processPrecisionMultiplierMin),
+            processPrecisionMax=float(processPrecisionMultiplierMax),
+        ),
+        "process_q_calibration": processQCalibrationMetadata,
+    }
 
     outStateSmoothed = np.asarray(stateSmoothed, dtype=np.float32)
     outStateCovarSmoothed = np.asarray(stateCovarSmoothed, dtype=np.float32)
@@ -2305,6 +2422,11 @@ def runConsenrich(
         time.perf_counter() - totalStart,
     )
 
+    def _maybeAddDiagnostics(result: tuple[Any, ...]) -> tuple[Any, ...]:
+        if returnDiagnostics:
+            return (*result, runDiagnostics)
+        return result
+
     if returnScales:
         if returnReplicateOffsets:
             result = (
@@ -2316,7 +2438,7 @@ def runConsenrich(
                 np.asarray(replicateBias_final, dtype=np.float32),
                 intervalToBlockMap,
             )
-            return result
+            return _maybeAddDiagnostics(result)
         result = (
             outStateSmoothed,
             outStateCovarSmoothed,
@@ -2325,7 +2447,7 @@ def runConsenrich(
             np.asarray(qScale, dtype=np.float32),
             intervalToBlockMap,
         )
-        return result
+        return _maybeAddDiagnostics(result)
 
     result = (
         outStateSmoothed,
@@ -2333,7 +2455,7 @@ def runConsenrich(
         outPostFitResiduals,
         outTrack4,
     )
-    return result
+    return _maybeAddDiagnostics(result)
 
 
 def getPrimaryState(

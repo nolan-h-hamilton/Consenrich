@@ -7,7 +7,7 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -3161,6 +3161,7 @@ def solveRocco(
     outPath: str | None = None,
     metaPath: str | None = None,
     verbose: bool = False,
+    stateDiagnosticsByChromosome: Mapping[str, Any] | None = None,
 ) -> str:
     r"""Run Consenrich+ROCCO peak caller directly on bedGraphs."""
     exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
@@ -3373,6 +3374,9 @@ def solveRocco(
         meta["chromosomes"][str(chromosome)] = {
             "n_loci": int(state.size),
             "interval_bp": int(work["interval_bp"]),
+            "state_diagnostics": dict(
+                (stateDiagnosticsByChromosome or {}).get(str(chromosome), {})
+            ),
             "budget": float(budget),
             "objective": float(finalObjective),
             "first_pass_objective": float(objective),
