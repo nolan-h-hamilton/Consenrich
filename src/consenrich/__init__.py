@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "0.10.3a0"
+__version__ = "0.10.5a0"
 
 from importlib import import_module
 
@@ -49,7 +49,5 @@ else:
 __all__ = sorted(
     name
     for name, value in globals().items()
-    if not name.startswith("_")
-    and name not in {"import_module"}
-    and value is not None
+    if not name.startswith("_") and name not in {"import_module"} and value is not None
 )
