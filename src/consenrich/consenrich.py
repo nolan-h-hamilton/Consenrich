@@ -1358,16 +1358,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             None if processQTrendTargetCfg is None else float(processQTrendTargetCfg)
         ),
         processQLevelPriorWeight=float(
-            _cfgGet(configData, "processParams.processQLevelPriorWeight", 0.05)
+            _cfgGet(configData, "processParams.processQLevelPriorWeight", 0.5)
         ),
         processQTrendPriorWeight=float(
-            _cfgGet(configData, "processParams.processQTrendPriorWeight", 25.0)
+            _cfgGet(configData, "processParams.processQTrendPriorWeight", 50.0)
         ),
         precisionMultiplierMin=float(
-            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.1)
+            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.25)
         ),
         precisionMultiplierMax=float(
-            _cfgGet(configData, "processParams.precisionMultiplierMax", 10.0)
+            _cfgGet(configData, "processParams.precisionMultiplierMax", 4.0)
         ),
     )
 
@@ -1508,12 +1508,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_outerIters=_cfgGet(
             configData,
             "fitParams.EM_outerIters",
-            8,
+            16,
         ),
         EM_outerRtol=_cfgGet(
             configData,
             "fitParams.EM_outerRtol",
-            0.01,
+            0.001,
         ),
         EM_backgroundSmoothness=_cfgGet(
             configData,
@@ -1584,7 +1584,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         numBootstrap=int(_cfgGet(configData, "matchingParams.numBootstrap", 128)),
         thresholdZ=float(_cfgGet(configData, "matchingParams.thresholdZ", 2.0)),
         dependenceSpan=_cfgGet(configData, "matchingParams.dependenceSpan", None),
-        gamma=_cfgGet(configData, "matchingParams.gamma", 0.5),
+        gamma=_cfgGet(configData, "matchingParams.gamma", 0.25),
         selectionPenalty=_cfgGet(configData, "matchingParams.selectionPenalty", None),
         gammaScale=float(_cfgGet(configData, "matchingParams.gammaScale", 0.5)),
         nestedRoccoIters=int(_cfgGet(configData, "matchingParams.nestedRoccoIters", 3)),
@@ -2569,30 +2569,81 @@ def main():
                 logger.warning(f"Overwriting: {file_}")
                 os.remove(file_)
 
-    stateDiagnosticsByChromosome: Dict[str, Any] = {}
+    trendNumBasis_ = (
+        60
+        if observationArgs.trendNumBasis is None
+        else int(observationArgs.trendNumBasis)
+    )
+    trendMinObsPerBasis_ = (
+        25.0
+        if observationArgs.trendMinObsPerBasis is None
+        else float(observationArgs.trendMinObsPerBasis)
+    )
+    trendMinEdf_ = (
+        3.0
+        if observationArgs.trendMinEdf is None
+        else float(observationArgs.trendMinEdf)
+    )
+    trendMaxEdf_ = (
+        None
+        if observationArgs.trendMaxEdf is None
+        else float(observationArgs.trendMaxEdf)
+    )
+    trendLambdaMin_ = (
+        1.0e-6
+        if observationArgs.trendLambdaMin is None
+        else float(observationArgs.trendLambdaMin)
+    )
+    trendLambdaMax_ = (
+        1.0e6
+        if observationArgs.trendLambdaMax is None
+        else float(observationArgs.trendLambdaMax)
+    )
+    trendLambdaGridSize_ = (
+        41
+        if observationArgs.trendLambdaGridSize is None
+        else int(observationArgs.trendLambdaGridSize)
+    )
+    samplingIters_ = (
+        25_000
+        if observationArgs.samplingIters is None
+        else int(observationArgs.samplingIters)
+    )
 
-    for c_, chromPlan in enumerate(
-        _progress(
-            chromosomePlans,
-            total=len(chromosomePlans),
-            desc="Processing chromosomes",
-            unit="chrom",
-        )
-    ):
-        chromosomeStartTime = time.perf_counter()
+    # negative --> data-based bounds resolved after MUNC construction
+    if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
+        minR_ = 0.0
+        maxR_ = 1e4
+    if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
+        minQ_ = 0.0
+        maxQ_ = 1e4
+
+    sf: np.ndarray | None = None
+    pooledMuncCache = tempfile.TemporaryDirectory(
+        prefix=f"consenrich_{experimentName}_munc_"
+    )
+    transformedMatrixCachePaths: Dict[str, str] = {}
+    pooledBlockMeansParts: list[np.ndarray] = []
+    pooledBlockVarsParts: list[np.ndarray] = []
+    pooledSampleIndexParts: list[np.ndarray] = []
+    pooledChromIndexParts: list[np.ndarray] = []
+    pooledBlockStartsParts: list[np.ndarray] = []
+    pooledWeightsParts: list[np.ndarray] = []
+
+    def _countAndTransformChromosomeMatrix(
+        c_: int,
+        chromPlan: Mapping[str, Any],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        nonlocal backgroundBlockSizeBP_, backgroundBlockSizeIntervals
+        nonlocal samplingBlockSizeBP_, vec_, sf
+
         chromosome = str(chromPlan["chromosome"])
         chromosomeStart = int(chromPlan["start"])
         chromosomeEnd = int(chromPlan["end"])
         numIntervals = int(chromPlan["numIntervals"])
-        logger.info(
-            "chromosome.start %s intervals=%d samples=%d",
-            chromosome,
-            int(numIntervals),
-            int(numSamples),
-        )
         intervals = np.arange(chromosomeStart, chromosomeEnd, intervalSizeBP)
         chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
-        muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
+
         if controlsPresent:
             for j_, (bamA, bamB) in enumerate(
                 _progress(
@@ -2611,7 +2662,6 @@ def main():
                     bamA,
                     bamB,
                 )
-
                 pairMatrix: np.ndarray = core.readSegments(
                     [
                         treatmentSources[j_],
@@ -2672,9 +2722,7 @@ def main():
                 chromosomeEnd,
                 intervalSizeBP,
                 readLengthsBamFiles,
-                (
-                    np.ones(numSamples) if waitForMatrix else scaleFactors
-                ),  # for SF, wait until matrix is built
+                np.ones(numSamples) if waitForMatrix else scaleFactors,
                 samArgs.oneReadPerBin,
                 samArgs.samThreads,
                 samArgs.samFlagExclude,
@@ -2758,21 +2806,14 @@ def main():
             )
 
         if waitForMatrix:
-            if c_ == 0:
+            if sf is None:
                 sf = cconsenrich.cSF(chromMat)
                 logger.info(
-                    f"`countingParams.normMethod=SF` --> calculating scaling factors\n{sf}\n",
+                    "`countingParams.normMethod=SF` --> calculating scaling factors\n%s\n",
+                    sf,
                 )
                 _checkSF(sf, logger)
             np.multiply(chromMat, sf[:, None], out=chromMat)
-
-        # negative --> data-based
-        if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            minR_ = 0.0
-            maxR_ = 1e4
-        if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
-            minQ_ = 0.0
-            maxQ_ = 1e4
 
         def _transformTrack(j: int) -> int:
             cconsenrich.cTransformInPlace(
@@ -2826,6 +2867,247 @@ def main():
                 time.perf_counter() - transformStart,
             )
 
+        return intervals, np.ascontiguousarray(chromMat, dtype=np.float32)
+
+    def _collectPooledMuncBlocks(
+        c_: int,
+        intervals: np.ndarray,
+        chromMat: np.ndarray,
+    ) -> None:
+        blockSizeIntervals = max(
+            1,
+            int(float(samplingBlockSizeBP_) / float(intervalSizeBP)),
+        )
+        emptyExcludeMask = np.zeros(chromMat.shape[1], dtype=np.uint8)
+        intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
+        for j in range(numSamples):
+            blockMeans, blockVars, starts, _ends = cconsenrich.cmeanVarPairs(
+                intervalsArr,
+                np.ascontiguousarray(chromMat[j, :], dtype=np.float32),
+                blockSizeIntervals,
+                samplingIters_,
+                42 + j,
+                emptyExcludeMask,
+                useInnovationVar=False,
+            )
+            blockMeansArr = np.asarray(blockMeans)
+            blockVarsArr = np.asarray(blockVars)
+            startsArr = np.asarray(starts)
+            if startsArr.size != blockMeansArr.size:
+                continue
+            valid = (
+                np.isfinite(blockMeansArr)
+                & np.isfinite(blockVarsArr)
+                & (blockVarsArr >= 1.0e-3)
+            )
+            if not np.any(valid):
+                continue
+            count = int(np.count_nonzero(valid))
+            pooledBlockMeansParts.append(
+                np.asarray(blockMeansArr[valid], dtype=np.float64)
+            )
+            pooledBlockVarsParts.append(
+                np.asarray(blockVarsArr[valid], dtype=np.float64)
+            )
+            pooledSampleIndexParts.append(np.full(count, int(j), dtype=np.int64))
+            pooledChromIndexParts.append(np.full(count, int(c_), dtype=np.int64))
+            pooledBlockStartsParts.append(np.asarray(startsArr[valid], dtype=np.int64))
+            pooledWeightsParts.append(
+                np.full(
+                    count,
+                    max(float(chromMat.shape[1]) / float(max(count, 1)), 1.0),
+                    dtype=np.float64,
+                )
+            )
+
+    for c_, chromPlan in enumerate(
+        _progress(
+            chromosomePlans,
+            total=len(chromosomePlans),
+            desc="Preparing pooled MUNC trend",
+            unit="chrom",
+        )
+    ):
+        chromosome = str(chromPlan["chromosome"])
+        intervals, chromMat = _countAndTransformChromosomeMatrix(c_, chromPlan)
+        cachePath = os.path.join(pooledMuncCache.name, f"chrom_{c_:05d}.npy")
+        np.save(cachePath, chromMat, allow_pickle=False)
+        transformedMatrixCachePaths[chromosome] = cachePath
+        _collectPooledMuncBlocks(c_, intervals, chromMat)
+
+    if pooledBlockMeansParts:
+        pooledBlockMeans = np.concatenate(pooledBlockMeansParts)
+        pooledBlockVars = np.concatenate(pooledBlockVarsParts)
+        pooledSampleIndex = np.concatenate(pooledSampleIndexParts)
+        pooledChromIndex = np.concatenate(pooledChromIndexParts)
+        pooledBlockStarts = np.concatenate(pooledBlockStartsParts)
+        pooledWeights = np.concatenate(pooledWeightsParts)
+    else:
+        pooledBlockMeans = np.empty(0, dtype=np.float64)
+        pooledBlockVars = np.empty(0, dtype=np.float64)
+        pooledSampleIndex = np.empty(0, dtype=np.int64)
+        pooledChromIndex = np.empty(0, dtype=np.int64)
+        pooledBlockStarts = np.empty(0, dtype=np.int64)
+        pooledWeights = np.empty(0, dtype=np.float64)
+
+    pooledMuncFit = core.fitPooledMuncVarianceTrend(
+        pooledBlockMeans,
+        pooledBlockVars,
+        pooledSampleIndex,
+        weights=pooledWeights,
+        eps=minR_ if minR_ is not None and minR_ > 0.0 else 1.0e-2,
+        trendNumBasis=trendNumBasis_,
+        trendMinObsPerBasis=trendMinObsPerBasis_,
+        trendMinEdf=trendMinEdf_,
+        trendMaxEdf=trendMaxEdf_,
+        trendLambdaMin=trendLambdaMin_,
+        trendLambdaMax=trendLambdaMax_,
+        trendLambdaGridSize=trendLambdaGridSize_,
+    )
+    pooledReplicateVarianceFactors = np.asarray(
+        pooledMuncFit.replicateVarianceFactors,
+        dtype=np.float64,
+    )
+    if pooledReplicateVarianceFactors.size < numSamples:
+        pooledReplicateVarianceFactors = np.pad(
+            pooledReplicateVarianceFactors,
+            (0, int(numSamples - pooledReplicateVarianceFactors.size)),
+            constant_values=1.0,
+        )
+    pooledReplicateVarianceFactors = pooledReplicateVarianceFactors[:numSamples]
+
+    pooledBlockSizeIntervals = max(
+        1,
+        int(float(samplingBlockSizeBP_) / float(intervalSizeBP)),
+    )
+    pooledLocalWindowIntervals = max(4, pooledBlockSizeIntervals + 1)
+    if observationArgs.EB_setNuL is not None and observationArgs.EB_setNuL > 3:
+        pooledNuL = float(observationArgs.EB_setNuL)
+    else:
+        pooledNuL = float(max(4, pooledLocalWindowIntervals - 3))
+    pooledNu0Cap = 50.0 * float(pooledNuL)
+
+    varianceFloorForTrend = minR_ if minR_ is not None and minR_ > 0.0 else 1.0e-2
+    varianceCapForTrend = maxR_ if maxR_ is not None and maxR_ > 0.0 else None
+    if pooledBlockMeans.size:
+        pooledPriorVariance = core.evalPSplineLogVarianceTrend(
+            pooledMuncFit.trend,
+            pooledBlockMeans,
+            eps=varianceFloorForTrend,
+            maxVariance=varianceCapForTrend,
+        ).astype(np.float64, copy=False)
+        factorByPair = pooledReplicateVarianceFactors[
+            np.clip(pooledSampleIndex, 0, numSamples - 1)
+        ]
+        pooledPriorVariance *= factorByPair
+    else:
+        pooledPriorVariance = np.empty(0, dtype=np.float64)
+
+    if observationArgs.EB_setNu0 is not None and observationArgs.EB_setNu0 > 4:
+        pooledMuncNu0 = float(observationArgs.EB_setNu0)
+        logger.info("Using fixed/specified pooled Nu_0=%.2f", pooledMuncNu0)
+    else:
+        pooledMuncNu0 = core.EB_computePooledPriorStrength(
+            pooledBlockVars,
+            pooledPriorVariance,
+            pooledNuL,
+            sampleIndex=pooledSampleIndex,
+            chromosomeIndex=pooledChromIndex,
+            blockStarts=pooledBlockStarts,
+            thinBinSize=pooledLocalWindowIntervals,
+        )
+    if not np.isfinite(pooledMuncNu0) or pooledMuncNu0 <= 4.0:
+        pooledMuncNu0 = pooledNu0Cap
+    if pooledMuncNu0 > pooledNu0Cap:
+        logger.info(
+            "Capping pooled Nu_0=%.2f at 50*Nu_L=%.2f",
+            float(pooledMuncNu0),
+            float(pooledNu0Cap),
+        )
+        pooledMuncNu0 = pooledNu0Cap
+
+    replicateNu0Diagnostics: list[float] = []
+    for j in range(numSamples):
+        repMask = pooledSampleIndex == j
+        if np.count_nonzero(repMask) < 4:
+            replicateNu0Diagnostics.append(float("nan"))
+            continue
+        repNu0 = core.EB_computePooledPriorStrength(
+            pooledBlockVars[repMask],
+            pooledPriorVariance[repMask],
+            pooledNuL,
+            sampleIndex=pooledSampleIndex[repMask],
+            chromosomeIndex=pooledChromIndex[repMask],
+            blockStarts=pooledBlockStarts[repMask],
+            thinBinSize=pooledLocalWindowIntervals,
+        )
+        if np.isfinite(repNu0):
+            repNu0 = min(float(repNu0), pooledNu0Cap)
+        replicateNu0Diagnostics.append(float(repNu0))
+
+    logger.info(
+        "pooled MUNC signed trend: pairs=%d samples=%d factors=%s Nu_0=%.2f Nu_L=%.2f perRepNu0=%s diagnostics=%s",
+        int(pooledBlockMeans.size),
+        int(numSamples),
+        np.array2string(
+            pooledReplicateVarianceFactors,
+            precision=4,
+            floatmode="fixed",
+            separator=", ",
+        ),
+        float(pooledMuncNu0),
+        float(pooledNuL),
+        np.array2string(
+            np.asarray(replicateNu0Diagnostics, dtype=np.float64),
+            precision=2,
+            floatmode="fixed",
+            separator=", ",
+        ),
+        pooledMuncFit.diagnostics,
+    )
+
+    stateDiagnosticsByChromosome: Dict[str, Any] = {}
+
+    for c_, chromPlan in enumerate(
+        _progress(
+            chromosomePlans,
+            total=len(chromosomePlans),
+            desc="Processing chromosomes",
+            unit="chrom",
+        )
+    ):
+        chromosomeStartTime = time.perf_counter()
+        chromosome = str(chromPlan["chromosome"])
+        chromosomeStart = int(chromPlan["start"])
+        chromosomeEnd = int(chromPlan["end"])
+        numIntervals = int(chromPlan["numIntervals"])
+        logger.info(
+            "chromosome.start %s intervals=%d samples=%d",
+            chromosome,
+            int(numIntervals),
+            int(numSamples),
+        )
+        intervals = np.arange(chromosomeStart, chromosomeEnd, intervalSizeBP)
+        cachePath = transformedMatrixCachePaths.get(chromosome)
+        if cachePath is None:
+            raise RuntimeError(f"Missing transformed matrix cache for {chromosome}")
+        chromMat = np.ascontiguousarray(
+            np.load(cachePath, allow_pickle=False),
+            dtype=np.float32,
+        )
+        if chromMat.shape != (numSamples, numIntervals):
+            raise RuntimeError(
+                "Transformed matrix cache shape mismatch for "
+                f"{chromosome}: expected {(numSamples, numIntervals)}, got {chromMat.shape}"
+            )
+        muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
+        logger.info(
+            "loaded transformed matrix cache %s samples=%d intervals=%d",
+            chromosome,
+            int(numSamples),
+            int(numIntervals),
+        )
+
         useSparseNearest = bool(
             observationArgs.numNearest is not None
             and int(observationArgs.numNearest) > 0
@@ -2872,19 +3154,19 @@ def main():
                 intervals,
                 chromMat[j, :],
                 intervalSizeBP,
-                samplingIters=observationArgs.samplingIters,
+                samplingIters=samplingIters_,
                 samplingBlockSizeBP=samplingBlockSizeBP_,
                 randomSeed=42 + j,
                 EB_use=observationArgs.EB_use,
                 EB_setNu0=observationArgs.EB_setNu0,
                 EB_setNuL=observationArgs.EB_setNuL,
-                trendNumBasis=observationArgs.trendNumBasis,
-                trendMinObsPerBasis=observationArgs.trendMinObsPerBasis,
-                trendMinEdf=observationArgs.trendMinEdf,
-                trendMaxEdf=observationArgs.trendMaxEdf,
-                trendLambdaMin=observationArgs.trendLambdaMin,
-                trendLambdaMax=observationArgs.trendLambdaMax,
-                trendLambdaGridSize=observationArgs.trendLambdaGridSize,
+                trendNumBasis=trendNumBasis_,
+                trendMinObsPerBasis=trendMinObsPerBasis_,
+                trendMinEdf=trendMinEdf_,
+                trendMaxEdf=trendMaxEdf_,
+                trendLambdaMin=trendLambdaMin_,
+                trendLambdaMax=trendLambdaMax_,
+                trendLambdaGridSize=trendLambdaGridSize_,
                 sparseIntervalIndices=sparseIntervalIndices,
                 sparseRegionMask=sparseRegionMask,
                 numNearest=int(observationArgs.numNearest or 0),
@@ -2898,6 +3180,9 @@ def main():
                 varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
                 intervalsArr=muncIntervalsArr,
                 excludeMaskArr=muncEmptyExcludeMask,
+                pooledTrend=pooledMuncFit.trend,
+                replicateVarianceFactor=float(pooledReplicateVarianceFactors[j]),
+                EB_pooledNu0=float(pooledMuncNu0),
             )
             return j, muncTrack
 
@@ -2936,14 +3221,14 @@ def main():
                 for j, muncTrack in _progress(
                     pool.imap(_fitMuncTrack, range(numSamples)),
                     total=numSamples,
-                    desc="Fitting variance function f(|mu|;Theta)",
+                    desc="Fitting pooled signed MUNC variance",
                     unit="sample",
                 ):
                     muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
         else:
             for j in _progress(
                 range(numSamples),
-                desc="Fitting variance function f(|mu|;Theta)",
+                desc="Fitting pooled signed MUNC variance",
                 unit="sample",
             ):
                 _, muncTrack = _fitMuncTrack(j)

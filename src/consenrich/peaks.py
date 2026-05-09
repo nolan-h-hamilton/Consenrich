@@ -34,6 +34,18 @@ _NESTED_ROCCO_MIN_CHILD_STEPS = _NESTED_ROCCO_MIN_PARENT_STEPS
 _NESTED_ROCCO_BUDGET_SCALE_DEFAULT = 0.5
 _NESTED_ROCCO_SUBPROBLEM_MAX_ITER = 5
 _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER = 2.5
+_MASSIVE_SUBPEAK_CLEANUP_DEFAULT = True
+_MASSIVE_SUBPEAK_MIN_BP = 10000
+_MASSIVE_SUBPEAK_WIDTH_ALPHA = 0.1
+_MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE = 0.95
+_MASSIVE_SUBPEAK_MAX_FRACTION = 0.005
+_MASSIVE_SUBPEAK_MIN_LOG_GAP = 0.10
+_MASSIVE_SUBPEAK_MIN_PEAKS = 50
+_MASSIVE_SUBPEAK_SPLIT_QUANTILE = 0.25
+_MASSIVE_SUBPEAK_SPLIT_Z = 2.0
+_MASSIVE_SUBPEAK_MAX_DEPTH = 8
+_MASSIVE_SUBPEAK_MIN_CHILD_BP = 1000
+_MASSIVE_SUBPEAK_MIN_CHILD_FRACTION = 0.05
 
 
 def _asFloatVector(name: str, values) -> np.ndarray:
@@ -1921,6 +1933,246 @@ def _parentConditionedSubpeakObjective(
     return objective, penalized, float(boundaryPenalty)
 
 
+def _bhQValues(pValues: npt.ArrayLike) -> np.ndarray:
+    p = np.asarray(pValues, dtype=np.float64).ravel()
+    if p.size == 0:
+        return np.asarray([], dtype=np.float64)
+    p = np.clip(np.where(np.isfinite(p), p, 1.0), 0.0, 1.0)
+    order = np.argsort(p, kind="mergesort")
+    out = np.empty_like(p)
+    previous = 1.0
+    n = int(p.size)
+    for rank in range(n - 1, -1, -1):
+        idx = int(order[rank])
+        value = float(p[idx]) * float(n) / float(rank + 1)
+        previous = min(previous, value)
+        out[idx] = min(previous, 1.0)
+    return out
+
+
+def _massiveSubpeakWidthScores(
+    widthsBP: npt.ArrayLike,
+    bulkQuantile: float = _MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE,
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
+    widths = np.asarray(widthsBP, dtype=np.float64).ravel()
+    positive = widths[np.isfinite(widths) & (widths > 0.0)]
+    if positive.size == 0:
+        empty = np.ones_like(widths, dtype=np.float64)
+        return empty, empty, {"center": 0.0, "scale": 1.0}
+    logs = np.log(np.maximum(widths, 1.0))
+    validLogs = np.log(positive)
+    q = float(np.clip(float(bulkQuantile), 0.5, 0.99))
+    cutoff = float(np.quantile(validLogs, q))
+    bulk = validLogs[validLogs <= cutoff]
+    if bulk.size < max(5, int(math.ceil(0.1 * validLogs.size))):
+        bulk = validLogs
+    center = float(np.median(bulk))
+    scale = 1.4826 * float(np.median(np.abs(bulk - center)))
+    if (not np.isfinite(scale)) or scale <= 1.0e-12:
+        scale = float(np.quantile(bulk, 0.75) - np.quantile(bulk, 0.25)) / 1.349
+    if (not np.isfinite(scale)) or scale <= 1.0e-12:
+        scale = 1.0
+    z = (logs - center) / scale
+    p = stats.norm.sf(z)
+    p = np.clip(np.where(np.isfinite(p), p, 1.0), 0.0, 1.0)
+    qValues = _bhQValues(p)
+    return p, qValues, {"center": float(center), "scale": float(scale)}
+
+
+def _learnMassiveSubpeakWidthPolicy(
+    widthsBP: npt.ArrayLike,
+    enabled: bool = _MASSIVE_SUBPEAK_CLEANUP_DEFAULT,
+    minBP: int = _MASSIVE_SUBPEAK_MIN_BP,
+    alpha: float = _MASSIVE_SUBPEAK_WIDTH_ALPHA,
+    bulkQuantile: float = _MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE,
+    maxFraction: float = _MASSIVE_SUBPEAK_MAX_FRACTION,
+    minLogGap: float = _MASSIVE_SUBPEAK_MIN_LOG_GAP,
+    minPeaks: int = _MASSIVE_SUBPEAK_MIN_PEAKS,
+) -> Dict[str, Any]:
+    widths = np.asarray(widthsBP, dtype=np.float64).ravel()
+    valid = widths[np.isfinite(widths) & (widths > 0.0)]
+    details: Dict[str, Any] = {
+        "enabled": bool(enabled),
+        "method": "robust_log_width_tail_gap",
+        "width_threshold_bp": None,
+        "min_bp": int(max(int(minBP), 1)),
+        "alpha": float(alpha),
+        "bulk_quantile": float(bulkQuantile),
+        "max_fraction": float(maxFraction),
+        "min_log_gap": float(minLogGap),
+        "min_peaks": int(max(int(minPeaks), 1)),
+        "num_peaks": int(valid.size),
+        "num_width_tail_candidates": 0,
+        "num_width_cluster_candidates": 0,
+        "selected_log_gap": None,
+        "null_center": None,
+        "null_scale": None,
+        "active": False,
+    }
+    if (not bool(enabled)) or valid.size < int(details["min_peaks"]):
+        return details
+    pValues, qValues, scoreMeta = _massiveSubpeakWidthScores(
+        widths,
+        bulkQuantile=float(bulkQuantile),
+    )
+    details["null_center"] = float(scoreMeta["center"])
+    details["null_scale"] = float(scoreMeta["scale"])
+    alpha_ = float(np.clip(float(alpha), 0.0, 1.0))
+    minBP_ = float(details["min_bp"])
+    tail = (
+        np.isfinite(widths)
+        & (widths >= minBP_)
+        & np.isfinite(qValues)
+        & (qValues <= alpha_)
+    )
+    details["num_width_tail_candidates"] = int(np.sum(tail))
+    if not bool(np.any(tail)):
+        return details
+    uniqueWidths = np.unique(np.sort(valid))
+    maxCount = int(max(1, math.floor(float(maxFraction) * float(valid.size))))
+    candidates: List[Tuple[float, int, float]] = []
+    for left, right in zip(uniqueWidths[:-1], uniqueWidths[1:]):
+        if right < minBP_:
+            continue
+        logGap = float(np.log(right) - np.log(left))
+        if logGap < float(minLogGap):
+            continue
+        rightMask = widths >= float(right)
+        rightCount = int(np.sum(rightMask))
+        if rightCount < 1 or rightCount > maxCount:
+            continue
+        if not bool(np.all(qValues[rightMask] <= alpha_)):
+            continue
+        candidates.append((float(right), int(rightCount), float(logGap)))
+    if not candidates:
+        return details
+    threshold, clusterCount, logGap = min(candidates, key=lambda item: item[0])
+    details["width_threshold_bp"] = int(round(float(threshold)))
+    details["num_width_cluster_candidates"] = int(clusterCount)
+    details["selected_log_gap"] = float(logGap)
+    details["active"] = True
+    return details
+
+
+def _massiveSubpeakWidthPValue(
+    widthBP: float,
+    policy: Mapping[str, Any] | None,
+) -> Tuple[float | None, float | None]:
+    if policy is None:
+        return None, None
+    center = policy.get("null_center")
+    scale = policy.get("null_scale")
+    if center is None or scale is None:
+        return None, None
+    scale_ = float(scale)
+    if (not np.isfinite(scale_)) or scale_ <= 0.0:
+        return None, None
+    width_ = max(float(widthBP), 1.0)
+    z = (math.log(width_) - float(center)) / scale_
+    p = float(stats.norm.sf(z))
+    return float(np.clip(p, 0.0, 1.0)), None
+
+
+def _bestMassiveSubpeakSplit(
+    scores: np.ndarray,
+    boundaryCost: float,
+    minRunBins: int,
+    splitQuantile: float = _MASSIVE_SUBPEAK_SPLIT_QUANTILE,
+) -> Dict[str, Any] | None:
+    scores_ = np.asarray(scores, dtype=np.float64)
+    n = int(scores_.size)
+    minBins = int(max(int(minRunBins), 1))
+    if n < 3 * minBins:
+        return None
+    baseline = float(np.quantile(scores_, float(np.clip(splitQuantile, 0.0, 1.0))))
+    scale = 1.4826 * float(np.median(np.abs(scores_ - np.median(scores_))))
+    if (not np.isfinite(scale)) or scale <= 1.0e-12:
+        scale = float(np.quantile(scores_, 0.75) - np.quantile(scores_, 0.25)) / 1.349
+    if (not np.isfinite(scale)) or scale <= 1.0e-12:
+        scale = 1.0
+    contrast = baseline - scores_
+    prefix = np.concatenate(([0.0], np.cumsum(contrast, dtype=np.float64)))
+    bestSum = -math.inf
+    bestStart = -1
+    bestEnd = -1
+    bestPrefix = math.inf
+    bestPrefixIndex = -1
+    lastEnd = n - minBins - 1
+    for end in range(minBins + minBins - 1, lastEnd + 1):
+        allowedStart = end - minBins + 1
+        if allowedStart >= minBins:
+            candidatePrefix = float(prefix[allowedStart])
+            if candidatePrefix < bestPrefix:
+                bestPrefix = candidatePrefix
+                bestPrefixIndex = int(allowedStart)
+        if bestPrefixIndex < 0:
+            continue
+        gapSum = float(prefix[end + 1] - bestPrefix)
+        if gapSum > bestSum:
+            bestSum = float(gapSum)
+            bestStart = int(bestPrefixIndex)
+            bestEnd = int(end)
+    if bestStart < 0 or bestEnd < bestStart:
+        return None
+    gapBins = int(bestEnd - bestStart + 1)
+    gain = float(bestSum - 2.0 * max(float(boundaryCost), 0.0))
+    z = float(bestSum / (float(scale) * math.sqrt(max(gapBins, 1))))
+    return {
+        "gap_start_local": int(bestStart),
+        "gap_end_local": int(bestEnd),
+        "gap_bins": int(gapBins),
+        "baseline": float(baseline),
+        "scale": float(scale),
+        "deficit": float(bestSum),
+        "gain": float(gain),
+        "z": float(z),
+    }
+
+
+def _makeSubpeakSegment(
+    startIdx: int,
+    endIdx: int,
+    state: np.ndarray,
+    originalStartIdx: int,
+    originalEndIdx: int,
+    numSubpeaks: int,
+    splitFromParent: bool,
+    objective: float,
+    boundaryPenalty: float,
+    cleanupCandidate: bool = False,
+    cleanupApplied: bool = False,
+    cleanupDetails: Mapping[str, Any] | None = None,
+) -> Dict[str, int | float | bool | None]:
+    start = int(startIdx)
+    end = int(endIdx)
+    state_ = np.asarray(state, dtype=np.float64)
+    summitLocal = int(np.argmax(state_[start : end + 1]))
+    details = {} if cleanupDetails is None else dict(cleanupDetails)
+    return {
+        "start_idx": int(start),
+        "end_idx": int(end),
+        "summit_idx": int(start + summitLocal),
+        "segment_length_bins": int(max(end - start + 1, 0)),
+        "num_subpeaks": int(numSubpeaks),
+        "split_from_parent": bool(splitFromParent),
+        "subpeak_objective": float(objective),
+        "subpeak_boundary_penalty": float(boundaryPenalty),
+        "massive_subpeak_cleanup_candidate": bool(cleanupCandidate),
+        "massive_subpeak_cleanup_applied": bool(cleanupApplied),
+        "massive_subpeak_split_gain": (
+            None if details.get("gain") is None else float(details["gain"])
+        ),
+        "massive_subpeak_split_z": (
+            None if details.get("z") is None else float(details["z"])
+        ),
+        "massive_subpeak_gap_bins": (
+            None if details.get("gap_bins") is None else int(details["gap_bins"])
+        ),
+        "massive_subpeak_parent_start_idx": int(originalStartIdx),
+        "massive_subpeak_parent_end_idx": int(originalEndIdx),
+    }
+
+
 def _solveParentConditionedSubpeaks(
     scores: np.ndarray,
     boundaryCosts: npt.ArrayLike,
@@ -2642,6 +2894,13 @@ def _solveParentConditionedSubpeakSegments(
                 "split_from_parent": False,
                 "subpeak_objective": float(details["penalized_objective"]),
                 "subpeak_boundary_penalty": float(details["boundary_penalty"]),
+                "massive_subpeak_cleanup_candidate": False,
+                "massive_subpeak_cleanup_applied": False,
+                "massive_subpeak_split_gain": None,
+                "massive_subpeak_split_z": None,
+                "massive_subpeak_gap_bins": None,
+                "massive_subpeak_parent_start_idx": int(startIdx),
+                "massive_subpeak_parent_end_idx": int(endIdx),
             }
         ]
     out: List[Dict[str, int | float | bool]] = []
@@ -2661,9 +2920,165 @@ def _solveParentConditionedSubpeakSegments(
                 ),
                 "subpeak_objective": float(details["penalized_objective"]),
                 "subpeak_boundary_penalty": float(details["boundary_penalty"]),
+                "massive_subpeak_cleanup_candidate": False,
+                "massive_subpeak_cleanup_applied": False,
+                "massive_subpeak_split_gain": None,
+                "massive_subpeak_split_z": None,
+                "massive_subpeak_gap_bins": None,
+                "massive_subpeak_parent_start_idx": int(startIdx),
+                "massive_subpeak_parent_end_idx": int(endIdx),
             }
         )
     return out
+
+
+def _forceMassiveSubpeakSegments(
+    child: Mapping[str, Any],
+    scores: np.ndarray,
+    state: np.ndarray,
+    intervals: np.ndarray,
+    ends: np.ndarray,
+    widthPolicy: Mapping[str, Any] | None,
+    boundaryCost: float,
+    minRunBins: int,
+    splitQuantile: float = _MASSIVE_SUBPEAK_SPLIT_QUANTILE,
+    minSplitZ: float = _MASSIVE_SUBPEAK_SPLIT_Z,
+    maxDepth: int = _MASSIVE_SUBPEAK_MAX_DEPTH,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    threshold = None if widthPolicy is None else widthPolicy.get("width_threshold_bp")
+    if threshold is None:
+        return [dict(child)], {
+            "candidates": 0,
+            "splits": 0,
+            "segments_added": 0,
+            "evaluated": 0,
+        }
+    threshold_ = float(threshold)
+    scores_ = np.asarray(scores, dtype=np.float64)
+    state_ = np.asarray(state, dtype=np.float64)
+    intervals_ = np.asarray(intervals, dtype=np.int64)
+    ends_ = np.asarray(ends, dtype=np.int64)
+    originalStart = int(child["start_idx"])
+    originalEnd = int(child["end_idx"])
+    binWidths = np.asarray(
+        ends_[originalStart : originalEnd + 1]
+        - intervals_[originalStart : originalEnd + 1],
+        dtype=np.int64,
+    )
+    binWidths = binWidths[binWidths > 0]
+    stepBP = int(max(int(np.median(binWidths)), 1)) if binWidths.size else 1
+    minBins = int(
+        max(
+            int(minRunBins),
+            int(math.ceil(float(_MASSIVE_SUBPEAK_MIN_CHILD_BP) / float(stepBP))),
+            int(
+                math.ceil(
+                    float(originalEnd - originalStart + 1)
+                    * float(_MASSIVE_SUBPEAK_MIN_CHILD_FRACTION)
+                )
+            ),
+            1,
+        )
+    )
+    maxDepth_ = int(max(int(maxDepth), 0))
+    counts = {"candidates": 0, "splits": 0, "segments_added": 0, "evaluated": 0}
+    objective = float(child.get("subpeak_objective", 0.0))
+    boundaryPenalty = float(child.get("subpeak_boundary_penalty", 0.0))
+
+    def _recurse(start: int, end: int, depth: int) -> List[Dict[str, Any]]:
+        widthBP = int(max(int(ends_[end]) - int(intervals_[start]), 0))
+        candidate = bool(widthBP >= threshold_)
+        if not candidate or depth >= maxDepth_:
+            return [
+                _makeSubpeakSegment(
+                    start,
+                    end,
+                    state_,
+                    originalStart,
+                    originalEnd,
+                    1,
+                    bool(start != originalStart or end != originalEnd),
+                    objective,
+                    boundaryPenalty,
+                    cleanupCandidate=candidate,
+                    cleanupApplied=False,
+                )
+            ]
+        counts["candidates"] += 1
+        counts["evaluated"] += 1
+        localScores = scores_[start : end + 1]
+        split = _bestMassiveSubpeakSplit(
+            localScores,
+            boundaryCost=float(boundaryCost),
+            minRunBins=minBins,
+            splitQuantile=float(splitQuantile),
+        )
+        if (
+            split is None
+            or float(split["gain"]) <= 0.0
+            or float(split["z"]) < float(minSplitZ)
+        ):
+            return [
+                _makeSubpeakSegment(
+                    start,
+                    end,
+                    state_,
+                    originalStart,
+                    originalEnd,
+                    1,
+                    bool(start != originalStart or end != originalEnd),
+                    objective,
+                    boundaryPenalty,
+                    cleanupCandidate=True,
+                    cleanupApplied=False,
+                    cleanupDetails=split,
+                )
+            ]
+        gapStart = int(start + int(split["gap_start_local"]))
+        gapEnd = int(start + int(split["gap_end_local"]))
+        leftEnd = int(gapStart - 1)
+        rightStart = int(gapEnd + 1)
+        if leftEnd - start + 1 < minBins or end - rightStart + 1 < minBins:
+            return [
+                _makeSubpeakSegment(
+                    start,
+                    end,
+                    state_,
+                    originalStart,
+                    originalEnd,
+                    1,
+                    bool(start != originalStart or end != originalEnd),
+                    objective,
+                    boundaryPenalty,
+                    cleanupCandidate=True,
+                    cleanupApplied=False,
+                    cleanupDetails=split,
+                )
+            ]
+        counts["splits"] += 1
+        left = _recurse(start, leftEnd, depth + 1)
+        right = _recurse(rightStart, end, depth + 1)
+        merged = left + right
+        for segment in merged:
+            segment["massive_subpeak_cleanup_candidate"] = True
+            segment["massive_subpeak_cleanup_applied"] = True
+            segment["massive_subpeak_split_gain"] = float(split["gain"])
+            segment["massive_subpeak_split_z"] = float(split["z"])
+            segment["massive_subpeak_gap_bins"] = int(split["gap_bins"])
+        return merged
+
+    out = _recurse(originalStart, originalEnd, 0)
+    if len(out) > 1:
+        counts["segments_added"] += int(len(out) - 1)
+    for segment in out:
+        segment["num_subpeaks"] = int(len(out))
+        segment["split_from_parent"] = bool(
+            len(out) > 1
+            or int(segment["start_idx"]) != originalStart
+            or int(segment["end_idx"]) != originalEnd
+            or bool(child.get("split_from_parent", False))
+        )
+    return out, counts
 
 
 def _trimChildSegmentAroundSummit(
@@ -2719,6 +3134,10 @@ def _solutionToChromNarrowPeakRows(
     subpeakSelectionPenalty: float | None = None,
     subpeakBoundaryCost: float | None = None,
     minSubpeakBins: int = 1,
+    massiveSubpeakCleanup: bool = False,
+    massiveSubpeakWidthPolicy: Mapping[str, Any] | None = None,
+    massiveSubpeakSplitQuantile: float = _MASSIVE_SUBPEAK_SPLIT_QUANTILE,
+    massiveSubpeakSplitZ: float = _MASSIVE_SUBPEAK_SPLIT_Z,
     dropMedianSignalBelowNegativeLocalP: bool = True,
     exportFilterUncertaintyMultiplier: float = (
         _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
@@ -2750,6 +3169,20 @@ def _solutionToChromNarrowPeakRows(
         "median_signal_local_p_filter_active": bool(
             dropMedianSignalBelowNegativeLocalP and uncertainty_ is not None
         ),
+        "massive_subpeak_cleanup_active": bool(
+            massiveSubpeakCleanup
+            and massiveSubpeakWidthPolicy is not None
+            and bool(massiveSubpeakWidthPolicy.get("active", False))
+        ),
+        "massive_subpeak_width_policy": (
+            None
+            if massiveSubpeakWidthPolicy is None
+            else dict(massiveSubpeakWidthPolicy)
+        ),
+        "num_massive_subpeak_candidates": 0,
+        "num_massive_subpeak_splits": 0,
+        "num_massive_subpeak_segments_added": 0,
+        "num_massive_subpeak_evaluated": 0,
     }
     i = 0
     while i < n:
@@ -2792,8 +3225,48 @@ def _solutionToChromNarrowPeakRows(
                     "split_from_parent": False,
                     "subpeak_objective": 0.0,
                     "subpeak_boundary_penalty": 0.0,
+                    "massive_subpeak_cleanup_candidate": False,
+                    "massive_subpeak_cleanup_applied": False,
+                    "massive_subpeak_split_gain": None,
+                    "massive_subpeak_split_z": None,
+                    "massive_subpeak_gap_bins": None,
+                    "massive_subpeak_parent_start_idx": int(startIdx),
+                    "massive_subpeak_parent_end_idx": int(endIdx),
                 }
             ]
+        if bool(exportDetails["massive_subpeak_cleanup_active"]):
+            forcedSegments: List[Dict[str, Any]] = []
+            for child in childSegments:
+                forced, forceCounts = _forceMassiveSubpeakSegments(
+                    child,
+                    scores_,
+                    state_,
+                    intervals,
+                    ends,
+                    massiveSubpeakWidthPolicy,
+                    boundaryCost=(
+                        float(max(float(nullScale), 0.0))
+                        if subpeakBoundaryCost is None
+                        else float(subpeakBoundaryCost)
+                    ),
+                    minRunBins=int(max(int(minSubpeakBins), 1)),
+                    splitQuantile=float(massiveSubpeakSplitQuantile),
+                    minSplitZ=float(massiveSubpeakSplitZ),
+                )
+                exportDetails["num_massive_subpeak_candidates"] += int(
+                    forceCounts["candidates"]
+                )
+                exportDetails["num_massive_subpeak_splits"] += int(
+                    forceCounts["splits"]
+                )
+                exportDetails["num_massive_subpeak_segments_added"] += int(
+                    forceCounts["segments_added"]
+                )
+                exportDetails["num_massive_subpeak_evaluated"] += int(
+                    forceCounts["evaluated"]
+                )
+                forcedSegments.extend(forced)
+            childSegments = forcedSegments
         for child in childSegments:
             untrimmedStartIdx = int(child["start_idx"])
             untrimmedEndIdx = int(child["end_idx"])
@@ -2835,6 +3308,10 @@ def _solutionToChromNarrowPeakRows(
             )
             chromStart = int(intervals[childStartIdx])
             chromEnd = int(ends[childEndIdx])
+            widthP, widthQ = _massiveSubpeakWidthPValue(
+                float(chromEnd - chromStart),
+                massiveSubpeakWidthPolicy,
+            )
             peakOffset = int(max(0, summitAbs - chromStart))
             peakName = f"{prefix}_{chromosome}_{len(rowsRaw)+1}"
             rowsRaw.append(
@@ -2872,6 +3349,39 @@ def _solutionToChromNarrowPeakRows(
                     "subpeak_objective": float(child["subpeak_objective"]),
                     "subpeak_boundary_penalty": float(
                         child["subpeak_boundary_penalty"]
+                    ),
+                    "massive_subpeak_cleanup_candidate": bool(
+                        child.get("massive_subpeak_cleanup_candidate", False)
+                    ),
+                    "massive_subpeak_cleanup_applied": bool(
+                        child.get("massive_subpeak_cleanup_applied", False)
+                    ),
+                    "massive_subpeak_width_p": (
+                        None if widthP is None else float(widthP)
+                    ),
+                    "massive_subpeak_width_q": (
+                        None if widthQ is None else float(widthQ)
+                    ),
+                    "massive_subpeak_width_threshold_bp": (
+                        None
+                        if massiveSubpeakWidthPolicy is None
+                        or massiveSubpeakWidthPolicy.get("width_threshold_bp") is None
+                        else int(massiveSubpeakWidthPolicy["width_threshold_bp"])
+                    ),
+                    "massive_subpeak_split_gain": (
+                        None
+                        if child.get("massive_subpeak_split_gain") is None
+                        else float(child["massive_subpeak_split_gain"])
+                    ),
+                    "massive_subpeak_split_z": (
+                        None
+                        if child.get("massive_subpeak_split_z") is None
+                        else float(child["massive_subpeak_split_z"])
+                    ),
+                    "massive_subpeak_gap_bins": (
+                        None
+                        if child.get("massive_subpeak_gap_bins") is None
+                        else int(child["massive_subpeak_gap_bins"])
                     ),
                     "trimmed_from_parent": bool(wasTrimmed),
                     "trim_score_floor": (
@@ -2931,6 +3441,7 @@ def solveRocco(
     gammaScale: float = 0.5,
     nestedRoccoIters: int = _NESTED_ROCCO_ITERS_DEFAULT,
     nestedRoccoBudgetScale: float = _NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
+    massiveSubpeakCleanup: bool = _MASSIVE_SUBPEAK_CLEANUP_DEFAULT,
     exportFilterUncertaintyMultiplier: float = (
         _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
     ),
@@ -2993,6 +3504,20 @@ def solveRocco(
             "nested_rocco_subproblem_policy": "parent_conditioned_min_run_dp",
             "nested_rocco_diagnostics": bool(verbose),
             "nested_rocco_subproblem_details": nestedRoccoSubproblemDetailsPath,
+            "massive_subpeak_cleanup": bool(massiveSubpeakCleanup),
+            "massive_subpeak_cleanup_policy": (
+                "robust_log_width_tail_gap_plus_valley_deficit"
+            ),
+            "massive_subpeak_min_bp": int(_MASSIVE_SUBPEAK_MIN_BP),
+            "massive_subpeak_width_alpha": float(_MASSIVE_SUBPEAK_WIDTH_ALPHA),
+            "massive_subpeak_max_fraction": float(_MASSIVE_SUBPEAK_MAX_FRACTION),
+            "massive_subpeak_min_log_gap": float(_MASSIVE_SUBPEAK_MIN_LOG_GAP),
+            "massive_subpeak_split_quantile": float(_MASSIVE_SUBPEAK_SPLIT_QUANTILE),
+            "massive_subpeak_split_z": float(_MASSIVE_SUBPEAK_SPLIT_Z),
+            "massive_subpeak_min_child_bp": int(_MASSIVE_SUBPEAK_MIN_CHILD_BP),
+            "massive_subpeak_min_child_fraction": float(
+                _MASSIVE_SUBPEAK_MIN_CHILD_FRACTION
+            ),
             "export_trim": "summit_component_score_above_floor",
             "export_trim_score_floor": 0.0,
             "export_filter": "drop_median_signal_below_negative_local_median_p",
@@ -3072,6 +3597,9 @@ def solveRocco(
             "interval_bp": int(np.median(ends - intervals)),
         }
 
+    chromResults: Dict[str, Dict[str, Any]] = {}
+    initialPeakWidthsBP: List[int] = []
+
     for chromosome, work in chromWork.items():
         state = np.asarray(work["state"], dtype=np.float64)
         intervals = np.asarray(work["intervals"], dtype=np.int64)
@@ -3148,17 +3676,94 @@ def solveRocco(
             exportFilterUncertaintyMultiplier=float(exportFilterUncertaintyMultiplier_),
             returnExportDetails=True,
         )
+        initialPeakWidthsBP.extend(
+            [int(meta_["end"]) - int(meta_["start"]) for meta_ in peakMeta]
+        )
+        chromResults[str(chromosome)] = {
+            "state": state,
+            "intervals": intervals,
+            "ends": ends,
+            "uncertainty": uncertainty,
+            "score_track": scoreTrack,
+            "null_scale": float(nullScale),
+            "budget": float(budget),
+            "budget_details": budgetDetails,
+            "objective": float(objective),
+            "final_objective": float(finalObjective),
+            "solve_details": solveDetails,
+            "nested_details": nestedDetails,
+            "first_pass_solution": firstPassSolution,
+            "solution": solution,
+            "export_trim_score_floor": float(exportTrimScoreFloor),
+            "initial_rows": rows,
+            "initial_peak_meta": peakMeta,
+            "initial_export_details": exportDetails,
+            "work": work,
+        }
+
+    massiveWidthPolicy = _learnMassiveSubpeakWidthPolicy(
+        initialPeakWidthsBP,
+        enabled=bool(massiveSubpeakCleanup),
+        minBP=int(_MASSIVE_SUBPEAK_MIN_BP),
+        alpha=float(_MASSIVE_SUBPEAK_WIDTH_ALPHA),
+        bulkQuantile=float(_MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE),
+        maxFraction=float(_MASSIVE_SUBPEAK_MAX_FRACTION),
+        minLogGap=float(_MASSIVE_SUBPEAK_MIN_LOG_GAP),
+        minPeaks=int(_MASSIVE_SUBPEAK_MIN_PEAKS),
+    )
+    meta["massive_subpeak_width_policy"] = dict(massiveWidthPolicy)
+
+    for chromosome, result in chromResults.items():
+        work = dict(result["work"])
+        state = np.asarray(result["state"], dtype=np.float64)
+        intervals = np.asarray(result["intervals"], dtype=np.int64)
+        ends = np.asarray(result["ends"], dtype=np.int64)
+        scoreTrack = np.asarray(result["score_track"], dtype=np.float64)
+        uncertainty = result["uncertainty"]
+        solution = np.asarray(result["solution"], dtype=np.uint8)
+        solveDetails = dict(result["solve_details"])
+        exportTrimScoreFloor = float(result["export_trim_score_floor"])
+        if bool(massiveWidthPolicy.get("active", False)):
+            rows, peakMeta, exportDetails = _solutionToChromNarrowPeakRows(
+                str(chromosome),
+                intervals,
+                ends,
+                state,
+                scoreTrack,
+                solution,
+                prefix="consenrichROCCO",
+                nullScale=float(result["null_scale"]),
+                uncertainty=uncertainty,
+                trimScoreFloor=float(exportTrimScoreFloor),
+                subpeakSelectionPenalty=float(solveDetails["selection_penalty"]),
+                subpeakBoundaryCost=float(0.25 * float(work["gamma"])),
+                minSubpeakBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
+                massiveSubpeakCleanup=True,
+                massiveSubpeakWidthPolicy=massiveWidthPolicy,
+                massiveSubpeakSplitQuantile=float(_MASSIVE_SUBPEAK_SPLIT_QUANTILE),
+                massiveSubpeakSplitZ=float(_MASSIVE_SUBPEAK_SPLIT_Z),
+                exportFilterUncertaintyMultiplier=float(
+                    exportFilterUncertaintyMultiplier_
+                ),
+                returnExportDetails=True,
+            )
+        else:
+            rows = list(result["initial_rows"])
+            peakMeta = list(result["initial_peak_meta"])
+            exportDetails = dict(result["initial_export_details"])
+            exportDetails["massive_subpeak_width_policy"] = dict(massiveWidthPolicy)
         allRows.extend(rows)
 
+        firstPassSolution = np.asarray(result["first_pass_solution"], dtype=np.uint8)
         meta["chromosomes"][str(chromosome)] = {
             "n_loci": int(state.size),
             "interval_bp": int(work["interval_bp"]),
             "state_diagnostics": dict(
                 (stateDiagnosticsByChromosome or {}).get(str(chromosome), {})
             ),
-            "budget": float(budget),
-            "objective": float(finalObjective),
-            "first_pass_objective": float(objective),
+            "budget": float(result["budget"]),
+            "objective": float(result["final_objective"]),
+            "first_pass_objective": float(result["objective"]),
             "num_parent_segments": int(
                 np.sum(
                     np.diff(
@@ -3176,10 +3781,10 @@ def solveRocco(
             "num_segments_dropped_median_signal_local_p": int(
                 exportDetails["num_segments_dropped_median_signal_local_p"]
             ),
-            "budget_details": budgetDetails,
+            "budget_details": dict(result["budget_details"]),
             "gamma_details": dict(work["gamma_details"]),
             "solve_details": solveDetails,
-            "nested_rocco_details": nestedDetails,
+            "nested_rocco_details": result["nested_details"],
             "export_trim_score_floor": float(exportTrimScoreFloor),
             "export_details": exportDetails,
             "peak_details": peakMeta,

@@ -726,6 +726,116 @@ def testSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP(
 
 
 @pytest.mark.correctness
+def testMassiveSubpeakWidthPolicyRequiresSeparatedTailCluster():
+    widths = np.concatenate(
+        [
+            np.linspace(500.0, 5000.0, 1000),
+            np.asarray([12000.0, 14000.0, 16000.0]),
+            np.asarray([60000.0, 70000.0]),
+        ]
+    )
+
+    policy = peaks._learnMassiveSubpeakWidthPolicy(widths)
+
+    assert policy["active"] is True
+    assert policy["width_threshold_bp"] == 60000
+    assert policy["num_width_cluster_candidates"] == 2
+
+
+@pytest.mark.correctness
+def testMassiveSubpeakWidthPolicyDoesNotFlagSmoothTailWithoutGap():
+    widths = np.linspace(500.0, 16000.0, 300)
+
+    policy = peaks._learnMassiveSubpeakWidthPolicy(widths)
+
+    assert policy["active"] is False
+    assert policy["width_threshold_bp"] is None
+
+
+@pytest.mark.correctness
+def testSolutionToChromNarrowPeakRowsForcesMassiveSplittableDomain():
+    n = 700
+    intervals = np.arange(0, n * 25, 25, dtype=np.int64)
+    ends = intervals + 25
+    state = np.full(n, 1.4, dtype=np.float64)
+    state[150:230] = 3.0
+    state[300:380] = 0.8
+    state[470:550] = 2.8
+    scores = state.copy()
+    solution = np.zeros(n, dtype=np.uint8)
+    solution[100:600] = 1
+    policy = {
+        "active": True,
+        "width_threshold_bp": 10000,
+        "null_center": float(np.log(1000.0)),
+        "null_scale": 1.0,
+    }
+
+    rows, rowMeta, exportDetails = peaks._solutionToChromNarrowPeakRows(
+        "chr1",
+        intervals,
+        ends,
+        state,
+        scores,
+        solution,
+        prefix="massiveSplitTest",
+        nullScale=0.25,
+        trimScoreFloor=0.0,
+        subpeakSelectionPenalty=0.0,
+        subpeakBoundaryCost=0.25,
+        massiveSubpeakCleanup=True,
+        massiveSubpeakWidthPolicy=policy,
+        returnExportDetails=True,
+    )
+
+    assert len(rows) == 2
+    assert exportDetails["num_massive_subpeak_splits"] == 1
+    assert all(meta["massive_subpeak_cleanup_applied"] for meta in rowMeta)
+    assert rowMeta[0]["end"] <= int(intervals[300])
+    assert rowMeta[1]["start"] >= int(ends[379])
+
+
+@pytest.mark.correctness
+def testSolutionToChromNarrowPeakRowsKeepsMassiveSmoothDomainUnsplit():
+    n = 700
+    intervals = np.arange(0, n * 25, 25, dtype=np.int64)
+    ends = intervals + 25
+    state = np.ones(n, dtype=np.float64)
+    scores = state.copy()
+    solution = np.zeros(n, dtype=np.uint8)
+    solution[100:600] = 1
+    policy = {
+        "active": True,
+        "width_threshold_bp": 10000,
+        "null_center": float(np.log(1000.0)),
+        "null_scale": 1.0,
+    }
+
+    rows, rowMeta, exportDetails = peaks._solutionToChromNarrowPeakRows(
+        "chr1",
+        intervals,
+        ends,
+        state,
+        scores,
+        solution,
+        prefix="massiveSmoothTest",
+        nullScale=0.25,
+        trimScoreFloor=0.0,
+        subpeakSelectionPenalty=0.0,
+        subpeakBoundaryCost=0.25,
+        massiveSubpeakCleanup=True,
+        massiveSubpeakWidthPolicy=policy,
+        returnExportDetails=True,
+    )
+
+    assert len(rows) == 1
+    assert exportDetails["num_massive_subpeak_candidates"] == 1
+    assert exportDetails["num_massive_subpeak_splits"] == 0
+    assert rowMeta[0]["massive_subpeak_cleanup_candidate"] is True
+    assert rowMeta[0]["massive_subpeak_cleanup_applied"] is False
+
+
+@pytest.mark.correctness
 def testNestedROCCORefinementShrinksWithinParentRegions():
     scores = np.full(80, 0.2, dtype=np.float64)
     scores[20:30] = 2.0

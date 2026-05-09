@@ -1703,7 +1703,7 @@ cdef inline double _deBoorValue(
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] cEvalPSplineLogVarianceTrend(
-    object meanTrack,
+    object predictorTrack,
     object knots,
     object beta,
     int degree,
@@ -1712,13 +1712,13 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cEvalPSplineLogVarianceTrend(
     double logFloor,
     double logCap,
 ):
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] meanArr = np.ascontiguousarray(meanTrack, dtype=np.float64).ravel()
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] predictorArr = np.ascontiguousarray(predictorTrack, dtype=np.float64).ravel()
     cdef cnp.ndarray[cnp.float64_t, ndim=1] knotsArr = np.ascontiguousarray(knots, dtype=np.float64).ravel()
     cdef cnp.ndarray[cnp.float64_t, ndim=1] betaArr = np.ascontiguousarray(beta, dtype=np.float64).ravel()
-    cdef Py_ssize_t n = meanArr.shape[0]
+    cdef Py_ssize_t n = predictorArr.shape[0]
     cdef Py_ssize_t nBasis = betaArr.shape[0]
     cdef cnp.ndarray[cnp.float32_t, ndim=1] out = np.empty(n, dtype=np.float32)
-    cdef const double* meanPtr = <const double*>meanArr.data
+    cdef const double* predictorPtr = <const double*>predictorArr.data
     cdef const double* knotsPtr = <const double*>knotsArr.data
     cdef const double* betaPtr = <const double*>betaArr.data
     cdef cnp.float32_t* outPtr = <cnp.float32_t*>out.data
@@ -1748,13 +1748,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cEvalPSplineLogVarianceTrend(
     try:
         with nogil:
             for i in range(n):
-                x = meanPtr[i]
+                x = predictorPtr[i]
                 if not isfinite(x):
                     logOut = logFloor
                 else:
-                    if x < 0.0:
-                        x = -x
-                    x = log1p(x)
                     if x < xMin:
                         x = xMin
                     elif x > xMax:

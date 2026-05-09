@@ -154,9 +154,9 @@ class observationParams(NamedTuple):
     :type minR: float | None
     :param maxR: Genome-wide upper bound for the replicate-specific observation noise levels.
     :type maxR: float | None
-    :param samplingIters: Number of blocks (within-contig) to sample while building the empirical absMean-variance trend in :func:`consenrich.core.fitPSplineLogVarianceTrend`.
+    :param samplingIters: Number of blocks (within-contig) to sample while building the empirical signed-mean variance trend in :func:`consenrich.core.fitPSplineLogVarianceTrend`.
     :type samplingIters: int | None
-    :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate :math:`(\lvert \mu_b \rvert, \sigma^2_b)` pairs.
+    :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate signed :math:`(\mu_b, \sigma^2_b)` pairs.
       Note, during sampling, each block's size (unit: genomic intervals) is drawn from truncated :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSize})` to reduce artifacts from fixed-size blocks.
       If `None` or ` < 1`, then this value is inferred using :func:`consenrich.core.chooseDependenceLength`.
     :type samplingBlockSizeBP: int | None
@@ -2080,6 +2080,7 @@ def runConsenrich(
 
         fitBackgroundLocal = bool(fitBackground)
         outerIters = max(1, int(EM_outerIters)) if fitBackgroundLocal else 1
+        minOuterIters = min(3, outerIters) if fitBackgroundLocal else 1
         outerTol = float(max(EM_outerRtol, 0.0))
 
         for outerIter in range(outerIters):
@@ -2193,7 +2194,7 @@ def runConsenrich(
                 float(bgChange),
                 float(bgTol),
             )
-            if bgChange <= bgTol:
+            if (outerIter + 1) >= minOuterIters and bgChange <= bgTol:
                 break
 
         dataAdjusted = np.ascontiguousarray(
@@ -2537,6 +2538,23 @@ class PSplineLogVarianceTrend(NamedTuple):
     diagnostics: dict[str, Any]
 
 
+class PooledMuncVarianceTrend(NamedTuple):
+    r"""Genome-wide MUNC variance trend with replicate-specific scale factors."""
+
+    trend: PSplineLogVarianceTrend
+    replicateVarianceFactors: np.ndarray
+    diagnostics: dict[str, Any]
+
+
+def _muncTrendPredictor(values: np.ndarray) -> np.ndarray:
+    r"""Signed MUNC trend predictor: ``sign(mean) * log1p(abs(mean))``."""
+
+    arr = np.asarray(values, dtype=np.float64)
+    out = np.sign(arr) * np.log1p(np.abs(arr))
+    out[~np.isfinite(out)] = np.nan
+    return out
+
+
 def _weightedQuantile(
     values: np.ndarray,
     weights: np.ndarray,
@@ -2660,7 +2678,7 @@ def fitPSplineLogVarianceTrend(
     trendMinEdf: float = 3.0,
     trendMaxEdf: float | None = 30.0,
 ) -> PSplineLogVarianceTrend:
-    r"""Fit a P-spline trend to ``log(variance)`` versus ``log1p(abs(mean))``.
+    r"""Fit a P-spline trend to ``log(variance)`` versus the signed MUNC predictor.
 
     Smoothing-parameter selection is guarded GCV only. The fit intentionally
     imposes no monotonicity constraint and no signal-dependent linear floor.
@@ -2679,7 +2697,7 @@ def fitPSplineLogVarianceTrend(
         raise ValueError("blockMeans and blockVariances must have the same length")
 
     floor = float(max(float(eps), 1.0e-12))
-    x = np.log1p(np.abs(means))
+    x = _muncTrendPredictor(means)
     y = np.log(np.maximum(variances, floor))
     mask = (
         np.isfinite(x) & np.isfinite(y) & np.isfinite(weightsArr) & (weightsArr > 0.0)
@@ -2872,8 +2890,9 @@ def evalPSplineLogVarianceTrend(
         cap = float(maxVariance)
     logFloor = float(np.log(floor))
     logCap = float(np.log(cap))
+    predictorTrack = _muncTrendPredictor(meanTrack)
     return cconsenrich.cEvalPSplineLogVarianceTrend(
-        meanTrack,
+        predictorTrack,
         np.asarray(trend.knots, dtype=np.float64),
         np.asarray(trend.beta, dtype=np.float64),
         int(trend.degree),
@@ -2884,18 +2903,160 @@ def evalPSplineLogVarianceTrend(
     )
 
 
+def _winsorizedMedian(values: np.ndarray, lo: float = 0.01, hi: float = 0.99) -> float:
+    arr = np.asarray(values, dtype=np.float64).ravel()
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return 0.0
+    if arr.size >= 20:
+        qLo, qHi = np.quantile(arr, [lo, hi])
+        arr = np.clip(arr, qLo, qHi)
+    return float(np.median(arr))
+
+
+def fitPooledMuncVarianceTrend(
+    blockMeans: np.ndarray,
+    blockVariances: np.ndarray,
+    sampleIndex: np.ndarray,
+    weights: np.ndarray | None = None,
+    eps: float = 1.0e-2,
+    trendNumBasis: int = 60,
+    trendMinObsPerBasis: float = 25.0,
+    trendMinEdf: float = 3.0,
+    trendMaxEdf: float | None = 30.0,
+    trendLambdaMin: float = 1.0e-6,
+    trendLambdaMax: float = 1.0e6,
+    trendLambdaGridSize: int = 41,
+    maxIters: int = 3,
+    tol: float = 0.02,
+) -> PooledMuncVarianceTrend:
+    r"""Fit a pooled signed MUNC trend plus replicate variance factors."""
+
+    means = np.asarray(blockMeans, dtype=np.float64).ravel()
+    variances = np.asarray(blockVariances, dtype=np.float64).ravel()
+    samples = np.asarray(sampleIndex, dtype=np.intp).ravel()
+    if means.shape != variances.shape or means.shape != samples.shape:
+        raise ValueError("blockMeans, blockVariances, and sampleIndex must align")
+    if weights is None:
+        weightsArr = np.ones_like(means, dtype=np.float64)
+    else:
+        weightsArr = np.asarray(weights, dtype=np.float64).ravel()
+        if weightsArr.shape != means.shape:
+            raise ValueError("weights must align with blockMeans")
+
+    mask = (
+        np.isfinite(means)
+        & np.isfinite(variances)
+        & np.isfinite(weightsArr)
+        & (variances > max(float(eps), 1.0e-12))
+        & (weightsArr > 0.0)
+        & (samples >= 0)
+    )
+    means = means[mask]
+    variances = variances[mask]
+    samples = samples[mask]
+    weightsArr = weightsArr[mask]
+
+    if samples.size == 0:
+        trend = fitPSplineLogVarianceTrend(
+            np.array([0.0], dtype=np.float64),
+            np.array([max(float(eps), 1.0e-12)], dtype=np.float64),
+            weights=np.array([1.0], dtype=np.float64),
+            eps=eps,
+            trendNumBasis=trendNumBasis,
+            trendMinObsPerBasis=trendMinObsPerBasis,
+            trendMinEdf=trendMinEdf,
+            trendMaxEdf=trendMaxEdf,
+            trendLambdaMin=trendLambdaMin,
+            trendLambdaMax=trendLambdaMax,
+            trendLambdaGridSize=trendLambdaGridSize,
+        )
+        return PooledMuncVarianceTrend(
+            trend=trend,
+            replicateVarianceFactors=np.ones(0, dtype=np.float64),
+            diagnostics={"fallback": "no_valid_pairs"},
+        )
+
+    sampleCount = int(np.max(samples)) + 1
+    logFactors = np.zeros(sampleCount, dtype=np.float64)
+    trend: PSplineLogVarianceTrend | None = None
+    maxChange = float("inf")
+    itersUsed = 0
+    for iterIndex in range(int(max(1, maxIters))):
+        factors = np.exp(logFactors)
+        adjustedVariances = variances / np.maximum(factors[samples], 1.0e-12)
+        trend = fitPSplineLogVarianceTrend(
+            means,
+            adjustedVariances,
+            weights=weightsArr,
+            eps=eps,
+            trendNumBasis=trendNumBasis,
+            trendMinObsPerBasis=trendMinObsPerBasis,
+            trendMinEdf=trendMinEdf,
+            trendMaxEdf=trendMaxEdf,
+            trendLambdaMin=trendLambdaMin,
+            trendLambdaMax=trendLambdaMax,
+            trendLambdaGridSize=trendLambdaGridSize,
+        )
+        predicted = evalPSplineLogVarianceTrend(trend, means, eps=eps)
+        residual = np.log(np.maximum(variances, eps)) - np.log(
+            np.maximum(predicted, eps)
+        )
+        nextLogFactors = np.zeros_like(logFactors)
+        for sample in range(sampleCount):
+            sampleMask = samples == sample
+            nextLogFactors[sample] = _winsorizedMedian(residual[sampleMask])
+        nextLogFactors -= float(np.mean(nextLogFactors))
+        maxChange = float(np.max(np.abs(nextLogFactors - logFactors)))
+        logFactors = nextLogFactors
+        itersUsed = iterIndex + 1
+        if maxChange < float(tol):
+            break
+
+    factors = np.exp(logFactors)
+    trend = fitPSplineLogVarianceTrend(
+        means,
+        variances / np.maximum(factors[samples], 1.0e-12),
+        weights=weightsArr,
+        eps=eps,
+        trendNumBasis=trendNumBasis,
+        trendMinObsPerBasis=trendMinObsPerBasis,
+        trendMinEdf=trendMinEdf,
+        trendMaxEdf=trendMaxEdf,
+        trendLambdaMin=trendLambdaMin,
+        trendLambdaMax=trendLambdaMax,
+        trendLambdaGridSize=trendLambdaGridSize,
+    )
+    diagnostics = {
+        "pooled_pairs": int(means.size),
+        "replicate_count": int(sampleCount),
+        "factor_min": float(np.min(factors)) if factors.size else 1.0,
+        "factor_median": float(np.median(factors)) if factors.size else 1.0,
+        "factor_max": float(np.max(factors)) if factors.size else 1.0,
+        "iterations": int(itersUsed),
+        "max_log_factor_change": float(maxChange),
+        "predictor": "signed_log1p",
+    }
+    return PooledMuncVarianceTrend(
+        trend=trend,
+        replicateVarianceFactors=factors.astype(np.float64, copy=False),
+        diagnostics=diagnostics,
+    )
+
+
 def _formatPSplineTrendSummary(
     trend: PSplineLogVarianceTrend,
-    supportAbsMeans: np.ndarray,
+    supportSignedMeans: np.ndarray,
     eps: float,
     maxVariance: float | None = None,
     pointCount: int = 9,
 ) -> str:
-    support = np.asarray(supportAbsMeans, dtype=np.float64).ravel()
-    support = support[np.isfinite(support) & (support >= 0.0)]
+    support = np.asarray(supportSignedMeans, dtype=np.float64).ravel()
+    support = support[np.isfinite(support)]
     if support.size == 0:
-        support = np.expm1(
-            np.linspace(float(trend.xMin), float(trend.xMax), int(pointCount))
+        predictor = np.linspace(float(trend.xMin), float(trend.xMax), int(pointCount))
+        support = np.sign(predictor) * np.expm1(
+            np.abs(predictor),
         )
     probs = np.linspace(0.0, 1.0, int(max(pointCount, 2)), dtype=np.float64)
     amp = np.unique(np.quantile(support, probs))
@@ -2912,7 +3073,7 @@ def _formatPSplineTrendSummary(
     basisCount = diagnostics.get("num_basis", len(beta))
     requestedBasis = diagnostics.get("requested_num_basis", len(beta))
     return (
-        "MUNC P-spline |mean|-SD trend:\n"
+        "MUNC P-spline signed-mean-SD trend:\n"
         f"\tlambda={getattr(trend, 'lambdaHat', float('nan')):.4g}\t"
         f"edf={getattr(trend, 'edf', float('nan')):.3g}\t"
         f"basis={basisCount}/{requestedBasis}\n"
@@ -2920,7 +3081,7 @@ def _formatPSplineTrendSummary(
         f"unique_x={diagnostics.get('trend_unique_x', 0)}\t"
         f"edf_cap={diagnostics.get('trend_max_edf', float('nan')):.3g}\t"
         f"lambda_at_boundary={getattr(trend, 'lambdaAtBoundary', False)}\n"
-        f"\t|mean|->sd[{pairs}]"
+        f"\tsigned_mean->sd[{pairs}]"
     )
 
 
@@ -2948,7 +3109,7 @@ def _formatMuncVarianceDiagnostics(
     support = np.asarray(supportAbsMeans, dtype=np.float64).ravel()
     support = support[np.isfinite(support) & (support >= 0.0)]
     if support.size == 0:
-        tailSummary = "tail_support(|mean|)[empty]"
+        tailSummary = "tail_support(abs_signed_mean)[empty]"
     else:
         tailProbs = np.asarray([0.90, 0.95, 0.99], dtype=np.float64)
         tailVals = np.quantile(support, tailProbs)
@@ -2957,7 +3118,9 @@ def _formatMuncVarianceDiagnostics(
             for prob, value in zip(tailProbs, tailVals)
         ]
         tailParts.append(f"max={float(np.max(support)):.4g}")
-        tailSummary = f"tail_support(|mean|)[n={support.size},{','.join(tailParts)}]"
+        tailSummary = (
+            f"tail_support(abs_signed_mean)[n={support.size},{','.join(tailParts)}]"
+        )
 
     return (
         "MUNC variance SD diagnostics:\n"
@@ -3152,13 +3315,16 @@ def getMuncTrack(
     varianceCap: float | None = None,
     intervalsArr: Optional[np.ndarray] = None,
     excludeMaskArr: Optional[np.ndarray] = None,
+    pooledTrend: Optional[PSplineLogVarianceTrend] = None,
+    replicateVarianceFactor: float = 1.0,
+    EB_pooledNu0: float | None = None,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
     For an individual experimental sample (replicate), quantify *positional* observation noise levels over genomic intervals :math:`i=1,2,\ldots n` spanning ``chromosome``.
     These tracks (per-sample) comprise the ``matrixMunc`` input to :func:`runConsenrich`, :math:`\mathbf{R}[:,:] \in \mathbb{R}^{m \times n}`.
 
-    Variance is modeled as a function of the absolute mean signal level. For ``EB_use=True``, local variance estimates are shrunk toward a signal level dependent global variance fit.
+    Variance is modeled as a function of a signed mean signal predictor. For ``EB_use=True``, local variance estimates are shrunk toward a signal level dependent global variance fit.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -3347,44 +3513,54 @@ def getMuncTrack(
                 float(np.max(sparseSupportWeightTrack)),
             )
 
-    # Global:
-    # ... Variance as function of |mean|, globally, as observed in distinct, randomly drawn genomic
-    # ... blocks. Within fixed-size blocks, an AR(1) fit captures local autocorrelation, while
-    # ... the stationary/marginal AR(1) variance is used as the diagonal observation-variance target.
-    blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
-        intervalsArr,
-        np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32),
-        blockSizeIntervals,
-        samplingIters,
-        randomSeed,
-        excludeMaskArr,
-        useInnovationVar=False,
-    )
-
-    meanAbs = np.abs(blockMeans)
-    mask = np.isfinite(meanAbs) & np.isfinite(blockVars) & (blockVars >= 1.0e-3)
-
-    meanAbs_Masked = meanAbs[mask]
-    var_Masked = blockVars[mask]
-    order = np.argsort(meanAbs_Masked)
-    meanAbs_Sorted = meanAbs_Masked[order]
-    var_Sorted = var_Masked[order]
-    opt = fitPSplineLogVarianceTrend(
-        meanAbs_Sorted,
-        var_Sorted,
-        eps=eps,
-        trendNumBasis=trendNumBasis,
-        trendMinObsPerBasis=trendMinObsPerBasis,
-        trendMinEdf=trendMinEdf,
-        trendMaxEdf=trendMaxEdf,
-        trendLambdaMin=trendLambdaMin,
-        trendLambdaMax=trendLambdaMax,
-        trendLambdaGridSize=trendLambdaGridSize,
-    )
+    supportFraction = 1.0
+    if pooledTrend is None:
+        # Global:
+        # ... Variance as a function of signed mean, globally, as observed in
+        # ... distinct, randomly drawn genomic blocks. Within fixed-size blocks,
+        # ... an AR(1) fit captures local autocorrelation, while the
+        # ... stationary/marginal AR(1) variance is used as the diagonal
+        # ... observation-variance target.
+        blockMeans, blockVars, _starts, _ends = cconsenrich.cmeanVarPairs(
+            intervalsArr,
+            np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32),
+            blockSizeIntervals,
+            samplingIters,
+            randomSeed,
+            excludeMaskArr,
+            useInnovationVar=False,
+        )
+        mask = np.isfinite(blockMeans) & np.isfinite(blockVars) & (blockVars >= 1.0e-3)
+        supportFraction = (
+            float(np.sum(mask)) / float(len(blockMeans)) if len(blockMeans) else 0.0
+        )
+        means_Masked = blockMeans[mask]
+        var_Masked = blockVars[mask]
+        order = np.argsort(_muncTrendPredictor(means_Masked))
+        means_Sorted = means_Masked[order]
+        var_Sorted = var_Masked[order]
+        opt = fitPSplineLogVarianceTrend(
+            means_Sorted,
+            var_Sorted,
+            eps=eps,
+            trendNumBasis=trendNumBasis,
+            trendMinObsPerBasis=trendMinObsPerBasis,
+            trendMinEdf=trendMinEdf,
+            trendMaxEdf=trendMaxEdf,
+            trendLambdaMin=trendLambdaMin,
+            trendLambdaMax=trendLambdaMax,
+            trendLambdaGridSize=trendLambdaGridSize,
+        )
+    else:
+        opt = pooledTrend
+        finiteValues = np.asarray(valuesForPriorFitArr, dtype=np.float64).ravel()
+        means_Sorted = finiteValues[np.isfinite(finiteValues)]
+        if means_Sorted.size == 0:
+            means_Sorted = np.array([0.0], dtype=np.float64)
     logger.info(
         _formatPSplineTrendSummary(
             opt,
-            meanAbs_Sorted,
+            means_Sorted,
             eps=varianceFloor_,
             maxVariance=varianceCap_,
         )
@@ -3393,13 +3569,16 @@ def getMuncTrack(
     meanTrack = np.ascontiguousarray(valuesForPriorFitArr, dtype=np.float32)
     if useEMA:
         meanTrack = cconsenrich.cEMA(meanTrack, 2 / (localWindowIntervals + 1))
-    meanTrack = np.abs(meanTrack)
     priorTrack = evalPSplineLogVarianceTrend(
         opt,
         meanTrack,
         eps=varianceFloor_,
         maxVariance=varianceCap_,
     )
+    priorFactor = float(replicateVarianceFactor)
+    if not np.isfinite(priorFactor) or priorFactor <= 0.0:
+        priorFactor = 1.0
+    priorTrack = priorTrack * np.float32(priorFactor)
     priorTrack = _clipVarianceTrack(
         priorTrack,
         floor=varianceFloor_,
@@ -3407,9 +3586,7 @@ def getMuncTrack(
     )
 
     if not EB_use:
-        return priorTrack.astype(np.float32, copy=False), np.sum(mask) / float(
-            len(blockMeans)
-        )
+        return priorTrack.astype(np.float32, copy=False), float(supportFraction)
 
     # Local:
     # ... default: rolling AR(1) marginal variance over a sliding window
@@ -3534,6 +3711,13 @@ def getMuncTrack(
         # check if Nu_0 is specified before computing
         Nu_0 = float(EB_setNu0)
         logger.info(f"Using fixed/specified Nu_0={Nu_0:.2f}")
+    elif (
+        EB_pooledNu0 is not None
+        and np.isfinite(float(EB_pooledNu0))
+        and float(EB_pooledNu0) > 4.0
+    ):
+        Nu_0 = float(EB_pooledNu0)
+        logger.info(f"Using pooled Nu_0={Nu_0:.2f}")
     else:
         # finite/non-zero mask _BEFORE_ Nu_0 fit
         priorFinite = priorTrack[np.isfinite(priorTrack)]
@@ -3638,7 +3822,7 @@ def getMuncTrack(
             obsVarTrack,
             priorTrack,
             posteriorVarTrack,
-            meanAbs_Sorted,
+            np.abs(means_Sorted),
         )
     )
 
@@ -3647,9 +3831,40 @@ def getMuncTrack(
             f"Median variance after shrinkage: {float(np.nanmedian(posteriorVarTrack)):.4f}",
         )
 
-    return posteriorVarTrack.astype(np.float32, copy=False), np.sum(mask) / float(
-        len(blockMeans)
+    return posteriorVarTrack.astype(np.float32, copy=False), float(supportFraction)
+
+
+def _computePriorStrengthFromCandidateIdx(
+    localModelVariancesArr: np.ndarray,
+    globalModelVariancesArr: np.ndarray,
+    Nu_local: float,
+    candidateIdx: np.ndarray,
+) -> float:
+    varRatioArr = (
+        localModelVariancesArr[candidateIdx] / globalModelVariancesArr[candidateIdx]
     )
+    varRatioArr = varRatioArr[np.isfinite(varRatioArr) & (varRatioArr > 0.0)]
+    if varRatioArr.size < 4:
+        logger.warning(
+            f"After masking, insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
+        )
+        return float(1.0e6)
+
+    logVarRatioArr = np.log(varRatioArr)
+    if logVarRatioArr.size >= 20:
+        clipSmall = np.quantile(logVarRatioArr, 0.01)
+        clipBig = np.quantile(logVarRatioArr, 0.99)
+        np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
+
+    varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
+    trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))
+    # inverse trigamma --> inf near 0
+    gap = max(varLogVarRatio - trigammaLocal, 1.0e-6)
+    Nu_0 = 2.0 * itrigamma(gap)
+    if Nu_0 < 4.0:
+        Nu_0 = 4.0
+
+    return float(Nu_0)
 
 
 def EB_computePriorStrength(
@@ -3664,7 +3879,7 @@ def EB_computePriorStrength(
 
     :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) marginal variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
     :type localModelVariances: np.ndarray
-    :param globalModelVariances: Global model variance estimates from the absMean-variance trend fit (:func:`consenrich.core.fitPSplineLogVarianceTrend`).
+    :param globalModelVariances: Global model variance estimates from the signed mean-variance trend fit (:func:`consenrich.core.fitPSplineLogVarianceTrend`).
     :type globalModelVariances: np.ndarray
     :param Nu_local: Effective sample size/degrees of freedom for the local model.
     :type Nu_local: float
@@ -3709,31 +3924,77 @@ def EB_computePriorStrength(
         )
         return float(1.0e6)
 
-    varRatioArr = (
-        localModelVariancesArr[candidateIdx] / globalModelVariancesArr[candidateIdx]
+    return _computePriorStrengthFromCandidateIdx(
+        localModelVariancesArr,
+        globalModelVariancesArr,
+        Nu_local,
+        candidateIdx,
     )
-    varRatioArr = varRatioArr[np.isfinite(varRatioArr) & (varRatioArr > 0.0)]
-    if varRatioArr.size < 4:
+
+
+def EB_computePooledPriorStrength(
+    localModelVariances: np.ndarray,
+    globalModelVariances: np.ndarray,
+    Nu_local: float,
+    sampleIndex: np.ndarray | None = None,
+    chromosomeIndex: np.ndarray | None = None,
+    blockStarts: np.ndarray | None = None,
+    thinBinSize: int = 1,
+) -> float:
+    r"""Compute pooled :math:`\nu_0` using deterministic sample/chromosome/bin thinning."""
+
+    localArr = np.asarray(localModelVariances, dtype=np.float64).ravel()
+    globalArr = np.asarray(globalModelVariances, dtype=np.float64).ravel()
+    if localArr.shape != globalArr.shape:
+        raise ValueError("localModelVariances and globalModelVariances must align")
+    ratioMask = (
+        np.isfinite(localArr)
+        & np.isfinite(globalArr)
+        & (localArr > 0.0)
+        & (globalArr > 0.0)
+    )
+    candidateIdx = np.flatnonzero(ratioMask)
+    if candidateIdx.size < max(4, int(np.ceil(0.10 * localArr.size))):
         logger.warning(
-            f"After masking, insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
+            "Insufficient pooled prior/local variance pairs...setting Nu_0 = 1.0e6"
         )
         return float(1.0e6)
 
-    logVarRatioArr = np.log(varRatioArr)
-    if logVarRatioArr.size >= 20:
-        clipSmall = np.quantile(logVarRatioArr, 0.01)
-        clipBig = np.quantile(logVarRatioArr, 0.99)
-        np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
+    if sampleIndex is not None and chromosomeIndex is not None and blockStarts is not None:
+        samples = np.asarray(sampleIndex, dtype=np.int64).ravel()
+        chromosomes = np.asarray(chromosomeIndex, dtype=np.int64).ravel()
+        starts = np.asarray(blockStarts, dtype=np.int64).ravel()
+        if (
+            samples.shape != localArr.shape
+            or chromosomes.shape != localArr.shape
+            or starts.shape != localArr.shape
+        ):
+            raise ValueError("sampleIndex, chromosomeIndex, and blockStarts must align")
+        binSize = max(int(thinBinSize or 1), 1)
+        seen: set[tuple[int, int, int]] = set()
+        thinned: list[int] = []
+        for idx in candidateIdx:
+            key = (
+                int(samples[idx]),
+                int(chromosomes[idx]),
+                int(starts[idx] // binSize),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            thinned.append(int(idx))
+        candidateIdx = np.asarray(thinned, dtype=np.intp)
 
-    varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
-    trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))
-    # inverse trigamma --> inf near 0
-    gap = max(varLogVarRatio - trigammaLocal, 1.0e-6)
-    Nu_0 = 2.0 * itrigamma(gap)
-    if Nu_0 < 4.0:
-        Nu_0 = 4.0
+    if candidateIdx.size < 4:
+        logger.warning("After pooled thinning, insufficient pairs...setting Nu_0 = 1.0e6")
+        return float(1.0e6)
 
-    return float(Nu_0)
+    return _computePriorStrengthFromCandidateIdx(
+        localArr,
+        globalArr,
+        Nu_local,
+        candidateIdx,
+    )
 
 
 def _estimateLocalPeakWidth(
