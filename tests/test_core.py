@@ -1140,7 +1140,7 @@ def testRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypat
 
 
 @pytest.mark.correctness
-def testRunConsenrichOuterLoopRequiresThreeIterationsButRespectsCap(monkeypatch):
+def testRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance(monkeypatch):
     rng = np.random.default_rng(23)
     n = 32
     m = 3
@@ -1187,7 +1187,7 @@ def testRunConsenrichOuterLoopRequiresThreeIterationsButRespectsCap(monkeypatch)
 
     calls.clear()
     core.runConsenrich(**commonKwargs, EM_outerIters=2)
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 @pytest.mark.correctness
@@ -1565,6 +1565,14 @@ def testMonotonePoolingSourceSymbolsAbsent():
 
 
 @pytest.mark.correctness
+def testEBPriorStrengthBoundaryIsUsable():
+    assert core._coerceEBPriorStrength(4.0) == pytest.approx(4.0)
+    assert core._coerceEBPriorStrength(4) == pytest.approx(4.0)
+    assert core._coerceEBPriorStrength(3.999999) is None
+    assert core._coerceEBPriorStrength(float("nan")) is None
+
+
+@pytest.mark.correctness
 def testEBPriorStrengthUsesThinnedVariancePairs():
     n = 50
     globalVars = np.ones(n, dtype=np.float64)
@@ -1855,7 +1863,7 @@ def testGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
 
 
 @pytest.mark.correctness
-def testGetMuncTrackUsesSuppliedPooledTrendFactorAndNu0(
+def testGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
     monkeypatch: pytest.MonkeyPatch,
 ):
     intervals = np.arange(0, 300, 25, dtype=np.uint32)
@@ -1907,12 +1915,12 @@ def testGetMuncTrackUsesSuppliedPooledTrendFactorAndNu0(
         EB_use=True,
         pooledTrend=pooledTrend,
         replicateVarianceFactor=3.0,
-        EB_pooledNu0=1_000.0,
+        EB_pooledNu0=4.0,
         varianceFloor=0.0,
         varianceCap=20.0,
     )
 
-    expected = (10.0 * localVarTrack + 500.0 * np.float32(6.0)) / 510.0
+    expected = (10.0 * localVarTrack + 4.0 * np.float32(6.0)) / 14.0
     assert np.allclose(muncTrack, expected.astype(np.float32))
 
 

@@ -1358,16 +1358,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             None if processQTrendTargetCfg is None else float(processQTrendTargetCfg)
         ),
         processQLevelPriorWeight=float(
-            _cfgGet(configData, "processParams.processQLevelPriorWeight", 0.5)
+            _cfgGet(configData, "processParams.processQLevelPriorWeight", 1.0)
         ),
         processQTrendPriorWeight=float(
-            _cfgGet(configData, "processParams.processQTrendPriorWeight", 50.0)
+            _cfgGet(configData, "processParams.processQTrendPriorWeight", 25.0)
         ),
         precisionMultiplierMin=float(
-            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.25)
+            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.01)
         ),
         precisionMultiplierMax=float(
-            _cfgGet(configData, "processParams.precisionMultiplierMax", 4.0)
+            _cfgGet(configData, "processParams.precisionMultiplierMax", 10.0)
         ),
     )
 
@@ -1454,11 +1454,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
         blockQuantile=float(
-            _cfgGet(configData, "observationParams.blockQuantile", 0.75)
+            _cfgGet(configData, "observationParams.blockQuantile", 0.5)
         ),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
         precisionMultiplierMin=float(
-            _cfgGet(configData, "observationParams.precisionMultiplierMin", 0.1)
+            _cfgGet(configData, "observationParams.precisionMultiplierMin", 0.01)
         ),
         precisionMultiplierMax=float(
             _cfgGet(configData, "observationParams.precisionMultiplierMax", 10.0)
@@ -1498,7 +1498,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_zeroCenterBackground=_cfgGet(
             configData,
             "fitParams.EM_zeroCenterBackground",
-            True,
+            False,
         ),
         EM_zeroCenterReplicateBias=_cfgGet(
             configData,
@@ -1513,7 +1513,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_outerRtol=_cfgGet(
             configData,
             "fitParams.EM_outerRtol",
-            0.001,
+            1.0e-3,
         ),
         EM_backgroundSmoothness=_cfgGet(
             configData,
@@ -3003,8 +3003,9 @@ def main():
     else:
         pooledPriorVariance = np.empty(0, dtype=np.float64)
 
-    if observationArgs.EB_setNu0 is not None and observationArgs.EB_setNu0 > 4:
-        pooledMuncNu0 = float(observationArgs.EB_setNu0)
+    specifiedNu0 = core._coerceEBPriorStrength(observationArgs.EB_setNu0)
+    if specifiedNu0 is not None:
+        pooledMuncNu0 = specifiedNu0
         logger.info("Using fixed/specified pooled Nu_0=%.2f", pooledMuncNu0)
     else:
         pooledMuncNu0 = core.EB_computePooledPriorStrength(
@@ -3016,7 +3017,7 @@ def main():
             blockStarts=pooledBlockStarts,
             thinBinSize=pooledLocalWindowIntervals,
         )
-    if not np.isfinite(pooledMuncNu0) or pooledMuncNu0 <= 4.0:
+    if not np.isfinite(pooledMuncNu0) or pooledMuncNu0 < 4.0:
         pooledMuncNu0 = pooledNu0Cap
     if pooledMuncNu0 > pooledNu0Cap:
         logger.info(

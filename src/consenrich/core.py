@@ -755,7 +755,7 @@ class fitParams(NamedTuple):
     EM_useProcPrecReweight: bool | None = True
     EM_useAPN: bool | None = False
     EM_useReplicateBias: bool | None = True
-    EM_zeroCenterBackground: bool | None = True
+    EM_zeroCenterBackground: bool | None = False
     EM_zeroCenterReplicateBias: bool | None = True
     EM_outerIters: int | None = 3
     EM_outerRtol: float | None = 1.0e-3
@@ -1737,7 +1737,7 @@ def runConsenrich(
     EM_useProcPrecReweight: bool = True,
     EM_useAPN: bool = False,
     EM_useReplicateBias: bool = True,
-    EM_zeroCenterBackground: bool = True,
+    EM_zeroCenterBackground: bool = False,
     EM_zeroCenterReplicateBias: bool = True,
     EM_outerIters: int = 3,
     EM_outerRtol: float = 1.0e-3,
@@ -1778,10 +1778,10 @@ def runConsenrich(
     Here :math:`g_{[i]}` is a shared smooth background, :math:`b_j` is a
     replicate-level bias term, and :math:`v_{[j,i]}` is the plugin observation
     variance supplied by ``matrixMunc``. The shared smooth background fit can be
-    disabled with ``fitBackground=False``. By default, identifiability is enforced
-    by zero-centering the shared background and replicate offsets; those constraints
-    can be disabled with ``EM_zeroCenterBackground=False`` and
-    ``EM_zeroCenterReplicateBias=False``.
+    disabled with ``fitBackground=False``. By default, replicate offsets are
+    centered for identifiability while the shared background is allowed to carry
+    a contig-wide level; background centering can be enabled with
+    ``EM_zeroCenterBackground=True``.
 
     The latent state follows
 
@@ -2079,8 +2079,12 @@ def runConsenrich(
         sumNLLLocal = np.nan
 
         fitBackgroundLocal = bool(fitBackground)
-        outerIters = max(1, int(EM_outerIters)) if fitBackgroundLocal else 1
-        minOuterIters = min(3, outerIters) if fitBackgroundLocal else 1
+        if fitBackgroundLocal:
+            outerIters = max(3, int(EM_outerIters))
+            minOuterIters = 3
+        else:
+            outerIters = 1
+            minOuterIters = 1
         outerTol = float(max(EM_outerRtol, 0.0))
 
         for outerIter in range(outerIters):
@@ -3281,6 +3285,15 @@ def _solveZeroCenteredBackground(
     )
 
 
+def _coerceEBPriorStrength(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    nu0 = float(value)
+    if not np.isfinite(nu0) or nu0 < 4.0:
+        return None
+    return nu0
+
+
 def getMuncTrack(
     chromosome: str,
     intervals: np.ndarray,
@@ -3707,16 +3720,15 @@ def getMuncTrack(
     finMask_prior2: Optional[np.ndarray] = None
     finMask_both2: Optional[np.ndarray] = None
 
-    if EB_setNu0 is not None and EB_setNu0 > 4:
+    specifiedNu0 = _coerceEBPriorStrength(EB_setNu0)
+    pooledNu0 = _coerceEBPriorStrength(EB_pooledNu0)
+
+    if specifiedNu0 is not None:
         # check if Nu_0 is specified before computing
-        Nu_0 = float(EB_setNu0)
+        Nu_0 = specifiedNu0
         logger.info(f"Using fixed/specified Nu_0={Nu_0:.2f}")
-    elif (
-        EB_pooledNu0 is not None
-        and np.isfinite(float(EB_pooledNu0))
-        and float(EB_pooledNu0) > 4.0
-    ):
-        Nu_0 = float(EB_pooledNu0)
+    elif pooledNu0 is not None:
+        Nu_0 = pooledNu0
         logger.info(f"Using pooled Nu_0={Nu_0:.2f}")
     else:
         # finite/non-zero mask _BEFORE_ Nu_0 fit

@@ -386,7 +386,7 @@ def test_readConfigUsesZeroCenterIdentifiabilityFields(
             )
         )
     )
-    assert parsedDefault["fitArgs"].EM_zeroCenterBackground is True
+    assert parsedDefault["fitArgs"].EM_zeroCenterBackground is False
     assert parsedDefault["fitArgs"].EM_zeroCenterReplicateBias is True
 
     configOverrideYaml = """
