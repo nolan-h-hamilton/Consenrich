@@ -120,7 +120,7 @@ def _expectedCSF(chromMat: np.ndarray, centerMedian: bool = True) -> np.ndarray:
 
 
 @pytest.mark.correctness
-def testAsciiPhaseLogFormattingIsCompactAndAttributed(caplog):
+def _caseAsciiPhaseLogFormattingIsCompactAndAttributed(caplog):
     block = core._formatAsciiLogBlock(
         "MUNC track start",
         (
@@ -138,18 +138,25 @@ def testAsciiPhaseLogFormattingIsCompactAndAttributed(caplog):
     assert "| MUNC variance EB" in block
     assert "| enabled" in block
     assert "long value" not in block
+    indentedBlock = core._formatAsciiLogBlock(
+        "MUNC track child",
+        (("chromosome", "chr11"),),
+        indentLevel=1,
+    )
+    assert indentedBlock.startswith("      +")
+    assert "\n      | PHASE: MUNC TRACK CHILD" in indentedBlock
 
     caplog.set_level(logging.INFO, logger=core.logger.name)
     core._logAsciiBlock("MUNC track start", (("MUNC variance EB", "enabled"),))
 
-    assert caplog.records[-1].funcName == "testAsciiPhaseLogFormattingIsCompactAndAttributed"
+    assert caplog.records[-1].funcName.endswith("AsciiPhaseLogFormattingIsCompactAndAttributed")
     assert caplog.records[-1].message.startswith("\n+")
     assert caplog.records[-1].message.endswith("\n")
 
 
 @pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def testCEMAUsesSameBidirectionalKernelForFloat32AndFloat64(dtype):
+def _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64(dtype):
     x = np.array([0.0, 2.0, -1.0, 5.0, 4.0, 7.0], dtype=dtype)
     alpha = 0.35
 
@@ -165,7 +172,7 @@ def testCEMAUsesSameBidirectionalKernelForFloat32AndFloat64(dtype):
 
 @pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def testMonoFuncUsesSameLogKernelForFloat32AndFloat64(dtype):
+def _caseMonoFuncUsesSameLogKernelForFloat32AndFloat64(dtype):
     x = np.array([-3.0, -0.25, 0.0, 2.5, 9.0], dtype=dtype)
 
     out, sentinel = cconsenrich.monoFunc(x, offset=0.75, scale=1.7)
@@ -178,7 +185,7 @@ def testMonoFuncUsesSameLogKernelForFloat32AndFloat64(dtype):
 
 @pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def testTransformLogRatioKernelMatchesReferenceForFloat32AndFloat64(dtype):
+def _caseTransformLogRatioKernelMatchesReferenceForFloat32AndFloat64(dtype):
     treatment = np.array([9.0, -4.0, 0.0, 12.0, 4.0], dtype=dtype)
     control = np.array([2.0, 5.0, -3.0, 3.0, 4.0], dtype=dtype)
     out = np.empty_like(treatment)
@@ -207,7 +214,7 @@ def testTransformLogRatioKernelMatchesReferenceForFloat32AndFloat64(dtype):
 
 @pytest.mark.correctness
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-def testTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64(dtype):
+def _caseTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64(dtype):
     x = np.array([-2.0, -0.5, 0.0, 3.0, 8.0], dtype=dtype)
     inPlace = x.copy()
 
@@ -235,7 +242,7 @@ def testTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64(dtype):
 
 
 @pytest.mark.correctness
-def testCSFMedianSelectionHandlesOddLengthDuplicates():
+def _caseCSFMedianSelectionHandlesOddLengthDuplicates():
     base = (20.0 + (np.arange(601, dtype=np.float32) % 17)).astype(np.float32)
     factors = np.array([0.75, 1.0, 1.0], dtype=np.float32)
     chromMat = factors[:, None] * base[None, :]
@@ -246,7 +253,7 @@ def testCSFMedianSelectionHandlesOddLengthDuplicates():
 
 
 @pytest.mark.correctness
-def testCSFMedianSelectionHandlesEvenLengthDuplicates():
+def _caseCSFMedianSelectionHandlesEvenLengthDuplicates():
     base = (30.0 + (np.arange(600, dtype=np.float32) % 23)).astype(np.float32)
     factors = np.array([0.75, 1.25, 1.25, 2.0], dtype=np.float32)
     chromMat = factors[:, None] * base[None, :]
@@ -257,7 +264,7 @@ def testCSFMedianSelectionHandlesEvenLengthDuplicates():
 
 
 @pytest.mark.correctness
-def testCTransformWithInputReturnsFloat32LogRatio():
+def _caseCTransformWithInputReturnsFloat32LogRatio():
     treatment = np.array([9.0, 0.0, 4.0], dtype=np.float32)
     control = np.array([2.0, 5.0, 4.0], dtype=np.float32)
 
@@ -276,7 +283,7 @@ def testCTransformWithInputReturnsFloat32LogRatio():
 
 
 @pytest.mark.correctness
-def testCTransformWithInputReturnsFloat64LogRatio():
+def _caseCTransformWithInputReturnsFloat64LogRatio():
     treatment = np.array([15.0, 2.0], dtype=np.float64)
     control = np.array([3.0, 8.0], dtype=np.float64)
 
@@ -294,7 +301,7 @@ def testCTransformWithInputReturnsFloat64LogRatio():
 
 
 @pytest.mark.correctness
-def testCTransformWithInputIntoWritesOutputInPlace():
+def _caseCTransformWithInputIntoWritesOutputInPlace():
     treatment = np.array([9.0, 0.0, 4.0], dtype=np.float32)
     control = np.array([2.0, 5.0, 4.0], dtype=np.float32)
     out = np.empty_like(treatment)
@@ -320,7 +327,7 @@ def testCTransformWithInputIntoWritesOutputInPlace():
 
 
 @pytest.mark.correctness
-def testCTransformInPlacePureLogMutatesFloat32Array():
+def _caseCTransformInPlacePureLogMutatesFloat32Array():
     x = np.array([0.0, 3.0, 8.0], dtype=np.float32)
     original = x.copy()
 
@@ -338,7 +345,7 @@ def testCTransformInPlacePureLogMutatesFloat32Array():
 
 
 @pytest.mark.correctness
-def testCTransformInPlaceMatchesAllocatingTransformForFloat64():
+def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
     x = np.linspace(0.0, 5.0, 256, dtype=np.float64)
     x[120:140] += 10.0
     logged = _monoLogReference(x, offset=1.0, scale=1.0)
@@ -373,7 +380,7 @@ def testCTransformInPlaceMatchesAllocatingTransformForFloat64():
 
 
 @pytest.mark.correctness
-def testDenseMeanUsesMedianOfBlockMediansByDefault():
+def _caseDenseMeanUsesMedianOfBlockMediansByDefault():
     block_len = 5
     blocks = [
         np.array([0.0, 1.0, 2.0, 3.0, 20.0], dtype=np.float32),
@@ -392,7 +399,7 @@ def testDenseMeanUsesMedianOfBlockMediansByDefault():
 
 
 @pytest.mark.correctness
-def testDenseMeanHonorsBlockQuantileArgument():
+def _caseDenseMeanHonorsBlockQuantileArgument():
     block_len = 5
     blocks = [
         np.array([0.0, 1.0, 2.0, 3.0, 20.0], dtype=np.float32),
@@ -412,7 +419,7 @@ def testDenseMeanHonorsBlockQuantileArgument():
 
 
 @pytest.mark.correctness
-def testDenseMeanNonpositiveBlockLengthUsesWholeTrackMedian():
+def _caseDenseMeanNonpositiveBlockLengthUsesWholeTrackMedian():
     x = np.array([1.0, 2.0, 3.0, 9.0, 20.0, 30.0], dtype=np.float32)
     expected = np.quantile(x, 0.5)
 
@@ -426,7 +433,7 @@ def testDenseMeanNonpositiveBlockLengthUsesWholeTrackMedian():
 
 
 @pytest.mark.correctness
-def testDenseMeanIncludesFinalPartialBlock():
+def _caseDenseMeanIncludesFinalPartialBlock():
     block_len = 4
     x = np.array([0.0, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0, 13.0, 50.0], dtype=np.float32)
     expected = np.median(
@@ -476,7 +483,7 @@ def _writeSyntheticBam(tmp_path: Path, fileName: str, records: list[dict]) -> Pa
 
 
 @pytest.mark.correctness
-def testSingleEndDetection():
+def _caseSingleEndDetection():
     # case: single-end BAM
     bamFiles = [str(TESTS_DIR / "smallTest.bam")]
     pairedEndStatus = misc_util.alignmentFilesArePairedEnd(bamFiles, maxReads=1_000)
@@ -487,7 +494,7 @@ def testSingleEndDetection():
 
 
 @pytest.mark.correctness
-def testPairedEndDetection():
+def _casePairedEndDetection():
     # case: paired-end BAM
     bamFiles = [str(TESTS_DIR / "smallTest2.bam")]
     pairedEndStatus = misc_util.alignmentFilesArePairedEnd(bamFiles, maxReads=1_000)
@@ -498,7 +505,7 @@ def testPairedEndDetection():
 
 
 @pytest.mark.peaks
-def testMatchExistingBedGraph():
+def _caseMatchExistingBedGraph():
     np.random.seed(42)
     with tempfile.TemporaryDirectory() as tempFolder:
         stateBedGraphPath = Path(tempFolder) / "toy_state.bedGraph"
@@ -550,7 +557,7 @@ def testMatchExistingBedGraph():
 
 
 @pytest.mark.correctness
-def testZeroCenteredBackgroundUpdate():
+def _caseZeroCenteredBackgroundUpdate():
     x = np.linspace(-1.0, 1.0, 64, dtype=np.float32)
     residualMatrix = np.vstack(
         [
@@ -599,7 +606,7 @@ def testZeroCenteredBackgroundUpdate():
 
 
 @pytest.mark.correctness
-def testZeroCenteredBackgroundUpdateUsesPrecisionWeights():
+def _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights():
     n = 52
     x = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
     residualMatrix = np.vstack(
@@ -652,7 +659,7 @@ def testZeroCenteredBackgroundUpdateUsesPrecisionWeights():
 
 
 @pytest.mark.correctness
-def testZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization(
+def _caseZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization(
     monkeypatch: pytest.MonkeyPatch,
 ):
     residualMatrix = np.vstack(
@@ -681,7 +688,7 @@ def testZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization(
 
 
 @pytest.mark.correctness
-def testBackgroundUpdateCanSkipZeroCentering():
+def _caseBackgroundUpdateCanSkipZeroCentering():
     n = 72
     x = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
     residualMatrix = np.vstack(
@@ -729,7 +736,7 @@ def testBackgroundUpdateCanSkipZeroCentering():
 
 
 @pytest.mark.correctness
-def testFinalForwardNISUsesMeanFinalForwardDiagnostic():
+def _caseFinalForwardNISUsesMeanFinalForwardDiagnostic():
     assert core._finalForwardNIS(
         np.array([0.25, 0.5, 1.25, np.nan], dtype=np.float32)
     ) == pytest.approx(
@@ -742,7 +749,7 @@ def testFinalForwardNISUsesMeanFinalForwardDiagnostic():
 
 
 @pytest.mark.correctness
-def testBackgroundUpdateUsesPriorAsDiagonalPenalty():
+def _caseBackgroundUpdateUsesPriorAsDiagonalPenalty():
     n = 40
     x = np.linspace(0.0, 1.0, n, dtype=np.float32)
     residualMatrix = np.vstack(
@@ -785,7 +792,7 @@ def testBackgroundUpdateUsesPriorAsDiagonalPenalty():
 
 
 @pytest.mark.correctness
-def testBackgroundPriorDefaultWindowMatchesBackgroundLengthScale():
+def _caseBackgroundPriorDefaultWindowMatchesBackgroundLengthScale():
     assert core._backgroundPriorWindowLength(
         intervalCount=101,
         blockLenIntervals=9,
@@ -801,7 +808,7 @@ def testBackgroundPriorDefaultWindowMatchesBackgroundLengthScale():
 
 
 @pytest.mark.correctness
-def testBackgroundPriorMeanVarianceTracksUseRobustLocalQuantile():
+def _caseBackgroundPriorMeanVarianceTracksUseRobustLocalQuantile():
     n = 17
     baseline = np.ones(n, dtype=np.float32)
     baseline[8] = 20.0
@@ -825,7 +832,7 @@ def testBackgroundPriorMeanVarianceTracksUseRobustLocalQuantile():
 
 
 @pytest.mark.correctness
-def testPositiveSequenceESSDetectsSerialDependence():
+def _casePositiveSequenceESSDetectsSerialDependence():
     dependent = np.repeat(np.array([0.0, 1.0], dtype=np.float64), 10)
     dependent = np.tile(dependent, 20)
     independentLike = np.tile(np.array([0.0, 1.0], dtype=np.float64), 200)
@@ -846,7 +853,7 @@ def testPositiveSequenceESSDetectsSerialDependence():
 
 
 @pytest.mark.correctness
-def testBackgroundPriorQuantileVarianceUsesEffectiveWindow():
+def _caseBackgroundPriorQuantileVarianceUsesEffectiveWindow():
     target = np.repeat(np.array([0.0, 1.0], dtype=np.float32), 10)
     target = np.tile(target, 20)
     matrixData = np.vstack([target, target + 0.01]).astype(np.float32)
@@ -869,7 +876,7 @@ def testBackgroundPriorQuantileVarianceUsesEffectiveWindow():
 
 
 @pytest.mark.correctness
-def testBackgroundPriorVarianceAndPrecisionUseBaselineUncertainty():
+def _caseBackgroundPriorVarianceAndPrecisionUseBaselineUncertainty():
     priorMean = np.zeros(20, dtype=np.float64)
     target = np.tile(np.array([-0.6, 0.6], dtype=np.float64), 10)
     targetVariance = np.full(20, 0.05, dtype=np.float64)
@@ -895,7 +902,7 @@ def testBackgroundPriorVarianceAndPrecisionUseBaselineUncertainty():
 
 
 @pytest.mark.correctness
-def testBackgroundPriorVariancePenaltyAvoidsBoundaryZero():
+def _caseBackgroundPriorVariancePenaltyAvoidsBoundaryZero():
     n = 2000
     priorMean = np.zeros(n, dtype=np.float64)
     target = np.zeros(n, dtype=np.float64)
@@ -917,7 +924,7 @@ def testBackgroundPriorVariancePenaltyAvoidsBoundaryZero():
 
 
 @pytest.mark.correctness
-def testReplicateBiasCanSkipZeroCentering():
+def _caseReplicateBiasCanSkipZeroCentering():
     n = 24
     m = 3
     matrixData = np.full((m, n), 2.0, dtype=np.float32)
@@ -965,7 +972,7 @@ def testReplicateBiasCanSkipZeroCentering():
 
 
 @pytest.mark.correctness
-def testCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
+def _caseCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
     n = 48
     offsets = np.array([1.25, -0.75, 0.35], dtype=np.float32)
     trend = np.linspace(-0.1, 0.1, n, dtype=np.float32)
@@ -1032,7 +1039,7 @@ def testCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
 
 
 @pytest.mark.correctness
-def testCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
+def _caseCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
     n = 56
     offsets = np.array([1.4, -0.6, 0.15], dtype=np.float32)
     grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
@@ -1111,7 +1118,7 @@ def testCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
 
 
 @pytest.mark.correctness
-def testSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata():
+def _caseSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata():
     state = np.asarray(
         [
             0.0,
@@ -1150,7 +1157,7 @@ def testSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata():
 
 
 @pytest.mark.correctness
-def testSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight():
+def _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight():
     summary = diagnostics.summarizePrecisionBoundaryHits(
         observationPrecision=np.asarray(
             [[0.1, 1.0, 10.0], [0.10000001, 10.0, 3.0]],
@@ -1172,7 +1179,7 @@ def testSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight():
 
 
 @pytest.mark.correctness
-def testFitParamsDropsProcBlockScaleOptions():
+def _caseFitParamsDropsProcBlockScaleOptions():
     removedFields = {
         "EM_scaleToMedian",
         "EM_alphaEMA",
@@ -1187,7 +1194,7 @@ def testFitParamsDropsProcBlockScaleOptions():
 
 
 @pytest.mark.correctness
-def testExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF():
+def _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF():
     matrixF = core.constructMatrixF(0.5).astype(np.float64, copy=False)
     stateSmoothed = np.asarray(
         [
@@ -1214,7 +1221,7 @@ def testExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF():
 
 
 @pytest.mark.correctness
-def testExpectedTransitionResidualSumsMatchesPythonReference():
+def _caseExpectedTransitionResidualSumsMatchesPythonReference():
     rng = np.random.default_rng(123)
     n = 19
     matrixF = np.asarray([[1.0, 0.35], [0.02, 0.97]], dtype=np.float64)
@@ -1252,7 +1259,7 @@ def testExpectedTransitionResidualSumsMatchesPythonReference():
 
 
 @pytest.mark.correctness
-def testRunConsenrichOuterEMSmoke(caplog):
+def _caseRunConsenrichOuterEMSmoke(caplog):
     rng = np.random.default_rng(0)
     n = 64
     m = 3
@@ -1304,12 +1311,14 @@ def testRunConsenrichOuterEMSmoke(caplog):
     assert diagnostics["final_forward_nis"] == pytest.approx(float(np.mean(NIS)))
     assert diagnostics["background_prior"]["active"] is True
     assert "PHASE: CORE START" in caplog.text
-    assert "PHASE: FINAL FIT" in caplog.text
-    assert "PHASE: FINAL FIT SUMMARY" in caplog.text
+    assert "PHASE: MODEL FIT" in caplog.text
+    assert "      | PHASE: MODEL FIT" in caplog.text
+    assert "            | PHASE: MODEL FIT / INNER EM" in caplog.text
+    assert "PHASE: MODEL FIT SUMMARY" in caplog.text
 
 
 @pytest.mark.correctness
-def testRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypatch):
+def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypatch):
     rng = np.random.default_rng(7)
     n = 36
     m = 3
@@ -1360,6 +1369,13 @@ def testRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypat
         applyJackknife=False,
     )
 
+    assert innerEMModes[: core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS] == [
+        (False, False)
+    ] * core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
+    assert all(
+        mode == (True, False)
+        for mode in innerEMModes[core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS :]
+    )
     assert innerEMModes[0] == (False, False)
     assert innerEMModes[-1] == (True, False)
     stateSmoothed, stateCovarSmoothed, *_ = out
@@ -1370,7 +1386,7 @@ def testRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypat
 
 
 @pytest.mark.correctness
-def testRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance(monkeypatch):
+def _caseRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance(monkeypatch):
     rng = np.random.default_rng(23)
     n = 32
     m = 3
@@ -1421,7 +1437,7 @@ def testRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance(monkeypatc
 
 
 @pytest.mark.correctness
-def testGetBedMaskUsesIntervalSpanOverlap(tmp_path):
+def _caseGetBedMaskUsesIntervalSpanOverlap(tmp_path):
     bedPath = tmp_path / "regions.bed"
     bedPath.write_text("chrTest\t110\t120\n", encoding="utf-8")
     intervals = np.array([0, 100, 200], dtype=np.uint32)
@@ -1432,7 +1448,7 @@ def testGetBedMaskUsesIntervalSpanOverlap(tmp_path):
 
 
 @pytest.mark.correctness
-def testSparseSupportWeightsUseExponentialDistanceDecay():
+def _caseSparseSupportWeightsUseExponentialDistanceDecay():
     weights = core._sparseSupportWeights(
         np.array([2], dtype=np.intp),
         intervalCount=6,
@@ -1447,7 +1463,7 @@ def testSparseSupportWeightsUseExponentialDistanceDecay():
 
 
 @pytest.mark.correctness
-def testPSplineLogVarianceTrendRecoversNonmonotoneShape():
+def _casePSplineLogVarianceTrendRecoversNonmonotoneShape():
     rng = np.random.default_rng(123)
     amplitudes = np.linspace(0.0, 30.0, 240, dtype=np.float64)
     x = np.log1p(amplitudes)
@@ -1473,7 +1489,7 @@ def testPSplineLogVarianceTrendRecoversNonmonotoneShape():
 
 
 @pytest.mark.correctness
-def testPSplineSignedPredictorDistinguishesPositiveAndNegativeMeans():
+def _casePSplineSignedPredictorDistinguishesPositiveAndNegativeMeans():
     means = np.linspace(-12.0, 12.0, 360, dtype=np.float64)
     x = np.sign(means) * np.log1p(np.abs(means))
     variances = np.exp(-0.4 + 0.6 * x)
@@ -1498,7 +1514,7 @@ def testPSplineSignedPredictorDistinguishesPositiveAndNegativeMeans():
 
 
 @pytest.mark.correctness
-def testPSplinePredictionClampsToTrainingBoundary():
+def _casePSplinePredictionClampsToTrainingBoundary():
     amplitudes = np.linspace(1.0, 8.0, 80, dtype=np.float64)
     variances = np.exp(0.1 + 0.2 * np.sin(np.log1p(amplitudes)))
     trend = core.fitPSplineLogVarianceTrend(
@@ -1528,7 +1544,7 @@ def testPSplinePredictionClampsToTrainingBoundary():
 
 
 @pytest.mark.correctness
-def testPSplineCythonEvaluationMatchesDenseDesign():
+def _casePSplineCythonEvaluationMatchesDenseDesign():
     amplitudes = np.linspace(-20.0, 20.0, 80, dtype=np.float64)
     signedPredictor = np.sign(amplitudes) * np.log1p(np.abs(amplitudes))
     variances = np.exp(0.2 + 0.1 * np.sin(signedPredictor))
@@ -1550,7 +1566,7 @@ def testPSplineCythonEvaluationMatchesDenseDesign():
 
 
 @pytest.mark.correctness
-def testPSplineLimitsBasisCountByWeightedSupport():
+def _casePSplineLimitsBasisCountByWeightedSupport():
     amplitudes = np.linspace(0.0, 10.0, 120, dtype=np.float64)
     variances = np.exp(0.2 + 0.1 * np.sin(np.log1p(amplitudes)))
 
@@ -1570,7 +1586,7 @@ def testPSplineLimitsBasisCountByWeightedSupport():
 
 
 @pytest.mark.correctness
-def testPooledMuncTrendRecoversReplicateVarianceFactors():
+def _casePooledMuncTrendRecoversReplicateVarianceFactors():
     rng = np.random.default_rng(2025)
     meansBase = np.linspace(-10.0, 10.0, 300, dtype=np.float64)
     factorsTrue = np.array([0.5, 1.0, 2.0], dtype=np.float64)
@@ -1603,7 +1619,7 @@ def testPooledMuncTrendRecoversReplicateVarianceFactors():
 
 
 @pytest.mark.correctness
-def testPSplineGuardedGCVAppliesDefaultEdfCap():
+def _casePSplineGuardedGCVAppliesDefaultEdfCap():
     rng = np.random.default_rng(321)
     amplitudes = np.linspace(0.0, 10.0, 500, dtype=np.float64)
     trueLogVariance = 0.1 + 0.05 * np.sin(2.0 * np.log1p(amplitudes))
@@ -1624,7 +1640,7 @@ def testPSplineGuardedGCVAppliesDefaultEdfCap():
 
 
 @pytest.mark.correctness
-def testPSplineUsesQuantileKnotsFromSupport():
+def _casePSplineUsesQuantileKnotsFromSupport():
     lowSupport = np.linspace(0.0, 1.0, 95, dtype=np.float64)
     highSupport = np.linspace(20.0, 30.0, 5, dtype=np.float64)
     amplitudes = np.concatenate([lowSupport, highSupport])
@@ -1650,7 +1666,7 @@ def testPSplineUsesQuantileKnotsFromSupport():
 
 
 @pytest.mark.correctness
-def testPSplinePredictionClipsBeforeFloat32Overflow():
+def _casePSplinePredictionClipsBeforeFloat32Overflow():
     trend = core.PSplineLogVarianceTrend(
         knots=np.empty(0, dtype=np.float64),
         degree=-1,
@@ -1677,7 +1693,7 @@ def testPSplinePredictionClipsBeforeFloat32Overflow():
 
 
 @pytest.mark.correctness
-def testPSplineTrendSummaryLogsRelationship():
+def _casePSplineTrendSummaryLogsRelationship():
     amplitudes = np.linspace(0.0, 5.0, 30, dtype=np.float64)
     variances = np.exp(0.1 + 0.05 * amplitudes)
     trend = core.fitPSplineLogVarianceTrend(
@@ -1706,7 +1722,7 @@ def testPSplineTrendSummaryLogsRelationship():
 
 
 @pytest.mark.correctness
-def testMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport():
+def _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport():
     local = np.array([0.01, 0.04, 0.09, 0.16, np.nan], dtype=np.float64)
     global_ = np.array([0.04, 0.09, 0.16, 0.25, 0.36], dtype=np.float64)
     final = np.array([0.0225, 0.0625, 0.1225, 0.2025], dtype=np.float64)
@@ -1731,7 +1747,7 @@ def testMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport():
 
 
 @pytest.mark.correctness
-def testDefaultProcessPrecisionMultiplierBoundsAreTight():
+def _caseDefaultProcessPrecisionMultiplierBoundsAreTight():
     assert core.processParams().precisionMultiplierMin == pytest.approx(0.5)
     assert core.processParams().precisionMultiplierMax == pytest.approx(2.0)
 
@@ -1741,7 +1757,7 @@ def testDefaultProcessPrecisionMultiplierBoundsAreTight():
 
 
 @pytest.mark.correctness
-def testCheckStateUncertaintyCoverageOverallAndStrata():
+def _caseCheckStateUncertaintyCoverageOverallAndStrata():
     target = 2.0 * stats.norm.cdf(1.0) - 1.0
     residual = np.array([0.0, 0.5, 1.5, 3.0], dtype=np.float64)
     before = np.ones_like(residual)
@@ -1770,7 +1786,7 @@ def testCheckStateUncertaintyCoverageOverallAndStrata():
 
 
 @pytest.mark.correctness
-def testLinearEnvelopeParameterIsAbsent():
+def _caseLinearEnvelopeParameterIsAbsent():
     removed = "EB" + "_minLin"
     assert removed not in core.observationParams._fields
 
@@ -1783,7 +1799,7 @@ def testLinearEnvelopeParameterIsAbsent():
 
 
 @pytest.mark.correctness
-def testMonotonePoolingSourceSymbolsAbsent():
+def _caseMonotonePoolingSourceSymbolsAbsent():
     removed = "P" + "AVA"
     sourcePaths = [
         Path(core.__file__),
@@ -1795,7 +1811,7 @@ def testMonotonePoolingSourceSymbolsAbsent():
 
 
 @pytest.mark.correctness
-def testEBPriorStrengthBoundaryIsUsable():
+def _caseEBPriorStrengthBoundaryIsUsable():
     assert core._coerceEBPriorStrength(4.0) == pytest.approx(4.0)
     assert core._coerceEBPriorStrength(4) == pytest.approx(4.0)
     assert core._coerceEBPriorStrength(3.999999) is None
@@ -1803,7 +1819,7 @@ def testEBPriorStrengthBoundaryIsUsable():
 
 
 @pytest.mark.correctness
-def testEBPriorStrengthUsesThinnedVariancePairs():
+def _caseEBPriorStrengthUsesThinnedVariancePairs():
     n = 50
     globalVars = np.ones(n, dtype=np.float64)
     localVars = np.ones(n, dtype=np.float64)
@@ -1823,7 +1839,7 @@ def testEBPriorStrengthUsesThinnedVariancePairs():
 
 
 @pytest.mark.correctness
-def testPooledPriorStrengthThinsBySampleChromosomeAndBin(
+def _casePooledPriorStrengthThinsBySampleChromosomeAndBin(
     monkeypatch: pytest.MonkeyPatch,
 ):
     n = 12
@@ -1834,7 +1850,7 @@ def testPooledPriorStrengthThinsBySampleChromosomeAndBin(
     blockStarts = np.tile(np.array([0, 4, 8, 0, 4, 8], dtype=np.int64), 2)
     seen: dict[str, np.ndarray] = {}
 
-    def _fakeCompute(localArr, globalArr, nuLocal, candidateIdx):
+    def _fakeCompute(localArr, globalArr, _nuLocal, candidateIdx):
         seen["candidate_idx"] = np.asarray(candidateIdx, dtype=np.intp)
         return 17.0
 
@@ -1855,7 +1871,7 @@ def testPooledPriorStrengthThinsBySampleChromosomeAndBin(
 
 
 @pytest.mark.correctness
-def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
+def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
     intervals = np.arange(0, 400, 25, dtype=np.uint32)
     values = np.linspace(0.1, 1.6, intervals.size, dtype=np.float32)
     sparseIntervalIndices = np.array([1, 2, 3, 4, 9, 10, 11, 12], dtype=np.intp)
@@ -1901,7 +1917,7 @@ def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
         meanTrackArr = np.asarray(meanTrack, dtype=np.float32)
         return np.maximum(0.25, meanTrackArr + 0.1).astype(np.float32)
 
-    def _fakeEBComputePriorStrength(localVars, priorVars, nuLocal, **kwargs):
+    def _fakeEBComputePriorStrength(localVars, _priorVars, _nuLocal, **kwargs):
         seen["local_vars"] = np.asarray(localVars).copy()
         seen["thin_stride"] = np.asarray([kwargs.get("thinStride", 1)], dtype=np.int64)
         return 10.0
@@ -1971,7 +1987,7 @@ def testGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.correctness
-def testGetMuncTrackClipsHugePriorBeforeShrinkage(
+def _caseGetMuncTrackClipsHugePriorBeforeShrinkage(
     monkeypatch: pytest.MonkeyPatch,
 ):
     intervals = np.arange(0, 300, 25, dtype=np.uint32)
@@ -2036,7 +2052,7 @@ def testGetMuncTrackClipsHugePriorBeforeShrinkage(
 
 
 @pytest.mark.correctness
-def testGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
+def _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
     monkeypatch: pytest.MonkeyPatch,
 ):
     intervals = np.arange(0, 300, 25, dtype=np.uint32)
@@ -2093,7 +2109,7 @@ def testGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
 
 
 @pytest.mark.correctness
-def testGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
+def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
     monkeypatch: pytest.MonkeyPatch,
 ):
     intervals = np.arange(0, 300, 25, dtype=np.uint32)
@@ -2155,7 +2171,7 @@ def testGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
 
 
 @pytest.mark.correctness
-def testMeanVarPairSampleSizesStayWithinTrackLength():
+def _caseMeanVarPairSampleSizesStayWithinTrackLength():
     intervals = np.arange(1024, dtype=np.uint32)
     values = np.linspace(-0.5, 0.5, intervals.size, dtype=np.float32)
     excludeMask = np.zeros(intervals.size, dtype=np.uint8)
@@ -2178,7 +2194,7 @@ def testMeanVarPairSampleSizesStayWithinTrackLength():
 
 
 @pytest.mark.correctness
-def testRollingAR1CanReturnMarginalVarianceInsteadOfInnovation():
+def _caseRollingAR1CanReturnMarginalVarianceInsteadOfInnovation():
     rng = np.random.default_rng(44)
     n = 4096
     phi = 0.8
@@ -2207,7 +2223,7 @@ def testRollingAR1CanReturnMarginalVarianceInsteadOfInnovation():
 
 
 @pytest.mark.correctness
-def testGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
+def _caseGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
     monkeypatch: pytest.MonkeyPatch,
 ):
     intervals = np.arange(0, 400, 25, dtype=np.uint32)
@@ -2234,7 +2250,7 @@ def testGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
         )
         return fakeRollingVarTrack.copy()
 
-    def _fakeMeanVarPairs(intervalsArg, valuesArg, *args, **kwargs):
+    def _fakeMeanVarPairs(_intervalsArg, valuesArg, *args, **kwargs):
         seen["prior_fit_values"] = np.asarray(valuesArg).copy()
         seen["block_use_innovation_var"] = np.asarray(
             [bool(kwargs.get("useInnovationVar", True))],
@@ -2315,7 +2331,7 @@ def testGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
 
 
 @pytest.mark.correctness
-def testGetMuncTrackRestrictsRollingAR1ToSparseBed(
+def _caseGetMuncTrackRestrictsRollingAR1ToSparseBed(
     monkeypatch: pytest.MonkeyPatch,
 ):
     intervals = np.arange(0, 400, 25, dtype=np.uint32)
@@ -2403,7 +2419,7 @@ def testGetMuncTrackRestrictsRollingAR1ToSparseBed(
 
 
 @pytest.mark.correctness
-def testRunConsenrichAPNSmoke():
+def _caseRunConsenrichAPNSmoke():
     rng = np.random.default_rng(123)
     n = 48
     m = 3
@@ -2447,7 +2463,7 @@ def testRunConsenrichAPNSmoke():
 
 
 @pytest.mark.correctness
-def testRunConsenrichDisableCalibrationUsesPluginAndAPN(
+def _caseRunConsenrichDisableCalibrationUsesPluginAndAPN(
     monkeypatch: pytest.MonkeyPatch,
 ):
     rng = np.random.default_rng(321)
@@ -2496,7 +2512,7 @@ def testRunConsenrichDisableCalibrationUsesPluginAndAPN(
 
 
 @pytest.mark.correctness
-def testChooseFeatureLengthBootstrapWidthVarianceAndContextCompat():
+def _caseChooseFeatureLengthBootstrapWidthVarianceAndContextCompat():
     grid = np.arange(512, dtype=np.float64)
     vals = np.zeros_like(grid)
     for center, amp, sigma in [
@@ -2523,7 +2539,7 @@ def testChooseFeatureLengthBootstrapWidthVarianceAndContextCompat():
     assert diagnostics["method"] == "feature_peak_width_random_effects"
 
 @pytest.mark.correctness
-def testChooseDependenceLengthUsesAutocorrelationAndIncrements():
+def _caseChooseDependenceLengthUsesAutocorrelationAndIncrements():
     rng = np.random.default_rng(123)
     n = 512
     base = np.empty(n, dtype=np.float64)
@@ -2555,7 +2571,7 @@ def testChooseDependenceLengthUsesAutocorrelationAndIncrements():
 
 
 @pytest.mark.correctness
-def testReadSegmentsFragmentsGrouped():
+def _caseReadSegmentsFragmentsGrouped():
     gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
     groupMapPath = FRAGMENTS_DIR / "barcode_groups.tsv"
 
@@ -2597,7 +2613,7 @@ def testReadSegmentsFragmentsGrouped():
 
 
 @pytest.mark.correctness
-def testReadSegmentsFragmentsDefaultToCoverage():
+def _caseReadSegmentsFragmentsDefaultToCoverage():
     gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
     allowListPath = FRAGMENTS_DIR / "allow_BC_A.txt"
 
@@ -2624,7 +2640,7 @@ def testReadSegmentsFragmentsDefaultToCoverage():
 
 
 @pytest.mark.correctness
-def testReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
+def _caseReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
     gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
     allowListPath = tmp_path / "allow_AB.txt"
     allowListPath.write_text("BC_A\nBC_B\n", encoding="ascii")
@@ -2660,7 +2676,7 @@ def testReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
 
 
 @pytest.mark.correctness
-def testCCountsCountBedGraphRegionWeightedByOverlap(tmp_path):
+def _caseCCountsCountBedGraphRegionWeightedByOverlap(tmp_path):
     bedGraphPath = tmp_path / "toy.bedGraph"
     bedGraphPath.write_text(
         "\n".join(
@@ -2694,7 +2710,7 @@ def testCCountsCountBedGraphRegionWeightedByOverlap(tmp_path):
 
 
 @pytest.mark.correctness
-def testCCountsCountIndexedBedGraphRegionWeightedByOverlap(tmp_path):
+def _caseCCountsCountIndexedBedGraphRegionWeightedByOverlap(tmp_path):
     pysam = pytest.importorskip("pysam")
     bedGraphPath = tmp_path / "toy.sorted.bedGraph"
     bedGraphPath.write_text(
@@ -2729,7 +2745,7 @@ def testCCountsCountIndexedBedGraphRegionWeightedByOverlap(tmp_path):
 
 
 @pytest.mark.correctness
-def testReadSegmentsBedGraphScalesNativeCounts(tmp_path):
+def _caseReadSegmentsBedGraphScalesNativeCounts(tmp_path):
     bedGraphPath = tmp_path / "toy.bdg"
     bedGraphPath.write_text(
         "chr1\t0\t10\t1.5\n"
@@ -2761,7 +2777,7 @@ def testReadSegmentsBedGraphScalesNativeCounts(tmp_path):
 
 
 @pytest.mark.correctness
-def testBedGraphChromRangeAndReadLength(tmp_path):
+def _caseBedGraphChromRangeAndReadLength(tmp_path):
     bedGraphPath = tmp_path / "range.bedGraph"
     bedGraphPath.write_text(
         "chr2\t0\t10\t9\n"
@@ -2782,14 +2798,14 @@ def testBedGraphChromRangeAndReadLength(tmp_path):
 
 
 @pytest.mark.correctness
-def testNormalizeCountModeRejectsLegacyAliases():
+def _caseNormalizeCountModeRejectsLegacyAliases():
     for alias in ["cov", "cut", "cutsites", "5p", "five_prime", "centre", "midpoint"]:
         with pytest.raises(ValueError, match="Unsupported countMode"):
             core._normalizeCountMode(alias, "coverage")
 
 
 @pytest.mark.correctness
-def testReadSegmentsBamPairedEndUsesTemplateSpan(tmp_path):
+def _caseReadSegmentsBamPairedEndUsesTemplateSpan(tmp_path):
     bamPath = _writeSyntheticBam(
         tmp_path,
         "paired.synthetic.bam",
@@ -2834,7 +2850,7 @@ def testReadSegmentsBamPairedEndUsesTemplateSpan(tmp_path):
 
 
 @pytest.mark.correctness
-def testReadSegmentsPairedBamCanUseRead1OnlySingleEndMode(tmp_path):
+def _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode(tmp_path):
     bamPath = _writeSyntheticBam(
         tmp_path,
         "paired-read1.synthetic.bam",
@@ -2879,7 +2895,7 @@ def testReadSegmentsPairedBamCanUseRead1OnlySingleEndMode(tmp_path):
 
 
 @pytest.mark.correctness
-def testReadSegmentsBamCountEndsOnlyUsesFivePrimePositions(tmp_path):
+def _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions(tmp_path):
     bamPath = _writeSyntheticBam(
         tmp_path,
         "ends.synthetic.bam",
@@ -2911,7 +2927,7 @@ def testReadSegmentsBamCountEndsOnlyUsesFivePrimePositions(tmp_path):
 
 
 @pytest.mark.correctness
-def testReadBamSegmentsCountEndsOnlyUsesFivePrimePositions(tmp_path):
+def _caseReadBamSegmentsCountEndsOnlyUsesFivePrimePositions(tmp_path):
     bamPath = _writeSyntheticBam(
         tmp_path,
         "legacy-ends.synthetic.bam",
@@ -2943,7 +2959,7 @@ def testReadBamSegmentsCountEndsOnlyUsesFivePrimePositions(tmp_path):
 
 
 @pytest.mark.correctness
-def testFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
+def _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
     gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
     allowListPath = FRAGMENTS_DIR / "allow_BC_A.txt"
 
@@ -2974,7 +2990,7 @@ def testFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
 
 
 @pytest.mark.correctness
-def testPairScaleFactorsDownscaleDeeperSampleMacsStyle(monkeypatch):
+def _casePairScaleFactorsDownscaleDeeperSampleMacsStyle(monkeypatch):
     depths = {"treatment.bam": 10.0, "control.bam": 4.0}
 
     def fakeScaleFactor1x(
@@ -3010,7 +3026,7 @@ def testPairScaleFactorsDownscaleDeeperSampleMacsStyle(monkeypatch):
 
 
 @pytest.mark.correctness
-def testPairScaleFactorsCanDownscaleControlByDefault(monkeypatch):
+def _casePairScaleFactorsCanDownscaleControlByDefault(monkeypatch):
     depths = {"treatment.bam": 4.0, "control.bam": 10.0}
 
     def fakeScaleFactor1x(
@@ -3045,7 +3061,7 @@ def testPairScaleFactorsCanDownscaleControlByDefault(monkeypatch):
 
 
 @pytest.mark.correctness
-def testPairScaleFactorsFixControlKeepsControlFullDepth(monkeypatch):
+def _casePairScaleFactorsFixControlKeepsControlFullDepth(monkeypatch):
     depths = {"treatment.bam": 4.0, "control.bam": 10.0}
 
     def fakeScaleFactor1x(
@@ -3078,3 +3094,206 @@ def testPairScaleFactorsFixControlKeepsControlFullDepth(monkeypatch):
 
     assert scaleTreatment == pytest.approx(1.0)
     assert scaleControl == pytest.approx(1.0)
+
+
+def _run_with_monkeypatch(monkeypatch, func, *args):
+    with monkeypatch.context() as mp:
+        return func(*args, mp)
+
+
+def test_core_numeric_kernel_contracts(caplog, contract_case):
+    caplog.clear()
+    contract_case("ASCII phase logging", _caseAsciiPhaseLogFormattingIsCompactAndAttributed, caplog)
+    for dtype in (np.float32, np.float64):
+        contract_case(f"C EMA kernel {dtype}", _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64, dtype)
+        contract_case(f"mono log kernel {dtype}", _caseMonoFuncUsesSameLogKernelForFloat32AndFloat64, dtype)
+        contract_case(
+            f"log-ratio transform kernel {dtype}",
+            _caseTransformLogRatioKernelMatchesReferenceForFloat32AndFloat64,
+            dtype,
+        )
+        contract_case(
+            f"pure-log transform kernel {dtype}",
+            _caseTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64,
+            dtype,
+        )
+    for label, func in (
+        ("CSF odd median", _caseCSFMedianSelectionHandlesOddLengthDuplicates),
+        ("CSF even median", _caseCSFMedianSelectionHandlesEvenLengthDuplicates),
+        ("transform input float32", _caseCTransformWithInputReturnsFloat32LogRatio),
+        ("transform input float64", _caseCTransformWithInputReturnsFloat64LogRatio),
+        ("transform into output", _caseCTransformWithInputIntoWritesOutputInPlace),
+        ("in-place pure log float32", _caseCTransformInPlacePureLogMutatesFloat32Array),
+        ("in-place transform float64", _caseCTransformInPlaceMatchesAllocatingTransformForFloat64),
+    ):
+        contract_case(label, func)
+
+
+def test_core_dense_mean_alignment_and_existing_peak_contracts(contract_case):
+    for label, func in (
+        ("dense mean median of block medians", _caseDenseMeanUsesMedianOfBlockMediansByDefault),
+        ("dense mean block quantile", _caseDenseMeanHonorsBlockQuantileArgument),
+        ("dense mean whole track fallback", _caseDenseMeanNonpositiveBlockLengthUsesWholeTrackMedian),
+        ("dense mean final partial block", _caseDenseMeanIncludesFinalPartialBlock),
+        ("single-end detection", _caseSingleEndDetection),
+        ("paired-end detection", _casePairedEndDetection),
+        ("existing bedGraph matching", _caseMatchExistingBedGraph),
+    ):
+        contract_case(label, func)
+
+
+def test_core_background_bias_and_prior_contracts(monkeypatch, contract_case):
+    for label, func, args in (
+        ("zero-centered background", _caseZeroCenteredBackgroundUpdate, ()),
+        ("weighted background", _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights, ()),
+        (
+            "background dense solver path",
+            _run_with_monkeypatch,
+            (monkeypatch, _caseZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization),
+        ),
+        ("skip zero-centering", _caseBackgroundUpdateCanSkipZeroCentering, ()),
+        ("background prior diagonal penalty", _caseBackgroundUpdateUsesPriorAsDiagonalPenalty, ()),
+        ("background prior window default", _caseBackgroundPriorDefaultWindowMatchesBackgroundLengthScale, ()),
+        (
+            "background robust quantile tracks",
+            _caseBackgroundPriorMeanVarianceTracksUseRobustLocalQuantile,
+            (),
+        ),
+        ("positive-sequence ESS", _casePositiveSequenceESSDetectsSerialDependence, ()),
+        ("background effective window", _caseBackgroundPriorQuantileVarianceUsesEffectiveWindow, ()),
+        (
+            "background baseline uncertainty",
+            _caseBackgroundPriorVarianceAndPrecisionUseBaselineUncertainty,
+            (),
+        ),
+        ("background boundary penalty", _caseBackgroundPriorVariancePenaltyAvoidsBoundaryZero, ()),
+        ("replicate bias can skip centering", _caseReplicateBiasCanSkipZeroCentering, ()),
+        ("replicate-bias minimizer", _caseCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer, ()),
+        (
+            "replicate-bias robust center",
+            _caseCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights,
+            (),
+        ),
+    ):
+        contract_case(label, func, *args)
+
+
+def test_core_state_diagnostics_and_transition_contracts(contract_case):
+    for label, func in (
+        ("final forward NIS", _caseFinalForwardNISUsesMeanFinalForwardDiagnostic),
+        ("state roughness summary", _caseSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata),
+        ("precision boundary summary", _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight),
+        ("removed process block scale options", _caseFitParamsDropsProcBlockScaleOptions),
+        ("transition residual orientation", _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF),
+        ("transition residual reference", _caseExpectedTransitionResidualSumsMatchesPythonReference),
+        ("process precision defaults", _caseDefaultProcessPrecisionMultiplierBoundsAreTight),
+        ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
+        ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),
+        ("monotone pooling removed", _caseMonotonePoolingSourceSymbolsAbsent),
+    ):
+        contract_case(label, func)
+
+
+def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
+    caplog.clear()
+    contract_case("outer EM smoke", _caseRunConsenrichOuterEMSmoke, caplog)
+    for label, func in (
+        (
+            "process Q calibration warmup",
+            _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting,
+        ),
+        ("outer loop minimum iterations", _caseRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance),
+        ("disable calibration plugin/APN", _caseRunConsenrichDisableCalibrationUsesPluginAndAPN),
+    ):
+        contract_case(label, _run_with_monkeypatch, monkeypatch, func)
+    contract_case("APN smoke", _caseRunConsenrichAPNSmoke)
+
+
+def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case):
+    contract_case("BED mask interval overlap", _caseGetBedMaskUsesIntervalSpanOverlap, tmp_path)
+    for label, func in (
+        ("sparse support decay", _caseSparseSupportWeightsUseExponentialDistanceDecay),
+        ("nonmonotone P-spline trend", _casePSplineLogVarianceTrendRecoversNonmonotoneShape),
+        ("signed P-spline predictor", _casePSplineSignedPredictorDistinguishesPositiveAndNegativeMeans),
+        ("P-spline boundary clamp", _casePSplinePredictionClampsToTrainingBoundary),
+        ("P-spline Cython eval", _casePSplineCythonEvaluationMatchesDenseDesign),
+        ("P-spline basis support limit", _casePSplineLimitsBasisCountByWeightedSupport),
+        ("pooled MUNC trend factors", _casePooledMuncTrendRecoversReplicateVarianceFactors),
+        ("P-spline guarded GCV", _casePSplineGuardedGCVAppliesDefaultEdfCap),
+        ("P-spline quantile knots", _casePSplineUsesQuantileKnotsFromSupport),
+        ("P-spline float32 clipping", _casePSplinePredictionClipsBeforeFloat32Overflow),
+        ("P-spline trend logging", _casePSplineTrendSummaryLogsRelationship),
+        ("MUNC variance diagnostics", _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport),
+    ):
+        contract_case(label, func)
+
+
+def test_core_eb_prior_and_munc_contracts(monkeypatch, contract_case):
+    for label, func in (
+        ("EB prior strength boundary", _caseEBPriorStrengthBoundaryIsUsable),
+        ("EB prior thinned pairs", _caseEBPriorStrengthUsesThinnedVariancePairs),
+        ("mean-var sample sizes", _caseMeanVarPairSampleSizesStayWithinTrackLength),
+        ("rolling AR1 marginal variance", _caseRollingAR1CanReturnMarginalVarianceInsteadOfInnovation),
+    ):
+        contract_case(label, func)
+    for label, func in (
+        ("pooled prior thinning", _casePooledPriorStrengthThinsBySampleChromosomeAndBin),
+        ("sparse-nearest MUNC path", _caseGetMuncTrackSparseNearestPath),
+        ("huge prior clipping", _caseGetMuncTrackClipsHugePriorBeforeShrinkage),
+        ("prior strength cap", _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf),
+        ("pooled trend factor", _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0),
+        ("sparse-nearest detrended prior", _caseGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept),
+        ("restrict rolling AR1 to sparse BED", _caseGetMuncTrackRestrictsRollingAR1ToSparseBed),
+    ):
+        contract_case(label, _run_with_monkeypatch, monkeypatch, func)
+
+
+def test_core_dependence_selection_contracts(contract_case):
+    contract_case(
+        "feature length bootstrap/context compatibility",
+        _caseChooseFeatureLengthBootstrapWidthVarianceAndContextCompat,
+    )
+    contract_case(
+        "dependence length autocorrelation increments",
+        _caseChooseDependenceLengthUsesAutocorrelationAndIncrements,
+    )
+
+
+def test_core_fragments_io_contracts(tmp_path, contract_case):
+    for label, func, args in (
+        ("fragments grouped", _caseReadSegmentsFragmentsGrouped, ()),
+        ("fragments default coverage", _caseReadSegmentsFragmentsDefaultToCoverage, ()),
+        ("fragments mode and multiplicity", _caseReadSegmentsFragmentsRespectModeAndMultiplicity, (tmp_path,)),
+        ("fragments mapped count", _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells, ()),
+    ):
+        contract_case(label, func, *args)
+
+
+def test_core_bedgraph_counting_contracts(tmp_path, contract_case):
+    for label, func in (
+        ("bedGraph weighted overlap", _caseCCountsCountBedGraphRegionWeightedByOverlap),
+        ("indexed bedGraph weighted overlap", _caseCCountsCountIndexedBedGraphRegionWeightedByOverlap),
+        ("bedGraph native scaling", _caseReadSegmentsBedGraphScalesNativeCounts),
+        ("bedGraph range and read length", _caseBedGraphChromRangeAndReadLength),
+    ):
+        contract_case(label, func, tmp_path)
+
+
+def test_core_bam_counting_contracts(tmp_path, contract_case):
+    contract_case("count mode legacy aliases rejected", _caseNormalizeCountModeRejectsLegacyAliases)
+    for label, func in (
+        ("paired BAM template span", _caseReadSegmentsBamPairedEndUsesTemplateSpan),
+        ("paired BAM read1 single-end mode", _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode),
+        ("BAM count-ends 5-prime positions", _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions),
+        ("direct BAM count-ends 5-prime positions", _caseReadBamSegmentsCountEndsOnlyUsesFivePrimePositions),
+    ):
+        contract_case(label, func, tmp_path)
+
+
+def test_core_pair_scale_factor_contracts(monkeypatch, contract_case):
+    for label, func in (
+        ("MACS-style treatment downscale", _casePairScaleFactorsDownscaleDeeperSampleMacsStyle),
+        ("control downscale by default", _casePairScaleFactorsCanDownscaleControlByDefault),
+        ("fixed control keeps full depth", _casePairScaleFactorsFixControlKeepsControlFullDepth),
+    ):
+        contract_case(label, _run_with_monkeypatch, monkeypatch, func)

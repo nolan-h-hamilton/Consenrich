@@ -48,7 +48,7 @@ def _writeToyBedGraphs(tmp_path: Path):
 
 
 @pytest.mark.correctness
-def testBuildStudentizedScoreTrackUsesTau0():
+def _caseBuildStudentizedScoreTrackUsesTau0():
     state = np.array([2.0, 2.0, 2.0], dtype=np.float64)
     uncertainty = np.array([0.0, 1.0, 3.0], dtype=np.float64)
 
@@ -66,7 +66,7 @@ def testBuildStudentizedScoreTrackUsesTau0():
 
 
 @pytest.mark.correctness
-def testBuildShrinkageScoreTrackUsesNullCenterAndUncertainty():
+def _caseBuildShrinkageScoreTrackUsesNullCenterAndUncertainty():
     state = np.array([0.0, 2.0, 6.0], dtype=np.float64)
     uncertainty = np.array([0.0, 1.0, 3.0], dtype=np.float64)
 
@@ -87,7 +87,7 @@ def testBuildShrinkageScoreTrackUsesNullCenterAndUncertainty():
 
 
 @pytest.mark.correctness
-def testEmpiricalMirroredNullStrengthensThreshold():
+def _caseEmpiricalMirroredNullStrengthensThreshold():
     rng = np.random.default_rng(5)
     scoreTrack = rng.normal(loc=0.0, scale=1.0, size=1024)
     scoreTrack[::37] -= 5.0
@@ -107,7 +107,7 @@ def testEmpiricalMirroredNullStrengthensThreshold():
 
 
 @pytest.mark.correctness
-def testEstimateGammaForROCCOUsesLowerContextBound(monkeypatch):
+def _caseEstimateGammaForROCCOUsesLowerContextBound(monkeypatch):
     scoreTrack = np.linspace(-0.5, 3.5, 256, dtype=np.float64)
 
     def _fakeChooseFeatureLength(vals, minSpan=3, maxSpan=64):
@@ -133,7 +133,7 @@ def testEstimateGammaForROCCOUsesLowerContextBound(monkeypatch):
 
 
 @pytest.mark.correctness
-def testEstimateGammaForROCCOUsesFixedDefault():
+def _caseEstimateGammaForROCCOUsesFixedDefault():
     scoreTrack = np.linspace(-0.5, 3.5, 256, dtype=np.float64)
     gamma, details = peaks.estimateROCCOGamma(scoreTrack, returnDetails=True)
 
@@ -142,7 +142,7 @@ def testEstimateGammaForROCCOUsesFixedDefault():
 
 
 @pytest.mark.correctness
-def testGetBudgetForROCCOUsesDirectConsenrichStateByDefault():
+def _caseGetBudgetForROCCOUsesDirectConsenrichStateByDefault():
     state, uncertainty = _toyChromState()
     uncertaintyHi = uncertainty.copy()
     uncertaintyHi[90:120] = uncertaintyHi[90:120] * 3.0
@@ -192,7 +192,7 @@ def testGetBudgetForROCCOUsesDirectConsenrichStateByDefault():
 
 
 @pytest.mark.correctness
-def testGetBudgetForROCCOAppliesSmallPositiveBudgetFloor():
+def _caseGetBudgetForROCCOAppliesSmallPositiveBudgetFloor():
     lowState = np.zeros(512, dtype=np.float64)
     lowUncertainty = np.ones(512, dtype=np.float64)
     budgetLow, detailsLow = peaks.getROCCOBudget(
@@ -224,7 +224,7 @@ def testGetBudgetForROCCOAppliesSmallPositiveBudgetFloor():
 
 
 @pytest.mark.correctness
-def testLegacyAutosomalNullFloorHelperStillRuns():
+def _caseLegacyAutosomalNullFloorHelperStillRuns():
     chr1State, chr1Unc = _toyChromState(seed=7, n=512)
     chr1State[::19] -= 3.0
     chrYState = np.zeros(384, dtype=np.float64)
@@ -259,7 +259,7 @@ def testLegacyAutosomalNullFloorHelperStillRuns():
 
 
 @pytest.mark.correctness
-def testROCCONullFallbackAndEBShrinkage():
+def _caseROCCONullFallbackAndEBShrinkage():
     state, _ = _toyChromState()
     nullCenter, nullScale, details = peaks.estimateROCCONull(np.abs(state) + 3.0)
 
@@ -286,7 +286,7 @@ def testROCCONullFallbackAndEBShrinkage():
 
 
 @pytest.mark.correctness
-def testRunROCCOAlgorithmFromBedGraphs(tmp_path):
+def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     statePath, uncPath = _writeToyBedGraphs(tmp_path)
     outPath = tmp_path / "toy_rocco.narrowPeak"
     metaPath = tmp_path / "toy_rocco.narrowPeak.json"
@@ -334,7 +334,7 @@ def testRunROCCOAlgorithmFromBedGraphs(tmp_path):
 
 
 @pytest.mark.correctness
-def testRunROCCOAlgorithmKeepsShortFlatEnrichment(tmp_path):
+def _caseRunROCCOAlgorithmKeepsShortFlatEnrichment(tmp_path):
     n = 80
     starts = np.arange(0, n * 50, 50, dtype=np.int64)
     ends = starts + 50
@@ -376,7 +376,7 @@ def testRunROCCOAlgorithmKeepsShortFlatEnrichment(tmp_path):
 
 
 @pytest.mark.correctness
-def testIntegratedBudgetUsesExcessTailGrid():
+def _caseIntegratedBudgetUsesExcessTailGrid():
     rng = np.random.default_rng(3)
     state = np.zeros(1024, dtype=np.float64)
     for i in range(1, state.size):
@@ -426,7 +426,7 @@ def testIntegratedBudgetUsesExcessTailGrid():
 
 
 @pytest.mark.correctness
-def testPreparedStationaryNullDWBUsesSharedPanelAndMonotoneThresholds():
+def _casePreparedStationaryNullDWBUsesSharedPanelAndMonotoneThresholds():
     state, uncertainty = _toyChromState(seed=9, n=512)
     prepared = peaks._prepareROCCOScoreAndNull(
         state,
@@ -466,7 +466,7 @@ def testPreparedStationaryNullDWBUsesSharedPanelAndMonotoneThresholds():
 
 
 @pytest.mark.correctness
-def testGetBudgetForROCCOIsStableUnderFixedSeed():
+def _caseGetBudgetForROCCOIsStableUnderFixedSeed():
     state, uncertainty = _toyChromState(seed=13, n=384)
     budget1, details1 = peaks.getROCCOBudget(
         state,
@@ -491,7 +491,7 @@ def testGetBudgetForROCCOIsStableUnderFixedSeed():
 
 
 @pytest.mark.correctness
-def testEstimateGammaForROCCOUsesCenteredExcessWhenAvailable():
+def _caseEstimateGammaForROCCOUsesCenteredExcessWhenAvailable():
     scoreTrack = np.linspace(1.0, 5.0, 256, dtype=np.float64)
 
     gammaRaw, detailsRaw = peaks.estimateROCCOGamma(
@@ -516,7 +516,7 @@ def testEstimateGammaForROCCOUsesCenteredExcessWhenAvailable():
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsSplitsSubpeaks():
+def _caseSolutionToChromNarrowPeakRowsSplitsSubpeaks():
     n = 100
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -549,7 +549,7 @@ def testSolutionToChromNarrowPeakRowsSplitsSubpeaks():
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide():
+def _caseSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide():
     n = 60
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -580,7 +580,7 @@ def testSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide():
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsDoesNotLetDominantPeakHideSubpeak():
+def _caseSolutionToChromNarrowPeakRowsDoesNotLetDominantPeakHideSubpeak():
     n = 100
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -611,7 +611,7 @@ def testSolutionToChromNarrowPeakRowsDoesNotLetDominantPeakHideSubpeak():
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsTrimsChildFlanksAroundSummit():
+def _caseSolutionToChromNarrowPeakRowsTrimsChildFlanksAroundSummit():
     n = 80
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -647,7 +647,7 @@ def testSolutionToChromNarrowPeakRowsTrimsChildFlanksAroundSummit():
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin():
+def _caseSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin():
     n = 40
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -678,7 +678,7 @@ def testSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin():
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP():
+def _caseSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP():
     n = 50
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -726,7 +726,7 @@ def testSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP(
 
 
 @pytest.mark.correctness
-def testMassiveSubpeakWidthPolicyRequiresSeparatedTailCluster():
+def _caseMassiveSubpeakWidthPolicyRequiresSeparatedTailCluster():
     widths = np.concatenate(
         [
             np.linspace(500.0, 5000.0, 1000),
@@ -743,7 +743,7 @@ def testMassiveSubpeakWidthPolicyRequiresSeparatedTailCluster():
 
 
 @pytest.mark.correctness
-def testMassiveSubpeakWidthPolicyDoesNotFlagSmoothTailWithoutGap():
+def _caseMassiveSubpeakWidthPolicyDoesNotFlagSmoothTailWithoutGap():
     widths = np.linspace(500.0, 16000.0, 300)
 
     policy = peaks._learnMassiveSubpeakWidthPolicy(widths)
@@ -753,7 +753,7 @@ def testMassiveSubpeakWidthPolicyDoesNotFlagSmoothTailWithoutGap():
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsForcesMassiveSplittableDomain():
+def _caseSolutionToChromNarrowPeakRowsForcesMassiveSplittableDomain():
     n = 700
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -796,7 +796,7 @@ def testSolutionToChromNarrowPeakRowsForcesMassiveSplittableDomain():
 
 
 @pytest.mark.correctness
-def testSolutionToChromNarrowPeakRowsKeepsMassiveSmoothDomainUnsplit():
+def _caseSolutionToChromNarrowPeakRowsKeepsMassiveSmoothDomainUnsplit():
     n = 700
     intervals = np.arange(0, n * 25, 25, dtype=np.int64)
     ends = intervals + 25
@@ -836,7 +836,7 @@ def testSolutionToChromNarrowPeakRowsKeepsMassiveSmoothDomainUnsplit():
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementShrinksWithinParentRegions():
+def _caseNestedROCCORefinementShrinksWithinParentRegions():
     scores = np.full(80, 0.2, dtype=np.float64)
     scores[20:30] = 2.0
     scores[45:55] = 2.0
@@ -871,7 +871,7 @@ def testNestedROCCORefinementShrinksWithinParentRegions():
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementStopsOnJaccardThreshold():
+def _caseNestedROCCORefinementStopsOnJaccardThreshold():
     scores = np.full(1000, 2.0, dtype=np.float64)
     scores[500] = 0.0
     firstPass = np.ones(1000, dtype=np.uint8)
@@ -898,7 +898,7 @@ def testNestedROCCORefinementStopsOnJaccardThreshold():
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementCanApplyBudgetScale():
+def _caseNestedROCCORefinementCanApplyBudgetScale():
     scores = np.full(100, 1.2, dtype=np.float64)
     scores[35:65] = 4.0
     firstPass = np.ones(100, dtype=np.uint8)
@@ -920,7 +920,7 @@ def testNestedROCCORefinementCanApplyBudgetScale():
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementDoesNotEraseFlatPositivePlateau():
+def _caseNestedROCCORefinementDoesNotEraseFlatPositivePlateau():
     scores = np.zeros(80, dtype=np.float64)
     scores[37:44] = 10.0
     firstPass = np.zeros(80, dtype=np.uint8)
@@ -950,7 +950,7 @@ def testNestedROCCORefinementDoesNotEraseFlatPositivePlateau():
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementAppliesBudgetOnlyOnFirstNestedPass():
+def _caseNestedROCCORefinementAppliesBudgetOnlyOnFirstNestedPass():
     scores = np.full(80, 0.2, dtype=np.float64)
     scores[20:30] = 2.0
     scores[45:55] = 2.0
@@ -977,7 +977,7 @@ def testNestedROCCORefinementAppliesBudgetOnlyOnFirstNestedPass():
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementSatisfiesAnchoredMonotonicityContract():
+def _caseNestedROCCORefinementSatisfiesAnchoredMonotonicityContract():
     scores = np.full(120, -0.4, dtype=np.float64)
     scores[15:35] = -0.2
     scores[72:82] = 3.0
@@ -1013,7 +1013,7 @@ def testNestedROCCORefinementSatisfiesAnchoredMonotonicityContract():
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementKeepsAnchoredMinRunWhenPeakIsNarrow():
+def _caseNestedROCCORefinementKeepsAnchoredMinRunWhenPeakIsNarrow():
     scores = np.zeros(40, dtype=np.float64)
     scores[20] = 8.0
     firstPass = np.zeros(40, dtype=np.uint8)
@@ -1044,7 +1044,7 @@ def testNestedROCCORefinementKeepsAnchoredMinRunWhenPeakIsNarrow():
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementWritesSubproblemDiagnostics(caplog, tmp_path):
+def _caseNestedROCCORefinementWritesSubproblemDiagnostics(caplog, tmp_path):
     scores = np.full(60, 0.2, dtype=np.float64)
     scores[20:40] = 3.0
     firstPass = np.zeros(60, dtype=np.uint8)
@@ -1082,7 +1082,7 @@ def testNestedROCCORefinementWritesSubproblemDiagnostics(caplog, tmp_path):
 
 
 @pytest.mark.correctness
-def testNestedROCCORefinementSkipsShortParentRegions():
+def _caseNestedROCCORefinementSkipsShortParentRegions():
     scores = np.zeros(20, dtype=np.float64)
     firstPass = np.zeros(20, dtype=np.uint8)
     firstPass[8:12] = 1
@@ -1107,7 +1107,7 @@ def testNestedROCCORefinementSkipsShortParentRegions():
 
 
 @pytest.mark.correctness
-def testSolveRoccoDefaultsMatchConfig(tmp_path):
+def _caseSolveRoccoDefaultsMatchConfig(tmp_path):
     statePath, uncPath = _writeToyBedGraphs(tmp_path)
     outPath = tmp_path / "toy_rocco_default.narrowPeak"
     metaPath = tmp_path / "toy_rocco_default.narrowPeak.json"
@@ -1134,7 +1134,7 @@ def testSolveRoccoDefaultsMatchConfig(tmp_path):
 
 
 @pytest.mark.correctness
-def testSolveRoccoVerboseWritesSubproblemDiagnostics(tmp_path, caplog):
+def _caseSolveRoccoVerboseWritesSubproblemDiagnostics(tmp_path, caplog):
     statePath, uncPath = _writeToyBedGraphs(tmp_path)
     outPath = tmp_path / "toy_rocco_verbose.narrowPeak"
     metaPath = tmp_path / "toy_rocco_verbose.narrowPeak.json"
@@ -1164,7 +1164,7 @@ def testSolveRoccoVerboseWritesSubproblemDiagnostics(tmp_path, caplog):
 
 
 @pytest.mark.correctness
-def testNestedROCCOAllNegativeParentStillEmitsAnchoredChild():
+def _caseNestedROCCOAllNegativeParentStillEmitsAnchoredChild():
     scores = np.full(40, -1.0, dtype=np.float64)
     firstPass = np.zeros(40, dtype=np.uint8)
     firstPass[10:30] = 1
@@ -1191,7 +1191,7 @@ def testNestedROCCOAllNegativeParentStillEmitsAnchoredChild():
 
 
 @pytest.mark.correctness
-def testNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion():
+def _caseNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion():
     scores = np.ones(100, dtype=np.float64)
     firstPass = np.ones(100, dtype=np.uint8)
 
@@ -1210,7 +1210,7 @@ def testNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion():
 
 
 @pytest.mark.correctness
-def testCheckMatchingEnabledDefaultsToEnabled():
+def _caseCheckMatchingEnabledDefaultsToEnabled():
     matchingArgs = type(
         "MatchingArgs",
         (),
@@ -1220,3 +1220,118 @@ def testCheckMatchingEnabledDefaultsToEnabled():
     )()
 
     assert consenrich_cli.checkMatchingEnabled(matchingArgs) is True
+
+
+def _run_with_monkeypatch(monkeypatch, func, *args):
+    with monkeypatch.context() as mp:
+        return func(*args, mp)
+
+
+def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case):
+    for label, func, args in (
+        ("studentized score tau0", _caseBuildStudentizedScoreTrackUsesTau0, ()),
+        ("shrinkage score null center", _caseBuildShrinkageScoreTrackUsesNullCenterAndUncertainty, ()),
+        ("empirical mirrored null", _caseEmpiricalMirroredNullStrengthensThreshold, ()),
+        (
+            "gamma lower context bound",
+            _run_with_monkeypatch,
+            (monkeypatch, _caseEstimateGammaForROCCOUsesLowerContextBound),
+        ),
+        ("gamma fixed default", _caseEstimateGammaForROCCOUsesFixedDefault, ()),
+        ("direct state budget", _caseGetBudgetForROCCOUsesDirectConsenrichStateByDefault, ()),
+        ("small positive budget floor", _caseGetBudgetForROCCOAppliesSmallPositiveBudgetFloor, ()),
+        ("legacy autosomal null floor", _caseLegacyAutosomalNullFloorHelperStillRuns, ()),
+        ("ROCCO null fallback and EB shrinkage", _caseROCCONullFallbackAndEBShrinkage, ()),
+        ("integrated budget tail grid", _caseIntegratedBudgetUsesExcessTailGrid, ()),
+        ("stationary DWB shared panel", _casePreparedStationaryNullDWBUsesSharedPanelAndMonotoneThresholds, ()),
+        ("budget fixed-seed stability", _caseGetBudgetForROCCOIsStableUnderFixedSeed, ()),
+        ("centered excess gamma", _caseEstimateGammaForROCCOUsesCenteredExcessWhenAvailable, ()),
+    ):
+        contract_case(label, func, *args)
+
+
+def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
+    contract_case("ROCCO bedGraph algorithm", _caseRunROCCOAlgorithmFromBedGraphs, tmp_path)
+    contract_case(
+        "short flat enrichment retained",
+        _caseRunROCCOAlgorithmKeepsShortFlatEnrichment,
+        tmp_path,
+    )
+
+
+def test_rocco_subpeak_policy_contracts(contract_case):
+    for label, func in (
+        ("subpeak splitting", _caseSolutionToChromNarrowPeakRowsSplitsSubpeaks),
+        (
+            "wide-context splitting",
+            _caseSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide,
+        ),
+        (
+            "dominant peak exposes subpeak",
+            _caseSolutionToChromNarrowPeakRowsDoesNotLetDominantPeakHideSubpeak,
+        ),
+        ("child flank trimming", _caseSolutionToChromNarrowPeakRowsTrimsChildFlanksAroundSummit),
+        ("all-negative child refinement", _caseSolutionToChromNarrowPeakRowsRefinesAllNegativeChildToBestBin),
+        (
+            "negative local-median drop",
+            _caseSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP,
+        ),
+    ):
+        contract_case(label, func)
+
+
+def test_rocco_massive_domain_policy_contracts(contract_case):
+    for label, func in (
+        ("separated tail cluster required", _caseMassiveSubpeakWidthPolicyRequiresSeparatedTailCluster),
+        ("smooth tail not flagged", _caseMassiveSubpeakWidthPolicyDoesNotFlagSmoothTailWithoutGap),
+        ("massive domain forced split", _caseSolutionToChromNarrowPeakRowsForcesMassiveSplittableDomain),
+        ("massive smooth domain kept", _caseSolutionToChromNarrowPeakRowsKeepsMassiveSmoothDomainUnsplit),
+    ):
+        contract_case(label, func)
+
+
+def test_rocco_nested_refinement_contracts(contract_case):
+    for label, func in (
+        ("nested shrink within parents", _caseNestedROCCORefinementShrinksWithinParentRegions),
+        ("nested stop on Jaccard", _caseNestedROCCORefinementStopsOnJaccardThreshold),
+        ("nested budget scale", _caseNestedROCCORefinementCanApplyBudgetScale),
+        ("flat positive plateau retained", _caseNestedROCCORefinementDoesNotEraseFlatPositivePlateau),
+        ("first-pass budget only", _caseNestedROCCORefinementAppliesBudgetOnlyOnFirstNestedPass),
+        ("short parent skipped", _caseNestedROCCORefinementSkipsShortParentRegions),
+        ("all-negative parent emits child", _caseNestedROCCOAllNegativeParentStillEmitsAnchoredChild),
+        ("coherent parent retained", _caseNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion),
+    ):
+        contract_case(label, func)
+
+
+def test_rocco_anchored_min_run_contracts(contract_case):
+    contract_case(
+        "anchored monotonicity",
+        _caseNestedROCCORefinementSatisfiesAnchoredMonotonicityContract,
+    )
+    contract_case(
+        "anchored min-run for narrow peak",
+        _caseNestedROCCORefinementKeepsAnchoredMinRunWhenPeakIsNarrow,
+    )
+
+
+def test_rocco_diagnostics_and_defaults_contracts(tmp_path, caplog, contract_case):
+    caplog.clear()
+    contract_case(
+        "nested subproblem diagnostics",
+        _caseNestedROCCORefinementWritesSubproblemDiagnostics,
+        caplog,
+        tmp_path,
+    )
+    contract_case("solve defaults match config", _caseSolveRoccoDefaultsMatchConfig, tmp_path)
+    caplog.clear()
+    contract_case(
+        "verbose solve diagnostics",
+        _caseSolveRoccoVerboseWritesSubproblemDiagnostics,
+        tmp_path,
+        caplog,
+    )
+
+
+def test_rocco_matching_default_contract(contract_case):
+    contract_case("matching default enabled", _caseCheckMatchingEnabledDefaultsToEnabled)

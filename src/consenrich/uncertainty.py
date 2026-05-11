@@ -603,6 +603,8 @@ def calibrateChromosomeStateUncertainty(
 ) -> uncertaintyCalibrationResult:
     totalStart = time.perf_counter()
     timings: dict[str, float] = {}
+    # Retained for API compatibility; replicate bias is already reflected in runKwargs.
+    _ = fullReplicateBias
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
     m, n = matrixData.shape
@@ -682,11 +684,19 @@ def calibrateChromosomeStateUncertainty(
     foldChunks: list[np.ndarray] = []
 
     fitKwargs = dict(runKwargs)
+    foldIndentLevel = max(0, int(fitKwargs.get("logIndentLevel", 0) or 0))
+    fitKwargs["logIndentLevel"] = foldIndentLevel + 1
     fitKwargs["EM_maxIters"] = max(
         int(params.calibrationEMIters),
         core.UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_EM_ITERS,
     )
     fitKwargs["EM_outerIters"] = 1
+    fitKwargs["processQCalibIters"] = (
+        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_ITERS
+    )
+    fitKwargs["processQCalibOuterIters"] = (
+        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_OUTER_ITERS
+    )
     fitKwargs["returnScales"] = True
     fitKwargs["returnReplicateOffsets"] = True
     fitKwargs["applyJackknife"] = False
@@ -708,6 +718,21 @@ def calibrateChromosomeStateUncertainty(
         desc="Uncertainty calibration folds",
         unit="fold",
     ):
+        core._logAsciiBlock(
+            "uncertainty calibration fold",
+            (
+                ("fold", f"{int(fold + 1)}/{int(len(masks))}"),
+                ("intervals", int(n)),
+                ("total folds", int(len(masks))),
+                (
+                    "process Q warmup",
+                    f"{int(fitKwargs['processQCalibOuterIters'])} outer x "
+                    f"{int(fitKwargs['processQCalibIters'])} inner",
+                ),
+            ),
+            logger_=logger,
+            indentLevel=foldIndentLevel,
+        )
         logger.info("uncertaintyCalibration.fold.start fold=%s intervals=%s", fold, n)
         stageStart = time.perf_counter()
         out = core.runConsenrich(

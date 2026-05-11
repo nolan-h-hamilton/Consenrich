@@ -31,6 +31,7 @@ from .constants import (
     BEDGRAPH_SOURCE_KIND,
     FRAGMENTS_SOURCE_KIND,
     PROCESS_Q_CALIBRATION_MODES,
+    PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS,
     PROCESS_Q_CALIBRATION_NONE,
     PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
     PROCESS_Q_DEFAULT_TREND_TARGET_RATIO,
@@ -68,10 +69,11 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_MIN_FOLDS,
     UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES,
     UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+    UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_ITERS,
+    UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_OUTER_ITERS,
     UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE,
     UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES,
     UNCERTAINTY_CALIBRATION_SCORE_REPLICATE_CODE_STRIDE,
-    UNCERTAINTY_CALIBRATION_SCORE_SD_DECILES,
     UNCERTAINTY_CALIBRATION_SCORE_STATE_ABS_QUANTILE,
     UNCERTAINTY_CALIBRATION_SUMMARY_MEDIAN_QUANTILE,
     UNCERTAINTY_CALIBRATION_SUMMARY_Q90_QUANTILE,
@@ -90,6 +92,7 @@ logger = logging.getLogger(__name__)
 
 _LOG_BLOCK_WIDTH = 72
 _LOG_KEY_WIDTH = 24
+_LOG_INDENT_WIDTH = 6
 
 
 def _formatLogValue(value: Any) -> str:
@@ -105,11 +108,14 @@ def _formatLogValue(value: Any) -> str:
 def _formatAsciiLogBlock(
     title: str,
     rows: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] = (),
+    *,
+    indentLevel: int = 0,
 ) -> str:
     width = _LOG_BLOCK_WIDTH
     titleWidth = width - 4
     keyWidth = _LOG_KEY_WIDTH
     valueWidth = width - keyWidth - 7
+    indent = " " * (max(0, int(indentLevel)) * _LOG_INDENT_WIDTH)
     titleLine = f"PHASE: {str(title).upper()}"
     if len(titleLine) > titleWidth:
         titleLine = titleLine[: titleWidth - 1] + "~"
@@ -136,6 +142,8 @@ def _formatAsciiLogBlock(
                 continue
             lines.append(f"| {keyText:<{keyWidth}} | {valueText:<{valueWidth}} |")
             lines.append(rowBorder)
+    if indent:
+        return "\n".join(f"{indent}{line}" for line in lines)
     return "\n".join(lines)
 
 
@@ -145,8 +153,14 @@ def _logAsciiBlock(
     *,
     logger_: logging.Logger = logger,
     level: int = logging.INFO,
+    indentLevel: int = 0,
 ) -> None:
-    logger_.log(level, "\n%s\n", _formatAsciiLogBlock(title, rows), stacklevel=2)
+    logger_.log(
+        level,
+        "\n%s\n",
+        _formatAsciiLogBlock(title, rows, indentLevel=indentLevel),
+        stacklevel=2,
+    )
 
 
 class processParams(NamedTuple):
@@ -172,11 +186,14 @@ class processParams(NamedTuple):
     :param processQCalibIters: Maximum inner EM iterations used by the process-Q
         warm-up calibration fit.
     :type processQCalibIters: int
+    :param processQCalibOuterIters: Maximum outer background passes used by the
+        process-Q warm-up calibration fit.
+    :type processQCalibOuterIters: int
     :param processQLevelTarget: Optional shrinkage target for level innovation variance.
         If unset, the resolved ``minQ`` value is used.
     :type processQLevelTarget: float | None
     :param processQTrendTarget: Optional shrinkage target for trend innovation variance.
-        If unset, ``0.001 * processQLevelTarget`` is used.
+        If unset, ``PROCESS_Q_DEFAULT_TREND_TARGET_RATIO * processQLevelTarget`` is used.
     :type processQTrendTarget: float | None
     :param processQLevelPriorWeight: Shrinkage weight toward ``processQLevelTarget``.
     :type processQLevelPriorWeight: float
@@ -198,6 +215,7 @@ class processParams(NamedTuple):
     offDiagQ: float = 0.0
     processQCalibration: str = "regularizedDiagonal"
     processQCalibIters: int = 5
+    processQCalibOuterIters: int = PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
     processQLevelTarget: float | None = None
     processQTrendTarget: float | None = None
     processQLevelPriorWeight: float = 0.05
@@ -316,7 +334,7 @@ class uncertaintyCalibrationParams(NamedTuple):
     r"""Parameters for cross-fit chromosome state-uncertainty calibration."""
 
     enabled: bool = False
-    folds: int = 5
+    folds: int = 3
     blockSizeBP: int | str | None = None
     holdoutFraction: float | None = None
     heldoutReplicateFraction: float | None = None
@@ -1839,6 +1857,7 @@ def runConsenrich(
     jackknifeEM_innerRtol: float = 1.0e-2,
     processQCalibration: str | None = PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
     processQCalibIters: int = 5,
+    processQCalibOuterIters: int | None = PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS,
     processQLevelTarget: float | None = None,
     processQTrendTarget: float | None = None,
     processQLevelPriorWeight: float = 0.05,
@@ -1849,6 +1868,8 @@ def runConsenrich(
     processPrecisionMultiplierMax: float = 2.0,
     observationMask: np.ndarray | None = None,
     returnDiagnostics: bool = False,
+    logIndentLevel: int = 0,
+    logRunRole: str | None = None,
 ):
     r"""Run Consenrich over a contiguous genomic region
 
@@ -1906,7 +1927,10 @@ def runConsenrich(
     ``processQCalibration="regularizedDiagonal"`` first runs a short warm-up
     smoother with APN and process-precision reweighting disabled, estimates the
     fixed diagonal base process covariance from smoothed transition residuals,
-    and then runs the requested final fit with the learned :math:`\mathbf{Q}_0`.
+    and then runs the requested post-Q fit with the learned
+    :math:`\mathbf{Q}_0`. The warm-up uses its own outer background-pass budget
+    (``processQCalibOuterIters``) so it is not accidentally coupled to the main
+    post-Q fit's outer-loop budget.
     ``processQCalibration="none"`` preserves the legacy scalar covariance path.
 
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`, :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cinnerEM`
@@ -1970,6 +1994,8 @@ def runConsenrich(
         processPrecisionMultiplierMax,
     )
     processQCalibrationMode = _normalizeProcessQCalibration(processQCalibration)
+    logIndentLevel = max(0, int(logIndentLevel or 0))
+    logRunRole = str(logRunRole or "").strip()
 
     blockCount = int(np.ceil(intervalCount / float(blockLenIntervals)))
     intervalToBlockMap = (
@@ -1989,6 +2015,7 @@ def runConsenrich(
             ("background model fit", bool(fitBackground)),
             ("EM calibration disabled", bool(disableCalibration)),
         ),
+        indentLevel=logIndentLevel,
     )
     logger.info(
         "runConsenrich.core.start tracks=%d intervals=%d blocks=%d EM_maxIters=%d outerIters=%d processQCalibration=%s",
@@ -2112,9 +2139,12 @@ def runConsenrich(
         matrixQ0Local: np.ndarray,
         emMaxItersLocal: int,
         emInnerRtolLocal: float,
+        emOuterItersLocal: int | None = None,
+        minOuterItersLocal: int | None = None,
         emUseProcPrecReweightLocal: bool | None = None,
         emUseAPNLocal: bool | None = None,
         phaseLabel: str = "fit",
+        phaseIndentLevel: int = 0,
     ) -> dict[str, np.ndarray | float | None]:
         mLocal = int(matrixDataLocal.shape[0])
         nLocal = int(matrixDataLocal.shape[1])
@@ -2137,6 +2167,7 @@ def runConsenrich(
                     ("adaptive process noise", bool(useAPNLocal)),
                     ("process precision weights", bool(useProcPrecLocal)),
                 ),
+                indentLevel=phaseIndentLevel + 1,
             )
             currentBackground = np.zeros(nLocal, dtype=np.float32)
             currentMunc = np.ascontiguousarray(matrixMuncLocal, dtype=np.float32)
@@ -2286,8 +2317,15 @@ def runConsenrich(
                 float(EM_backgroundPriorVariancePenaltyRate),
             )
         if fitBackgroundLocal:
-            outerIters = max(3, int(EM_outerIters))
-            minOuterIters = 3
+            requestedOuterIters = (
+                int(EM_outerIters)
+                if emOuterItersLocal is None
+                else int(emOuterItersLocal)
+            )
+            minOuterIters = (
+                3 if minOuterItersLocal is None else max(1, int(minOuterItersLocal))
+            )
+            outerIters = max(minOuterIters, requestedOuterIters)
         else:
             outerIters = 1
             minOuterIters = 1
@@ -2307,6 +2345,7 @@ def runConsenrich(
                     ("obs precision weights", bool(EM_useObsPrecReweight)),
                     ("process precision weights", bool(useProcPrecLocal)),
                 ),
+                indentLevel=phaseIndentLevel + 1,
             )
             dataAdjusted = np.ascontiguousarray(
                 matrixDataLocal - currentBackground[None, :],
@@ -2436,6 +2475,7 @@ def runConsenrich(
                 ("obs precision weights", bool(lambdaExpLocal is not None)),
                 ("process precision weights", bool(processPrecExpLocal is not None)),
             ),
+            indentLevel=phaseIndentLevel + 1,
         )
         (
             _phiHatLocal,
@@ -2502,6 +2542,14 @@ def runConsenrich(
 
     if processQCalibrationMode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL:
         warmupIters = max(1, int(processQCalibIters))
+        warmupOuterIters = max(
+            1,
+            int(
+                PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
+                if processQCalibOuterIters is None
+                else processQCalibOuterIters
+            ),
+        )
         stageStart = time.perf_counter()
         _logAsciiBlock(
             "process Q warmup",
@@ -2509,16 +2557,19 @@ def runConsenrich(
                 ("purpose", "estimate diagonal process covariance"),
                 ("tracks", int(trackCount)),
                 ("intervals", int(intervalCount)),
-                ("EM max iterations", int(warmupIters)),
+                ("outer max iterations", int(warmupOuterIters)),
+                ("inner max iterations", int(warmupIters)),
                 ("process precision weights", False),
                 ("adaptive process noise", False),
             ),
+            indentLevel=logIndentLevel + 1,
         )
         logger.info(
-            "runConsenrich.processQWarmup.start tracks=%d intervals=%d EM_maxIters=%d",
+            "runConsenrich.processQWarmup.start tracks=%d intervals=%d EM_maxIters=%d outerIters=%d",
             int(trackCount),
             int(intervalCount),
             int(warmupIters),
+            int(warmupOuterIters),
         )
         fitProcessQWarmup = _fitOuter(
             matrixDataLocal=matrixData,
@@ -2527,9 +2578,12 @@ def runConsenrich(
             matrixQ0Local=matrixQ0,
             emMaxItersLocal=warmupIters,
             emInnerRtolLocal=float(EM_innerRtol),
+            emOuterItersLocal=warmupOuterIters,
+            minOuterItersLocal=1,
             emUseProcPrecReweightLocal=False,
             emUseAPNLocal=False,
             phaseLabel="process Q warmup",
+            phaseIndentLevel=logIndentLevel + 1,
         )
         logger.info(
             "runConsenrich.processQWarmup.done elapsed=%.3fs",
@@ -2547,12 +2601,15 @@ def runConsenrich(
             processQLevelPriorWeight=float(processQLevelPriorWeight),
             processQTrendPriorWeight=float(processQTrendPriorWeight),
         )
+        processQCalibrationInfo["warmup_inner_iters"] = float(warmupIters)
+        processQCalibrationInfo["warmup_outer_iters"] = float(warmupOuterIters)
         logger.info(
             "processQCalibration=%s:\n"
             "\tq_level=%.6g\tq_trend=%.6g\n"
             "\traw_level=%.6g\traw_trend=%.6g\n"
             "\ttarget_level=%.6g\ttarget_trend=%.6g\n"
-            "\tweight_level=%.6g\tweight_trend=%.6g",
+            "\tweight_level=%.6g\tweight_trend=%.6g\n"
+            "\twarmup_outer_iters=%d\twarmup_inner_iters=%d",
             PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
             processQCalibrationInfo["q_level"],
             processQCalibrationInfo["q_trend"],
@@ -2562,13 +2619,29 @@ def runConsenrich(
             processQCalibrationInfo["q_trend_target"],
             processQCalibrationInfo["q_level_prior_weight"],
             processQCalibrationInfo["q_trend_prior_weight"],
+            int(warmupOuterIters),
+            int(warmupIters),
         )
     else:
         logger.info("processQCalibration=none: using legacy scalar process Q")
 
+    baseFitPhaseLabel = (
+        "post-Q fit"
+        if processQCalibrationMode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
+        else "model fit"
+    )
+    fitPhaseLabel = (
+        f"{logRunRole} {baseFitPhaseLabel}" if logRunRole else baseFitPhaseLabel
+    )
+    fitLogEvent = (
+        "postQFit"
+        if processQCalibrationMode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
+        else "modelFit"
+    )
+
     stageStart = time.perf_counter()
     _logAsciiBlock(
-        "final fit",
+        fitPhaseLabel,
         (
             ("tracks", int(trackCount)),
             ("intervals", int(intervalCount)),
@@ -2579,9 +2652,11 @@ def runConsenrich(
             ("process precision weights", bool(EM_useProcPrecReweight)),
             ("adaptive process noise", bool(EM_useAPN)),
         ),
+        indentLevel=logIndentLevel + 1,
     )
     logger.info(
-        "runConsenrich.finalFit.start tracks=%d intervals=%d EM_maxIters=%d outerIters=%d",
+        "runConsenrich.%s.start tracks=%d intervals=%d EM_maxIters=%d outerIters=%d",
+        fitLogEvent,
         int(trackCount),
         int(intervalCount),
         int(EM_maxIters),
@@ -2594,10 +2669,12 @@ def runConsenrich(
         matrixQ0Local=matrixQ0,
         emMaxItersLocal=int(EM_maxIters),
         emInnerRtolLocal=float(EM_innerRtol),
-        phaseLabel="final fit",
+        phaseLabel=fitPhaseLabel,
+        phaseIndentLevel=logIndentLevel + 1,
     )
     logger.info(
-        "runConsenrich.finalFit.done elapsed=%.3fs",
+        "runConsenrich.%s.done elapsed=%.3fs",
+        fitLogEvent,
         time.perf_counter() - stageStart,
     )
     replicateBias_final = np.asarray(fitFinal["replicateBias"], dtype=np.float32)
@@ -2607,14 +2684,15 @@ def runConsenrich(
     NIS = np.asarray(fitFinal["NIS"], dtype=np.float32)
     finalForwardNIS = _finalForwardNIS(NIS)
     _logAsciiBlock(
-        "final fit summary",
+        f"{fitPhaseLabel} summary",
         (
-            ("final NLL", float(fitFinal.get("sumNLL", np.nan))),
+            ("fit NLL", float(fitFinal.get("sumNLL", np.nan))),
             ("standardized forward innovation", float(finalForwardNIS)),
-            ("backgroundShift final", float(fitFinal.get("backgroundShift", np.nan))),
+            ("backgroundShift at stop", float(fitFinal.get("backgroundShift", np.nan))),
             ("background max abs", float(np.max(np.abs(fitFinal["background"])))),
             ("elapsed seconds", time.perf_counter() - stageStart),
         ),
+        indentLevel=logIndentLevel + 1,
     )
     logger.info("Standardized forward innovation: %.6g", finalForwardNIS)
     processQCalibrationMetadata = (
@@ -2715,6 +2793,7 @@ def runConsenrich(
                 ("leave-one-out fits", int(trackCount)),
                 ("EM max iterations", int(jackknifeEM_maxIters)),
             ),
+            indentLevel=logIndentLevel + 1,
         )
         logger.info(
             "runConsenrich.jackknife.start replicates=%d EM_maxIters=%d",
@@ -2746,6 +2825,7 @@ def runConsenrich(
                 emMaxItersLocal=int(jackknifeEM_maxIters),
                 emInnerRtolLocal=float(jackknifeEM_innerRtol),
                 phaseLabel=f"jackknife replicate {int(repIdx + 1)}/{int(trackCount)}",
+                phaseIndentLevel=logIndentLevel + 1,
             )
             x0_LOO = np.asarray(fitLOO["stateSmoothed"], dtype=np.float32)[:, 0].astype(
                 np.float64, copy=False
@@ -2781,6 +2861,7 @@ def runConsenrich(
             ("intervals", int(intervalCount)),
             ("elapsed seconds", float(totalElapsed)),
         ),
+        indentLevel=logIndentLevel,
     )
     logger.info(
         "runConsenrich.core.done tracks=%d intervals=%d elapsed=%.3fs",
@@ -4077,6 +4158,9 @@ def getMuncTrack(
     See :class:`consenrich.core.observationParams` for other parameters.
 
     """
+
+    # Retained for compatibility with older callers; current fitting uses masks directly.
+    _ = excludeFitCoefs
 
     AR1_PARAMCT = 3  # intercept, AR(1) coefficient, variance
     varianceFloor_ = float(max(eps, varianceFloor or eps, 1.0e-12))

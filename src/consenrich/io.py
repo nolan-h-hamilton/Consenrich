@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 from multiprocessing.pool import ThreadPool
-from typing import List, Optional, Sequence, Tuple, Union
 
 
 logger = logging.getLogger(__name__)
@@ -178,36 +177,8 @@ def _prepareFragmentsNormalizationMetadata(*args, **kwargs):
     return _delegate("_prepareFragmentsNormalizationMetadata", *args, **kwargs)
 
 
-def _resolveExtendFrom5pBPPairs(
-    treatmentExtendFrom5pBP: Optional[Sequence[Union[int, float]]],
-    controlExtendFrom5pBP: Optional[Sequence[Union[int, float]]],
-) -> Tuple[List[int], List[int]]:
-    if not treatmentExtendFrom5pBP:
-        logger.warning("No treatment extension lengths provided...returning [],[]")
-        return [], []
-
-    nTreat = len(treatmentExtendFrom5pBP)
-
-    if controlExtendFrom5pBP:
-        if len(controlExtendFrom5pBP) == 1 and nTreat > 1:
-            controlExtendFrom5pBP = list(controlExtendFrom5pBP) * nTreat
-            logger.info(
-                "Only one control extension length provided: broadcasting this value for all control BAM files."
-            )
-        elif len(controlExtendFrom5pBP) != nTreat:
-            logger.warning(
-                "Sizes of treatment and control extension length lists are incompatible...returning [],[]"
-            )
-            return [], []
-        else:
-            controlExtendFrom5pBP = list(controlExtendFrom5pBP)
-    else:
-        controlExtendFrom5pBP = list(treatmentExtendFrom5pBP)
-
-    finalTreatment = [int(x) for x in treatmentExtendFrom5pBP]
-    finalControl = [int(x) for x in treatmentExtendFrom5pBP]
-
-    return finalTreatment, finalControl
+def _resolveExtendFrom5pBPPairs(*args, **kwargs):
+    return _delegate("_resolveExtendFrom5pBPPairs", *args, **kwargs)
 
 
 def checkControlsPresent(*args, **kwargs):

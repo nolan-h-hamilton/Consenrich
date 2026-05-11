@@ -37,7 +37,7 @@ def _smallRunKwargs():
     )
 
 
-def testFitFactorModelAllowsInflationAndDeflation():
+def _caseFitFactorModelAllowsInflationAndDeflation():
     n = 20
     pState = np.ones(n, dtype=np.float64)
     obsVar = np.full(n, 0.1, dtype=np.float64)
@@ -117,7 +117,7 @@ def _pythonFeatureMatrix(state, stateVar, matrixMunc):
     return np.column_stack([np.ones(state.size, dtype=np.float64), z]), center, scale
 
 
-def testCythonFeatureMatrixMatchesPythonForFloat32AndFloat64():
+def _caseCythonFeatureMatrixMatchesPythonForFloat32AndFloat64():
     state = np.array([0.2, 0.5, -0.1, 0.8, 1.3, 0.4], dtype=np.float64)
     stateVar = np.array([0.1, 0.2, 0.15, 0.4, 0.8, 0.3], dtype=np.float64)
     matrixMunc = np.array(
@@ -141,7 +141,7 @@ def testCythonFeatureMatrixMatchesPythonForFloat32AndFloat64():
         assert np.allclose(scale, expectedScale, atol=1.0e-6)
 
 
-def testCythonHeldoutExtractionAndFactorEvaluation():
+def _caseCythonHeldoutExtractionAndFactorEvaluation():
     matrixData = np.arange(12, dtype=np.float32).reshape(3, 4)
     matrixMunc = np.full((3, 4), 0.2, dtype=np.float32)
     state = np.array([0.5, 1.0, 1.5, 2.0], dtype=np.float32)
@@ -183,7 +183,7 @@ def testCythonHeldoutExtractionAndFactorEvaluation():
     assert np.allclose(calibrated, np.sqrt(2.0 * pState))
 
 
-def testCythonObjectiveAndSummaryContracts():
+def _caseCythonObjectiveAndSummaryContracts():
     residual = np.array([-1.0, -0.2, 0.1, 1.3], dtype=np.float64)
     pState = np.full(4, 0.5, dtype=np.float64)
     obsVar = np.full(4, 0.2, dtype=np.float64)
@@ -303,7 +303,7 @@ def testCythonObjectiveAndSummaryContracts():
     assert summary["group"].tolist() == [-1, 0, 1, -1, 0, 1]
 
 
-def testCalibrateChromosomeStateUncertaintySmoke(tmp_path):
+def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path):
     rng = np.random.default_rng(123)
     n = 48
     m = 3
@@ -402,7 +402,87 @@ def testCalibrateChromosomeStateUncertaintySmoke(tmp_path):
     assert not (tmp_path / "cal.scores.tsv.gz").exists()
 
 
-def testCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
+def _caseCalibrationRefitsUseCheapProcessQWarmup(monkeypatch):
+    n = 32
+    m = 3
+    grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
+    signal = np.sin(grid).astype(np.float32)
+    matrixData = np.vstack(
+        [
+            signal - 0.02,
+            signal + 0.01,
+            signal + 0.03,
+        ]
+    ).astype(np.float32)
+    matrixMunc = np.full_like(matrixData, 0.08, dtype=np.float32)
+    fullState = np.column_stack(
+        [signal, np.gradient(signal).astype(np.float32)]
+    ).astype(np.float32)
+    fullCovar = np.zeros((n, 2, 2), dtype=np.float32)
+    fullCovar[:, 0, 0] = 0.05
+    fullCovar[:, 1, 1] = 0.01
+    replicateBias = np.zeros(m, dtype=np.float32)
+    capturedKwargs = []
+
+    def _fakeRunConsenrich(matrixDataArg, matrixMuncArg, *, observationMask, **kwargs):
+        capturedKwargs.append(dict(kwargs))
+        residual = np.asarray(matrixDataArg, dtype=np.float32) - fullState[:, 0][None, :]
+        return (
+            fullState,
+            fullCovar,
+            residual.T,
+            np.zeros(n, dtype=np.float32),
+            replicateBias,
+            np.zeros(n, dtype=np.int32),
+        )
+
+    monkeypatch.setattr(core, "runConsenrich", _fakeRunConsenrich)
+
+    runKwargs = _smallRunKwargs()
+    runKwargs["processQCalibration"] = core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
+    runKwargs["processQCalibIters"] = 5
+    runKwargs["processQCalibOuterIters"] = 3
+    params = core.uncertaintyCalibrationParams(
+        enabled=True,
+        folds=2,
+        blockSizeBP=100,
+        heldoutReplicateFraction=1.0 / m,
+        calibrationEMIters=2,
+        minHeldoutCells=1,
+        maxHeldoutCells=24,
+        targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
+        seed=21,
+    )
+
+    uncertainty.calibrateChromosomeStateUncertainty(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        fullState=fullState,
+        fullCovar=fullCovar,
+        fullReplicateBias=replicateBias,
+        intervals=np.arange(n, dtype=np.int64) * 25,
+        intervalSizeBP=25,
+        params=params,
+        runKwargs=runKwargs,
+        pad=1.0e-4,
+    )
+
+    assert len(capturedKwargs) == params.folds
+    assert all(kwargs["EM_outerIters"] == 1 for kwargs in capturedKwargs)
+    assert all(kwargs["EM_maxIters"] == 2 for kwargs in capturedKwargs)
+    assert all(
+        kwargs["processQCalibIters"]
+        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_ITERS
+        for kwargs in capturedKwargs
+    )
+    assert all(
+        kwargs["processQCalibOuterIters"]
+        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_OUTER_ITERS
+        for kwargs in capturedKwargs
+    )
+
+
+def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
     n = 36
     grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
     matrixData = np.sin(grid).astype(np.float32)[None, :]
@@ -440,3 +520,36 @@ def testCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
     assert np.all(np.isfinite(result.calibratedUncertainty))
     assert (tmp_path / "single.diagnostics.tsv.gz").exists()
     assert (tmp_path / "single.model.json").exists()
+
+
+def test_uncertainty_factor_model_contract(contract_case):
+    contract_case(
+        "factor model allows inflation and deflation",
+        _caseFitFactorModelAllowsInflationAndDeflation,
+    )
+
+
+def test_uncertainty_cython_contracts(contract_case):
+    for label, func in (
+        ("feature matrix matches Python", _caseCythonFeatureMatrixMatchesPythonForFloat32AndFloat64),
+        ("heldout extraction and factor evaluation", _caseCythonHeldoutExtractionAndFactorEvaluation),
+        ("objective and summary contracts", _caseCythonObjectiveAndSummaryContracts),
+    ):
+        contract_case(label, func)
+
+
+def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, contract_case):
+    contract_case("calibration smoke", _caseCalibrateChromosomeStateUncertaintySmoke, tmp_path)
+    contract_case(
+        "cheap Q warmup policy for calibration refits",
+        _caseCalibrationRefitsUseCheapProcessQWarmup,
+        monkeypatch,
+    )
+
+
+def test_uncertainty_single_replicate_contract(tmp_path, contract_case):
+    contract_case(
+        "single-replicate calibration",
+        _caseCalibrateChromosomeStateUncertaintySingleReplicate,
+        tmp_path,
+    )

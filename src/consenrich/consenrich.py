@@ -53,11 +53,11 @@ DEFAULT_CONFIGURATION_KEYS = (
 DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
     GENERIC_DEFAULT_CONFIGURATION: {
         "fitParams.EM_maxIters": 50,
-        "fitParams.EM_innerRtol": 0.005,
+        "fitParams.EM_innerRtol": 0.0001,
         "fitParams.EM_outerIters": 32,
-        "fitParams.EM_outerRtol": 0.005,
+        "fitParams.EM_outerRtol": 0.001,
         "fitParams.EM_backgroundSmoothness": 1.0,
-        "fitParams.EM_backgroundLengthScaleMultiplier": 5.0,
+        "fitParams.EM_backgroundLengthScaleMultiplier": 4.0,
         "fitParams.EM_useBackgroundPrior": True,
         "fitParams.EM_backgroundPriorQuantile": 0.5,
         "fitParams.EM_backgroundPriorTrimQuantile": 0.9,
@@ -68,15 +68,17 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
             core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
         ),
         "processParams.processQCalibIters": 3,
+        "processParams.processQCalibOuterIters": (
+            core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
+        ),
         "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 10.0,
+        "processParams.processQTrendPriorWeight": 25.0,
         "processParams.precisionMultiplierMin": 0.2,
         "processParams.precisionMultiplierMax": 5.0,
         "observationParams.blockQuantile": 0.5,
         "observationParams.precisionMultiplierMin": 0.1,
         "observationParams.precisionMultiplierMax": 10.0,
         "uncertaintyCalibration.enabled": True,
-        "uncertaintyCalibrationParams.enabled": True,
     }
 }
 
@@ -153,7 +155,11 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("background model", yn(fitArgs.fitBackground)),
         ("background prior", yn(fitArgs.EM_useBackgroundPrior)),
         ("process Q mode", processArgs.processQCalibration),
-        ("process Q warmup", int(processArgs.processQCalibIters)),
+        (
+            "process Q warmup",
+            f"{int(processArgs.processQCalibOuterIters)} outer x "
+            f"{int(processArgs.processQCalibIters)} inner",
+        ),
         ("uncertainty cal", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
         ("bigWig output", yn(outputArgs.convertToBigWig)),
@@ -1091,7 +1097,11 @@ def getUncertaintyCalibrationArgs(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.folds",
-                _cfgGet(configData, "uncertaintyCalibration.folds", 5),
+                _cfgGet(
+                    configData,
+                    "uncertaintyCalibration.folds",
+                    core.uncertaintyCalibrationParams().folds,
+                ),
             )
         ),
         blockSizeBP=_cfgGet(
@@ -1309,6 +1319,13 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 configData,
                 "processParams.processQCalibIters",
                 _cfgDefault(configData, "processParams.processQCalibIters"),
+            )
+        ),
+        processQCalibOuterIters=int(
+            _cfgGet(
+                configData,
+                "processParams.processQCalibOuterIters",
+                _cfgDefault(configData, "processParams.processQCalibOuterIters"),
             )
         ),
         processQLevelTarget=(
@@ -3576,6 +3593,7 @@ def main():
             ),
             processQCalibration=processArgs.processQCalibration,
             processQCalibIters=processArgs.processQCalibIters,
+            processQCalibOuterIters=processArgs.processQCalibOuterIters,
             processQLevelTarget=processArgs.processQLevelTarget,
             processQTrendTarget=processArgs.processQTrendTarget,
             processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
@@ -3586,6 +3604,8 @@ def main():
             processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
             applyJackknife=outputArgs.applyJackknife,
             returnDiagnostics=True,
+            logIndentLevel=1,
+            logRunRole="primary chromosome",
         )
         (
             x,
@@ -3691,6 +3711,7 @@ def main():
                     ("block intervals", int(roughnessBlockLen)),
                 ),
                 logger_=logger,
+                indentLevel=1,
             )
             try:
                 from consenrich import uncertainty as uncertainty_module
@@ -3742,6 +3763,7 @@ def main():
                 ),
                 processQCalibration=processArgs.processQCalibration,
                 processQCalibIters=processArgs.processQCalibIters,
+                processQCalibOuterIters=processArgs.processQCalibOuterIters,
                 processQLevelTarget=processArgs.processQLevelTarget,
                 processQTrendTarget=processArgs.processQTrendTarget,
                 processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
@@ -3751,6 +3773,8 @@ def main():
                 processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
                 processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
                 applyJackknife=False,
+                logIndentLevel=2,
+                logRunRole="held-out fold",
             )
             calibrationPrefix = (
                 f"consenrichOutput_{experimentName}_uncertaintyCalibration"

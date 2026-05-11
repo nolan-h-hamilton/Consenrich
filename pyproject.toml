@@ -63,7 +63,14 @@ consenrich = ["native/*"]
 [project.scripts]
 consenrich = "consenrich.consenrich:main"
 
+[tool.pytest.ini_options]
+markers = [
+    "correctness: basic tests for correctness",
+    "peaks: tests for the built-in ROCCO peak caller",
+    "chelpers: tests for the Cython-implemented functions",
+]
+
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-* cp314-*"
 test-requires = ["pytest"]
-test-command = 'sh -c "cd {project}/tests && HOME=/tmp pytest -q test_config.py test_core.py"'
+test-command = 'sh -c "cd {project} && HOME=/tmp pytest -q"'
