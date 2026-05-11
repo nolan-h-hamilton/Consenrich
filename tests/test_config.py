@@ -93,24 +93,6 @@ def _caseRuntimeBackgroundPriorWindowPairsWithRuntimeBlockLength():
     )
 
 
-def _case_readConfigRejectsBackgroundPriorWindowOverride(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    fitParams.EM_backgroundPriorWindowIntervals: 21
-    """
-    configPath = writeConfigFile(tmp_path, "config_prior_window_removed.yaml", configYaml)
-
-    with pytest.raises(ValueError, match="EM_backgroundPriorWindowIntervals"):
-        readConfig(str(configPath))
-
-
 def _caseInitialConfigurationSummaryStaysCompact(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -297,8 +279,8 @@ def _case_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Mon
     genomeParams.name: testGenome
     processParams:
       processQCalibration: none
-      processQCalibIters: 3
-      processQCalibOuterIters: 2
+      processQWarmupECMIters: 3
+      processQWarmupOuterIters: 2
       processQLevelTarget: 0.002
       processQTrendTarget: 0.00002
       processQLevelPriorWeight: 0.25
@@ -315,8 +297,8 @@ def _case_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Mon
     processArgs = configParsed["processArgs"]
 
     assert processArgs.processQCalibration == "none"
-    assert processArgs.processQCalibIters == 3
-    assert processArgs.processQCalibOuterIters == 2
+    assert processArgs.processQWarmupECMIters == 3
+    assert processArgs.processQWarmupOuterIters == 2
     assert processArgs.processQLevelTarget == pytest.approx(0.002)
     assert processArgs.processQTrendTarget == pytest.approx(0.00002)
     assert processArgs.processQLevelPriorWeight == pytest.approx(0.25)
@@ -373,9 +355,9 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    fitParams.EM_outerIters: 16
-    fitParams.EM_backgroundLengthScaleMultiplier: 2.0
-    fitParams.EM_backgroundPriorVariancePenaltyShape: 2.5
+    fitParams.ECM_outerIters: 16
+    fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
+    fitParams.ECM_backgroundPriorVariancePenaltyShape: 2.5
     processParams.processQTrendPriorWeight: 2.5
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
@@ -386,10 +368,10 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     parsed = readConfig(str(configPath))
 
     assert parsed["defaultConfiguration"] == "generic"
-    assert parsed["fitArgs"].EM_outerIters == 16
-    assert parsed["fitArgs"].EM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
+    assert parsed["fitArgs"].ECM_outerIters == 16
+    assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
     assert (
-        parsed["fitArgs"].EM_backgroundPriorVariancePenaltyShape
+        parsed["fitArgs"].ECM_backgroundPriorVariancePenaltyShape
         == pytest.approx(2.5)
     )
     assert parsed["processArgs"].processQTrendPriorWeight == pytest.approx(2.5)
@@ -512,32 +494,15 @@ def _case_readConfigAPNDisablesProcPrecReweight(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    fitParams.EM_useAPN: true
-    fitParams.EM_useProcPrecReweight: true
+    fitParams.ECM_useAPN: true
+    fitParams.ECM_useProcessPrecisionReweighting: true
     """
 
     configPath = writeConfigFile(tmp_path, "config_apn.yaml", configYaml)
     configParsed = readConfig(str(configPath))
 
-    assert configParsed["fitArgs"].EM_useAPN is True
-    assert configParsed["fitArgs"].EM_useProcPrecReweight is False
-
-
-def _case_readConfigUsesEMUseField(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configFieldYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    fitParams.EM_use: false
-    """
-    configFieldPath = writeConfigFile(tmp_path, "config_em_use.yaml", configFieldYaml)
-    parsedField = readConfig(str(configFieldPath))
-    assert parsedField["fitArgs"].EM_use is False
+    assert configParsed["fitArgs"].ECM_useAPN is True
+    assert configParsed["fitArgs"].ECM_useProcessPrecisionReweighting is False
 
 
 def _case_readConfigUsesZeroCenterIdentifiabilityFields(
@@ -562,17 +527,13 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     )
     defaultFitArgs = parsedDefault["fitArgs"]
     fitDefaults = consenrich.core.fitParams()
-    assert defaultFitArgs.EM_zeroCenterBackground == fitDefaults.EM_zeroCenterBackground
-    assert (
-        defaultFitArgs.EM_zeroCenterReplicateBias
-        == fitDefaults.EM_zeroCenterReplicateBias
-    )
+    assert defaultFitArgs.ECM_zeroCenterBackground == fitDefaults.ECM_zeroCenterBackground
+    assert not hasattr(defaultFitArgs, "ECM_zeroCenterReplicateBias")
     for field in (
-        "EM_backgroundLengthScaleMultiplier",
-        "EM_useBackgroundPrior",
-        "EM_backgroundPriorQuantile",
-        "EM_backgroundPriorVariancePenaltyShape",
-        "EM_backgroundPriorVariancePenaltyRate",
+        "ECM_backgroundLengthScaleMultiplier",
+        "ECM_backgroundPriorQuantile",
+        "ECM_backgroundPriorVariancePenaltyShape",
+        "ECM_backgroundPriorVariancePenaltyRate",
     ):
         assert hasattr(defaultFitArgs, field)
 
@@ -580,15 +541,13 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    fitParams.EM_zeroCenterBackground: false
-    fitParams.EM_zeroCenterReplicateBias: false
-    fitParams.EM_backgroundLengthScaleMultiplier: 6
-    fitParams.EM_useBackgroundPrior: false
-    fitParams.EM_backgroundPriorQuantile: 0.5
-    fitParams.EM_backgroundPriorTrimQuantile: 0.8
-    fitParams.EM_backgroundPriorVariance: 0.25
-    fitParams.EM_backgroundPriorVariancePenaltyShape: 2.5
-    fitParams.EM_backgroundPriorVariancePenaltyRate: 0.01
+    fitParams.ECM_zeroCenterBackground: false
+    fitParams.ECM_backgroundLengthScaleMultiplier: 6
+    fitParams.ECM_backgroundPriorQuantile: 0.5
+    fitParams.ECM_backgroundPriorTrimQuantile: 0.8
+    fitParams.ECM_backgroundPriorVariance: 0.25
+    fitParams.ECM_backgroundPriorVariancePenaltyShape: 2.5
+    fitParams.ECM_backgroundPriorVariancePenaltyRate: 0.01
     """
     parsedOverride = readConfig(
         str(
@@ -599,21 +558,19 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
             )
         )
     )
-    assert parsedOverride["fitArgs"].EM_zeroCenterBackground is False
-    assert parsedOverride["fitArgs"].EM_zeroCenterReplicateBias is False
-    assert parsedOverride["fitArgs"].EM_backgroundLengthScaleMultiplier == pytest.approx(
+    assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
+    assert parsedOverride["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(
         6.0
     )
-    assert parsedOverride["fitArgs"].EM_useBackgroundPrior is False
-    assert parsedOverride["fitArgs"].EM_backgroundPriorQuantile == pytest.approx(0.5)
-    assert parsedOverride["fitArgs"].EM_backgroundPriorTrimQuantile == pytest.approx(0.8)
-    assert parsedOverride["fitArgs"].EM_backgroundPriorVariance == pytest.approx(0.25)
+    assert parsedOverride["fitArgs"].ECM_backgroundPriorQuantile == pytest.approx(0.5)
+    assert parsedOverride["fitArgs"].ECM_backgroundPriorTrimQuantile == pytest.approx(0.8)
+    assert parsedOverride["fitArgs"].ECM_backgroundPriorVariance == pytest.approx(0.25)
     assert (
-        parsedOverride["fitArgs"].EM_backgroundPriorVariancePenaltyShape
+        parsedOverride["fitArgs"].ECM_backgroundPriorVariancePenaltyShape
         == pytest.approx(2.5)
     )
     assert (
-        parsedOverride["fitArgs"].EM_backgroundPriorVariancePenaltyRate
+        parsedOverride["fitArgs"].ECM_backgroundPriorVariancePenaltyRate
         == pytest.approx(0.01)
     )
 
@@ -632,21 +589,21 @@ def _case_readConfigDefaultsEMTNuToEightAndAllowsOverride(
     parsedDefault = readConfig(
         str(writeConfigFile(tmp_path, "config_em_tnu_default.yaml", configDefaultYaml))
     )
-    assert parsedDefault["fitArgs"].EM_tNu == pytest.approx(8.0)
+    assert parsedDefault["fitArgs"].ECM_robustTNu == pytest.approx(8.0)
 
     configOverrideYaml = """
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    fitParams.EM_tNu: 4.0
+    fitParams.ECM_robustTNu: 4.0
     """
     parsedOverride = readConfig(
         str(writeConfigFile(tmp_path, "config_em_tnu_override.yaml", configOverrideYaml))
     )
-    assert parsedOverride["fitArgs"].EM_tNu == pytest.approx(4.0)
+    assert parsedOverride["fitArgs"].ECM_robustTNu == pytest.approx(4.0)
 
 
-def _case_readConfigUsesInnerAndOuterEMToleranceFields(
+def _case_readConfigUsesECMAndOuterPassToleranceFields(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
@@ -656,16 +613,17 @@ def _case_readConfigUsesInnerAndOuterEMToleranceFields(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    fitParams.EM_innerRtol: 1.0e-6
-    fitParams.EM_outerRtol: 2.5e-3
+    fitParams.ECM_fixedBackgroundRtol: 1.0e-6
+    fitParams.ECM_backgroundShiftRtol: 2.5e-3
+    fitParams.ECM_outerNLLRtol: 3.5e-4
     """
 
-    configPath = writeConfigFile(tmp_path, "config_em_tol.yaml", configYaml)
+    configPath = writeConfigFile(tmp_path, "config_ecm_tol.yaml", configYaml)
     parsed = readConfig(str(configPath))
 
-    assert parsed["fitArgs"].EM_innerRtol == pytest.approx(1.0e-6)
-    assert parsed["fitArgs"].EM_outerRtol == pytest.approx(2.5e-3)
-    assert not hasattr(parsed["fitArgs"], "EM_rtol")
+    assert parsed["fitArgs"].ECM_fixedBackgroundRtol == pytest.approx(1.0e-6)
+    assert parsed["fitArgs"].ECM_backgroundShiftRtol == pytest.approx(2.5e-3)
+    assert parsed["fitArgs"].ECM_outerNLLRtol == pytest.approx(3.5e-4)
 
 
 def _case_readConfigUsesUncertaintyCalibrationFields(
@@ -1292,13 +1250,6 @@ def test_config_runtime_logging_and_validation_contracts(
         "runtime background prior window",
         _caseRuntimeBackgroundPriorWindowPairsWithRuntimeBlockLength,
     )
-    contract_case(
-        "background prior window override rejected",
-        _run_with_monkeypatch,
-        monkeypatch,
-        _case_readConfigRejectsBackgroundPriorWindowOverride,
-        tmp_path,
-    )
     caplog.clear()
     with monkeypatch.context() as mp:
         contract_case(
@@ -1348,10 +1299,9 @@ def test_config_model_parameter_field_contracts(tmp_path, monkeypatch, contract_
         ("observation block quantile", _case_readConfigObservationBlockQuantileDefaultAndOverride),
         ("chromosome deduplication", _case_readConfigDeduplicatesChromosomes),
         ("APN disables process precision reweighting", _case_readConfigAPNDisablesProcPrecReweight),
-        ("EM use field", _case_readConfigUsesEMUseField),
         ("zero-center identifiability fields", _case_readConfigUsesZeroCenterIdentifiabilityFields),
-        ("EM t-nu defaults and override", _case_readConfigDefaultsEMTNuToEightAndAllowsOverride),
-        ("inner and outer EM tolerance fields", _case_readConfigUsesInnerAndOuterEMToleranceFields),
+        ("ECM t-nu defaults and override", _case_readConfigDefaultsEMTNuToEightAndAllowsOverride),
+        ("ECM outer-pass tolerance fields", _case_readConfigUsesECMAndOuterPassToleranceFields),
         ("uncertainty calibration fields", _case_readConfigUsesUncertaintyCalibrationFields),
         ("legacy uncertainty aliases", _case_readConfigUncertaintyCalibrationLegacyAliasStillAccepted),
     ):

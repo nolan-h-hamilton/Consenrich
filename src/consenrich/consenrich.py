@@ -52,32 +52,33 @@ DEFAULT_CONFIGURATION_KEYS = (
 
 DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
     GENERIC_DEFAULT_CONFIGURATION: {
-        "fitParams.EM_maxIters": 50,
-        "fitParams.EM_innerRtol": 0.0001,
-        "fitParams.EM_outerIters": 32,
-        "fitParams.EM_outerRtol": 0.001,
-        "fitParams.EM_backgroundSmoothness": 1.0,
-        "fitParams.EM_backgroundLengthScaleMultiplier": 4.0,
-        "fitParams.EM_useBackgroundPrior": True,
-        "fitParams.EM_backgroundPriorQuantile": 0.5,
-        "fitParams.EM_backgroundPriorTrimQuantile": 0.9,
-        "fitParams.EM_backgroundPriorVariance": None,
-        "fitParams.EM_backgroundPriorVariancePenaltyShape": 4.0,
-        "fitParams.EM_backgroundPriorVariancePenaltyRate": 0.0,
+        "fitParams.ECM_fixedBackgroundIters": 50,
+        "fitParams.ECM_fixedBackgroundRtol": 1.0e-6,
+        "fitParams.ECM_outerIters": 32,
+        "fitParams.ECM_minOuterIters": None,
+        "fitParams.ECM_backgroundShiftRtol": 0.01,
+        "fitParams.ECM_outerNLLRtol": 1.0e-4,
+        "fitParams.ECM_backgroundSmoothness": 1.0,
+        "fitParams.ECM_backgroundLengthScaleMultiplier": 8.0,
+        "fitParams.ECM_backgroundPriorQuantile": 0.5,
+        "fitParams.ECM_backgroundPriorTrimQuantile": 0.9,
+        "fitParams.ECM_backgroundPriorVariance": None,
+        "fitParams.ECM_backgroundPriorVariancePenaltyShape": 4.0,
+        "fitParams.ECM_backgroundPriorVariancePenaltyRate": 0.0,
         "processParams.processQCalibration": (
             core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
         ),
-        "processParams.processQCalibIters": 3,
-        "processParams.processQCalibOuterIters": (
+        "processParams.processQWarmupECMIters": 2,
+        "processParams.processQWarmupOuterIters": (
             core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
         ),
         "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 25.0,
-        "processParams.precisionMultiplierMin": 0.2,
-        "processParams.precisionMultiplierMax": 5.0,
+        "processParams.processQTrendPriorWeight": 20.0,
+        "processParams.precisionMultiplierMin": 0.25,
+        "processParams.precisionMultiplierMax": 4.0,
         "observationParams.blockQuantile": 0.5,
-        "observationParams.precisionMultiplierMin": 0.1,
-        "observationParams.precisionMultiplierMax": 10.0,
+        "observationParams.precisionMultiplierMin": 0.25,
+        "observationParams.precisionMultiplierMax": 4.0,
         "uncertaintyCalibration.enabled": True,
     }
 }
@@ -149,16 +150,14 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("normalization", countingArgs.normMethod),
         ("MUNC variance EB", yn(observationArgs.EB_use)),
         ("MUNC sampling iters", int(observationArgs.samplingIters)),
-        ("EM enabled", yn(fitArgs.EM_use)),
-        ("EM max iters", int(fitArgs.EM_maxIters)),
-        ("outer EM iters", int(fitArgs.EM_outerIters)),
+        ("ECM max iters", int(fitArgs.ECM_fixedBackgroundIters)),
+        ("outer passes", int(fitArgs.ECM_outerIters)),
         ("background model", yn(fitArgs.fitBackground)),
-        ("background prior", yn(fitArgs.EM_useBackgroundPrior)),
         ("process Q mode", processArgs.processQCalibration),
         (
             "process Q warmup",
-            f"{int(processArgs.processQCalibOuterIters)} outer x "
-            f"{int(processArgs.processQCalibIters)} inner",
+            f"{int(processArgs.processQWarmupOuterIters)} outer passes x "
+            f"{int(processArgs.processQWarmupECMIters)} ECM iters",
         ),
         ("uncertainty cal", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
@@ -179,7 +178,7 @@ def _resolveRuntimeBackgroundBlockLen(
     multiplier = float(lengthScaleMultiplier)
     if not np.isfinite(multiplier) or multiplier <= 0.0:
         raise ValueError(
-            "fitParams.EM_backgroundLengthScaleMultiplier must be positive"
+            "fitParams.ECM_backgroundLengthScaleMultiplier must be positive"
         )
     baseIntervals = (
         int(vec_[0]) if vec_ is not None else int(backgroundBlockSizeIntervals)
@@ -281,7 +280,7 @@ def loadConfig(
 ) -> Dict[str, Any]:
     r"""Load a YAML config from a path or accept an already-parsed mapping.
 
-    If given a dict-like object, just return it. If given a path, try to load as YAML --> dict
+    If given a mapping object, just return it. If given a path, try to load as YAML --> dict
     If given a path, try to load as YAML --> dict
 
     """
@@ -303,7 +302,7 @@ def _cfgGet(
     dottedKey: str,
     defaultVal: Any = None,
 ) -> Any:
-    r"""Support both dotted keys and yaml/dict-style nested access for configs."""
+    r"""Support both dotted keys and YAML nested mappings for configs."""
 
     # e.g., inputParams.bamFiles
     if dottedKey in configMap:
@@ -797,22 +796,10 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.writeUncertainty",
         True,
     )
-    writeJackknifeSE_ = _cfgGet(
-        configData,
-        "outputParams.writeJackknifeSE",
-        True,
-    )
-    applyJackknife_ = _cfgGet(
-        configData,
-        "outputParams.applyJackknife",
-        False,
-    )
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
-        writeJackknifeSE=writeJackknifeSE_,
-        applyJackknife=applyJackknife_,
     )
 
 
@@ -1231,11 +1218,11 @@ def getUncertaintyCalibrationArgs(
             "uncertaintyCalibrationParams.aObsPriorStrength",
             _cfgGet(configData, "uncertaintyCalibration.aObsPriorStrength", None),
         ),
-        calibrationEMIters=int(
+        calibrationECMIters=int(
             _cfgGet(
                 configData,
-                "uncertaintyCalibrationParams.calibrationEMIters",
-                _cfgGet(configData, "uncertaintyCalibration.calibrationEMIters", 3),
+                "uncertaintyCalibrationParams.calibrationECMIters",
+                _cfgGet(configData, "uncertaintyCalibration.calibrationECMIters", 3),
             )
         ),
         seed=int(
@@ -1271,15 +1258,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     :return: Dictionary containing all parsed configuration parameters.
     """
     configData = loadConfig(config_path)
-    if (
-        _cfgGet(configData, "fitParams.EM_backgroundPriorWindowIntervals", None)
-        is not None
-    ):
-        raise ValueError(
-            "fitParams.EM_backgroundPriorWindowIntervals is no longer configurable; "
-            "the background-prior window is resolved from the runtime background "
-            "block length."
-        )
     defaultConfiguration = _getDefaultConfigurationName(configData)
 
     inputParams = getInputArgs(config_path)
@@ -1314,18 +1292,18 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "processParams.processQCalibration",
             _cfgDefault(configData, "processParams.processQCalibration"),
         ),
-        processQCalibIters=int(
+        processQWarmupECMIters=int(
             _cfgGet(
                 configData,
-                "processParams.processQCalibIters",
-                _cfgDefault(configData, "processParams.processQCalibIters"),
+                "processParams.processQWarmupECMIters",
+                _cfgDefault(configData, "processParams.processQWarmupECMIters"),
             )
         ),
-        processQCalibOuterIters=int(
+        processQWarmupOuterIters=int(
             _cfgGet(
                 configData,
-                "processParams.processQCalibOuterIters",
-                _cfgDefault(configData, "processParams.processQCalibOuterIters"),
+                "processParams.processQWarmupOuterIters",
+                _cfgDefault(configData, "processParams.processQWarmupOuterIters"),
             )
         ),
         processQLevelTarget=(
@@ -1470,113 +1448,106 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
     )
 
-    EM_useAPN_ = bool(_cfgGet(configData, "fitParams.EM_useAPN", False))
-    EM_use_ = bool(_cfgGet(configData, "fitParams.EM_use", True))
+    ECM_useAPN_ = bool(_cfgGet(configData, "fitParams.ECM_useAPN", False))
 
     fitArgs = core.fitParams(
-        EM_maxIters=_cfgGet(
+        ECM_fixedBackgroundIters=_cfgGet(
             configData,
-            "fitParams.EM_maxIters",
-            _cfgDefault(configData, "fitParams.EM_maxIters"),
+            "fitParams.ECM_fixedBackgroundIters",
+            _cfgDefault(configData, "fitParams.ECM_fixedBackgroundIters"),
         ),
-        EM_use=EM_use_,
-        EM_innerRtol=_cfgGet(
+        ECM_fixedBackgroundRtol=_cfgGet(
             configData,
-            "fitParams.EM_innerRtol",
-            _cfgDefault(configData, "fitParams.EM_innerRtol"),
+            "fitParams.ECM_fixedBackgroundRtol",
+            _cfgDefault(configData, "fitParams.ECM_fixedBackgroundRtol"),
         ),
-        EM_tNu=_cfgGet(configData, "fitParams.EM_tNu", 8.0),
-        EM_useObsPrecReweight=_cfgGet(
+        ECM_robustTNu=_cfgGet(configData, "fitParams.ECM_robustTNu", 8.0),
+        ECM_useObsPrecisionReweighting=_cfgGet(
             configData,
-            "fitParams.EM_useObsPrecReweight",
+            "fitParams.ECM_useObsPrecisionReweighting",
             True,
         ),
-        EM_useProcPrecReweight=_cfgGet(
+        ECM_useProcessPrecisionReweighting=_cfgGet(
             configData,
-            "fitParams.EM_useProcPrecReweight",
+            "fitParams.ECM_useProcessPrecisionReweighting",
             True,
         )
-        and (not EM_useAPN_),
-        EM_useAPN=EM_useAPN_,
-        EM_useReplicateBias=_cfgGet(
-            configData,
-            "fitParams.EM_useReplicateBias",
-            True,
-        ),
+        and (not ECM_useAPN_),
+        ECM_useAPN=ECM_useAPN_,
         fitBackground=_cfgGet(
             configData,
             "fitParams.fitBackground",
             True,
         ),
-        EM_zeroCenterBackground=_cfgGet(
+        ECM_zeroCenterBackground=_cfgGet(
             configData,
-            "fitParams.EM_zeroCenterBackground",
+            "fitParams.ECM_zeroCenterBackground",
             False,
         ),
-        EM_zeroCenterReplicateBias=_cfgGet(
+        ECM_outerIters=_cfgGet(
             configData,
-            "fitParams.EM_zeroCenterReplicateBias",
-            True,
+            "fitParams.ECM_outerIters",
+            _cfgDefault(configData, "fitParams.ECM_outerIters"),
         ),
-        EM_outerIters=_cfgGet(
+        ECM_minOuterIters=_cfgGet(
             configData,
-            "fitParams.EM_outerIters",
-            _cfgDefault(configData, "fitParams.EM_outerIters"),
+            "fitParams.ECM_minOuterIters",
+            _cfgDefault(configData, "fitParams.ECM_minOuterIters"),
         ),
-        EM_outerRtol=_cfgGet(
+        ECM_backgroundShiftRtol=_cfgGet(
             configData,
-            "fitParams.EM_outerRtol",
-            _cfgDefault(configData, "fitParams.EM_outerRtol"),
+            "fitParams.ECM_backgroundShiftRtol",
+            _cfgDefault(configData, "fitParams.ECM_backgroundShiftRtol"),
         ),
-        EM_backgroundSmoothness=_cfgGet(
+        ECM_outerNLLRtol=_cfgGet(
             configData,
-            "fitParams.EM_backgroundSmoothness",
-            _cfgDefault(configData, "fitParams.EM_backgroundSmoothness"),
+            "fitParams.ECM_outerNLLRtol",
+            _cfgDefault(configData, "fitParams.ECM_outerNLLRtol"),
         ),
-        EM_backgroundLengthScaleMultiplier=_cfgGet(
+        ECM_backgroundSmoothness=_cfgGet(
             configData,
-            "fitParams.EM_backgroundLengthScaleMultiplier",
-            _cfgDefault(configData, "fitParams.EM_backgroundLengthScaleMultiplier"),
+            "fitParams.ECM_backgroundSmoothness",
+            _cfgDefault(configData, "fitParams.ECM_backgroundSmoothness"),
         ),
-        EM_useBackgroundPrior=_cfgGet(
+        ECM_backgroundLengthScaleMultiplier=_cfgGet(
             configData,
-            "fitParams.EM_useBackgroundPrior",
-            _cfgDefault(configData, "fitParams.EM_useBackgroundPrior"),
+            "fitParams.ECM_backgroundLengthScaleMultiplier",
+            _cfgDefault(configData, "fitParams.ECM_backgroundLengthScaleMultiplier"),
         ),
-        EM_backgroundPriorQuantile=_cfgGet(
+        ECM_backgroundPriorQuantile=_cfgGet(
             configData,
-            "fitParams.EM_backgroundPriorQuantile",
-            _cfgDefault(configData, "fitParams.EM_backgroundPriorQuantile"),
+            "fitParams.ECM_backgroundPriorQuantile",
+            _cfgDefault(configData, "fitParams.ECM_backgroundPriorQuantile"),
         ),
-        EM_backgroundPriorTrimQuantile=_cfgGet(
+        ECM_backgroundPriorTrimQuantile=_cfgGet(
             configData,
-            "fitParams.EM_backgroundPriorTrimQuantile",
-            _cfgDefault(configData, "fitParams.EM_backgroundPriorTrimQuantile"),
+            "fitParams.ECM_backgroundPriorTrimQuantile",
+            _cfgDefault(configData, "fitParams.ECM_backgroundPriorTrimQuantile"),
         ),
-        EM_backgroundPriorVariance=_cfgGet(
+        ECM_backgroundPriorVariance=_cfgGet(
             configData,
-            "fitParams.EM_backgroundPriorVariance",
-            _cfgDefault(configData, "fitParams.EM_backgroundPriorVariance"),
+            "fitParams.ECM_backgroundPriorVariance",
+            _cfgDefault(configData, "fitParams.ECM_backgroundPriorVariance"),
         ),
-        EM_backgroundPriorVariancePenaltyShape=_cfgGet(
+        ECM_backgroundPriorVariancePenaltyShape=_cfgGet(
             configData,
-            "fitParams.EM_backgroundPriorVariancePenaltyShape",
+            "fitParams.ECM_backgroundPriorVariancePenaltyShape",
             _cfgDefault(
                 configData,
-                "fitParams.EM_backgroundPriorVariancePenaltyShape",
+                "fitParams.ECM_backgroundPriorVariancePenaltyShape",
             ),
         ),
-        EM_backgroundPriorVariancePenaltyRate=_cfgGet(
+        ECM_backgroundPriorVariancePenaltyRate=_cfgGet(
             configData,
-            "fitParams.EM_backgroundPriorVariancePenaltyRate",
+            "fitParams.ECM_backgroundPriorVariancePenaltyRate",
             _cfgDefault(
                 configData,
-                "fitParams.EM_backgroundPriorVariancePenaltyRate",
+                "fitParams.ECM_backgroundPriorVariancePenaltyRate",
             ),
         ),
     )
 
-    samThreads = _cfgGet(configData, "samParams.samThreads", 1)
+    samThreads = _cfgGet(configData, "samParams.samThreads", 2)
     samFlagExclude = _cfgGet(
         configData,
         "samParams.samFlagExclude",
@@ -3291,8 +3262,6 @@ def main():
     bedGraphTracks: List[Tuple[str, str]] = [("State", "state")]
     if outputArgs.writeUncertainty:
         bedGraphTracks.append(("uncertainty", "uncertainty"))
-    if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
-        bedGraphTracks.append(("JackknifeSE", "JackknifeSE"))
     suffixes = [suffix for _column, suffix in bedGraphTracks]
     bedGraphChromOrder = [str(chromPlan["chromosome"]) for chromPlan in chromosomePlans]
 
@@ -3512,10 +3481,6 @@ def main():
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
         logger.info(f"minR={minR_}, maxR={maxR_}, minQ={minQ_}, maxQ={maxQ_}")
-        if not bool(fitArgs.EM_use):
-            logger.info(
-                "fitParams.EM_use=False --> skipping iterative EM calibration and using the plugin variance track directly"
-            )
         core._logAsciiBlock(
             "chromosome fit",
             (
@@ -3527,7 +3492,6 @@ def main():
                 ("maxR", float(maxR_)),
                 ("minQ", float(minQ_)),
                 ("maxQ", float(maxQ_)),
-                ("EM enabled", bool(fitArgs.EM_use)),
                 ("peak calling", bool(peakCallingEnabled)),
             ),
             logger_=logger,
@@ -3536,7 +3500,7 @@ def main():
         blockLenIntervals_ = _resolveRuntimeBackgroundBlockLen(
             vec_,
             backgroundBlockSizeIntervals,
-            fitArgs.EM_backgroundLengthScaleMultiplier,
+            fitArgs.ECM_backgroundLengthScaleMultiplier,
         )
         backgroundPriorWindowIntervals_ = int(blockLenIntervals_)
         runStart = time.perf_counter()
@@ -3567,33 +3531,31 @@ def main():
             returnScales=True,
             returnReplicateOffsets=True,
             pad=pad_,
-            disableCalibration=(not bool(fitArgs.EM_use)),
-            EM_maxIters=fitArgs.EM_maxIters,
-            EM_innerRtol=fitArgs.EM_innerRtol,
-            EM_tNu=fitArgs.EM_tNu,
-            EM_useObsPrecReweight=fitArgs.EM_useObsPrecReweight,
-            EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
-            EM_useAPN=fitArgs.EM_useAPN,
-            EM_useReplicateBias=fitArgs.EM_useReplicateBias,
+            ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
+            ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
+            ECM_robustTNu=fitArgs.ECM_robustTNu,
+            ECM_useObsPrecisionReweighting=fitArgs.ECM_useObsPrecisionReweighting,
+            ECM_useProcessPrecisionReweighting=fitArgs.ECM_useProcessPrecisionReweighting,
+            ECM_useAPN=fitArgs.ECM_useAPN,
             fitBackground=fitArgs.fitBackground,
-            EM_zeroCenterBackground=fitArgs.EM_zeroCenterBackground,
-            EM_zeroCenterReplicateBias=fitArgs.EM_zeroCenterReplicateBias,
-            EM_outerIters=fitArgs.EM_outerIters,
-            EM_outerRtol=fitArgs.EM_outerRtol,
-            EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
-            EM_useBackgroundPrior=fitArgs.EM_useBackgroundPrior,
-            EM_backgroundPriorQuantile=fitArgs.EM_backgroundPriorQuantile,
-            EM_backgroundPriorTrimQuantile=fitArgs.EM_backgroundPriorTrimQuantile,
-            EM_backgroundPriorVariance=fitArgs.EM_backgroundPriorVariance,
-            EM_backgroundPriorVariancePenaltyShape=(
-                fitArgs.EM_backgroundPriorVariancePenaltyShape
+            ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
+            ECM_outerIters=fitArgs.ECM_outerIters,
+            ECM_minOuterIters=fitArgs.ECM_minOuterIters,
+            ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
+            ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
+            ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
+            ECM_backgroundPriorQuantile=fitArgs.ECM_backgroundPriorQuantile,
+            ECM_backgroundPriorTrimQuantile=fitArgs.ECM_backgroundPriorTrimQuantile,
+            ECM_backgroundPriorVariance=fitArgs.ECM_backgroundPriorVariance,
+            ECM_backgroundPriorVariancePenaltyShape=(
+                fitArgs.ECM_backgroundPriorVariancePenaltyShape
             ),
-            EM_backgroundPriorVariancePenaltyRate=(
-                fitArgs.EM_backgroundPriorVariancePenaltyRate
+            ECM_backgroundPriorVariancePenaltyRate=(
+                fitArgs.ECM_backgroundPriorVariancePenaltyRate
             ),
             processQCalibration=processArgs.processQCalibration,
-            processQCalibIters=processArgs.processQCalibIters,
-            processQCalibOuterIters=processArgs.processQCalibOuterIters,
+            processQWarmupECMIters=processArgs.processQWarmupECMIters,
+            processQWarmupOuterIters=processArgs.processQWarmupOuterIters,
             processQLevelTarget=processArgs.processQLevelTarget,
             processQTrendTarget=processArgs.processQTrendTarget,
             processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
@@ -3602,7 +3564,6 @@ def main():
             observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
             processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
             processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
-            applyJackknife=outputArgs.applyJackknife,
             returnDiagnostics=True,
             logIndentLevel=1,
             logRunRole="primary chromosome",
@@ -3611,7 +3572,7 @@ def main():
             x,
             P,
             postFitResiduals,
-            JackknifeSEVec,
+            _NISVec,
             replicateBias,
             intervalToBlockMap,
         ) = runResult[:6]
@@ -3636,6 +3597,37 @@ def main():
                 separator=", ",
             ),
         )
+        backgroundWarmStart = None
+        if bool(fitArgs.fitBackground):
+            rawByInterval = np.asarray(chromMat, dtype=np.float32).T
+            residualWarmStart = np.asarray(postFitResiduals, dtype=np.float32)
+            stateLevelWarmStart = np.asarray(x[:, 0], dtype=np.float32)
+            if rawByInterval.shape == residualWarmStart.shape:
+                backgroundWarmStart = np.mean(
+                    rawByInterval
+                    - stateLevelWarmStart[:, None]
+                    - replicateBias[None, :]
+                    - residualWarmStart,
+                    axis=1,
+                    dtype=np.float64,
+                ).astype(np.float32)
+                if not np.all(np.isfinite(backgroundWarmStart)):
+                    backgroundWarmStart = None
+        if backgroundWarmStart is None:
+            backgroundWarmStart = np.zeros(int(numIntervals), dtype=np.float32)
+
+        initialProcessQWarmStart = None
+        processQDiagnostics = runDiagnostics.get("process_q_calibration")
+        if isinstance(processQDiagnostics, Mapping):
+            qLevelWarmStart = processQDiagnostics.get("q_level")
+            qTrendWarmStart = processQDiagnostics.get("q_trend")
+            if qLevelWarmStart is not None and qTrendWarmStart is not None:
+                initialProcessQWarmStart = core.constructMatrixQ(
+                    minDiagQ=float(minQ_),
+                    offDiagQ=0.0,
+                    Q00=float(qLevelWarmStart),
+                    Q11=float(qTrendWarmStart),
+                )
 
         x_ = core.getPrimaryState(
             x,
@@ -3737,33 +3729,31 @@ def main():
                 returnScales=True,
                 returnReplicateOffsets=True,
                 pad=pad_,
-                disableCalibration=(not bool(fitArgs.EM_use)),
-                EM_maxIters=fitArgs.EM_maxIters,
-                EM_innerRtol=fitArgs.EM_innerRtol,
-                EM_tNu=fitArgs.EM_tNu,
-                EM_useObsPrecReweight=fitArgs.EM_useObsPrecReweight,
-                EM_useProcPrecReweight=fitArgs.EM_useProcPrecReweight,
-                EM_useAPN=fitArgs.EM_useAPN,
-                EM_useReplicateBias=fitArgs.EM_useReplicateBias,
+                ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
+                ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
+                ECM_robustTNu=fitArgs.ECM_robustTNu,
+                ECM_useObsPrecisionReweighting=fitArgs.ECM_useObsPrecisionReweighting,
+                ECM_useProcessPrecisionReweighting=fitArgs.ECM_useProcessPrecisionReweighting,
+                ECM_useAPN=fitArgs.ECM_useAPN,
                 fitBackground=fitArgs.fitBackground,
-                EM_zeroCenterBackground=fitArgs.EM_zeroCenterBackground,
-                EM_zeroCenterReplicateBias=fitArgs.EM_zeroCenterReplicateBias,
-                EM_outerIters=fitArgs.EM_outerIters,
-                EM_outerRtol=fitArgs.EM_outerRtol,
-                EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
-                EM_useBackgroundPrior=fitArgs.EM_useBackgroundPrior,
-                EM_backgroundPriorQuantile=fitArgs.EM_backgroundPriorQuantile,
-                EM_backgroundPriorTrimQuantile=fitArgs.EM_backgroundPriorTrimQuantile,
-                EM_backgroundPriorVariance=fitArgs.EM_backgroundPriorVariance,
-                EM_backgroundPriorVariancePenaltyShape=(
-                    fitArgs.EM_backgroundPriorVariancePenaltyShape
+                ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
+                ECM_outerIters=fitArgs.ECM_outerIters,
+                ECM_minOuterIters=fitArgs.ECM_minOuterIters,
+                ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
+                ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
+                ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
+                ECM_backgroundPriorQuantile=fitArgs.ECM_backgroundPriorQuantile,
+                ECM_backgroundPriorTrimQuantile=fitArgs.ECM_backgroundPriorTrimQuantile,
+                ECM_backgroundPriorVariance=fitArgs.ECM_backgroundPriorVariance,
+                ECM_backgroundPriorVariancePenaltyShape=(
+                    fitArgs.ECM_backgroundPriorVariancePenaltyShape
                 ),
-                EM_backgroundPriorVariancePenaltyRate=(
-                    fitArgs.EM_backgroundPriorVariancePenaltyRate
+                ECM_backgroundPriorVariancePenaltyRate=(
+                    fitArgs.ECM_backgroundPriorVariancePenaltyRate
                 ),
                 processQCalibration=processArgs.processQCalibration,
-                processQCalibIters=processArgs.processQCalibIters,
-                processQCalibOuterIters=processArgs.processQCalibOuterIters,
+                processQWarmupECMIters=processArgs.processQWarmupECMIters,
+                processQWarmupOuterIters=processArgs.processQWarmupOuterIters,
                 processQLevelTarget=processArgs.processQLevelTarget,
                 processQTrendTarget=processArgs.processQTrendTarget,
                 processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
@@ -3772,7 +3762,9 @@ def main():
                 observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
                 processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
                 processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
-                applyJackknife=False,
+                initialBackground=backgroundWarmStart,
+                initialReplicateBias=replicateBias,
+                initialProcessQ=initialProcessQWarmStart,
                 logIndentLevel=2,
                 logRunRole="held-out fold",
             )
@@ -3817,9 +3809,6 @@ def main():
 
         if outputArgs.writeUncertainty:
             df["uncertainty"] = uncertaintyTrack
-
-        if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
-            df["JackknifeSE"] = JackknifeSEVec.astype(np.float32, copy=False)
 
         cols_ = ["Chromosome", "Start", "End"] + [
             column for column, _suffix in bedGraphTracks

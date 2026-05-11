@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""Peak-calling helpers for ROCCO-style segmentation from Consenrich tracks."""
+r"""Peak-calling helpers for ROCCO segmentation from Consenrich tracks."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ _NESTED_ROCCO_JACCARD_DEFAULT = 0.999
 _NESTED_ROCCO_MIN_PARENT_STEPS = 5
 _NESTED_ROCCO_MIN_CHILD_STEPS = _NESTED_ROCCO_MIN_PARENT_STEPS
 _NESTED_ROCCO_BUDGET_SCALE_DEFAULT = 0.5
-_NESTED_ROCCO_SUBPROBLEM_MAX_ITER = 5
+_NESTED_ROCCO_SUBTASK_MAX_ITER = 5
 _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER = 2.5
 _MASSIVE_SUBPEAK_CLEANUP_DEFAULT = True
 _MASSIVE_SUBPEAK_MIN_BP = 10000
@@ -2455,7 +2455,7 @@ def _refineNestedROCCOSolution(
     jaccardThreshold_ = float(np.clip(jaccardThreshold, 0.0, 1.0))
     minRegionBins_ = max(int(minRegionBins), 1)
     minRegionBP_ = None if minRegionBP is None else max(int(minRegionBP), 0)
-    subproblemMaxIter = int(_NESTED_ROCCO_SUBPROBLEM_MAX_ITER)
+    subproblemMaxIter = int(_NESTED_ROCCO_SUBTASK_MAX_ITER)
     diagnosticDetailPath_ = (
         None if diagnosticDetailPath is None else str(diagnosticDetailPath)
     )

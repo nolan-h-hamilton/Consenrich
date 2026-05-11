@@ -2176,10 +2176,9 @@ cpdef tuple cforwardPass(
     object lambdaExp=None,
     object processPrecExp=None,
     object replicateBias=None,
-    bint EM_useObsPrecReweight=True,
-    bint EM_useProcPrecReweight=True,
-    bint EM_useAPN=False,
-    bint EM_useReplicateBias=False,
+    bint ECM_useObsPrecisionReweighting=True,
+    bint ECM_useProcessPrecisionReweighting=True,
+    bint ECM_useAPN=False,
     float obsPrecisionMultiplierMin=0.25,
     float obsPrecisionMultiplierMax=4.0,
     float procPrecisionMultiplierMin=0.25,
@@ -2192,12 +2191,12 @@ cpdef tuple cforwardPass(
 ):
     r"""Run the forward pass (filter) for state estimation
 
-    See :func:`consenrich.cconsenrich.cinnerEM`, where this routine is applied
+    See :func:`consenrich.cconsenrich.cfixedBackgroundECM`, where this routine is applied
     within the filter, smooth, update loop.
 
 
     :seealso: :func:`consenrich.cconsenrich.cbackwardPass`,
-            :func:`consenrich.cconsenrich.cinnerEM`,
+            :func:`consenrich.cconsenrich.cfixedBackgroundECM`,
             :func:`consenrich.core.runConsenrich`
     """
 
@@ -2221,15 +2220,15 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[:, :, ::1] pNoiseForwardView
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] lambdaExpArr
     cdef cnp.float32_t[:, ::1] lambdaExpView
-    cdef bint useLambda = (EM_useObsPrecReweight and (lambdaExp is not None))
+    cdef bint useLambda = (ECM_useObsPrecisionReweighting and (lambdaExp is not None))
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
     cdef cnp.float32_t[::1] processPrecExpView
     cdef bint useProcPrec = (
-        EM_useProcPrecReweight and (processPrecExp is not None) and (not EM_useAPN)
+        ECM_useProcessPrecisionReweighting and (processPrecExp is not None) and (not ECM_useAPN)
     )
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
     cdef cnp.float32_t[::1] replicateBiasView
-    cdef bint useReplicateBias = (EM_useReplicateBias and (replicateBias is not None))
+    cdef bint useReplicateBias = (replicateBias is not None)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] stateVector = np.array([stateInit, 0.0], dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateCovar = (np.eye(2, dtype=np.float32) * np.float32(stateCovarInit))
     cdef cnp.float32_t[::1] stateVectorView = stateVector
@@ -2346,7 +2345,7 @@ cpdef tuple cforwardPass(
     F11 = <double>fView[1, 1]
     qDiagBase = 0.5 * ((<double>q0View[0, 0]) + (<double>q0View[1, 1]))
     if qDiagBase <= 1.0e-12:
-        EM_useAPN = False
+        ECM_useAPN = False
 
     for k in range(intervalCount):
         blockId = <Py_ssize_t>blockMapView[k]
@@ -2482,7 +2481,7 @@ cpdef tuple cforwardPass(
         stateCovarView[1, 0] = <cnp.float32_t>PNew01
         stateCovarView[1, 1] = <cnp.float32_t>PNew11
 
-        # store for smoothing and EM logistics
+        # store for smoothing and ECM logistics
         if doStore:
             stateForwardView[k, 0] = stateVectorView[0]
             stateForwardView[k, 1] = stateVectorView[1]
@@ -2498,7 +2497,7 @@ cpdef tuple cforwardPass(
                 pNoiseForwardView[k - 1, 1, 0] = <cnp.float32_t>Q10
                 pNoiseForwardView[k - 1, 1, 1] = <cnp.float32_t>Q11
 
-        if EM_useAPN:
+        if ECM_useAPN:
             currentProcNoise = 0.5 * (Q00 + Q11)
             if dStatVector[k] > apnThresh and currentProcNoise < apnMaxQ:
                 adaptiveMult = sqrt(
@@ -2539,7 +2538,6 @@ cpdef tuple cbackwardPass(
     object replicateBias=None,
     object progressBar=None,
     Py_ssize_t progressIter=10000,
-    bint EM_useReplicateBias=False,
 ):
     r"""Run the backward pass (smoother)
 
@@ -2557,7 +2555,7 @@ cpdef tuple cbackwardPass(
 
 
     :seealso: :func:`consenrich.cconsenrich.cforwardPass`,
-            :func:`consenrich.cconsenrich.cinnerEM`,
+            :func:`consenrich.cconsenrich.cfixedBackgroundECM`,
             :func:`consenrich.core.runConsenrich`
 
     """
@@ -2584,7 +2582,7 @@ cpdef tuple cbackwardPass(
     cdef cnp.float32_t[:, :, ::1] lagCovSmoothedView
     cdef cnp.float32_t[:, ::1] postFitResidualsView
     cdef cnp.float32_t[::1] replicateBiasView
-    cdef bint useReplicateBias = (EM_useReplicateBias and (replicateBias is not None))
+    cdef bint useReplicateBias = (replicateBias is not None)
     cdef double F00, F01, F10, F11
     cdef double xPred0, xPred1
     cdef double Q00, Q01, Q10, Q11
@@ -2765,7 +2763,7 @@ cpdef tuple cbackwardPass(
     return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
 
 
-cpdef tuple cinnerEM(
+cpdef tuple cfixedBackgroundECM(
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixData,
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixPluginMuncInit,
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixF,
@@ -2774,19 +2772,17 @@ cpdef tuple cinnerEM(
     Py_ssize_t blockCount,
     float stateInit,
     float stateCovarInit,
-    Py_ssize_t EM_maxIters=50,
-    float EM_innerRtol=1.0e-4,
+    Py_ssize_t ECM_fixedBackgroundIters=50,
+    float ECM_fixedBackgroundRtol=1.0e-4,
     float pad=1.0e-4,
-    float EM_tNu=8.0,
+    float ECM_robustTNu=8.0,
     float obsPrecisionMultiplierMin=0.25,
     float obsPrecisionMultiplierMax=4.0,
     float procPrecisionMultiplierMin=0.25,
     float procPrecisionMultiplierMax=4.0,
-    bint EM_useObsPrecReweight=True,
-    bint EM_useProcPrecReweight=True,
-    bint EM_useAPN=False,
-    bint EM_useReplicateBias=True,
-    bint EM_zeroCenterReplicateBias=True,
+    bint ECM_useObsPrecisionReweighting=True,
+    bint ECM_useProcessPrecisionReweighting=True,
+    bint ECM_useAPN=False,
     float APN_minQ=1.0e-4,
     float APN_maxQ=1000.0,
     float APN_dStatThresh=5.0,
@@ -2794,11 +2790,16 @@ cpdef tuple cinnerEM(
     float APN_dStatPC=2.0,
     Py_ssize_t t_innerIters=3,
     bint returnIntermediates=False,
+    bint returnDiagnostics=False,
+    object lambdaExpInit=None,
+    object processPrecExpInit=None,
+    object replicateBiasInit=None,
 ):
-    r"""Run the inner Consenrich filter-smoother loop with iteratively updated observation and process noise [co]variances.
+    r"""Run the fixed-background Consenrich ECM loop with iteratively updated observation and process noise covariances.
 
-    This routine is the inner fit used by :func:`consenrich.core.runConsenrich`. Any shared
-    interval background has already been removed from ``matrixData`` before this step.
+    This routine is the fixed-background fit used by
+    :func:`consenrich.core.runConsenrich`. Any shared interval background has
+    already been removed from ``matrixData`` before this step.
 
     Take observation and process noise [co]variances:
 
@@ -2833,7 +2834,7 @@ cpdef tuple cinnerEM(
 
     #. **Studentized precision reweighting**:
 
-    *Observation weights* :math:`\lambda_{[j,i]}` (``EM_useObsPrecReweight``):
+    *Observation weights* :math:`\lambda_{[j,i]}` (``ECM_useObsPrecisionReweighting``):
 
     .. math::
 
@@ -2842,7 +2843,7 @@ cpdef tuple cinnerEM(
         \quad\Rightarrow\quad
         \lambda_{[j,i]} \leftarrow \frac{\nu_R+1}{\nu_R+u^2_{[j,i]}}.
 
-    In code, ``EM_tNu`` corresponds to :math:`\nu_R`.
+    In code, ``ECM_robustTNu`` corresponds to :math:`\nu_R`.
 
     *Process weights* :math:`\kappa_{[i]}`:
 
@@ -2926,15 +2927,15 @@ cpdef tuple cinnerEM(
     :type stateInit: float
     :param stateCovarInit: Initial state covariance scale
     :type stateCovarInit: float
-    :param EM_maxIters: Maximum inner EM iterations.
-    :type EM_maxIters: int
-    :param EM_innerRtol: Relative tolerance used for the inner NLL stabilization test.
+    :param ECM_fixedBackgroundIters: Maximum fixed-background ECM iterations.
+    :type ECM_fixedBackgroundIters: int
+    :param ECM_fixedBackgroundRtol: Relative tolerance used for the inner NLL stabilization test.
         The inner loop is considered stable when
-        ``abs(NLL_k - NLL_{k-1}) <= EM_innerRtol * max(abs(NLL_k), abs(NLL_{k-1}), 1)``
+        ``abs(NLL_k - NLL_{k-1}) <= ECM_fixedBackgroundRtol * max(abs(NLL_k), abs(NLL_{k-1}), 1)``
         for two consecutive iterations.
-    :type EM_innerRtol: float
-    :param EM_tNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
-    :type EM_tNu: float
+    :type ECM_fixedBackgroundRtol: float
+    :param ECM_robustTNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
+    :type ECM_robustTNu: float
     :param obsPrecisionMultiplierMin: Lower clamp for observation precision multipliers :math:`\lambda_{[j,i]}`.
     :type obsPrecisionMultiplierMin: float
     :param obsPrecisionMultiplierMax: Upper clamp for observation precision multipliers :math:`\lambda_{[j,i]}`.
@@ -2943,23 +2944,33 @@ cpdef tuple cinnerEM(
     :type procPrecisionMultiplierMin: float
     :param procPrecisionMultiplierMax: Upper clamp for process precision multipliers :math:`\kappa_{[i]}`.
     :type procPrecisionMultiplierMax: float
-    :param EM_useObsPrecReweight: If True, update observation precision multipliers :math:`\lambda_{[j,i]}` (Student-t reweighting); otherwise :math:`\lambda\equiv 1`.
-    :type EM_useObsPrecReweight: bool
-    :param EM_useProcPrecReweight: If True, update process precision multipliers :math:`\kappa_{[i]}` (Student-t reweighting); otherwise :math:`\kappa\equiv 1`.
-    :type EM_useProcPrecReweight: bool
-    :param EM_useReplicateBias: If True, update replicate-level additive offsets :math:`b_j`.
-    :type EM_useReplicateBias: bool
-    :param EM_zeroCenterReplicateBias: If True, center replicate offsets against fixed plugin inverse-variance weights after each update.
-    :type EM_zeroCenterReplicateBias: bool
-    :param t_innerIters: Number of inner filter/smoother + reweighting updates per EM outer iteration.
+    :param ECM_useObsPrecisionReweighting: If True, update observation precision multipliers :math:`\lambda_{[j,i]}` (Student-t reweighting); otherwise :math:`\lambda\equiv 1`.
+    :type ECM_useObsPrecisionReweighting: bool
+    :param ECM_useProcessPrecisionReweighting: If True, update process precision multipliers :math:`\kappa_{[i]}` (Student-t reweighting); otherwise :math:`\kappa\equiv 1`.
+    :type ECM_useProcessPrecisionReweighting: bool
+    :param t_innerIters: Number of filter/smoother + reweighting updates per ECM iteration.
     :type t_innerIters: int
     :param returnIntermediates: If True, also return smoothed states/covariances, residuals, and (if enabled) precision multipliers.
     :type returnIntermediates: bool
+    :param returnDiagnostics: If True, append a dictionary with iteration,
+        convergence, and NLL-change diagnostics to the returned tuple.
+    :type returnDiagnostics: bool
+    :param lambdaExpInit: Optional warm-start observation precision multipliers.
+        If supplied and observation reweighting is enabled, shape must match
+        ``matrixData``.
+    :type lambdaExpInit: numpy.ndarray | None
+    :param processPrecExpInit: Optional warm-start process precision multipliers.
+        If supplied and process reweighting is enabled, length must match the
+        number of intervals.
+    :type processPrecExpInit: numpy.ndarray | None
+    :param replicateBiasInit: Optional warm-start replicate offsets.
+    :type replicateBiasInit: numpy.ndarray | None
 
     :returns: A tuple ``(itersDone, finalNLL)``. If
             ``returnIntermediates=True``, additionally returns
             ``(stateSmoothed, stateCovarSmoothed, lagCovSmoothed,
             postFitResiduals, lambdaExp, processPrecExp, replicateBias)``.
+            If ``returnDiagnostics=True``, a diagnostics dictionary is appended.
     :rtype: tuple
 
 
@@ -2988,7 +2999,15 @@ cpdef tuple cinnerEM(
     cdef cnp.float32_t[:, ::1] fView = matrixF
     cdef cnp.float32_t[:, ::1] q0View = matrixQ0
 
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
+    if replicateBiasInit is None:
+        replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
+    else:
+        replicateBiasArr = np.array(replicateBiasInit, dtype=np.float32, copy=True, order="C").reshape(-1)
+        if replicateBiasArr.shape[0] != trackCount:
+            raise ValueError("replicateBiasInit length must match trackCount")
+        if not np.all(np.isfinite(replicateBiasArr)):
+            raise ValueError("replicateBiasInit must contain only finite values")
     cdef cnp.float32_t[::1] replicateBiasView = replicateBiasArr
 
     # Allocate latent precision multipliers only if enabled
@@ -2999,13 +3018,29 @@ cpdef tuple cinnerEM(
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
     cdef cnp.float32_t[::1] processPrecExpView
 
-    if EM_useObsPrecReweight:
-        lambdaExpArr = np.ones((trackCount, intervalCount), dtype=np.float32)
+    if ECM_useObsPrecisionReweighting:
+        if lambdaExpInit is None:
+            lambdaExpArr = np.ones((trackCount, intervalCount), dtype=np.float32)
+        else:
+            lambdaExpArr = np.array(lambdaExpInit, dtype=np.float32, copy=True, order="C")
+            if lambdaExpArr.shape[0] != trackCount or lambdaExpArr.shape[1] != intervalCount:
+                raise ValueError("lambdaExpInit shape must match (trackCount, intervalCount)")
+            if not np.all(np.isfinite(lambdaExpArr)):
+                raise ValueError("lambdaExpInit must contain only finite values")
+            np.clip(lambdaExpArr, obsPrecisionMultiplierMin, obsPrecisionMultiplierMax, out=lambdaExpArr)
         lambdaExp = lambdaExpArr
         lambdaExpView = lambdaExpArr
 
-    if EM_useProcPrecReweight and (not EM_useAPN):
-        processPrecExpArr = np.ones(intervalCount, dtype=np.float32)
+    if ECM_useProcessPrecisionReweighting and (not ECM_useAPN):
+        if processPrecExpInit is None:
+            processPrecExpArr = np.ones(intervalCount, dtype=np.float32)
+        else:
+            processPrecExpArr = np.array(processPrecExpInit, dtype=np.float32, copy=True, order="C").reshape(-1)
+            if processPrecExpArr.shape[0] != intervalCount:
+                raise ValueError("processPrecExpInit length must match intervalCount")
+            if not np.all(np.isfinite(processPrecExpArr)):
+                raise ValueError("processPrecExpInit must contain only finite values")
+            np.clip(processPrecExpArr, procPrecisionMultiplierMin, procPrecisionMultiplierMax, out=processPrecExpArr)
         processPrecExp = processPrecExpArr
         processPrecExpView = processPrecExpArr
 
@@ -3039,12 +3074,16 @@ cpdef tuple cinnerEM(
     cdef MAT2 Q0inv
     cdef double previousNLL = 1.0e16
     cdef double currentNLL = 0.0
+    cdef double initialNLL = 0.0
     cdef double nllDelta = 0.0
     cdef double nllScale = 1.0
     cdef double nllTol = 0.0
     cdef double relImprovement = 0.0
     cdef double absRelChange = 0.0
     cdef Py_ssize_t itersDone = 0
+    cdef Py_ssize_t nllIncreaseCount = 0
+    cdef bint hasInitialNLL = False
+    cdef bint converged = False
     cdef double res
     cdef double muncPlusPad
     cdef double p00k
@@ -3062,7 +3101,7 @@ cpdef tuple cinnerEM(
     cdef double kappaMax_ = <double>procPrecisionMultiplierMax
     cdef double dState = 2.0
     cdef double tmpVal
-    cdef double procNu = EM_tNu
+    cdef double procNu = ECM_robustTNu
     cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasNum = np.zeros(trackCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasDen = np.zeros(trackCount, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasCenterWeight = np.zeros(trackCount, dtype=np.float64)
@@ -3080,12 +3119,32 @@ cpdef tuple cinnerEM(
     cdef double yMinusState
 
     if intervalCount <= 5:
+        diagnostics = {
+            "iters_done": int(0),
+            "max_iters": int(ECM_fixedBackgroundIters),
+            "converged": False,
+            "stable_iters": int(0),
+            "patience_target": int(patienceTarget),
+            "initial_nll": None,
+            "final_nll": float(previousNLL),
+            "final_abs_rel_change": None,
+            "final_rel_improvement": None,
+            "nll_increase_count": int(0),
+        }
         if returnIntermediates:
+            if returnDiagnostics:
+                return (
+                    0, float(previousNLL),
+                    stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
+                    lambdaExp, processPrecExp, replicateBiasArr, diagnostics
+                )
             return (
                 0, float(previousNLL),
                 stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
                 lambdaExp, processPrecExp, replicateBiasArr
             )
+        if returnDiagnostics:
+            return (0, float(previousNLL), diagnostics)
         return (0, float(previousNLL))
 
     if blockCount <= 0:
@@ -3123,9 +3182,9 @@ cpdef tuple cinnerEM(
                     muncPlusPad = 1.0e-12
                 repBiasCenterWeightView[j] += 1.0 / muncPlusPad
 
-    for i in range(EM_maxIters):
+    for i in range(ECM_fixedBackgroundIters):
         itersDone = i + 1
-        fprintf(stderr, "\n\t[cinnerEM] iter=%zd\n", itersDone)
+        fprintf(stderr, "\n\t[cfixedBackgroundECM] iter=%zd\n", itersDone)
 
         for inner in range(t_innerIters):
             cforwardPass(
@@ -3153,10 +3212,9 @@ cpdef tuple cinnerEM(
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
                 replicateBias=replicateBiasArr,
-                EM_useObsPrecReweight=EM_useObsPrecReweight,
-                EM_useProcPrecReweight=EM_useProcPrecReweight,
-                EM_useAPN=EM_useAPN,
-                EM_useReplicateBias=EM_useReplicateBias,
+                ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
+                ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
+                ECM_useAPN=ECM_useAPN,
                 obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
                 obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
                 procPrecisionMultiplierMin=procPrecisionMultiplierMin,
@@ -3182,13 +3240,12 @@ cpdef tuple cinnerEM(
                 replicateBias=replicateBiasArr,
                 progressBar=None,
                 progressIter=0,
-                EM_useReplicateBias=EM_useReplicateBias,
             )
 
             # -----------------------------
             # E-step: update lambdaExp (optional)
             # -----------------------------
-            if EM_useObsPrecReweight:
+            if ECM_useObsPrecisionReweighting:
                 with nogil:
                     for k in range(intervalCount):
                         b = <Py_ssize_t>blockMapView[k]
@@ -3205,14 +3262,11 @@ cpdef tuple cinnerEM(
                                 muncPlusPad = 1.0e-12
                             Rkj = muncPlusPad
 
-                            if EM_useReplicateBias:
-                                res = (<double>dataView[j, k]) - (<double>replicateBiasView[j]) - (<double>stateSmoothedView[k, 0])
-                            else:
-                                res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                            res = (<double>dataView[j, k]) - (<double>replicateBiasView[j]) - (<double>stateSmoothedView[k, 0])
                             tmpVal = (res*res + p00k)
                             u2 = tmpVal / Rkj
 
-                            w = ((<double>EM_tNu) + 1.0) / ((<double>EM_tNu) + u2)
+                            w = ((<double>ECM_robustTNu) + 1.0) / ((<double>ECM_robustTNu) + u2)
                             if w < wMin:
                                 w = wMin
                             elif w > wMax:
@@ -3223,7 +3277,7 @@ cpdef tuple cinnerEM(
             # -----------------------------
             # update process precision multipliers kappa_ and store in processPrecExp
             # -----------------------------
-            if EM_useProcPrecReweight and (not EM_useAPN):
+            if ECM_useProcessPrecisionReweighting and (not ECM_useAPN):
                 processPrecExpView[0] = <cnp.float32_t>1.0
                 for k in range(intervalCount - 1):
                     b = <Py_ssize_t>blockMapView[k]
@@ -3283,66 +3337,64 @@ cpdef tuple cinnerEM(
             #   y[j,k] = x[k] + bias[j] + e[j,k]
             #   Var[e[j,k]] = (munc[j,k] + pad) / lambda[j,k]
             # -----------------------------
-            if EM_useReplicateBias:
+            for j in range(trackCount):
+                repBiasNumView[j] = 0.0
+                repBiasDenView[j] = 0.0
+            for k in range(intervalCount):
+                b = <Py_ssize_t>blockMapView[k]
+                if b < 0 or b >= blockCount:
+                    continue
+
                 for j in range(trackCount):
-                    repBiasNumView[j] = 0.0
-                    repBiasDenView[j] = 0.0
-                for k in range(intervalCount):
-                    b = <Py_ssize_t>blockMapView[k]
-                    if b < 0 or b >= blockCount:
-                        continue
+                    muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
+                    if muncPlusPad < 1.0e-12:
+                        muncPlusPad = 1.0e-12
 
-                    for j in range(trackCount):
-                        muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                        if muncPlusPad < 1.0e-12:
-                            muncPlusPad = 1.0e-12
+                    denomNoRep = muncPlusPad
+                    if denomNoRep < 1.0e-12:
+                        denomNoRep = 1.0e-12
 
-                        denomNoRep = muncPlusPad
-                        if denomNoRep < 1.0e-12:
-                            denomNoRep = 1.0e-12
-
-                        if EM_useObsPrecReweight:
-                            w = <double>lambdaExpView[j, k]
-                            if w < wMin:
-                                w = wMin
-                            elif w > wMax:
-                                w = wMax
-                        else:
-                            w = 1.0
-
-                        invVar = w / denomNoRep
-                        yMinusState = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
-                        repBiasNumView[j] += invVar * yMinusState
-                        repBiasDenView[j] += invVar
-
-                repBiasProjectionNum = 0.0
-                repBiasProjectionDen = 0.0
-                for j in range(trackCount):
-                    if repBiasDenView[j] > 0.0:
-                        tmpVal = repBiasNumView[j] / repBiasDenView[j]
-                        replicateBiasView[j] = <cnp.float32_t>tmpVal
-                        if EM_zeroCenterReplicateBias:
-                            repBiasCenterWeightJ = repBiasCenterWeightView[j]
-                            repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
-                            repBiasProjectionDen += (
-                                repBiasCenterWeightJ * repBiasCenterWeightJ
-                            ) / repBiasDenView[j]
+                    if ECM_useObsPrecisionReweighting:
+                        w = <double>lambdaExpView[j, k]
+                        if w < wMin:
+                            w = wMin
+                        elif w > wMax:
+                            w = wMax
                     else:
-                        replicateBiasView[j] = <cnp.float32_t>0.0
+                        w = 1.0
 
-                if EM_zeroCenterReplicateBias and repBiasProjectionDen > 0.0:
-                    repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
-                else:
-                    repBiasAlpha = 0.0
+                    invVar = w / denomNoRep
+                    yMinusState = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
+                    repBiasNumView[j] += invVar * yMinusState
+                    repBiasDenView[j] += invVar
 
-                for j in range(trackCount):
-                    tmpVal = <double>replicateBiasView[j]
-                    if EM_zeroCenterReplicateBias and repBiasDenView[j] > 0.0:
-                        tmpVal = (
-                            tmpVal
-                            - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
-                        )
+            repBiasProjectionNum = 0.0
+            repBiasProjectionDen = 0.0
+            for j in range(trackCount):
+                if repBiasDenView[j] > 0.0:
+                    tmpVal = repBiasNumView[j] / repBiasDenView[j]
                     replicateBiasView[j] = <cnp.float32_t>tmpVal
+                    repBiasCenterWeightJ = repBiasCenterWeightView[j]
+                    repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
+                    repBiasProjectionDen += (
+                        repBiasCenterWeightJ * repBiasCenterWeightJ
+                    ) / repBiasDenView[j]
+                else:
+                    replicateBiasView[j] = <cnp.float32_t>0.0
+
+            if repBiasProjectionDen > 0.0:
+                repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
+            else:
+                repBiasAlpha = 0.0
+
+            for j in range(trackCount):
+                tmpVal = <double>replicateBiasView[j]
+                if repBiasDenView[j] > 0.0:
+                    tmpVal = (
+                        tmpVal
+                        - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
+                    )
+                replicateBiasView[j] = <cnp.float32_t>tmpVal
 
         currentNLL = (<double>cforwardPass(
             matrixData=matrixData,
@@ -3369,10 +3421,9 @@ cpdef tuple cinnerEM(
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
             replicateBias=replicateBiasArr,
-            EM_useObsPrecReweight=EM_useObsPrecReweight,
-            EM_useProcPrecReweight=EM_useProcPrecReweight,
-            EM_useAPN=EM_useAPN,
-            EM_useReplicateBias=EM_useReplicateBias,
+            ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
+            ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
+            ECM_useAPN=ECM_useAPN,
             obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
             obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
             procPrecisionMultiplierMin=procPrecisionMultiplierMin,
@@ -3384,6 +3435,12 @@ cpdef tuple cinnerEM(
             APN_dStatPC=APN_dStatPC,
         )[3])
 
+        if not hasInitialNLL:
+            initialNLL = currentNLL
+            hasInitialNLL = True
+        elif currentNLL > previousNLL + (1.0e-12 * fmax(fabs(previousNLL), 1.0)):
+            nllIncreaseCount += 1
+
         nllDelta = fabs(currentNLL - previousNLL)
         nllScale = fabs(previousNLL)
         if fabs(currentNLL) > nllScale:
@@ -3392,11 +3449,11 @@ cpdef tuple cinnerEM(
             nllScale = 1.0
         relImprovement = (previousNLL - currentNLL) / nllScale
         absRelChange = nllDelta / nllScale
-        nllTol = (<double>EM_innerRtol) * nllScale
+        nllTol = (<double>ECM_fixedBackgroundRtol) * nllScale
         previousNLL = currentNLL
         fprintf(
             stderr,
-            "\t[cinnerEM] NLL=%.6f  REL=%+.6e  ABSREL=%.6e  THRESH=%.6e\n",
+            "\t[cfixedBackgroundECM] NLL=%.6f  REL=%+.6e  ABSREL=%.6e  THRESH=%.6e\n",
             currentNLL,
             relImprovement,
             absRelChange,
@@ -3410,21 +3467,43 @@ cpdef tuple cinnerEM(
 
         fprintf(
             stderr,
-            "\t[cinnerEM] stable=%zd/%zd\n",
+            "\t[cfixedBackgroundECM] stable=%zd/%zd\n",
             stableIters, patienceTarget
         )
 
         if stableIters >= patienceTarget:
-            fprintf(stderr, "\t[cinnerEM] CONVERGED (INNER) iter=%zd \n", itersDone)
+            converged = True
+            fprintf(stderr, "\t[cfixedBackgroundECM] CONVERGED (ECM) iter=%zd \n", itersDone)
             break
 
+    diagnostics = {
+        "iters_done": int(itersDone),
+        "max_iters": int(ECM_fixedBackgroundIters),
+        "converged": bool(converged),
+        "stable_iters": int(stableIters),
+        "patience_target": int(patienceTarget),
+        "initial_nll": float(initialNLL) if hasInitialNLL else None,
+        "final_nll": float(previousNLL),
+        "final_abs_rel_change": float(absRelChange) if hasInitialNLL else None,
+        "final_rel_improvement": float(relImprovement) if hasInitialNLL else None,
+        "nll_increase_count": int(nllIncreaseCount),
+    }
+
     if returnIntermediates:
+        if returnDiagnostics:
+            return (
+                itersDone, float(previousNLL),
+                stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
+                lambdaExp, processPrecExp, replicateBiasArr, diagnostics
+            )
         return (
             itersDone, float(previousNLL),
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
             lambdaExp, processPrecExp, replicateBiasArr
         )
 
+    if returnDiagnostics:
+        return (itersDone, float(previousNLL), diagnostics)
     return (itersDone, float(previousNLL))
 
 

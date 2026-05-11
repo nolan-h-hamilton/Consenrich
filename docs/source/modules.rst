@@ -45,9 +45,9 @@ The latent state vector :math:`\mathbf{x}_{[i]}` evolves according to a first-or
   \qquad
   \mathrm{Var}(\eta_{[i]}) = \frac{\mathbf{Q}_0}{\kappa_{[i]}}.
 
-Here :math:`g_{[i]}` is a shared zero-centered smooth background. The outer loop updates
+Here :math:`g_{[i]}` is a shared zero-centered smooth background. Background refinement updates
 :math:`g_{[i]}` while the data-derived (or given) observation-variance track stays fixed
-within each inner solve.
+within each fixed-background ECM solve.
 
 .. autoclass:: consenrich.core.inputParams
 .. autoclass:: consenrich.core.genomeParams

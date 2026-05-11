@@ -686,20 +686,20 @@ def calibrateChromosomeStateUncertainty(
     fitKwargs = dict(runKwargs)
     foldIndentLevel = max(0, int(fitKwargs.get("logIndentLevel", 0) or 0))
     fitKwargs["logIndentLevel"] = foldIndentLevel + 1
-    fitKwargs["EM_maxIters"] = max(
-        int(params.calibrationEMIters),
-        core.UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_EM_ITERS,
+    fitKwargs["ECM_fixedBackgroundIters"] = max(
+        int(params.calibrationECMIters),
+        core.UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_ECM_ITERS,
     )
-    fitKwargs["EM_outerIters"] = 1
-    fitKwargs["processQCalibIters"] = (
-        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_ITERS
+    fitKwargs["ECM_outerIters"] = 1
+    fitKwargs["ECM_minOuterIters"] = 1
+    fitKwargs["processQWarmupECMIters"] = (
+        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_ECM_ITERS
     )
-    fitKwargs["processQCalibOuterIters"] = (
-        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_OUTER_ITERS
+    fitKwargs["processQWarmupOuterIters"] = (
+        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_OUTER_ITERS
     )
     fitKwargs["returnScales"] = True
     fitKwargs["returnReplicateOffsets"] = True
-    fitKwargs["applyJackknife"] = False
 
     refitSeconds = 0.0
     extractSeconds = 0.0
@@ -725,9 +725,20 @@ def calibrateChromosomeStateUncertainty(
                 ("intervals", int(n)),
                 ("total folds", int(len(masks))),
                 (
-                    "process Q warmup",
-                    f"{int(fitKwargs['processQCalibOuterIters'])} outer x "
-                    f"{int(fitKwargs['processQCalibIters'])} inner",
+                    (
+                        "process Q warm-start"
+                        if fitKwargs.get("initialProcessQ") is not None
+                        else "process Q warmup"
+                    ),
+                    (
+                        "initialProcessQ"
+                        if fitKwargs.get("initialProcessQ") is not None
+                        else (
+                            f"{int(fitKwargs['processQWarmupOuterIters'])} "
+                            f"outer passes x "
+                            f"{int(fitKwargs['processQWarmupECMIters'])} ECM iterations"
+                        )
+                    ),
                 ),
             ),
             logger_=logger,

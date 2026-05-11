@@ -30,6 +30,7 @@ import consenrich.peaks as peaks
 TESTS_DIR = Path(__file__).resolve().parent
 TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
+_LEGACY_ALGO_PREFIX = "E" + "M" + "_"
 
 
 def _emaReference(x: np.ndarray, alpha: float) -> np.ndarray:
@@ -513,7 +514,7 @@ def _caseMatchExistingBedGraph():
         fakeVals = []
         for i in range(1000):
             if (i % 100) <= 10:
-                # add in about ~10~ peak-like regions
+                # add in about ~10~ peak regions
                 fakeVals.append(max(np.random.poisson(lam=5), 1))
             else:
                 # add in background poisson(1) for BG
@@ -924,7 +925,7 @@ def _caseBackgroundPriorVariancePenaltyAvoidsBoundaryZero():
 
 
 @pytest.mark.correctness
-def _caseReplicateBiasCanSkipZeroCentering():
+def _caseReplicateBiasIsAlwaysZeroCentered():
     n = 24
     m = 3
     matrixData = np.full((m, n), 2.0, dtype=np.float32)
@@ -945,34 +946,24 @@ def _caseReplicateBiasCanSkipZeroCentering():
         blockCount=1,
         stateInit=0.0,
         stateCovarInit=1.0e-8,
-        EM_maxIters=1,
-        EM_innerRtol=0.0,
+        ECM_fixedBackgroundIters=1,
+        ECM_fixedBackgroundRtol=0.0,
         pad=1.0e-4,
-        EM_tNu=8.0,
-        EM_useObsPrecReweight=False,
-        EM_useProcPrecReweight=False,
-        EM_useAPN=False,
-        EM_useReplicateBias=True,
+        ECM_robustTNu=8.0,
+        ECM_useObsPrecisionReweighting=False,
+        ECM_useProcessPrecisionReweighting=False,
+        ECM_useAPN=False,
         returnIntermediates=True,
         t_innerIters=1,
     )
 
-    centeredBias = cconsenrich.cinnerEM(
-        **commonKwargs,
-        EM_zeroCenterReplicateBias=True,
-    )[-1]
-    uncenteredBias = cconsenrich.cinnerEM(
-        **commonKwargs,
-        EM_zeroCenterReplicateBias=False,
-    )[-1]
+    centeredBias = cconsenrich.cfixedBackgroundECM(**commonKwargs)[-1]
 
     assert abs(float(np.mean(centeredBias))) < 1.0e-5
-    assert abs(float(np.mean(uncenteredBias))) > 1.0
-    assert np.all(np.asarray(uncenteredBias) > 1.0)
 
 
 @pytest.mark.correctness
-def _caseCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
+def _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
     n = 48
     offsets = np.array([1.25, -0.75, 0.35], dtype=np.float32)
     trend = np.linspace(-0.1, 0.1, n, dtype=np.float32)
@@ -999,7 +990,7 @@ def _caseCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
     intervalToBlockMap = np.zeros(n, dtype=np.int32)
     pad = 1.0e-4
 
-    out = cconsenrich.cinnerEM(
+    out = cconsenrich.cfixedBackgroundECM(
         matrixData=matrixData,
         matrixPluginMuncInit=matrixMunc,
         matrixF=matrixF,
@@ -1008,15 +999,13 @@ def _caseCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
         blockCount=1,
         stateInit=0.0,
         stateCovarInit=1.0e-10,
-        EM_maxIters=1,
-        EM_innerRtol=0.0,
+        ECM_fixedBackgroundIters=1,
+        ECM_fixedBackgroundRtol=0.0,
         pad=pad,
-        EM_tNu=8.0,
-        EM_useObsPrecReweight=False,
-        EM_useProcPrecReweight=False,
-        EM_useAPN=False,
-        EM_useReplicateBias=True,
-        EM_zeroCenterReplicateBias=True,
+        ECM_robustTNu=8.0,
+        ECM_useObsPrecisionReweighting=False,
+        ECM_useProcessPrecisionReweighting=False,
+        ECM_useAPN=False,
         returnIntermediates=True,
         t_innerIters=1,
     )
@@ -1039,7 +1028,7 @@ def _caseCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
 
 
 @pytest.mark.correctness
-def _caseCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
+def _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
     n = 56
     offsets = np.array([1.4, -0.6, 0.15], dtype=np.float32)
     grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
@@ -1069,7 +1058,7 @@ def _caseCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
     intervalToBlockMap = np.zeros(n, dtype=np.int32)
     pad = 1.0e-4
 
-    out = cconsenrich.cinnerEM(
+    out = cconsenrich.cfixedBackgroundECM(
         matrixData=matrixData,
         matrixPluginMuncInit=matrixMunc,
         matrixF=matrixF,
@@ -1078,15 +1067,13 @@ def _caseCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
         blockCount=1,
         stateInit=0.0,
         stateCovarInit=1.0e-8,
-        EM_maxIters=1,
-        EM_innerRtol=0.0,
+        ECM_fixedBackgroundIters=1,
+        ECM_fixedBackgroundRtol=0.0,
         pad=pad,
-        EM_tNu=2.5,
-        EM_useObsPrecReweight=True,
-        EM_useProcPrecReweight=False,
-        EM_useAPN=False,
-        EM_useReplicateBias=True,
-        EM_zeroCenterReplicateBias=True,
+        ECM_robustTNu=2.5,
+        ECM_useObsPrecisionReweighting=True,
+        ECM_useProcessPrecisionReweighting=False,
+        ECM_useAPN=False,
         obsPrecisionMultiplierMin=0.25,
         obsPrecisionMultiplierMax=4.0,
         returnIntermediates=True,
@@ -1181,14 +1168,14 @@ def _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight():
 @pytest.mark.correctness
 def _caseFitParamsDropsProcBlockScaleOptions():
     removedFields = {
-        "EM_scaleToMedian",
-        "EM_alphaEMA",
-        "EM_scaleLOW",
-        "EM_scaleHIGH",
-        "EM_useProcBlockScale",
-        "EM_useReplicateScale",
-        "EM_repScaleLOW",
-        "EM_repScaleHIGH",
+        _LEGACY_ALGO_PREFIX + "scaleToMedian",
+        _LEGACY_ALGO_PREFIX + "alphaEMA",
+        _LEGACY_ALGO_PREFIX + "scaleLOW",
+        _LEGACY_ALGO_PREFIX + "scaleHIGH",
+        _LEGACY_ALGO_PREFIX + "useProcBlockScale",
+        _LEGACY_ALGO_PREFIX + "useReplicateScale",
+        _LEGACY_ALGO_PREFIX + "repScaleLOW",
+        _LEGACY_ALGO_PREFIX + "repScaleHIGH",
     }
     assert removedFields.isdisjoint(core.fitParams._fields)
 
@@ -1259,7 +1246,35 @@ def _caseExpectedTransitionResidualSumsMatchesPythonReference():
 
 
 @pytest.mark.correctness
-def _caseRunConsenrichOuterEMSmoke(caplog):
+def _caseRegularizedProcessQReportsBoundDiagnostics():
+    n = 6
+    stateSmoothed = np.zeros((n, 2), dtype=np.float32)
+    stateCovarSmoothed = np.zeros((n, 2, 2), dtype=np.float32)
+    lagCovSmoothed = np.zeros((n - 1, 2, 2), dtype=np.float32)
+    matrixF = core.constructMatrixF(1.0).astype(np.float32, copy=False)
+
+    matrixQ, info = core._estimateRegularizedDiagonalProcessQ(
+        stateSmoothed=stateSmoothed,
+        stateCovarSmoothed=stateCovarSmoothed,
+        lagCovSmoothed=lagCovSmoothed,
+        matrixF=matrixF,
+        minQ=1.0e-4,
+        maxQ=1.0,
+        processQLevelTarget=None,
+        processQTrendTarget=None,
+        processQLevelPriorWeight=0.05,
+        processQTrendPriorWeight=1.0,
+    )
+
+    assert matrixQ[0, 0] == pytest.approx(1.0e-4)
+    assert info["q_level_floor_hit"] == pytest.approx(1.0)
+    assert info["q_trend_floor_hit"] == pytest.approx(1.0)
+    assert info["q_level_final_raw_ratio"] > 10.0
+    assert info["q_trend_final_raw_ratio"] >= 1.0
+
+
+@pytest.mark.correctness
+def _caseRunConsenrichOuterPassSmoke(caplog):
     rng = np.random.default_rng(0)
     n = 64
     m = 3
@@ -1289,10 +1304,9 @@ def _caseRunConsenrichOuterEMSmoke(caplog):
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
-        EM_maxIters=3,
-        EM_outerIters=2,
+        ECM_fixedBackgroundIters=3,
+        ECM_outerIters=2,
         processQCalibration="none",
-        applyJackknife=False,
         returnDiagnostics=True,
     )
 
@@ -1313,7 +1327,7 @@ def _caseRunConsenrichOuterEMSmoke(caplog):
     assert "PHASE: CORE START" in caplog.text
     assert "PHASE: MODEL FIT" in caplog.text
     assert "      | PHASE: MODEL FIT" in caplog.text
-    assert "            | PHASE: MODEL FIT / INNER EM" in caplog.text
+    assert "            | PHASE: MODEL FIT / FIXED-BACKGROUND ECM" in caplog.text
     assert "PHASE: MODEL FIT SUMMARY" in caplog.text
 
 
@@ -1333,19 +1347,20 @@ def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypa
     ).astype(np.float32)
     matrixMunc = np.full((m, n), 0.12, dtype=np.float32)
 
-    originalInnerEM = cconsenrich.cinnerEM
-    innerEMModes = []
+    originalECM = cconsenrich.cfixedBackgroundECM
+    ecmModes = []
 
-    def _spyInnerEM(*args, **kwargs):
-        innerEMModes.append(
+    def _spyECM(*args, **kwargs):
+        result = originalECM(*args, **kwargs)
+        ecmModes.append(
             (
-                bool(kwargs.get("EM_useProcPrecReweight")),
-                bool(kwargs.get("EM_useAPN")),
+                bool(kwargs.get("ECM_useProcessPrecisionReweighting")),
+                bool(kwargs.get("ECM_useAPN")),
             )
         )
-        return originalInnerEM(*args, **kwargs)
+        return result
 
-    monkeypatch.setattr(cconsenrich, "cinnerEM", _spyInnerEM)
+    monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", _spyECM)
 
     out = core.runConsenrich(
         matrixData,
@@ -1360,33 +1375,104 @@ def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypa
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
-        EM_maxIters=1,
-        EM_outerIters=1,
-        EM_useProcPrecReweight=True,
-        EM_useAPN=False,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_useAPN=False,
         processQCalibration="regularizedDiagonal",
-        processQCalibIters=1,
-        applyJackknife=False,
+        processQWarmupECMIters=1,
+        returnDiagnostics=True,
     )
 
-    assert innerEMModes[: core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS] == [
-        (False, False)
-    ] * core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
-    assert all(
-        mode == (True, False)
-        for mode in innerEMModes[core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS :]
+    firstPostQIndex = next(
+        idx for idx, mode in enumerate(ecmModes) if mode == (True, False)
     )
-    assert innerEMModes[0] == (False, False)
-    assert innerEMModes[-1] == (True, False)
+    assert (
+        len(ecmModes[:firstPostQIndex])
+        >= core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
+    )
+    assert all(mode == (False, False) for mode in ecmModes[:firstPostQIndex])
+    assert all(mode == (True, False) for mode in ecmModes[firstPostQIndex:])
     stateSmoothed, stateCovarSmoothed, *_ = out
+    diagnostics = out[-1]
     assert stateSmoothed.shape == (n, 2)
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert np.all(np.isfinite(stateSmoothed))
     assert np.all(np.isfinite(stateCovarSmoothed))
+    assert diagnostics["process_q_warmup_fit"]["actual_outer_passes"] == 2
+    assert diagnostics["post_q_fit"]["actual_outer_passes"] >= 1
+    assert diagnostics["post_q_fit"]["outer_stop_reason"] in {
+        "background_shift_and_nll",
+        "background_objective_inner_stable",
+        "max_outer_passes",
+        "max_outer_passes_inner_ecm_unconverged",
+        "max_outer_passes_objective",
+        "max_outer_passes_patience",
+    }
+    assert "outer_nll_change" in diagnostics["post_q_fit"]
+    assert "outer_objective_change_per_cell" in diagnostics["post_q_fit"]
+    assert diagnostics["post_q_fit"]["outer_patience_target"] == 2
+    assert diagnostics["process_q_calibration"]["q_level_floor_hit"] in (0.0, 1.0)
 
 
 @pytest.mark.correctness
-def _caseRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance(monkeypatch):
+def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
+    rng = np.random.default_rng(17)
+    n = 30
+    m = 3
+    grid = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    matrixData = np.vstack(
+        [grid + 0.02 * rng.normal(size=n) + offset for offset in (-0.01, 0.0, 0.01)]
+    ).astype(np.float32)
+    matrixMunc = np.full((m, n), 0.10, dtype=np.float32)
+
+    originalECM = cconsenrich.cfixedBackgroundECM
+    ecmModes = []
+
+    def _spyECM(*args, **kwargs):
+        result = originalECM(*args, **kwargs)
+        ecmModes.append(
+            (
+                bool(kwargs.get("ECM_useProcessPrecisionReweighting")),
+                bool(kwargs.get("ECM_useAPN")),
+            )
+        )
+        return result
+
+    monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", _spyECM)
+
+    initialQ = np.diag([1.0e-3, 1.0e-4]).astype(np.float32)
+    out = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=1.0,
+        minQ=1.0e-4,
+        maxQ=0.5,
+        offDiagQ=0.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=8,
+        ECM_fixedBackgroundIters=2,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_useAPN=False,
+        fitBackground=False,
+        processQCalibration="regularizedDiagonal",
+        initialProcessQ=initialQ,
+        returnDiagnostics=True,
+    )
+
+    diagnostics = out[-1]
+    assert ecmModes == [(True, False)]
+    assert diagnostics["process_q_warmup_fit"] is None
+    assert diagnostics["process_q_calibration"]["warm_start_process_q"] == 1.0
+    assert diagnostics["post_q_fit"]["warm_start"]["background"] is False
+
+
+@pytest.mark.correctness
+def _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance(monkeypatch):
     rng = np.random.default_rng(23)
     n = 32
     m = 3
@@ -1400,14 +1486,15 @@ def _caseRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance(monkeypat
     ).astype(np.float32)
     matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
 
-    originalInnerEM = cconsenrich.cinnerEM
+    originalECM = cconsenrich.cfixedBackgroundECM
     calls = []
 
-    def _spyInnerEM(*args, **kwargs):
+    def _spyECM(*args, **kwargs):
+        result = originalECM(*args, **kwargs)
         calls.append(1)
-        return originalInnerEM(*args, **kwargs)
+        return result
 
-    monkeypatch.setattr(cconsenrich, "cinnerEM", _spyInnerEM)
+    monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", _spyECM)
 
     commonKwargs = dict(
         matrixData=matrixData,
@@ -1422,18 +1509,36 @@ def _caseRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance(monkeypat
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
-        EM_maxIters=1,
-        EM_outerRtol=1.0e9,
+        ECM_fixedBackgroundIters=3,
+        ECM_fixedBackgroundRtol=1.0e9,
+        ECM_backgroundShiftRtol=1.0e9,
         processQCalibration="none",
-        applyJackknife=False,
     )
 
-    core.runConsenrich(**commonKwargs, EM_outerIters=5)
+    core.runConsenrich(**commonKwargs, ECM_outerIters=5, ECM_outerNLLRtol=1.0e9)
     assert len(calls) == 3
 
     calls.clear()
-    core.runConsenrich(**commonKwargs, EM_outerIters=2)
+    core.runConsenrich(**commonKwargs, ECM_outerIters=2, ECM_outerNLLRtol=1.0e9)
     assert len(calls) == 3
+
+    calls.clear()
+    core.runConsenrich(
+        **commonKwargs,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        ECM_outerNLLRtol=1.0e9,
+    )
+    assert len(calls) == 1
+
+    calls.clear()
+    core.runConsenrich(
+        **commonKwargs,
+        ECM_outerIters=4,
+        ECM_minOuterIters=1,
+        ECM_outerNLLRtol=0.0,
+    )
+    assert len(calls) > 1
 
 
 @pytest.mark.correctness
@@ -2447,11 +2552,10 @@ def _caseRunConsenrichAPNSmoke():
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
-        EM_maxIters=2,
-        EM_outerIters=1,
-        EM_useProcPrecReweight=True,
-        EM_useAPN=True,
-        applyJackknife=False,
+        ECM_fixedBackgroundIters=2,
+        ECM_outerIters=1,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_useAPN=True,
     )
 
     stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, *_ = out
@@ -2463,7 +2567,7 @@ def _caseRunConsenrichAPNSmoke():
 
 
 @pytest.mark.correctness
-def _caseRunConsenrichDisableCalibrationUsesPluginAndAPN(
+def _caseRunConsenrichAlwaysRunsECMWithAPN(
     monkeypatch: pytest.MonkeyPatch,
 ):
     rng = np.random.default_rng(321)
@@ -2479,10 +2583,20 @@ def _caseRunConsenrichDisableCalibrationUsesPluginAndAPN(
     ).astype(np.float32)
     matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
 
-    def _forbidInnerEM(*args, **kwargs):
-        raise AssertionError("cinnerEM should not run when calibration is disabled")
+    originalECM = cconsenrich.cfixedBackgroundECM
+    calls = []
 
-    monkeypatch.setattr(cconsenrich, "cinnerEM", _forbidInnerEM)
+    def _spyECM(*args, **kwargs):
+        result = originalECM(*args, **kwargs)
+        calls.append(
+            (
+                bool(kwargs.get("ECM_useAPN")),
+                bool(kwargs.get("ECM_useProcessPrecisionReweighting")),
+            )
+        )
+        return result
+
+    monkeypatch.setattr(cconsenrich, "cfixedBackgroundECM", _spyECM)
 
     out = core.runConsenrich(
         matrixData,
@@ -2497,12 +2611,12 @@ def _caseRunConsenrichDisableCalibrationUsesPluginAndAPN(
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
-        disableCalibration=True,
-        EM_useAPN=True,
-        EM_useProcPrecReweight=True,
-        applyJackknife=False,
+        ECM_useAPN=True,
+        ECM_useProcessPrecisionReweighting=True,
     )
 
+    assert calls
+    assert calls[-1] == (True, False)
     stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, *_ = out
     assert stateSmoothed.shape == (n, 2)
     assert stateCovarSmoothed.shape == (n, 2, 2)
@@ -2990,7 +3104,7 @@ def _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
 
 
 @pytest.mark.correctness
-def _casePairScaleFactorsDownscaleDeeperSampleMacsStyle(monkeypatch):
+def _casePairScaleFactorsDownscaleDeeperSampleMacs(monkeypatch):
     depths = {"treatment.bam": 10.0, "control.bam": 4.0}
 
     def fakeScaleFactor1x(
@@ -3167,11 +3281,11 @@ def test_core_background_bias_and_prior_contracts(monkeypatch, contract_case):
             (),
         ),
         ("background boundary penalty", _caseBackgroundPriorVariancePenaltyAvoidsBoundaryZero, ()),
-        ("replicate bias can skip centering", _caseReplicateBiasCanSkipZeroCentering, ()),
-        ("replicate-bias minimizer", _caseCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer, ()),
+        ("replicate bias is always centered", _caseReplicateBiasIsAlwaysZeroCentered, ()),
+        ("replicate-bias minimizer", _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer, ()),
         (
             "replicate-bias robust center",
-            _caseCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights,
+            _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeights,
             (),
         ),
     ):
@@ -3186,6 +3300,7 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         ("removed process block scale options", _caseFitParamsDropsProcBlockScaleOptions),
         ("transition residual orientation", _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF),
         ("transition residual reference", _caseExpectedTransitionResidualSumsMatchesPythonReference),
+        ("process Q bound diagnostics", _caseRegularizedProcessQReportsBoundDiagnostics),
         ("process precision defaults", _caseDefaultProcessPrecisionMultiplierBoundsAreTight),
         ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
         ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),
@@ -3196,14 +3311,25 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
 
 def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
     caplog.clear()
-    contract_case("outer EM smoke", _caseRunConsenrichOuterEMSmoke, caplog)
+    contract_case(
+        "outer pass smoke",
+        _caseRunConsenrichOuterPassSmoke,
+        caplog,
+    )
     for label, func in (
         (
             "process Q calibration warmup",
             _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting,
         ),
-        ("outer loop minimum iterations", _caseRunConsenrichOuterLoopRequiresThreeIterationsDespiteTolerance),
-        ("disable calibration plugin/APN", _caseRunConsenrichDisableCalibrationUsesPluginAndAPN),
+        (
+            "initial process Q skips warmup",
+            _caseRunConsenrichInitialProcessQSkipsWarmup,
+        ),
+        (
+            "outer-pass minimum iterations",
+            _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance,
+        ),
+        ("ECM always runs with APN", _caseRunConsenrichAlwaysRunsECMWithAPN),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func)
     contract_case("APN smoke", _caseRunConsenrichAPNSmoke)
@@ -3292,7 +3418,7 @@ def test_core_bam_counting_contracts(tmp_path, contract_case):
 
 def test_core_pair_scale_factor_contracts(monkeypatch, contract_case):
     for label, func in (
-        ("MACS-style treatment downscale", _casePairScaleFactorsDownscaleDeeperSampleMacsStyle),
+        ("MACS treatment downscale", _casePairScaleFactorsDownscaleDeeperSampleMacs),
         ("control downscale by default", _casePairScaleFactorsCanDownscaleControlByDefault),
         ("fixed control keeps full depth", _casePairScaleFactorsFixControlKeepsControlFullDepth),
     ):

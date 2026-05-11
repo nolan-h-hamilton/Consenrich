@@ -22,18 +22,15 @@ def _smallRunKwargs():
         stateUpperBound=0.0,
         blockLenIntervals=12,
         pad=1.0e-4,
-        disableCalibration=False,
-        EM_maxIters=2,
-        EM_innerRtol=0.0,
-        EM_tNu=8.0,
-        EM_useObsPrecReweight=True,
-        EM_useProcPrecReweight=True,
-        EM_useReplicateBias=True,
-        EM_outerIters=1,
-        EM_outerRtol=0.0,
+        ECM_fixedBackgroundIters=2,
+        ECM_fixedBackgroundRtol=0.0,
+        ECM_robustTNu=8.0,
+        ECM_useObsPrecisionReweighting=True,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_outerIters=1,
+        ECM_backgroundShiftRtol=0.0,
         returnScales=True,
         returnReplicateOffsets=True,
-        applyJackknife=False,
     )
 
 
@@ -325,7 +322,7 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path):
         folds=2,
         blockSizeBP=120,
         heldoutReplicateFraction=1.0 / m,
-        calibrationEMIters=1,
+        calibrationECMIters=1,
         minHeldoutCells=1,
         maxHeldoutCells=12,
         maxDiagnosticRows=5,
@@ -424,7 +421,7 @@ def _caseCalibrationRefitsUseCheapProcessQWarmup(monkeypatch):
     replicateBias = np.zeros(m, dtype=np.float32)
     capturedKwargs = []
 
-    def _fakeRunConsenrich(matrixDataArg, matrixMuncArg, *, observationMask, **kwargs):
+    def _fakeRunConsenrich(matrixDataArg, _matrixMuncArg, *, observationMask, **kwargs):
         capturedKwargs.append(dict(kwargs))
         residual = np.asarray(matrixDataArg, dtype=np.float32) - fullState[:, 0][None, :]
         return (
@@ -440,14 +437,14 @@ def _caseCalibrationRefitsUseCheapProcessQWarmup(monkeypatch):
 
     runKwargs = _smallRunKwargs()
     runKwargs["processQCalibration"] = core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-    runKwargs["processQCalibIters"] = 5
-    runKwargs["processQCalibOuterIters"] = 3
+    runKwargs["processQWarmupECMIters"] = 5
+    runKwargs["processQWarmupOuterIters"] = 3
     params = core.uncertaintyCalibrationParams(
         enabled=True,
         folds=2,
         blockSizeBP=100,
         heldoutReplicateFraction=1.0 / m,
-        calibrationEMIters=2,
+        calibrationECMIters=2,
         minHeldoutCells=1,
         maxHeldoutCells=24,
         targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
@@ -468,16 +465,19 @@ def _caseCalibrationRefitsUseCheapProcessQWarmup(monkeypatch):
     )
 
     assert len(capturedKwargs) == params.folds
-    assert all(kwargs["EM_outerIters"] == 1 for kwargs in capturedKwargs)
-    assert all(kwargs["EM_maxIters"] == 2 for kwargs in capturedKwargs)
+    assert all(kwargs["ECM_outerIters"] == 1 for kwargs in capturedKwargs)
     assert all(
-        kwargs["processQCalibIters"]
-        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_ITERS
+        kwargs["ECM_minOuterIters"] == 1 for kwargs in capturedKwargs
+    )
+    assert all(kwargs["ECM_fixedBackgroundIters"] == 2 for kwargs in capturedKwargs)
+    assert all(
+        kwargs["processQWarmupECMIters"]
+        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_ECM_ITERS
         for kwargs in capturedKwargs
     )
     assert all(
-        kwargs["processQCalibOuterIters"]
-        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_CALIB_OUTER_ITERS
+        kwargs["processQWarmupOuterIters"]
+        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_OUTER_ITERS
         for kwargs in capturedKwargs
     )
 
@@ -495,7 +495,7 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
         enabled=True,
         folds=2,
         blockSizeBP=100,
-        calibrationEMIters=1,
+        calibrationECMIters=1,
         minHeldoutCells=1000,
         targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
         writeDiagnostics=True,
