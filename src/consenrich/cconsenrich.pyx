@@ -2157,7 +2157,6 @@ cpdef tuple cforwardPass(
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixF,
     cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] matrixQ0,
     cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] intervalToBlockMap,
-    cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] qScale,
     Py_ssize_t blockCount,
     float stateInit,
     float stateCovarInit,
@@ -2207,7 +2206,6 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[:, ::1] fView = matrixF
     cdef cnp.float32_t[:, ::1] q0View = matrixQ0
     cdef cnp.int32_t[::1] blockMapView = intervalToBlockMap
-    cdef cnp.float32_t[::1] qScaleView = qScale
     cdef Py_ssize_t trackCount = dataView.shape[0]
     cdef Py_ssize_t intervalCount = dataView.shape[1]
     cdef Py_ssize_t k, j
@@ -2258,7 +2256,6 @@ cpdef tuple cforwardPass(
     cdef double sumNLL = 0.0
     cdef double intervalNLL = 0.0
     cdef double sumDStat = 0.0
-    cdef float qScaleB
     cdef double w
     cdef double wMin = <double>obsPrecisionMultiplierMin
     cdef double wMax = <double>obsPrecisionMultiplierMax
@@ -2309,9 +2306,6 @@ cpdef tuple cforwardPass(
     if procPrecMin <= 0.0 or procPrecMax <= 0.0 or procPrecMax < procPrecMin:
         raise ValueError("process precision multiplier bounds must satisfy 0 < min <= max")
 
-    if qScale.shape[0] < blockCount:
-        raise ValueError("qScale length must be >= blockCount")
-
     if intervalToBlockMap.shape[0] < intervalCount:
         raise ValueError("intervalToBlockMap length must match intervalCount")
 
@@ -2360,11 +2354,6 @@ cpdef tuple cforwardPass(
             raise ValueError("intervalToBlockMap has out-of-range block id")
 
         # --------------------------------------------------------
-        # _Blockwise_ noise scale updates
-        # --------------------------------------------------------
-        qScaleB = qScaleView[blockId]
-
-        # --------------------------------------------------------
         # Robust _process_ precision multiplier at _interval_ k
         # --------------------------------------------------------
         if useProcPrec:
@@ -2384,11 +2373,11 @@ cpdef tuple cforwardPass(
         stateVectorView[0] = <cnp.float32_t>xPred0
         stateVectorView[1] = <cnp.float32_t>xPred1
 
-        # Q[k,* , *] = (qScale[block(k)] / procPrec[k]) * Q0[* , *]
-        Q00 = (((<double>qScaleB) * apnScale) / procPrec) * (<double>q0View[0, 0])
-        Q01 = (((<double>qScaleB) * apnScale) / procPrec) * (<double>q0View[0, 1])
-        Q10 = (((<double>qScaleB) * apnScale) / procPrec) * (<double>q0View[1, 0])
-        Q11 = (((<double>qScaleB) * apnScale) / procPrec) * (<double>q0View[1, 1])
+        # Q[k,* , *] = (apnScale[k] / procPrec[k]) * Q0[* , *]
+        Q00 = (apnScale / procPrec) * (<double>q0View[0, 0])
+        Q01 = (apnScale / procPrec) * (<double>q0View[0, 1])
+        Q10 = (apnScale / procPrec) * (<double>q0View[1, 0])
+        Q11 = (apnScale / procPrec) * (<double>q0View[1, 1])
 
         # P[k | k-1,* , *] = F P F^T + Q
         P00 = <double>stateCovarView[0, 0]
@@ -2931,7 +2920,7 @@ cpdef tuple cinnerEM(
     :type matrixQ0: numpy.ndarray[numpy.float32]
     :param intervalToBlockMap: Mapping from interval index :math:`i` to block index :math:`b(i)`
     :type intervalToBlockMap: numpy.ndarray[numpy.int32]
-    :param blockCount: Number of blocks used by the compatibility `qScale` output.
+    :param blockCount: Number of interval blocks.
     :type blockCount: int
     :param stateInit: Initial state value for the signal-level (first component) of the state vector :math:`\mathbf{x}_{[0]}`
     :type stateInit: float
@@ -2967,9 +2956,10 @@ cpdef tuple cinnerEM(
     :param returnIntermediates: If True, also return smoothed states/covariances, residuals, and (if enabled) precision multipliers.
     :type returnIntermediates: bool
 
-    :returns: A tuple ``(qScale, itersDone, finalNLL)`` where ``qScale`` is retained as a
-            compatibility output fixed to ones. If ``returnIntermediates=True``,
-            additionally returns ``(stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals, lambdaExp, processPrecExp, replicateBias)``.
+    :returns: A tuple ``(itersDone, finalNLL)``. If
+            ``returnIntermediates=True``, additionally returns
+            ``(stateSmoothed, stateCovarSmoothed, lagCovSmoothed,
+            postFitResiduals, lambdaExp, processPrecExp, replicateBias)``.
     :rtype: tuple
 
 
@@ -2998,9 +2988,6 @@ cpdef tuple cinnerEM(
     cdef cnp.float32_t[:, ::1] fView = matrixF
     cdef cnp.float32_t[:, ::1] q0View = matrixQ0
 
-    # Retained as a compatibility output; the inner EM keeps qScale fixed at 1.
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] qScaleArr = np.ones(blockCount, dtype=np.float32)
-    cdef cnp.float32_t[::1] qScaleView = qScaleArr
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
     cdef cnp.float32_t[::1] replicateBiasView = replicateBiasArr
 
@@ -3095,11 +3082,11 @@ cpdef tuple cinnerEM(
     if intervalCount <= 5:
         if returnIntermediates:
             return (
-                qScaleArr, 0, float(previousNLL),
+                0, float(previousNLL),
                 stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
                 lambdaExp, processPrecExp, replicateBiasArr
             )
-        return (qScaleArr, 0, float(previousNLL))
+        return (0, float(previousNLL))
 
     if blockCount <= 0:
         raise ValueError("blockCount must be positive")
@@ -3147,7 +3134,6 @@ cpdef tuple cinnerEM(
                 matrixF=matrixF,
                 matrixQ0=matrixQ0,
                 intervalToBlockMap=intervalToBlockMap,
-                qScale=qScaleArr,
                 blockCount=blockCount,
                 stateInit=stateInit,
                 stateCovarInit=stateCovarInit,
@@ -3364,7 +3350,6 @@ cpdef tuple cinnerEM(
             matrixF=matrixF,
             matrixQ0=matrixQ0,
             intervalToBlockMap=intervalToBlockMap,
-            qScale=qScaleArr,
             blockCount=blockCount,
             stateInit=stateInit,
             stateCovarInit=stateCovarInit,
@@ -3435,12 +3420,12 @@ cpdef tuple cinnerEM(
 
     if returnIntermediates:
         return (
-            qScaleArr, itersDone, float(previousNLL),
+            itersDone, float(previousNLL),
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
             lambdaExp, processPrecExp, replicateBiasArr
         )
 
-    return (qScaleArr, itersDone, float(previousNLL))
+    return (itersDone, float(previousNLL))
 
 
 cpdef double cDenseMean(

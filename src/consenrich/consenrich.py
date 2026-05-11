@@ -31,6 +31,8 @@ import consenrich.detrorm as detrorm
 import consenrich.peaks as peaks
 import consenrich.cconsenrich as cconsenrich
 from . import __version__
+from . import io as io_helpers
+from . import regions as region_helpers
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +40,73 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+GENERIC_DEFAULT_CONFIGURATION = "generic"
+SUPPORTED_DEFAULT_CONFIGURATIONS = (GENERIC_DEFAULT_CONFIGURATION,)
+DEFAULT_CONFIGURATION_KEYS = (
+    "configuration",
+    "defaultConfiguration",
+    "defaultsProfile",
+)
+
+DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
+    GENERIC_DEFAULT_CONFIGURATION: {
+        "fitParams.EM_maxIters": 50,
+        "fitParams.EM_innerRtol": 0.005,
+        "fitParams.EM_outerIters": 32,
+        "fitParams.EM_outerRtol": 0.005,
+        "fitParams.EM_backgroundSmoothness": 1.0,
+        "fitParams.EM_backgroundLengthScaleMultiplier": 5.0,
+        "fitParams.EM_useBackgroundPrior": True,
+        "fitParams.EM_backgroundPriorQuantile": 0.5,
+        "fitParams.EM_backgroundPriorTrimQuantile": 0.9,
+        "fitParams.EM_backgroundPriorVariance": None,
+        "fitParams.EM_backgroundPriorVariancePenaltyShape": 4.0,
+        "fitParams.EM_backgroundPriorVariancePenaltyRate": 0.0,
+        "processParams.processQCalibration": (
+            core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
+        ),
+        "processParams.processQCalibIters": 3,
+        "processParams.processQLevelPriorWeight": 1.0,
+        "processParams.processQTrendPriorWeight": 10.0,
+        "processParams.precisionMultiplierMin": 0.2,
+        "processParams.precisionMultiplierMax": 5.0,
+        "observationParams.blockQuantile": 0.5,
+        "observationParams.precisionMultiplierMin": 0.1,
+        "observationParams.precisionMultiplierMax": 10.0,
+        "uncertaintyCalibration.enabled": True,
+        "uncertaintyCalibrationParams.enabled": True,
+    }
+}
+
+
+def _normalizeDefaultConfigurationName(value: Any) -> str:
+    if value is None:
+        return GENERIC_DEFAULT_CONFIGURATION
+    name = str(value).strip().lower().replace("_", "-")
+    if not name:
+        return GENERIC_DEFAULT_CONFIGURATION
+    if name != GENERIC_DEFAULT_CONFIGURATION:
+        supported = ", ".join(SUPPORTED_DEFAULT_CONFIGURATIONS)
+        raise ValueError(
+            f"Unsupported default configuration {value!r}. "
+            f"Supported default configurations: {supported}."
+        )
+    return name
+
+
+def _getDefaultConfigurationName(configMap: Mapping[str, Any]) -> str:
+    for key in DEFAULT_CONFIGURATION_KEYS:
+        value = _cfgGet(configMap, key, None)
+        if value is not None:
+            return _normalizeDefaultConfigurationName(value)
+    return GENERIC_DEFAULT_CONFIGURATION
+
+
+def _cfgDefault(configMap: Mapping[str, Any], dottedKey: str) -> Any:
+    configurationName = _getDefaultConfigurationName(configMap)
+    return DEFAULT_CONFIGURATION_VALUES[configurationName][dottedKey]
 
 
 def _fmtDiagnosticFloat(value: Any) -> str:
@@ -50,6 +119,67 @@ def _fmtDiagnosticFloat(value: Any) -> str:
     if not np.isfinite(value_):
         return "NA"
     return f"{value_:.6g}"
+
+
+def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
+    inputArgs = config["inputArgs"]
+    outputArgs = config["outputArgs"]
+    genomeArgs = config["genomeArgs"]
+    countingArgs = config["countingArgs"]
+    processArgs = config["processArgs"]
+    observationArgs = config["observationArgs"]
+    uncertaintyArgs = config["uncertaintyCalibrationArgs"]
+    matchingArgs = config["matchingArgs"]
+    fitArgs = config["fitArgs"]
+
+    def yn(value: Any) -> str:
+        return "yes" if bool(value) else "no"
+
+    rows = (
+        ("version", __version__),
+        ("experiment", config.get("experimentName", "")),
+        ("defaults", config.get("defaultConfiguration", "generic")),
+        ("genome", getattr(genomeArgs, "genomeName", "")),
+        ("chromosome count", len(getattr(genomeArgs, "chromosomes", []) or [])),
+        ("treatment inputs", len(getattr(inputArgs, "treatmentSources", []) or [])),
+        ("control inputs", len(getattr(inputArgs, "controlSources", []) or [])),
+        ("interval bp", int(countingArgs.intervalSizeBP)),
+        ("normalization", countingArgs.normMethod),
+        ("MUNC variance EB", yn(observationArgs.EB_use)),
+        ("MUNC sampling iters", int(observationArgs.samplingIters)),
+        ("EM enabled", yn(fitArgs.EM_use)),
+        ("EM max iters", int(fitArgs.EM_maxIters)),
+        ("outer EM iters", int(fitArgs.EM_outerIters)),
+        ("background model", yn(fitArgs.fitBackground)),
+        ("background prior", yn(fitArgs.EM_useBackgroundPrior)),
+        ("process Q mode", processArgs.processQCalibration),
+        ("process Q warmup", int(processArgs.processQCalibIters)),
+        ("uncertainty cal", yn(uncertaintyArgs.enabled)),
+        ("ROCCO peaks", yn(matchingArgs.enabled)),
+        ("bigWig output", yn(outputArgs.convertToBigWig)),
+    )
+    logger.info(
+        "\n%s\n",
+        core._formatAsciiLogBlock("initial configuration", rows),
+        stacklevel=2,
+    )
+
+
+def _resolveRuntimeBackgroundBlockLen(
+    vec_: Optional[Tuple[int, int, int]],
+    backgroundBlockSizeIntervals: int,
+    lengthScaleMultiplier: float,
+) -> int:
+    multiplier = float(lengthScaleMultiplier)
+    if not np.isfinite(multiplier) or multiplier <= 0.0:
+        raise ValueError(
+            "fitParams.EM_backgroundLengthScaleMultiplier must be positive"
+        )
+    baseIntervals = (
+        int(vec_[0]) if vec_ is not None else int(backgroundBlockSizeIntervals)
+    )
+    baseIntervals = max(1, baseIntervals)
+    return max(1, int(math.ceil(multiplier * baseIntervals)) + 1)
 
 
 def _progress(iterable, **kwargs):
@@ -98,127 +228,6 @@ def _checkSF(sf, logger, cut_=3.0):
             ratio,
             cut_,
         )
-
-
-def _getSmallWorkerCount(taskCount: int, maxWorkers: int = 4) -> int:
-    cpuCount = os.cpu_count() or 1
-    return min(taskCount, max(1, cpuCount // 2), maxWorkers)
-
-
-_MEMORY_UNSET = object()
-
-
-def _getAvailableMemoryBytes() -> int | None:
-    try:
-        import psutil  # type: ignore
-
-        available = int(psutil.virtual_memory().available)
-        if available > 0:
-            return available
-    except Exception:
-        pass
-
-    try:
-        with open("/proc/meminfo", "r", encoding="ascii") as meminfo:
-            for line in meminfo:
-                if line.startswith("MemAvailable:"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        return int(parts[1]) * 1024
-    except OSError:
-        pass
-
-    try:
-        pages = int(os.sysconf("SC_PHYS_PAGES"))
-        pageSize = int(os.sysconf("SC_PAGE_SIZE"))
-        total = pages * pageSize
-        if total > 0:
-            return total // 4
-    except (AttributeError, OSError, ValueError):
-        pass
-
-    return None
-
-
-def _getMuncWorkerCount(
-    numSamples: int,
-    numIntervals: int,
-    sharedArrays=(),
-    availableMemoryBytes=_MEMORY_UNSET,
-    logger_=logger,
-) -> int:
-    numSamples = int(numSamples)
-    numIntervals = int(numIntervals)
-    if numSamples <= 0:
-        return 1
-
-    cpuCount = os.cpu_count() or 1
-    cpuWorkers = min(numSamples, max(1, cpuCount // 2))
-    if cpuWorkers <= 1:
-        return 1
-
-    if availableMemoryBytes is _MEMORY_UNSET:
-        availableMemoryBytes = _getAvailableMemoryBytes()
-    if availableMemoryBytes is None:
-        return cpuWorkers
-
-    try:
-        availableBytes = int(availableMemoryBytes)
-    except (TypeError, ValueError):
-        return cpuWorkers
-    if availableBytes <= 0:
-        return cpuWorkers
-
-    sharedBytes = 0
-    for arr in sharedArrays:
-        if arr is not None:
-            sharedBytes += int(getattr(arr, "nbytes", 0) or 0)
-
-    scratchBytes = max(
-        int(64 * max(numIntervals, 0)) + (64 * 1024 * 1024),
-        128 * 1024 * 1024,
-    )
-    memoryBudget = int(max(0, availableBytes - sharedBytes) * 0.5)
-    memoryWorkers = max(1, memoryBudget // scratchBytes)
-    workers = max(1, min(cpuWorkers, memoryWorkers))
-    if workers < cpuWorkers and logger_ is not None:
-        logger_.info(
-            "munc matrix: reducing workers from %d to %d based on memory estimate "
-            "(available=%.2f GiB, shared=%.2f GiB, perWorker=%.2f GiB).",
-            int(cpuWorkers),
-            int(workers),
-            availableBytes / (1024**3),
-            sharedBytes / (1024**3),
-            scratchBytes / (1024**3),
-        )
-    return workers
-
-
-def _threadMapMaybe(
-    items,
-    func,
-    label: str,
-    allowThreads: bool = True,
-    minItems: int = 4,
-    maxWorkers: int = 4,
-):
-    itemList = list(items)
-    if len(itemList) == 0:
-        return []
-
-    workerCount = _getSmallWorkerCount(len(itemList), maxWorkers=maxWorkers)
-    usePool = allowThreads and len(itemList) >= minItems and workerCount > 1
-    if usePool:
-        logger.info(
-            "%s: using ThreadPool with %d workers (n=%d).",
-            label,
-            int(workerCount),
-            int(len(itemList)),
-        )
-        with ThreadPool(processes=int(workerCount)) as pool:
-            return list(pool.map(func, itemList))
-
-    return [func(item) for item in itemList]
 
 
 def _resolveExtendFrom5pBPPairs(
@@ -571,69 +580,6 @@ def _prepareFragmentsNormalizationMetadata(
     return allowListPaths, selectedCellCounts, tempPaths
 
 
-@lru_cache(maxsize=8)
-def _readSparseRegionsByChrom(sparseBedFile: str) -> dict[str, np.ndarray]:
-    sparseFrame = pd.read_csv(
-        sparseBedFile,
-        sep="\t",
-        header=None,
-        usecols=[0, 1, 2],
-        names=["chrom", "start", "end"],
-        dtype={"chrom": str, "start": np.int64, "end": np.int64},
-        engine="c",
-    )
-    sparseFrame = sparseFrame[sparseFrame["end"] > sparseFrame["start"]]
-    sparseRegionsByChrom: dict[str, np.ndarray] = {}
-    for chromName, chromFrame in sparseFrame.groupby("chrom", sort=False):
-        chromRegions = chromFrame.loc[:, ["start", "end"]].to_numpy(
-            dtype=np.int64,
-            copy=True,
-        )
-        order = np.argsort(chromRegions[:, 0], kind="mergesort")
-        sparseRegionsByChrom[str(chromName)] = chromRegions[order, :]
-    return sparseRegionsByChrom
-
-
-def _loadSparseIntervalIndices(
-    sparseBedFile: str,
-    chromosome: str,
-    intervals: np.ndarray,
-) -> np.ndarray:
-    sparseRegions = _readSparseRegionsByChrom(str(sparseBedFile)).get(
-        str(chromosome),
-        np.empty((0, 2), dtype=np.int64),
-    )
-    if sparseRegions.size == 0:
-        return np.empty(0, dtype=np.intp)
-
-    intervalStarts = np.asarray(intervals, dtype=np.int64)
-    if intervalStarts.size == 0:
-        return np.empty(0, dtype=np.intp)
-    if intervalStarts.size == 1:
-        intervalSize = 1
-    else:
-        intervalSize = int(intervalStarts[1] - intervalStarts[0])
-        if intervalSize <= 0:
-            raise ValueError("intervals must be strictly increasing")
-    intervalEnds = intervalStarts + int(intervalSize)
-
-    sparseMask = np.zeros(intervalStarts.size, dtype=bool)
-    for bedStart, bedEnd in sparseRegions:
-        firstIdx = int(np.searchsorted(intervalEnds, int(bedStart), side="right"))
-        lastIdx = int(np.searchsorted(intervalStarts, int(bedEnd), side="left"))
-        if firstIdx < 0:
-            firstIdx = 0
-        if lastIdx > intervalStarts.size:
-            lastIdx = intervalStarts.size
-        if lastIdx > firstIdx:
-            sparseMask[firstIdx:lastIdx] = True
-
-    sparseIdx = np.flatnonzero(sparseMask)
-    if sparseIdx.size == 0:
-        return np.empty(0, dtype=np.intp)
-    return sparseIdx.astype(np.intp, copy=False)
-
-
 def checkControlsPresent(inputArgs: core.inputParams) -> bool:
     """Check if control BAM files are present in the input arguments.
 
@@ -680,7 +626,7 @@ def getReadLengths(
 
     treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
     if treatmentSources:
-        return _threadMapMaybe(
+        return io_helpers._threadMap(
             [
                 (source.path, str(source.sourceKind).upper())
                 for source in treatmentSources
@@ -690,7 +636,7 @@ def getReadLengths(
             allowThreads=allowThreads,
         )
 
-    return _threadMapMaybe(
+    return io_helpers._threadMap(
         [(bamFile, "BAM") for bamFile in inputArgs.bamFiles],
         _getReadLengthForTask,
         "read lengths",
@@ -1118,7 +1064,7 @@ def getUncertaintyCalibrationArgs(
     config_path: str,
 ) -> core.uncertaintyCalibrationParams:
     configData = loadConfig(config_path)
-    enabledDefault = True
+    enabledDefault = _cfgDefault(configData, "uncertaintyCalibration.enabled")
     blockDefault = None
     padDefault = _cfgGet(configData, "observationParams.pad", 1.0e-4)
     maxScores = _cfgGet(
@@ -1279,7 +1225,7 @@ def getUncertaintyCalibrationArgs(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.calibrationEMIters",
-                _cfgGet(configData, "uncertaintyCalibration.calibrationEMIters", 2),
+                _cfgGet(configData, "uncertaintyCalibration.calibrationEMIters", 3),
             )
         ),
         seed=int(
@@ -1315,6 +1261,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     :return: Dictionary containing all parsed configuration parameters.
     """
     configData = loadConfig(config_path)
+    if (
+        _cfgGet(configData, "fitParams.EM_backgroundPriorWindowIntervals", None)
+        is not None
+    ):
+        raise ValueError(
+            "fitParams.EM_backgroundPriorWindowIntervals is no longer configurable; "
+            "the background-prior window is resolved from the runtime background "
+            "block length."
+        )
+    defaultConfiguration = _getDefaultConfigurationName(configData)
 
     inputParams = getInputArgs(config_path)
     outputParams = getOutputArgs(config_path)
@@ -1346,10 +1302,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         processQCalibration=_cfgGet(
             configData,
             "processParams.processQCalibration",
-            core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
+            _cfgDefault(configData, "processParams.processQCalibration"),
         ),
         processQCalibIters=int(
-            _cfgGet(configData, "processParams.processQCalibIters", 5)
+            _cfgGet(
+                configData,
+                "processParams.processQCalibIters",
+                _cfgDefault(configData, "processParams.processQCalibIters"),
+            )
         ),
         processQLevelTarget=(
             None if processQLevelTargetCfg is None else float(processQLevelTargetCfg)
@@ -1358,16 +1318,32 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             None if processQTrendTargetCfg is None else float(processQTrendTargetCfg)
         ),
         processQLevelPriorWeight=float(
-            _cfgGet(configData, "processParams.processQLevelPriorWeight", 1.0)
+            _cfgGet(
+                configData,
+                "processParams.processQLevelPriorWeight",
+                _cfgDefault(configData, "processParams.processQLevelPriorWeight"),
+            )
         ),
         processQTrendPriorWeight=float(
-            _cfgGet(configData, "processParams.processQTrendPriorWeight", 25.0)
+            _cfgGet(
+                configData,
+                "processParams.processQTrendPriorWeight",
+                _cfgDefault(configData, "processParams.processQTrendPriorWeight"),
+            )
         ),
         precisionMultiplierMin=float(
-            _cfgGet(configData, "processParams.precisionMultiplierMin", 0.01)
+            _cfgGet(
+                configData,
+                "processParams.precisionMultiplierMin",
+                _cfgDefault(configData, "processParams.precisionMultiplierMin"),
+            )
         ),
         precisionMultiplierMax=float(
-            _cfgGet(configData, "processParams.precisionMultiplierMax", 10.0)
+            _cfgGet(
+                configData,
+                "processParams.precisionMultiplierMax",
+                _cfgDefault(configData, "processParams.precisionMultiplierMax"),
+            )
         ),
     )
 
@@ -1454,14 +1430,26 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
         blockQuantile=float(
-            _cfgGet(configData, "observationParams.blockQuantile", 0.5)
+            _cfgGet(
+                configData,
+                "observationParams.blockQuantile",
+                _cfgDefault(configData, "observationParams.blockQuantile"),
+            )
         ),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
         precisionMultiplierMin=float(
-            _cfgGet(configData, "observationParams.precisionMultiplierMin", 0.01)
+            _cfgGet(
+                configData,
+                "observationParams.precisionMultiplierMin",
+                _cfgDefault(configData, "observationParams.precisionMultiplierMin"),
+            )
         ),
         precisionMultiplierMax=float(
-            _cfgGet(configData, "observationParams.precisionMultiplierMax", 10.0)
+            _cfgGet(
+                configData,
+                "observationParams.precisionMultiplierMax",
+                _cfgDefault(configData, "observationParams.precisionMultiplierMax"),
+            )
         ),
     )
 
@@ -1469,9 +1457,17 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     EM_use_ = bool(_cfgGet(configData, "fitParams.EM_use", True))
 
     fitArgs = core.fitParams(
-        EM_maxIters=_cfgGet(configData, "fitParams.EM_maxIters", 50),
+        EM_maxIters=_cfgGet(
+            configData,
+            "fitParams.EM_maxIters",
+            _cfgDefault(configData, "fitParams.EM_maxIters"),
+        ),
         EM_use=EM_use_,
-        EM_innerRtol=_cfgGet(configData, "fitParams.EM_innerRtol", 1.0e-4),
+        EM_innerRtol=_cfgGet(
+            configData,
+            "fitParams.EM_innerRtol",
+            _cfgDefault(configData, "fitParams.EM_innerRtol"),
+        ),
         EM_tNu=_cfgGet(configData, "fitParams.EM_tNu", 8.0),
         EM_useObsPrecReweight=_cfgGet(
             configData,
@@ -1508,17 +1504,58 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         EM_outerIters=_cfgGet(
             configData,
             "fitParams.EM_outerIters",
-            16,
+            _cfgDefault(configData, "fitParams.EM_outerIters"),
         ),
         EM_outerRtol=_cfgGet(
             configData,
             "fitParams.EM_outerRtol",
-            1.0e-3,
+            _cfgDefault(configData, "fitParams.EM_outerRtol"),
         ),
         EM_backgroundSmoothness=_cfgGet(
             configData,
             "fitParams.EM_backgroundSmoothness",
-            1.0,
+            _cfgDefault(configData, "fitParams.EM_backgroundSmoothness"),
+        ),
+        EM_backgroundLengthScaleMultiplier=_cfgGet(
+            configData,
+            "fitParams.EM_backgroundLengthScaleMultiplier",
+            _cfgDefault(configData, "fitParams.EM_backgroundLengthScaleMultiplier"),
+        ),
+        EM_useBackgroundPrior=_cfgGet(
+            configData,
+            "fitParams.EM_useBackgroundPrior",
+            _cfgDefault(configData, "fitParams.EM_useBackgroundPrior"),
+        ),
+        EM_backgroundPriorQuantile=_cfgGet(
+            configData,
+            "fitParams.EM_backgroundPriorQuantile",
+            _cfgDefault(configData, "fitParams.EM_backgroundPriorQuantile"),
+        ),
+        EM_backgroundPriorTrimQuantile=_cfgGet(
+            configData,
+            "fitParams.EM_backgroundPriorTrimQuantile",
+            _cfgDefault(configData, "fitParams.EM_backgroundPriorTrimQuantile"),
+        ),
+        EM_backgroundPriorVariance=_cfgGet(
+            configData,
+            "fitParams.EM_backgroundPriorVariance",
+            _cfgDefault(configData, "fitParams.EM_backgroundPriorVariance"),
+        ),
+        EM_backgroundPriorVariancePenaltyShape=_cfgGet(
+            configData,
+            "fitParams.EM_backgroundPriorVariancePenaltyShape",
+            _cfgDefault(
+                configData,
+                "fitParams.EM_backgroundPriorVariancePenaltyShape",
+            ),
+        ),
+        EM_backgroundPriorVariancePenaltyRate=_cfgGet(
+            configData,
+            "fitParams.EM_backgroundPriorVariancePenaltyRate",
+            _cfgDefault(
+                configData,
+                "fitParams.EM_backgroundPriorVariancePenaltyRate",
+            ),
         ),
     )
 
@@ -1602,6 +1639,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     return {
         "experimentName": experimentName,
+        "defaultConfiguration": defaultConfiguration,
         "genomeArgs": genomeParams,
         "inputArgs": inputParams,
         "outputArgs": outputParams,
@@ -1640,11 +1678,23 @@ def convertBedGraphToBigWig(
                 f"{chromSizesFile} does not exist. Skipping bigWig conversion."
             )
             return
+        chromOrder = _readChromOrder(chromSizesFile)
         try:
-            _sortBedGraphInPlace(bedgraph)
+            _validateBedGraphSorted(bedgraph, chromOrder=chromOrder)
         except Exception as e:
-            logger.warning(f"Failed to sort {bedgraph} before bigWig conversion:\n{e}")
-            continue
+            logger.warning(
+                "bedGraph %s failed sorted validation before bigWig conversion; "
+                "sorting as a fallback:\n%s",
+                bedgraph,
+                e,
+            )
+            try:
+                _sortBedGraphInPlace(bedgraph, chromOrder=chromOrder)
+            except Exception as sortError:
+                logger.warning(
+                    f"Failed to sort {bedgraph} before bigWig conversion:\n{sortError}"
+                )
+                continue
         bigwig = f"{experimentName}_consenrich_{suffix}.v{__version__}.bw"
         logger.info(f"Start: {bedgraph} --> {bigwig}...")
         try:
@@ -1662,19 +1712,7 @@ def convertBedGraphToBigWig(
             logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
 
 
-def _convertBedGraphToBigWigPyBigWig(
-    bedgraphPath: str,
-    chromSizesFile: str,
-    bigwigPath: str,
-    chunkSize: int = 200_000,
-) -> None:
-    try:
-        import pyBigWig
-    except Exception as e:
-        raise RuntimeError(
-            "pyBigWig is not installed; cannot convert bedGraph files to bigWig"
-        ) from e
-
+def _readChromSizes(chromSizesFile: str) -> List[Tuple[str, int]]:
     chromSizes: List[Tuple[str, int]] = []
     chromSizeByName: Dict[str, int] = {}
     with open(chromSizesFile, "r", encoding="utf-8") as handle:
@@ -1703,6 +1741,29 @@ def _convertBedGraphToBigWigPyBigWig(
             chromSizeByName[chrom] = chromSize
     if len(chromSizes) == 0:
         raise ValueError(f"No chromosome sizes found in {chromSizesFile}")
+    return chromSizes
+
+
+def _readChromOrder(chromSizesFile: str) -> List[str]:
+    return [chrom for chrom, _size in _readChromSizes(chromSizesFile)]
+
+
+def _convertBedGraphToBigWigPyBigWig(
+    bedgraphPath: str,
+    chromSizesFile: str,
+    bigwigPath: str,
+    chunkSize: int = 200_000,
+) -> None:
+    try:
+        import pyBigWig
+    except Exception as e:
+        raise RuntimeError(
+            "pyBigWig is not installed; cannot convert bedGraph files to bigWig"
+        ) from e
+
+    chromSizes = _readChromSizes(chromSizesFile)
+    chromSizeByName = dict(chromSizes)
+    chromRankByName = {chrom: rank for rank, (chrom, _size) in enumerate(chromSizes)}
 
     chunkSize_ = max(int(chunkSize), 1)
     outDir = os.path.dirname(os.path.abspath(bigwigPath)) or "."
@@ -1721,7 +1782,7 @@ def _convertBedGraphToBigWigPyBigWig(
         ) as tempHandle:
             tempPath = tempHandle.name
         bw = pyBigWig.open(tempPath, "w")
-        bw.addHeader(sorted(chromSizes, key=lambda item: item[0]))
+        bw.addHeader(chromSizes)
         chroms: List[str] = []
         starts: List[int] = []
         ends: List[int] = []
@@ -1782,11 +1843,15 @@ def _convertBedGraphToBigWigPyBigWig(
                         f"End coordinate {end} on bedGraph row {lineNumber} exceeds "
                         f"{chrom} size of {chromSizeByName[chrom]}"
                     )
+                chromRank = chromRankByName[chrom]
                 if seenEntry:
-                    if chrom < lastChrom or (chrom == lastChrom and start < lastStart):
+                    lastRank = chromRankByName[lastChrom]
+                    if chromRank < lastRank or (
+                        chrom == lastChrom and start < lastStart
+                    ):
                         raise ValueError(
                             f"bedGraph input is not sorted at row {lineNumber}; sort "
-                            "with LC_ALL=C sort -k1,1 -k2,2n -k3,3n"
+                            "by chromosome sizes order, then start/end"
                         )
                     if chrom == lastChrom and start < lastEnd:
                         raise ValueError(
@@ -1823,12 +1888,113 @@ def _convertBedGraphToBigWigPyBigWig(
                 pass
 
 
-def _sortBedGraphInPlace(bedgraphPath: str) -> None:
+def _validateBedGraphSorted(
+    bedgraphPath: str,
+    chromOrder: Optional[Sequence[str]] = None,
+) -> None:
+    if not os.path.exists(bedgraphPath) or os.path.getsize(bedgraphPath) == 0:
+        return
+
+    chromRankByName = (
+        {str(chrom): rank for rank, chrom in enumerate(chromOrder)}
+        if chromOrder is not None
+        else None
+    )
+    seenEntry = False
+    seenChroms: set[str] = set()
+    lastChrom = ""
+    lastStart = -1
+    lastEnd = -1
+    lastRank = -1
+
+    with open(bedgraphPath, "r", encoding="utf-8") as handle:
+        for lineNumber, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if (
+                not stripped
+                or stripped.startswith("#")
+                or stripped == "track"
+                or stripped.startswith("track ")
+                or stripped == "browser"
+                or stripped.startswith("browser ")
+            ):
+                continue
+            parts = stripped.split()
+            if len(parts) != 4:
+                raise ValueError(
+                    f"Malformed bedGraph row {lineNumber} in {bedgraphPath}: "
+                    "expected 4 columns"
+                )
+            chrom = str(parts[0])
+            try:
+                start = int(parts[1])
+                end = int(parts[2])
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid bedGraph coordinates on row {lineNumber} in "
+                    f"{bedgraphPath}"
+                ) from e
+            if start < 0:
+                raise ValueError(
+                    f"Negative start coordinate on bedGraph row {lineNumber}"
+                )
+            if end <= start:
+                raise ValueError(
+                    f"End coordinate must be greater than start on bedGraph row "
+                    f"{lineNumber}"
+                )
+            if chromRankByName is None:
+                chromRank = -1
+            else:
+                if chrom not in chromRankByName:
+                    raise ValueError(
+                        f"Chromosome {chrom} on bedGraph row {lineNumber} is not "
+                        "present in the expected chromosome order"
+                    )
+                chromRank = chromRankByName[chrom]
+            if seenEntry:
+                if chrom == lastChrom:
+                    if start < lastStart:
+                        raise ValueError(
+                            f"bedGraph input is not sorted at row {lineNumber}"
+                        )
+                    if start < lastEnd:
+                        raise ValueError(
+                            f"Overlapping bedGraph interval at row {lineNumber}"
+                        )
+                else:
+                    if chrom in seenChroms:
+                        raise ValueError(
+                            f"Chromosome {chrom} reappears on bedGraph row "
+                            f"{lineNumber}"
+                        )
+                    if chromRankByName is None:
+                        if chrom < lastChrom:
+                            raise ValueError(
+                                f"bedGraph input is not sorted at row {lineNumber}"
+                            )
+                    elif chromRank < lastRank:
+                        raise ValueError(
+                            f"bedGraph input is not in chromosome order at row "
+                            f"{lineNumber}"
+                        )
+            seenEntry = True
+            seenChroms.add(chrom)
+            lastChrom = chrom
+            lastStart = start
+            lastEnd = end
+            lastRank = chromRank
+
+
+def _sortBedGraphInPlace(
+    bedgraphPath: str,
+    chromOrder: Optional[Sequence[str]] = None,
+) -> None:
     if not os.path.exists(bedgraphPath) or os.path.getsize(bedgraphPath) == 0:
         return
 
     sortPath = shutil.which("sort")
-    if sortPath is not None:
+    if sortPath is not None and chromOrder is None:
         tempPath = ""
         try:
             with tempfile.NamedTemporaryFile(
@@ -1863,31 +2029,78 @@ def _sortBedGraphInPlace(bedgraphPath: str) -> None:
                 except OSError:
                     pass
 
-    df = pd.read_csv(
-        bedgraphPath,
-        sep="\t",
-        header=None,
-        names=["chromosome", "start", "end", "value"],
-        dtype={
+    headerLines: List[str] = []
+    recordRows: List[List[str]] = []
+    with open(bedgraphPath, "r", encoding="utf-8") as handle:
+        for lineNumber, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if (
+                not stripped
+                or stripped.startswith("#")
+                or stripped == "track"
+                or stripped.startswith("track ")
+                or stripped == "browser"
+                or stripped.startswith("browser ")
+            ):
+                headerLines.append(line.rstrip("\n"))
+                continue
+            parts = stripped.split()
+            if len(parts) != 4:
+                raise ValueError(
+                    f"Malformed bedGraph row {lineNumber} in {bedgraphPath}: "
+                    "expected 4 columns"
+                )
+            recordRows.append(parts)
+    if not recordRows:
+        with open(bedgraphPath, "w", encoding="utf-8") as handle:
+            for headerLine in headerLines:
+                handle.write(f"{headerLine}\n")
+        return
+
+    df = pd.DataFrame(
+        recordRows,
+        columns=["chromosome", "start", "end", "value"],
+    ).astype(
+        {
             "chromosome": str,
             "start": np.int64,
             "end": np.int64,
             "value": np.float64,
-        },
+        }
     )
-    df.sort_values(
-        by=["chromosome", "start", "end"],
-        kind="mergesort",
-        inplace=True,
-    )
-    df.to_csv(
-        bedgraphPath,
-        sep="\t",
-        header=False,
-        index=False,
-        float_format="%.4f",
-        lineterminator="\n",
-    )
+    if chromOrder is not None:
+        chromRankByName = {str(chrom): rank for rank, chrom in enumerate(chromOrder)}
+        df["_chromRank"] = df["chromosome"].map(chromRankByName)
+        unknown = sorted(df.loc[df["_chromRank"].isna(), "chromosome"].unique())
+        if unknown:
+            raise ValueError(
+                "bedGraph contains chromosomes not present in chromosome order: "
+                + ", ".join(str(chrom) for chrom in unknown[:5])
+            )
+        df["_chromRank"] = df["_chromRank"].astype(np.int64)
+        df.sort_values(
+            by=["_chromRank", "start", "end"],
+            kind="mergesort",
+            inplace=True,
+        )
+        df.drop(columns=["_chromRank"], inplace=True)
+    else:
+        df.sort_values(
+            by=["chromosome", "start", "end"],
+            kind="mergesort",
+            inplace=True,
+        )
+    with open(bedgraphPath, "w", encoding="utf-8") as handle:
+        for headerLine in headerLines:
+            handle.write(f"{headerLine}\n")
+        df.to_csv(
+            handle,
+            sep="\t",
+            header=False,
+            index=False,
+            float_format="%.4f",
+            lineterminator="\n",
+        )
 
 
 def main():
@@ -2070,31 +2283,18 @@ def main():
 
     if args.verbose:
         try:
-            logger.info(f"Consenrich [v{__version__}]: Initial Configuration\n")
-            config_truncated = {
-                k: v
-                for k, v in config.items()
-                if k not in ["inputArgs", "genomeArgs", "countingArgs"]
-            }
-            config_truncated["experimentName"] = experimentName
-            config_truncated["inputArgs"] = inputArgs
-            config_truncated["outputArgs"] = outputArgs
-            config_truncated["genomeArgs"] = genomeArgs
-            config_truncated["countingArgs"] = countingArgs
-            config_truncated["scArgs"] = scArgs
-            config_truncated["processArgs"] = processArgs
-            config_truncated["observationArgs"] = observationArgs
-            config_truncated["stateArgs"] = stateArgs
-            config_truncated["uncertaintyCalibrationArgs"] = uncertaintyCalibrationArgs
-            config_truncated["samArgs"] = samArgs
-            pretty = pprint.pformat(
-                config_truncated,
-                indent=2,
-                width=72,
-                sort_dicts=True,
-                compact=False,
-            )
-            logger.info(f"\n{pretty}\n")
+            _logInitialConfigurationSummary(config)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "raw parsed config:\n%s",
+                    pprint.pformat(
+                        config,
+                        indent=2,
+                        width=120,
+                        sort_dicts=True,
+                        compact=False,
+                    ),
+                )
         except Exception as e:
             logger.warning(f"Failed to print parsed config:\n{e}\n")
 
@@ -2272,7 +2472,7 @@ def main():
             ),
         )
 
-    characteristicFragmentLengthsTreatment = _threadMapMaybe(
+    characteristicFragmentLengthsTreatment = io_helpers._threadMap(
         zip(
             treatmentSources,
             treatmentBamInputModes,
@@ -2355,7 +2555,7 @@ def main():
                     sourceKind=str(source.sourceKind).upper(),
                 )
 
-            readLengthsControlBamFiles = _threadMapMaybe(
+            readLengthsControlBamFiles = io_helpers._threadMap(
                 controlSources,
                 _getReadLengthForSource,
                 "control read lengths",
@@ -2414,7 +2614,7 @@ def main():
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
 
-                pairScalingFactors = _threadMapMaybe(
+                pairScalingFactors = io_helpers._threadMap(
                     zip(
                         treatmentSources,
                         controlSources,
@@ -2462,7 +2662,7 @@ def main():
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
 
-                scaleFactors = _threadMapMaybe(
+                scaleFactors = io_helpers._threadMap(
                     zip(
                         treatmentSources,
                         treatmentAllowLists,
@@ -2499,7 +2699,7 @@ def main():
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
                     )
 
-                scaleFactors = _threadMapMaybe(
+                scaleFactors = io_helpers._threadMap(
                     zip(
                         treatmentSources,
                         effectiveGenomeSizes,
@@ -2834,7 +3034,10 @@ def main():
             )
         else:
             transformStart = time.perf_counter()
-            transformWorkers = _getSmallWorkerCount(numSamples, maxWorkers=4)
+            transformWorkers = io_helpers._getSmallWorkerCount(
+                numSamples,
+                maxWorkers=4,
+            )
             useParallelTransform = (
                 numSamples >= 4 and chromMat.shape[1] >= 5000 and transformWorkers > 1
             )
@@ -3068,6 +3271,13 @@ def main():
     )
 
     stateDiagnosticsByChromosome: Dict[str, Any] = {}
+    bedGraphTracks: List[Tuple[str, str]] = [("State", "state")]
+    if outputArgs.writeUncertainty:
+        bedGraphTracks.append(("uncertainty", "uncertainty"))
+    if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
+        bedGraphTracks.append(("JackknifeSE", "JackknifeSE"))
+    suffixes = [suffix for _column, suffix in bedGraphTracks]
+    bedGraphChromOrder = [str(chromPlan["chromosome"]) for chromPlan in chromosomePlans]
 
     for c_, chromPlan in enumerate(
         _progress(
@@ -3124,7 +3334,7 @@ def main():
         muncIntervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
         muncEmptyExcludeMask = np.zeros(numIntervals, dtype=np.uint8)
         if useSparseNearest:
-            sparseIntervalIndices = _loadSparseIntervalIndices(
+            sparseIntervalIndices = region_helpers._loadSparseIntervalIndices(
                 genomeArgs.sparseBedFile,
                 chromosome,
                 intervals,
@@ -3188,7 +3398,7 @@ def main():
             return j, muncTrack
 
         # this has become a bottleneck, so gentle multiprocessing
-        muncWorkers = _getMuncWorkerCount(
+        muncWorkers = io_helpers._getMuncWorkerCount(
             numSamples,
             chromMat.shape[1],
             sharedArrays=(
@@ -3289,19 +3499,37 @@ def main():
             logger.info(
                 "fitParams.EM_use=False --> skipping iterative EM calibration and using the plugin variance track directly"
             )
-        logger.info(f">>>  Running consenrich: {chromosome}  <<<")
-        blockLenIntervals_ = (
-            4 * vec_[0] + 1
-            if vec_ is not None
-            else 2 * backgroundBlockSizeIntervals + 1
+        core._logAsciiBlock(
+            "chromosome fit",
+            (
+                ("chromosome", chromosome),
+                ("intervals", int(numIntervals)),
+                ("samples", int(numSamples)),
+                ("block intervals", int(backgroundBlockSizeIntervals)),
+                ("minR", float(minR_)),
+                ("maxR", float(maxR_)),
+                ("minQ", float(minQ_)),
+                ("maxQ", float(maxQ_)),
+                ("EM enabled", bool(fitArgs.EM_use)),
+                ("peak calling", bool(peakCallingEnabled)),
+            ),
+            logger_=logger,
         )
+        logger.info(f">>>  Running consenrich: {chromosome}  <<<")
+        blockLenIntervals_ = _resolveRuntimeBackgroundBlockLen(
+            vec_,
+            backgroundBlockSizeIntervals,
+            fitArgs.EM_backgroundLengthScaleMultiplier,
+        )
+        backgroundPriorWindowIntervals_ = int(blockLenIntervals_)
         runStart = time.perf_counter()
         logger.info(
-            "runConsenrich.start %s intervals=%d samples=%d blocks=%d",
+            "runConsenrich.start %s intervals=%d samples=%d blocks=%d backgroundPriorWindow=%d",
             chromosome,
             int(numIntervals),
             int(numSamples),
             int(np.ceil(numIntervals / float(blockLenIntervals_))),
+            int(backgroundPriorWindowIntervals_),
         )
         useCrossFitUncertainty = bool(
             outputArgs.writeUncertainty and uncertaintyCalibrationArgs.enabled
@@ -3336,6 +3564,16 @@ def main():
             EM_outerIters=fitArgs.EM_outerIters,
             EM_outerRtol=fitArgs.EM_outerRtol,
             EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
+            EM_useBackgroundPrior=fitArgs.EM_useBackgroundPrior,
+            EM_backgroundPriorQuantile=fitArgs.EM_backgroundPriorQuantile,
+            EM_backgroundPriorTrimQuantile=fitArgs.EM_backgroundPriorTrimQuantile,
+            EM_backgroundPriorVariance=fitArgs.EM_backgroundPriorVariance,
+            EM_backgroundPriorVariancePenaltyShape=(
+                fitArgs.EM_backgroundPriorVariancePenaltyShape
+            ),
+            EM_backgroundPriorVariancePenaltyRate=(
+                fitArgs.EM_backgroundPriorVariancePenaltyRate
+            ),
             processQCalibration=processArgs.processQCalibration,
             processQCalibIters=processArgs.processQCalibIters,
             processQLevelTarget=processArgs.processQLevelTarget,
@@ -3354,13 +3592,12 @@ def main():
             P,
             postFitResiduals,
             JackknifeSEVec,
-            qScale,
             replicateBias,
             intervalToBlockMap,
-        ) = runResult[:7]
+        ) = runResult[:6]
         runDiagnostics = (
-            runResult[7]
-            if len(runResult) > 7 and isinstance(runResult[7], Mapping)
+            runResult[6]
+            if len(runResult) > 6 and isinstance(runResult[6], Mapping)
             else {}
         )
         logger.info(
@@ -3444,6 +3681,17 @@ def main():
         uncertaintyTrack = np.sqrt(P00_).astype(np.float32, copy=False)
 
         if useCrossFitUncertainty:
+            core._logAsciiBlock(
+                "uncertainty calibration",
+                (
+                    ("chromosome", chromosome),
+                    ("mode", "cross-fit"),
+                    ("intervals", int(len(x_))),
+                    ("samples", int(numSamples)),
+                    ("block intervals", int(roughnessBlockLen)),
+                ),
+                logger_=logger,
+            )
             try:
                 from consenrich import uncertainty as uncertainty_module
             except ImportError as exc:
@@ -3482,6 +3730,16 @@ def main():
                 EM_outerIters=fitArgs.EM_outerIters,
                 EM_outerRtol=fitArgs.EM_outerRtol,
                 EM_backgroundSmoothness=fitArgs.EM_backgroundSmoothness,
+                EM_useBackgroundPrior=fitArgs.EM_useBackgroundPrior,
+                EM_backgroundPriorQuantile=fitArgs.EM_backgroundPriorQuantile,
+                EM_backgroundPriorTrimQuantile=fitArgs.EM_backgroundPriorTrimQuantile,
+                EM_backgroundPriorVariance=fitArgs.EM_backgroundPriorVariance,
+                EM_backgroundPriorVariancePenaltyShape=(
+                    fitArgs.EM_backgroundPriorVariancePenaltyShape
+                ),
+                EM_backgroundPriorVariancePenaltyRate=(
+                    fitArgs.EM_backgroundPriorVariancePenaltyRate
+                ),
                 processQCalibration=processArgs.processQCalibration,
                 processQCalibIters=processArgs.processQCalibIters,
                 processQLevelTarget=processArgs.processQLevelTarget,
@@ -3536,38 +3794,38 @@ def main():
         if outputArgs.writeUncertainty:
             df["uncertainty"] = uncertaintyTrack
 
-        cols_ = ["Chromosome", "Start", "End", "State"]
-
-        if outputArgs.writeUncertainty:
-            cols_.append("uncertainty")
-
         if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
-            cols_.append("JackknifeSE")
             df["JackknifeSE"] = JackknifeSEVec.astype(np.float32, copy=False)
 
-        df = df[cols_]
-        suffixes = ["state"]
-        if outputArgs.writeUncertainty:
-            suffixes.append("uncertainty")
-        if outputArgs.writeJackknifeSE and outputArgs.applyJackknife:
-            suffixes.append("JackknifeSE")
+        cols_ = ["Chromosome", "Start", "End"] + [
+            column for column, _suffix in bedGraphTracks
+        ]
+        df = df[cols_].sort_values(
+            by=["Start", "End"],
+            kind="mergesort",
+        )
 
         writeStart = time.perf_counter()
         for col, suffix in _progress(
-            zip(cols_[3:], suffixes),
+            bedGraphTracks,
             total=len(suffixes),
             desc=f"Writing {chromosome}",
             unit="track",
         ):
+            bedgraphPath = (
+                f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
+            )
             logger.info(
-                f"{chromosome}: writing/appending to: consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
+                "%s: writing genome-ordered chunk to: %s",
+                chromosome,
+                bedgraphPath,
             )
             df[["Chromosome", "Start", "End", col]].to_csv(
-                f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph",
+                bedgraphPath,
                 sep="\t",
                 header=False,
                 index=False,
-                mode="a",
+                mode="w" if c_ == 0 else "a",
                 float_format="%.4f",
                 lineterminator="\n",
             )
@@ -3583,16 +3841,24 @@ def main():
     for suffix in _progress(
         suffixes,
         total=len(suffixes),
-        desc="Sorting bedGraphs",
+        desc="Validating bedGraphs",
         unit="track",
     ):
         bedgraphPath = (
             f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
         )
         try:
-            _sortBedGraphInPlace(bedgraphPath)
+            _validateBedGraphSorted(bedgraphPath, chromOrder=bedGraphChromOrder)
         except Exception as ex:
-            logger.warning(f"Failed to sort {bedgraphPath}:\n{ex}")
+            logger.warning(
+                "bedGraph %s failed genome-order validation; sorting as fallback:\n%s",
+                bedgraphPath,
+                ex,
+            )
+            try:
+                _sortBedGraphInPlace(bedgraphPath, chromOrder=bedGraphChromOrder)
+            except Exception as sortEx:
+                logger.warning(f"Failed to sort {bedgraphPath}:\n{sortEx}")
 
     if outputArgs.convertToBigWig:
         convertBedGraphToBigWig(

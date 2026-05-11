@@ -318,7 +318,7 @@ def testCalibrateChromosomeStateUncertaintySmoke(tmp_path):
     ).astype(np.float32)
     matrixMunc = np.full_like(matrixData, 0.08, dtype=np.float32)
     full = core.runConsenrich(matrixData, matrixMunc, **_smallRunKwargs())
-    fullState, fullCovar, _resid, _track4, _qScale, replicateBias, _blockMap = full
+    fullState, fullCovar, _resid, _track4, replicateBias, _blockMap = full
 
     params = core.uncertaintyCalibrationParams(
         enabled=True,
@@ -409,7 +409,7 @@ def testCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
     matrixMunc = np.full_like(matrixData, 0.08, dtype=np.float32)
     runKwargs = _smallRunKwargs()
     full = core.runConsenrich(matrixData, matrixMunc, **runKwargs)
-    fullState, fullCovar, _resid, _track4, _qScale, replicateBias, _blockMap = full
+    fullState, fullCovar, _resid, _track4, replicateBias, _blockMap = full
 
     params = core.uncertaintyCalibrationParams(
         enabled=True,

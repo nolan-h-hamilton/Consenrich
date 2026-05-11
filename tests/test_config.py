@@ -7,6 +7,8 @@ import pytest
 
 from consenrich.consenrich import readConfig
 import consenrich.consenrich as consenrich
+import consenrich.io as consenrich_io
+import consenrich.regions as consenrich_regions
 import consenrich.constants as constants
 import consenrich.misc_util as misc_util
 
@@ -48,10 +50,80 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_munc_worker_count_unknown_memory_uses_cpu_cap(monkeypatch):
-    monkeypatch.setattr(consenrich.os, "cpu_count", lambda: 8)
+def testRuntimeBackgroundPriorWindowPairsWithRuntimeBlockLength():
+    blockLen = consenrich._resolveRuntimeBackgroundBlockLen(
+        vec_=(5, 4, 6),
+        backgroundBlockSizeIntervals=11,
+        lengthScaleMultiplier=8.0,
+    )
+    assert blockLen == 41
+    assert (
+        consenrich._resolveRuntimeBackgroundBlockLen(
+            vec_=None,
+            backgroundBlockSizeIntervals=5,
+            lengthScaleMultiplier=8.0,
+        )
+        == 41
+    )
+    assert (
+        consenrich._resolveRuntimeBackgroundBlockLen(
+            vec_=(5, 4, 6),
+            backgroundBlockSizeIntervals=11,
+            lengthScaleMultiplier=4.0,
+        )
+        == 21
+    )
 
-    workers = consenrich._getMuncWorkerCount(
+
+def test_readConfigRejectsBackgroundPriorWindowOverride(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    fitParams.EM_backgroundPriorWindowIntervals: 21
+    """
+    configPath = writeConfigFile(tmp_path, "config_prior_window_removed.yaml", configYaml)
+
+    with pytest.raises(ValueError, match="EM_backgroundPriorWindowIntervals"):
+        readConfig(str(configPath))
+
+
+def testInitialConfigurationSummaryStaysCompact(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [sampleA.bam, sampleB.bam, sampleC.bam]
+    genomeParams.name: testGenome
+    genomeParams.chromosomes: [chrTest]
+    """
+    configPath = writeConfigFile(tmp_path, "config_summary.yaml", configYaml)
+    parsed = readConfig(str(configPath))
+
+    caplog.set_level(logging.INFO, logger=consenrich.logger.name)
+    consenrich._logInitialConfigurationSummary(parsed)
+
+    assert "PHASE: INITIAL CONFIGURATION" in caplog.text
+    assert "treatment inputs" in caplog.text
+    assert "| treatment inputs" in caplog.text
+    assert "| 3" in caplog.text
+    assert "inputSource(" not in caplog.text
+    assert "'countingArgs':" not in caplog.text
+
+
+def test_munc_worker_count_unknown_memory_uses_cpu_cap(monkeypatch):
+    monkeypatch.setattr(consenrich_io.os, "cpu_count", lambda: 8)
+
+    workers = consenrich_io._getMuncWorkerCount(
         10,
         1000,
         availableMemoryBytes=None,
@@ -62,9 +134,9 @@ def test_munc_worker_count_unknown_memory_uses_cpu_cap(monkeypatch):
 
 
 def test_munc_worker_count_low_memory_keeps_one_worker(monkeypatch):
-    monkeypatch.setattr(consenrich.os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(consenrich_io.os, "cpu_count", lambda: 8)
 
-    workers = consenrich._getMuncWorkerCount(
+    workers = consenrich_io._getMuncWorkerCount(
         10,
         1000,
         availableMemoryBytes=64 * 1024 * 1024,
@@ -75,9 +147,9 @@ def test_munc_worker_count_low_memory_keeps_one_worker(monkeypatch):
 
 
 def test_munc_worker_count_moderate_memory_caps_below_cpu(monkeypatch):
-    monkeypatch.setattr(consenrich.os, "cpu_count", lambda: 16)
+    monkeypatch.setattr(consenrich_io.os, "cpu_count", lambda: 16)
 
-    workers = consenrich._getMuncWorkerCount(
+    workers = consenrich_io._getMuncWorkerCount(
         10,
         1000,
         availableMemoryBytes=1024 * 1024 * 1024,
@@ -181,12 +253,12 @@ def test_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monke
     assert processNested.deltaF == pytest.approx(1.0)
     assert processDotted.processQCalibration == "regularizedDiagonal"
     assert processNested.processQCalibration == "regularizedDiagonal"
-    assert processDotted.processQCalibIters == 5
+    assert processDotted.processQCalibIters == 3
     assert processNested.processQTrendTarget is None
-    assert processDotted.precisionMultiplierMin == pytest.approx(0.1)
-    assert processDotted.precisionMultiplierMax == pytest.approx(10.0)
-    assert processNested.precisionMultiplierMin == pytest.approx(0.1)
-    assert processNested.precisionMultiplierMax == pytest.approx(10.0)
+    assert processDotted.precisionMultiplierMin == pytest.approx(0.2)
+    assert processDotted.precisionMultiplierMax == pytest.approx(5.0)
+    assert processNested.precisionMultiplierMin == pytest.approx(0.2)
+    assert processNested.precisionMultiplierMax == pytest.approx(5.0)
     assert observationDotted.precisionMultiplierMin == pytest.approx(0.1)
     assert observationDotted.precisionMultiplierMax == pytest.approx(10.0)
     assert observationNested.precisionMultiplierMin == pytest.approx(0.1)
@@ -248,6 +320,99 @@ def test_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Monk
     assert configParsed["observationArgs"].precisionMultiplierMax == pytest.approx(8.0)
 
 
+def test_readConfigUsesGenericDefaultConfiguration(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    configuration: generic
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_generic_defaults.yaml", configYaml)
+    parsed = readConfig(str(configPath))
+
+    assert parsed["defaultConfiguration"] == "generic"
+    assert parsed["fitArgs"].EM_outerIters == 32
+    assert parsed["fitArgs"].EM_backgroundLengthScaleMultiplier == pytest.approx(5.0)
+    assert parsed["fitArgs"].EM_useBackgroundPrior is True
+    assert parsed["fitArgs"].EM_backgroundPriorQuantile == pytest.approx(0.5)
+    assert parsed["fitArgs"].EM_backgroundPriorTrimQuantile == pytest.approx(0.9)
+    assert (
+        parsed["fitArgs"].EM_backgroundPriorVariancePenaltyShape
+        == pytest.approx(4.0)
+    )
+    assert (
+        parsed["fitArgs"].EM_backgroundPriorVariancePenaltyRate
+        == pytest.approx(0.0)
+    )
+    assert parsed["processArgs"].processQLevelPriorWeight == pytest.approx(1.0)
+    assert parsed["processArgs"].processQTrendPriorWeight == pytest.approx(10.0)
+    assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.2)
+    assert parsed["processArgs"].precisionMultiplierMax == pytest.approx(5.0)
+    assert parsed["observationArgs"].precisionMultiplierMin == pytest.approx(0.1)
+    assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(10.0)
+    assert parsed["uncertaintyCalibrationArgs"].enabled is True
+
+
+def test_readConfigGenericDefaultsStillAllowExplicitOverrides(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    configuration: generic
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    fitParams.EM_outerIters: 16
+    fitParams.EM_backgroundLengthScaleMultiplier: 2.0
+    fitParams.EM_backgroundPriorVariancePenaltyShape: 2.5
+    processParams.processQTrendPriorWeight: 2.5
+    processParams.precisionMultiplierMin: 0.5
+    observationParams.precisionMultiplierMax: 4.0
+    uncertaintyCalibration.enabled: false
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_generic_override.yaml", configYaml)
+    parsed = readConfig(str(configPath))
+
+    assert parsed["defaultConfiguration"] == "generic"
+    assert parsed["fitArgs"].EM_outerIters == 16
+    assert parsed["fitArgs"].EM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
+    assert (
+        parsed["fitArgs"].EM_backgroundPriorVariancePenaltyShape
+        == pytest.approx(2.5)
+    )
+    assert parsed["processArgs"].processQTrendPriorWeight == pytest.approx(2.5)
+    assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
+    assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
+    assert parsed["uncertaintyCalibrationArgs"].enabled is False
+
+
+def test_readConfigRejectsUnknownDefaultConfiguration(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    configuration: narrow
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_unknown_defaults.yaml", configYaml)
+    with pytest.raises(ValueError, match="Unsupported default configuration"):
+        readConfig(str(configPath))
+
+
 def test_readConfigObservationTrendDefaultsRemoveLinearEnvelope(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -292,7 +457,7 @@ def test_readConfigObservationBlockQuantileDefaultAndOverride(
         configDefault,
     )
     parsedDefault = readConfig(str(configDefaultPath))
-    assert parsedDefault["observationArgs"].blockQuantile == pytest.approx(0.75)
+    assert parsedDefault["observationArgs"].blockQuantile == pytest.approx(0.5)
 
     configExplicit = """
     experimentName: testExperiment
@@ -388,6 +553,19 @@ def test_readConfigUsesZeroCenterIdentifiabilityFields(
     )
     assert parsedDefault["fitArgs"].EM_zeroCenterBackground is False
     assert parsedDefault["fitArgs"].EM_zeroCenterReplicateBias is True
+    assert parsedDefault["fitArgs"].EM_backgroundLengthScaleMultiplier == pytest.approx(
+        5.0
+    )
+    assert parsedDefault["fitArgs"].EM_useBackgroundPrior is True
+    assert parsedDefault["fitArgs"].EM_backgroundPriorQuantile == pytest.approx(0.5)
+    assert (
+        parsedDefault["fitArgs"].EM_backgroundPriorVariancePenaltyShape
+        == pytest.approx(4.0)
+    )
+    assert (
+        parsedDefault["fitArgs"].EM_backgroundPriorVariancePenaltyRate
+        == pytest.approx(0.0)
+    )
 
     configOverrideYaml = """
     experimentName: testExperiment
@@ -395,6 +573,13 @@ def test_readConfigUsesZeroCenterIdentifiabilityFields(
     genomeParams.name: testGenome
     fitParams.EM_zeroCenterBackground: false
     fitParams.EM_zeroCenterReplicateBias: false
+    fitParams.EM_backgroundLengthScaleMultiplier: 6
+    fitParams.EM_useBackgroundPrior: false
+    fitParams.EM_backgroundPriorQuantile: 0.5
+    fitParams.EM_backgroundPriorTrimQuantile: 0.8
+    fitParams.EM_backgroundPriorVariance: 0.25
+    fitParams.EM_backgroundPriorVariancePenaltyShape: 2.5
+    fitParams.EM_backgroundPriorVariancePenaltyRate: 0.01
     """
     parsedOverride = readConfig(
         str(
@@ -407,6 +592,21 @@ def test_readConfigUsesZeroCenterIdentifiabilityFields(
     )
     assert parsedOverride["fitArgs"].EM_zeroCenterBackground is False
     assert parsedOverride["fitArgs"].EM_zeroCenterReplicateBias is False
+    assert parsedOverride["fitArgs"].EM_backgroundLengthScaleMultiplier == pytest.approx(
+        6.0
+    )
+    assert parsedOverride["fitArgs"].EM_useBackgroundPrior is False
+    assert parsedOverride["fitArgs"].EM_backgroundPriorQuantile == pytest.approx(0.5)
+    assert parsedOverride["fitArgs"].EM_backgroundPriorTrimQuantile == pytest.approx(0.8)
+    assert parsedOverride["fitArgs"].EM_backgroundPriorVariance == pytest.approx(0.25)
+    assert (
+        parsedOverride["fitArgs"].EM_backgroundPriorVariancePenaltyShape
+        == pytest.approx(2.5)
+    )
+    assert (
+        parsedOverride["fitArgs"].EM_backgroundPriorVariancePenaltyRate
+        == pytest.approx(0.01)
+    )
 
 
 def test_readConfigDefaultsEMTNuToEightAndAllowsOverride(
@@ -614,7 +814,7 @@ def test_loadSparseIntervalIndicesUsesBedSpan(tmp_path):
     )
     intervals = np.arange(0, 300, 50, dtype=np.uint32)
 
-    indices = consenrich._loadSparseIntervalIndices(
+    indices = consenrich_regions._loadSparseIntervalIndices(
         str(sparseBedPath),
         "chrTest",
         intervals,
@@ -820,7 +1020,7 @@ def test_readConfigMatchingDefaultsToROCCO(
     assert configParsed["matchingArgs"].enabled is True
     assert configParsed["matchingArgs"].numBootstrap == 128
     assert configParsed["matchingArgs"].thresholdZ == pytest.approx(2.0)
-    assert configParsed["matchingArgs"].gamma == pytest.approx(0.5)
+    assert configParsed["matchingArgs"].gamma == pytest.approx(0.25)
     assert configParsed["matchingArgs"].nestedRoccoIters == 3
     assert configParsed["matchingArgs"].nestedRoccoBudgetScale == pytest.approx(0.5)
     assert not hasattr(configParsed["matchingArgs"], "minMatchLengthBP")
@@ -870,15 +1070,15 @@ def test_convertBedGraphToBigWigPyBigWigWritesExpectedTrack(tmp_path):
     pyBigWigPath = tmp_path / "pybigwig.bw"
     bedGraphPath.write_text(
         "\n".join(
-            [
-                "track type=bedGraph name=toy",
-                "browser position chr1:1-20",
-                "chr1 0 10 0.5",
-                "chr1\t10\t20\t2.25",
-                "chr10 0 5 10.0",
-                "chr2\t0\t8\t2.0",
-            ]
-        )
+                [
+                    "track type=bedGraph name=toy",
+                    "browser position chr1:1-20",
+                    "chr1 0 10 0.5",
+                    "chr1\t10\t20\t2.25",
+                    "chr2\t0\t8\t2.0",
+                    "chr10 0 5 10.0",
+                ]
+            )
         + "\n",
         encoding="ascii",
     )
@@ -972,6 +1172,54 @@ def test_sortBedGraphInPlace(tmp_path):
         "chr1\t0\t10\t0.5",
         "chr1\t10\t20\t1.0",
         "chr2\t20\t30\t2.0",
+    ]
+
+
+def test_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
+    bedGraphPath = tmp_path / "genome_order.bedGraph"
+    bedGraphPath.write_text(
+        "\n".join(
+            [
+                "chr2\t0\t10\t2.0",
+                "chr2\t10\t20\t2.5",
+                "chr1\t0\t10\t1.0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    consenrich._validateBedGraphSorted(str(bedGraphPath), chromOrder=["chr2", "chr1"])
+    with pytest.raises(ValueError, match="chromosome order"):
+        consenrich._validateBedGraphSorted(
+            str(bedGraphPath),
+            chromOrder=["chr1", "chr2"],
+        )
+
+    unsortedPath = tmp_path / "needs_genome_order_sort.bedGraph"
+    unsortedPath.write_text(
+        "\n".join(
+            [
+                "track type=bedGraph name=toy",
+                "browser position chr2:1-20",
+                "chr1\t10\t20\t1.5",
+                "chr2\t10\t20\t2.5",
+                "chr1\t0\t10\t1.0",
+                "chr2\t0\t10\t2.0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    consenrich._sortBedGraphInPlace(str(unsortedPath), chromOrder=["chr2", "chr1"])
+
+    assert unsortedPath.read_text(encoding="utf-8").splitlines() == [
+        "track type=bedGraph name=toy",
+        "browser position chr2:1-20",
+        "chr2\t0\t10\t2.0000",
+        "chr2\t10\t20\t2.5000",
+        "chr1\t0\t10\t1.0000",
+        "chr1\t10\t20\t1.5000",
     ]
 
 

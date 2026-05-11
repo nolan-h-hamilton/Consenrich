@@ -717,7 +717,7 @@ def calibrateChromosomeStateUncertainty(
             **fitKwargs,
         )
         refitSeconds += time.perf_counter() - stageStart
-        stateMasked, covarMasked, _resid, _track4, _qScale, biasMasked, _blockMap = out
+        stateMasked, covarMasked, _resid, _track4, biasMasked, _blockMap = out
         stageStart = time.perf_counter()
         residual, pHeld, rHeld, ii, jj, foldHeld = _cuncertainty.cextractHeldoutScores(
             matrixData,

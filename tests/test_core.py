@@ -7,6 +7,7 @@
 import math
 import os
 import inspect
+import logging
 import tempfile
 from typing import Tuple, List, Optional
 from pathlib import Path
@@ -116,6 +117,34 @@ def _expectedCSF(chromMat: np.ndarray, centerMedian: bool = True) -> np.ndarray:
         scaleFactors = np.clip(scaleFactors / np.exp(centerLog), 0.2, 5.0)
 
     return 1.0 / scaleFactors
+
+
+@pytest.mark.correctness
+def testAsciiPhaseLogFormattingIsCompactAndAttributed(caplog):
+    block = core._formatAsciiLogBlock(
+        "MUNC track start",
+        (
+            ("chromosome", "chr11"),
+            ("MUNC variance EB", "enabled"),
+            (
+                "long value",
+                "this value is too long for the table and should be omitted",
+            ),
+        ),
+    )
+
+    assert max(len(line) for line in block.splitlines()) <= 72
+    assert "PHASE: MUNC TRACK START" in block
+    assert "| MUNC variance EB" in block
+    assert "| enabled" in block
+    assert "long value" not in block
+
+    caplog.set_level(logging.INFO, logger=core.logger.name)
+    core._logAsciiBlock("MUNC track start", (("MUNC variance EB", "enabled"),))
+
+    assert caplog.records[-1].funcName == "testAsciiPhaseLogFormattingIsCompactAndAttributed"
+    assert caplog.records[-1].message.startswith("\n+")
+    assert caplog.records[-1].message.endswith("\n")
 
 
 @pytest.mark.correctness
@@ -700,6 +729,194 @@ def testBackgroundUpdateCanSkipZeroCentering():
 
 
 @pytest.mark.correctness
+def testFinalForwardNISUsesMeanFinalForwardDiagnostic():
+    assert core._finalForwardNIS(
+        np.array([0.25, 0.5, 1.25, np.nan], dtype=np.float32)
+    ) == pytest.approx(
+        (0.25 + 0.5 + 1.25) / 3.0,
+    )
+    assert np.isnan(core._finalForwardNIS(np.array([], dtype=np.float32)))
+    assert np.isnan(core._finalForwardNIS(np.array([np.nan], dtype=np.float32)))
+    with pytest.raises(ValueError):
+        core._finalForwardNIS(np.zeros((2, 2), dtype=np.float32))
+
+
+@pytest.mark.correctness
+def testBackgroundUpdateUsesPriorAsDiagonalPenalty():
+    n = 40
+    x = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    residualMatrix = np.vstack(
+        [
+            0.2 * np.sin(2.0 * np.pi * x),
+            0.2 * np.cos(2.0 * np.pi * x),
+        ]
+    ).astype(np.float32)
+    invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
+    priorMean = np.linspace(0.4, 0.8, n, dtype=np.float32)
+    priorPrecision = np.linspace(0.25, 0.75, n, dtype=np.float64)
+
+    background = core._solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
+        blockLenIntervals=6,
+        backgroundSmoothness=0.8,
+        zeroCenter=False,
+        priorMeanTrack=priorMean,
+        priorPrecisionTrack=priorPrecision,
+    )
+
+    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0) + priorPrecision
+    rhsTrack = (
+        np.sum(
+            invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
+            axis=0,
+        )
+        + priorPrecision * priorMean.astype(np.float64)
+    )
+    lam = core._backgroundPenaltyFromSpan(
+        blockLenIntervals=6,
+        backgroundSmoothness=0.8,
+    )
+    systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
+    systemMat = systemMat + (lam * core._buildSecondDiffPenalty(n))
+    expected = core.sparse_linalg.spsolve(systemMat.tocsc(), rhsTrack)
+
+    assert np.allclose(background, expected.astype(np.float32), atol=1.0e-4)
+
+
+@pytest.mark.correctness
+def testBackgroundPriorDefaultWindowMatchesBackgroundLengthScale():
+    assert core._backgroundPriorWindowLength(
+        intervalCount=101,
+        blockLenIntervals=9,
+    ) == 9
+    assert core._backgroundPriorWindowLength(
+        intervalCount=101,
+        blockLenIntervals=8,
+    ) == 8
+    assert core._backgroundPriorWindowLength(
+        intervalCount=50,
+        blockLenIntervals=101,
+    ) == 50
+
+
+@pytest.mark.correctness
+def testBackgroundPriorMeanVarianceTracksUseRobustLocalQuantile():
+    n = 17
+    baseline = np.ones(n, dtype=np.float32)
+    baseline[8] = 20.0
+    matrixData = np.vstack([baseline, baseline + 0.1]).astype(np.float32)
+    matrixMunc = np.ones_like(matrixData, dtype=np.float32)
+
+    priorMean, priorMeanVariance = core._backgroundPriorMeanVarianceTracks(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        pad=0.0,
+        blockLenIntervals=3,
+        backgroundPriorQuantile=0.25,
+    )
+
+    assert priorMean.shape == (n,)
+    assert float(priorMean[8]) < 2.0
+    assert np.isfinite(priorMean).all()
+    assert priorMeanVariance.shape == (n,)
+    assert np.all(priorMeanVariance > 0.0)
+    assert np.isfinite(priorMeanVariance).all()
+
+
+@pytest.mark.correctness
+def testPositiveSequenceESSDetectsSerialDependence():
+    dependent = np.repeat(np.array([0.0, 1.0], dtype=np.float64), 10)
+    dependent = np.tile(dependent, 20)
+    independentLike = np.tile(np.array([0.0, 1.0], dtype=np.float64), 200)
+
+    essDependent, tauDependent, lagsDependent = (
+        core._estimatePositiveSequenceEffectiveSampleSize(dependent, maxLag=30)
+    )
+    essIndependent, tauIndependent, lagsIndependent = (
+        core._estimatePositiveSequenceEffectiveSampleSize(independentLike, maxLag=30)
+    )
+
+    assert tauDependent > 1.0
+    assert lagsDependent > 0
+    assert essDependent < dependent.size
+    assert tauIndependent == pytest.approx(1.0)
+    assert lagsIndependent == 0
+    assert essIndependent == pytest.approx(float(independentLike.size))
+
+
+@pytest.mark.correctness
+def testBackgroundPriorQuantileVarianceUsesEffectiveWindow():
+    target = np.repeat(np.array([0.0, 1.0], dtype=np.float32), 10)
+    target = np.tile(target, 20)
+    matrixData = np.vstack([target, target + 0.01]).astype(np.float32)
+    matrixMunc = np.ones_like(matrixData, dtype=np.float32)
+
+    _priorMean, priorMeanVariance, diagnostics = core._backgroundPriorMeanVarianceTracks(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        pad=0.0,
+        blockLenIntervals=31,
+        backgroundPriorQuantile=0.5,
+        returnDiagnostics=True,
+    )
+
+    assert diagnostics["nominal_window"] == 31
+    assert diagnostics["tau_int"] > 1.0
+    assert diagnostics["effective_window"] < diagnostics["nominal_window"]
+    assert np.isfinite(priorMeanVariance).all()
+    assert np.all(priorMeanVariance > 0.0)
+
+
+@pytest.mark.correctness
+def testBackgroundPriorVarianceAndPrecisionUseBaselineUncertainty():
+    priorMean = np.zeros(20, dtype=np.float64)
+    target = np.tile(np.array([-0.6, 0.6], dtype=np.float64), 10)
+    targetVariance = np.full(20, 0.05, dtype=np.float64)
+    priorMeanVariance = np.full(20, 0.10, dtype=np.float64)
+
+    variance = core._estimateBackgroundPriorVariance(
+        targetTrack=target,
+        targetVariance=targetVariance,
+        priorMeanTrack=priorMean,
+        priorMeanVarianceTrack=priorMeanVariance,
+        trimQuantile=1.0,
+    )
+    assert variance > 0.05
+
+    precision = core._backgroundPriorPrecisionTrack(
+        backgroundPriorVariance=variance,
+        priorMeanVarianceTrack=np.array([0.10, 0.40], dtype=np.float64),
+    )
+
+    assert np.all(precision > 0.0)
+    assert precision[0] > precision[1]
+    assert precision[0] == pytest.approx(1.0 / (variance + 0.10))
+
+
+@pytest.mark.correctness
+def testBackgroundPriorVariancePenaltyAvoidsBoundaryZero():
+    n = 2000
+    priorMean = np.zeros(n, dtype=np.float64)
+    target = np.zeros(n, dtype=np.float64)
+    targetVariance = np.full(n, 0.05, dtype=np.float64)
+    priorMeanVariance = np.full(n, 0.10, dtype=np.float64)
+
+    variance = core._estimateBackgroundPriorVariance(
+        targetTrack=target,
+        targetVariance=targetVariance,
+        priorMeanTrack=priorMean,
+        priorMeanVarianceTrack=priorMeanVariance,
+        trimQuantile=1.0,
+        penaltyShape=2.0,
+        penaltyRate=0.0,
+    )
+
+    assert variance > 0.0
+    assert variance < 1.0e-3
+
+
+@pytest.mark.correctness
 def testReplicateBiasCanSkipZeroCentering():
     n = 24
     m = 3
@@ -796,7 +1013,7 @@ def testCinnerEMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
         returnIntermediates=True,
         t_innerIters=1,
     )
-    stateSmoothed = np.asarray(out[3], dtype=np.float64)[:, 0]
+    stateSmoothed = np.asarray(out[2], dtype=np.float64)[:, 0]
     replicateBias = np.asarray(out[-1], dtype=np.float64)
 
     invVar = 1.0 / np.maximum(matrixMunc.astype(np.float64) + pad, 1.0e-12)
@@ -868,8 +1085,8 @@ def testCinnerEMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
         returnIntermediates=True,
         t_innerIters=1,
     )
-    stateSmoothed = np.asarray(out[3], dtype=np.float64)[:, 0]
-    lambdaExp = np.asarray(out[7], dtype=np.float64)
+    stateSmoothed = np.asarray(out[2], dtype=np.float64)[:, 0]
+    lambdaExp = np.asarray(out[6], dtype=np.float64)
     replicateBias = np.asarray(out[-1], dtype=np.float64)
 
     baseInvVar = 1.0 / np.maximum(matrixMunc.astype(np.float64) + pad, 1.0e-12)
@@ -1035,7 +1252,7 @@ def testExpectedTransitionResidualSumsMatchesPythonReference():
 
 
 @pytest.mark.correctness
-def testRunConsenrichOuterEMSmoke():
+def testRunConsenrichOuterEMSmoke(caplog):
     rng = np.random.default_rng(0)
     n = 64
     m = 3
@@ -1051,6 +1268,7 @@ def testRunConsenrichOuterEMSmoke():
     ).astype(np.float32)
     matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
 
+    caplog.set_level(logging.INFO, logger=core.logger.name)
     out = core.runConsenrich(
         matrixData,
         matrixMunc,
@@ -1068,14 +1286,26 @@ def testRunConsenrichOuterEMSmoke():
         EM_outerIters=2,
         processQCalibration="none",
         applyJackknife=False,
+        returnDiagnostics=True,
     )
 
-    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, qScale, *_ = out
+    (
+        stateSmoothed,
+        stateCovarSmoothed,
+        postFitResiduals,
+        NIS,
+        *_rest,
+        diagnostics,
+    ) = out
     assert stateSmoothed.shape == (n, 2)
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert postFitResiduals.shape == (n, m)
     assert NIS.shape == (n,)
-    assert np.allclose(qScale, 1.0)
+    assert diagnostics["final_forward_nis"] == pytest.approx(float(np.mean(NIS)))
+    assert diagnostics["background_prior"]["active"] is True
+    assert "PHASE: CORE START" in caplog.text
+    assert "PHASE: FINAL FIT" in caplog.text
+    assert "PHASE: FINAL FIT SUMMARY" in caplog.text
 
 
 @pytest.mark.correctness
@@ -2208,13 +2438,12 @@ def testRunConsenrichAPNSmoke():
         applyJackknife=False,
     )
 
-    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, qScale, *_ = out
+    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, *_ = out
     assert stateSmoothed.shape == (n, 2)
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert postFitResiduals.shape == (n, m)
     assert NIS.shape == (n,)
     assert np.all(np.isfinite(NIS))
-    assert np.allclose(qScale, 1.0)
 
 
 @pytest.mark.correctness
@@ -2258,13 +2487,12 @@ def testRunConsenrichDisableCalibrationUsesPluginAndAPN(
         applyJackknife=False,
     )
 
-    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, qScale, *_ = out
+    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, *_ = out
     assert stateSmoothed.shape == (n, 2)
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert postFitResiduals.shape == (n, m)
     assert NIS.shape == (n,)
     assert np.all(np.isfinite(stateSmoothed))
-    assert np.allclose(qScale, 1.0)
 
 
 @pytest.mark.correctness
