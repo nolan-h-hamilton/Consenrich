@@ -809,7 +809,7 @@ def _caseBackgroundPriorDefaultWindowMatchesBackgroundLengthScale():
 
 
 @pytest.mark.correctness
-def _caseBackgroundPriorMeanVarianceTracksUseRobustLocalQuantile():
+def _caseBackgroundPriorMeanVarianceTracksUseSavgolDegreeZero():
     n = 17
     baseline = np.ones(n, dtype=np.float32)
     baseline[8] = 20.0
@@ -821,11 +821,22 @@ def _caseBackgroundPriorMeanVarianceTracksUseRobustLocalQuantile():
         matrixMunc=matrixMunc,
         pad=0.0,
         blockLenIntervals=3,
-        backgroundPriorQuantile=0.25,
+    )
+
+    invVar = np.ones_like(matrixData, dtype=np.float64)
+    target, _targetVariance, _targetWeight = core._weightedBackgroundTarget(
+        residualMatrix=matrixData,
+        invVarMatrix=invVar,
+    )
+    expected = spySig.savgol_filter(
+        target,
+        window_length=3,
+        polyorder=0,
+        mode="nearest",
     )
 
     assert priorMean.shape == (n,)
-    assert float(priorMean[8]) < 2.0
+    assert np.allclose(priorMean, expected.astype(np.float32))
     assert np.isfinite(priorMean).all()
     assert priorMeanVariance.shape == (n,)
     assert np.all(priorMeanVariance > 0.0)
@@ -854,7 +865,7 @@ def _casePositiveSequenceESSDetectsSerialDependence():
 
 
 @pytest.mark.correctness
-def _caseBackgroundPriorQuantileVarianceUsesEffectiveWindow():
+def _caseBackgroundPriorMeanVarianceUsesEffectiveWindow():
     target = np.repeat(np.array([0.0, 1.0], dtype=np.float32), 10)
     target = np.tile(target, 20)
     matrixData = np.vstack([target, target + 0.01]).astype(np.float32)
@@ -865,15 +876,62 @@ def _caseBackgroundPriorQuantileVarianceUsesEffectiveWindow():
         matrixMunc=matrixMunc,
         pad=0.0,
         blockLenIntervals=31,
-        backgroundPriorQuantile=0.5,
         returnDiagnostics=True,
     )
 
     assert diagnostics["nominal_window"] == 31
+    assert diagnostics["savgol_window"] == 31
     assert diagnostics["tau_int"] > 1.0
-    assert diagnostics["effective_window"] < diagnostics["nominal_window"]
+    assert diagnostics["effective_window"] < diagnostics["savgol_window"]
     assert np.isfinite(priorMeanVariance).all()
     assert np.all(priorMeanVariance > 0.0)
+
+
+@pytest.mark.correctness
+def _caseBackgroundPriorShrinkageDoesNotOverwhelmLocalTarget():
+    matrixData = np.ones((4, 51), dtype=np.float32)
+    matrixMunc = np.ones_like(matrixData, dtype=np.float32)
+    matrixMunc[:, 25] = 1000.0
+
+    priorMean, priorMeanVariance = core._backgroundPriorMeanVarianceTracks(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        pad=0.0,
+        blockLenIntervals=21,
+    )
+    invVar = 1.0 / np.maximum(matrixMunc.astype(np.float64), 1.0e-8)
+    target, targetVariance, targetWeight = core._weightedBackgroundTarget(
+        residualMatrix=matrixData,
+        invVarMatrix=invVar,
+    )
+    variance = core._estimateBackgroundPriorVariance(
+        targetTrack=target,
+        targetVariance=targetVariance,
+        priorMeanTrack=priorMean,
+        priorMeanVarianceTrack=priorMeanVariance,
+        trimQuantile=1.0,
+    )
+    priorPrecision = core._backgroundPriorPrecisionTrack(
+        backgroundPriorVariance=variance,
+        priorMeanVarianceTrack=priorMeanVariance,
+    )
+    cappedPrecision = core._capBackgroundPriorPrecisionForShrinkage(
+        priorPrecision,
+        targetWeight,
+    )
+    shrinkage = cappedPrecision / (targetWeight + cappedPrecision)
+    reweightedTargetWeight = 0.25 * targetWeight
+    reweightedPrecision = core._capBackgroundPriorPrecisionForShrinkage(
+        priorPrecision,
+        reweightedTargetWeight,
+    )
+    reweightedShrinkage = reweightedPrecision / (
+        reweightedTargetWeight + reweightedPrecision
+    )
+
+    assert np.all(priorMeanVariance >= targetVariance)
+    assert float(np.nanmax(shrinkage)) <= 0.5 + 1.0e-8
+    assert float(np.nanmax(reweightedShrinkage)) <= 0.5 + 1.0e-8
 
 
 @pytest.mark.correctness
@@ -3269,12 +3327,17 @@ def test_core_background_bias_and_prior_contracts(monkeypatch, contract_case):
         ("background prior diagonal penalty", _caseBackgroundUpdateUsesPriorAsDiagonalPenalty, ()),
         ("background prior window default", _caseBackgroundPriorDefaultWindowMatchesBackgroundLengthScale, ()),
         (
-            "background robust quantile tracks",
-            _caseBackgroundPriorMeanVarianceTracksUseRobustLocalQuantile,
+            "background Savitzky-Golay degree-zero tracks",
+            _caseBackgroundPriorMeanVarianceTracksUseSavgolDegreeZero,
             (),
         ),
         ("positive-sequence ESS", _casePositiveSequenceESSDetectsSerialDependence, ()),
-        ("background effective window", _caseBackgroundPriorQuantileVarianceUsesEffectiveWindow, ()),
+        ("background effective window", _caseBackgroundPriorMeanVarianceUsesEffectiveWindow, ()),
+        (
+            "background prior shrinkage cap",
+            _caseBackgroundPriorShrinkageDoesNotOverwhelmLocalTarget,
+            (),
+        ),
         (
             "background baseline uncertainty",
             _caseBackgroundPriorVarianceAndPrecisionUseBaselineUncertainty,

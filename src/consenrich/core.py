@@ -123,13 +123,7 @@ def _formatAsciiLogBlock(
     outerBorder = "+" + ("=" * (width - 2)) + "+"
     lines = [outerBorder, f"| {titleLine:<{titleWidth}} |"]
     if rows:
-        rowBorder = (
-            "+"
-            + ("-" * (keyWidth + 2))
-            + "+"
-            + ("-" * (valueWidth + 2))
-            + "+"
-        )
+        rowBorder = "+" + ("-" * (keyWidth + 2)) + "+" + ("-" * (valueWidth + 2)) + "+"
         lines.append(rowBorder)
         for key, value in rows:
             keyText = str(key)
@@ -224,11 +218,9 @@ class processParams(NamedTuple):
     precisionMultiplierMin: float = 0.5
     precisionMultiplierMax: float = 2.0
 
+
 class observationParams(NamedTuple):
-    r"""Parameters related to the observation model of Consenrich.
-
-    The observation model supplies the plugin variance track used by the inner filter-smoother.
-
+    r"""Parameters related to the observation model of Consenrich
 
     :param minR: Genome-wide lower bound for replicate-specific observation noise levels.
     :type minR: float | None
@@ -778,7 +770,8 @@ class fitParams(NamedTuple):
     Outer alternation:
 
     1. run the fixed-background ECM path against the current shared background
-    2. optionally update a shared background track \(g_i\), optionally constrained to have mean zero
+    2. optionally update a shared low-frequency background track \(g_{[i]}\),
+       optionally constrained to have mean zero
 
     Replicate-level bias calibration, replicate-bias centering, and robust
     precision reweighting are fixed parts of the ECM path.
@@ -797,12 +790,16 @@ class fitParams(NamedTuple):
     :type ECM_useObsPrecisionReweighting: bool
     :param ECM_useProcessPrecisionReweighting: If True, update process noise precision multipliers \(\kappa_{[i]}\) (Student-\(t\) reweighting); otherwise \(\kappa\equiv 1\).
     :type ECM_useProcessPrecisionReweighting: bool
-    :param ECM_useAPN: If True, use the adaptive-process-noise (APN) D-statistic update during filtering.
-      This option disables ``ECM_useProcessPrecisionReweighting``.
+    :param ECM_useAPN: If True, use the adaptive-process-noise (APN)
+      D-statistic update during filtering. This option disables
+      ``ECM_useProcessPrecisionReweighting`` and technically voids guarantees
+      of monotonic descent.
     :type ECM_useAPN: bool
-    :param fitBackground: If True, estimate the shared smooth background track \(g_i\) in the outer loop. If False, keep \(g_i \equiv 0\).
+    :param fitBackground: If True, estimate the shared low-frequency background
+      track \(g_{[i]}\) in the outer loop. If False, keep \(g_{[i]} \equiv 0\).
     :type fitBackground: bool
-    :param ECM_zeroCenterBackground: If True, enforce the identifiability constraint that the shared smooth background has mean zero.
+    :param ECM_zeroCenterBackground: If True, enforce the identifiability
+      constraint that the shared background has mean zero.
     :type ECM_zeroCenterBackground: bool
     :param ECM_outerIters: Number of alternations between the fixed-background ECM fit and shared background update.
     :type ECM_outerIters: int
@@ -822,8 +819,6 @@ class fitParams(NamedTuple):
     :type ECM_backgroundSmoothness: float
     :param ECM_backgroundLengthScaleMultiplier: Runtime multiplier converting the inferred or configured background dependence scale to the background fitting span; e.g. ``8`` gives ``8 * baseIntervals + 1``.
     :type ECM_backgroundLengthScaleMultiplier: float
-    :param ECM_backgroundPriorQuantile: Local quantile used to build the robust prior mean baseline. Values in ``[0, 1]`` or percentages in ``[0, 100]`` are accepted.
-    :type ECM_backgroundPriorQuantile: float
     :param ECM_backgroundPriorTrimQuantile: Absolute-deviation quantile retained when estimating the EB prior variance.
     :type ECM_backgroundPriorTrimQuantile: float
     :param ECM_backgroundPriorVariance: Optional fixed excess prior variance around the baseline. If unset, estimate it by marginal likelihood.
@@ -850,12 +845,12 @@ class fitParams(NamedTuple):
     ECM_outerNLLRtol: float | None = 1.0e-4
     ECM_backgroundSmoothness: float | None = 1.0
     ECM_backgroundLengthScaleMultiplier: float | None = 8.0
-    ECM_backgroundPriorQuantile: float | None = 0.5
     ECM_backgroundPriorTrimQuantile: float | None = 0.90
     ECM_backgroundPriorVariance: float | None = None
     ECM_backgroundPriorVariancePenaltyShape: float | None = 2.0
     ECM_backgroundPriorVariancePenaltyRate: float | None = 0.0
     fitBackground: bool | None = True
+
 
 def _inferAlignmentSourceKind(path: str) -> str:
     lowerPath = str(path).lower()
@@ -1760,6 +1755,34 @@ def _backgroundObjectivePenalty(
     return smoothPenalty, priorPenalty
 
 
+def _capBackgroundPriorPrecisionForShrinkage(
+    priorPrecisionTrack: np.ndarray,
+    dataWeightTrack: np.ndarray,
+    maxShrinkage: float = 0.5,
+) -> npt.NDArray[np.float64]:
+    priorPrecision = np.asarray(priorPrecisionTrack, dtype=np.float64)
+    dataWeight = np.asarray(dataWeightTrack, dtype=np.float64)
+    if priorPrecision.shape != dataWeight.shape:
+        raise ValueError("priorPrecisionTrack and dataWeightTrack must match")
+
+    shrinkage = float(maxShrinkage)
+    if not np.isfinite(shrinkage) or shrinkage <= 0.0 or shrinkage >= 1.0:
+        raise ValueError("maxShrinkage must be finite and between 0 and 1")
+
+    priorPrecision = np.where(
+        np.isfinite(priorPrecision) & (priorPrecision > 0.0),
+        priorPrecision,
+        0.0,
+    )
+    dataWeight = np.where(
+        np.isfinite(dataWeight) & (dataWeight > 0.0),
+        dataWeight,
+        0.0,
+    )
+    priorLimit = (shrinkage / (1.0 - shrinkage)) * dataWeight
+    return np.minimum(priorPrecision, priorLimit).astype(np.float64, copy=False)
+
+
 def _legacyFixedBackgroundECMDiagnostics(
     *,
     itersDone: int,
@@ -1840,9 +1863,7 @@ def _fitDiagnosticsMetadata(fit: Mapping[str, Any]) -> dict[str, Any]:
         "outer_objective": fit.get("outerObjective"),
         "outer_objective_per_cell": fit.get("outerObjectivePerCell"),
         "outer_objective_change_per_cell": fit.get("outerObjectiveChangePerCell"),
-        "outer_objective_threshold_per_cell": fit.get(
-            "outerObjectiveThresholdPerCell"
-        ),
+        "outer_objective_threshold_per_cell": fit.get("outerObjectiveThresholdPerCell"),
         "outer_objective_stable": bool(fit.get("outerObjectiveStable", False)),
         "outer_effective_observation_count": int(
             fit.get("outerEffectiveObservationCount", 0) or 0
@@ -1852,9 +1873,7 @@ def _fitDiagnosticsMetadata(fit: Mapping[str, Any]) -> dict[str, Any]:
         "inner_ecm_converged": bool(fit.get("innerECMConverged", False)),
         "warm_start": dict(fit.get("warmStart", {}) or {}),
         "all_ecm_converged": (
-            bool(convergedValues) and all(convergedValues)
-            if convergedValues
-            else None
+            bool(convergedValues) and all(convergedValues) if convergedValues else None
         ),
         "max_nll_increase_count": max(increaseValues) if increaseValues else None,
         "fixed_background_ecm": ecmDiagnostics,
@@ -2120,7 +2139,6 @@ def runConsenrich(
     ECM_backgroundShiftRtol: float = 1.0e-3,
     ECM_outerNLLRtol: float = 1.0e-4,
     ECM_backgroundSmoothness: float = 1.0,
-    ECM_backgroundPriorQuantile: float = 0.5,
     ECM_backgroundPriorTrimQuantile: float = 0.90,
     ECM_backgroundPriorVariance: float | None = None,
     ECM_backgroundPriorVariancePenaltyShape: float = 2.0,
@@ -2159,32 +2177,17 @@ def runConsenrich(
 
     .. math::
 
-      y_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
+      z_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
       \qquad
       \mathrm{Var}(\epsilon_{[j,i]}) =
       \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[j,i]}}.
 
-    Here :math:`g_{[i]}` is a shared smooth background, :math:`b_j` is a
-    replicate-level bias term, and :math:`v_{[j,i]}` is the plugin observation
-    variance supplied by ``matrixMunc``. The shared smooth background fit can be
-    disabled with ``fitBackground=False``. By default, replicate offsets are
-    centered for identifiability while the shared background is allowed to carry
-    a contig-wide level; background centering can be enabled with
-    ``ECM_zeroCenterBackground=True``.
-
-    When background fitting is enabled, the background block also uses a fixed
-    empirical-Bayes prior :math:`g_i \sim N(\mu_i, A)`. The prior
-    mean :math:`\mu_i` is a robust local quantile baseline of the
-    inverse-variance weighted replicate mean. The local quantile window is
-    paired to the same nominal ``blockLenIntervals`` length scale as the
-    second-difference smoother; the two are not the same effective smoothing
-    operator. Its baseline-estimation variance is estimated with the local
-    quantile asymptotic variance, and the excess between-position variance
-    :math:`A` is estimated from the marginal normal-means likelihood unless
-    ``ECM_backgroundPriorVariance`` is supplied. Automatic estimation uses a weak
-    log-gamma/Gamma penalty on :math:`A` with shape greater than one, making the
-    empirical-Bayes variance estimate nondegenerate when the unpenalized marginal
-    likelihood would otherwise choose the boundary value :math:`A=0`.
+    Here :math:`z_{[j,i]}` is the observed track value, :math:`g_{[i]}` is an
+    optional low-frequency background shared across replicates, :math:`b_j` is
+    a replicate-level bias term, and :math:`v_{[j,i]}` is the plugin
+    observation variance supplied by ``matrixMunc``. Note, by default, replicate offsets
+    are centered to zero for identifiability while the shared background is allowed to
+    carry a contig-wide level.
 
     The latent state follows
 
@@ -2194,23 +2197,16 @@ def runConsenrich(
       \qquad
       \mathrm{Var}(\eta_{[i]}) = \frac{\mathbf{Q}_0}{\kappa_{[i]}}.
 
-    If ``ECM_useAPN=True``, the forward filter instead uses the adaptive-process-noise
-    D-statistic update to scale :math:`\mathbf{Q}_0` and process-precision reweighting is disabled.
+    If ``ECM_useAPN=True``, the forward filter instead uses the
+    adaptive-process-noise D-statistic update to scale
+    :math:`\mathbf{Q}_0`; process-precision reweighting is disabled, and the
+    monotonic-descent guarantee no longer applies.
 
     This wrapper ties together several fundamental routines written in Cython:
 
     #. :func:`consenrich.cconsenrich.cforwardPass`: Forward filter (predict, update)
     #. :func:`consenrich.cconsenrich.cbackwardPass`: Backward fixed-interval smoother
-    #. :func:`consenrich.cconsenrich.cfixedBackgroundECM`: Joint optimization of robust precision reweighting and replicate-level observation calibration
-
-    ``processQCalibration="regularizedDiagonal"`` first runs a short warm-up
-    fixed-background ECM smoother with APN and process-precision reweighting disabled, estimates the
-    fixed diagonal base process covariance from smoothed transition residuals,
-    and then runs the requested post-Q fit with the learned
-    :math:`\mathbf{Q}_0`. The warm-up uses its own outer-pass budget
-    (``processQWarmupOuterIters``) so it is not accidentally coupled to the main
-    post-Q fit's outer-pass budget.
-    ``processQCalibration="none"`` preserves the legacy scalar covariance path.
+    #. :func:`consenrich.cconsenrich.cfixedBackgroundECM`: Run ECM to convergence wrt a fixed :math:`g`.
 
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`, :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cfixedBackgroundECM`
     """
@@ -2541,12 +2537,29 @@ def runConsenrich(
             ),
             robustTNu=float(ECM_robustTNu),
         )
+        effectivePriorPrecisionTrack = priorPrecisionTrack
+        if priorPrecisionTrack is not None:
+            objectiveInvVar = 1.0 / np.maximum(
+                np.asarray(matrixMuncLocal, dtype=np.float64) + float(pad),
+                1.0e-8,
+            )
+            if lambdaExp is not None:
+                obsPrecision = np.clip(
+                    np.asarray(lambdaExp, dtype=np.float64),
+                    float(observationPrecisionMultiplierMin),
+                    float(observationPrecisionMultiplierMax),
+                )
+                objectiveInvVar *= obsPrecision
+            effectivePriorPrecisionTrack = _capBackgroundPriorPrecisionForShrinkage(
+                np.asarray(priorPrecisionTrack, dtype=np.float64),
+                np.sum(objectiveInvVar, axis=0, dtype=np.float64),
+            )
         smoothPenalty, priorPenalty = _backgroundObjectivePenalty(
             background=background,
             blockLenIntervals=int(blockLenIntervals),
             backgroundSmoothness=float(ECM_backgroundSmoothness),
             priorMeanTrack=priorMeanTrack,
-            priorPrecisionTrack=priorPrecisionTrack,
+            priorPrecisionTrack=effectivePriorPrecisionTrack,
         )
         objective = float(
             forwardNLL + obsPenalty + procPenalty + smoothPenalty + priorPenalty
@@ -2602,8 +2615,7 @@ def runConsenrich(
 
         lambdaExpLocal = (
             np.ascontiguousarray(initialLambdaLocal, dtype=np.float32).copy()
-            if initialLambdaLocal is not None
-            and bool(ECM_useObsPrecisionReweighting)
+            if initialLambdaLocal is not None and bool(ECM_useObsPrecisionReweighting)
             else None
         )
         processPrecExpLocal = (
@@ -2616,7 +2628,9 @@ def runConsenrich(
         replicateBiasLocal = (
             np.zeros(mLocal, dtype=np.float32)
             if initialReplicateBiasLocal is None
-            else np.ascontiguousarray(initialReplicateBiasLocal, dtype=np.float32).copy()
+            else np.ascontiguousarray(
+                initialReplicateBiasLocal, dtype=np.float32
+            ).copy()
         )
         warmStartSummaryLocal = {
             "background": bool(initialBackgroundLocal is not None),
@@ -2654,7 +2668,6 @@ def runConsenrich(
                 matrixMunc=matrixMuncLocal,
                 pad=float(pad),
                 blockLenIntervals=int(blockLenIntervals),
-                backgroundPriorQuantile=float(ECM_backgroundPriorQuantile),
                 returnDiagnostics=True,
             )
             rawInvVar = 1.0 / np.maximum(
@@ -2686,6 +2699,10 @@ def runConsenrich(
                 backgroundPriorVariance=float(backgroundPriorVarianceLocal),
                 priorMeanVarianceTrack=backgroundPriorMeanVarianceLocal,
             )
+            backgroundPriorPrecisionLocal = _capBackgroundPriorPrecisionForShrinkage(
+                backgroundPriorPrecisionLocal,
+                _rawWeight,
+            )
             priorShrinkageDenom = _rawWeight + backgroundPriorPrecisionLocal
             priorShrinkage = np.divide(
                 backgroundPriorPrecisionLocal,
@@ -2695,10 +2712,9 @@ def runConsenrich(
             )
             logger.info(
                 "backgroundPrior=EB:\n"
-                "\tvariance=%.6g\tmode=%s\tquantile=%.3g\twindow=%d\teffectiveWindow=%.6g\ttauInt=%.6g\tmedianBaselineVar=%.6g\tmedianShrinkage=%.3g\tpenaltyShape=%.3g\tpenaltyRate=%.3g",
+                "\tvariance=%.6g\tmode=%s\tsmoother=savgol0\twindow=%d\teffectiveWindow=%.6g\ttauInt=%.6g\tmedianBaselineVar=%.6g\tmedianShrinkage=%.3g\tpenaltyShape=%.3g\tpenaltyRate=%.3g",
                 float(backgroundPriorVarianceLocal),
                 str(backgroundPriorVarianceModeLocal),
-                float(ECM_backgroundPriorQuantile),
                 int(backgroundPriorWindowIntervalsLocal),
                 float(backgroundPriorDependenceLocal["effective_window"]),
                 float(backgroundPriorDependenceLocal["tau_int"]),
@@ -2850,17 +2866,13 @@ def runConsenrich(
                         lastObjectiveDiagnosticsLocal["effective_observation_count"]
                     ),
                     "outer_robust_observation_penalty": metadataFloat(
-                        lastObjectiveDiagnosticsLocal[
-                            "robust_observation_penalty"
-                        ]
+                        lastObjectiveDiagnosticsLocal["robust_observation_penalty"]
                     ),
                     "outer_robust_process_penalty": metadataFloat(
                         lastObjectiveDiagnosticsLocal["robust_process_penalty"]
                     ),
                     "outer_background_smoothness_penalty": metadataFloat(
-                        lastObjectiveDiagnosticsLocal[
-                            "background_smoothness_penalty"
-                        ]
+                        lastObjectiveDiagnosticsLocal["background_smoothness_penalty"]
                     ),
                     "outer_background_prior_penalty": metadataFloat(
                         lastObjectiveDiagnosticsLocal["background_prior_penalty"]
@@ -3070,9 +3082,7 @@ def runConsenrich(
             ecmDiagnosticsNormalized["outer_inner_ecm_converged"] = bool(
                 lastInnerECMConvergedLocal
             )
-            ecmDiagnosticsNormalized["outer_stable_iters"] = int(
-                outerStableItersLocal
-            )
+            ecmDiagnosticsNormalized["outer_stable_iters"] = int(outerStableItersLocal)
             ecmDiagnosticsNormalized["outer_patience_target"] = int(
                 outerPatienceTargetLocal
             )
@@ -3432,14 +3442,18 @@ def runConsenrich(
     processQCalibrationMetadata = (
         None
         if processQCalibrationInfo is None
-        else {key: metadataFloat(value) for key, value in processQCalibrationInfo.items()}
+        else {
+            key: metadataFloat(value) for key, value in processQCalibrationInfo.items()
+        }
     )
     runDiagnostics = {
         "final_nll": metadataFloat(float(fitFinal.get("sumNLL", np.nan))),
         "final_forward_nis": metadataFloat(finalForwardNIS),
         "precision_reweighting_boundary_hits": summarizePrecisionBoundaryHits(
             observationPrecision=(
-                fitFinal.get("lambdaExp") if bool(ECM_useObsPrecisionReweighting) else None
+                fitFinal.get("lambdaExp")
+                if bool(ECM_useObsPrecisionReweighting)
+                else None
             ),
             observationPrecisionMin=float(observationPrecisionMultiplierMin),
             observationPrecisionMax=float(observationPrecisionMultiplierMax),
@@ -3465,18 +3479,21 @@ def runConsenrich(
                 if fitFinal.get("backgroundPriorVariance") is not None
                 else np.nan
             ),
-            "variance_mode": str(
-                fitFinal.get("backgroundPriorVarianceMode") or "none"
-            ),
+            "variance_mode": str(fitFinal.get("backgroundPriorVarianceMode") or "none"),
             "baseline_variance_median": metadataFloat(
                 float(np.nanmedian(fitFinal["backgroundPriorMeanVariance"]))
                 if fitFinal.get("backgroundPriorMeanVariance") is not None
                 else np.nan
             ),
-            "quantile": metadataFloat(float(ECM_backgroundPriorQuantile)),
+            "smoother": "savgol_degree0",
             "window_intervals": (
                 int(fitFinal["backgroundPriorWindowIntervals"])
                 if fitFinal.get("backgroundPriorWindowIntervals") is not None
+                else 0
+            ),
+            "savgol_window_intervals": (
+                int(fitFinal["backgroundPriorDependence"]["savgol_window"])
+                if fitFinal.get("backgroundPriorDependence") is not None
                 else 0
             ),
             "effective_window_intervals": metadataFloat(
@@ -4409,7 +4426,6 @@ def _backgroundPriorMeanVarianceTracks(
     matrixMunc: np.ndarray,
     pad: float,
     blockLenIntervals: int,
-    backgroundPriorQuantile: float = 0.5,
     returnDiagnostics: bool = False,
 ) -> (
     tuple[npt.NDArray[np.float32], npt.NDArray[np.float64]]
@@ -4424,16 +4440,20 @@ def _backgroundPriorMeanVarianceTracks(
     if intervalCount <= 0:
         out = (np.zeros(0, dtype=np.float32), np.zeros(0, dtype=np.float64))
         if returnDiagnostics:
-            return out[0], out[1], {
-                "nominal_window": 0,
-                "effective_window": 0.0,
-                "tau_int": 1.0,
-                "lags_used": 0,
-                "global_ess": 0.0,
-            }
+            return (
+                out[0],
+                out[1],
+                {
+                    "nominal_window": 0,
+                    "savgol_window": 0,
+                    "effective_window": 0.0,
+                    "tau_int": 1.0,
+                    "lags_used": 0,
+                    "global_ess": 0.0,
+                },
+            )
         return out
 
-    q = _normalizeUnitInterval("ECM_backgroundPriorQuantile", backgroundPriorQuantile)
     invVar = 1.0 / np.maximum(muncArr + float(pad), 1.0e-8)
     targetTrack, _targetVariance, weightTrack = _weightedBackgroundTarget(
         residualMatrix=dataArr,
@@ -4445,13 +4465,18 @@ def _backgroundPriorMeanVarianceTracks(
             np.full(intervalCount, np.inf, dtype=np.float64),
         )
         if returnDiagnostics:
-            return out[0], out[1], {
-                "nominal_window": 0,
-                "effective_window": 0.0,
-                "tau_int": 1.0,
-                "lags_used": 0,
-                "global_ess": 0.0,
-            }
+            return (
+                out[0],
+                out[1],
+                {
+                    "nominal_window": 0,
+                    "savgol_window": 0,
+                    "effective_window": 0.0,
+                    "tau_int": 1.0,
+                    "lags_used": 0,
+                    "global_ess": 0.0,
+                },
+            )
         return out
 
     window = _backgroundPriorWindowLength(
@@ -4461,10 +4486,10 @@ def _backgroundPriorMeanVarianceTracks(
     if window <= 1:
         baseline = targetTrack
     else:
-        baseline = ndimage.percentile_filter(
+        baseline = signal.savgol_filter(
             targetTrack,
-            percentile=100.0 * q,
-            size=window,
+            window_length=window,
+            polyorder=0,
             mode="nearest",
         )
     baseline = np.nan_to_num(baseline, nan=0.0, posinf=0.0, neginf=0.0)
@@ -4493,61 +4518,74 @@ def _backgroundPriorMeanVarianceTracks(
             mode="nearest",
         )
 
-    # Asymptotic variance of a sample quantile:
-    # Var(Q_p) ~= p(1-p) / (n_eff * f(Q_p)^2). Estimate f(Q_p) by a
-    # normal-reference density using the local IQR, while flooring by the local
-    # observation variance so a perfectly flat window still has uncertainty.
-    qForVariance = float(np.clip(q, 1.0e-3, 1.0 - 1.0e-3))
-    normalQuantile = float(special.ndtri(qForVariance))
-    normalDensity = float(
-        np.exp(-0.5 * normalQuantile * normalQuantile) / np.sqrt(2.0 * np.pi)
-    )
-    quantileScore = (
-        (
-            np.asarray(targetTrack, dtype=np.float64)
-            <= np.asarray(baseline, dtype=np.float64)
-        ).astype(np.float64)
-        - qForVariance
+    baselineResidual = np.asarray(targetTrack, dtype=np.float64) - np.asarray(
+        baseline,
+        dtype=np.float64,
     )
     globalESS, tauInt, lagsUsed = _estimatePositiveSequenceEffectiveSampleSize(
-        quantileScore,
+        baselineResidual,
         maxLag=max(1, int(window) - 1),
     )
     effectiveWindow = float(max(1.0, min(float(window), float(window) / tauInt)))
     iqrScale = np.maximum(
-        (np.asarray(localQ75, dtype=np.float64) - np.asarray(localQ25, dtype=np.float64))
+        (
+            np.asarray(localQ75, dtype=np.float64)
+            - np.asarray(localQ25, dtype=np.float64)
+        )
         / 1.3489795003921634,
         0.0,
     )
-    scaleSq = np.maximum(iqrScale * iqrScale, np.asarray(localTargetVariance))
+    localTargetVariance = np.asarray(localTargetVariance, dtype=np.float64)
+    localTargetVariance = np.nan_to_num(
+        localTargetVariance,
+        nan=1.0e-12,
+        posinf=1.0e-12,
+        neginf=1.0e-12,
+    )
+    localTargetVariance = np.maximum(localTargetVariance, 1.0e-12)
+    scaleSq = np.maximum(iqrScale * iqrScale, localTargetVariance)
     scaleSq = np.nan_to_num(scaleSq, nan=1.0e-12, posinf=1.0e-12, neginf=1.0e-12)
     scaleSq = np.maximum(scaleSq, 1.0e-12)
-    baselineVariance = (
-        qForVariance
-        * (1.0 - qForVariance)
-        * scaleSq
-        / (effectiveWindow * normalDensity * normalDensity)
-    )
+    baselineVariance = scaleSq / effectiveWindow
     baselineVariance = np.nan_to_num(
         baselineVariance,
         nan=1.0e-12,
         posinf=1.0e-12,
         neginf=1.0e-12,
     )
-    baselineVariance = np.maximum(baselineVariance, 1.0e-12)
+    # The rolling baseline is data-derived and overlaps the likelihood target.
+    # Treating its local-mean SE as arbitrarily precise can turn the g_i prior
+    # into a hard clamp when the local window is large. Keep the prior
+    # pseudo-observation no more precise than the local weighted target.
+    pointTargetVariance = np.asarray(_targetVariance, dtype=np.float64)
+    pointTargetVariance = np.nan_to_num(
+        pointTargetVariance,
+        nan=1.0e-12,
+        posinf=1.0e-12,
+        neginf=1.0e-12,
+    )
+    pointTargetVariance = np.maximum(pointTargetVariance, 1.0e-12)
+    baselineVariance = np.maximum.reduce(
+        (baselineVariance, localTargetVariance, pointTargetVariance)
+    )
     baselineOut = np.asarray(baseline, dtype=np.float32)
     varianceOut = baselineVariance.astype(
         np.float64,
         copy=False,
     )
     if returnDiagnostics:
-        return baselineOut, varianceOut, {
-            "nominal_window": int(window),
-            "effective_window": float(effectiveWindow),
-            "tau_int": float(tauInt),
-            "lags_used": int(lagsUsed),
-            "global_ess": float(globalESS),
-        }
+        return (
+            baselineOut,
+            varianceOut,
+            {
+                "nominal_window": int(window),
+                "savgol_window": int(window),
+                "effective_window": float(effectiveWindow),
+                "tau_int": float(tauInt),
+                "lags_used": int(lagsUsed),
+                "global_ess": float(globalESS),
+            },
+        )
     return baselineOut, varianceOut
 
 
@@ -4754,6 +4792,10 @@ def _solveZeroCenteredBackground(
             priorPrecision,
             0.0,
         )
+        priorPrecision = _capBackgroundPriorPrecisionForShrinkage(
+            priorPrecision,
+            weightTrack,
+        )
         priorMean = np.nan_to_num(priorMean, nan=0.0, posinf=0.0, neginf=0.0)
         weightTrack = weightTrack + priorPrecision
         rhsTrack = rhsTrack + priorPrecision * priorMean
@@ -4887,7 +4929,11 @@ def getMuncTrack(
             ("MUNC variance EB", "enabled" if EB_use else "disabled"),
             (
                 "MUNC trend source",
-                "pooled signed trend" if pooledTrend is not None else "fit sample trend",
+                (
+                    "pooled signed trend"
+                    if pooledTrend is not None
+                    else "fit sample trend"
+                ),
             ),
         ),
     )
@@ -5516,7 +5562,11 @@ def EB_computePooledPriorStrength(
         )
         return float(1.0e6)
 
-    if sampleIndex is not None and chromosomeIndex is not None and blockStarts is not None:
+    if (
+        sampleIndex is not None
+        and chromosomeIndex is not None
+        and blockStarts is not None
+    ):
         samples = np.asarray(sampleIndex, dtype=np.int64).ravel()
         chromosomes = np.asarray(chromosomeIndex, dtype=np.int64).ravel()
         starts = np.asarray(blockStarts, dtype=np.int64).ravel()
@@ -5542,7 +5592,9 @@ def EB_computePooledPriorStrength(
         candidateIdx = np.asarray(thinned, dtype=np.intp)
 
     if candidateIdx.size < 4:
-        logger.warning("After pooled thinning, insufficient pairs...setting Nu_0 = 1.0e6")
+        logger.warning(
+            "After pooled thinning, insufficient pairs...setting Nu_0 = 1.0e6"
+        )
         return float(1.0e6)
 
     return _computePriorStrengthFromCandidateIdx(

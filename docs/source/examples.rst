@@ -1,39 +1,42 @@
 Quickstart + Usage
-----------------------
+------------------
+
+After installing Consenrich, you can run it from the command line
+(``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
+The examples below are intentionally small: each YAML runs on chromosomes 21
+and 22 so the demos finish quickly while still producing state bigWigs,
+uncertainty bigWigs, and ROCCO peak calls.
 
 .. toctree::
    :maxdepth: 1
    :caption: Quickstart + Usage
    :name: Usage
 
-After installing Consenrich, you can run it via the command line (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
+.. tip::
+
+   Refer to the ``<process,observation,etc.>Params`` classes in the
+   :ref:`API` for complete documentation of configuration options.
 
 
 .. _getting-started:
 
-Getting Started: Minimal Example
+Getting Started: H3K27ac ChIP-seq
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. toctree::
-    :maxdepth: 2
-    :caption: Getting Started
-    :name: minimal
-
-A brief analysis using H3K27ac (narrow) ChIP-seq data generated from human tissue samples is carried out for demonstration.
+This minimal example estimates a consensus H3K27ac signal from four ENCODE
+epidermis ChIP-seq experiments with matched input controls.
 
 Input Data
-"""""""""""""""""""""
+""""""""""
 
-The input data in this example consists of four donors' treatment and control samples (epidermal tissue) from ENCODE.
-
-.. list-table:: Input Data
+.. list-table:: H3K27ac demo inputs
   :header-rows: 1
-  :widths: 20 20 30 30
+  :widths: 18 22 30 30
 
   * - Experiment
     - Biosample
-    - H3K27ac Alignment
-    - Control Alignment
+    - H3K27ac alignment
+    - Control alignment
   * - `ENCSR214UZE <https://www.encodeproject.org/experiments/ENCSR214UZE/>`_
     - Epidermis/Female/71
     - `ENCFF793ZHL.bam <https://www.encodeproject.org/files/ENCFF793ZHL/@@download/ENCFF793ZHL.bam>`_
@@ -52,12 +55,12 @@ The input data in this example consists of four donors' treatment and control sa
     - `ENCFF490MWV.bam <https://www.encodeproject.org/files/ENCFF490MWV/@@download/ENCFF490MWV.bam>`_
 
 
-Download Alignment Files from ENCODE
-"""""""""""""""""""""""""""""""""""""""
+Download Alignments
+"""""""""""""""""""
 
-Copy+paste the following to your terminal to download and index the BAM files for this demo.
-
-You can also use ``curl -O <URL>`` in place of ``wget <URL>`` if the latter is not available on your system.
+Copy and paste the following into your terminal to download and index the BAM
+files. You can use ``curl -L -O <URL>`` in place of ``wget <URL>`` if ``wget``
+is not available.
 
 .. code-block:: bash
 
@@ -71,30 +74,11 @@ You can also use ``curl -O <URL>`` in place of ``wget <URL>`` if the latter is n
   samtools index -M *.bam
 
 
-Using a YAML Configuration file
-"""""""""""""""""""""""""""""""""""""
+YAML Configuration
+""""""""""""""""""
 
-.. tip::
-
-   Refer to the ``<process,observation,etc.>Params`` classes in module in the :ref:`API` for complete documentation of configuration options.
-
-
-Process-noise covariance setup
-"""""""""""""""""""""""""""""""""
-
-By default, Consenrich runs a short pre-fit calibration pass that estimates a fixed
-diagonal process-noise covariance from smoothed transition residuals. This sets
-separate level and trend innovation variances before the final estimator runs.
-
-To preserve the legacy scalar process covariance behavior, set:
-
-.. code-block:: yaml
-
-  processParams:
-    processQCalibration: none
-
-
-Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``:
+Save the following as ``demoHistoneChIPSeq.yaml`` in the directory containing
+the BAM files:
 
 .. code-block:: yaml
   :name: demoHistoneChIPSeq.yaml
@@ -103,43 +87,338 @@ Copy and paste the following YAML into a file named ``demoHistoneChIPSeq.yaml``:
 
   genomeParams:
     name: hg38
-    chromosomes: [chr21, chr22] # remove this line to run genome-wide
+    chromosomes: [chr21, chr22]
+    excludeForNorm: [chrX, chrY]
+
+  inputParams:
+    samples:
+      - name: H3K27ac_1
+        path: ENCFF793ZHL.bam
+        format: bam
+        role: treatment
+      - name: H3K27ac_2
+        path: ENCFF647VPO.bam
+        format: bam
+        role: treatment
+      - name: H3K27ac_3
+        path: ENCFF809VKT.bam
+        format: bam
+        role: treatment
+      - name: H3K27ac_4
+        path: ENCFF295EFL.bam
+        format: bam
+        role: treatment
+      - name: input_1
+        path: ENCFF444WVG.bam
+        format: bam
+        role: control
+      - name: input_2
+        path: ENCFF619NYP.bam
+        format: bam
+        role: control
+      - name: input_3
+        path: ENCFF898LKJ.bam
+        format: bam
+        role: control
+      - name: input_4
+        path: ENCFF490MWV.bam
+        format: bam
+        role: control
+
+
+Run Consenrich
+""""""""""""""
+
+.. code-block:: console
+  :name: Run H3K27ac demo
+
+  % consenrich --config demoHistoneChIPSeq.yaml --verbose
+
+The run writes a state bedGraph, uncertainty bedGraph, state bigWig,
+uncertainty bigWig, and ROCCO narrowPeak file. With the current package
+version, the principal output files are:
+
+.. code-block:: text
+
+  demoHistoneChIPSeq_consenrich_state.v0.10.5a0.bw
+  demoHistoneChIPSeq_consenrich_uncertainty.v0.10.5a0.bw
+  consenrichOutput_demoHistoneChIPSeq_state.v0.10.5a0_rocco.narrowPeak
+
+Results
+"""""""
+
+.. admonition:: Image placeholder
+
+   IGV/browser snapshot of the H3K27ac state estimate, local uncertainty, and
+   ROCCO peaks over a representative locus.
+
+
+.. _atac-demo:
+
+ATAC-seq Demo
+~~~~~~~~~~~~~
+
+This demo estimates a consensus chromatin-accessibility signal from ten ENCODE
+ATAC-seq alignments. ATAC-seq does not require matched input controls, so only
+treatment samples are listed.
+
+Download Alignments
+"""""""""""""""""""
+
+.. code-block:: bash
+
+  encodeFiles=https://www.encodeproject.org/files
+  for file in ENCFF009NCL ENCFF110EWQ ENCFF231YYD ENCFF239RGZ ENCFF724QHH ENCFF767FGV ENCFF801THG ENCFF822BKT ENCFF925NDY ENCFF978QLZ; do
+      wget "$encodeFiles/$file/@@download/$file.bam"
+  done
+  samtools index -M *.bam
+
+
+YAML Configuration
+""""""""""""""""""
+
+Save the following as ``atacDemo.yaml``:
+
+.. code-block:: yaml
+  :name: atacDemo.yaml
+
+  experimentName: atacDemo
+
+  genomeParams:
+    name: hg38
+    chromosomes: [chr21, chr22]
     excludeForNorm: [chrX, chrY]
 
   inputParams:
     bamFiles:
-      - ENCFF793ZHL.bam
-      - ENCFF647VPO.bam
-      - ENCFF809VKT.bam
-      - ENCFF295EFL.bam
-    bamFilesControl:
-      - ENCFF444WVG.bam
-      - ENCFF619NYP.bam
-      - ENCFF898LKJ.bam
-      - ENCFF490MWV.bam
-
-
-.. admonition:: Control Inputs
-  :class: tip
-
-  You can omit ``inputParams.bamFilesControl`` for ATAC-seq, DNase-seq, Cut&Run, and other assays where no input control is available or applicable.
+      - ENCFF009NCL.bam
+      - ENCFF110EWQ.bam
+      - ENCFF231YYD.bam
+      - ENCFF239RGZ.bam
+      - ENCFF724QHH.bam
+      - ENCFF767FGV.bam
+      - ENCFF801THG.bam
+      - ENCFF822BKT.bam
+      - ENCFF925NDY.bam
+      - ENCFF978QLZ.bam
 
 
 Run Consenrich
-"""""""""""""""""""""
+""""""""""""""
 
 .. code-block:: console
-  :name: Run Consenrich
+  :name: Run ATAC demo
 
-  % consenrich --config demoHistoneChIPSeq.yaml --verbose
+  % consenrich --config atacDemo.yaml --verbose
+
+Principal output files:
+
+.. code-block:: text
+
+  atacDemo_consenrich_state.v0.10.5a0.bw
+  atacDemo_consenrich_uncertainty.v0.10.5a0.bw
+  consenrichOutput_atacDemo_state.v0.10.5a0_rocco.narrowPeak
 
 Results
-""""""""""""""""""""""""""
+"""""""
 
-* We display Consenrich results (blue) over a 250 kb locus in human chromosome 22
+.. admonition:: Image placeholder
+
+   IGV/browser snapshot of the ATAC-seq state estimate, local uncertainty, and
+   ROCCO peaks over a representative locus.
 
 
-.. image:: ../images/ConsenrichIGVdemoHistoneChIPSeq.png
-  :alt: Output Consenrich Signal Estimates
-    :width: 600px
-    :align: left
+Broad Mark ChIP-seq Demo
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+This demo estimates a consensus H3K4me1 signal from ten ENCODE heart left
+ventricle ChIP-seq experiments with matched input controls. The current demo
+uses 100 bp intervals and a larger background length-scale multiplier, which is
+a useful starting point for broad histone marks.
+
+Download Alignments
+"""""""""""""""""""
+
+The H3K4me1 YAML uses descriptive filenames that include both the file
+accession and experiment accession, so the download commands use ``wget -O`` to
+write each BAM to the expected name.
+
+.. code-block:: bash
+
+  encodeFiles=https://www.encodeproject.org/files
+  download_bam () {
+      accession="$1"
+      output="$2"
+      wget -O "$output" "$encodeFiles/$accession/@@download/$accession.bam"
+  }
+
+  download_bam ENCFF365LTV ENCFF365LTV_ENCSR449FRQ_treatment_GRCh38.bam
+  download_bam ENCFF630KZV ENCFF630KZV_ENCSR678RFS_treatment_GRCh38.bam
+  download_bam ENCFF851FLQ ENCFF851FLQ_ENCSR412THE_treatment_GRCh38.bam
+  download_bam ENCFF581VRR ENCFF581VRR_ENCSR208XKJ_treatment_GRCh38.bam
+  download_bam ENCFF451FGF ENCFF451FGF_ENCSR724MJX_treatment_GRCh38.bam
+  download_bam ENCFF660DDB ENCFF660DDB_ENCSR438QZN_treatment_GRCh38.bam
+  download_bam ENCFF828GWI ENCFF828GWI_ENCSR564QBS_treatment_GRCh38.bam
+  download_bam ENCFF392MXC ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
+  download_bam ENCFF366HMH ENCFF366HMH_ENCSR817JNE_treatment_GRCh38.bam
+  download_bam ENCFF671AAF ENCFF671AAF_ENCSR299NYB_treatment_GRCh38.bam
+
+  download_bam ENCFF536MLZ ENCFF536MLZ_ENCSR178FVP_control_GRCh38.bam
+  download_bam ENCFF007LNN ENCFF007LNN_ENCSR632MPN_control_GRCh38.bam
+  download_bam ENCFF422MKH ENCFF422MKH_ENCSR040TRJ_control_GRCh38.bam
+  download_bam ENCFF525NLT ENCFF525NLT_ENCSR979YKY_control_GRCh38.bam
+  download_bam ENCFF013ION ENCFF013ION_ENCSR109IWL_control_GRCh38.bam
+  download_bam ENCFF730PAF ENCFF730PAF_ENCSR526EXI_control_GRCh38.bam
+  download_bam ENCFF971XWL ENCFF971XWL_ENCSR945LPX_control_GRCh38.bam
+  download_bam ENCFF273EYI ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
+  download_bam ENCFF944AYC ENCFF944AYC_ENCSR061EXX_control_GRCh38.bam
+  download_bam ENCFF271VZL ENCFF271VZL_ENCSR261PLD_control_GRCh38.bam
+
+  samtools index -M *.bam
+
+
+YAML Configuration
+""""""""""""""""""
+
+Save the following as ``bigH3K4me1Demo.yaml``:
+
+.. code-block:: yaml
+  :name: bigH3K4me1Demo.yaml
+
+  experimentName: bigH3K4me1Demo
+
+  genomeParams:
+    name: hg38
+    chromosomes: [chr21, chr22]
+    excludeForNorm: [chrX, chrY]
+
+  inputParams:
+    samples:
+      - name: ENCSR449FRQ_H3K4me1
+        path: ENCFF365LTV_ENCSR449FRQ_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR678RFS_H3K4me1
+        path: ENCFF630KZV_ENCSR678RFS_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR412THE_H3K4me1
+        path: ENCFF851FLQ_ENCSR412THE_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR208XKJ_H3K4me1
+        path: ENCFF581VRR_ENCSR208XKJ_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR724MJX_H3K4me1
+        path: ENCFF451FGF_ENCSR724MJX_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR438QZN_H3K4me1
+        path: ENCFF660DDB_ENCSR438QZN_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR564QBS_H3K4me1
+        path: ENCFF828GWI_ENCSR564QBS_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR485LPA_H3K4me1
+        path: ENCFF392MXC_ENCSR485LPA_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR817JNE_H3K4me1
+        path: ENCFF366HMH_ENCSR817JNE_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+      - name: ENCSR299NYB_H3K4me1
+        path: ENCFF671AAF_ENCSR299NYB_treatment_GRCh38.bam
+        format: bam
+        role: treatment
+
+      - name: ENCSR178FVP_input_for_ENCSR449FRQ
+        path: ENCFF536MLZ_ENCSR178FVP_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR632MPN_input_for_ENCSR678RFS
+        path: ENCFF007LNN_ENCSR632MPN_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR040TRJ_input_for_ENCSR412THE
+        path: ENCFF422MKH_ENCSR040TRJ_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR979YKY_input_for_ENCSR208XKJ
+        path: ENCFF525NLT_ENCSR979YKY_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR109IWL_input_for_ENCSR724MJX
+        path: ENCFF013ION_ENCSR109IWL_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR526EXI_input_for_ENCSR438QZN
+        path: ENCFF730PAF_ENCSR526EXI_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR945LPX_input_for_ENCSR564QBS
+        path: ENCFF971XWL_ENCSR945LPX_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR120ITZ_input_for_ENCSR485LPA
+        path: ENCFF273EYI_ENCSR120ITZ_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR061EXX_input_for_ENCSR817JNE
+        path: ENCFF944AYC_ENCSR061EXX_control_GRCh38.bam
+        format: bam
+        role: control
+      - name: ENCSR261PLD_input_for_ENCSR299NYB
+        path: ENCFF271VZL_ENCSR261PLD_control_GRCh38.bam
+        format: bam
+        role: control
+
+  countingParams:
+    intervalSizeBP: 100
+
+  fitParams.ECM_backgroundLengthScaleMultiplier: 32
+
+
+Run Consenrich
+""""""""""""""
+
+.. code-block:: console
+  :name: Run H3K4me1 demo
+
+  % consenrich --config bigH3K4me1Demo.yaml --verbose
+
+Principal output files:
+
+.. code-block:: text
+
+  bigH3K4me1Demo_consenrich_state.v0.10.5a0.bw
+  bigH3K4me1Demo_consenrich_uncertainty.v0.10.5a0.bw
+  consenrichOutput_bigH3K4me1Demo_state.v0.10.5a0_rocco.narrowPeak
+
+Results
+"""""""
+
+.. admonition:: Image placeholder
+
+   IGV/browser snapshot of the H3K4me1 state estimate, local uncertainty, and
+   ROCCO peaks over a representative locus.
+
+
+Configuration Suggestions
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Consenrich provides data-driven defaults so most analyses do not require
+tuning. If a dataset needs adjustment, these parameters are often the most
+useful first levers:
+
+#. ``countingParams.intervalSizeBP`` controls the genomic bin size. A 50 bp
+   interval is a good generic starting point for many narrow and enhancer-like
+   assays. Smaller intervals can preserve sharper details, while larger
+   intervals can stabilize broad or noisy marks at lower computational cost.
+#. ``fitParams.ECM_backgroundLengthScaleMultiplier`` multiplies the inferred
+   dependence span to define the effective background length scale. Larger
+   values, such as 32, encourage a flatter background and reduce the chance
+   that local features are absorbed by the background model.

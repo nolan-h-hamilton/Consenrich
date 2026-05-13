@@ -2613,8 +2613,6 @@ def _refineNestedROCCOSolution(
             localAnchorFallbackUsed = bool(
                 localDetails.get("anchor_fallback_window", False)
             )
-            expandedRuns = 0
-            expandedBins = 0
             penaltyExtra = float(localPenaltyDetails["extra_penalty"])
             localPenaltyExtraTotal += penaltyExtra
             localPenaltyExtraMax = float(max(localPenaltyExtraMax, penaltyExtra))
@@ -2658,9 +2656,6 @@ def _refineNestedROCCOSolution(
                         "anchor_selected": bool(localMask[anchorLocal]),
                         "empty_solution": bool(localEmptySolution),
                         "anchor_fallback": bool(localAnchorFallbackUsed),
-                        "expanded_short_runs": int(
-                            expandedRuns if not localEmptySolution else 0
-                        ),
                         "objective": float(_localObjective),
                         "penalized": float(localDetails["penalized_objective"]),
                         "solver_penalty": float(localDetails["selection_penalty"]),

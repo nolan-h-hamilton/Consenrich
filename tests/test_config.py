@@ -529,9 +529,9 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     fitDefaults = consenrich.core.fitParams()
     assert defaultFitArgs.ECM_zeroCenterBackground == fitDefaults.ECM_zeroCenterBackground
     assert not hasattr(defaultFitArgs, "ECM_zeroCenterReplicateBias")
+    assert not hasattr(defaultFitArgs, "ECM_backgroundPriorQuantile")
     for field in (
         "ECM_backgroundLengthScaleMultiplier",
-        "ECM_backgroundPriorQuantile",
         "ECM_backgroundPriorVariancePenaltyShape",
         "ECM_backgroundPriorVariancePenaltyRate",
     ):
@@ -543,7 +543,6 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     genomeParams.name: testGenome
     fitParams.ECM_zeroCenterBackground: false
     fitParams.ECM_backgroundLengthScaleMultiplier: 6
-    fitParams.ECM_backgroundPriorQuantile: 0.5
     fitParams.ECM_backgroundPriorTrimQuantile: 0.8
     fitParams.ECM_backgroundPriorVariance: 0.25
     fitParams.ECM_backgroundPriorVariancePenaltyShape: 2.5
@@ -562,7 +561,6 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     assert parsedOverride["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(
         6.0
     )
-    assert parsedOverride["fitArgs"].ECM_backgroundPriorQuantile == pytest.approx(0.5)
     assert parsedOverride["fitArgs"].ECM_backgroundPriorTrimQuantile == pytest.approx(0.8)
     assert parsedOverride["fitArgs"].ECM_backgroundPriorVariance == pytest.approx(0.25)
     assert (

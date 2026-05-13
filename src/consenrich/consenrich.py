@@ -58,27 +58,26 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
         "fitParams.ECM_minOuterIters": None,
         "fitParams.ECM_backgroundShiftRtol": 0.01,
         "fitParams.ECM_outerNLLRtol": 1.0e-4,
-        "fitParams.ECM_backgroundSmoothness": 1.0,
-        "fitParams.ECM_backgroundLengthScaleMultiplier": 8.0,
-        "fitParams.ECM_backgroundPriorQuantile": 0.5,
+        "fitParams.ECM_backgroundSmoothness": 10.0,
+        "fitParams.ECM_backgroundLengthScaleMultiplier": 16.0,
         "fitParams.ECM_backgroundPriorTrimQuantile": 0.9,
         "fitParams.ECM_backgroundPriorVariance": None,
-        "fitParams.ECM_backgroundPriorVariancePenaltyShape": 4.0,
+        "fitParams.ECM_backgroundPriorVariancePenaltyShape": 2.0,
         "fitParams.ECM_backgroundPriorVariancePenaltyRate": 0.0,
         "processParams.processQCalibration": (
             core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
         ),
-        "processParams.processQWarmupECMIters": 2,
+        "processParams.processQWarmupECMIters": 5,
         "processParams.processQWarmupOuterIters": (
             core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
         ),
         "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 20.0,
-        "processParams.precisionMultiplierMin": 0.25,
-        "processParams.precisionMultiplierMax": 4.0,
+        "processParams.processQTrendPriorWeight": 25.0,
+        "processParams.precisionMultiplierMin": 0.2,
+        "processParams.precisionMultiplierMax": 5.0,
         "observationParams.blockQuantile": 0.5,
-        "observationParams.precisionMultiplierMin": 0.25,
-        "observationParams.precisionMultiplierMax": 4.0,
+        "observationParams.precisionMultiplierMin": 0.2,
+        "observationParams.precisionMultiplierMax": 5.0,
         "uncertaintyCalibration.enabled": True,
     }
 }
@@ -927,7 +926,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
+    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 50)
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
@@ -995,7 +994,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     logMult_ = _cfgGet(
         configData,
         "countingParams.logMult",
-        1.0,
+        1.0 / np.log(2.0),
     )
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
@@ -1023,9 +1022,7 @@ def getScArgs(config_path: str) -> core.scParams:
     if str(defaultCountMode_).strip().lower() not in [
         "coverage",
         "cutsite",
-        "cutsites",
         "fiveprime",
-        "5p",
         "center",
         "midpoint",
     ]:
@@ -1280,7 +1277,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     )
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", 1.0),
-        minQ=_cfgGet(configData, "processParams.minQ", 1.0e-4),
+        minQ=_cfgGet(configData, "processParams.minQ", 1.0e-5),
         maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
             configData,
@@ -1461,7 +1458,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "fitParams.ECM_fixedBackgroundRtol",
             _cfgDefault(configData, "fitParams.ECM_fixedBackgroundRtol"),
         ),
-        ECM_robustTNu=_cfgGet(configData, "fitParams.ECM_robustTNu", 8.0),
+        ECM_robustTNu=_cfgGet(configData, "fitParams.ECM_robustTNu", 10.0),
         ECM_useObsPrecisionReweighting=_cfgGet(
             configData,
             "fitParams.ECM_useObsPrecisionReweighting",
@@ -1513,11 +1510,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "fitParams.ECM_backgroundLengthScaleMultiplier",
             _cfgDefault(configData, "fitParams.ECM_backgroundLengthScaleMultiplier"),
-        ),
-        ECM_backgroundPriorQuantile=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundPriorQuantile",
-            _cfgDefault(configData, "fitParams.ECM_backgroundPriorQuantile"),
         ),
         ECM_backgroundPriorTrimQuantile=_cfgGet(
             configData,
@@ -3544,7 +3536,6 @@ def main():
             ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
             ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
             ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-            ECM_backgroundPriorQuantile=fitArgs.ECM_backgroundPriorQuantile,
             ECM_backgroundPriorTrimQuantile=fitArgs.ECM_backgroundPriorTrimQuantile,
             ECM_backgroundPriorVariance=fitArgs.ECM_backgroundPriorVariance,
             ECM_backgroundPriorVariancePenaltyShape=(
@@ -3742,7 +3733,6 @@ def main():
                 ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
                 ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
                 ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-                ECM_backgroundPriorQuantile=fitArgs.ECM_backgroundPriorQuantile,
                 ECM_backgroundPriorTrimQuantile=fitArgs.ECM_backgroundPriorTrimQuantile,
                 ECM_backgroundPriorVariance=fitArgs.ECM_backgroundPriorVariance,
                 ECM_backgroundPriorVariancePenaltyShape=(

@@ -2911,7 +2911,8 @@ cpdef tuple cfixedBackgroundECM(
     solves the quadratic subproblem *conditional* on the current estimates of :math:`\Lambda`, :math:`\kappa`, and :math:`b`,
     and reweighting plus offset updates optimize over :math:`\Lambda`, :math:`\kappa`, and :math:`b`.
 
-    :param matrixData: Replicate track data (rows: replicates, columns: genomic intervals).
+    :param matrixData: Replicate observed track values :math:`z_{[j,i]}` (rows:
+        replicates, columns: genomic intervals).
     :type matrixData: numpy.ndarray[numpy.float32]
     :param matrixPluginMuncInit: Data-derived observation noise variances :math:`v_{[j,i]}`. Same per-replicate/per-interval shape as ``matrixData``.
     :type matrixPluginMuncInit: numpy.ndarray[numpy.float32]
@@ -3334,7 +3335,7 @@ cpdef tuple cfixedBackgroundECM(
         with nogil:
             # -----------------------------
             # sufficient stats for replicate-level bias
-            #   y[j,k] = x[k] + bias[j] + e[j,k]
+            #   z[j,k] = x[k] + bias[j] + e[j,k]
             #   Var[e[j,k]] = (munc[j,k] + pad) / lambda[j,k]
             # -----------------------------
             for j in range(trackCount):

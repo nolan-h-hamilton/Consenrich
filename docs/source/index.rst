@@ -9,6 +9,9 @@ Consenrich
 
    installation
    examples
+   method
+   glossary
+   constants
    modules
 
 Consenrich is a regularized estimator of genome-wide consensus signal in noisy multi-replicate HTS data.

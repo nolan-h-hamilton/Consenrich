@@ -8,20 +8,26 @@ API Reference
 
 .. note::
 
-  Many parameters do not require tuning in practice but are listed here for completeness.
+  Most parameters do not require tuning in practice but are listed in this documentation for completeness.
 
 Notation
 """"""""
 
 For interval :math:`i` and replicate :math:`j`:
 
-* :math:`y_{[j,i]}` is the observed track value
-* :math:`\mathbf{x}_{[i]} = (x_{[i,0]}, x_{[i,1]})^\top` is the latent level/slope state
-* :math:`g_{[i]}` is the shared zero-centered background
-* :math:`b_j` is the replicate bias term
-* :math:`v_{[j,i]}` is the plugin observation variance track derived from the given data
-* :math:`\mathbf{Q}_0` is the fixed or warm-up-calibrated base process covariance
-* :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are precision weights
+* :math:`z_{[j,i]}` is the observed track value.
+* :math:`\mathbf{x}_{[i]} = (x_{[i,0]}, x_{[i,1]})^\top` is the latent
+  level/slope state.
+* :math:`g_{[i]}` is a low-frequency background shared across replicates (penalized curvature)
+* :math:`b_j` is the per-replicate bias term.
+* :math:`v_{[j,i]}` is the plugin observation-variance track derived from the
+  given data.
+* :math:`\mathbf{Q}_0` is the fixed or warm-up-calibrated base process
+  covariance. ``ECM_useAPN`` can be used as a substitute, but technically voids
+  guarantees of monotonic descent.
+* :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are precision weights for the
+  observation and process models, respectively. These are optimized in every
+  outer iteration if precision reweighting is enabled.
 
 Model
 """""
@@ -30,14 +36,15 @@ Model
 
 .. math::
 
-  y_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
+  z_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
   \qquad
   \mathrm{Var}(\epsilon_{[j,i]}) =
   \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[j,i]}}.
 
 **Prior Process Model**
 
-The latent state vector :math:`\mathbf{x}_{[i]}` evolves according to a first-order process with fat-tailed innovations:
+The latent state vector :math:`\mathbf{x}_{[i]}` evolves according to a
+first-order process with fat-tailed innovations:
 
 .. math::
 
@@ -45,9 +52,10 @@ The latent state vector :math:`\mathbf{x}_{[i]}` evolves according to a first-or
   \qquad
   \mathrm{Var}(\eta_{[i]}) = \frac{\mathbf{Q}_0}{\kappa_{[i]}}.
 
-Here :math:`g_{[i]}` is a shared zero-centered smooth background. Background refinement updates
-:math:`g_{[i]}` while the data-derived (or given) observation-variance track stays fixed
-within each fixed-background ECM solve.
+Here :math:`g_{[i]}` is an optional shared per-interval background restricted
+to low frequencies. Background refinement updates :math:`g_{[i]}` while the
+data-derived or given observation-variance track stays fixed within each
+fixed-background ECM solve.
 
 .. autoclass:: consenrich.core.inputParams
 .. autoclass:: consenrich.core.genomeParams

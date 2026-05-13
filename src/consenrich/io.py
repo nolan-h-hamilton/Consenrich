@@ -137,10 +137,6 @@ def _delegate(name: str, *args, **kwargs):
     return getattr(cli, name)(*args, **kwargs)
 
 
-def _bigWigConversionAvailable(*args, **kwargs):
-    return _delegate("_bigWigConversionAvailable", *args, **kwargs)
-
-
 def _checkSF(*args, **kwargs):
     return _delegate("_checkSF", *args, **kwargs)
 
@@ -205,20 +201,14 @@ def convertBedGraphToBigWig(*args, **kwargs):
     return _delegate("convertBedGraphToBigWig", *args, **kwargs)
 
 
-def _convertSingleBedGraphToBigWig(*args, **kwargs):
-    return _delegate("_convertSingleBedGraphToBigWig", *args, **kwargs)
-
-
 def _sortBedGraphInPlace(*args, **kwargs):
     return _delegate("_sortBedGraphInPlace", *args, **kwargs)
 
 
 __all__ = [
-    "_bigWigConversionAvailable",
     "_buildPathInputSources",
     "_checkSF",
     "_coerceInputSource",
-    "_convertSingleBedGraphToBigWig",
     "_expandWildCards",
     "_getAvailableMemoryBytes",
     "_getMuncWorkerCount",
