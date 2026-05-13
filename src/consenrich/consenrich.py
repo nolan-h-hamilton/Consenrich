@@ -75,7 +75,7 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
         "processParams.processQTrendPriorWeight": 25.0,
         "processParams.precisionMultiplierMin": 0.2,
         "processParams.precisionMultiplierMax": 5.0,
-        "observationParams.blockQuantile": 0.5,
+        "observationParams.blockQuantile": -1.0,
         "observationParams.precisionMultiplierMin": 0.2,
         "observationParams.precisionMultiplierMax": 5.0,
         "uncertaintyCalibration.enabled": True,

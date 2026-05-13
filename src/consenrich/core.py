@@ -262,7 +262,7 @@ class observationParams(NamedTuple):
     :param restrictLocalAR1ToSparseBed: If True, and a sparse BED mask is supplied to :func:`consenrich.core.getMuncTrack`, restrict the default rolling AR(1) local observation noise level estimates to windows fully contained in sparse BED regions.
       This only affects the local rolling AR(1) model, the global prior fit and sparse-nearest mode are unchanged.
     :type restrictLocalAR1ToSparseBed: bool | None
-    :param blockQuantile: Quantile used within each dense-centering block before taking the median across blocks.
+    :param blockQuantile: Quantile used within each dense-centering block before taking the median across blocks. Negative values disable dense centering.
     :type blockQuantile: float | None
     :param pad: A small constant added to the observation noise variance estimates for conditioning
     :type pad: float | None

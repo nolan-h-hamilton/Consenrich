@@ -2015,7 +2015,10 @@ cpdef object cTransformInPlace(
     double logMult=<double>(1.0),
     double blockQuantile=<double>(0.5)
 ):
-    r"""Transform a contiguous coverage track in-place."""
+    r"""Transform a contiguous coverage track in-place.
+
+    Negative ``blockQuantile`` disables dense centering after the log transform.
+    """
     cdef Py_ssize_t blockLenTarget, n, i
     cdef double offset_ = logOffset
     cdef double scale_ = logMult
@@ -2037,7 +2040,7 @@ cpdef object cTransformInPlace(
     if not arrObj.flags.c_contiguous:
         raise ValueError("x must be C-contiguous")
 
-    if w_global <= 0.0:
+    if w_global <= 0.0 or blockQuantile < 0.0:
         if (<cnp.ndarray>arrObj).dtype == np.float32:
             zArr_F32 = arrObj
             n = zArr_F32.shape[0]
@@ -3516,7 +3519,8 @@ cpdef double cDenseMean(
 ):
     r"""Estimate 'dense' offset for a transformed coverage track.
 
-    The dense offset is the median of per-block quantiles.
+    The dense offset is the median of per-block quantiles. A negative
+    ``blockQuantile`` disables dense centering and returns ``0.0``.
     """
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] y
@@ -3531,10 +3535,10 @@ cpdef double cDenseMean(
     if n == 0:
         return 0.0
 
+    if quantile < 0.0:
+        return 0.0
     if not isfinite(quantile):
         quantile = 0.5
-    elif quantile < 0.0:
-        quantile = 0.0
     elif quantile > 1.0:
         quantile = 1.0
 

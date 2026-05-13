@@ -381,6 +381,24 @@ def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
 
 
 @pytest.mark.correctness
+def _caseCTransformNegativeBlockQuantileSkipsDenseCentering():
+    x = np.linspace(0.0, 5.0, 256, dtype=np.float64)
+    x[120:140] += 10.0
+    expected = _monoLogReference(x, offset=1.0, scale=1.0)
+
+    observed = cconsenrich.cTransform(
+        x,
+        blockLength=21,
+        w_global=1.0,
+        logOffset=1.0,
+        logMult=1.0,
+        blockQuantile=-1.0,
+    )
+
+    assert np.allclose(observed, expected)
+
+
+@pytest.mark.correctness
 def _caseDenseMeanUsesMedianOfBlockMediansByDefault():
     block_len = 5
     blocks = [
@@ -417,6 +435,19 @@ def _caseDenseMeanHonorsBlockQuantileArgument():
     )
 
     assert observed == pytest.approx(expected)
+
+
+@pytest.mark.correctness
+def _caseDenseMeanNegativeBlockQuantileReturnsZeroOffset():
+    x = np.array([1.0, 2.0, 3.0, 9.0, 20.0, 30.0], dtype=np.float32)
+
+    observed = cconsenrich.cDenseMean(
+        x,
+        blockLenTarget=3,
+        blockQuantile=-1.0,
+    )
+
+    assert observed == pytest.approx(0.0)
 
 
 @pytest.mark.correctness
@@ -3297,6 +3328,7 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
         ("transform into output", _caseCTransformWithInputIntoWritesOutputInPlace),
         ("in-place pure log float32", _caseCTransformInPlacePureLogMutatesFloat32Array),
         ("in-place transform float64", _caseCTransformInPlaceMatchesAllocatingTransformForFloat64),
+        ("negative block quantile skips dense centering", _caseCTransformNegativeBlockQuantileSkipsDenseCentering),
     ):
         contract_case(label, func)
 
@@ -3305,6 +3337,7 @@ def test_core_dense_mean_alignment_and_existing_peak_contracts(contract_case):
     for label, func in (
         ("dense mean median of block medians", _caseDenseMeanUsesMedianOfBlockMediansByDefault),
         ("dense mean block quantile", _caseDenseMeanHonorsBlockQuantileArgument),
+        ("dense mean negative block quantile", _caseDenseMeanNegativeBlockQuantileReturnsZeroOffset),
         ("dense mean whole track fallback", _caseDenseMeanNonpositiveBlockLengthUsesWholeTrackMedian),
         ("dense mean final partial block", _caseDenseMeanIncludesFinalPartialBlock),
         ("single-end detection", _caseSingleEndDetection),
