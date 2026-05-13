@@ -383,17 +383,33 @@ cdef inline double _secondDiffPenaltyOff1(Py_ssize_t n, Py_ssize_t i, double lam
     return -4.0 * lam
 
 
+cdef inline double _firstDiffPenaltyDiag(Py_ssize_t n, Py_ssize_t i, double lam) noexcept nogil:
+    if n < 2 or lam <= 0.0:
+        return 0.0
+    if i == 0 or i == n - 1:
+        return lam
+    return 2.0 * lam
+
+
+cdef inline double _firstDiffPenaltyOff1(Py_ssize_t n, double lam) noexcept nogil:
+    if n < 2 or lam <= 0.0:
+        return 0.0
+    return -lam
+
+
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] csolveZeroCenteredBackground(
     cnp.ndarray[cnp.float64_t, ndim=1] weightTrack,
     cnp.ndarray[cnp.float64_t, ndim=1] rhsTrack,
     double lam,
     bint zeroCenter=True,
+    double lamFirst=<double>0.0,
 ):
-    r"""Solve the second-difference background update.
+    r"""Solve the roughness-penalized background update.
 
-    Solves ``(diag(weightTrack) + lam * D2.T @ D2) x = rhsTrack`` using a
-    pentadiagonal LDL' factorization. If ``zeroCenter`` is true, also applies
-    the identifiability constraint ``sum(x) = 0`` via a Lagrange multiplier.
+    Solves ``(diag(weightTrack) + lamFirst * D1.T @ D1 + lam * D2.T @ D2) x =
+    rhsTrack`` using a pentadiagonal LDL' factorization. If ``zeroCenter`` is
+    true, also applies the identifiability constraint ``sum(x) = 0`` via a
+    Lagrange multiplier.
     """
 
     cdef Py_ssize_t n = weightTrack.shape[0]
@@ -443,21 +459,25 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csolveZeroCenteredBackground(
 
     with nogil:
         for i in range(n):
-            diagView[i] = diagView[i] + _secondDiffPenaltyDiag(n, i, lam)
+            diagView[i] = (
+                diagView[i]
+                + _firstDiffPenaltyDiag(n, i, lamFirst)
+                + _secondDiffPenaltyDiag(n, i, lam)
+            )
             if diagView[i] < minPivot:
                 diagView[i] = minPivot
 
         # Pentadiagonal LDL' factorization. The second lower diagonal is
         # lam / diag[i - 2] and can be recomputed, so only the first lower
         # diagonal needs storage.
-        offVal = _secondDiffPenaltyOff1(n, 0, lam)
+        offVal = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, 0, lam)
         firstLowerView[1] = offVal / diagView[0]
         diagView[1] = diagView[1] - firstLowerView[1] * firstLowerView[1] * diagView[0]
         if diagView[1] < minPivot:
             diagView[1] = minPivot
 
         for i in range(2, n):
-            offVal = _secondDiffPenaltyOff1(n, i - 1, lam)
+            offVal = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i - 1, lam)
             firstLowerView[i] = (offVal - lam * firstLowerView[i - 1]) / diagView[i - 1]
             diagView[i] = (
                 diagView[i]
@@ -2008,27 +2028,17 @@ cpdef object cTransformWithInputInto(
 
 cpdef object cTransformInPlace(
     object x,
-    Py_ssize_t blockLength,
-    double w_global=<double>1.0,
     bint verbose=<bint>False,
     double logOffset=<double>(1.0),
     double logMult=<double>(1.0),
-    double blockQuantile=<double>(0.5)
 ):
-    r"""Transform a contiguous coverage track in-place.
-
-    Negative ``blockQuantile`` disables dense centering after the log transform.
-    """
-    cdef Py_ssize_t blockLenTarget, n, i
+    r"""Log-transform a contiguous coverage track in-place."""
+    cdef Py_ssize_t n
     cdef double offset_ = logOffset
     cdef double scale_ = logMult
     cdef object arrObj = x
     cdef cnp.ndarray zArr_F32
-    cdef float[::1] zView_F32
-    cdef float centerOffsetF32
     cdef cnp.ndarray zArr_F64
-    cdef double[::1] zView_F64
-    cdef double centerOffsetF64
 
     if offset_ <= 0.0:
         offset_ = 1.0
@@ -2040,43 +2050,8 @@ cpdef object cTransformInPlace(
     if not arrObj.flags.c_contiguous:
         raise ValueError("x must be C-contiguous")
 
-    if w_global <= 0.0 or blockQuantile < 0.0:
-        if (<cnp.ndarray>arrObj).dtype == np.float32:
-            zArr_F32 = arrObj
-            n = zArr_F32.shape[0]
-            with nogil:
-                _monoLog(
-                    <const float*>zArr_F32.data,
-                    <float*>zArr_F32.data,
-                    n,
-                    <float>offset_,
-                    <float>scale_,
-                )
-            return x
-        elif (<cnp.ndarray>arrObj).dtype == np.float64:
-            zArr_F64 = arrObj
-            n = zArr_F64.shape[0]
-            with nogil:
-                _monoLog(
-                    <const double*>zArr_F64.data,
-                    <double*>zArr_F64.data,
-                    n,
-                    offset_,
-                    scale_,
-                )
-            return x
-        raise TypeError("x dtype must be float32 or float64")
-
-    blockLenTarget = <Py_ssize_t>max(min(blockLength, 50000), 3)
-    if blockLenTarget % 2 == 0:
-        blockLenTarget += 1
-        if blockLenTarget > 50000:
-            blockLenTarget -= 2
-
-    # F32
     if (<cnp.ndarray>arrObj).dtype == np.float32:
         zArr_F32 = arrObj
-        zView_F32 = zArr_F32
         n = zArr_F32.shape[0]
         with nogil:
             _monoLog(
@@ -2086,23 +2061,11 @@ cpdef object cTransformInPlace(
                 <float>offset_,
                 <float>scale_,
             )
-        centerOffsetF32 = <float>cDenseMean(
-            zArr_F32,
-            blockLenTarget=blockLenTarget,
-            blockQuantile=blockQuantile,
-            verbose=verbose,
-        )
-
-        with nogil:
-            for i in range(n):
-                zView_F32[i] = zView_F32[i] - centerOffsetF32
         return x
 
-    # F64
     if (<cnp.ndarray>arrObj).dtype != np.float64:
         raise TypeError("x dtype must be float32 or float64")
     zArr_F64 = arrObj
-    zView_F64 = zArr_F64
     n = zArr_F64.shape[0]
     with nogil:
         _monoLog(
@@ -2112,30 +2075,17 @@ cpdef object cTransformInPlace(
             offset_,
             scale_,
         )
-    centerOffsetF64 = <double>cDenseMean(
-        zArr_F64,
-        blockLenTarget=blockLenTarget,
-        blockQuantile=blockQuantile,
-        verbose=verbose,
-    )
-
-    with nogil:
-        for i in range(n):
-            zView_F64[i] = zView_F64[i] - centerOffsetF64
 
     return x
 
 
 cpdef object cTransform(
     object x,
-    Py_ssize_t blockLength,
-    double w_global=<double>1.0,
     bint verbose=<bint>False,
     double logOffset=<double>(1.0),
     double logMult=<double>(1.0),
-    double blockQuantile=<double>(0.5)
 ):
-    r"""Transform a coverage track and optionally subtract a dense centering offset."""
+    r"""Log-transform a coverage track."""
     cdef object outArr
 
     if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
@@ -2145,12 +2095,9 @@ cpdef object cTransform(
 
     return cTransformInPlace(
         outArr,
-        blockLength=blockLength,
-        w_global=w_global,
         verbose=verbose,
         logOffset=logOffset,
         logMult=logMult,
-        blockQuantile=blockQuantile,
     )
 
 
@@ -3509,73 +3456,6 @@ cpdef tuple cfixedBackgroundECM(
     if returnDiagnostics:
         return (itersDone, float(previousNLL), diagnostics)
     return (itersDone, float(previousNLL))
-
-
-cpdef double cDenseMean(
-    object x,
-    Py_ssize_t blockLenTarget=250,
-    double blockQuantile=<double>(0.5),
-    bint verbose = <bint>False,
-):
-    r"""Estimate 'dense' offset for a transformed coverage track.
-
-    The dense offset is the median of per-block quantiles. A negative
-    ``blockQuantile`` disables dense centering and returns ``0.0``.
-    """
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] y
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] blockQuantiles
-    cdef cnp.float64_t[::1] quantileView
-    cdef Py_ssize_t n, blockLen, numBlocks, blockIdx, blockStart, blockEnd
-    cdef double dense_mu
-    cdef double quantile = blockQuantile
-
-    y = np.ascontiguousarray(x, dtype=np.float64).reshape(-1)
-    n = y.size
-    if n == 0:
-        return 0.0
-
-    if quantile < 0.0:
-        return 0.0
-    if not isfinite(quantile):
-        quantile = 0.5
-    elif quantile > 1.0:
-        quantile = 1.0
-
-    if blockLenTarget <= 0:
-        blockLen = n
-    else:
-        blockLen = blockLenTarget
-    if blockLen < 1:
-        blockLen = 1
-    if blockLen > n:
-        blockLen = n
-
-    numBlocks = (n + blockLen - 1) // blockLen
-    blockQuantiles = np.empty(numBlocks, dtype=np.float64)
-    quantileView = blockQuantiles
-    for blockIdx in range(numBlocks):
-        blockStart = blockIdx * blockLen
-        blockEnd = blockStart + blockLen
-        if blockEnd > n:
-            blockEnd = n
-        quantileView[blockIdx] = <double>np.quantile(
-            y[blockStart:blockEnd],
-            quantile,
-        )
-
-    dense_mu = <double>np.median(blockQuantiles)
-    if not isfinite(dense_mu):
-        dense_mu = <double>np.quantile(y, quantile)
-
-    if verbose:
-        printf(
-            b"\tcconsenrich.cDenseMean(block-quantile): center=%.4f blocks=%zd blockLen=%zd quantile=%.4f\n",
-            dense_mu, numBlocks, blockLen, quantile,
-        )
-        fflush(stdout)
-
-    return dense_mu
 
 
 cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(

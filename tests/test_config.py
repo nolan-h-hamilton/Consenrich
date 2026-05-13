@@ -51,6 +51,7 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 _CONFIG_SECTION_TO_PARSED_ARGS = {
+    "countingParams": "countingArgs",
     "fitParams": "fitArgs",
     "processParams": "processArgs",
     "observationParams": "observationArgs",
@@ -68,7 +69,7 @@ def _assertParsedConfigValue(parsed, dottedKey: str, expected) -> None:
         assert actual == expected
 
 
-def _caseRuntimeBackgroundPriorWindowPairsWithRuntimeBlockLength():
+def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     blockLen = consenrich._resolveRuntimeBackgroundBlockLen(
         vec_=(5, 4, 6),
         backgroundBlockSizeIntervals=11,
@@ -90,6 +91,24 @@ def _caseRuntimeBackgroundPriorWindowPairsWithRuntimeBlockLength():
             lengthScaleMultiplier=4.0,
         )
         == 21
+    )
+    assert (
+        consenrich._resolveRuntimeReplicateDetrendWindow(
+            vec_=(5, 4, 6),
+            backgroundBlockSizeIntervals=11,
+            lengthScaleMultiplier=8.0,
+            windowMultiplier=2.0,
+        )
+        == 81
+    )
+    assert (
+        consenrich._resolveRuntimeReplicateDetrendWindow(
+            vec_=None,
+            backgroundBlockSizeIntervals=5,
+            lengthScaleMultiplier=4.0,
+            windowMultiplier=2.0,
+        )
+        == 41
     )
 
 
@@ -357,7 +376,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     genomeParams.name: testGenome
     fitParams.ECM_outerIters: 16
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
-    fitParams.ECM_backgroundPriorVariancePenaltyShape: 2.5
+    countingParams.replicateMedianDetrend: false
+    countingParams.replicateMedianDetrendWindowMultiplier: 3.0
     processParams.processQTrendPriorWeight: 2.5
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
@@ -370,9 +390,9 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["defaultConfiguration"] == "generic"
     assert parsed["fitArgs"].ECM_outerIters == 16
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
-    assert (
-        parsed["fitArgs"].ECM_backgroundPriorVariancePenaltyShape
-        == pytest.approx(2.5)
+    assert parsed["countingArgs"].replicateMedianDetrend is False
+    assert parsed["countingArgs"].replicateMedianDetrendWindowMultiplier == pytest.approx(
+        3.0
     )
     assert parsed["processArgs"].processQTrendPriorWeight == pytest.approx(2.5)
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
@@ -423,46 +443,6 @@ def _case_readConfigObservationTrendDefaultsRemoveLinearEnvelope(
     assert observationArgs.trendLambdaMin == 1.0e-6
     assert observationArgs.trendLambdaMax == 1.0e6
     assert observationArgs.trendLambdaGridSize == 41
-
-
-def _case_readConfigObservationBlockQuantileDefaultAndOverride(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configDefault = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    """
-    configDefaultPath = writeConfigFile(
-        tmp_path,
-        "config_block_quantile_default.yaml",
-        configDefault,
-    )
-    parsedDefault = readConfig(str(configDefaultPath))
-    _assertParsedConfigValue(
-        parsedDefault,
-        "observationParams.blockQuantile",
-        consenrich.DEFAULT_CONFIGURATION_VALUES[consenrich.GENERIC_DEFAULT_CONFIGURATION][
-            "observationParams.blockQuantile"
-        ],
-    )
-
-    configExplicit = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    observationParams.blockQuantile: 0.25
-    """
-    configExplicitPath = writeConfigFile(
-        tmp_path,
-        "config_block_quantile_explicit.yaml",
-        configExplicit,
-    )
-    parsedExplicit = readConfig(str(configExplicitPath))
-    assert parsedExplicit["observationArgs"].blockQuantile == pytest.approx(0.25)
 
 
 def _case_readConfigDeduplicatesChromosomes(
@@ -530,12 +510,8 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     assert defaultFitArgs.ECM_zeroCenterBackground == fitDefaults.ECM_zeroCenterBackground
     assert not hasattr(defaultFitArgs, "ECM_zeroCenterReplicateBias")
     assert not hasattr(defaultFitArgs, "ECM_backgroundPriorQuantile")
-    for field in (
-        "ECM_backgroundLengthScaleMultiplier",
-        "ECM_backgroundPriorVariancePenaltyShape",
-        "ECM_backgroundPriorVariancePenaltyRate",
-    ):
-        assert hasattr(defaultFitArgs, field)
+    assert not hasattr(defaultFitArgs, "ECM_backgroundPriorVariance")
+    assert hasattr(defaultFitArgs, "ECM_backgroundLengthScaleMultiplier")
 
     configOverrideYaml = """
     experimentName: testExperiment
@@ -543,10 +519,6 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     genomeParams.name: testGenome
     fitParams.ECM_zeroCenterBackground: false
     fitParams.ECM_backgroundLengthScaleMultiplier: 6
-    fitParams.ECM_backgroundPriorTrimQuantile: 0.8
-    fitParams.ECM_backgroundPriorVariance: 0.25
-    fitParams.ECM_backgroundPriorVariancePenaltyShape: 2.5
-    fitParams.ECM_backgroundPriorVariancePenaltyRate: 0.01
     """
     parsedOverride = readConfig(
         str(
@@ -560,16 +532,6 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
     assert parsedOverride["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(
         6.0
-    )
-    assert parsedOverride["fitArgs"].ECM_backgroundPriorTrimQuantile == pytest.approx(0.8)
-    assert parsedOverride["fitArgs"].ECM_backgroundPriorVariance == pytest.approx(0.25)
-    assert (
-        parsedOverride["fitArgs"].ECM_backgroundPriorVariancePenaltyShape
-        == pytest.approx(2.5)
-    )
-    assert (
-        parsedOverride["fitArgs"].ECM_backgroundPriorVariancePenaltyRate
-        == pytest.approx(0.01)
     )
 
 
@@ -1245,8 +1207,8 @@ def test_config_runtime_logging_and_validation_contracts(
     tmp_path, monkeypatch, caplog, contract_case
 ):
     contract_case(
-        "runtime background prior window",
-        _caseRuntimeBackgroundPriorWindowPairsWithRuntimeBlockLength,
+        "runtime background span",
+        _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier,
     )
     caplog.clear()
     with monkeypatch.context() as mp:
@@ -1294,7 +1256,6 @@ def test_config_parser_defaults_and_override_contracts(
 def test_config_model_parameter_field_contracts(tmp_path, monkeypatch, contract_case):
     for label, func in (
         ("observation trend defaults", _case_readConfigObservationTrendDefaultsRemoveLinearEnvelope),
-        ("observation block quantile", _case_readConfigObservationBlockQuantileDefaultAndOverride),
         ("chromosome deduplication", _case_readConfigDeduplicatesChromosomes),
         ("APN disables process precision reweighting", _case_readConfigAPNDisablesProcPrecReweight),
         ("zero-center identifiability fields", _case_readConfigUsesZeroCenterIdentifiabilityFields),

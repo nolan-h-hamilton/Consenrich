@@ -221,15 +221,11 @@ def _caseTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64(dtype):
 
     returned = cconsenrich.cTransformInPlace(
         inPlace,
-        blockLength=5,
-        w_global=0.0,
         logOffset=0.75,
         logMult=1.7,
     )
     allocated = cconsenrich.cTransform(
         x,
-        blockLength=5,
-        w_global=0.0,
         logOffset=0.75,
         logMult=1.7,
     )
@@ -334,8 +330,6 @@ def _caseCTransformInPlacePureLogMutatesFloat32Array():
 
     returned = cconsenrich.cTransformInPlace(
         x,
-        blockLength=5,
-        w_global=0.0,
         logOffset=1.0,
         logMult=2.0,
     )
@@ -350,139 +344,41 @@ def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
     x = np.linspace(0.0, 5.0, 256, dtype=np.float64)
     x[120:140] += 10.0
     logged = _monoLogReference(x, offset=1.0, scale=1.0)
-    dense_offset = cconsenrich.cDenseMean(
-        logged,
-        blockLenTarget=21,
-        blockQuantile=0.25,
-    )
     expected = cconsenrich.cTransform(
         x,
-        blockLength=21,
-        w_global=1.0,
         logOffset=1.0,
         logMult=1.0,
-        blockQuantile=0.25,
     )
     in_place = x.copy()
 
     returned = cconsenrich.cTransformInPlace(
         in_place,
-        blockLength=21,
-        w_global=1.0,
         logOffset=1.0,
         logMult=1.0,
-        blockQuantile=0.25,
     )
 
     assert returned is in_place
     assert in_place.dtype == np.float64
     assert np.allclose(in_place, expected)
-    assert np.allclose(in_place, logged - dense_offset)
+    assert np.allclose(in_place, logged)
 
 
 @pytest.mark.correctness
-def _caseCTransformNegativeBlockQuantileSkipsDenseCentering():
-    x = np.linspace(0.0, 5.0, 256, dtype=np.float64)
-    x[120:140] += 10.0
-    expected = _monoLogReference(x, offset=1.0, scale=1.0)
+def _caseMedianFilterDetrendSubtractsUncenteredTrendInPlace():
+    x = np.linspace(8.0, 10.0, 101, dtype=np.float32)
+    x[50] += 4.0
+    original = x.copy()
+    expectedTrend = core.ndimage.median_filter(original, size=21, mode="nearest")
+    expected = original - expectedTrend
 
-    observed = cconsenrich.cTransform(
-        x,
-        blockLength=21,
-        w_global=1.0,
-        logOffset=1.0,
-        logMult=1.0,
-        blockQuantile=-1.0,
-    )
+    stats_ = core.medianFilterDetrendInPlace(x, 20)
 
-    assert np.allclose(observed, expected)
-
-
-@pytest.mark.correctness
-def _caseDenseMeanUsesMedianOfBlockMediansByDefault():
-    block_len = 5
-    blocks = [
-        np.array([0.0, 1.0, 2.0, 3.0, 20.0], dtype=np.float32),
-        np.array([4.0, 5.0, 6.0, 7.0, 30.0], dtype=np.float32),
-        np.array([8.0, 9.0, 10.0, 11.0, 40.0], dtype=np.float32),
-    ]
-    x = np.concatenate(blocks)
-    expected = np.median([np.quantile(block, 0.5) for block in blocks])
-
-    observed = cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=block_len,
-    )
-
-    assert observed == pytest.approx(expected)
-
-
-@pytest.mark.correctness
-def _caseDenseMeanHonorsBlockQuantileArgument():
-    block_len = 5
-    blocks = [
-        np.array([0.0, 1.0, 2.0, 3.0, 20.0], dtype=np.float32),
-        np.array([4.0, 5.0, 6.0, 7.0, 30.0], dtype=np.float32),
-        np.array([8.0, 9.0, 10.0, 11.0, 40.0], dtype=np.float32),
-    ]
-    x = np.concatenate(blocks)
-    expected = np.median([np.quantile(block, 0.75) for block in blocks])
-
-    observed = cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=block_len,
-        blockQuantile=0.75,
-    )
-
-    assert observed == pytest.approx(expected)
-
-
-@pytest.mark.correctness
-def _caseDenseMeanNegativeBlockQuantileReturnsZeroOffset():
-    x = np.array([1.0, 2.0, 3.0, 9.0, 20.0, 30.0], dtype=np.float32)
-
-    observed = cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=3,
-        blockQuantile=-1.0,
-    )
-
-    assert observed == pytest.approx(0.0)
-
-
-@pytest.mark.correctness
-def _caseDenseMeanNonpositiveBlockLengthUsesWholeTrackMedian():
-    x = np.array([1.0, 2.0, 3.0, 9.0, 20.0, 30.0], dtype=np.float32)
-    expected = np.quantile(x, 0.5)
-
-    observed = cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=-1,
-    )
-
-    assert observed == pytest.approx(expected)
-
-
-
-@pytest.mark.correctness
-def _caseDenseMeanIncludesFinalPartialBlock():
-    block_len = 4
-    x = np.array([0.0, 1.0, 2.0, 3.0, 10.0, 11.0, 12.0, 13.0, 50.0], dtype=np.float32)
-    expected = np.median(
-        [
-            np.quantile(x[0:4], 0.25),
-            np.quantile(x[4:8], 0.25),
-            np.quantile(x[8:9], 0.25),
-        ]
-    )
-
-    observed = cconsenrich.cDenseMean(
-        x,
-        blockLenTarget=block_len,
-        blockQuantile=0.25,
-    )
-
-    assert observed == pytest.approx(expected)
+    assert stats_["applied"] is True
+    assert stats_["window_intervals"] == 21
+    np.testing.assert_allclose(x, expected, rtol=1.0e-6, atol=1.0e-6)
+    anchored = original - (expectedTrend - np.median(expectedTrend))
+    assert np.max(np.abs(x - anchored)) > 8.0
+    assert x[50] > 3.5
 
 
 def _writeSyntheticBam(tmp_path: Path, fileName: str, records: list[dict]) -> Path:
@@ -616,12 +512,13 @@ def _caseZeroCenteredBackgroundUpdate():
         invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
         axis=0,
     )
-    lam = core._backgroundPenaltyFromSpan(
+    lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
         blockLenIntervals=8,
         backgroundSmoothness=1.0,
     )
     systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
-    systemMat = systemMat + (lam * core._buildSecondDiffPenalty(weightTrack.size))
+    systemMat = systemMat + (lamFirst * core._buildFirstDiffPenalty(weightTrack.size))
+    systemMat = systemMat + (lamSecond * core._buildSecondDiffPenalty(weightTrack.size))
     constraintVec = np.ones(weightTrack.size, dtype=np.float64)
     kktMat = core.sparse.bmat(
         [
@@ -668,12 +565,13 @@ def _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights():
         invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
         axis=0,
     )
-    lam = core._backgroundPenaltyFromSpan(
+    lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
         blockLenIntervals=7,
         backgroundSmoothness=1.3,
     )
     systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
-    systemMat = systemMat + (lam * core._buildSecondDiffPenalty(weightTrack.size))
+    systemMat = systemMat + (lamFirst * core._buildFirstDiffPenalty(weightTrack.size))
+    systemMat = systemMat + (lamSecond * core._buildSecondDiffPenalty(weightTrack.size))
     constraintVec = np.ones(weightTrack.size, dtype=np.float64)
     kktMat = core.sparse.bmat(
         [
@@ -750,12 +648,13 @@ def _caseBackgroundUpdateCanSkipZeroCentering():
         invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
         axis=0,
     )
-    lam = core._backgroundPenaltyFromSpan(
+    lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
         blockLenIntervals=8,
         backgroundSmoothness=1.0,
     )
     systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
-    systemMat = systemMat + (lam * core._buildSecondDiffPenalty(weightTrack.size))
+    systemMat = systemMat + (lamFirst * core._buildFirstDiffPenalty(weightTrack.size))
+    systemMat = systemMat + (lamSecond * core._buildSecondDiffPenalty(weightTrack.size))
     expectedUncentered = core.sparse_linalg.spsolve(systemMat.tocsc(), rhsTrack)
 
     assert abs(float(np.mean(centered))) < 1.0e-5
@@ -781,236 +680,18 @@ def _caseFinalForwardNISUsesMeanFinalForwardDiagnostic():
 
 
 @pytest.mark.correctness
-def _caseBackgroundUpdateUsesPriorAsDiagonalPenalty():
-    n = 40
-    x = np.linspace(0.0, 1.0, n, dtype=np.float32)
-    residualMatrix = np.vstack(
-        [
-            0.2 * np.sin(2.0 * np.pi * x),
-            0.2 * np.cos(2.0 * np.pi * x),
-        ]
-    ).astype(np.float32)
-    invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
-    priorMean = np.linspace(0.4, 0.8, n, dtype=np.float32)
-    priorPrecision = np.linspace(0.25, 0.75, n, dtype=np.float64)
-
-    background = core._solveZeroCenteredBackground(
-        residualMatrix=residualMatrix,
-        invVarMatrix=invVarMatrix,
-        blockLenIntervals=6,
-        backgroundSmoothness=0.8,
-        zeroCenter=False,
-        priorMeanTrack=priorMean,
-        priorPrecisionTrack=priorPrecision,
+def _caseBackgroundPenaltyWeightsScaleByDifferenceOrder():
+    lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
+        blockLenIntervals=12,
+        backgroundSmoothness=0.5,
     )
 
-    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0) + priorPrecision
-    rhsTrack = (
-        np.sum(
-            invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
-            axis=0,
-        )
-        + priorPrecision * priorMean.astype(np.float64)
-    )
-    lam = core._backgroundPenaltyFromSpan(
-        blockLenIntervals=6,
-        backgroundSmoothness=0.8,
-    )
-    systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
-    systemMat = systemMat + (lam * core._buildSecondDiffPenalty(n))
-    expected = core.sparse_linalg.spsolve(systemMat.tocsc(), rhsTrack)
-
-    assert np.allclose(background, expected.astype(np.float32), atol=1.0e-4)
-
-
-@pytest.mark.correctness
-def _caseBackgroundPriorDefaultWindowMatchesBackgroundLengthScale():
-    assert core._backgroundPriorWindowLength(
-        intervalCount=101,
-        blockLenIntervals=9,
-    ) == 9
-    assert core._backgroundPriorWindowLength(
-        intervalCount=101,
-        blockLenIntervals=8,
-    ) == 8
-    assert core._backgroundPriorWindowLength(
-        intervalCount=50,
-        blockLenIntervals=101,
-    ) == 50
-
-
-@pytest.mark.correctness
-def _caseBackgroundPriorMeanVarianceTracksUseSavgolDegreeZero():
-    n = 17
-    baseline = np.ones(n, dtype=np.float32)
-    baseline[8] = 20.0
-    matrixData = np.vstack([baseline, baseline + 0.1]).astype(np.float32)
-    matrixMunc = np.ones_like(matrixData, dtype=np.float32)
-
-    priorMean, priorMeanVariance = core._backgroundPriorMeanVarianceTracks(
-        matrixData=matrixData,
-        matrixMunc=matrixMunc,
-        pad=0.0,
-        blockLenIntervals=3,
-    )
-
-    invVar = np.ones_like(matrixData, dtype=np.float64)
-    target, _targetVariance, _targetWeight = core._weightedBackgroundTarget(
-        residualMatrix=matrixData,
-        invVarMatrix=invVar,
-    )
-    expected = spySig.savgol_filter(
-        target,
-        window_length=3,
-        polyorder=0,
-        mode="nearest",
-    )
-
-    assert priorMean.shape == (n,)
-    assert np.allclose(priorMean, expected.astype(np.float32))
-    assert np.isfinite(priorMean).all()
-    assert priorMeanVariance.shape == (n,)
-    assert np.all(priorMeanVariance > 0.0)
-    assert np.isfinite(priorMeanVariance).all()
-
-
-@pytest.mark.correctness
-def _casePositiveSequenceESSDetectsSerialDependence():
-    dependent = np.repeat(np.array([0.0, 1.0], dtype=np.float64), 10)
-    dependent = np.tile(dependent, 20)
-    independentLike = np.tile(np.array([0.0, 1.0], dtype=np.float64), 200)
-
-    essDependent, tauDependent, lagsDependent = (
-        core._estimatePositiveSequenceEffectiveSampleSize(dependent, maxLag=30)
-    )
-    essIndependent, tauIndependent, lagsIndependent = (
-        core._estimatePositiveSequenceEffectiveSampleSize(independentLike, maxLag=30)
-    )
-
-    assert tauDependent > 1.0
-    assert lagsDependent > 0
-    assert essDependent < dependent.size
-    assert tauIndependent == pytest.approx(1.0)
-    assert lagsIndependent == 0
-    assert essIndependent == pytest.approx(float(independentLike.size))
-
-
-@pytest.mark.correctness
-def _caseBackgroundPriorMeanVarianceUsesEffectiveWindow():
-    target = np.repeat(np.array([0.0, 1.0], dtype=np.float32), 10)
-    target = np.tile(target, 20)
-    matrixData = np.vstack([target, target + 0.01]).astype(np.float32)
-    matrixMunc = np.ones_like(matrixData, dtype=np.float32)
-
-    _priorMean, priorMeanVariance, diagnostics = core._backgroundPriorMeanVarianceTracks(
-        matrixData=matrixData,
-        matrixMunc=matrixMunc,
-        pad=0.0,
-        blockLenIntervals=31,
-        returnDiagnostics=True,
-    )
-
-    assert diagnostics["nominal_window"] == 31
-    assert diagnostics["savgol_window"] == 31
-    assert diagnostics["tau_int"] > 1.0
-    assert diagnostics["effective_window"] < diagnostics["savgol_window"]
-    assert np.isfinite(priorMeanVariance).all()
-    assert np.all(priorMeanVariance > 0.0)
-
-
-@pytest.mark.correctness
-def _caseBackgroundPriorShrinkageDoesNotOverwhelmLocalTarget():
-    matrixData = np.ones((4, 51), dtype=np.float32)
-    matrixMunc = np.ones_like(matrixData, dtype=np.float32)
-    matrixMunc[:, 25] = 1000.0
-
-    priorMean, priorMeanVariance = core._backgroundPriorMeanVarianceTracks(
-        matrixData=matrixData,
-        matrixMunc=matrixMunc,
-        pad=0.0,
-        blockLenIntervals=21,
-    )
-    invVar = 1.0 / np.maximum(matrixMunc.astype(np.float64), 1.0e-8)
-    target, targetVariance, targetWeight = core._weightedBackgroundTarget(
-        residualMatrix=matrixData,
-        invVarMatrix=invVar,
-    )
-    variance = core._estimateBackgroundPriorVariance(
-        targetTrack=target,
-        targetVariance=targetVariance,
-        priorMeanTrack=priorMean,
-        priorMeanVarianceTrack=priorMeanVariance,
-        trimQuantile=1.0,
-    )
-    priorPrecision = core._backgroundPriorPrecisionTrack(
-        backgroundPriorVariance=variance,
-        priorMeanVarianceTrack=priorMeanVariance,
-    )
-    cappedPrecision = core._capBackgroundPriorPrecisionForShrinkage(
-        priorPrecision,
-        targetWeight,
-    )
-    shrinkage = cappedPrecision / (targetWeight + cappedPrecision)
-    reweightedTargetWeight = 0.25 * targetWeight
-    reweightedPrecision = core._capBackgroundPriorPrecisionForShrinkage(
-        priorPrecision,
-        reweightedTargetWeight,
-    )
-    reweightedShrinkage = reweightedPrecision / (
-        reweightedTargetWeight + reweightedPrecision
-    )
-
-    assert np.all(priorMeanVariance >= targetVariance)
-    assert float(np.nanmax(shrinkage)) <= 0.5 + 1.0e-8
-    assert float(np.nanmax(reweightedShrinkage)) <= 0.5 + 1.0e-8
-
-
-@pytest.mark.correctness
-def _caseBackgroundPriorVarianceAndPrecisionUseBaselineUncertainty():
-    priorMean = np.zeros(20, dtype=np.float64)
-    target = np.tile(np.array([-0.6, 0.6], dtype=np.float64), 10)
-    targetVariance = np.full(20, 0.05, dtype=np.float64)
-    priorMeanVariance = np.full(20, 0.10, dtype=np.float64)
-
-    variance = core._estimateBackgroundPriorVariance(
-        targetTrack=target,
-        targetVariance=targetVariance,
-        priorMeanTrack=priorMean,
-        priorMeanVarianceTrack=priorMeanVariance,
-        trimQuantile=1.0,
-    )
-    assert variance > 0.05
-
-    precision = core._backgroundPriorPrecisionTrack(
-        backgroundPriorVariance=variance,
-        priorMeanVarianceTrack=np.array([0.10, 0.40], dtype=np.float64),
-    )
-
-    assert np.all(precision > 0.0)
-    assert precision[0] > precision[1]
-    assert precision[0] == pytest.approx(1.0 / (variance + 0.10))
-
-
-@pytest.mark.correctness
-def _caseBackgroundPriorVariancePenaltyAvoidsBoundaryZero():
-    n = 2000
-    priorMean = np.zeros(n, dtype=np.float64)
-    target = np.zeros(n, dtype=np.float64)
-    targetVariance = np.full(n, 0.05, dtype=np.float64)
-    priorMeanVariance = np.full(n, 0.10, dtype=np.float64)
-
-    variance = core._estimateBackgroundPriorVariance(
-        targetTrack=target,
-        targetVariance=targetVariance,
-        priorMeanTrack=priorMean,
-        priorMeanVarianceTrack=priorMeanVariance,
-        trimQuantile=1.0,
-        penaltyShape=2.0,
-        penaltyRate=0.0,
-    )
-
-    assert variance > 0.0
-    assert variance < 1.0e-3
+    assert lamFirst == pytest.approx(0.5 * (12.0**2) / 4.0)
+    assert lamSecond == pytest.approx(0.5 * (12.0**4) / 16.0)
+    assert core._backgroundPenaltyFromSpan(
+        blockLenIntervals=12,
+        backgroundSmoothness=0.5,
+    ) == pytest.approx(lamSecond)
 
 
 @pytest.mark.correctness
@@ -1412,7 +1093,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert postFitResiduals.shape == (n, m)
     assert NIS.shape == (n,)
     assert diagnostics["final_forward_nis"] == pytest.approx(float(np.mean(NIS)))
-    assert diagnostics["background_prior"]["active"] is True
+    assert "background_prior" not in diagnostics
     assert "PHASE: CORE START" in caplog.text
     assert "PHASE: MODEL FIT" in caplog.text
     assert "      | PHASE: MODEL FIT" in caplog.text
@@ -3327,19 +3008,20 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
         ("transform input float64", _caseCTransformWithInputReturnsFloat64LogRatio),
         ("transform into output", _caseCTransformWithInputIntoWritesOutputInPlace),
         ("in-place pure log float32", _caseCTransformInPlacePureLogMutatesFloat32Array),
-        ("in-place transform float64", _caseCTransformInPlaceMatchesAllocatingTransformForFloat64),
-        ("negative block quantile skips dense centering", _caseCTransformNegativeBlockQuantileSkipsDenseCentering),
+        (
+            "in-place transform float64",
+            _caseCTransformInPlaceMatchesAllocatingTransformForFloat64,
+        ),
+        (
+            "median detrend uncentered",
+            _caseMedianFilterDetrendSubtractsUncenteredTrendInPlace,
+        ),
     ):
         contract_case(label, func)
 
 
-def test_core_dense_mean_alignment_and_existing_peak_contracts(contract_case):
+def test_core_existing_peak_contracts(contract_case):
     for label, func in (
-        ("dense mean median of block medians", _caseDenseMeanUsesMedianOfBlockMediansByDefault),
-        ("dense mean block quantile", _caseDenseMeanHonorsBlockQuantileArgument),
-        ("dense mean negative block quantile", _caseDenseMeanNegativeBlockQuantileReturnsZeroOffset),
-        ("dense mean whole track fallback", _caseDenseMeanNonpositiveBlockLengthUsesWholeTrackMedian),
-        ("dense mean final partial block", _caseDenseMeanIncludesFinalPartialBlock),
         ("single-end detection", _caseSingleEndDetection),
         ("paired-end detection", _casePairedEndDetection),
         ("existing bedGraph matching", _caseMatchExistingBedGraph),
@@ -3347,7 +3029,7 @@ def test_core_dense_mean_alignment_and_existing_peak_contracts(contract_case):
         contract_case(label, func)
 
 
-def test_core_background_bias_and_prior_contracts(monkeypatch, contract_case):
+def test_core_background_bias_contracts(monkeypatch, contract_case):
     for label, func, args in (
         ("zero-centered background", _caseZeroCenteredBackgroundUpdate, ()),
         ("weighted background", _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights, ()),
@@ -3357,26 +3039,11 @@ def test_core_background_bias_and_prior_contracts(monkeypatch, contract_case):
             (monkeypatch, _caseZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization),
         ),
         ("skip zero-centering", _caseBackgroundUpdateCanSkipZeroCentering, ()),
-        ("background prior diagonal penalty", _caseBackgroundUpdateUsesPriorAsDiagonalPenalty, ()),
-        ("background prior window default", _caseBackgroundPriorDefaultWindowMatchesBackgroundLengthScale, ()),
         (
-            "background Savitzky-Golay degree-zero tracks",
-            _caseBackgroundPriorMeanVarianceTracksUseSavgolDegreeZero,
+            "background penalty scaling",
+            _caseBackgroundPenaltyWeightsScaleByDifferenceOrder,
             (),
         ),
-        ("positive-sequence ESS", _casePositiveSequenceESSDetectsSerialDependence, ()),
-        ("background effective window", _caseBackgroundPriorMeanVarianceUsesEffectiveWindow, ()),
-        (
-            "background prior shrinkage cap",
-            _caseBackgroundPriorShrinkageDoesNotOverwhelmLocalTarget,
-            (),
-        ),
-        (
-            "background baseline uncertainty",
-            _caseBackgroundPriorVarianceAndPrecisionUseBaselineUncertainty,
-            (),
-        ),
-        ("background boundary penalty", _caseBackgroundPriorVariancePenaltyAvoidsBoundaryZero, ()),
         ("replicate bias is always centered", _caseReplicateBiasIsAlwaysZeroCentered, ()),
         ("replicate-bias minimizer", _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer, ()),
         (

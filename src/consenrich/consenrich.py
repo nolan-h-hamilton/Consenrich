@@ -60,10 +60,6 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
         "fitParams.ECM_outerNLLRtol": 1.0e-4,
         "fitParams.ECM_backgroundSmoothness": 10.0,
         "fitParams.ECM_backgroundLengthScaleMultiplier": 16.0,
-        "fitParams.ECM_backgroundPriorTrimQuantile": 0.9,
-        "fitParams.ECM_backgroundPriorVariance": None,
-        "fitParams.ECM_backgroundPriorVariancePenaltyShape": 2.0,
-        "fitParams.ECM_backgroundPriorVariancePenaltyRate": 0.0,
         "processParams.processQCalibration": (
             core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
         ),
@@ -72,11 +68,10 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
             core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
         ),
         "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 25.0,
-        "processParams.precisionMultiplierMin": 0.2,
+        "processParams.processQTrendPriorWeight": 10.0,
+        "processParams.precisionMultiplierMin": 0.5,
         "processParams.precisionMultiplierMax": 5.0,
-        "observationParams.blockQuantile": -1.0,
-        "observationParams.precisionMultiplierMin": 0.2,
+        "observationParams.precisionMultiplierMin": 0.5,
         "observationParams.precisionMultiplierMax": 5.0,
         "uncertaintyCalibration.enabled": True,
     }
@@ -147,6 +142,15 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("control inputs", len(getattr(inputArgs, "controlSources", []) or [])),
         ("interval bp", int(countingArgs.intervalSizeBP)),
         ("normalization", countingArgs.normMethod),
+        (
+            "replicate detrend",
+            (
+                "median x"
+                f"{float(countingArgs.replicateMedianDetrendWindowMultiplier):.3g}"
+                if bool(countingArgs.replicateMedianDetrend)
+                else "no"
+            ),
+        ),
         ("MUNC variance EB", yn(observationArgs.EB_use)),
         ("MUNC sampling iters", int(observationArgs.samplingIters)),
         ("ECM max iters", int(fitArgs.ECM_fixedBackgroundIters)),
@@ -184,6 +188,32 @@ def _resolveRuntimeBackgroundBlockLen(
     )
     baseIntervals = max(1, baseIntervals)
     return max(1, int(math.ceil(multiplier * baseIntervals)) + 1)
+
+
+def _resolveRuntimeReplicateDetrendWindow(
+    vec_: Optional[Tuple[int, int, int]],
+    backgroundBlockSizeIntervals: int,
+    lengthScaleMultiplier: float,
+    windowMultiplier: float,
+) -> int:
+    multiplier = float(lengthScaleMultiplier)
+    if not np.isfinite(multiplier) or multiplier <= 0.0:
+        raise ValueError(
+            "fitParams.ECM_backgroundLengthScaleMultiplier must be positive"
+        )
+    windowMultiplier_ = float(windowMultiplier)
+    if not np.isfinite(windowMultiplier_) or windowMultiplier_ <= 0.0:
+        raise ValueError(
+            "countingParams.replicateMedianDetrendWindowMultiplier must be positive"
+        )
+    baseIntervals = (
+        int(vec_[0]) if vec_ is not None else int(backgroundBlockSizeIntervals)
+    )
+    baseIntervals = max(1, baseIntervals)
+    window = int(math.ceil(windowMultiplier_ * multiplier * baseIntervals))
+    if window % 2 == 0:
+        window += 1
+    return max(3, window)
 
 
 def _progress(iterable, **kwargs):
@@ -981,11 +1011,6 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.fixControl",
         False,
     )
-    globalWeight_ = _cfgGet(
-        configData,
-        "countingParams.globalWeight",
-        1000.0,
-    )
     logOffset_ = _cfgGet(
         configData,
         "countingParams.logOffset",
@@ -996,6 +1021,16 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.logMult",
         1.0 / np.log(2.0),
     )
+    replicateMedianDetrend_ = _cfgGet(
+        configData,
+        "countingParams.replicateMedianDetrend",
+        True,
+    )
+    replicateMedianDetrendWindowMultiplier_ = _cfgGet(
+        configData,
+        "countingParams.replicateMedianDetrendWindowMultiplier",
+        2.0,
+    )
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
         backgroundBlockSizeBP=backgroundBlockSizeBP_,
@@ -1004,9 +1039,12 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         normMethod=normMethod_,
         fragmentsGroupNorm=fragmentsGroupNorm_,
         fixControl=fixControl_,
-        globalWeight=globalWeight_,
         logOffset=logOffset_,
         logMult=logMult_,
+        replicateMedianDetrend=bool(replicateMedianDetrend_),
+        replicateMedianDetrendWindowMultiplier=float(
+            replicateMedianDetrendWindowMultiplier_
+        ),
     )
 
 
@@ -1392,7 +1430,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
-        trendNumBasis=int(_cfgGet(configData, "observationParams.trendNumBasis", 60)),
+        trendNumBasis=int(_cfgGet(configData, "observationParams.trendNumBasis", 100)),
         trendMinObsPerBasis=float(
             _cfgGet(configData, "observationParams.trendMinObsPerBasis", 25.0)
         ),
@@ -1421,13 +1459,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             )
         ),
         restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
-        blockQuantile=float(
-            _cfgGet(
-                configData,
-                "observationParams.blockQuantile",
-                _cfgDefault(configData, "observationParams.blockQuantile"),
-            )
-        ),
         pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
         precisionMultiplierMin=float(
             _cfgGet(
@@ -1510,32 +1541,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "fitParams.ECM_backgroundLengthScaleMultiplier",
             _cfgDefault(configData, "fitParams.ECM_backgroundLengthScaleMultiplier"),
-        ),
-        ECM_backgroundPriorTrimQuantile=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundPriorTrimQuantile",
-            _cfgDefault(configData, "fitParams.ECM_backgroundPriorTrimQuantile"),
-        ),
-        ECM_backgroundPriorVariance=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundPriorVariance",
-            _cfgDefault(configData, "fitParams.ECM_backgroundPriorVariance"),
-        ),
-        ECM_backgroundPriorVariancePenaltyShape=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundPriorVariancePenaltyShape",
-            _cfgDefault(
-                configData,
-                "fitParams.ECM_backgroundPriorVariancePenaltyShape",
-            ),
-        ),
-        ECM_backgroundPriorVariancePenaltyRate=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundPriorVariancePenaltyRate",
-            _cfgDefault(
-                configData,
-                "fitParams.ECM_backgroundPriorVariancePenaltyRate",
-            ),
         ),
     )
 
@@ -2965,26 +2970,6 @@ def main():
                     int(depUpper),
                 )
 
-        denseCenterContextSizeBP = (
-            backgroundBlockSizeBP_ if backgroundBlockSizeBP_ > 0 else intervalSizeBP
-        )
-        denseCenterBlockSizeBP = min(
-            max(10 * int(denseCenterContextSizeBP), 1000),
-            50000,
-        )
-        denseCenterBlockSizeIntervals = max(
-            3,
-            int(math.ceil(float(denseCenterBlockSizeBP) / float(intervalSizeBP))),
-        )
-        if args.verbose2:
-            logger.info(
-                "dense centering blocks for %s: context=%d bp block=%d bp intervals=%d",
-                chromosome,
-                int(denseCenterContextSizeBP),
-                int(denseCenterBlockSizeBP),
-                int(denseCenterBlockSizeIntervals),
-            )
-
         if waitForMatrix:
             if sf is None:
                 sf = cconsenrich.cSF(chromMat)
@@ -2998,12 +2983,9 @@ def main():
         def _transformTrack(j: int) -> int:
             cconsenrich.cTransformInPlace(
                 chromMat[j, :],
-                blockLength=denseCenterBlockSizeIntervals,
                 verbose=args.verbose2,
-                w_global=countingArgs.globalWeight,
                 logOffset=countingArgs.logOffset,
                 logMult=countingArgs.logMult,
-                blockQuantile=observationArgs.blockQuantile,
             )
             return j
 
@@ -3048,6 +3030,88 @@ def main():
                 chromosome,
                 int(numSamples),
                 time.perf_counter() - transformStart,
+            )
+
+        if bool(countingArgs.replicateMedianDetrend):
+            detrendWindowIntervals = _resolveRuntimeReplicateDetrendWindow(
+                vec_,
+                backgroundBlockSizeIntervals,
+                fitArgs.ECM_backgroundLengthScaleMultiplier,
+                countingArgs.replicateMedianDetrendWindowMultiplier,
+            )
+
+            def _detrendTrack(j: int) -> dict[str, Any]:
+                stats_ = core.medianFilterDetrendInPlace(
+                    chromMat[j, :],
+                    detrendWindowIntervals,
+                )
+                stats_["sample_index"] = int(j)
+                return stats_
+
+            detrendStart = time.perf_counter()
+            detrendWorkers = io_helpers._getSmallWorkerCount(
+                numSamples,
+                maxWorkers=4,
+            )
+            useParallelDetrend = (
+                numSamples >= 4 and chromMat.shape[1] >= 5000 and detrendWorkers > 1
+            )
+            detrendStats: list[dict[str, Any]] = []
+            if useParallelDetrend:
+                logger.info(
+                    "replicate median detrend: using ThreadPool with %d workers "
+                    "(numSamples=%d, numIntervals=%d, window=%d).",
+                    int(detrendWorkers),
+                    int(numSamples),
+                    int(chromMat.shape[1]),
+                    int(detrendWindowIntervals),
+                )
+                with ThreadPool(processes=int(detrendWorkers)) as pool:
+                    for stats_ in _progress(
+                        pool.imap(_detrendTrack, range(numSamples)),
+                        total=numSamples,
+                        desc="Median-detrending replicates",
+                        unit="sample",
+                    ):
+                        detrendStats.append(stats_)
+            else:
+                for j in _progress(
+                    range(numSamples),
+                    desc="Median-detrending replicates",
+                    unit="sample",
+                ):
+                    detrendStats.append(_detrendTrack(j))
+
+            appliedStats = [s for s in detrendStats if bool(s.get("applied", False))]
+            trendMedians = np.asarray(
+                [float(s.get("trend_median", 0.0)) for s in appliedStats],
+                dtype=np.float64,
+            )
+            trendMads = np.asarray(
+                [float(s.get("trend_mad", 0.0)) for s in appliedStats],
+                dtype=np.float64,
+            )
+            medianRange = (
+                "NA"
+                if trendMedians.size == 0
+                else (
+                    f"[{float(np.min(trendMedians)):.4g}, "
+                    f"{float(np.max(trendMedians)):.4g}]"
+                )
+            )
+            madMedian = (
+                float("nan") if trendMads.size == 0 else float(np.median(trendMads))
+            )
+            logger.info(
+                "replicate median detrend.done %s samples=%d applied=%d "
+                "window=%d trendMedianRange=%s trendMADMedian=%.4g elapsed=%.3fs",
+                chromosome,
+                int(numSamples),
+                int(len(appliedStats)),
+                int(detrendWindowIntervals),
+                medianRange,
+                madMedian,
+                time.perf_counter() - detrendStart,
             )
 
         return intervals, np.ascontiguousarray(chromMat, dtype=np.float32)
@@ -3494,15 +3558,13 @@ def main():
             backgroundBlockSizeIntervals,
             fitArgs.ECM_backgroundLengthScaleMultiplier,
         )
-        backgroundPriorWindowIntervals_ = int(blockLenIntervals_)
         runStart = time.perf_counter()
         logger.info(
-            "runConsenrich.start %s intervals=%d samples=%d blocks=%d backgroundPriorWindow=%d",
+            "runConsenrich.start %s intervals=%d samples=%d blocks=%d",
             chromosome,
             int(numIntervals),
             int(numSamples),
             int(np.ceil(numIntervals / float(blockLenIntervals_))),
-            int(backgroundPriorWindowIntervals_),
         )
         useCrossFitUncertainty = bool(
             outputArgs.writeUncertainty and uncertaintyCalibrationArgs.enabled
@@ -3536,14 +3598,6 @@ def main():
             ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
             ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
             ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-            ECM_backgroundPriorTrimQuantile=fitArgs.ECM_backgroundPriorTrimQuantile,
-            ECM_backgroundPriorVariance=fitArgs.ECM_backgroundPriorVariance,
-            ECM_backgroundPriorVariancePenaltyShape=(
-                fitArgs.ECM_backgroundPriorVariancePenaltyShape
-            ),
-            ECM_backgroundPriorVariancePenaltyRate=(
-                fitArgs.ECM_backgroundPriorVariancePenaltyRate
-            ),
             processQCalibration=processArgs.processQCalibration,
             processQWarmupECMIters=processArgs.processQWarmupECMIters,
             processQWarmupOuterIters=processArgs.processQWarmupOuterIters,
@@ -3733,14 +3787,6 @@ def main():
                 ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
                 ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
                 ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-                ECM_backgroundPriorTrimQuantile=fitArgs.ECM_backgroundPriorTrimQuantile,
-                ECM_backgroundPriorVariance=fitArgs.ECM_backgroundPriorVariance,
-                ECM_backgroundPriorVariancePenaltyShape=(
-                    fitArgs.ECM_backgroundPriorVariancePenaltyShape
-                ),
-                ECM_backgroundPriorVariancePenaltyRate=(
-                    fitArgs.ECM_backgroundPriorVariancePenaltyRate
-                ),
                 processQCalibration=processArgs.processQCalibration,
                 processQWarmupECMIters=processArgs.processQWarmupECMIters,
                 processQWarmupOuterIters=processArgs.processQWarmupOuterIters,
