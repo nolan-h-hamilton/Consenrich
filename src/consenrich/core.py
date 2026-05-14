@@ -1653,6 +1653,27 @@ def _observationLambdaSummary(
     )
 
 
+def _processKappaSummary(
+    processPrecExp: np.ndarray | None,
+    *,
+    lower: float,
+    upper: float,
+) -> tuple[Any, Any]:
+    if processPrecExp is None:
+        return None, None
+    arr = np.asarray(processPrecExp, dtype=np.float64).reshape(-1)
+    if arr.size > 1:
+        arr = arr[1:]
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return None, None
+    clipped = np.clip(finite, float(lower), float(upper))
+    return (
+        metadataFloat(float(np.mean(clipped))),
+        metadataFloat(float(np.median(clipped))),
+    )
+
+
 def _coerceOptionalVector(
     name: str,
     value: np.ndarray | None,
@@ -2846,6 +2867,11 @@ def runConsenrich(
                 lower=float(observationPrecisionMultiplierMin),
                 upper=float(observationPrecisionMultiplierMax),
             )
+            kappaMeanLocal, kappaMedianLocal = _processKappaSummary(
+                processPrecExpLocal,
+                lower=float(processPrecisionMultiplierMin),
+                upper=float(processPrecisionMultiplierMax),
+            )
             replicateBiasLocal = np.asarray(replicateBiasLocal, dtype=np.float32)
             stateSmoothedLocal = np.asarray(stateSmoothedLocal, dtype=np.float32)
             stateCovarSmoothedLocal = np.asarray(
@@ -2870,6 +2896,8 @@ def runConsenrich(
                 ecmDiagnosticsNormalized["background_shift_stable"] = True
                 ecmDiagnosticsNormalized["observation_lambda_mean"] = lambdaMeanLocal
                 ecmDiagnosticsNormalized["observation_lambda_median"] = lambdaMedianLocal
+                ecmDiagnosticsNormalized["process_kappa_mean"] = kappaMeanLocal
+                ecmDiagnosticsNormalized["process_kappa_median"] = kappaMedianLocal
                 ecmDiagnosticsNormalized["outer_inner_ecm_converged"] = bool(
                     lastInnerECMConvergedLocal
                 )
@@ -2883,9 +2911,11 @@ def runConsenrich(
                 outerConvergedLocal = True
                 outerStopReasonLocal = "fit_background_false"
                 logger.info(
-                    "outerPass[1/1]:\n\tfitBackground=False\n\tbackgroundShift=0\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\touterObjectiveChangePerCell=%s",
+                    "outerPass[1/1]:\n\tfitBackground=False\n\tbackgroundShift=0\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\tkappaMean=%s\n\tkappaMedian=%s\n\touterObjectiveChangePerCell=%s",
                     _formatMaybeFloat(lambdaMeanLocal),
                     _formatMaybeFloat(lambdaMedianLocal),
+                    _formatMaybeFloat(kappaMeanLocal),
+                    _formatMaybeFloat(kappaMedianLocal),
                     _formatMaybeFloat(lastOuterObjectiveChangePerCellLocal),
                 )
                 break
@@ -2953,6 +2983,8 @@ def runConsenrich(
             )
             ecmDiagnosticsNormalized["observation_lambda_mean"] = lambdaMeanLocal
             ecmDiagnosticsNormalized["observation_lambda_median"] = lambdaMedianLocal
+            ecmDiagnosticsNormalized["process_kappa_mean"] = kappaMeanLocal
+            ecmDiagnosticsNormalized["process_kappa_median"] = kappaMedianLocal
             ecmDiagnosticsNormalized["outer_inner_ecm_converged"] = bool(
                 lastInnerECMConvergedLocal
             )
@@ -2962,13 +2994,15 @@ def runConsenrich(
             )
             fixedBackgroundECMDiagnostics.append(ecmDiagnosticsNormalized)
             logger.info(
-                "outerPass[%d/%d]:\n\tbackgroundShift=%.6g\n\tbackgroundShiftThreshold=%.6g\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\touterObjectivePerCell=%s\n\touterObjectiveChangePerCell=%s\n\touterObjectiveThresholdPerCell=%s\n\touterStable=%d/%d\n\tinnerECMConverged=%s",
+                "outerPass[%d/%d]:\n\tbackgroundShift=%.6g\n\tbackgroundShiftThreshold=%.6g\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\tkappaMean=%s\n\tkappaMedian=%s\n\touterObjectivePerCell=%s\n\touterObjectiveChangePerCell=%s\n\touterObjectiveThresholdPerCell=%s\n\touterStable=%d/%d\n\tinnerECMConverged=%s",
                 int(outerPassIndex + 1),
                 int(outerPassCount),
                 float(bgChange),
                 float(bgTol),
                 _formatMaybeFloat(lambdaMeanLocal),
                 _formatMaybeFloat(lambdaMedianLocal),
+                _formatMaybeFloat(kappaMeanLocal),
+                _formatMaybeFloat(kappaMedianLocal),
                 _formatMaybeFloat(lastOuterObjectivePerCellLocal),
                 _formatMaybeFloat(lastOuterObjectiveChangePerCellLocal),
                 _formatMaybeFloat(lastOuterObjectiveTolPerCellLocal),
@@ -5375,7 +5409,7 @@ def chooseDependenceLength(
     chromMat: np.ndarray,
     intervalSizeBP: int,
     minSpan: int | None = 3,
-    maxSpan: int | None = 64,
+    maxSpan: int | None = 128,
     trim: float = 0.10,
 ) -> tuple[int, int, int, dict[str, Any]]:
     r"""Choose local dependence length for model-fitting context sizes.

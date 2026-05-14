@@ -69,10 +69,10 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
         ),
         "processParams.processQLevelPriorWeight": 1.0,
         "processParams.processQTrendPriorWeight": 10.0,  #
-        "processParams.precisionMultiplierMin": 0.2,
-        "processParams.precisionMultiplierMax": 5.0,
-        "observationParams.precisionMultiplierMin": 0.5,  #
-        "observationParams.precisionMultiplierMax": 2.0,
+        "processParams.precisionMultiplierMin": 0.1,
+        "processParams.precisionMultiplierMax": 10.0,
+        "observationParams.precisionMultiplierMin": 1.0,  #
+        "observationParams.precisionMultiplierMax": 1.0,
         "countingParams.gentleDetrendQuantile": 0.5,
         "uncertaintyCalibration.enabled": True,
     }
@@ -251,9 +251,42 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     )
 
 
+_DEPENDENCE_MIN_CONTEXT_BP = 300
+_DEPENDENCE_MAX_CONTEXT_BP = 12800
+
+
+def _oddIntervalsFromBP(
+    windowBP: float,
+    intervalSizeBP: int,
+    *,
+    minIntervals: int = 3,
+) -> int:
+    intervalSizeBP_ = max(1, int(intervalSizeBP))
+    window = int(math.ceil(float(windowBP) / float(intervalSizeBP_)))
+    window = max(int(minIntervals), window)
+    if window % 2 == 0:
+        window += 1
+    return int(window)
+
+
+def _dependenceSpanBoundsFromContextBP(
+    intervalSizeBP: int,
+    *,
+    minContextBP: int = _DEPENDENCE_MIN_CONTEXT_BP,
+    maxContextBP: int = _DEPENDENCE_MAX_CONTEXT_BP,
+) -> tuple[int, int]:
+    intervalSizeBP_ = max(1, int(intervalSizeBP))
+    minContextBP_ = max(1, int(minContextBP))
+    maxContextBP_ = max(minContextBP_, int(maxContextBP))
+    minSpan = max(3, int(math.ceil(minContextBP_ / float(2 * intervalSizeBP_))))
+    maxSpan = max(minSpan, int(math.ceil(maxContextBP_ / float(2 * intervalSizeBP_))))
+    return int(minSpan), int(maxSpan)
+
+
 def _resolveRuntimeBackgroundBlockLen(
-    vec_: Optional[Tuple[int, int, int]],
-    backgroundBlockSizeIntervals: int,
+    dependenceContextBP: Optional[int],
+    backgroundBlockSizeBP: int,
+    intervalSizeBP: int,
     lengthScaleMultiplier: float,
 ) -> int:
     multiplier = float(lengthScaleMultiplier)
@@ -261,16 +294,17 @@ def _resolveRuntimeBackgroundBlockLen(
         raise ValueError(
             "fitParams.ECM_backgroundLengthScaleMultiplier must be positive"
         )
-    baseIntervals = (
-        int(vec_[0]) if vec_ is not None else int(backgroundBlockSizeIntervals)
-    )
-    baseIntervals = max(1, baseIntervals)
-    return max(1, int(math.ceil(multiplier * baseIntervals)) + 1)
+    if dependenceContextBP is not None and int(dependenceContextBP) > 0:
+        windowBP = 0.5 * multiplier * float(dependenceContextBP)
+    else:
+        windowBP = multiplier * max(float(backgroundBlockSizeBP), float(intervalSizeBP))
+    return _oddIntervalsFromBP(windowBP, intervalSizeBP, minIntervals=1)
 
 
 def _resolveRuntimeReplicateDetrendWindow(
-    vec_: Optional[Tuple[int, int, int]],
-    backgroundBlockSizeIntervals: int,
+    dependenceContextBP: Optional[int],
+    backgroundBlockSizeBP: int,
+    intervalSizeBP: int,
     lengthScaleMultiplier: float,
     windowMultiplier: float,
 ) -> int:
@@ -284,14 +318,15 @@ def _resolveRuntimeReplicateDetrendWindow(
         raise ValueError(
             "countingParams.replicateMedianDetrendWindowMultiplier must be positive"
         )
-    baseIntervals = (
-        int(vec_[0]) if vec_ is not None else int(backgroundBlockSizeIntervals)
-    )
-    baseIntervals = max(1, baseIntervals)
-    window = int(math.ceil(windowMultiplier_ * multiplier * baseIntervals))
-    if window % 2 == 0:
-        window += 1
-    return max(3, window)
+    if dependenceContextBP is not None and int(dependenceContextBP) > 0:
+        windowBP = 0.5 * windowMultiplier_ * multiplier * float(dependenceContextBP)
+    else:
+        windowBP = (
+            windowMultiplier_
+            * multiplier
+            * max(float(backgroundBlockSizeBP), float(intervalSizeBP))
+        )
+    return _oddIntervalsFromBP(windowBP, intervalSizeBP, minIntervals=3)
 
 
 def _progress(iterable, **kwargs):
@@ -1034,7 +1069,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 100)
+    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
@@ -1097,7 +1132,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     logMult_ = _cfgGet(
         configData,
         "countingParams.logMult",
-        1.0 / np.log(2.0),
+        1.0,
     )
     replicateMedianDetrend_ = _cfgGet(
         configData,
@@ -2350,7 +2385,7 @@ def main():
     )
     if samplingBlockSizeBP_ is None or samplingBlockSizeBP_ <= 0:
         samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
-    vec_: Optional[Tuple[int, int, int]] = None
+    dependenceContextBP_: Optional[int] = None
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
@@ -2911,7 +2946,7 @@ def main():
         chromPlan: Mapping[str, Any],
     ) -> tuple[np.ndarray, np.ndarray]:
         nonlocal backgroundBlockSizeBP_, backgroundBlockSizeIntervals
-        nonlocal samplingBlockSizeBP_, vec_, sf
+        nonlocal dependenceContextBP_, samplingBlockSizeBP_, sf
 
         chromosome = str(chromPlan["chromosome"])
         chromosomeStart = int(chromPlan["start"])
@@ -3019,48 +3054,6 @@ def main():
                 time.perf_counter() - countStart,
             )
 
-        if backgroundBlockSizeBP_ < 0:
-            depPoint, depLower, depUpper, depDiagnostics = core.chooseDependenceLength(
-                chromMat,
-                intervalSizeBP,
-                minSpan=3,
-                maxSpan=64,
-            )
-            vec_ = (int(depPoint), int(depLower), int(depUpper))
-            backgroundBlockSizeBP_ = int(depDiagnostics["context_size_bp"])
-            backgroundBlockSizeIntervals = backgroundBlockSizeBP_ // intervalSizeBP
-            logger.info(
-                "`countingParams.backgroundBlockSizeBP < 0` --> "
-                "chooseDependenceLength(): %d bp (span=%d, lower=%d, upper=%d)",
-                int(backgroundBlockSizeBP_),
-                int(depPoint),
-                int(depLower),
-                int(depUpper),
-            )
-
-        if samplingBlockSizeBP_ < 0:
-            if backgroundBlockSizeBP_ > 0:
-                samplingBlockSizeBP_ = backgroundBlockSizeBP_
-            else:
-                depPoint, depLower, depUpper, depDiagnostics = (
-                    core.chooseDependenceLength(
-                        chromMat,
-                        intervalSizeBP,
-                        minSpan=3,
-                        maxSpan=64,
-                    )
-                )
-                vec_ = (int(depPoint), int(depLower), int(depUpper))
-                samplingBlockSizeBP_ = int(depDiagnostics["context_size_bp"])
-                logger.info(
-                    "`observationParams.samplingBlockSizeBP < 0` --> "
-                    "chooseDependenceLength(): %d bp (span=%d, lower=%d, upper=%d)",
-                    int(samplingBlockSizeBP_),
-                    int(depPoint),
-                    int(depLower),
-                    int(depUpper),
-                )
-
         if waitForMatrix:
             if sf is None:
                 sf = cconsenrich.cSF(chromMat)
@@ -3123,10 +3116,57 @@ def main():
                 time.perf_counter() - transformStart,
             )
 
+        if backgroundBlockSizeBP_ < 0 or samplingBlockSizeBP_ < 0:
+            depMinSpan, depMaxSpan = _dependenceSpanBoundsFromContextBP(intervalSizeBP)
+            depPoint, depLower, depUpper, depDiagnostics = core.chooseDependenceLength(
+                chromMat,
+                intervalSizeBP,
+                minSpan=depMinSpan,
+                maxSpan=depMaxSpan,
+            )
+            dependenceContextBP_ = int(depDiagnostics["context_size_bp"])
+            logger.info(
+                "chooseDependenceLength.bounds %s minContextBP=%d maxContextBP=%d "
+                "minSpan=%d maxSpan=%d",
+                chromosome,
+                int(_DEPENDENCE_MIN_CONTEXT_BP),
+                int(_DEPENDENCE_MAX_CONTEXT_BP),
+                int(depMinSpan),
+                int(depMaxSpan),
+            )
+            if backgroundBlockSizeBP_ < 0:
+                backgroundBlockSizeBP_ = int(dependenceContextBP_)
+                backgroundBlockSizeIntervals = max(
+                    1,
+                    int(
+                        math.ceil(float(backgroundBlockSizeBP_) / float(intervalSizeBP))
+                    ),
+                )
+                logger.info(
+                    "`countingParams.backgroundBlockSizeBP < 0` --> "
+                    "chooseDependenceLength(): %d bp (span=%d, lower=%d, upper=%d)",
+                    int(backgroundBlockSizeBP_),
+                    int(depPoint),
+                    int(depLower),
+                    int(depUpper),
+                )
+
+            if samplingBlockSizeBP_ < 0:
+                samplingBlockSizeBP_ = int(dependenceContextBP_)
+                logger.info(
+                    "`observationParams.samplingBlockSizeBP < 0` --> "
+                    "chooseDependenceLength(): %d bp (span=%d, lower=%d, upper=%d)",
+                    int(samplingBlockSizeBP_),
+                    int(depPoint),
+                    int(depLower),
+                    int(depUpper),
+                )
+
         if bool(countingArgs.replicateMedianDetrend):
             detrendWindowIntervals = _resolveRuntimeReplicateDetrendWindow(
-                vec_,
-                backgroundBlockSizeIntervals,
+                dependenceContextBP_,
+                int(backgroundBlockSizeBP_),
+                intervalSizeBP,
                 fitArgs.ECM_backgroundLengthScaleMultiplier,
                 countingArgs.replicateMedianDetrendWindowMultiplier,
             )
@@ -3617,7 +3657,7 @@ def main():
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
                 minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-4))
-            autoMinQ = max((0.01 * minR_) * (1 + deltaF_), 1.0e-4)
+            autoMinQ = max((0.001 * minR_) * (1 + deltaF_), 1.0e-6)
             logger.info(
                 "processParams.minQ < 0 or processParams.maxQ < 0 --> applying minimal numerically stable bounds for conditioning",
             )
@@ -3632,13 +3672,28 @@ def main():
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
         logger.info(f"minR={minR_}, maxR={maxR_}, minQ={minQ_}, maxQ={maxQ_}")
+        blockLenIntervals_ = _resolveRuntimeBackgroundBlockLen(
+            dependenceContextBP_,
+            int(backgroundBlockSizeBP_),
+            intervalSizeBP,
+            fitArgs.ECM_backgroundLengthScaleMultiplier,
+        )
         core._logAsciiBlock(
             "chromosome fit",
             (
                 ("chromosome", chromosome),
                 ("intervals", int(numIntervals)),
                 ("samples", int(numSamples)),
-                ("block intervals", int(backgroundBlockSizeIntervals)),
+                (
+                    "dependence context bp",
+                    (
+                        int(dependenceContextBP_)
+                        if dependenceContextBP_ is not None
+                        else "configured"
+                    ),
+                ),
+                ("background base bp", int(backgroundBlockSizeBP_)),
+                ("background window intervals", int(blockLenIntervals_)),
                 ("minR", float(minR_)),
                 ("maxR", float(maxR_)),
                 ("minQ", float(minQ_)),
@@ -3648,11 +3703,6 @@ def main():
             logger_=logger,
         )
         logger.info(f">>>  Running consenrich: {chromosome}  <<<")
-        blockLenIntervals_ = _resolveRuntimeBackgroundBlockLen(
-            vec_,
-            backgroundBlockSizeIntervals,
-            fitArgs.ECM_backgroundLengthScaleMultiplier,
-        )
         runStart = time.perf_counter()
         logger.info(
             "runConsenrich.start %s intervals=%d samples=%d blocks=%d",
