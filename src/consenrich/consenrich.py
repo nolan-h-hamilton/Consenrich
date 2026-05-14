@@ -69,10 +69,10 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
         ),
         "processParams.processQLevelPriorWeight": 1.0,
         "processParams.processQTrendPriorWeight": 10.0,
-        "processParams.precisionMultiplierMin": 0.5,
-        "processParams.precisionMultiplierMax": 5.0,
-        "observationParams.precisionMultiplierMin": 0.5,
-        "observationParams.precisionMultiplierMax": 5.0,
+        "processParams.precisionMultiplierMin": 0.01,
+        "processParams.precisionMultiplierMax": 10.0,
+        "observationParams.precisionMultiplierMin": 0.01,
+        "observationParams.precisionMultiplierMax": 10.0,
         "uncertaintyCalibration.enabled": True,
     }
 }
@@ -956,7 +956,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 50)
+    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
@@ -1315,7 +1315,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     )
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", 1.0),
-        minQ=_cfgGet(configData, "processParams.minQ", 1.0e-5),
+        minQ=_cfgGet(configData, "processParams.minQ", 1.0e-6),
         maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
             configData,
