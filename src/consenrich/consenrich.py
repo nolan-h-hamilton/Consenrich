@@ -68,10 +68,10 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
             core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
         ),
         "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 10.0,  #
-        "processParams.precisionMultiplierMin": 0.1,
-        "processParams.precisionMultiplierMax": 10.0,
-        "observationParams.precisionMultiplierMin": 1.0,  #
+        "processParams.processQTrendPriorWeight": 10.0,
+        "processParams.precisionMultiplierMin": 0.5,
+        "processParams.precisionMultiplierMax": 2.0,
+        "observationParams.precisionMultiplierMin": 1.0,
         "observationParams.precisionMultiplierMax": 1.0,
         "countingParams.gentleDetrendQuantile": 0.5,
         "uncertaintyCalibration.enabled": True,
