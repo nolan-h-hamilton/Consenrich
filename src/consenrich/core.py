@@ -625,13 +625,16 @@ class countingParams(NamedTuple):
     :param logMult: Multiplicative factor applied to log-scaled and normalized counts. For example, setting ``logMult = 1 / \log(2)`` will yield log2-scaled counts after transformation, and setting ``logMult = 1.0`` yields natural log-scaled counts.
     :type logMult: float, optional
     :param replicateMedianDetrend: If True, subtract a broad per-replicate
-        median-filter trend after log/log-ratio transformation and before MUNC
+        quantile-filter trend after log/log-ratio transformation and before MUNC
         and state estimation.
     :type replicateMedianDetrend: bool | None
     :param replicateMedianDetrendWindowMultiplier: Multiplier applied to the
-        effective background span when choosing the median-filter detrend
+        effective background span when choosing the quantile-filter detrend
         window. The production default uses a doubly-wide window.
     :type replicateMedianDetrendWindowMultiplier: float | None
+    :param gentleDetrendQuantile: Quantile used for broad per-replicate
+        detrending. The default ``0.5`` reproduces the previous median filter.
+    :type gentleDetrendQuantile: float | None
     :seealso: :func:`consenrich.cconsenrich.cTransform`
 
     .. admonition:: Treatment vs. Control Extension Lengths in Single-End Data
@@ -659,6 +662,7 @@ class countingParams(NamedTuple):
     logMult: float | None
     replicateMedianDetrend: bool | None = True
     replicateMedianDetrendWindowMultiplier: float | None = 2.0
+    gentleDetrendQuantile: float | None = 0.5
 
 
 class scParams(NamedTuple):
@@ -3277,6 +3281,18 @@ def runConsenrich(
     postFitResiduals = np.asarray(fitFinal["postFitResiduals"], dtype=np.float32)
     NIS = np.asarray(fitFinal["NIS"], dtype=np.float32)
     finalForwardNIS = _finalForwardNIS(NIS)
+    finalForwardGainContigSummary = _finalForwardReplicateGainContigSummary(
+        stateCovarForward=np.asarray(fitFinal["stateCovarForward"], dtype=np.float32),
+        matrixMunc=np.asarray(fitFinal["matrixMunc"], dtype=np.float32),
+        lambdaExp=(
+            fitFinal.get("lambdaExp")
+            if bool(ECM_useObsPrecisionReweighting)
+            else None
+        ),
+        pad=float(pad),
+        obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+        obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+    )
     _logAsciiBlock(
         f"{fitPhaseLabel} summary",
         (
@@ -3304,6 +3320,16 @@ def runConsenrich(
     runDiagnostics = {
         "final_nll": metadataFloat(float(fitFinal.get("sumNLL", np.nan))),
         "final_forward_nis": metadataFloat(finalForwardNIS),
+        "final_forward_gain_contig_summary": {
+            "mean": [
+                metadataFloat(float(value))
+                for value in finalForwardGainContigSummary["mean"]
+            ],
+            "median": [
+                metadataFloat(float(value))
+                for value in finalForwardGainContigSummary["median"]
+            ],
+        },
         "precision_reweighting_boundary_hits": summarizePrecisionBoundaryHits(
             observationPrecision=(
                 fitFinal.get("lambdaExp")
@@ -4154,8 +4180,8 @@ def _backgroundPenaltyFromSpan(
     )[1]
 
 
-def _coerceOddMedianWindow(windowIntervals: int | float, length: int) -> int:
-    r"""Resolve an odd median-filter window bounded by a one-dimensional track."""
+def _coerceOddFilterWindow(windowIntervals: int | float, length: int) -> int:
+    r"""Resolve an odd filter window bounded by a one-dimensional track."""
 
     if length < 3:
         return 0
@@ -4175,14 +4201,17 @@ def _coerceOddMedianWindow(windowIntervals: int | float, length: int) -> int:
     return int(min(window, maxWindow))
 
 
-def medianFilterDetrendInPlace(
+def quantileFilterDetrendInPlace(
     values: npt.NDArray[np.floating],
     windowIntervals: int | float,
+    quantile: float = 0.5,
 ) -> dict[str, Any]:
-    r"""Subtract a broad median-filter trend from one transformed replicate track.
+    r"""Subtract a broad quantile-filter trend from one transformed replicate track.
 
     The removed trend is not zero-centered: the operation is exactly
-    ``values -= median_filter(values, window)`` after odd-window coercion.
+    ``values -= quantile_filter(values, q, window)`` after odd-window coercion.
+    With ``quantile=0.5`` this uses ``median_filter`` for the standard median
+    trend.
     """
 
     arr = np.asarray(values)
@@ -4191,16 +4220,30 @@ def medianFilterDetrendInPlace(
     if not np.issubdtype(arr.dtype, np.floating):
         raise TypeError("values dtype must be floating point")
 
-    window = _coerceOddMedianWindow(windowIntervals, arr.size)
+    quantile_ = float(quantile)
+    if not np.isfinite(quantile_) or quantile_ < 0.0 or quantile_ > 1.0:
+        raise ValueError("quantile must be between 0 and 1")
+
+    window = _coerceOddFilterWindow(windowIntervals, arr.size)
     if window <= 0:
         return {
             "applied": False,
             "window_intervals": int(window),
+            "detrend_quantile": float(quantile_),
             "trend_median": 0.0,
+            "trend_quantile": 0.0,
             "trend_mad": 0.0,
         }
 
-    trend = ndimage.median_filter(arr, size=int(window), mode="nearest")
+    if quantile_ == 0.5:
+        trend = ndimage.median_filter(arr, size=int(window), mode="nearest")
+    else:
+        trend = ndimage.percentile_filter(
+            arr,
+            percentile=float(100.0 * quantile_),
+            size=int(window),
+            mode="nearest",
+        )
     trend = np.asarray(trend, dtype=arr.dtype)
     if not np.all(np.isfinite(trend)):
         trend = np.nan_to_num(trend, nan=0.0, posinf=0.0, neginf=0.0)
@@ -4208,19 +4251,22 @@ def medianFilterDetrendInPlace(
     finite = np.asarray(trend[np.isfinite(trend)], dtype=np.float64)
     if finite.size:
         trendMedian = float(np.median(finite))
+        trendQuantile = float(np.quantile(finite, quantile_))
         trendMad = float(np.median(np.abs(finite - trendMedian)))
     else:
         trendMedian = 0.0
+        trendQuantile = 0.0
         trendMad = 0.0
 
     np.subtract(arr, trend, out=arr, casting="unsafe")
     return {
         "applied": True,
         "window_intervals": int(window),
+        "detrend_quantile": float(quantile_),
         "trend_median": trendMedian,
+        "trend_quantile": trendQuantile,
         "trend_mad": trendMad,
     }
-
 
 def _finalForwardNIS(NIS: np.ndarray) -> float:
     nisTrack = np.asarray(NIS, dtype=np.float64)
@@ -4230,6 +4276,53 @@ def _finalForwardNIS(NIS: np.ndarray) -> float:
     if finite.size == 0:
         return float("nan")
     return float(np.mean(finite))
+
+
+def _finalForwardReplicateGainContigSummary(
+    *,
+    stateCovarForward: np.ndarray,
+    matrixMunc: np.ndarray,
+    lambdaExp: np.ndarray | None,
+    pad: float,
+    obsPrecisionMultiplierMin: float,
+    obsPrecisionMultiplierMax: float,
+) -> dict[str, np.ndarray]:
+    covar = np.asarray(stateCovarForward, dtype=np.float64)
+    munc = np.asarray(matrixMunc, dtype=np.float64)
+    if covar.ndim != 3 or covar.shape[1:] != (2, 2):
+        raise ValueError("stateCovarForward must have shape (n, 2, 2)")
+    if munc.ndim != 2:
+        raise ValueError("matrixMunc must be two-dimensional")
+    if covar.shape[0] != munc.shape[1]:
+        raise ValueError("stateCovarForward and matrixMunc interval counts must match")
+
+    p00Forward = np.maximum(covar[:, 0, 0], 0.0)
+    obsVariance = np.maximum(munc + float(pad), 1.0e-12)
+    if lambdaExp is None:
+        obsPrecision = np.ones(covar.shape[0], dtype=np.float64)
+    else:
+        obsPrecision = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
+        if obsPrecision.shape != (covar.shape[0],):
+            raise ValueError("lambdaExp length must match interval count")
+        obsPrecision = np.clip(
+            obsPrecision,
+            float(obsPrecisionMultiplierMin),
+            float(obsPrecisionMultiplierMax),
+        )
+
+    # For row j at interval k, K[j,k] = P[k|k]00 * precision[j,k].
+    gains = (p00Forward[None, :] * obsPrecision[None, :]) / obsVariance
+    finite = np.isfinite(gains)
+    gainSums = np.sum(np.where(finite, gains, 0.0), axis=1, dtype=np.float64)
+    gainCounts = np.sum(finite, axis=1, dtype=np.int64)
+    gainMeans = np.full(munc.shape[0], np.nan, dtype=np.float64)
+    gainMedians = np.full(munc.shape[0], np.nan, dtype=np.float64)
+    np.divide(gainSums, gainCounts, out=gainMeans, where=gainCounts > 0)
+    for rowIdx in range(munc.shape[0]):
+        row = gains[rowIdx, finite[rowIdx, :]]
+        if row.size:
+            gainMedians[rowIdx] = float(np.median(row))
+    return {"mean": gainMeans, "median": gainMedians}
 
 
 def _sparseSupportWeights(

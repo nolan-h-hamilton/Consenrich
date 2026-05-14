@@ -58,7 +58,7 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
         "fitParams.ECM_minOuterIters": None,
         "fitParams.ECM_backgroundShiftRtol": 0.01,
         "fitParams.ECM_outerNLLRtol": 1.0e-4,
-        "fitParams.ECM_backgroundSmoothness": 10.0,
+        "fitParams.ECM_backgroundSmoothness": 10.0,  #
         "fitParams.ECM_backgroundLengthScaleMultiplier": 16.0,  # 8, 16, 32
         "processParams.processQCalibration": (
             core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
@@ -68,11 +68,12 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
             core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
         ),
         "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 100.0,  # 10, 25, 50
-        "processParams.precisionMultiplierMin": 0.1,  # 0.01, 0.1, 0.5
-        "processParams.precisionMultiplierMax": 10.0,
-        "observationParams.precisionMultiplierMin": 0.1,  # 0.01, 0.1, 0.5
-        "observationParams.precisionMultiplierMax": 10.0,
+        "processParams.processQTrendPriorWeight": 10.0,  #
+        "processParams.precisionMultiplierMin": 0.2,
+        "processParams.precisionMultiplierMax": 5.0,
+        "observationParams.precisionMultiplierMin": 0.5,  #
+        "observationParams.precisionMultiplierMax": 2.0,
+        "countingParams.gentleDetrendQuantile": 0.5,
         "uncertaintyCalibration.enabled": True,
     }
 }
@@ -118,6 +119,82 @@ def _fmtDiagnosticFloat(value: Any) -> str:
     return f"{value_:.6g}"
 
 
+def _truncateMiddle(text: Any, width: int) -> str:
+    text_ = str(text)
+    width_ = max(0, int(width))
+    if len(text_) <= width_:
+        return text_
+    if width_ <= 3:
+        return text_[:width_]
+    head = (width_ - 3) // 2
+    tail = width_ - 3 - head
+    return f"{text_[:head]}...{text_[-tail:]}"
+
+
+def _formatReplicateGainFrame(
+    chromosome: str,
+    treatmentSources: Sequence[core.inputSource],
+    gainMeans: Sequence[Any],
+    gainMedians: Sequence[Any],
+    *,
+    controlSources: Sequence[core.inputSource] | None = None,
+    indentLevel: int = 0,
+) -> str:
+    columns = (
+        ("rep", 5),
+        ("id", 18),
+        ("file", 46),
+        ("mean", 12),
+        ("median", 12),
+    )
+    border = "+" + "+".join("-" * (width + 2) for _name, width in columns) + "+"
+    titleWidth = len(border) - 4
+    title = _truncateMiddle(f"FINAL FORWARD-PASS GAINS [{chromosome}]", titleWidth)
+    header = "| " + " | ".join(f"{name:<{width}}" for name, width in columns) + " |"
+    lines = [border, f"| {title:<{titleWidth}} |", border, header, border]
+    controlSources_ = list(controlSources or [])
+    rowCount = max(len(gainMeans), len(gainMedians))
+    for i in range(rowCount):
+        source = treatmentSources[i] if i < len(treatmentSources) else None
+        if source is None:
+            sourceId = f"replicate_{i + 1}"
+            fileLabel = "unknown"
+        else:
+            sourceId = str(
+                source.sampleName
+                or os.path.basename(source.path)
+                or f"replicate_{i + 1}"
+            )
+            fileLabel = str(source.path)
+        if i < len(controlSources_):
+            fileLabel = f"{fileLabel} | control={controlSources_[i].path}"
+        values = (
+            str(i + 1),
+            _truncateMiddle(sourceId, columns[1][1]),
+            _truncateMiddle(fileLabel, columns[2][1]),
+            _truncateMiddle(
+                _fmtDiagnosticFloat(gainMeans[i] if i < len(gainMeans) else None),
+                columns[3][1],
+            ),
+            _truncateMiddle(
+                _fmtDiagnosticFloat(gainMedians[i] if i < len(gainMedians) else None),
+                columns[4][1],
+            ),
+        )
+        lines.append(
+            "| "
+            + " | ".join(
+                f"{value:<{width}}" for value, (_name, width) in zip(values, columns)
+            )
+            + " |"
+        )
+    lines.append(border)
+    indent = " " * (max(0, int(indentLevel)) * getattr(core, "_LOG_INDENT_WIDTH", 6))
+    if indent:
+        return "\n".join(f"{indent}{line}" for line in lines)
+    return "\n".join(lines)
+
+
 def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     inputArgs = config["inputArgs"]
     outputArgs = config["outputArgs"]
@@ -145,7 +222,8 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         (
             "replicate detrend",
             (
-                "median x"
+                "quantile="
+                f"{float(countingArgs.gentleDetrendQuantile):.3g} x"
                 f"{float(countingArgs.replicateMedianDetrendWindowMultiplier):.3g}"
                 if bool(countingArgs.replicateMedianDetrend)
                 else "no"
@@ -956,7 +1034,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 50)
+    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 100)
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
@@ -1031,6 +1109,18 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.replicateMedianDetrendWindowMultiplier",
         2.0,
     )
+    gentleDetrendQuantile_ = _cfgGet(
+        configData,
+        "countingParams.gentleDetrendQuantile",
+        0.5,
+    )
+    gentleDetrendQuantile_ = float(gentleDetrendQuantile_)
+    if (
+        not np.isfinite(gentleDetrendQuantile_)
+        or gentleDetrendQuantile_ < 0.0
+        or gentleDetrendQuantile_ > 1.0
+    ):
+        raise ValueError("countingParams.gentleDetrendQuantile must be between 0 and 1")
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
         backgroundBlockSizeBP=backgroundBlockSizeBP_,
@@ -1045,6 +1135,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         replicateMedianDetrendWindowMultiplier=float(
             replicateMedianDetrendWindowMultiplier_
         ),
+        gentleDetrendQuantile=gentleDetrendQuantile_,
     )
 
 
@@ -3041,9 +3132,10 @@ def main():
             )
 
             def _detrendTrack(j: int) -> dict[str, Any]:
-                stats_ = core.medianFilterDetrendInPlace(
+                stats_ = core.quantileFilterDetrendInPlace(
                     chromMat[j, :],
                     detrendWindowIntervals,
+                    countingArgs.gentleDetrendQuantile,
                 )
                 stats_["sample_index"] = int(j)
                 return stats_
@@ -3059,25 +3151,26 @@ def main():
             detrendStats: list[dict[str, Any]] = []
             if useParallelDetrend:
                 logger.info(
-                    "replicate median detrend: using ThreadPool with %d workers "
-                    "(numSamples=%d, numIntervals=%d, window=%d).",
+                    "replicate quantile detrend: using ThreadPool with %d workers "
+                    "(numSamples=%d, numIntervals=%d, quantile=%.3g, window=%d).",
                     int(detrendWorkers),
                     int(numSamples),
                     int(chromMat.shape[1]),
+                    float(countingArgs.gentleDetrendQuantile),
                     int(detrendWindowIntervals),
                 )
                 with ThreadPool(processes=int(detrendWorkers)) as pool:
                     for stats_ in _progress(
                         pool.imap(_detrendTrack, range(numSamples)),
                         total=numSamples,
-                        desc="Median-detrending replicates",
+                        desc="Quantile-detrending replicates",
                         unit="sample",
                     ):
                         detrendStats.append(stats_)
             else:
                 for j in _progress(
                     range(numSamples),
-                    desc="Median-detrending replicates",
+                    desc="Quantile-detrending replicates",
                     unit="sample",
                 ):
                     detrendStats.append(_detrendTrack(j))
@@ -3103,11 +3196,13 @@ def main():
                 float("nan") if trendMads.size == 0 else float(np.median(trendMads))
             )
             logger.info(
-                "replicate median detrend.done %s samples=%d applied=%d "
-                "window=%d trendMedianRange=%s trendMADMedian=%.4g elapsed=%.3fs",
+                "replicate quantile detrend.done %s samples=%d applied=%d "
+                "quantile=%.3g window=%d trendMedianRange=%s "
+                "trendMADMedian=%.4g elapsed=%.3fs",
                 chromosome,
                 int(numSamples),
                 int(len(appliedStats)),
+                float(countingArgs.gentleDetrendQuantile),
                 int(detrendWindowIntervals),
                 medianRange,
                 madMedian,
@@ -3642,6 +3737,23 @@ def main():
                 separator=", ",
             ),
         )
+        finalForwardGainSummary = runDiagnostics.get(
+            "final_forward_gain_contig_summary"
+        )
+        if isinstance(finalForwardGainSummary, Mapping):
+            gainMeans = finalForwardGainSummary.get("mean", [])
+            gainMedians = finalForwardGainSummary.get("median", [])
+            logger.info(
+                "\n%s\n",
+                _formatReplicateGainFrame(
+                    chromosome,
+                    treatmentSources,
+                    list(gainMeans if gainMeans is not None else []),
+                    list(gainMedians if gainMedians is not None else []),
+                    controlSources=(controlSources if controlsPresent else None),
+                    indentLevel=1,
+                ),
+            )
         backgroundWarmStart = None
         if bool(fitArgs.fitBackground):
             rawByInterval = np.asarray(chromMat, dtype=np.float32).T

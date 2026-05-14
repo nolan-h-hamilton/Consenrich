@@ -139,6 +139,38 @@ def _caseInitialConfigurationSummaryStaysCompact(
     assert "'countingArgs':" not in caplog.text
 
 
+def _caseReplicateGainFrameShowsIndentedIdFileMeanAndMedian():
+    sources = [
+        consenrich.core.inputSource(
+            path="/tmp/sampleA.bam",
+            sourceKind="BAM",
+            sampleName="sampleA",
+        ),
+        consenrich.core.inputSource(
+            path="/tmp/sampleB.bam",
+            sourceKind="BAM",
+            sampleName="sampleB",
+        ),
+    ]
+    frame = consenrich._formatReplicateGainFrame(
+        "chrTest",
+        sources,
+        [0.125, 0.25],
+        [0.1, 0.2],
+        indentLevel=1,
+    )
+
+    assert frame.startswith("      +")
+    assert "FINAL FORWARD-PASS GAINS [chrTest]" in frame
+    assert "| mean" in frame
+    assert "| median" in frame
+    assert "sampleA" in frame
+    assert "/tmp/sampleA.bam" in frame
+    assert "0.125" in frame
+    assert "0.1" in frame
+    assert all(line.startswith(("      +", "      |")) for line in frame.splitlines())
+
+
 def _case_munc_worker_count_unknown_memory_uses_cpu_cap(monkeypatch):
     monkeypatch.setattr(consenrich_io.os, "cpu_count", lambda: 8)
 
@@ -378,6 +410,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
     countingParams.replicateMedianDetrend: false
     countingParams.replicateMedianDetrendWindowMultiplier: 3.0
+    countingParams.gentleDetrendQuantile: 0.75
     processParams.processQTrendPriorWeight: 2.5
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
@@ -394,6 +427,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["countingArgs"].replicateMedianDetrendWindowMultiplier == pytest.approx(
         3.0
     )
+    assert parsed["countingArgs"].gentleDetrendQuantile == pytest.approx(0.75)
     assert parsed["processArgs"].processQTrendPriorWeight == pytest.approx(2.5)
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
@@ -1219,6 +1253,10 @@ def test_config_runtime_logging_and_validation_contracts(
             mp,
             caplog,
         )
+    contract_case(
+        "replicate gain frame",
+        _caseReplicateGainFrameShowsIndentedIdFileMeanAndMedian,
+    )
     contract_case("fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite)
 
 

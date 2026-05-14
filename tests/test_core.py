@@ -364,21 +364,43 @@ def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
 
 
 @pytest.mark.correctness
-def _caseMedianFilterDetrendSubtractsUncenteredTrendInPlace():
+def _caseQuantileFilterDefaultSubtractsUncenteredTrendInPlace():
     x = np.linspace(8.0, 10.0, 101, dtype=np.float32)
     x[50] += 4.0
     original = x.copy()
     expectedTrend = core.ndimage.median_filter(original, size=21, mode="nearest")
     expected = original - expectedTrend
 
-    stats_ = core.medianFilterDetrendInPlace(x, 20)
+    stats_ = core.quantileFilterDetrendInPlace(x, 20)
 
     assert stats_["applied"] is True
     assert stats_["window_intervals"] == 21
+    assert stats_["detrend_quantile"] == pytest.approx(0.5)
     np.testing.assert_allclose(x, expected, rtol=1.0e-6, atol=1.0e-6)
     anchored = original - (expectedTrend - np.median(expectedTrend))
     assert np.max(np.abs(x - anchored)) > 8.0
     assert x[50] > 3.5
+
+
+@pytest.mark.correctness
+def _caseQuantileFilterDetrendUsesRequestedQuantile():
+    x = np.linspace(8.0, 10.0, 101, dtype=np.float32)
+    x[45:56] += np.linspace(0.0, 5.0, 11, dtype=np.float32)
+    original = x.copy()
+    expectedTrend = core.ndimage.percentile_filter(
+        original,
+        percentile=75.0,
+        size=21,
+        mode="nearest",
+    )
+    expected = original - expectedTrend
+
+    stats_ = core.quantileFilterDetrendInPlace(x, 20, quantile=0.75)
+
+    assert stats_["applied"] is True
+    assert stats_["window_intervals"] == 21
+    assert stats_["detrend_quantile"] == pytest.approx(0.75)
+    np.testing.assert_allclose(x, expected, rtol=1.0e-6, atol=1.0e-6)
 
 
 def _writeSyntheticBam(tmp_path: Path, fileName: str, records: list[dict]) -> Path:
@@ -677,6 +699,41 @@ def _caseFinalForwardNISUsesMeanFinalForwardDiagnostic():
     assert np.isnan(core._finalForwardNIS(np.array([np.nan], dtype=np.float32)))
     with pytest.raises(ValueError):
         core._finalForwardNIS(np.zeros((2, 2), dtype=np.float32))
+
+
+@pytest.mark.correctness
+def _caseFinalForwardGainSummaryUsesReplicateContigRows():
+    p00Forward = np.array([0.1, 0.2, 0.4, 0.8], dtype=np.float32)
+    stateCovarForward = np.zeros((4, 2, 2), dtype=np.float32)
+    stateCovarForward[:, 0, 0] = p00Forward
+    matrixMunc = np.array(
+        [
+            [0.9, 0.9, 0.9, 0.9],
+            [0.4, 0.6, 0.8, 1.0],
+            [0.1, 0.2, 0.3, 0.4],
+        ],
+        dtype=np.float32,
+    )
+    lambdaExp = np.array([1.0, 2.0, 0.5, 1.5], dtype=np.float32)
+
+    summary = core._finalForwardReplicateGainContigSummary(
+        stateCovarForward=stateCovarForward,
+        matrixMunc=matrixMunc,
+        lambdaExp=lambdaExp,
+        pad=0.1,
+        obsPrecisionMultiplierMin=0.2,
+        obsPrecisionMultiplierMax=5.0,
+    )
+    expectedGains = (
+        p00Forward.astype(np.float64)[None, :]
+        * lambdaExp.astype(np.float64)[None, :]
+        / (matrixMunc.astype(np.float64) + 0.1)
+    )
+    expectedAverages = expectedGains.mean(axis=1)
+    expectedMedians = np.median(expectedGains, axis=1)
+
+    np.testing.assert_allclose(summary["mean"], expectedAverages)
+    np.testing.assert_allclose(summary["median"], expectedMedians)
 
 
 @pytest.mark.correctness
@@ -1159,6 +1216,9 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert postFitResiduals.shape == (n, m)
     assert NIS.shape == (n,)
     assert diagnostics["final_forward_nis"] == pytest.approx(float(np.mean(NIS)))
+    gainSummary = diagnostics["final_forward_gain_contig_summary"]
+    assert len(gainSummary["mean"]) == m
+    assert len(gainSummary["median"]) == m
     assert "background_prior" not in diagnostics
     assert "PHASE: CORE START" in caplog.text
     assert "PHASE: MODEL FIT" in caplog.text
@@ -3088,8 +3148,12 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
             _caseCTransformInPlaceMatchesAllocatingTransformForFloat64,
         ),
         (
-            "median detrend uncentered",
-            _caseMedianFilterDetrendSubtractsUncenteredTrendInPlace,
+            "quantile detrend default uncentered",
+            _caseQuantileFilterDefaultSubtractsUncenteredTrendInPlace,
+        ),
+        (
+            "quantile detrend requested q",
+            _caseQuantileFilterDetrendUsesRequestedQuantile,
         ),
     ):
         contract_case(label, func)
@@ -3138,6 +3202,10 @@ def test_core_background_bias_contracts(monkeypatch, contract_case):
 def test_core_state_diagnostics_and_transition_contracts(contract_case):
     for label, func in (
         ("final forward NIS", _caseFinalForwardNISUsesMeanFinalForwardDiagnostic),
+        (
+            "final forward gain summary",
+            _caseFinalForwardGainSummaryUsesReplicateContigRows,
+        ),
         ("state roughness summary", _caseSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata),
         ("precision boundary summary", _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight),
         ("removed process block scale options", _caseFitParamsDropsProcBlockScaleOptions),
