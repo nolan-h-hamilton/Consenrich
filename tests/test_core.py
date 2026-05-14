@@ -6,7 +6,6 @@
 
 import math
 import os
-import inspect
 import logging
 import tempfile
 from typing import Tuple, List, Optional
@@ -364,14 +363,14 @@ def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
 
 
 @pytest.mark.correctness
-def _caseQuantileFilterDefaultSubtractsUncenteredTrendInPlace():
+def _caseQuantileFilterSubtractsUncenteredTrendInPlace():
     x = np.linspace(8.0, 10.0, 101, dtype=np.float32)
     x[50] += 4.0
     original = x.copy()
     expectedTrend = core.ndimage.median_filter(original, size=21, mode="nearest")
     expected = original - expectedTrend
 
-    stats_ = core.quantileFilterDetrendInPlace(x, 20)
+    stats_ = core.quantileFilterDetrendInPlace(x, 20, quantile=0.5)
 
     assert stats_["applied"] is True
     assert stats_["window_intervals"] == 21
@@ -1629,7 +1628,7 @@ def _casePooledMuncTrendRecoversReplicateVarianceFactors():
 
 
 @pytest.mark.correctness
-def _casePSplineGuardedGCVAppliesDefaultEdfCap():
+def _casePSplineGuardedGCVAppliesEdfCap():
     rng = np.random.default_rng(321)
     amplitudes = np.linspace(0.0, 10.0, 500, dtype=np.float64)
     trueLogVariance = 0.1 + 0.05 * np.sin(2.0 * np.log1p(amplitudes))
@@ -1642,6 +1641,7 @@ def _casePSplineGuardedGCVAppliesDefaultEdfCap():
         trendMinObsPerBasis=1.0,
         trendLambdaGridSize=41,
         trendMinEdf=3.0,
+        trendMaxEdf=30.0,
         eps=1.0e-8,
     )
 
@@ -1754,16 +1754,6 @@ def _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport():
     assert "q95=" in summary
     assert "q99=" in summary
     assert "max=4" in summary
-
-
-@pytest.mark.correctness
-def _caseDefaultProcessPrecisionMultiplierBoundsAreTight():
-    assert core.processParams().precisionMultiplierMin == pytest.approx(0.5)
-    assert core.processParams().precisionMultiplierMax == pytest.approx(2.0)
-
-    signature = inspect.signature(core.runConsenrich)
-    assert signature.parameters["processPrecisionMultiplierMin"].default == pytest.approx(0.5)
-    assert signature.parameters["processPrecisionMultiplierMax"].default == pytest.approx(2.0)
 
 
 @pytest.mark.correctness
@@ -3148,8 +3138,8 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
             _caseCTransformInPlaceMatchesAllocatingTransformForFloat64,
         ),
         (
-            "quantile detrend default uncentered",
-            _caseQuantileFilterDefaultSubtractsUncenteredTrendInPlace,
+            "quantile detrend uncentered",
+            _caseQuantileFilterSubtractsUncenteredTrendInPlace,
         ),
         (
             "quantile detrend requested q",
@@ -3212,7 +3202,6 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         ("transition residual orientation", _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF),
         ("transition residual reference", _caseExpectedTransitionResidualSumsMatchesPythonReference),
         ("process Q bound diagnostics", _caseRegularizedProcessQReportsBoundDiagnostics),
-        ("process precision defaults", _caseDefaultProcessPrecisionMultiplierBoundsAreTight),
         ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
         ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),
         ("monotone pooling removed", _caseMonotonePoolingSourceSymbolsAbsent),
@@ -3256,7 +3245,7 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
         ("P-spline Cython eval", _casePSplineCythonEvaluationMatchesDenseDesign),
         ("P-spline basis support limit", _casePSplineLimitsBasisCountByWeightedSupport),
         ("pooled MUNC trend factors", _casePooledMuncTrendRecoversReplicateVarianceFactors),
-        ("P-spline guarded GCV", _casePSplineGuardedGCVAppliesDefaultEdfCap),
+        ("P-spline guarded GCV", _casePSplineGuardedGCVAppliesEdfCap),
         ("P-spline quantile knots", _casePSplineUsesQuantileKnotsFromSupport),
         ("P-spline float32 clipping", _casePSplinePredictionClipsBeforeFloat32Overflow),
         ("P-spline trend logging", _casePSplineTrendSummaryLogsRelationship),

@@ -781,8 +781,8 @@ class fitParams(NamedTuple):
     2. optionally update a shared low-frequency background track \(g_{[i]}\),
        optionally constrained to have mean zero
 
-    Replicate-level bias calibration, replicate-bias centering, and robust
-    precision reweighting are fixed parts of the ECM path.
+    Replicate-level bias calibration and robust precision reweighting are fixed
+    parts of the ECM path; replicate-bias centering is enabled by default.
 
 
     :param ECM_fixedBackgroundIters: Maximum fixed-background ECM iterations.
@@ -809,6 +809,9 @@ class fitParams(NamedTuple):
     :param ECM_zeroCenterBackground: If True, enforce the identifiability
       constraint that the shared background has mean zero.
     :type ECM_zeroCenterBackground: bool
+    :param ECM_zeroCenterReplicateBias: If True, enforce the identifiability
+      constraint that replicate-level biases have weighted zero center.
+    :type ECM_zeroCenterReplicateBias: bool
     :param ECM_outerIters: Number of alternations between the fixed-background ECM fit and shared background update.
     :type ECM_outerIters: int
     :param ECM_minOuterIters: Optional lower bound on the number
@@ -839,6 +842,7 @@ class fitParams(NamedTuple):
     ECM_useProcessPrecisionReweighting: bool | None = True
     ECM_useAPN: bool | None = False
     ECM_zeroCenterBackground: bool | None = False
+    ECM_zeroCenterReplicateBias: bool | None = True
     ECM_outerIters: int | None = 3
     ECM_minOuterIters: int | None = None
     ECM_backgroundShiftRtol: float | None = 1.0e-3
@@ -2113,6 +2117,7 @@ def runConsenrich(
     ECM_useProcessPrecisionReweighting: bool = True,
     ECM_useAPN: bool = False,
     ECM_zeroCenterBackground: bool = False,
+    ECM_zeroCenterReplicateBias: bool = True,
     ECM_outerIters: int = 3,
     ECM_minOuterIters: int | None = None,
     ECM_backgroundShiftRtol: float = 1.0e-3,
@@ -2161,8 +2166,8 @@ def runConsenrich(
     optional low-frequency background shared across replicates, :math:`b_j` is
     a replicate-level bias term, and :math:`v_{[j,i]}` is the plugin
     observation variance supplied by ``matrixMunc``. Note, by default, replicate offsets
-    are centered to zero for identifiability while the shared background is allowed to
-    carry a contig-wide level.
+    are centered to zero for identifiability by default while the shared background
+    is allowed to carry a contig-wide level.
 
     The latent state follows
 
@@ -2804,6 +2809,7 @@ def runConsenrich(
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
                 ECM_useAPN=bool(useAPNLocal),
+                zeroCenterReplicateBias=bool(ECM_zeroCenterReplicateBias),
                 obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
                 obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),

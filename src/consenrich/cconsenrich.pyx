@@ -2746,6 +2746,7 @@ cpdef tuple cfixedBackgroundECM(
     object lambdaExpInit=None,
     object processPrecExpInit=None,
     object replicateBiasInit=None,
+    bint zeroCenterReplicateBias=True,
 ):
     r"""Run the fixed-background Consenrich ECM loop with iteratively updated observation and process noise covariances.
 
@@ -2920,6 +2921,9 @@ cpdef tuple cfixedBackgroundECM(
     :type processPrecExpInit: numpy.ndarray | None
     :param replicateBiasInit: Optional warm-start replicate offsets.
     :type replicateBiasInit: numpy.ndarray | None
+    :param zeroCenterReplicateBias: If True, project replicate offsets to a
+        weighted zero center after each bias update.
+    :type zeroCenterReplicateBias: bool
 
     :returns: A tuple ``(itersDone, finalNLL)``. If
             ``returnIntermediates=True``, additionally returns
@@ -3332,27 +3336,29 @@ cpdef tuple cfixedBackgroundECM(
                 if repBiasDenView[j] > 0.0:
                     tmpVal = repBiasNumView[j] / repBiasDenView[j]
                     replicateBiasView[j] = <cnp.float32_t>tmpVal
-                    repBiasCenterWeightJ = repBiasCenterWeightView[j]
-                    repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
-                    repBiasProjectionDen += (
-                        repBiasCenterWeightJ * repBiasCenterWeightJ
-                    ) / repBiasDenView[j]
+                    if zeroCenterReplicateBias:
+                        repBiasCenterWeightJ = repBiasCenterWeightView[j]
+                        repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
+                        repBiasProjectionDen += (
+                            repBiasCenterWeightJ * repBiasCenterWeightJ
+                        ) / repBiasDenView[j]
                 else:
                     replicateBiasView[j] = <cnp.float32_t>0.0
 
-            if repBiasProjectionDen > 0.0:
-                repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
-            else:
-                repBiasAlpha = 0.0
+            if zeroCenterReplicateBias:
+                if repBiasProjectionDen > 0.0:
+                    repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
+                else:
+                    repBiasAlpha = 0.0
 
-            for j in range(trackCount):
-                tmpVal = <double>replicateBiasView[j]
-                if repBiasDenView[j] > 0.0:
-                    tmpVal = (
-                        tmpVal
-                        - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
-                    )
-                replicateBiasView[j] = <cnp.float32_t>tmpVal
+                for j in range(trackCount):
+                    tmpVal = <double>replicateBiasView[j]
+                    if repBiasDenView[j] > 0.0:
+                        tmpVal = (
+                            tmpVal
+                            - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
+                        )
+                    replicateBiasView[j] = <cnp.float32_t>tmpVal
 
         currentNLL = (<double>cforwardPass(
             matrixData=matrixData,

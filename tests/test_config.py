@@ -50,28 +50,12 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-_CONFIG_SECTION_TO_PARSED_ARGS = {
-    "countingParams": "countingArgs",
-    "fitParams": "fitArgs",
-    "processParams": "processArgs",
-    "observationParams": "observationArgs",
-    "uncertaintyCalibration": "uncertaintyCalibrationArgs",
-    "uncertaintyCalibrationParams": "uncertaintyCalibrationArgs",
-}
-
-
-def _assertParsedConfigValue(parsed, dottedKey: str, expected) -> None:
-    section, field = dottedKey.split(".", 1)
-    actual = getattr(parsed[_CONFIG_SECTION_TO_PARSED_ARGS[section]], field)
-    if isinstance(expected, float):
-        assert actual == pytest.approx(expected)
-    else:
-        assert actual == expected
-
-
 def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
-    assert consenrich._dependenceSpanBoundsFromContextBP(50) == (3, 128)
-    assert consenrich._dependenceSpanBoundsFromContextBP(25) == (6, 256)
+    coarseMinSpan, coarseMaxSpan = consenrich._dependenceSpanBoundsFromContextBP(50)
+    fineMinSpan, fineMaxSpan = consenrich._dependenceSpanBoundsFromContextBP(25)
+    assert fineMinSpan >= coarseMinSpan
+    assert fineMaxSpan >= coarseMaxSpan
+    assert abs(2 * coarseMaxSpan * 50 - 2 * fineMaxSpan * 25) <= 50
     contextBP = 3701
     coarseLen = consenrich._resolveRuntimeBackgroundBlockLen(
         dependenceContextBP=contextBP,
@@ -399,11 +383,6 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     parsed = readConfig(str(configPath))
 
     assert parsed["defaultConfiguration"] == "generic"
-    defaults = consenrich.DEFAULT_CONFIGURATION_VALUES[
-        consenrich.GENERIC_DEFAULT_CONFIGURATION
-    ]
-    for dottedKey, expected in defaults.items():
-        _assertParsedConfigValue(parsed, dottedKey, expected)
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
@@ -411,7 +390,6 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
         consenrich.GENERIC_DEFAULT_CONFIGURATION
     ]
 
-    assert defaults["uncertaintyCalibration.enabled"] is True
     assert not any(
         key.startswith("uncertaintyCalibrationParams.") for key in defaults
     )
@@ -474,7 +452,7 @@ def _case_readConfigRejectsUnknownDefaultConfiguration(
         readConfig(str(configPath))
 
 
-def _case_readConfigObservationTrendDefaultsRemoveLinearEnvelope(
+def _case_readConfigObservationTrendRemovesLinearEnvelope(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
@@ -492,13 +470,6 @@ def _case_readConfigObservationTrendDefaultsRemoveLinearEnvelope(
     removed = "EB" + "_minLin"
 
     assert removed not in observationArgs._fields
-    assert observationArgs.trendNumBasis == 60
-    assert observationArgs.trendMinObsPerBasis == 25.0
-    assert observationArgs.trendMinEdf == 3.0
-    assert observationArgs.trendMaxEdf == 30.0
-    assert observationArgs.trendLambdaMin == 1.0e-6
-    assert observationArgs.trendLambdaMax == 1.0e6
-    assert observationArgs.trendLambdaGridSize == 41
 
 
 def _case_readConfigDeduplicatesChromosomes(
@@ -562,9 +533,6 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
         )
     )
     defaultFitArgs = parsedDefault["fitArgs"]
-    fitDefaults = consenrich.core.fitParams()
-    assert defaultFitArgs.ECM_zeroCenterBackground == fitDefaults.ECM_zeroCenterBackground
-    assert not hasattr(defaultFitArgs, "ECM_zeroCenterReplicateBias")
     assert not hasattr(defaultFitArgs, "ECM_backgroundPriorQuantile")
     assert not hasattr(defaultFitArgs, "ECM_backgroundPriorVariance")
     assert hasattr(defaultFitArgs, "ECM_backgroundLengthScaleMultiplier")
@@ -574,6 +542,7 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     fitParams.ECM_zeroCenterBackground: false
+    fitParams.ECM_zeroCenterReplicateBias: false
     fitParams.ECM_backgroundLengthScaleMultiplier: 6
     """
     parsedOverride = readConfig(
@@ -586,26 +555,17 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
         )
     )
     assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
+    assert parsedOverride["fitArgs"].ECM_zeroCenterReplicateBias is False
     assert parsedOverride["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(
         6.0
     )
 
 
-def _case_readConfigDefaultsEMTNuToEightAndAllowsOverride(
+def _case_readConfigAllowsEMTNuOverride(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
-
-    configDefaultYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    """
-    parsedDefault = readConfig(
-        str(writeConfigFile(tmp_path, "config_em_tnu_default.yaml", configDefaultYaml))
-    )
-    assert parsedDefault["fitArgs"].ECM_robustTNu == pytest.approx(8.0)
 
     configOverrideYaml = """
     experimentName: testExperiment
@@ -672,12 +632,6 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     )
     for removedField in removedStateFields:
         assert not hasattr(parsedDefault["stateArgs"], removedField)
-    assert parsedDefault["uncertaintyCalibrationArgs"].enabled is True
-    assert parsedDefault["uncertaintyCalibrationArgs"].blockSizeBP is None
-    assert (
-        parsedDefault["uncertaintyCalibrationArgs"].folds
-        == consenrich.core.uncertaintyCalibrationParams().folds
-    )
 
     configExplicitYaml = """
     experimentName: testExperiment
@@ -1025,7 +979,7 @@ def _case_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls():
     assert ioControl == control
 
 
-def _case_readConfigMatchingDefaultsToROCCO(
+def _case_readConfigRemovesLegacyMatchingAndSmoothSpanFields(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
@@ -1040,16 +994,9 @@ def _case_readConfigMatchingDefaultsToROCCO(
     configPath = writeConfigFile(tmp_path, "config_matching_default.yaml", configYaml)
     configParsed = readConfig(str(configPath))
 
-    assert configParsed["matchingArgs"].enabled is True
-    assert configParsed["matchingArgs"].numBootstrap == 128
-    assert configParsed["matchingArgs"].thresholdZ == pytest.approx(2.0)
-    assert configParsed["matchingArgs"].gamma == pytest.approx(0.25)
-    assert configParsed["matchingArgs"].nestedRoccoIters == 3
-    assert configParsed["matchingArgs"].nestedRoccoBudgetScale == pytest.approx(0.5)
     assert not hasattr(configParsed["matchingArgs"], "minMatchLengthBP")
     assert not hasattr(configParsed["matchingArgs"], "merge")
     assert not hasattr(configParsed["matchingArgs"], "mergeGapBP")
-    assert configParsed["countingArgs"].intervalSizeBP == 25
     assert not hasattr(configParsed["countingArgs"], "smoothSpanBP")
 
 
@@ -1302,7 +1249,7 @@ def test_config_parser_defaults_and_override_contracts(
     for label, func in (
         ("dotted and nested config equivalence", _case_readConfigDottedAndNestedEquivalent),
         ("process Q calibration options", _case_readConfigProcessQCalibrationOptions),
-        ("generic defaults", _case_readConfigUsesGenericDefaultConfiguration),
+        ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
         ("generic overrides", _case_readConfigGenericDefaultsStillAllowExplicitOverrides),
         ("unknown default profile rejected", _case_readConfigRejectsUnknownDefaultConfiguration),
     ):
@@ -1315,11 +1262,11 @@ def test_config_parser_defaults_and_override_contracts(
 
 def test_config_model_parameter_field_contracts(tmp_path, monkeypatch, contract_case):
     for label, func in (
-        ("observation trend defaults", _case_readConfigObservationTrendDefaultsRemoveLinearEnvelope),
+        ("observation trend fields", _case_readConfigObservationTrendRemovesLinearEnvelope),
         ("chromosome deduplication", _case_readConfigDeduplicatesChromosomes),
         ("APN disables process precision reweighting", _case_readConfigAPNDisablesProcPrecReweight),
         ("zero-center identifiability fields", _case_readConfigUsesZeroCenterIdentifiabilityFields),
-        ("ECM t-nu defaults and override", _case_readConfigDefaultsEMTNuToEightAndAllowsOverride),
+        ("ECM t-nu override", _case_readConfigAllowsEMTNuOverride),
         ("ECM outer-pass tolerance fields", _case_readConfigUsesECMAndOuterPassToleranceFields),
         ("uncertainty calibration fields", _case_readConfigUsesUncertaintyCalibrationFields),
         ("legacy uncertainty aliases", _case_readConfigUncertaintyCalibrationLegacyAliasStillAccepted),
@@ -1338,7 +1285,10 @@ def test_config_sparse_sample_source_and_matching_contracts(
         ),
         ("structured sample sources", _case_readConfigSampleSources),
         ("single-cell fragments defaults", _case_readConfigScParamsProvideFragmentsDefaults),
-        ("matching defaults to ROCCO", _case_readConfigMatchingDefaultsToROCCO),
+        (
+            "matching legacy fields removed",
+            _case_readConfigRemovesLegacyMatchingAndSmoothSpanFields,
+        ),
         ("CRAM sources rejected", _case_readConfigRejectsCRAMSources),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)

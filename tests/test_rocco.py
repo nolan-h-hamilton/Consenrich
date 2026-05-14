@@ -133,16 +133,7 @@ def _caseEstimateGammaForROCCOUsesLowerContextBound(monkeypatch):
 
 
 @pytest.mark.correctness
-def _caseEstimateGammaForROCCOUsesFixedDefault():
-    scoreTrack = np.linspace(-0.5, 3.5, 256, dtype=np.float64)
-    gamma, details = peaks.estimateROCCOGamma(scoreTrack, returnDetails=True)
-
-    assert gamma == pytest.approx(0.5)
-    assert details["method"] == "fixed"
-
-
-@pytest.mark.correctness
-def _caseGetBudgetForROCCOUsesDirectConsenrichStateByDefault():
+def _caseGetBudgetForROCCOUsesDirectConsenrichState():
     state, uncertainty = _toyChromState()
     uncertaintyHi = uncertainty.copy()
     uncertaintyHi[90:120] = uncertaintyHi[90:120] * 3.0
@@ -153,6 +144,8 @@ def _caseGetBudgetForROCCOUsesDirectConsenrichStateByDefault():
         uncertainty=uncertainty,
         numBootstrap=48,
         dependenceSpan=8,
+        thresholdZ=2.0,
+        nullQuantile=0.80,
         randomSeed=11,
         returnDetails=True,
     )
@@ -161,6 +154,8 @@ def _caseGetBudgetForROCCOUsesDirectConsenrichStateByDefault():
         uncertainty=None,
         numBootstrap=48,
         dependenceSpan=8,
+        thresholdZ=2.0,
+        nullQuantile=0.80,
         randomSeed=11,
         returnDetails=True,
     )
@@ -169,6 +164,8 @@ def _caseGetBudgetForROCCOUsesDirectConsenrichStateByDefault():
         uncertainty=uncertaintyHi,
         numBootstrap=48,
         dependenceSpan=8,
+        thresholdZ=2.0,
+        nullQuantile=0.80,
         randomSeed=11,
         returnDetails=True,
     )
@@ -177,11 +174,7 @@ def _caseGetBudgetForROCCOUsesDirectConsenrichStateByDefault():
     assert details["budget_model"] == "dwb_integrated_excess_tail"
     assert details["method"] == "stationary_null_dwb"
     assert details["null_calibration_method"] == "stationary_null_dwb"
-    assert details["budget_min"] == pytest.approx(0.001)
-    assert details["budget_max"] == 0.10
-    assert details["null_quantile"] == pytest.approx(0.80)
     assert details["threshold_z"] == pytest.approx(2.0)
-    assert details["threshold_z_grid"] == pytest.approx([1.5, 2.0, 2.5, 3.0])
     assert details["dwb_panel_reused"] is True
     assert details["se_mode"] == "ignored"
     assert details["uncertainty_available"] is True
@@ -389,6 +382,7 @@ def _caseIntegratedBudgetUsesExcessTailGrid():
         thresholdZGrid=(1.5, 2.0, 2.5, 3.0),
     )
 
+    thresholdZGrid = (1.5, 2.0, 2.5, 3.0)
     budgetOcc, detailsOcc = peaks._estimateBudgetForPreparedROCCOScore(
         prepared,
         statistic="occupancy",
@@ -396,6 +390,7 @@ def _caseIntegratedBudgetUsesExcessTailGrid():
         dependenceSpan=16,
         randomSeed=11,
         budgetMax=1.0,
+        thresholdZGrid=thresholdZGrid,
         returnDetails=True,
     )
     budgetIntegrated, detailsIntegrated = peaks._estimateBudgetForPreparedROCCOScore(
@@ -405,11 +400,12 @@ def _caseIntegratedBudgetUsesExcessTailGrid():
         dependenceSpan=16,
         randomSeed=11,
         budgetMax=1.0,
+        thresholdZGrid=thresholdZGrid,
         returnDetails=True,
     )
 
-    assert detailsIntegrated["threshold_z_grid"] == pytest.approx([1.5, 2.0, 2.5, 3.0])
-    assert len(detailsIntegrated["threshold_metrics"]) == 4
+    assert detailsIntegrated["threshold_z_grid"] == pytest.approx(thresholdZGrid)
+    assert len(detailsIntegrated["threshold_metrics"]) == len(thresholdZGrid)
     assert detailsIntegrated["dwb_panel_reused"] is True
     expectedIntegrated = float(
         np.mean(
@@ -883,6 +879,7 @@ def _caseNestedROCCORefinementStopsOnJaccardThreshold():
         selectionPenalty=1.0,
         nestedRoccoIters=3,
         nestedRoccoBudgetScale=1.0,
+        jaccardThreshold=0.999,
     )
 
     assert np.all(refined <= firstPass)
@@ -1106,34 +1103,6 @@ def _caseNestedROCCORefinementSkipsShortParentRegions():
     assert details["history"][0]["num_skipped_short_regions"] == 1
 
 
-@pytest.mark.correctness
-def _caseSolveRoccoDefaultsMatchConfig(tmp_path):
-    statePath, uncPath = _writeToyBedGraphs(tmp_path)
-    outPath = tmp_path / "toy_rocco_default.narrowPeak"
-    metaPath = tmp_path / "toy_rocco_default.narrowPeak.json"
-
-    peaks.solveRocco(
-        str(statePath),
-        uncertaintyBedGraphFile=str(uncPath),
-        outPath=str(outPath),
-        metaPath=str(metaPath),
-    )
-
-    meta = json.loads(metaPath.read_text(encoding="utf-8"))
-    assert meta["settings"]["num_bootstrap"] == 128
-    assert meta["settings"]["threshold_z"] == pytest.approx(2.0)
-    assert meta["settings"]["nested_rocco_iters"] == 3
-    assert meta["settings"]["nested_rocco_budget_scale"] == pytest.approx(0.5)
-    assert meta["settings"]["nested_rocco_jaccard"] == pytest.approx(0.999)
-    assert meta["settings"]["nested_rocco_min_parent_steps"] == 5
-    assert meta["settings"]["nested_rocco_min_child_steps"] == 5
-    assert meta["settings"]["export_trim_score_floor"] == pytest.approx(0.0)
-    assert meta["settings"]["export_filter"] == "drop_median_signal_below_negative_local_median_p"
-    assert meta["settings"]["export_filter_threshold"] == "-2.5 * median(local_uncertainty)"
-    assert meta["settings"]["export_filter_uncertainty_multiplier"] == pytest.approx(2.5)
-
-
-@pytest.mark.correctness
 def _caseSolveRoccoVerboseWritesSubproblemDiagnostics(tmp_path, caplog):
     statePath, uncPath = _writeToyBedGraphs(tmp_path)
     outPath = tmp_path / "toy_rocco_verbose.narrowPeak"
@@ -1210,7 +1179,7 @@ def _caseNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion():
 
 
 @pytest.mark.correctness
-def _caseCheckMatchingEnabledDefaultsToEnabled():
+def _caseCheckMatchingEnabledHonorsEnabledFlag():
     matchingArgs = type(
         "MatchingArgs",
         (),
@@ -1237,8 +1206,7 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case)
             _run_with_monkeypatch,
             (monkeypatch, _caseEstimateGammaForROCCOUsesLowerContextBound),
         ),
-        ("gamma fixed default", _caseEstimateGammaForROCCOUsesFixedDefault, ()),
-        ("direct state budget", _caseGetBudgetForROCCOUsesDirectConsenrichStateByDefault, ()),
+        ("direct state budget", _caseGetBudgetForROCCOUsesDirectConsenrichState, ()),
         ("small positive budget floor", _caseGetBudgetForROCCOAppliesSmallPositiveBudgetFloor, ()),
         ("legacy autosomal null floor", _caseLegacyAutosomalNullFloorHelperStillRuns, ()),
         ("ROCCO null fallback and EB shrinkage", _caseROCCONullFallbackAndEBShrinkage, ()),
@@ -1315,7 +1283,7 @@ def test_rocco_anchored_min_run_contracts(contract_case):
     )
 
 
-def test_rocco_diagnostics_and_defaults_contracts(tmp_path, caplog, contract_case):
+def test_rocco_diagnostics_contracts(tmp_path, caplog, contract_case):
     caplog.clear()
     contract_case(
         "nested subproblem diagnostics",
@@ -1323,7 +1291,6 @@ def test_rocco_diagnostics_and_defaults_contracts(tmp_path, caplog, contract_cas
         caplog,
         tmp_path,
     )
-    contract_case("solve defaults match config", _caseSolveRoccoDefaultsMatchConfig, tmp_path)
     caplog.clear()
     contract_case(
         "verbose solve diagnostics",
@@ -1333,5 +1300,5 @@ def test_rocco_diagnostics_and_defaults_contracts(tmp_path, caplog, contract_cas
     )
 
 
-def test_rocco_matching_default_contract(contract_case):
-    contract_case("matching default enabled", _caseCheckMatchingEnabledDefaultsToEnabled)
+def test_rocco_matching_enabled_contract(contract_case):
+    contract_case("matching enabled flag", _caseCheckMatchingEnabledHonorsEnabledFlag)

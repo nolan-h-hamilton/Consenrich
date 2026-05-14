@@ -1638,6 +1638,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "fitParams.ECM_zeroCenterBackground",
             False,
         ),
+        ECM_zeroCenterReplicateBias=_cfgGet(
+            configData,
+            "fitParams.ECM_zeroCenterReplicateBias",
+            True,
+        ),
         ECM_outerIters=_cfgGet(
             configData,
             "fitParams.ECM_outerIters",
@@ -3738,6 +3743,7 @@ def main():
             ECM_useAPN=fitArgs.ECM_useAPN,
             fitBackground=fitArgs.fitBackground,
             ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
+            ECM_zeroCenterReplicateBias=fitArgs.ECM_zeroCenterReplicateBias,
             ECM_outerIters=fitArgs.ECM_outerIters,
             ECM_minOuterIters=fitArgs.ECM_minOuterIters,
             ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
