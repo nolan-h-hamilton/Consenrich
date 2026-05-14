@@ -25,8 +25,9 @@ For interval :math:`i` and replicate :math:`j`:
 * :math:`\mathbf{Q}_0` is the fixed or warm-up-calibrated base process
   covariance. ``ECM_useAPN`` can be used as a substitute, but technically voids
   guarantees of monotonic descent.
-* :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are precision weights for the
-  observation and process models, respectively. These are optimized in every
+* :math:`\lambda_{[i]}` and :math:`\kappa_{[i]}` are precision weights for the
+  observation and process models, respectively. The observation weight rescales
+  the full replicate covariance at interval ``i``. These are optimized in every
   outer iteration if precision reweighting is enabled.
 
 Model
@@ -39,7 +40,7 @@ Model
   z_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
   \qquad
   \mathrm{Var}(\epsilon_{[j,i]}) =
-  \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[j,i]}}.
+  \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[i]}}.
 
 **Prior Process Model**
 

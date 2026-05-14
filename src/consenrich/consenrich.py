@@ -59,7 +59,7 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
         "fitParams.ECM_backgroundShiftRtol": 0.01,
         "fitParams.ECM_outerNLLRtol": 1.0e-4,
         "fitParams.ECM_backgroundSmoothness": 10.0,
-        "fitParams.ECM_backgroundLengthScaleMultiplier": 16.0,
+        "fitParams.ECM_backgroundLengthScaleMultiplier": 16.0,  # 8, 16, 32
         "processParams.processQCalibration": (
             core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
         ),
@@ -68,10 +68,10 @@ DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
             core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
         ),
         "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 10.0,
-        "processParams.precisionMultiplierMin": 0.01,
+        "processParams.processQTrendPriorWeight": 100.0,  # 10, 25, 50
+        "processParams.precisionMultiplierMin": 0.1,  # 0.01, 0.1, 0.5
         "processParams.precisionMultiplierMax": 10.0,
-        "observationParams.precisionMultiplierMin": 0.01,
+        "observationParams.precisionMultiplierMin": 0.1,  # 0.01, 0.1, 0.5
         "observationParams.precisionMultiplierMax": 10.0,
         "uncertaintyCalibration.enabled": True,
     }
@@ -956,7 +956,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
+    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 50)
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
@@ -1315,7 +1315,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     )
     processArgs = core.processParams(
         deltaF=_cfgGet(configData, "processParams.deltaF", 1.0),
-        minQ=_cfgGet(configData, "processParams.minQ", 1.0e-6),
+        minQ=_cfgGet(configData, "processParams.minQ", -1.0),
         maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
         offDiagQ=_cfgGet(
             configData,
@@ -1430,7 +1430,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
         EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
         EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
-        trendNumBasis=int(_cfgGet(configData, "observationParams.trendNumBasis", 100)),
+        trendNumBasis=int(_cfgGet(configData, "observationParams.trendNumBasis", 60)),
         trendMinObsPerBasis=float(
             _cfgGet(configData, "observationParams.trendMinObsPerBasis", 25.0)
         ),

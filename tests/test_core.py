@@ -853,6 +853,7 @@ def _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeig
     lambdaExp = np.asarray(out[6], dtype=np.float64)
     replicateBias = np.asarray(out[-1], dtype=np.float64)
 
+    assert lambdaExp.shape == (n,)
     baseInvVar = 1.0 / np.maximum(matrixMunc.astype(np.float64) + pad, 1.0e-12)
     centerWeight = np.sum(baseInvVar, axis=1)
     currentInvVar = lambdaExp * baseInvVar
@@ -872,6 +873,71 @@ def _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeig
     assert not np.allclose(expected, movingCentered, atol=1.0e-4)
     assert np.allclose(replicateBias, expected, atol=1.0e-5)
     assert abs(float(np.sum(centerWeight * replicateBias))) < 1.0e-4
+
+
+@pytest.mark.correctness
+def _caseObservationPrecisionIsIntervalLevelOnly():
+    n = 10
+    m = 2
+    matrixData = np.zeros((m, n), dtype=np.float32)
+    matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
+    matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
+    matrixQ0 = core.constructMatrixQ(
+        minDiagQ=1.0e-4,
+        offDiagQ=0.0,
+    ).astype(np.float32, copy=False)
+    intervalToBlockMap = np.zeros(n, dtype=np.int32)
+
+    out = cconsenrich.cfixedBackgroundECM(
+        matrixData=matrixData,
+        matrixPluginMuncInit=matrixMunc,
+        matrixF=matrixF,
+        matrixQ0=matrixQ0,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=1,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        ECM_fixedBackgroundIters=1,
+        ECM_fixedBackgroundRtol=0.0,
+        ECM_useObsPrecisionReweighting=True,
+        ECM_useProcessPrecisionReweighting=False,
+        returnIntermediates=True,
+        t_innerIters=1,
+    )
+    assert np.asarray(out[6]).shape == (n,)
+
+    with pytest.raises(ValueError):
+        cconsenrich.cforwardPass(
+            matrixData=matrixData,
+            matrixPluginMuncInit=matrixMunc,
+            matrixF=matrixF,
+            matrixQ0=matrixQ0,
+            intervalToBlockMap=intervalToBlockMap,
+            blockCount=1,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            lambdaExp=np.ones((m, n), dtype=np.float32),
+            ECM_useObsPrecisionReweighting=True,
+        )
+
+    with pytest.raises(ValueError):
+        core.runConsenrich(
+            matrixData,
+            matrixMunc,
+            deltaF=0.1,
+            minQ=1.0e-4,
+            maxQ=0.5,
+            offDiagQ=0.0,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            boundState=False,
+            stateLowerBound=0.0,
+            stateUpperBound=0.0,
+            blockLenIntervals=4,
+            processQCalibration="none",
+            ECM_fixedBackgroundIters=1,
+            initialObservationPrecision=np.ones((1, n), dtype=np.float32),
+        )
 
 
 @pytest.mark.correctness
@@ -1038,9 +1104,9 @@ def _caseRegularizedProcessQReportsBoundDiagnostics():
 
     assert matrixQ[0, 0] == pytest.approx(1.0e-4)
     assert info["q_level_floor_hit"] == pytest.approx(1.0)
-    assert info["q_trend_floor_hit"] == pytest.approx(1.0)
+    assert info["q_trend_floor_hit"] == pytest.approx(0.0)
     assert info["q_level_final_raw_ratio"] > 10.0
-    assert info["q_trend_final_raw_ratio"] >= 1.0
+    assert info["q_trend_final_raw_ratio"] > 10.0
 
 
 @pytest.mark.correctness
@@ -1098,7 +1164,13 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert "PHASE: MODEL FIT" in caplog.text
     assert "      | PHASE: MODEL FIT" in caplog.text
     assert "            | PHASE: MODEL FIT / FIXED-BACKGROUND ECM" in caplog.text
+    assert "lambdaMean=" in caplog.text
+    assert "lambdaMedian=" in caplog.text
     assert "PHASE: MODEL FIT SUMMARY" in caplog.text
+    fitDiagnostics = diagnostics["post_q_fit"]["fixed_background_ecm"]
+    assert fitDiagnostics
+    assert "observation_lambda_mean" in fitDiagnostics[-1]
+    assert "observation_lambda_median" in fitDiagnostics[-1]
 
 
 @pytest.mark.correctness
@@ -1169,7 +1241,10 @@ def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypa
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert np.all(np.isfinite(stateSmoothed))
     assert np.all(np.isfinite(stateCovarSmoothed))
-    assert diagnostics["process_q_warmup_fit"]["actual_outer_passes"] == 2
+    assert (
+        diagnostics["process_q_warmup_fit"]["actual_outer_passes"]
+        == core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
+    )
     assert diagnostics["post_q_fit"]["actual_outer_passes"] >= 1
     assert diagnostics["post_q_fit"]["outer_stop_reason"] in {
         "background_shift_and_nll",
@@ -3049,6 +3124,11 @@ def test_core_background_bias_contracts(monkeypatch, contract_case):
         (
             "replicate-bias robust center",
             _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeights,
+            (),
+        ),
+        (
+            "interval-level observation precision",
+            _caseObservationPrecisionIsIntervalLevelOnly,
             (),
         ),
     ):

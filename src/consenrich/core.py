@@ -265,10 +265,10 @@ class observationParams(NamedTuple):
     :param pad: A small constant added to the observation noise variance estimates for conditioning
     :type pad: float | None
     :param precisionMultiplierMin: Lower clamp for observation precision multipliers
-        :math:`\lambda_{[j,i]}` during robust ECM reweighting.
+        :math:`\lambda_{[i]}` during robust ECM reweighting.
     :type precisionMultiplierMin: float | None
     :param precisionMultiplierMax: Upper clamp for observation precision multipliers
-        :math:`\lambda_{[j,i]}` during robust ECM reweighting.
+        :math:`\lambda_{[i]}` during robust ECM reweighting.
     :type precisionMultiplierMax: float | None
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitPSplineLogVarianceTrend`, :func:`consenrich.core.EB_computePriorStrength`, :func:`consenrich.cconsenrich.cfixedBackgroundECM`
 
@@ -768,7 +768,7 @@ class fitParams(NamedTuple):
     Fixed-background ECM:
 
     1. Filter-smoother state estimation *given* current noise scales
-    2. Interval-level Student-t precision reweighting at: \(\lambda_{[j,i]}\) and \(\kappa_{[i]}\)
+    2. Interval-level Student-t precision reweighting at: \(\lambda_{[i]}\) and \(\kappa_{[i]}\)
     3. Replicate-level observation offset updates: \(b_j\)
 
     Outer alternation:
@@ -790,7 +790,7 @@ class fitParams(NamedTuple):
     :type ECM_fixedBackgroundRtol: float
     :param ECM_robustTNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
     :type ECM_robustTNu: float
-    :param ECM_useObsPrecisionReweighting: If True, update observation noise precision multipliers \(\lambda_{[j,i]}\) (Student-\(t\) reweighting); otherwise \(\lambda\equiv 1\).
+    :param ECM_useObsPrecisionReweighting: If True, update observation noise precision multipliers \(\lambda_{[i]}\) (Student-\(t\) reweighting); otherwise \(\lambda\equiv 1\).
     :type ECM_useObsPrecisionReweighting: bool
     :param ECM_useProcessPrecisionReweighting: If True, update process noise precision multipliers \(\kappa_{[i]}\) (Student-\(t\) reweighting); otherwise \(\kappa\equiv 1\).
     :type ECM_useProcessPrecisionReweighting: bool
@@ -1630,6 +1630,25 @@ def _formatMaybeFloat(value: Any) -> str:
     return f"{value_:.6g}" if np.isfinite(value_) else "NA"
 
 
+def _observationLambdaSummary(
+    lambdaExp: np.ndarray | None,
+    *,
+    lower: float,
+    upper: float,
+) -> tuple[Any, Any]:
+    if lambdaExp is None:
+        return None, None
+    arr = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return None, None
+    clipped = np.clip(finite, float(lower), float(upper))
+    return (
+        metadataFloat(float(np.mean(clipped))),
+        metadataFloat(float(np.median(clipped))),
+    )
+
+
 def _coerceOptionalVector(
     name: str,
     value: np.ndarray | None,
@@ -1637,24 +1656,9 @@ def _coerceOptionalVector(
 ) -> np.ndarray | None:
     if value is None:
         return None
-    arr = np.asarray(value, dtype=np.float32).reshape(-1)
+    arr = np.asarray(value, dtype=np.float32)
     if arr.shape != (int(length),):
         raise ValueError(f"`{name}` must have length {int(length)}")
-    if not np.all(np.isfinite(arr)):
-        raise ValueError(f"`{name}` must contain only finite values")
-    return np.ascontiguousarray(arr, dtype=np.float32)
-
-
-def _coerceOptionalMatrix(
-    name: str,
-    value: np.ndarray | None,
-    shape: tuple[int, int],
-) -> np.ndarray | None:
-    if value is None:
-        return None
-    arr = np.asarray(value, dtype=np.float32)
-    if arr.shape != tuple(shape):
-        raise ValueError(f"`{name}` must have shape {tuple(shape)}")
     if not np.all(np.isfinite(arr)):
         raise ValueError(f"`{name}` must contain only finite values")
     return np.ascontiguousarray(arr, dtype=np.float32)
@@ -1699,16 +1703,12 @@ def _robustPrecisionPenalty(
     tiny = float(np.finfo(np.float64).tiny)
     if lambdaExp is not None:
         lam = np.maximum(np.asarray(lambdaExp, dtype=np.float64), tiny)
-        obsAlpha = 0.5 * (nu + 1.0)
-        obsPenalty = float(np.sum(-((obsAlpha - 1.0) * np.log(lam)) + obsAlpha * lam))
+        obsPenalty = float(0.5 * nu * np.sum(lam - np.log(lam)))
     if processPrecExp is not None:
         kappa = np.maximum(np.asarray(processPrecExp, dtype=np.float64), tiny)
         if kappa.size > 1:
             kappa = kappa[1:]
-        procAlpha = 0.5 * (nu + 2.0)
-        procPenalty = float(
-            np.sum(-((procAlpha - 1.0) * np.log(kappa)) + procAlpha * kappa)
-        )
+        procPenalty = float(0.5 * nu * np.sum(kappa - np.log(kappa)))
     return obsPenalty, procPenalty
 
 
@@ -2130,7 +2130,7 @@ def runConsenrich(
       z_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
       \qquad
       \mathrm{Var}(\epsilon_{[j,i]}) =
-      \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[j,i]}}.
+      \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[i]}}.
 
     Here :math:`z_{[j,i]}` is the observed track value, :math:`g_{[i]}` is an
     optional low-frequency background shared across replicates, :math:`b_j` is
@@ -2225,10 +2225,10 @@ def runConsenrich(
         initialReplicateBias,
         trackCount,
     )
-    initialObservationPrecisionArr = _coerceOptionalMatrix(
+    initialObservationPrecisionArr = _coerceOptionalVector(
         "initialObservationPrecision",
         initialObservationPrecision,
-        matrixData.shape,
+        intervalCount,
     )
     if initialObservationPrecisionArr is not None:
         initialObservationPrecisionArr = np.ascontiguousarray(
@@ -2837,6 +2837,11 @@ def runConsenrich(
                 lambdaExpLocal = np.asarray(lambdaExpLocal, dtype=np.float32)
             if processPrecExpLocal is not None:
                 processPrecExpLocal = np.asarray(processPrecExpLocal, dtype=np.float32)
+            lambdaMeanLocal, lambdaMedianLocal = _observationLambdaSummary(
+                lambdaExpLocal,
+                lower=float(observationPrecisionMultiplierMin),
+                upper=float(observationPrecisionMultiplierMax),
+            )
             replicateBiasLocal = np.asarray(replicateBiasLocal, dtype=np.float32)
             stateSmoothedLocal = np.asarray(stateSmoothedLocal, dtype=np.float32)
             stateCovarSmoothedLocal = np.asarray(
@@ -2859,6 +2864,8 @@ def runConsenrich(
                     lastBackgroundShiftTolLocal
                 )
                 ecmDiagnosticsNormalized["background_shift_stable"] = True
+                ecmDiagnosticsNormalized["observation_lambda_mean"] = lambdaMeanLocal
+                ecmDiagnosticsNormalized["observation_lambda_median"] = lambdaMedianLocal
                 ecmDiagnosticsNormalized["outer_inner_ecm_converged"] = bool(
                     lastInnerECMConvergedLocal
                 )
@@ -2872,7 +2879,9 @@ def runConsenrich(
                 outerConvergedLocal = True
                 outerStopReasonLocal = "fit_background_false"
                 logger.info(
-                    "outerPass[1/1]:\n\tfitBackground=False\n\tbackgroundShift=0\n\touterObjectiveChangePerCell=%s",
+                    "outerPass[1/1]:\n\tfitBackground=False\n\tbackgroundShift=0\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\touterObjectiveChangePerCell=%s",
+                    _formatMaybeFloat(lambdaMeanLocal),
+                    _formatMaybeFloat(lambdaMedianLocal),
                     _formatMaybeFloat(lastOuterObjectiveChangePerCellLocal),
                 )
                 break
@@ -2880,7 +2889,9 @@ def runConsenrich(
             invVarMatrix = 1.0 / np.maximum(currentMunc + float(pad), 1.0e-8)
             if lambdaExpLocal is not None:
                 obsPrecision = np.clip(
-                    np.asarray(lambdaExpLocal, dtype=np.float32),
+                    np.asarray(lambdaExpLocal, dtype=np.float32).reshape(
+                        1, intervalCount
+                    ),
                     float(observationPrecisionMultiplierMin),
                     float(observationPrecisionMultiplierMax),
                 )
@@ -2936,6 +2947,8 @@ def runConsenrich(
             ecmDiagnosticsNormalized["background_shift_stable"] = bool(
                 backgroundShiftStable
             )
+            ecmDiagnosticsNormalized["observation_lambda_mean"] = lambdaMeanLocal
+            ecmDiagnosticsNormalized["observation_lambda_median"] = lambdaMedianLocal
             ecmDiagnosticsNormalized["outer_inner_ecm_converged"] = bool(
                 lastInnerECMConvergedLocal
             )
@@ -2945,11 +2958,13 @@ def runConsenrich(
             )
             fixedBackgroundECMDiagnostics.append(ecmDiagnosticsNormalized)
             logger.info(
-                "outerPass[%d/%d]:\n\tbackgroundShift=%.6g\n\tbackgroundShiftThreshold=%.6g\n\touterObjectivePerCell=%s\n\touterObjectiveChangePerCell=%s\n\touterObjectiveThresholdPerCell=%s\n\touterStable=%d/%d\n\tinnerECMConverged=%s",
+                "outerPass[%d/%d]:\n\tbackgroundShift=%.6g\n\tbackgroundShiftThreshold=%.6g\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\touterObjectivePerCell=%s\n\touterObjectiveChangePerCell=%s\n\touterObjectiveThresholdPerCell=%s\n\touterStable=%d/%d\n\tinnerECMConverged=%s",
                 int(outerPassIndex + 1),
                 int(outerPassCount),
                 float(bgChange),
                 float(bgTol),
+                _formatMaybeFloat(lambdaMeanLocal),
+                _formatMaybeFloat(lambdaMedianLocal),
                 _formatMaybeFloat(lastOuterObjectivePerCellLocal),
                 _formatMaybeFloat(lastOuterObjectiveChangePerCellLocal),
                 _formatMaybeFloat(lastOuterObjectiveTolPerCellLocal),

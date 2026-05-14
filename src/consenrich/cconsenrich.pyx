@@ -2168,8 +2168,8 @@ cpdef tuple cforwardPass(
     cdef cnp.float32_t[:, ::1] stateForwardView
     cdef cnp.float32_t[:, :, ::1] stateCovarForwardView
     cdef cnp.float32_t[:, :, ::1] pNoiseForwardView
-    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] lambdaExpArr
-    cdef cnp.float32_t[:, ::1] lambdaExpView
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] lambdaExpArr
+    cdef cnp.float32_t[::1] lambdaExpView
     cdef bint useLambda = (ECM_useObsPrecisionReweighting and (lambdaExp is not None))
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
     cdef cnp.float32_t[::1] processPrecExpView
@@ -2209,6 +2209,7 @@ cpdef tuple cforwardPass(
     cdef double wMin = <double>obsPrecisionMultiplierMin
     cdef double wMax = <double>obsPrecisionMultiplierMax
     cdef double procPrec
+    cdef double obsPrec
     cdef double procPrecMin = <double>procPrecisionMultiplierMin
     cdef double procPrecMax = <double>procPrecisionMultiplierMax
     cdef double biasJ
@@ -2225,7 +2226,7 @@ cpdef tuple cforwardPass(
     cdef double LOG2PI = log(6.2831853071795864769)
 
     if useLambda:
-        lambdaExpArr = <cnp.ndarray[cnp.float32_t, ndim=2, mode="c"]> lambdaExp
+        lambdaExpArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> lambdaExp
         lambdaExpView = lambdaExpArr
 
     if useProcPrec:
@@ -2259,8 +2260,8 @@ cpdef tuple cforwardPass(
         raise ValueError("intervalToBlockMap length must match intervalCount")
 
     if useLambda:
-        if lambdaExpArr.shape[0] != trackCount or lambdaExpArr.shape[1] != intervalCount:
-            raise ValueError("lambdaExp shape must match (trackCount, intervalCount)")
+        if lambdaExpArr.shape[0] != intervalCount:
+            raise ValueError("lambdaExp length must match intervalCount")
 
     if useProcPrec:
         if processPrecExpArr.shape[0] != intervalCount:
@@ -2350,8 +2351,18 @@ cpdef tuple cforwardPass(
         stateCovarView[1, 1] = <cnp.float32_t>PPred11
 
         # ========================================================
-        # Robust observation precision multipliers via lambda[j,k]
+        # Robust observation precision multiplier via lambda[k].
+        # This scales the full diagonal observation covariance at interval k.
         # ========================================================
+        if useLambda:
+            obsPrec = <double>lambdaExpView[k]
+            if obsPrec < wMin:
+                obsPrec = wMin
+            elif obsPrec > wMax:
+                obsPrec = wMax
+        else:
+            obsPrec = 1.0
+
         sumInvR = 0.0
         sumInvRInnov = 0.0
         sumInvRInnov2 = 0.0
@@ -2372,19 +2383,10 @@ cpdef tuple cforwardPass(
             if measVar < 1.0e-12:
                 measVar = 1.0e-12
 
-            if useLambda:
-                w = <double>lambdaExpView[j, k]
-                if w < wMin:
-                    w = wMin
-                elif w > wMax:
-                    w = wMax
-            else:
-                w = 1.0
-
-            invMeasVar = w / measVar
+            invMeasVar = obsPrec / measVar
 
             if returnNLL:
-                sumLogR += (log(measVar) - log(w))
+                sumLogR += (log(measVar) - log(obsPrec))
 
             sumInvRInnov2 += invMeasVar * (innov * innov)
             sumInvRInnov += invMeasVar * innov
@@ -2755,7 +2757,8 @@ cpdef tuple cfixedBackgroundECM(
 
     .. math::
 
-        \widetilde{R}_{[j,i]}=\frac{v_{[j,i]}}{\lambda_{[j,i]}},
+        \widetilde{R}_{[i]}=\frac{1}{\lambda_{[i]}}
+          \operatorname{diag}(v_{[1,i]},\ldots,v_{[m,i]}),
         \qquad
         \widetilde{\mathbf{Q}}_{[i]}=\frac{\mathbf{Q}_0}{\kappa_{[i]}}.
 
@@ -2766,7 +2769,7 @@ cpdef tuple cfixedBackgroundECM(
         z_{[j,i]} = x_{[i,0]} + b_j + \epsilon_{[j,i]}.
 
     Here :math:`b_j` is a replicate-level offset, and
-    :math:`\lambda_{[j,i]}` and :math:`\kappa_{[i]}` are Student-t precision multipliers.
+    :math:`\lambda_{[i]}` and :math:`\kappa_{[i]}` are Student-t precision multipliers.
 
 
     Estimation loop
@@ -2784,14 +2787,15 @@ cpdef tuple cfixedBackgroundECM(
 
     #. **Studentized precision reweighting**:
 
-    *Observation weights* :math:`\lambda_{[j,i]}` (``ECM_useObsPrecisionReweighting``):
+    *Observation weights* :math:`\lambda_{[i]}` (``ECM_useObsPrecisionReweighting``):
 
     .. math::
 
-        u^2_{[j,i]}=\frac{(z_{[j,i]}-b_j-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}
-                    {\widetilde{R}_{[j,i]}}
+        u^2_{[i]}=\sum_{j=1}^m
+          \frac{(z_{[j,i]}-b_j-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}
+               {v_{[j,i]}+\mathrm{pad}}
         \quad\Rightarrow\quad
-        \lambda_{[j,i]} \leftarrow \frac{\nu_R+1}{\nu_R+u^2_{[j,i]}}.
+        \lambda_{[i]} \leftarrow \frac{\nu_R+m}{\nu_R+u^2_{[i]}}.
 
     In code, ``ECM_robustTNu`` corresponds to :math:`\nu_R`.
 
@@ -2818,7 +2822,7 @@ cpdef tuple cfixedBackgroundECM(
     Objective Function
     ----------------------------------
 
-    Let :math:`x_{1:n}=\{\mathbf{x}_{[i]}\}_{i=1}^n`, :math:`\Lambda=\{\lambda_{[j,i]}\}`, and
+    Let :math:`x_{1:n}=\{\mathbf{x}_{[i]}\}_{i=1}^n`, :math:`\lambda=\{\lambda_{[i]}\}`, and
     :math:`\kappa=\{\kappa_{[i]}\}`. Collecting process and observation terms and mixing penalties yields:
 
     .. math::
@@ -2838,15 +2842,15 @@ cpdef tuple cfixedBackgroundECM(
         &\quad+
         \frac12\sum_{i=1}^{n}\sum_{j=1}^m
         \left[
-        \log\!\left(\frac{v_{[j,i]}}{\lambda_{[j,i]}}\right)
+        \log\!\left(\frac{v_{[j,i]}}{\lambda_{[i]}}\right)
         +
-        (z_{[j,i]}-b_j-x_{[i,0]})^2\,\frac{\lambda_{[j,i]}}{v_{[j,i]}}
+        (z_{[j,i]}-b_j-x_{[i,0]})^2\,\frac{\lambda_{[i]}}{v_{[j,i]}}
         \right] \\
         &\quad+
-        \sum_{i=1}^{n}\sum_{j=1}^m
+        \sum_{i=1}^{n}
         \left[
-        -\left(\frac{\nu_R+1}{2}-1\right)\log\lambda_{[j,i]}
-        +\frac{\nu_R+1}{2}\lambda_{[j,i]}
+        -\frac{\nu_R}{2}\log\lambda_{[i]}
+        +\frac{\nu_R}{2}\lambda_{[i]}
         \right] \\
         &\quad+
         \sum_{i=2}^{n}
@@ -2858,8 +2862,8 @@ cpdef tuple cfixedBackgroundECM(
 
 
     So the estimation loop maximizing our objective function may be viewed as a coordinate ascent where the filter-smoother
-    solves the quadratic subproblem *conditional* on the current estimates of :math:`\Lambda`, :math:`\kappa`, and :math:`b`,
-    and reweighting plus offset updates optimize over :math:`\Lambda`, :math:`\kappa`, and :math:`b`.
+    solves the quadratic subproblem *conditional* on the current estimates of :math:`\lambda`, :math:`\kappa`, and :math:`b`,
+    and reweighting plus offset updates optimize over :math:`\lambda`, :math:`\kappa`, and :math:`b`.
 
     :param matrixData: Replicate observed track values :math:`z_{[j,i]}` (rows:
         replicates, columns: genomic intervals).
@@ -2887,15 +2891,15 @@ cpdef tuple cfixedBackgroundECM(
     :type ECM_fixedBackgroundRtol: float
     :param ECM_robustTNu: Student-t df for reweighting strengths (smaller = stronger reweighting)
     :type ECM_robustTNu: float
-    :param obsPrecisionMultiplierMin: Lower clamp for observation precision multipliers :math:`\lambda_{[j,i]}`.
+    :param obsPrecisionMultiplierMin: Lower clamp for observation precision multipliers :math:`\lambda_{[i]}`.
     :type obsPrecisionMultiplierMin: float
-    :param obsPrecisionMultiplierMax: Upper clamp for observation precision multipliers :math:`\lambda_{[j,i]}`.
+    :param obsPrecisionMultiplierMax: Upper clamp for observation precision multipliers :math:`\lambda_{[i]}`.
     :type obsPrecisionMultiplierMax: float
     :param procPrecisionMultiplierMin: Lower clamp for process precision multipliers :math:`\kappa_{[i]}`.
     :type procPrecisionMultiplierMin: float
     :param procPrecisionMultiplierMax: Upper clamp for process precision multipliers :math:`\kappa_{[i]}`.
     :type procPrecisionMultiplierMax: float
-    :param ECM_useObsPrecisionReweighting: If True, update observation precision multipliers :math:`\lambda_{[j,i]}` (Student-t reweighting); otherwise :math:`\lambda\equiv 1`.
+    :param ECM_useObsPrecisionReweighting: If True, update observation precision multipliers :math:`\lambda_{[i]}` (Student-t reweighting); otherwise :math:`\lambda\equiv 1`.
     :type ECM_useObsPrecisionReweighting: bool
     :param ECM_useProcessPrecisionReweighting: If True, update process precision multipliers :math:`\kappa_{[i]}` (Student-t reweighting); otherwise :math:`\kappa\equiv 1`.
     :type ECM_useProcessPrecisionReweighting: bool
@@ -2907,8 +2911,8 @@ cpdef tuple cfixedBackgroundECM(
         convergence, and NLL-change diagnostics to the returned tuple.
     :type returnDiagnostics: bool
     :param lambdaExpInit: Optional warm-start observation precision multipliers.
-        If supplied and observation reweighting is enabled, shape must match
-        ``matrixData``.
+        If supplied and observation reweighting is enabled, length must match
+        the number of intervals.
     :type lambdaExpInit: numpy.ndarray | None
     :param processPrecExpInit: Optional warm-start process precision multipliers.
         If supplied and process reweighting is enabled, length must match the
@@ -2964,18 +2968,18 @@ cpdef tuple cfixedBackgroundECM(
     # Allocate latent precision multipliers only if enabled
     cdef object lambdaExp = None
     cdef object processPrecExp = None
-    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] lambdaExpArr
-    cdef cnp.float32_t[:, ::1] lambdaExpView
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] lambdaExpArr
+    cdef cnp.float32_t[::1] lambdaExpView
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] processPrecExpArr
     cdef cnp.float32_t[::1] processPrecExpView
 
     if ECM_useObsPrecisionReweighting:
         if lambdaExpInit is None:
-            lambdaExpArr = np.ones((trackCount, intervalCount), dtype=np.float32)
+            lambdaExpArr = np.ones(intervalCount, dtype=np.float32)
         else:
             lambdaExpArr = np.array(lambdaExpInit, dtype=np.float32, copy=True, order="C")
-            if lambdaExpArr.shape[0] != trackCount or lambdaExpArr.shape[1] != intervalCount:
-                raise ValueError("lambdaExpInit shape must match (trackCount, intervalCount)")
+            if lambdaExpArr.shape[0] != intervalCount:
+                raise ValueError("lambdaExpInit length must match intervalCount")
             if not np.all(np.isfinite(lambdaExpArr)):
                 raise ValueError("lambdaExpInit must contain only finite values")
             np.clip(lambdaExpArr, obsPrecisionMultiplierMin, obsPrecisionMultiplierMax, out=lambdaExpArr)
@@ -3045,6 +3049,7 @@ cpdef tuple cfixedBackgroundECM(
     cdef double delta
     cdef double u2
     cdef double w
+    cdef double obsU2
     cdef double wMin = <double>obsPrecisionMultiplierMin
     cdef double wMax = <double>obsPrecisionMultiplierMax
     cdef double kappa_
@@ -3194,19 +3199,21 @@ cpdef tuple cfixedBackgroundECM(
             )
 
             # -----------------------------
-            # E-step: update lambdaExp (optional)
+            # E-step: update interval-level lambdaExp (optional)
             # -----------------------------
             if ECM_useObsPrecisionReweighting:
                 with nogil:
                     for k in range(intervalCount):
                         b = <Py_ssize_t>blockMapView[k]
                         if b < 0 or b >= blockCount:
+                            lambdaExpView[k] = <cnp.float32_t>1.0
                             continue
 
                         p00k = <double>stateCovarSmoothedView[k, 0, 0]
                         if p00k < 0.0:
                             p00k = 0.0
 
+                        obsU2 = 0.0
                         for j in range(trackCount):
                             muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
                             if muncPlusPad < 1.0e-12:
@@ -3215,15 +3222,15 @@ cpdef tuple cfixedBackgroundECM(
 
                             res = (<double>dataView[j, k]) - (<double>replicateBiasView[j]) - (<double>stateSmoothedView[k, 0])
                             tmpVal = (res*res + p00k)
-                            u2 = tmpVal / Rkj
+                            obsU2 += tmpVal / Rkj
 
-                            w = ((<double>ECM_robustTNu) + 1.0) / ((<double>ECM_robustTNu) + u2)
-                            if w < wMin:
-                                w = wMin
-                            elif w > wMax:
-                                w = wMax
+                        w = ((<double>ECM_robustTNu) + (<double>trackCount)) / ((<double>ECM_robustTNu) + obsU2)
+                        if w < wMin:
+                            w = wMin
+                        elif w > wMax:
+                            w = wMax
 
-                            lambdaExpView[j, k] = <cnp.float32_t>w
+                        lambdaExpView[k] = <cnp.float32_t>w
 
             # -----------------------------
             # update process precision multipliers kappa_ and store in processPrecExp
@@ -3286,7 +3293,7 @@ cpdef tuple cfixedBackgroundECM(
             # -----------------------------
             # sufficient stats for replicate-level bias
             #   z[j,k] = x[k] + bias[j] + e[j,k]
-            #   Var[e[j,k]] = (munc[j,k] + pad) / lambda[j,k]
+            #   Var[e[j,k]] = (munc[j,k] + pad) / lambda[k]
             # -----------------------------
             for j in range(trackCount):
                 repBiasNumView[j] = 0.0
@@ -3306,7 +3313,7 @@ cpdef tuple cfixedBackgroundECM(
                         denomNoRep = 1.0e-12
 
                     if ECM_useObsPrecisionReweighting:
-                        w = <double>lambdaExpView[j, k]
+                        w = <double>lambdaExpView[k]
                         if w < wMin:
                             w = wMin
                         elif w > wMax:
