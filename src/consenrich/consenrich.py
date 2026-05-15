@@ -3474,6 +3474,19 @@ def main():
         chromosomeStart = int(chromPlan["start"])
         chromosomeEnd = int(chromPlan["end"])
         numIntervals = int(chromPlan["numIntervals"])
+        minR_ = observationArgs.minR
+        maxR_ = observationArgs.maxR
+        minQ_ = processArgs.minQ
+        maxQ_ = processArgs.maxQ
+        # Negative bounds are data-based and must be resolved independently
+        # for each chromosome; do not let an auto floor from a previous
+        # chromosome seed the MUNC fit for the next chromosome.
+        if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
+            minR_ = 0.0
+            maxR_ = 1e4
+        if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
+            minQ_ = 0.0
+            maxQ_ = 1e4
         logger.info(
             "chromosome.start %s intervals=%d samples=%d",
             chromosome,
