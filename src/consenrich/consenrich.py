@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import glob
 import logging
 import math
 from multiprocessing.pool import ThreadPool
@@ -12,27 +11,36 @@ import tempfile
 import time
 from pathlib import Path
 from collections.abc import Mapping
-from functools import lru_cache
 from typing import List, Optional, Tuple, Dict, Any, Union, Sequence
-import shutil
-import subprocess
 import sys
 import numpy as np
 import pandas as pd
-import yaml
 from tqdm import tqdm
 
 import consenrich.core as core
-import consenrich.ccounts as ccounts
 import consenrich.diagnostics as diagnostics
-import consenrich.misc_util as misc_util
-import consenrich.constants as constants
 import consenrich.detrorm as detrorm
 import consenrich.peaks as peaks
-import consenrich.cconsenrich as cconsenrich
-from . import __version__
+from . import cconsenrich
+from . import misc_util
+from ._version import __version__
 from . import io as io_helpers
-from . import regions as region_helpers
+from .config import readConfig
+from .io import (
+    _buildPathInputSources,
+    _checkSF,
+    _getSourceCountMode,
+    _listOrEmpty,
+    _prepareFragmentsNormalizationMetadata,
+    _resolveExtendFrom5pBPPairs,
+    _sortBedGraphInPlace,
+    _validateBedGraphSorted,
+    checkControlsPresent,
+    checkMatchingEnabled,
+    convertBedGraphToBigWig,
+    getEffectiveGenomeSizes,
+    getReadLengths,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,69 +50,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-GENERIC_DEFAULT_CONFIGURATION = "generic"
-SUPPORTED_DEFAULT_CONFIGURATIONS = (GENERIC_DEFAULT_CONFIGURATION,)
-DEFAULT_CONFIGURATION_KEYS = (
-    "configuration",
-    "defaultConfiguration",
-    "defaultsProfile",
-)
-
-DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
-    GENERIC_DEFAULT_CONFIGURATION: {
-        "fitParams.ECM_fixedBackgroundIters": 50,
-        "fitParams.ECM_fixedBackgroundRtol": 1.0e-6,
-        "fitParams.ECM_outerIters": 32,
-        "fitParams.ECM_minOuterIters": None,
-        "fitParams.ECM_backgroundShiftRtol": 0.01,
-        "fitParams.ECM_outerNLLRtol": 1.0e-4,
-        "fitParams.ECM_backgroundSmoothness": 10.0,  #
-        "fitParams.ECM_backgroundLengthScaleMultiplier": 16.0,  # 8, 16, 32
-        "processParams.processQCalibration": (
-            core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-        ),
-        "processParams.processQWarmupECMIters": 5,
-        "processParams.processQWarmupOuterIters": (
-            core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
-        ),
-        "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 10.0,
-        "processParams.precisionMultiplierMin": 0.5,
-        "processParams.precisionMultiplierMax": 2.0,
-        "observationParams.precisionMultiplierMin": 1.0,
-        "observationParams.precisionMultiplierMax": 1.0,
-        "countingParams.gentleDetrendQuantile": 0.5,
-        "uncertaintyCalibration.enabled": True,
-    }
-}
-
-
-def _normalizeDefaultConfigurationName(value: Any) -> str:
-    if value is None:
-        return GENERIC_DEFAULT_CONFIGURATION
-    name = str(value).strip().lower().replace("_", "-")
-    if not name:
-        return GENERIC_DEFAULT_CONFIGURATION
-    if name != GENERIC_DEFAULT_CONFIGURATION:
-        supported = ", ".join(SUPPORTED_DEFAULT_CONFIGURATIONS)
-        raise ValueError(
-            f"Unsupported default configuration {value!r}. "
-            f"Supported default configurations: {supported}."
-        )
-    return name
-
-
-def _getDefaultConfigurationName(configMap: Mapping[str, Any]) -> str:
-    for key in DEFAULT_CONFIGURATION_KEYS:
-        value = _cfgGet(configMap, key, None)
-        if value is not None:
-            return _normalizeDefaultConfigurationName(value)
-    return GENERIC_DEFAULT_CONFIGURATION
-
-
-def _cfgDefault(configMap: Mapping[str, Any], dottedKey: str) -> Any:
-    configurationName = _getDefaultConfigurationName(configMap)
-    return DEFAULT_CONFIGURATION_VALUES[configurationName][dottedKey]
 
 
 def _fmtDiagnosticFloat(value: Any) -> str:
@@ -136,6 +81,8 @@ def _formatReplicateGainFrame(
     treatmentSources: Sequence[core.inputSource],
     gainMeans: Sequence[Any],
     gainMedians: Sequence[Any],
+    gainSds: Sequence[Any] = (),
+    gainIqrs: Sequence[Any] = (),
     *,
     controlSources: Sequence[core.inputSource] | None = None,
     indentLevel: int = 0,
@@ -146,6 +93,8 @@ def _formatReplicateGainFrame(
         ("file", 46),
         ("mean", 12),
         ("median", 12),
+        ("sd", 12),
+        ("IQR", 12),
     )
     border = "+" + "+".join("-" * (width + 2) for _name, width in columns) + "+"
     titleWidth = len(border) - 4
@@ -153,7 +102,7 @@ def _formatReplicateGainFrame(
     header = "| " + " | ".join(f"{name:<{width}}" for name, width in columns) + " |"
     lines = [border, f"| {title:<{titleWidth}} |", border, header, border]
     controlSources_ = list(controlSources or [])
-    rowCount = max(len(gainMeans), len(gainMedians))
+    rowCount = max(len(gainMeans), len(gainMedians), len(gainSds), len(gainIqrs))
     for i in range(rowCount):
         source = treatmentSources[i] if i < len(treatmentSources) else None
         if source is None:
@@ -179,6 +128,14 @@ def _formatReplicateGainFrame(
             _truncateMiddle(
                 _fmtDiagnosticFloat(gainMedians[i] if i < len(gainMedians) else None),
                 columns[4][1],
+            ),
+            _truncateMiddle(
+                _fmtDiagnosticFloat(gainSds[i] if i < len(gainSds) else None),
+                columns[5][1],
+            ),
+            _truncateMiddle(
+                _fmtDiagnosticFloat(gainIqrs[i] if i < len(gainIqrs) else None),
+                columns[6][1],
             ),
         )
         lines.append(
@@ -234,6 +191,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("ECM max iters", int(fitArgs.ECM_fixedBackgroundIters)),
         ("outer passes", int(fitArgs.ECM_outerIters)),
         ("background model", yn(fitArgs.fitBackground)),
+        ("state model", processArgs.stateModel),
         ("process Q mode", processArgs.processQCalibration),
         (
             "process Q warmup",
@@ -251,8 +209,8 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     )
 
 
-_DEPENDENCE_MIN_CONTEXT_BP = 300
-_DEPENDENCE_MAX_CONTEXT_BP = 12800
+_DEPENDENCE_MIN_CONTEXT_BP = 500
+_DEPENDENCE_MAX_CONTEXT_BP = 50000
 
 
 def _oddIntervalsFromBP(
@@ -338,1887 +296,6 @@ def _progress(iterable, **kwargs):
     kwargs.setdefault("dynamic_ncols", True)
     return tqdm(iterable, disable=False, **kwargs)
 
-
-@lru_cache(maxsize=1)
-def _pyBigWigAvailable() -> bool:
-    try:
-        import pyBigWig  # noqa: F401
-    except Exception:
-        return False
-    return True
-
-
-def _checkSF(sf, logger, cut_=3.0):
-
-    sf = np.asarray(sf, dtype=float)
-    bad = ~np.isfinite(sf) | (sf <= 0)
-    if np.any(bad):
-        logger.warning(
-            "Scaling factors contain non-finite or non-positive values: "
-            f"nBad={bad.sum()}/{sf.size}: {sf[bad][:10]} ..."
-        )
-
-    v = sf[np.isfinite(sf) & (sf > 0)]
-    if v.size < 3:
-        return
-
-    p05, p50, p95 = np.percentile(v, [5, 50, 95])
-    ratio = p95 / p05
-
-    if ratio > cut_:
-        logger.warning(
-            "Sample scaling factors (`countingParams.normMethod: SF`) used for "
-            "library size/coverage normalization are heterogeneous: "
-            "median=%g, p95/p05=%f > %f. __IF this is unexpected__, consider "
-            "inspecting the alignment files.",
-            p50,
-            ratio,
-            cut_,
-        )
-
-
-def _resolveExtendFrom5pBPPairs(
-    treatmentExtendFrom5pBP: Optional[Sequence[Union[int, float]]],
-    controlExtendFrom5pBP: Optional[Sequence[Union[int, float]]],
-) -> Tuple[List[int], List[int]]:
-    r"""Assign consistent single-end extension lengths to treatment and control BAM files.
-
-    For single-end data, cross-correlation-based fragment estimates for control inputs
-    can be much smaller than for treatment samples due to lack of structure. This creates
-    artifacts during signal quantification and normalization steps, and it's common to use
-    the treatment fragment length for both treatment and control samples. So we do that here.
-    """
-
-    if not treatmentExtendFrom5pBP:
-        logger.warning("No treatment extension lengths provided...returning [],[]")
-        return [], []
-
-    n_treat = len(treatmentExtendFrom5pBP)
-
-    if controlExtendFrom5pBP:
-        if len(controlExtendFrom5pBP) == 1 and n_treat > 1:
-            controlExtendFrom5pBP = list(controlExtendFrom5pBP) * n_treat
-            logger.info(
-                "Only one control extension length provided: broadcasting this value for all control BAM files."
-            )
-        elif len(controlExtendFrom5pBP) != n_treat:
-            logger.warning(
-                "Sizes of treatment and control extension length lists are incompatible...returning [],[]"
-            )
-            return [], []
-        else:
-            controlExtendFrom5pBP = list(controlExtendFrom5pBP)
-    else:
-        controlExtendFrom5pBP = list(treatmentExtendFrom5pBP)
-
-    finalTreatment = [int(x) for x in treatmentExtendFrom5pBP]
-    finalControl = [int(x) for x in treatmentExtendFrom5pBP]
-
-    return finalTreatment, finalControl
-
-
-def loadConfig(
-    configSource: Union[str, Path, Mapping[str, Any]],
-) -> Dict[str, Any]:
-    r"""Load a YAML config from a path or accept an already-parsed mapping.
-
-    If given a mapping object, just return it. If given a path, try to load as YAML --> dict
-    If given a path, try to load as YAML --> dict
-
-    """
-    if isinstance(configSource, Mapping):
-        configData = configSource
-    elif isinstance(configSource, (str, Path)):
-        with open(configSource, "r") as fileHandle:
-            configData = yaml.safe_load(fileHandle) or {}
-    else:
-        raise TypeError("`config` must be a path or a mapping/dict.")
-
-    if not isinstance(configData, Mapping):
-        raise TypeError("Top-level YAML must be a mapping/object.")
-    return configData
-
-
-def _cfgGet(
-    configMap: Mapping[str, Any],
-    dottedKey: str,
-    defaultVal: Any = None,
-) -> Any:
-    r"""Support both dotted keys and YAML nested mappings for configs."""
-
-    # e.g., inputParams.bamFiles
-    if dottedKey in configMap:
-        return configMap[dottedKey]
-
-    # e.g.,
-    # inputParams:
-    #   bamFiles: [...]
-    currentVal: Any = configMap
-    for keyPart in dottedKey.split("."):
-        if isinstance(currentVal, Mapping) and keyPart in currentVal:
-            currentVal = currentVal[keyPart]
-        else:
-            return defaultVal
-    return currentVal
-
-
-def _listOrEmpty(list_):
-    if list_ is None:
-        return []
-    return list_
-
-
-def _expandWildCards(pathList: List[str]) -> List[str]:
-    expandedList: List[str] = []
-    for pathEntry in pathList:
-        if "*" in pathEntry or "?" in pathEntry or "[" in pathEntry:
-            matchedList = sorted(glob.glob(pathEntry))
-            if matchedList:
-                expandedList.extend(matchedList)
-            else:
-                expandedList.append(pathEntry)
-        else:
-            expandedList.append(pathEntry)
-    return expandedList
-
-
-def _inferSourceKind(path: str) -> str:
-    lowerPath = str(path).lower()
-    if lowerPath.endswith(".cram"):
-        raise ValueError("CRAM inputs are no longer supported.")
-    if lowerPath.endswith((".bedgraph", ".bedgraph.gz", ".bdg", ".bdg.gz")):
-        return core.BEDGRAPH_SOURCE_KIND
-    if "fragments" in os.path.basename(lowerPath):
-        return "FRAGMENTS"
-    return "BAM"
-
-
-def _isCompressedBedGraphPath(path: str) -> bool:
-    return str(path).lower().endswith((".gz", ".bgz", ".bgzf"))
-
-
-def _bedGraphTabixIndexExists(path: str) -> bool:
-    return os.path.exists(f"{path}.tbi") or os.path.exists(f"{path}.csi")
-
-
-def _existingIndexedBedGraphPath(path: str) -> Optional[str]:
-    if _isCompressedBedGraphPath(path) and _bedGraphTabixIndexExists(path):
-        return path
-    compressedPath = f"{path}.gz"
-    if (
-        not _isCompressedBedGraphPath(path)
-        and os.path.exists(compressedPath)
-        and _bedGraphTabixIndexExists(compressedPath)
-    ):
-        return compressedPath
-    return None
-
-
-def _buildBedGraphTabixIndex(path: str) -> str:
-    sourcePath = str(path)
-    targetPath = (
-        sourcePath if _isCompressedBedGraphPath(sourcePath) else f"{sourcePath}.gz"
-    )
-    sourceDir = os.path.dirname(os.path.abspath(sourcePath)) or "."
-    tempCompressedPath = ""
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            prefix="consenrich_bedgraph_index_",
-            suffix=".bedGraph.gz",
-            delete=False,
-            dir=sourceDir,
-        ) as tempCompressedHandle:
-            tempCompressedPath = tempCompressedHandle.name
-
-        ccounts.ccounts_indexBedGraphPath(sourcePath, tempCompressedPath)
-        os.replace(tempCompressedPath, targetPath)
-        for indexSuffix in [".tbi", ".csi"]:
-            tempIndexPath = f"{tempCompressedPath}{indexSuffix}"
-            targetIndexPath = f"{targetPath}{indexSuffix}"
-            if os.path.exists(tempIndexPath):
-                os.replace(tempIndexPath, targetIndexPath)
-        tempCompressedPath = ""
-        return targetPath
-    finally:
-        for tempPath in [
-            tempCompressedPath,
-            f"{tempCompressedPath}.tbi" if tempCompressedPath else "",
-            f"{tempCompressedPath}.csi" if tempCompressedPath else "",
-        ]:
-            if tempPath and os.path.exists(tempPath):
-                try:
-                    os.remove(tempPath)
-                except OSError:
-                    pass
-
-
-def _ensureBedGraphIndexed(path: str, logger_: logging.Logger = logger) -> str:
-    indexedPath = _existingIndexedBedGraphPath(path)
-    if indexedPath is not None:
-        if indexedPath != path:
-            logger_.info(
-                "Using existing indexed bedGraph copy %s for unindexed input %s.",
-                indexedPath,
-                path,
-            )
-        return indexedPath
-
-    targetPath = path if _isCompressedBedGraphPath(path) else f"{path}.gz"
-    logger_.info(
-        "BedGraph input %s has no tabix index; creating %s and tabix index for random access.",
-        path,
-        targetPath,
-    )
-    return _buildBedGraphTabixIndex(path)
-
-
-def _prepareBedGraphSources(
-    sources: Sequence[core.inputSource],
-    logger_: logging.Logger = logger,
-) -> List[core.inputSource]:
-    preparedSources: List[core.inputSource] = []
-    for source in sources:
-        if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
-            indexedPath = _ensureBedGraphIndexed(source.path, logger_)
-            if indexedPath != source.path:
-                source = source._replace(path=indexedPath)
-        preparedSources.append(source)
-    return preparedSources
-
-
-def _normalizeSourceKind(sourceKind: Optional[str], path: str) -> str:
-    if sourceKind is None:
-        normalizedKind = _inferSourceKind(path)
-    else:
-        normalizedKind = str(sourceKind).strip().upper()
-        if normalizedKind == "AUTO":
-            normalizedKind = _inferSourceKind(path)
-
-    if normalizedKind == "CRAM":
-        raise ValueError("CRAM inputs are no longer supported.")
-    if normalizedKind not in core.SUPPORTED_SOURCE_KINDS:
-        raise ValueError(f"Unsupported source kind `{normalizedKind}` for `{path}`.")
-    return normalizedKind
-
-
-def _coerceInputSource(
-    sourceConfig: Union[str, Mapping[str, Any]],
-    defaultRole: str,
-    defaultBarcodeTag: str | None = None,
-    defaultFragmentPositionMode: str | None = None,
-) -> core.inputSource:
-    if isinstance(sourceConfig, str):
-        path = sourceConfig
-        sourceKind = None
-        sampleName = None
-        role = defaultRole
-        barcodeTag = defaultBarcodeTag
-        barcodeAllowListFile = None
-        barcodeGroupMapFile = None
-        selectGroups = None
-        countMode = None
-        bamInputMode = None
-        fragmentPositionMode = defaultFragmentPositionMode
-    elif isinstance(sourceConfig, Mapping):
-        path = str(sourceConfig.get("path", "")).strip()
-        sourceKind = sourceConfig.get("format", sourceConfig.get("sourceKind", None))
-        sampleName = sourceConfig.get("name", None)
-        role = str(sourceConfig.get("role", defaultRole)).strip().lower()
-        barcodeTag = sourceConfig.get("barcodeTag", defaultBarcodeTag)
-        barcodeAllowListFile = sourceConfig.get("barcodeAllowListFile", None)
-        barcodeGroupMapFile = sourceConfig.get("barcodeGroupMapFile", None)
-        selectGroups = sourceConfig.get("selectGroups", None)
-        countMode = sourceConfig.get("countMode", None)
-        bamInputMode = sourceConfig.get("bamInputMode", None)
-        fragmentPositionMode = sourceConfig.get(
-            "fragmentPositionMode",
-            defaultFragmentPositionMode,
-        )
-    else:
-        raise TypeError("Each input source must be a path string or a mapping.")
-
-    if not path:
-        raise ValueError("Each input source requires a non-empty `path`.")
-
-    if role not in ["treatment", "control"]:
-        raise ValueError(f"Unsupported source role `{role}` for `{path}`.")
-
-    if selectGroups is not None and not isinstance(selectGroups, list):
-        raise ValueError(f"`selectGroups` must be a list for `{path}`.")
-
-    pathList = _expandWildCards([path])
-    if len(pathList) != 1:
-        raise ValueError(
-            f"Input source `{path}` expanded to {len(pathList)} paths. Use one entry per source."
-        )
-    normalizedPath = pathList[0]
-
-    return core.inputSource(
-        path=normalizedPath,
-        sourceKind=_normalizeSourceKind(sourceKind, normalizedPath),
-        role=role,
-        sampleName=sampleName,
-        barcodeTag=barcodeTag,
-        barcodeAllowListFile=barcodeAllowListFile,
-        barcodeGroupMapFile=barcodeGroupMapFile,
-        selectGroups=selectGroups,
-        countMode=countMode,
-        bamInputMode=bamInputMode,
-        fragmentPositionMode=fragmentPositionMode,
-    )
-
-
-def _buildPathInputSources(pathList: List[str], role: str) -> List[core.inputSource]:
-    return [
-        core.inputSource(
-            path=path,
-            sourceKind=_normalizeSourceKind(None, path),
-            role=role,
-        )
-        for path in _expandWildCards(pathList)
-    ]
-
-
-def _getSourceCountMode(
-    source: core.inputSource,
-    defaultBamCountMode: str = "coverage",
-    defaultFragmentCountMode: str = "coverage",
-) -> str:
-    if str(source.sourceKind).upper() == core.BEDGRAPH_SOURCE_KIND:
-        return "coverage"
-    countMode = core._normalizeCountMode(
-        source.countMode,
-        (
-            defaultFragmentCountMode
-            if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND
-            else defaultBamCountMode
-        ),
-    )
-    if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
-        core._normalizeFragmentPositionMode(source.fragmentPositionMode)
-    return countMode
-
-
-def _prepareFragmentsNormalizationMetadata(
-    sources: List[core.inputSource],
-) -> tuple[List[str | None], List[int | None], List[str]]:
-    allowListPaths: List[str | None] = []
-    selectedCellCounts: List[int | None] = []
-    tempPaths: List[str] = []
-
-    for source in sources:
-        if str(source.sourceKind).upper() != core.FRAGMENTS_SOURCE_KIND:
-            allowListPaths.append(None)
-            selectedCellCounts.append(None)
-            continue
-        allowListPath, tempPath = core._writeFragmentsAllowList(source)
-        allowListPaths.append(allowListPath)
-        selectedCellCount = core.getFragmentsSelectedBarcodeCount(source)
-        if selectedCellCount is None:
-            selectedCellCount = core.ccounts.ccounts_getFragmentCellCount(
-                source.path,
-                barcodeAllowListFile=allowListPath or "",
-            )
-        selectedCellCounts.append(selectedCellCount)
-        if tempPath is not None:
-            tempPaths.append(tempPath)
-
-    return allowListPaths, selectedCellCounts, tempPaths
-
-
-def checkControlsPresent(inputArgs: core.inputParams) -> bool:
-    """Check if control BAM files are present in the input arguments.
-
-    :param inputArgs: core.inputParams object
-    :return: True if control BAM files are present, False otherwise.
-    """
-    return (
-        bool(inputArgs.bamFilesControl)
-        and isinstance(inputArgs.bamFilesControl, list)
-        and len(inputArgs.bamFilesControl) > 0
-    )
-
-
-def getReadLengths(
-    inputArgs: core.inputParams,
-    countingArgs: core.countingParams,
-    samArgs: core.samParams,
-) -> List[int]:
-    r"""Get read lengths for each BAM file in the input arguments.
-
-    :param inputArgs: core.inputParams object containing BAM file paths.
-    :param countingArgs: core.countingParams object containing number of reads.
-    :param samArgs: core.samParams object containing SAM thread and flag exclude parameters.
-    :return: List of read lengths for each BAM file.
-    """
-    if not inputArgs.bamFiles:
-        raise ValueError("No BAM files provided in the input arguments.")
-
-    if not isinstance(inputArgs.bamFiles, list) or len(inputArgs.bamFiles) == 0:
-        raise ValueError("bam files list is empty")
-
-    allowThreads = int(samArgs.samThreads) <= 1
-
-    def _getReadLengthForTask(task) -> int:
-        path, sourceKind = task
-        return core.getReadLength(
-            path,
-            100,
-            1000,
-            samArgs.samThreads,
-            samArgs.samFlagExclude,
-            sourceKind=sourceKind,
-        )
-
-    treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
-    if treatmentSources:
-        return io_helpers._threadMap(
-            [
-                (source.path, str(source.sourceKind).upper())
-                for source in treatmentSources
-            ],
-            _getReadLengthForTask,
-            "read lengths",
-            allowThreads=allowThreads,
-        )
-
-    return io_helpers._threadMap(
-        [(bamFile, "BAM") for bamFile in inputArgs.bamFiles],
-        _getReadLengthForTask,
-        "read lengths",
-        allowThreads=allowThreads,
-    )
-
-
-def checkMatchingEnabled(matchingArgs: core.matchingParams) -> bool:
-    return bool(getattr(matchingArgs, "enabled", True))
-
-
-def _inferMatchingUncertaintyBedGraph(matchBedGraph: str) -> Optional[str]:
-    statePath = Path(matchBedGraph)
-    if "_state." not in statePath.name:
-        return None
-    uncertaintyPath = statePath.with_name(
-        statePath.name.replace("_state.", "_uncertainty.", 1)
-    )
-    if uncertaintyPath.exists():
-        return str(uncertaintyPath)
-    return None
-
-
-def getEffectiveGenomeSizes(
-    genomeArgs: core.genomeParams, readLengths: List[int]
-) -> List[int]:
-    r"""Get effective genome sizes for the given genome name and read lengths.
-    :param genomeArgs: core.genomeParams object
-    :param readLengths: List of read lengths for which to get effective genome sizes.
-    :return: List of effective genome sizes corresponding to the read lengths.
-    """
-    genomeName = genomeArgs.genomeName
-    if not genomeName or not isinstance(genomeName, str):
-        raise ValueError("Genome name must be a non-empty string.")
-
-    if not isinstance(readLengths, list) or len(readLengths) == 0:
-        raise ValueError(
-            "Read lengths must be a non-empty list. Try calling `getReadLengths` first."
-        )
-    return [
-        (
-            0
-            if int(readLength) <= 0
-            else constants.getEffectiveGenomeSize(genomeName, readLength)
-        )
-        for readLength in readLengths
-    ]
-
-
-def getInputArgs(config_path: str) -> core.inputParams:
-    configData = loadConfig(config_path)
-    defaultBarcodeTag = _cfgGet(configData, "scParams.barcodeTag", "CB")
-    defaultFragmentPositionMode = _cfgGet(
-        configData,
-        "scParams.defaultFragmentPositionMode",
-        "insertionEndpoints",
-    )
-    core._normalizeFragmentPositionMode(defaultFragmentPositionMode)
-
-    sampleConfigs = _cfgGet(configData, "inputParams.samples", None)
-    treatmentSources: List[core.inputSource]
-    controlSources: List[core.inputSource]
-    if sampleConfigs is not None:
-        if not isinstance(sampleConfigs, list) or len(sampleConfigs) == 0:
-            raise ValueError("`inputParams.samples` must be a non-empty list.")
-        allSources = [
-            _coerceInputSource(
-                sourceConfig,
-                defaultRole="treatment",
-                defaultBarcodeTag=defaultBarcodeTag,
-                defaultFragmentPositionMode=defaultFragmentPositionMode,
-            )
-            for sourceConfig in sampleConfigs
-        ]
-        treatmentSources = [
-            source for source in allSources if str(source.role).lower() == "treatment"
-        ]
-        controlSources = [
-            source for source in allSources if str(source.role).lower() == "control"
-        ]
-    else:
-        bamFilesRaw = _cfgGet(configData, "inputParams.bamFiles", []) or []
-        bamFilesControlRaw = (
-            _cfgGet(configData, "inputParams.bamFilesControl", []) or []
-        )
-        treatmentSources = _buildPathInputSources(bamFilesRaw, role="treatment")
-        controlSources = _buildPathInputSources(
-            bamFilesControlRaw,
-            role="control",
-        )
-
-    if len(treatmentSources) == 0:
-        raise ValueError("No input sources provided in the configuration.")
-
-    if (
-        len(controlSources) > 0
-        and len(controlSources) != len(treatmentSources)
-        and len(controlSources) != 1
-    ):
-        raise ValueError(
-            "Number of control sources must be 0, 1, or the same as number of treatment sources"
-        )
-
-    treatmentSources = _prepareBedGraphSources(treatmentSources)
-    controlSources = _prepareBedGraphSources(controlSources)
-
-    if len(controlSources) == 1:
-        logger.info(
-            f"Only one control given: Using {controlSources[0].path} for all treatment files."
-        )
-        controlSources = controlSources * len(treatmentSources)
-
-    bamFiles = core.getSourcePaths(treatmentSources)
-    bamFilesControl = core.getSourcePaths(controlSources)
-
-    if not bamFiles or not isinstance(bamFiles, list):
-        raise ValueError("No input source paths found")
-
-    for source in treatmentSources:
-        if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS:
-            misc_util.checkAlignmentFile(source.path)
-        elif not os.path.exists(source.path):
-            raise FileNotFoundError(f"Could not find {source.path}")
-
-    if controlSources:
-        for source in controlSources:
-            if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS:
-                misc_util.checkAlignmentFile(source.path)
-            elif not os.path.exists(source.path):
-                raise FileNotFoundError(f"Could not find {source.path}")
-
-    return core.inputParams(
-        bamFiles=bamFiles,
-        bamFilesControl=bamFilesControl,
-        treatmentSources=treatmentSources,
-        controlSources=controlSources,
-    )
-
-
-def getOutputArgs(config_path: str) -> core.outputParams:
-    configData = loadConfig(config_path)
-
-    convertToBigWig_ = _cfgGet(
-        configData,
-        "outputParams.convertToBigWig",
-        _pyBigWigAvailable(),
-    )
-
-    roundDigits_ = _cfgGet(configData, "outputParams.roundDigits", 3)
-    writeUncertainty_ = _cfgGet(
-        configData,
-        "outputParams.writeUncertainty",
-        True,
-    )
-    return core.outputParams(
-        convertToBigWig=convertToBigWig_,
-        roundDigits=roundDigits_,
-        writeUncertainty=writeUncertainty_,
-    )
-
-
-def getGenomeArgs(config_path: str) -> core.genomeParams:
-    configData = loadConfig(config_path)
-
-    genomeName = _cfgGet(configData, "genomeParams.name", None)
-    genomeLabel = constants.resolveGenomeName(genomeName)
-
-    chromSizesFile: Optional[str] = None
-    blacklistFile: Optional[str] = None
-    sparseBedFile: Optional[str] = None
-    chromosomesList: Optional[List[str]] = None
-
-    excludeChromsList: List[str] = (
-        _cfgGet(configData, "genomeParams.excludeChroms", []) or []
-    )
-    excludeForNormList: List[str] = (
-        _cfgGet(configData, "genomeParams.excludeForNorm", []) or []
-    )
-
-    if genomeLabel:
-        chromSizesFile = constants.getGenomeResourceFile(genomeLabel, "sizes")
-        blacklistFile = constants.getGenomeResourceFile(genomeLabel, "blacklist")
-        sparseBedFile = constants.getGenomeResourceFile(genomeLabel, "sparse")
-
-    chromSizesOverride = _cfgGet(configData, "genomeParams.chromSizesFile", None)
-    if chromSizesOverride:
-        chromSizesFile = chromSizesOverride
-
-    blacklistOverride = _cfgGet(configData, "genomeParams.blacklistFile", None)
-    if blacklistOverride:
-        blacklistFile = blacklistOverride
-
-    sparseOverride = _cfgGet(configData, "genomeParams.sparseBedFile", None)
-    if sparseOverride:
-        sparseBedFile = sparseOverride
-
-    if not chromSizesFile or not os.path.exists(chromSizesFile):
-        raise FileNotFoundError(
-            f"Chromosome sizes file {chromSizesFile} does not exist."
-        )
-
-    chromosomesConfig = _cfgGet(configData, "genomeParams.chromosomes", None)
-    if chromosomesConfig is not None:
-        chromosomesList = chromosomesConfig
-    else:
-        if chromSizesFile:
-            chromosomesFrame = pd.read_csv(
-                chromSizesFile,
-                sep="\t",
-                header=None,
-                names=["chrom", "size"],
-            )
-            chromosomesList = list(chromosomesFrame["chrom"])
-        else:
-            raise ValueError(
-                "No chromosomes provided in the configuration and no chromosome sizes file specified."
-            )
-
-    chromosomesList = [
-        chromName.strip()
-        for chromName in chromosomesList
-        if chromName and chromName.strip()
-    ]
-    if excludeChromsList:
-        chromosomesList = [
-            chromName
-            for chromName in chromosomesList
-            if chromName not in excludeChromsList
-        ]
-    chromosomesList = list(dict.fromkeys(chromosomesList))
-    if not chromosomesList:
-        raise ValueError(
-            "No valid chromosomes found after excluding specified chromosomes."
-        )
-
-    return core.genomeParams(
-        genomeName=genomeLabel,
-        chromSizesFile=chromSizesFile,
-        blacklistFile=blacklistFile,
-        sparseBedFile=sparseBedFile,
-        chromosomes=chromosomesList,
-        excludeChroms=excludeChromsList,
-        excludeForNorm=excludeForNormList,
-    )
-
-
-def getStateArgs(config_path: str) -> core.stateParams:
-    configData = loadConfig(config_path)
-
-    stateInit_ = _cfgGet(configData, "stateParams.stateInit", 0.0)
-    stateCovarInit_ = _cfgGet(
-        configData,
-        "stateParams.stateCovarInit",
-        1000.0,
-    )
-    boundState_ = _cfgGet(
-        configData,
-        "stateParams.boundState",
-        False,
-    )
-    stateLowerBound_ = _cfgGet(
-        configData,
-        "stateParams.stateLowerBound",
-        0.0,
-    )
-    stateUpperBound_ = _cfgGet(
-        configData,
-        "stateParams.stateUpperBound",
-        10000.0,
-    )
-    if boundState_:
-        if stateLowerBound_ > stateUpperBound_:
-            raise ValueError("`stateLowerBound` is greater than `stateUpperBound`.")
-    return core.stateParams(
-        stateInit=stateInit_,
-        stateCovarInit=stateCovarInit_,
-        boundState=boundState_,
-        stateLowerBound=stateLowerBound_,
-        stateUpperBound=stateUpperBound_,
-    )
-
-
-def getCountingArgs(config_path: str) -> core.countingParams:
-    configData = loadConfig(config_path)
-
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
-    backgroundBlockSizeBP_ = _cfgGet(
-        configData,
-        "countingParams.backgroundBlockSizeBP",
-        -1,
-    )
-    scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
-    scaleFactorsControlList = _cfgGet(
-        configData, "countingParams.scaleFactorsControl", None
-    )
-    if scaleFactorList is not None and not isinstance(scaleFactorList, list):
-        raise ValueError("`scaleFactors` should be a list of floats.")
-
-    if scaleFactorsControlList is not None and not isinstance(
-        scaleFactorsControlList, list
-    ):
-        raise ValueError("`scaleFactorsControl` should be a list of floats.")
-
-    if (
-        scaleFactorList is not None
-        and scaleFactorsControlList is not None
-        and len(scaleFactorList) != len(scaleFactorsControlList)
-    ):
-        if len(scaleFactorsControlList) == 1:
-            scaleFactorsControlList = scaleFactorsControlList * len(scaleFactorList)
-        else:
-            raise ValueError(
-                "control and treatment scale factors: must be equal length or 1 control"
-            )
-
-    normMethod_ = _cfgGet(
-        configData,
-        "countingParams.normMethod",
-        "EGS",
-    )
-    if normMethod_.upper() not in ["EGS", "RPGC", "RPKM", "CPM", "SF"]:
-        logger.warning(
-            f"Unknown `countingParams.normMethod`...Using `EGS`...",
-        )
-        normMethod_ = "EGS"
-    fragmentsGroupNorm_ = _cfgGet(
-        configData,
-        "countingParams.fragmentsGroupNorm",
-        _cfgGet(configData, "scParams.fragmentsGroupNorm", "NONE"),
-    )
-    if str(fragmentsGroupNorm_).upper() not in ["NONE", "CELLS"]:
-        raise ValueError(
-            "`countingParams.fragmentsGroupNorm` must be `NONE` or `CELLS`."
-        )
-
-    fixControl_ = _cfgGet(
-        configData,
-        "countingParams.fixControl",
-        False,
-    )
-    logOffset_ = _cfgGet(
-        configData,
-        "countingParams.logOffset",
-        1.0,
-    )
-    logMult_ = _cfgGet(
-        configData,
-        "countingParams.logMult",
-        1.0,
-    )
-    replicateMedianDetrend_ = _cfgGet(
-        configData,
-        "countingParams.replicateMedianDetrend",
-        True,
-    )
-    replicateMedianDetrendWindowMultiplier_ = _cfgGet(
-        configData,
-        "countingParams.replicateMedianDetrendWindowMultiplier",
-        2.0,
-    )
-    gentleDetrendQuantile_ = _cfgGet(
-        configData,
-        "countingParams.gentleDetrendQuantile",
-        0.5,
-    )
-    gentleDetrendQuantile_ = float(gentleDetrendQuantile_)
-    if (
-        not np.isfinite(gentleDetrendQuantile_)
-        or gentleDetrendQuantile_ < 0.0
-        or gentleDetrendQuantile_ > 1.0
-    ):
-        raise ValueError("countingParams.gentleDetrendQuantile must be between 0 and 1")
-    return core.countingParams(
-        intervalSizeBP=intervalSizeBP,
-        backgroundBlockSizeBP=backgroundBlockSizeBP_,
-        scaleFactors=scaleFactorList,
-        scaleFactorsControl=scaleFactorsControlList,
-        normMethod=normMethod_,
-        fragmentsGroupNorm=fragmentsGroupNorm_,
-        fixControl=fixControl_,
-        logOffset=logOffset_,
-        logMult=logMult_,
-        replicateMedianDetrend=bool(replicateMedianDetrend_),
-        replicateMedianDetrendWindowMultiplier=float(
-            replicateMedianDetrendWindowMultiplier_
-        ),
-        gentleDetrendQuantile=gentleDetrendQuantile_,
-    )
-
-
-def getScArgs(config_path: str) -> core.scParams:
-    configData = loadConfig(config_path)
-
-    barcodeTag_ = _cfgGet(configData, "scParams.barcodeTag", "CB")
-    defaultCountMode_ = _cfgGet(
-        configData,
-        "scParams.defaultCountMode",
-        "coverage",
-    )
-    if str(defaultCountMode_).strip().lower() not in [
-        "coverage",
-        "cutsite",
-        "fiveprime",
-        "center",
-        "midpoint",
-    ]:
-        raise ValueError("`scParams.defaultCountMode` is not supported.")
-
-    fragmentsGroupNorm_ = _cfgGet(
-        configData,
-        "scParams.fragmentsGroupNorm",
-        _cfgGet(configData, "countingParams.fragmentsGroupNorm", "NONE"),
-    )
-    if str(fragmentsGroupNorm_).upper() not in ["NONE", "CELLS"]:
-        raise ValueError("`scParams.fragmentsGroupNorm` must be `NONE` or `CELLS`.")
-
-    defaultFragmentPositionMode_ = _cfgGet(
-        configData,
-        "scParams.defaultFragmentPositionMode",
-        "insertionEndpoints",
-    )
-    core._normalizeFragmentPositionMode(defaultFragmentPositionMode_)
-    return core.scParams(
-        barcodeTag=barcodeTag_,
-        defaultCountMode=defaultCountMode_,
-        fragmentsGroupNorm=fragmentsGroupNorm_,
-        defaultFragmentPositionMode=defaultFragmentPositionMode_,
-    )
-
-
-def getUncertaintyCalibrationArgs(
-    config_path: str,
-) -> core.uncertaintyCalibrationParams:
-    configData = loadConfig(config_path)
-    enabledDefault = _cfgDefault(configData, "uncertaintyCalibration.enabled")
-    blockDefault = None
-    padDefault = _cfgGet(configData, "observationParams.pad", 1.0e-4)
-    maxScores = _cfgGet(
-        configData,
-        "uncertaintyCalibrationParams.maxScores",
-        _cfgGet(configData, "uncertaintyCalibration.maxScores", None),
-    )
-    maxHeldoutCells = _cfgGet(
-        configData,
-        "uncertaintyCalibrationParams.maxHeldoutCells",
-        _cfgGet(configData, "uncertaintyCalibration.maxHeldoutCells", None),
-    )
-    if maxScores is None and maxHeldoutCells is None:
-        maxScores = core.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES
-    return core.uncertaintyCalibrationParams(
-        enabled=bool(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.enabled",
-                _cfgGet(configData, "uncertaintyCalibration.enabled", enabledDefault),
-            )
-        ),
-        folds=int(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.folds",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.folds",
-                    core.uncertaintyCalibrationParams().folds,
-                ),
-            )
-        ),
-        blockSizeBP=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.blockSizeBP",
-            _cfgGet(configData, "uncertaintyCalibration.blockSizeBP", blockDefault),
-        ),
-        holdoutFraction=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.holdoutFraction",
-            _cfgGet(configData, "uncertaintyCalibration.holdoutFraction", None),
-        ),
-        heldoutReplicateFraction=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.heldoutReplicateFraction",
-            _cfgGet(
-                configData,
-                "uncertaintyCalibration.heldoutReplicateFraction",
-                None,
-            ),
-        ),
-        maxScores=int(maxScores) if maxScores is not None else maxScores,
-        maxHeldoutCells=(
-            int(maxHeldoutCells) if maxHeldoutCells is not None else maxHeldoutCells
-        ),
-        maxDiagnosticRows=int(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.maxDiagnosticRows",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.maxDiagnosticRows",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS,
-                ),
-            )
-        ),
-        minHeldoutCells=int(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.minHeldoutCells",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.minHeldoutCells",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS,
-                ),
-            )
-        ),
-        targets=tuple(
-            float(x)
-            for x in _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.targets",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.targets",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
-                ),
-            )
-        ),
-        minFactor=float(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.minFactor",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.minFactor",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
-                ),
-            )
-        ),
-        maxFactor=float(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.maxFactor",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.maxFactor",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
-                ),
-            )
-        ),
-        factorMin=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.factorMin",
-            _cfgGet(configData, "uncertaintyCalibration.factorMin", None),
-        ),
-        factorMax=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.factorMax",
-            _cfgGet(configData, "uncertaintyCalibration.factorMax", None),
-        ),
-        ridge=float(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.ridge",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.ridge",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE,
-                ),
-            )
-        ),
-        wisWeight=float(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.wisWeight",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.wisWeight",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT,
-                ),
-            )
-        ),
-        aObsPenalty=float(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.aObsPenalty",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.aObsPenalty",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
-                ),
-            )
-        ),
-        aObsPriorStrength=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.aObsPriorStrength",
-            _cfgGet(configData, "uncertaintyCalibration.aObsPriorStrength", None),
-        ),
-        calibrationECMIters=int(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.calibrationECMIters",
-                _cfgGet(configData, "uncertaintyCalibration.calibrationECMIters", 3),
-            )
-        ),
-        seed=int(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.seed",
-                _cfgGet(
-                    configData,
-                    "uncertaintyCalibration.seed",
-                    core.UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
-                ),
-            )
-        ),
-        pad=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.pad",
-            _cfgGet(configData, "uncertaintyCalibration.pad", padDefault),
-        ),
-        writeDiagnostics=bool(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.writeDiagnostics",
-                _cfgGet(configData, "uncertaintyCalibration.writeDiagnostics", False),
-            )
-        ),
-    )
-
-
-def readConfig(config_path: str) -> Dict[str, Any]:
-    r"""Read and parse the configuration file for Consenrich.
-
-    :param config_path: Path to the YAML configuration file.
-    :return: Dictionary containing all parsed configuration parameters.
-    """
-    configData = loadConfig(config_path)
-    defaultConfiguration = _getDefaultConfigurationName(configData)
-
-    inputParams = getInputArgs(config_path)
-    outputParams = getOutputArgs(config_path)
-    genomeParams = getGenomeArgs(config_path)
-    stateParams = getStateArgs(config_path)
-    countingParams = getCountingArgs(config_path)
-    scArgs = getScArgs(config_path)
-    uncertaintyCalibrationArgs = getUncertaintyCalibrationArgs(config_path)
-    experimentName = _cfgGet(configData, "experimentName", "consenrichExperiment")
-    processQLevelTargetCfg = _cfgGet(
-        configData,
-        "processParams.processQLevelTarget",
-        None,
-    )
-    processQTrendTargetCfg = _cfgGet(
-        configData,
-        "processParams.processQTrendTarget",
-        None,
-    )
-    processArgs = core.processParams(
-        deltaF=_cfgGet(configData, "processParams.deltaF", 1.0),
-        minQ=_cfgGet(configData, "processParams.minQ", -1.0),
-        maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
-        offDiagQ=_cfgGet(
-            configData,
-            "processParams.offDiagQ",
-            0.0,
-        ),
-        processQCalibration=_cfgGet(
-            configData,
-            "processParams.processQCalibration",
-            _cfgDefault(configData, "processParams.processQCalibration"),
-        ),
-        processQWarmupECMIters=int(
-            _cfgGet(
-                configData,
-                "processParams.processQWarmupECMIters",
-                _cfgDefault(configData, "processParams.processQWarmupECMIters"),
-            )
-        ),
-        processQWarmupOuterIters=int(
-            _cfgGet(
-                configData,
-                "processParams.processQWarmupOuterIters",
-                _cfgDefault(configData, "processParams.processQWarmupOuterIters"),
-            )
-        ),
-        processQLevelTarget=(
-            None if processQLevelTargetCfg is None else float(processQLevelTargetCfg)
-        ),
-        processQTrendTarget=(
-            None if processQTrendTargetCfg is None else float(processQTrendTargetCfg)
-        ),
-        processQLevelPriorWeight=float(
-            _cfgGet(
-                configData,
-                "processParams.processQLevelPriorWeight",
-                _cfgDefault(configData, "processParams.processQLevelPriorWeight"),
-            )
-        ),
-        processQTrendPriorWeight=float(
-            _cfgGet(
-                configData,
-                "processParams.processQTrendPriorWeight",
-                _cfgDefault(configData, "processParams.processQTrendPriorWeight"),
-            )
-        ),
-        precisionMultiplierMin=float(
-            _cfgGet(
-                configData,
-                "processParams.precisionMultiplierMin",
-                _cfgDefault(configData, "processParams.precisionMultiplierMin"),
-            )
-        ),
-        precisionMultiplierMax=float(
-            _cfgGet(
-                configData,
-                "processParams.precisionMultiplierMax",
-                _cfgDefault(configData, "processParams.precisionMultiplierMax"),
-            )
-        ),
-    )
-
-    explicitSparseBedFile = _cfgGet(configData, "genomeParams.sparseBedFile", None)
-    sparseBedAvailable = bool(
-        genomeParams.sparseBedFile and os.path.exists(str(genomeParams.sparseBedFile))
-    )
-    numNearestRequested = int(
-        _cfgGet(
-            configData,
-            "observationParams.numNearest",
-            0,
-        )
-        or 0
-    )
-    if explicitSparseBedFile and numNearestRequested > 0:
-        numNearestResolved = numNearestRequested
-    else:
-        numNearestResolved = 0
-    restrictLocalAR1ToSparseBedRequested = bool(
-        _cfgGet(
-            configData,
-            "observationParams.restrictLocalAR1ToSparseBed",
-            False,
-        )
-    )
-    if restrictLocalAR1ToSparseBedRequested and not sparseBedAvailable:
-        logger.warning(
-            "Requested `observationParams.restrictLocalAR1ToSparseBed`, but no "
-            "readable sparse BED was resolved; disabling that option.",
-        )
-    restrictLocalAR1ToSparseBedResolved = bool(
-        restrictLocalAR1ToSparseBedRequested and sparseBedAvailable
-    )
-    trendMaxEdfCfg = _cfgGet(configData, "observationParams.trendMaxEdf", 30.0)
-
-    observationArgs = core.observationParams(
-        minR=_cfgGet(configData, "observationParams.minR", -1.0),
-        maxR=_cfgGet(configData, "observationParams.maxR", 1000.0),
-        samplingIters=_cfgGet(
-            configData,
-            "observationParams.samplingIters",
-            10_000,
-        ),
-        samplingBlockSizeBP=_cfgGet(
-            configData,
-            "observationParams.samplingBlockSizeBP",
-            -1,
-        ),
-        EB_use=_cfgGet(
-            configData,
-            "observationParams.EB_use",
-            True,
-        ),
-        EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
-        EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
-        trendNumBasis=int(_cfgGet(configData, "observationParams.trendNumBasis", 60)),
-        trendMinObsPerBasis=float(
-            _cfgGet(configData, "observationParams.trendMinObsPerBasis", 25.0)
-        ),
-        trendMinEdf=float(_cfgGet(configData, "observationParams.trendMinEdf", 3.0)),
-        trendMaxEdf=None if trendMaxEdfCfg is None else float(trendMaxEdfCfg),
-        trendLambdaMin=float(
-            _cfgGet(configData, "observationParams.trendLambdaMin", 1.0e-6)
-        ),
-        trendLambdaMax=float(
-            _cfgGet(configData, "observationParams.trendLambdaMax", 1.0e6)
-        ),
-        trendLambdaGridSize=int(
-            _cfgGet(configData, "observationParams.trendLambdaGridSize", 41)
-        ),
-        numNearest=numNearestResolved,
-        sparseSupportScaleBP=_cfgGet(
-            configData,
-            "observationParams.sparseSupportScaleBP",
-            -1.0,
-        ),
-        sparseSupportPrior=float(
-            _cfgGet(
-                configData,
-                "observationParams.sparseSupportPrior",
-                1.0,
-            )
-        ),
-        restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
-        pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
-        precisionMultiplierMin=float(
-            _cfgGet(
-                configData,
-                "observationParams.precisionMultiplierMin",
-                _cfgDefault(configData, "observationParams.precisionMultiplierMin"),
-            )
-        ),
-        precisionMultiplierMax=float(
-            _cfgGet(
-                configData,
-                "observationParams.precisionMultiplierMax",
-                _cfgDefault(configData, "observationParams.precisionMultiplierMax"),
-            )
-        ),
-    )
-
-    ECM_useAPN_ = bool(_cfgGet(configData, "fitParams.ECM_useAPN", False))
-
-    fitArgs = core.fitParams(
-        ECM_fixedBackgroundIters=_cfgGet(
-            configData,
-            "fitParams.ECM_fixedBackgroundIters",
-            _cfgDefault(configData, "fitParams.ECM_fixedBackgroundIters"),
-        ),
-        ECM_fixedBackgroundRtol=_cfgGet(
-            configData,
-            "fitParams.ECM_fixedBackgroundRtol",
-            _cfgDefault(configData, "fitParams.ECM_fixedBackgroundRtol"),
-        ),
-        ECM_robustTNu=_cfgGet(configData, "fitParams.ECM_robustTNu", 10.0),
-        ECM_useObsPrecisionReweighting=_cfgGet(
-            configData,
-            "fitParams.ECM_useObsPrecisionReweighting",
-            True,
-        ),
-        ECM_useProcessPrecisionReweighting=_cfgGet(
-            configData,
-            "fitParams.ECM_useProcessPrecisionReweighting",
-            True,
-        )
-        and (not ECM_useAPN_),
-        ECM_useAPN=ECM_useAPN_,
-        fitBackground=_cfgGet(
-            configData,
-            "fitParams.fitBackground",
-            True,
-        ),
-        ECM_zeroCenterBackground=_cfgGet(
-            configData,
-            "fitParams.ECM_zeroCenterBackground",
-            False,
-        ),
-        ECM_zeroCenterReplicateBias=_cfgGet(
-            configData,
-            "fitParams.ECM_zeroCenterReplicateBias",
-            True,
-        ),
-        ECM_outerIters=_cfgGet(
-            configData,
-            "fitParams.ECM_outerIters",
-            _cfgDefault(configData, "fitParams.ECM_outerIters"),
-        ),
-        ECM_minOuterIters=_cfgGet(
-            configData,
-            "fitParams.ECM_minOuterIters",
-            _cfgDefault(configData, "fitParams.ECM_minOuterIters"),
-        ),
-        ECM_backgroundShiftRtol=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundShiftRtol",
-            _cfgDefault(configData, "fitParams.ECM_backgroundShiftRtol"),
-        ),
-        ECM_outerNLLRtol=_cfgGet(
-            configData,
-            "fitParams.ECM_outerNLLRtol",
-            _cfgDefault(configData, "fitParams.ECM_outerNLLRtol"),
-        ),
-        ECM_backgroundSmoothness=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundSmoothness",
-            _cfgDefault(configData, "fitParams.ECM_backgroundSmoothness"),
-        ),
-        ECM_backgroundLengthScaleMultiplier=_cfgGet(
-            configData,
-            "fitParams.ECM_backgroundLengthScaleMultiplier",
-            _cfgDefault(configData, "fitParams.ECM_backgroundLengthScaleMultiplier"),
-        ),
-    )
-
-    samThreads = _cfgGet(configData, "samParams.samThreads", 2)
-    samFlagExclude = _cfgGet(
-        configData,
-        "samParams.samFlagExclude",
-        3844,
-    )
-    minMappingQuality = _cfgGet(
-        configData,
-        "samParams.minMappingQuality",
-        10,
-    )
-    oneReadPerBin = _cfgGet(configData, "samParams.oneReadPerBin", 0)
-    chunkSize = _cfgGet(configData, "samParams.chunkSize", 500_000)
-    bamInputMode = _cfgGet(configData, "samParams.bamInputMode", "auto")
-    defaultCountMode = _cfgGet(configData, "samParams.defaultCountMode", "coverage")
-    shiftForward5p = int(_cfgGet(configData, "samParams.shiftForward5p", 0))
-    shiftReverse5p = int(_cfgGet(configData, "samParams.shiftReverse5p", 0))
-    extendFrom5pBP = _cfgGet(configData, "samParams.extendFrom5pBP", None)
-    maxInsertSize = _cfgGet(
-        configData,
-        "samParams.maxInsertSize",
-        1000,
-    )
-    inferFragmentLength = _cfgGet(
-        configData,
-        "samParams.inferFragmentLength",
-        None,
-    )
-    core._normalizeBamInputMode(bamInputMode)
-    core._normalizeCountMode(defaultCountMode, "coverage")
-    if extendFrom5pBP is not None and not isinstance(extendFrom5pBP, (int, list)):
-        raise ValueError("`samParams.extendFrom5pBP` must be an integer or list.")
-    if isinstance(extendFrom5pBP, list):
-        extendFrom5pBP = [int(value) for value in extendFrom5pBP]
-
-    samArgs = core.samParams(
-        samThreads=samThreads,
-        samFlagExclude=samFlagExclude,
-        oneReadPerBin=oneReadPerBin,
-        chunkSize=chunkSize,
-        bamInputMode=bamInputMode,
-        defaultCountMode=defaultCountMode,
-        shiftForward5p=shiftForward5p,
-        shiftReverse5p=shiftReverse5p,
-        extendFrom5pBP=extendFrom5pBP,
-        maxInsertSize=maxInsertSize,
-        inferFragmentLength=inferFragmentLength,
-        minMappingQuality=minMappingQuality,
-        minTemplateLength=_cfgGet(
-            configData,
-            "samParams.minTemplateLength",
-            -1,
-        ),
-    )
-
-    matchingArgs = core.matchingParams(
-        enabled=bool(_cfgGet(configData, "matchingParams.enabled", True)),
-        randSeed=_cfgGet(configData, "matchingParams.randSeed", 42),
-        tau0=float(_cfgGet(configData, "matchingParams.tau0", 1.0)),
-        numBootstrap=int(_cfgGet(configData, "matchingParams.numBootstrap", 128)),
-        thresholdZ=float(_cfgGet(configData, "matchingParams.thresholdZ", 2.0)),
-        dependenceSpan=_cfgGet(configData, "matchingParams.dependenceSpan", None),
-        gamma=_cfgGet(configData, "matchingParams.gamma", 0.25),
-        selectionPenalty=_cfgGet(configData, "matchingParams.selectionPenalty", None),
-        gammaScale=float(_cfgGet(configData, "matchingParams.gammaScale", 0.5)),
-        nestedRoccoIters=int(_cfgGet(configData, "matchingParams.nestedRoccoIters", 3)),
-        nestedRoccoBudgetScale=float(
-            _cfgGet(configData, "matchingParams.nestedRoccoBudgetScale", 0.5)
-        ),
-        exportFilterUncertaintyMultiplier=float(
-            _cfgGet(
-                configData,
-                "matchingParams.exportFilterUncertaintyMultiplier",
-                2.0,
-            )
-        ),
-    )
-
-    return {
-        "experimentName": experimentName,
-        "defaultConfiguration": defaultConfiguration,
-        "genomeArgs": genomeParams,
-        "inputArgs": inputParams,
-        "outputArgs": outputParams,
-        "countingArgs": countingParams,
-        "scArgs": scArgs,
-        "processArgs": processArgs,
-        "observationArgs": observationArgs,
-        "stateArgs": stateParams,
-        "uncertaintyCalibrationArgs": uncertaintyCalibrationArgs,
-        "samArgs": samArgs,
-        "matchingArgs": matchingArgs,
-        "fitArgs": fitArgs,
-    }
-
-
-def convertBedGraphToBigWig(
-    experimentName,
-    chromSizesFile,
-    suffixes: Optional[List[str]] = None,
-):
-    if suffixes is None:
-        # at least look for `state` bedGraph
-        suffixes = ["state"]
-    logger.info(
-        "Attempting to generate bigWig files from bedGraph format via pyBigWig..."
-    )
-    for suffix in suffixes:
-        bedgraph = f"consenrichOutput_{experimentName}_{suffix}.v{__version__}.bedGraph"
-        if not os.path.exists(bedgraph):
-            logger.warning(
-                f"bedGraph file {bedgraph} does not exist. Skipping bigWig conversion."
-            )
-            continue
-        if not os.path.exists(chromSizesFile):
-            logger.warning(
-                f"{chromSizesFile} does not exist. Skipping bigWig conversion."
-            )
-            return
-        chromOrder = _readChromOrder(chromSizesFile)
-        try:
-            _validateBedGraphSorted(bedgraph, chromOrder=chromOrder)
-        except Exception as e:
-            logger.warning(
-                "bedGraph %s failed sorted validation before bigWig conversion; "
-                "sorting as a fallback:\n%s",
-                bedgraph,
-                e,
-            )
-            try:
-                _sortBedGraphInPlace(bedgraph, chromOrder=chromOrder)
-            except Exception as sortError:
-                logger.warning(
-                    f"Failed to sort {bedgraph} before bigWig conversion:\n{sortError}"
-                )
-                continue
-        bigwig = f"{experimentName}_consenrich_{suffix}.v{__version__}.bw"
-        logger.info(f"Start: {bedgraph} --> {bigwig}...")
-        try:
-            _convertBedGraphToBigWigPyBigWig(
-                bedgraph,
-                chromSizesFile,
-                bigwig,
-            )
-        except Exception as e:
-            logger.warning(
-                f"pyBigWig bedGraph-->bigWig conversion for {bedgraph} raised:\n{e}\n"
-            )
-            continue
-        if os.path.exists(bigwig) and os.path.getsize(bigwig) > 100:
-            logger.info(f"Finished: converted {bedgraph} to {bigwig}.")
-
-
-def _readChromSizes(chromSizesFile: str) -> List[Tuple[str, int]]:
-    chromSizes: List[Tuple[str, int]] = []
-    chromSizeByName: Dict[str, int] = {}
-    with open(chromSizesFile, "r", encoding="utf-8") as handle:
-        for lineNumber, line in enumerate(handle, start=1):
-            parts = line.rstrip("\n").split()
-            if len(parts) == 0 or parts[0].startswith("#"):
-                continue
-            if len(parts) < 2:
-                raise ValueError(
-                    f"Malformed chromosome sizes row {lineNumber} in {chromSizesFile}"
-                )
-            chrom = str(parts[0])
-            try:
-                chromSize = int(parts[1])
-            except ValueError as e:
-                raise ValueError(
-                    f"Invalid chromosome size on row {lineNumber} in {chromSizesFile}"
-                ) from e
-            if chromSize <= 0:
-                raise ValueError(
-                    f"Chromosome {chrom} has non-positive size on row {lineNumber}"
-                )
-            if chrom in chromSizeByName:
-                raise ValueError(f"Duplicate chromosome {chrom} in {chromSizesFile}")
-            chromSizes.append((chrom, chromSize))
-            chromSizeByName[chrom] = chromSize
-    if len(chromSizes) == 0:
-        raise ValueError(f"No chromosome sizes found in {chromSizesFile}")
-    return chromSizes
-
-
-def _readChromOrder(chromSizesFile: str) -> List[str]:
-    return [chrom for chrom, _size in _readChromSizes(chromSizesFile)]
-
-
-def _convertBedGraphToBigWigPyBigWig(
-    bedgraphPath: str,
-    chromSizesFile: str,
-    bigwigPath: str,
-    chunkSize: int = 200_000,
-) -> None:
-    try:
-        import pyBigWig
-    except Exception as e:
-        raise RuntimeError(
-            "pyBigWig is not installed; cannot convert bedGraph files to bigWig"
-        ) from e
-
-    chromSizes = _readChromSizes(chromSizesFile)
-    chromSizeByName = dict(chromSizes)
-    chromRankByName = {chrom: rank for rank, (chrom, _size) in enumerate(chromSizes)}
-
-    chunkSize_ = max(int(chunkSize), 1)
-    outDir = os.path.dirname(os.path.abspath(bigwigPath)) or "."
-    tempPath = ""
-    bw = None
-    seenEntry = False
-    lastChrom = ""
-    lastStart = -1
-    lastEnd = -1
-    try:
-        with tempfile.NamedTemporaryFile(
-            prefix="consenrich_bigwig_",
-            suffix=".bw",
-            delete=False,
-            dir=outDir,
-        ) as tempHandle:
-            tempPath = tempHandle.name
-        bw = pyBigWig.open(tempPath, "w")
-        bw.addHeader(chromSizes)
-        chroms: List[str] = []
-        starts: List[int] = []
-        ends: List[int] = []
-        values: List[float] = []
-        with open(bedgraphPath, "r", encoding="utf-8") as handle:
-            for lineNumber, line in enumerate(handle, start=1):
-                stripped = line.strip()
-                if (
-                    not stripped
-                    or stripped.startswith("#")
-                    or stripped == "track"
-                    or stripped.startswith("track ")
-                    or stripped == "browser"
-                    or stripped.startswith("browser ")
-                ):
-                    continue
-                parts = stripped.split()
-                if len(parts) != 4:
-                    raise ValueError(
-                        f"Malformed bedGraph row {lineNumber} in {bedgraphPath}: "
-                        "expected 4 columns"
-                    )
-                chrom = str(parts[0])
-                if chrom not in chromSizeByName:
-                    raise ValueError(
-                        f"Chromosome {chrom} on bedGraph row {lineNumber} is not "
-                        f"present in {chromSizesFile}"
-                    )
-                try:
-                    start = int(parts[1])
-                    end = int(parts[2])
-                except ValueError as e:
-                    raise ValueError(
-                        f"Invalid bedGraph coordinates on row {lineNumber} in "
-                        f"{bedgraphPath}"
-                    ) from e
-                try:
-                    value = float(parts[3])
-                except ValueError as e:
-                    raise ValueError(
-                        f"Invalid bedGraph value on row {lineNumber} in {bedgraphPath}"
-                    ) from e
-                if not np.isfinite(value):
-                    raise ValueError(
-                        f"Non-finite bedGraph value on row {lineNumber} in {bedgraphPath}"
-                    )
-                if start < 0:
-                    raise ValueError(
-                        f"Negative start coordinate on bedGraph row {lineNumber}"
-                    )
-                if end <= start:
-                    raise ValueError(
-                        f"End coordinate must be greater than start on bedGraph row "
-                        f"{lineNumber}"
-                    )
-                if end > chromSizeByName[chrom]:
-                    raise ValueError(
-                        f"End coordinate {end} on bedGraph row {lineNumber} exceeds "
-                        f"{chrom} size of {chromSizeByName[chrom]}"
-                    )
-                chromRank = chromRankByName[chrom]
-                if seenEntry:
-                    lastRank = chromRankByName[lastChrom]
-                    if chromRank < lastRank or (
-                        chrom == lastChrom and start < lastStart
-                    ):
-                        raise ValueError(
-                            f"bedGraph input is not sorted at row {lineNumber}; sort "
-                            "by chromosome sizes order, then start/end"
-                        )
-                    if chrom == lastChrom and start < lastEnd:
-                        raise ValueError(
-                            f"Overlapping bedGraph interval at row {lineNumber}"
-                        )
-                chroms.append(chrom)
-                starts.append(start)
-                ends.append(end)
-                values.append(value)
-                seenEntry = True
-                lastChrom = chrom
-                lastStart = start
-                lastEnd = end
-                if len(chroms) >= chunkSize_:
-                    bw.addEntries(chroms, starts, ends=ends, values=values)
-                    chroms.clear()
-                    starts.clear()
-                    ends.clear()
-                    values.clear()
-        if len(chroms) > 0:
-            bw.addEntries(chroms, starts, ends=ends, values=values)
-        if not seenEntry:
-            raise ValueError(f"No bedGraph intervals found in {bedgraphPath}")
-        bw.close()
-        bw = None
-        os.replace(tempPath, bigwigPath)
-    finally:
-        if bw is not None:
-            bw.close()
-        if tempPath and os.path.exists(tempPath):
-            try:
-                os.remove(tempPath)
-            except OSError:
-                pass
-
-
-def _validateBedGraphSorted(
-    bedgraphPath: str,
-    chromOrder: Optional[Sequence[str]] = None,
-) -> None:
-    if not os.path.exists(bedgraphPath) or os.path.getsize(bedgraphPath) == 0:
-        return
-
-    chromRankByName = (
-        {str(chrom): rank for rank, chrom in enumerate(chromOrder)}
-        if chromOrder is not None
-        else None
-    )
-    seenEntry = False
-    seenChroms: set[str] = set()
-    lastChrom = ""
-    lastStart = -1
-    lastEnd = -1
-    lastRank = -1
-
-    with open(bedgraphPath, "r", encoding="utf-8") as handle:
-        for lineNumber, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if (
-                not stripped
-                or stripped.startswith("#")
-                or stripped == "track"
-                or stripped.startswith("track ")
-                or stripped == "browser"
-                or stripped.startswith("browser ")
-            ):
-                continue
-            parts = stripped.split()
-            if len(parts) != 4:
-                raise ValueError(
-                    f"Malformed bedGraph row {lineNumber} in {bedgraphPath}: "
-                    "expected 4 columns"
-                )
-            chrom = str(parts[0])
-            try:
-                start = int(parts[1])
-                end = int(parts[2])
-            except ValueError as e:
-                raise ValueError(
-                    f"Invalid bedGraph coordinates on row {lineNumber} in "
-                    f"{bedgraphPath}"
-                ) from e
-            if start < 0:
-                raise ValueError(
-                    f"Negative start coordinate on bedGraph row {lineNumber}"
-                )
-            if end <= start:
-                raise ValueError(
-                    f"End coordinate must be greater than start on bedGraph row "
-                    f"{lineNumber}"
-                )
-            if chromRankByName is None:
-                chromRank = -1
-            else:
-                if chrom not in chromRankByName:
-                    raise ValueError(
-                        f"Chromosome {chrom} on bedGraph row {lineNumber} is not "
-                        "present in the expected chromosome order"
-                    )
-                chromRank = chromRankByName[chrom]
-            if seenEntry:
-                if chrom == lastChrom:
-                    if start < lastStart:
-                        raise ValueError(
-                            f"bedGraph input is not sorted at row {lineNumber}"
-                        )
-                    if start < lastEnd:
-                        raise ValueError(
-                            f"Overlapping bedGraph interval at row {lineNumber}"
-                        )
-                else:
-                    if chrom in seenChroms:
-                        raise ValueError(
-                            f"Chromosome {chrom} reappears on bedGraph row "
-                            f"{lineNumber}"
-                        )
-                    if chromRankByName is None:
-                        if chrom < lastChrom:
-                            raise ValueError(
-                                f"bedGraph input is not sorted at row {lineNumber}"
-                            )
-                    elif chromRank < lastRank:
-                        raise ValueError(
-                            f"bedGraph input is not in chromosome order at row "
-                            f"{lineNumber}"
-                        )
-            seenEntry = True
-            seenChroms.add(chrom)
-            lastChrom = chrom
-            lastStart = start
-            lastEnd = end
-            lastRank = chromRank
-
-
-def _sortBedGraphInPlace(
-    bedgraphPath: str,
-    chromOrder: Optional[Sequence[str]] = None,
-) -> None:
-    if not os.path.exists(bedgraphPath) or os.path.getsize(bedgraphPath) == 0:
-        return
-
-    sortPath = shutil.which("sort")
-    if sortPath is not None and chromOrder is None:
-        tempPath = ""
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                prefix="consenrich_sort_",
-                suffix=".bedGraph",
-                delete=False,
-                dir=os.path.dirname(os.path.abspath(bedgraphPath)) or ".",
-            ) as tempHandle:
-                tempPath = tempHandle.name
-            env = os.environ.copy()
-            env["LC_ALL"] = "C"
-            with open(tempPath, "w", encoding="utf-8") as outHandle:
-                subprocess.run(
-                    [
-                        sortPath,
-                        "-k1,1",
-                        "-k2,2n",
-                        "-k3,3n",
-                        bedgraphPath,
-                    ],
-                    check=True,
-                    stdout=outHandle,
-                    env=env,
-                )
-            os.replace(tempPath, bedgraphPath)
-            return
-        finally:
-            if tempPath and os.path.exists(tempPath):
-                try:
-                    os.remove(tempPath)
-                except OSError:
-                    pass
-
-    headerLines: List[str] = []
-    recordRows: List[List[str]] = []
-    with open(bedgraphPath, "r", encoding="utf-8") as handle:
-        for lineNumber, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if (
-                not stripped
-                or stripped.startswith("#")
-                or stripped == "track"
-                or stripped.startswith("track ")
-                or stripped == "browser"
-                or stripped.startswith("browser ")
-            ):
-                headerLines.append(line.rstrip("\n"))
-                continue
-            parts = stripped.split()
-            if len(parts) != 4:
-                raise ValueError(
-                    f"Malformed bedGraph row {lineNumber} in {bedgraphPath}: "
-                    "expected 4 columns"
-                )
-            recordRows.append(parts)
-    if not recordRows:
-        with open(bedgraphPath, "w", encoding="utf-8") as handle:
-            for headerLine in headerLines:
-                handle.write(f"{headerLine}\n")
-        return
-
-    df = pd.DataFrame(
-        recordRows,
-        columns=["chromosome", "start", "end", "value"],
-    ).astype(
-        {
-            "chromosome": str,
-            "start": np.int64,
-            "end": np.int64,
-            "value": np.float64,
-        }
-    )
-    if chromOrder is not None:
-        chromRankByName = {str(chrom): rank for rank, chrom in enumerate(chromOrder)}
-        df["_chromRank"] = df["chromosome"].map(chromRankByName)
-        unknown = sorted(df.loc[df["_chromRank"].isna(), "chromosome"].unique())
-        if unknown:
-            raise ValueError(
-                "bedGraph contains chromosomes not present in chromosome order: "
-                + ", ".join(str(chrom) for chrom in unknown[:5])
-            )
-        df["_chromRank"] = df["_chromRank"].astype(np.int64)
-        df.sort_values(
-            by=["_chromRank", "start", "end"],
-            kind="mergesort",
-            inplace=True,
-        )
-        df.drop(columns=["_chromRank"], inplace=True)
-    else:
-        df.sort_values(
-            by=["chromosome", "start", "end"],
-            kind="mergesort",
-            inplace=True,
-        )
-    with open(bedgraphPath, "w", encoding="utf-8") as handle:
-        for headerLine in headerLines:
-            handle.write(f"{headerLine}\n")
-        df.to_csv(
-            handle,
-            sep="\t",
-            header=False,
-            index=False,
-            float_format="%.4f",
-            lineterminator="\n",
-        )
-
-
 def main():
     parser = argparse.ArgumentParser(description="Consenrich CLI")
     parser.add_argument(
@@ -2241,6 +318,13 @@ def main():
         default=None,
         dest="matchUncertaintyBedGraph",
         help="Optional uncertainty bedGraph paired with `--match-bedGraph`. If omitted, Consenrich looks for a sibling `_uncertainty` bedGraph.",
+    )
+    parser.add_argument(
+        "--match-blacklist-bed",
+        type=str,
+        default=None,
+        dest="matchBlacklistBed",
+        help="Optional BED blacklist applied to post hoc ROCCO peak export.",
     )
     parser.add_argument(
         "--match-tau0",
@@ -2311,6 +395,10 @@ def main():
             raise FileNotFoundError(
                 f"uncertainty bedGraph file {uncertaintyBedGraph} couldn't be found."
             )
+        if args.matchBlacklistBed is not None and not os.path.exists(args.matchBlacklistBed):
+            raise FileNotFoundError(
+                f"blacklist BED file {args.matchBlacklistBed} couldn't be found."
+            )
         if uncertaintyBedGraph is None:
             uncertaintyBedGraph = _inferMatchingUncertaintyBedGraph(args.matchBedGraph)
         logger.info(
@@ -2328,6 +416,7 @@ def main():
             exportFilterUncertaintyMultiplier=(
                 args.matchExportFilterUncertaintyMultiplier
             ),
+            blacklistBedFile=args.matchBlacklistBed,
             randSeed=args.matchRandSeed,
             verbose=bool(args.verbose or args.verbose2),
         )
@@ -2945,6 +1034,13 @@ def main():
     pooledChromIndexParts: list[np.ndarray] = []
     pooledBlockStartsParts: list[np.ndarray] = []
     pooledWeightsParts: list[np.ndarray] = []
+    useReplicateTrends = bool(getattr(observationArgs, "useReplicateTrends", False))
+
+    def _getChromBlacklistMask(chromosome: str, intervals: np.ndarray) -> np.ndarray:
+        if not genomeArgs.blacklistFile or len(intervals) < 2:
+            return np.zeros(len(intervals), dtype=np.uint8)
+        mask = core.getBedMask(chromosome, genomeArgs.blacklistFile, intervals)
+        return np.asarray(mask, dtype=np.uint8)
 
     def _countAndTransformChromosomeMatrix(
         c_: int,
@@ -3265,7 +1361,7 @@ def main():
             1,
             int(float(samplingBlockSizeBP_) / float(intervalSizeBP)),
         )
-        emptyExcludeMask = np.zeros(chromMat.shape[1], dtype=np.uint8)
+        blacklistExcludeMask = _getChromBlacklistMask(str(chromosomePlans[c_]["chromosome"]), intervals)
         intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
         for j in range(numSamples):
             blockMeans, blockVars, starts, _ends = cconsenrich.cmeanVarPairs(
@@ -3274,7 +1370,7 @@ def main():
                 blockSizeIntervals,
                 samplingIters_,
                 42 + j,
-                emptyExcludeMask,
+                blacklistExcludeMask,
                 useInnovationVar=False,
             )
             blockMeansArr = np.asarray(blockMeans)
@@ -3337,32 +1433,6 @@ def main():
         pooledBlockStarts = np.empty(0, dtype=np.int64)
         pooledWeights = np.empty(0, dtype=np.float64)
 
-    pooledMuncFit = core.fitPooledMuncVarianceTrend(
-        pooledBlockMeans,
-        pooledBlockVars,
-        pooledSampleIndex,
-        weights=pooledWeights,
-        eps=minR_ if minR_ is not None and minR_ > 0.0 else 1.0e-2,
-        trendNumBasis=trendNumBasis_,
-        trendMinObsPerBasis=trendMinObsPerBasis_,
-        trendMinEdf=trendMinEdf_,
-        trendMaxEdf=trendMaxEdf_,
-        trendLambdaMin=trendLambdaMin_,
-        trendLambdaMax=trendLambdaMax_,
-        trendLambdaGridSize=trendLambdaGridSize_,
-    )
-    pooledReplicateVarianceFactors = np.asarray(
-        pooledMuncFit.replicateVarianceFactors,
-        dtype=np.float64,
-    )
-    if pooledReplicateVarianceFactors.size < numSamples:
-        pooledReplicateVarianceFactors = np.pad(
-            pooledReplicateVarianceFactors,
-            (0, int(numSamples - pooledReplicateVarianceFactors.size)),
-            constant_values=1.0,
-        )
-    pooledReplicateVarianceFactors = pooledReplicateVarianceFactors[:numSamples]
-
     pooledBlockSizeIntervals = max(
         1,
         int(float(samplingBlockSizeBP_) / float(intervalSizeBP)),
@@ -3376,83 +1446,165 @@ def main():
 
     varianceFloorForTrend = minR_ if minR_ is not None and minR_ > 0.0 else 1.0e-2
     varianceCapForTrend = maxR_ if maxR_ is not None and maxR_ > 0.0 else None
-    if pooledBlockMeans.size:
-        pooledPriorVariance = core.evalPSplineLogVarianceTrend(
-            pooledMuncFit.trend,
-            pooledBlockMeans,
-            eps=varianceFloorForTrend,
-            maxVariance=varianceCapForTrend,
-        ).astype(np.float64, copy=False)
-        factorByPair = pooledReplicateVarianceFactors[
-            np.clip(pooledSampleIndex, 0, numSamples - 1)
-        ]
-        pooledPriorVariance *= factorByPair
-    else:
-        pooledPriorVariance = np.empty(0, dtype=np.float64)
+    pooledMuncFit: core.PooledMuncVarianceTrend | None = None
+    replicateMuncPriors: list[core.ReplicateMuncVariancePrior] | None = None
+    pooledReplicateVarianceFactors = np.ones(numSamples, dtype=np.float64)
+    pooledMuncNu0 = float("nan")
 
-    specifiedNu0 = core._coerceEBPriorStrength(observationArgs.EB_setNu0)
-    if specifiedNu0 is not None:
-        pooledMuncNu0 = specifiedNu0
-        logger.info("Using fixed/specified pooled Nu_0=%.2f", pooledMuncNu0)
-    else:
-        pooledMuncNu0 = core.EB_computePooledPriorStrength(
+    if useReplicateTrends:
+        replicateTrendWorkers = io_helpers._getSmallWorkerCount(
+            numSamples,
+            maxWorkers=min(4, max(numSamples, 1)),
+        )
+        replicateTrendWorkers = (
+            replicateTrendWorkers
+            if numSamples >= 2 and pooledBlockMeans.size >= 256
+            else 1
+        )
+        replicateMuncPriors = core.fitReplicateMuncVariancePriors(
+            pooledBlockMeans,
             pooledBlockVars,
-            pooledPriorVariance,
-            pooledNuL,
-            sampleIndex=pooledSampleIndex,
+            pooledSampleIndex,
             chromosomeIndex=pooledChromIndex,
             blockStarts=pooledBlockStarts,
+            weights=pooledWeights,
+            sampleCount=numSamples,
+            eps=varianceFloorForTrend,
+            maxVariance=varianceCapForTrend,
+            trendNumBasis=trendNumBasis_,
+            trendMinObsPerBasis=trendMinObsPerBasis_,
+            trendMinEdf=trendMinEdf_,
+            trendMaxEdf=trendMaxEdf_,
+            trendLambdaMin=trendLambdaMin_,
+            trendLambdaMax=trendLambdaMax_,
+            trendLambdaGridSize=trendLambdaGridSize_,
+            EB_setNu0=observationArgs.EB_setNu0,
+            EB_setNuL=observationArgs.EB_setNuL,
+            localWindowIntervals=pooledLocalWindowIntervals,
             thinBinSize=pooledLocalWindowIntervals,
+            workers=replicateTrendWorkers,
+            memmapDir=pooledMuncCache.name,
         )
-    if not np.isfinite(pooledMuncNu0) or pooledMuncNu0 < 4.0:
-        pooledMuncNu0 = pooledNu0Cap
-    if pooledMuncNu0 > pooledNu0Cap:
         logger.info(
-            "Capping pooled Nu_0=%.2f at 50*Nu_L=%.2f",
+            "replicate MUNC signed trends: pairs=%d samples=%d workers=%d Nu_0=%s diagnostics=%s",
+            int(pooledBlockMeans.size),
+            int(numSamples),
+            int(replicateTrendWorkers),
+            np.array2string(
+                np.asarray(
+                    [prior.Nu_0 for prior in replicateMuncPriors],
+                    dtype=np.float64,
+                ),
+                precision=2,
+                floatmode="fixed",
+                separator=", ",
+            ),
+            [dict(prior.diagnostics) for prior in replicateMuncPriors],
+        )
+    else:
+        pooledMuncFit = core.fitPooledMuncVarianceTrend(
+            pooledBlockMeans,
+            pooledBlockVars,
+            pooledSampleIndex,
+            weights=pooledWeights,
+            eps=varianceFloorForTrend,
+            trendNumBasis=trendNumBasis_,
+            trendMinObsPerBasis=trendMinObsPerBasis_,
+            trendMinEdf=trendMinEdf_,
+            trendMaxEdf=trendMaxEdf_,
+            trendLambdaMin=trendLambdaMin_,
+            trendLambdaMax=trendLambdaMax_,
+            trendLambdaGridSize=trendLambdaGridSize_,
+        )
+        pooledReplicateVarianceFactors = np.asarray(
+            pooledMuncFit.replicateVarianceFactors,
+            dtype=np.float64,
+        )
+        if pooledReplicateVarianceFactors.size < numSamples:
+            pooledReplicateVarianceFactors = np.pad(
+                pooledReplicateVarianceFactors,
+                (0, int(numSamples - pooledReplicateVarianceFactors.size)),
+                constant_values=1.0,
+            )
+        pooledReplicateVarianceFactors = pooledReplicateVarianceFactors[:numSamples]
+
+        if pooledBlockMeans.size:
+            pooledPriorVariance = core.evalPSplineLogVarianceTrend(
+                pooledMuncFit.trend,
+                pooledBlockMeans,
+                eps=varianceFloorForTrend,
+                maxVariance=varianceCapForTrend,
+            ).astype(np.float64, copy=False)
+            factorByPair = pooledReplicateVarianceFactors[
+                np.clip(pooledSampleIndex, 0, numSamples - 1)
+            ]
+            pooledPriorVariance *= factorByPair
+        else:
+            pooledPriorVariance = np.empty(0, dtype=np.float64)
+
+        specifiedNu0 = core._coerceEBPriorStrength(observationArgs.EB_setNu0)
+        if specifiedNu0 is not None:
+            pooledMuncNu0 = specifiedNu0
+            logger.info("Using fixed/specified pooled Nu_0=%.2f", pooledMuncNu0)
+        else:
+            pooledMuncNu0 = core.EB_computePooledPriorStrength(
+                pooledBlockVars,
+                pooledPriorVariance,
+                pooledNuL,
+                sampleIndex=pooledSampleIndex,
+                chromosomeIndex=pooledChromIndex,
+                blockStarts=pooledBlockStarts,
+                thinBinSize=pooledLocalWindowIntervals,
+            )
+        if not np.isfinite(pooledMuncNu0) or pooledMuncNu0 < 4.0:
+            pooledMuncNu0 = pooledNu0Cap
+        if pooledMuncNu0 > pooledNu0Cap:
+            logger.info(
+                "Capping pooled Nu_0=%.2f at 50*Nu_L=%.2f",
+                float(pooledMuncNu0),
+                float(pooledNu0Cap),
+            )
+            pooledMuncNu0 = pooledNu0Cap
+
+        replicateNu0Diagnostics: list[float] = []
+        for j in range(numSamples):
+            repMask = pooledSampleIndex == j
+            if np.count_nonzero(repMask) < 4:
+                replicateNu0Diagnostics.append(float("nan"))
+                continue
+            repNu0 = core.EB_computePooledPriorStrength(
+                pooledBlockVars[repMask],
+                pooledPriorVariance[repMask],
+                pooledNuL,
+                sampleIndex=pooledSampleIndex[repMask],
+                chromosomeIndex=pooledChromIndex[repMask],
+                blockStarts=pooledBlockStarts[repMask],
+                thinBinSize=pooledLocalWindowIntervals,
+            )
+            if np.isfinite(repNu0):
+                repNu0 = min(float(repNu0), pooledNu0Cap)
+            replicateNu0Diagnostics.append(float(repNu0))
+
+        logger.info(
+            "pooled MUNC signed trend: pairs=%d samples=%d factors=%s Nu_0=%.2f Nu_L=%.2f perRepNu0=%s diagnostics=%s",
+            int(pooledBlockMeans.size),
+            int(numSamples),
+            np.array2string(
+                pooledReplicateVarianceFactors,
+                precision=4,
+                floatmode="fixed",
+                separator=", ",
+            ),
             float(pooledMuncNu0),
-            float(pooledNu0Cap),
+            float(pooledNuL),
+            np.array2string(
+                np.asarray(replicateNu0Diagnostics, dtype=np.float64),
+                precision=2,
+                floatmode="fixed",
+                separator=", ",
+            ),
+            pooledMuncFit.diagnostics,
         )
-        pooledMuncNu0 = pooledNu0Cap
-
-    replicateNu0Diagnostics: list[float] = []
-    for j in range(numSamples):
-        repMask = pooledSampleIndex == j
-        if np.count_nonzero(repMask) < 4:
-            replicateNu0Diagnostics.append(float("nan"))
-            continue
-        repNu0 = core.EB_computePooledPriorStrength(
-            pooledBlockVars[repMask],
-            pooledPriorVariance[repMask],
-            pooledNuL,
-            sampleIndex=pooledSampleIndex[repMask],
-            chromosomeIndex=pooledChromIndex[repMask],
-            blockStarts=pooledBlockStarts[repMask],
-            thinBinSize=pooledLocalWindowIntervals,
-        )
-        if np.isfinite(repNu0):
-            repNu0 = min(float(repNu0), pooledNu0Cap)
-        replicateNu0Diagnostics.append(float(repNu0))
-
-    logger.info(
-        "pooled MUNC signed trend: pairs=%d samples=%d factors=%s Nu_0=%.2f Nu_L=%.2f perRepNu0=%s diagnostics=%s",
-        int(pooledBlockMeans.size),
-        int(numSamples),
-        np.array2string(
-            pooledReplicateVarianceFactors,
-            precision=4,
-            floatmode="fixed",
-            separator=", ",
-        ),
-        float(pooledMuncNu0),
-        float(pooledNuL),
-        np.array2string(
-            np.asarray(replicateNu0Diagnostics, dtype=np.float64),
-            precision=2,
-            floatmode="fixed",
-            separator=", ",
-        ),
-        pooledMuncFit.diagnostics,
-    )
 
     stateDiagnosticsByChromosome: Dict[str, Any] = {}
     bedGraphTracks: List[Tuple[str, str]] = [("State", "state")]
@@ -3527,9 +1679,16 @@ def main():
         sparseIntervalIndices = None
         sparseRegionMask = None
         muncIntervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
-        muncEmptyExcludeMask = np.zeros(numIntervals, dtype=np.uint8)
+        muncExcludeMask = _getChromBlacklistMask(chromosome, intervals)
+        blacklistedIntervals = int(np.count_nonzero(muncExcludeMask))
+        if blacklistedIntervals:
+            logger.info(
+                "munc matrix: excluding blacklist intervals (chrom=%s, intervals=%d).",
+                chromosome,
+                blacklistedIntervals,
+            )
         if useSparseNearest:
-            sparseIntervalIndices = region_helpers._loadSparseIntervalIndices(
+            sparseIntervalIndices = core._loadSparseIntervalIndices(
                 genomeArgs.sparseBedFile,
                 chromosome,
                 intervals,
@@ -3555,6 +1714,17 @@ def main():
             )
 
         def _fitMuncTrack(j: int) -> tuple[int, np.ndarray]:
+            if replicateMuncPriors is not None:
+                prior = replicateMuncPriors[j]
+                pooledTrend = prior.trend
+                replicateVarianceFactor = 1.0
+                pooledNu0 = prior.Nu_0
+            else:
+                if pooledMuncFit is None:
+                    raise RuntimeError("pooled MUNC trend was not initialized")
+                pooledTrend = pooledMuncFit.trend
+                replicateVarianceFactor = float(pooledReplicateVarianceFactors[j])
+                pooledNu0 = float(pooledMuncNu0)
             muncTrack, _ = core.getMuncTrack(
                 chromosome,
                 intervals,
@@ -3585,14 +1755,19 @@ def main():
                 varianceFloor=minR_ if minR_ is not None and minR_ > 0.0 else None,
                 varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
                 intervalsArr=muncIntervalsArr,
-                excludeMaskArr=muncEmptyExcludeMask,
-                pooledTrend=pooledMuncFit.trend,
-                replicateVarianceFactor=float(pooledReplicateVarianceFactors[j]),
-                EB_pooledNu0=float(pooledMuncNu0),
+                excludeMaskArr=muncExcludeMask,
+                pooledTrend=pooledTrend,
+                replicateVarianceFactor=replicateVarianceFactor,
+                EB_pooledNu0=pooledNu0,
             )
             return j, muncTrack
 
         # this has become a bottleneck, so gentle multiprocessing
+        muncProgressDesc = (
+            "Fitting replicate signed MUNC variance"
+            if replicateMuncPriors is not None
+            else "Fitting pooled signed MUNC variance"
+        )
         muncWorkers = io_helpers._getMuncWorkerCount(
             numSamples,
             chromMat.shape[1],
@@ -3600,7 +1775,7 @@ def main():
                 chromMat,
                 muncMat,
                 muncIntervalsArr,
-                muncEmptyExcludeMask,
+                muncExcludeMask,
                 sparseIntervalIndices,
                 sparseRegionMask,
             ),
@@ -3627,14 +1802,14 @@ def main():
                 for j, muncTrack in _progress(
                     pool.imap(_fitMuncTrack, range(numSamples)),
                     total=numSamples,
-                    desc="Fitting pooled signed MUNC variance",
+                    desc=muncProgressDesc,
                     unit="sample",
                 ):
                     muncMat[j, :] = np.asarray(muncTrack, dtype=np.float32)
         else:
             for j in _progress(
                 range(numSamples),
-                desc="Fitting pooled signed MUNC variance",
+                desc=muncProgressDesc,
                 unit="sample",
             ):
                 _, muncTrack = _fitMuncTrack(j)
@@ -3647,7 +1822,10 @@ def main():
         )
 
         if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
-            finiteMunc = muncMat[np.isfinite(muncMat)]
+            finiteMask = np.isfinite(muncMat)
+            if blacklistedIntervals and blacklistedIntervals < numIntervals:
+                finiteMask[:, np.asarray(muncExcludeMask, dtype=bool)] = False
+            finiteMunc = muncMat[finiteMask]
             minR_ = np.float32(
                 max(
                     np.quantile(finiteMunc, 0.01) if finiteMunc.size else 1.0e-4,
@@ -3656,6 +1834,15 @@ def main():
             )
             logger.info(
                 "observationParams.minR < 0 or observationParams.maxR < 0 --> applying minimal numerically stable bounds for conditioning",
+            )
+        if blacklistedIntervals:
+            floors = core.applyBlacklistMuncFloor(muncMat, muncExcludeMask, float(minR_))
+            logger.info(
+                "munc matrix: applied blacklist floors (chrom=%s, min=%.4g, median=%.4g, max=%.4g).",
+                chromosome,
+                float(np.min(floors)),
+                float(np.median(floors)),
+                float(np.max(floors)),
             )
         muncMat = np.nan_to_num(
             muncMat.astype(np.float32, copy=False),
@@ -3763,6 +1950,7 @@ def main():
             ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
             ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
             processQCalibration=processArgs.processQCalibration,
+            stateModel=processArgs.stateModel,
             processQWarmupECMIters=processArgs.processQWarmupECMIters,
             processQWarmupOuterIters=processArgs.processQWarmupOuterIters,
             processQLevelTarget=processArgs.processQLevelTarget,
@@ -3812,6 +2000,8 @@ def main():
         if isinstance(finalForwardGainSummary, Mapping):
             gainMeans = finalForwardGainSummary.get("mean", [])
             gainMedians = finalForwardGainSummary.get("median", [])
+            gainSds = finalForwardGainSummary.get("sd", [])
+            gainIqrs = finalForwardGainSummary.get("iqr", [])
             logger.info(
                 "\n%s\n",
                 _formatReplicateGainFrame(
@@ -3819,6 +2009,8 @@ def main():
                     treatmentSources,
                     list(gainMeans if gainMeans is not None else []),
                     list(gainMedians if gainMedians is not None else []),
+                    list(gainSds if gainSds is not None else []),
+                    list(gainIqrs if gainIqrs is not None else []),
                     controlSources=(controlSources if controlsPresent else None),
                     indentLevel=1,
                 ),
@@ -3847,7 +2039,18 @@ def main():
         if isinstance(processQDiagnostics, Mapping):
             qLevelWarmStart = processQDiagnostics.get("q_level")
             qTrendWarmStart = processQDiagnostics.get("q_trend")
-            if qLevelWarmStart is not None and qTrendWarmStart is not None:
+            if (
+                core._normalizeStateModel(processArgs.stateModel)
+                == core.STATE_MODEL_LEVEL
+                and qLevelWarmStart is not None
+            ):
+                initialProcessQWarmStart = core.constructMatrixQ(
+                    minDiagQ=float(minQ_),
+                    offDiagQ=0.0,
+                    Q00=float(qLevelWarmStart),
+                    Q11=max(float(qLevelWarmStart), float(minQ_)),
+                )
+            elif qLevelWarmStart is not None and qTrendWarmStart is not None:
                 initialProcessQWarmStart = core.constructMatrixQ(
                     minDiagQ=float(minQ_),
                     offDiagQ=0.0,
@@ -3938,7 +2141,7 @@ def main():
                     "Cross-fit uncertainty calibration requires the optional "
                     "`consenrich.uncertainty` module and `consenrich.cuncertainty` "
                     "extension. Build/install Consenrich with uncertainty support, "
-                    "or set `uncertaintyCalibration.enabled: false`."
+                    "or set `uncertaintyCalibrationParams.enabled: false`."
                 ) from exc
 
             calibrationRunKwargs = dict(
@@ -3969,6 +2172,7 @@ def main():
                 ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
                 ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
                 processQCalibration=processArgs.processQCalibration,
+                stateModel=processArgs.stateModel,
                 processQWarmupECMIters=processArgs.processQWarmupECMIters,
                 processQWarmupOuterIters=processArgs.processQWarmupOuterIters,
                 processQLevelTarget=processArgs.processQLevelTarget,
@@ -4127,6 +2331,7 @@ def main():
                 exportFilterUncertaintyMultiplier=float(
                     matchingArgs.exportFilterUncertaintyMultiplier
                 ),
+                blacklistBedFile=genomeArgs.blacklistFile,
                 randSeed=matchingArgs.randSeed,
                 verbose=bool(args.verbose),
                 stateDiagnosticsByChromosome=stateDiagnosticsByChromosome,

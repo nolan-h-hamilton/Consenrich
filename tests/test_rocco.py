@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import consenrich.consenrich as consenrich_cli
+import consenrich.io as consenrich_io
 import consenrich.peaks as peaks
 
 
@@ -366,6 +366,56 @@ def _caseRunROCCOAlgorithmKeepsShortFlatEnrichment(tmp_path):
     assert chromMeta["solve_details"]["first_pass_selected_count"] > 0
     assert chromMeta["solve_details"]["final_selected_count"] > 0
     assert chromMeta["nested_rocco_details"]["history"][0]["num_budget_fallback_windows"] == 0
+
+
+@pytest.mark.correctness
+def _caseRunROCCODropsBlacklistOverlapsAndRecordsMetadata(tmp_path):
+    n = 80
+    starts = np.arange(0, n * 50, 50, dtype=np.int64)
+    ends = starts + 50
+    state = np.zeros(n, dtype=np.float64)
+    state[37:46] = 10.0
+    uncertainty = np.ones(n, dtype=np.float64)
+    statePath = tmp_path / "blacklist_state.bedGraph"
+    uncPath = tmp_path / "blacklist_uncertainty.bedGraph"
+    blacklistPath = tmp_path / "blacklist.bed"
+    outPath = tmp_path / "blacklist_rocco.narrowPeak"
+    metaPath = tmp_path / "blacklist_rocco.narrowPeak.json"
+    pd.DataFrame(
+        [
+            ("chr1", int(start), int(end), float(x))
+            for start, end, x in zip(starts, ends, state)
+        ]
+    ).to_csv(statePath, sep="\t", header=False, index=False)
+    pd.DataFrame(
+        [
+            ("chr1", int(start), int(end), float(x))
+            for start, end, x in zip(starts, ends, uncertainty)
+        ]
+    ).to_csv(uncPath, sep="\t", header=False, index=False)
+    blacklistPath.write_text(
+        f"chr1\t{int(starts[40])}\t{int(ends[40])}\n",
+        encoding="utf-8",
+    )
+
+    peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        blacklistBedFile=str(blacklistPath),
+        numBootstrap=24,
+        dependenceSpan=8,
+        outPath=str(outPath),
+        metaPath=str(metaPath),
+    )
+
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    assert outPath.read_text(encoding="utf-8").strip() == ""
+    assert meta["settings"]["blacklist_bed"] == str(blacklistPath)
+    assert meta["blacklist_filter"]["dropped"] == 1
+    assert meta["blacklist_filter"]["kept"] == 0
+    assert meta["chromosomes"]["chr1"]["export_details"]["blacklist_filter"][
+        "dropped"
+    ] == 1
 
 
 @pytest.mark.correctness
@@ -1188,7 +1238,7 @@ def _caseCheckMatchingEnabledHonorsEnabledFlag():
         },
     )()
 
-    assert consenrich_cli.checkMatchingEnabled(matchingArgs) is True
+    assert consenrich_io.checkMatchingEnabled(matchingArgs) is True
 
 
 def _run_with_monkeypatch(monkeypatch, func, *args):
@@ -1223,6 +1273,11 @@ def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
     contract_case(
         "short flat enrichment retained",
         _caseRunROCCOAlgorithmKeepsShortFlatEnrichment,
+        tmp_path,
+    )
+    contract_case(
+        "blacklist export drop",
+        _caseRunROCCODropsBlacklistOverlapsAndRecordsMetadata,
         tmp_path,
     )
 

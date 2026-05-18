@@ -5,10 +5,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from consenrich.consenrich import readConfig
-import consenrich.consenrich as consenrich
+from consenrich.config import readConfig
+import consenrich.consenrich as consenrich_cli
+import consenrich.config as consenrich_config
+import consenrich.core as consenrich_core
 import consenrich.io as consenrich_io
-import consenrich.regions as consenrich_regions
 import consenrich.constants as constants
 import consenrich.misc_util as misc_util
 
@@ -51,19 +52,19 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
-    coarseMinSpan, coarseMaxSpan = consenrich._dependenceSpanBoundsFromContextBP(50)
-    fineMinSpan, fineMaxSpan = consenrich._dependenceSpanBoundsFromContextBP(25)
+    coarseMinSpan, coarseMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(50)
+    fineMinSpan, fineMaxSpan = consenrich_cli._dependenceSpanBoundsFromContextBP(25)
     assert fineMinSpan >= coarseMinSpan
     assert fineMaxSpan >= coarseMaxSpan
     assert abs(2 * coarseMaxSpan * 50 - 2 * fineMaxSpan * 25) <= 50
     contextBP = 3701
-    coarseLen = consenrich._resolveRuntimeBackgroundBlockLen(
+    coarseLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
         dependenceContextBP=contextBP,
         backgroundBlockSizeBP=-1,
         intervalSizeBP=50,
         lengthScaleMultiplier=16.0,
     )
-    fineLen = consenrich._resolveRuntimeBackgroundBlockLen(
+    fineLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
         dependenceContextBP=contextBP,
         backgroundBlockSizeBP=-1,
         intervalSizeBP=25,
@@ -71,7 +72,7 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     )
     assert abs(coarseLen * 50 - fineLen * 25) <= 50
 
-    blockLen = consenrich._resolveRuntimeBackgroundBlockLen(
+    blockLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
         dependenceContextBP=501,
         backgroundBlockSizeBP=550,
         intervalSizeBP=50,
@@ -79,7 +80,7 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     )
     assert blockLen == 41
     assert (
-        consenrich._resolveRuntimeBackgroundBlockLen(
+        consenrich_cli._resolveRuntimeBackgroundBlockLen(
             dependenceContextBP=None,
             backgroundBlockSizeBP=250,
             intervalSizeBP=50,
@@ -88,7 +89,7 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
         == 41
     )
     assert (
-        consenrich._resolveRuntimeBackgroundBlockLen(
+        consenrich_cli._resolveRuntimeBackgroundBlockLen(
             dependenceContextBP=501,
             backgroundBlockSizeBP=550,
             intervalSizeBP=50,
@@ -97,7 +98,7 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
         == 21
     )
     assert (
-        consenrich._resolveRuntimeReplicateDetrendWindow(
+        consenrich_cli._resolveRuntimeReplicateDetrendWindow(
             dependenceContextBP=501,
             backgroundBlockSizeBP=550,
             intervalSizeBP=50,
@@ -107,7 +108,7 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
         == 81
     )
     assert (
-        consenrich._resolveRuntimeReplicateDetrendWindow(
+        consenrich_cli._resolveRuntimeReplicateDetrendWindow(
             dependenceContextBP=None,
             backgroundBlockSizeBP=250,
             intervalSizeBP=50,
@@ -134,8 +135,8 @@ def _caseInitialConfigurationSummaryStaysCompact(
     configPath = writeConfigFile(tmp_path, "config_summary.yaml", configYaml)
     parsed = readConfig(str(configPath))
 
-    caplog.set_level(logging.INFO, logger=consenrich.logger.name)
-    consenrich._logInitialConfigurationSummary(parsed)
+    caplog.set_level(logging.INFO, logger=consenrich_cli.logger.name)
+    consenrich_cli._logInitialConfigurationSummary(parsed)
 
     assert "PHASE: INITIAL CONFIGURATION" in caplog.text
     assert "treatment inputs" in caplog.text
@@ -145,24 +146,26 @@ def _caseInitialConfigurationSummaryStaysCompact(
     assert "'countingArgs':" not in caplog.text
 
 
-def _caseReplicateGainFrameShowsIndentedIdFileMeanAndMedian():
+def _caseReplicateGainFrameShowsIndentedIdFileMeanMedianSdAndIqr():
     sources = [
-        consenrich.core.inputSource(
+        consenrich_core.inputSource(
             path="/tmp/sampleA.bam",
             sourceKind="BAM",
             sampleName="sampleA",
         ),
-        consenrich.core.inputSource(
+        consenrich_core.inputSource(
             path="/tmp/sampleB.bam",
             sourceKind="BAM",
             sampleName="sampleB",
         ),
     ]
-    frame = consenrich._formatReplicateGainFrame(
+    frame = consenrich_cli._formatReplicateGainFrame(
         "chrTest",
         sources,
         [0.125, 0.25],
         [0.1, 0.2],
+        [0.0125, 0.025],
+        [0.05, 0.075],
         indentLevel=1,
     )
 
@@ -170,10 +173,14 @@ def _caseReplicateGainFrameShowsIndentedIdFileMeanAndMedian():
     assert "FINAL FORWARD-PASS GAINS [chrTest]" in frame
     assert "| mean" in frame
     assert "| median" in frame
+    assert "| sd" in frame
+    assert "| IQR" in frame
     assert "sampleA" in frame
     assert "/tmp/sampleA.bam" in frame
     assert "0.125" in frame
     assert "0.1" in frame
+    assert "0.0125" in frame
+    assert "0.075" in frame
     assert all(line.startswith(("      +", "      |")) for line in frame.splitlines())
 
 
@@ -228,7 +235,7 @@ def _case_ensureInput():
     except ValueError as e:
         return
     else:
-        assert False, "Expected ValueError not raised given empty `consenrich.core.inputParams`"
+        assert False, "Expected ValueError not raised given empty `consenrich_core.inputParams`"
 
 
 def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -335,6 +342,7 @@ def _case_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Mon
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     processParams:
+      stateModel: level
       processQCalibration: none
       processQWarmupECMIters: 3
       processQWarmupOuterIters: 2
@@ -347,12 +355,14 @@ def _case_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Mon
     observationParams:
       precisionMultiplierMin: 0.1
       precisionMultiplierMax: 8.0
+      useReplicateTrends: true
     """
 
     configPath = writeConfigFile(tmp_path, "config_process_q.yaml", configYaml)
     configParsed = readConfig(str(configPath))
     processArgs = configParsed["processArgs"]
 
+    assert processArgs.stateModel == constants.STATE_MODEL_LEVEL
     assert processArgs.processQCalibration == "none"
     assert processArgs.processQWarmupECMIters == 3
     assert processArgs.processQWarmupOuterIters == 2
@@ -364,6 +374,7 @@ def _case_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Mon
     assert processArgs.precisionMultiplierMax == pytest.approx(2.0)
     assert configParsed["observationArgs"].precisionMultiplierMin == pytest.approx(0.1)
     assert configParsed["observationArgs"].precisionMultiplierMax == pytest.approx(8.0)
+    assert configParsed["observationArgs"].useReplicateTrends is True
 
 
 def _case_readConfigUsesGenericDefaultConfiguration(
@@ -383,16 +394,17 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     parsed = readConfig(str(configPath))
 
     assert parsed["defaultConfiguration"] == "generic"
+    assert parsed["processArgs"].stateModel == constants.STATE_MODEL_LEVEL_TREND
+    assert parsed["observationArgs"].useReplicateTrends is False
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
-    defaults = consenrich.DEFAULT_CONFIGURATION_VALUES[
-        consenrich.GENERIC_DEFAULT_CONFIGURATION
+    defaults = consenrich_config.DEFAULT_CONFIGURATION_VALUES[
+        consenrich_config.GENERIC_DEFAULT_CONFIGURATION
     ]
 
-    assert not any(
-        key.startswith("uncertaintyCalibrationParams.") for key in defaults
-    )
+    assert "uncertaintyCalibrationParams.enabled" in defaults
+    assert not any(key.startswith("uncertaintyCalibration.") for key in defaults)
 
 
 def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
@@ -414,7 +426,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     processParams.processQTrendPriorWeight: 2.5
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
-    uncertaintyCalibration.enabled: false
+    uncertaintyCalibrationParams.enabled: false
     """
 
     configPath = writeConfigFile(tmp_path, "config_generic_override.yaml", configYaml)
@@ -637,12 +649,12 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    uncertaintyCalibration.enabled: false
-    uncertaintyCalibration.blockSizeBP: 25000
-    uncertaintyCalibration.folds: 3
-    uncertaintyCalibration.holdoutFraction: 0.2
-    uncertaintyCalibration.maxScores: 1234
-    uncertaintyCalibration.targets: [0.5, 0.9]
+    uncertaintyCalibrationParams.enabled: false
+    uncertaintyCalibrationParams.blockSizeBP: 25000
+    uncertaintyCalibrationParams.folds: 3
+    uncertaintyCalibrationParams.holdoutFraction: 0.2
+    uncertaintyCalibrationParams.maxScores: 1234
+    uncertaintyCalibrationParams.targets: [0.5, 0.9]
     """
     parsedExplicit = readConfig(
         str(
@@ -660,37 +672,6 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert explicitArgs.holdoutFraction == pytest.approx(0.2)
     assert explicitArgs.maxScores == 1234
     assert explicitArgs.targets == (0.5, 0.9)
-
-
-def _case_readConfigUncertaintyCalibrationLegacyAliasStillAccepted(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    uncertaintyCalibrationParams.enabled: false
-    uncertaintyCalibrationParams.maxScores: 4321
-    uncertaintyCalibrationParams.targets: [0.5, 0.8]
-    """
-    parsed = readConfig(
-        str(
-            writeConfigFile(
-                tmp_path,
-                "config_uncertainty_calibration_legacy_alias.yaml",
-                configYaml,
-            )
-        )
-    )
-    args = parsed["uncertaintyCalibrationArgs"]
-
-    assert args.enabled is False
-    assert args.maxScores == 4321
-    assert args.targets == (0.5, 0.8)
-
 
 def _case_readConfigNumNearestRequiresExplicitSparseBed(
     tmp_path, monkeypatch: pytest.MonkeyPatch
@@ -785,7 +766,7 @@ def _case_loadSparseIntervalIndicesUsesBedSpan(tmp_path):
     )
     intervals = np.arange(0, 300, 50, dtype=np.uint32)
 
-    indices = consenrich_regions._loadSparseIntervalIndices(
+    indices = consenrich_core._loadSparseIntervalIndices(
         str(sparseBedPath),
         "chrTest",
         intervals,
@@ -868,7 +849,7 @@ def _case_readConfigSamplesSupportBedGraph(
     """
 
     configPath = writeConfigFile(tmp_path, "config_bedgraph.yaml", configYaml)
-    caplog.set_level(logging.INFO, logger=consenrich.logger.name)
+    caplog.set_level(logging.INFO, logger=consenrich_io.logger.name)
     configParsed = readConfig(str(configPath))
     inputArgs = configParsed["inputArgs"]
 
@@ -880,7 +861,7 @@ def _case_readConfigSamplesSupportBedGraph(
     assert indexedPath.exists()
     assert Path(f"{indexedPath}.tbi").exists()
     assert "has no tabix index" in caplog.text
-    counts = consenrich.core.readSegments(
+    counts = consenrich_core.readSegments(
         inputArgs.treatmentSources,
         "chrTest",
         0,
@@ -917,7 +898,7 @@ def _case_readConfigSamplesSupportExplicitBedGraphFormat(
     """
 
     configPath = writeConfigFile(tmp_path, "config_bedgraph_format.yaml", configYaml)
-    caplog.set_level(logging.INFO, logger=consenrich.logger.name)
+    caplog.set_level(logging.INFO, logger=consenrich_io.logger.name)
     configParsed = readConfig(str(configPath))
     inputArgs = configParsed["inputArgs"]
 
@@ -964,7 +945,7 @@ def _case_readConfigScParamsProvideFragmentsDefaults(
 
 
 def _case_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls():
-    treatment, control = consenrich._resolveExtendFrom5pBPPairs(
+    treatment, control = consenrich_io._resolveExtendFrom5pBPPairs(
         [150, 180],
         [90, 110],
     )
@@ -977,27 +958,6 @@ def _case_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls():
     assert control == [150, 180]
     assert ioTreatment == treatment
     assert ioControl == control
-
-
-def _case_readConfigRemovesLegacyMatchingAndSmoothSpanFields(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    """
-
-    configPath = writeConfigFile(tmp_path, "config_matching_default.yaml", configYaml)
-    configParsed = readConfig(str(configPath))
-
-    assert not hasattr(configParsed["matchingArgs"], "minMatchLengthBP")
-    assert not hasattr(configParsed["matchingArgs"], "merge")
-    assert not hasattr(configParsed["matchingArgs"], "mergeGapBP")
-    assert not hasattr(configParsed["countingArgs"], "smoothSpanBP")
 
 
 def _case_readConfigRejectsCRAMSources(
@@ -1057,7 +1017,7 @@ def _case_convertBedGraphToBigWigPyBigWigWritesExpectedTrack(tmp_path):
         encoding="ascii",
     )
 
-    consenrich._convertBedGraphToBigWigPyBigWig(
+    consenrich_io._convertBedGraphToBigWigPyBigWig(
         str(bedGraphPath),
         str(chromSizesPath),
         str(pyBigWigPath),
@@ -1092,7 +1052,7 @@ def _case_convertBedGraphToBigWigPyBigWigRejectsOutOfBounds(tmp_path):
     chromSizesPath.write_text("chr1\t100\n", encoding="ascii")
 
     with pytest.raises(ValueError, match="exceeds chr1 size"):
-        consenrich._convertBedGraphToBigWigPyBigWig(
+        consenrich_io._convertBedGraphToBigWigPyBigWig(
             str(bedGraphPath),
             str(chromSizesPath),
             str(bigWigPath),
@@ -1112,7 +1072,7 @@ def _case_convertBedGraphToBigWigPyBigWigRejectsEmptyBedGraph(tmp_path):
     chromSizesPath.write_text("chr1\t100\n", encoding="ascii")
 
     with pytest.raises(ValueError, match="No bedGraph intervals"):
-        consenrich._convertBedGraphToBigWigPyBigWig(
+        consenrich_io._convertBedGraphToBigWigPyBigWig(
             str(bedGraphPath),
             str(chromSizesPath),
             str(bigWigPath),
@@ -1136,7 +1096,7 @@ def _case_sortBedGraphInPlace(tmp_path):
         encoding="utf-8",
     )
 
-    consenrich._sortBedGraphInPlace(str(bedGraphPath))
+    consenrich_io._sortBedGraphInPlace(str(bedGraphPath))
 
     assert bedGraphPath.read_text(encoding="utf-8").splitlines() == [
         "chr1\t0\t10\t0.5",
@@ -1159,9 +1119,9 @@ def _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
         encoding="utf-8",
     )
 
-    consenrich._validateBedGraphSorted(str(bedGraphPath), chromOrder=["chr2", "chr1"])
+    consenrich_io._validateBedGraphSorted(str(bedGraphPath), chromOrder=["chr2", "chr1"])
     with pytest.raises(ValueError, match="chromosome order"):
-        consenrich._validateBedGraphSorted(
+        consenrich_io._validateBedGraphSorted(
             str(bedGraphPath),
             chromOrder=["chr1", "chr2"],
         )
@@ -1181,7 +1141,7 @@ def _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
         + "\n",
         encoding="utf-8",
     )
-    consenrich._sortBedGraphInPlace(str(unsortedPath), chromOrder=["chr2", "chr1"])
+    consenrich_io._sortBedGraphInPlace(str(unsortedPath), chromOrder=["chr2", "chr1"])
 
     assert unsortedPath.read_text(encoding="utf-8").splitlines() == [
         "track type=bedGraph name=toy",
@@ -1194,11 +1154,11 @@ def _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
 
 
 def _case_resolveFixedDeltaFRequiresPositiveFinite():
-    assert consenrich.core._resolveFixedDeltaF(0.25) == pytest.approx(0.25)
+    assert consenrich_core._resolveFixedDeltaF(0.25) == pytest.approx(0.25)
 
     for badDeltaF in [0.0, -1.0, np.nan, np.inf]:
         with pytest.raises(ValueError, match="deltaF"):
-            consenrich.core._resolveFixedDeltaF(badDeltaF)
+            consenrich_core._resolveFixedDeltaF(badDeltaF)
 
 
 def _run_with_monkeypatch(monkeypatch, func, *args):
@@ -1224,7 +1184,7 @@ def test_config_runtime_logging_and_validation_contracts(
         )
     contract_case(
         "replicate gain frame",
-        _caseReplicateGainFrameShowsIndentedIdFileMeanAndMedian,
+        _caseReplicateGainFrameShowsIndentedIdFileMeanMedianSdAndIqr,
     )
     contract_case("fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite)
 
@@ -1269,7 +1229,6 @@ def test_config_model_parameter_field_contracts(tmp_path, monkeypatch, contract_
         ("ECM t-nu override", _case_readConfigAllowsEMTNuOverride),
         ("ECM outer-pass tolerance fields", _case_readConfigUsesECMAndOuterPassToleranceFields),
         ("uncertainty calibration fields", _case_readConfigUsesUncertaintyCalibrationFields),
-        ("legacy uncertainty aliases", _case_readConfigUncertaintyCalibrationLegacyAliasStillAccepted),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
 
@@ -1285,10 +1244,6 @@ def test_config_sparse_sample_source_and_matching_contracts(
         ),
         ("structured sample sources", _case_readConfigSampleSources),
         ("single-cell fragments defaults", _case_readConfigScParamsProvideFragmentsDefaults),
-        (
-            "matching legacy fields removed",
-            _case_readConfigRemovesLegacyMatchingAndSmoothSpanFields,
-        ),
         ("CRAM sources rejected", _case_readConfigRejectsCRAMSources),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)

@@ -68,6 +68,79 @@ def _validateExportFilterUncertaintyMultiplier(value: float) -> float:
     return value_
 
 
+def _readBlacklistIntervalsByChrom(blacklistBedFile: str | None) -> Dict[str, np.ndarray]:
+    if blacklistBedFile is None:
+        return {}
+    path = Path(blacklistBedFile)
+    if not path.exists():
+        raise ValueError(f"Could not find blacklist BED file {blacklistBedFile}")
+    intervalsByChrom: Dict[str, List[Tuple[int, int]]] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip() or line.startswith("#"):
+                continue
+            parts = line.rstrip("\n").split()
+            if len(parts) < 3:
+                continue
+            chrom = str(parts[0])
+            start = int(parts[1])
+            end = int(parts[2])
+            if end <= start:
+                continue
+            intervalsByChrom.setdefault(chrom, []).append((start, end))
+
+    mergedByChrom: Dict[str, np.ndarray] = {}
+    for chrom, rows in intervalsByChrom.items():
+        rows.sort()
+        merged: List[Tuple[int, int]] = []
+        for start, end in rows:
+            if not merged or start > merged[-1][1]:
+                merged.append((int(start), int(end)))
+            else:
+                prevStart, prevEnd = merged[-1]
+                merged[-1] = (prevStart, max(prevEnd, int(end)))
+        mergedByChrom[chrom] = np.asarray(merged, dtype=np.int64)
+    return mergedByChrom
+
+
+def _intervalOverlapsBlacklist(
+    chromosome: str,
+    start: int,
+    end: int,
+    blacklistByChrom: Mapping[str, np.ndarray],
+) -> bool:
+    intervals = blacklistByChrom.get(str(chromosome))
+    if intervals is None or intervals.size == 0:
+        return False
+    start_ = int(start)
+    end_ = int(end)
+    if end_ <= start_:
+        return False
+    idx = int(np.searchsorted(intervals[:, 0], end_, side="left"))
+    if idx <= 0:
+        return False
+    return bool(int(intervals[idx - 1, 1]) > start_)
+
+
+def _filterNarrowPeakRowsByBlacklist(
+    rows: List[List[str | int | float]],
+    rowsMeta: List[Dict[str, Any]],
+    blacklistByChrom: Mapping[str, np.ndarray],
+) -> tuple[List[List[str | int | float]], List[Dict[str, Any]], int]:
+    if not blacklistByChrom:
+        return list(rows), list(rowsMeta), 0
+    keptRows: List[List[str | int | float]] = []
+    keptMeta: List[Dict[str, Any]] = []
+    dropped = 0
+    for row, meta in zip(rows, rowsMeta):
+        if _intervalOverlapsBlacklist(str(row[0]), int(row[1]), int(row[2]), blacklistByChrom):
+            dropped += 1
+            continue
+        keptRows.append(row)
+        keptMeta.append(meta)
+    return keptRows, keptMeta, int(dropped)
+
+
 def _thresholdZKey(thresholdZ: float) -> str:
     z = float(thresholdZ)
     return f"{z:.6f}".rstrip("0").rstrip(".")
@@ -3445,11 +3518,13 @@ def solveRocco(
     metaPath: str | None = None,
     verbose: bool = False,
     stateDiagnosticsByChromosome: Mapping[str, Any] | None = None,
+    blacklistBedFile: str | None = None,
 ) -> str:
     r"""Run Consenrich+ROCCO peak caller directly on bedGraphs."""
     exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
         exportFilterUncertaintyMultiplier
     )
+    blacklistByChrom = _readBlacklistIntervalsByChrom(blacklistBedFile)
     chromData = _readAlignedConsenrichBedGraphs(
         stateBedGraphFile,
         uncertaintyBedGraphFile=uncertaintyBedGraphFile,
@@ -3482,6 +3557,8 @@ def solveRocco(
                 if uncertaintyBedGraphFile is None
                 else str(uncertaintyBedGraphFile)
             ),
+            "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
+            "blacklist_filter_policy": "drop_any_overlap",
             "tau0": float(tau0),
             "budget_method": "dwb_integrated_excess_tail",
             "null_calibration_method": "stationary_null_dwb",
@@ -3525,6 +3602,12 @@ def solveRocco(
         },
         "pooled_null_floor": None,
         "budget_shrinkage": None,
+        "blacklist_filter": {
+            "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
+            "policy": "drop_any_overlap",
+            "dropped": 0,
+            "kept": 0,
+        },
         "chromosomes": {},
     }
     chromWork: Dict[str, Dict[str, Any]] = {}
@@ -3708,6 +3791,7 @@ def solveRocco(
     )
     meta["massive_subpeak_width_policy"] = dict(massiveWidthPolicy)
 
+    blacklistDroppedTotal = 0
     for chromosome, result in chromResults.items():
         work = dict(result["work"])
         state = np.asarray(result["state"], dtype=np.float64)
@@ -3747,6 +3831,22 @@ def solveRocco(
             peakMeta = list(result["initial_peak_meta"])
             exportDetails = dict(result["initial_export_details"])
             exportDetails["massive_subpeak_width_policy"] = dict(massiveWidthPolicy)
+        rows, peakMeta, blacklistDropped = _filterNarrowPeakRowsByBlacklist(
+            rows,
+            peakMeta,
+            blacklistByChrom,
+        )
+        blacklistDroppedTotal += int(blacklistDropped)
+        exportDetails["blacklist_filter"] = {
+            "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
+            "policy": "drop_any_overlap",
+            "dropped": int(blacklistDropped),
+            "kept": int(len(rows)),
+        }
+        exportDetails["num_segments_kept_before_blacklist"] = int(
+            exportDetails.get("num_segments_kept", len(rows) + int(blacklistDropped))
+        )
+        exportDetails["num_segments_kept"] = int(len(rows))
         allRows.extend(rows)
 
         firstPassSolution = np.asarray(result["first_pass_solution"], dtype=np.uint8)
@@ -3786,6 +3886,12 @@ def solveRocco(
         }
 
     allRows.sort(key=lambda row: (str(row[0]), int(row[1]), int(row[2])))
+    meta["blacklist_filter"] = {
+        "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
+        "policy": "drop_any_overlap",
+        "dropped": int(blacklistDroppedTotal),
+        "kept": int(len(allRows)),
+    }
     with open(outPath, "w", encoding="utf-8") as handle:
         for row in allRows:
             handle.write("\t".join(map(str, row)) + "\n")

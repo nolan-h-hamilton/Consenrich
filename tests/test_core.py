@@ -105,6 +105,79 @@ def _logRatioReference(
     return out
 
 
+def _levelKalmanReference(
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    *,
+    qLevel: float,
+    stateInit: float,
+    stateCovarInit: float,
+    pad: float,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
+    data = np.asarray(matrixData, dtype=np.float64)
+    munc = np.asarray(matrixMunc, dtype=np.float64)
+    trackCount, intervalCount = data.shape
+    stateForward = np.empty((intervalCount, 1), dtype=np.float64)
+    covForward = np.empty((intervalCount, 1, 1), dtype=np.float64)
+    pNoiseForward = np.empty((max(intervalCount, 1), 1, 1), dtype=np.float64)
+
+    x = float(stateInit)
+    p = float(stateCovarInit)
+    for k in range(intervalCount):
+        p += float(qLevel)
+        sumInvR = 0.0
+        sumInvRInnov = 0.0
+        for j in range(trackCount):
+            r = max(float(munc[j, k]) + float(pad), 1.0e-12)
+            invR = 1.0 / r
+            sumInvR += invR
+            sumInvRInnov += invR * (float(data[j, k]) - x)
+        innovScale = 1.0 + p * sumInvR
+        x += p * sumInvRInnov / innovScale
+        p /= innovScale
+        stateForward[k, 0] = x
+        covForward[k, 0, 0] = p
+        if k > 0:
+            pNoiseForward[k - 1, 0, 0] = float(qLevel)
+
+    stateSmoothed = np.empty_like(stateForward)
+    covSmoothed = np.empty_like(covForward)
+    lagCovSmoothed = np.empty((max(intervalCount - 1, 1), 1, 1), dtype=np.float64)
+    stateSmoothed[-1, 0] = stateForward[-1, 0]
+    covSmoothed[-1, 0, 0] = covForward[-1, 0, 0]
+    for k in range(intervalCount - 2, -1, -1):
+        pf = covForward[k, 0, 0]
+        pPred = max(pf + pNoiseForward[k, 0, 0], 1.0e-12)
+        gain = pf / pPred
+        stateSmoothed[k, 0] = stateForward[k, 0] + gain * (
+            stateSmoothed[k + 1, 0] - stateForward[k, 0]
+        )
+        covSmoothed[k, 0, 0] = max(
+            pf + gain * gain * (covSmoothed[k + 1, 0, 0] - pPred),
+            0.0,
+        )
+        lagCovSmoothed[k, 0, 0] = pf + gain * (covSmoothed[k + 1, 0, 0] - pPred)
+
+    residuals = data.T - stateSmoothed[:, 0:1]
+    return (
+        stateForward,
+        covForward,
+        pNoiseForward,
+        stateSmoothed,
+        covSmoothed,
+        lagCovSmoothed,
+        residuals,
+    )
+
+
 def _expectedCSF(chromMat: np.ndarray, centerMedian: bool = True) -> np.ndarray:
     chromMat_ = np.ascontiguousarray(chromMat, dtype=np.float32)
     logMat = np.log(chromMat_.astype(np.float64))
@@ -1138,6 +1211,143 @@ def _caseExpectedTransitionResidualSumsMatchesPythonReference():
 
 
 @pytest.mark.correctness
+def _caseNormalizeStateModelAcceptsCanonicalValuesOnly():
+    assert core._normalizeStateModel(None) == core.STATE_MODEL_LEVEL_TREND
+    assert core._normalizeStateModel("levelTrend") == core.STATE_MODEL_LEVEL_TREND
+    assert core._normalizeStateModel("level") == core.STATE_MODEL_LEVEL
+    for alias in ("level-trend", "two_state", "one-state", "scalar", "levelSlope"):
+        with pytest.raises(ValueError, match="stateModel"):
+            core._normalizeStateModel(alias)
+
+
+@pytest.mark.correctness
+def _caseNormalizeProcessQCalibrationAcceptsCanonicalValuesOnly():
+    assert (
+        core._normalizeProcessQCalibration(None)
+        == core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
+    )
+    assert core._normalizeProcessQCalibration("none") == core.PROCESS_Q_CALIBRATION_NONE
+    assert (
+        core._normalizeProcessQCalibration("regularizedDiagonal")
+        == core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
+    )
+    for alias in ("off", "false", "regularized", "diag", "regularized-diagonal"):
+        with pytest.raises(ValueError, match="processQCalibration"):
+            core._normalizeProcessQCalibration(alias)
+
+
+@pytest.mark.correctness
+def _caseExpectedLevelTransitionResidualSumsMatchesPythonReference():
+    stateSmoothed = np.asarray([[0.0], [0.4], [0.9], [0.7]], dtype=np.float64)
+    stateCovarSmoothed = np.asarray([0.10, 0.20, 0.15, 0.12], dtype=np.float64).reshape(
+        -1, 1, 1
+    )
+    lagCovSmoothed = np.asarray([0.03, 0.04, 0.02], dtype=np.float64).reshape(
+        -1, 1, 1
+    )
+
+    expected = 0.0
+    for k in range(stateSmoothed.shape[0] - 1):
+        x0 = stateSmoothed[k, 0]
+        x1 = stateSmoothed[k + 1, 0]
+        expected += max(
+            float(
+                stateCovarSmoothed[k + 1, 0, 0]
+                + x1 * x1
+                - 2.0 * (lagCovSmoothed[k, 0, 0] + x0 * x1)
+                + stateCovarSmoothed[k, 0, 0]
+                + x0 * x0
+            ),
+            0.0,
+        )
+
+    sumLevel, sumTrend, transitionCount = core._computeExpectedLevelTransitionResidualSums(
+        stateSmoothed=stateSmoothed,
+        stateCovarSmoothed=stateCovarSmoothed,
+        lagCovSmoothed=lagCovSmoothed,
+    )
+
+    assert transitionCount == 3
+    assert sumLevel == pytest.approx(expected, rel=1.0e-12, abs=1.0e-12)
+    assert sumTrend == pytest.approx(0.0)
+
+
+@pytest.mark.correctness
+def _caseLevelForwardBackwardMatchesPythonReference():
+    matrixData = np.asarray(
+        [
+            [0.2, 0.4, 0.5, 0.7, 0.1, -0.2, 0.0],
+            [0.1, 0.3, 0.65, 0.5, 0.0, -0.1, 0.2],
+        ],
+        dtype=np.float32,
+    )
+    matrixMunc = np.asarray(
+        [
+            [0.40, 0.35, 0.30, 0.42, 0.38, 0.33, 0.31],
+            [0.45, 0.37, 0.34, 0.40, 0.36, 0.35, 0.32],
+        ],
+        dtype=np.float32,
+    )
+    n = matrixData.shape[1]
+    qLevel = 0.06
+    stateInit = -0.1
+    stateCovarInit = 0.8
+    pad = 0.02
+    intervalToBlockMap = np.zeros(n, dtype=np.int32)
+    matrixQ0 = np.asarray([[qLevel, 0.0], [0.0, 0.5]], dtype=np.float32)
+    stateForward = np.empty((n, 1), dtype=np.float32)
+    covForward = np.empty((n, 1, 1), dtype=np.float32)
+    pNoiseForward = np.empty((n, 1, 1), dtype=np.float32)
+    vectorD = np.empty(n, dtype=np.float32)
+
+    phiHat, _sentinel, outD, sumNLL = cconsenrich.cforwardPassLevel(
+        matrixData=matrixData,
+        matrixPluginMuncInit=matrixMunc,
+        matrixQ0=matrixQ0,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=1,
+        stateInit=stateInit,
+        stateCovarInit=stateCovarInit,
+        pad=pad,
+        stateForward=stateForward,
+        stateCovarForward=covForward,
+        pNoiseForward=pNoiseForward,
+        vectorD=vectorD,
+        returnNLL=True,
+        ECM_useObsPrecisionReweighting=False,
+        ECM_useProcessPrecisionReweighting=False,
+        ECM_useAPN=False,
+    )
+    stateSmoothed, covSmoothed, lagCovSmoothed, residuals = cconsenrich.cbackwardPassLevel(
+        matrixData=matrixData,
+        stateForward=stateForward,
+        stateCovarForward=covForward,
+        pNoiseForward=pNoiseForward,
+    )
+
+    refForward, refCovForward, _refPNoise, refState, refCov, refLag, refResiduals = (
+        _levelKalmanReference(
+            matrixData,
+            matrixMunc,
+            qLevel=qLevel,
+            stateInit=stateInit,
+            stateCovarInit=stateCovarInit,
+            pad=pad,
+        )
+    )
+
+    assert np.isfinite(float(phiHat))
+    assert np.isfinite(float(sumNLL))
+    assert np.asarray(outD).shape == (n,)
+    np.testing.assert_allclose(stateForward, refForward, rtol=2.0e-6, atol=2.0e-6)
+    np.testing.assert_allclose(covForward, refCovForward, rtol=2.0e-6, atol=2.0e-6)
+    np.testing.assert_allclose(stateSmoothed, refState, rtol=2.0e-6, atol=2.0e-6)
+    np.testing.assert_allclose(covSmoothed, refCov, rtol=2.0e-6, atol=2.0e-6)
+    np.testing.assert_allclose(lagCovSmoothed[: n - 1], refLag[: n - 1], rtol=2.0e-6, atol=2.0e-6)
+    np.testing.assert_allclose(residuals, refResiduals, rtol=2.0e-6, atol=2.0e-6)
+
+
+@pytest.mark.correctness
 def _caseRegularizedProcessQReportsBoundDiagnostics():
     n = 6
     stateSmoothed = np.zeros((n, 2), dtype=np.float32)
@@ -1218,6 +1428,10 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     gainSummary = diagnostics["final_forward_gain_contig_summary"]
     assert len(gainSummary["mean"]) == m
     assert len(gainSummary["median"]) == m
+    assert len(gainSummary["sd"]) == m
+    assert len(gainSummary["iqr"]) == m
+    assert all(value >= 0.0 for value in gainSummary["sd"])
+    assert all(value >= 0.0 for value in gainSummary["iqr"])
     assert "background_prior" not in diagnostics
     assert "PHASE: CORE START" in caplog.text
     assert "PHASE: MODEL FIT" in caplog.text
@@ -1230,6 +1444,74 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert fitDiagnostics
     assert "observation_lambda_mean" in fitDiagnostics[-1]
     assert "observation_lambda_median" in fitDiagnostics[-1]
+
+
+@pytest.mark.correctness
+def _caseRunConsenrichLevelStateModelSmoke():
+    rng = np.random.default_rng(100)
+    n = 42
+    m = 3
+    grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
+    signalTrack = (0.4 * np.sin(grid) + 0.15 * np.cos(2.0 * grid)).astype(np.float32)
+    matrixData = np.vstack(
+        [
+            signalTrack + 0.04 * rng.normal(size=n) - 0.02,
+            signalTrack + 0.04 * rng.normal(size=n),
+            signalTrack + 0.04 * rng.normal(size=n) + 0.03,
+        ]
+    ).astype(np.float32)
+    matrixMunc = np.full((m, n), 0.10, dtype=np.float32)
+
+    out = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        stateModel="level",
+        deltaF=-10.0,
+        minQ=1.0e-4,
+        maxQ=1.0,
+        offDiagQ=0.75,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=7,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_useAPN=False,
+        processQCalibration="regularizedDiagonal",
+        processQWarmupECMIters=1,
+        processQWarmupOuterIters=1,
+        processQTrendTarget=123.0,
+        processQTrendPriorWeight=99.0,
+        returnDiagnostics=True,
+    )
+
+    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, _blockMap, runDiagnostics = out
+    assert stateSmoothed.shape == (n, 2)
+    assert stateCovarSmoothed.shape == (n, 2, 2)
+    assert postFitResiduals.shape == (n, m)
+    assert NIS.shape == (n,)
+    assert np.all(np.isfinite(stateSmoothed))
+    assert np.all(np.isfinite(stateCovarSmoothed))
+    assert np.all(np.isfinite(NIS))
+    np.testing.assert_array_equal(stateSmoothed[:, 1], np.zeros(n, dtype=np.float32))
+    np.testing.assert_array_equal(stateCovarSmoothed[:, 0, 1], np.zeros(n, dtype=np.float32))
+    np.testing.assert_array_equal(stateCovarSmoothed[:, 1, 0], np.zeros(n, dtype=np.float32))
+    np.testing.assert_array_equal(stateCovarSmoothed[:, 1, 1], np.zeros(n, dtype=np.float32))
+    np.testing.assert_array_equal(
+        core.getPrimaryState(stateSmoothed),
+        np.round(stateSmoothed[:, 0].astype(np.float32), decimals=4),
+    )
+    qInfo = runDiagnostics["process_q_calibration"]
+    assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
+    assert qInfo["q_level"] > 0.0
+    assert qInfo["q_trend"] == pytest.approx(0.0)
+    assert qInfo["q_trend_target"] == pytest.approx(0.0)
+    assert qInfo["q_trend_prior_weight"] == pytest.approx(0.0)
+    assert qInfo["q_trend_final_raw_ratio"] == pytest.approx(0.0)
 
 
 @pytest.mark.correctness
@@ -1628,6 +1910,61 @@ def _casePooledMuncTrendRecoversReplicateVarianceFactors():
 
 
 @pytest.mark.correctness
+def _caseReplicateMuncPriorsDifferAndProcessMatchesSerial(tmp_path):
+    meansBase = np.linspace(-8.0, 8.0, 160, dtype=np.float64)
+    means = np.tile(meansBase, 2)
+    sampleIndex = np.repeat([0, 1], meansBase.size)
+    chromIndex = np.tile(np.repeat([0, 1], meansBase.size // 2), 2)
+    starts = np.tile(np.arange(meansBase.size, dtype=np.int64), 2)
+    x = np.sign(means) * np.log1p(np.abs(means))
+    variances = np.empty_like(means)
+    variances[sampleIndex == 0] = np.exp(-0.4 + 0.35 * x[sampleIndex == 0])
+    variances[sampleIndex == 1] = np.exp(0.5 - 0.25 * x[sampleIndex == 1])
+
+    common = dict(
+        chromosomeIndex=chromIndex,
+        blockStarts=starts,
+        sampleCount=2,
+        eps=1.0e-8,
+        trendNumBasis=18,
+        trendMinObsPerBasis=5.0,
+        trendMinEdf=2.0,
+        trendMaxEdf=12.0,
+        trendLambdaGridSize=13,
+        EB_setNuL=8,
+        localWindowIntervals=11,
+        thinBinSize=7,
+    )
+    serial = core.fitReplicateMuncVariancePriors(
+        means,
+        variances,
+        sampleIndex,
+        workers=1,
+        **common,
+    )
+    process = core.fitReplicateMuncVariancePriors(
+        means,
+        variances,
+        sampleIndex,
+        workers=2,
+        memmapDir=str(tmp_path),
+        **common,
+    )
+
+    probe = np.array([-5.0, 0.0, 5.0], dtype=np.float64)
+    serialPred0 = core.evalPSplineLogVarianceTrend(serial[0].trend, probe, eps=1.0e-8)
+    serialPred1 = core.evalPSplineLogVarianceTrend(serial[1].trend, probe, eps=1.0e-8)
+    processPred0 = core.evalPSplineLogVarianceTrend(process[0].trend, probe, eps=1.0e-8)
+    processPred1 = core.evalPSplineLogVarianceTrend(process[1].trend, probe, eps=1.0e-8)
+
+    assert len(serial) == 2
+    assert not np.allclose(serialPred0, serialPred1)
+    np.testing.assert_allclose(processPred0, serialPred0, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(processPred1, serialPred1, rtol=0.0, atol=0.0)
+    assert all(np.isfinite(prior.Nu_0) and prior.Nu_0 >= 4.0 for prior in serial)
+
+
+@pytest.mark.correctness
 def _casePSplineGuardedGCVAppliesEdfCap():
     rng = np.random.default_rng(321)
     amplitudes = np.linspace(0.0, 10.0, 500, dtype=np.float64)
@@ -1868,6 +2205,28 @@ def _casePooledPriorStrengthThinsBySampleChromosomeAndBin(
 
     assert nu0 == pytest.approx(17.0)
     assert seen["candidate_idx"].tolist() == [0, 3, 6, 9]
+
+
+@pytest.mark.correctness
+def _caseApplyBlacklistMuncFloorUsesNonBlacklistQuantile():
+    munc = np.asarray(
+        [
+            [1.0, 2.0, 0.01, 4.0, np.nan],
+            [10.0, np.nan, 0.1, 20.0, 0.05],
+        ],
+        dtype=np.float32,
+    )
+    blacklistMask = np.asarray([False, False, True, False, True])
+
+    floors = core.applyBlacklistMuncFloor(munc, blacklistMask, minR=0.5)
+
+    assert floors[0] == pytest.approx(np.quantile([1.0, 2.0, 4.0], 0.05))
+    assert floors[1] == pytest.approx(np.quantile([10.0, 20.0], 0.05))
+    assert munc[0, 2] >= floors[0]
+    assert munc[0, 4] >= floors[0]
+    assert munc[1, 2] >= floors[1]
+    assert munc[1, 4] >= floors[1]
+    assert np.isnan(munc[1, 1])
 
 
 @pytest.mark.correctness
@@ -3145,6 +3504,7 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
             "quantile detrend requested q",
             _caseQuantileFilterDetrendUsesRequestedQuantile,
         ),
+        ("level forward-backward kernel", _caseLevelForwardBackwardMatchesPythonReference),
     ):
         contract_case(label, func)
 
@@ -3199,8 +3559,14 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         ("state roughness summary", _caseSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata),
         ("precision boundary summary", _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight),
         ("removed process block scale options", _caseFitParamsDropsProcBlockScaleOptions),
+        ("state model normalization", _caseNormalizeStateModelAcceptsCanonicalValuesOnly),
+        (
+            "process Q calibration normalization",
+            _caseNormalizeProcessQCalibrationAcceptsCanonicalValuesOnly,
+        ),
         ("transition residual orientation", _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF),
         ("transition residual reference", _caseExpectedTransitionResidualSumsMatchesPythonReference),
+        ("level transition residual reference", _caseExpectedLevelTransitionResidualSumsMatchesPythonReference),
         ("process Q bound diagnostics", _caseRegularizedProcessQReportsBoundDiagnostics),
         ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
         ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),
@@ -3233,6 +3599,7 @@ def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func)
     contract_case("APN smoke", _caseRunConsenrichAPNSmoke)
+    contract_case("level state-model smoke", _caseRunConsenrichLevelStateModelSmoke)
 
 
 def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case):
@@ -3252,6 +3619,11 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
         ("MUNC variance diagnostics", _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport),
     ):
         contract_case(label, func)
+    contract_case(
+        "replicate MUNC priors",
+        _caseReplicateMuncPriorsDifferAndProcessMatchesSerial,
+        tmp_path,
+    )
 
 
 def test_core_eb_prior_and_munc_contracts(monkeypatch, contract_case):
@@ -3260,6 +3632,7 @@ def test_core_eb_prior_and_munc_contracts(monkeypatch, contract_case):
         ("EB prior thinned pairs", _caseEBPriorStrengthUsesThinnedVariancePairs),
         ("mean-var sample sizes", _caseMeanVarPairSampleSizesStayWithinTrackLength),
         ("rolling AR1 marginal variance", _caseRollingAR1CanReturnMarginalVarianceInsteadOfInnovation),
+        ("blacklist MUNC floor", _caseApplyBlacklistMuncFloorUsesNonBlacklistQuantile),
     ):
         contract_case(label, func)
     for label, func in (
