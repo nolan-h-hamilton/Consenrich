@@ -683,9 +683,7 @@ def _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights():
 
 
 @pytest.mark.correctness
-def _caseZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization(
-    monkeypatch: pytest.MonkeyPatch,
-):
+def _caseZeroCenteredBackgroundUpdateMatchesSparseReference():
     residualMatrix = np.vstack(
         [
             np.linspace(-0.25, 0.25, 96, dtype=np.float32),
@@ -693,11 +691,6 @@ def _caseZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization(
         ]
     )
     invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
-
-    def _forbidSpsolve(*args, **kwargs):
-        raise AssertionError("background update should use the banded solver")
-
-    monkeypatch.setattr(core.sparse_linalg, "spsolve", _forbidSpsolve)
 
     background = core._solveZeroCenteredBackground(
         residualMatrix=residualMatrix,
@@ -709,6 +702,27 @@ def _caseZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization(
     assert background.shape == (96,)
     assert np.isfinite(background).all()
     assert abs(float(np.mean(background))) < 1.0e-5
+
+    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0)
+    rhsTrack = np.sum(
+        invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
+        axis=0,
+    )
+    lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
+        blockLenIntervals=8,
+        backgroundSmoothness=1.0,
+    )
+    systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
+    systemMat = systemMat + (lamFirst * core._buildFirstDiffPenalty(weightTrack.size))
+    systemMat = systemMat + (lamSecond * core._buildSecondDiffPenalty(weightTrack.size))
+    constraintVec = np.ones(weightTrack.size, dtype=np.float64)
+    kktMat = core.sparse.bmat(
+        [[systemMat, constraintVec[:, None]], [constraintVec[None, :], None]],
+        format="csc",
+    )
+    rhsVec = np.concatenate([rhsTrack, np.zeros(1, dtype=np.float64)])
+    expected = core.sparse_linalg.spsolve(kktMat, rhsVec)[:-1]
+    np.testing.assert_allclose(background, expected.astype(np.float32), atol=1.0e-5)
 
 
 @pytest.mark.correctness
@@ -758,6 +772,115 @@ def _caseBackgroundUpdateCanSkipZeroCentering():
         expectedUncentered.astype(np.float32),
         atol=1.0e-4,
     )
+
+
+@pytest.mark.correctness
+def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
+    n = 80
+    x = np.linspace(-1.0, 1.0, n, dtype=np.float32)
+    residualMatrix = np.vstack(
+        [
+            -0.45 + 1.25 * np.exp(-((x - 0.15) ** 2) / 0.04),
+            -0.35 + 1.00 * np.exp(-((x + 0.10) ** 2) / 0.06),
+        ]
+    ).astype(np.float32)
+    invVarMatrix = np.ones_like(residualMatrix, dtype=np.float32)
+
+    unconstrained = core._solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
+        blockLenIntervals=4,
+        backgroundSmoothness=0.5,
+        zeroCenter=False,
+        useNonnegative=False,
+    )
+    constrained = core._solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
+        blockLenIntervals=4,
+        backgroundSmoothness=0.5,
+        zeroCenter=False,
+        useNonnegative=True,
+    )
+
+    assert float(np.min(unconstrained)) < 0.0
+    assert float(np.min(constrained)) >= -1.0e-6
+    assert float(np.max(constrained)) > 0.0
+    assert not np.allclose(constrained, unconstrained)
+
+    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0)
+    rhsTrack = np.sum(
+        invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
+        axis=0,
+    )
+    lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
+        blockLenIntervals=4,
+        backgroundSmoothness=0.5,
+    )
+    systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
+    systemMat = systemMat + (lamFirst * core._buildFirstDiffPenalty(weightTrack.size))
+    systemMat = systemMat + (lamSecond * core._buildSecondDiffPenalty(weightTrack.size))
+    gradient = np.asarray(systemMat @ constrained.astype(np.float64)) - rhsTrack
+    freeMask = constrained > 1.0e-5
+    activeMask = ~freeMask
+    assert np.max(np.abs(gradient[freeMask])) < 1.0e-4
+    assert np.min(gradient[activeMask]) >= -1.0e-4
+
+    stiffX = np.linspace(-1.0, 1.0, 30, dtype=np.float32)
+    stiffResidualMatrix = np.vstack(
+        [
+            -0.02 + 0.08 * np.exp(-((stiffX - 0.2) ** 2) / 0.08),
+            -0.018 + 0.07 * np.exp(-((stiffX + 0.1) ** 2) / 0.09),
+        ]
+    ).astype(np.float32)
+    stiffInvVarMatrix = np.ones_like(stiffResidualMatrix, dtype=np.float32)
+    stiffUnconstrained = core._solveZeroCenteredBackground(
+        residualMatrix=stiffResidualMatrix,
+        invVarMatrix=stiffInvVarMatrix,
+        blockLenIntervals=80,
+        backgroundSmoothness=1.0,
+        zeroCenter=False,
+        useNonnegative=False,
+    ).astype(np.float64)
+    stiffClipped = np.maximum(stiffUnconstrained, 0.0)
+    stiffConstrained = core._solveZeroCenteredBackground(
+        residualMatrix=stiffResidualMatrix,
+        invVarMatrix=stiffInvVarMatrix,
+        blockLenIntervals=80,
+        backgroundSmoothness=1.0,
+        zeroCenter=False,
+        useNonnegative=True,
+    ).astype(np.float64)
+    stiffWeightTrack = np.sum(stiffInvVarMatrix.astype(np.float64), axis=0)
+    stiffRhsTrack = np.sum(
+        stiffInvVarMatrix.astype(np.float64)
+        * stiffResidualMatrix.astype(np.float64),
+        axis=0,
+    )
+    stiffLamFirst, stiffLamSecond = core._backgroundPenaltyWeightsFromSpan(
+        blockLenIntervals=80,
+        backgroundSmoothness=1.0,
+    )
+    stiffSystemMat = core.sparse.diags(
+        stiffWeightTrack,
+        offsets=0,
+        format="csr",
+    )
+    stiffSystemMat = stiffSystemMat + (
+        stiffLamFirst * core._buildFirstDiffPenalty(stiffWeightTrack.size)
+    )
+    stiffSystemMat = stiffSystemMat + (
+        stiffLamSecond * core._buildSecondDiffPenalty(stiffWeightTrack.size)
+    )
+
+    def _objective(background: np.ndarray) -> float:
+        return 0.5 * float(background @ (stiffSystemMat @ background)) - float(
+            stiffRhsTrack @ background
+        )
+
+    assert float(np.min(stiffUnconstrained)) < 0.0
+    assert float(np.min(stiffConstrained)) >= -1.0e-6
+    assert _objective(stiffConstrained) < _objective(stiffClipped)
 
 
 @pytest.mark.correctness
@@ -1326,7 +1449,7 @@ def _caseLevelForwardBackwardMatchesPythonReference():
 
 
 @pytest.mark.correctness
-def _caseAdaptiveProcessNoiseReliabilityAndLevelModel():
+def _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel():
     matrixF = core.constructMatrixF(1.0).astype(np.float32, copy=False)
     stateSmoothed = np.asarray(
         [
@@ -1341,7 +1464,7 @@ def _caseAdaptiveProcessNoiseReliabilityAndLevelModel():
     stateCovarSmoothed = np.zeros((stateSmoothed.shape[0], 2, 2), dtype=np.float32)
     lagCovSmoothed = np.zeros((stateSmoothed.shape[0] - 1, 2, 2), dtype=np.float32)
 
-    matrixQ, blockInfo = core._estimateAdaptiveProcessNoise(
+    matrixQ, blockInfo = core._estimateWarmupProcessNoiseCalibration(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
         lagCovSmoothed=lagCovSmoothed,
@@ -1353,7 +1476,7 @@ def _caseAdaptiveProcessNoiseReliabilityAndLevelModel():
         regularizationRatio=0.001,
         blockLenIntervals=2,
     )
-    _, changedKnobInfo = core._estimateAdaptiveProcessNoise(
+    _, changedKnobInfo = core._estimateWarmupProcessNoiseCalibration(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
         lagCovSmoothed=lagCovSmoothed,
@@ -1380,7 +1503,7 @@ def _caseAdaptiveProcessNoiseReliabilityAndLevelModel():
     levelState = np.asarray([[0.0], [0.2], [0.5], [0.9]], dtype=np.float32)
     levelCovar = np.zeros((levelState.shape[0], 1, 1), dtype=np.float32)
     levelLag = np.zeros((levelState.shape[0] - 1, 1, 1), dtype=np.float32)
-    matrixQLevel, levelInfo = core._estimateAdaptiveProcessNoise(
+    matrixQLevel, levelInfo = core._estimateWarmupProcessNoiseCalibration(
         stateSmoothed=levelState,
         stateCovarSmoothed=levelCovar,
         lagCovSmoothed=levelLag,
@@ -1397,7 +1520,7 @@ def _caseAdaptiveProcessNoiseReliabilityAndLevelModel():
     assert levelInfo["logRatioPriorDf"] == pytest.approx(0.0)
     assert levelInfo["processNoisePolicy"] == "blockHierarchicalEB"
 
-    matrixQClamped, clampedInfo = core._estimateAdaptiveProcessNoise(
+    matrixQClamped, clampedInfo = core._estimateWarmupProcessNoiseCalibration(
         stateSmoothed=stateSmoothed * 10.0,
         stateCovarSmoothed=stateCovarSmoothed,
         lagCovSmoothed=lagCovSmoothed,
@@ -1446,6 +1569,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         ECM_fixedBackgroundIters=3,
         ECM_outerIters=2,
         processNoiseWarmupECMIters=1,
+        trackOptimizationPath=True,
         returnDiagnostics=True,
     )
 
@@ -1475,6 +1599,8 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert "      | PHASE: POST-PROCESS-NOISE FIT" in caplog.text
     assert "            | PHASE: POST-PROCESS-NOISE FIT / FIXED-BACKGROUND ECM" in caplog.text
     assert "proc precision weights" in caplog.text
+    assert "backgroundTarget[" in caplog.text
+    assert "backgroundSolve[" in caplog.text
     assert "lambdaMean=" in caplog.text
     assert "lambdaMedian=" in caplog.text
     assert "PHASE: POST-PROCESS-NOISE FIT SUMMARY" in caplog.text
@@ -1482,6 +1608,13 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert fitDiagnostics
     assert "observation_lambda_mean" in fitDiagnostics[-1]
     assert "observation_lambda_median" in fitDiagnostics[-1]
+    traceRows = fitDiagnostics[-1]["optimization_path"]
+    assert traceRows
+    assert [row["iter"] for row in traceRows] == sorted(
+        row["iter"] for row in traceRows
+    )
+    assert all(np.isfinite(float(row["objective_value"])) for row in traceRows)
+    assert all(row["objective_name"] == "nll" for row in traceRows)
     qInfo = diagnostics["process_noise_calibration"]
     assert qInfo["processNoisePolicy"] == "blockHierarchicalEB"
     assert diagnostics["process_q_calibration"] == qInfo
@@ -1510,6 +1643,40 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     changedInfo = outChangedKnobs[-1]["process_noise_calibration"]
     assert changedInfo["qLevel"] == pytest.approx(qInfo["qLevel"])
     assert changedInfo["qTrend"] == pytest.approx(qInfo["qTrend"])
+
+
+@pytest.mark.correctness
+def _caseRunConsenrichWarnsWhenNonnegativeBackgroundIsZeroCentered(caplog):
+    n = 16
+    m = 2
+    grid = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    matrixData = np.vstack([grid, grid + 0.05]).astype(np.float32)
+    matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
+
+    caplog.set_level(logging.WARNING, logger=core.logger.name)
+    core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.1,
+        minQ=1.0e-3,
+        maxQ=1.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=4,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        fitBackground=True,
+        useNonnegativeBackground=True,
+        ECM_zeroCenterBackground=True,
+        initialProcessQ=np.diag([1.0e-3, 1.0e-5]).astype(np.float32),
+        returnDiagnostics=True,
+    )
+
+    assert "only the zero background feasible" in caplog.text
 
 
 @pytest.mark.correctness
@@ -3578,11 +3745,16 @@ def test_core_background_bias_contracts(monkeypatch, contract_case):
         ("zero-centered background", _caseZeroCenteredBackgroundUpdate, ()),
         ("weighted background", _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights, ()),
         (
-            "background dense solver path",
-            _run_with_monkeypatch,
-            (monkeypatch, _caseZeroCenteredBackgroundUpdateDoesNotUseSparseFactorization),
+            "background sparse reference",
+            _caseZeroCenteredBackgroundUpdateMatchesSparseReference,
+            (),
         ),
         ("skip zero-centering", _caseBackgroundUpdateCanSkipZeroCentering, ()),
+        (
+            "nonnegative background update",
+            _caseBackgroundUpdateCanEnforceNonnegativeConstraint,
+            (),
+        ),
         (
             "background penalty scaling",
             _caseBackgroundPenaltyWeightsScaleByDifferenceOrder,
@@ -3618,7 +3790,10 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         ("transition residual orientation", _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF),
         ("transition residual reference", _caseExpectedTransitionResidualSumsMatchesPythonReference),
         ("level transition residual reference", _caseExpectedLevelTransitionResidualSumsMatchesPythonReference),
-        ("block EB process noise", _caseAdaptiveProcessNoiseReliabilityAndLevelModel),
+        (
+            "block EB process noise",
+            _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel,
+        ),
         ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
         ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),
         ("monotone pooling removed", _caseMonotonePoolingSourceSymbolsAbsent),
@@ -3631,6 +3806,12 @@ def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
     contract_case(
         "outer pass smoke",
         _caseRunConsenrichOuterPassSmoke,
+        caplog,
+    )
+    caplog.clear()
+    contract_case(
+        "nonnegative zero-centered background warning",
+        _caseRunConsenrichWarnsWhenNonnegativeBackgroundIsZeroCentered,
         caplog,
     )
     for label, func in (

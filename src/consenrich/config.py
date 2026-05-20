@@ -229,10 +229,16 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.writeUncertainty",
         constants.OUTPUT_DEFAULT_WRITE_UNCERTAINTY,
     )
+    plotOptimizationPath_ = _cfgGet(
+        configData,
+        "outputParams.plotOptimizationPath",
+        constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
+    )
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
+        plotOptimizationPath=plotOptimizationPath_,
     )
 
 
@@ -990,6 +996,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "fitParams.fitBackground",
             constants.FIT_DEFAULT_BACKGROUND,
+        ),
+        useNonnegativeBackground=_cfgGet(
+            configData,
+            "fitParams.useNonnegativeBackground",
+            _cfgDefault(configData, "fitParams.useNonnegativeBackground"),
         ),
         ECM_zeroCenterBackground=_cfgGet(
             configData,

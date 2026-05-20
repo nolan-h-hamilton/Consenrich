@@ -491,7 +491,7 @@ cdef inline double _firstDiffPenaltyOff1(Py_ssize_t n, double lam) noexcept nogi
     return -lam
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] csolveZeroCenteredBackground(
+cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
     cnp.ndarray[cnp.float64_t, ndim=1] weightTrack,
     cnp.ndarray[cnp.float64_t, ndim=1] rhsTrack,
     double lam,
@@ -519,17 +519,17 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csolveZeroCenteredBackground(
     cdef cnp.ndarray[cnp.float64_t, ndim=1] rhs
     cdef cnp.ndarray[cnp.float64_t, ndim=1] constraintSolve
     cdef cnp.ndarray[cnp.float64_t, ndim=1] firstLower
-    cdef cnp.ndarray[cnp.float32_t, ndim=1] out
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out
     cdef double[::1] diagView
     cdef double[::1] rhsView
     cdef double[::1] constraintView
     cdef double[::1] firstLowerView
-    cdef cnp.float32_t[::1] outView
+    cdef double[::1] outView
 
     if rhsTrack.shape[0] != n:
         raise ValueError("weightTrack and rhsTrack must have the same length")
 
-    out = np.zeros(n, dtype=np.float32)
+    out = np.zeros(n, dtype=np.float64)
     if n <= 0:
         return out
     if n == 1:
@@ -537,11 +537,11 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csolveZeroCenteredBackground(
             denomOne = <double>weightTrack[0]
             if denomOne < minPivot:
                 denomOne = minPivot
-            out[0] = <cnp.float32_t>((<double>rhsTrack[0]) / denomOne)
+            out[0] = (<double>rhsTrack[0]) / denomOne
         return out
 
-    diag = np.ascontiguousarray(weightTrack, dtype=np.float64)
-    rhs = np.ascontiguousarray(rhsTrack, dtype=np.float64)
+    diag = np.ascontiguousarray(weightTrack, dtype=np.float64).copy()
+    rhs = np.ascontiguousarray(rhsTrack, dtype=np.float64).copy()
     constraintSolve = np.ones(n, dtype=np.float64)
     firstLower = np.zeros(n, dtype=np.float64)
 
@@ -612,10 +612,155 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] csolveZeroCenteredBackground(
                 mu = sumRhs / <double>n
 
             for i in range(n):
-                outView[i] = <cnp.float32_t>(rhsView[i] - mu * constraintView[i])
+                outView[i] = rhsView[i] - mu * constraintView[i]
         else:
             for i in range(n):
-                outView[i] = <cnp.float32_t>rhsView[i]
+                outView[i] = rhsView[i]
+
+    return out
+
+
+cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveNonnegativeBackgroundProjected(
+    cnp.ndarray[cnp.float64_t, ndim=1] weightTrack,
+    cnp.ndarray[cnp.float64_t, ndim=1] rhsTrack,
+    double lam,
+    double lamFirst=<double>0.0,
+    object initial=None,
+    Py_ssize_t maxSweeps=80,
+    double tol=<double>1.0e-5,
+    double omega=<double>1.0,
+):
+    r"""Approximate ``x >= 0`` background QP solve using pentadiagonal sweeps.
+
+    This projected coordinate-descent solver preserves the 5-diagonal
+    background Hessian and avoids sparse active-set subproblem solves.
+    """
+
+    cdef Py_ssize_t n = weightTrack.shape[0]
+    cdef Py_ssize_t i, sweep
+    cdef double minDiag = 1.0e-12
+    cdef double diagVal
+    cdef double offLeft1, offRight1, off2
+    cdef double rawVal, oldVal, newVal, delta, maxDelta, scale
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] out
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] initArr
+    cdef double[::1] weightView
+    cdef double[::1] rhsView
+    cdef double[::1] outView
+    cdef double[::1] initView
+
+    if rhsTrack.shape[0] != n:
+        raise ValueError("weightTrack and rhsTrack must have the same length")
+
+    out = np.zeros(n, dtype=np.float64)
+    if n <= 0:
+        return out
+
+    weightView = weightTrack
+    rhsView = rhsTrack
+    outView = out
+
+    if initial is not None:
+        initArr = np.ascontiguousarray(initial, dtype=np.float64)
+        if initArr.shape[0] != n:
+            raise ValueError("initial must have the same length as rhsTrack")
+        initView = initArr
+        with nogil:
+            for i in range(n):
+                if initView[i] > <double>0.0 and isfinite(initView[i]):
+                    outView[i] = initView[i]
+                else:
+                    outView[i] = <double>0.0
+
+    if maxSweeps < 1:
+        maxSweeps = 1
+    if tol <= 0.0 or not isfinite(tol):
+        tol = <double>1.0e-5
+    if omega <= 0.0 or not isfinite(omega):
+        omega = <double>1.0
+    elif omega > <double>1.9:
+        omega = <double>1.9
+
+    with nogil:
+        off2 = lam if (n >= 3 and lam > 0.0) else <double>0.0
+        for sweep in range(maxSweeps):
+            maxDelta = <double>0.0
+            scale = <double>1.0
+
+            for i in range(n):
+                diagVal = (
+                    weightView[i]
+                    + _firstDiffPenaltyDiag(n, i, lamFirst)
+                    + _secondDiffPenaltyDiag(n, i, lam)
+                )
+                if diagVal < minDiag:
+                    diagVal = minDiag
+
+                rawVal = rhsView[i]
+                if i >= 1:
+                    offLeft1 = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i - 1, lam)
+                    rawVal -= offLeft1 * (<double>outView[i - 1])
+                if i + 1 < n:
+                    offRight1 = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i, lam)
+                    rawVal -= offRight1 * (<double>outView[i + 1])
+                if i >= 2:
+                    rawVal -= off2 * (<double>outView[i - 2])
+                if i + 2 < n:
+                    rawVal -= off2 * (<double>outView[i + 2])
+
+                rawVal = rawVal / diagVal
+                if rawVal < <double>0.0 or not isfinite(rawVal):
+                    rawVal = <double>0.0
+
+                oldVal = outView[i]
+                newVal = oldVal + omega * (rawVal - oldVal)
+                if newVal < <double>0.0 or not isfinite(newVal):
+                    newVal = <double>0.0
+                outView[i] = newVal
+                delta = fabs(newVal - oldVal)
+                if delta > maxDelta:
+                    maxDelta = delta
+                if fabs(newVal) > scale:
+                    scale = fabs(newVal)
+
+            for i in range(n - 1, -1, -1):
+                diagVal = (
+                    weightView[i]
+                    + _firstDiffPenaltyDiag(n, i, lamFirst)
+                    + _secondDiffPenaltyDiag(n, i, lam)
+                )
+                if diagVal < minDiag:
+                    diagVal = minDiag
+
+                rawVal = rhsView[i]
+                if i >= 1:
+                    offLeft1 = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i - 1, lam)
+                    rawVal -= offLeft1 * (<double>outView[i - 1])
+                if i + 1 < n:
+                    offRight1 = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i, lam)
+                    rawVal -= offRight1 * (<double>outView[i + 1])
+                if i >= 2:
+                    rawVal -= off2 * (<double>outView[i - 2])
+                if i + 2 < n:
+                    rawVal -= off2 * (<double>outView[i + 2])
+
+                rawVal = rawVal / diagVal
+                if rawVal < <double>0.0 or not isfinite(rawVal):
+                    rawVal = <double>0.0
+
+                oldVal = outView[i]
+                newVal = oldVal + omega * (rawVal - oldVal)
+                if newVal < <double>0.0 or not isfinite(newVal):
+                    newVal = <double>0.0
+                outView[i] = newVal
+                delta = fabs(newVal - oldVal)
+                if delta > maxDelta:
+                    maxDelta = delta
+                if fabs(newVal) > scale:
+                    scale = fabs(newVal)
+
+            if maxDelta <= tol * scale:
+                break
 
     return out
 
@@ -3203,6 +3348,7 @@ cpdef tuple cfixedBackgroundECMLevel(
     object processPrecExpInit=None,
     object replicateBiasInit=None,
     bint zeroCenterReplicateBias=True,
+    bint trackOptimizationPath=False,
 ):
     r"""Run fixed-background ECM for the scalar level-only process model."""
 
@@ -3278,6 +3424,11 @@ cpdef tuple cfixedBackgroundECMLevel(
     cdef double invVar
     cdef double denomNoRep
     cdef double yMinusState
+    cdef bint iterationConverged = False
+    cdef object optimizationPath = None
+
+    if trackOptimizationPath:
+        optimizationPath = []
 
     if replicateBiasInit is None:
         replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
@@ -3328,6 +3479,8 @@ cpdef tuple cfixedBackgroundECMLevel(
             "final_rel_improvement": None,
             "nll_increase_count": int(0),
         }
+        if trackOptimizationPath:
+            diagnostics["optimization_path"] = optimizationPath
         if returnIntermediates:
             if returnDiagnostics:
                 return (
@@ -3597,7 +3750,21 @@ cpdef tuple cfixedBackgroundECMLevel(
             "\t[cfixedBackgroundECMLevel] stable=%zd/%zd\n",
             stableIters, patienceTarget
         )
-        if stableIters >= patienceTarget:
+        iterationConverged = stableIters >= patienceTarget
+        if trackOptimizationPath:
+            optimizationPath.append({
+                "iter": int(itersDone),
+                "objective_name": "nll",
+                "objective_value": float(currentNLL),
+                "change": float(nllDelta),
+                "relative_improvement": float(relImprovement),
+                "abs_relative_change": float(absRelChange),
+                "threshold": float(nllTol),
+                "stable_iters": int(stableIters),
+                "patience_target": int(patienceTarget),
+                "converged": bool(iterationConverged),
+            })
+        if iterationConverged:
             converged = True
             fprintf(stderr, "\t[cfixedBackgroundECMLevel] CONVERGED (ECM) iter=%zd \n", itersDone)
             break
@@ -3614,6 +3781,8 @@ cpdef tuple cfixedBackgroundECMLevel(
         "final_rel_improvement": float(relImprovement) if hasInitialNLL else None,
         "nll_increase_count": int(nllIncreaseCount),
     }
+    if trackOptimizationPath:
+        diagnostics["optimization_path"] = optimizationPath
 
     if returnIntermediates:
         if returnDiagnostics:
@@ -3664,6 +3833,7 @@ cpdef tuple cfixedBackgroundECM(
     object processPrecExpInit=None,
     object replicateBiasInit=None,
     bint zeroCenterReplicateBias=True,
+    bint trackOptimizationPath=False,
 ):
     r"""Run the fixed-background Consenrich ECM loop with iteratively updated observation and process noise covariances.
 
@@ -3994,6 +4164,11 @@ cpdef tuple cfixedBackgroundECM(
     cdef double invVar
     cdef double denomNoRep
     cdef double yMinusState
+    cdef bint iterationConverged = False
+    cdef object optimizationPath = None
+
+    if trackOptimizationPath:
+        optimizationPath = []
 
     if intervalCount <= 5:
         diagnostics = {
@@ -4008,6 +4183,8 @@ cpdef tuple cfixedBackgroundECM(
             "final_rel_improvement": None,
             "nll_increase_count": int(0),
         }
+        if trackOptimizationPath:
+            diagnostics["optimization_path"] = optimizationPath
         if returnIntermediates:
             if returnDiagnostics:
                 return (
@@ -4350,7 +4527,21 @@ cpdef tuple cfixedBackgroundECM(
             stableIters, patienceTarget
         )
 
-        if stableIters >= patienceTarget:
+        iterationConverged = stableIters >= patienceTarget
+        if trackOptimizationPath:
+            optimizationPath.append({
+                "iter": int(itersDone),
+                "objective_name": "nll",
+                "objective_value": float(currentNLL),
+                "change": float(nllDelta),
+                "relative_improvement": float(relImprovement),
+                "abs_relative_change": float(absRelChange),
+                "threshold": float(nllTol),
+                "stable_iters": int(stableIters),
+                "patience_target": int(patienceTarget),
+                "converged": bool(iterationConverged),
+            })
+        if iterationConverged:
             converged = True
             fprintf(stderr, "\t[cfixedBackgroundECM] CONVERGED (ECM) iter=%zd \n", itersDone)
             break
@@ -4367,6 +4558,8 @@ cpdef tuple cfixedBackgroundECM(
         "final_rel_improvement": float(relImprovement) if hasInitialNLL else None,
         "nll_increase_count": int(nllIncreaseCount),
     }
+    if trackOptimizationPath:
+        diagnostics["optimization_path"] = optimizationPath
 
     if returnIntermediates:
         if returnDiagnostics:

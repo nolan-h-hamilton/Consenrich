@@ -50,6 +50,22 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+OPTIMIZATION_PATH_COLUMNS = [
+    "chromosome",
+    "phase",
+    "path_level",
+    "outer_pass",
+    "inner_iter",
+    "record_order",
+    "objective_name",
+    "objective_value",
+    "objective_per_cell",
+    "change",
+    "threshold",
+    "converged",
+    "final_solution",
+]
+
 
 def _fmtDiagnosticFloat(value: Any) -> str:
     if value is None:
@@ -61,6 +77,228 @@ def _fmtDiagnosticFloat(value: Any) -> str:
     if not np.isfinite(value_):
         return "NA"
     return f"{value_:.6g}"
+
+
+def _finiteOptimizationValue(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        value_ = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value_ if np.isfinite(value_) else None
+
+
+def _flattenOptimizationPathDiagnostics(
+    chromosome: str,
+    runDiagnostics: Mapping[str, Any],
+    *,
+    startOrder: int = 0,
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    phases = (
+        ("process_noise_warmup_fit", "process_noise_warmup"),
+        ("post_process_noise_fit", "post_process_noise_fit"),
+    )
+    for fitKey, phaseLabel in phases:
+        fitDiagnostics = runDiagnostics.get(fitKey)
+        if not isinstance(fitDiagnostics, Mapping):
+            continue
+        ecmDiagnostics = fitDiagnostics.get("fixed_background_ecm", [])
+        if not isinstance(ecmDiagnostics, list):
+            continue
+        lastOuterIndex = len(ecmDiagnostics) - 1
+        for ecmIndex, ecmPass in enumerate(ecmDiagnostics):
+            if not isinstance(ecmPass, Mapping):
+                continue
+            outerPass = int(ecmPass.get("outer_pass") or (ecmIndex + 1))
+            outerObjective = _finiteOptimizationValue(ecmPass.get("outer_objective"))
+            if outerObjective is not None:
+                rows.append(
+                    {
+                        "chromosome": str(chromosome),
+                        "phase": phaseLabel,
+                        "path_level": "outer",
+                        "outer_pass": outerPass,
+                        "inner_iter": None,
+                        "record_order": int(startOrder + len(rows)),
+                        "objective_name": "penalized_objective",
+                        "objective_value": outerObjective,
+                        "objective_per_cell": _finiteOptimizationValue(
+                            ecmPass.get("outer_objective_per_cell")
+                        ),
+                        "change": _finiteOptimizationValue(
+                            ecmPass.get("outer_objective_change_per_cell")
+                        ),
+                        "threshold": _finiteOptimizationValue(
+                            ecmPass.get("outer_objective_threshold_per_cell")
+                        ),
+                        "converged": bool(
+                            ecmPass.get("outer_objective_stable")
+                            and ecmPass.get("outer_inner_ecm_converged")
+                        ),
+                        "final_solution": bool(ecmIndex == lastOuterIndex),
+                    }
+                )
+            innerPath = ecmPass.get("optimization_path", [])
+            if not isinstance(innerPath, list):
+                continue
+            for innerIndex, innerStep in enumerate(innerPath):
+                if not isinstance(innerStep, Mapping):
+                    continue
+                objectiveValue = _finiteOptimizationValue(
+                    innerStep.get("objective_value")
+                )
+                if objectiveValue is None:
+                    continue
+                rows.append(
+                    {
+                        "chromosome": str(chromosome),
+                        "phase": phaseLabel,
+                        "path_level": "inner",
+                        "outer_pass": outerPass,
+                        "inner_iter": int(innerStep.get("iter") or (innerIndex + 1)),
+                        "record_order": int(startOrder + len(rows)),
+                        "objective_name": str(
+                            innerStep.get("objective_name") or "nll"
+                        ),
+                        "objective_value": objectiveValue,
+                        "objective_per_cell": None,
+                        "change": _finiteOptimizationValue(innerStep.get("change")),
+                        "threshold": _finiteOptimizationValue(
+                            innerStep.get("threshold")
+                        ),
+                        "converged": bool(innerStep.get("converged", False)),
+                        "final_solution": bool(
+                            ecmIndex == lastOuterIndex
+                            and innerIndex == len(innerPath) - 1
+                        ),
+                    }
+                )
+    return rows
+
+
+def _writeOptimizationPathLog(rows: Sequence[Mapping[str, Any]], path: str) -> None:
+    frame = pd.DataFrame(list(rows), columns=OPTIMIZATION_PATH_COLUMNS)
+    frame.to_csv(path, sep="\t", index=False, lineterminator="\n", na_rep="NA")
+    logger.info("optimizationPath.output wrote %s rows=%d", path, int(len(frame)))
+
+
+def _safeOutputToken(value: Any, *, fallback: str) -> str:
+    token = "".join(
+        ch if (ch.isalnum() or ch in "._-") else "_" for ch in str(value).strip()
+    ).strip("._-")
+    return token or str(fallback)
+
+
+def _optimizationPathPrefix(experimentName: str, chromosome: str) -> str:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    chromosomeToken = _safeOutputToken(chromosome, fallback="contig")
+    return (
+        f"consenrichOutput_{experimentToken}_{chromosomeToken}"
+        f"_optimizationPath.v{__version__}"
+    )
+
+
+def _plotOptimizationPathLog(
+    rows: Sequence[Mapping[str, Any]],
+    path: str,
+    *,
+    dpi: int = 300,
+) -> bool:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning(
+            "outputParams.plotOptimizationPath=True but matplotlib is not installed; "
+            "wrote the optimization .log only."
+        )
+        return False
+
+    frame = pd.DataFrame(list(rows), columns=OPTIMIZATION_PATH_COLUMNS)
+    if frame.empty:
+        logger.warning("optimizationPath.plot skipped because no trace rows were recorded.")
+        return False
+    frame["objective_value"] = pd.to_numeric(
+        frame["objective_value"],
+        errors="coerce",
+    )
+    frame["record_order"] = pd.to_numeric(frame["record_order"], errors="coerce")
+    frame = frame.dropna(subset=["record_order", "objective_value"])
+    if frame.empty:
+        logger.warning("optimizationPath.plot skipped because all objective values were NA.")
+        return False
+
+    palette = [
+        "#4878D0",
+        "#EE854A",
+        "#6ACC64",
+        "#D65F5F",
+        "#956CB4",
+        "#8C613C",
+        "#DC7EC0",
+        "#797979",
+        "#D5BB67",
+        "#82C6E2",
+    ]
+    plt.rcParams.update(
+        {
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        }
+    )
+    fig, ax = plt.subplots(figsize=(9.0, 5.25), constrained_layout=True)
+    for colorIndex, ((chromosome, phase, pathLevel), group) in enumerate(
+        frame.groupby(["chromosome", "phase", "path_level"], sort=False)
+    ):
+        group = group.sort_values("record_order")
+        label = f"{chromosome} {phase} {pathLevel}"
+        color = palette[colorIndex % len(palette)]
+        ax.plot(
+            group["record_order"],
+            group["objective_value"],
+            marker="o" if pathLevel == "outer" else ".",
+            linewidth=1.7 if pathLevel == "outer" else 1.1,
+            markersize=5.5 if pathLevel == "outer" else 4.0,
+            alpha=0.92 if pathLevel == "outer" else 0.72,
+            color=color,
+            label=label,
+        )
+    finalRows = frame[frame["final_solution"].astype(bool)]
+    if not finalRows.empty:
+        ax.scatter(
+            finalRows["record_order"],
+            finalRows["objective_value"],
+            s=72,
+            marker="o",
+            linewidths=1.1,
+            edgecolors="black",
+            c=[palette[i % len(palette)] for i in range(len(finalRows))],
+            zorder=5,
+            label="final solution",
+        )
+        for _, row in finalRows.iterrows():
+            ax.annotate(
+                f"{row['chromosome']} {row['phase']} final",
+                xy=(row["record_order"], row["objective_value"]),
+                xytext=(6, 7),
+                textcoords="offset points",
+                fontsize=8,
+                color="#333333",
+            )
+    ax.set_title("Consenrich Optimization Path")
+    ax.set_xlabel("Recorded iteration")
+    ax.set_ylabel("Objective value")
+    ax.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
+    ax.legend(loc="best", fontsize=8, frameon=False)
+    fig.savefig(path, dpi=int(dpi))
+    plt.close(fig)
+    logger.info("optimizationPath.output wrote %s dpi=%d", path, int(dpi))
+    return True
 
 
 def _truncateMiddle(text: Any, width: int) -> str:
@@ -188,6 +426,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("ECM max iters", int(fitArgs.ECM_fixedBackgroundIters)),
         ("outer passes", int(fitArgs.ECM_outerIters)),
         ("background model", yn(fitArgs.fitBackground)),
+        ("nonnegative background", yn(fitArgs.useNonnegativeBackground)),
         ("state model", processArgs.stateModel),
         ("process noise reg", float(processArgs.regularizationStrength)),
         ("trend/level ratio", float(processArgs.regularizationRatio)),
@@ -198,6 +437,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ),
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
+        ("optimization path", yn(outputArgs.plotOptimizationPath)),
         ("bigWig output", yn(outputArgs.convertToBigWig)),
     )
     logger.info(
@@ -1997,6 +2237,7 @@ def main():
             ECM_useProcessPrecisionReweighting=fitArgs.ECM_useProcessPrecisionReweighting,
             ECM_useAPN=fitArgs.ECM_useAPN,
             fitBackground=fitArgs.fitBackground,
+            useNonnegativeBackground=fitArgs.useNonnegativeBackground,
             ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
             ECM_zeroCenterReplicateBias=fitArgs.ECM_zeroCenterReplicateBias,
             ECM_outerIters=fitArgs.ECM_outerIters,
@@ -2012,6 +2253,7 @@ def main():
             observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
             processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
             processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
+            trackOptimizationPath=outputArgs.plotOptimizationPath,
             returnDiagnostics=True,
             logIndentLevel=1,
             logRunRole="primary chromosome",
@@ -2029,6 +2271,25 @@ def main():
             if len(runResult) > 6 and isinstance(runResult[6], Mapping)
             else {}
         )
+        if outputArgs.plotOptimizationPath:
+            optimizationPathRows = _flattenOptimizationPathDiagnostics(
+                chromosome,
+                runDiagnostics,
+                startOrder=0,
+            )
+            optimizationPathPrefix = _optimizationPathPrefix(
+                str(experimentName),
+                chromosome,
+            )
+            _writeOptimizationPathLog(
+                optimizationPathRows,
+                f"{optimizationPathPrefix}.log",
+            )
+            _plotOptimizationPathLog(
+                optimizationPathRows,
+                f"{optimizationPathPrefix}.png",
+                dpi=300,
+            )
         logger.info(
             "runConsenrich.done %s elapsed=%.3fs",
             chromosome,
@@ -2217,6 +2478,7 @@ def main():
                 ECM_useProcessPrecisionReweighting=fitArgs.ECM_useProcessPrecisionReweighting,
                 ECM_useAPN=fitArgs.ECM_useAPN,
                 fitBackground=fitArgs.fitBackground,
+                useNonnegativeBackground=fitArgs.useNonnegativeBackground,
                 ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
                 ECM_outerIters=fitArgs.ECM_outerIters,
                 ECM_minOuterIters=fitArgs.ECM_minOuterIters,

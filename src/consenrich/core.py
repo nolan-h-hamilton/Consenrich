@@ -47,6 +47,7 @@ from .constants import (
     FIT_DEFAULT_OUTER_NLL_RTOL,
     FIT_DEFAULT_ROBUST_T_NU,
     FIT_DEFAULT_USE_APN,
+    FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND,
     FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING,
     FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING,
     FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
@@ -811,12 +812,16 @@ class outputParams(NamedTuple):
         when uncertainty calibration is enabled, the caller may replace it with the
         cross-fit calibrated state-variance track.
     :type writeUncertainty: bool
+    :param plotOptimizationPath: If True, write and optionally plot the objective
+        trace for outer/background passes and fixed-background ECM iterations.
+    :type plotOptimizationPath: bool
 
     """
 
     convertToBigWig: bool
     roundDigits: int
     writeUncertainty: bool
+    plotOptimizationPath: bool = True
 
 
 class fitParams(NamedTuple):
@@ -863,6 +868,9 @@ class fitParams(NamedTuple):
     :param fitBackground: If True, estimate the shared low-frequency background
       track \(g_{[i]}\) in the outer loop. If False, keep \(g_{[i]} \equiv 0\).
     :type fitBackground: bool
+    :param useNonnegativeBackground: If True, constrain the shared background
+      update to \(g_{[i]} \ge 0\) for every genomic interval.
+    :type useNonnegativeBackground: bool
     :param ECM_zeroCenterBackground: If True, enforce the identifiability
       constraint that the shared background has mean zero.
     :type ECM_zeroCenterBackground: bool
@@ -913,6 +921,7 @@ class fitParams(NamedTuple):
         FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER
     )
     fitBackground: bool | None = FIT_DEFAULT_BACKGROUND
+    useNonnegativeBackground: bool | None = FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND
 
 
 def _inferAlignmentSourceKind(path: str) -> str:
@@ -2387,7 +2396,7 @@ def _estimateBlockHierarchicalEBProcessNoise(
     }
 
 
-def _estimateAdaptiveProcessNoise(
+def _estimateWarmupProcessNoiseCalibration(
     *,
     stateSmoothed: np.ndarray,
     stateCovarSmoothed: np.ndarray,
@@ -2511,6 +2520,7 @@ def runConsenrich(
     ECM_outerNLLRtol: float = 1.0e-4,
     ECM_backgroundSmoothness: float = 1.0,
     fitBackground: bool = True,
+    useNonnegativeBackground: bool = FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND,
     returnScales: bool = True,
     returnReplicateOffsets: bool = False,
     stateModel: str | None = STATE_MODEL_LEVEL_TREND,
@@ -2527,6 +2537,7 @@ def runConsenrich(
     initialObservationPrecision: np.ndarray | None = None,
     initialProcessPrecision: np.ndarray | None = None,
     initialProcessQ: np.ndarray | None = None,
+    trackOptimizationPath: bool = False,
     returnDiagnostics: bool = False,
     logIndentLevel: int = 0,
     logRunRole: str | None = None,
@@ -2550,8 +2561,8 @@ def runConsenrich(
     optional low-frequency background shared across replicates, :math:`b_j` is
     a replicate-level bias term, and :math:`v_{[j,i]}` is the plugin
     observation variance supplied by ``matrixMunc``. Note, by default, replicate offsets
-    are centered to zero for identifiability by default while the shared background
-    is allowed to carry a contig-wide level.
+    are centered to zero for identifiability while the shared background is
+    allowed to carry a nonnegative contig-wide level.
 
     By default, the latent state follows the two-state level/trend model
 
@@ -2691,10 +2702,25 @@ def runConsenrich(
     )
     ECM_backgroundShiftRtol = float(max(ECM_backgroundShiftRtol, 0.0))
     ECM_outerNLLRtol = float(max(ECM_outerNLLRtol, 0.0))
+    trackOptimizationPath = bool(trackOptimizationPath)
+    useNonnegativeBackground = bool(useNonnegativeBackground)
+    if (
+        bool(fitBackground)
+        and useNonnegativeBackground
+        and bool(ECM_zeroCenterBackground)
+    ):
+        logger.warning(
+            "fitParams.useNonnegativeBackground=True and "
+            "fitParams.ECM_zeroCenterBackground=True leave only the zero "
+            "background feasible; the background fit will be pinned to zero."
+        )
     logIndentLevel = max(0, int(logIndentLevel or 0))
     logRunRole = str(logRunRole or "").strip()
 
     blockCount = int(np.ceil(intervalCount / float(blockLenIntervals)))
+    processNoiseCalibrationPolicy = (
+        "warmStart" if initialProcessQArr is not None else "blockHierarchicalEB"
+    )
     intervalToBlockMap = (
         np.arange(intervalCount, dtype=np.int32) // blockLenIntervals
     ).astype(np.int32)
@@ -2709,21 +2735,25 @@ def runConsenrich(
             ("ECM max iterations", int(ECM_fixedBackgroundIters)),
             ("outer passes", int(ECM_outerIters)),
             ("state model", stateModelMode),
-            ("process noise", "warm-start" if initialProcessQArr is not None else "adaptive"),
+            ("process noise calibration", processNoiseCalibrationPolicy),
             ("regularization strength", float(regularizationStrength)),
             ("regularization ratio", float(regularizationRatio)),
             ("background model fit", bool(fitBackground)),
+            ("nonnegative background", bool(useNonnegativeBackground)),
         ),
         indentLevel=logIndentLevel,
     )
     logger.info(
-        "runConsenrich.core.start tracks=%d intervals=%d blocks=%d ECM_fixedBackgroundIters=%d outerIters=%d stateModel=%s processNoise=adaptive",
+        "runConsenrich.core.start tracks=%d intervals=%d blocks=%d "
+        "ECM_fixedBackgroundIters=%d outerIters=%d stateModel=%s "
+        "processNoiseCalibration=%s",
         int(trackCount),
         int(intervalCount),
         int(blockCount),
         int(ECM_fixedBackgroundIters),
         int(ECM_outerIters),
         stateModelMode,
+        processNoiseCalibrationPolicy,
     )
     logger.info(
         "precisionMultiplierBounds: obs=[%.6g, %.6g] proc=[%.6g, %.6g]",
@@ -3067,6 +3097,7 @@ def runConsenrich(
     ) -> dict[str, np.ndarray | float | None]:
         mLocal = int(matrixDataLocal.shape[0])
         nLocal = int(matrixDataLocal.shape[1])
+        fitBackgroundLocal = bool(fitBackground)
         useAPNLocal = bool(ECM_useAPN if useAPNOverride is None else useAPNOverride)
         useProcPrecLocal = bool(
             ECM_useProcessPrecisionReweighting
@@ -3081,6 +3112,8 @@ def runConsenrich(
             if initialBackgroundLocal is None
             else np.ascontiguousarray(initialBackgroundLocal, dtype=np.float32).copy()
         )
+        if useNonnegativeBackground:
+            np.maximum(currentBackground, 0.0, out=currentBackground)
         currentMunc = np.ascontiguousarray(matrixMuncLocal, dtype=np.float32)
 
         lambdaExpLocal = (
@@ -3102,8 +3135,69 @@ def runConsenrich(
                 initialReplicateBiasLocal, dtype=np.float32
             ).copy()
         )
+        backgroundPrepassApplied = False
+        backgroundPrepassSource = ""
+        if fitBackgroundLocal and initialBackgroundLocal is None and not (
+            useNonnegativeBackground and bool(ECM_zeroCenterBackground)
+        ):
+            warmInvVarMatrix = 1.0 / np.maximum(currentMunc + float(pad), 1.0e-8)
+            if lambdaExpLocal is not None:
+                warmObsPrecision = np.clip(
+                    np.asarray(lambdaExpLocal, dtype=np.float32).reshape(1, nLocal),
+                    float(observationPrecisionMultiplierMin),
+                    float(observationPrecisionMultiplierMax),
+                )
+                warmInvVarMatrix *= warmObsPrecision
+            warmResidualMatrix = (
+                np.asarray(matrixDataLocal, dtype=np.float32)
+                - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
+            )
+            if useNonnegativeBackground:
+                currentBackground = _solveClippedBackgroundHeuristic(
+                    residualMatrix=warmResidualMatrix,
+                    invVarMatrix=warmInvVarMatrix,
+                    blockLenIntervals=int(blockLenIntervals),
+                    backgroundSmoothness=float(ECM_backgroundSmoothness),
+                )
+                backgroundPrepassSource = "clipped_banded_weighted_data"
+            else:
+                currentBackground = _solveZeroCenteredBackground(
+                    residualMatrix=warmResidualMatrix,
+                    invVarMatrix=warmInvVarMatrix,
+                    blockLenIntervals=int(blockLenIntervals),
+                    backgroundSmoothness=float(ECM_backgroundSmoothness),
+                    zeroCenter=bool(ECM_zeroCenterBackground),
+                    useNonnegative=False,
+                )
+                backgroundPrepassSource = (
+                    "zero_centered_banded_weighted_data"
+                    if bool(ECM_zeroCenterBackground)
+                    else "banded_weighted_data"
+                )
+            backgroundPrepassApplied = True
+            warmBackgroundSummary = np.asarray(currentBackground, dtype=np.float64)
+            warmQuantiles = np.quantile(
+                warmBackgroundSummary,
+                [0.05, 0.5, 0.95],
+            )
+            logger.info(
+                "backgroundWarmStart[%s]: source=%s min=%.6g "
+                "p05=%.6g median=%.6g mean=%.6g p95=%.6g max=%.6g "
+                "fracPositive=%.4f fracAbsLe1e-3=%.4f",
+                phaseLabel,
+                backgroundPrepassSource,
+                float(np.min(warmBackgroundSummary)),
+                float(warmQuantiles[0]),
+                float(warmQuantiles[1]),
+                float(np.mean(warmBackgroundSummary, dtype=np.float64)),
+                float(warmQuantiles[2]),
+                float(np.max(warmBackgroundSummary)),
+                float(np.mean(warmBackgroundSummary > 0.0)),
+                float(np.mean(np.abs(warmBackgroundSummary) <= 1.0e-3)),
+            )
         warmStartSummaryLocal = {
             "background": bool(initialBackgroundLocal is not None),
+            "background_prepass": bool(backgroundPrepassApplied),
             "replicate_bias": bool(initialReplicateBiasLocal is not None),
             "observation_precision": bool(lambdaExpLocal is not None),
             "process_precision": bool(processPrecExpLocal is not None),
@@ -3116,7 +3210,6 @@ def runConsenrich(
         sumNLLLocal = np.nan
         lastBackgroundShiftLocal = 0.0
 
-        fitBackgroundLocal = bool(fitBackground)
         if fitBackgroundLocal:
             requestedOuterIters = max(
                 1,
@@ -3292,7 +3385,7 @@ def runConsenrich(
                     ("ECM max iterations", int(ecmItersLocal)),
                     ("ECM rtol", float(ecmRtolLocal)),
                     ("background model fit", bool(fitBackgroundLocal)),
-                    ("adaptive process noise", bool(useAPNLocal)),
+                    ("APN enabled", bool(useAPNLocal)),
                     ("obs precision weights", bool(ECM_useObsPrecisionReweighting)),
                     ("proc precision weights", bool(useProcPrecLocal)),
                 ),
@@ -3328,6 +3421,7 @@ def runConsenrich(
                 lambdaExpInit=lambdaExpLocal,
                 processPrecExpInit=processPrecExpLocal,
                 replicateBiasInit=replicateBiasLocal,
+                trackOptimizationPath=bool(trackOptimizationPath),
             )
             ecmFunction = cconsenrich.cfixedBackgroundECMLevel
             if stateModelMode == STATE_MODEL_LEVEL_TREND:
@@ -3455,13 +3549,85 @@ def runConsenrich(
                 - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
                 - np.asarray(stateSmoothedLocal[:, 0][None, :], dtype=np.float32)
             )
+            backgroundWeightTrack = np.sum(invVarMatrix, axis=0, dtype=np.float64)
+            backgroundRhsTrack = np.einsum(
+                "ij,ij->j",
+                invVarMatrix,
+                residualMatrix,
+                dtype=np.float64,
+            )
+            backgroundValidTarget = backgroundWeightTrack > 0.0
+            if np.any(backgroundValidTarget):
+                backgroundTarget = (
+                    backgroundRhsTrack[backgroundValidTarget]
+                    / backgroundWeightTrack[backgroundValidTarget]
+                )
+                backgroundTarget = backgroundTarget[
+                    np.isfinite(backgroundTarget)
+                ]
+            else:
+                backgroundTarget = np.zeros(0, dtype=np.float64)
+            if backgroundTarget.size > 0:
+                targetQuantiles = np.quantile(
+                    backgroundTarget,
+                    [0.05, 0.5, 0.95],
+                )
+                logger.info(
+                    "backgroundTarget[%s pass=%d/%d]: valid=%d/%d "
+                    "min=%.6g p05=%.6g median=%.6g mean=%.6g "
+                    "p95=%.6g max=%.6g fracPositive=%.4f fracAbsLe1e-3=%.4f",
+                    phaseLabel,
+                    int(outerPassIndex + 1),
+                    int(outerPassCount),
+                    int(backgroundTarget.size),
+                    int(intervalCount),
+                    float(np.min(backgroundTarget)),
+                    float(targetQuantiles[0]),
+                    float(targetQuantiles[1]),
+                    float(np.mean(backgroundTarget, dtype=np.float64)),
+                    float(targetQuantiles[2]),
+                    float(np.max(backgroundTarget)),
+                    float(np.mean(backgroundTarget > 0.0)),
+                    float(np.mean(np.abs(backgroundTarget) <= 1.0e-3)),
+                )
+            else:
+                logger.info(
+                    "backgroundTarget[%s pass=%d/%d]: valid=0/%d",
+                    phaseLabel,
+                    int(outerPassIndex + 1),
+                    int(outerPassCount),
+                    int(intervalCount),
+                )
             nextBackground = _solveZeroCenteredBackground(
                 residualMatrix=residualMatrix,
                 invVarMatrix=invVarMatrix,
                 blockLenIntervals=int(blockLenIntervals),
                 backgroundSmoothness=float(ECM_backgroundSmoothness),
                 zeroCenter=bool(ECM_zeroCenterBackground),
+                useNonnegative=bool(useNonnegativeBackground),
             )
+            nextBackgroundSummary = np.asarray(nextBackground, dtype=np.float64)
+            if nextBackgroundSummary.size > 0:
+                nextBackgroundQuantiles = np.quantile(
+                    nextBackgroundSummary,
+                    [0.05, 0.5, 0.95],
+                )
+                logger.info(
+                    "backgroundSolve[%s pass=%d/%d]: "
+                    "min=%.6g p05=%.6g median=%.6g mean=%.6g "
+                    "p95=%.6g max=%.6g fracPositive=%.4f fracAbsLe1e-3=%.4f",
+                    phaseLabel,
+                    int(outerPassIndex + 1),
+                    int(outerPassCount),
+                    float(np.min(nextBackgroundSummary)),
+                    float(nextBackgroundQuantiles[0]),
+                    float(nextBackgroundQuantiles[1]),
+                    float(np.mean(nextBackgroundSummary, dtype=np.float64)),
+                    float(nextBackgroundQuantiles[2]),
+                    float(np.max(nextBackgroundSummary)),
+                    float(np.mean(nextBackgroundSummary > 0.0)),
+                    float(np.mean(np.abs(nextBackgroundSummary) <= 1.0e-3)),
+                )
 
             bgChange = float(
                 np.max(
@@ -3699,7 +3865,7 @@ def runConsenrich(
                 ("outer passes", int(warmupOuterIters)),
                 ("ECM max iterations", int(warmupIters)),
                 ("proc precision weights", False),
-                ("adaptive process noise", False),
+                ("APN enabled", False),
             ),
             indentLevel=logIndentLevel + 1,
         )
@@ -3728,7 +3894,7 @@ def runConsenrich(
             "runConsenrich.processNoiseWarmup.done elapsed=%.3fs",
             time.perf_counter() - stageStart,
         )
-        matrixQ0, processNoiseCalibrationInfo = _estimateAdaptiveProcessNoise(
+        matrixQ0, processNoiseCalibrationInfo = _estimateWarmupProcessNoiseCalibration(
             stateSmoothed=np.asarray(fitProcessNoiseWarmup["stateSmoothed"]),
             stateCovarSmoothed=np.asarray(fitProcessNoiseWarmup["stateCovarSmoothed"]),
             lagCovSmoothed=np.asarray(fitProcessNoiseWarmup["lagCovSmoothed"]),
@@ -3789,7 +3955,7 @@ def runConsenrich(
             ("background model fit", bool(fitBackground)),
             ("obs precision weights", bool(ECM_useObsPrecisionReweighting)),
             ("proc precision weights", bool(ECM_useProcessPrecisionReweighting)),
-            ("adaptive process noise", bool(ECM_useAPN)),
+            ("APN enabled", bool(ECM_useAPN)),
         ),
         indentLevel=logIndentLevel + 1,
     )
@@ -3927,6 +4093,7 @@ def runConsenrich(
         ),
         "post_process_noise_fit": _fitDiagnosticsMetadata(fitFinal),
         "post_q_fit": _fitDiagnosticsMetadata(fitFinal),
+        "optimization_path_tracked": bool(trackOptimizationPath),
         "process_precision_reweighting_requested": bool(
             requestedProcessPrecisionReweighting
         ),
@@ -5170,6 +5337,206 @@ def _backgroundPenaltyFromSpan(
     )[1]
 
 
+def _buildBackgroundSparseSystem(
+    weightTrack: np.ndarray,
+    lamFirst: float,
+    lamSecond: float,
+) -> sparse.csr_matrix:
+    n = int(weightTrack.shape[0])
+    systemMat = sparse.diags(weightTrack, offsets=0, format="csr")
+    systemMat = systemMat + (float(lamFirst) * _buildFirstDiffPenalty(n))
+    systemMat = systemMat + (float(lamSecond) * _buildSecondDiffPenalty(n))
+    return systemMat.tocsr()
+
+
+def _buildBackgroundBandedSystem(
+    weightTrack: np.ndarray,
+    lamFirst: float,
+    lamSecond: float,
+) -> np.ndarray:
+    weightArr = np.asarray(weightTrack, dtype=np.float64).reshape(-1)
+    n = int(weightArr.shape[0])
+    banded = np.zeros((3, n), dtype=np.float64)
+    if n <= 0:
+        return banded
+
+    diag = weightArr.copy()
+    if n >= 2 and lamFirst > 0.0:
+        diag[0] += lamFirst
+        diag[-1] += lamFirst
+        if n > 2:
+            diag[1:-1] += 2.0 * lamFirst
+        banded[1, : n - 1] -= lamFirst
+
+    if n >= 3 and lamSecond > 0.0:
+        if n == 3:
+            diag[0] += lamSecond
+            diag[1] += 4.0 * lamSecond
+            diag[2] += lamSecond
+            banded[1, :2] += -2.0 * lamSecond
+        else:
+            diag[0] += lamSecond
+            diag[-1] += lamSecond
+            diag[1] += 5.0 * lamSecond
+            diag[-2] += 5.0 * lamSecond
+            if n > 4:
+                diag[2:-2] += 6.0 * lamSecond
+            banded[1, 0] += -2.0 * lamSecond
+            banded[1, n - 2] += -2.0 * lamSecond
+            if n > 3:
+                banded[1, 1 : n - 2] += -4.0 * lamSecond
+        banded[2, : n - 2] = lamSecond
+
+    banded[0, :] = diag
+    return banded
+
+
+def _solveBackgroundLinearSystem(
+    weightTrack: np.ndarray,
+    rhsTrack: np.ndarray,
+    lamFirst: float,
+    lamSecond: float,
+) -> np.ndarray:
+    rhs = np.asarray(rhsTrack, dtype=np.float64)
+    if rhs.size == 0:
+        return np.zeros(0, dtype=np.float64)
+    weight = np.ascontiguousarray(weightTrack, dtype=np.float64)
+    if rhs.ndim == 1:
+        return np.asarray(
+            cconsenrich.csolveZeroCenteredBackground(
+                weight,
+                np.ascontiguousarray(rhs, dtype=np.float64),
+                float(lamSecond),
+                False,
+                lamFirst=float(lamFirst),
+            ),
+            dtype=np.float64,
+        )
+    if rhs.ndim == 2:
+        return np.column_stack(
+            [
+                np.asarray(
+                    cconsenrich.csolveZeroCenteredBackground(
+                        weight,
+                        np.ascontiguousarray(rhs[:, colIndex], dtype=np.float64),
+                        float(lamSecond),
+                        False,
+                        lamFirst=float(lamFirst),
+                    ),
+                    dtype=np.float64,
+                )
+                for colIndex in range(rhs.shape[1])
+            ]
+        )
+    raise ValueError("rhsTrack must be one- or two-dimensional")
+
+
+def _solveZeroCenteredBackgroundLinearSystem(
+    weightTrack: np.ndarray,
+    rhsTrack: np.ndarray,
+    lamFirst: float,
+    lamSecond: float,
+) -> np.ndarray:
+    rhs = np.asarray(rhsTrack, dtype=np.float64)
+    if rhs.size == 0:
+        return np.zeros(0, dtype=np.float64)
+    return np.asarray(
+        cconsenrich.csolveZeroCenteredBackground(
+            np.ascontiguousarray(weightTrack, dtype=np.float64),
+            np.ascontiguousarray(rhs, dtype=np.float64),
+            float(lamSecond),
+            True,
+            lamFirst=float(lamFirst),
+        ),
+        dtype=np.float64,
+    )
+
+
+def _backgroundBandedMatvec(
+    systemBanded: np.ndarray,
+    values: np.ndarray,
+) -> np.ndarray:
+    x = np.asarray(values, dtype=np.float64).reshape(-1)
+    n = int(x.size)
+    product = systemBanded[0, :n] * x
+    if n >= 2:
+        off1 = systemBanded[1, : n - 1]
+        product[:-1] += off1 * x[1:]
+        product[1:] += off1 * x[:-1]
+    if n >= 3:
+        off2 = systemBanded[2, : n - 2]
+        product[:-2] += off2 * x[2:]
+        product[2:] += off2 * x[:-2]
+    return product
+
+
+def _nonnegativeBackgroundKKTDiagnostics(
+    *,
+    systemBanded: np.ndarray,
+    rhsTrack: np.ndarray,
+    candidate: np.ndarray,
+    primalTol: float,
+) -> dict[str, float | int | bool]:
+    x = np.asarray(candidate, dtype=np.float64).reshape(-1)
+    rhs = np.asarray(rhsTrack, dtype=np.float64).reshape(-1)
+    matX = _backgroundBandedMatvec(systemBanded, x)
+    gradient = matX - rhs
+
+    finiteX = x[np.isfinite(x)]
+    finiteRhs = rhs[np.isfinite(rhs)]
+    finiteMatX = matX[np.isfinite(matX)]
+    signalScale = float(max(np.max(np.abs(finiteX)) if finiteX.size else 0.0, 1.0))
+    gradientScale = float(
+        max(
+            np.max(np.abs(finiteRhs)) if finiteRhs.size else 0.0,
+            np.max(np.abs(finiteMatX)) if finiteMatX.size else 0.0,
+            1.0,
+        )
+    )
+    freeThreshold = float(max(primalTol, 1.0e-8 * signalScale, 1.0e-12))
+    freeMask = x > freeThreshold
+    activeMask = ~freeMask
+
+    primalViolation = float(max(0.0, -float(np.min(x)) if x.size else 0.0))
+    freeStationarityAbs = (
+        float(np.max(np.abs(gradient[freeMask]))) if np.any(freeMask) else 0.0
+    )
+    activeDualViolationAbs = (
+        float(np.max(np.maximum(-gradient[activeMask], 0.0)))
+        if np.any(activeMask)
+        else 0.0
+    )
+    complementarityAbs = (
+        float(np.max(np.abs(x * gradient))) if x.size and gradient.size else 0.0
+    )
+    freeStationarityRel = freeStationarityAbs / gradientScale
+    activeDualViolationRel = activeDualViolationAbs / gradientScale
+    complementarityRel = complementarityAbs / (signalScale * gradientScale)
+    kktRelMax = float(
+        max(
+            freeStationarityRel,
+            activeDualViolationRel,
+            complementarityRel,
+        )
+    )
+    return {
+        "kkt_ok": bool(primalViolation <= freeThreshold and kktRelMax <= 0.25),
+        "primal_min": float(np.min(x)) if x.size else 0.0,
+        "primal_violation": primalViolation,
+        "free_count": int(np.sum(freeMask)),
+        "active_count": int(np.sum(activeMask)),
+        "free_stationarity_abs": freeStationarityAbs,
+        "free_stationarity_rel": float(freeStationarityRel),
+        "active_dual_violation_abs": activeDualViolationAbs,
+        "active_dual_violation_rel": float(activeDualViolationRel),
+        "complementarity_abs": complementarityAbs,
+        "complementarity_rel": float(complementarityRel),
+        "kkt_rel_max": kktRelMax,
+        "gradient_scale": gradientScale,
+        "free_threshold": freeThreshold,
+    }
+
+
 def _coerceOddFilterWindow(windowIntervals: int | float, length: int) -> int:
     r"""Resolve an odd filter window bounded by a one-dimensional track."""
 
@@ -5388,6 +5755,7 @@ def _solveZeroCenteredBackground(
     blockLenIntervals: int,
     backgroundSmoothness: float = 1.0,
     zeroCenter: bool = True,
+    useNonnegative: bool = False,
 ) -> npt.NDArray[np.float32]:
     residualArr = np.asarray(residualMatrix, dtype=np.float32)
     invVarArr = np.asarray(invVarMatrix, dtype=np.float32)
@@ -5414,13 +5782,187 @@ def _solveZeroCenteredBackground(
         blockLenIntervals=blockLenIntervals,
         backgroundSmoothness=backgroundSmoothness,
     )
-    return cconsenrich.csolveZeroCenteredBackground(
+    weightTrack = np.ascontiguousarray(weightTrack, dtype=np.float64)
+    rhsTrack = np.ascontiguousarray(rhsTrack, dtype=np.float64)
+
+    if useNonnegative:
+        return _solveNonnegativeBackground(
+            weightTrack=weightTrack,
+            rhsTrack=rhsTrack,
+            lamFirst=float(lamFirst),
+            lamSecond=float(lamSecond),
+            zeroCenter=bool(zeroCenter),
+        )
+
+    if zeroCenter:
+        if intervalCount == 1:
+            return np.zeros(1, dtype=np.float32)
+        return _solveZeroCenteredBackgroundLinearSystem(
+            weightTrack,
+            rhsTrack,
+            float(lamFirst),
+            float(lamSecond),
+        ).astype(np.float32)
+
+    return np.asarray(
+        _solveBackgroundLinearSystem(
+            weightTrack,
+            rhsTrack,
+            float(lamFirst),
+            float(lamSecond),
+        ),
+        dtype=np.float32,
+    )
+
+
+def _solveClippedBackgroundHeuristic(
+    residualMatrix: np.ndarray,
+    invVarMatrix: np.ndarray,
+    blockLenIntervals: int,
+    backgroundSmoothness: float = 1.0,
+) -> npt.NDArray[np.float32]:
+    residualArr = np.asarray(residualMatrix, dtype=np.float32)
+    invVarArr = np.asarray(invVarMatrix, dtype=np.float32)
+    if residualArr.ndim != 2 or invVarArr.shape != residualArr.shape:
+        raise ValueError(
+            "residualMatrix and invVarMatrix must have identical 2D shapes"
+        )
+    intervalCount = int(residualArr.shape[1])
+    if intervalCount < 1:
+        return np.zeros(0, dtype=np.float32)
+
+    weightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
+    rhsTrack = np.einsum(
+        "ij,ij->j",
+        invVarArr,
+        residualArr,
+        dtype=np.float64,
+    )
+    if not np.any(weightTrack > 0.0):
+        return np.zeros(intervalCount, dtype=np.float32)
+
+    lamFirst, lamSecond = _backgroundPenaltyWeightsFromSpan(
+        blockLenIntervals=blockLenIntervals,
+        backgroundSmoothness=backgroundSmoothness,
+    )
+    background = _solveBackgroundLinearSystem(
         np.ascontiguousarray(weightTrack, dtype=np.float64),
         np.ascontiguousarray(rhsTrack, dtype=np.float64),
+        float(lamFirst),
         float(lamSecond),
-        bool(zeroCenter),
-        lamFirst=float(lamFirst),
     )
+    return np.maximum(background, 0.0).astype(np.float32)
+
+
+def _solveNonnegativeBackground(
+    *,
+    weightTrack: np.ndarray,
+    rhsTrack: np.ndarray,
+    lamFirst: float,
+    lamSecond: float,
+    zeroCenter: bool,
+) -> npt.NDArray[np.float32]:
+    n = int(rhsTrack.shape[0])
+    if n <= 0:
+        return np.zeros(0, dtype=np.float32)
+
+    if zeroCenter:
+        return np.zeros(n, dtype=np.float32)
+
+    systemBanded = _buildBackgroundBandedSystem(
+        weightTrack,
+        float(lamFirst),
+        float(lamSecond),
+    )
+    unconstrained = np.asarray(
+        _solveBackgroundLinearSystem(
+            weightTrack,
+            rhsTrack,
+            float(lamFirst),
+            float(lamSecond),
+        ),
+        dtype=np.float64,
+    ).reshape(-1)
+    validWeight = np.asarray(weightTrack, dtype=np.float64) > 0.0
+    if np.any(validWeight):
+        with np.errstate(divide="ignore", invalid="ignore"):
+            targetTrack = np.asarray(
+                rhsTrack[validWeight],
+                dtype=np.float64,
+            ) / np.asarray(
+                weightTrack[validWeight],
+                dtype=np.float64,
+            )
+        targetTrack = targetTrack[np.isfinite(targetTrack)]
+        targetScale = float(np.max(np.abs(targetTrack))) if targetTrack.size else 0.0
+    else:
+        targetScale = 0.0
+    solutionScale = (
+        float(np.max(np.abs(unconstrained[np.isfinite(unconstrained)])))
+        if np.any(np.isfinite(unconstrained))
+        else 0.0
+    )
+    signalScale = float(max(targetScale, solutionScale, 1.0))
+    primalTol = max(1.0e-10, 1.0e-8 * signalScale)
+    if np.all(unconstrained >= -primalTol):
+        return np.maximum(unconstrained, 0.0).astype(np.float32)
+
+    projectedSweeps = 80
+    projectedTol = 1.0e-20
+    projectedOmega = 1.2
+    solverStart = time.perf_counter()
+    background = np.asarray(
+        cconsenrich.csolveNonnegativeBackgroundProjected(
+            weightTrack,
+            rhsTrack,
+            float(lamSecond),
+            lamFirst=float(lamFirst),
+            initial=np.maximum(unconstrained, 0.0),
+            maxSweeps=projectedSweeps,
+            tol=projectedTol,
+            omega=projectedOmega,
+        ),
+        dtype=np.float64,
+    ).reshape(-1)
+    background = np.nan_to_num(background, nan=0.0, posinf=0.0, neginf=0.0)
+    np.maximum(background, 0.0, out=background)
+    elapsed = time.perf_counter() - solverStart
+    kkt = _nonnegativeBackgroundKKTDiagnostics(
+        systemBanded=systemBanded,
+        rhsTrack=rhsTrack,
+        candidate=background,
+        primalTol=float(primalTol),
+    )
+    logger.info(
+        "backgroundQP: solver=projected_pentadiagonal intervals=%d "
+        "sweeps_max=%d elapsed=%.3fs kktRelMax=%.6g "
+        "freeStationarityRel=%.6g activeDualViolationRel=%.6g "
+        "complementarityRel=%.6g",
+        int(n),
+        int(projectedSweeps),
+        float(elapsed),
+        float(kkt["kkt_rel_max"]),
+        float(kkt["free_stationarity_rel"]),
+        float(kkt["active_dual_violation_rel"]),
+        float(kkt["complementarity_rel"]),
+    )
+    if not bool(kkt["kkt_ok"]):
+        logger.warning(
+            "backgroundKKT: projected nonnegative background solve has large "
+            "residuals intervals=%d free=%d active=%d primalMin=%.6g "
+            "freeStationarityAbs=%.6g activeDualViolationAbs=%.6g "
+            "complementarityAbs=%.6g kktRelMax=%.6g gradientScale=%.6g",
+            int(n),
+            int(kkt["free_count"]),
+            int(kkt["active_count"]),
+            float(kkt["primal_min"]),
+            float(kkt["free_stationarity_abs"]),
+            float(kkt["active_dual_violation_abs"]),
+            float(kkt["complementarity_abs"]),
+            float(kkt["kkt_rel_max"]),
+            float(kkt["gradient_scale"]),
+        )
+    return background.astype(np.float32)
 
 
 def _coerceEBPriorStrength(value: float | int | None) -> float | None:

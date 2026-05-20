@@ -1,5 +1,7 @@
 import textwrap
 import logging
+import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -248,6 +250,7 @@ def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monk
     genomeParams.name: testGenome
     genomeParams.excludeChroms: [chrM]
     countingParams.intervalSizeBP: 50
+    outputParams.plotOptimizationPath: false
     """
 
     nestedYaml = """
@@ -262,6 +265,8 @@ def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monk
         - chrM
     countingParams:
       intervalSizeBP: 50
+    outputParams:
+      plotOptimizationPath: false
     """
 
     dottedPath = writeConfigFile(tmp_path, "config_dotted.yaml", dottedYaml)
@@ -314,6 +319,12 @@ def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monk
     assert type(processDotted) is type(processNested)
     assert observationDotted == observationNested
     assert processDotted == processNested
+
+    outputDotted = configDotted["outputArgs"]
+    outputNested = configNested["outputArgs"]
+    assert outputDotted.plotOptimizationPath is False
+    assert outputNested.plotOptimizationPath is False
+    assert outputDotted == outputNested
 
     samDotted = configDotted["samArgs"]
     samNested = configNested["samArgs"]
@@ -469,6 +480,17 @@ def _case_runtime_defaults_are_centralized(
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == profile[
         "fitParams.ECM_backgroundLengthScaleMultiplier"
     ]
+    assert parsed["fitArgs"].useNonnegativeBackground == profile[
+        "fitParams.useNonnegativeBackground"
+    ]
+    assert (
+        parsed["outputArgs"].plotOptimizationPath
+        is constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
+    )
+    assert (
+        consenrich_core.fitParams().useNonnegativeBackground
+        == constants.FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND
+    )
     assert parsed["countingArgs"].replicateMedianDetrendWindowMultiplier == (
         constants.COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER
     )
@@ -663,6 +685,7 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     genomeParams.name: testGenome
     fitParams.ECM_zeroCenterBackground: false
     fitParams.ECM_zeroCenterReplicateBias: false
+    fitParams.useNonnegativeBackground: false
     fitParams.ECM_backgroundLengthScaleMultiplier: 6
     """
     parsedOverride = readConfig(
@@ -676,6 +699,7 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     )
     assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
     assert parsedOverride["fitArgs"].ECM_zeroCenterReplicateBias is False
+    assert parsedOverride["fitArgs"].useNonnegativeBackground is False
     assert parsedOverride["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(
         6.0
     )
@@ -1387,6 +1411,118 @@ def test_config_model_parameter_field_contracts(tmp_path, monkeypatch, contract_
         ("uncertainty calibration fields", _case_readConfigUsesUncertaintyCalibrationFields),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
+
+
+def test_optimization_path_output_helpers(tmp_path, monkeypatch):
+    diagnostics = {
+        "process_noise_warmup_fit": None,
+        "post_process_noise_fit": {
+            "fixed_background_ecm": [
+                {
+                    "outer_pass": 1,
+                    "outer_objective": 12.5,
+                    "outer_objective_per_cell": 0.5,
+                    "outer_objective_change_per_cell": None,
+                    "outer_objective_threshold_per_cell": 0.01,
+                    "outer_objective_stable": False,
+                    "outer_inner_ecm_converged": False,
+                    "optimization_path": [
+                        {
+                            "iter": 1,
+                            "objective_name": "nll",
+                            "objective_value": 20.0,
+                            "change": 1.0,
+                            "threshold": 0.1,
+                            "converged": False,
+                        },
+                        {
+                            "iter": 2,
+                            "objective_name": "nll",
+                            "objective_value": 19.5,
+                            "change": 0.5,
+                            "threshold": 0.1,
+                            "converged": True,
+                        },
+                    ],
+                }
+            ]
+        },
+    }
+    rows = consenrich_cli._flattenOptimizationPathDiagnostics("chrTest", diagnostics)
+    assert [row["record_order"] for row in rows] == [0, 1, 2]
+    assert rows[0]["path_level"] == "outer"
+    assert rows[1]["path_level"] == "inner"
+    assert rows[-1]["final_solution"] is True
+
+    logPath = tmp_path / "optimization.log"
+    consenrich_cli._writeOptimizationPathLog(rows, str(logPath))
+    lines = logPath.read_text(encoding="utf-8").splitlines()
+    assert lines[0].split("\t") == consenrich_cli.OPTIMIZATION_PATH_COLUMNS
+    assert len(lines) == 4
+
+    with monkeypatch.context() as mp:
+        mp.setitem(sys.modules, "matplotlib", None)
+        assert (
+            consenrich_cli._plotOptimizationPathLog(
+                rows,
+                str(tmp_path / "missing.png"),
+            )
+            is False
+        )
+
+    saveCalls = []
+    fakeMatplotlib = types.ModuleType("matplotlib")
+    fakePyplot = types.ModuleType("matplotlib.pyplot")
+
+    class FakeFigure:
+        def savefig(self, path, dpi=None):
+            saveCalls.append((path, dpi))
+
+    class FakeAxis:
+        def plot(self, *args, **kwargs):
+            return None
+
+        def scatter(self, *args, **kwargs):
+            return None
+
+        def annotate(self, *args, **kwargs):
+            return None
+
+        def set_title(self, *args, **kwargs):
+            return None
+
+        def set_xlabel(self, *args, **kwargs):
+            return None
+
+        def set_ylabel(self, *args, **kwargs):
+            return None
+
+        def grid(self, *args, **kwargs):
+            return None
+
+        def legend(self, *args, **kwargs):
+            return None
+
+    fakeMatplotlib.use = lambda *args, **kwargs: None
+    fakePyplot.rcParams = {}
+    fakePyplot.subplots = lambda *args, **kwargs: (FakeFigure(), FakeAxis())
+    fakePyplot.close = lambda *args, **kwargs: None
+    fakeMatplotlib.pyplot = fakePyplot
+    with monkeypatch.context() as mp:
+        mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
+        mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
+        assert (
+            consenrich_cli._plotOptimizationPathLog(
+                rows,
+                str(tmp_path / "optimization.png"),
+            )
+            is True
+        )
+    assert saveCalls == [(str(tmp_path / "optimization.png"), 300)]
+    assert (
+        consenrich_cli._optimizationPathPrefix("exp name", "chr1/random")
+        == f"consenrichOutput_exp_name_chr1_random_optimizationPath.v{consenrich_cli.__version__}"
+    )
 
 
 def test_config_sparse_sample_source_and_matching_contracts(
