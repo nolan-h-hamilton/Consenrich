@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import consenrich.constants as constants
 import consenrich.io as consenrich_io
 import consenrich.peaks as peaks
 
@@ -760,11 +761,17 @@ def _caseSolutionToChromNarrowPeakRowsDropsMedianBelowNegativeScaledLocalMedianP
     assert [int(rows[1][1]), int(rows[1][2])] == [int(intervals[25]), int(ends[34])]
     assert rowMeta[0]["median_state"] == pytest.approx(-2.0)
     assert rowMeta[0]["local_median_p"] == pytest.approx(1.0)
-    assert rowMeta[0]["median_signal_threshold"] == pytest.approx(-2.5)
+    assert rowMeta[0]["median_signal_threshold"] == pytest.approx(
+        -constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
+    )
     assert rowMeta[1]["median_state"] == pytest.approx(2.0)
     assert rowMeta[1]["local_median_p"] == pytest.approx(1.0)
-    assert rowMeta[1]["median_signal_threshold"] == pytest.approx(-2.5)
-    assert exportDetails["median_signal_local_p_multiplier"] == pytest.approx(2.5)
+    assert rowMeta[1]["median_signal_threshold"] == pytest.approx(
+        -constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
+    )
+    assert exportDetails["median_signal_local_p_multiplier"] == pytest.approx(
+        constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
+    )
     assert exportDetails["median_signal_local_p_filter_active"] is True
     assert exportDetails["num_candidate_segments"] == 3
     assert exportDetails["num_segments_dropped_median_signal_local_p"] == 1

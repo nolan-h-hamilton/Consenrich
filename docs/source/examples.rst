@@ -3,9 +3,7 @@ Quickstart + Usage
 
 After installing Consenrich, you can run it from the command line
 (``consenrich -h``) or programmatically using the Python/Cython :ref:`API`.
-The examples below are intentionally small: each YAML runs on chromosomes 21
-and 22 so the demos finish quickly while still producing state bigWigs,
-uncertainty bigWigs, and ROCCO peak calls.
+The examples below are intentionally short demos on a couple chromosomes.
 
 .. toctree::
    :maxdepth: 1
@@ -410,15 +408,30 @@ Results
 Configuration Suggestions
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Consenrich provides data-driven defaults so most analyses do not require
-tuning. If a dataset needs adjustment, these parameters are often the most
-useful first levers:
+Consenrich offers data-driven defaults so that many analyses should not require
+exhaustive tuning. If a specific experiment requires adjustments, here are some suggestions:
 
-#. ``countingParams.intervalSizeBP`` controls the genomic bin size. A 50 bp
-   interval is a good generic starting point for many narrow and enhancer-like
-   assays. Smaller intervals can preserve sharper details, while larger
-   intervals can stabilize broad or noisy marks at lower computational cost.
-#. ``fitParams.ECM_backgroundLengthScaleMultiplier`` multiplies the inferred
-   dependence span to define the effective background length scale. Larger
-   values, such as 32, encourage a flatter background and reduce the chance
-   that local features are absorbed by the background model.
+Want stronger (weaker) shrinkage to the smooth prior process model?
+
+* ``processParams.stateModel``: Default is ``levelTrend``. Use ``level`` for a
+  stronger smoothness assumption when a separate slope state is not supported by
+  the data.
+* ``processParams.minQ``: Decrease the level-noise floor to permit smoother
+  state estimates. Increase it only when the fitted state is too stiff.
+
+Want broader (narrower) signal resolution?
+
+* ``countingParams.intervalSizeBP``: Default is 25 bp. Consider larger bins for broader signal targets or shallow sequencing depth (for example: 100-250bp for H3K4me1, H3K27me3, H3K36me3, etc.).
+  Consider smaller bins (for example: 5-10 bp) to capture narrow signal targets in deeply-sequenced data in assays like ATAC-seq or TF ChIP-seq.
+
+* ``fitParams.ECM_backgroundLengthScaleMultiplier``: Default is 16.0 which mitigates risk of signal-background conflation. Smaller values allow a more flexible background that can adapt to sharper local changes in signal.
+  Note, values below 4.0 may dilute signal estimates and should be used with caution.
+
+Want reduced computational expense?
+
+* ``processParams.processNoiseWarmupECMIters``: Reduce this if process-noise
+  diagnostics are stable across runs.
+* ``fitParams.ECM_fixedBackgroundIters``: Lower this to reduce per-fit ECM work
+  when convergence diagnostics remain acceptable.
+* ``uncertaintyCalibrationParams.enabled``: Disable cross-fit uncertainty
+  calibration when calibrated uncertainty tracks are not needed.

@@ -222,6 +222,90 @@ cpdef tuple cextractHeldoutScores(
     return residual, pState, obsVar, intervalIndex, repIndex, foldIndex
 
 
+cpdef tuple ctargetBlockScores(
+    cnp.float64_t[::1] residual,
+    cnp.float64_t[::1] pState,
+    cnp.float64_t[::1] obsVar,
+    cnp.float64_t[::1] factorByInterval,
+    cnp.int64_t[::1] intervalIndex,
+    cnp.int64_t[::1] blockIndex,
+    cnp.uint8_t[::1] targetBlockMask,
+    double aObs,
+    double varianceFloor,
+):
+    cdef Py_ssize_t n = residual.shape[0]
+    cdef Py_ssize_t blockCount = targetBlockMask.shape[0]
+    if (
+        pState.shape[0] != n
+        or obsVar.shape[0] != n
+        or intervalIndex.shape[0] != n
+        or blockIndex.shape[0] != n
+    ):
+        raise ValueError("target block score inputs have inconsistent dimensions")
+
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] blockScore = np.full(
+        blockCount, -1.0, dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] blockCellCount = np.zeros(
+        blockCount, dtype=np.int64
+    )
+    cdef double[::1] blockScoreView = blockScore
+    cdef cnp.int64_t[::1] blockCellCountView = blockCellCount
+    cdef Py_ssize_t k, interval, block, outCount, outIndex
+    cdef double var, score, r
+
+    with nogil:
+        for k in range(n):
+            block = blockIndex[k]
+            if block < 0 or block >= blockCount:
+                continue
+            if targetBlockMask[block] == 0:
+                continue
+            interval = intervalIndex[k]
+            if interval < 0 or interval >= factorByInterval.shape[0]:
+                continue
+            r = residual[k]
+            if not isfinite(r):
+                continue
+            var = factorByInterval[interval] * pState[k] + aObs * obsVar[k]
+            if not isfinite(var) or var <= varianceFloor:
+                continue
+            score = fabs(r) / sqrt(var)
+            if not isfinite(score):
+                continue
+            if score > blockScoreView[block]:
+                blockScoreView[block] = score
+            blockCellCountView[block] += 1
+
+    outCount = 0
+    for block in range(blockCount):
+        if blockCellCountView[block] > 0 and blockScoreView[block] >= 0.0:
+            outCount += 1
+
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] blockOut = np.empty(
+        outCount, dtype=np.int64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scoreOut = np.empty(
+        outCount, dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] countOut = np.empty(
+        outCount, dtype=np.int64
+    )
+    cdef cnp.int64_t[::1] blockOutView = blockOut
+    cdef double[::1] scoreOutView = scoreOut
+    cdef cnp.int64_t[::1] countOutView = countOut
+
+    outIndex = 0
+    for block in range(blockCount):
+        if blockCellCountView[block] > 0 and blockScoreView[block] >= 0.0:
+            blockOutView[outIndex] = block
+            scoreOutView[outIndex] = blockScoreView[block]
+            countOutView[outIndex] = blockCellCountView[block]
+            outIndex += 1
+
+    return blockOut, scoreOut, countOut
+
+
 cpdef double cfactorObjective(
     real_t[::1] theta,
     real_t[::1] residual,

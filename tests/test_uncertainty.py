@@ -14,7 +14,6 @@ def _smallRunKwargs():
         deltaF=0.15,
         minQ=1.0e-4,
         maxQ=1.0,
-        offDiagQ=0.0,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -70,6 +69,23 @@ def _caseFitFactorModelAllowsInflationAndDeflation():
 
     assert float(np.exp(betaSmall[0])) < 1.0
     assert float(np.exp(betaLarge[0])) > 1.0
+
+
+def _casePacOrderIndexExamples():
+    assert uncertainty._pacOrderIndex(59, 0.95, 0.05) == 59
+    assert uncertainty._pacOrderIndex(100, 0.95, 0.05) == 99
+    assert uncertainty._pacOrderIndex(200, 0.95, 0.05) == 196
+    assert uncertainty._pacOrderIndex(500, 0.95, 0.05) == 484
+    assert uncertainty._pacOrderIndex(58, 0.95, 0.05) is None
+    assert uncertainty._minBlocksForFiniteBound(0.95, 0.05) == 59
+    bounds = uncertainty._targetCalibrationBounds(
+        np.arange(58, dtype=np.float64),
+        targets=(0.95,),
+        delta=0.05,
+    )
+    assert bounds[0]["certified"] is False
+    assert bounds[0]["q"] == 57.0
+    assert bounds[0]["q_source"] == "empirical_max_uncertified"
 
 
 def _pythonFeatureMatrix(state, stateVar, matrixMunc):
@@ -178,6 +194,32 @@ def _caseCythonHeldoutExtractionAndFactorEvaluation():
     )
     assert np.allclose(factor, 2.0)
     assert np.allclose(calibrated, np.sqrt(2.0 * pState))
+
+
+def _caseCythonTargetBlockScores():
+    residual = np.array([1.0, 4.0, 3.0, 100.0, np.nan, 6.0], dtype=np.float64)
+    pState = np.ones(residual.size, dtype=np.float64)
+    obsVar = np.zeros(residual.size, dtype=np.float64)
+    factorByInterval = np.array([1.0, 4.0, 1.0, 1.0], dtype=np.float64)
+    intervalIndex = np.array([0, 1, 2, 3, 0, 1], dtype=np.int64)
+    blockIndex = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    targetMask = np.array([1, 0, 1], dtype=np.uint8)
+
+    blocks, scores, counts = cuncertainty.ctargetBlockScores(
+        residual,
+        pState,
+        obsVar,
+        factorByInterval,
+        intervalIndex,
+        blockIndex,
+        targetMask,
+        1.0,
+        float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+    )
+
+    assert blocks.tolist() == [0, 2]
+    assert np.allclose(scores, [2.0, 3.0])
+    assert counts.tolist() == [2, 1]
 
 
 def _caseCythonObjectiveAndSummaryContracts():
@@ -368,6 +410,14 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path):
     with open(modelPath, "r", encoding="utf-8") as handle:
         model = json.load(handle)
     assert "objective" in model
+    assert model["target_calibration"]["enabled"] is True
+    assert model["target_calibration"]["delta"] == params.targetCalibrationDelta
+    assert model["target_calibration"]["score_definition"] == (
+        "max_abs_residual_over_predictive_sd_by_block"
+    )
+    assert len(model["target_calibration"]["bounds"]) == len(params.targets)
+    assert model["target_calibration"]["scale_uncertainty_by_target_calibration"] is True
+    assert model["target_calibration"]["uncertainty_track_scaled"] is True
     assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(model)
     assert model["state_roughness"]["block_len_intervals"] == (
         diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
@@ -399,7 +449,7 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path):
     assert not (tmp_path / "cal.scores.tsv.gz").exists()
 
 
-def _caseCalibrationRefitsUseCheapProcessQWarmup(monkeypatch):
+def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
     n = 32
     m = 3
     grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
@@ -436,9 +486,7 @@ def _caseCalibrationRefitsUseCheapProcessQWarmup(monkeypatch):
     monkeypatch.setattr(core, "runConsenrich", _fakeRunConsenrich)
 
     runKwargs = _smallRunKwargs()
-    runKwargs["processQCalibration"] = core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-    runKwargs["processQWarmupECMIters"] = 5
-    runKwargs["processQWarmupOuterIters"] = 3
+    runKwargs["processNoiseWarmupECMIters"] = 5
     params = core.uncertaintyCalibrationParams(
         enabled=True,
         folds=2,
@@ -471,13 +519,12 @@ def _caseCalibrationRefitsUseCheapProcessQWarmup(monkeypatch):
     )
     assert all(kwargs["ECM_fixedBackgroundIters"] == 2 for kwargs in capturedKwargs)
     assert all(
-        kwargs["processQWarmupECMIters"]
-        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_ECM_ITERS
+        kwargs["processNoiseWarmupECMIters"]
+        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_NOISE_WARMUP_ECM_ITERS
         for kwargs in capturedKwargs
     )
     assert all(
-        kwargs["processQWarmupOuterIters"]
-        == core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_OUTER_ITERS
+        "processQWarmupOuterIters" not in kwargs
         for kwargs in capturedKwargs
     )
 
@@ -527,12 +574,14 @@ def test_uncertainty_factor_model_contract(contract_case):
         "factor model allows inflation and deflation",
         _caseFitFactorModelAllowsInflationAndDeflation,
     )
+    contract_case("PAC order index examples", _casePacOrderIndexExamples)
 
 
 def test_uncertainty_cython_contracts(contract_case):
     for label, func in (
         ("feature matrix matches Python", _caseCythonFeatureMatrixMatchesPythonForFloat32AndFloat64),
         ("heldout extraction and factor evaluation", _caseCythonHeldoutExtractionAndFactorEvaluation),
+        ("target block scores", _caseCythonTargetBlockScores),
         ("objective and summary contracts", _caseCythonObjectiveAndSummaryContracts),
     ):
         contract_case(label, func)
@@ -542,7 +591,7 @@ def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, contract_
     contract_case("calibration smoke", _caseCalibrateChromosomeStateUncertaintySmoke, tmp_path)
     contract_case(
         "cheap Q warmup policy for calibration refits",
-        _caseCalibrationRefitsUseCheapProcessQWarmup,
+        _caseCalibrationRefitsUseCheapProcessNoiseWarmup,
         monkeypatch,
     )
 

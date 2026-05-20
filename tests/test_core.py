@@ -832,7 +832,6 @@ def _caseReplicateBiasIsAlwaysZeroCentered():
     matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
     matrixQ0 = core.constructMatrixQ(
         minDiagQ=1.0e-6,
-        offDiagQ=0.0,
     ).astype(np.float32, copy=False)
     intervalToBlockMap = np.zeros(n, dtype=np.int32)
 
@@ -884,7 +883,6 @@ def _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer
     matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
     matrixQ0 = core.constructMatrixQ(
         minDiagQ=1.0e-12,
-        offDiagQ=0.0,
     ).astype(np.float32, copy=False)
     intervalToBlockMap = np.zeros(n, dtype=np.int32)
     pad = 1.0e-4
@@ -952,7 +950,6 @@ def _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeig
     matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
     matrixQ0 = core.constructMatrixQ(
         minDiagQ=1.0e-10,
-        offDiagQ=0.0,
     ).astype(np.float32, copy=False)
     intervalToBlockMap = np.zeros(n, dtype=np.int32)
     pad = 1.0e-4
@@ -1013,7 +1010,6 @@ def _caseObservationPrecisionIsIntervalLevelOnly():
     matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
     matrixQ0 = core.constructMatrixQ(
         minDiagQ=1.0e-4,
-        offDiagQ=0.0,
     ).astype(np.float32, copy=False)
     intervalToBlockMap = np.zeros(n, dtype=np.int32)
 
@@ -1056,14 +1052,12 @@ def _caseObservationPrecisionIsIntervalLevelOnly():
             deltaF=0.1,
             minQ=1.0e-4,
             maxQ=0.5,
-            offDiagQ=0.0,
             stateInit=0.0,
             stateCovarInit=1.0,
             boundState=False,
             stateLowerBound=0.0,
             stateUpperBound=0.0,
             blockLenIntervals=4,
-            processQCalibration="none",
             ECM_fixedBackgroundIters=1,
             initialObservationPrecision=np.ones((1, n), dtype=np.float32),
         )
@@ -1221,22 +1215,6 @@ def _caseNormalizeStateModelAcceptsCanonicalValuesOnly():
 
 
 @pytest.mark.correctness
-def _caseNormalizeProcessQCalibrationAcceptsCanonicalValuesOnly():
-    assert (
-        core._normalizeProcessQCalibration(None)
-        == core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-    )
-    assert core._normalizeProcessQCalibration("none") == core.PROCESS_Q_CALIBRATION_NONE
-    assert (
-        core._normalizeProcessQCalibration("regularizedDiagonal")
-        == core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-    )
-    for alias in ("off", "false", "regularized", "diag", "regularized-diagonal"):
-        with pytest.raises(ValueError, match="processQCalibration"):
-            core._normalizeProcessQCalibration(alias)
-
-
-@pytest.mark.correctness
 def _caseExpectedLevelTransitionResidualSumsMatchesPythonReference():
     stateSmoothed = np.asarray([[0.0], [0.4], [0.9], [0.7]], dtype=np.float64)
     stateCovarSmoothed = np.asarray([0.10, 0.20, 0.15, 0.12], dtype=np.float64).reshape(
@@ -1348,31 +1326,91 @@ def _caseLevelForwardBackwardMatchesPythonReference():
 
 
 @pytest.mark.correctness
-def _caseRegularizedProcessQReportsBoundDiagnostics():
-    n = 6
-    stateSmoothed = np.zeros((n, 2), dtype=np.float32)
-    stateCovarSmoothed = np.zeros((n, 2, 2), dtype=np.float32)
-    lagCovSmoothed = np.zeros((n - 1, 2, 2), dtype=np.float32)
+def _caseAdaptiveProcessNoiseReliabilityAndLevelModel():
     matrixF = core.constructMatrixF(1.0).astype(np.float32, copy=False)
+    stateSmoothed = np.asarray(
+        [
+            [0.0, 0.0],
+            [1.0, 0.5],
+            [2.5, 0.7],
+            [4.2, 1.1],
+            [6.3, 1.4],
+        ],
+        dtype=np.float32,
+    )
+    stateCovarSmoothed = np.zeros((stateSmoothed.shape[0], 2, 2), dtype=np.float32)
+    lagCovSmoothed = np.zeros((stateSmoothed.shape[0] - 1, 2, 2), dtype=np.float32)
 
-    matrixQ, info = core._estimateRegularizedDiagonalProcessQ(
+    matrixQ, blockInfo = core._estimateAdaptiveProcessNoise(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
         lagCovSmoothed=lagCovSmoothed,
         matrixF=matrixF,
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
         minQ=1.0e-4,
-        maxQ=1.0,
-        processQLevelTarget=None,
-        processQTrendTarget=None,
-        processQLevelPriorWeight=0.05,
-        processQTrendPriorWeight=1.0,
+        maxQ=10.0,
+        regularizationStrength=1.0,
+        regularizationRatio=0.001,
+        blockLenIntervals=2,
+    )
+    _, changedKnobInfo = core._estimateAdaptiveProcessNoise(
+        stateSmoothed=stateSmoothed,
+        stateCovarSmoothed=stateCovarSmoothed,
+        lagCovSmoothed=lagCovSmoothed,
+        matrixF=matrixF,
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        minQ=1.0e-4,
+        maxQ=10.0,
+        regularizationStrength=99.0,
+        regularizationRatio=0.9,
+        blockLenIntervals=2,
     )
 
-    assert matrixQ[0, 0] == pytest.approx(1.0e-4)
-    assert info["q_level_floor_hit"] == pytest.approx(1.0)
-    assert info["q_trend_floor_hit"] == pytest.approx(0.0)
-    assert info["q_level_final_raw_ratio"] > 10.0
-    assert info["q_trend_final_raw_ratio"] > 10.0
+    assert matrixQ[0, 1] == pytest.approx(0.0)
+    assert matrixQ[1, 0] == pytest.approx(0.0)
+    assert blockInfo["processNoisePolicy"] == "blockHierarchicalEB"
+    assert blockInfo["validBlockCount"] > 0
+    assert blockInfo["validRatioBlockCount"] > 0
+    assert blockInfo["repeatCount"] >= 1
+    assert blockInfo["qLevel"] == pytest.approx(changedKnobInfo["qLevel"])
+    assert blockInfo["qTrend"] == pytest.approx(changedKnobInfo["qTrend"])
+    assert blockInfo["effectiveTrendLevelRatio"] > 0.0
+    assert "q_level" not in blockInfo
+
+    levelState = np.asarray([[0.0], [0.2], [0.5], [0.9]], dtype=np.float32)
+    levelCovar = np.zeros((levelState.shape[0], 1, 1), dtype=np.float32)
+    levelLag = np.zeros((levelState.shape[0] - 1, 1, 1), dtype=np.float32)
+    matrixQLevel, levelInfo = core._estimateAdaptiveProcessNoise(
+        stateSmoothed=levelState,
+        stateCovarSmoothed=levelCovar,
+        lagCovSmoothed=levelLag,
+        matrixF=matrixF,
+        stateModel=core.STATE_MODEL_LEVEL,
+        minQ=1.0e-4,
+        maxQ=1.0,
+        regularizationStrength=1.0,
+        regularizationRatio=0.5,
+        blockLenIntervals=2,
+    )
+    assert matrixQLevel[0, 0] > 0.0
+    assert levelInfo["qTrend"] == pytest.approx(0.0)
+    assert levelInfo["logRatioPriorDf"] == pytest.approx(0.0)
+    assert levelInfo["processNoisePolicy"] == "blockHierarchicalEB"
+
+    matrixQClamped, clampedInfo = core._estimateAdaptiveProcessNoise(
+        stateSmoothed=stateSmoothed * 10.0,
+        stateCovarSmoothed=stateCovarSmoothed,
+        lagCovSmoothed=lagCovSmoothed,
+        matrixF=matrixF,
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        minQ=1.0e-4,
+        maxQ=0.05,
+        regularizationStrength=1.0,
+        regularizationRatio=0.001,
+        blockLenIntervals=2,
+    )
+    assert matrixQClamped[0, 0] == pytest.approx(0.05)
+    assert clampedInfo["qLevel"] == pytest.approx(0.05)
 
 
 @pytest.mark.correctness
@@ -1399,7 +1437,6 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         deltaF=0.1,
         minQ=1.0e-3,
         maxQ=1.0,
-        offDiagQ=0.0,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -1408,7 +1445,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         blockLenIntervals=8,
         ECM_fixedBackgroundIters=3,
         ECM_outerIters=2,
-        processQCalibration="none",
+        processNoiseWarmupECMIters=1,
         returnDiagnostics=True,
     )
 
@@ -1434,16 +1471,45 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert all(value >= 0.0 for value in gainSummary["iqr"])
     assert "background_prior" not in diagnostics
     assert "PHASE: CORE START" in caplog.text
-    assert "PHASE: MODEL FIT" in caplog.text
-    assert "      | PHASE: MODEL FIT" in caplog.text
-    assert "            | PHASE: MODEL FIT / FIXED-BACKGROUND ECM" in caplog.text
+    assert "PHASE: POST-PROCESS-NOISE FIT" in caplog.text
+    assert "      | PHASE: POST-PROCESS-NOISE FIT" in caplog.text
+    assert "            | PHASE: POST-PROCESS-NOISE FIT / FIXED-BACKGROUND ECM" in caplog.text
+    assert "proc precision weights" in caplog.text
     assert "lambdaMean=" in caplog.text
     assert "lambdaMedian=" in caplog.text
-    assert "PHASE: MODEL FIT SUMMARY" in caplog.text
-    fitDiagnostics = diagnostics["post_q_fit"]["fixed_background_ecm"]
+    assert "PHASE: POST-PROCESS-NOISE FIT SUMMARY" in caplog.text
+    fitDiagnostics = diagnostics["post_process_noise_fit"]["fixed_background_ecm"]
     assert fitDiagnostics
     assert "observation_lambda_mean" in fitDiagnostics[-1]
     assert "observation_lambda_median" in fitDiagnostics[-1]
+    qInfo = diagnostics["process_noise_calibration"]
+    assert qInfo["processNoisePolicy"] == "blockHierarchicalEB"
+    assert diagnostics["process_q_calibration"] == qInfo
+    assert qInfo["qLevel"] > 0.0
+    assert qInfo["qTrend"] > 0.0
+
+    outChangedKnobs = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.1,
+        minQ=1.0e-3,
+        maxQ=1.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=8,
+        ECM_fixedBackgroundIters=3,
+        ECM_outerIters=2,
+        regularizationStrength=0.0,
+        regularizationRatio=0.9,
+        processNoiseWarmupECMIters=1,
+        returnDiagnostics=True,
+    )
+    changedInfo = outChangedKnobs[-1]["process_noise_calibration"]
+    assert changedInfo["qLevel"] == pytest.approx(qInfo["qLevel"])
+    assert changedInfo["qTrend"] == pytest.approx(qInfo["qTrend"])
 
 
 @pytest.mark.correctness
@@ -1469,7 +1535,6 @@ def _caseRunConsenrichLevelStateModelSmoke():
         deltaF=-10.0,
         minQ=1.0e-4,
         maxQ=1.0,
-        offDiagQ=0.75,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -1481,11 +1546,8 @@ def _caseRunConsenrichLevelStateModelSmoke():
         ECM_minOuterIters=1,
         ECM_useProcessPrecisionReweighting=True,
         ECM_useAPN=False,
-        processQCalibration="regularizedDiagonal",
-        processQWarmupECMIters=1,
-        processQWarmupOuterIters=1,
-        processQTrendTarget=123.0,
-        processQTrendPriorWeight=99.0,
+        regularizationRatio=0.5,
+        processNoiseWarmupECMIters=1,
         returnDiagnostics=True,
     )
 
@@ -1505,17 +1567,17 @@ def _caseRunConsenrichLevelStateModelSmoke():
         core.getPrimaryState(stateSmoothed),
         np.round(stateSmoothed[:, 0].astype(np.float32), decimals=4),
     )
-    qInfo = runDiagnostics["process_q_calibration"]
+    qInfo = runDiagnostics["process_noise_calibration"]
     assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
-    assert qInfo["q_level"] > 0.0
-    assert qInfo["q_trend"] == pytest.approx(0.0)
-    assert qInfo["q_trend_target"] == pytest.approx(0.0)
-    assert qInfo["q_trend_prior_weight"] == pytest.approx(0.0)
-    assert qInfo["q_trend_final_raw_ratio"] == pytest.approx(0.0)
+    assert qInfo["processNoisePolicy"] == "blockHierarchicalEB"
+    assert qInfo["qLevel"] > 0.0
+    assert qInfo["qTrend"] == pytest.approx(0.0)
+    assert qInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
+    assert qInfo["logRatioPriorDf"] == pytest.approx(0.0)
 
 
 @pytest.mark.correctness
-def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypatch):
+def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     rng = np.random.default_rng(7)
     n = 36
     m = 3
@@ -1551,7 +1613,6 @@ def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypa
         deltaF=1.0,
         minQ=1.0e-3,
         maxQ=0.5,
-        offDiagQ=0.0,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -1562,8 +1623,7 @@ def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypa
         ECM_outerIters=1,
         ECM_useProcessPrecisionReweighting=True,
         ECM_useAPN=False,
-        processQCalibration="regularizedDiagonal",
-        processQWarmupECMIters=1,
+        processNoiseWarmupECMIters=1,
         returnDiagnostics=True,
     )
 
@@ -1572,7 +1632,7 @@ def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypa
     )
     assert (
         len(ecmModes[:firstPostQIndex])
-        >= core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
+        >= core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES
     )
     assert all(mode == (False, False) for mode in ecmModes[:firstPostQIndex])
     assert all(mode == (True, False) for mode in ecmModes[firstPostQIndex:])
@@ -1583,11 +1643,11 @@ def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypa
     assert np.all(np.isfinite(stateSmoothed))
     assert np.all(np.isfinite(stateCovarSmoothed))
     assert (
-        diagnostics["process_q_warmup_fit"]["actual_outer_passes"]
-        == core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
+        diagnostics["process_noise_warmup_fit"]["actual_outer_passes"]
+        == core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES
     )
-    assert diagnostics["post_q_fit"]["actual_outer_passes"] >= 1
-    assert diagnostics["post_q_fit"]["outer_stop_reason"] in {
+    assert diagnostics["post_process_noise_fit"]["actual_outer_passes"] >= 1
+    assert diagnostics["post_process_noise_fit"]["outer_stop_reason"] in {
         "background_shift_and_nll",
         "background_objective_inner_stable",
         "max_outer_passes",
@@ -1595,10 +1655,10 @@ def _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting(monkeypa
         "max_outer_passes_objective",
         "max_outer_passes_patience",
     }
-    assert "outer_nll_change" in diagnostics["post_q_fit"]
-    assert "outer_objective_change_per_cell" in diagnostics["post_q_fit"]
-    assert diagnostics["post_q_fit"]["outer_patience_target"] == 2
-    assert diagnostics["process_q_calibration"]["q_level_floor_hit"] in (0.0, 1.0)
+    assert "outer_nll_change" in diagnostics["post_process_noise_fit"]
+    assert "outer_objective_change_per_cell" in diagnostics["post_process_noise_fit"]
+    assert diagnostics["post_process_noise_fit"]["outer_patience_target"] == 2
+    assert diagnostics["process_noise_calibration"]["qLevel"] >= 1.0e-3
 
 
 @pytest.mark.correctness
@@ -1634,7 +1694,6 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
         deltaF=1.0,
         minQ=1.0e-4,
         maxQ=0.5,
-        offDiagQ=0.0,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -1645,16 +1704,15 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
         ECM_useProcessPrecisionReweighting=True,
         ECM_useAPN=False,
         fitBackground=False,
-        processQCalibration="regularizedDiagonal",
         initialProcessQ=initialQ,
         returnDiagnostics=True,
     )
 
     diagnostics = out[-1]
     assert ecmModes == [(True, False)]
-    assert diagnostics["process_q_warmup_fit"] is None
-    assert diagnostics["process_q_calibration"]["warm_start_process_q"] == 1.0
-    assert diagnostics["post_q_fit"]["warm_start"]["background"] is False
+    assert diagnostics["process_noise_warmup_fit"] is None
+    assert diagnostics["process_noise_calibration"]["warmStartProcessNoise"] == 1.0
+    assert diagnostics["post_process_noise_fit"]["warm_start"]["background"] is False
 
 
 @pytest.mark.correctness
@@ -1688,7 +1746,6 @@ def _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance(monkeypat
         deltaF=0.2,
         minQ=1.0e-3,
         maxQ=0.5,
-        offDiagQ=0.0,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -1698,7 +1755,7 @@ def _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance(monkeypat
         ECM_fixedBackgroundIters=3,
         ECM_fixedBackgroundRtol=1.0e9,
         ECM_backgroundShiftRtol=1.0e9,
-        processQCalibration="none",
+        initialProcessQ=np.diag([1.0e-3, 1.0e-5]).astype(np.float32),
     )
 
     core.runConsenrich(**commonKwargs, ECM_outerIters=5, ECM_outerNLLRtol=1.0e9)
@@ -2799,7 +2856,6 @@ def _caseRunConsenrichAPNSmoke():
         deltaF=0.1,
         minQ=1.0e-3,
         maxQ=0.5,
-        offDiagQ=0.0,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -2858,7 +2914,6 @@ def _caseRunConsenrichAlwaysRunsECMWithAPN(
         deltaF=0.1,
         minQ=1.0e-3,
         maxQ=0.5,
-        offDiagQ=0.0,
         stateInit=0.0,
         stateCovarInit=1.0,
         boundState=False,
@@ -3560,14 +3615,10 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         ("precision boundary summary", _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight),
         ("removed process block scale options", _caseFitParamsDropsProcBlockScaleOptions),
         ("state model normalization", _caseNormalizeStateModelAcceptsCanonicalValuesOnly),
-        (
-            "process Q calibration normalization",
-            _caseNormalizeProcessQCalibrationAcceptsCanonicalValuesOnly,
-        ),
         ("transition residual orientation", _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF),
         ("transition residual reference", _caseExpectedTransitionResidualSumsMatchesPythonReference),
         ("level transition residual reference", _caseExpectedLevelTransitionResidualSumsMatchesPythonReference),
-        ("process Q bound diagnostics", _caseRegularizedProcessQReportsBoundDiagnostics),
+        ("block EB process noise", _caseAdaptiveProcessNoiseReliabilityAndLevelModel),
         ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
         ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),
         ("monotone pooling removed", _caseMonotonePoolingSourceSymbolsAbsent),
@@ -3584,11 +3635,11 @@ def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
     )
     for label, func in (
         (
-            "process Q calibration warmup",
-            _caseRunConsenrichProcessQCalibrationWarmupRestoresFinalReweighting,
+            "process noise warmup",
+            _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting,
         ),
         (
-            "initial process Q skips warmup",
+            "initial process noise skips warmup",
             _caseRunConsenrichInitialProcessQSkipsWarmup,
         ),
         (

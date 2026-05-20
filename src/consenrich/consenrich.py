@@ -22,6 +22,7 @@ import consenrich.diagnostics as diagnostics
 import consenrich.detrorm as detrorm
 import consenrich.peaks as peaks
 from . import cconsenrich
+from . import constants
 from . import misc_util
 from ._version import __version__
 from . import io as io_helpers
@@ -48,8 +49,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-
 
 
 def _fmtDiagnosticFloat(value: Any) -> str:
@@ -166,6 +165,13 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     def yn(value: Any) -> str:
         return "yes" if bool(value) else "no"
 
+    controlInputCount = len(getattr(inputArgs, "controlSources", []) or [])
+    controlsPresent = checkControlsPresent(inputArgs)
+    replicateDetrendEnabled, replicateDetrendLabel = _resolveReplicateDetrendStatus(
+        countingArgs,
+        controlsPresent=controlsPresent,
+    )
+
     rows = (
         ("version", __version__),
         ("experiment", config.get("experimentName", "")),
@@ -173,32 +179,24 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("genome", getattr(genomeArgs, "genomeName", "")),
         ("chromosome count", len(getattr(genomeArgs, "chromosomes", []) or [])),
         ("treatment inputs", len(getattr(inputArgs, "treatmentSources", []) or [])),
-        ("control inputs", len(getattr(inputArgs, "controlSources", []) or [])),
+        ("control inputs", controlInputCount),
         ("interval bp", int(countingArgs.intervalSizeBP)),
         ("normalization", countingArgs.normMethod),
-        (
-            "replicate detrend",
-            (
-                "quantile="
-                f"{float(countingArgs.gentleDetrendQuantile):.3g} x"
-                f"{float(countingArgs.replicateMedianDetrendWindowMultiplier):.3g}"
-                if bool(countingArgs.replicateMedianDetrend)
-                else "no"
-            ),
-        ),
+        ("replicate detrend", replicateDetrendLabel),
         ("MUNC variance EB", yn(observationArgs.EB_use)),
         ("MUNC sampling iters", int(observationArgs.samplingIters)),
         ("ECM max iters", int(fitArgs.ECM_fixedBackgroundIters)),
         ("outer passes", int(fitArgs.ECM_outerIters)),
         ("background model", yn(fitArgs.fitBackground)),
         ("state model", processArgs.stateModel),
-        ("process Q mode", processArgs.processQCalibration),
+        ("process noise reg", float(processArgs.regularizationStrength)),
+        ("trend/level ratio", float(processArgs.regularizationRatio)),
         (
-            "process Q warmup",
-            f"{int(processArgs.processQWarmupOuterIters)} outer passes x "
-            f"{int(processArgs.processQWarmupECMIters)} ECM iters",
+            "process noise warmup",
+            f"{int(core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES)} outer passes x "
+            f"{int(processArgs.processNoiseWarmupECMIters)} ECM iters",
         ),
-        ("uncertainty cal", yn(uncertaintyArgs.enabled)),
+        ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
         ("bigWig output", yn(outputArgs.convertToBigWig)),
     )
@@ -207,10 +205,31 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         core._formatAsciiLogBlock("initial configuration", rows),
         stacklevel=2,
     )
+    if bool(countingArgs.replicateMedianDetrend) and not replicateDetrendEnabled:
+        logger.info(
+            "replicate quantile detrend disabled because control inputs are present; "
+            "treatment/control tracks are already log-ratios."
+        )
+
+
+def _resolveReplicateDetrendStatus(
+    countingArgs: core.countingParams,
+    controlsPresent: bool,
+) -> tuple[bool, str]:
+    if not bool(countingArgs.replicateMedianDetrend):
+        return False, "no"
+    if bool(controlsPresent):
+        return False, "no (control log-ratio)"
+    return (
+        True,
+        "quantile="
+        f"{float(countingArgs.gentleDetrendQuantile):.3g} x"
+        f"{float(countingArgs.replicateMedianDetrendWindowMultiplier):.3g}",
+    )
 
 
 _DEPENDENCE_MIN_CONTEXT_BP = 500
-_DEPENDENCE_MAX_CONTEXT_BP = 50000
+_DEPENDENCE_MAX_CONTEXT_BP = 100_000
 
 
 def _oddIntervalsFromBP(
@@ -296,7 +315,8 @@ def _progress(iterable, **kwargs):
     kwargs.setdefault("dynamic_ncols", True)
     return tqdm(iterable, disable=False, **kwargs)
 
-def main():
+
+def _buildArgParser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Consenrich CLI")
     parser.add_argument(
         "--config",
@@ -329,50 +349,56 @@ def main():
     parser.add_argument(
         "--match-tau0",
         type=float,
-        default=1.0,
+        default=constants.MATCHING_DEFAULT_TAU0,
         dest="matchTau0",
         help="Shrinkage-score pseudovariance parameter; direct ROCCO scoring uses the fitted state values.",
     )
     parser.add_argument(
         "--match-num-bootstrap",
         type=int,
-        default=128,
+        default=constants.MATCHING_DEFAULT_NUM_BOOTSTRAP,
         dest="matchNumBootstrap",
         help="Number of dependent wild-bootstrap null draws used for budget calibration.",
     )
     parser.add_argument(
         "--match-threshold-z",
         type=float,
-        default=2.0,
+        default=constants.MATCHING_DEFAULT_THRESHOLD_Z,
         dest="matchThresholdZ",
         help="One-sided Gaussian z-threshold used when calibrating null tail occupancy.",
     )
     parser.add_argument(
         "--match-nested-rocco-iters",
         type=int,
-        default=3,
+        default=constants.MATCHING_DEFAULT_NESTED_ROCCO_ITERS,
         dest="matchNestedRoccoIters",
         help="Number of monotone nested ROCCO refinement iterations within first-pass peaks. Set to 0 to disable.",
     )
     parser.add_argument(
         "--match-nested-rocco-budget-scale",
         type=float,
-        default=0.5,
+        default=constants.MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE,
         dest="matchNestedRoccoBudgetScale",
         help="Optional fraction of each eligible first-pass peak region available to nested ROCCO refinement.",
     )
     parser.add_argument(
         "--match-export-filter-c",
         type=float,
-        default=2.5,
+        default=constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER,
         dest="matchExportFilterUncertaintyMultiplier",
         help=(
             "Multiplier c in the final ROCCO export filter "
-            "`medianState < -c * median(local uncertainty)`. Default: 2.5. "
+            "`medianState < -c * median(local uncertainty)`. "
+            f"Default: {constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER:g}. "
             "Setting c=0 requires exported peaks to have positive median signal."
         ),
     )
-    parser.add_argument("--match-seed", type=int, default=42, dest="matchRandSeed")
+    parser.add_argument(
+        "--match-seed",
+        type=int,
+        default=constants.MATCHING_DEFAULT_RAND_SEED,
+        dest="matchRandSeed",
+    )
     parser.add_argument("--verbose", action="store_true", help="If set, logs config")
     parser.add_argument(
         "--verbose2",
@@ -383,6 +409,11 @@ def main():
         action="version",
         version=f"Consenrich v{__version__}",
     )
+    return parser
+
+
+def main():
+    parser = _buildArgParser()
     args = parser.parse_args()
 
     if args.matchBedGraph:
@@ -395,7 +426,9 @@ def main():
             raise FileNotFoundError(
                 f"uncertainty bedGraph file {uncertaintyBedGraph} couldn't be found."
             )
-        if args.matchBlacklistBed is not None and not os.path.exists(args.matchBlacklistBed):
+        if args.matchBlacklistBed is not None and not os.path.exists(
+            args.matchBlacklistBed
+        ):
             raise FileNotFoundError(
                 f"blacklist BED file {args.matchBlacklistBed} couldn't be found."
             )
@@ -469,7 +502,6 @@ def main():
     maxR_ = observationArgs.maxR
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
-    offDiagQ_ = processArgs.offDiagQ
     samplingBlockSizeBP_ = observationArgs.samplingBlockSizeBP
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
     backgroundBlockSizeIntervals = (
@@ -1263,7 +1295,11 @@ def main():
                     int(depUpper),
                 )
 
-        if bool(countingArgs.replicateMedianDetrend):
+        replicateDetrendEnabled, _ = _resolveReplicateDetrendStatus(
+            countingArgs,
+            controlsPresent=controlsPresent,
+        )
+        if replicateDetrendEnabled:
             detrendWindowIntervals = _resolveRuntimeReplicateDetrendWindow(
                 dependenceContextBP_,
                 int(backgroundBlockSizeBP_),
@@ -1349,6 +1385,12 @@ def main():
                 madMedian,
                 time.perf_counter() - detrendStart,
             )
+        elif bool(countingArgs.replicateMedianDetrend) and controlsPresent:
+            logger.info(
+                "replicate quantile detrend.skip %s samples=%d reason=control-log-ratio",
+                chromosome,
+                int(numSamples),
+            )
 
         return intervals, np.ascontiguousarray(chromMat, dtype=np.float32)
 
@@ -1361,7 +1403,9 @@ def main():
             1,
             int(float(samplingBlockSizeBP_) / float(intervalSizeBP)),
         )
-        blacklistExcludeMask = _getChromBlacklistMask(str(chromosomePlans[c_]["chromosome"]), intervals)
+        blacklistExcludeMask = _getChromBlacklistMask(
+            str(chromosomePlans[c_]["chromosome"]), intervals
+        )
         intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
         for j in range(numSamples):
             blockMeans, blockVars, starts, _ends = cconsenrich.cmeanVarPairs(
@@ -1442,7 +1486,7 @@ def main():
         pooledNuL = float(observationArgs.EB_setNuL)
     else:
         pooledNuL = float(max(4, pooledLocalWindowIntervals - 3))
-    pooledNu0Cap = 50.0 * float(pooledNuL)
+    pooledNu0Cap = 100.0 * float(pooledNuL)
 
     varianceFloorForTrend = minR_ if minR_ is not None and minR_ > 0.0 else 1.0e-2
     varianceCapForTrend = maxR_ if maxR_ is not None and maxR_ > 0.0 else None
@@ -1828,15 +1872,21 @@ def main():
             finiteMunc = muncMat[finiteMask]
             minR_ = np.float32(
                 max(
-                    np.quantile(finiteMunc, 0.01) if finiteMunc.size else 1.0e-4,
-                    1.0e-4,
+                    (
+                        np.float32(np.quantile(muncMat, 0.025) + 1.0e-2)
+                        if finiteMunc.size
+                        else 1.0e-3
+                    ),
+                    1.0e-3,
                 )
             )
             logger.info(
                 "observationParams.minR < 0 or observationParams.maxR < 0 --> applying minimal numerically stable bounds for conditioning",
             )
         if blacklistedIntervals:
-            floors = core.applyBlacklistMuncFloor(muncMat, muncExcludeMask, float(minR_))
+            floors = core.applyBlacklistMuncFloor(
+                muncMat, muncExcludeMask, float(minR_)
+            )
             logger.info(
                 "munc matrix: applied blacklist floors (chrom=%s, min=%.4g, median=%.4g, max=%.4g).",
                 chromosome,
@@ -1861,8 +1911,14 @@ def main():
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(max(np.quantile(muncMat, 0.01), 1.0e-4))
-            autoMinQ = max((0.001 * minR_) * (1 + deltaF_), 1.0e-6)
+                minR_ = np.float32(np.quantile(muncMat, 0.025) + 1.0e-2)
+            effectiveDeltaFForMinQ = (
+                1.0
+                if core._normalizeStateModel(processArgs.stateModel)
+                == core.STATE_MODEL_LEVEL
+                else deltaF_
+            )
+            autoMinQ = (1.0e-2 * minR_) + 1.0e-6
             logger.info(
                 "processParams.minQ < 0 or processParams.maxQ < 0 --> applying minimal numerically stable bounds for conditioning",
             )
@@ -1871,7 +1927,7 @@ def main():
             else:
                 minQ_ = np.float32(processArgs.minQ)
             if processArgs.maxQ < 0.0:
-                maxQ_ = minQ_
+                maxQ_ = np.float32(np.inf)
             else:
                 maxQ_ = np.float32(max(processArgs.maxQ, minQ_))
         else:
@@ -1922,15 +1978,14 @@ def main():
         runResult = core.runConsenrich(
             chromMat,
             muncMat,
-            deltaF_,
-            minQ_,
-            maxQ_,
-            offDiagQ_,
-            stateArgs.stateInit,
-            stateArgs.stateCovarInit,
-            stateArgs.boundState,
-            stateArgs.stateLowerBound,
-            stateArgs.stateUpperBound,
+            deltaF=deltaF_,
+            minQ=minQ_,
+            maxQ=maxQ_,
+            stateInit=stateArgs.stateInit,
+            stateCovarInit=stateArgs.stateCovarInit,
+            boundState=stateArgs.boundState,
+            stateLowerBound=stateArgs.stateLowerBound,
+            stateUpperBound=stateArgs.stateUpperBound,
             blockLenIntervals=blockLenIntervals_,
             returnScales=True,
             returnReplicateOffsets=True,
@@ -1949,14 +2004,10 @@ def main():
             ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
             ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
             ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-            processQCalibration=processArgs.processQCalibration,
             stateModel=processArgs.stateModel,
-            processQWarmupECMIters=processArgs.processQWarmupECMIters,
-            processQWarmupOuterIters=processArgs.processQWarmupOuterIters,
-            processQLevelTarget=processArgs.processQLevelTarget,
-            processQTrendTarget=processArgs.processQTrendTarget,
-            processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
-            processQTrendPriorWeight=processArgs.processQTrendPriorWeight,
+            regularizationStrength=processArgs.regularizationStrength,
+            regularizationRatio=processArgs.regularizationRatio,
+            processNoiseWarmupECMIters=processArgs.processNoiseWarmupECMIters,
             observationPrecisionMultiplierMin=observationArgs.precisionMultiplierMin,
             observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
             processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
@@ -2035,10 +2086,10 @@ def main():
             backgroundWarmStart = np.zeros(int(numIntervals), dtype=np.float32)
 
         initialProcessQWarmStart = None
-        processQDiagnostics = runDiagnostics.get("process_q_calibration")
-        if isinstance(processQDiagnostics, Mapping):
-            qLevelWarmStart = processQDiagnostics.get("q_level")
-            qTrendWarmStart = processQDiagnostics.get("q_trend")
+        processNoiseDiagnostics = runDiagnostics.get("process_noise_calibration")
+        if isinstance(processNoiseDiagnostics, Mapping):
+            qLevelWarmStart = processNoiseDiagnostics.get("qLevel")
+            qTrendWarmStart = processNoiseDiagnostics.get("qTrend")
             if (
                 core._normalizeStateModel(processArgs.stateModel)
                 == core.STATE_MODEL_LEVEL
@@ -2046,15 +2097,17 @@ def main():
             ):
                 initialProcessQWarmStart = core.constructMatrixQ(
                     minDiagQ=float(minQ_),
-                    offDiagQ=0.0,
                     Q00=float(qLevelWarmStart),
+                    Q01=0.0,
+                    Q10=0.0,
                     Q11=max(float(qLevelWarmStart), float(minQ_)),
                 )
             elif qLevelWarmStart is not None and qTrendWarmStart is not None:
                 initialProcessQWarmStart = core.constructMatrixQ(
                     minDiagQ=float(minQ_),
-                    offDiagQ=0.0,
                     Q00=float(qLevelWarmStart),
+                    Q01=0.0,
+                    Q10=0.0,
                     Q11=float(qTrendWarmStart),
                 )
 
@@ -2148,7 +2201,6 @@ def main():
                 deltaF=deltaF_,
                 minQ=minQ_,
                 maxQ=maxQ_,
-                offDiagQ=offDiagQ_,
                 stateInit=stateArgs.stateInit,
                 stateCovarInit=stateArgs.stateCovarInit,
                 boundState=stateArgs.boundState,
@@ -2171,14 +2223,10 @@ def main():
                 ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
                 ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
                 ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-                processQCalibration=processArgs.processQCalibration,
                 stateModel=processArgs.stateModel,
-                processQWarmupECMIters=processArgs.processQWarmupECMIters,
-                processQWarmupOuterIters=processArgs.processQWarmupOuterIters,
-                processQLevelTarget=processArgs.processQLevelTarget,
-                processQTrendTarget=processArgs.processQTrendTarget,
-                processQLevelPriorWeight=processArgs.processQLevelPriorWeight,
-                processQTrendPriorWeight=processArgs.processQTrendPriorWeight,
+                regularizationStrength=processArgs.regularizationStrength,
+                regularizationRatio=processArgs.regularizationRatio,
+                processNoiseWarmupECMIters=processArgs.processNoiseWarmupECMIters,
                 observationPrecisionMultiplierMin=observationArgs.precisionMultiplierMin,
                 observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
                 processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,

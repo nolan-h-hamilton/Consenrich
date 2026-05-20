@@ -19,40 +19,11 @@ from . import io as io_helpers
 
 logger = logging.getLogger(__name__)
 
-GENERIC_DEFAULT_CONFIGURATION = "generic"
-SUPPORTED_DEFAULT_CONFIGURATIONS = (GENERIC_DEFAULT_CONFIGURATION,)
-DEFAULT_CONFIGURATION_KEYS = (
-    "configuration",
-)
+GENERIC_DEFAULT_CONFIGURATION = constants.GENERIC_DEFAULT_CONFIGURATION
+SUPPORTED_DEFAULT_CONFIGURATIONS = constants.SUPPORTED_DEFAULT_CONFIGURATIONS
+DEFAULT_CONFIGURATION_KEYS = constants.DEFAULT_CONFIGURATION_KEYS
+DEFAULT_CONFIGURATION_VALUES = constants.DEFAULT_CONFIGURATION_VALUES
 
-DEFAULT_CONFIGURATION_VALUES: dict[str, dict[str, Any]] = {
-    GENERIC_DEFAULT_CONFIGURATION: {
-        "fitParams.ECM_fixedBackgroundIters": 50,
-        "fitParams.ECM_fixedBackgroundRtol": 1.0e-6,
-        "fitParams.ECM_outerIters": 32,
-        "fitParams.ECM_minOuterIters": None,
-        "fitParams.ECM_backgroundShiftRtol": 1.0e-6,
-        "fitParams.ECM_outerNLLRtol": 1.0e-4,
-        "fitParams.ECM_backgroundSmoothness": 10.0,  #
-        "fitParams.ECM_backgroundLengthScaleMultiplier": 16.0,  # 8, 16, 32
-        "processParams.processQCalibration": (
-            core.PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-        ),
-        "processParams.processQWarmupECMIters": 5,
-        "processParams.processQWarmupOuterIters": (
-            core.PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
-        ),
-        "processParams.processQLevelPriorWeight": 1.0,
-        "processParams.processQTrendPriorWeight": 10.0,
-        "processParams.stateModel": core.STATE_MODEL_LEVEL_TREND,
-        "processParams.precisionMultiplierMin": 0.1,
-        "processParams.precisionMultiplierMax": 10.0,
-        "observationParams.precisionMultiplierMin": 0.1,
-        "observationParams.precisionMultiplierMax": 10.0,
-        "countingParams.gentleDetrendQuantile": 0.5,
-        "uncertaintyCalibrationParams.enabled": True,
-    }
-}
 
 def loadConfig(
     configSource: Union[str, Path, Mapping[str, Any]],
@@ -98,6 +69,7 @@ def _cfgGet(
             return defaultVal
     return currentVal
 
+
 def _normalizeDefaultConfigurationName(value: Any) -> str:
     if value is None:
         return GENERIC_DEFAULT_CONFIGURATION
@@ -125,17 +97,26 @@ def _cfgDefault(configMap: Mapping[str, Any], dottedKey: str) -> Any:
     configurationName = _getDefaultConfigurationName(configMap)
     return DEFAULT_CONFIGURATION_VALUES[configurationName][dottedKey]
 
+
 def getInputArgs(config_path: str) -> core.inputParams:
     configData = loadConfig(config_path)
-    defaultBarcodeTag = _cfgGet(configData, "scParams.barcodeTag", "CB")
+    defaultBarcodeTag = _cfgGet(
+        configData,
+        "scParams.barcodeTag",
+        constants.SC_DEFAULT_BARCODE_TAG,
+    )
     defaultFragmentPositionMode = _cfgGet(
         configData,
         "scParams.defaultFragmentPositionMode",
-        "insertionEndpoints",
+        constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
     )
     core._normalizeFragmentPositionMode(defaultFragmentPositionMode)
 
-    sampleConfigs = _cfgGet(configData, "inputParams.samples", None)
+    sampleConfigs = _cfgGet(
+        configData,
+        "inputParams.samples",
+        constants.INPUT_DEFAULT_SAMPLES,
+    )
     treatmentSources: List[core.inputSource]
     controlSources: List[core.inputSource]
     if sampleConfigs is not None:
@@ -157,11 +138,25 @@ def getInputArgs(config_path: str) -> core.inputParams:
             source for source in allSources if str(source.role).lower() == "control"
         ]
     else:
-        bamFilesRaw = _cfgGet(configData, "inputParams.bamFiles", []) or []
-        bamFilesControlRaw = (
-            _cfgGet(configData, "inputParams.bamFilesControl", []) or []
+        bamFilesRaw = (
+            _cfgGet(
+                configData,
+                "inputParams.bamFiles",
+                constants.INPUT_DEFAULT_BAM_FILES,
+            )
+            or []
         )
-        treatmentSources = io_helpers._buildPathInputSources(bamFilesRaw, role="treatment")
+        bamFilesControlRaw = (
+            _cfgGet(
+                configData,
+                "inputParams.bamFilesControl",
+                constants.INPUT_DEFAULT_BAM_FILES_CONTROL,
+            )
+            or []
+        )
+        treatmentSources = io_helpers._buildPathInputSources(
+            bamFilesRaw, role="treatment"
+        )
         controlSources = io_helpers._buildPathInputSources(
             bamFilesControlRaw,
             role="control",
@@ -224,11 +219,15 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         io_helpers._pyBigWigAvailable(),
     )
 
-    roundDigits_ = _cfgGet(configData, "outputParams.roundDigits", 3)
+    roundDigits_ = _cfgGet(
+        configData,
+        "outputParams.roundDigits",
+        constants.OUTPUT_DEFAULT_ROUND_DIGITS,
+    )
     writeUncertainty_ = _cfgGet(
         configData,
         "outputParams.writeUncertainty",
-        True,
+        constants.OUTPUT_DEFAULT_WRITE_UNCERTAINTY,
     )
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
@@ -240,7 +239,7 @@ def getOutputArgs(config_path: str) -> core.outputParams:
 def getGenomeArgs(config_path: str) -> core.genomeParams:
     configData = loadConfig(config_path)
 
-    genomeName = _cfgGet(configData, "genomeParams.name", None)
+    genomeName = _cfgGet(configData, "genomeParams.name", constants.GENOME_DEFAULT_NAME)
     genomeLabel = constants.resolveGenomeName(genomeName)
 
     chromSizesFile: Optional[str] = None
@@ -249,10 +248,20 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
     chromosomesList: Optional[List[str]] = None
 
     excludeChromsList: List[str] = (
-        _cfgGet(configData, "genomeParams.excludeChroms", []) or []
+        _cfgGet(
+            configData,
+            "genomeParams.excludeChroms",
+            constants.GENOME_DEFAULT_EXCLUDE_CHROMS,
+        )
+        or []
     )
     excludeForNormList: List[str] = (
-        _cfgGet(configData, "genomeParams.excludeForNorm", []) or []
+        _cfgGet(
+            configData,
+            "genomeParams.excludeForNorm",
+            constants.GENOME_DEFAULT_EXCLUDE_FOR_NORM,
+        )
+        or []
     )
 
     if genomeLabel:
@@ -260,15 +269,27 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
         blacklistFile = constants.getGenomeResourceFile(genomeLabel, "blacklist")
         sparseBedFile = constants.getGenomeResourceFile(genomeLabel, "sparse")
 
-    chromSizesOverride = _cfgGet(configData, "genomeParams.chromSizesFile", None)
+    chromSizesOverride = _cfgGet(
+        configData,
+        "genomeParams.chromSizesFile",
+        constants.GENOME_DEFAULT_CHROM_SIZES_FILE,
+    )
     if chromSizesOverride:
         chromSizesFile = chromSizesOverride
 
-    blacklistOverride = _cfgGet(configData, "genomeParams.blacklistFile", None)
+    blacklistOverride = _cfgGet(
+        configData,
+        "genomeParams.blacklistFile",
+        constants.GENOME_DEFAULT_BLACKLIST_FILE,
+    )
     if blacklistOverride:
         blacklistFile = blacklistOverride
 
-    sparseOverride = _cfgGet(configData, "genomeParams.sparseBedFile", None)
+    sparseOverride = _cfgGet(
+        configData,
+        "genomeParams.sparseBedFile",
+        constants.GENOME_DEFAULT_SPARSE_BED_FILE,
+    )
     if sparseOverride:
         sparseBedFile = sparseOverride
 
@@ -277,7 +298,11 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
             f"Chromosome sizes file {chromSizesFile} does not exist."
         )
 
-    chromosomesConfig = _cfgGet(configData, "genomeParams.chromosomes", None)
+    chromosomesConfig = _cfgGet(
+        configData,
+        "genomeParams.chromosomes",
+        constants.GENOME_DEFAULT_CHROMOSOMES,
+    )
     if chromosomesConfig is not None:
         chromosomesList = chromosomesConfig
     else:
@@ -325,26 +350,26 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
 def getStateArgs(config_path: str) -> core.stateParams:
     configData = loadConfig(config_path)
 
-    stateInit_ = _cfgGet(configData, "stateParams.stateInit", 0.0)
+    stateInit_ = _cfgGet(configData, "stateParams.stateInit", constants.STATE_DEFAULT_INIT)
     stateCovarInit_ = _cfgGet(
         configData,
         "stateParams.stateCovarInit",
-        1000.0,
+        constants.STATE_DEFAULT_COVAR_INIT,
     )
     boundState_ = _cfgGet(
         configData,
         "stateParams.boundState",
-        False,
+        constants.STATE_DEFAULT_BOUND_STATE,
     )
     stateLowerBound_ = _cfgGet(
         configData,
         "stateParams.stateLowerBound",
-        0.0,
+        constants.STATE_DEFAULT_LOWER_BOUND,
     )
     stateUpperBound_ = _cfgGet(
         configData,
         "stateParams.stateUpperBound",
-        10000.0,
+        constants.STATE_DEFAULT_UPPER_BOUND,
     )
     if boundState_:
         if stateLowerBound_ > stateUpperBound_:
@@ -361,15 +386,25 @@ def getStateArgs(config_path: str) -> core.stateParams:
 def getCountingArgs(config_path: str) -> core.countingParams:
     configData = loadConfig(config_path)
 
-    intervalSizeBP = _cfgGet(configData, "countingParams.intervalSizeBP", 25)
+    intervalSizeBP = _cfgGet(
+        configData,
+        "countingParams.intervalSizeBP",
+        constants.COUNTING_DEFAULT_INTERVAL_SIZE_BP,
+    )
     backgroundBlockSizeBP_ = _cfgGet(
         configData,
         "countingParams.backgroundBlockSizeBP",
-        -1,
+        constants.COUNTING_DEFAULT_BACKGROUND_BLOCK_SIZE_BP,
     )
-    scaleFactorList = _cfgGet(configData, "countingParams.scaleFactors", None)
+    scaleFactorList = _cfgGet(
+        configData,
+        "countingParams.scaleFactors",
+        constants.COUNTING_DEFAULT_SCALE_FACTORS,
+    )
     scaleFactorsControlList = _cfgGet(
-        configData, "countingParams.scaleFactorsControl", None
+        configData,
+        "countingParams.scaleFactorsControl",
+        constants.COUNTING_DEFAULT_SCALE_FACTORS_CONTROL,
     )
     if scaleFactorList is not None and not isinstance(scaleFactorList, list):
         raise ValueError("`scaleFactors` should be a list of floats.")
@@ -394,19 +429,26 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     normMethod_ = _cfgGet(
         configData,
         "countingParams.normMethod",
-        "EGS",
+        constants.COUNTING_DEFAULT_NORM_METHOD,
     )
-    if normMethod_.upper() not in ["EGS", "RPGC", "RPKM", "CPM", "SF"]:
+    if normMethod_.upper() not in constants.COUNTING_SUPPORTED_NORM_METHODS:
         logger.warning(
-            f"Unknown `countingParams.normMethod`...Using `EGS`...",
+            f"Unknown `countingParams.normMethod`...Using `{constants.COUNTING_DEFAULT_NORM_METHOD}`...",
         )
-        normMethod_ = "EGS"
+        normMethod_ = constants.COUNTING_DEFAULT_NORM_METHOD
     fragmentsGroupNorm_ = _cfgGet(
         configData,
         "countingParams.fragmentsGroupNorm",
-        _cfgGet(configData, "scParams.fragmentsGroupNorm", "NONE"),
+        _cfgGet(
+            configData,
+            "scParams.fragmentsGroupNorm",
+            constants.SC_DEFAULT_FRAGMENTS_GROUP_NORM,
+        ),
     )
-    if str(fragmentsGroupNorm_).upper() not in ["NONE", "CELLS"]:
+    if (
+        str(fragmentsGroupNorm_).upper()
+        not in constants.COUNTING_SUPPORTED_FRAGMENTS_GROUP_NORMS
+    ):
         raise ValueError(
             "`countingParams.fragmentsGroupNorm` must be `NONE` or `CELLS`."
         )
@@ -414,32 +456,32 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     fixControl_ = _cfgGet(
         configData,
         "countingParams.fixControl",
-        False,
+        constants.COUNTING_DEFAULT_FIX_CONTROL,
     )
     logOffset_ = _cfgGet(
         configData,
         "countingParams.logOffset",
-        1.0,
+        constants.COUNTING_DEFAULT_LOG_OFFSET,
     )
     logMult_ = _cfgGet(
         configData,
         "countingParams.logMult",
-        1.0,
+        constants.COUNTING_DEFAULT_LOG_MULT,
     )
     replicateMedianDetrend_ = _cfgGet(
         configData,
         "countingParams.replicateMedianDetrend",
-        True,
+        constants.COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND,
     )
     replicateMedianDetrendWindowMultiplier_ = _cfgGet(
         configData,
         "countingParams.replicateMedianDetrendWindowMultiplier",
-        2.0,
+        constants.COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER,
     )
     gentleDetrendQuantile_ = _cfgGet(
         configData,
         "countingParams.gentleDetrendQuantile",
-        0.5,
+        constants.COUNTING_DEFAULT_GENTLE_DETREND_QUANTILE,
     )
     gentleDetrendQuantile_ = float(gentleDetrendQuantile_)
     if (
@@ -469,33 +511,38 @@ def getCountingArgs(config_path: str) -> core.countingParams:
 def getScArgs(config_path: str) -> core.scParams:
     configData = loadConfig(config_path)
 
-    barcodeTag_ = _cfgGet(configData, "scParams.barcodeTag", "CB")
+    barcodeTag_ = _cfgGet(
+        configData,
+        "scParams.barcodeTag",
+        constants.SC_DEFAULT_BARCODE_TAG,
+    )
     defaultCountMode_ = _cfgGet(
         configData,
         "scParams.defaultCountMode",
-        "coverage",
+        constants.SC_DEFAULT_COUNT_MODE,
     )
-    if str(defaultCountMode_).strip().lower() not in [
-        "coverage",
-        "cutsite",
-        "fiveprime",
-        "center",
-        "midpoint",
-    ]:
+    if str(defaultCountMode_).strip().lower() not in constants.SC_SUPPORTED_COUNT_MODES:
         raise ValueError("`scParams.defaultCountMode` is not supported.")
 
     fragmentsGroupNorm_ = _cfgGet(
         configData,
         "scParams.fragmentsGroupNorm",
-        _cfgGet(configData, "countingParams.fragmentsGroupNorm", "NONE"),
+        _cfgGet(
+            configData,
+            "countingParams.fragmentsGroupNorm",
+            constants.COUNTING_DEFAULT_FRAGMENTS_GROUP_NORM,
+        ),
     )
-    if str(fragmentsGroupNorm_).upper() not in ["NONE", "CELLS"]:
+    if (
+        str(fragmentsGroupNorm_).upper()
+        not in constants.COUNTING_SUPPORTED_FRAGMENTS_GROUP_NORMS
+    ):
         raise ValueError("`scParams.fragmentsGroupNorm` must be `NONE` or `CELLS`.")
 
     defaultFragmentPositionMode_ = _cfgGet(
         configData,
         "scParams.defaultFragmentPositionMode",
-        "insertionEndpoints",
+        constants.SC_DEFAULT_FRAGMENT_POSITION_MODE,
     )
     core._normalizeFragmentPositionMode(defaultFragmentPositionMode_)
     return core.scParams(
@@ -511,8 +558,12 @@ def getUncertaintyCalibrationArgs(
 ) -> core.uncertaintyCalibrationParams:
     configData = loadConfig(config_path)
     enabledDefault = _cfgDefault(configData, "uncertaintyCalibrationParams.enabled")
-    blockDefault = None
-    padDefault = _cfgGet(configData, "observationParams.pad", 1.0e-4)
+    blockDefault = constants.UNCERTAINTY_CALIBRATION_DEFAULT_BLOCK_SIZE_BP
+    padDefault = _cfgGet(
+        configData,
+        "observationParams.pad",
+        constants.UNCERTAINTY_CALIBRATION_DEFAULT_PAD,
+    )
     maxScores = _cfgGet(
         configData,
         "uncertaintyCalibrationParams.maxScores",
@@ -521,10 +572,10 @@ def getUncertaintyCalibrationArgs(
     maxHeldoutCells = _cfgGet(
         configData,
         "uncertaintyCalibrationParams.maxHeldoutCells",
-        None,
+        constants.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_HELDOUT_CELLS,
     )
     if maxScores is None and maxHeldoutCells is None:
-        maxScores = core.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES
+        maxScores = constants.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES
     return core.uncertaintyCalibrationParams(
         enabled=bool(
             _cfgGet(
@@ -537,7 +588,7 @@ def getUncertaintyCalibrationArgs(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.folds",
-                core.uncertaintyCalibrationParams().folds,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_FOLDS,
             )
         ),
         blockSizeBP=_cfgGet(
@@ -563,14 +614,14 @@ def getUncertaintyCalibrationArgs(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.maxDiagnosticRows",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS,
             )
         ),
         minHeldoutCells=int(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.minHeldoutCells",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS,
             )
         ),
         targets=tuple(
@@ -578,71 +629,83 @@ def getUncertaintyCalibrationArgs(
             for x in _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.targets",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
             )
         ),
         minFactor=float(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.minFactor",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
             )
         ),
         maxFactor=float(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.maxFactor",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
             )
         ),
         factorMin=_cfgGet(
             configData,
             "uncertaintyCalibrationParams.factorMin",
-            None,
+            constants.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN_OVERRIDE,
         ),
         factorMax=_cfgGet(
             configData,
             "uncertaintyCalibrationParams.factorMax",
-            None,
+            constants.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX_OVERRIDE,
         ),
         ridge=float(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.ridge",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE,
             )
         ),
         wisWeight=float(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.wisWeight",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT,
             )
         ),
         aObsPenalty=float(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.aObsPenalty",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
             )
         ),
         aObsPriorStrength=_cfgGet(
             configData,
             "uncertaintyCalibrationParams.aObsPriorStrength",
-            None,
+            constants.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH_OVERRIDE,
         ),
         calibrationECMIters=int(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.calibrationECMIters",
-                3,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS,
+            )
+        ),
+        targetCalibrationDelta=_cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.targetCalibrationDelta",
+            constants.UNCERTAINTY_CALIBRATION_DEFAULT_TARGET_CALIBRATION_DELTA,
+        ),
+        scaleUncertaintyByTargetCalibration=bool(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration",
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION,
             )
         ),
         seed=int(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.seed",
-                core.UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
             )
         ),
         pad=_cfgGet(
@@ -654,7 +717,7 @@ def getUncertaintyCalibrationArgs(
             _cfgGet(
                 configData,
                 "uncertaintyCalibrationParams.writeDiagnostics",
-                False,
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS,
             )
         ),
     )
@@ -676,68 +739,46 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     countingParams = getCountingArgs(config_path)
     scArgs = getScArgs(config_path)
     uncertaintyCalibrationArgs = getUncertaintyCalibrationArgs(config_path)
-    experimentName = _cfgGet(configData, "experimentName", "consenrichExperiment")
-    processQLevelTargetCfg = _cfgGet(
+    experimentName = _cfgGet(
         configData,
-        "processParams.processQLevelTarget",
-        None,
+        "experimentName",
+        constants.EXPERIMENT_DEFAULT_NAME,
     )
-    processQTrendTargetCfg = _cfgGet(
-        configData,
-        "processParams.processQTrendTarget",
-        None,
+    regularizationRatioConfigured = (
+        _cfgGet(configData, "processParams.regularizationRatio", None) is not None
     )
     processArgs = core.processParams(
-        deltaF=_cfgGet(configData, "processParams.deltaF", 1.0),
+        deltaF=_cfgGet(
+            configData,
+            "processParams.deltaF",
+            constants.PROCESS_DEFAULT_DELTA_F,
+        ),
         stateModel=_cfgGet(
             configData,
             "processParams.stateModel",
             _cfgDefault(configData, "processParams.stateModel"),
         ),
-        minQ=_cfgGet(configData, "processParams.minQ", -1.0),
-        maxQ=_cfgGet(configData, "processParams.maxQ", 1000.0),
-        offDiagQ=_cfgGet(
-            configData,
-            "processParams.offDiagQ",
-            0.0,
-        ),
-        processQCalibration=_cfgGet(
-            configData,
-            "processParams.processQCalibration",
-            _cfgDefault(configData, "processParams.processQCalibration"),
-        ),
-        processQWarmupECMIters=int(
+        minQ=_cfgGet(configData, "processParams.minQ", constants.PROCESS_DEFAULT_MIN_Q),
+        maxQ=_cfgGet(configData, "processParams.maxQ", constants.PROCESS_DEFAULT_MAX_Q),
+        regularizationStrength=float(
             _cfgGet(
                 configData,
-                "processParams.processQWarmupECMIters",
-                _cfgDefault(configData, "processParams.processQWarmupECMIters"),
+                "processParams.regularizationStrength",
+                _cfgDefault(configData, "processParams.regularizationStrength"),
             )
         ),
-        processQWarmupOuterIters=int(
+        regularizationRatio=float(
             _cfgGet(
                 configData,
-                "processParams.processQWarmupOuterIters",
-                _cfgDefault(configData, "processParams.processQWarmupOuterIters"),
+                "processParams.regularizationRatio",
+                _cfgDefault(configData, "processParams.regularizationRatio"),
             )
         ),
-        processQLevelTarget=(
-            None if processQLevelTargetCfg is None else float(processQLevelTargetCfg)
-        ),
-        processQTrendTarget=(
-            None if processQTrendTargetCfg is None else float(processQTrendTargetCfg)
-        ),
-        processQLevelPriorWeight=float(
+        processNoiseWarmupECMIters=int(
             _cfgGet(
                 configData,
-                "processParams.processQLevelPriorWeight",
-                _cfgDefault(configData, "processParams.processQLevelPriorWeight"),
-            )
-        ),
-        processQTrendPriorWeight=float(
-            _cfgGet(
-                configData,
-                "processParams.processQTrendPriorWeight",
-                _cfgDefault(configData, "processParams.processQTrendPriorWeight"),
+                "processParams.processNoiseWarmupECMIters",
+                _cfgDefault(configData, "processParams.processNoiseWarmupECMIters"),
             )
         ),
         precisionMultiplierMin=float(
@@ -755,8 +796,19 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             )
         ),
     )
+    if (
+        regularizationRatioConfigured
+        and core._normalizeStateModel(processArgs.stateModel) == core.STATE_MODEL_LEVEL
+    ):
+        logger.info(
+            "processParams.regularizationRatio was provided but ignored because stateModel='level' has no trend state."
+        )
 
-    explicitSparseBedFile = _cfgGet(configData, "genomeParams.sparseBedFile", None)
+    explicitSparseBedFile = _cfgGet(
+        configData,
+        "genomeParams.sparseBedFile",
+        constants.GENOME_DEFAULT_SPARSE_BED_FILE,
+    )
     sparseBedAvailable = bool(
         genomeParams.sparseBedFile and os.path.exists(str(genomeParams.sparseBedFile))
     )
@@ -764,7 +816,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         _cfgGet(
             configData,
             "observationParams.numNearest",
-            0,
+            constants.OBSERVATION_DEFAULT_NUM_NEAREST,
         )
         or 0
     )
@@ -776,7 +828,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         _cfgGet(
             configData,
             "observationParams.restrictLocalAR1ToSparseBed",
-            False,
+            constants.OBSERVATION_DEFAULT_RESTRICT_LOCAL_AR1_TO_SPARSE_BED,
         )
     )
     if restrictLocalAR1ToSparseBedRequested and not sparseBedAvailable:
@@ -787,58 +839,98 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     restrictLocalAR1ToSparseBedResolved = bool(
         restrictLocalAR1ToSparseBedRequested and sparseBedAvailable
     )
-    trendMaxEdfCfg = _cfgGet(configData, "observationParams.trendMaxEdf", 30.0)
+    trendMaxEdfCfg = _cfgGet(
+        configData,
+        "observationParams.trendMaxEdf",
+        constants.OBSERVATION_DEFAULT_TREND_MAX_EDF,
+    )
 
     observationArgs = core.observationParams(
-        minR=_cfgGet(configData, "observationParams.minR", -1.0),
-        maxR=_cfgGet(configData, "observationParams.maxR", 1000.0),
+        minR=_cfgGet(configData, "observationParams.minR", constants.OBSERVATION_DEFAULT_MIN_R),
+        maxR=_cfgGet(configData, "observationParams.maxR", constants.OBSERVATION_DEFAULT_MAX_R),
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
-            10_000,
+            constants.OBSERVATION_DEFAULT_SAMPLING_ITERS,
         ),
         samplingBlockSizeBP=_cfgGet(
             configData,
             "observationParams.samplingBlockSizeBP",
-            -1,
+            constants.OBSERVATION_DEFAULT_SAMPLING_BLOCK_SIZE_BP,
         ),
         EB_use=_cfgGet(
             configData,
             "observationParams.EB_use",
-            True,
+            constants.OBSERVATION_DEFAULT_EB_USE,
         ),
-        EB_setNu0=_cfgGet(configData, "observationParams.EB_setNu0", None),
-        EB_setNuL=_cfgGet(configData, "observationParams.EB_setNuL", None),
-        trendNumBasis=int(_cfgGet(configData, "observationParams.trendNumBasis", 60)),
+        EB_setNu0=_cfgGet(
+            configData,
+            "observationParams.EB_setNu0",
+            constants.OBSERVATION_DEFAULT_EB_SET_NU0,
+        ),
+        EB_setNuL=_cfgGet(
+            configData,
+            "observationParams.EB_setNuL",
+            constants.OBSERVATION_DEFAULT_EB_SET_NUL,
+        ),
+        trendNumBasis=int(
+            _cfgGet(
+                configData,
+                "observationParams.trendNumBasis",
+                constants.OBSERVATION_DEFAULT_TREND_NUM_BASIS,
+            )
+        ),
         trendMinObsPerBasis=float(
-            _cfgGet(configData, "observationParams.trendMinObsPerBasis", 25.0)
+            _cfgGet(
+                configData,
+                "observationParams.trendMinObsPerBasis",
+                constants.OBSERVATION_DEFAULT_TREND_MIN_OBS_PER_BASIS,
+            )
         ),
-        trendMinEdf=float(_cfgGet(configData, "observationParams.trendMinEdf", 3.0)),
+        trendMinEdf=float(
+            _cfgGet(
+                configData,
+                "observationParams.trendMinEdf",
+                constants.OBSERVATION_DEFAULT_TREND_MIN_EDF,
+            )
+        ),
         trendMaxEdf=None if trendMaxEdfCfg is None else float(trendMaxEdfCfg),
         trendLambdaMin=float(
-            _cfgGet(configData, "observationParams.trendLambdaMin", 1.0e-6)
+            _cfgGet(
+                configData,
+                "observationParams.trendLambdaMin",
+                constants.OBSERVATION_DEFAULT_TREND_LAMBDA_MIN,
+            )
         ),
         trendLambdaMax=float(
-            _cfgGet(configData, "observationParams.trendLambdaMax", 1.0e6)
+            _cfgGet(
+                configData,
+                "observationParams.trendLambdaMax",
+                constants.OBSERVATION_DEFAULT_TREND_LAMBDA_MAX,
+            )
         ),
         trendLambdaGridSize=int(
-            _cfgGet(configData, "observationParams.trendLambdaGridSize", 41)
+            _cfgGet(
+                configData,
+                "observationParams.trendLambdaGridSize",
+                constants.OBSERVATION_DEFAULT_TREND_LAMBDA_GRID_SIZE,
+            )
         ),
         numNearest=numNearestResolved,
         sparseSupportScaleBP=_cfgGet(
             configData,
             "observationParams.sparseSupportScaleBP",
-            -1.0,
+            constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_SCALE_BP,
         ),
         sparseSupportPrior=float(
             _cfgGet(
                 configData,
                 "observationParams.sparseSupportPrior",
-                1.0,
+                constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR,
             )
         ),
         restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
-        pad=_cfgGet(configData, "observationParams.pad", 1.0e-4),
+        pad=_cfgGet(configData, "observationParams.pad", constants.OBSERVATION_DEFAULT_PAD),
         precisionMultiplierMin=float(
             _cfgGet(
                 configData,
@@ -854,11 +946,17 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             )
         ),
         useReplicateTrends=bool(
-            _cfgGet(configData, "observationParams.useReplicateTrends", False)
+            _cfgGet(
+                configData,
+                "observationParams.useReplicateTrends",
+                constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS,
+            )
         ),
     )
 
-    ECM_useAPN_ = bool(_cfgGet(configData, "fitParams.ECM_useAPN", False))
+    ECM_useAPN_ = bool(
+        _cfgGet(configData, "fitParams.ECM_useAPN", constants.FIT_DEFAULT_USE_APN)
+    )
 
     fitArgs = core.fitParams(
         ECM_fixedBackgroundIters=_cfgGet(
@@ -871,33 +969,37 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "fitParams.ECM_fixedBackgroundRtol",
             _cfgDefault(configData, "fitParams.ECM_fixedBackgroundRtol"),
         ),
-        ECM_robustTNu=_cfgGet(configData, "fitParams.ECM_robustTNu", 10.0),
+        ECM_robustTNu=_cfgGet(
+            configData,
+            "fitParams.ECM_robustTNu",
+            constants.FIT_DEFAULT_ROBUST_T_NU,
+        ),
         ECM_useObsPrecisionReweighting=_cfgGet(
             configData,
             "fitParams.ECM_useObsPrecisionReweighting",
-            True,
+            constants.FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING,
         ),
         ECM_useProcessPrecisionReweighting=_cfgGet(
             configData,
             "fitParams.ECM_useProcessPrecisionReweighting",
-            True,
+            constants.FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING,
         )
         and (not ECM_useAPN_),
         ECM_useAPN=ECM_useAPN_,
         fitBackground=_cfgGet(
             configData,
             "fitParams.fitBackground",
-            True,
+            constants.FIT_DEFAULT_BACKGROUND,
         ),
         ECM_zeroCenterBackground=_cfgGet(
             configData,
             "fitParams.ECM_zeroCenterBackground",
-            False,
+            constants.FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
         ),
         ECM_zeroCenterReplicateBias=_cfgGet(
             configData,
             "fitParams.ECM_zeroCenterReplicateBias",
-            True,
+            constants.FIT_DEFAULT_ZERO_CENTER_REPLICATE_BIAS,
         ),
         ECM_outerIters=_cfgGet(
             configData,
@@ -931,33 +1033,61 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
     )
 
-    samThreads = _cfgGet(configData, "samParams.samThreads", 2)
+    samThreads = _cfgGet(configData, "samParams.samThreads", constants.SAM_DEFAULT_THREADS)
     samFlagExclude = _cfgGet(
         configData,
         "samParams.samFlagExclude",
-        3844,
+        constants.SAM_DEFAULT_FLAG_EXCLUDE,
     )
     minMappingQuality = _cfgGet(
         configData,
         "samParams.minMappingQuality",
-        10,
+        constants.SAM_DEFAULT_MIN_MAPPING_QUALITY,
     )
-    oneReadPerBin = _cfgGet(configData, "samParams.oneReadPerBin", 0)
-    chunkSize = _cfgGet(configData, "samParams.chunkSize", 500_000)
-    bamInputMode = _cfgGet(configData, "samParams.bamInputMode", "auto")
-    defaultCountMode = _cfgGet(configData, "samParams.defaultCountMode", "coverage")
-    shiftForward5p = int(_cfgGet(configData, "samParams.shiftForward5p", 0))
-    shiftReverse5p = int(_cfgGet(configData, "samParams.shiftReverse5p", 0))
-    extendFrom5pBP = _cfgGet(configData, "samParams.extendFrom5pBP", None)
+    oneReadPerBin = _cfgGet(
+        configData,
+        "samParams.oneReadPerBin",
+        constants.SAM_DEFAULT_ONE_READ_PER_BIN,
+    )
+    chunkSize = _cfgGet(configData, "samParams.chunkSize", constants.SAM_DEFAULT_CHUNK_SIZE)
+    bamInputMode = _cfgGet(
+        configData,
+        "samParams.bamInputMode",
+        constants.SAM_DEFAULT_BAM_INPUT_MODE,
+    )
+    defaultCountMode = _cfgGet(
+        configData,
+        "samParams.defaultCountMode",
+        constants.SAM_DEFAULT_COUNT_MODE,
+    )
+    shiftForward5p = int(
+        _cfgGet(
+            configData,
+            "samParams.shiftForward5p",
+            constants.SAM_DEFAULT_SHIFT_FORWARD_5P,
+        )
+    )
+    shiftReverse5p = int(
+        _cfgGet(
+            configData,
+            "samParams.shiftReverse5p",
+            constants.SAM_DEFAULT_SHIFT_REVERSE_5P,
+        )
+    )
+    extendFrom5pBP = _cfgGet(
+        configData,
+        "samParams.extendFrom5pBP",
+        constants.SAM_DEFAULT_EXTEND_FROM_5P_BP,
+    )
     maxInsertSize = _cfgGet(
         configData,
         "samParams.maxInsertSize",
-        1000,
+        constants.SAM_DEFAULT_MAX_INSERT_SIZE,
     )
     inferFragmentLength = _cfgGet(
         configData,
         "samParams.inferFragmentLength",
-        None,
+        constants.SAM_DEFAULT_INFER_FRAGMENT_LENGTH,
     )
     core._normalizeBamInputMode(bamInputMode)
     core._normalizeCountMode(defaultCountMode, "coverage")
@@ -982,29 +1112,67 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         minTemplateLength=_cfgGet(
             configData,
             "samParams.minTemplateLength",
-            -1,
+            constants.SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
         ),
     )
 
     matchingArgs = core.matchingParams(
-        enabled=bool(_cfgGet(configData, "matchingParams.enabled", True)),
-        randSeed=_cfgGet(configData, "matchingParams.randSeed", 42),
-        tau0=float(_cfgGet(configData, "matchingParams.tau0", 1.0)),
-        numBootstrap=int(_cfgGet(configData, "matchingParams.numBootstrap", 128)),
-        thresholdZ=float(_cfgGet(configData, "matchingParams.thresholdZ", 2.0)),
-        dependenceSpan=_cfgGet(configData, "matchingParams.dependenceSpan", None),
-        gamma=_cfgGet(configData, "matchingParams.gamma", 0.25),
-        selectionPenalty=_cfgGet(configData, "matchingParams.selectionPenalty", None),
-        gammaScale=float(_cfgGet(configData, "matchingParams.gammaScale", 0.5)),
-        nestedRoccoIters=int(_cfgGet(configData, "matchingParams.nestedRoccoIters", 3)),
+        enabled=bool(
+            _cfgGet(configData, "matchingParams.enabled", constants.MATCHING_DEFAULT_ENABLED)
+        ),
+        randSeed=_cfgGet(
+            configData,
+            "matchingParams.randSeed",
+            constants.MATCHING_DEFAULT_RAND_SEED,
+        ),
+        tau0=float(_cfgGet(configData, "matchingParams.tau0", constants.MATCHING_DEFAULT_TAU0)),
+        numBootstrap=int(
+            _cfgGet(
+                configData,
+                "matchingParams.numBootstrap",
+                constants.MATCHING_DEFAULT_NUM_BOOTSTRAP,
+            )
+        ),
+        thresholdZ=float(
+            _cfgGet(
+                configData,
+                "matchingParams.thresholdZ",
+                constants.MATCHING_DEFAULT_THRESHOLD_Z,
+            )
+        ),
+        dependenceSpan=_cfgGet(
+            configData,
+            "matchingParams.dependenceSpan",
+            constants.MATCHING_DEFAULT_DEPENDENCE_SPAN,
+        ),
+        gamma=_cfgGet(configData, "matchingParams.gamma", constants.MATCHING_DEFAULT_GAMMA),
+        selectionPenalty=_cfgGet(
+            configData,
+            "matchingParams.selectionPenalty",
+            constants.MATCHING_DEFAULT_SELECTION_PENALTY,
+        ),
+        gammaScale=float(
+            _cfgGet(configData, "matchingParams.gammaScale", constants.MATCHING_DEFAULT_GAMMA_SCALE)
+        ),
+        nestedRoccoIters=int(
+            _cfgGet(
+                configData,
+                "matchingParams.nestedRoccoIters",
+                constants.MATCHING_DEFAULT_NESTED_ROCCO_ITERS,
+            )
+        ),
         nestedRoccoBudgetScale=float(
-            _cfgGet(configData, "matchingParams.nestedRoccoBudgetScale", 0.5)
+            _cfgGet(
+                configData,
+                "matchingParams.nestedRoccoBudgetScale",
+                constants.MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE,
+            )
         ),
         exportFilterUncertaintyMultiplier=float(
             _cfgGet(
                 configData,
                 "matchingParams.exportFilterUncertaintyMultiplier",
-                2.0,
+                constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER,
             )
         ),
     )
@@ -1025,6 +1193,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "matchingArgs": matchingArgs,
         "fitArgs": fitArgs,
     }
+
 
 __all__ = [
     "DEFAULT_CONFIGURATION_KEYS",

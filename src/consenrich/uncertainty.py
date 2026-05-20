@@ -22,6 +22,10 @@ from . import cuncertainty as _cuncertainty
 logger = logging.getLogger(__name__)
 
 
+TARGET_CALIBRATION_BLOCK_SPLIT_SEED_OFFSET = 20_000
+TARGET_CALIBRATION_FRACTION = 0.5
+
+
 class uncertaintyCalibrationResult(NamedTuple):
     factor: np.ndarray
     calibratedUncertainty: np.ndarray
@@ -242,6 +246,162 @@ def _normalZ(target: float) -> float:
         )
     )
     return float(stats.norm.ppf(0.5 + 0.5 * target))
+
+
+def _targetCalibrationDelta(params: core.uncertaintyCalibrationParams) -> float | None:
+    rawDelta = getattr(params, "targetCalibrationDelta", None)
+    if rawDelta is None:
+        return None
+    delta = float(rawDelta)
+    if not np.isfinite(delta) or delta <= 0.0:
+        return None
+    return float(
+        np.clip(
+            delta,
+            core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
+            1.0 - core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
+        )
+    )
+
+
+def _pacOrderIndex(N: int, target: float, delta: float) -> int | None:
+    N = int(N)
+    if N < 1:
+        return None
+    p = float(target)
+    delta = float(delta)
+    if not (0.0 < p < 1.0 and 0.0 < delta < 1.0):
+        return None
+    kGrid = np.arange(1, N + 1, dtype=np.int64)
+    tails = stats.binom.sf(kGrid - 1, N, p)
+    ok = np.flatnonzero(tails <= delta)
+    if ok.size == 0:
+        return None
+    return int(kGrid[int(ok[0])])
+
+
+def _minBlocksForFiniteBound(target: float, delta: float) -> int | None:
+    p = float(target)
+    delta = float(delta)
+    if not (0.0 < p < 1.0 and 0.0 < delta < 1.0):
+        return None
+    return int(np.ceil(np.log(delta) / np.log(p)))
+
+
+def _targetCalibrationSplit(
+    blockIndex: np.ndarray,
+    *,
+    enabled: bool,
+    seed: int,
+) -> dict[str, Any]:
+    blockIndex = np.asarray(blockIndex, dtype=np.int64).reshape(-1)
+    valid = blockIndex >= 0
+    uniqueBlocks = np.unique(blockIndex[valid])
+    blockCount = int(uniqueBlocks[-1] + 1) if uniqueBlocks.size else 0
+    scaleMask = np.ones(blockIndex.shape[0], dtype=bool)
+    targetMask = np.zeros(blockIndex.shape[0], dtype=bool)
+    targetBlockMask = np.zeros(blockCount, dtype=np.uint8)
+    if not enabled or uniqueBlocks.size < 2:
+        return {
+            "enabled": bool(enabled),
+            "seed": int(seed),
+            "blocks_total": int(uniqueBlocks.size),
+            "scale_blocks": uniqueBlocks.astype(np.int64, copy=False),
+            "target_blocks": np.empty(0, dtype=np.int64),
+            "scale_mask": scaleMask,
+            "target_mask": targetMask,
+            "target_block_mask": targetBlockMask,
+        }
+
+    rng = np.random.default_rng(int(seed))
+    permuted = np.asarray(rng.permutation(uniqueBlocks), dtype=np.int64)
+    targetCount = int(np.ceil(TARGET_CALIBRATION_FRACTION * float(uniqueBlocks.size)))
+    targetCount = int(np.clip(targetCount, 1, uniqueBlocks.size - 1))
+    targetBlocks = np.sort(permuted[:targetCount])
+    scaleBlocks = np.sort(permuted[targetCount:])
+    targetMask = np.isin(blockIndex, targetBlocks)
+    scaleMask = np.isin(blockIndex, scaleBlocks)
+    targetBlockMask[targetBlocks] = 1
+    return {
+        "enabled": True,
+        "seed": int(seed),
+        "blocks_total": int(uniqueBlocks.size),
+        "scale_blocks": scaleBlocks,
+        "target_blocks": targetBlocks,
+        "scale_mask": scaleMask,
+        "target_mask": targetMask,
+        "target_block_mask": targetBlockMask,
+    }
+
+
+def _targetCalibrationBounds(
+    blockScores: np.ndarray,
+    *,
+    targets: tuple[float, ...],
+    delta: float,
+) -> list[dict[str, Any]]:
+    scores = np.asarray(blockScores, dtype=np.float64).reshape(-1)
+    scores = np.sort(scores[np.isfinite(scores)])
+    N = int(scores.size)
+    bounds: list[dict[str, Any]] = []
+    for target in tuple(float(x) for x in targets):
+        targetClipped = float(
+            np.clip(
+                target,
+                core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
+                1.0 - core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
+            )
+        )
+        k = _pacOrderIndex(N, targetClipped, delta)
+        minBlocks = _minBlocksForFiniteBound(targetClipped, delta)
+        if k is None:
+            tail = (
+                None
+                if N == 0
+                else float(stats.binom.sf(N - 1, N, targetClipped))
+            )
+            qValue = None if N == 0 else float(scores[-1])
+            bounds.append(
+                {
+                    "target": targetClipped,
+                    "alpha": float(1.0 - targetClipped),
+                    "delta": float(delta),
+                    "N": N,
+                    "k": None,
+                    "q": qValue,
+                    "q_source": "empirical_max_uncertified",
+                    "certified": False,
+                    "binomial_tail": tail,
+                    "allowed_blocks_above_q": None,
+                    "min_blocks_for_any_finite_bound": minBlocks,
+                }
+            )
+            continue
+        tail = float(stats.binom.sf(k - 1, N, targetClipped))
+        bounds.append(
+            {
+                "target": targetClipped,
+                "alpha": float(1.0 - targetClipped),
+                "delta": float(delta),
+                "N": N,
+                "k": int(k),
+                "q": float(scores[k - 1]),
+                "q_source": "pac_order_statistic",
+                "certified": True,
+                "binomial_tail": tail,
+                "allowed_blocks_above_q": int(N - k),
+                "min_blocks_for_any_finite_bound": minBlocks,
+            }
+        )
+    return bounds
+
+
+def _targetCalibrationScaleBound(
+    bounds: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not bounds:
+        return None
+    return max(bounds, key=lambda row: float(row.get("target", 0.0)))
 
 
 def _samplePositionsByCode(
@@ -692,11 +852,8 @@ def calibrateChromosomeStateUncertainty(
     )
     fitKwargs["ECM_outerIters"] = 1
     fitKwargs["ECM_minOuterIters"] = 1
-    fitKwargs["processQWarmupECMIters"] = (
-        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_ECM_ITERS
-    )
-    fitKwargs["processQWarmupOuterIters"] = (
-        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_OUTER_ITERS
+    fitKwargs["processNoiseWarmupECMIters"] = (
+        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_NOISE_WARMUP_ECM_ITERS
     )
     fitKwargs["returnScales"] = True
     fitKwargs["returnReplicateOffsets"] = True
@@ -726,17 +883,17 @@ def calibrateChromosomeStateUncertainty(
                 ("total folds", int(len(masks))),
                 (
                     (
-                        "process Q warm-start"
+                        "process noise warm-start"
                         if fitKwargs.get("initialProcessQ") is not None
-                        else "process Q warmup"
+                        else "process noise warmup"
                     ),
                     (
                         "initialProcessQ"
                         if fitKwargs.get("initialProcessQ") is not None
                         else (
-                            f"{int(fitKwargs['processQWarmupOuterIters'])} "
+                            f"{int(core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES)} "
                             f"outer passes x "
-                            f"{int(fitKwargs['processQWarmupECMIters'])} ECM iterations"
+                            f"{int(fitKwargs['processNoiseWarmupECMIters'])} ECM iterations"
                         )
                     ),
                 ),
@@ -790,6 +947,7 @@ def calibrateChromosomeStateUncertainty(
     intervalIndex = np.concatenate(iChunks)
     repIndex = np.concatenate(jChunks)
     foldIndex = np.concatenate(foldChunks)
+    blockIndex = (intervalIndex // int(blockLen)).astype(np.int64, copy=False)
     totalHeldoutCells = int(residual.size)
     if residual.size < int(params.minHeldoutCells):
         logger.warning(
@@ -797,6 +955,16 @@ def calibrateChromosomeStateUncertainty(
             int(residual.size),
             int(params.minHeldoutCells),
         )
+    targetDelta = _targetCalibrationDelta(params)
+    targetCalibrationEnabled = targetDelta is not None
+    targetSplit = _targetCalibrationSplit(
+        blockIndex,
+        enabled=targetCalibrationEnabled,
+        seed=int(params.seed) + TARGET_CALIBRATION_BLOCK_SPLIT_SEED_OFFSET,
+    )
+    scaleRows = np.flatnonzero(np.asarray(targetSplit["scale_mask"], dtype=bool))
+    if scaleRows.size == 0:
+        scaleRows = np.arange(residual.size, dtype=np.int64)
     sampleCodes = _scoreSamplingCodes(
         foldIndex=foldIndex,
         repIndex=repIndex,
@@ -804,11 +972,12 @@ def calibrateChromosomeStateUncertainty(
         pState=pState,
         fullState=fullState0,
     )
-    fitRows = _samplePositionsByCode(
-        sampleCodes,
+    fitRowsLocal = _samplePositionsByCode(
+        sampleCodes[scaleRows],
         maxRows=_maxScoreRows(params),
         seed=int(params.seed),
     )
+    fitRows = scaleRows[fitRowsLocal]
     residualFit = residual[fitRows]
     pStateFit = pState[fitRows]
     obsVarFit = obsVar[fitRows]
@@ -883,6 +1052,102 @@ def calibrateChromosomeStateUncertainty(
         targets=tuple(float(t) for t in params.targets),
         strata=_signalLevelCoverageStrata(signalAbsFit),
     )
+    targetBlockIds = np.empty(0, dtype=np.int64)
+    targetBlockScores = np.empty(0, dtype=np.float64)
+    targetBlockCellCounts = np.empty(0, dtype=np.int64)
+    targetCalibrationBounds: list[dict[str, Any]] = []
+    if targetCalibrationEnabled:
+        targetBlockIds, targetBlockScores, targetBlockCellCounts = (
+            _cuncertainty.ctargetBlockScores(
+                np.ascontiguousarray(residual, dtype=np.float64),
+                np.ascontiguousarray(pState, dtype=np.float64),
+                np.ascontiguousarray(obsVar, dtype=np.float64),
+                np.ascontiguousarray(factor, dtype=np.float64),
+                np.ascontiguousarray(intervalIndex, dtype=np.int64),
+                np.ascontiguousarray(blockIndex, dtype=np.int64),
+                np.ascontiguousarray(targetSplit["target_block_mask"], dtype=np.uint8),
+                aObsFactor,
+                float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+            )
+        )
+        targetCalibrationBounds = _targetCalibrationBounds(
+            targetBlockScores,
+            targets=tuple(float(t) for t in params.targets),
+            delta=float(targetDelta),
+        )
+    scaleByTargetCalibration = bool(
+        getattr(params, "scaleUncertaintyByTargetCalibration", True)
+    )
+    targetScaleBound = _targetCalibrationScaleBound(targetCalibrationBounds)
+    uncertaintyTrackScale = 1.0
+    uncertaintyTrackScaleTarget = None
+    uncertaintyTrackScaled = False
+    uncertaintyTrackScaleCertified = False
+    uncertaintyTrackScaleReason = "target_calibration_disabled"
+    if targetCalibrationEnabled:
+        uncertaintyTrackScaleReason = "scale_disabled_by_config"
+        if scaleByTargetCalibration:
+            uncertaintyTrackScaleReason = "no_target_bound"
+            if targetScaleBound is not None:
+                uncertaintyTrackScaleTarget = float(targetScaleBound["target"])
+                qValue = targetScaleBound.get("q")
+                if qValue is not None:
+                    qFloat = float(qValue)
+                    if np.isfinite(qFloat) and qFloat > 0.0:
+                        uncertaintyTrackScale = qFloat
+                        uncertaintyTrackScaled = True
+                        uncertaintyTrackScaleCertified = bool(
+                            targetScaleBound.get("certified", False)
+                        )
+                        uncertaintyTrackScaleReason = (
+                            "scaled_by_certified_target_bound"
+                            if uncertaintyTrackScaleCertified
+                            else "scaled_by_uncertified_empirical_max"
+                        )
+                        calibrated = (
+                            np.asarray(calibrated, dtype=np.float32)
+                            * np.float32(uncertaintyTrackScale)
+                        )
+                        if uncertaintyTrackScaleCertified:
+                            logger.info(
+                                "Target-calibrated uncertainty scaling applied: "
+                                "target=%.6g delta=%.6g q=%.6g. To write unscaled "
+                                "calibrated standard errors, set "
+                                "`uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false`.",
+                                uncertaintyTrackScaleTarget,
+                                float(targetDelta),
+                                uncertaintyTrackScale,
+                            )
+                        else:
+                            logger.warning(
+                                "Target-calibrated uncertainty scaling applied using "
+                                "uncertified empirical max multiplier: target=%.6g "
+                                "delta=%.6g q=%.6g. The requested PAC bound was not "
+                                "certified with the available target-calibration blocks. "
+                                "To write unscaled calibrated standard errors, set "
+                                "`uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false`.",
+                                uncertaintyTrackScaleTarget,
+                                float(targetDelta),
+                                uncertaintyTrackScale,
+                            )
+                    else:
+                        uncertaintyTrackScaleReason = "nonfinite_target_bound"
+                else:
+                    uncertaintyTrackScaleReason = "no_finite_target_bound"
+            if not uncertaintyTrackScaled:
+                logger.warning(
+                    "Target-calibrated uncertainty scaling was requested but no finite "
+                    "multiplier was available for the selected target. Writing "
+                    "unscaled calibrated standard errors. To disable target-calibrated "
+                    "scaling explicitly, set "
+                    "`uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false`."
+                )
+        else:
+            logger.info(
+                "Target-calibrated uncertainty scaling disabled by configuration. "
+                "Set `uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: true` "
+                "to scale the uncertainty track by the selected certified multiplier."
+            )
     coverageOverall = [
         row for row in stateCoverage if str(row.get("stratum", "")) == "overall"
     ]
@@ -903,6 +1168,7 @@ def calibrateChromosomeStateUncertainty(
             "fold": foldIndexFit,
             "replicate": repIndexFit,
             "interval_index": intervalIndexFit,
+            "block_index": blockIndex[fitRows],
             "chrom_start": intervalsArr[intervalIndexFit],
             "residual": residualFit,
             "state_variance": pStateFit,
@@ -981,6 +1247,25 @@ def calibrateChromosomeStateUncertainty(
         "factor_bound_max": float(_factorBounds(params)[1]),
         "state_uncertainty_coverage": stateCoverage,
         "state_uncertainty_coverage_fit": stateCoverageFit,
+        "target_calibration": {
+            "enabled": bool(targetCalibrationEnabled),
+            "delta": None if targetDelta is None else float(targetDelta),
+            "block_split_seed": int(targetSplit["seed"]),
+            "target_block_fraction": float(TARGET_CALIBRATION_FRACTION),
+            "blocks_total": int(targetSplit["blocks_total"]),
+            "blocks_scale": int(np.asarray(targetSplit["scale_blocks"]).size),
+            "blocks_target": int(np.asarray(targetSplit["target_blocks"]).size),
+            "blocks_target_scored": int(targetBlockScores.size),
+            "target_block_cells": int(np.sum(targetBlockCellCounts)),
+            "scale_uncertainty_by_target_calibration": bool(scaleByTargetCalibration),
+            "uncertainty_track_scaled": bool(uncertaintyTrackScaled),
+            "uncertainty_track_scale": float(uncertaintyTrackScale),
+            "uncertainty_track_scale_target": uncertaintyTrackScaleTarget,
+            "uncertainty_track_scale_certified": bool(uncertaintyTrackScaleCertified),
+            "uncertainty_track_scale_reason": uncertaintyTrackScaleReason,
+            "score_definition": "max_abs_residual_over_predictive_sd_by_block",
+            "bounds": targetCalibrationBounds,
+        },
     }
     timings["total_seconds"] = time.perf_counter() - totalStart
     model["timings_seconds"] = {key: float(value) for key, value in timings.items()}

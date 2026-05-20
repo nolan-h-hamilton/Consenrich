@@ -1,16 +1,22 @@
 import consenrich
+import consenrich.config
+import consenrich.core
+import consenrich.io
+import consenrich.peaks
+import consenrich.uncertainty
 
 
 def _case_public_api_exports_curated_entrypoints():
-    assert consenrich.runConsenrich is consenrich.state_space.runConsenrich
+    assert consenrich.runConsenrich is consenrich.core.runConsenrich
     assert consenrich.readConfig is consenrich.config.readConfig
-    assert consenrich.getMuncTrack is consenrich.munc.getMuncTrack
-    assert consenrich.chooseDependenceLength is consenrich.regions.chooseDependenceLength
+    assert consenrich.convertBedGraphToBigWig is consenrich.io.convertBedGraphToBigWig
+    assert consenrich.solveRocco is consenrich.peaks.solveRocco
     assert (
         consenrich.calibrateChromosomeStateUncertainty
         is consenrich.uncertainty.calibrateChromosomeStateUncertainty
     )
-    assert consenrich.uncertaintyCalibrationParams is consenrich.core.uncertaintyCalibrationParams
+    assert not hasattr(consenrich, "getMuncTrack")
+    assert not hasattr(consenrich, "state_space")
 
 
 def _case_private_helpers_are_not_package_wildcard_exports():

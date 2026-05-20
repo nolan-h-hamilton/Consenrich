@@ -32,14 +32,50 @@ from . import ccounts
 from .constants import (
     ALIGNMENT_SOURCE_KINDS,
     BEDGRAPH_SOURCE_KIND,
+    COUNTING_DEFAULT_GENTLE_DETREND_QUANTILE,
+    COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND,
+    COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER,
     FRAGMENTS_SOURCE_KIND,
-    PROCESS_Q_CALIBRATION_MODES,
-    PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS,
-    PROCESS_Q_CALIBRATION_NONE,
-    PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
-    PROCESS_Q_DEFAULT_TREND_TARGET_RATIO,
-    PROCESS_Q_NUMERICAL_FLOOR,
-    PROCESS_Q_TREND_FLOOR_RATIO,
+    FIT_DEFAULT_BACKGROUND,
+    FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER,
+    FIT_DEFAULT_BACKGROUND_SHIFT_RTOL,
+    FIT_DEFAULT_BACKGROUND_SMOOTHNESS,
+    FIT_DEFAULT_FIXED_BACKGROUND_ITERS,
+    FIT_DEFAULT_FIXED_BACKGROUND_RTOL,
+    FIT_DEFAULT_MIN_OUTER_ITERS,
+    FIT_DEFAULT_OUTER_ITERS,
+    FIT_DEFAULT_OUTER_NLL_RTOL,
+    FIT_DEFAULT_ROBUST_T_NU,
+    FIT_DEFAULT_USE_APN,
+    FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING,
+    FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING,
+    FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
+    FIT_DEFAULT_ZERO_CENTER_REPLICATE_BIAS,
+    INPUT_DEFAULT_ROLE,
+    PROCESS_DEFAULT_DELTA_F,
+    PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO,
+    PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH,
+    PROCESS_NOISE_DEFAULT_WARMUP_ECM_ITERS,
+    PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES,
+    PROCESS_NOISE_NUMERICAL_FLOOR,
+    PROCESS_DEFAULT_MAX_Q,
+    PROCESS_DEFAULT_MIN_Q,
+    PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX,
+    PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN,
+    PROCESS_DEFAULT_STATE_MODEL,
+    SAM_DEFAULT_BAM_INPUT_MODE,
+    SAM_DEFAULT_COUNT_MODE,
+    SAM_DEFAULT_EXTEND_FROM_5P_BP,
+    SAM_DEFAULT_INFER_FRAGMENT_LENGTH,
+    SAM_DEFAULT_MAX_INSERT_SIZE,
+    SAM_DEFAULT_MIN_MAPPING_QUALITY,
+    SAM_DEFAULT_MIN_TEMPLATE_LENGTH,
+    SAM_DEFAULT_SHIFT_FORWARD_5P,
+    SAM_DEFAULT_SHIFT_REVERSE_5P,
+    SC_DEFAULT_BARCODE_TAG,
+    SC_DEFAULT_COUNT_MODE,
+    SC_DEFAULT_FRAGMENTS_GROUP_NORM,
+    SC_DEFAULT_FRAGMENT_POSITION_MODE,
     STATE_MODEL_LEVEL,
     STATE_MODEL_LEVEL_TREND,
     STATE_MODEL_MODES,
@@ -51,17 +87,31 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN,
     UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
     UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH,
+    UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH_OVERRIDE,
+    UNCERTAINTY_CALIBRATION_DEFAULT_BLOCK_SIZE_BP,
+    UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS,
+    UNCERTAINTY_CALIBRATION_DEFAULT_ENABLED,
     UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
+    UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX_OVERRIDE,
     UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
+    UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN_OVERRIDE,
+    UNCERTAINTY_CALIBRATION_DEFAULT_FOLDS,
+    UNCERTAINTY_CALIBRATION_DEFAULT_HELDOUT_REPLICATE_FRACTION,
     UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MAX,
     UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION_MIN,
+    UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION,
+    UNCERTAINTY_CALIBRATION_DEFAULT_MAX_HELDOUT_CELLS,
     UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS,
     UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES,
     UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS,
+    UNCERTAINTY_CALIBRATION_DEFAULT_PAD,
     UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE,
+    UNCERTAINTY_CALIBRATION_DEFAULT_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION,
     UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
+    UNCERTAINTY_CALIBRATION_DEFAULT_TARGET_CALIBRATION_DELTA,
     UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS,
     UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT,
+    UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS,
     UNCERTAINTY_CALIBRATION_DIAGNOSTIC_SEED_OFFSET,
     UNCERTAINTY_CALIBRATION_FACTOR_MAX_MIN_RATIO,
     UNCERTAINTY_CALIBRATION_FACTOR_MIN_FLOOR,
@@ -75,8 +125,7 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_MIN_FOLDS,
     UNCERTAINTY_CALIBRATION_MIN_HOLDOUT_REPLICATES,
     UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
-    UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_OUTER_ITERS,
-    UNCERTAINTY_CALIBRATION_REFIT_PROCESS_Q_WARMUP_ECM_ITERS,
+    UNCERTAINTY_CALIBRATION_REFIT_PROCESS_NOISE_WARMUP_ECM_ITERS,
     UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE,
     UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES,
     UNCERTAINTY_CALIBRATION_SCORE_REPLICATE_CODE_STRIDE,
@@ -181,29 +230,14 @@ class processParams(NamedTuple):
     :type minQ: float
     :param maxQ: Maximum process noise scale. If ``maxQ < 0``, no effective upper bound is enforced.
     :type maxQ: float
-    :param offDiagQ: Off-diagonal value in the process noise covariance :math:`\mathbf{Q}_{[i,01]}`
-    :type offDiagQ: float
-    :param processQCalibration: Process-noise covariance setup mode. ``"regularizedDiagonal"``
-        runs a short pre-fit calibration pass to estimate a fixed diagonal base
-        covariance :math:`\mathbf{Q}_0 = \mathrm{diag}(q_\mathrm{level}, q_\mathrm{trend})`.
-        ``"none"`` preserves the legacy scalar process covariance.
-    :type processQCalibration: str
-    :param processQWarmupECMIters: Maximum fixed-background ECM iterations used by
-        the process-Q warm-up fit.
-    :type processQWarmupECMIters: int
-    :param processQWarmupOuterIters: Maximum outer alternation passes used by
-        the process-Q warm-up calibration fit.
-    :type processQWarmupOuterIters: int
-    :param processQLevelTarget: Optional shrinkage target for level innovation variance.
-        If unset, the resolved ``minQ`` value is used.
-    :type processQLevelTarget: float | None
-    :param processQTrendTarget: Optional shrinkage target for trend innovation variance.
-        If unset, ``PROCESS_Q_DEFAULT_TREND_TARGET_RATIO * processQLevelTarget`` is used.
-    :type processQTrendTarget: float | None
-    :param processQLevelPriorWeight: Shrinkage weight toward ``processQLevelTarget``.
-    :type processQLevelPriorWeight: float
-    :param processQTrendPriorWeight: Shrinkage weight toward ``processQTrendTarget``.
-    :type processQTrendPriorWeight: float
+    :param regularizationStrength: Global conservative shrinkage strength to `processParams.regularizationRatio` prior
+    :type regularizationStrength: float
+    :param regularizationRatio: Prior anchor for the trend-to-level process-noise
+        ratio when ``stateModel="levelTrend"``.
+    :type regularizationRatio: float
+    :param processNoiseWarmupECMIters: Maximum fixed-background ECM iterations
+        used by process-noise warm-up calibration.
+    :type processNoiseWarmupECMIters: int
     :param precisionMultiplierMin: Lower clamp for process precision multipliers
         :math:`\kappa_{[i]}` during robust ECM reweighting.
     :type precisionMultiplierMin: float
@@ -214,20 +248,15 @@ class processParams(NamedTuple):
 
     """
 
-    deltaF: float = 1.0
-    minQ: float = 2.5e-4
-    maxQ: float = 1000.0
-    offDiagQ: float = 0.0
-    processQCalibration: str = "regularizedDiagonal"
-    processQWarmupECMIters: int = 3
-    processQWarmupOuterIters: int = PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
-    processQLevelTarget: float | None = None
-    processQTrendTarget: float | None = None
-    processQLevelPriorWeight: float = 0.05
-    processQTrendPriorWeight: float = 1.0
-    precisionMultiplierMin: float = 0.5
-    precisionMultiplierMax: float = 2.0
-    stateModel: str = STATE_MODEL_LEVEL_TREND
+    deltaF: float = PROCESS_DEFAULT_DELTA_F
+    minQ: float = PROCESS_DEFAULT_MIN_Q
+    maxQ: float = PROCESS_DEFAULT_MAX_Q
+    regularizationStrength: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH
+    regularizationRatio: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO
+    processNoiseWarmupECMIters: int = PROCESS_NOISE_DEFAULT_WARMUP_ECM_ITERS
+    precisionMultiplierMin: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN
+    precisionMultiplierMax: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX
+    stateModel: str = PROCESS_DEFAULT_STATE_MODEL
 
 
 class observationParams(NamedTuple):
@@ -336,28 +365,38 @@ class stateParams(NamedTuple):
 class uncertaintyCalibrationParams(NamedTuple):
     r"""Parameters for cross-fit chromosome state-uncertainty calibration."""
 
-    enabled: bool = False
-    folds: int = 3
-    blockSizeBP: int | str | None = None
-    holdoutFraction: float | None = None
-    heldoutReplicateFraction: float | None = None
+    enabled: bool = UNCERTAINTY_CALIBRATION_DEFAULT_ENABLED
+    folds: int = UNCERTAINTY_CALIBRATION_DEFAULT_FOLDS
+    blockSizeBP: int | str | None = UNCERTAINTY_CALIBRATION_DEFAULT_BLOCK_SIZE_BP
+    holdoutFraction: float | None = UNCERTAINTY_CALIBRATION_DEFAULT_HOLDOUT_FRACTION
+    heldoutReplicateFraction: float | None = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_HELDOUT_REPLICATE_FRACTION
+    )
     maxScores: int = UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES
-    maxHeldoutCells: int | None = None
+    maxHeldoutCells: int | None = UNCERTAINTY_CALIBRATION_DEFAULT_MAX_HELDOUT_CELLS
     maxDiagnosticRows: int = UNCERTAINTY_CALIBRATION_DEFAULT_MAX_DIAGNOSTIC_ROWS
     minHeldoutCells: int = UNCERTAINTY_CALIBRATION_DEFAULT_MIN_HELDOUT_CELLS
     targets: tuple[float, ...] = UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS
     minFactor: float = UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN
     maxFactor: float = UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX
-    factorMin: float | None = None
-    factorMax: float | None = None
+    factorMin: float | None = UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN_OVERRIDE
+    factorMax: float | None = UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX_OVERRIDE
     ridge: float = UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE
     wisWeight: float = UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT
     aObsPenalty: float = UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY
-    aObsPriorStrength: float | None = None
-    calibrationECMIters: int = 2
+    aObsPriorStrength: float | None = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH_OVERRIDE
+    )
+    calibrationECMIters: int = UNCERTAINTY_CALIBRATION_DEFAULT_CALIBRATION_ECM_ITERS
+    targetCalibrationDelta: float | None = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_TARGET_CALIBRATION_DELTA
+    )
+    scaleUncertaintyByTargetCalibration: bool = (
+        UNCERTAINTY_CALIBRATION_DEFAULT_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION
+    )
     seed: int = UNCERTAINTY_CALIBRATION_DEFAULT_SEED
-    pad: float | None = None
-    writeDiagnostics: bool = False
+    pad: float | None = UNCERTAINTY_CALIBRATION_DEFAULT_PAD
+    writeDiagnostics: bool = UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS
 
 
 def checkStateUncertaintyCoverage(
@@ -503,15 +542,15 @@ class samParams(NamedTuple):
     samFlagExclude: int
     oneReadPerBin: int
     chunkSize: int
-    bamInputMode: str | None = "auto"
-    defaultCountMode: str | None = "coverage"
-    shiftForward5p: int | None = 0
-    shiftReverse5p: int | None = 0
-    extendFrom5pBP: List[int] | int | None = None
-    maxInsertSize: Optional[int] = 1000
-    inferFragmentLength: Optional[int] = None
-    minMappingQuality: Optional[int] = 0
-    minTemplateLength: Optional[int] = -1
+    bamInputMode: str | None = SAM_DEFAULT_BAM_INPUT_MODE
+    defaultCountMode: str | None = SAM_DEFAULT_COUNT_MODE
+    shiftForward5p: int | None = SAM_DEFAULT_SHIFT_FORWARD_5P
+    shiftReverse5p: int | None = SAM_DEFAULT_SHIFT_REVERSE_5P
+    extendFrom5pBP: List[int] | int | None = SAM_DEFAULT_EXTEND_FROM_5P_BP
+    maxInsertSize: Optional[int] = SAM_DEFAULT_MAX_INSERT_SIZE
+    inferFragmentLength: Optional[int] = SAM_DEFAULT_INFER_FRAGMENT_LENGTH
+    minMappingQuality: Optional[int] = SAM_DEFAULT_MIN_MAPPING_QUALITY
+    minTemplateLength: Optional[int] = SAM_DEFAULT_MIN_TEMPLATE_LENGTH
 
 
 class inputSource(NamedTuple):
@@ -544,8 +583,8 @@ class inputSource(NamedTuple):
     """
 
     path: str
-    sourceKind: str = "BAM"
-    role: str = "treatment"
+    sourceKind: str = ALIGNMENT_SOURCE_KINDS[0]
+    role: str = INPUT_DEFAULT_ROLE
     sampleName: str | None = None
     barcodeTag: str | None = None
     barcodeAllowListFile: str | None = None
@@ -640,7 +679,8 @@ class countingParams(NamedTuple):
     :type logMult: float, optional
     :param replicateMedianDetrend: If True, subtract a broad per-replicate
         quantile-filter trend after log/log-ratio transformation and before MUNC
-        and state estimation.
+        and state estimation. This is automatically skipped for treatment/control
+        runs because those tracks are already log-ratios.
     :type replicateMedianDetrend: bool | None
     :param replicateMedianDetrendWindowMultiplier: Multiplier applied to the
         effective background span when choosing the quantile-filter detrend
@@ -674,9 +714,11 @@ class countingParams(NamedTuple):
     fixControl: bool | None
     logOffset: float | None
     logMult: float | None
-    replicateMedianDetrend: bool | None = True
-    replicateMedianDetrendWindowMultiplier: float | None = 2.0
-    gentleDetrendQuantile: float | None = 0.5
+    replicateMedianDetrend: bool | None = COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND
+    replicateMedianDetrendWindowMultiplier: float | None = (
+        COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER
+    )
+    gentleDetrendQuantile: float | None = COUNTING_DEFAULT_GENTLE_DETREND_QUANTILE
 
 
 class scParams(NamedTuple):
@@ -693,10 +735,10 @@ class scParams(NamedTuple):
     :type defaultFragmentPositionMode: str | None
     """
 
-    barcodeTag: str | None = "CB"
-    defaultCountMode: str | None = "coverage"
-    fragmentsGroupNorm: str | None = "NONE"
-    defaultFragmentPositionMode: str | None = "insertionEndpoints"
+    barcodeTag: str | None = SC_DEFAULT_BARCODE_TAG
+    defaultCountMode: str | None = SC_DEFAULT_COUNT_MODE
+    fragmentsGroupNorm: str | None = SC_DEFAULT_FRAGMENTS_GROUP_NORM
+    defaultFragmentPositionMode: str | None = SC_DEFAULT_FRAGMENT_POSITION_MODE
 
 
 class matchingParams(NamedTuple):
@@ -736,8 +778,9 @@ class matchingParams(NamedTuple):
     :type nestedRoccoBudgetScale: Optional[float]
     :param exportFilterUncertaintyMultiplier: Non-negative multiplier ``c`` in the
         final export filter ``medianState < -c * median(local uncertainty)``.
-        The default is ``2.5``. Setting ``c=0`` requires exported peaks to have
-        positive median signal.
+        The default follows the package matching defaults in
+        :mod:`consenrich.constants`. Setting ``c=0`` requires exported peaks to
+        have positive median signal.
     :type exportFilterUncertaintyMultiplier: Optional[float]
     :seealso: :mod:`consenrich.peaks`, :class:`outputParams`.
     """
@@ -849,21 +892,27 @@ class fitParams(NamedTuple):
     :seealso: :func:`consenrich.cconsenrich.cfixedBackgroundECM`, :func:`consenrich.core.runConsenrich`, :func:`consenrich.core.getMuncTrack`, :func:`consenrich.core.fitPSplineLogVarianceTrend`
     """
 
-    ECM_fixedBackgroundIters: int | None = 50
-    ECM_fixedBackgroundRtol: float | None = 1.0e-4
-    ECM_robustTNu: float | None = 8.0
-    ECM_useObsPrecisionReweighting: bool | None = True
-    ECM_useProcessPrecisionReweighting: bool | None = True
-    ECM_useAPN: bool | None = False
-    ECM_zeroCenterBackground: bool | None = False
-    ECM_zeroCenterReplicateBias: bool | None = True
-    ECM_outerIters: int | None = 3
-    ECM_minOuterIters: int | None = None
-    ECM_backgroundShiftRtol: float | None = 1.0e-3
-    ECM_outerNLLRtol: float | None = 1.0e-4
-    ECM_backgroundSmoothness: float | None = 1.0
-    ECM_backgroundLengthScaleMultiplier: float | None = 8.0
-    fitBackground: bool | None = True
+    ECM_fixedBackgroundIters: int | None = FIT_DEFAULT_FIXED_BACKGROUND_ITERS
+    ECM_fixedBackgroundRtol: float | None = FIT_DEFAULT_FIXED_BACKGROUND_RTOL
+    ECM_robustTNu: float | None = FIT_DEFAULT_ROBUST_T_NU
+    ECM_useObsPrecisionReweighting: bool | None = (
+        FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING
+    )
+    ECM_useProcessPrecisionReweighting: bool | None = (
+        FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING
+    )
+    ECM_useAPN: bool | None = FIT_DEFAULT_USE_APN
+    ECM_zeroCenterBackground: bool | None = FIT_DEFAULT_ZERO_CENTER_BACKGROUND
+    ECM_zeroCenterReplicateBias: bool | None = FIT_DEFAULT_ZERO_CENTER_REPLICATE_BIAS
+    ECM_outerIters: int | None = FIT_DEFAULT_OUTER_ITERS
+    ECM_minOuterIters: int | None = FIT_DEFAULT_MIN_OUTER_ITERS
+    ECM_backgroundShiftRtol: float | None = FIT_DEFAULT_BACKGROUND_SHIFT_RTOL
+    ECM_outerNLLRtol: float | None = FIT_DEFAULT_OUTER_NLL_RTOL
+    ECM_backgroundSmoothness: float | None = FIT_DEFAULT_BACKGROUND_SMOOTHNESS
+    ECM_backgroundLengthScaleMultiplier: float | None = (
+        FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER
+    )
+    fitBackground: bool | None = FIT_DEFAULT_BACKGROUND
 
 
 def _inferAlignmentSourceKind(path: str) -> str:
@@ -1577,22 +1626,6 @@ def _resolveFixedDeltaF(deltaF: float) -> float:
     return deltaF_
 
 
-def _normalizeProcessQCalibration(processQCalibration: str | None) -> str:
-    if processQCalibration is None:
-        return PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-
-    mode = str(processQCalibration).strip()
-    if mode == PROCESS_Q_CALIBRATION_NONE:
-        return PROCESS_Q_CALIBRATION_NONE
-    if mode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL:
-        return PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-
-    raise ValueError(
-        "`processQCalibration` must be one of "
-        + ", ".join(repr(mode_) for mode_ in PROCESS_Q_CALIBRATION_MODES)
-    )
-
-
 def _normalizeStateModel(stateModel: str | None) -> str:
     if stateModel is None:
         return STATE_MODEL_LEVEL_TREND
@@ -1716,7 +1749,7 @@ def _coerceOptionalVector(
     return np.ascontiguousarray(arr, dtype=np.float32)
 
 
-def _coerceOptionalProcessQ(value: np.ndarray | None) -> np.ndarray | None:
+def _coerceOptionalProcessNoiseMatrix(value: np.ndarray | None) -> np.ndarray | None:
     if value is None:
         return None
     arr = np.asarray(value, dtype=np.float32)
@@ -1929,205 +1962,463 @@ def _computeExpectedLevelTransitionResidualSums(
     return float(sumLevel), float(sumTrend), int(cTransitionCount)
 
 
-def _estimateRegularizedDiagonalProcessQ(
+def _computeTransitionResidualArrays(
+    *,
+    stateSmoothed: np.ndarray,
+    stateCovarSmoothed: np.ndarray,
+    lagCovSmoothed: np.ndarray,
+    componentIndex: int,
+    matrixF: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
+    stateMean = np.asarray(stateSmoothed, dtype=np.float64)
+    stateCovar = np.asarray(stateCovarSmoothed, dtype=np.float64)
+    lagCovar = np.asarray(lagCovSmoothed, dtype=np.float64)
+    stateDim = int(stateMean.shape[1]) if stateMean.ndim == 2 else 0
+    transitionCount = int(stateMean.shape[0] - 1) if stateMean.ndim == 2 else 0
+    if transitionCount <= 0:
+        emptyArr = np.empty(0, dtype=np.float64)
+        return {
+            "expectedByTransition": emptyArr,
+            "signalByTransition": emptyArr,
+            "uncertaintyByTransition": emptyArr,
+        }
+    if componentIndex < 0 or componentIndex >= stateDim:
+        raise ValueError("componentIndex is outside the state dimension")
+    if stateCovar.shape[0] != stateMean.shape[0] or stateCovar.shape[1:] != (
+        stateDim,
+        stateDim,
+    ):
+        raise ValueError("stateCovarSmoothed shape must match stateSmoothed")
+    if lagCovar.shape[0] < transitionCount or lagCovar.shape[1:] != (
+        stateDim,
+        stateDim,
+    ):
+        raise ValueError("lagCovSmoothed shape must match transition count")
+
+    if stateDim == 1:
+        transitionRow = np.array([1.0], dtype=np.float64)
+        nextComponent = 0
+    else:
+        if matrixF is None:
+            raise ValueError("matrixF is required for multistate residual stats")
+        matrixFArr = np.asarray(matrixF, dtype=np.float64)
+        if matrixFArr.shape != (stateDim, stateDim):
+            raise ValueError("matrixF shape must match state dimension")
+        transitionRow = matrixFArr[int(componentIndex), :]
+        nextComponent = int(componentIndex)
+
+    previousMean = stateMean[:-1, :]
+    nextMean = stateMean[1:, nextComponent]
+    residualMean = nextMean - previousMean @ transitionRow
+    signalByTransition = residualMean * residualMean
+    previousCovar = stateCovar[:-1, :, :]
+    nextVar = stateCovar[1:, nextComponent, nextComponent]
+    previousTerm = np.einsum(
+        "i,tij,j->t",
+        transitionRow,
+        previousCovar,
+        transitionRow,
+        optimize=True,
+    )
+    crossTerm = np.einsum(
+        "i,ti->t",
+        transitionRow,
+        lagCovar[:transitionCount, :, nextComponent],
+        optimize=True,
+    )
+    uncertaintyByTransition = np.maximum(nextVar + previousTerm - 2.0 * crossTerm, 0.0)
+    expectedByTransition = signalByTransition + uncertaintyByTransition
+    return {
+        "expectedByTransition": expectedByTransition,
+        "signalByTransition": signalByTransition,
+        "uncertaintyByTransition": uncertaintyByTransition,
+    }
+
+
+def _summarizeTransitionResidualArrays(
+    *,
+    expectedByTransition: np.ndarray,
+    signalByTransition: np.ndarray,
+    uncertaintyByTransition: np.ndarray,
+) -> dict[str, float]:
+    expectedArr = np.asarray(expectedByTransition, dtype=np.float64)
+    signalArr = np.asarray(signalByTransition, dtype=np.float64)
+    uncertaintyArr = np.asarray(uncertaintyByTransition, dtype=np.float64)
+    transitionCount = int(expectedArr.size)
+    if signalArr.size != transitionCount or uncertaintyArr.size != transitionCount:
+        raise ValueError("transition residual arrays must have matching lengths")
+    if transitionCount <= 0:
+        return {
+            "residual_count": 0.0,
+            "expected_sum": 0.0,
+            "signal_sum": 0.0,
+            "uncertainty_sum": 0.0,
+            "raw_q": 0.0,
+            "reliability": 0.0,
+            "n_eff": 0.0,
+        }
+    signalSum = float(np.sum(signalByTransition))
+    uncertaintySum = float(np.sum(uncertaintyByTransition))
+    expectedSum = float(np.sum(expectedByTransition))
+    reliability = (
+        0.0
+        if expectedSum <= PROCESS_NOISE_NUMERICAL_FLOOR
+        else float(np.clip(signalSum / expectedSum, 0.0, 1.0))
+    )
+    rawQ = expectedSum / float(transitionCount)
+    return {
+        "residual_count": float(transitionCount),
+        "expected_sum": float(expectedSum),
+        "signal_sum": float(signalSum),
+        "uncertainty_sum": float(uncertaintySum),
+        "raw_q": float(rawQ),
+        "reliability": float(reliability),
+        "n_eff": float(transitionCount) * float(reliability),
+    }
+
+
+def _computeTransitionResidualStats(
+    *,
+    stateSmoothed: np.ndarray,
+    stateCovarSmoothed: np.ndarray,
+    lagCovSmoothed: np.ndarray,
+    componentIndex: int,
+    matrixF: np.ndarray | None = None,
+) -> dict[str, float]:
+    residualArrays = _computeTransitionResidualArrays(
+        stateSmoothed=stateSmoothed,
+        stateCovarSmoothed=stateCovarSmoothed,
+        lagCovSmoothed=lagCovSmoothed,
+        componentIndex=componentIndex,
+        matrixF=matrixF,
+    )
+    return _summarizeTransitionResidualArrays(**residualArrays)
+
+
+def _resolveProcessNoiseBounds(
+    *,
+    minQ: float,
+    maxQ: float,
+) -> tuple[float, float]:
+    resolvedMinQ = max(_checkFinitePositive("minQ", minQ), PROCESS_NOISE_NUMERICAL_FLOOR)
+    maxQValue = float(maxQ)
+    if not np.isfinite(maxQValue):
+        if maxQValue > 0.0:
+            resolvedMaxQ = np.inf
+        else:
+            raise ValueError("`maxQ` must be finite, positive infinity, or negative")
+    elif maxQValue < 0.0:
+        resolvedMaxQ = np.inf
+    else:
+        resolvedMaxQ = max(_checkFinitePositive("maxQ", maxQValue), resolvedMinQ)
+    return float(resolvedMinQ), float(resolvedMaxQ)
+
+
+def _collectBlockProcessNoiseEvidence(
+    *,
+    levelExpectedByTransition: np.ndarray,
+    trendExpectedByTransition: np.ndarray | None,
+    blockLenIntervals: int,
+) -> dict[str, Any]:
+    levelExpected = np.asarray(levelExpectedByTransition, dtype=np.float64)
+    trendExpected = (
+        None
+        if trendExpectedByTransition is None
+        else np.asarray(trendExpectedByTransition, dtype=np.float64)
+    )
+    transitionCount = int(levelExpected.size)
+    if trendExpected is not None and trendExpected.size != transitionCount:
+        raise ValueError("level and trend transition arrays must have the same length")
+    blockLen = max(1, int(blockLenIntervals))
+    completeBlockCount = int(transitionCount // blockLen)
+    repeatCount = max(1, min(3, max(1, completeBlockCount)))
+    offsets = sorted(
+        {
+            int(min(max(round(repeatIndex * blockLen / repeatCount), 0), blockLen - 1))
+            for repeatIndex in range(repeatCount)
+        }
+    )
+    logQLevelHat: list[float] = []
+    levelTransitionCount: list[int] = []
+    logRatioHat: list[float] = []
+    ratioTransitionCount: list[int] = []
+    blockCount = 0
+    for offset in offsets:
+        for start in range(offset, transitionCount, blockLen):
+            end = min(start + blockLen, transitionCount)
+            blockN = int(end - start)
+            if blockN < 2:
+                continue
+            blockCount += 1
+            levelSum = float(np.sum(levelExpected[start:end]))
+            if levelSum > PROCESS_NOISE_NUMERICAL_FLOOR:
+                logQLevelHat.append(float(np.log(levelSum / float(blockN))))
+                levelTransitionCount.append(blockN)
+            if trendExpected is None:
+                continue
+            trendSum = float(np.sum(trendExpected[start:end]))
+            if (
+                levelSum > PROCESS_NOISE_NUMERICAL_FLOOR
+                and trendSum > PROCESS_NOISE_NUMERICAL_FLOOR
+            ):
+                logRatioHat.append(float(np.log(trendSum / levelSum)))
+                ratioTransitionCount.append(blockN)
+
+    return {
+        "blockCount": int(blockCount),
+        "completeBlockCount": int(completeBlockCount),
+        "repeatCount": int(len(offsets)),
+        "logQLevelHat": np.asarray(logQLevelHat, dtype=np.float64),
+        "levelTransitionCount": np.asarray(levelTransitionCount, dtype=np.float64),
+        "logRatioHat": np.asarray(logRatioHat, dtype=np.float64),
+        "ratioTransitionCount": np.asarray(ratioTransitionCount, dtype=np.float64),
+    }
+
+
+def _estimateLogEBComponent(
+    *,
+    logValue: np.ndarray,
+    transitionCount: np.ndarray,
+    samplingScale: float,
+) -> dict[str, float]:
+    logValueArr = np.asarray(logValue, dtype=np.float64)
+    transitionCountArr = np.asarray(transitionCount, dtype=np.float64)
+    validMask = (
+        np.isfinite(logValueArr)
+        & np.isfinite(transitionCountArr)
+        & (transitionCountArr > 0.0)
+    )
+    if int(np.count_nonzero(validMask)) <= 0:
+        return {
+            "validCount": 0.0,
+            "posteriorLog": float("nan"),
+            "dataMean": float("nan"),
+            "priorCenter": float("nan"),
+            "logSd": float("nan"),
+            "priorDf": 0.0,
+            "dataDf": 0.0,
+            "excessLogVar": float("nan"),
+        }
+    value = logValueArr[validMask]
+    count = transitionCountArr[validMask]
+    samplingVar = np.maximum(float(samplingScale) / count, PROCESS_NOISE_NUMERICAL_FLOOR)
+    weight = 1.0 / samplingVar
+    dataMean = float(np.average(value, weights=weight))
+    priorCenter = float(np.median(value))
+    weightedVar = (
+        0.0
+        if value.size <= 1
+        else float(np.average((value - dataMean) ** 2, weights=weight))
+    )
+    meanSamplingVar = float(np.average(samplingVar, weights=weight))
+    excessLogVar = max(weightedVar - meanSamplingVar, 1.0e-6)
+    priorDf = float(np.clip(2.0 * itrigamma(excessLogVar), 4.0, 1.0e6))
+    dataDf = float(np.sum(count))
+    posteriorLog = (
+        dataMean
+        if dataDf <= 0.0
+        else float((dataDf * dataMean + priorDf * priorCenter) / (dataDf + priorDf))
+    )
+    return {
+        "validCount": float(value.size),
+        "posteriorLog": float(posteriorLog),
+        "dataMean": float(dataMean),
+        "priorCenter": float(priorCenter),
+        "logSd": float(np.sqrt(max(weightedVar, 0.0))),
+        "priorDf": float(priorDf),
+        "dataDf": float(dataDf),
+        "excessLogVar": float(excessLogVar),
+    }
+
+
+def _estimateBlockHierarchicalEBProcessNoise(
     *,
     stateSmoothed: np.ndarray,
     stateCovarSmoothed: np.ndarray,
     lagCovSmoothed: np.ndarray,
     matrixF: np.ndarray,
+    stateModel: str,
     minQ: float,
     maxQ: float,
-    processQLevelTarget: float | None,
-    processQTrendTarget: float | None,
-    processQLevelPriorWeight: float,
-    processQTrendPriorWeight: float,
-) -> tuple[np.ndarray, dict[str, float]]:
-    qLevelTarget = (
-        max(float(minQ), PROCESS_Q_NUMERICAL_FLOOR)
-        if processQLevelTarget is None
-        else _checkFinitePositive("processQLevelTarget", processQLevelTarget)
-    )
-    qTrendTarget = (
-        qLevelTarget * PROCESS_Q_DEFAULT_TREND_TARGET_RATIO
-        if processQTrendTarget is None
-        else _checkFinitePositive("processQTrendTarget", processQTrendTarget)
-    )
-    levelWeight = _checkFiniteNonnegative(
-        "processQLevelPriorWeight",
-        processQLevelPriorWeight,
-    )
-    trendWeight = _checkFiniteNonnegative(
-        "processQTrendPriorWeight",
-        processQTrendPriorWeight,
-    )
-
-    sumLevel, sumTrend, transitionCount = _computeExpectedTransitionResidualSums(
+    blockLenIntervals: int,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    stateModelMode = _normalizeStateModel(stateModel)
+    resolvedMinQ, resolvedMaxQ = _resolveProcessNoiseBounds(minQ=minQ, maxQ=maxQ)
+    levelArrays = _computeTransitionResidualArrays(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
         lagCovSmoothed=lagCovSmoothed,
-        matrixF=matrixF,
+        componentIndex=0,
+        matrixF=None if stateModelMode == STATE_MODEL_LEVEL else matrixF,
     )
-    if transitionCount <= 0:
-        raise ValueError("need at least one transition for process-Q calibration")
+    levelStats = _summarizeTransitionResidualArrays(**levelArrays)
+    trendArrays = None
+    trendStats = {
+        "raw_q": 0.0,
+        "signal_sum": 0.0,
+        "uncertainty_sum": 0.0,
+        "reliability": 0.0,
+        "n_eff": 0.0,
+    }
+    if stateModelMode == STATE_MODEL_LEVEL_TREND:
+        trendArrays = _computeTransitionResidualArrays(
+            stateSmoothed=stateSmoothed,
+            stateCovarSmoothed=stateCovarSmoothed,
+            lagCovSmoothed=lagCovSmoothed,
+            componentIndex=1,
+            matrixF=matrixF,
+        )
+        trendStats = _summarizeTransitionResidualArrays(**trendArrays)
 
-    rawLevel = sumLevel / float(transitionCount)
-    rawTrend = sumTrend / float(transitionCount)
-    qLevelShrunk = (rawLevel + levelWeight * qLevelTarget) / (1.0 + levelWeight)
-    qTrendShrunk = (rawTrend + trendWeight * qTrendTarget) / (1.0 + trendWeight)
-
-    levelFloor = max(float(minQ), PROCESS_Q_NUMERICAL_FLOOR)
-    trendFloor = max(
-        qTrendTarget * PROCESS_Q_TREND_FLOOR_RATIO,
-        PROCESS_Q_NUMERICAL_FLOOR,
+    blockEvidence = _collectBlockProcessNoiseEvidence(
+        levelExpectedByTransition=levelArrays["expectedByTransition"],
+        trendExpectedByTransition=(
+            None if trendArrays is None else trendArrays["expectedByTransition"]
+        ),
+        blockLenIntervals=int(blockLenIntervals),
     )
-    qLevel = float(qLevelShrunk)
-    qTrend = float(qTrendShrunk)
-    levelFloorHit = bool(qLevel <= levelFloor)
-    trendFloorHit = bool(qTrend <= trendFloor)
-    qLevel = max(float(qLevel), levelFloor)
-    qTrend = max(float(qTrend), trendFloor)
+    levelFit = _estimateLogEBComponent(
+        logValue=blockEvidence["logQLevelHat"],
+        transitionCount=blockEvidence["levelTransitionCount"],
+        samplingScale=2.0,
+    )
+    if levelFit["validCount"] > 0.0 and np.isfinite(levelFit["posteriorLog"]):
+        qLevel = float(np.exp(levelFit["posteriorLog"]))
+    else:
+        qLevel = float(levelStats["raw_q"])
+    qLevel = max(float(qLevel), resolvedMinQ)
+    if np.isfinite(resolvedMaxQ):
+        qLevel = min(qLevel, resolvedMaxQ)
 
-    levelCapHit = False
-    trendCapHit = False
-    if np.isfinite(float(maxQ)) and float(maxQ) > 0.0:
-        qLevelCap = max(float(maxQ), levelFloor)
-        qTrendCap = max(float(maxQ), trendFloor)
-        levelCapHit = bool(qLevel >= qLevelCap)
-        trendCapHit = bool(qTrend >= qTrendCap)
-        qLevel = min(qLevel, qLevelCap)
-        qTrend = min(qTrend, qTrendCap)
-    rawLevelDenom = max(float(rawLevel), PROCESS_Q_NUMERICAL_FLOOR)
-    rawTrendDenom = max(float(rawTrend), PROCESS_Q_NUMERICAL_FLOOR)
+    if stateModelMode == STATE_MODEL_LEVEL:
+        matrixQ = constructMatrixQ(
+            minDiagQ=qLevel,
+            Q00=qLevel,
+            Q01=0.0,
+            Q10=0.0,
+            Q11=qLevel,
+        ).astype(np.float32, copy=False)
+        return matrixQ, {
+            "processNoisePolicy": "blockHierarchicalEB",
+            "stateModel": stateModelMode,
+            "rawQLevel": float(levelStats["raw_q"]),
+            "rawQTrend": 0.0,
+            "qLevel": float(qLevel),
+            "qTrend": 0.0,
+            "effectiveTrendLevelRatio": 0.0,
+            "blockCount": int(blockEvidence["blockCount"]),
+            "validBlockCount": int(levelFit["validCount"]),
+            "validRatioBlockCount": 0,
+            "repeatCount": int(blockEvidence["repeatCount"]),
+            "logQLevelMean": float(levelFit["posteriorLog"]),
+            "logQLevelSd": float(levelFit["logSd"]),
+            "logQLevelPriorDf": float(levelFit["priorDf"]),
+            "logRatioMean": 0.0,
+            "logRatioSd": 0.0,
+            "logRatioPriorDf": 0.0,
+            "matrixQ0Final": matrixQ.astype(float).tolist(),
+            "levelSignalSum": float(levelStats["signal_sum"]),
+            "levelUncertaintySum": float(levelStats["uncertainty_sum"]),
+            "levelReliability": float(levelStats["reliability"]),
+            "levelNEff": float(levelStats["n_eff"]),
+            "trendSignalSum": 0.0,
+            "trendUncertaintySum": 0.0,
+            "trendReliability": 0.0,
+            "trendNEff": 0.0,
+            "resolvedMinQ": float(resolvedMinQ),
+            "resolvedMaxQ": float(resolvedMaxQ),
+            "transitionCount": float(levelStats["residual_count"]),
+        }
 
+    ratioFit = _estimateLogEBComponent(
+        logValue=blockEvidence["logRatioHat"],
+        transitionCount=blockEvidence["ratioTransitionCount"],
+        samplingScale=4.0,
+    )
+    rawRatio = float(trendStats["raw_q"]) / max(qLevel, PROCESS_NOISE_NUMERICAL_FLOOR)
+    if ratioFit["validCount"] > 0.0 and np.isfinite(ratioFit["posteriorLog"]):
+        effectiveRatio = float(np.exp(ratioFit["posteriorLog"]))
+    else:
+        effectiveRatio = max(rawRatio, PROCESS_NOISE_NUMERICAL_FLOOR)
+    qTrend = max(
+        float(effectiveRatio) * float(qLevel),
+        PROCESS_NOISE_NUMERICAL_FLOOR,
+    )
+    if np.isfinite(resolvedMaxQ):
+        qTrend = min(qTrend, resolvedMaxQ)
     matrixQ = constructMatrixQ(
         minDiagQ=qLevel,
-        offDiagQ=0.0,
         Q00=qLevel,
+        Q01=0.0,
+        Q10=0.0,
         Q11=qTrend,
     ).astype(np.float32, copy=False)
     return matrixQ, {
-        "q_level": float(qLevel),
-        "q_trend": float(qTrend),
-        "raw_q_level": float(rawLevel),
-        "raw_q_trend": float(rawTrend),
-        "q_level_target": float(qLevelTarget),
-        "q_trend_target": float(qTrendTarget),
-        "q_level_prior_weight": float(levelWeight),
-        "q_trend_prior_weight": float(trendWeight),
-        "q_level_shrunk": float(qLevelShrunk),
-        "q_trend_shrunk": float(qTrendShrunk),
-        "q_level_floor": float(levelFloor),
-        "q_trend_floor": float(trendFloor),
-        "q_level_floor_hit": float(levelFloorHit),
-        "q_trend_floor_hit": float(trendFloorHit),
-        "q_level_cap_hit": float(levelCapHit),
-        "q_trend_cap_hit": float(trendCapHit),
-        "q_level_final_raw_ratio": float(qLevel / rawLevelDenom),
-        "q_trend_final_raw_ratio": float(qTrend / rawTrendDenom),
-        "transition_count": float(transitionCount),
+        "processNoisePolicy": "blockHierarchicalEB",
+        "stateModel": stateModelMode,
+        "rawQLevel": float(levelStats["raw_q"]),
+        "rawQTrend": float(trendStats["raw_q"]),
+        "qLevel": float(qLevel),
+        "qTrend": float(qTrend),
+        "effectiveTrendLevelRatio": float(effectiveRatio),
+        "rawTrendLevelRatio": float(rawRatio),
+        "blockCount": int(blockEvidence["blockCount"]),
+        "validBlockCount": int(levelFit["validCount"]),
+        "validRatioBlockCount": int(ratioFit["validCount"]),
+        "repeatCount": int(blockEvidence["repeatCount"]),
+        "logQLevelMean": float(levelFit["posteriorLog"]),
+        "logQLevelSd": float(levelFit["logSd"]),
+        "logQLevelPriorDf": float(levelFit["priorDf"]),
+        "logRatioMean": float(ratioFit["posteriorLog"]),
+        "logRatioSd": float(ratioFit["logSd"]),
+        "logRatioPriorDf": float(ratioFit["priorDf"]),
+        "matrixQ0Final": matrixQ.astype(float).tolist(),
+        "levelSignalSum": float(levelStats["signal_sum"]),
+        "levelUncertaintySum": float(levelStats["uncertainty_sum"]),
+        "levelReliability": float(levelStats["reliability"]),
+        "levelNEff": float(levelStats["n_eff"]),
+        "trendSignalSum": float(trendStats["signal_sum"]),
+        "trendUncertaintySum": float(trendStats["uncertainty_sum"]),
+        "trendReliability": float(trendStats["reliability"]),
+        "trendNEff": float(trendStats["n_eff"]),
+        "resolvedMinQ": float(resolvedMinQ),
+        "resolvedMaxQ": float(resolvedMaxQ),
+        "transitionCount": float(levelStats["residual_count"]),
     }
 
 
-def _estimateRegularizedLevelProcessQ(
+def _estimateAdaptiveProcessNoise(
     *,
     stateSmoothed: np.ndarray,
     stateCovarSmoothed: np.ndarray,
     lagCovSmoothed: np.ndarray,
+    matrixF: np.ndarray,
+    stateModel: str,
     minQ: float,
     maxQ: float,
-    processQLevelTarget: float | None,
-    processQLevelPriorWeight: float,
-) -> tuple[np.ndarray, dict[str, float]]:
-    qLevelTarget = (
-        max(float(minQ), PROCESS_Q_NUMERICAL_FLOOR)
-        if processQLevelTarget is None
-        else _checkFinitePositive("processQLevelTarget", processQLevelTarget)
-    )
-    levelWeight = _checkFiniteNonnegative(
-        "processQLevelPriorWeight",
-        processQLevelPriorWeight,
-    )
-    sumLevel, _sumTrend, transitionCount = _computeExpectedLevelTransitionResidualSums(
+    regularizationStrength: float,
+    regularizationRatio: float,
+    blockLenIntervals: int = 1,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    _checkFiniteNonnegative("regularizationStrength", regularizationStrength)
+    _checkFinitePositive("regularizationRatio", regularizationRatio)
+    return _estimateBlockHierarchicalEBProcessNoise(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
         lagCovSmoothed=lagCovSmoothed,
+        matrixF=matrixF,
+        stateModel=stateModel,
+        minQ=minQ,
+        maxQ=maxQ,
+        blockLenIntervals=blockLenIntervals,
     )
-    if transitionCount <= 0:
-        raise ValueError("need at least one transition for process-Q calibration")
-
-    rawLevel = sumLevel / float(transitionCount)
-    qLevelShrunk = (rawLevel + levelWeight * qLevelTarget) / (1.0 + levelWeight)
-    levelFloor = max(float(minQ), PROCESS_Q_NUMERICAL_FLOOR)
-    qLevel = float(qLevelShrunk)
-    levelFloorHit = bool(qLevel <= levelFloor)
-    qLevel = max(float(qLevel), levelFloor)
-
-    levelCapHit = False
-    if np.isfinite(float(maxQ)) and float(maxQ) > 0.0:
-        qLevelCap = max(float(maxQ), levelFloor)
-        levelCapHit = bool(qLevel >= qLevelCap)
-        qLevel = min(qLevel, qLevelCap)
-    rawLevelDenom = max(float(rawLevel), PROCESS_Q_NUMERICAL_FLOOR)
-
-    matrixQ = constructMatrixQ(
-        minDiagQ=qLevel,
-        offDiagQ=0.0,
-        Q00=qLevel,
-        Q11=qLevel,
-    ).astype(np.float32, copy=False)
-    return matrixQ, {
-        "q_level": float(qLevel),
-        "q_trend": 0.0,
-        "raw_q_level": float(rawLevel),
-        "raw_q_trend": 0.0,
-        "q_level_target": float(qLevelTarget),
-        "q_trend_target": 0.0,
-        "q_level_prior_weight": float(levelWeight),
-        "q_trend_prior_weight": 0.0,
-        "q_level_shrunk": float(qLevelShrunk),
-        "q_trend_shrunk": 0.0,
-        "q_level_floor": float(levelFloor),
-        "q_trend_floor": 0.0,
-        "q_level_floor_hit": float(levelFloorHit),
-        "q_trend_floor_hit": 0.0,
-        "q_level_cap_hit": float(levelCapHit),
-        "q_trend_cap_hit": 0.0,
-        "q_level_final_raw_ratio": float(qLevel / rawLevelDenom),
-        "q_trend_final_raw_ratio": 0.0,
-        "transition_count": float(transitionCount),
-    }
-
-
-def _warnIfProcessQCalibrationForced(info: Mapping[str, float]) -> None:
-    warnings_: list[str] = []
-    for component in ("level", "trend"):
-        if component == "trend" and float(info.get("q_trend_target", 0.0) or 0.0) == 0.0:
-            continue
-        if float(info.get(f"q_{component}_floor_hit", 0.0) or 0.0) > 0.0:
-            warnings_.append(f"{component} hit floor")
-        if float(info.get(f"q_{component}_cap_hit", 0.0) or 0.0) > 0.0:
-            warnings_.append(f"{component} hit cap")
-        ratio = float(info.get(f"q_{component}_final_raw_ratio", np.nan))
-        if np.isfinite(ratio) and (ratio < 0.1 or ratio > 10.0):
-            warnings_.append(f"{component} final/raw ratio={ratio:.6g}")
-    if warnings_:
-        logger.warning(
-            "processQCalibration.forced %s; q_level=%.6g raw_level=%.6g "
-            "q_trend=%.6g raw_trend=%.6g",
-            "; ".join(warnings_),
-            float(info.get("q_level", np.nan)),
-            float(info.get("raw_q_level", np.nan)),
-            float(info.get("q_trend", np.nan)),
-            float(info.get("raw_q_trend", np.nan)),
-        )
 
 
 def constructMatrixQ(
     minDiagQ: float,
-    offDiagQ: float = 0.0,
     Q00: Optional[float] = None,
-    Q01: Optional[float] = None,
-    Q10: Optional[float] = None,
+    Q01: Optional[float] = 0.0,
+    Q10: Optional[float] = 0.0,
     Q11: Optional[float] = None,
     useIdentity: float = -1.0,
     tol: float = 1.0e-8,  # conservative
@@ -2136,8 +2427,6 @@ def constructMatrixQ(
 
     :param minDiagQ: Minimum value for diagonal entries of :math:`\mathbf{Q}`.
     :type minDiagQ: float
-    :param offDiagQ: Value for off-diagonal entries of :math:`\mathbf{Q}`.
-    :type offDiagQ: float
     :param Q00: Optional value for entry (0,0) of :math:`\mathbf{Q}`.
     :type Q00: Optional[float]
     :param Q01: Optional value for entry (0,1) of :math:`\mathbf{Q}`.
@@ -2173,8 +2462,8 @@ def constructMatrixQ(
     elif Q10 is not None and Q01 is None:
         Q01 = Q10
 
-    Q[0, 1] = np.float32(offDiagQ if Q01 is None else Q01)
-    Q[1, 0] = np.float32(offDiagQ if Q10 is None else Q10)
+    Q[0, 1] = np.float32(0.0 if Q01 is None else Q01)
+    Q[1, 0] = np.float32(0.0 if Q10 is None else Q10)
 
     if not np.allclose(Q[0, 1], Q[1, 0], rtol=0.0, atol=1e-4):
         raise ValueError(f"Matrix is not symmetric: Q=\n{Q}")
@@ -2199,7 +2488,7 @@ def runConsenrich(
     deltaF: float,
     minQ: float,
     maxQ: float,
-    offDiagQ: float,
+    *,
     stateInit: float,
     stateCovarInit: float,
     boundState: bool,
@@ -2224,18 +2513,14 @@ def runConsenrich(
     fitBackground: bool = True,
     returnScales: bool = True,
     returnReplicateOffsets: bool = False,
-    processQCalibration: str | None = PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
     stateModel: str | None = STATE_MODEL_LEVEL_TREND,
-    processQWarmupECMIters: int = 3,
-    processQWarmupOuterIters: int | None = PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS,
-    processQLevelTarget: float | None = None,
-    processQTrendTarget: float | None = None,
-    processQLevelPriorWeight: float = 0.05,
-    processQTrendPriorWeight: float = 1.0,
+    regularizationStrength: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH,
+    regularizationRatio: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO,
+    processNoiseWarmupECMIters: int = PROCESS_NOISE_DEFAULT_WARMUP_ECM_ITERS,
     observationPrecisionMultiplierMin: float = 0.25,
     observationPrecisionMultiplierMax: float = 4.0,
-    processPrecisionMultiplierMin: float = 0.5,
-    processPrecisionMultiplierMax: float = 2.0,
+    processPrecisionMultiplierMin: float = 0.25,
+    processPrecisionMultiplierMax: float = 4.0,
     observationMask: np.ndarray | None = None,
     initialBackground: np.ndarray | None = None,
     initialReplicateBias: np.ndarray | None = None,
@@ -2282,11 +2567,6 @@ def runConsenrich(
 
       x_{[i+1]} = x_{[i]} + \eta_{[i]}.
 
-    If ``ECM_useAPN=True``, the forward filter instead uses the
-    adaptive-process-noise D-statistic update to scale
-    :math:`\mathbf{Q}_0`; process-precision reweighting is disabled, and the
-    monotonic-descent guarantee no longer applies.
-
     This wrapper ties together several fundamental routines written in Cython:
 
     #. :func:`consenrich.cconsenrich.cforwardPass`: Forward filter (predict, update)
@@ -2331,6 +2611,7 @@ def runConsenrich(
     if intervalCount < 2:
         raise ValueError("need at least 2 intervals for smoothing")
 
+    requestedProcessPrecisionReweighting = bool(ECM_useProcessPrecisionReweighting)
     ECM_useAPN = bool(ECM_useAPN)
     if ECM_useAPN:
         ECM_useProcessPrecisionReweighting = False
@@ -2388,9 +2669,22 @@ def runConsenrich(
             ),
             dtype=np.float32,
         )
-    initialProcessQArr = _coerceOptionalProcessQ(initialProcessQ)
-    processQCalibrationMode = _normalizeProcessQCalibration(processQCalibration)
+    initialProcessQArr = _coerceOptionalProcessNoiseMatrix(initialProcessQ)
     stateModelMode = _normalizeStateModel(stateModel)
+    minQ = _checkFinitePositive("minQ", minQ)
+    maxQ = float(maxQ)
+    if np.isnan(maxQ):
+        raise ValueError("`maxQ` must not be NaN")
+    maxQForAPN = np.inf if maxQ < 0.0 else max(maxQ, minQ)
+    regularizationStrength = _checkFiniteNonnegative(
+        "regularizationStrength",
+        regularizationStrength,
+    )
+    regularizationRatio = _checkFinitePositive(
+        "regularizationRatio",
+        regularizationRatio,
+    )
+    processNoiseWarmupECMIters = max(1, int(processNoiseWarmupECMIters))
     ECM_outerIters = max(1, int(ECM_outerIters))
     ECM_minOuterIters = (
         3 if ECM_minOuterIters is None else max(1, int(ECM_minOuterIters))
@@ -2415,20 +2709,21 @@ def runConsenrich(
             ("ECM max iterations", int(ECM_fixedBackgroundIters)),
             ("outer passes", int(ECM_outerIters)),
             ("state model", stateModelMode),
-            ("process Q calibration", processQCalibrationMode),
+            ("process noise", "warm-start" if initialProcessQArr is not None else "adaptive"),
+            ("regularization strength", float(regularizationStrength)),
+            ("regularization ratio", float(regularizationRatio)),
             ("background model fit", bool(fitBackground)),
         ),
         indentLevel=logIndentLevel,
     )
     logger.info(
-        "runConsenrich.core.start tracks=%d intervals=%d blocks=%d ECM_fixedBackgroundIters=%d outerIters=%d stateModel=%s processQCalibration=%s",
+        "runConsenrich.core.start tracks=%d intervals=%d blocks=%d ECM_fixedBackgroundIters=%d outerIters=%d stateModel=%s processNoise=adaptive",
         int(trackCount),
         int(intervalCount),
         int(blockCount),
         int(ECM_fixedBackgroundIters),
         int(ECM_outerIters),
         stateModelMode,
-        processQCalibrationMode,
     )
     logger.info(
         "precisionMultiplierBounds: obs=[%.6g, %.6g] proc=[%.6g, %.6g]",
@@ -2463,7 +2758,8 @@ def runConsenrich(
     def buildMatrixQ0(_deltaFLocal: float) -> np.ndarray:
         return constructMatrixQ(
             minDiagQ=float(minQ),
-            offDiagQ=float(offDiagQ),
+            Q01=0.0,
+            Q10=0.0,
         ).astype(np.float32, copy=False)
 
     def _runForwardBackward(
@@ -2519,7 +2815,7 @@ def runConsenrich(
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
                 APN_minQ=float(minQ),
-                APN_maxQ=float(maxQ),
+                APN_maxQ=float(maxQForAPN),
             )
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
                 cconsenrich.cbackwardPassLevel(
@@ -2571,7 +2867,7 @@ def runConsenrich(
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
                 APN_minQ=float(minQ),
-                APN_maxQ=float(maxQ),
+                APN_maxQ=float(maxQForAPN),
             )
 
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = (
@@ -2648,7 +2944,7 @@ def runConsenrich(
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
                 APN_minQ=float(minQ),
-                APN_maxQ=float(maxQ),
+                APN_maxQ=float(maxQForAPN),
             )
         else:
             _phiHat, _unused, _vectorD, sumNLL = cconsenrich.cforwardPass(
@@ -2684,7 +2980,7 @@ def runConsenrich(
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
                 APN_minQ=float(minQ),
-                APN_maxQ=float(maxQ),
+                APN_maxQ=float(maxQForAPN),
             )
         return float(sumNLL)
 
@@ -2729,14 +3025,14 @@ def runConsenrich(
             ),
             robustTNu=float(ECM_robustTNu),
         )
-        smoothPenalty, firstDiffPenalty, secondDiffPenalty = _backgroundObjectivePenalty(
-            background=background,
-            blockLenIntervals=int(blockLenIntervals),
-            backgroundSmoothness=float(ECM_backgroundSmoothness),
+        smoothPenalty, firstDiffPenalty, secondDiffPenalty = (
+            _backgroundObjectivePenalty(
+                background=background,
+                blockLenIntervals=int(blockLenIntervals),
+                backgroundSmoothness=float(ECM_backgroundSmoothness),
+            )
         )
-        objective = float(
-            forwardNLL + obsPenalty + procPenalty + smoothPenalty
-        )
+        objective = float(forwardNLL + obsPenalty + procPenalty + smoothPenalty)
         effectiveCount = float(_effectiveObservationCount(matrixMuncLocal))
         return {
             "forward_nll": float(forwardNLL),
@@ -2998,7 +3294,7 @@ def runConsenrich(
                     ("background model fit", bool(fitBackgroundLocal)),
                     ("adaptive process noise", bool(useAPNLocal)),
                     ("obs precision weights", bool(ECM_useObsPrecisionReweighting)),
-                    ("process precision weights", bool(useProcPrecLocal)),
+                    ("proc precision weights", bool(useProcPrecLocal)),
                 ),
                 indentLevel=phaseIndentLevel + 1,
             )
@@ -3028,7 +3324,7 @@ def runConsenrich(
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
                 procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
                 APN_minQ=float(minQ),
-                APN_maxQ=float(maxQ),
+                APN_maxQ=float(maxQForAPN),
                 lambdaExpInit=lambdaExpLocal,
                 processPrecExpInit=processPrecExpLocal,
                 replicateBiasInit=replicateBiasLocal,
@@ -3117,7 +3413,9 @@ def runConsenrich(
                 )
                 ecmDiagnosticsNormalized["background_shift_stable"] = True
                 ecmDiagnosticsNormalized["observation_lambda_mean"] = lambdaMeanLocal
-                ecmDiagnosticsNormalized["observation_lambda_median"] = lambdaMedianLocal
+                ecmDiagnosticsNormalized["observation_lambda_median"] = (
+                    lambdaMedianLocal
+                )
                 ecmDiagnosticsNormalized["process_kappa_mean"] = kappaMeanLocal
                 ecmDiagnosticsNormalized["process_kappa_median"] = kappaMedianLocal
                 ecmDiagnosticsNormalized["outer_inner_ecm_converged"] = bool(
@@ -3258,7 +3556,7 @@ def runConsenrich(
                 ("intervals", int(nLocal)),
                 ("background model", bool(fitBackgroundLocal)),
                 ("obs precision weights", bool(lambdaExpLocal is not None)),
-                ("process precision weights", bool(processPrecExpLocal is not None)),
+                ("proc precision weights", bool(processPrecExpLocal is not None)),
             ),
             indentLevel=phaseIndentLevel + 1,
         )
@@ -3332,7 +3630,9 @@ def runConsenrich(
             "fixedBackgroundECMDiagnostics": fixedBackgroundECMDiagnostics,
         }
 
-    deltaF_fit = 1.0 if stateModelMode == STATE_MODEL_LEVEL else _resolveFixedDeltaF(deltaF)
+    deltaF_fit = (
+        1.0 if stateModelMode == STATE_MODEL_LEVEL else _resolveFixedDeltaF(deltaF)
+    )
 
     matrixF = buildMatrixF(float(deltaF_fit))
     matrixQ0 = (
@@ -3340,8 +3640,8 @@ def runConsenrich(
         if initialProcessQArr is not None
         else buildMatrixQ0(float(deltaF_fit))
     )
-    fitProcessQWarmup: Mapping[str, Any] | None = None
-    processQCalibrationInfo: dict[str, float] | None = None
+    fitProcessNoiseWarmup: Mapping[str, Any] | None = None
+    processNoiseCalibrationInfo: dict[str, Any] | None = None
     postQInitialBackground = initialBackgroundArr
     postQInitialReplicateBias = initialReplicateBiasArr
     postQInitialLambda = initialObservationPrecisionArr
@@ -3349,50 +3649,42 @@ def runConsenrich(
 
     if initialProcessQArr is not None:
         qTrendWarmStart = (
+            0.0 if stateModelMode == STATE_MODEL_LEVEL else float(matrixQ0[1, 1])
+        )
+        warmStartRatio = (
             0.0
             if stateModelMode == STATE_MODEL_LEVEL
-            else float(matrixQ0[1, 1])
+            else qTrendWarmStart
+            / max(float(matrixQ0[0, 0]), PROCESS_NOISE_NUMERICAL_FLOOR)
         )
-        processQCalibrationInfo = {
-            "q_level": float(matrixQ0[0, 0]),
-            "q_trend": qTrendWarmStart,
-            "raw_q_level": float(matrixQ0[0, 0]),
-            "raw_q_trend": qTrendWarmStart,
-            "q_level_target": float(matrixQ0[0, 0]),
-            "q_trend_target": qTrendWarmStart,
-            "q_level_prior_weight": 0.0,
-            "q_trend_prior_weight": 0.0,
-            "q_level_shrunk": float(matrixQ0[0, 0]),
-            "q_trend_shrunk": qTrendWarmStart,
-            "q_level_floor": float(minQ),
-            "q_trend_floor": 0.0 if stateModelMode == STATE_MODEL_LEVEL else float(minQ),
-            "q_level_floor_hit": 0.0,
-            "q_trend_floor_hit": 0.0,
-            "q_level_cap_hit": 0.0,
-            "q_trend_cap_hit": 0.0,
-            "q_level_final_raw_ratio": 1.0,
-            "q_trend_final_raw_ratio": 0.0 if stateModelMode == STATE_MODEL_LEVEL else 1.0,
-            "transition_count": float(max(intervalCount - 1, 0)),
-            "warm_start_process_q": 1.0,
+        processNoiseCalibrationInfo = {
+            "processNoisePolicy": "warmStart",
+            "stateModel": stateModelMode,
+            "qLevel": float(matrixQ0[0, 0]),
+            "qTrend": qTrendWarmStart,
+            "rawQLevel": float(matrixQ0[0, 0]),
+            "rawQTrend": qTrendWarmStart,
+            "rawTrendLevelRatio": float(warmStartRatio),
+            "effectiveTrendLevelRatio": float(warmStartRatio),
+            "matrixQ0Final": matrixQ0.astype(float).tolist(),
+            "resolvedMinQ": float(minQ),
+            "resolvedMaxQ": float(maxQForAPN),
+            "transitionCount": float(max(intervalCount - 1, 0)),
+            "warmStartProcessNoise": 1.0,
+            "warmupECMIters": 0.0,
+            "warmupOuterPasses": 0.0,
         }
         logger.info(
-            "processQCalibration=warm-start: using initialProcessQ q_level=%.6g q_trend=%.6g",
+            "processNoise=warm-start: using initialProcessQ qLevel=%.6g qTrend=%.6g",
             float(matrixQ0[0, 0]),
             float(matrixQ0[1, 1]),
         )
-    elif processQCalibrationMode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL:
-        warmupIters = max(1, int(processQWarmupECMIters))
-        warmupOuterIters = max(
-            1,
-            int(
-                PROCESS_Q_CALIBRATION_DEFAULT_OUTER_ITERS
-                if processQWarmupOuterIters is None
-                else processQWarmupOuterIters
-            ),
-        )
+    else:
+        warmupIters = int(processNoiseWarmupECMIters)
+        warmupOuterIters = int(PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES)
         stageStart = time.perf_counter()
         _logAsciiBlock(
-            "process Q warmup",
+            "process noise warmup",
             (
                 (
                     "purpose",
@@ -3406,19 +3698,19 @@ def runConsenrich(
                 ("intervals", int(intervalCount)),
                 ("outer passes", int(warmupOuterIters)),
                 ("ECM max iterations", int(warmupIters)),
-                ("process precision weights", False),
+                ("proc precision weights", False),
                 ("adaptive process noise", False),
             ),
             indentLevel=logIndentLevel + 1,
         )
         logger.info(
-            "runConsenrich.processQWarmup.start tracks=%d intervals=%d ECM_fixedBackgroundIters=%d outerIters=%d",
+            "runConsenrich.processNoiseWarmup.start tracks=%d intervals=%d ECM_fixedBackgroundIters=%d outerIters=%d",
             int(trackCount),
             int(intervalCount),
             int(warmupIters),
             int(warmupOuterIters),
         )
-        fitProcessQWarmup = _fitOuter(
+        fitProcessNoiseWarmup = _fitOuter(
             matrixDataLocal=matrixData,
             matrixMuncLocal=matrixMunc,
             matrixFLocal=matrixF,
@@ -3429,88 +3721,62 @@ def runConsenrich(
             minOuterItersLocal=1,
             useProcPrecReweightOverride=False,
             useAPNOverride=False,
-            phaseLabel="process Q warmup",
+            phaseLabel="process noise warmup",
             phaseIndentLevel=logIndentLevel + 1,
         )
         logger.info(
-            "runConsenrich.processQWarmup.done elapsed=%.3fs",
+            "runConsenrich.processNoiseWarmup.done elapsed=%.3fs",
             time.perf_counter() - stageStart,
         )
-        if stateModelMode == STATE_MODEL_LEVEL:
-            matrixQ0, processQCalibrationInfo = _estimateRegularizedLevelProcessQ(
-                stateSmoothed=np.asarray(fitProcessQWarmup["stateSmoothed"]),
-                stateCovarSmoothed=np.asarray(fitProcessQWarmup["stateCovarSmoothed"]),
-                lagCovSmoothed=np.asarray(fitProcessQWarmup["lagCovSmoothed"]),
-                minQ=float(minQ),
-                maxQ=float(maxQ),
-                processQLevelTarget=processQLevelTarget,
-                processQLevelPriorWeight=float(processQLevelPriorWeight),
-            )
-        else:
-            matrixQ0, processQCalibrationInfo = _estimateRegularizedDiagonalProcessQ(
-                stateSmoothed=np.asarray(fitProcessQWarmup["stateSmoothed"]),
-                stateCovarSmoothed=np.asarray(fitProcessQWarmup["stateCovarSmoothed"]),
-                lagCovSmoothed=np.asarray(fitProcessQWarmup["lagCovSmoothed"]),
-                matrixF=matrixF,
-                minQ=float(minQ),
-                maxQ=float(maxQ),
-                processQLevelTarget=processQLevelTarget,
-                processQTrendTarget=processQTrendTarget,
-                processQLevelPriorWeight=float(processQLevelPriorWeight),
-                processQTrendPriorWeight=float(processQTrendPriorWeight),
-            )
-        processQCalibrationInfo["warmup_ecm_iters"] = float(warmupIters)
-        processQCalibrationInfo["warmup_outer_passes"] = float(warmupOuterIters)
-        processQCalibrationInfo["warm_start_process_q"] = 0.0
+        matrixQ0, processNoiseCalibrationInfo = _estimateAdaptiveProcessNoise(
+            stateSmoothed=np.asarray(fitProcessNoiseWarmup["stateSmoothed"]),
+            stateCovarSmoothed=np.asarray(fitProcessNoiseWarmup["stateCovarSmoothed"]),
+            lagCovSmoothed=np.asarray(fitProcessNoiseWarmup["lagCovSmoothed"]),
+            matrixF=matrixF,
+            stateModel=stateModelMode,
+            minQ=float(minQ),
+            maxQ=float(maxQ),
+            regularizationStrength=float(regularizationStrength),
+            regularizationRatio=float(regularizationRatio),
+            blockLenIntervals=int(blockLenIntervals),
+        )
+        processNoiseCalibrationInfo["warmupECMIters"] = float(warmupIters)
+        processNoiseCalibrationInfo["warmupOuterPasses"] = float(warmupOuterIters)
+        processNoiseCalibrationInfo["warmStartProcessNoise"] = 0.0
         postQInitialBackground = np.asarray(
-            fitProcessQWarmup["background"],
+            fitProcessNoiseWarmup["background"],
             dtype=np.float32,
         )
         postQInitialReplicateBias = np.asarray(
-            fitProcessQWarmup["replicateBias"],
+            fitProcessNoiseWarmup["replicateBias"],
             dtype=np.float32,
         )
         postQInitialLambda = (
-            np.asarray(fitProcessQWarmup["lambdaExp"], dtype=np.float32)
-            if fitProcessQWarmup.get("lambdaExp") is not None
+            np.asarray(fitProcessNoiseWarmup["lambdaExp"], dtype=np.float32)
+            if fitProcessNoiseWarmup.get("lambdaExp") is not None
             else initialObservationPrecisionArr
         )
-        _warnIfProcessQCalibrationForced(processQCalibrationInfo)
         logger.info(
-            "processQCalibration=%s:\n"
-            "\tq_level=%.6g\tq_trend=%.6g\n"
-            "\traw_level=%.6g\traw_trend=%.6g\n"
-            "\ttarget_level=%.6g\ttarget_trend=%.6g\n"
-            "\tweight_level=%.6g\tweight_trend=%.6g\n"
-            "\twarmup_outer_passes=%d\twarmup_ecm_iters=%d",
-            PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL,
-            processQCalibrationInfo["q_level"],
-            processQCalibrationInfo["q_trend"],
-            processQCalibrationInfo["raw_q_level"],
-            processQCalibrationInfo["raw_q_trend"],
-            processQCalibrationInfo["q_level_target"],
-            processQCalibrationInfo["q_trend_target"],
-            processQCalibrationInfo["q_level_prior_weight"],
-            processQCalibrationInfo["q_trend_prior_weight"],
+            "processNoiseCalibration=blockHierarchicalEB:\n"
+            "\tqLevel=%.6g\tqTrend=%.6g\n"
+            "\trawLevel=%.6g\trawTrend=%.6g\n"
+            "\teffectiveRatio=%.6g\tvalidBlocks=%d/%d\n"
+            "\twarmupOuterPasses=%d\twarmupECMIters=%d",
+            processNoiseCalibrationInfo["qLevel"],
+            processNoiseCalibrationInfo["qTrend"],
+            processNoiseCalibrationInfo["rawQLevel"],
+            processNoiseCalibrationInfo["rawQTrend"],
+            processNoiseCalibrationInfo["effectiveTrendLevelRatio"],
+            int(processNoiseCalibrationInfo["validBlockCount"]),
+            int(processNoiseCalibrationInfo["blockCount"]),
             int(warmupOuterIters),
             int(warmupIters),
         )
-    else:
-        logger.info("processQCalibration=none: using legacy scalar process Q")
-
-    baseFitPhaseLabel = (
-        "post-Q fit"
-        if processQCalibrationMode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-        else "model fit"
-    )
+    baseFitPhaseLabel = "post-process-noise fit"
     fitPhaseLabel = (
         f"{logRunRole} {baseFitPhaseLabel}" if logRunRole else baseFitPhaseLabel
     )
-    fitLogEvent = (
-        "postQFit"
-        if processQCalibrationMode == PROCESS_Q_CALIBRATION_REGULARIZED_DIAGONAL
-        else "modelFit"
-    )
+    fitLogEvent = "postProcessNoiseFit"
 
     stageStart = time.perf_counter()
     _logAsciiBlock(
@@ -3522,7 +3788,7 @@ def runConsenrich(
             ("outer passes", int(ECM_outerIters)),
             ("background model fit", bool(fitBackground)),
             ("obs precision weights", bool(ECM_useObsPrecisionReweighting)),
-            ("process precision weights", bool(ECM_useProcessPrecisionReweighting)),
+            ("proc precision weights", bool(ECM_useProcessPrecisionReweighting)),
             ("adaptive process noise", bool(ECM_useAPN)),
         ),
         indentLevel=logIndentLevel + 1,
@@ -3564,9 +3830,7 @@ def runConsenrich(
         stateCovarForward=np.asarray(fitFinal["stateCovarForward"], dtype=np.float32),
         matrixMunc=np.asarray(fitFinal["matrixMunc"], dtype=np.float32),
         lambdaExp=(
-            fitFinal.get("lambdaExp")
-            if bool(ECM_useObsPrecisionReweighting)
-            else None
+            fitFinal.get("lambdaExp") if bool(ECM_useObsPrecisionReweighting) else None
         ),
         pad=float(pad),
         obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
@@ -3589,11 +3853,26 @@ def runConsenrich(
         indentLevel=logIndentLevel + 1,
     )
     logger.info("Standardized forward innovation: %.6g", finalForwardNIS)
-    processQCalibrationMetadata = (
+    processNoiseCalibrationMetadata = (
         None
-        if processQCalibrationInfo is None
+        if processNoiseCalibrationInfo is None
         else {
-            key: metadataFloat(value) for key, value in processQCalibrationInfo.items()
+            key: (
+                value.astype(float).tolist()
+                if isinstance(value, np.ndarray)
+                else (
+                    [
+                        [
+                            _diagnosticScalar(cell)
+                            for cell in row
+                        ]
+                        for row in value
+                    ]
+                    if isinstance(value, list)
+                    else _diagnosticScalar(value)
+                )
+            )
+            for key, value in processNoiseCalibrationInfo.items()
         }
     )
     runDiagnostics = {
@@ -3634,13 +3913,26 @@ def runConsenrich(
             processPrecisionMin=float(processPrecisionMultiplierMin),
             processPrecisionMax=float(processPrecisionMultiplierMax),
         ),
-        "process_q_calibration": processQCalibrationMetadata,
-        "process_q_warmup_fit": (
-            _fitDiagnosticsMetadata(fitProcessQWarmup)
-            if fitProcessQWarmup is not None
+        "process_noise_calibration": processNoiseCalibrationMetadata,
+        "process_q_calibration": processNoiseCalibrationMetadata,
+        "process_noise_warmup_fit": (
+            _fitDiagnosticsMetadata(fitProcessNoiseWarmup)
+            if fitProcessNoiseWarmup is not None
             else None
         ),
+        "process_q_warmup_fit": (
+            _fitDiagnosticsMetadata(fitProcessNoiseWarmup)
+            if fitProcessNoiseWarmup is not None
+            else None
+        ),
+        "post_process_noise_fit": _fitDiagnosticsMetadata(fitFinal),
         "post_q_fit": _fitDiagnosticsMetadata(fitFinal),
+        "process_precision_reweighting_requested": bool(
+            requestedProcessPrecisionReweighting
+        ),
+        "process_precision_reweighting_effective": bool(
+            ECM_useProcessPrecisionReweighting
+        ),
     }
 
     outStateSmoothed = np.asarray(stateSmoothed, dtype=np.float32)
@@ -4483,7 +4775,9 @@ def _fitReplicateMuncVariancePriorFromArrays(
     )
 
 
-def _fitReplicateMuncVariancePriorWorker(task: tuple[int, dict[str, str], dict[str, Any]]):
+def _fitReplicateMuncVariancePriorWorker(
+    task: tuple[int, dict[str, str], dict[str, Any]],
+):
     sample, paths, params = task
     sampleIndex = np.load(paths["sampleIndex"], mmap_mode="r")
     sampleMask = np.asarray(sampleIndex == int(sample))
@@ -4494,7 +4788,11 @@ def _fitReplicateMuncVariancePriorWorker(task: tuple[int, dict[str, str], dict[s
         int(sample),
         np.load(paths["blockMeans"], mmap_mode="r")[sampleMask],
         np.load(paths["blockVariances"], mmap_mode="r")[sampleMask],
-        None if weightsPath is None else np.load(weightsPath, mmap_mode="r")[sampleMask],
+        (
+            None
+            if weightsPath is None
+            else np.load(weightsPath, mmap_mode="r")[sampleMask]
+        ),
         None if chromPath is None else np.load(chromPath, mmap_mode="r")[sampleMask],
         None if startsPath is None else np.load(startsPath, mmap_mode="r")[sampleMask],
         **params,
@@ -4541,7 +4839,10 @@ def fitReplicateMuncVariancePriors(
         weightsArr = np.asarray(weights, dtype=np.float64).ravel()
         if weightsArr.shape != means.shape:
             raise ValueError("weights must align with blockMeans")
-    if chromosomeIndex is not None and np.asarray(chromosomeIndex).ravel().shape != means.shape:
+    if (
+        chromosomeIndex is not None
+        and np.asarray(chromosomeIndex).ravel().shape != means.shape
+    ):
         raise ValueError("chromosomeIndex must align with blockMeans")
     if blockStarts is not None and np.asarray(blockStarts).ravel().shape != means.shape:
         raise ValueError("blockStarts must align with blockMeans")
@@ -4574,12 +4875,16 @@ def fitReplicateMuncVariancePriors(
             means[sampleMask],
             variances[sampleMask],
             weightsArr[sampleMask],
-            None
-            if chromosomeIndex is None
-            else np.asarray(chromosomeIndex, dtype=np.int64).ravel()[sampleMask],
-            None
-            if blockStarts is None
-            else np.asarray(blockStarts, dtype=np.int64).ravel()[sampleMask],
+            (
+                None
+                if chromosomeIndex is None
+                else np.asarray(chromosomeIndex, dtype=np.int64).ravel()[sampleMask]
+            ),
+            (
+                None
+                if blockStarts is None
+                else np.asarray(blockStarts, dtype=np.int64).ravel()[sampleMask]
+            ),
             **params,
         )
 
@@ -4598,7 +4903,9 @@ def fitReplicateMuncVariancePriors(
         os.makedirs(workDir, exist_ok=True)
         paths = {
             "blockMeans": os.path.join(workDir, "replicate_munc_block_means.npy"),
-            "blockVariances": os.path.join(workDir, "replicate_munc_block_variances.npy"),
+            "blockVariances": os.path.join(
+                workDir, "replicate_munc_block_variances.npy"
+            ),
             "sampleIndex": os.path.join(workDir, "replicate_munc_sample_index.npy"),
             "weights": os.path.join(workDir, "replicate_munc_weights.npy"),
         }
@@ -4629,8 +4936,12 @@ def fitReplicateMuncVariancePriors(
 
         out: list[ReplicateMuncVariancePrior | None] = [None] * sampleCount_
         tasks = [(sample, paths, params) for sample in range(sampleCount_)]
-        with ProcessPoolExecutor(max_workers=min(workerCount, sampleCount_)) as executor:
-            for sample, prior in executor.map(_fitReplicateMuncVariancePriorWorker, tasks):
+        with ProcessPoolExecutor(
+            max_workers=min(workerCount, sampleCount_)
+        ) as executor:
+            for sample, prior in executor.map(
+                _fitReplicateMuncVariancePriorWorker, tasks
+            ):
                 out[int(sample)] = prior
         return [
             prior if prior is not None else _serial(sample)
@@ -4946,6 +5257,7 @@ def quantileFilterDetrendInPlace(
         "trend_quantile": trendQuantile,
         "trend_mad": trendMad,
     }
+
 
 def _finalForwardNIS(NIS: np.ndarray) -> float:
     nisTrack = np.asarray(NIS, dtype=np.float64)

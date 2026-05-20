@@ -333,7 +333,7 @@ def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monk
     assert matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
 
 
-def _case_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.MonkeyPatch):
+def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
 
@@ -343,13 +343,10 @@ def _case_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Mon
     genomeParams.name: testGenome
     processParams:
       stateModel: level
-      processQCalibration: none
+      regularizationStrength: 0.25
+      regularizationRatio: 0.005
+      processNoiseWarmupECMIters: 7
       processQWarmupECMIters: 3
-      processQWarmupOuterIters: 2
-      processQLevelTarget: 0.002
-      processQTrendTarget: 0.00002
-      processQLevelPriorWeight: 0.25
-      processQTrendPriorWeight: 2.5
       precisionMultiplierMin: 0.5
       precisionMultiplierMax: 2.0
     observationParams:
@@ -358,23 +355,37 @@ def _case_readConfigProcessQCalibrationOptions(tmp_path, monkeypatch: pytest.Mon
       useReplicateTrends: true
     """
 
-    configPath = writeConfigFile(tmp_path, "config_process_q.yaml", configYaml)
+    configPath = writeConfigFile(tmp_path, "config_process_noise.yaml", configYaml)
     configParsed = readConfig(str(configPath))
     processArgs = configParsed["processArgs"]
 
     assert processArgs.stateModel == constants.STATE_MODEL_LEVEL
-    assert processArgs.processQCalibration == "none"
-    assert processArgs.processQWarmupECMIters == 3
-    assert processArgs.processQWarmupOuterIters == 2
-    assert processArgs.processQLevelTarget == pytest.approx(0.002)
-    assert processArgs.processQTrendTarget == pytest.approx(0.00002)
-    assert processArgs.processQLevelPriorWeight == pytest.approx(0.25)
-    assert processArgs.processQTrendPriorWeight == pytest.approx(2.5)
+    assert processArgs.regularizationStrength == pytest.approx(0.25)
+    assert processArgs.regularizationRatio == pytest.approx(0.005)
+    assert processArgs.processNoiseWarmupECMIters == 7
+    assert not hasattr(processArgs, "processQWarmupECMIters")
     assert processArgs.precisionMultiplierMin == pytest.approx(0.5)
     assert processArgs.precisionMultiplierMax == pytest.approx(2.0)
     assert configParsed["observationArgs"].precisionMultiplierMin == pytest.approx(0.1)
     assert configParsed["observationArgs"].precisionMultiplierMax == pytest.approx(8.0)
     assert configParsed["observationArgs"].useReplicateTrends is True
+    with pytest.raises(TypeError):
+        consenrich_core.constructMatrixQ(1.0e-4, offDiagQ=0.0)
+    with pytest.raises(TypeError):
+        consenrich_core.runConsenrich(
+            np.zeros((1, 3), dtype=np.float32),
+            np.ones((1, 3), dtype=np.float32),
+            1.0,
+            1.0e-4,
+            1.0,
+            offDiagQ=0.0,
+            stateInit=0.0,
+            stateCovarInit=1.0,
+            boundState=False,
+            stateLowerBound=0.0,
+            stateUpperBound=0.0,
+            blockLenIntervals=1,
+        )
 
 
 def _case_readConfigUsesGenericDefaultConfiguration(
@@ -395,6 +406,16 @@ def _case_readConfigUsesGenericDefaultConfiguration(
 
     assert parsed["defaultConfiguration"] == "generic"
     assert parsed["processArgs"].stateModel == constants.STATE_MODEL_LEVEL_TREND
+    assert (
+        parsed["processArgs"].processNoiseWarmupECMIters
+        == constants.PROCESS_NOISE_DEFAULT_WARMUP_ECM_ITERS
+    )
+    assert parsed["processArgs"].regularizationStrength == pytest.approx(
+        constants.PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH
+    )
+    assert parsed["processArgs"].regularizationRatio == pytest.approx(
+        constants.PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO
+    )
     assert parsed["observationArgs"].useReplicateTrends is False
 
 
@@ -405,6 +426,91 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
 
     assert "uncertaintyCalibrationParams.enabled" in defaults
     assert not any(key.startswith("uncertaintyCalibration.") for key in defaults)
+
+
+def _case_runtime_defaults_are_centralized(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: centralizedDefaults
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    """
+    configPath = writeConfigFile(tmp_path, "config_centralized_defaults.yaml", configYaml)
+    parsed = readConfig(str(configPath))
+    profile = constants.DEFAULT_CONFIGURATION_VALUES[
+        constants.GENERIC_DEFAULT_CONFIGURATION
+    ]
+
+    assert consenrich_config.DEFAULT_CONFIGURATION_VALUES is constants.DEFAULT_CONFIGURATION_VALUES
+    assert consenrich_config.GENERIC_DEFAULT_CONFIGURATION is constants.GENERIC_DEFAULT_CONFIGURATION
+    assert (
+        consenrich_config.SUPPORTED_DEFAULT_CONFIGURATIONS
+        is constants.SUPPORTED_DEFAULT_CONFIGURATIONS
+    )
+    assert consenrich_config.DEFAULT_CONFIGURATION_KEYS is constants.DEFAULT_CONFIGURATION_KEYS
+
+    assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
+    assert parsed["processArgs"].stateModel == profile["processParams.stateModel"]
+    assert parsed["processArgs"].regularizationStrength == profile[
+        "processParams.regularizationStrength"
+    ]
+    assert parsed["processArgs"].regularizationRatio == profile[
+        "processParams.regularizationRatio"
+    ]
+    assert parsed["processArgs"].processNoiseWarmupECMIters == profile[
+        "processParams.processNoiseWarmupECMIters"
+    ]
+    assert parsed["fitArgs"].ECM_outerIters == profile["fitParams.ECM_outerIters"]
+    assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == profile[
+        "fitParams.ECM_backgroundLengthScaleMultiplier"
+    ]
+    assert parsed["countingArgs"].replicateMedianDetrendWindowMultiplier == (
+        constants.COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER
+    )
+    assert parsed["matchingArgs"].exportFilterUncertaintyMultiplier == (
+        constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
+    )
+    assert consenrich_core.processParams().minQ == constants.PROCESS_DEFAULT_MIN_Q
+    assert (
+        consenrich_core.countingParams(
+            intervalSizeBP=parsed["countingArgs"].intervalSizeBP,
+            backgroundBlockSizeBP=parsed["countingArgs"].backgroundBlockSizeBP,
+            scaleFactors=None,
+            scaleFactorsControl=None,
+            normMethod=parsed["countingArgs"].normMethod,
+            fragmentsGroupNorm=parsed["countingArgs"].fragmentsGroupNorm,
+            fixControl=parsed["countingArgs"].fixControl,
+            logOffset=parsed["countingArgs"].logOffset,
+            logMult=parsed["countingArgs"].logMult,
+        ).replicateMedianDetrendWindowMultiplier
+        == constants.COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER
+    )
+    assert (
+        consenrich_core.uncertaintyCalibrationParams().enabled
+        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_ENABLED
+    )
+
+    cliDefaults = consenrich_cli._buildArgParser().parse_args([])
+    assert cliDefaults.matchTau0 == constants.MATCHING_DEFAULT_TAU0
+    assert cliDefaults.matchNumBootstrap == constants.MATCHING_DEFAULT_NUM_BOOTSTRAP
+    assert cliDefaults.matchThresholdZ == constants.MATCHING_DEFAULT_THRESHOLD_Z
+    assert (
+        cliDefaults.matchNestedRoccoIters
+        == constants.MATCHING_DEFAULT_NESTED_ROCCO_ITERS
+    )
+    assert (
+        cliDefaults.matchNestedRoccoBudgetScale
+        == constants.MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE
+    )
+    assert cliDefaults.matchExportFilterUncertaintyMultiplier == (
+        constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
+    )
+    assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
 
 
 def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
@@ -423,7 +529,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     countingParams.replicateMedianDetrend: false
     countingParams.replicateMedianDetrendWindowMultiplier: 3.0
     countingParams.gentleDetrendQuantile: 0.75
-    processParams.processQTrendPriorWeight: 2.5
+    processParams.regularizationStrength: 2.5
+    processParams.regularizationRatio: 0.002
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
     uncertaintyCalibrationParams.enabled: false
@@ -440,7 +547,8 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
         3.0
     )
     assert parsed["countingArgs"].gentleDetrendQuantile == pytest.approx(0.75)
-    assert parsed["processArgs"].processQTrendPriorWeight == pytest.approx(2.5)
+    assert parsed["processArgs"].regularizationStrength == pytest.approx(2.5)
+    assert parsed["processArgs"].regularizationRatio == pytest.approx(0.002)
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
@@ -655,6 +763,8 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     uncertaintyCalibrationParams.holdoutFraction: 0.2
     uncertaintyCalibrationParams.maxScores: 1234
     uncertaintyCalibrationParams.targets: [0.5, 0.9]
+    uncertaintyCalibrationParams.targetCalibrationDelta: 0.025
+    uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false
     """
     parsedExplicit = readConfig(
         str(
@@ -672,6 +782,8 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     assert explicitArgs.holdoutFraction == pytest.approx(0.2)
     assert explicitArgs.maxScores == 1234
     assert explicitArgs.targets == (0.5, 0.9)
+    assert explicitArgs.targetCalibrationDelta == pytest.approx(0.025)
+    assert explicitArgs.scaleUncertaintyByTargetCalibration is False
 
 def _case_readConfigNumNearestRequiresExplicitSparseBed(
     tmp_path, monkeypatch: pytest.MonkeyPatch
@@ -1161,6 +1273,45 @@ def _case_resolveFixedDeltaFRequiresPositiveFinite():
             consenrich_core._resolveFixedDeltaF(badDeltaF)
 
 
+def _caseReplicateDetrendAutoDisabledForControlLogRatios():
+    countingArgs = consenrich_core.countingParams(
+        intervalSizeBP=25,
+        backgroundBlockSizeBP=1000,
+        scaleFactors=None,
+        scaleFactorsControl=None,
+        normMethod="RPKM",
+        fragmentsGroupNorm="NONE",
+        fixControl=False,
+        logOffset=1.0,
+        logMult=1.0,
+        replicateMedianDetrend=True,
+        replicateMedianDetrendWindowMultiplier=5.0,
+        gentleDetrendQuantile=0.5,
+    )
+
+    enabled, label = consenrich_cli._resolveReplicateDetrendStatus(
+        countingArgs,
+        controlsPresent=False,
+    )
+    assert enabled is True
+    assert label == "quantile=0.5 x5"
+
+    enabled, label = consenrich_cli._resolveReplicateDetrendStatus(
+        countingArgs,
+        controlsPresent=True,
+    )
+    assert enabled is False
+    assert label == "no (control log-ratio)"
+
+    disabledArgs = countingArgs._replace(replicateMedianDetrend=False)
+    enabled, label = consenrich_cli._resolveReplicateDetrendStatus(
+        disabledArgs,
+        controlsPresent=True,
+    )
+    assert enabled is False
+    assert label == "no"
+
+
 def _run_with_monkeypatch(monkeypatch, func, *args):
     with monkeypatch.context() as mp:
         return func(*args, mp)
@@ -1186,6 +1337,10 @@ def test_config_runtime_logging_and_validation_contracts(
         "replicate gain frame",
         _caseReplicateGainFrameShowsIndentedIdFileMeanMedianSdAndIqr,
     )
+    contract_case(
+        "control log-ratio disables replicate detrend",
+        _caseReplicateDetrendAutoDisabledForControlLogRatios,
+    )
     contract_case("fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite)
 
 
@@ -1208,8 +1363,9 @@ def test_config_parser_defaults_and_override_contracts(
 ):
     for label, func in (
         ("dotted and nested config equivalence", _case_readConfigDottedAndNestedEquivalent),
-        ("process Q calibration options", _case_readConfigProcessQCalibrationOptions),
+        ("process noise options", _case_readConfigProcessNoiseOptions),
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
+        ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
         ("generic overrides", _case_readConfigGenericDefaultsStillAllowExplicitOverrides),
         ("unknown default profile rejected", _case_readConfigRejectsUnknownDefaultConfiguration),
     ):
