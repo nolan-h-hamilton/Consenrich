@@ -1605,7 +1605,7 @@ def main():
     ]
     if skippedChromosomes:
         logger.info(
-            "chromosome.skip excluded_or_nonstandard names=%s",
+            "chromosome.skip missing_or_excluded names=%s",
             ",".join(skippedChromosomes),
         )
     treatmentSourceKinds = [

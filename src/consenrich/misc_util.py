@@ -94,13 +94,13 @@ def getChromSizesDict(
 ) -> dict:
     r"""The function getChromSizesDict is a helper to get chromosome sizes file as a dictionary.
     :param sizes_file: Path to a genome assembly's chromosome sizes file
-    :param exclude_regex: Regular expression to exclude chromosomes. Default: all non-standard chromosomes.
+    :param exclude_regex: Regular expression selecting chromosome names to keep.
     :param exclude_chroms: List of chromosomes to exclude.
     :return: Dictionary of chromosome sizes. Formatted as `{chromosome_name: size}`
     """
     if excludeChroms is None:
         excludeChroms = []
-    excludeChromSet = set(excludeChroms) | set(constants.NONSTANDARD_CHROMOSOME_NAMES)
+    excludeChromSet = set(excludeChroms)
     return {
         k: v
         for k, v in pd.read_csv(

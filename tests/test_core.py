@@ -3555,6 +3555,33 @@ def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
 
 
 @pytest.mark.correctness
+def _caseChromSizesKeepSexChromosomesByDefault():
+    with tempfile.TemporaryDirectory() as tempDir:
+        sizesPath = Path(tempDir) / "chrom.sizes"
+        sizesPath.write_text(
+            "\n".join(
+                [
+                    "chr1\t1000",
+                    "chrX\t900",
+                    "chrY\t800",
+                    "chrM\t700",
+                    "chr1_KI270706v1_random\t600",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        chromSizes = misc_util.getChromSizesDict(str(sizesPath))
+
+        assert {"chr1", "chrX", "chrY", "chrM"} <= set(chromSizes)
+        assert "chr1_KI270706v1_random" not in chromSizes
+        assert "chrY" not in misc_util.getChromSizesDict(
+            str(sizesPath), excludeChroms=["chrY"]
+        )
+
+
+@pytest.mark.correctness
 def _caseReadSegmentsFragmentsGrouped():
     gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
     groupMapPath = FRAGMENTS_DIR / "barcode_groups.tsv"
@@ -4290,6 +4317,10 @@ def test_core_dependence_selection_contracts(contract_case):
     contract_case(
         "sampled dependence span autosome diagnostics",
         _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics,
+    )
+    contract_case(
+        "chrom sizes preserve sex chromosomes",
+        _caseChromSizesKeepSexChromosomesByDefault,
     )
 
 
