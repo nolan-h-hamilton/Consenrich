@@ -70,6 +70,18 @@ def _cfgGet(
     return currentVal
 
 
+def _cfgHas(configMap: Mapping[str, Any], dottedKey: str) -> bool:
+    if dottedKey in configMap:
+        return True
+    currentVal: Any = configMap
+    for keyPart in dottedKey.split("."):
+        if isinstance(currentVal, Mapping) and keyPart in currentVal:
+            currentVal = currentVal[keyPart]
+        else:
+            return False
+    return True
+
+
 def _normalizeDefaultConfigurationName(value: Any) -> str:
     if value is None:
         return GENERIC_DEFAULT_CONFIGURATION
@@ -229,6 +241,11 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.writeUncertainty",
         constants.OUTPUT_DEFAULT_WRITE_UNCERTAINTY,
     )
+    saveBackgroundTracks_ = _cfgGet(
+        configData,
+        "outputParams.saveBackgroundTracks",
+        _cfgDefault(configData, "outputParams.saveBackgroundTracks"),
+    )
     plotOptimizationPath_ = _cfgGet(
         configData,
         "outputParams.plotOptimizationPath",
@@ -238,6 +255,7 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
+        saveBackgroundTracks=saveBackgroundTracks_,
         plotOptimizationPath=plotOptimizationPath_,
     )
 
@@ -474,6 +492,11 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.logMult",
         constants.COUNTING_DEFAULT_LOG_MULT,
     )
+    subtractGlobalMedian_ = _cfgGet(
+        configData,
+        "countingParams.subtractGlobalMedian",
+        _cfgDefault(configData, "countingParams.subtractGlobalMedian"),
+    )
     replicateMedianDetrend_ = _cfgGet(
         configData,
         "countingParams.replicateMedianDetrend",
@@ -506,6 +529,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fixControl=fixControl_,
         logOffset=logOffset_,
         logMult=logMult_,
+        subtractGlobalMedian=bool(subtractGlobalMedian_),
         replicateMedianDetrend=bool(replicateMedianDetrend_),
         replicateMedianDetrendWindowMultiplier=float(
             replicateMedianDetrendWindowMultiplier_
@@ -830,27 +854,97 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         numNearestResolved = numNearestRequested
     else:
         numNearestResolved = 0
-    restrictLocalAR1ToSparseBedRequested = bool(
+    restrictLocalVarianceKey = (
+        "observationParams.restrictLocalVarianceToSparseBed"
+        if _cfgHas(configData, "observationParams.restrictLocalVarianceToSparseBed")
+        else "observationParams.restrictLocalAR1ToSparseBed"
+    )
+    restrictLocalVarianceRequested = bool(
         _cfgGet(
             configData,
-            "observationParams.restrictLocalAR1ToSparseBed",
-            constants.OBSERVATION_DEFAULT_RESTRICT_LOCAL_AR1_TO_SPARSE_BED,
+            restrictLocalVarianceKey,
+            constants.OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
         )
     )
-    if restrictLocalAR1ToSparseBedRequested and not sparseBedAvailable:
+    if restrictLocalVarianceRequested and not sparseBedAvailable:
         logger.warning(
-            "Requested `observationParams.restrictLocalAR1ToSparseBed`, but no "
+            "Requested `%s`, but no "
             "readable sparse BED was resolved; disabling that option.",
+            restrictLocalVarianceKey,
         )
-    restrictLocalAR1ToSparseBedResolved = bool(
-        restrictLocalAR1ToSparseBedRequested and sparseBedAvailable
+    restrictLocalVarianceResolved = bool(
+        restrictLocalVarianceRequested and sparseBedAvailable
     )
     trendMaxEdfCfg = _cfgGet(
         configData,
         "observationParams.trendMaxEdf",
         constants.OBSERVATION_DEFAULT_TREND_MAX_EDF,
     )
-
+    muncVarianceModel = core._normalizeMuncVarianceModel(
+        _cfgGet(
+            configData,
+            "observationParams.muncVarianceModel",
+            _cfgDefault(configData, "observationParams.muncVarianceModel"),
+        )
+    )
+    muncTrendBlockSizeBP = (
+        _cfgGet(configData, "observationParams.muncTrendBlockSizeBP", None)
+        if _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
+        else _cfgDefault(configData, "observationParams.muncTrendBlockSizeBP")
+    )
+    if _cfgHas(configData, "observationParams.muncTrendBlockSizeBP") and muncTrendBlockSizeBP is None:
+        muncTrendBlockSizeBP = -1
+    muncLocalWindowSizeBP = (
+        _cfgGet(configData, "observationParams.muncLocalWindowSizeBP", None)
+        if _cfgHas(configData, "observationParams.muncLocalWindowSizeBP")
+        else _cfgDefault(configData, "observationParams.muncLocalWindowSizeBP")
+    )
+    if _cfgHas(configData, "observationParams.muncLocalWindowSizeBP") and muncLocalWindowSizeBP is None:
+        muncLocalWindowSizeBP = -1
+    muncTrendBlockDependenceMultiplierRaw = _cfgGet(
+        configData,
+        "observationParams.muncTrendBlockDependenceMultiplier",
+        _cfgDefault(
+            configData,
+            "observationParams.muncTrendBlockDependenceMultiplier",
+        ),
+    )
+    if muncTrendBlockDependenceMultiplierRaw is None:
+        muncTrendBlockDependenceMultiplierRaw = (
+            constants.OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
+        )
+    muncTrendBlockDependenceMultiplier = float(
+        muncTrendBlockDependenceMultiplierRaw
+    )
+    if (
+        not np.isfinite(muncTrendBlockDependenceMultiplier)
+        or muncTrendBlockDependenceMultiplier <= 0.0
+    ):
+        raise ValueError(
+            "`observationParams.muncTrendBlockDependenceMultiplier` must be positive."
+        )
+    muncLocalWindowDependenceMultiplierRaw = _cfgGet(
+        configData,
+        "observationParams.muncLocalWindowDependenceMultiplier",
+        _cfgDefault(
+            configData,
+            "observationParams.muncLocalWindowDependenceMultiplier",
+        ),
+    )
+    if muncLocalWindowDependenceMultiplierRaw is None:
+        muncLocalWindowDependenceMultiplierRaw = (
+            constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
+        )
+    muncLocalWindowDependenceMultiplier = float(
+        muncLocalWindowDependenceMultiplierRaw
+    )
+    if (
+        not np.isfinite(muncLocalWindowDependenceMultiplier)
+        or muncLocalWindowDependenceMultiplier <= 0.0
+    ):
+        raise ValueError(
+            "`observationParams.muncLocalWindowDependenceMultiplier` must be positive."
+        )
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", constants.OBSERVATION_DEFAULT_MIN_R),
         maxR=_cfgGet(configData, "observationParams.maxR", constants.OBSERVATION_DEFAULT_MAX_R),
@@ -935,7 +1029,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR,
             )
         ),
-        restrictLocalAR1ToSparseBed=restrictLocalAR1ToSparseBedResolved,
+        restrictLocalAR1ToSparseBed=restrictLocalVarianceResolved,
         pad=_cfgGet(configData, "observationParams.pad", constants.OBSERVATION_DEFAULT_PAD),
         precisionMultiplierMin=float(
             _cfgGet(
@@ -958,6 +1052,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS,
             )
         ),
+        muncVarianceModel=muncVarianceModel,
+        muncTrendBlockSizeBP=muncTrendBlockSizeBP,
+        muncLocalWindowSizeBP=muncLocalWindowSizeBP,
+        muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier,
+        muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier,
+        restrictLocalVarianceToSparseBed=restrictLocalVarianceResolved,
     )
 
     ECM_useAPN_ = bool(
@@ -1001,6 +1101,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "fitParams.useNonnegativeBackground",
             _cfgDefault(configData, "fitParams.useNonnegativeBackground"),
+        ),
+        backgroundNegativePenaltyMultiplier=_cfgGet(
+            configData,
+            "fitParams.backgroundNegativePenaltyMultiplier",
+            _cfgDefault(
+                configData,
+                "fitParams.backgroundNegativePenaltyMultiplier",
+            ),
         ),
         ECM_zeroCenterBackground=_cfgGet(
             configData,
@@ -1213,6 +1321,7 @@ __all__ = [
     "SUPPORTED_DEFAULT_CONFIGURATIONS",
     "_cfgDefault",
     "_cfgGet",
+    "_cfgHas",
     "_getDefaultConfigurationName",
     "_normalizeDefaultConfigurationName",
     "getCountingArgs",

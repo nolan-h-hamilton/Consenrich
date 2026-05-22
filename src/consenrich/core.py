@@ -5,7 +5,9 @@ Consenrich core functions and classes.
 """
 
 import logging
+import math
 import os
+import sys
 from concurrent.futures import ProcessPoolExecutor
 import time
 import tempfile
@@ -35,9 +37,11 @@ from .constants import (
     COUNTING_DEFAULT_GENTLE_DETREND_QUANTILE,
     COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND,
     COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER,
+    COUNTING_DEFAULT_SUBTRACT_GLOBAL_MEDIAN,
     FRAGMENTS_SOURCE_KIND,
     FIT_DEFAULT_BACKGROUND,
     FIT_DEFAULT_BACKGROUND_LENGTH_SCALE_MULTIPLIER,
+    FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER,
     FIT_DEFAULT_BACKGROUND_SHIFT_RTOL,
     FIT_DEFAULT_BACKGROUND_SMOOTHNESS,
     FIT_DEFAULT_FIXED_BACKGROUND_ITERS,
@@ -53,6 +57,23 @@ from .constants import (
     FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
     FIT_DEFAULT_ZERO_CENTER_REPLICATE_BIAS,
     INPUT_DEFAULT_ROLE,
+    MUNC_SUPPORTED_VARIANCE_MODELS,
+    MUNC_VARIANCE_MODEL_AR1,
+    MUNC_VARIANCE_MODEL_CODE_AR1,
+    MUNC_VARIANCE_MODEL_CODE_SVAR,
+    MUNC_VARIANCE_MODEL_CODE_SVAR_D1,
+    MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
+    MUNC_VARIANCE_MODEL_SVAR,
+    MUNC_VARIANCE_MODEL_SVAR_D1,
+    MUNC_VARIANCE_MODEL_SVAR_D2,
+    OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
+    OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
+    OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
+    OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP,
+    OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
+    OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
+    OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
+    OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     PROCESS_DEFAULT_DELTA_F,
     PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO,
     PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH,
@@ -146,6 +167,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _ecmProgressEnabled() -> bool:
+    return bool(getattr(sys.stderr, "isatty", lambda: False)())
+
+
+def _makeECMProgressBar(
+    *,
+    phaseLabel: str,
+    passLabel: str,
+    total: int,
+    enabled: bool,
+):
+    if not enabled or int(total) <= 0 or not _ecmProgressEnabled():
+        return None
+    desc = " ".join(f"ECM {phaseLabel} {passLabel}".split())
+    if len(desc) > 80:
+        desc = desc[:77] + "..."
+    return tqdm(
+        total=int(total),
+        desc=desc,
+        unit="iter",
+        mininterval=0.5,
+        leave=False,
+        dynamic_ncols=True,
+    )
+
+
 _LOG_BLOCK_WIDTH = 72
 _LOG_KEY_WIDTH = 24
 _LOG_INDENT_WIDTH = 6
@@ -224,10 +271,9 @@ class processParams(NamedTuple):
         two-state level/slope model. ``"level"`` uses only the signal level
         state and pads public state arrays for compatibility.
     :type stateModel: str
-    :param minQ: Minimum process noise scale (diagonal in :math:`\mathbf{Q}_{[i]}`)
-        on the primary state variable (signal level). If ``minQ < 0``, a small
-        value scales the minimum observation noise level (``observationParams.minR``) and is used
-        for numerical stability.
+    :param minQ: Lower guard used by adaptive process-noise conditioning. Warm-up
+        calibration estimates the base process-noise scale from data and uses
+        :data:`PROCESS_NOISE_NUMERICAL_FLOOR` for final matrix conditioning.
     :type minQ: float
     :param maxQ: Maximum process noise scale. If ``maxQ < 0``, no effective upper bound is enforced.
     :type maxQ: float
@@ -271,8 +317,19 @@ class observationParams(NamedTuple):
     :type samplingIters: int | None
     :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate signed :math:`(\mu_b, \sigma^2_b)` pairs.
       Note, during sampling, each block's size (unit: genomic intervals) is drawn from truncated :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSize})` to reduce artifacts from fixed-size blocks.
-      If `None` or ` < 1`, then this value is inferred using :func:`consenrich.core.chooseDependenceLength`.
+      If `None` or ` < 1`, then this value is inferred from sampled autosomal dependence blocks.
     :type samplingBlockSizeBP: int | None
+    :param muncVarianceModel: Local MUNC variance estimator. Supported values
+        are ``"ar1"``, ``"svar"``, ``"svarD1"``, and ``"svarD2"``.
+    :type muncVarianceModel: str | None
+    :param muncTrendBlockSizeBP: Expected sampled block size for fitting the MUNC signed mean-variance trend. If unset, legacy ``samplingBlockSizeBP`` is used when explicitly positive; otherwise it is inferred at runtime.
+    :type muncTrendBlockSizeBP: int | None
+    :param muncLocalWindowSizeBP: Sliding-window size for local MUNC variance tracks. If unset, legacy ``samplingBlockSizeBP`` uses the old ``block + 1 interval`` local window; otherwise it is inferred at runtime.
+    :type muncLocalWindowSizeBP: int | None
+    :param muncTrendBlockDependenceMultiplier: Multiplier applied to the inferred dependence span when auto-sizing MUNC trend sampling blocks.
+    :type muncTrendBlockDependenceMultiplier: float | None
+    :param muncLocalWindowDependenceMultiplier: Multiplier applied to the inferred dependence span when auto-sizing local MUNC variance windows.
+    :type muncLocalWindowDependenceMultiplier: float | None
     :param EB_use: If True, shrink 'local' noise estimates to a prior trend dependent on amplitude. See  :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool | None
     :param useReplicateTrends: If True, fit the empirical Bayes MUNC mean/variance prior separately for each replicate instead of using one pooled trend with replicate scale factors.
@@ -305,6 +362,8 @@ class observationParams(NamedTuple):
     :param restrictLocalAR1ToSparseBed: If True, and a sparse BED mask is supplied to :func:`consenrich.core.getMuncTrack`, restrict the default rolling AR(1) local observation noise level estimates to windows fully contained in sparse BED regions.
       This only affects the local rolling AR(1) model, the global prior fit and sparse-nearest mode are unchanged.
     :type restrictLocalAR1ToSparseBed: bool | None
+    :param restrictLocalVarianceToSparseBed: Generic alias for restricting local MUNC variance windows to sparse BED regions.
+    :type restrictLocalVarianceToSparseBed: bool | None
     :param pad: A small constant added to the observation noise variance estimates for conditioning
     :type pad: float | None
     :param precisionMultiplierMin: Lower clamp for observation precision multipliers
@@ -339,6 +398,18 @@ class observationParams(NamedTuple):
     precisionMultiplierMin: float | None = 0.25
     precisionMultiplierMax: float | None = 4.0
     useReplicateTrends: bool | None = False
+    muncVarianceModel: str | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
+    muncTrendBlockSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP
+    muncLocalWindowSizeBP: int | None = OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP
+    muncTrendBlockDependenceMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
+    )
+    muncLocalWindowDependenceMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
+    )
+    restrictLocalVarianceToSparseBed: bool | None = (
+        OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
+    )
 
 
 class stateParams(NamedTuple):
@@ -653,7 +724,7 @@ class countingParams(NamedTuple):
         The default value is generally robust, but users may consider increasing this value when expected feature size is large and/or sequencing depth
         is low (less than :math:`\approx 5 \textsf{million}`, depending on assay).
     :type intervalSizeBP: int
-    :param backgroundBlockSizeBP: Length (bp) of blocks used to estimate local statistics (background, noise, etc.). If a negative value is provided (default), this value is inferred from the data using :func:`consenrich.core.chooseDependenceLength`.
+    :param backgroundBlockSizeBP: Length (bp) of blocks used to estimate local statistics (background, noise, etc.). If a negative value is provided (default), this value is inferred from sampled autosomal dependence blocks.
     :type backgroundBlockSizeBP: int
     :param normMethod: Method used to normalize read counts for sequencing depth / library size.
 
@@ -678,6 +749,9 @@ class countingParams(NamedTuple):
     :type logOffset: float, optional
     :param logMult: Multiplicative factor applied to log-scaled and normalized counts. For example, setting ``logMult = 1 / \log(2)`` will yield log2-scaled counts after transformation, and setting ``logMult = 1.0`` yields natural log-scaled counts.
     :type logMult: float, optional
+    :param subtractGlobalMedian: If True, subtract each transformed track's
+        chromosome-wide median immediately after log or log-ratio transformation.
+    :type subtractGlobalMedian: bool | None
     :param replicateMedianDetrend: If True, subtract a broad per-replicate
         quantile-filter trend after log/log-ratio transformation and before MUNC
         and state estimation. This is automatically skipped for treatment/control
@@ -715,6 +789,7 @@ class countingParams(NamedTuple):
     fixControl: bool | None
     logOffset: float | None
     logMult: float | None
+    subtractGlobalMedian: bool | None = COUNTING_DEFAULT_SUBTRACT_GLOBAL_MEDIAN
     replicateMedianDetrend: bool | None = COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND
     replicateMedianDetrendWindowMultiplier: float | None = (
         COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER
@@ -812,6 +887,9 @@ class outputParams(NamedTuple):
         when uncertainty calibration is enabled, the caller may replace it with the
         cross-fit calibrated state-variance track.
     :type writeUncertainty: bool
+    :param saveBackgroundTracks: If True, write the fitted shared background
+        track :math:`g_{[i]}` to bedGraph and optional bigWig output.
+    :type saveBackgroundTracks: bool
     :param plotOptimizationPath: If True, write and optionally plot the objective
         trace for outer/background passes and fixed-background ECM iterations.
     :type plotOptimizationPath: bool
@@ -821,7 +899,8 @@ class outputParams(NamedTuple):
     convertToBigWig: bool
     roundDigits: int
     writeUncertainty: bool
-    plotOptimizationPath: bool = True
+    saveBackgroundTracks: bool = OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS
+    plotOptimizationPath: bool = OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
 
 
 class fitParams(NamedTuple):
@@ -868,9 +947,12 @@ class fitParams(NamedTuple):
     :param fitBackground: If True, estimate the shared low-frequency background
       track \(g_{[i]}\) in the outer loop. If False, keep \(g_{[i]} \equiv 0\).
     :type fitBackground: bool
-    :param useNonnegativeBackground: If True, constrain the shared background
-      update to \(g_{[i]} \ge 0\) for every genomic interval.
+    :param useNonnegativeBackground: If True, discourage negative shared
+      background values with a soft asymmetric quadratic penalty.
     :type useNonnegativeBackground: bool
+    :param backgroundNegativePenaltyMultiplier: Multiplier for the soft
+      negative-background penalty. ``None`` disables the penalty.
+    :type backgroundNegativePenaltyMultiplier: float | None
     :param ECM_zeroCenterBackground: If True, enforce the identifiability
       constraint that the shared background has mean zero.
     :type ECM_zeroCenterBackground: bool
@@ -922,6 +1004,9 @@ class fitParams(NamedTuple):
     )
     fitBackground: bool | None = FIT_DEFAULT_BACKGROUND
     useNonnegativeBackground: bool | None = FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND
+    backgroundNegativePenaltyMultiplier: float | None = (
+        FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
+    )
 
 
 def _inferAlignmentSourceKind(path: str) -> str:
@@ -1743,6 +1828,64 @@ def _processKappaSummary(
     )
 
 
+def _precisionBoundHits(
+    values: np.ndarray | None,
+    *,
+    lower: float,
+    upper: float,
+    skipFirst: bool = False,
+) -> tuple[Any, Any]:
+    if values is None:
+        return None, None
+    arr = np.asarray(values, dtype=np.float64).reshape(-1)
+    if bool(skipFirst) and arr.size > 1:
+        arr = arr[1:]
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return None, None
+    lower_ = float(lower)
+    upper_ = float(upper)
+    lowerHits = int(np.count_nonzero(finite <= lower_)) if np.isfinite(lower_) else 0
+    upperHits = int(np.count_nonzero(finite >= upper_)) if np.isfinite(upper_) else 0
+    total = float(finite.size)
+    return metadataFloat(lowerHits / total), metadataFloat(upperHits / total)
+
+
+def _stateSignChangePerKB(
+    stateValues: np.ndarray | None,
+    *,
+    intervalSizeBP: int | None,
+) -> Any:
+    if stateValues is None or intervalSizeBP is None:
+        return None
+    intervalSizeBP_ = int(intervalSizeBP)
+    if intervalSizeBP_ <= 0:
+        return None
+    arr = np.asarray(stateValues, dtype=np.float64).reshape(-1)
+    if arr.size == 0:
+        return None
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return None
+    meanAbs = float(np.mean(np.abs(finite), dtype=np.float64))
+    if not np.isfinite(meanAbs):
+        return None
+    minSignMagnitude = 0.01 * meanAbs
+    if minSignMagnitude > 0.0:
+        finite = finite[np.abs(finite) >= minSignMagnitude]
+    signs = np.sign(finite)
+    signs = signs[signs != 0.0]
+    signChangeCount = (
+        int(np.count_nonzero(signs[1:] * signs[:-1] < 0.0))
+        if signs.size >= 2
+        else 0
+    )
+    spanKB = float(arr.size) * float(intervalSizeBP_) / 1000.0
+    if not np.isfinite(spanKB) or spanKB <= 0.0:
+        return None
+    return metadataFloat(float(signChangeCount) / spanKB)
+
+
 def _coerceOptionalVector(
     name: str,
     value: np.ndarray | None,
@@ -1875,6 +2018,15 @@ def _fitDiagnosticsMetadata(fit: Mapping[str, Any]) -> dict[str, Any]:
         "outer_stop_reason": str(fit.get("outerStopReason") or "unknown"),
         "background_shift": metadataFloat(float(fit.get("backgroundShift", np.nan))),
         "background_shift_threshold": fit.get("backgroundShiftThreshold"),
+        "background_objective": fit.get("backgroundObjective"),
+        "background_objective_per_cell": fit.get("backgroundObjectivePerCell"),
+        "background_objective_change_per_cell": fit.get(
+            "backgroundObjectiveChangePerCell"
+        ),
+        "background_objective_threshold_per_cell": fit.get(
+            "backgroundObjectiveThresholdPerCell"
+        ),
+        "background_objective_stable": bool(fit.get("backgroundObjectiveStable", False)),
         "outer_nll": fit.get("outerNLL"),
         "outer_nll_change": fit.get("outerNLLChange"),
         "outer_nll_threshold": fit.get("outerNLLThreshold"),
@@ -1887,6 +2039,11 @@ def _fitDiagnosticsMetadata(fit: Mapping[str, Any]) -> dict[str, Any]:
         "outer_effective_observation_count": int(
             fit.get("outerEffectiveObservationCount", 0) or 0
         ),
+        "observation_lambda_lower_bound_hits": fit.get("lambdaLowerBoundHits"),
+        "observation_lambda_upper_bound_hits": fit.get("lambdaUpperBoundHits"),
+        "process_kappa_lower_bound_hits": fit.get("kappaLowerBoundHits"),
+        "process_kappa_upper_bound_hits": fit.get("kappaUpperBoundHits"),
+        "sign_change_per_kb": fit.get("signChangePerKB"),
         "outer_stable_iters": int(fit.get("outerStableIters", 0) or 0),
         "outer_patience_target": int(fit.get("outerPatienceTarget", 0) or 0),
         "inner_ecm_converged": bool(fit.get("innerECMConverged", False)),
@@ -2104,155 +2261,226 @@ def _computeTransitionResidualStats(
     return _summarizeTransitionResidualArrays(**residualArrays)
 
 
-def _resolveProcessNoiseBounds(
-    *,
-    minQ: float,
-    maxQ: float,
-) -> tuple[float, float]:
-    resolvedMinQ = max(_checkFinitePositive("minQ", minQ), PROCESS_NOISE_NUMERICAL_FLOOR)
+def _resolveProcessNoiseCap(maxQ: float) -> float:
     maxQValue = float(maxQ)
-    if not np.isfinite(maxQValue):
-        if maxQValue > 0.0:
-            resolvedMaxQ = np.inf
-        else:
-            raise ValueError("`maxQ` must be finite, positive infinity, or negative")
-    elif maxQValue < 0.0:
-        resolvedMaxQ = np.inf
-    else:
-        resolvedMaxQ = max(_checkFinitePositive("maxQ", maxQValue), resolvedMinQ)
-    return float(resolvedMinQ), float(resolvedMaxQ)
+    if np.isfinite(maxQValue) and maxQValue > PROCESS_NOISE_NUMERICAL_FLOOR:
+        return float(maxQValue)
+    return float(np.inf)
 
 
-def _collectBlockProcessNoiseEvidence(
+def _positiveMedian(values: np.ndarray) -> float:
+    arr = np.asarray(values, dtype=np.float64)
+    mask = np.isfinite(arr) & (arr > 0.0)
+    if int(np.count_nonzero(mask)) <= 0:
+        return 0.0
+    return float(np.median(arr[mask]))
+
+
+def _clampProcessNoise(value: float, qCap: float) -> float:
+    value_ = float(value)
+    if not np.isfinite(value_):
+        value_ = PROCESS_NOISE_NUMERICAL_FLOOR
+    value_ = max(value_, PROCESS_NOISE_NUMERICAL_FLOOR)
+    if np.isfinite(qCap):
+        value_ = min(value_, float(qCap))
+    return float(value_)
+
+
+def _collectEBMAPProcessNoiseEvidence(
     *,
     levelExpectedByTransition: np.ndarray,
+    levelSignalByTransition: np.ndarray,
     trendExpectedByTransition: np.ndarray | None,
+    trendSignalByTransition: np.ndarray | None,
+    stateSmoothed: np.ndarray,
     blockLenIntervals: int,
 ) -> dict[str, Any]:
     levelExpected = np.asarray(levelExpectedByTransition, dtype=np.float64)
+    levelSignal = np.asarray(levelSignalByTransition, dtype=np.float64)
     trendExpected = (
         None
         if trendExpectedByTransition is None
         else np.asarray(trendExpectedByTransition, dtype=np.float64)
     )
+    trendSignal = (
+        None
+        if trendSignalByTransition is None
+        else np.asarray(trendSignalByTransition, dtype=np.float64)
+    )
+    stateMean = np.asarray(stateSmoothed, dtype=np.float64)
     transitionCount = int(levelExpected.size)
+    if levelSignal.size != transitionCount:
+        raise ValueError("level residual arrays must have the same length")
     if trendExpected is not None and trendExpected.size != transitionCount:
         raise ValueError("level and trend transition arrays must have the same length")
+    if trendSignal is not None and trendSignal.size != transitionCount:
+        raise ValueError("level and trend signal arrays must have the same length")
+    if stateMean.ndim != 2 or stateMean.shape[0] < transitionCount + 1:
+        raise ValueError("stateSmoothed must include all transition endpoints")
     blockLen = max(1, int(blockLenIntervals))
-    completeBlockCount = int(transitionCount // blockLen)
-    repeatCount = max(1, min(3, max(1, completeBlockCount)))
-    offsets = sorted(
-        {
-            int(min(max(round(repeatIndex * blockLen / repeatCount), 0), blockLen - 1))
-            for repeatIndex in range(repeatCount)
-        }
-    )
-    logQLevelHat: list[float] = []
-    levelTransitionCount: list[int] = []
-    logRatioHat: list[float] = []
-    ratioTransitionCount: list[int] = []
-    blockCount = 0
-    for offset in offsets:
-        for start in range(offset, transitionCount, blockLen):
-            end = min(start + blockLen, transitionCount)
-            blockN = int(end - start)
-            if blockN < 2:
-                continue
-            blockCount += 1
-            levelSum = float(np.sum(levelExpected[start:end]))
-            if levelSum > PROCESS_NOISE_NUMERICAL_FLOOR:
-                logQLevelHat.append(float(np.log(levelSum / float(blockN))))
-                levelTransitionCount.append(blockN)
-            if trendExpected is None:
-                continue
-            trendSum = float(np.sum(trendExpected[start:end]))
-            if (
-                levelSum > PROCESS_NOISE_NUMERICAL_FLOOR
-                and trendSum > PROCESS_NOISE_NUMERICAL_FLOOR
-            ):
-                logRatioHat.append(float(np.log(trendSum / levelSum)))
-                ratioTransitionCount.append(blockN)
-
-    return {
-        "blockCount": int(blockCount),
-        "completeBlockCount": int(completeBlockCount),
-        "repeatCount": int(len(offsets)),
-        "logQLevelHat": np.asarray(logQLevelHat, dtype=np.float64),
-        "levelTransitionCount": np.asarray(levelTransitionCount, dtype=np.float64),
-        "logRatioHat": np.asarray(logRatioHat, dtype=np.float64),
-        "ratioTransitionCount": np.asarray(ratioTransitionCount, dtype=np.float64),
+    records: dict[str, list[float]] = {
+        "start": [],
+        "end": [],
+        "n": [],
+        "S_level": [],
+        "G_level": [],
+        "reliability_level": [],
+        "n_eff_level": [],
+        "qhat_level": [],
+        "wigglehat_level": [],
+        "block_amplitude": [],
+        "S_trend": [],
+        "G_trend": [],
+        "reliability_trend": [],
+        "n_eff_trend": [],
+        "log_ratiohat": [],
+        "n_eff_ratio": [],
     }
+    for start in range(0, transitionCount, blockLen):
+        end = min(start + blockLen, transitionCount)
+        blockN = int(end - start)
+        if blockN < 2:
+            continue
+        SLevel = float(np.sum(levelExpected[start:end], dtype=np.float64))
+        GLevel = float(np.sum(levelSignal[start:end], dtype=np.float64))
+        reliabilityLevel = float(
+            np.clip(GLevel / max(SLevel, PROCESS_NOISE_NUMERICAL_FLOOR), 0.0, 1.0)
+        )
+        endpointAmplitude = np.maximum(
+            np.abs(stateMean[start:end, 0]),
+            np.abs(stateMean[start + 1 : end + 1, 0]),
+        )
+        blockAmplitude = (
+            float(np.median(endpointAmplitude))
+            if endpointAmplitude.size > 0
+            else float("nan")
+        )
+        records["start"].append(float(start))
+        records["end"].append(float(end))
+        records["n"].append(float(blockN))
+        records["S_level"].append(SLevel)
+        records["G_level"].append(GLevel)
+        records["reliability_level"].append(reliabilityLevel)
+        records["n_eff_level"].append(float(blockN) * reliabilityLevel)
+        records["qhat_level"].append(SLevel / float(blockN))
+        records["wigglehat_level"].append(GLevel / float(blockN))
+        records["block_amplitude"].append(blockAmplitude)
+        if trendExpected is None or trendSignal is None:
+            records["S_trend"].append(0.0)
+            records["G_trend"].append(0.0)
+            records["reliability_trend"].append(0.0)
+            records["n_eff_trend"].append(0.0)
+            records["log_ratiohat"].append(float("nan"))
+            records["n_eff_ratio"].append(0.0)
+            continue
+        STrend = float(np.sum(trendExpected[start:end], dtype=np.float64))
+        GTrend = float(np.sum(trendSignal[start:end], dtype=np.float64))
+        reliabilityTrend = float(
+            np.clip(GTrend / max(STrend, PROCESS_NOISE_NUMERICAL_FLOOR), 0.0, 1.0)
+        )
+        nEffRatio = float(blockN) * float(np.sqrt(reliabilityLevel * reliabilityTrend))
+        records["S_trend"].append(STrend)
+        records["G_trend"].append(GTrend)
+        records["reliability_trend"].append(reliabilityTrend)
+        records["n_eff_trend"].append(float(blockN) * reliabilityTrend)
+        records["log_ratiohat"].append(
+            float(np.log(STrend / SLevel))
+            if SLevel > PROCESS_NOISE_NUMERICAL_FLOOR
+            and STrend > PROCESS_NOISE_NUMERICAL_FLOOR
+            else float("nan")
+        )
+        records["n_eff_ratio"].append(nEffRatio)
+
+    return {key: np.asarray(value, dtype=np.float64) for key, value in records.items()}
 
 
-def _estimateLogEBComponent(
+def _estimateInitialProcessNoiseFromData(
     *,
-    logValue: np.ndarray,
-    transitionCount: np.ndarray,
-    samplingScale: float,
-) -> dict[str, float]:
-    logValueArr = np.asarray(logValue, dtype=np.float64)
-    transitionCountArr = np.asarray(transitionCount, dtype=np.float64)
-    validMask = (
-        np.isfinite(logValueArr)
-        & np.isfinite(transitionCountArr)
-        & (transitionCountArr > 0.0)
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    pad: float,
+    stateModel: str,
+    regularizationRatio: float,
+    maxQ: float,
+) -> np.ndarray:
+    qCap = _resolveProcessNoiseCap(maxQ)
+    data = np.asarray(matrixData, dtype=np.float64)
+    munc = np.asarray(matrixMunc, dtype=np.float64)
+    if data.shape != munc.shape:
+        raise ValueError("matrixData and matrixMunc must have matching shapes")
+    obsVar = np.maximum(munc + float(pad), PROCESS_NOISE_NUMERICAL_FLOOR)
+    finiteMask = np.isfinite(data) & np.isfinite(obsVar) & (obsVar > 0.0)
+    weights = np.where(finiteMask, 1.0 / obsVar, 0.0)
+    weightSum = np.sum(weights, axis=0, dtype=np.float64)
+    weightedData = np.where(finiteMask, data * weights, 0.0)
+    pooledMean = np.divide(
+        np.sum(weightedData, axis=0, dtype=np.float64),
+        weightSum,
+        out=np.full(data.shape[1], np.nan, dtype=np.float64),
+        where=weightSum > 0.0,
     )
-    if int(np.count_nonzero(validMask)) <= 0:
-        return {
-            "validCount": 0.0,
-            "posteriorLog": float("nan"),
-            "dataMean": float("nan"),
-            "priorCenter": float("nan"),
-            "logSd": float("nan"),
-            "priorDf": 0.0,
-            "dataDf": 0.0,
-            "excessLogVar": float("nan"),
-        }
-    value = logValueArr[validMask]
-    count = transitionCountArr[validMask]
-    samplingVar = np.maximum(float(samplingScale) / count, PROCESS_NOISE_NUMERICAL_FLOOR)
-    weight = 1.0 / samplingVar
-    dataMean = float(np.average(value, weights=weight))
-    priorCenter = float(np.median(value))
-    weightedVar = (
-        0.0
-        if value.size <= 1
-        else float(np.average((value - dataMean) ** 2, weights=weight))
-    )
-    meanSamplingVar = float(np.average(samplingVar, weights=weight))
-    excessLogVar = max(weightedVar - meanSamplingVar, 1.0e-6)
-    priorDf = float(np.clip(2.0 * itrigamma(excessLogVar), 4.0, 1.0e6))
-    dataDf = float(np.sum(count))
-    posteriorLog = (
-        dataMean
-        if dataDf <= 0.0
-        else float((dataDf * dataMean + priorDf * priorCenter) / (dataDf + priorDf))
-    )
-    return {
-        "validCount": float(value.size),
-        "posteriorLog": float(posteriorLog),
-        "dataMean": float(dataMean),
-        "priorCenter": float(priorCenter),
-        "logSd": float(np.sqrt(max(weightedVar, 0.0))),
-        "priorDf": float(priorDf),
-        "dataDf": float(dataDf),
-        "excessLogVar": float(excessLogVar),
-    }
+    d = np.diff(pooledMean[np.isfinite(pooledMean)])
+    d = d[np.isfinite(d)]
+    qInit = float("nan")
+    if d.size > 0:
+        medianD = float(np.median(d))
+        scale1 = 1.4826 * float(np.median(np.abs(d - medianD)))
+        if np.isfinite(scale1) and scale1 > 0.0:
+            qInit = 0.5 * scale1 * scale1
+        else:
+            nonzeroD = np.abs(d[np.abs(d) > PROCESS_NOISE_NUMERICAL_FLOOR])
+            if nonzeroD.size >= 2:
+                nonzeroMedian = float(np.median(nonzeroD))
+                qInit = 0.5 * nonzeroMedian * nonzeroMedian
+            else:
+                trimCount = int(np.floor(0.05 * d.size))
+                sortedD = np.sort(d)
+                trimmed = (
+                    sortedD[trimCount : d.size - trimCount]
+                    if trimCount > 0 and d.size > 2 * trimCount
+                    else sortedD
+                )
+                if trimmed.size > 0:
+                    trimmedRMS = float(np.sqrt(np.mean(trimmed * trimmed)))
+                    if np.isfinite(trimmedRMS) and trimmedRMS > 0.0:
+                        qInit = 0.5 * trimmedRMS * trimmedRMS
+    if not np.isfinite(qInit) or qInit <= 0.0:
+        fallbackVar = float(np.nanmedian(obsVar[np.isfinite(obsVar)]))
+        qInit = (
+            1.0e-4 * fallbackVar
+            if np.isfinite(fallbackVar) and fallbackVar > 0.0
+            else PROCESS_NOISE_NUMERICAL_FLOOR
+        )
+    qInit = _clampProcessNoise(qInit, qCap)
+    stateModelMode = _normalizeStateModel(stateModel)
+    if stateModelMode == STATE_MODEL_LEVEL_TREND:
+        qTrendInit = _clampProcessNoise(qInit * float(regularizationRatio), qCap)
+    else:
+        qTrendInit = qInit
+    return constructMatrixQ(
+        minDiagQ=PROCESS_NOISE_NUMERICAL_FLOOR,
+        Q00=qInit,
+        Q01=0.0,
+        Q10=0.0,
+        Q11=qTrendInit,
+    ).astype(np.float32, copy=False)
 
 
-def _estimateBlockHierarchicalEBProcessNoise(
+def _estimateEBMAPProcessNoise(
     *,
     stateSmoothed: np.ndarray,
     stateCovarSmoothed: np.ndarray,
     lagCovSmoothed: np.ndarray,
     matrixF: np.ndarray,
     stateModel: str,
-    minQ: float,
     maxQ: float,
+    regularizationStrength: float,
+    regularizationRatio: float,
     blockLenIntervals: int,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     stateModelMode = _normalizeStateModel(stateModel)
-    resolvedMinQ, resolvedMaxQ = _resolveProcessNoiseBounds(minQ=minQ, maxQ=maxQ)
+    qFloor = float(PROCESS_NOISE_NUMERICAL_FLOOR)
+    qCap = _resolveProcessNoiseCap(maxQ)
     levelArrays = _computeTransitionResidualArrays(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
@@ -2279,108 +2507,179 @@ def _estimateBlockHierarchicalEBProcessNoise(
         )
         trendStats = _summarizeTransitionResidualArrays(**trendArrays)
 
-    blockEvidence = _collectBlockProcessNoiseEvidence(
+    blockEvidence = _collectEBMAPProcessNoiseEvidence(
         levelExpectedByTransition=levelArrays["expectedByTransition"],
+        levelSignalByTransition=levelArrays["signalByTransition"],
         trendExpectedByTransition=(
             None if trendArrays is None else trendArrays["expectedByTransition"]
         ),
+        trendSignalByTransition=(
+            None if trendArrays is None else trendArrays["signalByTransition"]
+        ),
+        stateSmoothed=stateSmoothed,
         blockLenIntervals=int(blockLenIntervals),
     )
-    levelFit = _estimateLogEBComponent(
-        logValue=blockEvidence["logQLevelHat"],
-        transitionCount=blockEvidence["levelTransitionCount"],
-        samplingScale=2.0,
+    blockCount = int(blockEvidence["n"].size)
+    validLevelMask = (
+        np.isfinite(blockEvidence["wigglehat_level"])
+        & np.isfinite(blockEvidence["n_eff_level"])
+        & (blockEvidence["n_eff_level"] > 0.0)
     )
-    if levelFit["validCount"] > 0.0 and np.isfinite(levelFit["posteriorLog"]):
-        qLevel = float(np.exp(levelFit["posteriorLog"]))
+    if blockCount > 0:
+        quietCut = float(np.nanquantile(blockEvidence["block_amplitude"], 0.50))
+        quietMask = (
+            validLevelMask
+            & np.isfinite(blockEvidence["block_amplitude"])
+            & (blockEvidence["block_amplitude"] <= quietCut)
+        )
     else:
-        qLevel = float(levelStats["raw_q"])
-    qLevel = max(float(qLevel), resolvedMinQ)
-    if np.isfinite(resolvedMaxQ):
-        qLevel = min(qLevel, resolvedMaxQ)
-
-    if stateModelMode == STATE_MODEL_LEVEL:
-        matrixQ = constructMatrixQ(
-            minDiagQ=qLevel,
-            Q00=qLevel,
-            Q01=0.0,
-            Q10=0.0,
-            Q11=qLevel,
-        ).astype(np.float32, copy=False)
-        return matrixQ, {
-            "processNoisePolicy": "blockHierarchicalEB",
-            "stateModel": stateModelMode,
-            "rawQLevel": float(levelStats["raw_q"]),
-            "rawQTrend": 0.0,
-            "qLevel": float(qLevel),
-            "qTrend": 0.0,
-            "effectiveTrendLevelRatio": 0.0,
-            "blockCount": int(blockEvidence["blockCount"]),
-            "validBlockCount": int(levelFit["validCount"]),
-            "validRatioBlockCount": 0,
-            "repeatCount": int(blockEvidence["repeatCount"]),
-            "logQLevelMean": float(levelFit["posteriorLog"]),
-            "logQLevelSd": float(levelFit["logSd"]),
-            "logQLevelPriorDf": float(levelFit["priorDf"]),
-            "logRatioMean": 0.0,
-            "logRatioSd": 0.0,
-            "logRatioPriorDf": 0.0,
-            "matrixQ0Final": matrixQ.astype(float).tolist(),
-            "levelSignalSum": float(levelStats["signal_sum"]),
-            "levelUncertaintySum": float(levelStats["uncertainty_sum"]),
-            "levelReliability": float(levelStats["reliability"]),
-            "levelNEff": float(levelStats["n_eff"]),
-            "trendSignalSum": 0.0,
-            "trendUncertaintySum": 0.0,
-            "trendReliability": 0.0,
-            "trendNEff": 0.0,
-            "resolvedMinQ": float(resolvedMinQ),
-            "resolvedMaxQ": float(resolvedMaxQ),
-            "transitionCount": float(levelStats["residual_count"]),
-        }
-
-    ratioFit = _estimateLogEBComponent(
-        logValue=blockEvidence["logRatioHat"],
-        transitionCount=blockEvidence["ratioTransitionCount"],
-        samplingScale=4.0,
+        quietMask = np.zeros(0, dtype=bool)
+    q0Level = float("nan")
+    if int(np.count_nonzero(quietMask)) > 0:
+        q0Level = float(
+            _weightedQuantile(
+                blockEvidence["wigglehat_level"][quietMask],
+                blockEvidence["n_eff_level"][quietMask],
+                np.asarray([0.5], dtype=np.float64),
+            )[0]
+        )
+    if (not np.isfinite(q0Level)) or q0Level <= qFloor:
+        if int(np.count_nonzero(validLevelMask)) > 0:
+            q0Level = float(
+                _weightedQuantile(
+                    blockEvidence["wigglehat_level"][validLevelMask],
+                    blockEvidence["n_eff_level"][validLevelMask],
+                    np.asarray([0.5], dtype=np.float64),
+                )[0]
+            )
+    S_eff_level = float(
+        np.sum(
+            blockEvidence["reliability_level"] * blockEvidence["S_level"],
+            dtype=np.float64,
+        )
     )
-    rawRatio = float(trendStats["raw_q"]) / max(qLevel, PROCESS_NOISE_NUMERICAL_FLOOR)
-    if ratioFit["validCount"] > 0.0 and np.isfinite(ratioFit["posteriorLog"]):
-        effectiveRatio = float(np.exp(ratioFit["posteriorLog"]))
+    n_eff_level = float(
+        np.sum(blockEvidence["n_eff_level"], dtype=np.float64)
+    )
+    qDataLevel = (
+        S_eff_level / n_eff_level
+        if n_eff_level > 0.0
+        else float(levelStats["raw_q"])
+    )
+    if (not np.isfinite(q0Level)) or q0Level <= qFloor:
+        q0Level = qDataLevel
+    if (not np.isfinite(q0Level)) or q0Level <= qFloor:
+        q0Level = qFloor
+    q0Level = _clampProcessNoise(q0Level, qCap)
+    typicalBlockEffN = _positiveMedian(blockEvidence["n_eff_level"])
+    rawNu0Level = float(regularizationStrength) * typicalBlockEffN
+    nu0Level = min(rawNu0Level, 0.25 * n_eff_level) if n_eff_level > 0.0 else 0.0
+    qLevelPriorUsed = bool(float(regularizationStrength) > 0.0 and nu0Level > 2.0)
+    if qLevelPriorUsed:
+        qLevelPreClamp = (
+            S_eff_level + (nu0Level * q0Level)
+        ) / max(n_eff_level + nu0Level, qFloor)
     else:
-        effectiveRatio = max(rawRatio, PROCESS_NOISE_NUMERICAL_FLOOR)
-    qTrend = max(
-        float(effectiveRatio) * float(qLevel),
-        PROCESS_NOISE_NUMERICAL_FLOOR,
-    )
-    if np.isfinite(resolvedMaxQ):
-        qTrend = min(qTrend, resolvedMaxQ)
+        qLevelPreClamp = qDataLevel if np.isfinite(qDataLevel) else q0Level
+    qLevel = _clampProcessNoise(qLevelPreClamp, qCap)
+
+    ratioPreClamp = 0.0
+    ratioPostClamp = 0.0
+    qTrendPreClamp = 0.0
+    qTrend = 0.0
+    rawNu0Ratio = 0.0
+    nu0Ratio = 0.0
+    dataDfRatio = 0.0
+    validRatioBlockCount = 0
+    rawRatio = 0.0
+    if stateModelMode == STATE_MODEL_LEVEL_TREND:
+        ratioMask = (
+            np.isfinite(blockEvidence["log_ratiohat"])
+            & np.isfinite(blockEvidence["n_eff_ratio"])
+            & (blockEvidence["n_eff_ratio"] > 0.0)
+        )
+        validRatioBlockCount = int(np.count_nonzero(ratioMask))
+        dataDfRatio = float(
+            np.sum(blockEvidence["n_eff_ratio"][ratioMask], dtype=np.float64)
+        )
+        typicalRatioEffN = _positiveMedian(blockEvidence["n_eff_ratio"][ratioMask])
+        rawNu0Ratio = float(regularizationStrength) * typicalRatioEffN
+        nu0Ratio = (
+            min(rawNu0Ratio, 0.25 * dataDfRatio) if dataDfRatio > 0.0 else 0.0
+        )
+        logRatioPrior = float(np.log(float(regularizationRatio)))
+        rawRatio = float(trendStats["raw_q"]) / max(
+            float(levelStats["raw_q"]),
+            qFloor,
+        )
+        if validRatioBlockCount > 0:
+            dataWeight = blockEvidence["n_eff_ratio"][ratioMask] / 4.0
+            denominator = float(np.sum(dataWeight, dtype=np.float64))
+            numerator = float(
+                np.sum(
+                    dataWeight * blockEvidence["log_ratiohat"][ratioMask],
+                    dtype=np.float64,
+                )
+            )
+            if float(regularizationStrength) > 0.0 and nu0Ratio > 0.0:
+                priorWeight = nu0Ratio / 4.0
+                numerator += priorWeight * logRatioPrior
+                denominator += priorWeight
+            logRatioMAP = numerator / denominator if denominator > 0.0 else logRatioPrior
+        else:
+            logRatioMAP = logRatioPrior
+        ratioPreClamp = float(np.exp(logRatioMAP))
+        qTrendPreClamp = qLevel * ratioPreClamp
+        qTrend = _clampProcessNoise(qTrendPreClamp, qCap)
+        ratioPostClamp = qTrend / max(qLevel, qFloor)
+
     matrixQ = constructMatrixQ(
-        minDiagQ=qLevel,
+        minDiagQ=qFloor,
         Q00=qLevel,
         Q01=0.0,
         Q10=0.0,
-        Q11=qTrend,
+        Q11=qLevel if stateModelMode == STATE_MODEL_LEVEL else qTrend,
     ).astype(np.float32, copy=False)
-    return matrixQ, {
-        "processNoisePolicy": "blockHierarchicalEB",
+    diagnostics = {
+        "processNoisePolicy": "EB_MAP",
         "stateModel": stateModelMode,
         "rawQLevel": float(levelStats["raw_q"]),
         "rawQTrend": float(trendStats["raw_q"]),
+        "qLevelPreClamp": float(qLevelPreClamp),
         "qLevel": float(qLevel),
+        "qTrendPreClamp": float(qTrendPreClamp),
         "qTrend": float(qTrend),
-        "effectiveTrendLevelRatio": float(effectiveRatio),
+        "ratioPreClamp": float(ratioPreClamp),
+        "effectiveTrendLevelRatio": float(ratioPostClamp),
         "rawTrendLevelRatio": float(rawRatio),
-        "blockCount": int(blockEvidence["blockCount"]),
-        "validBlockCount": int(levelFit["validCount"]),
-        "validRatioBlockCount": int(ratioFit["validCount"]),
-        "repeatCount": int(blockEvidence["repeatCount"]),
-        "logQLevelMean": float(levelFit["posteriorLog"]),
-        "logQLevelSd": float(levelFit["logSd"]),
-        "logQLevelPriorDf": float(levelFit["priorDf"]),
-        "logRatioMean": float(ratioFit["posteriorLog"]),
-        "logRatioSd": float(ratioFit["logSd"]),
-        "logRatioPriorDf": float(ratioFit["priorDf"]),
+        "qLevelPriorMode": float(q0Level),
+        "qLevelPriorDfRaw": float(rawNu0Level),
+        "qLevelPriorDfUsed": float(nu0Level),
+        "qLevelPriorUsed": bool(qLevelPriorUsed),
+        "qLevelDataDf": float(n_eff_level),
+        "qLevelDataEstimate": float(qDataLevel),
+        "regularizationRatio": float(regularizationRatio),
+        "ratioPriorCenter": float(regularizationRatio),
+        "ratioPriorDfRaw": float(rawNu0Ratio),
+        "ratioPriorDfUsed": float(nu0Ratio),
+        "ratioDataDf": float(dataDfRatio),
+        "blockCount": int(blockCount),
+        "validBlockCount": int(np.count_nonzero(validLevelMask)),
+        "validRatioBlockCount": int(validRatioBlockCount),
+        "blockMode": "non_overlapping",
+        "qFloor": float(qFloor),
+        "qCap": float(qCap),
+        "hitQLevelFloor": bool(qLevel <= 1.0001 * qFloor),
+        "hitQTrendFloor": bool(
+            stateModelMode == STATE_MODEL_LEVEL_TREND and qTrend <= 1.0001 * qFloor
+        ),
+        "hitQLevelCap": bool(np.isfinite(qCap) and qLevel >= 0.9999 * qCap),
+        "hitQTrendCap": bool(
+            stateModelMode == STATE_MODEL_LEVEL_TREND
+            and np.isfinite(qCap)
+            and qTrend >= 0.9999 * qCap
+        ),
+        "q11PaddingOnly": bool(stateModelMode == STATE_MODEL_LEVEL),
         "matrixQ0Final": matrixQ.astype(float).tolist(),
         "levelSignalSum": float(levelStats["signal_sum"]),
         "levelUncertaintySum": float(levelStats["uncertainty_sum"]),
@@ -2390,10 +2689,9 @@ def _estimateBlockHierarchicalEBProcessNoise(
         "trendUncertaintySum": float(trendStats["uncertainty_sum"]),
         "trendReliability": float(trendStats["reliability"]),
         "trendNEff": float(trendStats["n_eff"]),
-        "resolvedMinQ": float(resolvedMinQ),
-        "resolvedMaxQ": float(resolvedMaxQ),
         "transitionCount": float(levelStats["residual_count"]),
     }
+    return matrixQ, diagnostics
 
 
 def _estimateWarmupProcessNoiseCalibration(
@@ -2411,14 +2709,15 @@ def _estimateWarmupProcessNoiseCalibration(
 ) -> tuple[np.ndarray, dict[str, Any]]:
     _checkFiniteNonnegative("regularizationStrength", regularizationStrength)
     _checkFinitePositive("regularizationRatio", regularizationRatio)
-    return _estimateBlockHierarchicalEBProcessNoise(
+    return _estimateEBMAPProcessNoise(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
         lagCovSmoothed=lagCovSmoothed,
         matrixF=matrixF,
         stateModel=stateModel,
-        minQ=minQ,
         maxQ=maxQ,
+        regularizationStrength=regularizationStrength,
+        regularizationRatio=regularizationRatio,
         blockLenIntervals=blockLenIntervals,
     )
 
@@ -2504,6 +2803,7 @@ def runConsenrich(
     stateLowerBound: float,
     stateUpperBound: float,
     blockLenIntervals: int,
+    intervalSizeBP: int | None = None,
     projectStateDuringFiltering: bool = False,
     pad: float = 1.0e-4,
     ECM_fixedBackgroundIters: int = 50,
@@ -2521,8 +2821,12 @@ def runConsenrich(
     ECM_backgroundSmoothness: float = 1.0,
     fitBackground: bool = True,
     useNonnegativeBackground: bool = FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND,
+    backgroundNegativePenaltyMultiplier: float | None = (
+        FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
+    ),
     returnScales: bool = True,
     returnReplicateOffsets: bool = False,
+    returnBackground: bool = False,
     stateModel: str | None = STATE_MODEL_LEVEL_TREND,
     regularizationStrength: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH,
     regularizationRatio: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO,
@@ -2538,6 +2842,7 @@ def runConsenrich(
     initialProcessPrecision: np.ndarray | None = None,
     initialProcessQ: np.ndarray | None = None,
     trackOptimizationPath: bool = False,
+    returnPrecisionDiagnostics: bool = False,
     returnDiagnostics: bool = False,
     logIndentLevel: int = 0,
     logRunRole: str | None = None,
@@ -2621,6 +2926,11 @@ def runConsenrich(
     trackCount, intervalCount = matrixData.shape
     if intervalCount < 2:
         raise ValueError("need at least 2 intervals for smoothing")
+    intervalSizeBPLocal = None
+    if intervalSizeBP is not None:
+        intervalSizeBPLocal = int(intervalSizeBP)
+        if intervalSizeBPLocal <= 0:
+            raise ValueError("intervalSizeBP must be positive when provided")
 
     requestedProcessPrecisionReweighting = bool(ECM_useProcessPrecisionReweighting)
     ECM_useAPN = bool(ECM_useAPN)
@@ -2704,22 +3014,43 @@ def runConsenrich(
     ECM_outerNLLRtol = float(max(ECM_outerNLLRtol, 0.0))
     trackOptimizationPath = bool(trackOptimizationPath)
     useNonnegativeBackground = bool(useNonnegativeBackground)
+    if backgroundNegativePenaltyMultiplier is None:
+        backgroundNegativePenaltyMultiplierLocal = None
+    else:
+        backgroundNegativePenaltyMultiplierLocal = float(
+            backgroundNegativePenaltyMultiplier
+        )
+        if not np.isfinite(backgroundNegativePenaltyMultiplierLocal):
+            raise ValueError(
+                "`backgroundNegativePenaltyMultiplier` must be finite or None"
+            )
+    negativeBackgroundPenaltyActive = bool(
+        useNonnegativeBackground
+        and backgroundNegativePenaltyMultiplierLocal is not None
+        and backgroundNegativePenaltyMultiplierLocal > 0.0
+    )
     if (
         bool(fitBackground)
-        and useNonnegativeBackground
+        and negativeBackgroundPenaltyActive
         and bool(ECM_zeroCenterBackground)
     ):
         logger.warning(
-            "fitParams.useNonnegativeBackground=True and "
-            "fitParams.ECM_zeroCenterBackground=True leave only the zero "
-            "background feasible; the background fit will be pinned to zero."
+            "fitParams.useNonnegativeBackground=True with a nonzero "
+            "fitParams.backgroundNegativePenaltyMultiplier conflicts with "
+            "fitParams.ECM_zeroCenterBackground=True: positive background mass "
+            "must be balanced by negative background mass, so penalizing "
+            "negative values may pull the shared background toward zero."
         )
     logIndentLevel = max(0, int(logIndentLevel or 0))
     logRunRole = str(logRunRole or "").strip()
+    logRunRoleLower = logRunRole.lower()
+    logMainAlternatingECMIterations = (
+        not logRunRoleLower or logRunRoleLower.startswith("primary")
+    )
 
     blockCount = int(np.ceil(intervalCount / float(blockLenIntervals)))
     processNoiseCalibrationPolicy = (
-        "warmStart" if initialProcessQArr is not None else "blockHierarchicalEB"
+        "warmStart" if initialProcessQArr is not None else "EB_MAP"
     )
     intervalToBlockMap = (
         np.arange(intervalCount, dtype=np.int32) // blockLenIntervals
@@ -2740,6 +3071,14 @@ def runConsenrich(
             ("regularization ratio", float(regularizationRatio)),
             ("background model fit", bool(fitBackground)),
             ("nonnegative background", bool(useNonnegativeBackground)),
+            (
+                "negative background penalty",
+                (
+                    "disabled"
+                    if backgroundNegativePenaltyMultiplierLocal is None
+                    else float(backgroundNegativePenaltyMultiplierLocal)
+                ),
+            ),
         ),
         indentLevel=logIndentLevel,
     )
@@ -2786,11 +3125,14 @@ def runConsenrich(
         return constructMatrixF(float(deltaFLocal)).astype(np.float32, copy=False)
 
     def buildMatrixQ0(_deltaFLocal: float) -> np.ndarray:
-        return constructMatrixQ(
-            minDiagQ=float(minQ),
-            Q01=0.0,
-            Q10=0.0,
-        ).astype(np.float32, copy=False)
+        return _estimateInitialProcessNoiseFromData(
+            matrixData=matrixData,
+            matrixMunc=matrixMunc,
+            pad=float(pad),
+            stateModel=stateModelMode,
+            regularizationRatio=float(regularizationRatio),
+            maxQ=float(maxQ),
+        )
 
     def _runForwardBackward(
         *,
@@ -3027,6 +3369,45 @@ def runConsenrich(
         useProcPrecReweightLocal: bool,
         useAPNLocal: bool,
     ) -> dict[str, float]:
+        def _backgroundNegativePenaltyForObjective(
+            backgroundLocal: np.ndarray,
+            invVarMatrixLocal: np.ndarray,
+        ) -> float:
+            if not negativeBackgroundPenaltyActive:
+                return 0.0
+            objectiveWeightTrack = np.sum(
+                invVarMatrixLocal,
+                axis=0,
+                dtype=np.float64,
+            )
+            objectivePositiveWeights = objectiveWeightTrack[
+                np.isfinite(objectiveWeightTrack) & (objectiveWeightTrack > 0.0)
+            ]
+            objectiveWeightScale = (
+                float(np.median(objectivePositiveWeights))
+                if objectivePositiveWeights.size
+                else 1.0
+            )
+            if not np.isfinite(objectiveWeightScale) or objectiveWeightScale <= 0.0:
+                objectiveWeightScale = 1.0
+            objectivePenaltyWeight = float(
+                backgroundNegativePenaltyMultiplierLocal * objectiveWeightScale
+            )
+            return (
+                0.5
+                * objectivePenaltyWeight
+                * float(
+                    np.sum(
+                        np.minimum(
+                            np.asarray(backgroundLocal, dtype=np.float64),
+                            0.0,
+                        )
+                        ** 2,
+                        dtype=np.float64,
+                    )
+                )
+            )
+
         dataAdjusted = np.ascontiguousarray(
             matrixDataLocal - np.asarray(background, dtype=np.float32)[None, :],
             dtype=np.float32,
@@ -3055,6 +3436,17 @@ def runConsenrich(
             ),
             robustTNu=float(ECM_robustTNu),
         )
+        invVarMatrixForBackground = 1.0 / np.maximum(
+            matrixMuncLocal + float(pad),
+            1.0e-8,
+        )
+        if lambdaExp is not None:
+            objectiveObsPrecision = np.clip(
+                np.asarray(lambdaExp, dtype=np.float32).reshape(1, intervalCount),
+                float(observationPrecisionMultiplierMin),
+                float(observationPrecisionMultiplierMax),
+            )
+            invVarMatrixForBackground *= objectiveObsPrecision
         smoothPenalty, firstDiffPenalty, secondDiffPenalty = (
             _backgroundObjectivePenalty(
                 background=background,
@@ -3062,7 +3454,13 @@ def runConsenrich(
                 backgroundSmoothness=float(ECM_backgroundSmoothness),
             )
         )
-        objective = float(forwardNLL + obsPenalty + procPenalty + smoothPenalty)
+        negativePenalty = _backgroundNegativePenaltyForObjective(
+            background,
+            invVarMatrixForBackground,
+        )
+        objective = float(
+            forwardNLL + obsPenalty + procPenalty + smoothPenalty + negativePenalty
+        )
         effectiveCount = float(_effectiveObservationCount(matrixMuncLocal))
         return {
             "forward_nll": float(forwardNLL),
@@ -3071,9 +3469,78 @@ def runConsenrich(
             "background_smoothness_penalty": float(smoothPenalty),
             "background_first_difference_penalty": float(firstDiffPenalty),
             "background_second_difference_penalty": float(secondDiffPenalty),
+            "background_negative_penalty": float(negativePenalty),
             "penalized_objective": float(objective),
             "penalized_objective_per_cell": float(objective / effectiveCount),
             "effective_observation_count": float(effectiveCount),
+        }
+
+    def _scoreBackgroundFitObjective(
+        *,
+        residualMatrix: np.ndarray,
+        invVarMatrix: np.ndarray,
+        background: np.ndarray,
+    ) -> dict[str, float]:
+        residualArr = np.asarray(residualMatrix, dtype=np.float64)
+        invVarArr = np.asarray(invVarMatrix, dtype=np.float64)
+        backgroundArr = np.asarray(background, dtype=np.float64).reshape(-1)
+        fitResidual = residualArr - backgroundArr[None, :]
+        weightedResidualObjective = 0.5 * float(
+            np.sum(invVarArr * fitResidual * fitResidual, dtype=np.float64)
+        )
+        smoothPenalty, firstDiffPenalty, secondDiffPenalty = (
+            _backgroundObjectivePenalty(
+                background=backgroundArr,
+                blockLenIntervals=int(blockLenIntervals),
+                backgroundSmoothness=float(ECM_backgroundSmoothness),
+            )
+        )
+        negativePenalty = 0.0
+        if negativeBackgroundPenaltyActive:
+            objectiveWeightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
+            objectivePositiveWeights = objectiveWeightTrack[
+                np.isfinite(objectiveWeightTrack) & (objectiveWeightTrack > 0.0)
+            ]
+            objectiveWeightScale = (
+                float(np.median(objectivePositiveWeights))
+                if objectivePositiveWeights.size
+                else 1.0
+            )
+            if not np.isfinite(objectiveWeightScale) or objectiveWeightScale <= 0.0:
+                objectiveWeightScale = 1.0
+            objectivePenaltyWeight = float(
+                backgroundNegativePenaltyMultiplierLocal * objectiveWeightScale
+            )
+            negativePenalty = (
+                0.5
+                * objectivePenaltyWeight
+                * float(
+                    np.sum(
+                        np.minimum(backgroundArr, 0.0) ** 2,
+                        dtype=np.float64,
+                    )
+                )
+            )
+        objective = float(weightedResidualObjective + smoothPenalty + negativePenalty)
+        effectiveCount = float(
+            max(
+                1,
+                np.count_nonzero(
+                    np.isfinite(residualArr)
+                    & np.isfinite(invVarArr)
+                    & (invVarArr > 0.0)
+                ),
+            )
+        )
+        return {
+            "background_weighted_residual_objective": weightedResidualObjective,
+            "background_smoothness_penalty": float(smoothPenalty),
+            "background_first_difference_penalty": float(firstDiffPenalty),
+            "background_second_difference_penalty": float(secondDiffPenalty),
+            "background_negative_penalty": float(negativePenalty),
+            "background_objective": float(objective),
+            "background_objective_per_cell": float(objective / effectiveCount),
+            "background_effective_observation_count": float(effectiveCount),
         }
 
     def _fitOuter(
@@ -3094,6 +3561,8 @@ def runConsenrich(
         initialProcessPrecLocal: np.ndarray | None = None,
         phaseLabel: str = "fit",
         phaseIndentLevel: int = 0,
+        logAlternatingECMIterations: bool = False,
+        showNonAlternatingECMProgress: bool = True,
     ) -> dict[str, np.ndarray | float | None]:
         mLocal = int(matrixDataLocal.shape[0])
         nLocal = int(matrixDataLocal.shape[1])
@@ -3112,8 +3581,6 @@ def runConsenrich(
             if initialBackgroundLocal is None
             else np.ascontiguousarray(initialBackgroundLocal, dtype=np.float32).copy()
         )
-        if useNonnegativeBackground:
-            np.maximum(currentBackground, 0.0, out=currentBackground)
         currentMunc = np.ascontiguousarray(matrixMuncLocal, dtype=np.float32)
 
         lambdaExpLocal = (
@@ -3137,9 +3604,7 @@ def runConsenrich(
         )
         backgroundPrepassApplied = False
         backgroundPrepassSource = ""
-        if fitBackgroundLocal and initialBackgroundLocal is None and not (
-            useNonnegativeBackground and bool(ECM_zeroCenterBackground)
-        ):
+        if fitBackgroundLocal and initialBackgroundLocal is None:
             warmInvVarMatrix = 1.0 / np.maximum(currentMunc + float(pad), 1.0e-8)
             if lambdaExpLocal is not None:
                 warmObsPrecision = np.clip(
@@ -3148,18 +3613,26 @@ def runConsenrich(
                     float(observationPrecisionMultiplierMax),
                 )
                 warmInvVarMatrix *= warmObsPrecision
-            warmResidualMatrix = (
-                np.asarray(matrixDataLocal, dtype=np.float32)
-                - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
-            )
+            warmResidualMatrix = np.asarray(
+                matrixDataLocal, dtype=np.float32
+            ) - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
             if useNonnegativeBackground:
-                currentBackground = _solveClippedBackgroundHeuristic(
+                currentBackground = _solveZeroCenteredBackground(
                     residualMatrix=warmResidualMatrix,
                     invVarMatrix=warmInvVarMatrix,
                     blockLenIntervals=int(blockLenIntervals),
                     backgroundSmoothness=float(ECM_backgroundSmoothness),
+                    zeroCenter=bool(ECM_zeroCenterBackground),
+                    useNonnegative=True,
+                    backgroundNegativePenaltyMultiplier=(
+                        backgroundNegativePenaltyMultiplierLocal
+                    ),
                 )
-                backgroundPrepassSource = "clipped_banded_weighted_data"
+                backgroundPrepassSource = (
+                    "asymmetric_irls_zero_centered_weighted_data"
+                    if bool(ECM_zeroCenterBackground)
+                    else "asymmetric_irls_weighted_data"
+                )
             else:
                 currentBackground = _solveZeroCenteredBackground(
                     residualMatrix=warmResidualMatrix,
@@ -3242,11 +3715,23 @@ def runConsenrich(
         lastOuterObjectiveChangePerCellLocal = np.nan
         lastOuterObjectiveTolPerCellLocal = np.nan
         lastOuterObjectiveStableLocal = False
+        previousBackgroundObjectivePerCellLocal = np.nan
+        lastBackgroundObjectiveLocal = np.nan
+        lastBackgroundObjectivePerCellLocal = np.nan
+        lastBackgroundObjectiveChangePerCellLocal = np.nan
+        lastBackgroundObjectiveTolPerCellLocal = np.nan
+        lastBackgroundObjectiveStableLocal = False
+        lastBackgroundObjectiveDiagnosticsLocal: dict[str, float] = {}
         lastObjectiveDiagnosticsLocal: dict[str, float] = {}
         lastInnerECMConvergedLocal = False
         outerStableItersLocal = 0
         outerPatienceTargetLocal = 2
         lastBackgroundShiftTolLocal = np.nan
+        lambdaLowerBoundHitsLocal = None
+        lambdaUpperBoundHitsLocal = None
+        kappaLowerBoundHitsLocal = None
+        kappaUpperBoundHitsLocal = None
+        lastSignChangePerKBLocal = None
         outerConvergedLocal = False
         outerStopReasonLocal = "max_outer_passes"
         fixedBackgroundECMDiagnostics: list[dict[str, Any]] = []
@@ -3369,12 +3854,15 @@ def runConsenrich(
                             "background_second_difference_penalty"
                         ]
                     ),
+                    "outer_background_negative_penalty": metadataFloat(
+                        lastObjectiveDiagnosticsLocal["background_negative_penalty"]
+                    ),
                 }
             )
 
         for outerPassIndex in range(outerPassCount):
             _logAsciiBlock(
-                f"{phaseLabel} / fixed-background ECM",
+                "inner ECM fit / fixed-background",
                 (
                     (
                         "outer pass",
@@ -3423,14 +3911,28 @@ def runConsenrich(
                 replicateBiasInit=replicateBiasLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
             )
+            ecmLogIterations = bool(logAlternatingECMIterations)
+            ecmProgressBar = _makeECMProgressBar(
+                phaseLabel=phaseLabel,
+                passLabel=f"pass {int(outerPassIndex + 1)}/{int(outerPassCount)}",
+                total=int(ecmItersLocal),
+                enabled=bool(showNonAlternatingECMProgress)
+                and not bool(ecmLogIterations),
+            )
+            ecmKwargs["logIterations"] = ecmLogIterations
+            ecmKwargs["progressBar"] = ecmProgressBar
             ecmFunction = cconsenrich.cfixedBackgroundECMLevel
             if stateModelMode == STATE_MODEL_LEVEL_TREND:
                 ecmFunction = cconsenrich.cfixedBackgroundECM
                 ecmKwargs["matrixF"] = matrixFLocal
-            ecmOutLocal = ecmFunction(
-                **ecmKwargs,
-                returnDiagnostics=True,
-            )
+            try:
+                ecmOutLocal = ecmFunction(
+                    **ecmKwargs,
+                    returnDiagnostics=True,
+                )
+            finally:
+                if ecmProgressBar is not None:
+                    ecmProgressBar.close()
 
             if len(ecmOutLocal) == 10 and isinstance(ecmOutLocal[-1], Mapping):
                 ecmDiagnosticsLocal = ecmOutLocal[-1]
@@ -3484,8 +3986,23 @@ def runConsenrich(
                 lower=float(processPrecisionMultiplierMin),
                 upper=float(processPrecisionMultiplierMax),
             )
+            lambdaLowerBoundHitsLocal, lambdaUpperBoundHitsLocal = _precisionBoundHits(
+                lambdaExpLocal,
+                lower=float(observationPrecisionMultiplierMin),
+                upper=float(observationPrecisionMultiplierMax),
+            )
+            kappaLowerBoundHitsLocal, kappaUpperBoundHitsLocal = _precisionBoundHits(
+                processPrecExpLocal,
+                lower=float(processPrecisionMultiplierMin),
+                upper=float(processPrecisionMultiplierMax),
+                skipFirst=True,
+            )
             replicateBiasLocal = np.asarray(replicateBiasLocal, dtype=np.float32)
             stateSmoothedLocal = np.asarray(stateSmoothedLocal, dtype=np.float32)
+            lastSignChangePerKBLocal = _stateSignChangePerKB(
+                stateSmoothedLocal[:, 0],
+                intervalSizeBP=intervalSizeBPLocal,
+            )
             stateCovarSmoothedLocal = np.asarray(
                 stateCovarSmoothedLocal, dtype=np.float32
             )
@@ -3512,6 +4029,21 @@ def runConsenrich(
                 )
                 ecmDiagnosticsNormalized["process_kappa_mean"] = kappaMeanLocal
                 ecmDiagnosticsNormalized["process_kappa_median"] = kappaMedianLocal
+                ecmDiagnosticsNormalized["observation_lambda_lower_bound_hits"] = (
+                    lambdaLowerBoundHitsLocal
+                )
+                ecmDiagnosticsNormalized["observation_lambda_upper_bound_hits"] = (
+                    lambdaUpperBoundHitsLocal
+                )
+                ecmDiagnosticsNormalized["process_kappa_lower_bound_hits"] = (
+                    kappaLowerBoundHitsLocal
+                )
+                ecmDiagnosticsNormalized["process_kappa_upper_bound_hits"] = (
+                    kappaUpperBoundHitsLocal
+                )
+                ecmDiagnosticsNormalized["sign_change_per_kb"] = (
+                    lastSignChangePerKBLocal
+                )
                 ecmDiagnosticsNormalized["outer_inner_ecm_converged"] = bool(
                     lastInnerECMConvergedLocal
                 )
@@ -3525,11 +4057,16 @@ def runConsenrich(
                 outerConvergedLocal = True
                 outerStopReasonLocal = "fit_background_false"
                 logger.info(
-                    "outerPass[1/1]:\n\tfitBackground=False\n\tbackgroundShift=0\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\tkappaMean=%s\n\tkappaMedian=%s\n\touterObjectiveChangePerCell=%s",
+                    "outerPass[1/1]:\n\tfitBackground=False\n\tbackgroundShift=0\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\tsignChangePerKB=%s\n\tlambdaLowerBoundHits=%s\n\tlambdaUpperBoundHits=%s\n\tkappaMean=%s\n\tkappaMedian=%s\n\tkappaLowerBoundHits=%s\n\tkappaUpperBoundHits=%s\n\touterObjectiveChangePerCell=%s",
                     _formatMaybeFloat(lambdaMeanLocal),
                     _formatMaybeFloat(lambdaMedianLocal),
+                    _formatMaybeFloat(lastSignChangePerKBLocal),
+                    _formatMaybeFloat(lambdaLowerBoundHitsLocal),
+                    _formatMaybeFloat(lambdaUpperBoundHitsLocal),
                     _formatMaybeFloat(kappaMeanLocal),
                     _formatMaybeFloat(kappaMedianLocal),
+                    _formatMaybeFloat(kappaLowerBoundHitsLocal),
+                    _formatMaybeFloat(kappaUpperBoundHitsLocal),
                     _formatMaybeFloat(lastOuterObjectiveChangePerCellLocal),
                 )
                 break
@@ -3562,9 +4099,7 @@ def runConsenrich(
                     backgroundRhsTrack[backgroundValidTarget]
                     / backgroundWeightTrack[backgroundValidTarget]
                 )
-                backgroundTarget = backgroundTarget[
-                    np.isfinite(backgroundTarget)
-                ]
+                backgroundTarget = backgroundTarget[np.isfinite(backgroundTarget)]
             else:
                 backgroundTarget = np.zeros(0, dtype=np.float64)
             if backgroundTarget.size > 0:
@@ -3605,6 +4140,9 @@ def runConsenrich(
                 backgroundSmoothness=float(ECM_backgroundSmoothness),
                 zeroCenter=bool(ECM_zeroCenterBackground),
                 useNonnegative=bool(useNonnegativeBackground),
+                backgroundNegativePenaltyMultiplier=(
+                    backgroundNegativePenaltyMultiplierLocal
+                ),
             )
             nextBackgroundSummary = np.asarray(nextBackground, dtype=np.float64)
             if nextBackgroundSummary.size > 0:
@@ -3628,6 +4166,46 @@ def runConsenrich(
                     float(np.mean(nextBackgroundSummary > 0.0)),
                     float(np.mean(np.abs(nextBackgroundSummary) <= 1.0e-3)),
                 )
+
+            lastBackgroundObjectiveDiagnosticsLocal = _scoreBackgroundFitObjective(
+                residualMatrix=residualMatrix,
+                invVarMatrix=invVarMatrix,
+                background=nextBackground,
+            )
+            currentBackgroundObjective = float(
+                lastBackgroundObjectiveDiagnosticsLocal["background_objective"]
+            )
+            currentBackgroundObjectivePerCell = float(
+                lastBackgroundObjectiveDiagnosticsLocal[
+                    "background_objective_per_cell"
+                ]
+            )
+            if np.isfinite(previousBackgroundObjectivePerCellLocal) and np.isfinite(
+                currentBackgroundObjectivePerCell
+            ):
+                lastBackgroundObjectiveChangePerCellLocal = abs(
+                    currentBackgroundObjectivePerCell
+                    - previousBackgroundObjectivePerCellLocal
+                )
+                lastBackgroundObjectiveTolPerCellLocal = (
+                    outerObjectiveTolMultiplier
+                    * max(
+                        abs(currentBackgroundObjectivePerCell),
+                        abs(previousBackgroundObjectivePerCellLocal),
+                        1.0,
+                    )
+                )
+                lastBackgroundObjectiveStableLocal = bool(
+                    lastBackgroundObjectiveChangePerCellLocal
+                    <= lastBackgroundObjectiveTolPerCellLocal
+                )
+            else:
+                lastBackgroundObjectiveChangePerCellLocal = np.nan
+                lastBackgroundObjectiveTolPerCellLocal = np.nan
+                lastBackgroundObjectiveStableLocal = False
+            previousBackgroundObjectivePerCellLocal = currentBackgroundObjectivePerCell
+            lastBackgroundObjectiveLocal = currentBackgroundObjective
+            lastBackgroundObjectivePerCellLocal = currentBackgroundObjectivePerCell
 
             bgChange = float(
                 np.max(
@@ -3667,10 +4245,55 @@ def runConsenrich(
             ecmDiagnosticsNormalized["background_shift_stable"] = bool(
                 backgroundShiftStable
             )
+            ecmDiagnosticsNormalized["background_objective"] = metadataFloat(
+                lastBackgroundObjectiveLocal
+            )
+            ecmDiagnosticsNormalized["background_objective_per_cell"] = metadataFloat(
+                lastBackgroundObjectivePerCellLocal
+            )
+            ecmDiagnosticsNormalized["background_objective_change_per_cell"] = (
+                metadataFloat(lastBackgroundObjectiveChangePerCellLocal)
+            )
+            ecmDiagnosticsNormalized["background_objective_threshold_per_cell"] = (
+                metadataFloat(lastBackgroundObjectiveTolPerCellLocal)
+            )
+            ecmDiagnosticsNormalized["background_objective_stable"] = bool(
+                lastBackgroundObjectiveStableLocal
+            )
+            ecmDiagnosticsNormalized["background_weighted_residual_objective"] = (
+                metadataFloat(
+                    lastBackgroundObjectiveDiagnosticsLocal.get(
+                        "background_weighted_residual_objective",
+                        np.nan,
+                    )
+                )
+            )
+            ecmDiagnosticsNormalized["background_fit_effective_observation_count"] = (
+                int(
+                    lastBackgroundObjectiveDiagnosticsLocal.get(
+                        "background_effective_observation_count",
+                        0,
+                    )
+                    or 0
+                )
+            )
             ecmDiagnosticsNormalized["observation_lambda_mean"] = lambdaMeanLocal
             ecmDiagnosticsNormalized["observation_lambda_median"] = lambdaMedianLocal
             ecmDiagnosticsNormalized["process_kappa_mean"] = kappaMeanLocal
             ecmDiagnosticsNormalized["process_kappa_median"] = kappaMedianLocal
+            ecmDiagnosticsNormalized["observation_lambda_lower_bound_hits"] = (
+                lambdaLowerBoundHitsLocal
+            )
+            ecmDiagnosticsNormalized["observation_lambda_upper_bound_hits"] = (
+                lambdaUpperBoundHitsLocal
+            )
+            ecmDiagnosticsNormalized["process_kappa_lower_bound_hits"] = (
+                kappaLowerBoundHitsLocal
+            )
+            ecmDiagnosticsNormalized["process_kappa_upper_bound_hits"] = (
+                kappaUpperBoundHitsLocal
+            )
+            ecmDiagnosticsNormalized["sign_change_per_kb"] = lastSignChangePerKBLocal
             ecmDiagnosticsNormalized["outer_inner_ecm_converged"] = bool(
                 lastInnerECMConvergedLocal
             )
@@ -3680,15 +4303,23 @@ def runConsenrich(
             )
             fixedBackgroundECMDiagnostics.append(ecmDiagnosticsNormalized)
             logger.info(
-                "outerPass[%d/%d]:\n\tbackgroundShift=%.6g\n\tbackgroundShiftThreshold=%.6g\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\tkappaMean=%s\n\tkappaMedian=%s\n\touterObjectivePerCell=%s\n\touterObjectiveChangePerCell=%s\n\touterObjectiveThresholdPerCell=%s\n\touterStable=%d/%d\n\tinnerECMConverged=%s",
+                "outerPass[%d/%d]:\n\tbackgroundShift=%.6g\n\tbackgroundShiftThreshold=%.6g\n\tbackgroundObjectivePerCell=%s\n\tbackgroundObjectiveChangePerCell=%s\n\tbackgroundObjectiveThresholdPerCell=%s\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\tsignChangePerKB=%s\n\tlambdaLowerBoundHits=%s\n\tlambdaUpperBoundHits=%s\n\tkappaMean=%s\n\tkappaMedian=%s\n\tkappaLowerBoundHits=%s\n\tkappaUpperBoundHits=%s\n\touterObjectivePerCell=%s\n\touterObjectiveChangePerCell=%s\n\touterObjectiveThresholdPerCell=%s\n\touterStable=%d/%d\n\tinnerECMConverged=%s",
                 int(outerPassIndex + 1),
                 int(outerPassCount),
                 float(bgChange),
                 float(bgTol),
+                _formatMaybeFloat(lastBackgroundObjectivePerCellLocal),
+                _formatMaybeFloat(lastBackgroundObjectiveChangePerCellLocal),
+                _formatMaybeFloat(lastBackgroundObjectiveTolPerCellLocal),
                 _formatMaybeFloat(lambdaMeanLocal),
                 _formatMaybeFloat(lambdaMedianLocal),
+                _formatMaybeFloat(lastSignChangePerKBLocal),
+                _formatMaybeFloat(lambdaLowerBoundHitsLocal),
+                _formatMaybeFloat(lambdaUpperBoundHitsLocal),
                 _formatMaybeFloat(kappaMeanLocal),
                 _formatMaybeFloat(kappaMedianLocal),
+                _formatMaybeFloat(kappaLowerBoundHitsLocal),
+                _formatMaybeFloat(kappaUpperBoundHitsLocal),
                 _formatMaybeFloat(lastOuterObjectivePerCellLocal),
                 _formatMaybeFloat(lastOuterObjectiveChangePerCellLocal),
                 _formatMaybeFloat(lastOuterObjectiveTolPerCellLocal),
@@ -3710,6 +4341,195 @@ def runConsenrich(
                 outerStopReasonLocal = "max_outer_passes_objective"
             elif outerStableItersLocal < outerPatienceTargetLocal:
                 outerStopReasonLocal = "max_outer_passes_patience"
+
+        if fitBackgroundLocal:
+            _logAsciiBlock(
+                f"{phaseLabel} / final fixed-background ECM",
+                (
+                    ("tracks", int(mLocal)),
+                    ("intervals", int(nLocal)),
+                    ("ECM max iterations", int(ecmItersLocal)),
+                    ("ECM rtol", float(ecmRtolLocal)),
+                    ("background model fit", False),
+                    ("APN enabled", bool(useAPNLocal)),
+                    ("obs precision weights", bool(ECM_useObsPrecisionReweighting)),
+                    ("proc precision weights", bool(useProcPrecLocal)),
+                ),
+                indentLevel=phaseIndentLevel + 1,
+            )
+            dataAdjusted = np.ascontiguousarray(
+                matrixDataLocal - currentBackground[None, :],
+                dtype=np.float32,
+            )
+            ecmKwargs = dict(
+                matrixData=dataAdjusted,
+                matrixPluginMuncInit=currentMunc,
+                matrixQ0=matrixQ0Local,
+                intervalToBlockMap=intervalToBlockMap,
+                blockCount=int(blockCount),
+                stateInit=float(stateInit),
+                stateCovarInit=float(stateCovarInit),
+                ECM_fixedBackgroundIters=int(ecmItersLocal),
+                ECM_fixedBackgroundRtol=float(ecmRtolLocal),
+                pad=float(pad),
+                ECM_robustTNu=float(ECM_robustTNu),
+                returnIntermediates=True,
+                ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
+                ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
+                ECM_useAPN=bool(useAPNLocal),
+                zeroCenterReplicateBias=bool(ECM_zeroCenterReplicateBias),
+                obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+                obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+                procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
+                procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
+                APN_minQ=float(minQ),
+                APN_maxQ=float(maxQForAPN),
+                lambdaExpInit=lambdaExpLocal,
+                processPrecExpInit=processPrecExpLocal,
+                replicateBiasInit=replicateBiasLocal,
+                trackOptimizationPath=bool(trackOptimizationPath),
+            )
+            ecmProgressBar = _makeECMProgressBar(
+                phaseLabel=phaseLabel,
+                passLabel="final fixed-background",
+                total=int(ecmItersLocal),
+                enabled=bool(showNonAlternatingECMProgress),
+            )
+            ecmKwargs["logIterations"] = False
+            ecmKwargs["progressBar"] = ecmProgressBar
+            ecmFunction = cconsenrich.cfixedBackgroundECMLevel
+            if stateModelMode == STATE_MODEL_LEVEL_TREND:
+                ecmFunction = cconsenrich.cfixedBackgroundECM
+                ecmKwargs["matrixF"] = matrixFLocal
+            try:
+                ecmOutLocal = ecmFunction(
+                    **ecmKwargs,
+                    returnDiagnostics=True,
+                )
+            finally:
+                if ecmProgressBar is not None:
+                    ecmProgressBar.close()
+            if len(ecmOutLocal) == 10 and isinstance(ecmOutLocal[-1], Mapping):
+                ecmDiagnosticsLocal = ecmOutLocal[-1]
+                ecmOutLocal = ecmOutLocal[:-1]
+            else:
+                raise ValueError(
+                    "Expected cfixedBackgroundECM(..., returnDiagnostics=True) "
+                    "to return diagnostics as the final value."
+                )
+            if len(ecmOutLocal) != 9:
+                raise ValueError(
+                    "Expected cfixedBackgroundECM(..., returnIntermediates=True) to return 9 values "
+                    f"(got {len(ecmOutLocal)})."
+                )
+            (
+                ecmItersDoneLocal,
+                nllECMLocal,
+                stateSmoothedLocal,
+                stateCovarSmoothedLocal,
+                lagCovSmoothedLocal,
+                postFitResidualsLocal,
+                lambdaExpLocal,
+                processPrecExpLocal,
+                replicateBiasLocal,
+            ) = ecmOutLocal
+            currentECMNLLLocal = float(nllECMLocal)
+            finalECMDiagnosticsNormalized = _normalizeFixedBackgroundECMDiagnostics(
+                ecmDiagnosticsLocal,
+                itersDone=int(ecmItersDoneLocal),
+                finalNLL=currentECMNLLLocal,
+                maxIters=int(ecmItersLocal),
+                outerPass=int(actualOuterPasses + 1),
+            )
+            finalECMDiagnosticsNormalized["final_fixed_background_ecm"] = True
+            lastInnerECMConvergedLocal = bool(
+                finalECMDiagnosticsNormalized.get("converged") is True
+            )
+            if lambdaExpLocal is not None:
+                lambdaExpLocal = np.asarray(lambdaExpLocal, dtype=np.float32)
+            if processPrecExpLocal is not None:
+                processPrecExpLocal = np.asarray(processPrecExpLocal, dtype=np.float32)
+            lambdaMeanLocal, lambdaMedianLocal = _observationLambdaSummary(
+                lambdaExpLocal,
+                lower=float(observationPrecisionMultiplierMin),
+                upper=float(observationPrecisionMultiplierMax),
+            )
+            kappaMeanLocal, kappaMedianLocal = _processKappaSummary(
+                processPrecExpLocal,
+                lower=float(processPrecisionMultiplierMin),
+                upper=float(processPrecisionMultiplierMax),
+            )
+            lambdaLowerBoundHitsLocal, lambdaUpperBoundHitsLocal = _precisionBoundHits(
+                lambdaExpLocal,
+                lower=float(observationPrecisionMultiplierMin),
+                upper=float(observationPrecisionMultiplierMax),
+            )
+            kappaLowerBoundHitsLocal, kappaUpperBoundHitsLocal = _precisionBoundHits(
+                processPrecExpLocal,
+                lower=float(processPrecisionMultiplierMin),
+                upper=float(processPrecisionMultiplierMax),
+                skipFirst=True,
+            )
+            replicateBiasLocal = np.asarray(replicateBiasLocal, dtype=np.float32)
+            stateSmoothedLocal = np.asarray(stateSmoothedLocal, dtype=np.float32)
+            lastSignChangePerKBLocal = _stateSignChangePerKB(
+                stateSmoothedLocal[:, 0],
+                intervalSizeBP=intervalSizeBPLocal,
+            )
+            stateCovarSmoothedLocal = np.asarray(
+                stateCovarSmoothedLocal,
+                dtype=np.float32,
+            )
+            lagCovSmoothedLocal = np.asarray(lagCovSmoothedLocal, dtype=np.float32)
+            postFitResidualsLocal = np.asarray(postFitResidualsLocal, dtype=np.float32)
+            finalECMDiagnosticsNormalized["observation_lambda_mean"] = lambdaMeanLocal
+            finalECMDiagnosticsNormalized["observation_lambda_median"] = (
+                lambdaMedianLocal
+            )
+            finalECMDiagnosticsNormalized["process_kappa_mean"] = kappaMeanLocal
+            finalECMDiagnosticsNormalized["process_kappa_median"] = kappaMedianLocal
+            finalECMDiagnosticsNormalized["observation_lambda_lower_bound_hits"] = (
+                lambdaLowerBoundHitsLocal
+            )
+            finalECMDiagnosticsNormalized["observation_lambda_upper_bound_hits"] = (
+                lambdaUpperBoundHitsLocal
+            )
+            finalECMDiagnosticsNormalized["process_kappa_lower_bound_hits"] = (
+                kappaLowerBoundHitsLocal
+            )
+            finalECMDiagnosticsNormalized["process_kappa_upper_bound_hits"] = (
+                kappaUpperBoundHitsLocal
+            )
+            finalECMDiagnosticsNormalized["sign_change_per_kb"] = (
+                lastSignChangePerKBLocal
+            )
+            fixedBackgroundECMDiagnostics.append(finalECMDiagnosticsNormalized)
+            logger.info(
+                "finalFixedBackgroundECM[%s]: iters=%d converged=%s "
+                "stable=%d/%d fixedBackgroundAbsRelChange=%s "
+                "fixedBackgroundRtol=%s signChangePerKB=%s "
+                "lambdaMean=%s lambdaMedian=%s lambdaLowerBoundHits=%s "
+                "lambdaUpperBoundHits=%s kappaMean=%s kappaMedian=%s "
+                "kappaLowerBoundHits=%s kappaUpperBoundHits=%s",
+                phaseLabel,
+                int(ecmItersDoneLocal),
+                str(bool(lastInnerECMConvergedLocal)),
+                int(finalECMDiagnosticsNormalized.get("stable_iters", 0) or 0),
+                int(finalECMDiagnosticsNormalized.get("patience_target", 0) or 0),
+                _formatMaybeFloat(
+                    finalECMDiagnosticsNormalized.get("final_abs_rel_change")
+                ),
+                _formatMaybeFloat(ecmRtolLocal),
+                _formatMaybeFloat(lastSignChangePerKBLocal),
+                _formatMaybeFloat(lambdaMeanLocal),
+                _formatMaybeFloat(lambdaMedianLocal),
+                _formatMaybeFloat(lambdaLowerBoundHitsLocal),
+                _formatMaybeFloat(lambdaUpperBoundHitsLocal),
+                _formatMaybeFloat(kappaMeanLocal),
+                _formatMaybeFloat(kappaMedianLocal),
+                _formatMaybeFloat(kappaLowerBoundHitsLocal),
+                _formatMaybeFloat(kappaUpperBoundHitsLocal),
+            )
 
         dataAdjusted = np.ascontiguousarray(
             matrixDataLocal - currentBackground[None, :],
@@ -3765,6 +4585,17 @@ def runConsenrich(
             "sumNLL": float(sumNLLLocal),
             "backgroundShift": float(lastBackgroundShiftLocal),
             "backgroundShiftThreshold": metadataFloat(lastBackgroundShiftTolLocal),
+            "backgroundObjective": metadataFloat(lastBackgroundObjectiveLocal),
+            "backgroundObjectivePerCell": metadataFloat(
+                lastBackgroundObjectivePerCellLocal
+            ),
+            "backgroundObjectiveChangePerCell": metadataFloat(
+                lastBackgroundObjectiveChangePerCellLocal
+            ),
+            "backgroundObjectiveThresholdPerCell": metadataFloat(
+                lastBackgroundObjectiveTolPerCellLocal
+            ),
+            "backgroundObjectiveStable": bool(lastBackgroundObjectiveStableLocal),
             "outerNLL": metadataFloat(lastOuterNLLLocal),
             "outerNLLChange": metadataFloat(lastOuterNLLChangeLocal),
             "outerNLLThreshold": metadataFloat(lastOuterNLLTolLocal),
@@ -3783,6 +4614,11 @@ def runConsenrich(
                 if lastObjectiveDiagnosticsLocal
                 else 0
             ),
+            "lambdaLowerBoundHits": lambdaLowerBoundHitsLocal,
+            "lambdaUpperBoundHits": lambdaUpperBoundHitsLocal,
+            "kappaLowerBoundHits": kappaLowerBoundHitsLocal,
+            "kappaUpperBoundHits": kappaUpperBoundHitsLocal,
+            "signChangePerKB": lastSignChangePerKBLocal,
             "outerStableIters": int(outerStableItersLocal),
             "outerPatienceTarget": int(outerPatienceTargetLocal),
             "innerECMConverged": bool(lastInnerECMConvergedLocal),
@@ -3889,6 +4725,7 @@ def runConsenrich(
             useAPNOverride=False,
             phaseLabel="process noise warmup",
             phaseIndentLevel=logIndentLevel + 1,
+            logAlternatingECMIterations=False,
         )
         logger.info(
             "runConsenrich.processNoiseWarmup.done elapsed=%.3fs",
@@ -3923,15 +4760,21 @@ def runConsenrich(
             else initialObservationPrecisionArr
         )
         logger.info(
-            "processNoiseCalibration=blockHierarchicalEB:\n"
+            "processNoiseCalibration=EB_MAP:\n"
             "\tqLevel=%.6g\tqTrend=%.6g\n"
             "\trawLevel=%.6g\trawTrend=%.6g\n"
+            "\tqLevelPriorMode=%.6g\tqLevelDataEstimate=%.6g\n"
+            "\tqLevelPriorDf=%.6g\tratioPriorDf=%.6g\n"
             "\teffectiveRatio=%.6g\tvalidBlocks=%d/%d\n"
             "\twarmupOuterPasses=%d\twarmupECMIters=%d",
             processNoiseCalibrationInfo["qLevel"],
             processNoiseCalibrationInfo["qTrend"],
             processNoiseCalibrationInfo["rawQLevel"],
             processNoiseCalibrationInfo["rawQTrend"],
+            processNoiseCalibrationInfo["qLevelPriorMode"],
+            processNoiseCalibrationInfo["qLevelDataEstimate"],
+            processNoiseCalibrationInfo["qLevelPriorDfUsed"],
+            processNoiseCalibrationInfo["ratioPriorDfUsed"],
             processNoiseCalibrationInfo["effectiveTrendLevelRatio"],
             int(processNoiseCalibrationInfo["validBlockCount"]),
             int(processNoiseCalibrationInfo["blockCount"]),
@@ -3980,6 +4823,7 @@ def runConsenrich(
         initialProcessPrecLocal=postQInitialProcessPrec,
         phaseLabel=fitPhaseLabel,
         phaseIndentLevel=logIndentLevel + 1,
+        logAlternatingECMIterations=bool(logMainAlternatingECMIterations),
     )
     logger.info(
         "runConsenrich.%s.done elapsed=%.3fs",
@@ -4009,6 +4853,10 @@ def runConsenrich(
             ("standardized forward innovation", float(finalForwardNIS)),
             ("backgroundShift at stop", float(fitFinal.get("backgroundShift", np.nan))),
             (
+                "background objective/cell change at stop",
+                fitFinal.get("backgroundObjectiveChangePerCell"),
+            ),
+            (
                 "outer objective/cell change at stop",
                 fitFinal.get("outerObjectiveChangePerCell"),
             ),
@@ -4027,13 +4875,7 @@ def runConsenrich(
                 value.astype(float).tolist()
                 if isinstance(value, np.ndarray)
                 else (
-                    [
-                        [
-                            _diagnosticScalar(cell)
-                            for cell in row
-                        ]
-                        for row in value
-                    ]
+                    [[_diagnosticScalar(cell) for cell in row] for row in value]
                     if isinstance(value, list)
                     else _diagnosticScalar(value)
                 )
@@ -4109,6 +4951,7 @@ def runConsenrich(
         outStateCovarSmoothed = _padLevelCovarArray(outStateCovarSmoothed)
     outPostFitResiduals = np.asarray(postFitResiduals, dtype=np.float32)
     outNIS = np.asarray(NIS, dtype=np.float32)
+    outBackground = np.asarray(fitFinal["background"], dtype=np.float32)
 
     if boundState:
         np.clip(
@@ -4135,7 +4978,27 @@ def runConsenrich(
         totalElapsed,
     )
 
-    def _maybeAddDiagnostics(result: tuple[Any, ...]) -> tuple[Any, ...]:
+    def _maybeAddRequestedOutputs(result: tuple[Any, ...]) -> tuple[Any, ...]:
+        if returnBackground:
+            result = (*result, outBackground)
+        if returnPrecisionDiagnostics:
+            result = (
+                *result,
+                {
+                    "precision_track_diagnostics": True,
+                    "lambdaExp": (
+                        None
+                        if fitFinal.get("lambdaExp") is None
+                        else np.asarray(fitFinal["lambdaExp"], dtype=np.float32)
+                    ),
+                    "processPrecExp": (
+                        None
+                        if fitFinal.get("processPrecExp") is None
+                        else np.asarray(fitFinal["processPrecExp"], dtype=np.float32)
+                    ),
+                    "matrixQ0": np.asarray(matrixQ0, dtype=np.float32),
+                },
+            )
         if returnDiagnostics:
             return (*result, runDiagnostics)
         return result
@@ -4150,7 +5013,7 @@ def runConsenrich(
                 np.asarray(replicateBias_final, dtype=np.float32),
                 intervalToBlockMap,
             )
-            return _maybeAddDiagnostics(result)
+            return _maybeAddRequestedOutputs(result)
         result = (
             outStateSmoothed,
             outStateCovarSmoothed,
@@ -4158,7 +5021,7 @@ def runConsenrich(
             outNIS,
             intervalToBlockMap,
         )
-        return _maybeAddDiagnostics(result)
+        return _maybeAddRequestedOutputs(result)
 
     result = (
         outStateSmoothed,
@@ -4166,7 +5029,7 @@ def runConsenrich(
         outPostFitResiduals,
         outNIS,
     )
-    return _maybeAddDiagnostics(result)
+    return _maybeAddRequestedOutputs(result)
 
 
 def getPrimaryState(
@@ -5558,6 +6421,40 @@ def _coerceOddFilterWindow(windowIntervals: int | float, length: int) -> int:
     return int(min(window, maxWindow))
 
 
+def subtractGlobalMedianInPlace(
+    values: npt.NDArray[np.floating],
+) -> dict[str, Any]:
+    r"""Subtract each transformed track's finite global median in place."""
+
+    arr = np.asarray(values)
+    if arr.ndim == 1:
+        tracks = arr.reshape(1, -1)
+    elif arr.ndim == 2:
+        tracks = arr
+    else:
+        raise ValueError("values must be a one- or two-dimensional array")
+    if not np.issubdtype(arr.dtype, np.floating):
+        raise TypeError("values dtype must be floating point")
+
+    medians = np.zeros(tracks.shape[0], dtype=np.float64)
+    appliedCount = 0
+    for trackIndex in range(tracks.shape[0]):
+        track = tracks[trackIndex]
+        finite = np.asarray(track[np.isfinite(track)], dtype=np.float64)
+        if finite.size == 0:
+            continue
+        median = float(np.median(finite))
+        medians[trackIndex] = median
+        np.subtract(track, median, out=track, casting="unsafe")
+        appliedCount += 1
+
+    return {
+        "applied": bool(appliedCount > 0),
+        "applied_tracks": int(appliedCount),
+        "track_medians": medians,
+    }
+
+
 def quantileFilterDetrendInPlace(
     values: npt.NDArray[np.floating],
     windowIntervals: int | float,
@@ -5749,6 +6646,215 @@ def _sparseSupportWeights(
     return weights.astype(np.float32, copy=False)
 
 
+class _MuncRuntimeSizing(NamedTuple):
+    trendBlockSizeBP: int
+    trendBlockIntervals: int
+    trendBlockSource: str
+    localWindowSizeBP: int
+    localWindowIntervals: int
+    localWindowSource: str
+    usedLegacySamplingBlockSize: bool
+    usedDependenceSpan: bool
+    dependenceSpanIntervals: int | None
+
+
+def _normalizeMuncVarianceModel(model: str | int | None) -> str:
+    if model is None:
+        return OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
+    if isinstance(model, (int, np.integer)):
+        modelCode = int(model)
+        if modelCode == MUNC_VARIANCE_MODEL_CODE_AR1:
+            return MUNC_VARIANCE_MODEL_AR1
+        if modelCode == MUNC_VARIANCE_MODEL_CODE_SVAR:
+            return MUNC_VARIANCE_MODEL_SVAR
+        if modelCode == MUNC_VARIANCE_MODEL_CODE_SVAR_D1:
+            return MUNC_VARIANCE_MODEL_SVAR_D1
+        if modelCode == MUNC_VARIANCE_MODEL_CODE_SVAR_D2:
+            return MUNC_VARIANCE_MODEL_SVAR_D2
+    modelName = str(model).strip().lower().replace("-", "").replace("_", "")
+    if modelName in {"ar1", "ar"}:
+        return MUNC_VARIANCE_MODEL_AR1
+    if modelName in {"svar", "samplevar", "samplevariance"}:
+        return MUNC_VARIANCE_MODEL_SVAR
+    if modelName in {
+        "svard1",
+        "samplevard1",
+        "samplevarianced1",
+        "d1",
+        "diffvar",
+        "firstdifference",
+        "firstdifferencevariance",
+    }:
+        return MUNC_VARIANCE_MODEL_SVAR_D1
+    if modelName in {
+        "svard2",
+        "samplevard2",
+        "samplevarianced2",
+        "d2",
+        "diff2var",
+        "seconddifference",
+        "seconddifferencevariance",
+    }:
+        return MUNC_VARIANCE_MODEL_SVAR_D2
+    supportedModels = ", ".join(MUNC_SUPPORTED_VARIANCE_MODELS)
+    raise ValueError(f"unsupported MUNC variance model {model!r}; expected {supportedModels}")
+
+
+def _muncVarianceModelCode(model: str | int | None) -> int:
+    modelName = _normalizeMuncVarianceModel(model)
+    if modelName == MUNC_VARIANCE_MODEL_AR1:
+        return MUNC_VARIANCE_MODEL_CODE_AR1
+    if modelName == MUNC_VARIANCE_MODEL_SVAR:
+        return MUNC_VARIANCE_MODEL_CODE_SVAR
+    if modelName == MUNC_VARIANCE_MODEL_SVAR_D1:
+        return MUNC_VARIANCE_MODEL_CODE_SVAR_D1
+    if modelName == MUNC_VARIANCE_MODEL_SVAR_D2:
+        return MUNC_VARIANCE_MODEL_CODE_SVAR_D2
+    raise AssertionError("unreachable MUNC variance model")
+
+
+def _resolveMuncRuntimeSizing(
+    *,
+    intervalSizeBP: int,
+    dependenceContextBP: int | None,
+    dependenceSpanIntervals: int | None = None,
+    samplingBlockSizeBP: int | None = None,
+    muncTrendBlockSizeBP: int | None = None,
+    muncLocalWindowSizeBP: int | None = None,
+    muncTrendBlockDependenceMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
+    ),
+    muncLocalWindowDependenceMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
+    ),
+) -> _MuncRuntimeSizing:
+    intervalSizeBP_ = max(1, int(intervalSizeBP))
+    legacyBP = None if samplingBlockSizeBP is None else int(samplingBlockSizeBP)
+    legacyIntervals = (
+        None if legacyBP is None or legacyBP <= 0 else max(1, int(legacyBP / intervalSizeBP_))
+    )
+    dependenceBP = None if dependenceContextBP is None else int(dependenceContextBP)
+    if dependenceBP is not None and dependenceBP <= 0:
+        dependenceBP = None
+    dependenceIntervals = (
+        None
+        if dependenceSpanIntervals is None
+        else int(dependenceSpanIntervals)
+    )
+    if dependenceIntervals is not None and dependenceIntervals <= 0:
+        dependenceIntervals = None
+    if dependenceIntervals is None and dependenceBP is not None:
+        dependenceIntervals = max(
+            1,
+            int(round((float(dependenceBP) / float(intervalSizeBP_) - 1.0) / 2.0)),
+        )
+
+    defaultTrendIntervals = 11 * 3
+    defaultLocalIntervals = max(4, defaultTrendIntervals + 1)
+
+    def resolveMultiplier(value: float | None, defaultValue: float) -> float:
+        multiplier = defaultValue if value is None else float(value)
+        if (not np.isfinite(multiplier)) or multiplier <= 0.0:
+            raise ValueError("MUNC dependence multipliers must be positive finite values")
+        return float(multiplier)
+
+    trendMultiplier = resolveMultiplier(
+        muncTrendBlockDependenceMultiplier,
+        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
+    )
+    localMultiplier = resolveMultiplier(
+        muncLocalWindowDependenceMultiplier,
+        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
+    )
+
+    def resolveDependenceIntervals(multiplier: float, minIntervals: int) -> int | None:
+        if dependenceIntervals is None:
+            return None
+        return max(int(minIntervals), int(math.ceil(float(multiplier) * float(dependenceIntervals))))
+
+    def resolveExplicitIntervals(value: int | None) -> int | None:
+        if value is None:
+            return None
+        valueBP = int(value)
+        if valueBP <= 0:
+            return None
+        return max(1, int(valueBP / intervalSizeBP_))
+
+    trendIntervals = resolveExplicitIntervals(muncTrendBlockSizeBP)
+    usedLegacySamplingBlockSize = False
+    usedDependenceSpan = False
+    trendSource = "explicit bp"
+    if trendIntervals is None:
+        if legacyIntervals is not None:
+            trendIntervals = int(legacyIntervals)
+            usedLegacySamplingBlockSize = True
+            trendSource = "legacy samplingBlockSizeBP"
+        else:
+            trendIntervals = resolveDependenceIntervals(trendMultiplier, 1)
+            usedDependenceSpan = trendIntervals is not None
+            if trendIntervals is not None:
+                trendSource = "dependence span"
+        if trendIntervals is None:
+            if dependenceBP is not None:
+                trendIntervals = max(1, int(dependenceBP / intervalSizeBP_))
+                usedDependenceSpan = True
+                trendSource = "dependence context bp"
+            else:
+                trendIntervals = int(defaultTrendIntervals)
+                trendSource = "fallback default"
+
+    localIntervals = resolveExplicitIntervals(muncLocalWindowSizeBP)
+    localSource = "explicit bp"
+    if localIntervals is None:
+        if legacyIntervals is not None:
+            localIntervals = max(4, int(legacyIntervals) + 1)
+            usedLegacySamplingBlockSize = True
+            localSource = "legacy samplingBlockSizeBP + 1"
+        else:
+            localIntervals = resolveDependenceIntervals(localMultiplier, 4)
+            usedDependenceSpan = usedDependenceSpan or localIntervals is not None
+            if localIntervals is not None:
+                localSource = "dependence span"
+        if localIntervals is None:
+            if dependenceBP is not None:
+                localIntervals = max(4, int(dependenceBP / intervalSizeBP_))
+                usedDependenceSpan = True
+                localSource = "dependence context bp"
+            else:
+                localIntervals = int(defaultLocalIntervals)
+                localSource = "fallback default"
+
+    trendIntervals = max(1, int(trendIntervals))
+    localIntervals = max(4, int(localIntervals))
+    return _MuncRuntimeSizing(
+        trendBlockSizeBP=int(trendIntervals * intervalSizeBP_),
+        trendBlockIntervals=int(trendIntervals),
+        trendBlockSource=trendSource,
+        localWindowSizeBP=int(localIntervals * intervalSizeBP_),
+        localWindowIntervals=int(localIntervals),
+        localWindowSource=localSource,
+        usedLegacySamplingBlockSize=bool(usedLegacySamplingBlockSize),
+        usedDependenceSpan=bool(usedDependenceSpan),
+        dependenceSpanIntervals=dependenceIntervals,
+    )
+
+
+def _muncSizingNeedsDependence(
+    *,
+    samplingBlockSizeBP: int | None,
+    muncTrendBlockSizeBP: int | None,
+    muncLocalWindowSizeBP: int | None,
+) -> bool:
+    legacyPositive = samplingBlockSizeBP is not None and int(samplingBlockSizeBP) > 0
+    trendNeedsAuto = (
+        muncTrendBlockSizeBP is None and not legacyPositive
+    ) or (muncTrendBlockSizeBP is not None and int(muncTrendBlockSizeBP) <= 0)
+    localNeedsAuto = (
+        muncLocalWindowSizeBP is None and not legacyPositive
+    ) or (muncLocalWindowSizeBP is not None and int(muncLocalWindowSizeBP) <= 0)
+    return bool(trendNeedsAuto or localNeedsAuto)
+
+
 def _solveZeroCenteredBackground(
     residualMatrix: np.ndarray,
     invVarMatrix: np.ndarray,
@@ -5756,6 +6862,9 @@ def _solveZeroCenteredBackground(
     backgroundSmoothness: float = 1.0,
     zeroCenter: bool = True,
     useNonnegative: bool = False,
+    backgroundNegativePenaltyMultiplier: float | None = (
+        FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
+    ),
 ) -> npt.NDArray[np.float32]:
     residualArr = np.asarray(residualMatrix, dtype=np.float32)
     invVarArr = np.asarray(invVarMatrix, dtype=np.float32)
@@ -5792,6 +6901,7 @@ def _solveZeroCenteredBackground(
             lamFirst=float(lamFirst),
             lamSecond=float(lamSecond),
             zeroCenter=bool(zeroCenter),
+            backgroundNegativePenaltyMultiplier=backgroundNegativePenaltyMultiplier,
         )
 
     if zeroCenter:
@@ -5861,107 +6971,100 @@ def _solveNonnegativeBackground(
     lamFirst: float,
     lamSecond: float,
     zeroCenter: bool,
+    backgroundNegativePenaltyMultiplier: float | None,
 ) -> npt.NDArray[np.float32]:
     n = int(rhsTrack.shape[0])
     if n <= 0:
         return np.zeros(0, dtype=np.float32)
 
-    if zeroCenter:
-        return np.zeros(n, dtype=np.float32)
-
-    systemBanded = _buildBackgroundBandedSystem(
-        weightTrack,
-        float(lamFirst),
-        float(lamSecond),
-    )
-    unconstrained = np.asarray(
-        _solveBackgroundLinearSystem(
-            weightTrack,
-            rhsTrack,
-            float(lamFirst),
-            float(lamSecond),
-        ),
-        dtype=np.float64,
-    ).reshape(-1)
-    validWeight = np.asarray(weightTrack, dtype=np.float64) > 0.0
-    if np.any(validWeight):
-        with np.errstate(divide="ignore", invalid="ignore"):
-            targetTrack = np.asarray(
-                rhsTrack[validWeight],
-                dtype=np.float64,
-            ) / np.asarray(
-                weightTrack[validWeight],
-                dtype=np.float64,
+    def solveWithWeights(weightTrackLocal: np.ndarray) -> np.ndarray:
+        if bool(zeroCenter):
+            if n == 1:
+                return np.zeros(1, dtype=np.float64)
+            return _solveZeroCenteredBackgroundLinearSystem(
+                np.ascontiguousarray(weightTrackLocal, dtype=np.float64),
+                rhsTrack,
+                float(lamFirst),
+                float(lamSecond),
             )
-        targetTrack = targetTrack[np.isfinite(targetTrack)]
-        targetScale = float(np.max(np.abs(targetTrack))) if targetTrack.size else 0.0
-    else:
-        targetScale = 0.0
-    solutionScale = (
-        float(np.max(np.abs(unconstrained[np.isfinite(unconstrained)])))
-        if np.any(np.isfinite(unconstrained))
-        else 0.0
-    )
-    signalScale = float(max(targetScale, solutionScale, 1.0))
-    primalTol = max(1.0e-10, 1.0e-8 * signalScale)
-    if np.all(unconstrained >= -primalTol):
-        return np.maximum(unconstrained, 0.0).astype(np.float32)
+        return np.asarray(
+            _solveBackgroundLinearSystem(
+                np.ascontiguousarray(weightTrackLocal, dtype=np.float64),
+                rhsTrack,
+                float(lamFirst),
+                float(lamSecond),
+            ),
+            dtype=np.float64,
+        )
 
-    projectedSweeps = 80
-    projectedTol = 1.0e-20
-    projectedOmega = 1.2
+    background = np.asarray(solveWithWeights(weightTrack), dtype=np.float64).reshape(-1)
+    if backgroundNegativePenaltyMultiplier is None:
+        return background.astype(np.float32)
+
+    negativePenaltyMultiplier = float(backgroundNegativePenaltyMultiplier)
+    if not np.isfinite(negativePenaltyMultiplier) or negativePenaltyMultiplier <= 0.0:
+        return background.astype(np.float32)
+
+    positiveWeightTrack = np.asarray(weightTrack, dtype=np.float64)
+    positiveWeightTrack = positiveWeightTrack[
+        np.isfinite(positiveWeightTrack) & (positiveWeightTrack > 0.0)
+    ]
+    weightScale = (
+        float(np.median(positiveWeightTrack)) if positiveWeightTrack.size else 1.0
+    )
+    if not np.isfinite(weightScale) or weightScale <= 0.0:
+        weightScale = 1.0
+    negativePenaltyWeight = float(negativePenaltyMultiplier * weightScale)
+    if not np.isfinite(negativePenaltyWeight) or negativePenaltyWeight <= 0.0:
+        return background.astype(np.float32)
+
+    initialNegativeFraction = float(np.mean(background < 0.0)) if n else 0.0
+    previousNegativeMask: np.ndarray | None = None
+    passCount = 0
+    maxPasses = 5
     solverStart = time.perf_counter()
-    background = np.asarray(
-        cconsenrich.csolveNonnegativeBackgroundProjected(
-            weightTrack,
-            rhsTrack,
-            float(lamSecond),
-            lamFirst=float(lamFirst),
-            initial=np.maximum(unconstrained, 0.0),
-            maxSweeps=projectedSweeps,
-            tol=projectedTol,
-            omega=projectedOmega,
-        ),
-        dtype=np.float64,
-    ).reshape(-1)
-    background = np.nan_to_num(background, nan=0.0, posinf=0.0, neginf=0.0)
-    np.maximum(background, 0.0, out=background)
+    for passIndex in range(maxPasses):
+        negativeMask = np.asarray(background < 0.0, dtype=bool)
+        if previousNegativeMask is not None and np.array_equal(
+            negativeMask,
+            previousNegativeMask,
+        ):
+            break
+        if not np.any(negativeMask):
+            break
+        previousNegativeMask = negativeMask.copy()
+        adjustedWeightTrack = np.asarray(weightTrack, dtype=np.float64).copy()
+        adjustedWeightTrack[negativeMask] += negativePenaltyWeight
+        background = np.asarray(
+            solveWithWeights(adjustedWeightTrack),
+            dtype=np.float64,
+        ).reshape(-1)
+        background = np.nan_to_num(background, nan=0.0, posinf=0.0, neginf=0.0)
+        passCount = int(passIndex + 1)
     elapsed = time.perf_counter() - solverStart
-    kkt = _nonnegativeBackgroundKKTDiagnostics(
-        systemBanded=systemBanded,
-        rhsTrack=rhsTrack,
-        candidate=background,
-        primalTol=float(primalTol),
+    finalNegativeFraction = float(np.mean(background < 0.0)) if n else 0.0
+    negativePenaltyValue = (
+        0.5
+        * negativePenaltyWeight
+        * float(np.sum(np.minimum(background, 0.0) ** 2, dtype=np.float64))
     )
     logger.info(
-        "backgroundQP: solver=projected_pentadiagonal intervals=%d "
-        "sweeps_max=%d elapsed=%.3fs kktRelMax=%.6g "
-        "freeStationarityRel=%.6g activeDualViolationRel=%.6g "
-        "complementarityRel=%.6g",
+        "backgroundIRLS: solver=asymmetric_pentadiagonal intervals=%d "
+        "penaltyMultiplier=%.6g penaltyWeight=%.6g passes=%d/%d elapsed=%.3fs "
+        "min=%.6g negativeFractionBefore=%.4f negativeFractionAfter=%.4f "
+        "negativePenalty=%.6g zeroCenter=%s",
         int(n),
-        int(projectedSweeps),
+        float(negativePenaltyMultiplier),
+        float(negativePenaltyWeight),
+        int(passCount),
+        int(maxPasses),
         float(elapsed),
-        float(kkt["kkt_rel_max"]),
-        float(kkt["free_stationarity_rel"]),
-        float(kkt["active_dual_violation_rel"]),
-        float(kkt["complementarity_rel"]),
+        float(np.min(background)) if background.size else 0.0,
+        float(initialNegativeFraction),
+        float(finalNegativeFraction),
+        float(negativePenaltyValue),
+        str(bool(zeroCenter)),
     )
-    if not bool(kkt["kkt_ok"]):
-        logger.warning(
-            "backgroundKKT: projected nonnegative background solve has large "
-            "residuals intervals=%d free=%d active=%d primalMin=%.6g "
-            "freeStationarityAbs=%.6g activeDualViolationAbs=%.6g "
-            "complementarityAbs=%.6g kktRelMax=%.6g gradientScale=%.6g",
-            int(n),
-            int(kkt["free_count"]),
-            int(kkt["active_count"]),
-            float(kkt["primal_min"]),
-            float(kkt["free_stationarity_abs"]),
-            float(kkt["active_dual_violation_abs"]),
-            float(kkt["complementarity_abs"]),
-            float(kkt["kkt_rel_max"]),
-            float(kkt["gradient_scale"]),
-        )
     return background.astype(np.float32)
 
 
@@ -5980,6 +7083,16 @@ def getMuncTrack(
     values: np.ndarray,
     intervalSizeBP: int,
     samplingBlockSizeBP: int | None = None,
+    muncTrendBlockSizeBP: int | None = None,
+    muncLocalWindowSizeBP: int | None = None,
+    dependenceSpanIntervals: int | None = None,
+    muncTrendBlockDependenceMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
+    ),
+    muncLocalWindowDependenceMultiplier: float | None = (
+        OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
+    ),
+    muncVarianceModel: str | int | None = OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
     samplingIters: int = 25_000,
     randomSeed: int = 42,
     excludeMask: Optional[np.ndarray] = None,
@@ -6001,6 +7114,7 @@ def getMuncTrack(
     sparseSupportScaleBP: Optional[float] = None,
     sparseSupportPrior: float = 1.0,
     restrictLocalAR1ToSparseBed: bool = False,
+    restrictLocalVarianceToSparseBed: bool | None = None,
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
     eps: float = 1.0e-2,
@@ -6030,10 +7144,8 @@ def getMuncTrack(
 
     """
 
-    # Retained for compatibility with older callers; current fitting uses masks directly.
     _ = excludeFitCoefs
 
-    AR1_PARAMCT = 3  # intercept, AR(1) coefficient, variance
     varianceFloor_ = float(max(eps, varianceFloor or eps, 1.0e-12))
     varianceCap_ = (
         None
@@ -6042,11 +7154,25 @@ def getMuncTrack(
         or float(varianceCap) <= varianceFloor_
         else float(varianceCap)
     )
-    if samplingBlockSizeBP is None:
-        samplingBlockSizeBP = intervalSizeBP * (11 * (AR1_PARAMCT))
-    blockSizeIntervals = int(samplingBlockSizeBP / intervalSizeBP)
-
-    localWindowIntervals = max(4, (blockSizeIntervals + 1))
+    muncVarianceModelName = _normalizeMuncVarianceModel(muncVarianceModel)
+    muncVarianceModelCode = _muncVarianceModelCode(muncVarianceModelName)
+    sizing = _resolveMuncRuntimeSizing(
+        intervalSizeBP=intervalSizeBP,
+        dependenceContextBP=None,
+        dependenceSpanIntervals=dependenceSpanIntervals,
+        samplingBlockSizeBP=samplingBlockSizeBP,
+        muncTrendBlockSizeBP=muncTrendBlockSizeBP,
+        muncLocalWindowSizeBP=muncLocalWindowSizeBP,
+        muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier,
+        muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier,
+    )
+    blockSizeIntervals = int(sizing.trendBlockIntervals)
+    localWindowIntervals = int(sizing.localWindowIntervals)
+    restrictLocalVariance = (
+        bool(restrictLocalAR1ToSparseBed)
+        if restrictLocalVarianceToSparseBed is None
+        else bool(restrictLocalVarianceToSparseBed)
+    )
     if intervalsArr is None:
         intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32).reshape(-1)
     else:
@@ -6069,14 +7195,40 @@ def getMuncTrack(
         raise ValueError("excludeMaskArr must match intervals/values length")
 
     _logAsciiBlock(
-        "MUNC track start",
+        "MUNC track parameters",
         (
             ("chromosome", chromosome),
             ("intervals", int(valuesArr.size)),
             ("interval size bp", int(intervalSizeBP)),
-            ("sampling block bp", int(samplingBlockSizeBP)),
+            ("MUNC variance model", muncVarianceModelName),
+            ("MUNC trend block bp", int(sizing.trendBlockSizeBP)),
             ("sampling block intervals", int(blockSizeIntervals)),
+            ("MUNC local window bp", int(sizing.localWindowSizeBP)),
             ("local window intervals", int(localWindowIntervals)),
+            (
+                "MUNC dependence span",
+                (
+                    "NA"
+                    if sizing.dependenceSpanIntervals is None
+                    else int(sizing.dependenceSpanIntervals)
+                ),
+            ),
+            (
+                "trend span multiplier",
+                float(
+                    OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
+                    if muncTrendBlockDependenceMultiplier is None
+                    else muncTrendBlockDependenceMultiplier
+                ),
+            ),
+            (
+                "local span multiplier",
+                float(
+                    OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
+                    if muncLocalWindowDependenceMultiplier is None
+                    else muncLocalWindowDependenceMultiplier
+                ),
+            ),
             ("MUNC variance EB", "enabled" if EB_use else "disabled"),
             (
                 "MUNC trend source",
@@ -6087,14 +7239,15 @@ def getMuncTrack(
                 ),
             ),
         ),
+        level=logging.DEBUG,
     )
 
     localObsExcludeMaskArr = excludeMaskArr
-    if restrictLocalAR1ToSparseBed:
+    if restrictLocalVariance:
         if sparseRegionMask is None:
             logger.warning(
-                "restrictLocalAR1ToSparseBed=True but sparseRegionMask is not provided; "
-                "using the unrestricted rolling AR(1) local observation-variance estimate.",
+                "restrictLocalVarianceToSparseBed=True but sparseRegionMask is not provided; "
+                "using the unrestricted rolling local observation-variance estimate.",
             )
         else:
             sparseRegionMaskArr = np.ascontiguousarray(
@@ -6192,6 +7345,7 @@ def getMuncTrack(
             np.ascontiguousarray(blockSizes, dtype=np.intp),
             int(numNearest),
             useInnovationVar=False,
+            modelCode=int(muncVarianceModelCode),
             aggregateMeanAbs=False,
         )
         sparseMeanTrack = np.asarray(sparseMeanTrack, dtype=np.float32)
@@ -6256,6 +7410,7 @@ def getMuncTrack(
             randomSeed,
             excludeMaskArr,
             useInnovationVar=False,
+            modelCode=int(muncVarianceModelCode),
         )
         mask = np.isfinite(blockMeans) & np.isfinite(blockVars) & (blockVars >= 1.0e-3)
         supportFraction = (
@@ -6335,10 +7490,11 @@ def getMuncTrack(
     # ... default: rolling AR(1) marginal variance over a sliding window
     # ... optional sparse-bed restriction: invalidate any local window leaving sparse regions
     # ... sparse-nearest mode: aggregate region mean/variance stats at the nearest sparse blocks
-    fallbackObsVarTrack = cconsenrich.crolling_AR1_IVar(
+    fallbackObsVarTrack = cconsenrich.crollingMuncVariance(
         valuesArr,
         localWindowIntervals,
         localObsExcludeMaskArr,
+        modelCode=int(muncVarianceModelCode),
         useInnovationVar=False,
     ).astype(np.float32, copy=False)
     fallbackObsVarTrack[fallbackObsVarTrack < 0.0] = np.nan
@@ -6376,7 +7532,7 @@ def getMuncTrack(
     else:
         obsVarTrack = fallbackObsVarTrack
 
-    # Note, negative values are a flag from `cconsenrich.crolling_AR1_IVar`
+    # Note, negative values are a flag from `cconsenrich.crollingMuncVariance`
     # ... -- set as _NaN_ -- and handle later during shrinkage
     obsVarTrack[obsVarTrack < 0.0] = np.nan
 
@@ -6630,7 +7786,7 @@ def EB_computePriorStrength(
 
     The prior model strength is determined by 'excess' dispersion beyond sampling noise at the local level.
 
-    :param localModelVariances: Local model variance estimates (e.g., rolling AR(1) marginal variances :func:`consenrich.cconsenrich.crolling_AR1_IVar`).
+    :param localModelVariances: Local model variance estimates (e.g., rolling MUNC variances :func:`consenrich.cconsenrich.crollingMuncVariance`).
     :type localModelVariances: np.ndarray
     :param globalModelVariances: Global model variance estimates from the signed mean-variance trend fit (:func:`consenrich.core.fitPSplineLogVarianceTrend`).
     :type globalModelVariances: np.ndarray
@@ -6900,173 +8056,6 @@ def _fallbackLengthResult(
         "context_size_bp": contextSizeBP,
     }
     return int(point), int(point), int(point), diagnostics
-
-
-def _acfCrossingLag(acf: np.ndarray, threshold: float) -> int | None:
-    acfArr = np.asarray(acf, dtype=np.float64)
-    if acfArr.size < 3:
-        return None
-    threshold_ = float(threshold)
-    for i in range(0, acfArr.size - 2):
-        window = acfArr[i : i + 3]
-        if np.all(np.isfinite(window)) and np.all(np.abs(window) < threshold_):
-            return int(i + 1)
-    return None
-
-
-def chooseDependenceLength(
-    chromMat: np.ndarray,
-    intervalSizeBP: int,
-    minSpan: int | None = 3,
-    maxSpan: int | None = 128,
-    trim: float = 0.10,
-) -> tuple[int, int, int, dict[str, Any]]:
-    r"""Choose local dependence length for model-fitting context sizes.
-
-    This estimator targets autocorrelation scale in the transformed signal/background
-    track. It is intended for background, MUNC, local variance, and sampling block
-    sizes.
-    """
-
-    arr = np.asarray(chromMat)
-    n = int(arr.shape[-1]) if arr.ndim > 0 else 0
-    minSpan_, maxSpan_ = _normalizeSpanBounds(n, minSpan, maxSpan)
-    intervalSizeBP_ = max(int(intervalSizeBP), 1)
-    if n < max(8, minSpan_ + 3):
-        return _fallbackLengthResult(
-            n,
-            minSpan_,
-            maxSpan_,
-            "sqrt_fallback",
-            intervalSizeBP_,
-            "too_few_intervals",
-        )
-
-    contextTrack = np.asarray(
-        cconsenrich.ctrimMeanAxis0(arr, float(trim)),
-        dtype=np.float64,
-    )
-    finiteMask = np.isfinite(contextTrack)
-    finiteVals = np.asarray(contextTrack[finiteMask], dtype=np.float64)
-    finiteCount = int(finiteVals.size)
-    if finiteCount < max(20, minSpan_ + 3):
-        return _fallbackLengthResult(
-            finiteCount,
-            minSpan_,
-            maxSpan_,
-            "sqrt_fallback",
-            intervalSizeBP_,
-            "too_few_finite_values",
-        )
-
-    center = float(np.median(finiteVals))
-    scale = 1.4826 * float(np.median(np.abs(finiteVals - center)))
-    if (not np.isfinite(scale)) or scale <= 0.0:
-        scale = float(np.std(finiteVals, ddof=1)) if finiteCount >= 2 else 0.0
-    if (not np.isfinite(scale)) or scale <= 0.0:
-        scale = 1.0
-
-    lo, hi = np.quantile(finiteVals, [0.005, 0.995])
-    lo = float(max(float(lo), center - (8.0 * scale)))
-    hi = float(min(float(hi), center + (8.0 * scale)))
-    if (not np.isfinite(lo)) or (not np.isfinite(hi)) or hi <= lo:
-        lo = center - (8.0 * scale)
-        hi = center + (8.0 * scale)
-
-    y = np.full(contextTrack.shape, np.nan, dtype=np.float64)
-    y[finiteMask] = np.clip(contextTrack[finiteMask], lo, hi) - center
-    acf, incrementVariance, pairCounts, gamma0, finiteCountKernel = (
-        cconsenrich.cdependenceLengthStats(
-            np.ascontiguousarray(y, dtype=np.float64),
-            int(maxSpan_),
-        )
-    )
-    acf = np.asarray(acf, dtype=np.float64)
-    incrementVariance = np.asarray(incrementVariance, dtype=np.float64)
-    pairCounts = np.asarray(pairCounts, dtype=np.int64)
-    gamma0 = float(gamma0)
-    if (not np.isfinite(gamma0)) or gamma0 <= 0.0:
-        return _fallbackLengthResult(
-            finiteCount,
-            minSpan_,
-            maxSpan_,
-            "sqrt_fallback",
-            intervalSizeBP_,
-            "zero_or_invalid_gamma0",
-        )
-
-    crossingLag = _acfCrossingLag(acf, 0.10)
-    if crossingLag is None:
-        acfForIAT = acf
-    else:
-        acfForIAT = acf[:crossingLag]
-    positiveAcf = np.clip(acfForIAT[np.isfinite(acfForIAT)], 0.0, None)
-    iatSpan = int(np.ceil(0.5 + float(np.sum(positiveAcf))))
-    iatSpan = int(np.clip(iatSpan, minSpan_, maxSpan_))
-
-    validInc = incrementVariance[np.isfinite(incrementVariance) & (pairCounts > 0)]
-    plateau = float("nan")
-    incrementElbow: int | None = None
-    if validInc.size > 0:
-        tailStart = int(np.floor(0.75 * validInc.size))
-        plateauVals = validInc[tailStart:]
-        if plateauVals.size == 0:
-            plateauVals = validInc
-        plateau = float(np.median(plateauVals))
-        if np.isfinite(plateau) and plateau > 0.0:
-            threshold = 0.90 * plateau
-            for idx, value in enumerate(incrementVariance, start=1):
-                if np.isfinite(value) and value >= threshold:
-                    incrementElbow = int(idx)
-                    break
-
-    candidates = [int(iatSpan)]
-    if crossingLag is not None:
-        candidates.append(int(crossingLag))
-    if incrementElbow is not None:
-        candidates.append(int(incrementElbow))
-    pointSpan = int(round(float(np.median(np.asarray(candidates, dtype=np.float64)))))
-    pointSpan = int(np.clip(pointSpan, minSpan_, maxSpan_))
-
-    lowerCrossing = _acfCrossingLag(acf, 0.20)
-    upperCrossing = _acfCrossingLag(acf, 0.05)
-    lowerSpan = int(lowerCrossing) if lowerCrossing is not None else pointSpan
-    upperSpan = int(upperCrossing) if upperCrossing is not None else pointSpan
-    lowerSpan = int(np.clip(min(lowerSpan, pointSpan), minSpan_, maxSpan_))
-    upperSpan = int(np.clip(max(upperSpan, pointSpan), minSpan_, maxSpan_))
-    contextSizeBP = int(pointSpan * (2 * intervalSizeBP_) + 1)
-
-    diagnostics: dict[str, Any] = {
-        "method": "dependence_acf_increment",
-        "fallback": False,
-        "point_span": int(pointSpan),
-        "lower_span": int(lowerSpan),
-        "upper_span": int(upperSpan),
-        "context_size_bp": int(contextSizeBP),
-        "interval_size_bp": int(intervalSizeBP_),
-        "min_span": int(minSpan_),
-        "max_span": int(maxSpan_),
-        "trim": float(trim),
-        "finite_count": int(finiteCountKernel),
-        "center": float(center),
-        "scale": float(scale),
-        "clip_lo": float(lo),
-        "clip_hi": float(hi),
-        "gamma0": float(gamma0),
-        "crossing_lag": None if crossingLag is None else int(crossingLag),
-        "relaxed_crossing_lag": (None if lowerCrossing is None else int(lowerCrossing)),
-        "strict_crossing_lag": None if upperCrossing is None else int(upperCrossing),
-        "iat_span": int(iatSpan),
-        "increment_plateau": float(plateau),
-        "increment_elbow": None if incrementElbow is None else int(incrementElbow),
-        "candidate_spans": [int(v) for v in candidates],
-        "acf": [float(v) if np.isfinite(v) else None for v in acf],
-        "increment_variance": [
-            float(v) if np.isfinite(v) else None for v in incrementVariance
-        ],
-        "pair_counts": [int(v) for v in pairCounts],
-    }
-    return int(pointSpan), int(lowerSpan), int(upperSpan), diagnostics
 
 
 def chooseFeatureLength(

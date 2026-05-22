@@ -62,8 +62,29 @@ OPTIMIZATION_PATH_COLUMNS = [
     "objective_per_cell",
     "change",
     "threshold",
+    "objective_stable",
+    "background_shift",
+    "background_shift_threshold",
+    "background_shift_stable",
+    "outer_stable_iters",
+    "outer_patience_target",
+    "outer_inner_ecm_converged",
+    "reset_iteration",
     "converged",
     "final_solution",
+]
+
+PRECISION_DIAGNOSTIC_COLUMNS = [
+    "Chromosome",
+    "Start",
+    "End",
+    "Interval",
+    "lambda",
+    "kappa",
+    "Q00",
+    "Q11",
+    "median_diag_R",
+    "median_effective_diag_R",
 ]
 
 
@@ -87,6 +108,15 @@ def _finiteOptimizationValue(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return value_ if np.isfinite(value_) else None
+
+
+def _intOptimizationValue(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _flattenOptimizationPathDiagnostics(
@@ -114,6 +144,15 @@ def _flattenOptimizationPathDiagnostics(
             outerPass = int(ecmPass.get("outer_pass") or (ecmIndex + 1))
             outerObjective = _finiteOptimizationValue(ecmPass.get("outer_objective"))
             if outerObjective is not None:
+                outerObjectiveStable = bool(
+                    ecmPass.get("outer_objective_stable", False)
+                )
+                backgroundShiftStable = bool(
+                    ecmPass.get("background_shift_stable", False)
+                )
+                innerECMConverged = bool(
+                    ecmPass.get("outer_inner_ecm_converged", False)
+                )
                 rows.append(
                     {
                         "chromosome": str(chromosome),
@@ -133,9 +172,26 @@ def _flattenOptimizationPathDiagnostics(
                         "threshold": _finiteOptimizationValue(
                             ecmPass.get("outer_objective_threshold_per_cell")
                         ),
+                        "objective_stable": outerObjectiveStable,
+                        "background_shift": _finiteOptimizationValue(
+                            ecmPass.get("background_shift")
+                        ),
+                        "background_shift_threshold": _finiteOptimizationValue(
+                            ecmPass.get("background_shift_threshold")
+                        ),
+                        "background_shift_stable": backgroundShiftStable,
+                        "outer_stable_iters": _intOptimizationValue(
+                            ecmPass.get("outer_stable_iters")
+                        ),
+                        "outer_patience_target": _intOptimizationValue(
+                            ecmPass.get("outer_patience_target")
+                        ),
+                        "outer_inner_ecm_converged": innerECMConverged,
+                        "reset_iteration": False,
                         "converged": bool(
-                            ecmPass.get("outer_objective_stable")
-                            and ecmPass.get("outer_inner_ecm_converged")
+                            outerObjectiveStable
+                            and backgroundShiftStable
+                            and innerECMConverged
                         ),
                         "final_solution": bool(ecmIndex == lastOuterIndex),
                     }
@@ -159,14 +215,23 @@ def _flattenOptimizationPathDiagnostics(
                         "outer_pass": outerPass,
                         "inner_iter": int(innerStep.get("iter") or (innerIndex + 1)),
                         "record_order": int(startOrder + len(rows)),
-                        "objective_name": str(
-                            innerStep.get("objective_name") or "nll"
-                        ),
+                        "objective_name": str(innerStep.get("objective_name") or "nll"),
                         "objective_value": objectiveValue,
                         "objective_per_cell": None,
                         "change": _finiteOptimizationValue(innerStep.get("change")),
                         "threshold": _finiteOptimizationValue(
                             innerStep.get("threshold")
+                        ),
+                        "objective_stable": None,
+                        "background_shift": None,
+                        "background_shift_threshold": None,
+                        "background_shift_stable": None,
+                        "outer_stable_iters": None,
+                        "outer_patience_target": None,
+                        "outer_inner_ecm_converged": None,
+                        "reset_iteration": bool(
+                            innerStep.get("reset_iteration", False)
+                            or int(innerStep.get("iter") or (innerIndex + 1)) <= 1
                         ),
                         "converged": bool(innerStep.get("converged", False)),
                         "final_solution": bool(
@@ -204,7 +269,7 @@ def _plotOptimizationPathLog(
     rows: Sequence[Mapping[str, Any]],
     path: str,
     *,
-    dpi: int = 300,
+    dpi: int = 400,
 ) -> bool:
     try:
         import matplotlib
@@ -220,30 +285,52 @@ def _plotOptimizationPathLog(
 
     frame = pd.DataFrame(list(rows), columns=OPTIMIZATION_PATH_COLUMNS)
     if frame.empty:
-        logger.warning("optimizationPath.plot skipped because no trace rows were recorded.")
+        logger.warning(
+            "optimizationPath.plot skipped because no trace rows were recorded."
+        )
         return False
     frame["objective_value"] = pd.to_numeric(
         frame["objective_value"],
         errors="coerce",
     )
     frame["record_order"] = pd.to_numeric(frame["record_order"], errors="coerce")
+    frame["outer_pass"] = pd.to_numeric(frame["outer_pass"], errors="coerce")
+    frame["inner_iter"] = pd.to_numeric(frame["inner_iter"], errors="coerce")
+    frame["objective_per_cell"] = pd.to_numeric(
+        frame["objective_per_cell"],
+        errors="coerce",
+    )
+    frame["change"] = pd.to_numeric(frame["change"], errors="coerce")
+    frame["threshold"] = pd.to_numeric(frame["threshold"], errors="coerce")
+    frame["background_shift"] = pd.to_numeric(
+        frame["background_shift"],
+        errors="coerce",
+    )
+    frame["background_shift_threshold"] = pd.to_numeric(
+        frame["background_shift_threshold"],
+        errors="coerce",
+    )
+    for boolColumn in (
+        "objective_stable",
+        "background_shift_stable",
+        "outer_inner_ecm_converged",
+        "reset_iteration",
+        "converged",
+        "final_solution",
+    ):
+        frame[boolColumn] = frame[boolColumn].map(
+            lambda value: str(value).strip().lower() in {"true", "1", "yes"}
+        )
+    frame.loc[
+        (frame["path_level"] == "inner") & (frame["inner_iter"] <= 1),
+        "reset_iteration",
+    ] = True
     frame = frame.dropna(subset=["record_order", "objective_value"])
     if frame.empty:
-        logger.warning("optimizationPath.plot skipped because all objective values were NA.")
+        logger.warning(
+            "optimizationPath.plot skipped because all objective values were NA."
+        )
         return False
-
-    palette = [
-        "#4878D0",
-        "#EE854A",
-        "#6ACC64",
-        "#D65F5F",
-        "#956CB4",
-        "#8C613C",
-        "#DC7EC0",
-        "#797979",
-        "#D5BB67",
-        "#82C6E2",
-    ]
     plt.rcParams.update(
         {
             "font.family": "STIXGeneral",
@@ -251,53 +338,195 @@ def _plotOptimizationPathLog(
             "axes.unicode_minus": False,
         }
     )
-    fig, ax = plt.subplots(figsize=(9.0, 5.25), constrained_layout=True)
-    for colorIndex, ((chromosome, phase, pathLevel), group) in enumerate(
-        frame.groupby(["chromosome", "phase", "path_level"], sort=False)
-    ):
-        group = group.sort_values("record_order")
-        label = f"{chromosome} {phase} {pathLevel}"
-        color = palette[colorIndex % len(palette)]
-        ax.plot(
-            group["record_order"],
-            group["objective_value"],
-            marker="o" if pathLevel == "outer" else ".",
-            linewidth=1.7 if pathLevel == "outer" else 1.1,
-            markersize=5.5 if pathLevel == "outer" else 4.0,
-            alpha=0.92 if pathLevel == "outer" else 0.72,
-            color=color,
-            label=label,
+    innerFrame = frame[
+        (frame["path_level"] == "inner") & (frame["phase"] == "post_process_noise_fit")
+    ].copy()
+    if innerFrame.empty:
+        logger.warning(
+            "optimizationPath.plot skipped because no final-stage inner trace rows "
+            "were recorded."
         )
-    finalRows = frame[frame["final_solution"].astype(bool)]
-    if not finalRows.empty:
-        ax.scatter(
-            finalRows["record_order"],
-            finalRows["objective_value"],
-            s=72,
+        return False
+    innerFrame = innerFrame.sort_values("record_order").reset_index(drop=True)
+    innerFrame["plot_order"] = np.arange(1, len(innerFrame) + 1, dtype=np.int64)
+    initialObjective = float(innerFrame["objective_value"].iloc[0])
+    innerFrame["nll_improvement"] = initialObjective - innerFrame["objective_value"]
+
+    fig, innerAx = plt.subplots(
+        1,
+        1,
+        figsize=(10.0, 4.4),
+        constrained_layout=True,
+    )
+
+    def _legend(axis: Any) -> None:
+        try:
+            handles, _labels = axis.get_legend_handles_labels()
+        except AttributeError:
+            axis.legend(loc="best", fontsize=8, frameon=False)
+            return
+        if handles:
+            axis.legend(loc="best", fontsize=8, frameon=False)
+
+    navyBlue = "#003B73"
+    burntOrange = "#C65A1E"
+    darkBlack = "#050505"
+    pathColor = navyBlue
+    startColor = darkBlack
+    finalColor = burntOrange
+    innerAx.plot(
+        innerFrame["plot_order"],
+        innerFrame["nll_improvement"],
+        marker=".",
+        linewidth=1.25,
+        markersize=4.2,
+        alpha=0.96,
+        color=pathColor,
+    )
+    startRows = innerFrame[
+        innerFrame["reset_iteration"].astype(bool) | (innerFrame["inner_iter"] <= 1)
+    ].copy()
+    if not startRows.empty:
+        innerAx.scatter(
+            startRows["plot_order"],
+            startRows["nll_improvement"],
+            s=44,
             marker="o",
-            linewidths=1.1,
-            edgecolors="black",
-            c=[palette[i % len(palette)] for i in range(len(finalRows))],
+            facecolors="none",
+            edgecolors=startColor,
+            linewidths=1.0,
+            zorder=4,
+            label="outer pass start",
+        )
+    finalInner = innerFrame[innerFrame["final_solution"].astype(bool)]
+    if not finalInner.empty:
+        innerAx.scatter(
+            finalInner["plot_order"],
+            finalInner["nll_improvement"],
+            s=76,
+            marker="o",
+            linewidths=1.0,
+            edgecolors=darkBlack,
+            c=finalColor,
             zorder=5,
             label="final solution",
         )
-        for _, row in finalRows.iterrows():
-            ax.annotate(
-                f"{row['chromosome']} {row['phase']} final",
-                xy=(row["record_order"], row["objective_value"]),
-                xytext=(6, 7),
+        for _, row in finalInner.iterrows():
+            innerAx.annotate(
+                "final",
+                xy=(row["plot_order"], row["nll_improvement"]),
+                xytext=(6, 6),
                 textcoords="offset points",
                 fontsize=8,
-                color="#333333",
+                color=darkBlack,
             )
-    ax.set_title("Consenrich Optimization Path")
-    ax.set_xlabel("Recorded iteration")
-    ax.set_ylabel("Objective value")
-    ax.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
-    ax.legend(loc="best", fontsize=8, frameon=False)
+    chromosomes = [str(value) for value in innerFrame["chromosome"].dropna().unique()]
+    chromosomeLabel = (
+        chromosomes[0] if len(chromosomes) == 1 else ", ".join(chromosomes)
+    )
+    innerAx.set_title(
+        f"Consenrich ECM Objective Path: {chromosomeLabel}",
+        color=darkBlack,
+    )
+    innerAx.set_xlabel("Total Iterations", color=darkBlack)
+    innerAx.set_ylabel("NLL improvement", color=darkBlack)
+    innerAx.grid(True, color="#D8D8D8", linewidth=0.7, alpha=0.75)
+    _legend(innerAx)
+
     fig.savefig(path, dpi=int(dpi))
     plt.close(fig)
     logger.info("optimizationPath.output wrote %s dpi=%d", path, int(dpi))
+    return True
+
+
+def _writePrecisionDiagnostics(
+    *,
+    chromosome: str,
+    intervals: np.ndarray,
+    intervalSizeBP: int,
+    matrixMunc: np.ndarray,
+    pad: float,
+    precisionDiagnostics: Mapping[str, Any],
+    path: str,
+) -> bool:
+    lambdaExp = precisionDiagnostics.get("lambdaExp")
+    processPrecExp = precisionDiagnostics.get("processPrecExp")
+    matrixQ0 = precisionDiagnostics.get("matrixQ0")
+    n = int(len(intervals))
+    if n <= 0:
+        logger.warning(
+            "precisionDiagnostics.output skipped %s because no intervals were available.",
+            path,
+        )
+        return False
+
+    lambdaArr = np.ones(n, dtype=np.float64)
+    if lambdaExp is not None:
+        lambdaArr = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
+        if lambdaArr.size != n:
+            raise RuntimeError(
+                f"lambdaExp length mismatch for {chromosome}: expected {n}, got {lambdaArr.size}"
+            )
+    lambdaArr = np.nan_to_num(lambdaArr, nan=1.0, posinf=1.0, neginf=1.0)
+    lambdaArr = np.maximum(lambdaArr, np.finfo(np.float64).tiny)
+
+    kappaArr = np.ones(n, dtype=np.float64)
+    if processPrecExp is not None:
+        kappaArr = np.asarray(processPrecExp, dtype=np.float64).reshape(-1)
+        if kappaArr.size != n:
+            raise RuntimeError(
+                f"processPrecExp length mismatch for {chromosome}: expected {n}, got {kappaArr.size}"
+            )
+    kappaArr = np.nan_to_num(kappaArr, nan=1.0, posinf=1.0, neginf=1.0)
+    kappaArr = np.maximum(kappaArr, np.finfo(np.float64).tiny)
+
+    q = np.asarray(matrixQ0, dtype=np.float64)
+    if q.shape != (2, 2):
+        raise RuntimeError(
+            f"matrixQ0 shape mismatch for {chromosome}: expected (2, 2), got {q.shape}"
+        )
+    q00 = float(q[0, 0]) / kappaArr
+    q11 = float(q[1, 1]) / kappaArr
+
+    munc = np.asarray(matrixMunc, dtype=np.float64)
+    if munc.ndim != 2 or munc.shape[1] != n:
+        raise RuntimeError(
+            f"matrixMunc shape mismatch for {chromosome}: expected second dimension {n}, got {munc.shape}"
+        )
+    medianDiagR = np.nanmedian(munc + float(pad), axis=0)
+    medianEffectiveDiagR = medianDiagR / lambdaArr
+    starts = np.asarray(intervals, dtype=np.int64).reshape(-1)
+
+    frame = pd.DataFrame(
+        {
+            "Chromosome": chromosome,
+            "Start": starts,
+            "End": starts + int(intervalSizeBP),
+            "Interval": np.arange(1, n + 1, dtype=np.int64),
+            "lambda": lambdaArr,
+            "kappa": kappaArr,
+            "Q00": q00,
+            "Q11": q11,
+            "median_diag_R": medianDiagR,
+            "median_effective_diag_R": medianEffectiveDiagR,
+        }
+    )
+    frame.to_csv(
+        path,
+        sep="\t",
+        header=True,
+        index=False,
+        float_format="%.7g",
+        lineterminator="\n",
+        compression="gzip" if str(path).endswith(".gz") else None,
+    )
+    logger.info(
+        "precisionDiagnostics.output wrote %s rows=%d lambdaMedian=%.6g kappaMedian=%.6g",
+        path,
+        int(len(frame)),
+        float(np.median(lambdaArr)),
+        float(np.median(kappaArr)),
+    )
     return True
 
 
@@ -420,7 +649,15 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("control inputs", controlInputCount),
         ("interval bp", int(countingArgs.intervalSizeBP)),
         ("normalization", countingArgs.normMethod),
+        (
+            "global median center",
+            _resolveGlobalMedianCenterStatus(
+                countingArgs,
+                controlsPresent=controlsPresent,
+            )[1],
+        ),
         ("replicate detrend", replicateDetrendLabel),
+        ("MUNC variance model", observationArgs.muncVarianceModel),
         ("MUNC variance EB", yn(observationArgs.EB_use)),
         ("MUNC sampling iters", int(observationArgs.samplingIters)),
         ("ECM max iters", int(fitArgs.ECM_fixedBackgroundIters)),
@@ -437,8 +674,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ),
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
-        ("optimization path", yn(outputArgs.plotOptimizationPath)),
-        ("bigWig output", yn(outputArgs.convertToBigWig)),
     )
     logger.info(
         "\n%s\n",
@@ -450,6 +685,22 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
             "replicate quantile detrend disabled because control inputs are present; "
             "treatment/control tracks are already log-ratios."
         )
+    if bool(countingArgs.subtractGlobalMedian) and controlsPresent:
+        logger.info(
+            "global median center disabled because control inputs are present; "
+            "treatment/control tracks are already log-ratios."
+        )
+
+
+def _resolveGlobalMedianCenterStatus(
+    countingArgs: core.countingParams,
+    controlsPresent: bool,
+) -> tuple[bool, str]:
+    if not bool(countingArgs.subtractGlobalMedian):
+        return False, "no"
+    if bool(controlsPresent):
+        return False, "no (control log-ratio)"
+    return True, "yes"
 
 
 def _resolveReplicateDetrendStatus(
@@ -544,6 +795,116 @@ def _resolveRuntimeReplicateDetrendWindow(
             * max(float(backgroundBlockSizeBP), float(intervalSizeBP))
         )
     return _oddIntervalsFromBP(windowBP, intervalSizeBP, minIntervals=3)
+
+
+def _formatOptionalLogValue(value: Any) -> Any:
+    if value is None:
+        return "NA"
+    if isinstance(value, float) and not np.isfinite(value):
+        return "NA"
+    return value
+
+
+def _logMuncEstimationParameters(
+    *,
+    chromosomeCount: int,
+    sampleCount: int,
+    intervalSizeBP: int,
+    sizing: core._MuncRuntimeSizing,
+    muncVarianceModel: str,
+    samplingIters: int,
+    samplingBlockSizeBP: int | None,
+    dependenceContextBP: int | None,
+    dependenceSpanIntervals: int | None,
+    trendMultiplier: float,
+    localMultiplier: float,
+    useReplicateTrends: bool,
+    observationArgs: core.observationParams,
+    sparseBedEnabled: bool,
+    varianceFloor: float | None,
+    varianceCap: float | None,
+    trendNumBasis: int,
+    trendMinObsPerBasis: float,
+    trendMinEdf: float,
+    trendMaxEdf: float | None,
+    trendLambdaMin: float,
+    trendLambdaMax: float,
+    trendLambdaGridSize: int,
+    pooledPairCount: int,
+    logger_: logging.Logger = logger,
+) -> None:
+    restrictLocalVariance = bool(
+        getattr(
+            observationArgs,
+            "restrictLocalVarianceToSparseBed",
+            getattr(observationArgs, "restrictLocalAR1ToSparseBed", False),
+        )
+    )
+    core._logAsciiBlock(
+        "MUNC estimation parameters",
+        (
+            ("MUNC variance model", muncVarianceModel),
+            ("chromosomes", int(chromosomeCount)),
+            ("samples", int(sampleCount)),
+            ("interval bp", int(intervalSizeBP)),
+            ("MUNC sampling iterations", int(samplingIters)),
+            ("MUNC trend block bp", int(sizing.trendBlockSizeBP)),
+            ("sampling block intervals", int(sizing.trendBlockIntervals)),
+            ("MUNC trend block source", sizing.trendBlockSource),
+            ("MUNC local window bp", int(sizing.localWindowSizeBP)),
+            ("local window intervals", int(sizing.localWindowIntervals)),
+            ("MUNC local window source", sizing.localWindowSource),
+            (
+                "MUNC dependence span",
+                _formatOptionalLogValue(dependenceSpanIntervals),
+            ),
+            (
+                "MUNC context bp",
+                _formatOptionalLogValue(dependenceContextBP),
+            ),
+            ("trend span multiplier", float(trendMultiplier)),
+            ("local span multiplier", float(localMultiplier)),
+            ("legacy sampling block bp", _formatOptionalLogValue(samplingBlockSizeBP)),
+            (
+                "MUNC trend mode",
+                "replicate-specific" if bool(useReplicateTrends) else "pooled",
+            ),
+            ("MUNC pooled trend pairs", int(pooledPairCount)),
+            (
+                "MUNC variance EB",
+                "enabled" if bool(observationArgs.EB_use) else "disabled",
+            ),
+            ("EB Nu0 override", _formatOptionalLogValue(observationArgs.EB_setNu0)),
+            ("EB NuL override", _formatOptionalLogValue(observationArgs.EB_setNuL)),
+            ("sparse nearest regions", int(observationArgs.numNearest or 0)),
+            (
+                "restrict local sparse",
+                "yes" if restrictLocalVariance and sparseBedEnabled else "no",
+            ),
+            (
+                "sparse support bp",
+                _formatOptionalLogValue(observationArgs.sparseSupportScaleBP),
+            ),
+            (
+                "sparse support prior",
+                _formatOptionalLogValue(observationArgs.sparseSupportPrior),
+            ),
+            ("variance floor", _formatOptionalLogValue(varianceFloor)),
+            ("variance cap", _formatOptionalLogValue(varianceCap)),
+            ("trend basis", int(trendNumBasis)),
+            ("trend min obs/basis", float(trendMinObsPerBasis)),
+            (
+                "trend EDF range",
+                f"{float(trendMinEdf):.6g}-{_formatOptionalLogValue(trendMaxEdf)}",
+            ),
+            (
+                "trend lambda range",
+                f"{float(trendLambdaMin):.6g}-{float(trendLambdaMax):.6g}",
+            ),
+            ("trend lambda grid", int(trendLambdaGridSize)),
+        ),
+        logger_=logger_,
+    )
 
 
 def _progress(iterable, **kwargs):
@@ -743,15 +1104,46 @@ def main():
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
     samplingBlockSizeBP_ = observationArgs.samplingBlockSizeBP
+    muncTrendBlockSizeBP_ = getattr(
+        observationArgs,
+        "muncTrendBlockSizeBP",
+        constants.OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP,
+    )
+    muncLocalWindowSizeBP_ = getattr(
+        observationArgs,
+        "muncLocalWindowSizeBP",
+        constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
+    )
+    muncTrendBlockDependenceMultiplier_ = float(
+        getattr(
+            observationArgs,
+            "muncTrendBlockDependenceMultiplier",
+            constants.OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
+        )
+    )
+    muncLocalWindowDependenceMultiplier_ = float(
+        getattr(
+            observationArgs,
+            "muncLocalWindowDependenceMultiplier",
+            constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
+        )
+    )
+    muncVarianceModel_ = core._normalizeMuncVarianceModel(
+        getattr(
+            observationArgs,
+            "muncVarianceModel",
+            constants.OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
+        )
+    )
+    muncVarianceModelCode_ = core._muncVarianceModelCode(muncVarianceModel_)
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
     backgroundBlockSizeIntervals = (
         -1
         if backgroundBlockSizeBP_ <= 0
         else int(backgroundBlockSizeBP_ / intervalSizeBP)
     )
-    if samplingBlockSizeBP_ is None or samplingBlockSizeBP_ <= 0:
-        samplingBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
     dependenceContextBP_: Optional[int] = None
+    dependenceSpanIntervals_: Optional[int] = None
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
@@ -1206,6 +1598,16 @@ def main():
         excludeChroms=genomeArgs.excludeChroms,
     )
     chromosomes = genomeArgs.chromosomes
+    skippedChromosomes = [
+        str(chromosome)
+        for chromosome in chromosomes
+        if str(chromosome) not in chromSizesDict
+    ]
+    if skippedChromosomes:
+        logger.info(
+            "chromosome.skip excluded_or_nonstandard names=%s",
+            ",".join(skippedChromosomes),
+        )
     treatmentSourceKinds = [
         str(source.sourceKind).upper() for source in treatmentSources
     ]
@@ -1216,6 +1618,8 @@ def main():
         desc="Planning chromosomes",
         unit="chrom",
     ):
+        if str(chromosome) not in chromSizesDict:
+            continue
         chromosomeStart, chromosomeEnd = core.getChromRangesJoint(
             bamFiles,
             chromosome,
@@ -1319,7 +1723,7 @@ def main():
         chromPlan: Mapping[str, Any],
     ) -> tuple[np.ndarray, np.ndarray]:
         nonlocal backgroundBlockSizeBP_, backgroundBlockSizeIntervals
-        nonlocal dependenceContextBP_, samplingBlockSizeBP_, sf
+        nonlocal dependenceContextBP_, dependenceSpanIntervals_, sf
 
         chromosome = str(chromPlan["chromosome"])
         chromosomeStart = int(chromPlan["start"])
@@ -1489,160 +1893,244 @@ def main():
                 time.perf_counter() - transformStart,
             )
 
-        if backgroundBlockSizeBP_ < 0 or samplingBlockSizeBP_ < 0:
-            depMinSpan, depMaxSpan = _dependenceSpanBoundsFromContextBP(intervalSizeBP)
-            depPoint, depLower, depUpper, depDiagnostics = core.chooseDependenceLength(
-                chromMat,
-                intervalSizeBP,
-                minSpan=depMinSpan,
-                maxSpan=depMaxSpan,
-            )
-            dependenceContextBP_ = int(depDiagnostics["context_size_bp"])
-            logger.info(
-                "chooseDependenceLength.bounds %s minContextBP=%d maxContextBP=%d "
-                "minSpan=%d maxSpan=%d",
-                chromosome,
-                int(_DEPENDENCE_MIN_CONTEXT_BP),
-                int(_DEPENDENCE_MAX_CONTEXT_BP),
-                int(depMinSpan),
-                int(depMaxSpan),
-            )
-            if backgroundBlockSizeBP_ < 0:
-                backgroundBlockSizeBP_ = int(dependenceContextBP_)
-                backgroundBlockSizeIntervals = max(
-                    1,
-                    int(
-                        math.ceil(float(backgroundBlockSizeBP_) / float(intervalSizeBP))
-                    ),
-                )
-                logger.info(
-                    "`countingParams.backgroundBlockSizeBP < 0` --> "
-                    "chooseDependenceLength(): %d bp (span=%d, lower=%d, upper=%d)",
-                    int(backgroundBlockSizeBP_),
-                    int(depPoint),
-                    int(depLower),
-                    int(depUpper),
-                )
-
-            if samplingBlockSizeBP_ < 0:
-                samplingBlockSizeBP_ = int(dependenceContextBP_)
-                logger.info(
-                    "`observationParams.samplingBlockSizeBP < 0` --> "
-                    "chooseDependenceLength(): %d bp (span=%d, lower=%d, upper=%d)",
-                    int(samplingBlockSizeBP_),
-                    int(depPoint),
-                    int(depLower),
-                    int(depUpper),
-                )
-
-        replicateDetrendEnabled, _ = _resolveReplicateDetrendStatus(
+        centerEnabled, _ = _resolveGlobalMedianCenterStatus(
             countingArgs,
             controlsPresent=controlsPresent,
         )
-        if replicateDetrendEnabled:
-            detrendWindowIntervals = _resolveRuntimeReplicateDetrendWindow(
-                dependenceContextBP_,
-                int(backgroundBlockSizeBP_),
-                intervalSizeBP,
-                fitArgs.ECM_backgroundLengthScaleMultiplier,
-                countingArgs.replicateMedianDetrendWindowMultiplier,
-            )
-
-            def _detrendTrack(j: int) -> dict[str, Any]:
-                stats_ = core.quantileFilterDetrendInPlace(
-                    chromMat[j, :],
-                    detrendWindowIntervals,
-                    countingArgs.gentleDetrendQuantile,
-                )
-                stats_["sample_index"] = int(j)
-                return stats_
-
-            detrendStart = time.perf_counter()
-            detrendWorkers = io_helpers._getSmallWorkerCount(
-                numSamples,
-                maxWorkers=4,
-            )
-            useParallelDetrend = (
-                numSamples >= 4 and chromMat.shape[1] >= 5000 and detrendWorkers > 1
-            )
-            detrendStats: list[dict[str, Any]] = []
-            if useParallelDetrend:
-                logger.info(
-                    "replicate quantile detrend: using ThreadPool with %d workers "
-                    "(numSamples=%d, numIntervals=%d, quantile=%.3g, window=%d).",
-                    int(detrendWorkers),
-                    int(numSamples),
-                    int(chromMat.shape[1]),
-                    float(countingArgs.gentleDetrendQuantile),
-                    int(detrendWindowIntervals),
-                )
-                with ThreadPool(processes=int(detrendWorkers)) as pool:
-                    for stats_ in _progress(
-                        pool.imap(_detrendTrack, range(numSamples)),
-                        total=numSamples,
-                        desc="Quantile-detrending replicates",
-                        unit="sample",
-                    ):
-                        detrendStats.append(stats_)
-            else:
-                for j in _progress(
-                    range(numSamples),
-                    desc="Quantile-detrending replicates",
-                    unit="sample",
-                ):
-                    detrendStats.append(_detrendTrack(j))
-
-            appliedStats = [s for s in detrendStats if bool(s.get("applied", False))]
-            trendMedians = np.asarray(
-                [float(s.get("trend_median", 0.0)) for s in appliedStats],
+        if centerEnabled:
+            centerStart = time.perf_counter()
+            centerStats = core.subtractGlobalMedianInPlace(chromMat)
+            trackMedians = np.asarray(
+                centerStats.get("track_medians", []),
                 dtype=np.float64,
             )
-            trendMads = np.asarray(
-                [float(s.get("trend_mad", 0.0)) for s in appliedStats],
-                dtype=np.float64,
-            )
+            finiteTrackMedians = trackMedians[np.isfinite(trackMedians)]
             medianRange = (
                 "NA"
-                if trendMedians.size == 0
+                if finiteTrackMedians.size == 0
                 else (
-                    f"[{float(np.min(trendMedians)):.4g}, "
-                    f"{float(np.max(trendMedians)):.4g}]"
+                    f"[{float(np.min(finiteTrackMedians)):.4g}, "
+                    f"{float(np.max(finiteTrackMedians)):.4g}]"
                 )
             )
-            madMedian = (
-                float("nan") if trendMads.size == 0 else float(np.median(trendMads))
-            )
             logger.info(
-                "replicate quantile detrend.done %s samples=%d applied=%d "
-                "quantile=%.3g window=%d trendMedianRange=%s "
-                "trendMADMedian=%.4g elapsed=%.3fs",
+                "global median center.done %s samples=%d applied=%d "
+                "medianRange=%s elapsed=%.3fs",
                 chromosome,
                 int(numSamples),
-                int(len(appliedStats)),
-                float(countingArgs.gentleDetrendQuantile),
-                int(detrendWindowIntervals),
+                int(centerStats.get("applied_tracks", 0)),
                 medianRange,
-                madMedian,
-                time.perf_counter() - detrendStart,
+                time.perf_counter() - centerStart,
             )
-        elif bool(countingArgs.replicateMedianDetrend) and controlsPresent:
+        elif bool(countingArgs.subtractGlobalMedian) and controlsPresent:
             logger.info(
-                "replicate quantile detrend.skip %s samples=%d reason=control-log-ratio",
+                "global median center.skip %s samples=%d reason=control-log-ratio",
                 chromosome,
                 int(numSamples),
             )
 
         return intervals, np.ascontiguousarray(chromMat, dtype=np.float32)
 
+    def _applyReplicateMedianDetrend(
+        chromosome: str,
+        chromMat: np.ndarray,
+    ) -> np.ndarray:
+        replicateDetrendEnabled, _ = _resolveReplicateDetrendStatus(
+            countingArgs,
+            controlsPresent=controlsPresent,
+        )
+        if not replicateDetrendEnabled:
+            if bool(countingArgs.replicateMedianDetrend) and controlsPresent:
+                logger.info(
+                    "replicate quantile detrend.skip %s samples=%d reason=control-log-ratio",
+                    chromosome,
+                    int(numSamples),
+                )
+            return np.ascontiguousarray(chromMat, dtype=np.float32)
+
+        detrendWindowIntervals = _resolveRuntimeReplicateDetrendWindow(
+            dependenceContextBP_,
+            int(backgroundBlockSizeBP_),
+            intervalSizeBP,
+            fitArgs.ECM_backgroundLengthScaleMultiplier,
+            countingArgs.replicateMedianDetrendWindowMultiplier,
+        )
+
+        def _detrendTrack(j: int) -> dict[str, Any]:
+            stats_ = core.quantileFilterDetrendInPlace(
+                chromMat[j, :],
+                detrendWindowIntervals,
+                countingArgs.gentleDetrendQuantile,
+            )
+            stats_["sample_index"] = int(j)
+            return stats_
+
+        detrendStart = time.perf_counter()
+        detrendWorkers = io_helpers._getSmallWorkerCount(
+            numSamples,
+            maxWorkers=4,
+        )
+        useParallelDetrend = (
+            numSamples >= 4 and chromMat.shape[1] >= 5000 and detrendWorkers > 1
+        )
+        detrendStats: list[dict[str, Any]] = []
+        if useParallelDetrend:
+            logger.info(
+                "replicate quantile detrend: using ThreadPool with %d workers "
+                "(numSamples=%d, numIntervals=%d, quantile=%.3g, window=%d).",
+                int(detrendWorkers),
+                int(numSamples),
+                int(chromMat.shape[1]),
+                float(countingArgs.gentleDetrendQuantile),
+                int(detrendWindowIntervals),
+            )
+            with ThreadPool(processes=int(detrendWorkers)) as pool:
+                for stats_ in _progress(
+                    pool.imap(_detrendTrack, range(numSamples)),
+                    total=numSamples,
+                    desc="Quantile-detrending replicates",
+                    unit="sample",
+                ):
+                    detrendStats.append(stats_)
+        else:
+            for j in _progress(
+                range(numSamples),
+                desc="Quantile-detrending replicates",
+                unit="sample",
+            ):
+                detrendStats.append(_detrendTrack(j))
+
+        appliedStats = [s for s in detrendStats if bool(s.get("applied", False))]
+        trendMedians = np.asarray(
+            [float(s.get("trend_median", 0.0)) for s in appliedStats],
+            dtype=np.float64,
+        )
+        trendMads = np.asarray(
+            [float(s.get("trend_mad", 0.0)) for s in appliedStats],
+            dtype=np.float64,
+        )
+        medianRange = (
+            "NA"
+            if trendMedians.size == 0
+            else (
+                f"[{float(np.min(trendMedians)):.4g}, "
+                f"{float(np.max(trendMedians)):.4g}]"
+            )
+        )
+        madMedian = float("nan") if trendMads.size == 0 else float(np.median(trendMads))
+        logger.info(
+            "replicate quantile detrend.done %s samples=%d applied=%d "
+            "quantile=%.3g window=%d trendMedianRange=%s "
+            "trendMADMedian=%.4g elapsed=%.3fs",
+            chromosome,
+            int(numSamples),
+            int(len(appliedStats)),
+            float(countingArgs.gentleDetrendQuantile),
+            int(detrendWindowIntervals),
+            medianRange,
+            madMedian,
+            time.perf_counter() - detrendStart,
+        )
+        return np.ascontiguousarray(chromMat, dtype=np.float32)
+
+    def _ensureSampledDependenceSpan(
+        cachedMatrixPaths: Mapping[str, str],
+    ) -> None:
+        nonlocal backgroundBlockSizeBP_, backgroundBlockSizeIntervals
+        nonlocal dependenceContextBP_, dependenceSpanIntervals_
+
+        if dependenceSpanIntervals_ is not None and dependenceContextBP_ is not None:
+            return
+
+        chromNames: list[str] = []
+        chromMatrices: list[np.ndarray] = []
+        for chromPlan in chromosomePlans:
+            chromosome = str(chromPlan["chromosome"])
+            cachePath = cachedMatrixPaths.get(chromosome)
+            if cachePath is None:
+                continue
+            chromNames.append(chromosome)
+            chromMatrices.append(np.load(cachePath, mmap_mode="r"))
+
+        depPoint, depLower, depUpper, depDiagnostics = (
+            cconsenrich.cchooseDependenceSpan(
+                chromNames,
+                chromMatrices,
+                intervalSizeBP,
+                numBlocks=100,
+                randSeed=int(constants.UNCERTAINTY_CALIBRATION_DEFAULT_SEED),
+                blockMedianBP=50_000.0,
+                blockSigma=1.0,
+                blockMinBP=1_000,
+                blockMaxBP=1_000_000,
+                minContextBP=int(_DEPENDENCE_MIN_CONTEXT_BP),
+                maxContextBP=int(_DEPENDENCE_MAX_CONTEXT_BP),
+                priorMedianSpan=80.0,
+                priorLogSd=1.0,
+            )
+        )
+        dependenceContextBP_ = int(depDiagnostics["context_size_bp"])
+        dependenceSpanIntervals_ = int(depPoint)
+        if backgroundBlockSizeBP_ < 0:
+            backgroundBlockSizeBP_ = int(dependenceContextBP_)
+            backgroundBlockSizeIntervals = max(
+                1,
+                int(math.ceil(float(backgroundBlockSizeBP_) / float(intervalSizeBP))),
+            )
+
+        excluded = [
+            str(value) for value in depDiagnostics.get("chromosomes_excluded", [])
+        ]
+        excludedLabel = "none" if not excluded else ",".join(excluded)
+        sampledWidthMedian = float(
+            depDiagnostics.get("sampled_width_median_bp", float("nan"))
+        )
+        sampledWidthLabel = (
+            "nan"
+            if not np.isfinite(sampledWidthMedian)
+            else str(int(round(sampledWidthMedian)))
+        )
+        logger.info(
+            "chooseDependenceSpan.sampledBlocks chromosomes_used=%d "
+            "chromosomes_excluded=%s blocks_requested=%d blocks_valid=%d "
+            "block_lognormal_median_bp=%d block_lognormal_sigma=%.1f "
+            "block_min_bp=%d block_max_bp=%d sampled_width_median_bp=%s "
+            "span=%d lower=%d upper=%d context_bp=%d posterior_log_sd=%.6g "
+            "tau2=%.6g fallback=%s",
+            int(len(depDiagnostics.get("chromosomes_used", []))),
+            excludedLabel,
+            int(depDiagnostics.get("blocks_requested", 100)),
+            int(depDiagnostics.get("blocks_valid", 0)),
+            int(depDiagnostics.get("block_lognormal_median_bp", 50_000)),
+            float(depDiagnostics.get("block_lognormal_sigma", 1.0)),
+            int(depDiagnostics.get("block_min_bp", 1_000)),
+            int(depDiagnostics.get("block_max_bp", 1_000_000)),
+            sampledWidthLabel,
+            int(depPoint),
+            int(depLower),
+            int(depUpper),
+            int(dependenceContextBP_),
+            float(depDiagnostics.get("posterior_log_span_sd", float("nan"))),
+            float(depDiagnostics.get("tau2", float("nan"))),
+            "true" if bool(depDiagnostics.get("fallback", False)) else "false",
+        )
+
     def _collectPooledMuncBlocks(
         c_: int,
         intervals: np.ndarray,
         chromMat: np.ndarray,
     ) -> None:
-        blockSizeIntervals = max(
-            1,
-            int(float(samplingBlockSizeBP_) / float(intervalSizeBP)),
+        muncSizing = core._resolveMuncRuntimeSizing(
+            intervalSizeBP=intervalSizeBP,
+            dependenceContextBP=dependenceContextBP_,
+            dependenceSpanIntervals=dependenceSpanIntervals_,
+            samplingBlockSizeBP=samplingBlockSizeBP_,
+            muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
+            muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
+            muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier_,
+            muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier_,
         )
+        blockSizeIntervals = int(muncSizing.trendBlockIntervals)
         blacklistExcludeMask = _getChromBlacklistMask(
             str(chromosomePlans[c_]["chromosome"]), intervals
         )
@@ -1656,6 +2144,7 @@ def main():
                 42 + j,
                 blacklistExcludeMask,
                 useInnovationVar=False,
+                modelCode=int(muncVarianceModelCode_),
             )
             blockMeansArr = np.asarray(blockMeans)
             blockVarsArr = np.asarray(blockVars)
@@ -1687,6 +2176,38 @@ def main():
                 )
             )
 
+    cachedIntervalsByChromosome: dict[str, np.ndarray] = {}
+    for c_, chromPlan in enumerate(
+        _progress(
+            chromosomePlans,
+            total=len(chromosomePlans),
+            desc="Counting/transformation pass",
+            unit="chrom",
+        )
+    ):
+        chromosome = str(chromPlan["chromosome"])
+        intervals, chromMat = _countAndTransformChromosomeMatrix(c_, chromPlan)
+        cachePath = os.path.join(pooledMuncCache.name, f"chrom_{c_:05d}.npy")
+        np.save(cachePath, chromMat, allow_pickle=False)
+        transformedMatrixCachePaths[chromosome] = cachePath
+        cachedIntervalsByChromosome[chromosome] = np.asarray(intervals, dtype=np.uint32)
+
+    muncSizingNeedsDependence = core._muncSizingNeedsDependence(
+        samplingBlockSizeBP=samplingBlockSizeBP_,
+        muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
+        muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
+    )
+    replicateDetrendEnabled, _ = _resolveReplicateDetrendStatus(
+        countingArgs,
+        controlsPresent=controlsPresent,
+    )
+    if (
+        backgroundBlockSizeBP_ < 0
+        or muncSizingNeedsDependence
+        or replicateDetrendEnabled
+    ):
+        _ensureSampledDependenceSpan(transformedMatrixCachePaths)
+
     for c_, chromPlan in enumerate(
         _progress(
             chromosomePlans,
@@ -1696,10 +2217,11 @@ def main():
         )
     ):
         chromosome = str(chromPlan["chromosome"])
-        intervals, chromMat = _countAndTransformChromosomeMatrix(c_, chromPlan)
-        cachePath = os.path.join(pooledMuncCache.name, f"chrom_{c_:05d}.npy")
+        cachePath = transformedMatrixCachePaths[chromosome]
+        chromMat = np.ascontiguousarray(np.load(cachePath), dtype=np.float32)
+        chromMat = _applyReplicateMedianDetrend(chromosome, chromMat)
         np.save(cachePath, chromMat, allow_pickle=False)
-        transformedMatrixCachePaths[chromosome] = cachePath
+        intervals = cachedIntervalsByChromosome[chromosome]
         _collectPooledMuncBlocks(c_, intervals, chromMat)
 
     if pooledBlockMeansParts:
@@ -1717,19 +2239,52 @@ def main():
         pooledBlockStarts = np.empty(0, dtype=np.int64)
         pooledWeights = np.empty(0, dtype=np.float64)
 
-    pooledBlockSizeIntervals = max(
-        1,
-        int(float(samplingBlockSizeBP_) / float(intervalSizeBP)),
+    pooledMuncSizing = core._resolveMuncRuntimeSizing(
+        intervalSizeBP=intervalSizeBP,
+        dependenceContextBP=dependenceContextBP_,
+        dependenceSpanIntervals=dependenceSpanIntervals_,
+        samplingBlockSizeBP=samplingBlockSizeBP_,
+        muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
+        muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
+        muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier_,
+        muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier_,
     )
-    pooledLocalWindowIntervals = max(4, pooledBlockSizeIntervals + 1)
+    pooledBlockSizeIntervals = int(pooledMuncSizing.trendBlockIntervals)
+    pooledLocalWindowIntervals = int(pooledMuncSizing.localWindowIntervals)
     if observationArgs.EB_setNuL is not None and observationArgs.EB_setNuL > 3:
         pooledNuL = float(observationArgs.EB_setNuL)
     else:
         pooledNuL = float(max(4, pooledLocalWindowIntervals - 3))
     pooledNu0Cap = 100.0 * float(pooledNuL)
 
-    varianceFloorForTrend = minR_ if minR_ is not None and minR_ > 0.0 else 1.0e-2
+    varianceFloorForTrend = minR_ if minR_ is not None and minR_ > 0.0 else 1.0e-4
     varianceCapForTrend = maxR_ if maxR_ is not None and maxR_ > 0.0 else None
+    _logMuncEstimationParameters(
+        chromosomeCount=len(chromosomePlans),
+        sampleCount=numSamples,
+        intervalSizeBP=intervalSizeBP,
+        sizing=pooledMuncSizing,
+        muncVarianceModel=muncVarianceModel_,
+        samplingIters=samplingIters_,
+        samplingBlockSizeBP=samplingBlockSizeBP_,
+        dependenceContextBP=dependenceContextBP_,
+        dependenceSpanIntervals=dependenceSpanIntervals_,
+        trendMultiplier=muncTrendBlockDependenceMultiplier_,
+        localMultiplier=muncLocalWindowDependenceMultiplier_,
+        useReplicateTrends=useReplicateTrends,
+        observationArgs=observationArgs,
+        sparseBedEnabled=bool(genomeArgs.sparseBedFile),
+        varianceFloor=varianceFloorForTrend,
+        varianceCap=varianceCapForTrend,
+        trendNumBasis=trendNumBasis_,
+        trendMinObsPerBasis=trendMinObsPerBasis_,
+        trendMinEdf=trendMinEdf_,
+        trendMaxEdf=trendMaxEdf_,
+        trendLambdaMin=trendLambdaMin_,
+        trendLambdaMax=trendLambdaMax_,
+        trendLambdaGridSize=trendLambdaGridSize_,
+        pooledPairCount=int(pooledBlockMeans.size),
+    )
     pooledMuncFit: core.PooledMuncVarianceTrend | None = None
     replicateMuncPriors: list[core.ReplicateMuncVariancePrior] | None = None
     pooledReplicateVarianceFactors = np.ones(numSamples, dtype=np.float64)
@@ -1894,6 +2449,16 @@ def main():
     bedGraphTracks: List[Tuple[str, str]] = [("State", "state")]
     if outputArgs.writeUncertainty:
         bedGraphTracks.append(("uncertainty", "uncertainty"))
+    saveBackgroundTracks = bool(
+        outputArgs.saveBackgroundTracks and fitArgs.fitBackground
+    )
+    if outputArgs.saveBackgroundTracks and not fitArgs.fitBackground:
+        logger.info(
+            "outputParams.saveBackgroundTracks=True but fitParams.fitBackground=False; "
+            "skipping background track export because no fitted g(i) is available."
+        )
+    if saveBackgroundTracks:
+        bedGraphTracks.append(("background", "background"))
     suffixes = [suffix for _column, suffix in bedGraphTracks]
     bedGraphChromOrder = [str(chromPlan["chromosome"]) for chromPlan in chromosomePlans]
 
@@ -1956,7 +2521,11 @@ def main():
             and genomeArgs.sparseBedFile
         )
         useSparseRestrictedLocalAR1 = bool(
-            getattr(observationArgs, "restrictLocalAR1ToSparseBed", False)
+            getattr(
+                observationArgs,
+                "restrictLocalVarianceToSparseBed",
+                getattr(observationArgs, "restrictLocalAR1ToSparseBed", False),
+            )
             and genomeArgs.sparseBedFile
         )
 
@@ -1991,9 +2560,10 @@ def main():
                 intervals,
             )
             logger.info(
-                "munc matrix: restricting rolling local AR(1) observation variance to "
-                "sparse-bed regions (chrom=%s, sparseIntervals=%d).",
+                "munc matrix: restricting rolling local observation variance to "
+                "sparse-bed regions (chrom=%s, model=%s, sparseIntervals=%d).",
                 chromosome,
+                muncVarianceModel_,
                 int(np.count_nonzero(sparseRegionMask)),
             )
 
@@ -2016,6 +2586,16 @@ def main():
                 intervalSizeBP,
                 samplingIters=samplingIters_,
                 samplingBlockSizeBP=samplingBlockSizeBP_,
+                muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
+                muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
+                dependenceSpanIntervals=dependenceSpanIntervals_,
+                muncTrendBlockDependenceMultiplier=(
+                    muncTrendBlockDependenceMultiplier_
+                ),
+                muncLocalWindowDependenceMultiplier=(
+                    muncLocalWindowDependenceMultiplier_
+                ),
+                muncVarianceModel=muncVarianceModel_,
                 randomSeed=42 + j,
                 EB_use=observationArgs.EB_use,
                 EB_setNu0=observationArgs.EB_setNu0,
@@ -2032,11 +2612,15 @@ def main():
                 numNearest=int(observationArgs.numNearest or 0),
                 sparseSupportScaleBP=observationArgs.sparseSupportScaleBP,
                 sparseSupportPrior=float(observationArgs.sparseSupportPrior or 0.0),
-                restrictLocalAR1ToSparseBed=bool(
-                    getattr(observationArgs, "restrictLocalAR1ToSparseBed", False)
+                restrictLocalVarianceToSparseBed=bool(
+                    getattr(
+                        observationArgs,
+                        "restrictLocalVarianceToSparseBed",
+                        getattr(observationArgs, "restrictLocalAR1ToSparseBed", False),
+                    )
                 ),
                 verbose=args.verbose2,
-                varianceFloor=minR_ if minR_ is not None and minR_ > 0.0 else None,
+                varianceFloor=varianceFloorForTrend,
                 varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
                 intervalsArr=muncIntervalsArr,
                 excludeMaskArr=muncExcludeMask,
@@ -2112,12 +2696,8 @@ def main():
             finiteMunc = muncMat[finiteMask]
             minR_ = np.float32(
                 max(
-                    (
-                        np.float32(np.quantile(muncMat, 0.025) + 1.0e-2)
-                        if finiteMunc.size
-                        else 1.0e-3
-                    ),
-                    1.0e-3,
+                    (np.float32(np.quantile(muncMat, 0.05) + 1.0e-3)),
+                    1.0e-4,
                 )
             )
             logger.info(
@@ -2151,7 +2731,7 @@ def main():
 
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             if minR_ is None:
-                minR_ = np.float32(np.quantile(muncMat, 0.025) + 1.0e-2)
+                minR_ = np.float32(np.quantile(muncMat, 0.05) + 1.0e-3)
             effectiveDeltaFForMinQ = (
                 1.0
                 if core._normalizeStateModel(processArgs.stateModel)
@@ -2227,8 +2807,10 @@ def main():
             stateLowerBound=stateArgs.stateLowerBound,
             stateUpperBound=stateArgs.stateUpperBound,
             blockLenIntervals=blockLenIntervals_,
+            intervalSizeBP=intervalSizeBP,
             returnScales=True,
             returnReplicateOffsets=True,
+            returnBackground=saveBackgroundTracks,
             pad=pad_,
             ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
             ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
@@ -2238,6 +2820,9 @@ def main():
             ECM_useAPN=fitArgs.ECM_useAPN,
             fitBackground=fitArgs.fitBackground,
             useNonnegativeBackground=fitArgs.useNonnegativeBackground,
+            backgroundNegativePenaltyMultiplier=(
+                fitArgs.backgroundNegativePenaltyMultiplier
+            ),
             ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
             ECM_zeroCenterReplicateBias=fitArgs.ECM_zeroCenterReplicateBias,
             ECM_outerIters=fitArgs.ECM_outerIters,
@@ -2254,21 +2839,33 @@ def main():
             processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
             processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
             trackOptimizationPath=outputArgs.plotOptimizationPath,
+            returnPrecisionDiagnostics=True,
             returnDiagnostics=True,
             logIndentLevel=1,
             logRunRole="primary chromosome",
         )
-        (
-            x,
-            P,
-            postFitResiduals,
-            _NISVec,
-            replicateBias,
-            intervalToBlockMap,
-        ) = runResult[:6]
+        x, P, postFitResiduals, _NISVec, replicateBias, intervalToBlockMap = runResult[
+            :6
+        ]
+        runResultIndex = 6
+        backgroundTrack = None
+        if saveBackgroundTracks:
+            if len(runResult) <= runResultIndex:
+                raise RuntimeError("runConsenrich did not return a background track.")
+            backgroundTrack = np.asarray(runResult[runResultIndex], dtype=np.float32)
+            runResultIndex += 1
+        precisionDiagnostics = {}
+        if (
+            len(runResult) > runResultIndex
+            and isinstance(runResult[runResultIndex], Mapping)
+            and runResult[runResultIndex].get("precision_track_diagnostics") is True
+        ):
+            precisionDiagnostics = runResult[runResultIndex]
+            runResultIndex += 1
         runDiagnostics = (
-            runResult[6]
-            if len(runResult) > 6 and isinstance(runResult[6], Mapping)
+            runResult[runResultIndex]
+            if len(runResult) > runResultIndex
+            and isinstance(runResult[runResultIndex], Mapping)
             else {}
         )
         if outputArgs.plotOptimizationPath:
@@ -2288,7 +2885,21 @@ def main():
             _plotOptimizationPathLog(
                 optimizationPathRows,
                 f"{optimizationPathPrefix}.png",
-                dpi=300,
+                dpi=400,
+            )
+        if precisionDiagnostics:
+            precisionPath = (
+                f"consenrichOutput_{experimentName}_{chromosome}"
+                f"_precisionDiagnostics.v{__version__}.tsv.gz"
+            )
+            _writePrecisionDiagnostics(
+                chromosome=chromosome,
+                intervals=intervals,
+                intervalSizeBP=intervalSizeBP,
+                matrixMunc=muncMat,
+                pad=pad_,
+                precisionDiagnostics=precisionDiagnostics,
+                path=precisionPath,
             )
         logger.info(
             "runConsenrich.done %s elapsed=%.3fs",
@@ -2468,6 +3079,7 @@ def main():
                 stateLowerBound=stateArgs.stateLowerBound,
                 stateUpperBound=stateArgs.stateUpperBound,
                 blockLenIntervals=blockLenIntervals_,
+                intervalSizeBP=intervalSizeBP,
                 returnScales=True,
                 returnReplicateOffsets=True,
                 pad=pad_,
@@ -2479,6 +3091,9 @@ def main():
                 ECM_useAPN=fitArgs.ECM_useAPN,
                 fitBackground=fitArgs.fitBackground,
                 useNonnegativeBackground=fitArgs.useNonnegativeBackground,
+                backgroundNegativePenaltyMultiplier=(
+                    fitArgs.backgroundNegativePenaltyMultiplier
+                ),
                 ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
                 ECM_outerIters=fitArgs.ECM_outerIters,
                 ECM_minOuterIters=fitArgs.ECM_minOuterIters,
@@ -2540,6 +3155,14 @@ def main():
 
         if outputArgs.writeUncertainty:
             df["uncertainty"] = uncertaintyTrack
+        if saveBackgroundTracks:
+            if backgroundTrack is None or backgroundTrack.shape != (len(intervals),):
+                raise RuntimeError(
+                    "Background track shape mismatch for "
+                    f"{chromosome}: expected {(len(intervals),)}, got "
+                    f"{None if backgroundTrack is None else backgroundTrack.shape}"
+                )
+            df["background"] = backgroundTrack
 
         cols_ = ["Chromosome", "Start", "End"] + [
             column for column, _suffix in bedGraphTracks

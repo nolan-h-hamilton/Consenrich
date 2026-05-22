@@ -9,11 +9,12 @@ This module contains Cython implementations of core functions used in Consenrich
 cimport cython
 import os
 import numpy as np
+from . import misc_util
 from scipy import ndimage
 cimport numpy as cnp
 from libc.stdint cimport int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
-from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, isnan, NAN, INFINITY
+from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, cos, sin, isnan, NAN, INFINITY
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport printf, fprintf, fflush, stdout, stderr
@@ -75,6 +76,11 @@ cnp.import_array()
 # ========
 cdef const float __INV_LN2_FLOAT = <float>1.44269504
 cdef const double __INV_LN2_DOUBLE = <double>1.44269504088896340
+cdef const double __PI_DOUBLE = <double>3.14159265358979323846264338327950288
+cdef const int __MUNC_VARIANCE_MODEL_AR1 = 0
+cdef const int __MUNC_VARIANCE_MODEL_SVAR = 2
+cdef const int __MUNC_VARIANCE_MODEL_SVAR_D1 = 4
+cdef const int __MUNC_VARIANCE_MODEL_SVAR_D2 = 5
 ctypedef fused real_t:
     float
     double
@@ -323,6 +329,57 @@ cdef inline int _maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, co
     return 0
 
 
+cdef inline double _sampleVarianceBlock(double* blockPtr, Py_ssize_t blockLength) noexcept nogil:
+    cdef Py_ssize_t elementIndex
+    cdef double blockLengthDouble
+    cdef double sumY = 0.0
+    cdef double sumSq = 0.0
+    cdef double value
+    cdef double centeredSS
+
+    if blockLength < 2:
+        return 0.0
+    blockLengthDouble = <double>blockLength
+    for elementIndex in range(blockLength):
+        value = blockPtr[elementIndex]
+        sumY += value
+        sumSq += value * value
+    centeredSS = sumSq - ((sumY * sumY) / blockLengthDouble)
+    if centeredSS < 0.0:
+        centeredSS = 0.0
+    return centeredSS / (blockLengthDouble - 1.0)
+
+
+cdef inline double _firstDifferenceVarianceBlock(double* blockPtr, Py_ssize_t blockLength) noexcept nogil:
+    cdef Py_ssize_t elementIndex
+    cdef double diffValue
+    cdef double sumDiffSq = 0.0
+
+    if blockLength < 2:
+        return 0.0
+    for elementIndex in range(blockLength - 1):
+        diffValue = blockPtr[elementIndex + 1] - blockPtr[elementIndex]
+        sumDiffSq += diffValue * diffValue
+    return sumDiffSq / (2.0 * <double>(blockLength - 1))
+
+
+cdef inline double _secondDifferenceVarianceBlock(double* blockPtr, Py_ssize_t blockLength) noexcept nogil:
+    cdef Py_ssize_t elementIndex
+    cdef double diffValue
+    cdef double sumDiffSq = 0.0
+
+    if blockLength < 3:
+        return 0.0
+    for elementIndex in range(blockLength - 2):
+        diffValue = (
+            blockPtr[elementIndex + 2]
+            - (2.0 * blockPtr[elementIndex + 1])
+            + blockPtr[elementIndex]
+        )
+        sumDiffSq += diffValue * diffValue
+    return sumDiffSq / (<double>(blockLength - 2))
+
+
 cdef inline void _regionMeanVar(double[::1] valuesView,
                                 Py_ssize_t[::1] blockStartIndices,
                                 Py_ssize_t[::1] blockSizes,
@@ -332,6 +389,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 double zeroThresh,
                                 bint useInnovationVar,
                                 bint useSampleVar,
+                                int modelCode,
                                 double maxBeta=<double>0.99,
                                 double pairsRegLambda=<double>1.0) noexcept nogil:
     # CALLERS: cmeanVarPairs
@@ -381,13 +439,27 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             sumY += blockPtr[elementIndex]
         mom1 = sumY / blockLengthDouble
         meanOutView[regionIndex] = <float>mom1
-        if useSampleVar:
+        if useSampleVar or modelCode == __MUNC_VARIANCE_MODEL_SVAR:
             # sample variance over full block around mom1
             sumSqX = 0.0
             for elementIndex in range(blockLength):
                 value = blockPtr[elementIndex] - mom1
                 sumSqX += value*value
             varOutView[regionIndex] = <float>(sumSqX / (blockLengthDouble - 1.0))
+            continue
+
+        if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D1:
+            varOutView[regionIndex] = <float>_firstDifferenceVarianceBlock(
+                blockPtr,
+                blockLength,
+            )
+            continue
+
+        if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2:
+            varOutView[regionIndex] = <float>_secondDifferenceVarianceBlock(
+                blockPtr,
+                blockLength,
+            )
             continue
 
         # df = n-3
@@ -954,7 +1026,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] ctrimMeanAxis0(
     return out
 
 
-cpdef tuple cdependenceLengthStats(
+cdef tuple _dependenceLengthStats(
     cnp.ndarray[cnp.float64_t, ndim=1] centeredTrack,
     int maxSpan,
 ):
@@ -1034,6 +1106,467 @@ cpdef tuple cdependenceLengthStats(
                 incView[lag] = NAN
 
     return acf, inc, pairCounts, float(gamma0), int(finiteCount)
+
+
+cdef bint _isStandardAutosomeName(object chromosome):
+    return <bint>misc_util.isStandardAutosomalChromosome(chromosome)
+
+
+cdef tuple _normalizeDependenceSpanBounds(
+    Py_ssize_t n,
+    int minSpan,
+    int maxSpan,
+):
+    cdef int minSpan_ = max(1, int(minSpan))
+    cdef int maxSpan_ = max(minSpan_, int(maxSpan))
+    if n > 0:
+        maxSpan_ = min(maxSpan_, max(minSpan_, int(n) - 1))
+    return int(minSpan_), int(maxSpan_)
+
+
+cdef int _acfCrossingLag(cnp.ndarray[cnp.float64_t, ndim=1] acf, double threshold):
+    cdef double[::1] acfView = acf
+    cdef Py_ssize_t i
+    if acfView.shape[0] < 3:
+        return -1
+    for i in range(acfView.shape[0] - 2):
+        if (
+            isfinite(acfView[i])
+            and isfinite(acfView[i + 1])
+            and isfinite(acfView[i + 2])
+            and fabs(acfView[i]) < threshold
+            and fabs(acfView[i + 1]) < threshold
+            and fabs(acfView[i + 2]) < threshold
+        ):
+            return int(i + 1)
+    return -1
+
+
+cdef tuple _fallbackDependenceSpanResult(
+    Py_ssize_t n,
+    int minSpan,
+    int maxSpan,
+    int intervalSizeBP,
+    str reason,
+):
+    cdef int point = int(max(minSpan, min(maxSpan, max(minSpan, int(round(sqrt(max(float(n), 1.0))))))))
+    cdef int contextSizeBP = int(point * (2 * max(int(intervalSizeBP), 1)) + 1)
+    return (
+        int(point),
+        int(point),
+        int(point),
+        {
+            "method": "sampled_block_fallback",
+            "fallback": True,
+            "fallback_reason": reason,
+            "point_span": int(point),
+            "lower_span": int(point),
+            "upper_span": int(point),
+            "min_span": int(minSpan),
+            "max_span": int(maxSpan),
+            "finite_count": int(n),
+            "context_size_bp": int(contextSizeBP),
+            "candidate_spans": [],
+        },
+    )
+
+
+cdef tuple _estimateDependenceSpanForBlock(
+    object blockMat,
+    int intervalSizeBP,
+    int minContextBP,
+    int maxContextBP,
+    double trim,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=2] arr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] contextTrack
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] finiteVals
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] y
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] acf
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] incrementVariance
+    cdef cnp.ndarray[cnp.int64_t, ndim=1] pairCounts
+    cdef Py_ssize_t n
+    cdef Py_ssize_t finiteCount
+    cdef int minSpan
+    cdef int maxSpan
+    cdef int crossingLag
+    cdef int lowerCrossing
+    cdef int upperCrossing
+    cdef int incrementElbow = -1
+    cdef int iatSpan
+    cdef int pointSpan
+    cdef int lowerSpan
+    cdef int upperSpan
+    cdef int contextSizeBP
+    cdef double intervalSizeBP_ = <double>max(int(intervalSizeBP), 1)
+    cdef double center
+    cdef double scale
+    cdef double lo
+    cdef double hi
+    cdef double gamma0
+    cdef double plateau
+    cdef double threshold
+    cdef double positiveSum
+    cdef list candidates
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] validInc
+    cdef Py_ssize_t tailStart
+
+    arr = np.ascontiguousarray(blockMat, dtype=np.float64)
+    if arr.ndim != 2:
+        raise ValueError("block matrices must be two-dimensional")
+    n = <Py_ssize_t>arr.shape[1]
+    minSpan = max(3, int(ceil(float(minContextBP) / (2.0 * intervalSizeBP_))))
+    maxSpan = max(minSpan, int(ceil(float(maxContextBP) / (2.0 * intervalSizeBP_))))
+    maxSpan = min(maxSpan, max(minSpan, max(3, int(n // 3))))
+    minSpan, maxSpan = _normalizeDependenceSpanBounds(n, minSpan, maxSpan)
+
+    if n < max(8, minSpan + 3):
+        return _fallbackDependenceSpanResult(n, minSpan, maxSpan, intervalSizeBP, "too_few_intervals")
+
+    contextTrack = np.asarray(ctrimMeanAxis0(arr, trim), dtype=np.float64)
+    finiteVals = np.asarray(contextTrack[np.isfinite(contextTrack)], dtype=np.float64)
+    finiteCount = <Py_ssize_t>finiteVals.size
+    if finiteCount < max(20, minSpan + 3):
+        return _fallbackDependenceSpanResult(finiteCount, minSpan, maxSpan, intervalSizeBP, "too_few_finite_values")
+
+    center = float(np.median(finiteVals))
+    scale = 1.4826 * float(np.median(np.abs(finiteVals - center)))
+    if (not isfinite(scale)) or scale <= 0.0:
+        scale = float(np.std(finiteVals, ddof=1)) if finiteCount >= 2 else 0.0
+    if (not isfinite(scale)) or scale <= 0.0:
+        scale = 1.0
+
+    lo = float(np.quantile(finiteVals, 0.005))
+    hi = float(np.quantile(finiteVals, 0.995))
+    lo = max(lo, center - (8.0 * scale))
+    hi = min(hi, center + (8.0 * scale))
+    if (not isfinite(lo)) or (not isfinite(hi)) or hi <= lo:
+        lo = center - (8.0 * scale)
+        hi = center + (8.0 * scale)
+
+    y = np.full(contextTrack.shape[0], np.nan, dtype=np.float64)
+    y[np.isfinite(contextTrack)] = np.clip(contextTrack[np.isfinite(contextTrack)], lo, hi) - center
+    acf, incrementVariance, pairCounts, gamma0, finiteCount = _dependenceLengthStats(
+        np.ascontiguousarray(y, dtype=np.float64),
+        int(maxSpan),
+    )
+    if (not isfinite(gamma0)) or gamma0 <= 0.0:
+        return _fallbackDependenceSpanResult(finiteCount, minSpan, maxSpan, intervalSizeBP, "zero_or_invalid_gamma0")
+
+    crossingLag = _acfCrossingLag(acf, 0.10)
+    if crossingLag < 0:
+        positiveSum = float(np.sum(np.clip(acf[np.isfinite(acf)], 0.0, None)))
+    else:
+        positiveSum = float(np.sum(np.clip(acf[:crossingLag][np.isfinite(acf[:crossingLag])], 0.0, None)))
+    iatSpan = int(ceil(0.5 + positiveSum))
+    iatSpan = int(max(minSpan, min(maxSpan, iatSpan)))
+
+    validInc = np.asarray(
+        incrementVariance[np.isfinite(incrementVariance) & (np.asarray(pairCounts) > 0)],
+        dtype=np.float64,
+    )
+    plateau = NAN
+    if validInc.size > 0:
+        tailStart = <Py_ssize_t>floor(0.75 * <double>validInc.size)
+        if tailStart >= validInc.size:
+            tailStart = 0
+        plateau = float(np.median(validInc[tailStart:]))
+        if isfinite(plateau) and plateau > 0.0:
+            threshold = 0.90 * plateau
+            for i in range(incrementVariance.shape[0]):
+                if isfinite(incrementVariance[i]) and incrementVariance[i] >= threshold:
+                    incrementElbow = int(i + 1)
+                    break
+
+    candidates = [int(iatSpan)]
+    if crossingLag >= 0:
+        candidates.append(int(crossingLag))
+    if incrementElbow >= 0:
+        candidates.append(int(incrementElbow))
+    pointSpan = int(round(float(np.median(np.asarray(candidates, dtype=np.float64)))))
+    pointSpan = int(max(minSpan, min(maxSpan, pointSpan)))
+
+    lowerCrossing = _acfCrossingLag(acf, 0.20)
+    upperCrossing = _acfCrossingLag(acf, 0.05)
+    lowerSpan = int(lowerCrossing) if lowerCrossing >= 0 else pointSpan
+    upperSpan = int(upperCrossing) if upperCrossing >= 0 else pointSpan
+    lowerSpan = int(max(minSpan, min(maxSpan, min(lowerSpan, pointSpan))))
+    upperSpan = int(max(minSpan, min(maxSpan, max(upperSpan, pointSpan))))
+    contextSizeBP = int(pointSpan * (2 * max(int(intervalSizeBP), 1)) + 1)
+    return (
+        int(pointSpan),
+        int(lowerSpan),
+        int(upperSpan),
+        {
+            "method": "dependence_acf_increment_sampled_block",
+            "fallback": False,
+            "point_span": int(pointSpan),
+            "lower_span": int(lowerSpan),
+            "upper_span": int(upperSpan),
+            "context_size_bp": int(contextSizeBP),
+            "interval_size_bp": int(intervalSizeBP),
+            "min_span": int(minSpan),
+            "max_span": int(maxSpan),
+            "trim": float(trim),
+            "finite_count": int(finiteCount),
+            "crossing_lag": None if crossingLag < 0 else int(crossingLag),
+            "relaxed_crossing_lag": None if lowerCrossing < 0 else int(lowerCrossing),
+            "strict_crossing_lag": None if upperCrossing < 0 else int(upperCrossing),
+            "iat_span": int(iatSpan),
+            "increment_elbow": None if incrementElbow < 0 else int(incrementElbow),
+            "candidate_spans": [int(v) for v in candidates],
+        },
+    )
+
+
+cdef double _dependenceLogVarianceFromDiagnostics(dict diagnostics, Py_ssize_t nBins):
+    cdef double point = max(1.0, float(diagnostics.get("point_span", 1.0)))
+    cdef double lower = max(1.0, float(diagnostics.get("lower_span", point)))
+    cdef double upper = max(lower, float(diagnostics.get("upper_span", point)))
+    cdef double bracketWidth = log((upper + 1.0) / (lower + 1.0))
+    cdef object candidatesObj = diagnostics.get("candidate_spans", [])
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] candidates = np.asarray(
+        [float(v) for v in candidatesObj if v is not None and isfinite(float(v)) and float(v) > 0.0],
+        dtype=np.float64,
+    )
+    cdef double candidateSd = 0.0
+    cdef double finiteCount = float(diagnostics.get("finite_count", 0.0) or 0.0)
+    cdef double finiteFraction = min(1.0, max(0.0, finiteCount / max(1.0, float(nBins))))
+    cdef int minSpan = int(diagnostics.get("min_span", 0) or 0)
+    cdef int maxSpan = int(diagnostics.get("max_span", 0) or 0)
+    cdef double boundaryPenalty = 0.0
+    cdef double missingCrossingPenalty = 0.0
+    cdef double variance
+
+    if candidates.size >= 2:
+        candidateSd = float(np.std(np.log(candidates + 1.0), ddof=1))
+    if int(round(point)) == minSpan or int(round(point)) == maxSpan:
+        boundaryPenalty = 0.75
+    if diagnostics.get("crossing_lag") is None:
+        missingCrossingPenalty += 0.35
+    if diagnostics.get("relaxed_crossing_lag") is None:
+        missingCrossingPenalty += 0.20
+    if diagnostics.get("strict_crossing_lag") is None:
+        missingCrossingPenalty += 0.20
+
+    variance = (
+        0.04
+        + bracketWidth * bracketWidth
+        + candidateSd * candidateSd
+        + 1.5 * (1.0 - finiteFraction)
+        + boundaryPenalty
+        + missingCrossingPenalty
+    )
+    return max(0.01, variance)
+
+
+cpdef tuple cchooseDependenceSpan(
+    object chromosomeNames,
+    object chromosomeMatrices,
+    int intervalSizeBP,
+    int numBlocks=100,
+    int randSeed=1729,
+    double blockMedianBP=50000.0,
+    double blockSigma=1.0,
+    int blockMinBP=1000,
+    int blockMaxBP=1000000,
+    int minContextBP=500,
+    int maxContextBP=100000,
+    double priorMedianSpan=80.0,
+    double priorLogSd=1.0,
+    double trim=0.10,
+):
+    r"""Sample blocks across autosomes and choose a pooled dependence span."""
+
+    cdef list names = list(chromosomeNames)
+    cdef list matrices = list(chromosomeMatrices)
+    cdef list eligibleNames = []
+    cdef list eligibleMatrices = []
+    cdef list eligibleBins = []
+    cdef list excludedNames = []
+    cdef list sampledChromosomes = []
+    cdef list sampledWidths = []
+    cdef list sampledPointSpans = []
+    cdef list logSpans = []
+    cdef list logVariances = []
+    cdef Py_ssize_t i
+    cdef Py_ssize_t selected
+    cdef Py_ssize_t nBins
+    cdef int intervalSizeBP_ = max(int(intervalSizeBP), 1)
+    cdef int minSpan = max(3, int(ceil(float(minContextBP) / (2.0 * float(intervalSizeBP_)))))
+    cdef int maxSpan = max(minSpan, int(ceil(float(maxContextBP) / (2.0 * float(intervalSizeBP_)))))
+    cdef int blocksRequested = max(0, int(numBlocks))
+    cdef int validBlocks = 0
+    cdef int fallbackBlocks = 0
+    cdef int widthBP
+    cdef int blockBins
+    cdef int startBin
+    cdef int endBin
+    cdef int point
+    cdef int lower
+    cdef int upper
+    cdef int pointSpan
+    cdef int lowerSpan
+    cdef int upperSpan
+    cdef int contextSizeBP
+    cdef double logWidth
+    cdef double postMean
+    cdef double postSd
+    cdef double tau2 = 0.0
+    cdef double rawTau2
+    cdef double priorMu
+    cdef double priorVar
+    cdef double priorPrec
+    cdef double postPrec
+    cdef double obsPrec
+    cdef double obsPrecSum = 0.0
+    cdef double obsWeightedSum = 0.0
+    cdef dict blockDiagnostics
+    cdef dict diagnostics
+    cdef object rng
+    cdef object matrix
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] placementWeights
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] logSpanArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] logVarArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1] eligibleForBlock
+    cdef list eligibleForBlockList
+    cdef list placementList
+
+    if len(names) != len(matrices):
+        raise ValueError("chromosomeNames and chromosomeMatrices must have the same length")
+    if blockMedianBP <= 0.0 or blockSigma <= 0.0 or blockMinBP <= 0 or blockMaxBP < blockMinBP:
+        raise ValueError("invalid dependence block-size distribution parameters")
+    if priorMedianSpan <= 0.0 or priorLogSd <= 0.0:
+        raise ValueError("invalid dependence span prior parameters")
+
+    for i in range(len(names)):
+        matrix = matrices[i]
+        if _isStandardAutosomeName(names[i]):
+            nBins = <Py_ssize_t>matrix.shape[1]
+            if nBins > 1:
+                eligibleNames.append(str(names[i]))
+                eligibleMatrices.append(matrix)
+                eligibleBins.append(int(nBins))
+            else:
+                excludedNames.append(str(names[i]))
+        else:
+            excludedNames.append(str(names[i]))
+
+    rng = default_rng(randSeed)
+    if len(eligibleNames) > 0 and blocksRequested > 0:
+        while len(sampledWidths) < blocksRequested:
+            drawn = rng.lognormal(mean=log(blockMedianBP), sigma=blockSigma)
+            if drawn < blockMinBP or drawn > blockMaxBP:
+                continue
+            widthBP = int(round(float(drawn)))
+            widthBP = max(blockMinBP, min(blockMaxBP, widthBP))
+            eligibleForBlockList = []
+            placementList = []
+            for i in range(len(eligibleNames)):
+                nBins = int(eligibleBins[i])
+                blockBins = max(1, int(ceil(float(widthBP) / float(intervalSizeBP_))))
+                blockBins = min(blockBins, nBins)
+                if nBins >= blockBins:
+                    eligibleForBlockList.append(i)
+                    placementList.append(max(1.0, float(nBins - blockBins + 1)))
+            if not eligibleForBlockList:
+                fallbackBlocks += 1
+                continue
+            placementWeights = np.asarray(placementList, dtype=np.float64)
+            placementWeights = placementWeights / float(np.sum(placementWeights))
+            selected = int(rng.choice(np.asarray(eligibleForBlockList, dtype=np.int64), p=placementWeights))
+            nBins = int(eligibleBins[selected])
+            blockBins = max(1, int(ceil(float(widthBP) / float(intervalSizeBP_))))
+            blockBins = min(blockBins, nBins)
+            startBin = int(rng.integers(0, max(1, nBins - blockBins + 1)))
+            endBin = min(nBins, startBin + blockBins)
+            if endBin <= startBin:
+                fallbackBlocks += 1
+                continue
+            point, lower, upper, blockDiagnostics = _estimateDependenceSpanForBlock(
+                np.asarray(eligibleMatrices[selected])[:, startBin:endBin],
+                intervalSizeBP_,
+                minContextBP,
+                maxContextBP,
+                trim,
+            )
+            sampledChromosomes.append(str(eligibleNames[selected]))
+            sampledWidths.append(int(widthBP))
+            sampledPointSpans.append(int(point))
+            if bool(blockDiagnostics.get("fallback", False)):
+                fallbackBlocks += 1
+                continue
+            logSpans.append(log(max(1.0, float(point))))
+            logVariances.append(_dependenceLogVarianceFromDiagnostics(blockDiagnostics, endBin - startBin))
+            validBlocks += 1
+
+    priorMu = log(float(priorMedianSpan))
+    priorVar = priorLogSd * priorLogSd
+    if validBlocks > 0:
+        logSpanArr = np.asarray(logSpans, dtype=np.float64)
+        logVarArr = np.asarray(logVariances, dtype=np.float64)
+        rawTau2 = float(np.var(logSpanArr, ddof=1) - np.mean(logVarArr)) if logSpanArr.size >= 2 else 0.0
+        tau2 = max(0.0, rawTau2)
+        for i in range(logSpanArr.size):
+            obsPrec = 1.0 / (float(logVarArr[i]) + tau2)
+            obsPrecSum += obsPrec
+            obsWeightedSum += obsPrec * float(logSpanArr[i])
+        priorPrec = 1.0 / priorVar
+        postPrec = priorPrec + obsPrecSum
+        postMean = ((priorMu * priorPrec) + obsWeightedSum) / postPrec
+        postSd = sqrt(1.0 / postPrec)
+        pointSpan = int(round(exp(postMean)))
+        lowerSpan = int(floor(exp(postMean - 1.96 * postSd)))
+        upperSpan = int(ceil(exp(postMean + 1.96 * postSd)))
+        fallback = False
+    else:
+        postMean = priorMu
+        postSd = priorLogSd
+        pointSpan = int(round(priorMedianSpan))
+        lowerSpan = pointSpan
+        upperSpan = pointSpan
+        fallback = True
+
+    pointSpan = int(max(minSpan, min(maxSpan, pointSpan)))
+    lowerSpan = int(max(minSpan, min(pointSpan, lowerSpan)))
+    upperSpan = int(max(pointSpan, min(maxSpan, upperSpan)))
+    contextSizeBP = int(pointSpan * (2 * intervalSizeBP_) + 1)
+    diagnostics = {
+        "method": "sampled_block_lognormal_map",
+        "num_blocks": int(blocksRequested),
+        "blocks_requested": int(blocksRequested),
+        "blocks_valid": int(validBlocks),
+        "fallback_blocks": int(fallbackBlocks),
+        "fallback": bool(fallback),
+        "point_span": int(pointSpan),
+        "lower_span": int(lowerSpan),
+        "upper_span": int(upperSpan),
+        "context_size_bp": int(contextSizeBP),
+        "interval_size_bp": int(intervalSizeBP_),
+        "min_span": int(minSpan),
+        "max_span": int(maxSpan),
+        "chromosomes_used": sorted(set(sampledChromosomes)),
+        "chromosomes_excluded": sorted(set(excludedNames)),
+        "excluded_nonstandard_chromosomes": sorted(set(excludedNames)),
+        "sampled_chromosomes": list(sampledChromosomes),
+        "sampled_width_bp": [int(v) for v in sampledWidths],
+        "sampled_point_span": [int(v) for v in sampledPointSpans],
+        "sampled_width_median_bp": (
+            float(np.median(np.asarray(sampledWidths, dtype=np.float64)))
+            if len(sampledWidths) > 0
+            else float("nan")
+        ),
+        "posterior_log_span_mean": float(postMean),
+        "posterior_log_span_sd": float(postSd),
+        "tau2": float(tau2),
+        "block_lognormal_median_bp": float(blockMedianBP),
+        "block_lognormal_sigma": float(blockSigma),
+        "block_min_bp": int(blockMinBP),
+        "block_max_bp": int(blockMaxBP),
+        "prior_median_span": float(priorMedianSpan),
+        "prior_log_sd": float(priorLogSd),
+    }
+    return int(pointSpan), int(lowerSpan), int(upperSpan), diagnostics
 
 
 # ===========================
@@ -1670,7 +2203,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           double zeroPenalty=0.0,
                           double zeroThresh=0.0,
                           bint useInnovationVar = <bint>True,
-                          bint useSampleVar = <bint>False):
+                          bint useSampleVar = <bint>False,
+                          int modelCode = 0):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -1694,6 +2228,15 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
 
 
     rng = default_rng(randSeed)
+    if useSampleVar:
+        modelCode = __MUNC_VARIANCE_MODEL_SVAR
+    if (
+        modelCode != __MUNC_VARIANCE_MODEL_AR1
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D1
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D2
+    ):
+        raise ValueError("unsupported MUNC variance model code")
     valuesArray = np.ascontiguousarray(values, dtype=np.float64)
     valuesView = valuesArray
     outMeans = np.empty(iters, dtype=np.float32)
@@ -1748,6 +2291,7 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
         zeroThresh,
         useInnovationVar,
         useSampleVar,
+        modelCode,
     )
 
     return outMeans, outVars, starts_, ends
@@ -1763,6 +2307,7 @@ cpdef tuple cSparseNearestMeanVarTrack(
     double zeroThresh=0.0,
     bint useInnovationVar=True,
     bint useSampleVar=False,
+    int modelCode=0,
     bint aggregateMeanAbs=True,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
@@ -1790,6 +2335,15 @@ cpdef tuple cSparseNearestMeanVarTrack(
     sparseCount = <Py_ssize_t>sparseCenters.shape[0]
     outMeans = np.empty(intervalCount, dtype=np.float32)
     outVars = np.empty(intervalCount, dtype=np.float32)
+    if useSampleVar:
+        modelCode = __MUNC_VARIANCE_MODEL_SVAR
+    if (
+        modelCode != __MUNC_VARIANCE_MODEL_AR1
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D1
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D2
+    ):
+        raise ValueError("unsupported MUNC variance model code")
 
     if intervalCount <= 0:
         return outMeans, outVars
@@ -1821,6 +2375,7 @@ cpdef tuple cSparseNearestMeanVarTrack(
         zeroThresh,
         useInnovationVar,
         useSampleVar,
+        modelCode,
     )
 
     outMeansView = outMeans
@@ -3349,6 +3904,8 @@ cpdef tuple cfixedBackgroundECMLevel(
     object replicateBiasInit=None,
     bint zeroCenterReplicateBias=True,
     bint trackOptimizationPath=False,
+    object progressBar=None,
+    bint logIterations=True,
 ):
     r"""Run fixed-background ECM for the scalar level-only process model."""
 
@@ -3391,6 +3948,7 @@ cpdef tuple cfixedBackgroundECMLevel(
     cdef Py_ssize_t itersDone = 0
     cdef Py_ssize_t nllIncreaseCount = 0
     cdef bint hasInitialNLL = False
+    cdef bint hasPreviousNLL = False
     cdef bint converged = False
     cdef double res
     cdef double muncPlusPad
@@ -3525,7 +4083,8 @@ cpdef tuple cfixedBackgroundECMLevel(
 
     for i in range(ECM_fixedBackgroundIters):
         itersDone = i + 1
-        fprintf(stderr, "\n\t[cfixedBackgroundECMLevel] iter=%zd\n", itersDone)
+        if logIterations:
+            fprintf(stderr, "\n\t[cfixedBackgroundECMLevel] iter=%zd\n", itersDone)
 
         for inner in range(t_innerIters):
             cforwardPassLevel(
@@ -3717,56 +4276,84 @@ cpdef tuple cfixedBackgroundECMLevel(
             APN_dStatPC=APN_dStatPC,
         )[3])
 
-        if not hasInitialNLL:
+        hasPreviousNLL = hasInitialNLL
+        if not hasPreviousNLL:
             initialNLL = currentNLL
             hasInitialNLL = True
         elif currentNLL > previousNLL + (1.0e-12 * fmax(fabs(previousNLL), 1.0)):
             nllIncreaseCount += 1
 
-        nllDelta = fabs(currentNLL - previousNLL)
-        nllScale = fabs(previousNLL)
+        if hasPreviousNLL:
+            nllDelta = fabs(currentNLL - previousNLL)
+            nllScale = fabs(previousNLL)
+        else:
+            nllDelta = 0.0
+            nllScale = fabs(currentNLL)
         if fabs(currentNLL) > nllScale:
             nllScale = fabs(currentNLL)
         if nllScale < 1.0:
             nllScale = 1.0
-        relImprovement = (previousNLL - currentNLL) / nllScale
-        absRelChange = nllDelta / nllScale
+        if hasPreviousNLL:
+            relImprovement = (previousNLL - currentNLL) / nllScale
+            absRelChange = nllDelta / nllScale
+        else:
+            relImprovement = 0.0
+            absRelChange = 0.0
         nllTol = (<double>ECM_fixedBackgroundRtol) * nllScale
         previousNLL = currentNLL
-        fprintf(
-            stderr,
-            "\t[cfixedBackgroundECMLevel] NLL=%.6f  REL=%+.6e  ABSREL=%.6e  THRESH=%.6e\n",
-            currentNLL,
-            relImprovement,
-            absRelChange,
-            nllTol,
-        )
-        if nllDelta <= nllTol:
+        if logIterations:
+            fprintf(
+                stderr,
+                "\t[cfixedBackgroundECMLevel] NLL=%.6f  REL=%+.6e  ABSREL=%.6e  THRESH=%.6e\n",
+                currentNLL,
+                relImprovement,
+                absRelChange,
+                nllTol,
+            )
+        if hasPreviousNLL and nllDelta <= nllTol:
             stableIters += 1
         else:
             stableIters = 0
-        fprintf(
-            stderr,
-            "\t[cfixedBackgroundECMLevel] stable=%zd/%zd\n",
-            stableIters, patienceTarget
-        )
+        if logIterations:
+            fprintf(
+                stderr,
+                "\t[cfixedBackgroundECMLevel] stable=%zd/%zd\n",
+                stableIters, patienceTarget
+            )
         iterationConverged = stableIters >= patienceTarget
+        if progressBar is not None:
+            progressBar.set_postfix_str(
+                (
+                    f"NLL={currentNLL:.6g} rel={relImprovement:+.2e} "
+                    f"stable={int(stableIters)}/{int(patienceTarget)}"
+                ),
+                refresh=False,
+            )
+            progressBar.update(1)
         if trackOptimizationPath:
             optimizationPath.append({
                 "iter": int(itersDone),
                 "objective_name": "nll",
                 "objective_value": float(currentNLL),
-                "change": float(nllDelta),
-                "relative_improvement": float(relImprovement),
-                "abs_relative_change": float(absRelChange),
-                "threshold": float(nllTol),
+                "change": float(nllDelta) if hasPreviousNLL else None,
+                "relative_improvement": (
+                    float(relImprovement) if hasPreviousNLL else None
+                ),
+                "abs_relative_change": (
+                    float(absRelChange) if hasPreviousNLL else None
+                ),
+                "threshold": float(nllTol) if hasPreviousNLL else None,
                 "stable_iters": int(stableIters),
                 "patience_target": int(patienceTarget),
+                "reset_iteration": bool(not hasPreviousNLL),
                 "converged": bool(iterationConverged),
             })
         if iterationConverged:
             converged = True
-            fprintf(stderr, "\t[cfixedBackgroundECMLevel] CONVERGED (ECM) iter=%zd \n", itersDone)
+            if logIterations:
+                fprintf(stderr, "\t[cfixedBackgroundECMLevel] CONVERGED (ECM) iter=%zd \n", itersDone)
+            if progressBar is not None:
+                progressBar.set_postfix_str(f"converged iter={int(itersDone)}")
             break
 
     diagnostics = {
@@ -3834,6 +4421,8 @@ cpdef tuple cfixedBackgroundECM(
     object replicateBiasInit=None,
     bint zeroCenterReplicateBias=True,
     bint trackOptimizationPath=False,
+    object progressBar=None,
+    bint logIterations=True,
 ):
     r"""Run the fixed-background Consenrich ECM loop with iteratively updated observation and process noise covariances.
 
@@ -4129,6 +4718,7 @@ cpdef tuple cfixedBackgroundECM(
     cdef Py_ssize_t itersDone = 0
     cdef Py_ssize_t nllIncreaseCount = 0
     cdef bint hasInitialNLL = False
+    cdef bint hasPreviousNLL = False
     cdef bint converged = False
     cdef double res
     cdef double muncPlusPad
@@ -4236,7 +4826,8 @@ cpdef tuple cfixedBackgroundECM(
 
     for i in range(ECM_fixedBackgroundIters):
         itersDone = i + 1
-        fprintf(stderr, "\n\t[cfixedBackgroundECM] iter=%zd\n", itersDone)
+        if logIterations:
+            fprintf(stderr, "\n\t[cfixedBackgroundECM] iter=%zd\n", itersDone)
 
         for inner in range(t_innerIters):
             cforwardPass(
@@ -4491,59 +5082,87 @@ cpdef tuple cfixedBackgroundECM(
             APN_dStatPC=APN_dStatPC,
         )[3])
 
-        if not hasInitialNLL:
+        hasPreviousNLL = hasInitialNLL
+        if not hasPreviousNLL:
             initialNLL = currentNLL
             hasInitialNLL = True
         elif currentNLL > previousNLL + (1.0e-12 * fmax(fabs(previousNLL), 1.0)):
             nllIncreaseCount += 1
 
-        nllDelta = fabs(currentNLL - previousNLL)
-        nllScale = fabs(previousNLL)
+        if hasPreviousNLL:
+            nllDelta = fabs(currentNLL - previousNLL)
+            nllScale = fabs(previousNLL)
+        else:
+            nllDelta = 0.0
+            nllScale = fabs(currentNLL)
         if fabs(currentNLL) > nllScale:
             nllScale = fabs(currentNLL)
         if nllScale < 1.0:
             nllScale = 1.0
-        relImprovement = (previousNLL - currentNLL) / nllScale
-        absRelChange = nllDelta / nllScale
+        if hasPreviousNLL:
+            relImprovement = (previousNLL - currentNLL) / nllScale
+            absRelChange = nllDelta / nllScale
+        else:
+            relImprovement = 0.0
+            absRelChange = 0.0
         nllTol = (<double>ECM_fixedBackgroundRtol) * nllScale
         previousNLL = currentNLL
-        fprintf(
-            stderr,
-            "\t[cfixedBackgroundECM] NLL=%.6f  REL=%+.6e  ABSREL=%.6e  THRESH=%.6e\n",
-            currentNLL,
-            relImprovement,
-            absRelChange,
-            nllTol,
-        )
+        if logIterations:
+            fprintf(
+                stderr,
+                "\t[cfixedBackgroundECM] NLL=%.6f  REL=%+.6e  ABSREL=%.6e  THRESH=%.6e\n",
+                currentNLL,
+                relImprovement,
+                absRelChange,
+                nllTol,
+            )
 
-        if nllDelta <= nllTol:
+        if hasPreviousNLL and nllDelta <= nllTol:
             stableIters += 1
         else:
             stableIters = 0
 
-        fprintf(
-            stderr,
-            "\t[cfixedBackgroundECM] stable=%zd/%zd\n",
-            stableIters, patienceTarget
-        )
+        if logIterations:
+            fprintf(
+                stderr,
+                "\t[cfixedBackgroundECM] stable=%zd/%zd\n",
+                stableIters, patienceTarget
+            )
 
         iterationConverged = stableIters >= patienceTarget
+        if progressBar is not None:
+            progressBar.set_postfix_str(
+                (
+                    f"NLL={currentNLL:.6g} rel={relImprovement:+.2e} "
+                    f"stable={int(stableIters)}/{int(patienceTarget)}"
+                ),
+                refresh=False,
+            )
+            progressBar.update(1)
         if trackOptimizationPath:
             optimizationPath.append({
                 "iter": int(itersDone),
                 "objective_name": "nll",
                 "objective_value": float(currentNLL),
-                "change": float(nllDelta),
-                "relative_improvement": float(relImprovement),
-                "abs_relative_change": float(absRelChange),
-                "threshold": float(nllTol),
+                "change": float(nllDelta) if hasPreviousNLL else None,
+                "relative_improvement": (
+                    float(relImprovement) if hasPreviousNLL else None
+                ),
+                "abs_relative_change": (
+                    float(absRelChange) if hasPreviousNLL else None
+                ),
+                "threshold": float(nllTol) if hasPreviousNLL else None,
                 "stable_iters": int(stableIters),
                 "patience_target": int(patienceTarget),
+                "reset_iteration": bool(not hasPreviousNLL),
                 "converged": bool(iterationConverged),
             })
         if iterationConverged:
             converged = True
-            fprintf(stderr, "\t[cfixedBackgroundECM] CONVERGED (ECM) iter=%zd \n", itersDone)
+            if logIterations:
+                fprintf(stderr, "\t[cfixedBackgroundECM] CONVERGED (ECM) iter=%zd \n", itersDone)
+            if progressBar is not None:
+                progressBar.set_postfix_str(f"converged iter={int(itersDone)}")
             break
 
     diagnostics = {
@@ -4579,20 +5198,19 @@ cpdef tuple cfixedBackgroundECM(
     return (itersDone, float(previousNLL))
 
 
-cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
+    int modelCode = 0,
     double maxBeta=0.99,
     double pairsRegLambda = 1.0,
     bint useInnovationVar = <bint>True,
 ):
-    r"""Estimate a rolling AR(1)-based variance track for a 1D array of values
+    r"""Estimate a rolling MUNC variance track for a 1D array of values
 
-    If ``useInnovationVar`` is true, returns the one-step AR(1) innovation variance.
-    If false, returns the local stationary/marginal AR(1) variance. MUNC uses the
-    marginal target because it is consumed as a diagonal observation variance by the
-    downstream state-space smoother.
+    ``modelCode`` dispatches between AR(1) marginal/innovation variance,
+    sample variance, and first/second-difference variance.
     """
 
     cdef Py_ssize_t numIntervals=values.shape[0]
@@ -4607,6 +5225,9 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef double sumY
     cdef double sumSqY
     cdef double sumLagProd
+    cdef double sumDiffSq
+    cdef double sumDiff2Sq
+    cdef int diff2Count
     cdef double nPairsDouble
     cdef double sumXSeq
     cdef double sumYSeq
@@ -4636,13 +5257,40 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cdef double gamma0
     cdef double oneMinusBetaSq
     cdef double innoVar
+    cdef double leavingValue
+    cdef double enteringValue
+    cdef double leavingDiffValue
+    cdef double enteringDiffValue
+    cdef double diff2Value
+    cdef double leavingDiff2Value
+    cdef double enteringDiff2Value
+
+    if (
+        modelCode != __MUNC_VARIANCE_MODEL_AR1
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D1
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D2
+    ):
+        raise ValueError("unsupported MUNC variance model code")
 
     varOut = np.empty(numIntervals,dtype=np.float32)
 
     if blockLength > numIntervals:
         blockLength = <int>numIntervals
 
-    if blockLength < 4:
+    if blockLength < 2:
+        varOut[:] = 0.0
+        return varOut
+
+    if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2 and blockLength < 3:
+        varOut[:] = 0.0
+        return varOut
+
+    if (
+        blockLength < 4
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D1
+        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D2
+    ):
         varOut[:] = 0.0
         return varOut
 
@@ -4655,7 +5303,10 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     sumY=0.0
     sumSqY=0.0
     sumLagProd=0.0
+    sumDiffSq=0.0
+    sumDiff2Sq=0.0
     maskSum=0
+    diff2Count=0
 
     with nogil:
         # initialize first
@@ -4666,13 +5317,48 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             maskSum += <int>maskView[elementIndex]
             if elementIndex < (blockLength - 1):
                 sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
+                if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D1:
+                    enteringDiffValue = valuesView[(elementIndex + 1)] - currentValue
+                    sumDiffSq += enteringDiffValue * enteringDiffValue
+            if (
+                modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2
+                and elementIndex < (blockLength - 2)
+                and maskView[elementIndex] == 0
+                and maskView[elementIndex + 1] == 0
+                and maskView[elementIndex + 2] == 0
+            ):
+                diff2Value = (
+                    valuesView[elementIndex + 2]
+                    - (2.0 * valuesView[elementIndex + 1])
+                    + currentValue
+                )
+                sumDiff2Sq += diff2Value * diff2Value
+                diff2Count += 1
 
         blockLengthDouble = <double>blockLength
 
         # sliding window until last block's start
         for startIndex in range(maxStartIndex + 1):
-            if maskSum != 0:
+            if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2:
+                if sumDiff2Sq < 0.0:
+                    sumDiff2Sq = 0.0
+                if diff2Count > 0:
+                    varAtView[startIndex]=<cnp.float32_t>(
+                        sumDiff2Sq / ((<double>diff2Count))
+                    )
+                else:
+                    varAtView[startIndex]=<cnp.float32_t>0.0
+            elif maskSum != 0:
                 varAtView[startIndex]=<cnp.float32_t>-1.0
+            elif modelCode == __MUNC_VARIANCE_MODEL_SVAR:
+                gamma0_num = sumSqY - ((sumY * sumY) / (<double>blockLength))
+                if gamma0_num < 0.0:
+                    gamma0_num = 0.0
+                varAtView[startIndex]=<cnp.float32_t>(gamma0_num / (<double>(blockLength - 1)))
+            elif modelCode == __MUNC_VARIANCE_MODEL_SVAR_D1:
+                varAtView[startIndex]=<cnp.float32_t>(
+                    sumDiffSq / (2.0 * (<double>(blockLength - 1)))
+                )
             else:
                 nPairsDouble = <double>(blockLength - 1)
                 previousValue = valuesView[startIndex]
@@ -4719,8 +5405,43 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
 
             if startIndex < maxStartIndex:
                 # slide window forward --> (previousSum - leavingValue) + enteringValue
-                sumY = (sumY-valuesView[startIndex]) + (valuesView[(startIndex + blockLength)])
-                sumSqY = sumSqY + (-(valuesView[startIndex]*valuesView[startIndex]) + (valuesView[(startIndex + blockLength)]*valuesView[(startIndex + blockLength)]))
+                leavingValue = valuesView[startIndex]
+                enteringValue = valuesView[(startIndex + blockLength)]
+                if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D1:
+                    leavingDiffValue = valuesView[(startIndex + 1)] - leavingValue
+                    enteringDiffValue = enteringValue - valuesView[(startIndex + blockLength - 1)]
+                    sumDiffSq = (
+                        sumDiffSq
+                        - (leavingDiffValue * leavingDiffValue)
+                        + (enteringDiffValue * enteringDiffValue)
+                    )
+                elif modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2:
+                    if (
+                        maskView[startIndex] == 0
+                        and maskView[startIndex + 1] == 0
+                        and maskView[startIndex + 2] == 0
+                    ):
+                        leavingDiff2Value = (
+                            valuesView[startIndex + 2]
+                            - (2.0 * valuesView[startIndex + 1])
+                            + leavingValue
+                        )
+                        sumDiff2Sq -= leavingDiff2Value * leavingDiff2Value
+                        diff2Count -= 1
+                    if (
+                        maskView[startIndex + blockLength - 2] == 0
+                        and maskView[startIndex + blockLength - 1] == 0
+                        and maskView[startIndex + blockLength] == 0
+                    ):
+                        enteringDiff2Value = (
+                            enteringValue
+                            - (2.0 * valuesView[startIndex + blockLength - 1])
+                            + valuesView[startIndex + blockLength - 2]
+                        )
+                        sumDiff2Sq += enteringDiff2Value * enteringDiff2Value
+                        diff2Count += 1
+                sumY = (sumY-leavingValue) + enteringValue
+                sumSqY = sumSqY + (-(leavingValue*leavingValue) + (enteringValue*enteringValue))
                 sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
                 maskSum = maskSum + (-<int>maskView[startIndex] + <int>maskView[(startIndex + blockLength)])
 
@@ -4734,6 +5455,26 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
             varOutView[regionIndex] = varAtView[startIndex]
 
     return varOut
+
+
+cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
+    cnp.ndarray[cnp.float32_t, ndim=1] values,
+    int blockLength,
+    cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
+    double maxBeta=0.99,
+    double pairsRegLambda = 1.0,
+    bint useInnovationVar = <bint>True,
+):
+    r"""Compatibility wrapper for the AR(1) rolling MUNC variance model."""
+    return crollingMuncVariance(
+        values,
+        blockLength,
+        excludeMask,
+        modelCode=__MUNC_VARIANCE_MODEL_AR1,
+        maxBeta=maxBeta,
+        pairsRegLambda=pairsRegLambda,
+        useInnovationVar=useInnovationVar,
+    )
 
 cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     object chromMat,
@@ -4779,7 +5520,7 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] cSF(
     # enforce _minimum distance_ between selected reference columns!
     # ... since we're working with adjacent genomic intervals, best
     # ... to avoid local correlations skewing the SF calculation.
-    # FFR: consider coupling minRefDist with `chooseDependenceLength`
+    # FFR: consider coupling minRefDist with sampled dependence span sizing
     cdef Py_ssize_t lastSelected = -minRefDist
     cdef Py_ssize_t prevSelected = -1
     cdef Py_ssize_t selectedCount = 0

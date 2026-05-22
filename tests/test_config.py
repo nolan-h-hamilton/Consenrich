@@ -427,7 +427,10 @@ def _case_readConfigUsesGenericDefaultConfiguration(
     assert parsed["processArgs"].regularizationRatio == pytest.approx(
         constants.PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO
     )
-    assert parsed["observationArgs"].useReplicateTrends is False
+    assert (
+        parsed["observationArgs"].useReplicateTrends
+        is constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS
+    )
 
 
 def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
@@ -483,13 +486,73 @@ def _case_runtime_defaults_are_centralized(
     assert parsed["fitArgs"].useNonnegativeBackground == profile[
         "fitParams.useNonnegativeBackground"
     ]
+    assert parsed["fitArgs"].backgroundNegativePenaltyMultiplier == profile[
+        "fitParams.backgroundNegativePenaltyMultiplier"
+    ]
+    assert parsed["observationArgs"].muncVarianceModel == profile[
+        "observationParams.muncVarianceModel"
+    ]
+    assert parsed["observationArgs"].muncTrendBlockSizeBP == profile[
+        "observationParams.muncTrendBlockSizeBP"
+    ]
+    assert parsed["observationArgs"].muncLocalWindowSizeBP == profile[
+        "observationParams.muncLocalWindowSizeBP"
+    ]
+    assert parsed["observationArgs"].muncTrendBlockDependenceMultiplier == profile[
+        "observationParams.muncTrendBlockDependenceMultiplier"
+    ]
+    assert parsed["observationArgs"].muncLocalWindowDependenceMultiplier == profile[
+        "observationParams.muncLocalWindowDependenceMultiplier"
+    ]
+    assert parsed["observationArgs"].restrictLocalVarianceToSparseBed == profile[
+        "observationParams.restrictLocalVarianceToSparseBed"
+    ]
+    assert consenrich_core.observationParams(
+        minR=parsed["observationArgs"].minR,
+        maxR=parsed["observationArgs"].maxR,
+        samplingIters=parsed["observationArgs"].samplingIters,
+        samplingBlockSizeBP=parsed["observationArgs"].samplingBlockSizeBP,
+        EB_use=parsed["observationArgs"].EB_use,
+        EB_setNu0=parsed["observationArgs"].EB_setNu0,
+        EB_setNuL=parsed["observationArgs"].EB_setNuL,
+        trendNumBasis=parsed["observationArgs"].trendNumBasis,
+        trendMinObsPerBasis=parsed["observationArgs"].trendMinObsPerBasis,
+        trendMinEdf=parsed["observationArgs"].trendMinEdf,
+        trendMaxEdf=parsed["observationArgs"].trendMaxEdf,
+        trendLambdaMin=parsed["observationArgs"].trendLambdaMin,
+        trendLambdaMax=parsed["observationArgs"].trendLambdaMax,
+        trendLambdaGridSize=parsed["observationArgs"].trendLambdaGridSize,
+        numNearest=parsed["observationArgs"].numNearest,
+        sparseSupportScaleBP=parsed["observationArgs"].sparseSupportScaleBP,
+        sparseSupportPrior=parsed["observationArgs"].sparseSupportPrior,
+        restrictLocalAR1ToSparseBed=parsed["observationArgs"].restrictLocalAR1ToSparseBed,
+        pad=parsed["observationArgs"].pad,
+    ).muncVarianceModel == constants.OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
+    assert parsed["countingArgs"].subtractGlobalMedian == profile[
+        "countingParams.subtractGlobalMedian"
+    ]
+    assert parsed["outputArgs"].saveBackgroundTracks == profile[
+        "outputParams.saveBackgroundTracks"
+    ]
     assert (
         parsed["outputArgs"].plotOptimizationPath
         is constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     )
     assert (
+        consenrich_core.outputParams(
+            convertToBigWig=parsed["outputArgs"].convertToBigWig,
+            roundDigits=parsed["outputArgs"].roundDigits,
+            writeUncertainty=parsed["outputArgs"].writeUncertainty,
+        ).saveBackgroundTracks
+        == constants.OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS
+    )
+    assert (
         consenrich_core.fitParams().useNonnegativeBackground
         == constants.FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND
+    )
+    assert (
+        consenrich_core.fitParams().backgroundNegativePenaltyMultiplier
+        == constants.FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
     )
     assert parsed["countingArgs"].replicateMedianDetrendWindowMultiplier == (
         constants.COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER
@@ -551,10 +614,12 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     countingParams.replicateMedianDetrend: false
     countingParams.replicateMedianDetrendWindowMultiplier: 3.0
     countingParams.gentleDetrendQuantile: 0.75
+    countingParams.subtractGlobalMedian: false
     processParams.regularizationStrength: 2.5
     processParams.regularizationRatio: 0.002
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
+    outputParams.saveBackgroundTracks: false
     uncertaintyCalibrationParams.enabled: false
     """
 
@@ -569,10 +634,12 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
         3.0
     )
     assert parsed["countingArgs"].gentleDetrendQuantile == pytest.approx(0.75)
+    assert parsed["countingArgs"].subtractGlobalMedian is False
     assert parsed["processArgs"].regularizationStrength == pytest.approx(2.5)
     assert parsed["processArgs"].regularizationRatio == pytest.approx(0.002)
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
+    assert parsed["outputArgs"].saveBackgroundTracks is False
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
 
 
@@ -686,6 +753,7 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     fitParams.ECM_zeroCenterBackground: false
     fitParams.ECM_zeroCenterReplicateBias: false
     fitParams.useNonnegativeBackground: false
+    fitParams.backgroundNegativePenaltyMultiplier: null
     fitParams.ECM_backgroundLengthScaleMultiplier: 6
     """
     parsedOverride = readConfig(
@@ -700,6 +768,7 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
     assert parsedOverride["fitArgs"].ECM_zeroCenterReplicateBias is False
     assert parsedOverride["fitArgs"].useNonnegativeBackground is False
+    assert parsedOverride["fitArgs"].backgroundNegativePenaltyMultiplier is None
     assert parsedOverride["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(
         6.0
     )
@@ -868,13 +937,19 @@ def _case_readConfigRestrictLocalAR1ToSparseBedRequiresAvailableSparseBed(
     )
     parsedNoSparse = readConfig(str(configNoSparsePath))
     assert parsedNoSparse["observationArgs"].restrictLocalAR1ToSparseBed is False
+    assert parsedNoSparse["observationArgs"].restrictLocalVarianceToSparseBed is False
 
     configExplicitSparse = f"""
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     genomeParams.sparseBedFile: {sparseBedPath}
-    observationParams.restrictLocalAR1ToSparseBed: true
+    observationParams.restrictLocalVarianceToSparseBed: true
+    observationParams.muncVarianceModel: svarD2
+    observationParams.muncTrendBlockSizeBP: 250
+    observationParams.muncLocalWindowSizeBP: 500
+    observationParams.muncTrendBlockDependenceMultiplier: 1.5
+    observationParams.muncLocalWindowDependenceMultiplier: 2.5
     """
     configExplicitSparsePath = writeConfigFile(
         tmp_path,
@@ -882,9 +957,62 @@ def _case_readConfigRestrictLocalAR1ToSparseBedRequiresAvailableSparseBed(
         configExplicitSparse,
     )
     parsedExplicitSparse = readConfig(str(configExplicitSparsePath))
-    assert (
-        parsedExplicitSparse["observationArgs"].restrictLocalAR1ToSparseBed is True
+    explicitObservationArgs = parsedExplicitSparse["observationArgs"]
+    assert explicitObservationArgs.restrictLocalAR1ToSparseBed is True
+    assert explicitObservationArgs.restrictLocalVarianceToSparseBed is True
+    assert explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_SVAR_D2
+    assert explicitObservationArgs.muncTrendBlockSizeBP == 250
+    assert explicitObservationArgs.muncLocalWindowSizeBP == 500
+    assert explicitObservationArgs.muncTrendBlockDependenceMultiplier == 1.5
+    assert explicitObservationArgs.muncLocalWindowDependenceMultiplier == 2.5
+
+    configFirstDifferenceModel = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.muncVarianceModel: svarD1
+    """
+    configFirstDifferenceModelPath = writeConfigFile(
+        tmp_path,
+        "config_svar_d1_munc_model.yaml",
+        configFirstDifferenceModel,
     )
+    parsedFirstDifferenceModel = readConfig(str(configFirstDifferenceModelPath))
+    assert (
+        parsedFirstDifferenceModel["observationArgs"].muncVarianceModel
+        == constants.MUNC_VARIANCE_MODEL_SVAR_D1
+    )
+
+    configSecondDifferenceModel = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.muncVarianceModel: svarD2
+    """
+    configSecondDifferenceModelPath = writeConfigFile(
+        tmp_path,
+        "config_svar_d2_munc_model.yaml",
+        configSecondDifferenceModel,
+    )
+    parsedSecondDifferenceModel = readConfig(str(configSecondDifferenceModelPath))
+    assert (
+        parsedSecondDifferenceModel["observationArgs"].muncVarianceModel
+        == constants.MUNC_VARIANCE_MODEL_SVAR_D2
+    )
+
+    configInvalidModel = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.muncVarianceModel: nope
+    """
+    configInvalidModelPath = writeConfigFile(
+        tmp_path,
+        "config_invalid_munc_model.yaml",
+        configInvalidModel,
+    )
+    with pytest.raises(ValueError, match="MUNC variance model"):
+        readConfig(str(configInvalidModelPath))
 
 
 def _case_loadSparseIntervalIndicesUsesBedSpan(tmp_path):
@@ -1336,6 +1464,43 @@ def _caseReplicateDetrendAutoDisabledForControlLogRatios():
     assert label == "no"
 
 
+def _caseGlobalMedianCenterAutoDisabledForControlLogRatios():
+    countingArgs = consenrich_core.countingParams(
+        intervalSizeBP=25,
+        backgroundBlockSizeBP=1000,
+        scaleFactors=None,
+        scaleFactorsControl=None,
+        normMethod="RPKM",
+        fragmentsGroupNorm="NONE",
+        fixControl=False,
+        logOffset=1.0,
+        logMult=1.0,
+        subtractGlobalMedian=True,
+    )
+
+    enabled, label = consenrich_cli._resolveGlobalMedianCenterStatus(
+        countingArgs,
+        controlsPresent=False,
+    )
+    assert enabled is True
+    assert label == "yes"
+
+    enabled, label = consenrich_cli._resolveGlobalMedianCenterStatus(
+        countingArgs,
+        controlsPresent=True,
+    )
+    assert enabled is False
+    assert label == "no (control log-ratio)"
+
+    disabledArgs = countingArgs._replace(subtractGlobalMedian=False)
+    enabled, label = consenrich_cli._resolveGlobalMedianCenterStatus(
+        disabledArgs,
+        controlsPresent=True,
+    )
+    assert enabled is False
+    assert label == "no"
+
+
 def _run_with_monkeypatch(monkeypatch, func, *args):
     with monkeypatch.context() as mp:
         return func(*args, mp)
@@ -1364,6 +1529,10 @@ def test_config_runtime_logging_and_validation_contracts(
     contract_case(
         "control log-ratio disables replicate detrend",
         _caseReplicateDetrendAutoDisabledForControlLogRatios,
+    )
+    contract_case(
+        "control log-ratio disables global median centering",
+        _caseGlobalMedianCenterAutoDisabledForControlLogRatios,
     )
     contract_case("fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite)
 
@@ -1425,14 +1594,20 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
                     "outer_objective_change_per_cell": None,
                     "outer_objective_threshold_per_cell": 0.01,
                     "outer_objective_stable": False,
+                    "background_shift": 0.25,
+                    "background_shift_threshold": 0.05,
+                    "background_shift_stable": False,
+                    "outer_stable_iters": 0,
+                    "outer_patience_target": 2,
                     "outer_inner_ecm_converged": False,
                     "optimization_path": [
                         {
                             "iter": 1,
                             "objective_name": "nll",
                             "objective_value": 20.0,
-                            "change": 1.0,
-                            "threshold": 0.1,
+                            "change": None,
+                            "threshold": None,
+                            "reset_iteration": True,
                             "converged": False,
                         },
                         {
@@ -1451,7 +1626,11 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     rows = consenrich_cli._flattenOptimizationPathDiagnostics("chrTest", diagnostics)
     assert [row["record_order"] for row in rows] == [0, 1, 2]
     assert rows[0]["path_level"] == "outer"
+    assert rows[0]["background_shift"] == 0.25
+    assert rows[0]["background_shift_stable"] is False
     assert rows[1]["path_level"] == "inner"
+    assert rows[1]["reset_iteration"] is True
+    assert rows[1]["change"] is None
     assert rows[-1]["final_solution"] is True
 
     logPath = tmp_path / "optimization.log"
@@ -1479,6 +1658,8 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             saveCalls.append((path, dpi))
 
     class FakeAxis:
+        transAxes = object()
+
         def plot(self, *args, **kwargs):
             return None
 
@@ -1503,9 +1684,21 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
         def legend(self, *args, **kwargs):
             return None
 
+        def text(self, *args, **kwargs):
+            return None
+
+        def axhline(self, *args, **kwargs):
+            return None
+
+        def set_yscale(self, *args, **kwargs):
+            return None
+
     fakeMatplotlib.use = lambda *args, **kwargs: None
     fakePyplot.rcParams = {}
-    fakePyplot.subplots = lambda *args, **kwargs: (FakeFigure(), FakeAxis())
+    fakePyplot.subplots = lambda *args, **kwargs: (
+        FakeFigure(),
+        FakeAxis(),
+    )
     fakePyplot.close = lambda *args, **kwargs: None
     fakeMatplotlib.pyplot = fakePyplot
     with monkeypatch.context() as mp:
@@ -1518,7 +1711,7 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             )
             is True
         )
-    assert saveCalls == [(str(tmp_path / "optimization.png"), 300)]
+    assert saveCalls == [(str(tmp_path / "optimization.png"), 400)]
     assert (
         consenrich_cli._optimizationPathPrefix("exp name", "chr1/random")
         == f"consenrichOutput_exp_name_chr1_random_optimizationPath.v{consenrich_cli.__version__}"

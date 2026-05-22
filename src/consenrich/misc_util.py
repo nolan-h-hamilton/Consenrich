@@ -15,6 +15,7 @@ import pandas as pd
 
 from scipy import signal, ndimage
 from . import ccounts
+from . import constants
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,6 +75,18 @@ def alignmentFilesArePairedEnd(
         )
     return results
 
+def isStandardAutosomalChromosome(chromosome: str) -> bool:
+    chrom = str(chromosome).strip()
+    if chrom in constants.NONSTANDARD_CHROMOSOME_NAMES:
+        return False
+    if chrom.lower().startswith("chr"):
+        chrom = chrom[3:]
+    if not chrom.isdigit():
+        return False
+    chromNumber = int(chrom)
+    return 1 <= chromNumber <= 22
+
+
 def getChromSizesDict(
     sizes_file: str,
     excludeRegex: str = r"^chr[A-Za-z0-9]+$",
@@ -87,6 +100,7 @@ def getChromSizesDict(
     """
     if excludeChroms is None:
         excludeChroms = []
+    excludeChromSet = set(excludeChroms) | set(constants.NONSTANDARD_CHROMOSOME_NAMES)
     return {
         k: v
         for k, v in pd.read_csv(
@@ -98,5 +112,5 @@ def getChromSizesDict(
         )["size"]
         .to_dict()
         .items()
-        if re.search(excludeRegex, k) is not None and k not in excludeChroms
+        if re.search(excludeRegex, k) is not None and k not in excludeChromSet
     }

@@ -715,6 +715,12 @@ def _calibrateStationaryNullDWB(
                 nullSoft, calibrationQuantile_, method="interpolated_inverted_cdf"
             )
         )
+        observedTailOccupancy = float(metrics["observed_tail_occupancy"])
+        nullTailOccupancyCalibrated = float(nullOccCal)
+        budgetOccupancyRaw = observedTailOccupancy - nullTailOccupancyCalibrated
+        if not np.isfinite(budgetOccupancyRaw):
+            budgetOccupancyRaw = 0.0
+        budgetOccupancyRaw = float(max(budgetOccupancyRaw, 0.0))
         metrics.update(
             {
                 "null_tail_occupancy": float(np.mean(nullOcc)),
@@ -727,11 +733,7 @@ def _calibrateStationaryNullDWB(
                 "null_soft_tail_sd": (
                     float(np.std(nullSoft, ddof=1)) if numBootstrap_ > 1 else 0.0
                 ),
-                "budget_occupancy_raw": float(
-                    np.clip(
-                        float(metrics["observed_tail_occupancy"]) - nullOccCal, 0.0, 1.0
-                    )
-                ),
+                "budget_occupancy_raw": float(budgetOccupancyRaw),
                 "budget_soft_raw": float(
                     np.clip(
                         float(metrics["observed_soft_tail"]) - nullSoftCal, 0.0, 1.0
@@ -1296,7 +1298,7 @@ def _preparedStationaryNullDWBMatches(
 
 def _estimateBudgetForPreparedROCCOScore(
     prepared: Dict[str, Any],
-    statistic: str = "integrated",
+    statistic: str = "occupancy",
     numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
     dependenceSpan: int | None = None,
     kernel: str = "bartlett",
@@ -1335,6 +1337,8 @@ def _estimateBudgetForPreparedROCCOScore(
         selectedStatistic = "integrated_excess_tail"
     elif statistic_ in {
         "occupancy",
+        "calibrated_occupancy",
+        "calibrated_tail_occupancy",
         "tail_fraction",
         "fraction",
         "tail",
@@ -1542,7 +1546,7 @@ def getROCCOBudget(
     state: npt.ArrayLike,
     uncertainty: npt.ArrayLike | None = None,
     tau0: float = 1.0,
-    statistic: str = "integrated",
+    statistic: str = "occupancy",
     numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
     dependenceSpan: int | None = None,
     kernel: str = "bartlett",
@@ -3590,7 +3594,7 @@ def solveRocco(
             "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
             "blacklist_filter_policy": "drop_any_overlap",
             "tau0": float(tau0),
-            "budget_method": "dwb_integrated_excess_tail",
+            "budget_method": "dwb_tail_occupancy",
             "null_calibration_method": "stationary_null_dwb",
             "num_bootstrap": int(numBootstrap),
             "threshold_z": float(thresholdZ),
@@ -3669,7 +3673,7 @@ def solveRocco(
         scoreTrack = np.asarray(prepared["score_track"], dtype=np.float64)
         budgetRaw, budgetDetails = _estimateBudgetForPreparedROCCOScore(
             prepared,
-            statistic="integrated",
+            statistic="occupancy",
             numBootstrap=numBootstrap,
             dependenceSpan=dependenceSpan,
             thresholdZ=thresholdZ,

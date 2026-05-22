@@ -436,6 +436,33 @@ def _caseCTransformInPlaceMatchesAllocatingTransformForFloat64():
 
 
 @pytest.mark.correctness
+def _caseSubtractGlobalMedianCentersEachTrackInPlace():
+    tracks = np.array(
+        [
+            [1.0, 2.0, 100.0, 4.0, 5.0],
+            [-8.0, -4.0, -2.0, 0.0, 3.0],
+        ],
+        dtype=np.float32,
+    )
+    original = tracks.copy()
+
+    stats_ = core.subtractGlobalMedianInPlace(tracks)
+
+    assert stats_["applied"] is True
+    assert stats_["applied_tracks"] == tracks.shape[0]
+    np.testing.assert_allclose(
+        np.asarray(stats_["track_medians"]),
+        np.median(original.astype(np.float64), axis=1),
+    )
+    np.testing.assert_allclose(
+        np.median(tracks.astype(np.float64), axis=1),
+        np.zeros(tracks.shape[0], dtype=np.float64),
+        atol=1.0e-7,
+    )
+    assert not np.allclose(tracks, original)
+
+
+@pytest.mark.correctness
 def _caseQuantileFilterSubtractsUncenteredTrendInPlace():
     x = np.linspace(8.0, 10.0, 101, dtype=np.float32)
     x[50] += 4.0
@@ -802,29 +829,26 @@ def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
         zeroCenter=False,
         useNonnegative=True,
     )
-
-    assert float(np.min(unconstrained)) < 0.0
-    assert float(np.min(constrained)) >= -1.0e-6
-    assert float(np.max(constrained)) > 0.0
-    assert not np.allclose(constrained, unconstrained)
-
-    weightTrack = np.sum(invVarMatrix.astype(np.float64), axis=0)
-    rhsTrack = np.sum(
-        invVarMatrix.astype(np.float64) * residualMatrix.astype(np.float64),
-        axis=0,
-    )
-    lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
+    disabled = core._solveZeroCenteredBackground(
+        residualMatrix=residualMatrix,
+        invVarMatrix=invVarMatrix,
         blockLenIntervals=4,
         backgroundSmoothness=0.5,
+        zeroCenter=False,
+        useNonnegative=True,
+        backgroundNegativePenaltyMultiplier=None,
     )
-    systemMat = core.sparse.diags(weightTrack, offsets=0, format="csr")
-    systemMat = systemMat + (lamFirst * core._buildFirstDiffPenalty(weightTrack.size))
-    systemMat = systemMat + (lamSecond * core._buildSecondDiffPenalty(weightTrack.size))
-    gradient = np.asarray(systemMat @ constrained.astype(np.float64)) - rhsTrack
-    freeMask = constrained > 1.0e-5
-    activeMask = ~freeMask
-    assert np.max(np.abs(gradient[freeMask])) < 1.0e-4
-    assert np.min(gradient[activeMask]) >= -1.0e-4
+
+    def negativeEnergy(values: np.ndarray) -> float:
+        arr = np.asarray(values, dtype=np.float64)
+        return float(np.sum(np.minimum(arr, 0.0) ** 2, dtype=np.float64))
+
+    assert float(np.min(unconstrained)) < 0.0
+    assert np.isfinite(constrained).all()
+    assert float(np.max(constrained)) > 0.0
+    assert not np.allclose(constrained, unconstrained)
+    assert negativeEnergy(constrained) < negativeEnergy(unconstrained)
+    np.testing.assert_allclose(disabled, unconstrained)
 
     stiffX = np.linspace(-1.0, 1.0, 30, dtype=np.float32)
     stiffResidualMatrix = np.vstack(
@@ -851,36 +875,11 @@ def _caseBackgroundUpdateCanEnforceNonnegativeConstraint():
         zeroCenter=False,
         useNonnegative=True,
     ).astype(np.float64)
-    stiffWeightTrack = np.sum(stiffInvVarMatrix.astype(np.float64), axis=0)
-    stiffRhsTrack = np.sum(
-        stiffInvVarMatrix.astype(np.float64)
-        * stiffResidualMatrix.astype(np.float64),
-        axis=0,
-    )
-    stiffLamFirst, stiffLamSecond = core._backgroundPenaltyWeightsFromSpan(
-        blockLenIntervals=80,
-        backgroundSmoothness=1.0,
-    )
-    stiffSystemMat = core.sparse.diags(
-        stiffWeightTrack,
-        offsets=0,
-        format="csr",
-    )
-    stiffSystemMat = stiffSystemMat + (
-        stiffLamFirst * core._buildFirstDiffPenalty(stiffWeightTrack.size)
-    )
-    stiffSystemMat = stiffSystemMat + (
-        stiffLamSecond * core._buildSecondDiffPenalty(stiffWeightTrack.size)
-    )
-
-    def _objective(background: np.ndarray) -> float:
-        return 0.5 * float(background @ (stiffSystemMat @ background)) - float(
-            stiffRhsTrack @ background
-        )
 
     assert float(np.min(stiffUnconstrained)) < 0.0
-    assert float(np.min(stiffConstrained)) >= -1.0e-6
-    assert _objective(stiffConstrained) < _objective(stiffClipped)
+    assert np.isfinite(stiffConstrained).all()
+    assert negativeEnergy(stiffConstrained) < negativeEnergy(stiffUnconstrained)
+    assert not np.allclose(stiffConstrained, stiffClipped)
 
 
 @pytest.mark.correctness
@@ -1491,14 +1490,18 @@ def _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel():
 
     assert matrixQ[0, 1] == pytest.approx(0.0)
     assert matrixQ[1, 0] == pytest.approx(0.0)
-    assert blockInfo["processNoisePolicy"] == "blockHierarchicalEB"
+    assert blockInfo["processNoisePolicy"] == "EB_MAP"
+    assert blockInfo["blockMode"] == "non_overlapping"
     assert blockInfo["validBlockCount"] > 0
     assert blockInfo["validRatioBlockCount"] > 0
-    assert blockInfo["repeatCount"] >= 1
+    assert "repeatCount" not in blockInfo
+    assert "logQLevelMean" not in blockInfo
     assert blockInfo["qLevel"] == pytest.approx(changedKnobInfo["qLevel"])
-    assert blockInfo["qTrend"] == pytest.approx(changedKnobInfo["qTrend"])
+    assert blockInfo["qTrend"] != pytest.approx(changedKnobInfo["qTrend"])
     assert blockInfo["effectiveTrendLevelRatio"] > 0.0
+    assert changedKnobInfo["effectiveTrendLevelRatio"] > blockInfo["effectiveTrendLevelRatio"]
     assert "q_level" not in blockInfo
+    assert blockInfo["qFloor"] == pytest.approx(core.PROCESS_NOISE_NUMERICAL_FLOOR)
 
     levelState = np.asarray([[0.0], [0.2], [0.5], [0.9]], dtype=np.float32)
     levelCovar = np.zeros((levelState.shape[0], 1, 1), dtype=np.float32)
@@ -1517,8 +1520,10 @@ def _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel():
     )
     assert matrixQLevel[0, 0] > 0.0
     assert levelInfo["qTrend"] == pytest.approx(0.0)
-    assert levelInfo["logRatioPriorDf"] == pytest.approx(0.0)
-    assert levelInfo["processNoisePolicy"] == "blockHierarchicalEB"
+    assert levelInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
+    assert levelInfo["ratioPriorDfUsed"] == pytest.approx(0.0)
+    assert levelInfo["q11PaddingOnly"] is True
+    assert levelInfo["processNoisePolicy"] == "EB_MAP"
 
     matrixQClamped, clampedInfo = core._estimateWarmupProcessNoiseCalibration(
         stateSmoothed=stateSmoothed * 10.0,
@@ -1534,6 +1539,7 @@ def _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel():
     )
     assert matrixQClamped[0, 0] == pytest.approx(0.05)
     assert clampedInfo["qLevel"] == pytest.approx(0.05)
+    assert clampedInfo["hitQLevelCap"] is True
 
 
 @pytest.mark.correctness
@@ -1552,6 +1558,14 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         ]
     ).astype(np.float32)
     matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
+    assert core._stateSignChangePerKB(
+        np.asarray([1.0, -0.005, 1.0], dtype=np.float32),
+        intervalSizeBP=1000,
+    ) == pytest.approx(0.0)
+    assert core._stateSignChangePerKB(
+        np.asarray([1.0, -0.02, 1.0], dtype=np.float32),
+        intervalSizeBP=1000,
+    ) == pytest.approx(2.0 / 3.0)
 
     caplog.set_level(logging.INFO, logger=core.logger.name)
     out = core.runConsenrich(
@@ -1566,6 +1580,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         stateLowerBound=0.0,
         stateUpperBound=0.0,
         blockLenIntervals=8,
+        intervalSizeBP=1000,
         ECM_fixedBackgroundIters=3,
         ECM_outerIters=2,
         processNoiseWarmupECMIters=1,
@@ -1581,6 +1596,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         *_rest,
         diagnostics,
     ) = out
+    assert len(out) == 6
     assert stateSmoothed.shape == (n, 2)
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert postFitResiduals.shape == (n, m)
@@ -1597,26 +1613,100 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert "PHASE: CORE START" in caplog.text
     assert "PHASE: POST-PROCESS-NOISE FIT" in caplog.text
     assert "      | PHASE: POST-PROCESS-NOISE FIT" in caplog.text
-    assert "            | PHASE: POST-PROCESS-NOISE FIT / FIXED-BACKGROUND ECM" in caplog.text
+    assert "            | PHASE: INNER ECM FIT / FIXED-BACKGROUND" in caplog.text
     assert "proc precision weights" in caplog.text
     assert "backgroundTarget[" in caplog.text
     assert "backgroundSolve[" in caplog.text
+    assert "backgroundObjectivePerCell=" in caplog.text
+    assert "backgroundObjectiveChangePerCell=" in caplog.text
+    assert "backgroundObjectiveThresholdPerCell=" in caplog.text
+    assert "qLevelPriorMode=" in caplog.text
+    assert "qLevelDataEstimate=" in caplog.text
+    assert "qLevelPriorDf=" in caplog.text
+    assert "ratioPriorDf=" in caplog.text
     assert "lambdaMean=" in caplog.text
     assert "lambdaMedian=" in caplog.text
+    assert "signChangePerKB=" in caplog.text
+    assert "lambdaLowerBoundHits=" in caplog.text
+    assert "lambdaUpperBoundHits=" in caplog.text
+    assert "kappaLowerBoundHits=" in caplog.text
+    assert "kappaUpperBoundHits=" in caplog.text
     assert "PHASE: POST-PROCESS-NOISE FIT SUMMARY" in caplog.text
     fitDiagnostics = diagnostics["post_process_noise_fit"]["fixed_background_ecm"]
     assert fitDiagnostics
-    assert "observation_lambda_mean" in fitDiagnostics[-1]
-    assert "observation_lambda_median" in fitDiagnostics[-1]
-    traceRows = fitDiagnostics[-1]["optimization_path"]
+    backgroundPassDiagnostics = [
+        item for item in fitDiagnostics if not item.get("final_fixed_background_ecm")
+    ]
+    assert backgroundPassDiagnostics
+    assert "observation_lambda_mean" in backgroundPassDiagnostics[-1]
+    assert "observation_lambda_median" in backgroundPassDiagnostics[-1]
+    assert "background_objective_per_cell" in backgroundPassDiagnostics[-1]
+    assert "background_objective_change_per_cell" in backgroundPassDiagnostics[-1]
+    assert "background_objective_threshold_per_cell" in backgroundPassDiagnostics[-1]
+    assert "observation_lambda_lower_bound_hits" in backgroundPassDiagnostics[-1]
+    assert "observation_lambda_upper_bound_hits" in backgroundPassDiagnostics[-1]
+    assert "process_kappa_lower_bound_hits" in backgroundPassDiagnostics[-1]
+    assert "process_kappa_upper_bound_hits" in backgroundPassDiagnostics[-1]
+    assert (
+        0.0
+        <= backgroundPassDiagnostics[-1]["observation_lambda_lower_bound_hits"]
+        <= 1.0
+    )
+    assert (
+        0.0
+        <= backgroundPassDiagnostics[-1]["observation_lambda_upper_bound_hits"]
+        <= 1.0
+    )
+    assert (
+        0.0 <= backgroundPassDiagnostics[-1]["process_kappa_lower_bound_hits"] <= 1.0
+    )
+    assert (
+        0.0 <= backgroundPassDiagnostics[-1]["process_kappa_upper_bound_hits"] <= 1.0
+    )
+    assert backgroundPassDiagnostics[-1]["sign_change_per_kb"] >= 0.0
+    finalFixedDiagnostics = fitDiagnostics[-1]
+    assert finalFixedDiagnostics["final_fixed_background_ecm"] is True
+    assert "final_abs_rel_change" in finalFixedDiagnostics
+    assert "stable_iters" in finalFixedDiagnostics
+    assert "patience_target" in finalFixedDiagnostics
+    assert finalFixedDiagnostics["sign_change_per_kb"] >= 0.0
+    assert "background_objective_per_cell" not in finalFixedDiagnostics
+    assert "outer_objective_per_cell" not in finalFixedDiagnostics
+    traceRows = finalFixedDiagnostics["optimization_path"]
     assert traceRows
     assert [row["iter"] for row in traceRows] == sorted(
         row["iter"] for row in traceRows
     )
+    assert traceRows[0]["reset_iteration"] is True
+    assert traceRows[0]["change"] is None
+    assert traceRows[0]["threshold"] is None
+
+    backgroundOut = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.1,
+        minQ=1.0e-3,
+        maxQ=1.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=8,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        processNoiseWarmupECMIters=1,
+        returnBackground=True,
+    )
+    assert len(backgroundOut) == 6
+    background = np.asarray(backgroundOut[-1])
+    assert background.shape == (n,)
+    assert np.isfinite(background).all()
     assert all(np.isfinite(float(row["objective_value"])) for row in traceRows)
     assert all(row["objective_name"] == "nll" for row in traceRows)
     qInfo = diagnostics["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "blockHierarchicalEB"
+    assert qInfo["processNoisePolicy"] == "EB_MAP"
+    assert qInfo["blockMode"] == "non_overlapping"
     assert diagnostics["process_q_calibration"] == qInfo
     assert qInfo["qLevel"] > 0.0
     assert qInfo["qTrend"] > 0.0
@@ -1641,8 +1731,42 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         returnDiagnostics=True,
     )
     changedInfo = outChangedKnobs[-1]["process_noise_calibration"]
-    assert changedInfo["qLevel"] == pytest.approx(qInfo["qLevel"])
-    assert changedInfo["qTrend"] == pytest.approx(qInfo["qTrend"])
+    assert changedInfo["processNoisePolicy"] == "EB_MAP"
+    assert changedInfo["qTrend"] > 0.0
+
+
+@pytest.mark.correctness
+def _caseRunConsenrichFlatWarmupInitializerDoesNotUseMinQ():
+    n = 24
+    m = 3
+    matrixData = np.full((m, n), 0.25, dtype=np.float32)
+    matrixMunc = np.full((m, n), 0.20, dtype=np.float32)
+
+    out = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.1,
+        minQ=5.0e-2,
+        maxQ=1.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=6,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        ECM_useProcessPrecisionReweighting=False,
+        processNoiseWarmupECMIters=1,
+        returnDiagnostics=True,
+    )
+
+    qInfo = out[-1]["process_noise_calibration"]
+    assert qInfo["processNoisePolicy"] == "EB_MAP"
+    assert qInfo["qLevel"] >= core.PROCESS_NOISE_NUMERICAL_FLOOR
+    assert qInfo["qLevel"] < 5.0e-2
+    assert qInfo["matrixQ0Final"][0][0] == pytest.approx(qInfo["qLevel"])
 
 
 @pytest.mark.correctness
@@ -1654,7 +1778,7 @@ def _caseRunConsenrichWarnsWhenNonnegativeBackgroundIsZeroCentered(caplog):
     matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
 
     caplog.set_level(logging.WARNING, logger=core.logger.name)
-    core.runConsenrich(
+    out = core.runConsenrich(
         matrixData,
         matrixMunc,
         deltaF=0.1,
@@ -1673,10 +1797,40 @@ def _caseRunConsenrichWarnsWhenNonnegativeBackgroundIsZeroCentered(caplog):
         useNonnegativeBackground=True,
         ECM_zeroCenterBackground=True,
         initialProcessQ=np.diag([1.0e-3, 1.0e-5]).astype(np.float32),
+        returnBackground=True,
         returnDiagnostics=True,
     )
+    background = out[-2]
 
-    assert "only the zero background feasible" in caplog.text
+    assert "penalizing negative values may pull the shared background toward zero" in caplog.text
+    assert "only the zero background feasible" not in caplog.text
+    assert np.isfinite(background).all()
+    assert abs(float(np.mean(background))) < 1.0e-5
+
+    caplog.clear()
+    core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=0.1,
+        minQ=1.0e-3,
+        maxQ=1.0,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=4,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        ECM_minOuterIters=1,
+        fitBackground=True,
+        useNonnegativeBackground=True,
+        backgroundNegativePenaltyMultiplier=None,
+        ECM_zeroCenterBackground=True,
+        initialProcessQ=np.diag([1.0e-3, 1.0e-5]).astype(np.float32),
+        returnDiagnostics=True,
+    )
+    assert "penalizing negative values may pull the shared background toward zero" not in caplog.text
 
 
 @pytest.mark.correctness
@@ -1736,11 +1890,12 @@ def _caseRunConsenrichLevelStateModelSmoke():
     )
     qInfo = runDiagnostics["process_noise_calibration"]
     assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
-    assert qInfo["processNoisePolicy"] == "blockHierarchicalEB"
+    assert qInfo["processNoisePolicy"] == "EB_MAP"
     assert qInfo["qLevel"] > 0.0
     assert qInfo["qTrend"] == pytest.approx(0.0)
     assert qInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
-    assert qInfo["logRatioPriorDf"] == pytest.approx(0.0)
+    assert qInfo["ratioPriorDfUsed"] == pytest.approx(0.0)
+    assert qInfo["q11PaddingOnly"] is True
 
 
 @pytest.mark.correctness
@@ -1761,9 +1916,11 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
 
     originalECM = cconsenrich.cfixedBackgroundECM
     ecmModes = []
+    ecmLogIterations = []
 
     def _spyECM(*args, **kwargs):
         result = originalECM(*args, **kwargs)
+        ecmLogIterations.append(bool(kwargs.get("logIterations", True)))
         ecmModes.append(
             (
                 bool(kwargs.get("ECM_useProcessPrecisionReweighting")),
@@ -1803,6 +1960,9 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     )
     assert all(mode == (False, False) for mode in ecmModes[:firstPostQIndex])
     assert all(mode == (True, False) for mode in ecmModes[firstPostQIndex:])
+    assert all(flag is False for flag in ecmLogIterations[:firstPostQIndex])
+    assert any(flag is True for flag in ecmLogIterations[firstPostQIndex:])
+    assert ecmLogIterations[-1] is False
     stateSmoothed, stateCovarSmoothed, *_ = out
     diagnostics = out[-1]
     assert stateSmoothed.shape == (n, 2)
@@ -1825,7 +1985,10 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     assert "outer_nll_change" in diagnostics["post_process_noise_fit"]
     assert "outer_objective_change_per_cell" in diagnostics["post_process_noise_fit"]
     assert diagnostics["post_process_noise_fit"]["outer_patience_target"] == 2
-    assert diagnostics["process_noise_calibration"]["qLevel"] >= 1.0e-3
+    assert diagnostics["process_noise_calibration"]["processNoisePolicy"] == "EB_MAP"
+    assert diagnostics["process_noise_calibration"]["qLevel"] >= (
+        core.PROCESS_NOISE_NUMERICAL_FLOOR
+    )
 
 
 @pytest.mark.correctness
@@ -1925,12 +2088,24 @@ def _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance(monkeypat
         initialProcessQ=np.diag([1.0e-3, 1.0e-5]).astype(np.float32),
     )
 
-    core.runConsenrich(**commonKwargs, ECM_outerIters=5, ECM_outerNLLRtol=1.0e9)
-    assert len(calls) == 3
+    out = core.runConsenrich(
+        **commonKwargs,
+        ECM_outerIters=5,
+        ECM_outerNLLRtol=1.0e9,
+        returnDiagnostics=True,
+    )
+    assert len(calls) == 4
+    assert out[-1]["post_process_noise_fit"]["actual_outer_passes"] == 3
+    assert (
+        out[-1]["post_process_noise_fit"]["fixed_background_ecm"][-1][
+            "final_fixed_background_ecm"
+        ]
+        is True
+    )
 
     calls.clear()
     core.runConsenrich(**commonKwargs, ECM_outerIters=2, ECM_outerNLLRtol=1.0e9)
-    assert len(calls) == 3
+    assert len(calls) == 4
 
     calls.clear()
     core.runConsenrich(
@@ -1939,7 +2114,7 @@ def _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance(monkeypat
         ECM_minOuterIters=1,
         ECM_outerNLLRtol=1.0e9,
     )
-    assert len(calls) == 1
+    assert len(calls) == 2
 
     calls.clear()
     core.runConsenrich(
@@ -2512,7 +2687,7 @@ def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(
         cconsenrich,
-        "crolling_AR1_IVar",
+        "crollingMuncVariance",
         _fakeRolling,
     )
     monkeypatch.setattr(
@@ -2603,7 +2778,7 @@ def _caseGetMuncTrackClipsHugePriorBeforeShrinkage(
         return np.full(values.shape, 1.0e100, dtype=np.float64)
 
     monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
-    monkeypatch.setattr(cconsenrich, "crolling_AR1_IVar", _fakeRolling)
+    monkeypatch.setattr(cconsenrich, "crollingMuncVariance", _fakeRolling)
     monkeypatch.setattr(
         core, "fitPSplineLogVarianceTrend", _fakeFitPSplineLogVarianceTrend
     )
@@ -2653,7 +2828,7 @@ def _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
     monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
     monkeypatch.setattr(
         cconsenrich,
-        "crolling_AR1_IVar",
+        "crollingMuncVariance",
         lambda *args, **kwargs: localVarTrack.copy(),
     )
     monkeypatch.setattr(
@@ -2718,7 +2893,7 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
     monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
     monkeypatch.setattr(
         cconsenrich,
-        "crolling_AR1_IVar",
+        "crollingMuncVariance",
         lambda *args, **kwargs: localVarTrack.copy(),
     )
     monkeypatch.setattr(
@@ -2806,6 +2981,202 @@ def _caseRollingAR1CanReturnMarginalVarianceInsteadOfInnovation():
 
 
 @pytest.mark.correctness
+def _caseMuncSizingAndCythonVarianceModels():
+    intervalSizeBP = 25
+    legacySizing = core._resolveMuncRuntimeSizing(
+        intervalSizeBP=intervalSizeBP,
+        dependenceContextBP=1000,
+        samplingBlockSizeBP=125,
+        muncTrendBlockSizeBP=None,
+        muncLocalWindowSizeBP=None,
+    )
+    assert legacySizing.usedLegacySamplingBlockSize is True
+    assert legacySizing.localWindowIntervals == legacySizing.trendBlockIntervals + 1
+
+    explicitSizing = core._resolveMuncRuntimeSizing(
+        intervalSizeBP=intervalSizeBP,
+        dependenceContextBP=1000,
+        samplingBlockSizeBP=125,
+        muncTrendBlockSizeBP=250,
+        muncLocalWindowSizeBP=500,
+    )
+    assert explicitSizing.usedLegacySamplingBlockSize is False
+    assert explicitSizing.trendBlockSizeBP == 250
+    assert explicitSizing.localWindowSizeBP == 500
+
+    dependenceSizing = core._resolveMuncRuntimeSizing(
+        intervalSizeBP=intervalSizeBP,
+        dependenceContextBP=None,
+        dependenceSpanIntervals=17,
+        samplingBlockSizeBP=None,
+        muncTrendBlockSizeBP=None,
+        muncLocalWindowSizeBP=None,
+        muncTrendBlockDependenceMultiplier=1.5,
+        muncLocalWindowDependenceMultiplier=2.5,
+    )
+    assert dependenceSizing.usedDependenceSpan is True
+    assert dependenceSizing.dependenceSpanIntervals == 17
+    assert dependenceSizing.trendBlockIntervals == 26
+    assert dependenceSizing.localWindowIntervals == 43
+
+    rng = np.random.default_rng(123)
+    n = 2048
+    trend = np.linspace(-4.0, 4.0, n, dtype=np.float64)
+    values = (trend + rng.normal(scale=0.1, size=n)).astype(np.float32)
+    excludeMask = np.zeros(n, dtype=np.uint8)
+    svarTrack = cconsenrich.crollingMuncVariance(
+        values,
+        101,
+        excludeMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR,
+    )
+    ar1Track = cconsenrich.crollingMuncVariance(
+        values,
+        101,
+        excludeMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
+        useInnovationVar=False,
+    )
+    firstDifferenceTrack = cconsenrich.crollingMuncVariance(
+        values,
+        101,
+        excludeMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D1,
+    )
+    secondDifferenceTrack = cconsenrich.crollingMuncVariance(
+        values,
+        101,
+        excludeMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
+    )
+
+    assert np.all(np.isfinite(svarTrack))
+    assert np.all(np.isfinite(ar1Track))
+    assert np.all(np.isfinite(firstDifferenceTrack))
+    assert np.all(np.isfinite(secondDifferenceTrack))
+    assert float(np.median(firstDifferenceTrack)) < float(np.median(svarTrack))
+    assert float(np.median(secondDifferenceTrack)) < float(np.median(svarTrack))
+
+    referenceValues = (
+        np.linspace(-0.5, 0.7, 96, dtype=np.float64)
+        + rng.normal(scale=0.03, size=96)
+    ).astype(np.float32)
+    referenceMask = np.zeros(referenceValues.size, dtype=np.uint8)
+    windowLength = 17
+    fastFirstDifferenceTrack = cconsenrich.crollingMuncVariance(
+        referenceValues,
+        windowLength,
+        referenceMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D1,
+    )
+    fastSecondDifferenceTrack = cconsenrich.crollingMuncVariance(
+        referenceValues,
+        windowLength,
+        referenceMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
+    )
+    starts = np.clip(
+        np.arange(referenceValues.size) - (windowLength // 2),
+        0,
+        referenceValues.size - windowLength,
+    )
+
+    referenceFirstDifferenceTrack = np.empty(referenceValues.size, dtype=np.float64)
+    for outIndex, start in enumerate(starts):
+        window = referenceValues[start : start + windowLength].astype(np.float64)
+        windowDiff = np.diff(window)
+        referenceFirstDifferenceTrack[outIndex] = np.sum(windowDiff * windowDiff) / (
+            2.0 * windowDiff.size
+        )
+    np.testing.assert_allclose(
+        fastFirstDifferenceTrack,
+        referenceFirstDifferenceTrack,
+        rtol=1.0e-6,
+        atol=1.0e-7,
+    )
+
+    referenceSecondDifferenceTrack = np.empty(referenceValues.size, dtype=np.float64)
+    for outIndex, start in enumerate(starts):
+        window = referenceValues[start : start + windowLength].astype(np.float64)
+        windowDiff = np.diff(window, n=2)
+        referenceSecondDifferenceTrack[outIndex] = np.sum(windowDiff * windowDiff) / (
+            6.0 * windowDiff.size
+        )
+    np.testing.assert_allclose(
+        fastSecondDifferenceTrack,
+        referenceSecondDifferenceTrack,
+        rtol=1.0e-6,
+        atol=1.0e-7,
+    )
+
+    maskedReferenceMask = referenceMask.copy()
+    maskedReferenceMask[20] = 1
+    fastMaskedSecondDifferenceTrack = cconsenrich.crollingMuncVariance(
+        referenceValues,
+        windowLength,
+        maskedReferenceMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
+    )
+    referenceMaskedSecondDifferenceTrack = np.empty(referenceValues.size, dtype=np.float64)
+    for outIndex, start in enumerate(starts):
+        window = referenceValues[start : start + windowLength].astype(np.float64)
+        windowMask = maskedReferenceMask[start : start + windowLength].astype(bool)
+        validDiff = ~(windowMask[:-2] | windowMask[1:-1] | windowMask[2:])
+        windowDiff = np.diff(window, n=2)[validDiff]
+        referenceMaskedSecondDifferenceTrack[outIndex] = (
+            np.sum(windowDiff * windowDiff) / (6.0 * windowDiff.size)
+            if windowDiff.size
+            else 0.0
+        )
+    np.testing.assert_allclose(
+        fastMaskedSecondDifferenceTrack,
+        referenceMaskedSecondDifferenceTrack,
+        rtol=1.0e-6,
+        atol=1.0e-7,
+    )
+
+    blockMeans, blockVars, blockStarts, blockEnds = cconsenrich.cmeanVarPairs(
+        np.arange(referenceValues.size, dtype=np.uint32),
+        referenceValues,
+        windowLength,
+        16,
+        123,
+        referenceMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D1,
+    )
+    assert np.all(np.isfinite(blockMeans))
+    assert np.all(np.isfinite(blockVars))
+    for blockVar, blockStart, blockEnd in zip(blockVars, blockStarts, blockEnds):
+        block = referenceValues[blockStart:blockEnd].astype(np.float64)
+        blockDiff = np.diff(block)
+        referenceBlockVar = np.sum(blockDiff * blockDiff) / (2.0 * blockDiff.size)
+        assert float(blockVar) == pytest.approx(float(referenceBlockVar), rel=1.0e-6)
+
+    blockMeans, blockVars, blockStarts, blockEnds = cconsenrich.cmeanVarPairs(
+        np.arange(referenceValues.size, dtype=np.uint32),
+        referenceValues,
+        windowLength,
+        16,
+        123,
+        referenceMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
+    )
+    assert np.all(np.isfinite(blockMeans))
+    assert np.all(np.isfinite(blockVars))
+    for blockMean, blockVar, blockStart, blockEnd in zip(
+        blockMeans,
+        blockVars,
+        blockStarts,
+        blockEnds,
+    ):
+        block = referenceValues[blockStart:blockEnd].astype(np.float64)
+        blockDiff = np.diff(block, n=2)
+        referenceBlockVar = np.sum(blockDiff * blockDiff) / (6.0 * blockDiff.size)
+        assert float(blockMean) == pytest.approx(float(np.mean(block)), rel=1.0e-6)
+        assert float(blockVar) == pytest.approx(float(referenceBlockVar), rel=1.0e-6)
+
+
+@pytest.mark.correctness
 def _caseGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -2862,7 +3233,7 @@ def _caseGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
     )
     monkeypatch.setattr(
         cconsenrich,
-        "crolling_AR1_IVar",
+        "crollingMuncVariance",
         _fakeRolling,
     )
     monkeypatch.setattr(
@@ -2958,7 +3329,7 @@ def _caseGetMuncTrackRestrictsRollingAR1ToSparseBed(
 
     monkeypatch.setattr(
         cconsenrich,
-        "crolling_AR1_IVar",
+        "crollingMuncVariance",
         _fakeRolling,
     )
     monkeypatch.setattr(
@@ -3129,35 +3500,58 @@ def _caseChooseFeatureLengthBootstrapWidthVarianceAndContextCompat():
     assert diagnostics["method"] == "feature_peak_width_random_effects"
 
 @pytest.mark.correctness
-def _caseChooseDependenceLengthUsesAutocorrelationAndIncrements():
+def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
     rng = np.random.default_rng(123)
-    n = 512
-    base = np.empty(n, dtype=np.float64)
-    base[0] = 0.0
-    for i in range(1, n):
-        base[i] = 0.85 * base[i - 1] + rng.normal(scale=0.5)
-    chromMat = np.vstack(
-        [
-            base + rng.normal(scale=0.05, size=n),
-            base + rng.normal(scale=0.05, size=n),
-            base + rng.normal(scale=0.05, size=n),
-        ]
-    ).astype(np.float32)
+    n = 1024
 
-    pointSpan, lowerSpan, upperSpan, diagnostics = core.chooseDependenceLength(
-        chromMat,
+    def _matrix(phi: float) -> np.ndarray:
+        base = np.empty(n, dtype=np.float64)
+        base[0] = rng.normal(scale=0.5)
+        for i in range(1, n):
+            base[i] = phi * base[i - 1] + rng.normal(scale=0.5)
+        return np.vstack(
+            [
+                base + rng.normal(scale=0.05, size=n),
+                base + rng.normal(scale=0.05, size=n),
+                base + rng.normal(scale=0.05, size=n),
+            ]
+        ).astype(np.float32)
+
+    chromosomeNames = ["chr1", "chr2", "chrX", "chrY", "chrM", "chr1_alt"]
+    chromosomeMatrices = [
+        _matrix(0.80),
+        _matrix(0.65),
+        _matrix(0.95),
+        _matrix(0.95),
+        _matrix(0.95),
+        _matrix(0.95),
+    ]
+
+    pointSpan, lowerSpan, upperSpan, diagnostics = cconsenrich.cchooseDependenceSpan(
+        chromosomeNames,
+        chromosomeMatrices,
         intervalSizeBP=25,
-        minSpan=3,
-        maxSpan=64,
+        numBlocks=100,
+        randSeed=77,
+    )
+    repeat = cconsenrich.cchooseDependenceSpan(
+        chromosomeNames,
+        chromosomeMatrices,
+        intervalSizeBP=25,
+        numBlocks=100,
+        randSeed=77,
     )
 
-    assert 3 <= pointSpan <= 64
-    assert 3 <= lowerSpan <= pointSpan <= upperSpan <= 64
-    assert diagnostics["method"] == "dependence_acf_increment"
+    assert (pointSpan, lowerSpan, upperSpan) == repeat[:3]
+    assert diagnostics["sampled_chromosomes"] == repeat[3]["sampled_chromosomes"]
+    assert diagnostics["sampled_width_bp"] == repeat[3]["sampled_width_bp"]
+    assert diagnostics["num_blocks"] == 100
+    assert 3 <= lowerSpan <= pointSpan <= upperSpan
     assert diagnostics["context_size_bp"] == pointSpan * 50 + 1
-    assert diagnostics["finite_count"] == n
-    assert len(diagnostics["acf"]) == 64
-    assert len(diagnostics["increment_variance"]) == 64
+    assert all(1000 <= width <= 1_000_000 for width in diagnostics["sampled_width_bp"])
+    assert set(diagnostics["sampled_chromosomes"]) <= {"chr1", "chr2"}
+    excluded = set(diagnostics["excluded_nonstandard_chromosomes"])
+    assert {"chrX", "chrY", "chrM", "chr1_alt"} <= excluded
 
 
 @pytest.mark.correctness
@@ -3719,6 +4113,10 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
             _caseCTransformInPlaceMatchesAllocatingTransformForFloat64,
         ),
         (
+            "global median center",
+            _caseSubtractGlobalMedianCentersEachTrackInPlace,
+        ),
+        (
             "quantile detrend uncentered",
             _caseQuantileFilterSubtractsUncenteredTrendInPlace,
         ),
@@ -3808,6 +4206,10 @@ def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
         _caseRunConsenrichOuterPassSmoke,
         caplog,
     )
+    contract_case(
+        "flat process-noise initializer",
+        _caseRunConsenrichFlatWarmupInitializerDoesNotUseMinQ,
+    )
     caplog.clear()
     contract_case(
         "nonnegative zero-centered background warning",
@@ -3864,6 +4266,7 @@ def test_core_eb_prior_and_munc_contracts(monkeypatch, contract_case):
         ("EB prior thinned pairs", _caseEBPriorStrengthUsesThinnedVariancePairs),
         ("mean-var sample sizes", _caseMeanVarPairSampleSizesStayWithinTrackLength),
         ("rolling AR1 marginal variance", _caseRollingAR1CanReturnMarginalVarianceInsteadOfInnovation),
+        ("MUNC sizing and Cython variance models", _caseMuncSizingAndCythonVarianceModels),
         ("blacklist MUNC floor", _caseApplyBlacklistMuncFloorUsesNonBlacklistQuantile),
     ):
         contract_case(label, func)
@@ -3885,8 +4288,8 @@ def test_core_dependence_selection_contracts(contract_case):
         _caseChooseFeatureLengthBootstrapWidthVarianceAndContextCompat,
     )
     contract_case(
-        "dependence length autocorrelation increments",
-        _caseChooseDependenceLengthUsesAutocorrelationAndIncrements,
+        "sampled dependence span autosome diagnostics",
+        _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics,
     )
 
 

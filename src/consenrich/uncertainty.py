@@ -844,6 +844,7 @@ def calibrateChromosomeStateUncertainty(
     foldChunks: list[np.ndarray] = []
 
     fitKwargs = dict(runKwargs)
+    fitKwargs.setdefault("logRunRole", "held-out fold")
     foldIndentLevel = max(0, int(fitKwargs.get("logIndentLevel", 0) or 0))
     fitKwargs["logIndentLevel"] = foldIndentLevel + 1
     fitKwargs["ECM_fixedBackgroundIters"] = max(
