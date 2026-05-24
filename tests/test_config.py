@@ -133,7 +133,7 @@ def _caseInitialConfigurationSummaryStaysCompact(
     inputParams.bamFiles: [sampleA.bam, sampleB.bam, sampleC.bam]
     genomeParams.name: testGenome
     genomeParams.chromosomes: [chrTest]
-    processParams.processNoiseMAPRoughnessPenalty: 1.75
+    processParams.processNoiseMapRoughnessPenalty: 1.75
     processParams.processNoiseWarmupECMIters: 11
     processParams.processNoiseWarmupOuterPasses: 3
     """
@@ -364,7 +364,6 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
       regularizationRatio: 0.005
       processNoiseWarmupECMIters: 7
       processNoiseWarmupOuterPasses: 5
-      processQWarmupECMIters: 3
       precisionMultiplierMin: 0.5
       precisionMultiplierMax: 2.0
     observationParams:
@@ -383,7 +382,6 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert processArgs.regularizationRatio == pytest.approx(0.005)
     assert processArgs.processNoiseWarmupECMIters == 7
     assert processArgs.processNoiseWarmupOuterPasses == 5
-    assert not hasattr(processArgs, "processQWarmupECMIters")
     assert processArgs.precisionMultiplierMin == pytest.approx(0.5)
     assert processArgs.precisionMultiplierMax == pytest.approx(2.0)
     assert configParsed["observationArgs"].precisionMultiplierMin == pytest.approx(0.1)
@@ -673,7 +671,7 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
 
 
-def _case_processNoiseMAPRoughnessPenaltyRejectsConflictingAlias(
+def _case_readConfigPreservesDemoUsedAliases(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
@@ -683,14 +681,15 @@ def _case_processNoiseMAPRoughnessPenaltyRejectsConflictingAlias(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    processParams.regularizationStrength: 1.0
-    processParams.processNoiseMapRoughnessPenalty: 1.5
-    processParams.processNoiseMAPRoughnessPenalty: 2.0
+    fitParams.EM_backgroundSpanMultiplier: 3.0
+    uncertaintyCalibration.enabled: false
     """
 
-    configPath = writeConfigFile(tmp_path, "config_process_noise_alias_conflict.yaml", configYaml)
-    with pytest.raises(ValueError, match="processNoise.*RoughnessPenalty"):
-        readConfig(str(configPath))
+    configPath = writeConfigFile(tmp_path, "config_demo_used_aliases.yaml", configYaml)
+    parsed = readConfig(str(configPath))
+
+    assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(3.0)
+    assert parsed["uncertaintyCalibrationArgs"].enabled is False
 
 
 def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
@@ -704,7 +703,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     processParams:
-      processNoiseMAPRoughnessPenalty: 3.5
+      processNoiseMapRoughnessPenalty: 3.5
       regularizationRatio: 0.125
       processNoiseWarmupECMIters: 9
       processNoiseWarmupOuterPasses: 4
@@ -1019,7 +1018,7 @@ def _case_readConfigNumNearestRequiresExplicitSparseBed(
     assert parsedExplicit["observationArgs"].numNearest == 17
 
 
-def _case_readConfigRestrictLocalAR1ToSparseBedRequiresAvailableSparseBed(
+def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
     setupGenomeFiles(tmp_path, monkeypatch)
@@ -1031,15 +1030,14 @@ def _case_readConfigRestrictLocalAR1ToSparseBedRequiresAvailableSparseBed(
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
-    observationParams.restrictLocalAR1ToSparseBed: true
+    observationParams.restrictLocalVarianceToSparseBed: true
     """
     configNoSparsePath = writeConfigFile(
         tmp_path,
-        "config_restrict_local_ar1_no_sparse.yaml",
+        "config_restrict_local_variance_no_sparse.yaml",
         configNoSparse,
     )
     parsedNoSparse = readConfig(str(configNoSparsePath))
-    assert parsedNoSparse["observationArgs"].restrictLocalAR1ToSparseBed is False
     assert parsedNoSparse["observationArgs"].restrictLocalVarianceToSparseBed is False
 
     configExplicitSparse = f"""
@@ -1056,12 +1054,11 @@ def _case_readConfigRestrictLocalAR1ToSparseBedRequiresAvailableSparseBed(
     """
     configExplicitSparsePath = writeConfigFile(
         tmp_path,
-        "config_restrict_local_ar1_explicit_sparse.yaml",
+        "config_restrict_local_variance_explicit_sparse.yaml",
         configExplicitSparse,
     )
     parsedExplicitSparse = readConfig(str(configExplicitSparsePath))
     explicitObservationArgs = parsedExplicitSparse["observationArgs"]
-    assert explicitObservationArgs.restrictLocalAR1ToSparseBed is True
     assert explicitObservationArgs.restrictLocalVarianceToSparseBed is True
     assert explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_SVAR_D2
     assert explicitObservationArgs.muncTrendBlockSizeBP == 250
@@ -1308,7 +1305,7 @@ def _case_readConfigScParamsProvideFragmentsDefaults(
     assert source.barcodeTag == "CR"
     assert configParsed["scArgs"].defaultCountMode == "center"
     assert configParsed["scArgs"].fragmentsGroupNorm == "CELLS"
-    assert configParsed["countingArgs"].fragmentsGroupNorm == "CELLS"
+    assert configParsed["countingArgs"].fragmentsGroupNorm == "NONE"
 
 
 def _case_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls():
@@ -1663,10 +1660,7 @@ def test_config_parser_defaults_and_override_contracts(
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
         ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
         ("generic overrides", _case_readConfigGenericDefaultsStillAllowExplicitOverrides),
-        (
-            "process noise roughness alias conflict",
-            _case_processNoiseMAPRoughnessPenaltyRejectsConflictingAlias,
-        ),
+        ("demo-used aliases", _case_readConfigPreservesDemoUsedAliases),
         (
             "process noise warmup pass-through",
             _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
@@ -1892,8 +1886,8 @@ def test_config_sparse_sample_source_and_matching_contracts(
     for label, func in (
         ("numNearest sparse-bed requirement", _case_readConfigNumNearestRequiresExplicitSparseBed),
         (
-            "restrict local AR1 sparse-bed requirement",
-            _case_readConfigRestrictLocalAR1ToSparseBedRequiresAvailableSparseBed,
+            "restrict local variance sparse-bed requirement",
+            _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed,
         ),
         ("structured sample sources", _case_readConfigSampleSources),
         ("single-cell fragments defaults", _case_readConfigScParamsProvideFragmentsDefaults),

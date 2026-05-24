@@ -143,16 +143,6 @@ def _buildProcessArgs(
     )
 
 
-def _cfgFloatConflict(
-    configMap: Mapping[str, Any],
-    leftKey: str,
-    rightKey: str,
-) -> bool:
-    leftVal = float(_cfgGet(configMap, leftKey))
-    rightVal = float(_cfgGet(configMap, rightKey))
-    return not np.isclose(leftVal, rightVal, rtol=0.0, atol=0.0)
-
-
 def getInputArgs(config_path: str) -> core.inputParams:
     configData = loadConfig(config_path)
     defaultBarcodeTag = _cfgGet(
@@ -506,11 +496,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     fragmentsGroupNorm_ = _cfgGet(
         configData,
         "countingParams.fragmentsGroupNorm",
-        _cfgGet(
-            configData,
-            "scParams.fragmentsGroupNorm",
-            constants.SC_DEFAULT_FRAGMENTS_GROUP_NORM,
-        ),
+        constants.COUNTING_DEFAULT_FRAGMENTS_GROUP_NORM,
     )
     if (
         str(fragmentsGroupNorm_).upper()
@@ -600,11 +586,7 @@ def getScArgs(config_path: str) -> core.scParams:
     fragmentsGroupNorm_ = _cfgGet(
         configData,
         "scParams.fragmentsGroupNorm",
-        _cfgGet(
-            configData,
-            "countingParams.fragmentsGroupNorm",
-            constants.COUNTING_DEFAULT_FRAGMENTS_GROUP_NORM,
-        ),
+        constants.SC_DEFAULT_FRAGMENTS_GROUP_NORM,
     )
     if (
         str(fragmentsGroupNorm_).upper()
@@ -649,14 +631,13 @@ def getUncertaintyCalibrationArgs(
     )
     if maxScores is None and maxHeldoutCells is None:
         maxScores = constants.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES
+    enabledConfig = _cfgGet(
+        configData,
+        "uncertaintyCalibrationParams.enabled",
+        _cfgGet(configData, "uncertaintyCalibration.enabled", enabledDefault),
+    )
     return core.uncertaintyCalibrationParams(
-        enabled=bool(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.enabled",
-                enabledDefault,
-            )
-        ),
+        enabled=bool(enabledConfig),
         folds=int(
             _cfgGet(
                 configData,
@@ -819,36 +800,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     )
     regularizationStrengthKey = "processParams.regularizationStrength"
     mapRoughnessPenaltyKey = "processParams.processNoiseMapRoughnessPenalty"
-    legacyMapRoughnessPenaltyKey = "processParams.processNoiseMAPRoughnessPenalty"
-    regularizationStrengthConfigured = _cfgHas(configData, regularizationStrengthKey)
-    mapRoughnessPenaltyConfigured = _cfgHas(configData, mapRoughnessPenaltyKey)
-    legacyMapRoughnessPenaltyConfigured = _cfgHas(
-        configData,
-        legacyMapRoughnessPenaltyKey,
-    )
-    if (
-        mapRoughnessPenaltyConfigured
-        and legacyMapRoughnessPenaltyConfigured
-        and _cfgFloatConflict(
-            configData,
-            mapRoughnessPenaltyKey,
-            legacyMapRoughnessPenaltyKey,
-        )
-    ):
-        raise ValueError(
-            "`processParams.processNoiseMapRoughnessPenalty` and "
-            "`processParams.processNoiseMAPRoughnessPenalty` were both provided "
-            "with different values."
-        )
-    mapRoughnessPenaltyRaw = None
-    if mapRoughnessPenaltyConfigured:
-        mapRoughnessPenaltyRaw = _cfgGet(configData, mapRoughnessPenaltyKey, None)
-    elif legacyMapRoughnessPenaltyConfigured:
-        mapRoughnessPenaltyRaw = _cfgGet(
-            configData,
-            legacyMapRoughnessPenaltyKey,
-            None,
-        )
+    mapRoughnessPenaltyRaw = _cfgGet(configData, mapRoughnessPenaltyKey, None)
     regularizationStrength = float(
         _cfgGet(
             configData,
@@ -966,11 +918,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         numNearestResolved = numNearestRequested
     else:
         numNearestResolved = 0
-    restrictLocalVarianceKey = (
-        "observationParams.restrictLocalVarianceToSparseBed"
-        if _cfgHas(configData, "observationParams.restrictLocalVarianceToSparseBed")
-        else "observationParams.restrictLocalAR1ToSparseBed"
-    )
+    restrictLocalVarianceKey = "observationParams.restrictLocalVarianceToSparseBed"
     restrictLocalVarianceRequested = bool(
         _cfgGet(
             configData,
@@ -1267,7 +1215,14 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ECM_backgroundLengthScaleMultiplier=_cfgGet(
             configData,
             "fitParams.ECM_backgroundLengthScaleMultiplier",
-            _cfgDefault(configData, "fitParams.ECM_backgroundLengthScaleMultiplier"),
+            _cfgGet(
+                configData,
+                "fitParams.EM_backgroundSpanMultiplier",
+                _cfgDefault(
+                    configData,
+                    "fitParams.ECM_backgroundLengthScaleMultiplier",
+                ),
+            ),
         ),
     )
 

@@ -620,10 +620,8 @@ def _formatReplicateGainFrame(
     return "\n".join(lines)
 
 
-def _getProcessNoiseMAPRoughnessPenalty(processArgs: Any) -> float:
+def _getProcessNoiseMapRoughnessPenalty(processArgs: Any) -> float:
     value = getattr(processArgs, "processNoiseMapRoughnessPenalty", None)
-    if value is None:
-        value = getattr(processArgs, "processNoiseMAPRoughnessPenalty", None)
     if value is None:
         value = getattr(processArgs, "regularizationStrength")
     return float(value)
@@ -671,7 +669,7 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
     }
     if _coreRunConsenrichSupports("processNoiseMapRoughnessPenalty"):
         kwargs["processNoiseMapRoughnessPenalty"] = (
-            _getProcessNoiseMAPRoughnessPenalty(processArgs)
+            _getProcessNoiseMapRoughnessPenalty(processArgs)
         )
     if _coreRunConsenrichSupports("processNoiseWarmupOuterPasses"):
         kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
@@ -727,7 +725,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("state model", processArgs.stateModel),
         (
             "MAP roughness penalty",
-            _getProcessNoiseMAPRoughnessPenalty(processArgs),
+            _getProcessNoiseMapRoughnessPenalty(processArgs),
         ),
         ("trend/level ratio", float(processArgs.regularizationRatio)),
         (
