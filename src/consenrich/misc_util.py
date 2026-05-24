@@ -17,14 +17,6 @@ from scipy import signal, ndimage
 from . import ccounts
 from . import constants
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 

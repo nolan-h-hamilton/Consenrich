@@ -404,7 +404,7 @@ cdef inline double _canonicalAR1BetaFromPairStats(double sumSqXSeq,
 
     nPairsDouble = <double>(blockLength - 1)
     eps = 1.0e-6 * (sumSqXSeq + sumSqYSeq + 1.0)
-    lambdaEff = pairsRegLambda / (nPairsDouble + 1.0)
+    lambdaEff = pairsRegLambda / (nPairsDouble + 1.0) # pairsRegLambda is effectively the number of pseudo-observations added
     scaleFloor = 1.0e-4 * (sumSqXSeq + 1.0)
 
     ScaleX = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
@@ -476,8 +476,8 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 bint useInnovationVar,
                                 bint useSampleVar,
                                 int modelCode,
-                                double maxBeta=<double>0.95,
-                                double pairsRegLambda=<double>1.0) noexcept nogil:
+                                double maxBeta=<double>0.99,
+                                double pairsRegLambda=<double>0.1) noexcept nogil:
     # CALLERS: cmeanVarPairs
 
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
@@ -732,151 +732,6 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveZeroCenteredBackground(
         else:
             for i in range(n):
                 outView[i] = rhsView[i]
-
-    return out
-
-
-cpdef cnp.ndarray[cnp.float64_t, ndim=1] csolveNonnegativeBackgroundProjected(
-    cnp.ndarray[cnp.float64_t, ndim=1] weightTrack,
-    cnp.ndarray[cnp.float64_t, ndim=1] rhsTrack,
-    double lam,
-    double lamFirst=<double>0.0,
-    object initial=None,
-    Py_ssize_t maxSweeps=80,
-    double tol=<double>1.0e-5,
-    double omega=<double>1.0,
-):
-    r"""Approximate ``x >= 0`` background QP solve using pentadiagonal sweeps.
-
-    This projected coordinate-descent solver preserves the 5-diagonal
-    background Hessian and avoids sparse active-set subproblem solves.
-    """
-
-    cdef Py_ssize_t n = weightTrack.shape[0]
-    cdef Py_ssize_t i, sweep
-    cdef double minDiag = 1.0e-12
-    cdef double diagVal
-    cdef double offLeft1, offRight1, off2
-    cdef double rawVal, oldVal, newVal, delta, maxDelta, scale
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] out
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] initArr
-    cdef double[::1] weightView
-    cdef double[::1] rhsView
-    cdef double[::1] outView
-    cdef double[::1] initView
-
-    if rhsTrack.shape[0] != n:
-        raise ValueError("weightTrack and rhsTrack must have the same length")
-
-    out = np.zeros(n, dtype=np.float64)
-    if n <= 0:
-        return out
-
-    weightView = weightTrack
-    rhsView = rhsTrack
-    outView = out
-
-    if initial is not None:
-        initArr = np.ascontiguousarray(initial, dtype=np.float64)
-        if initArr.shape[0] != n:
-            raise ValueError("initial must have the same length as rhsTrack")
-        initView = initArr
-        with nogil:
-            for i in range(n):
-                if initView[i] > <double>0.0 and isfinite(initView[i]):
-                    outView[i] = initView[i]
-                else:
-                    outView[i] = <double>0.0
-
-    if maxSweeps < 1:
-        maxSweeps = 1
-    if tol <= 0.0 or not isfinite(tol):
-        tol = <double>1.0e-5
-    if omega <= 0.0 or not isfinite(omega):
-        omega = <double>1.0
-    elif omega > <double>1.9:
-        omega = <double>1.9
-
-    with nogil:
-        off2 = lam if (n >= 3 and lam > 0.0) else <double>0.0
-        for sweep in range(maxSweeps):
-            maxDelta = <double>0.0
-            scale = <double>1.0
-
-            for i in range(n):
-                diagVal = (
-                    weightView[i]
-                    + _firstDiffPenaltyDiag(n, i, lamFirst)
-                    + _secondDiffPenaltyDiag(n, i, lam)
-                )
-                if diagVal < minDiag:
-                    diagVal = minDiag
-
-                rawVal = rhsView[i]
-                if i >= 1:
-                    offLeft1 = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i - 1, lam)
-                    rawVal -= offLeft1 * (<double>outView[i - 1])
-                if i + 1 < n:
-                    offRight1 = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i, lam)
-                    rawVal -= offRight1 * (<double>outView[i + 1])
-                if i >= 2:
-                    rawVal -= off2 * (<double>outView[i - 2])
-                if i + 2 < n:
-                    rawVal -= off2 * (<double>outView[i + 2])
-
-                rawVal = rawVal / diagVal
-                if rawVal < <double>0.0 or not isfinite(rawVal):
-                    rawVal = <double>0.0
-
-                oldVal = outView[i]
-                newVal = oldVal + omega * (rawVal - oldVal)
-                if newVal < <double>0.0 or not isfinite(newVal):
-                    newVal = <double>0.0
-                outView[i] = newVal
-                delta = fabs(newVal - oldVal)
-                if delta > maxDelta:
-                    maxDelta = delta
-                if fabs(newVal) > scale:
-                    scale = fabs(newVal)
-
-            for i in range(n - 1, -1, -1):
-                diagVal = (
-                    weightView[i]
-                    + _firstDiffPenaltyDiag(n, i, lamFirst)
-                    + _secondDiffPenaltyDiag(n, i, lam)
-                )
-                if diagVal < minDiag:
-                    diagVal = minDiag
-
-                rawVal = rhsView[i]
-                if i >= 1:
-                    offLeft1 = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i - 1, lam)
-                    rawVal -= offLeft1 * (<double>outView[i - 1])
-                if i + 1 < n:
-                    offRight1 = _firstDiffPenaltyOff1(n, lamFirst) + _secondDiffPenaltyOff1(n, i, lam)
-                    rawVal -= offRight1 * (<double>outView[i + 1])
-                if i >= 2:
-                    rawVal -= off2 * (<double>outView[i - 2])
-                if i + 2 < n:
-                    rawVal -= off2 * (<double>outView[i + 2])
-
-                rawVal = rawVal / diagVal
-                if rawVal < <double>0.0 or not isfinite(rawVal):
-                    rawVal = <double>0.0
-
-                oldVal = outView[i]
-                newVal = oldVal + omega * (rawVal - oldVal)
-                if newVal < <double>0.0 or not isfinite(newVal):
-                    newVal = <double>0.0
-                outView[i] = newVal
-                delta = fabs(newVal - oldVal)
-                if delta > maxDelta:
-                    maxDelta = delta
-                if fabs(newVal) > scale:
-                    scale = fabs(newVal)
-
-            if maxDelta <= tol * scale:
-                break
 
     return out
 
@@ -2388,8 +2243,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           bint useInnovationVar = <bint>True,
                           bint useSampleVar = <bint>False,
                           int modelCode = 0,
-                          double maxBeta = 0.95,
-                          double pairsRegLambda = 1.0):
+                          double maxBeta = 0.99,
+                          double pairsRegLambda = <double>0.1):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -2488,7 +2343,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cblockAR1Beta(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     cnp.ndarray[cnp.intp_t, ndim=1] blockStarts,
     cnp.ndarray[cnp.intp_t, ndim=1] blockSizes,
-    double maxBeta=0.95,
+    double maxBeta=0.99,
     double pairsRegLambda=1.0,
 ):
     r"""Estimate the clipped AR(1) beta for each explicit block."""
@@ -2587,8 +2442,8 @@ cpdef tuple cSparseNearestMeanVarTrack(
     bint useSampleVar=False,
     int modelCode=0,
     bint aggregateMeanAbs=True,
-    double maxBeta=0.95,
-    double pairsRegLambda=1.0,
+    double maxBeta=0.99,
+    double pairsRegLambda=0.1,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -5485,8 +5340,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     int modelCode = 0,
-    double maxBeta=0.95,
-    double pairsRegLambda = 1.0,
+    double maxBeta=0.99,
+    double pairsRegLambda = 0.1,
     bint useInnovationVar = <bint>True,
 ):
     r"""Estimate a rolling MUNC variance track for a 1D array of values
@@ -5708,8 +5563,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncAR1Beta(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.95,
-    double pairsRegLambda = 1.0,
+    double maxBeta=0.99,
+    double pairsRegLambda = 0.1,
 ):
     r"""Estimate the clipped AR(1) beta used by rolling MUNC windows."""
 
@@ -5819,8 +5674,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.95,
-    double pairsRegLambda = 1.0,
+    double maxBeta=0.99,
+    double pairsRegLambda = 0.1,
     bint useInnovationVar = <bint>True,
 ):
     r"""Compatibility wrapper for the AR(1) rolling MUNC variance model."""

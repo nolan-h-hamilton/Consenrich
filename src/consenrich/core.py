@@ -161,10 +161,6 @@ from .constants import (
 )
 from .diagnostics import metadataFloat, summarizePrecisionBoundaryHits
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
@@ -842,9 +838,6 @@ class matchingParams(NamedTuple):
     :type enabled: bool
     :param randSeed: Random seed used for bootstrap calibration and any stochastic tie-breaking.
     :type randSeed: Optional[int]
-    :param tau0: Shrinkage-score pseudovariance parameter; direct ROCCO
-        scoring uses the fitted Consenrich state values.
-    :type tau0: Optional[float]
     :param numBootstrap: Number of dependent wild-bootstrap null draws used for budget calibration.
     :type numBootstrap: Optional[int]
     :param thresholdZ: One-sided null tail threshold on the ROCCO score, on a Gaussian ``z`` scale.
@@ -879,7 +872,6 @@ class matchingParams(NamedTuple):
 
     enabled: bool
     randSeed: Optional[int]
-    tau0: Optional[float]
     numBootstrap: Optional[int]
     thresholdZ: Optional[float]
     dependenceSpan: Optional[int]
@@ -2109,7 +2101,7 @@ def _estimateBackgroundWarmStart(
         **_backgroundWarmStartSummary(background),
     }
     if logSummary:
-        logger.info(
+        logger.debug(
             "backgroundWarmStart[%s]: source=%s min=%.6g "
             "p05=%.6g median=%.6g mean=%.6g p95=%.6g max=%.6g "
             "fracPositive=%.4f fracAbsLe1e-3=%.4f",
@@ -3318,9 +3310,11 @@ def runConsenrich(
     logIndentLevel = max(0, int(logIndentLevel or 0))
     logRunRole = str(logRunRole or "").strip()
     logRunRoleLower = logRunRole.lower()
-    logMainAlternatingECMIterations = (
-        not logRunRoleLower or logRunRoleLower.startswith("primary")
-    )
+    logPrimaryRole = not logRunRoleLower or logRunRoleLower.startswith("primary")
+    logDeepDetails = logger.isEnabledFor(logging.DEBUG)
+    logCoreBlockLevel = logging.INFO if logPrimaryRole else logging.DEBUG
+    logSummaryBlockLevel = logging.DEBUG
+    logMainAlternatingECMIterations = bool(logPrimaryRole and logDeepDetails)
 
     blockCount = int(np.ceil(intervalCount / float(blockLenIntervals)))
     processNoiseCalibrationPolicy = (
@@ -3359,6 +3353,7 @@ def runConsenrich(
             ),
         ),
         indentLevel=logIndentLevel,
+        level=logCoreBlockLevel,
     )
     logger.info(
         "runConsenrich.core.start tracks=%d intervals=%d blocks=%d "
@@ -4120,6 +4115,7 @@ def runConsenrich(
                     ("proc precision weights", bool(useProcPrecLocal)),
                 ),
                 indentLevel=phaseIndentLevel + 1,
+                level=logging.DEBUG,
             )
             dataAdjusted = np.ascontiguousarray(
                 matrixDataLocal - currentBackground[None, :],
@@ -4298,8 +4294,13 @@ def runConsenrich(
                 fixedBackgroundECMDiagnostics.append(ecmDiagnosticsNormalized)
                 outerConvergedLocal = True
                 outerStopReasonLocal = "fit_background_false"
-                logger.info(
-                    "outerPass[1/1]:\n\tfitBackground=False\n\tbackgroundShift=0\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\tsignChangePerKB=%s\n\tlambdaLowerBoundHits=%s\n\tlambdaUpperBoundHits=%s\n\tkappaMean=%s\n\tkappaMedian=%s\n\tkappaLowerBoundHits=%s\n\tkappaUpperBoundHits=%s\n\touterObjectiveChangePerCell=%s",
+                logger.log(
+                    logging.INFO if logPrimaryRole else logging.DEBUG,
+                    "outerPass[1/1]: fitBackground=False backgroundShift=0 "
+                    "lambdaMean=%s lambdaMedian=%s signChangePerKB=%s "
+                    "lambdaLowerBoundHits=%s lambdaUpperBoundHits=%s "
+                    "kappaMean=%s kappaMedian=%s kappaLowerBoundHits=%s "
+                    "kappaUpperBoundHits=%s outerObjectiveChangePerCell=%s",
                     _formatMaybeFloat(lambdaMeanLocal),
                     _formatMaybeFloat(lambdaMedianLocal),
                     _formatMaybeFloat(lastSignChangePerKBLocal),
@@ -4349,7 +4350,7 @@ def runConsenrich(
                     backgroundTarget,
                     [0.05, 0.5, 0.95],
                 )
-                logger.info(
+                logger.debug(
                     "backgroundTarget[%s pass=%d/%d]: valid=%d/%d "
                     "min=%.6g p05=%.6g median=%.6g mean=%.6g "
                     "p95=%.6g max=%.6g fracPositive=%.4f fracAbsLe1e-3=%.4f",
@@ -4368,7 +4369,7 @@ def runConsenrich(
                     float(np.mean(np.abs(backgroundTarget) <= 1.0e-3)),
                 )
             else:
-                logger.info(
+                logger.debug(
                     "backgroundTarget[%s pass=%d/%d]: valid=0/%d",
                     phaseLabel,
                     int(outerPassIndex + 1),
@@ -4392,7 +4393,7 @@ def runConsenrich(
                     nextBackgroundSummary,
                     [0.05, 0.5, 0.95],
                 )
-                logger.info(
+                logger.debug(
                     "backgroundSolve[%s pass=%d/%d]: "
                     "min=%.6g p05=%.6g median=%.6g mean=%.6g "
                     "p95=%.6g max=%.6g fracPositive=%.4f fracAbsLe1e-3=%.4f",
@@ -4544,8 +4545,22 @@ def runConsenrich(
                 outerPatienceTargetLocal
             )
             fixedBackgroundECMDiagnostics.append(ecmDiagnosticsNormalized)
-            logger.info(
-                "outerPass[%d/%d]:\n\tbackgroundShift=%.6g\n\tbackgroundShiftThreshold=%.6g\n\tbackgroundObjectivePerCell=%s\n\tbackgroundObjectiveChangePerCell=%s\n\tbackgroundObjectiveThresholdPerCell=%s\n\tlambdaMean=%s\n\tlambdaMedian=%s\n\tsignChangePerKB=%s\n\tlambdaLowerBoundHits=%s\n\tlambdaUpperBoundHits=%s\n\tkappaMean=%s\n\tkappaMedian=%s\n\tkappaLowerBoundHits=%s\n\tkappaUpperBoundHits=%s\n\touterObjectivePerCell=%s\n\touterObjectiveChangePerCell=%s\n\touterObjectiveThresholdPerCell=%s\n\touterStable=%d/%d\n\tinnerECMConverged=%s",
+            logger.log(
+                (
+                    logging.INFO
+                    if logPrimaryRole and "post-process-noise fit" in phaseLabel
+                    else logging.DEBUG
+                ),
+                "outerPass[%d/%d]: backgroundShift=%.6g "
+                "backgroundShiftThreshold=%.6g backgroundObjectivePerCell=%s "
+                "backgroundObjectiveChangePerCell=%s "
+                "backgroundObjectiveThresholdPerCell=%s lambdaMean=%s "
+                "lambdaMedian=%s signChangePerKB=%s lambdaLowerBoundHits=%s "
+                "lambdaUpperBoundHits=%s kappaMean=%s kappaMedian=%s "
+                "kappaLowerBoundHits=%s kappaUpperBoundHits=%s "
+                "outerObjectivePerCell=%s outerObjectiveChangePerCell=%s "
+                "outerObjectiveThresholdPerCell=%s outerStable=%d/%d "
+                "innerECMConverged=%s",
                 int(outerPassIndex + 1),
                 int(outerPassCount),
                 float(bgChange),
@@ -4598,6 +4613,7 @@ def runConsenrich(
                     ("proc precision weights", bool(useProcPrecLocal)),
                 ),
                 indentLevel=phaseIndentLevel + 1,
+                level=logging.DEBUG,
             )
             dataAdjusted = np.ascontiguousarray(
                 matrixDataLocal - currentBackground[None, :],
@@ -4746,7 +4762,12 @@ def runConsenrich(
                 lastSignChangePerKBLocal
             )
             fixedBackgroundECMDiagnostics.append(finalECMDiagnosticsNormalized)
-            logger.info(
+            logger.log(
+                (
+                    logging.INFO
+                    if logPrimaryRole and "post-process-noise fit" in phaseLabel
+                    else logging.DEBUG
+                ),
                 "finalFixedBackgroundECM[%s]: iters=%d converged=%s "
                 "stable=%d/%d fixedBackgroundAbsRelChange=%s "
                 "fixedBackgroundRtol=%s signChangePerKB=%s "
@@ -4787,6 +4808,7 @@ def runConsenrich(
                 ("proc precision weights", bool(processPrecExpLocal is not None)),
             ),
             indentLevel=phaseIndentLevel + 1,
+            level=logging.DEBUG,
         )
         (
             _phiHatLocal,
@@ -4947,6 +4969,7 @@ def runConsenrich(
                 ("APN enabled", False),
             ),
             indentLevel=logIndentLevel + 1,
+            level=logCoreBlockLevel,
         )
         logger.info(
             "runConsenrich.processNoiseWarmup.start tracks=%d intervals=%d ECM_fixedBackgroundIters=%d outerIters=%d",
@@ -5007,13 +5030,11 @@ def runConsenrich(
             else initialObservationPrecisionArr
         )
         logger.info(
-            "processNoiseCalibration=EB_MAP:\n"
-            "\tqLevel=%.6g\tqTrend=%.6g\n"
-            "\trawLevel=%.6g\trawTrend=%.6g\n"
-            "\tqLevelPriorMode=%.6g\tqLevelDataEstimate=%.6g\n"
-            "\tqLevelPriorDf=%.6g\tratioPriorDf=%.6g\n"
-            "\teffectiveRatio=%.6g\tvalidBlocks=%d/%d\n"
-            "\twarmupOuterPasses=%d\twarmupECMIters=%d",
+            "processNoiseCalibration=EB_MAP: qLevel=%.6g qTrend=%.6g "
+            "rawLevel=%.6g rawTrend=%.6g qLevelPriorMode=%.6g "
+            "qLevelDataEstimate=%.6g qLevelPriorDf=%.6g ratioPriorDf=%.6g "
+            "effectiveRatio=%.6g validBlocks=%d/%d warmupOuterPasses=%d "
+            "warmupECMIters=%d",
             processNoiseCalibrationInfo["qLevel"],
             processNoiseCalibrationInfo["qTrend"],
             processNoiseCalibrationInfo["rawQLevel"],
@@ -5048,6 +5069,7 @@ def runConsenrich(
             ("APN enabled", bool(ECM_useAPN)),
         ),
         indentLevel=logIndentLevel + 1,
+        level=logCoreBlockLevel,
     )
     logger.info(
         "runConsenrich.%s.start tracks=%d intervals=%d ECM_fixedBackgroundIters=%d outerIters=%d",
@@ -5112,8 +5134,21 @@ def runConsenrich(
             ("elapsed seconds", time.perf_counter() - stageStart),
         ),
         indentLevel=logIndentLevel + 1,
+        level=logSummaryBlockLevel,
     )
-    logger.info("Standardized forward innovation: %.6g", finalForwardNIS)
+    logger.info(
+        "runConsenrich.%s.summary finalNLL=%s finalForwardNIS=%.6g "
+        "backgroundShift=%s backgroundObjectiveChangePerCell=%s "
+        "outerObjectiveChangePerCell=%s outerStopReason=%s backgroundMaxAbs=%.6g",
+        fitLogEvent,
+        _formatMaybeFloat(fitFinal.get("sumNLL", np.nan)),
+        finalForwardNIS,
+        _formatMaybeFloat(fitFinal.get("backgroundShift", np.nan)),
+        _formatMaybeFloat(fitFinal.get("backgroundObjectiveChangePerCell")),
+        _formatMaybeFloat(fitFinal.get("outerObjectiveChangePerCell")),
+        str(fitFinal.get("outerStopReason", "unknown")),
+        float(np.max(np.abs(fitFinal["background"]))),
+    )
     processNoiseCalibrationMetadata = (
         None
         if processNoiseCalibrationInfo is None
@@ -5217,6 +5252,7 @@ def runConsenrich(
             ("elapsed seconds", float(totalElapsed)),
         ),
         indentLevel=logIndentLevel,
+        level=logCoreBlockLevel,
     )
     logger.info(
         "runConsenrich.core.done tracks=%d intervals=%d elapsed=%.3fs",
@@ -7323,7 +7359,7 @@ def _solveNonnegativeBackground(
         * negativePenaltyWeight
         * float(np.sum(np.minimum(background, 0.0) ** 2, dtype=np.float64))
     )
-    logger.info(
+    logger.debug(
         "backgroundIRLS: solver=asymmetric_pentadiagonal intervals=%d "
         "penaltyMultiplier=%.6g penaltyWeight=%.6g passes=%d/%d elapsed=%.3fs "
         "min=%.6g negativeFractionBefore=%.4f negativeFractionAfter=%.4f "

@@ -1363,7 +1363,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "matchingParams.randSeed",
             constants.MATCHING_DEFAULT_RAND_SEED,
         ),
-        tau0=float(_cfgGet(configData, "matchingParams.tau0", constants.MATCHING_DEFAULT_TAU0)),
         numBootstrap=int(
             _cfgGet(
                 configData,

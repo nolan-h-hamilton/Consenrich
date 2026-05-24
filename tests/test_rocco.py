@@ -49,45 +49,6 @@ def _writeToyBedGraphs(tmp_path: Path):
 
 
 @pytest.mark.correctness
-def _caseBuildStudentizedScoreTrackUsesTau0():
-    state = np.array([2.0, 2.0, 2.0], dtype=np.float64)
-    uncertainty = np.array([0.0, 1.0, 3.0], dtype=np.float64)
-
-    scoreTrack, details = peaks.studentizedScoreTrack(
-        state,
-        uncertainty=uncertainty,
-        tau0=1.0,
-        returnDetails=True,
-    )
-
-    expected = state / np.sqrt(uncertainty * uncertainty + 1.0)
-    assert np.allclose(scoreTrack, expected)
-    assert details["tau0"] == 1.0
-    assert details["se_mode"] == "uncertainty"
-
-
-@pytest.mark.correctness
-def _caseBuildShrinkageScoreTrackUsesNullCenterAndUncertainty():
-    state = np.array([0.0, 2.0, 6.0], dtype=np.float64)
-    uncertainty = np.array([0.0, 1.0, 3.0], dtype=np.float64)
-
-    scoreTrack, details = peaks.shrinkageScoreTrack(
-        state,
-        uncertainty=uncertainty,
-        nullCenter=1.0,
-        tau0=2.0,
-        returnDetails=True,
-    )
-
-    expectedWeights = 4.0 / (4.0 + uncertainty * uncertainty)
-    expected = expectedWeights * (state - 1.0)
-    assert np.allclose(scoreTrack, expected)
-    assert details["score_mode"] == "posterior_mean_shrinkage"
-    assert details["prior_variance"] == 4.0
-    assert details["null_center_input"] == 1.0
-
-
-@pytest.mark.correctness
 def _caseEmpiricalMirroredNullStrengthensThreshold():
     rng = np.random.default_rng(5)
     scoreTrack = rng.normal(loc=0.0, scale=1.0, size=1024)
@@ -180,7 +141,6 @@ def _caseGetBudgetForROCCOUsesDirectConsenrichState():
     assert details["se_mode"] == "ignored"
     assert details["uncertainty_available"] is True
     assert details["uncertainty_used"] is False
-    assert details["tau0_used"] is False
     assert budgetNoUnc == pytest.approx(budgetBase)
     assert budgetHiUnc == pytest.approx(budgetBase)
     expectedRawBudget = max(
@@ -232,8 +192,8 @@ def _caseLegacyAutosomalNullFloorHelperStillRuns():
     chrYUnc = np.full(384, 0.8, dtype=np.float64)
 
     basePreparedByChrom = {
-        "chr1": peaks._prepareROCCOBaseScore(chr1State, uncertainty=chr1Unc, tau0=1.0),
-        "chrY": peaks._prepareROCCOBaseScore(chrYState, uncertainty=chrYUnc, tau0=1.0),
+        "chr1": peaks._prepareROCCOBaseScore(chr1State, uncertainty=chr1Unc),
+        "chrY": peaks._prepareROCCOBaseScore(chrYState, uncertainty=chrYUnc),
     }
     pooledNullFloor = peaks._estimateAutosomalNullFloorForROCCO(
         basePreparedByChrom,
@@ -242,13 +202,11 @@ def _caseLegacyAutosomalNullFloorHelperStillRuns():
     localPrepared = peaks._prepareROCCOScoreAndNull(
         chrYState,
         uncertainty=chrYUnc,
-        tau0=1.0,
         thresholdZ=2.5,
     )
     pooledPrepared = peaks._prepareROCCOScoreAndNull(
         chrYState,
         uncertainty=chrYUnc,
-        tau0=1.0,
         thresholdZ=2.5,
         pooledNullFloor=pooledNullFloor,
     )
@@ -295,7 +253,6 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     resultPath = peaks.solveRocco(
         str(statePath),
         uncertaintyBedGraphFile=str(uncPath),
-        tau0=1.0,
         numBootstrap=24,
         dependenceSpan=8,
         randSeed=11,
@@ -332,6 +289,50 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     lines = outPath.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) >= 1
     assert lines[0].startswith("chr")
+
+
+def _caseSolveRoccoReturnsSummaryInventoryAndLogs(tmp_path, caplog):
+    statePath, uncPath = _writeToyBedGraphs(tmp_path)
+    outPath = tmp_path / "summary_rocco.narrowPeak"
+    metaPath = tmp_path / "summary_rocco.narrowPeak.json"
+    detailPath = Path(f"{outPath}.nested_rocco_subproblems.jsonl")
+
+    with caplog.at_level(logging.INFO, logger="consenrich.peaks"):
+        resultPath, summary = peaks.solveRocco(
+            str(statePath),
+            uncertaintyBedGraphFile=str(uncPath),
+            numBootstrap=24,
+            dependenceSpan=8,
+            randSeed=11,
+            outPath=str(outPath),
+            metaPath=str(metaPath),
+            verbose=True,
+            returnSummary=True,
+        )
+
+    assert resultPath == str(outPath)
+    assert summary["narrowPeak_path"] == str(outPath)
+    assert summary["metadata_json_path"] == str(metaPath)
+    assert summary["nested_jsonl_path"] == str(detailPath)
+    assert summary["exported_peak_count"] >= 1
+    assert summary["total_peak_bp"] > 0
+    assert summary["min_width_bp"] <= summary["median_width_bp"]
+    assert summary["median_width_bp"] <= summary["max_width_bp"]
+    assert summary["blacklist"]["dropped"] == 0
+    assert summary["blacklist"]["kept"] == summary["exported_peak_count"]
+    assert set(summary["per_chrom"]) == {"chr19", "chr22"}
+    assert summary["nested_rocco"]["requested_iters"] == constants.MATCHING_DEFAULT_NESTED_ROCCO_ITERS
+    assert summary["nested_rocco"]["diagnostics"] is True
+    assert summary["nested_rocco"]["subproblem_details"] == str(detailPath)
+    assert summary["nested_rocco"]["stops"]["chr19"]["completed_iters"] >= 1
+    assert summary["files"][0]["kind"] == "narrowPeak"
+    assert summary["files"][0]["bytes"] == outPath.stat().st_size
+    assert summary["files"][1]["kind"] == "metadata_json"
+    assert summary["files"][1]["bytes"] == metaPath.stat().st_size
+    assert summary["files"][2]["kind"] == "nested_rocco_subproblems_jsonl"
+    assert summary["files"][2]["bytes"] == detailPath.stat().st_size
+    assert "rocco.summary peaks=" in caplog.text
+    assert "output.inventory" in caplog.text
 
 
 @pytest.mark.correctness
@@ -1267,8 +1268,6 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
 
 def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case):
     for label, func, args in (
-        ("studentized score tau0", _caseBuildStudentizedScoreTrackUsesTau0, ()),
-        ("shrinkage score null center", _caseBuildShrinkageScoreTrackUsesNullCenterAndUncertainty, ()),
         ("empirical mirrored null", _caseEmpiricalMirroredNullStrengthensThreshold, ()),
         (
             "gamma lower context bound",
@@ -1369,6 +1368,13 @@ def test_rocco_diagnostics_contracts(tmp_path, caplog, contract_case):
     contract_case(
         "verbose solve diagnostics",
         _caseSolveRoccoVerboseWritesSubproblemDiagnostics,
+        tmp_path,
+        caplog,
+    )
+    caplog.clear()
+    contract_case(
+        "ROCCO summary inventory",
+        _caseSolveRoccoReturnsSummaryInventoryAndLogs,
         tmp_path,
         caplog,
     )

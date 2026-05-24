@@ -1,5 +1,6 @@
 import textwrap
 import logging
+import io
 import sys
 import types
 from pathlib import Path
@@ -606,7 +607,6 @@ def _case_runtime_defaults_are_centralized(
     )
 
     cliDefaults = consenrich_cli._buildArgParser().parse_args([])
-    assert cliDefaults.matchTau0 == constants.MATCHING_DEFAULT_TAU0
     assert cliDefaults.matchNumBootstrap == constants.MATCHING_DEFAULT_NUM_BOOTSTRAP
     assert cliDefaults.matchThresholdZ == constants.MATCHING_DEFAULT_THRESHOLD_Z
     assert (
@@ -621,6 +621,7 @@ def _case_runtime_defaults_are_centralized(
         constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER
     )
     assert cliDefaults.matchRandSeed == constants.MATCHING_DEFAULT_RAND_SEED
+    assert cliDefaults.logFile is None
 
 
 def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
@@ -1825,6 +1826,63 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     assert (
         consenrich_cli._optimizationPathPrefix("exp name", "chr1/random")
         == f"consenrichOutput_exp_name_chr1_random_optimizationPath.v{consenrich_cli.__version__}"
+    )
+
+
+def test_cli_logging_contracts(tmp_path):
+    packageLogger = logging.getLogger("consenrich")
+    previousHandlers = list(packageLogger.handlers)
+    previousLevel = packageLogger.level
+    previousPropagate = packageLogger.propagate
+    stream = io.StringIO()
+    logPath = tmp_path / "run.log"
+    try:
+        resolvedPath = consenrich_cli._configureCliLogging(
+            logPath,
+            verbose=False,
+            verbose2=False,
+            consoleStream=stream,
+        )
+        assert resolvedPath == logPath
+        consenrich_cli.logger.info("audit-only detail")
+        consenrich_cli._logCliMilestone("live milestone %s", "shown")
+        consenrich_cli.logger.warning("visible warning")
+        consoleText = stream.getvalue()
+        auditText = logPath.read_text(encoding="utf-8")
+        assert "live milestone shown" in consoleText
+        assert "visible warning" in consoleText
+        assert "audit-only detail" not in consoleText
+        assert "audit-only detail" in auditText
+        assert "live milestone shown" in auditText
+        assert "test_config.test_cli_logging_contracts" in auditText
+    finally:
+        for handler in list(packageLogger.handlers):
+            packageLogger.removeHandler(handler)
+            if handler not in previousHandlers:
+                handler.close()
+        for handler in previousHandlers:
+            packageLogger.addHandler(handler)
+        packageLogger.setLevel(previousLevel)
+        packageLogger.propagate = previousPropagate
+
+
+def test_cli_default_log_paths_use_run_kinds(tmp_path):
+    configPath = writeConfigFile(
+        tmp_path,
+        "demo.yaml",
+        """
+        experimentName: demo exp
+        """,
+    )
+    assert (
+        consenrich_cli._defaultConfigLogPath(str(configPath)).name
+        == f"consenrichOutput_demo_exp_run.v{consenrich_cli.__version__}.log"
+    )
+    statePath = tmp_path / "consenrichOutput_demo_state.v1.bedGraph"
+    assert (
+        consenrich_cli._defaultMatchLogPath(str(statePath))
+        == tmp_path
+        / f"consenrichOutput_demo_state.v1_consenrich_run.v{consenrich_cli.__version__}.log"
     )
 
 

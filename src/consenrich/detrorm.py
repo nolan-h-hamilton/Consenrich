@@ -9,14 +9,6 @@ import pandas as pd
 
 from scipy import signal, ndimage
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 from .misc_util import getChromSizesDict

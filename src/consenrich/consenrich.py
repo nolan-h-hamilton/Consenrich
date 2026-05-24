@@ -27,7 +27,7 @@ from . import constants
 from . import misc_util
 from ._version import __version__
 from . import io as io_helpers
-from .config import readConfig
+from .config import loadConfig, readConfig
 from .io import (
     _buildPathInputSources,
     _checkSF,
@@ -44,12 +44,13 @@ from .io import (
     getReadLengths,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s",
-)
+logger = logging.getLogger("consenrich.consenrich")
 
-logger = logging.getLogger(__name__)
+_CLI_HANDLER_ATTR = "_consenrich_cli_handler"
+_CONSOLE_EVENT_ATTR = "consenrich_console"
+_AUDIT_LOG_FORMAT = (
+    "%(asctime)s - %(module)s.%(funcName)s -  %(levelname)s - %(message)s"
+)
 
 OPTIMIZATION_PATH_COLUMNS = [
     "chromosome",
@@ -994,6 +995,115 @@ def _progress(iterable, **kwargs):
     return tqdm(iterable, disable=False, **kwargs)
 
 
+class _ConsoleLogFilter(logging.Filter):
+    def __init__(self, *, verbose: bool, verbose2: bool):
+        super().__init__()
+        self.verbose = bool(verbose)
+        self.verbose2 = bool(verbose2)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        if self.verbose2:
+            return True
+        if self.verbose and record.levelno >= logging.INFO:
+            return True
+        return bool(getattr(record, _CONSOLE_EVENT_ATTR, False))
+
+
+class _ConsoleFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage()
+        if record.levelno >= logging.WARNING:
+            message = f"{record.levelname}: {message}"
+        if record.exc_info:
+            message = message + "\n" + self.formatException(record.exc_info)
+        if record.stack_info:
+            message = message + "\n" + self.formatStack(record.stack_info)
+        return message
+
+
+def _removeCliHandlers(packageLogger: logging.Logger) -> None:
+    for handler in list(packageLogger.handlers):
+        packageLogger.removeHandler(handler)
+        if getattr(handler, _CLI_HANDLER_ATTR, False):
+            try:
+                handler.close()
+            except Exception:
+                pass
+
+
+def _defaultConfigLogPath(configPath: str) -> Path:
+    experimentName = constants.EXPERIMENT_DEFAULT_NAME
+    try:
+        configData = loadConfig(configPath)
+        if isinstance(configData, Mapping):
+            experimentName = configData.get(
+                "experimentName",
+                constants.EXPERIMENT_DEFAULT_NAME,
+            )
+    except Exception:
+        pass
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return Path(f"consenrichOutput_{experimentToken}_run.v{__version__}.log")
+
+
+def _defaultMatchLogPath(stateBedGraphPath: str) -> Path:
+    statePath = Path(stateBedGraphPath)
+    return statePath.with_name(
+        f"{statePath.stem}_consenrich_run.v{__version__}.log"
+    )
+
+
+def _configureCliLogging(
+    logFile: str | Path | None,
+    *,
+    verbose: bool,
+    verbose2: bool,
+    consoleStream=None,
+) -> Path | None:
+    packageLogger = logging.getLogger("consenrich")
+    _removeCliHandlers(packageLogger)
+    packageLogger.setLevel(logging.DEBUG if verbose2 else logging.INFO)
+    packageLogger.propagate = False
+
+    consoleHandler = logging.StreamHandler(
+        sys.stderr if consoleStream is None else consoleStream
+    )
+    setattr(consoleHandler, _CLI_HANDLER_ATTR, True)
+    consoleHandler.setLevel(logging.DEBUG if verbose2 else logging.INFO)
+    consoleHandler.addFilter(
+        _ConsoleLogFilter(verbose=bool(verbose), verbose2=bool(verbose2))
+    )
+    consoleHandler.setFormatter(_ConsoleFormatter())
+    packageLogger.addHandler(consoleHandler)
+
+    if logFile is None:
+        return None
+
+    logPath = Path(logFile)
+    try:
+        if logPath.parent != Path(""):
+            logPath.parent.mkdir(parents=True, exist_ok=True)
+        fileHandler = logging.FileHandler(logPath, mode="w", encoding="utf-8")
+        setattr(fileHandler, _CLI_HANDLER_ATTR, True)
+        fileHandler.setLevel(logging.DEBUG if verbose2 else logging.INFO)
+        fileHandler.setFormatter(logging.Formatter(_AUDIT_LOG_FORMAT))
+        packageLogger.addHandler(fileHandler)
+        return logPath
+    except Exception as exc:
+        logger.warning(
+            "Failed to configure canonical log file %s: %s. Continuing with console logging.",
+            logPath,
+            exc,
+        )
+        return None
+
+
+def _logCliMilestone(message: str, *args: Any) -> None:
+    logger.info(message, *args, extra={_CONSOLE_EVENT_ATTR: True}, stacklevel=2)
+
+
 def _buildArgParser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Consenrich CLI")
     parser.add_argument(
@@ -1023,13 +1133,6 @@ def _buildArgParser() -> argparse.ArgumentParser:
         default=None,
         dest="matchBlacklistBed",
         help="Optional BED blacklist applied to post hoc ROCCO peak export.",
-    )
-    parser.add_argument(
-        "--match-tau0",
-        type=float,
-        default=constants.MATCHING_DEFAULT_TAU0,
-        dest="matchTau0",
-        help="Shrinkage-score pseudovariance parameter; direct ROCCO scoring uses the fitted state values.",
     )
     parser.add_argument(
         "--match-num-bootstrap",
@@ -1077,6 +1180,13 @@ def _buildArgParser() -> argparse.ArgumentParser:
         default=constants.MATCHING_DEFAULT_RAND_SEED,
         dest="matchRandSeed",
     )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        dest="logFile",
+        help="Path for the canonical Consenrich audit log.",
+    )
     parser.add_argument("--verbose", action="store_true", help="If set, logs config")
     parser.add_argument(
         "--verbose2",
@@ -1093,6 +1203,8 @@ def _buildArgParser() -> argparse.ArgumentParser:
 def main():
     parser = _buildArgParser()
     args = parser.parse_args()
+    if args.verbose2:
+        args.verbose = True
 
     if args.matchBedGraph:
         if not os.path.exists(args.matchBedGraph):
@@ -1110,8 +1222,20 @@ def main():
             raise FileNotFoundError(
                 f"blacklist BED file {args.matchBlacklistBed} couldn't be found."
             )
+        resolvedLogPath = _configureCliLogging(
+            args.logFile or _defaultMatchLogPath(args.matchBedGraph),
+            verbose=bool(args.verbose),
+            verbose2=bool(args.verbose2),
+        )
+        if resolvedLogPath is not None:
+            _logCliMilestone("Canonical log: %s", resolvedLogPath)
         if uncertaintyBedGraph is None:
             uncertaintyBedGraph = _inferMatchingUncertaintyBedGraph(args.matchBedGraph)
+        matchStart = time.perf_counter()
+        _logCliMilestone(
+            "Consenrich post-hoc ROCCO start: state=%s",
+            args.matchBedGraph,
+        )
         logger.info(
             "Running post hoc ROCCO peak caller using state bedGraph %s...",
             args.matchBedGraph,
@@ -1119,7 +1243,6 @@ def main():
         outName = peaks.solveRocco(
             args.matchBedGraph,
             uncertaintyBedGraphFile=uncertaintyBedGraph,
-            tau0=args.matchTau0,
             numBootstrap=args.matchNumBootstrap,
             thresholdZ=args.matchThresholdZ,
             nestedRoccoIters=args.matchNestedRoccoIters,
@@ -1132,20 +1255,47 @@ def main():
             verbose=bool(args.verbose or args.verbose2),
         )
         logger.info("Finished post hoc ROCCO peak calling. Written to %s", outName)
+        _logCliMilestone(
+            "Consenrich post-hoc ROCCO done: output=%s elapsed=%.1fs",
+            outName,
+            time.perf_counter() - matchStart,
+        )
         sys.exit(0)
 
     if not args.config:
-        logger.info(
+        _configureCliLogging(
+            args.logFile,
+            verbose=bool(args.verbose),
+            verbose2=bool(args.verbose2),
+        )
+        _logCliMilestone(
             "No config file provided, run with `--config <path_to_config.yaml>`"
         )
-        logger.info("See documentation: https://nolan-h-hamilton.github.io/Consenrich/")
+        _logCliMilestone(
+            "See documentation: https://nolan-h-hamilton.github.io/Consenrich/"
+        )
         sys.exit(1)
 
     if not os.path.exists(args.config):
-        logger.info(f"Config file {args.config} does not exist.")
-        logger.info("See documentation: https://nolan-h-hamilton.github.io/Consenrich/")
+        _configureCliLogging(
+            args.logFile,
+            verbose=bool(args.verbose),
+            verbose2=bool(args.verbose2),
+        )
+        _logCliMilestone("Config file %s does not exist.", args.config)
+        _logCliMilestone(
+            "See documentation: https://nolan-h-hamilton.github.io/Consenrich/"
+        )
         sys.exit(1)
 
+    resolvedLogPath = _configureCliLogging(
+        args.logFile or _defaultConfigLogPath(args.config),
+        verbose=bool(args.verbose),
+        verbose2=bool(args.verbose2),
+    )
+    if resolvedLogPath is not None:
+        _logCliMilestone("Canonical log: %s", resolvedLogPath)
+    cliRunStart = time.perf_counter()
     config = readConfig(args.config)
     experimentName = config["experimentName"]
     genomeArgs = config["genomeArgs"]
@@ -1220,8 +1370,14 @@ def main():
     waitForMatrix: bool = False
     normMethod_: Optional[str] = countingArgs.normMethod.upper()
     pad_ = observationArgs.pad if hasattr(observationArgs, "pad") else 1.0e-4
-    if args.verbose2:
-        args.verbose = True
+    _logCliMilestone(
+        "Consenrich run start: experiment=%s version=%s config=%s chromosomes=%d samples=%d",
+        experimentName,
+        __version__,
+        args.config,
+        len(genomeArgs.chromosomes),
+        int(numSamples),
+    )
 
     if args.verbose:
         try:
@@ -3010,6 +3166,13 @@ def main():
         chromosomeStart = int(chromPlan["start"])
         chromosomeEnd = int(chromPlan["end"])
         numIntervals = int(chromPlan["numIntervals"])
+        _logCliMilestone(
+            "Chromosome %d/%d start: %s intervals=%d",
+            int(c_ + 1),
+            int(len(chromosomePlans)),
+            chromosome,
+            int(numIntervals),
+        )
         minR_ = observationArgs.minR
         maxR_ = observationArgs.maxR
         minQ_ = processArgs.minQ
@@ -3502,7 +3665,7 @@ def main():
                 muncResidualBackground if bool(fitArgs.fitBackground) else None
             ),
             logIndentLevel=1,
-            logRunRole="primary chromosome",
+            logRunRole="primary chromosome" if args.verbose2 else "main chromosome",
         )
         x, P, postFitResiduals, _NISVec, replicateBias, intervalToBlockMap = runResult[
             :6
@@ -3851,11 +4014,19 @@ def main():
                 float_format="%.4f",
                 lineterminator="\n",
             )
+        chromosomeElapsed = time.perf_counter() - chromosomeStartTime
+        outputElapsed = time.perf_counter() - writeStart
         logger.info(
             "chromosome.done %s elapsed=%.3fs outputElapsed=%.3fs",
             chromosome,
-            time.perf_counter() - chromosomeStartTime,
-            time.perf_counter() - writeStart,
+            chromosomeElapsed,
+            outputElapsed,
+        )
+        _logCliMilestone(
+            "Chromosome %s done: elapsed=%.1fs outputs=%d",
+            chromosome,
+            chromosomeElapsed,
+            int(len(bedGraphTracks)),
         )
 
     logger.info("Finished: output in human-readable format")
@@ -3907,7 +4078,6 @@ def main():
             outName = peaks.solveRocco(
                 stateBedGraphPath,
                 uncertaintyBedGraphFile=uncertaintyBedGraphPath,
-                tau0=float(matchingArgs.tau0),
                 numBootstrap=int(matchingArgs.numBootstrap),
                 thresholdZ=float(matchingArgs.thresholdZ),
                 dependenceSpan=matchingArgs.dependenceSpan,
@@ -3932,6 +4102,12 @@ def main():
                 f"Skipping peak-calling step...try running post hoc via `consenrich --match-bedGraph <bedGraphFile>`\n"
                 f"\tSee ``consenrich -h`` for more details.\n"
             )
+
+    _logCliMilestone(
+        "Consenrich run done: experiment=%s elapsed=%.1fs",
+        experimentName,
+        time.perf_counter() - cliRunStart,
+    )
 
 
 if __name__ == "__main__":

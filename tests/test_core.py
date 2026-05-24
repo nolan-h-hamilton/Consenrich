@@ -591,7 +591,6 @@ def _caseMatchExistingBedGraph():
         outputPath = peaks.solveRocco(
             stateBedGraphFile=str(stateBedGraphPath),
             uncertaintyBedGraphFile=str(uncertaintyBedGraphPath),
-            tau0=1.0,
             numBootstrap=32,
             thresholdZ=2.0,
             randSeed=42,
@@ -1658,10 +1657,10 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert "PHASE: CORE START" in caplog.text
     assert "PHASE: POST-PROCESS-NOISE FIT" in caplog.text
     assert "      | PHASE: POST-PROCESS-NOISE FIT" in caplog.text
-    assert "            | PHASE: INNER ECM FIT / FIXED-BACKGROUND" in caplog.text
+    assert "PHASE: INNER ECM FIT / FIXED-BACKGROUND" not in caplog.text
     assert "proc precision weights" in caplog.text
-    assert "backgroundTarget[" in caplog.text
-    assert "backgroundSolve[" in caplog.text
+    assert "backgroundTarget[" not in caplog.text
+    assert "backgroundSolve[" not in caplog.text
     assert "backgroundObjectivePerCell=" in caplog.text
     assert "backgroundObjectiveChangePerCell=" in caplog.text
     assert "backgroundObjectiveThresholdPerCell=" in caplog.text
@@ -1676,7 +1675,8 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert "lambdaUpperBoundHits=" in caplog.text
     assert "kappaLowerBoundHits=" in caplog.text
     assert "kappaUpperBoundHits=" in caplog.text
-    assert "PHASE: POST-PROCESS-NOISE FIT SUMMARY" in caplog.text
+    assert "runConsenrich.postProcessNoiseFit.summary" in caplog.text
+    assert "\n\tbackgroundShift=" not in caplog.text
     fitDiagnostics = diagnostics["post_process_noise_fit"]["fixed_background_ecm"]
     assert fitDiagnostics
     backgroundPassDiagnostics = [
@@ -2005,9 +2005,7 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     )
     assert all(mode == (False, False) for mode in ecmModes[:firstPostQIndex])
     assert all(mode == (True, False) for mode in ecmModes[firstPostQIndex:])
-    assert all(flag is False for flag in ecmLogIterations[:firstPostQIndex])
-    assert any(flag is True for flag in ecmLogIterations[firstPostQIndex:])
-    assert ecmLogIterations[-1] is False
+    assert all(flag is False for flag in ecmLogIterations)
     stateSmoothed, stateCovarSmoothed, *_ = out
     diagnostics = out[-1]
     assert stateSmoothed.shape == (n, 2)

@@ -225,101 +225,6 @@ def _halfSampleMode(sortedValues: np.ndarray) -> float:
     return _halfSampleMode(vals[bestStart : bestStart + window])
 
 
-def studentizedScoreTrack(
-    state: npt.ArrayLike,
-    uncertainty: npt.ArrayLike | None = None,
-    tau0: float = 1.0,
-    returnDetails: bool = False,
-) -> np.ndarray | Tuple[np.ndarray, Dict[str, float | str]]:
-    r"""Build a studentized score track from Consenrich outputs."""
-    state_ = _asFloatVector("state", state)
-    n = int(state_.size)
-    tau0_ = float(max(tau0, 0.0))
-
-    seMode = "identity"
-    if uncertainty is None:
-        effectiveSE = np.ones(n, dtype=np.float64)
-    else:
-        effectiveSE = _asFloatVector("uncertainty", uncertainty)
-        if effectiveSE.size != n:
-            raise ValueError("`uncertainty` must match `state` length")
-        seMode = "uncertainty"
-
-    effectiveSE = np.maximum(effectiveSE, 0.0)
-    denom = np.sqrt(effectiveSE * effectiveSE + tau0_ * tau0_)
-    denom = np.maximum(denom, 1.0e-6)
-    scoreTrack = state_ / denom
-    if not returnDetails:
-        return scoreTrack
-
-    details: Dict[str, float | str] = {
-        "se_mode": str(seMode),
-        "tau0": float(tau0_),
-        "state_abs_median": float(np.median(np.abs(state_))),
-        "uncertainty_median": float(np.median(effectiveSE)),
-        "uncertainty_min": float(np.min(effectiveSE)),
-        "uncertainty_max": float(np.max(effectiveSE)),
-        "score_denom_median": float(np.median(denom)),
-        "score_denom_min": float(np.min(denom)),
-        "score_denom_max": float(np.max(denom)),
-    }
-    return scoreTrack, details
-
-
-def shrinkageScoreTrack(
-    state: npt.ArrayLike,
-    uncertainty: npt.ArrayLike | None = None,
-    nullCenter: float = 0.0,
-    tau0: float = 1.0,
-    returnDetails: bool = False,
-) -> np.ndarray | Tuple[np.ndarray, Dict[str, float | str]]:
-    r"""Build a posterior shrinkage score track for ROCCO."""
-    state_ = _asFloatVector("state", state)
-    n = int(state_.size)
-    tau0_ = float(max(tau0, 0.0))
-    nullCenter_ = float(nullCenter)
-    priorVariance = float(tau0_ * tau0_)
-
-    seMode = "identity"
-    if uncertainty is None:
-        effectiveSE = np.zeros(n, dtype=np.float64)
-        shrinkWeights = np.ones(n, dtype=np.float64)
-    else:
-        effectiveSE = _asFloatVector("uncertainty", uncertainty)
-        if effectiveSE.size != n:
-            raise ValueError("`uncertainty` must match `state` length")
-        effectiveSE = np.maximum(effectiveSE, 0.0)
-        seMode = "uncertainty"
-        if priorVariance <= 0.0:
-            shrinkWeights = np.zeros(n, dtype=np.float64)
-        else:
-            shrinkWeights = priorVariance / np.maximum(
-                priorVariance + effectiveSE * effectiveSE,
-                1.0e-12,
-            )
-
-    centeredState = state_ - nullCenter_
-    scoreTrack = shrinkWeights * centeredState
-    if not returnDetails:
-        return scoreTrack
-
-    details: Dict[str, float | str] = {
-        "score_mode": "posterior_mean_shrinkage",
-        "se_mode": str(seMode),
-        "tau0": float(tau0_),
-        "prior_variance": float(priorVariance),
-        "null_center_input": float(nullCenter_),
-        "centered_state_abs_median": float(np.median(np.abs(centeredState))),
-        "uncertainty_median": float(np.median(effectiveSE)),
-        "uncertainty_min": float(np.min(effectiveSE)),
-        "uncertainty_max": float(np.max(effectiveSE)),
-        "shrink_weight_median": float(np.median(shrinkWeights)),
-        "shrink_weight_min": float(np.min(shrinkWeights)),
-        "shrink_weight_max": float(np.max(shrinkWeights)),
-    }
-    return scoreTrack, details
-
-
 def consenrichStateScoreTrack(
     state: npt.ArrayLike,
     uncertainty: npt.ArrayLike | None = None,
@@ -823,7 +728,6 @@ def _isAutosomeName(chromosome: str) -> bool:
 def _prepareROCCOBaseScore(
     state: npt.ArrayLike,
     uncertainty: npt.ArrayLike | None = None,
-    tau0: float = 1.0,
     bulkQuantile: float = 0.60,
 ) -> Dict[str, Any]:
     state_ = _asFloatVector("state", state)
@@ -836,8 +740,6 @@ def _prepareROCCOBaseScore(
         uncertainty=uncertainty,
         returnDetails=True,
     )
-    scoreMeta["tau0"] = float(max(float(tau0), 0.0))
-    scoreMeta["tau0_used"] = False
     return {
         "score_track": np.asarray(scoreTrack, dtype=np.float64),
         "state_null_center": float(stateNullCenter),
@@ -1063,7 +965,6 @@ def _prepareNullResidualTemplate(
 def _prepareROCCOScoreAndNull(
     state: npt.ArrayLike,
     uncertainty: npt.ArrayLike | None = None,
-    tau0: float = 1.0,
     bulkQuantile: float = 0.60,
     thresholdZ: float = _ROCCO_THRESHOLD_Z_DEFAULT,
     numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
@@ -1078,7 +979,6 @@ def _prepareROCCOScoreAndNull(
     prepared = _prepareROCCOBaseScore(
         state,
         uncertainty=uncertainty,
-        tau0=tau0,
         bulkQuantile=bulkQuantile,
     )
     scoreTrack = np.asarray(prepared["score_track"], dtype=np.float64)
@@ -1305,7 +1205,6 @@ def _estimateBudgetForPreparedROCCOScore(
     thresholdZ: float = _ROCCO_THRESHOLD_Z_DEFAULT,
     bulkQuantile: float = 0.60,
     randomSeed: int = 0,
-    tau0: float = 1.0,
     nullQuantile: float = _ROCCO_NULL_QUANTILE,
     budgetMin: float = _ROCCO_BUDGET_MIN,
     budgetMax: float = _ROCCO_BUDGET_MAX,
@@ -1494,7 +1393,6 @@ def _estimateBudgetForPreparedROCCOScore(
         "context_span_method": str(calibrationMeta["context_span_method"]),
         "dwb_panel_id": str(calibrationMeta["dwb_panel_id"]),
         "dwb_panel_reused": bool(calibrationMeta["dwb_panel_reused"]),
-        "tau0": float(max(tau0, 0.0)),
         "threshold": float(primaryView["threshold"]),
         "threshold_z": float(thresholdZ),
         "threshold_z_grid": [float(z) for z in zGrid],
@@ -1545,7 +1443,6 @@ def _estimateBudgetForPreparedROCCOScore(
 def getROCCOBudget(
     state: npt.ArrayLike,
     uncertainty: npt.ArrayLike | None = None,
-    tau0: float = 1.0,
     statistic: str = "occupancy",
     numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
     dependenceSpan: int | None = None,
@@ -1561,7 +1458,6 @@ def getROCCOBudget(
     prepared = _prepareROCCOScoreAndNull(
         state,
         uncertainty=uncertainty,
-        tau0=tau0,
         bulkQuantile=bulkQuantile,
         thresholdZ=thresholdZ,
         numBootstrap=numBootstrap,
@@ -1580,7 +1476,6 @@ def getROCCOBudget(
         thresholdZ=thresholdZ,
         bulkQuantile=bulkQuantile,
         randomSeed=randomSeed,
-        tau0=tau0,
         nullQuantile=nullQuantile,
         returnDetails=returnDetails,
     )
@@ -3530,11 +3425,191 @@ def _solutionToChromNarrowPeakRows(
     return outRows, rowsMeta
 
 
+def _fileInventoryEntry(path: str | None, kind: str) -> Dict[str, Any]:
+    entry: Dict[str, Any] = {"kind": str(kind), "path": path, "exists": False, "bytes": None}
+    if path is None:
+        return entry
+    pathObj = Path(path)
+    entry["exists"] = bool(pathObj.exists())
+    if pathObj.exists():
+        try:
+            entry["bytes"] = int(pathObj.stat().st_size)
+        except OSError:
+            entry["bytes"] = None
+    return entry
+
+
+def _summarizePeakWidthsFromRows(
+    rows: Iterable[List[str | int | float]],
+) -> Dict[str, Any]:
+    widths = [int(row[2]) - int(row[1]) for row in rows]
+    if not widths:
+        return {
+            "exported_peak_count": 0,
+            "total_peak_bp": 0,
+            "min_width_bp": None,
+            "median_width_bp": None,
+            "max_width_bp": None,
+        }
+    widthsArr = np.asarray(widths, dtype=np.int64)
+    return {
+        "exported_peak_count": int(widthsArr.size),
+        "total_peak_bp": int(np.sum(widthsArr)),
+        "min_width_bp": int(np.min(widthsArr)),
+        "median_width_bp": float(np.median(widthsArr)),
+        "max_width_bp": int(np.max(widthsArr)),
+    }
+
+
+def _buildRoccoSummary(
+    *,
+    outPath: str,
+    metaPath: str,
+    nestedRoccoSubproblemDetailsPath: str | None,
+    rows: List[List[str | int | float]],
+    meta: Mapping[str, Any],
+) -> Dict[str, Any]:
+    widthSummary = _summarizePeakWidthsFromRows(rows)
+    chromosomesMeta = meta.get("chromosomes", {})
+    perChrom: Dict[str, Any] = {}
+    nestedStops: Dict[str, Any] = {}
+    if isinstance(chromosomesMeta, Mapping):
+        for chromosome, chromMetaAny in chromosomesMeta.items():
+            if not isinstance(chromMetaAny, Mapping):
+                continue
+            peakDetails = chromMetaAny.get("peak_details", [])
+            peakCount = int(chromMetaAny.get("num_segments", 0))
+            totalBP = 0
+            if isinstance(peakDetails, list):
+                for peak in peakDetails:
+                    if not isinstance(peak, Mapping):
+                        continue
+                    totalBP += max(
+                        int(peak.get("end", 0)) - int(peak.get("start", 0)),
+                        0,
+                    )
+            nestedDetails = chromMetaAny.get("nested_rocco_details", {})
+            nestedSummary: Dict[str, Any] = {}
+            if isinstance(nestedDetails, Mapping):
+                history = nestedDetails.get("history", [])
+                lastHistory = history[-1] if isinstance(history, list) and history else {}
+                nestedSummary = {
+                    "enabled": bool(nestedDetails.get("enabled", False)),
+                    "requested_iters": int(nestedDetails.get("requested_iters", 0)),
+                    "completed_iters": int(nestedDetails.get("completed_iters", 0)),
+                    "stop_reason": str(nestedDetails.get("stop_reason", "")),
+                    "budget_scale": float(nestedDetails.get("budget_scale", 0.0)),
+                    "last_jaccard": (
+                        None
+                        if not isinstance(lastHistory, Mapping)
+                        or lastHistory.get("jaccard") is None
+                        else float(lastHistory["jaccard"])
+                    ),
+                }
+                nestedStops[str(chromosome)] = {
+                    "completed_iters": nestedSummary["completed_iters"],
+                    "stop_reason": nestedSummary["stop_reason"],
+                    "last_jaccard": nestedSummary["last_jaccard"],
+                }
+            perChrom[str(chromosome)] = {
+                "exported_peak_count": peakCount,
+                "total_peak_bp": int(totalBP),
+                "parent_peak_count": int(chromMetaAny.get("num_parent_segments", 0)),
+                "candidate_peak_count": int(
+                    chromMetaAny.get("num_candidate_segments", 0)
+                ),
+                "dropped_median_signal_local_p": int(
+                    chromMetaAny.get("num_segments_dropped_median_signal_local_p", 0)
+                ),
+                "nested_rocco": nestedSummary,
+            }
+    blacklist = meta.get("blacklist_filter", {})
+    if not isinstance(blacklist, Mapping):
+        blacklist = {}
+    settings = meta.get("settings", {})
+    if not isinstance(settings, Mapping):
+        settings = {}
+    inventory = [
+        _fileInventoryEntry(outPath, "narrowPeak"),
+        _fileInventoryEntry(metaPath, "metadata_json"),
+    ]
+    if nestedRoccoSubproblemDetailsPath is not None:
+        inventory.append(
+            _fileInventoryEntry(
+                nestedRoccoSubproblemDetailsPath,
+                "nested_rocco_subproblems_jsonl",
+            )
+        )
+    summary: Dict[str, Any] = {
+        "narrowPeak_path": str(outPath),
+        "metadata_json_path": str(metaPath),
+        "nested_jsonl_path": nestedRoccoSubproblemDetailsPath,
+        **widthSummary,
+        "blacklist": {
+            "blacklist_bed": blacklist.get("blacklist_bed"),
+            "policy": blacklist.get("policy"),
+            "dropped": int(blacklist.get("dropped", 0)),
+            "kept": int(blacklist.get("kept", widthSummary["exported_peak_count"])),
+        },
+        "per_chrom": perChrom,
+        "nested_rocco": {
+            "requested_iters": int(settings.get("nested_rocco_iters", 0)),
+            "budget_scale": float(settings.get("nested_rocco_budget_scale", 0.0)),
+            "diagnostics": bool(settings.get("nested_rocco_diagnostics", False)),
+            "subproblem_details": nestedRoccoSubproblemDetailsPath,
+            "stops": nestedStops,
+        },
+        "settings": {
+            "budget_method": settings.get("budget_method"),
+            "null_calibration_method": settings.get("null_calibration_method"),
+            "num_bootstrap": int(settings.get("num_bootstrap", 0)),
+            "threshold_z": float(settings.get("threshold_z", 0.0)),
+            "rand_seed": int(settings.get("rand_seed", 0)),
+        },
+        "files": inventory,
+    }
+    return summary
+
+
+def _logRoccoSummary(summary: Mapping[str, Any]) -> None:
+    width = summary.get("median_width_bp")
+    widthText = "NA" if width is None else f"{float(width):.1f}"
+    logger.info(
+        "rocco.summary peaks=%d total_bp=%d width_bp[min/median/max]=%s/%s/%s blacklist_dropped=%d blacklist_kept=%d narrowPeak=%s metadata=%s nested_jsonl=%s",
+        int(summary.get("exported_peak_count", 0)),
+        int(summary.get("total_peak_bp", 0)),
+        "NA" if summary.get("min_width_bp") is None else str(summary["min_width_bp"]),
+        widthText,
+        "NA" if summary.get("max_width_bp") is None else str(summary["max_width_bp"]),
+        int(dict(summary.get("blacklist", {})).get("dropped", 0)),
+        int(dict(summary.get("blacklist", {})).get("kept", 0)),
+        summary.get("narrowPeak_path"),
+        summary.get("metadata_json_path"),
+        summary.get("nested_jsonl_path"),
+    )
+
+
+def _logOutputInventory(summary: Mapping[str, Any]) -> None:
+    files = summary.get("files", [])
+    if not isinstance(files, list):
+        return
+    parts = []
+    for entryAny in files:
+        if not isinstance(entryAny, Mapping):
+            continue
+        exists = "yes" if bool(entryAny.get("exists", False)) else "no"
+        byteText = "NA" if entryAny.get("bytes") is None else str(entryAny["bytes"])
+        parts.append(
+            f"{entryAny.get('kind')}:{entryAny.get('path')} exists={exists} bytes={byteText}"
+        )
+    if parts:
+        logger.info("output.inventory %s", " | ".join(parts))
+
+
 def solveRocco(
     stateBedGraphFile: str,
     uncertaintyBedGraphFile: str | None = None,
     chromosomes: Iterable[str] | None = None,
-    tau0: float = 1.0,
     numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
     thresholdZ: float = _ROCCO_THRESHOLD_Z_DEFAULT,
     dependenceSpan: int | None = None,
@@ -3553,7 +3628,8 @@ def solveRocco(
     verbose: bool = False,
     stateDiagnosticsByChromosome: Mapping[str, Any] | None = None,
     blacklistBedFile: str | None = None,
-) -> str:
+    returnSummary: bool = False,
+) -> str | Tuple[str, Dict[str, Any]]:
     r"""Run Consenrich+ROCCO peak caller directly on bedGraphs."""
     exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
         exportFilterUncertaintyMultiplier
@@ -3593,7 +3669,6 @@ def solveRocco(
             ),
             "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
             "blacklist_filter_policy": "drop_any_overlap",
-            "tau0": float(tau0),
             "budget_method": "dwb_tail_occupancy",
             "null_calibration_method": "stationary_null_dwb",
             "num_bootstrap": int(numBootstrap),
@@ -3661,7 +3736,6 @@ def solveRocco(
         prepared = _prepareROCCOScoreAndNull(
             state,
             uncertainty=uncertainty,
-            tau0=tau0,
             thresholdZ=thresholdZ,
             numBootstrap=numBootstrap,
             dependenceSpan=dependenceSpan,
@@ -3678,7 +3752,6 @@ def solveRocco(
             dependenceSpan=dependenceSpan,
             thresholdZ=thresholdZ,
             randomSeed=int(randSeed) + chromIndex,
-            tau0=tau0,
             nullQuantile=_ROCCO_NULL_QUANTILE,
             returnDetails=True,
         )
@@ -3932,4 +4005,15 @@ def solveRocco(
 
     with open(metaPath, "w", encoding="utf-8") as handle:
         json.dump(meta, handle, indent=2, sort_keys=True)
+    summary = _buildRoccoSummary(
+        outPath=str(outPath),
+        metaPath=str(metaPath),
+        nestedRoccoSubproblemDetailsPath=nestedRoccoSubproblemDetailsPath,
+        rows=allRows,
+        meta=meta,
+    )
+    _logRoccoSummary(summary)
+    _logOutputInventory(summary)
+    if returnSummary:
+        return str(outPath), summary
     return str(outPath)

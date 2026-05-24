@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import logging
 import numpy as np
 import json
+import pytest
 
 import consenrich.cuncertainty as cuncertainty
 import consenrich.core as core
@@ -406,7 +408,9 @@ def _caseCythonObjectiveAndSummaryContracts():
     assert summary["group"].tolist() == [-1, 0, 1, -1, 0, 1]
 
 
-def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path):
+def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger=uncertainty.logger.name)
+    caplog.clear()
     rng = np.random.default_rng(123)
     n = 48
     m = 3
@@ -511,10 +515,16 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path):
     assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(modelKeys)
     assert not (tmp_path / "cal.summary.tsv").exists()
     assert not (tmp_path / "cal.scores.tsv.gz").exists()
+    assert "uncertaintyCalibration.target enabled=True" in caplog.text
+    assert "blocksTargetScored=" in caplog.text
+    assert "uncertaintyCalibration.coverage.crossfit_all" in caplog.text
+    assert "uncertaintyCalibration.coverage.fit_sample" in caplog.text
 
 
-def _caseObservationVarianceFloorHeldoutSmoke(monkeypatch):
-    m, n = 2, 16
+def _caseObservationVarianceFloorHeldoutSmoke(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger=uncertainty.logger.name)
+    caplog.clear()
+    m, n = 4, 16
     pad = 0.01
     targetR = 0.4
     pState = np.full(n, 0.2, dtype=np.float32)
@@ -558,13 +568,17 @@ def _caseObservationVarianceFloorHeldoutSmoke(monkeypatch):
         writeDiagnostics=False,
         seed=17,
     )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = True
+    commonBackground = background.copy()
+    runKwargs["initialBackground"] = commonBackground
 
     result = uncertainty.estimateObservationVarianceFloorFromHeldout(
         matrixData=matrixData,
         matrixMunc=matrixMunc,
         intervalSizeBP=1,
         params=params,
-        runKwargs=_smallRunKwargs(),
+        runKwargs=runKwargs,
         pad=pad,
         maxR=2.0,
         fallbackMinR=1.0e-4,
@@ -575,7 +589,560 @@ def _caseObservationVarianceFloorHeldoutSmoke(monkeypatch):
     assert abs(result.minR - targetR) < 1.0e-5
     assert abs(result.trimmedMean - 1.0) < 1.0e-5
     assert result.usedLambda
-    assert result.heldoutCells > 0
+    assert result.heldoutCells == 2 * n
+    assert result.diagnostics["background_mode"] == "fixed_common"
+    assert result.diagnostics["fixed_common_background"] is True
+    assert result.diagnostics["common_background_source"] == "provided_initialBackground"
+    assert result.diagnostics["holdout_replicates"] == 2
+    assert uncertainty._resolveObservationFloorHoldoutCount(2) == 1
+    assert uncertainty._resolveObservationFloorHoldoutCount(3) == 2
+    assert uncertainty._resolveObservationFloorHoldoutCount(4) == 2
+    assert uncertainty._resolveObservationFloorHoldoutCount(10) == 5
+    assert runKwargs["fitBackground"] is True
+    assert runKwargs["initialBackground"] is commonBackground
+    for _mask, kwargs in calls:
+        assert kwargs.get("fitBackground") is False
+        assert kwargs.get("returnBackground") is True
+        assert np.allclose(kwargs.get("initialBackground"), commonBackground)
+        assert kwargs.get("initialBackground") is not commonBackground
+    for mask, _kwargs in calls:
+        heldoutByInterval = np.sum(np.asarray(mask) == 0, axis=0)
+        assert set(np.unique(heldoutByInterval)).issubset({0, 2})
+    combinedHeldoutByInterval = np.sum(
+        [np.sum(np.asarray(mask) == 0, axis=0) for mask, _kwargs in calls],
+        axis=0,
+    )
+    assert np.all(combinedHeldoutByInterval == 2)
+    assert "observationFloorCalibration.start chrom=chrTest" in caplog.text
+    assert "observationFloorCalibration.fold.done chrom=chrTest" in caplog.text
+    assert "observationFloorCalibration.candidates chrom=chrTest" in caplog.text
+    assert "observationFloorCalibration.done chrom=chrTest" in caplog.text
+    assert "selectedSource=heldout_lambda" in caplog.text
+    assert "lambdaFreeGuardApplied=False" in caplog.text
+    assert "contrastFloorApplied=False" in caplog.text
+
+
+def _caseObservationVarianceFloorMissingBackgroundModes(monkeypatch):
+    m, n = 2, 12
+    pad = 0.01
+    targetR = 0.3
+    pState = np.full(n, 0.15, dtype=np.float32)
+    residual = np.sqrt(pState + targetR + pad).astype(np.float32)
+    matrixData = np.tile(residual, (m, 1)).astype(np.float32)
+    matrixMunc = np.zeros((m, n), dtype=np.float32)
+    calls = []
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        calls.append((observationMask, kwargs))
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        return (
+            state,
+            covar,
+            np.zeros((n, m), dtype=np.float32),
+            np.zeros(n, dtype=np.float32),
+            np.zeros(m, dtype=np.float32),
+            np.arange(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+        )
+
+    monkeypatch.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+    params = core.uncertaintyCalibrationParams(
+        folds=2,
+        blockSizeBP=6,
+        calibrationECMIters=1,
+        maxScores=10_000,
+        writeDiagnostics=False,
+        seed=19,
+    )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = True
+    with pytest.raises(ValueError, match="fixed initialBackground"):
+        uncertainty.estimateObservationVarianceFloorFromHeldout(
+            matrixData=matrixData,
+            matrixMunc=matrixMunc,
+            intervalSizeBP=1,
+            params=params,
+            runKwargs=runKwargs,
+            pad=pad,
+            maxR=2.0,
+            fallbackMinR=1.0e-4,
+            chromosome="chrMissing",
+        )
+    assert not calls
+    assert runKwargs["fitBackground"] is True
+    assert "initialBackground" not in runKwargs
+
+    zeroRunKwargs = _smallRunKwargs()
+    zeroRunKwargs["fitBackground"] = False
+    result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        intervalSizeBP=1,
+        params=params,
+        runKwargs=zeroRunKwargs,
+        pad=pad,
+        maxR=2.0,
+        fallbackMinR=1.0e-4,
+        chromosome="chrZero",
+    )
+    assert abs(result.minR - targetR) < 1.0e-5
+    assert abs(result.trimmedMean - 1.0) < 1.0e-5
+    assert result.diagnostics["background_mode"] == "fixed_zero"
+    assert result.diagnostics["fixed_common_background"] is False
+    assert result.diagnostics["common_background_source"] == "zero_fitBackground_false"
+    assert zeroRunKwargs["fitBackground"] is False
+    assert "initialBackground" not in zeroRunKwargs
+    assert calls
+    for _mask, kwargs in calls:
+        assert kwargs.get("fitBackground") is False
+        assert kwargs.get("returnBackground") is True
+        assert kwargs.get("initialBackground") is None
+
+
+def _caseObservationVarianceFloorSafetyCushion(monkeypatch):
+    m, n = 2, 12
+    pad = 0.01
+    pState = np.full(n, 0.2, dtype=np.float32)
+    residual = np.sqrt(pState + pad).astype(np.float32)
+    matrixData = np.tile(residual, (m, 1)).astype(np.float32)
+    matrixMunc = np.zeros((m, n), dtype=np.float32)
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        return (
+            state,
+            covar,
+            np.zeros((n, m), dtype=np.float32),
+            np.zeros(n, dtype=np.float32),
+            np.zeros(m, dtype=np.float32),
+            np.arange(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+        )
+
+    monkeypatch.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+    params = core.uncertaintyCalibrationParams(
+        folds=2,
+        blockSizeBP=6,
+        calibrationECMIters=1,
+        maxScores=10_000,
+        writeDiagnostics=False,
+        seed=23,
+    )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = False
+    result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        intervalSizeBP=1,
+        params=params,
+        runKwargs=runKwargs,
+        pad=pad,
+        maxR=1.0,
+        fallbackMinR=0.0,
+        chromosome="chrCushion",
+    )
+
+    cushion = uncertainty._OBSERVATION_VARIANCE_FLOOR_SAFETY_CUSHION
+    expectedScore = float((pState[0] + pad) / (pState[0] + pad + cushion))
+    assert result.minR == cushion
+    assert abs(result.trimmedMean - expectedScore) < 1.0e-6
+    assert result.diagnostics["raw_selected_min_r"] < cushion
+    assert result.diagnostics["safety_cushion_min_r"] == cushion
+    assert result.diagnostics["safety_cushion_applied"] is True
+
+
+def _caseObservationVarianceFloorFallbackGuard(monkeypatch):
+    m, n = 2, 12
+    pad = 0.01
+    fallbackMinR = 0.05
+    pState = np.full(n, 0.2, dtype=np.float32)
+    residual = np.sqrt(pState + pad).astype(np.float32)
+    matrixData = np.tile(residual, (m, 1)).astype(np.float32)
+    matrixMunc = np.zeros((m, n), dtype=np.float32)
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        return (
+            state,
+            covar,
+            np.zeros((n, m), dtype=np.float32),
+            np.zeros(n, dtype=np.float32),
+            np.zeros(m, dtype=np.float32),
+            np.arange(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+        )
+
+    monkeypatch.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+    params = core.uncertaintyCalibrationParams(
+        folds=2,
+        blockSizeBP=6,
+        calibrationECMIters=1,
+        maxScores=10_000,
+        writeDiagnostics=False,
+        seed=24,
+    )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = False
+    result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        intervalSizeBP=1,
+        params=params,
+        runKwargs=runKwargs,
+        pad=pad,
+        maxR=1.0,
+        fallbackMinR=fallbackMinR,
+        chromosome="chrFallbackGuard",
+    )
+
+    expectedScore = float((pState[0] + pad) / (pState[0] + pad + fallbackMinR))
+    assert result.minR == fallbackMinR
+    assert abs(result.trimmedMean - expectedScore) < 1.0e-6
+    assert not result.fallbackUsed
+    assert result.diagnostics["raw_selected_min_r"] < fallbackMinR
+    assert result.diagnostics["selection_floor_guard_min_r"] == fallbackMinR
+    assert result.diagnostics["selection_floor_guard_applied"] is True
+    assert result.diagnostics["selected_source"] == "fallback_guard"
+
+
+def _caseObservationVarianceFloorResidualVarianceBeatsMuncPad(monkeypatch):
+    m, n = 3, 15
+    pad = 0.02
+    fallbackMinR = 1.0e-4
+    targetR = 0.35
+    pState = np.full(n, 0.11, dtype=np.float32)
+    background = np.linspace(0.25, -0.15, n, dtype=np.float32)
+    matrixMunc = np.tile(np.linspace(0.04, 0.09, n, dtype=np.float32), (m, 1))
+    residual = np.sqrt(pState + targetR + pad).astype(np.float32)
+    matrixData = np.tile(background + residual, (m, 1)).astype(np.float32)
+    calls = []
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        calls.append((np.asarray(observationMask, dtype=np.uint8).copy(), kwargs))
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        return (
+            state,
+            covar,
+            np.zeros((n, m), dtype=np.float32),
+            np.zeros(n, dtype=np.float32),
+            np.zeros(m, dtype=np.float32),
+            np.arange(n, dtype=np.int32),
+            background,
+        )
+
+    monkeypatch.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+    params = core.uncertaintyCalibrationParams(
+        folds=2,
+        blockSizeBP=5,
+        calibrationECMIters=1,
+        maxScores=10_000,
+        writeDiagnostics=False,
+        seed=29,
+    )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = True
+    runKwargs["initialBackground"] = background.copy()
+
+    result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        intervalSizeBP=1,
+        params=params,
+        runKwargs=runKwargs,
+        pad=pad,
+        maxR=2.0,
+        fallbackMinR=fallbackMinR,
+        chromosome="chrMuncPad",
+    )
+
+    assert abs(result.minR - targetR) < 1.0e-5
+    assert result.minR > 1000.0 * fallbackMinR
+    assert abs(result.trimmedMean - 1.0) < 1.0e-5
+    assert result.heldoutCells == 2 * n
+    assert result.fitCells == result.heldoutCells
+    assert result.diagnostics["holdout_replicates"] == 2
+    assert result.diagnostics["background_mode"] == "fixed_common"
+    assert result.diagnostics["max_fixed_background_deviation"] == 0.0
+    assert not result.fallbackUsed
+    assert calls
+
+
+def _caseObservationVarianceFloorSparseHeldoutIntervals(monkeypatch):
+    m, n = 4, 18
+    pad = 0.015
+    targetR = 0.28
+    pState = np.full(n, 0.07, dtype=np.float32)
+    matrixMunc = np.tile(np.linspace(0.03, 0.12, n, dtype=np.float32), (m, 1))
+    lambdaExp = np.linspace(0.8, 2.4, n, dtype=np.float32)
+    residual = np.sqrt(pState + (targetR + pad) / lambdaExp)
+    matrixData = np.tile(residual.astype(np.float32), (m, 1))
+    keepIntervals = np.array([2, 9, 15], dtype=np.int64)
+    excludeIntervals = np.ones(n, dtype=bool)
+    excludeIntervals[keepIntervals] = False
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        return (
+            state,
+            covar,
+            np.zeros((n, m), dtype=np.float32),
+            np.zeros(n, dtype=np.float32),
+            np.zeros(m, dtype=np.float32),
+            np.arange(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+            {
+                "precision_track_diagnostics": True,
+                "lambdaExp": lambdaExp,
+            },
+        )
+
+    monkeypatch.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+    params = core.uncertaintyCalibrationParams(
+        folds=2,
+        blockSizeBP=6,
+        calibrationECMIters=1,
+        maxScores=10_000,
+        writeDiagnostics=False,
+        seed=31,
+    )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = False
+
+    result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        intervalSizeBP=1,
+        params=params,
+        runKwargs=runKwargs,
+        pad=pad,
+        maxR=2.0,
+        fallbackMinR=1.0e-4,
+        excludeIntervals=excludeIntervals,
+        chromosome="chrSparse",
+    )
+
+    assert abs(result.minR - targetR) < 1.0e-5
+    assert abs(result.trimmedMean - 1.0) < 1.0e-5
+    assert result.usedLambda
+    assert result.heldoutCells == 2 * keepIntervals.size
+    assert result.fitCells == result.heldoutCells
+    assert result.diagnostics["holdout_replicates"] == 2
+    assert result.diagnostics["background_mode"] == "fixed_zero"
+
+
+def _caseObservationVarianceFloorLambdaFreeGuard(monkeypatch):
+    m, n = 2, 14
+    pad = 0.01
+    targetR = 0.3
+    pState = np.full(n, 0.1, dtype=np.float32)
+    lambdaExp = np.full(n, 0.1, dtype=np.float32)
+    residual = np.sqrt(pState + targetR + pad).astype(np.float32)
+    matrixData = np.tile(residual, (m, 1)).astype(np.float32)
+    matrixMunc = np.zeros((m, n), dtype=np.float32)
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        return (
+            state,
+            covar,
+            np.zeros((n, m), dtype=np.float32),
+            np.zeros(n, dtype=np.float32),
+            np.zeros(m, dtype=np.float32),
+            np.arange(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+            {
+                "precision_track_diagnostics": True,
+                "lambdaExp": lambdaExp,
+            },
+        )
+
+    monkeypatch.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+    params = core.uncertaintyCalibrationParams(
+        folds=2,
+        blockSizeBP=7,
+        calibrationECMIters=1,
+        maxScores=10_000,
+        writeDiagnostics=False,
+        seed=32,
+    )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = False
+
+    result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        intervalSizeBP=1,
+        params=params,
+        runKwargs=runKwargs,
+        pad=pad,
+        maxR=1.0,
+        fallbackMinR=1.0e-4,
+        chromosome="chrLambdaGuard",
+    )
+
+    assert result.minR == pytest.approx(targetR, abs=1.0e-5)
+    assert result.diagnostics["innovation_selected_min_r"] < 0.05
+    assert result.diagnostics["innovation_no_lambda_selected_min_r"] == pytest.approx(
+        targetR,
+        abs=1.0e-5,
+    )
+    assert result.diagnostics["lambda_free_guard_applied"] is True
+    assert result.diagnostics["selected_source"] == "heldout_lambda_free"
+    assert result.diagnostics["median_lambda"] == pytest.approx(0.1)
+    assert result.diagnostics["fraction_lambda_lt_0p5"] == 1.0
+
+
+def _caseObservationVarianceFloorReplicateContrastGuard(monkeypatch):
+    m, n = 4, 10
+    pad = 0.01
+    targetR = 0.24
+    amplitude = np.float32(np.sqrt(0.5 * (targetR + pad)))
+    pState = np.full(n, 1.5, dtype=np.float32)
+    matrixData = np.zeros((m, n), dtype=np.float32)
+    matrixData[0, :] = amplitude
+    matrixData[1, :] = -amplitude
+    matrixMunc = np.zeros((m, n), dtype=np.float32)
+
+    masks = []
+    mask0 = np.ones((m, n), dtype=np.uint8)
+    mask0[0:2, :] = 0
+    masks.append(mask0)
+    masks.append(np.ones((m, n), dtype=np.uint8))
+
+    def fakeMakeFoldMasks(**kwargs):
+        return [mask.copy() for mask in masks]
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        return (
+            state,
+            covar,
+            np.zeros((n, m), dtype=np.float32),
+            np.zeros(n, dtype=np.float32),
+            np.zeros(m, dtype=np.float32),
+            np.arange(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+        )
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(uncertainty, "_makeFoldMasks", fakeMakeFoldMasks)
+        scoped.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+        params = core.uncertaintyCalibrationParams(
+            folds=2,
+            blockSizeBP=5,
+            calibrationECMIters=1,
+            maxScores=10_000,
+            writeDiagnostics=False,
+            seed=33,
+        )
+        runKwargs = _smallRunKwargs()
+        runKwargs["fitBackground"] = False
+
+        result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+            matrixData=matrixData,
+            matrixMunc=matrixMunc,
+            intervalSizeBP=1,
+            params=params,
+            runKwargs=runKwargs,
+            pad=pad,
+            maxR=1.0,
+            fallbackMinR=1.0e-4,
+            chromosome="chrContrastGuard",
+        )
+
+        assert result.minR == pytest.approx(targetR, abs=1.0e-5)
+        assert result.trimmedMean < 1.0
+        assert result.heldoutCells == 2 * n
+        assert result.diagnostics["contrast_cells"] == n
+        assert result.diagnostics["innovation_selected_min_r"] == 0.0
+        assert result.diagnostics["contrast_selected_min_r"] == pytest.approx(
+            targetR,
+            abs=1.0e-5,
+        )
+        assert result.diagnostics["contrast_floor_applied"] is True
+        assert result.diagnostics["selected_source"] == "replicate_contrast"
+
+
+def _caseObservationVarianceFloorNoHeldoutScoresFallbackDiagnostics(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger=uncertainty.logger.name)
+    caplog.clear()
+    m, n = 2, 10
+    pad = 0.01
+    fallbackMinR = 3.0e-4
+    pState = np.full(n, 0.1, dtype=np.float32)
+    matrixData = np.zeros((m, n), dtype=np.float32)
+    matrixMunc = np.zeros((m, n), dtype=np.float32)
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        return (
+            state,
+            covar,
+            np.zeros((n, m), dtype=np.float32),
+            np.zeros(n, dtype=np.float32),
+            np.zeros(m, dtype=np.float32),
+            np.arange(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
+        )
+
+    monkeypatch.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+    params = core.uncertaintyCalibrationParams(
+        folds=2,
+        blockSizeBP=5,
+        calibrationECMIters=1,
+        maxScores=10_000,
+        writeDiagnostics=False,
+        seed=37,
+    )
+    runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = False
+
+    result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        intervalSizeBP=1,
+        params=params,
+        runKwargs=runKwargs,
+        pad=pad,
+        maxR=1.0,
+        fallbackMinR=fallbackMinR,
+        excludeIntervals=np.ones(n, dtype=bool),
+        chromosome="chrFallback",
+    )
+
+    cushion = uncertainty._OBSERVATION_VARIANCE_FLOOR_SAFETY_CUSHION
+    assert result.minR == cushion
+    assert result.heldoutCells == 0
+    assert result.fitCells == 0
+    assert not result.usedLambda
+    assert result.fallbackUsed
+    assert result.diagnostics["reason"] == "no_heldout_scores"
+    assert result.diagnostics["fallback_min_r"] == cushion
+    assert result.diagnostics["safety_cushion_min_r"] == cushion
+    assert result.diagnostics["safety_cushion_applied"] is False
+    assert result.diagnostics["background_mode"] == "fixed_zero"
+    assert result.diagnostics["common_background_source"] == "zero_fitBackground_false"
+    assert result.diagnostics["fixed_common_background"] is False
+    assert "observationFloorCalibration.done chrom=chrFallback" in caplog.text
+    assert "selectedSource=fallback_no_heldout" in caplog.text
+    assert "heldoutCells=0 fitCells=0 contrastCells=0" in caplog.text
+    assert "fallbackUsed=True" in caplog.text
 
 
 def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
@@ -599,9 +1166,11 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
     fullCovar[:, 1, 1] = 0.01
     replicateBias = np.zeros(m, dtype=np.float32)
     capturedKwargs = []
+    capturedMasks = []
 
     def _fakeRunConsenrich(matrixDataArg, _matrixMuncArg, *, observationMask, **kwargs):
         capturedKwargs.append(dict(kwargs))
+        capturedMasks.append(np.asarray(observationMask, dtype=np.uint8).copy())
         residual = np.asarray(matrixDataArg, dtype=np.float32) - fullState[:, 0][None, :]
         return (
             fullState,
@@ -616,6 +1185,7 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
     monkeypatch.setattr(core, "runConsenrich", _fakeRunConsenrich)
 
     runKwargs = _smallRunKwargs()
+    runKwargs["fitBackground"] = True
     runKwargs["processNoiseWarmupECMIters"] = 5
     params = core.uncertaintyCalibrationParams(
         enabled=True,
@@ -643,6 +1213,8 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
     )
 
     assert len(capturedKwargs) == params.folds
+    assert len(capturedMasks) == params.folds
+    assert all(kwargs.get("fitBackground") is True for kwargs in capturedKwargs)
     assert all(kwargs["ECM_outerIters"] == 1 for kwargs in capturedKwargs)
     assert all(
         kwargs["ECM_minOuterIters"] == 1 for kwargs in capturedKwargs
@@ -657,6 +1229,15 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
         "processQWarmupOuterIters" not in kwargs
         for kwargs in capturedKwargs
     )
+    for mask in capturedMasks:
+        heldoutByInterval = np.sum(mask == 0, axis=0)
+        assert set(np.unique(heldoutByInterval)).issubset({0, 1})
+    combinedHeldoutByInterval = np.sum(
+        [np.sum(mask == 0, axis=0) for mask in capturedMasks],
+        axis=0,
+    )
+    assert np.all(combinedHeldoutByInterval == 1)
+
 
 
 def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
@@ -721,12 +1302,59 @@ def test_uncertainty_cython_contracts(contract_case):
         contract_case(label, func)
 
 
-def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, contract_case):
-    contract_case("calibration smoke", _caseCalibrateChromosomeStateUncertaintySmoke, tmp_path)
+def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, caplog, contract_case):
+    contract_case(
+        "calibration smoke",
+        _caseCalibrateChromosomeStateUncertaintySmoke,
+        tmp_path,
+        caplog,
+    )
     contract_case(
         "held-out observation variance floor smoke",
         _caseObservationVarianceFloorHeldoutSmoke,
         monkeypatch,
+        caplog,
+    )
+    contract_case(
+        "observation variance floor missing background modes",
+        _caseObservationVarianceFloorMissingBackgroundModes,
+        monkeypatch,
+    )
+    contract_case(
+        "observation variance floor safety cushion",
+        _caseObservationVarianceFloorSafetyCushion,
+        monkeypatch,
+    )
+    contract_case(
+        "observation variance floor fallback guard",
+        _caseObservationVarianceFloorFallbackGuard,
+        monkeypatch,
+    )
+    contract_case(
+        "observation variance floor uses residual variance above MUNC plus pad",
+        _caseObservationVarianceFloorResidualVarianceBeatsMuncPad,
+        monkeypatch,
+    )
+    contract_case(
+        "observation variance floor sparse heldout intervals",
+        _caseObservationVarianceFloorSparseHeldoutIntervals,
+        monkeypatch,
+    )
+    contract_case(
+        "observation variance floor lambda-free guard",
+        _caseObservationVarianceFloorLambdaFreeGuard,
+        monkeypatch,
+    )
+    contract_case(
+        "observation variance floor replicate contrast guard",
+        _caseObservationVarianceFloorReplicateContrastGuard,
+        monkeypatch,
+    )
+    contract_case(
+        "observation variance floor no-score fallback diagnostics",
+        _caseObservationVarianceFloorNoHeldoutScoresFallbackDiagnostics,
+        monkeypatch,
+        caplog,
     )
     contract_case(
         "cheap Q warmup policy for calibration refits",
