@@ -14,7 +14,7 @@ from scipy import ndimage
 cimport numpy as cnp
 from libc.stdint cimport int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from numpy.random import default_rng
-from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, cos, sin, isnan, NAN, INFINITY
+from libc.math cimport isfinite, fabs, log1p, log2, log, log2f, logf, asinhf, asinh, fmax, fmaxf, pow, sqrt, sqrtf, fabsf, fminf, fmin, log10, log10f, ceil, floor, floorf, exp, expf, cos, sin, erf, isnan, NAN, INFINITY
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 from libc.stdio cimport printf, fprintf, fflush, stdout, stderr
@@ -380,6 +380,67 @@ cdef inline double _secondDifferenceVarianceBlock(double* blockPtr, Py_ssize_t b
     return sumDiffSq / (<double>(blockLength - 2))
 
 
+cdef inline double _canonicalAR1VarianceFromPairStats(double sumSqXSeq,
+                                                      double sumSqYSeq,
+                                                      double sumXYc,
+                                                      Py_ssize_t blockLength,
+                                                      bint useInnovationVar,
+                                                      double maxBeta,
+                                                      double pairsRegLambda) noexcept nogil:
+    cdef double eps
+    cdef double nPairsDouble
+    cdef double beta1
+    cdef double RSS
+    cdef double pairCountDouble
+    cdef double oneMinusBetaSq
+    cdef double divRSS
+    cdef double lambdaEff
+    cdef double scaleFloor
+    cdef double ScaleX
+    cdef double ScaleY
+    cdef double denomSym
+
+    if blockLength < 4:
+        return 0.0
+    if sumSqXSeq < 0.0:
+        sumSqXSeq = 0.0
+    if sumSqYSeq < 0.0:
+        sumSqYSeq = 0.0
+
+    nPairsDouble = <double>(blockLength - 1)
+    eps = 1.0e-6 * (sumSqXSeq + sumSqYSeq + 1.0)
+    lambdaEff = pairsRegLambda / (nPairsDouble + 1.0)
+    scaleFloor = 1.0e-4 * (sumSqXSeq + 1.0)
+
+    ScaleX = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
+    ScaleY = (sumSqYSeq * (1.0 + lambdaEff)) + scaleFloor
+    denomSym = sqrt(ScaleX * ScaleY)
+    if denomSym > eps:
+        beta1 = sumXYc / denomSym
+    else:
+        beta1 = 0.0
+
+    if beta1 > maxBeta:
+        beta1 = maxBeta
+    elif beta1 < 0.0:
+        beta1 = 0.0
+
+    RSS = sumSqYSeq + ((beta1 * beta1) * sumSqXSeq) - (2.0 * (beta1 * sumXYc))
+    if RSS < 0.0:
+        RSS = 0.0
+
+    pairCountDouble = <double>(blockLength - 3)
+    oneMinusBetaSq = 1.0 - (beta1 * beta1)
+    if useInnovationVar:
+        divRSS = 1.0
+    else:
+        divRSS = oneMinusBetaSq
+
+    if divRSS <= 1.0e-8:
+        divRSS = 1.0e-8
+    return RSS / pairCountDouble / divRSS
+
+
 cdef inline void _regionMeanVar(double[::1] valuesView,
                                 Py_ssize_t[::1] blockStartIndices,
                                 Py_ssize_t[::1] blockSizes,
@@ -390,7 +451,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 bint useInnovationVar,
                                 bint useSampleVar,
                                 int modelCode,
-                                double maxBeta=<double>0.99,
+                                double maxBeta=<double>0.95,
                                 double pairsRegLambda=<double>1.0) noexcept nogil:
     # CALLERS: cmeanVarPairs
 
@@ -401,7 +462,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double blockLengthDouble
     cdef double mom1
     cdef double* blockPtr
-    cdef double eps
     cdef double nPairsDouble
     cdef double sumXSeq
     cdef double sumYSeq
@@ -412,17 +472,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
     cdef double sumXYc
     cdef double xDev
     cdef double yDev
-    cdef double beta1
-    cdef double RSS
-    cdef double pairCountDouble
-    cdef double oneMinusBetaSq
-    cdef double divRSS
-    cdef double lambdaEff
-    cdef double Scale
-    cdef double scaleFloor
-    cdef double ScaleX
-    cdef double ScaleY
-    cdef double denomSym
 
     zeroPenalty = zeroPenalty
     zeroThresh = zeroThresh
@@ -484,45 +533,15 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             sumSqYSeq += yDev*yDev
             sumXYc += xDev*yDev
 
-        eps = 1.0e-6*(sumSqXSeq + sumSqYSeq + 1.0)
-
-        # scale-aware ridge
-        if nPairsDouble > 0.0:
-            lambdaEff = pairsRegLambda / (nPairsDouble + 1.0)
-        else:
-            lambdaEff = pairsRegLambda
-
-        scaleFloor = 1.0e-4*(sumSqXSeq + 1.0)
-
-        # _symmetry_: lag-1 correlation for beta
-        ScaleX = (sumSqXSeq * (1.0 + lambdaEff)) + scaleFloor
-        ScaleY = (sumSqYSeq * (1.0 + lambdaEff)) + scaleFloor
-        # both directions accounted for
-        denomSym = sqrt(ScaleX * ScaleY)
-        if denomSym > eps:
-            beta1 = sumXYc / denomSym
-        else:
-            beta1 = 0.0
-
-        if beta1 > maxBeta:
-            beta1 = maxBeta
-        elif beta1 < 0.0:
-            beta1 = 0.0
-
-        RSS = sumSqYSeq + ((beta1*beta1)*sumSqXSeq) - (2.0*(beta1*sumXYc))
-        if RSS < 0.0:
-            RSS = 0.0
-
-        pairCountDouble = <double>(blockLength - 3)
-        oneMinusBetaSq = 1.0 - (beta1 * beta1)
-        if useInnovationVar:
-            divRSS = <double>1.0
-        else:
-            divRSS = <double>oneMinusBetaSq
-
-        if divRSS <= 1.0e-8:
-            divRSS = <double>1.0e-8
-        varOutView[regionIndex] = <float>(RSS / pairCountDouble / divRSS)
+        varOutView[regionIndex] = <float>_canonicalAR1VarianceFromPairStats(
+            sumSqXSeq,
+            sumSqYSeq,
+            sumXYc,
+            blockLength,
+            useInnovationVar,
+            maxBeta,
+            pairsRegLambda,
+        )
 
 
 cdef inline double _secondDiffPenaltyDiag(Py_ssize_t n, Py_ssize_t i, double lam) noexcept nogil:
@@ -1026,12 +1045,10 @@ cpdef cnp.ndarray[cnp.float64_t, ndim=1] ctrimMeanAxis0(
     return out
 
 
-cdef tuple _dependenceLengthStats(
+cdef tuple _dependenceAcfStats(
     cnp.ndarray[cnp.float64_t, ndim=1] centeredTrack,
     int maxSpan,
 ):
-    r"""Autocorrelation and normalized increment variance over finite runs."""
-
     cdef cnp.ndarray[cnp.float64_t, ndim=1] trackArr = np.ascontiguousarray(
         centeredTrack,
         dtype=np.float64,
@@ -1039,24 +1056,20 @@ cdef tuple _dependenceLengthStats(
     cdef Py_ssize_t n = <Py_ssize_t>trackArr.shape[0]
     cdef Py_ssize_t maxSpan_ = <Py_ssize_t>max(maxSpan, 0)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] acfNum = np.zeros(maxSpan_, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] incNum = np.zeros(maxSpan_, dtype=np.float64)
     cdef cnp.ndarray[cnp.float64_t, ndim=1] acf = np.zeros(maxSpan_, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] inc = np.zeros(maxSpan_, dtype=np.float64)
     cdef cnp.ndarray[cnp.int64_t, ndim=1] pairCounts = np.zeros(maxSpan_, dtype=np.int64)
     cdef double[::1] trackView = trackArr
     cdef double[::1] acfNumView = acfNum
-    cdef double[::1] incNumView = incNum
     cdef double[::1] acfView = acf
-    cdef double[::1] incView = inc
     cdef int64_t[::1] pairCountView = pairCounts
     cdef Py_ssize_t i, lag, runStart, runEnd, j
     cdef Py_ssize_t finiteCount = 0
-    cdef double value, nextValue, diff
+    cdef double value, nextValue
     cdef double gamma0Sum = 0.0
     cdef double gamma0 = 0.0
 
     if n <= 0 or maxSpan_ <= 0:
-        return acf, inc, pairCounts, float(gamma0), int(finiteCount)
+        return acf, pairCounts, float(gamma0), int(finiteCount)
 
     with nogil:
         for i in range(n):
@@ -1085,8 +1098,6 @@ cdef tuple _dependenceLengthStats(
                             value = trackView[j]
                             nextValue = trackView[j + lag]
                             acfNumView[lag - 1] += value * nextValue
-                            diff = nextValue - value
-                            incNumView[lag - 1] += diff * diff
                             pairCountView[lag - 1] += 1
 
             for lag in range(maxSpan_):
@@ -1094,18 +1105,13 @@ cdef tuple _dependenceLengthStats(
                     acfView[lag] = (
                         acfNumView[lag] / <double>pairCountView[lag]
                     ) / gamma0
-                    incView[lag] = (
-                        0.5 * incNumView[lag] / <double>pairCountView[lag]
-                    ) / gamma0
                 else:
                     acfView[lag] = NAN
-                    incView[lag] = NAN
         else:
             for lag in range(maxSpan_):
                 acfView[lag] = NAN
-                incView[lag] = NAN
 
-    return acf, inc, pairCounts, float(gamma0), int(finiteCount)
+    return acf, pairCounts, float(gamma0), int(finiteCount)
 
 
 cdef bint _isStandardAutosomeName(object chromosome):
@@ -1142,6 +1148,136 @@ cdef int _acfCrossingLag(cnp.ndarray[cnp.float64_t, ndim=1] acf, double threshol
     return -1
 
 
+cdef inline double _normalCdf(double x) noexcept nogil:
+    if not isfinite(x):
+        if x == INFINITY:
+            return 1.0
+        if x == -INFINITY:
+            return 0.0
+        return NAN
+    if x <= -8.0:
+        return 0.0
+    if x >= 8.0:
+        return 1.0
+    return 0.5 * (1.0 + erf(x / sqrt(2.0)))
+
+
+cdef double _dependenceAcfCrossingLogVariance(
+    cnp.ndarray[cnp.float64_t, ndim=1] acf,
+    cnp.ndarray[cnp.int64_t, ndim=1] pairCounts,
+    int minSpan,
+    int maxSpan,
+    double threshold,
+    int consecutive,
+):
+    cdef Py_ssize_t maxLag = <Py_ssize_t>acf.shape[0]
+    cdef Py_ssize_t pairLag = <Py_ssize_t>pairCounts.shape[0]
+    cdef int consecutive_ = int(consecutive)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1] crossingProb
+    cdef double[::1] acfView = acf
+    cdef int64_t[::1] pairCountView = pairCounts
+    cdef double[::1] crossingProbView
+    cdef Py_ssize_t lagIndex
+    cdef Py_ssize_t windowIndex
+    cdef Py_ssize_t maxStart
+    cdef int effectiveLag
+    cdef int tailLag
+    cdef int64_t nPairs
+    cdef double rho
+    cdef double prefixSq = 0.0
+    cdef double varRho
+    cdef double se
+    cdef double p
+    cdef double q
+    cdef double mass
+    cdef double survival = 1.0
+    cdef double logSpan
+    cdef double sumWeight = 0.0
+    cdef double sumLog = 0.0
+    cdef double sumLogSq = 0.0
+    cdef double meanLog
+    cdef double variance
+
+    if consecutive_ < 1:
+        consecutive_ = 1
+    if pairLag < maxLag:
+        maxLag = pairLag
+    if maxSpan > 0 and <Py_ssize_t>maxSpan < maxLag:
+        maxLag = <Py_ssize_t>maxSpan
+    if maxLag < consecutive_:
+        return NAN
+
+    crossingProb = np.zeros(maxLag, dtype=np.float64)
+    crossingProbView = crossingProb
+
+    for lagIndex in range(maxLag):
+        rho = acfView[lagIndex]
+        nPairs = pairCountView[lagIndex]
+        p = 0.0
+        if isfinite(rho) and nPairs > 0:
+            varRho = (1.0 + (2.0 * prefixSq)) / <double>nPairs
+            if isfinite(varRho) and varRho > 0.0:
+                se = sqrt(varRho)
+                p = (
+                    _normalCdf((threshold - rho) / se)
+                    - _normalCdf((-threshold - rho) / se)
+                )
+                if not isfinite(p):
+                    p = 0.0
+                elif p < 0.0:
+                    p = 0.0
+                elif p > 1.0:
+                    p = 1.0
+        crossingProbView[lagIndex] = p
+        if isfinite(rho):
+            prefixSq += rho * rho
+
+    maxStart = maxLag - <Py_ssize_t>consecutive_ + 1
+    for lagIndex in range(maxStart):
+        q = 1.0
+        for windowIndex in range(consecutive_):
+            q *= crossingProbView[lagIndex + windowIndex]
+        if not isfinite(q):
+            q = 0.0
+        elif q < 0.0:
+            q = 0.0
+        elif q > 1.0:
+            q = 1.0
+
+        mass = survival * q
+        if mass > 0.0:
+            effectiveLag = int(lagIndex + 1)
+            if effectiveLag < minSpan:
+                effectiveLag = int(minSpan)
+            logSpan = log(<double>max(effectiveLag, 1))
+            sumWeight += mass
+            sumLog += mass * logSpan
+            sumLogSq += mass * logSpan * logSpan
+
+        survival *= (1.0 - q)
+        if survival < 1.0e-15:
+            survival = 0.0
+            break
+
+    if survival > 0.0:
+        tailLag = int(max(maxSpan, minSpan))
+        logSpan = log(<double>max(tailLag, 1))
+        sumWeight += survival
+        sumLog += survival * logSpan
+        sumLogSq += survival * logSpan * logSpan
+
+    if sumWeight <= 0.0:
+        return NAN
+
+    meanLog = sumLog / sumWeight
+    variance = (sumLogSq / sumWeight) - (meanLog * meanLog)
+    if not isfinite(variance):
+        return NAN
+    if variance < 0.0:
+        variance = 0.0
+    return max(0.01, variance)
+
+
 cdef tuple _fallbackDependenceSpanResult(
     Py_ssize_t n,
     int minSpan,
@@ -1166,7 +1302,8 @@ cdef tuple _fallbackDependenceSpanResult(
             "max_span": int(maxSpan),
             "finite_count": int(n),
             "context_size_bp": int(contextSizeBP),
-            "candidate_spans": [],
+            "estimand": "acf_abs_three_lag_crossing",
+            "right_censored": False,
         },
     )
 
@@ -1183,7 +1320,6 @@ cdef tuple _estimateDependenceSpanForBlock(
     cdef cnp.ndarray[cnp.float64_t, ndim=1] finiteVals
     cdef cnp.ndarray[cnp.float64_t, ndim=1] y
     cdef cnp.ndarray[cnp.float64_t, ndim=1] acf
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] incrementVariance
     cdef cnp.ndarray[cnp.int64_t, ndim=1] pairCounts
     cdef Py_ssize_t n
     cdef Py_ssize_t finiteCount
@@ -1192,8 +1328,6 @@ cdef tuple _estimateDependenceSpanForBlock(
     cdef int crossingLag
     cdef int lowerCrossing
     cdef int upperCrossing
-    cdef int incrementElbow = -1
-    cdef int iatSpan
     cdef int pointSpan
     cdef int lowerSpan
     cdef int upperSpan
@@ -1204,12 +1338,8 @@ cdef tuple _estimateDependenceSpanForBlock(
     cdef double lo
     cdef double hi
     cdef double gamma0
-    cdef double plateau
-    cdef double threshold
-    cdef double positiveSum
-    cdef list candidates
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] validInc
-    cdef Py_ssize_t tailStart
+    cdef double acfCrossingLogVariance
+    cdef bint rightCensored
 
     arr = np.ascontiguousarray(blockMat, dtype=np.float64)
     if arr.ndim != 2:
@@ -1246,7 +1376,7 @@ cdef tuple _estimateDependenceSpanForBlock(
 
     y = np.full(contextTrack.shape[0], np.nan, dtype=np.float64)
     y[np.isfinite(contextTrack)] = np.clip(contextTrack[np.isfinite(contextTrack)], lo, hi) - center
-    acf, incrementVariance, pairCounts, gamma0, finiteCount = _dependenceLengthStats(
+    acf, pairCounts, gamma0, finiteCount = _dependenceAcfStats(
         np.ascontiguousarray(y, dtype=np.float64),
         int(maxSpan),
     )
@@ -1254,36 +1384,8 @@ cdef tuple _estimateDependenceSpanForBlock(
         return _fallbackDependenceSpanResult(finiteCount, minSpan, maxSpan, intervalSizeBP, "zero_or_invalid_gamma0")
 
     crossingLag = _acfCrossingLag(acf, 0.10)
-    if crossingLag < 0:
-        positiveSum = float(np.sum(np.clip(acf[np.isfinite(acf)], 0.0, None)))
-    else:
-        positiveSum = float(np.sum(np.clip(acf[:crossingLag][np.isfinite(acf[:crossingLag])], 0.0, None)))
-    iatSpan = int(ceil(0.5 + positiveSum))
-    iatSpan = int(max(minSpan, min(maxSpan, iatSpan)))
-
-    validInc = np.asarray(
-        incrementVariance[np.isfinite(incrementVariance) & (np.asarray(pairCounts) > 0)],
-        dtype=np.float64,
-    )
-    plateau = NAN
-    if validInc.size > 0:
-        tailStart = <Py_ssize_t>floor(0.75 * <double>validInc.size)
-        if tailStart >= validInc.size:
-            tailStart = 0
-        plateau = float(np.median(validInc[tailStart:]))
-        if isfinite(plateau) and plateau > 0.0:
-            threshold = 0.90 * plateau
-            for i in range(incrementVariance.shape[0]):
-                if isfinite(incrementVariance[i]) and incrementVariance[i] >= threshold:
-                    incrementElbow = int(i + 1)
-                    break
-
-    candidates = [int(iatSpan)]
-    if crossingLag >= 0:
-        candidates.append(int(crossingLag))
-    if incrementElbow >= 0:
-        candidates.append(int(incrementElbow))
-    pointSpan = int(round(float(np.median(np.asarray(candidates, dtype=np.float64)))))
+    rightCensored = crossingLag < 0
+    pointSpan = int(maxSpan) if rightCensored else int(crossingLag)
     pointSpan = int(max(minSpan, min(maxSpan, pointSpan)))
 
     lowerCrossing = _acfCrossingLag(acf, 0.20)
@@ -1293,17 +1395,26 @@ cdef tuple _estimateDependenceSpanForBlock(
     lowerSpan = int(max(minSpan, min(maxSpan, min(lowerSpan, pointSpan))))
     upperSpan = int(max(minSpan, min(maxSpan, max(upperSpan, pointSpan))))
     contextSizeBP = int(pointSpan * (2 * max(int(intervalSizeBP), 1)) + 1)
+    acfCrossingLogVariance = _dependenceAcfCrossingLogVariance(
+        acf,
+        pairCounts,
+        int(minSpan),
+        int(maxSpan),
+        0.10,
+        3,
+    )
     return (
         int(pointSpan),
         int(lowerSpan),
         int(upperSpan),
         {
-            "method": "dependence_acf_increment_sampled_block",
+            "method": "dependence_acf_sampled_block",
             "fallback": False,
             "point_span": int(pointSpan),
             "lower_span": int(lowerSpan),
             "upper_span": int(upperSpan),
             "context_size_bp": int(contextSizeBP),
+            "estimand": "acf_abs_three_lag_crossing",
             "interval_size_bp": int(intervalSizeBP),
             "min_span": int(minSpan),
             "max_span": int(maxSpan),
@@ -1312,34 +1423,37 @@ cdef tuple _estimateDependenceSpanForBlock(
             "crossing_lag": None if crossingLag < 0 else int(crossingLag),
             "relaxed_crossing_lag": None if lowerCrossing < 0 else int(lowerCrossing),
             "strict_crossing_lag": None if upperCrossing < 0 else int(upperCrossing),
-            "iat_span": int(iatSpan),
-            "increment_elbow": None if incrementElbow < 0 else int(incrementElbow),
-            "candidate_spans": [int(v) for v in candidates],
+            "point_threshold": 0.10,
+            "lower_threshold": 0.20,
+            "upper_threshold": 0.05,
+            "right_censored": bool(rightCensored),
+            "log_span_variance": float(acfCrossingLogVariance),
+            "log_span_variance_method": "acf_bartlett_crossing_distribution",
         },
     )
 
 
 cdef double _dependenceLogVarianceFromDiagnostics(dict diagnostics, Py_ssize_t nBins):
+    cdef object directVarianceObj = diagnostics.get("log_span_variance", None)
+    cdef double directVariance = NAN
     cdef double point = max(1.0, float(diagnostics.get("point_span", 1.0)))
     cdef double lower = max(1.0, float(diagnostics.get("lower_span", point)))
     cdef double upper = max(lower, float(diagnostics.get("upper_span", point)))
     cdef double bracketWidth = log((upper + 1.0) / (lower + 1.0))
-    cdef object candidatesObj = diagnostics.get("candidate_spans", [])
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] candidates = np.asarray(
-        [float(v) for v in candidatesObj if v is not None and isfinite(float(v)) and float(v) > 0.0],
-        dtype=np.float64,
-    )
-    cdef double candidateSd = 0.0
     cdef double finiteCount = float(diagnostics.get("finite_count", 0.0) or 0.0)
     cdef double finiteFraction = min(1.0, max(0.0, finiteCount / max(1.0, float(nBins))))
     cdef int minSpan = int(diagnostics.get("min_span", 0) or 0)
     cdef int maxSpan = int(diagnostics.get("max_span", 0) or 0)
     cdef double boundaryPenalty = 0.0
     cdef double missingCrossingPenalty = 0.0
+    cdef double censoringPenalty = 0.0
     cdef double variance
 
-    if candidates.size >= 2:
-        candidateSd = float(np.std(np.log(candidates + 1.0), ddof=1))
+    if directVarianceObj is not None:
+        directVariance = float(directVarianceObj)
+        if isfinite(directVariance) and directVariance > 0.0:
+            return max(0.01, directVariance)
+
     if int(round(point)) == minSpan or int(round(point)) == maxSpan:
         boundaryPenalty = 0.75
     if diagnostics.get("crossing_lag") is None:
@@ -1348,14 +1462,16 @@ cdef double _dependenceLogVarianceFromDiagnostics(dict diagnostics, Py_ssize_t n
         missingCrossingPenalty += 0.20
     if diagnostics.get("strict_crossing_lag") is None:
         missingCrossingPenalty += 0.20
+    if bool(diagnostics.get("right_censored", False)):
+        censoringPenalty = 1.0
 
     variance = (
         0.04
         + bracketWidth * bracketWidth
-        + candidateSd * candidateSd
         + 1.5 * (1.0 - finiteFraction)
         + boundaryPenalty
         + missingCrossingPenalty
+        + censoringPenalty
     )
     return max(0.01, variance)
 
@@ -1398,6 +1514,7 @@ cpdef tuple cchooseDependenceSpan(
     cdef int blocksRequested = max(0, int(numBlocks))
     cdef int validBlocks = 0
     cdef int fallbackBlocks = 0
+    cdef int rightCensoredBlocks = 0
     cdef int widthBP
     cdef int blockBins
     cdef int startBin
@@ -1496,6 +1613,8 @@ cpdef tuple cchooseDependenceSpan(
             if bool(blockDiagnostics.get("fallback", False)):
                 fallbackBlocks += 1
                 continue
+            if bool(blockDiagnostics.get("right_censored", False)):
+                rightCensoredBlocks += 1
             logSpans.append(log(max(1.0, float(point))))
             logVariances.append(_dependenceLogVarianceFromDiagnostics(blockDiagnostics, endBin - startBin))
             validBlocks += 1
@@ -1537,11 +1656,16 @@ cpdef tuple cchooseDependenceSpan(
         "blocks_requested": int(blocksRequested),
         "blocks_valid": int(validBlocks),
         "fallback_blocks": int(fallbackBlocks),
+        "right_censored_blocks": int(rightCensoredBlocks),
         "fallback": bool(fallback),
         "point_span": int(pointSpan),
         "lower_span": int(lowerSpan),
         "upper_span": int(upperSpan),
         "context_size_bp": int(contextSizeBP),
+        "estimand": "acf_abs_three_lag_crossing",
+        "point_threshold": 0.10,
+        "lower_threshold": 0.20,
+        "upper_threshold": 0.05,
         "interval_size_bp": int(intervalSizeBP_),
         "min_span": int(minSpan),
         "max_span": int(maxSpan),
@@ -1559,6 +1683,7 @@ cpdef tuple cchooseDependenceSpan(
         "posterior_log_span_mean": float(postMean),
         "posterior_log_span_sd": float(postSd),
         "tau2": float(tau2),
+        "block_log_span_variance_method": "acf_bartlett_crossing_distribution",
         "block_lognormal_median_bp": float(blockMedianBP),
         "block_lognormal_sigma": float(blockSigma),
         "block_min_bp": int(blockMinBP),
@@ -2204,7 +2329,9 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           double zeroThresh=0.0,
                           bint useInnovationVar = <bint>True,
                           bint useSampleVar = <bint>False,
-                          int modelCode = 0):
+                          int modelCode = 0,
+                          double maxBeta = 0.95,
+                          double pairsRegLambda = 1.0):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -2292,6 +2419,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
         useInnovationVar,
         useSampleVar,
         modelCode,
+        maxBeta,
+        pairsRegLambda,
     )
 
     return outMeans, outVars, starts_, ends
@@ -2309,6 +2438,8 @@ cpdef tuple cSparseNearestMeanVarTrack(
     bint useSampleVar=False,
     int modelCode=0,
     bint aggregateMeanAbs=True,
+    double maxBeta=0.95,
+    double pairsRegLambda=1.0,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -2376,6 +2507,8 @@ cpdef tuple cSparseNearestMeanVarTrack(
         useInnovationVar,
         useSampleVar,
         modelCode,
+        maxBeta,
+        pairsRegLambda,
     )
 
     outMeansView = outMeans
@@ -5203,7 +5336,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     int modelCode = 0,
-    double maxBeta=0.99,
+    double maxBeta=0.95,
     double pairsRegLambda = 1.0,
     bint useInnovationVar = <bint>True,
 ):
@@ -5231,32 +5364,12 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     cdef double nPairsDouble
     cdef double sumXSeq
     cdef double sumYSeq
-    cdef double meanX
-    cdef double meanYp
     cdef double sumSqXSeq
     cdef double sumSqYSeq
     cdef double sumXYc
     cdef double previousValue
     cdef double currentValue
-    cdef double beta1, eps
-    cdef double RSS
-    cdef double pairCountDouble
-    cdef double lambdaEff
-    cdef double Scale
-    cdef double scaleFloor
-    cdef double ScaleX
-    cdef double ScaleY
-    cdef double denomSym
-    cdef double scaleFloorX
-    cdef double scaleFloorY
-    cdef double blockLengthDouble
-    cdef double meanAll
     cdef double gamma0_num
-    cdef double gamma1_num
-    cdef double scale_
-    cdef double gamma0
-    cdef double oneMinusBetaSq
-    cdef double innoVar
     cdef double leavingValue
     cdef double enteringValue
     cdef double leavingDiffValue
@@ -5335,8 +5448,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
                 sumDiff2Sq += diff2Value * diff2Value
                 diff2Count += 1
 
-        blockLengthDouble = <double>blockLength
-
         # sliding window until last block's start
         for startIndex in range(maxStartIndex + 1):
             if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2:
@@ -5369,39 +5480,26 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
                 sumXSeq = sumY - currentValue
                 sumYSeq = sumY - previousValue
 
-                meanAll = sumY / blockLengthDouble
-                gamma0_num = sumSqY - (blockLengthDouble * meanAll * meanAll)
-                if gamma0_num < 0.0:
-                    gamma0_num = 0.0
-
-                # Yule--Walker (time-reversal symmetric): beta from lag-1 autocovariance
-                gamma1_num = sumLagProd - (meanAll * sumXSeq) - (meanAll * sumYSeq) + (nPairsDouble * meanAll * meanAll)
-                lambdaEff = pairsRegLambda / (blockLengthDouble + 1.0)
-                scaleFloor = 1.0e-4*(gamma0_num + 1.0)
-                scale_ = (gamma0_num * (1.0 + lambdaEff)) + scaleFloor
-                eps = 1.0e-12*(gamma0_num + 1.0)
-                if scale_ > eps:
-                    beta1 = gamma1_num / scale_
-                else:
-                    beta1 = 0.0
-
-                if beta1 > maxBeta:
-                    beta1 = maxBeta
-                elif beta1 < 0.0:
-                    beta1 = 0.0
-
-                gamma0 = gamma0_num / blockLengthDouble
-                oneMinusBetaSq = 1.0 - (beta1 * beta1)
-                if oneMinusBetaSq < 0.0:
-                    oneMinusBetaSq = 0.0
-
-                if useInnovationVar:
-                    innoVar = gamma0 * oneMinusBetaSq
-                    if innoVar < 0.0:
-                        innoVar = 0.0
-                    varAtView[startIndex]=<cnp.float32_t>innoVar
-                else:
-                    varAtView[startIndex]=<cnp.float32_t>gamma0
+                sumSqXSeq = (
+                    (sumSqY - (currentValue * currentValue))
+                    - ((sumXSeq * sumXSeq) / nPairsDouble)
+                )
+                sumSqYSeq = (
+                    (sumSqY - (previousValue * previousValue))
+                    - ((sumYSeq * sumYSeq) / nPairsDouble)
+                )
+                sumXYc = sumLagProd - ((sumXSeq * sumYSeq) / nPairsDouble)
+                varAtView[startIndex] = <cnp.float32_t>(
+                    _canonicalAR1VarianceFromPairStats(
+                        sumSqXSeq,
+                        sumSqYSeq,
+                        sumXYc,
+                        blockLength,
+                        useInnovationVar,
+                        maxBeta,
+                        pairsRegLambda,
+                    )
+                )
 
             if startIndex < maxStartIndex:
                 # slide window forward --> (previousSum - leavingValue) + enteringValue
@@ -5461,7 +5559,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.99,
+    double maxBeta=0.95,
     double pairsRegLambda = 1.0,
     bint useInnovationVar = <bint>True,
 ):

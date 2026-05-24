@@ -2046,6 +2046,75 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
 
 
 @pytest.mark.correctness
+def test_core_estimate_provisional_background_helper():
+    n = 40
+    replicateBias = np.asarray([-0.12, 0.0, 0.08], dtype=np.float32)
+    background = np.full(n, 1.75, dtype=np.float32)
+    matrixData = background[None, :] + replicateBias[:, None]
+    matrixMunc = np.full_like(matrixData, 0.05, dtype=np.float32)
+
+    estimated, diagnostics = core.estimateProvisionalBackground(
+        matrixData,
+        matrixMunc,
+        blockLenIntervals=8,
+        initialReplicateBias=replicateBias,
+        useNonnegativeBackground=False,
+        zeroCenterBackground=False,
+        returnDiagnostics=True,
+    )
+
+    assert estimated.shape == (n,)
+    assert np.all(np.isfinite(estimated))
+    assert np.max(np.abs(estimated - background)) < 1.0e-4
+    assert diagnostics["applied"] is True
+    assert diagnostics["source"] == "banded_weighted_data"
+
+
+@pytest.mark.correctness
+def test_core_run_consenrich_initial_background_reaches_process_noise_warmup():
+    rng = np.random.default_rng(41)
+    n = 24
+    m = 2
+    initialBackground = np.linspace(0.20, 0.35, n, dtype=np.float32)
+    initialReplicateBias = np.asarray([-0.02, 0.02], dtype=np.float32)
+    latent = np.linspace(0.0, 0.1, n, dtype=np.float32)
+    matrixData = (
+        initialBackground[None, :]
+        + latent[None, :]
+        + initialReplicateBias[:, None]
+        + 0.005 * rng.normal(size=(m, n))
+    ).astype(np.float32)
+    matrixMunc = np.full((m, n), 0.08, dtype=np.float32)
+
+    out = core.runConsenrich(
+        matrixData,
+        matrixMunc,
+        deltaF=1.0,
+        minQ=1.0e-4,
+        maxQ=0.5,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        boundState=False,
+        stateLowerBound=0.0,
+        stateUpperBound=0.0,
+        blockLenIntervals=6,
+        ECM_fixedBackgroundIters=1,
+        ECM_outerIters=1,
+        processNoiseWarmupECMIters=1,
+        initialBackground=initialBackground,
+        initialReplicateBias=initialReplicateBias,
+        returnDiagnostics=True,
+    )
+
+    diagnostics = out[-1]
+    warmStart = diagnostics["process_noise_warmup_fit"]["warm_start"]
+    assert warmStart["background"] is True
+    assert warmStart["background_prepass"] is False
+    assert warmStart["replicate_bias"] is True
+    assert diagnostics["post_process_noise_fit"]["warm_start"]["background"] is True
+
+
+@pytest.mark.correctness
 def _caseRunConsenrichOuterPassRequiresThreeIterationsDespiteTolerance(monkeypatch):
     rng = np.random.default_rng(23)
     n = 32
@@ -2981,11 +3050,75 @@ def _caseRollingAR1CanReturnMarginalVarianceInsteadOfInnovation():
 
 
 @pytest.mark.correctness
+def test_core_rolling_ar1_uses_canonical_block_variance_functional():
+    rng = np.random.default_rng(47)
+    n = 160
+    windowLength = 21
+    values = np.zeros(n, dtype=np.float64)
+    innovations = rng.normal(scale=0.35, size=n)
+    for i in range(1, n):
+        values[i] = 0.82 * values[i - 1] + innovations[i]
+    values = (values + np.linspace(-0.4, 0.6, n)).astype(np.float32)
+    excludeMask = np.zeros(n, dtype=np.uint8)
+
+    rollingMarginal = cconsenrich.crollingMuncVariance(
+        values,
+        windowLength,
+        excludeMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
+        useInnovationVar=False,
+        maxBeta=0.95,
+    )
+    starts = np.arange(n - windowLength + 1, dtype=np.intp)
+    blockSizes = np.full(starts.shape, windowLength, dtype=np.intp)
+    _means, canonicalBlockVars = cconsenrich.cSparseNearestMeanVarTrack(
+        values,
+        starts,
+        starts,
+        blockSizes,
+        1,
+        useInnovationVar=False,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
+        aggregateMeanAbs=False,
+        maxBeta=0.95,
+    )
+    centeredOutputIdx = starts + (windowLength // 2)
+
+    np.testing.assert_allclose(
+        rollingMarginal[centeredOutputIdx],
+        canonicalBlockVars[starts],
+        rtol=1.0e-5,
+        atol=1.0e-6,
+    )
+
+    rollingInnovation = cconsenrich.crollingMuncVariance(
+        values,
+        windowLength,
+        excludeMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
+        useInnovationVar=True,
+        maxBeta=0.80,
+    )
+    cappedMarginal = cconsenrich.crollingMuncVariance(
+        values,
+        windowLength,
+        excludeMask,
+        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
+        useInnovationVar=False,
+        maxBeta=0.80,
+    )
+    maxInflation = 1.0 / (1.0 - 0.80 * 0.80)
+    assert np.all(
+        cappedMarginal[centeredOutputIdx]
+        <= (maxInflation * rollingInnovation[centeredOutputIdx]) + 1.0e-5
+    )
+
+
+@pytest.mark.correctness
 def _caseMuncSizingAndCythonVarianceModels():
     intervalSizeBP = 25
     legacySizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        dependenceContextBP=1000,
         samplingBlockSizeBP=125,
         muncTrendBlockSizeBP=None,
         muncLocalWindowSizeBP=None,
@@ -2995,7 +3128,6 @@ def _caseMuncSizingAndCythonVarianceModels():
 
     explicitSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        dependenceContextBP=1000,
         samplingBlockSizeBP=125,
         muncTrendBlockSizeBP=250,
         muncLocalWindowSizeBP=500,
@@ -3006,7 +3138,6 @@ def _caseMuncSizingAndCythonVarianceModels():
 
     dependenceSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        dependenceContextBP=None,
         dependenceSpanIntervals=17,
         samplingBlockSizeBP=None,
         muncTrendBlockSizeBP=None,
@@ -3548,6 +3679,11 @@ def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
     assert diagnostics["num_blocks"] == 100
     assert 3 <= lowerSpan <= pointSpan <= upperSpan
     assert diagnostics["context_size_bp"] == pointSpan * 50 + 1
+    assert diagnostics["estimand"] == "acf_abs_three_lag_crossing"
+    assert diagnostics["point_threshold"] == 0.10
+    assert diagnostics["lower_threshold"] == 0.20
+    assert diagnostics["upper_threshold"] == 0.05
+    assert "right_censored_blocks" in diagnostics
     assert all(1000 <= width <= 1_000_000 for width in diagnostics["sampled_width_bp"])
     assert set(diagnostics["sampled_chromosomes"]) <= {"chr1", "chr2"}
     excluded = set(diagnostics["excluded_nonstandard_chromosomes"])
@@ -4285,28 +4421,6 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
         _caseReplicateMuncPriorsDifferAndProcessMatchesSerial,
         tmp_path,
     )
-
-
-def test_core_eb_prior_and_munc_contracts(monkeypatch, contract_case):
-    for label, func in (
-        ("EB prior strength boundary", _caseEBPriorStrengthBoundaryIsUsable),
-        ("EB prior thinned pairs", _caseEBPriorStrengthUsesThinnedVariancePairs),
-        ("mean-var sample sizes", _caseMeanVarPairSampleSizesStayWithinTrackLength),
-        ("rolling AR1 marginal variance", _caseRollingAR1CanReturnMarginalVarianceInsteadOfInnovation),
-        ("MUNC sizing and Cython variance models", _caseMuncSizingAndCythonVarianceModels),
-        ("blacklist MUNC floor", _caseApplyBlacklistMuncFloorUsesNonBlacklistQuantile),
-    ):
-        contract_case(label, func)
-    for label, func in (
-        ("pooled prior thinning", _casePooledPriorStrengthThinsBySampleChromosomeAndBin),
-        ("sparse-nearest MUNC path", _caseGetMuncTrackSparseNearestPath),
-        ("huge prior clipping", _caseGetMuncTrackClipsHugePriorBeforeShrinkage),
-        ("prior strength cap", _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf),
-        ("pooled trend factor", _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0),
-        ("sparse-nearest detrended prior", _caseGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept),
-        ("restrict rolling AR1 to sparse BED", _caseGetMuncTrackRestrictsRollingAR1ToSparseBed),
-    ):
-        contract_case(label, _run_with_monkeypatch, monkeypatch, func)
 
 
 def test_core_dependence_selection_contracts(contract_case):

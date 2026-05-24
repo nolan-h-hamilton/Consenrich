@@ -752,7 +752,7 @@ def _dependenceSpanBoundsFromContextBP(
 
 
 def _resolveRuntimeBackgroundBlockLen(
-    dependenceContextBP: Optional[int],
+    dependenceSpanIntervals: Optional[int],
     backgroundBlockSizeBP: int,
     intervalSizeBP: int,
     lengthScaleMultiplier: float,
@@ -762,15 +762,17 @@ def _resolveRuntimeBackgroundBlockLen(
         raise ValueError(
             "fitParams.ECM_backgroundLengthScaleMultiplier must be positive"
         )
-    if dependenceContextBP is not None and int(dependenceContextBP) > 0:
-        windowBP = 0.5 * multiplier * float(dependenceContextBP)
+    if int(backgroundBlockSizeBP) > 0:
+        windowBP = multiplier * max(float(backgroundBlockSizeBP), float(intervalSizeBP))
+    elif dependenceSpanIntervals is not None and int(dependenceSpanIntervals) > 0:
+        windowBP = multiplier * float(dependenceSpanIntervals) * float(intervalSizeBP)
     else:
         windowBP = multiplier * max(float(backgroundBlockSizeBP), float(intervalSizeBP))
     return _oddIntervalsFromBP(windowBP, intervalSizeBP, minIntervals=1)
 
 
 def _resolveRuntimeReplicateDetrendWindow(
-    dependenceContextBP: Optional[int],
+    dependenceSpanIntervals: Optional[int],
     backgroundBlockSizeBP: int,
     intervalSizeBP: int,
     lengthScaleMultiplier: float,
@@ -786,8 +788,13 @@ def _resolveRuntimeReplicateDetrendWindow(
         raise ValueError(
             "countingParams.replicateMedianDetrendWindowMultiplier must be positive"
         )
-    if dependenceContextBP is not None and int(dependenceContextBP) > 0:
-        windowBP = 0.5 * windowMultiplier_ * multiplier * float(dependenceContextBP)
+    if dependenceSpanIntervals is not None and int(dependenceSpanIntervals) > 0:
+        windowBP = (
+            windowMultiplier_
+            * multiplier
+            * float(dependenceSpanIntervals)
+            * float(intervalSizeBP)
+        )
     else:
         windowBP = (
             windowMultiplier_
@@ -859,7 +866,7 @@ def _logMuncEstimationParameters(
                 _formatOptionalLogValue(dependenceSpanIntervals),
             ),
             (
-                "MUNC context bp",
+                "MUNC derived context bp",
                 _formatOptionalLogValue(dependenceContextBP),
             ),
             ("trend span multiplier", float(trendMultiplier)),
@@ -1137,11 +1144,6 @@ def main():
     )
     muncVarianceModelCode_ = core._muncVarianceModelCode(muncVarianceModel_)
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
-    backgroundBlockSizeIntervals = (
-        -1
-        if backgroundBlockSizeBP_ <= 0
-        else int(backgroundBlockSizeBP_ / intervalSizeBP)
-    )
     dependenceContextBP_: Optional[int] = None
     dependenceSpanIntervals_: Optional[int] = None
     waitForMatrix: bool = False
@@ -1692,8 +1694,9 @@ def main():
     )
 
     # negative --> data-based bounds resolved after MUNC construction
-    if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
+    if observationArgs.minR < 0.0:
         minR_ = 0.0
+    if observationArgs.maxR < 0.0:
         maxR_ = 1e4
     if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
         minQ_ = 0.0
@@ -1704,6 +1707,7 @@ def main():
         prefix=f"consenrich_{experimentName}_munc_"
     )
     transformedMatrixCachePaths: Dict[str, str] = {}
+    muncResidualBackgroundCachePaths: Dict[str, str] = {}
     pooledBlockMeansParts: list[np.ndarray] = []
     pooledBlockVarsParts: list[np.ndarray] = []
     pooledSampleIndexParts: list[np.ndarray] = []
@@ -1722,7 +1726,7 @@ def main():
         c_: int,
         chromPlan: Mapping[str, Any],
     ) -> tuple[np.ndarray, np.ndarray]:
-        nonlocal backgroundBlockSizeBP_, backgroundBlockSizeIntervals
+        nonlocal backgroundBlockSizeBP_
         nonlocal dependenceContextBP_, dependenceSpanIntervals_, sf
 
         chromosome = str(chromPlan["chromosome"])
@@ -1949,7 +1953,7 @@ def main():
             return np.ascontiguousarray(chromMat, dtype=np.float32)
 
         detrendWindowIntervals = _resolveRuntimeReplicateDetrendWindow(
-            dependenceContextBP_,
+            dependenceSpanIntervals_,
             int(backgroundBlockSizeBP_),
             intervalSizeBP,
             fitArgs.ECM_backgroundLengthScaleMultiplier,
@@ -2033,10 +2037,373 @@ def main():
         )
         return np.ascontiguousarray(chromMat, dtype=np.float32)
 
+    def _summarizeFiniteArray(values: np.ndarray) -> dict[str, float | int]:
+        arr = np.asarray(values)
+        finiteMask = np.isfinite(arr)
+        finiteCount = int(np.count_nonzero(finiteMask))
+        if finiteCount == 0:
+            return {
+                "count": 0,
+                "min": float("nan"),
+                "p05": float("nan"),
+                "median": float("nan"),
+                "mean": float("nan"),
+                "p95": float("nan"),
+                "max": float("nan"),
+                "frac_negative": float("nan"),
+                "frac_zero": float("nan"),
+                "frac_positive": float("nan"),
+            }
+        fracNegative = float(np.count_nonzero(finiteMask & (arr < 0.0))) / float(
+            finiteCount
+        )
+        fracZero = float(np.count_nonzero(finiteMask & (arr == 0.0))) / float(
+            finiteCount
+        )
+        fracPositive = float(np.count_nonzero(finiteMask & (arr > 0.0))) / float(
+            finiteCount
+        )
+        flat = arr.reshape(-1)
+        maxSummaryValues = 1_000_000
+        if flat.size > maxSummaryValues:
+            idx = np.linspace(0, flat.size - 1, maxSummaryValues, dtype=np.int64)
+            summary = np.asarray(flat[idx], dtype=np.float64)
+            summary = summary[np.isfinite(summary)]
+            if summary.size == 0:
+                summary = np.asarray(flat[finiteMask.reshape(-1)], dtype=np.float64)
+        else:
+            summary = np.asarray(flat[finiteMask.reshape(-1)], dtype=np.float64)
+        q05, q50, q95 = np.quantile(summary, [0.05, 0.5, 0.95])
+        return {
+            "count": finiteCount,
+            "min": float(np.min(summary)),
+            "p05": float(q05),
+            "median": float(q50),
+            "mean": float(np.mean(summary, dtype=np.float64)),
+            "p95": float(q95),
+            "max": float(np.max(summary)),
+            "frac_negative": fracNegative,
+            "frac_zero": fracZero,
+            "frac_positive": fracPositive,
+        }
+
+    def _coarseMuncResidualizationInvVar(chromMat: np.ndarray) -> np.ndarray:
+        arr = np.asarray(chromMat, dtype=np.float32)
+        finiteMask = np.isfinite(arr)
+        sampleVariances = np.empty(int(arr.shape[0]), dtype=np.float64)
+        for j in range(int(arr.shape[0])):
+            row = np.asarray(arr[j, finiteMask[j, :]], dtype=np.float64)
+            if row.size >= 2:
+                rowMedian = float(np.median(row))
+                rowMad = float(np.median(np.abs(row - rowMedian)))
+                rowVariance = float((1.4826 * rowMad) ** 2)
+                if not np.isfinite(rowVariance) or rowVariance <= 0.0:
+                    rowVariance = float(np.var(row, dtype=np.float64))
+            else:
+                rowVariance = float("nan")
+            sampleVariances[j] = rowVariance
+
+        finiteVariances = sampleVariances[
+            np.isfinite(sampleVariances) & (sampleVariances > 0.0)
+        ]
+        fallbackVariance = (
+            float(np.median(finiteVariances)) if finiteVariances.size else 1.0
+        )
+        fallbackVariance = max(fallbackVariance, 1.0e-4)
+        sampleVariances = np.where(
+            np.isfinite(sampleVariances) & (sampleVariances > 0.0),
+            sampleVariances,
+            fallbackVariance,
+        )
+        invSampleVariances = 1.0 / np.maximum(sampleVariances, 1.0e-4)
+        invVarMatrix = np.broadcast_to(
+            invSampleVariances[:, None],
+            arr.shape,
+        ).astype(np.float32, copy=True)
+        invVarMatrix[~finiteMask] = np.float32(0.0)
+        return np.ascontiguousarray(invVarMatrix, dtype=np.float32)
+
+    def _coarseMuncResidualizationReplicateBias(chromMat: np.ndarray) -> np.ndarray:
+        arr = np.asarray(chromMat, dtype=np.float32)
+        sampleMedians = np.zeros(int(arr.shape[0]), dtype=np.float64)
+        for j in range(int(arr.shape[0])):
+            row = np.asarray(arr[j, np.isfinite(arr[j, :])], dtype=np.float64)
+            sampleMedians[j] = float(np.median(row)) if row.size else 0.0
+        finite = np.isfinite(sampleMedians)
+        if np.any(finite):
+            sampleMedians[~finite] = float(np.mean(sampleMedians[finite]))
+        else:
+            sampleMedians[:] = 0.0
+        sampleMedians -= float(np.mean(sampleMedians, dtype=np.float64))
+        return np.ascontiguousarray(sampleMedians.astype(np.float32), dtype=np.float32)
+
+    def _coarseMuncResidualizationMunc(
+        chromMat: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        invVarMatrix = _coarseMuncResidualizationInvVar(chromMat)
+        finiteMask = invVarMatrix > 0.0
+        coarseMunc = np.full(invVarMatrix.shape, 1.0, dtype=np.float32)
+        coarseMunc[finiteMask] = np.maximum(
+            (1.0 / invVarMatrix[finiteMask]) - float(pad_),
+            1.0e-4,
+        ).astype(np.float32, copy=False)
+        return np.ascontiguousarray(coarseMunc, dtype=np.float32), finiteMask
+
+    def _estimateMuncResidualizationBackground(
+        chromosome: str,
+        chromMat: np.ndarray,
+    ) -> tuple[np.ndarray, str, int]:
+        intervalCount = int(chromMat.shape[1])
+        if not bool(fitArgs.fitBackground):
+            return (
+                np.zeros(intervalCount, dtype=np.float32),
+                "disabled_fitBackground_false",
+                0,
+            )
+
+        blockLenIntervals = _resolveRuntimeBackgroundBlockLen(
+            dependenceSpanIntervals_,
+            int(backgroundBlockSizeBP_),
+            intervalSizeBP,
+            fitArgs.ECM_backgroundLengthScaleMultiplier,
+        )
+        helper = getattr(core, "estimateProvisionalBackground", None)
+        if callable(helper):
+            arr = np.asarray(chromMat, dtype=np.float32)
+            finiteValueMask = np.isfinite(arr)
+            matrixMunc, observationMask = _coarseMuncResidualizationMunc(arr)
+            matrixData = np.where(finiteValueMask, arr, 0.0).astype(
+                np.float32,
+                copy=False,
+            )
+            result = helper(
+                np.ascontiguousarray(matrixData, dtype=np.float32),
+                matrixMunc,
+                blockLenIntervals=int(blockLenIntervals),
+                pad=float(pad_),
+                initialReplicateBias=_coarseMuncResidualizationReplicateBias(arr),
+                observationMask=observationMask,
+                observationPrecisionMultiplierMin=(
+                    observationArgs.precisionMultiplierMin
+                ),
+                observationPrecisionMultiplierMax=(
+                    observationArgs.precisionMultiplierMax
+                ),
+                backgroundSmoothness=float(fitArgs.ECM_backgroundSmoothness),
+                zeroCenterBackground=bool(fitArgs.ECM_zeroCenterBackground),
+                useNonnegativeBackground=bool(fitArgs.useNonnegativeBackground),
+                backgroundNegativePenaltyMultiplier=(
+                    fitArgs.backgroundNegativePenaltyMultiplier
+                ),
+                returnDiagnostics=True,
+            )
+            if isinstance(result, tuple) and len(result) == 2:
+                background, helperDiagnostics = result
+                helperSource = str(
+                    dict(helperDiagnostics).get("source", "estimateProvisionalBackground")
+                )
+            else:
+                background = result
+                helperSource = "estimateProvisionalBackground"
+            backgroundArr = np.asarray(background, dtype=np.float32).reshape(-1)
+            if backgroundArr.shape != (intervalCount,):
+                raise RuntimeError(
+                    "MUNC residualization helper returned background shape "
+                    f"{backgroundArr.shape} for {chromosome}; expected {(intervalCount,)}"
+                )
+            return (
+                np.ascontiguousarray(backgroundArr, dtype=np.float32),
+                f"core.estimateProvisionalBackground:{helperSource}",
+                int(blockLenIntervals),
+            )
+
+        if not hasattr(core, "_solveZeroCenteredBackground"):
+            logger.warning(
+                "MUNC residualization prepass: no core background helper is available; "
+                "using zero g0 for %s.",
+                chromosome,
+            )
+            return (
+                np.zeros(intervalCount, dtype=np.float32),
+                "zero_no_core_background_helper",
+                int(blockLenIntervals),
+            )
+
+        arr = np.asarray(chromMat, dtype=np.float32)
+        finiteMask = np.isfinite(arr)
+        replicateBias = _coarseMuncResidualizationReplicateBias(arr)
+        residualMatrix = np.where(
+            finiteMask,
+            arr - replicateBias[:, None],
+            0.0,
+        ).astype(np.float32, copy=False)
+        invVarMatrix = _coarseMuncResidualizationInvVar(arr)
+        backgroundArr = core._solveZeroCenteredBackground(
+            residualMatrix=np.ascontiguousarray(residualMatrix, dtype=np.float32),
+            invVarMatrix=invVarMatrix,
+            blockLenIntervals=int(blockLenIntervals),
+            backgroundSmoothness=float(fitArgs.ECM_backgroundSmoothness),
+            zeroCenter=bool(fitArgs.ECM_zeroCenterBackground),
+            useNonnegative=bool(fitArgs.useNonnegativeBackground),
+            backgroundNegativePenaltyMultiplier=(
+                fitArgs.backgroundNegativePenaltyMultiplier
+            ),
+        )
+        backgroundArr = np.asarray(backgroundArr, dtype=np.float32).reshape(-1)
+        if backgroundArr.shape != (intervalCount,):
+            raise RuntimeError(
+                "MUNC residualization background shape mismatch for "
+                f"{chromosome}: expected {(intervalCount,)}, got {backgroundArr.shape}"
+            )
+        return (
+            np.ascontiguousarray(backgroundArr, dtype=np.float32),
+            "core._solveZeroCenteredBackground_coarse_weights",
+            int(blockLenIntervals),
+        )
+
+    def _residualizeMuncInput(
+        chromosome: str,
+        chromMat: np.ndarray,
+        background: np.ndarray,
+        *,
+        logDiagnostics: bool,
+        source: str = "",
+        blockLenIntervals: int = 0,
+    ) -> np.ndarray:
+        backgroundArr = np.asarray(background, dtype=np.float32).reshape(-1)
+        if backgroundArr.shape != (int(chromMat.shape[1]),):
+            raise RuntimeError(
+                "MUNC residualization background shape mismatch for "
+                f"{chromosome}: expected {(int(chromMat.shape[1]),)}, got {backgroundArr.shape}"
+            )
+        residMat = np.ascontiguousarray(
+            np.asarray(chromMat, dtype=np.float32) - backgroundArr[None, :],
+            dtype=np.float32,
+        )
+        if not logDiagnostics:
+            return residMat
+
+        backgroundStats = _summarizeFiniteArray(backgroundArr)
+        rawStats = _summarizeFiniteArray(chromMat)
+        residStats = _summarizeFiniteArray(residMat)
+        logger.info(
+            "MUNC residualization prepass %s source=%s blockLen=%d "
+            "g0[min,p05,median,mean,p95,max]=[%s,%s,%s,%s,%s,%s] "
+            "g0_fracPositive=%s g0_fracAbsLe1e-3=%s",
+            chromosome,
+            source,
+            int(blockLenIntervals),
+            _fmtDiagnosticFloat(backgroundStats["min"]),
+            _fmtDiagnosticFloat(backgroundStats["p05"]),
+            _fmtDiagnosticFloat(backgroundStats["median"]),
+            _fmtDiagnosticFloat(backgroundStats["mean"]),
+            _fmtDiagnosticFloat(backgroundStats["p95"]),
+            _fmtDiagnosticFloat(backgroundStats["max"]),
+            _fmtDiagnosticFloat(backgroundStats["frac_positive"]),
+            _fmtDiagnosticFloat(
+                float(np.mean(np.abs(backgroundArr[np.isfinite(backgroundArr)]) <= 1.0e-3))
+                if int(backgroundStats["count"]) > 0
+                else float("nan")
+            ),
+        )
+        logger.info(
+            "MUNC residualization value signs %s raw(n=%d,neg=%.4f,zero=%.4f,pos=%.4f,median=%s) "
+            "residual(n=%d,neg=%.4f,zero=%.4f,pos=%.4f,median=%s)",
+            chromosome,
+            int(rawStats["count"]),
+            float(rawStats["frac_negative"]),
+            float(rawStats["frac_zero"]),
+            float(rawStats["frac_positive"]),
+            _fmtDiagnosticFloat(rawStats["median"]),
+            int(residStats["count"]),
+            float(residStats["frac_negative"]),
+            float(residStats["frac_zero"]),
+            float(residStats["frac_positive"]),
+            _fmtDiagnosticFloat(residStats["median"]),
+        )
+        return residMat
+
+    def _loadMuncResidualizationBackground(
+        chromosome: str,
+        intervalCount: int,
+    ) -> np.ndarray:
+        path = muncResidualBackgroundCachePaths.get(chromosome)
+        if path is None:
+            logger.warning(
+                "Missing MUNC residualization background cache for %s; using zero g0.",
+                chromosome,
+            )
+            return np.zeros(int(intervalCount), dtype=np.float32)
+        backgroundArr = np.asarray(np.load(path, allow_pickle=False), dtype=np.float32)
+        backgroundArr = backgroundArr.reshape(-1)
+        if backgroundArr.shape != (int(intervalCount),):
+            raise RuntimeError(
+                "MUNC residualization background cache shape mismatch for "
+                f"{chromosome}: expected {(int(intervalCount),)}, got {backgroundArr.shape}"
+            )
+        return np.ascontiguousarray(backgroundArr, dtype=np.float32)
+
+    def _rawMeansForSampledBlocks(
+        values: np.ndarray,
+        starts: np.ndarray,
+        ends: np.ndarray,
+    ) -> np.ndarray:
+        valuesArr = np.asarray(values, dtype=np.float64)
+        startsArr = np.asarray(starts, dtype=np.int64)
+        endsArr = np.asarray(ends, dtype=np.int64)
+        valid = (
+            np.isfinite(startsArr)
+            & np.isfinite(endsArr)
+            & (startsArr >= 0)
+            & (endsArr > startsArr)
+            & (endsArr <= valuesArr.size)
+        )
+        out = np.full(startsArr.shape, np.nan, dtype=np.float64)
+        if not np.any(valid):
+            return out
+        finiteValues = np.where(np.isfinite(valuesArr), valuesArr, 0.0)
+        finiteCounts = np.asarray(np.isfinite(valuesArr), dtype=np.int64)
+        prefixSum = np.empty(valuesArr.size + 1, dtype=np.float64)
+        prefixCount = np.empty(valuesArr.size + 1, dtype=np.int64)
+        prefixSum[0] = 0.0
+        prefixCount[0] = 0
+        prefixSum[1:] = np.cumsum(finiteValues, dtype=np.float64)
+        prefixCount[1:] = np.cumsum(finiteCounts, dtype=np.int64)
+        startsValid = startsArr[valid]
+        endsValid = endsArr[valid]
+        counts = prefixCount[endsValid] - prefixCount[startsValid]
+        sums = prefixSum[endsValid] - prefixSum[startsValid]
+        localMeans = np.full(startsValid.shape, np.nan, dtype=np.float64)
+        nonzero = counts > 0
+        localMeans[nonzero] = sums[nonzero] / counts[nonzero]
+        out[valid] = localMeans
+        return out
+
+    def _logMuncTrendInputSummary(
+        chromosome: str,
+        label: str,
+        blockMeans: np.ndarray,
+    ) -> None:
+        stats = _summarizeFiniteArray(blockMeans)
+        logger.info(
+            "MUNC trend input %s %s blocks=%d "
+            "neg=%.4f zero=%.4f pos=%.4f "
+            "mean=%s p05=%s median=%s p95=%s",
+            label,
+            chromosome,
+            int(stats["count"]),
+            float(stats["frac_negative"]),
+            float(stats["frac_zero"]),
+            float(stats["frac_positive"]),
+            _fmtDiagnosticFloat(stats["mean"]),
+            _fmtDiagnosticFloat(stats["p05"]),
+            _fmtDiagnosticFloat(stats["median"]),
+            _fmtDiagnosticFloat(stats["p95"]),
+        )
+
     def _ensureSampledDependenceSpan(
         cachedMatrixPaths: Mapping[str, str],
     ) -> None:
-        nonlocal backgroundBlockSizeBP_, backgroundBlockSizeIntervals
         nonlocal dependenceContextBP_, dependenceSpanIntervals_
 
         if dependenceSpanIntervals_ is not None and dependenceContextBP_ is not None:
@@ -2069,14 +2436,8 @@ def main():
                 priorLogSd=1.0,
             )
         )
-        dependenceContextBP_ = int(depDiagnostics["context_size_bp"])
         dependenceSpanIntervals_ = int(depPoint)
-        if backgroundBlockSizeBP_ < 0:
-            backgroundBlockSizeBP_ = int(dependenceContextBP_)
-            backgroundBlockSizeIntervals = max(
-                1,
-                int(math.ceil(float(backgroundBlockSizeBP_) / float(intervalSizeBP))),
-            )
+        dependenceContextBP_ = int(2 * int(dependenceSpanIntervals_) * int(intervalSizeBP) + 1)
 
         excluded = [
             str(value) for value in depDiagnostics.get("chromosomes_excluded", [])
@@ -2095,8 +2456,8 @@ def main():
             "chromosomes_excluded=%s blocks_requested=%d blocks_valid=%d "
             "block_lognormal_median_bp=%d block_lognormal_sigma=%.1f "
             "block_min_bp=%d block_max_bp=%d sampled_width_median_bp=%s "
-            "span=%d lower=%d upper=%d context_bp=%d posterior_log_sd=%.6g "
-            "tau2=%.6g fallback=%s",
+            "span=%d lower=%d upper=%d context_bp=%d right_censored_blocks=%d "
+            "posterior_log_sd=%.6g tau2=%.6g fallback=%s",
             int(len(depDiagnostics.get("chromosomes_used", []))),
             excludedLabel,
             int(depDiagnostics.get("blocks_requested", 100)),
@@ -2110,6 +2471,7 @@ def main():
             int(depLower),
             int(depUpper),
             int(dependenceContextBP_),
+            int(depDiagnostics.get("right_censored_blocks", 0)),
             float(depDiagnostics.get("posterior_log_span_sd", float("nan"))),
             float(depDiagnostics.get("tau2", float("nan"))),
             "true" if bool(depDiagnostics.get("fallback", False)) else "false",
@@ -2119,10 +2481,12 @@ def main():
         c_: int,
         intervals: np.ndarray,
         chromMat: np.ndarray,
+        *,
+        inputLabel: str = "raw",
+        diagnosticRawMat: np.ndarray | None = None,
     ) -> None:
         muncSizing = core._resolveMuncRuntimeSizing(
             intervalSizeBP=intervalSizeBP,
-            dependenceContextBP=dependenceContextBP_,
             dependenceSpanIntervals=dependenceSpanIntervals_,
             samplingBlockSizeBP=samplingBlockSizeBP_,
             muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
@@ -2135,8 +2499,10 @@ def main():
             str(chromosomePlans[c_]["chromosome"]), intervals
         )
         intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32)
+        collectedMeansParts: list[np.ndarray] = []
+        rawDiagnosticMeansParts: list[np.ndarray] = []
         for j in range(numSamples):
-            blockMeans, blockVars, starts, _ends = cconsenrich.cmeanVarPairs(
+            blockMeans, blockVars, starts, ends = cconsenrich.cmeanVarPairs(
                 intervalsArr,
                 np.ascontiguousarray(chromMat[j, :], dtype=np.float32),
                 blockSizeIntervals,
@@ -2149,6 +2515,7 @@ def main():
             blockMeansArr = np.asarray(blockMeans)
             blockVarsArr = np.asarray(blockVars)
             startsArr = np.asarray(starts)
+            endsArr = np.asarray(ends)
             if startsArr.size != blockMeansArr.size:
                 continue
             valid = (
@@ -2159,6 +2526,20 @@ def main():
             if not np.any(valid):
                 continue
             count = int(np.count_nonzero(valid))
+            collectedMeansParts.append(
+                np.asarray(blockMeansArr[valid], dtype=np.float64)
+            )
+            if diagnosticRawMat is not None and endsArr.size == blockMeansArr.size:
+                rawMeans = _rawMeansForSampledBlocks(
+                    diagnosticRawMat[j, :],
+                    startsArr,
+                    endsArr,
+                )
+                rawValid = valid & np.isfinite(rawMeans)
+                if np.any(rawValid):
+                    rawDiagnosticMeansParts.append(
+                        np.asarray(rawMeans[rawValid], dtype=np.float64)
+                    )
             pooledBlockMeansParts.append(
                 np.asarray(blockMeansArr[valid], dtype=np.float64)
             )
@@ -2174,6 +2555,18 @@ def main():
                     max(float(chromMat.shape[1]) / float(max(count, 1)), 1.0),
                     dtype=np.float64,
                 )
+            )
+        if diagnosticRawMat is not None and rawDiagnosticMeansParts:
+            _logMuncTrendInputSummary(
+                str(chromosomePlans[c_]["chromosome"]),
+                "raw",
+                np.concatenate(rawDiagnosticMeansParts),
+            )
+        if collectedMeansParts:
+            _logMuncTrendInputSummary(
+                str(chromosomePlans[c_]["chromosome"]),
+                inputLabel,
+                np.concatenate(collectedMeansParts),
             )
 
     cachedIntervalsByChromosome: dict[str, np.ndarray] = {}
@@ -2222,7 +2615,31 @@ def main():
         chromMat = _applyReplicateMedianDetrend(chromosome, chromMat)
         np.save(cachePath, chromMat, allow_pickle=False)
         intervals = cachedIntervalsByChromosome[chromosome]
-        _collectPooledMuncBlocks(c_, intervals, chromMat)
+        muncResidualBackground, muncResidualSource, muncResidualBlockLen = (
+            _estimateMuncResidualizationBackground(chromosome, chromMat)
+        )
+        backgroundCachePath = os.path.join(
+            pooledMuncCache.name,
+            f"chrom_{c_:05d}_munc_g0.npy",
+        )
+        np.save(backgroundCachePath, muncResidualBackground, allow_pickle=False)
+        muncResidualBackgroundCachePaths[chromosome] = backgroundCachePath
+        residMat = _residualizeMuncInput(
+            chromosome,
+            chromMat,
+            muncResidualBackground,
+            logDiagnostics=True,
+            source=muncResidualSource,
+            blockLenIntervals=muncResidualBlockLen,
+        )
+        muncTrendInputLabel = "residualized" if bool(fitArgs.fitBackground) else "raw"
+        _collectPooledMuncBlocks(
+            c_,
+            intervals,
+            residMat,
+            inputLabel=muncTrendInputLabel,
+            diagnosticRawMat=chromMat if bool(fitArgs.fitBackground) else None,
+        )
 
     if pooledBlockMeansParts:
         pooledBlockMeans = np.concatenate(pooledBlockMeansParts)
@@ -2241,7 +2658,6 @@ def main():
 
     pooledMuncSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        dependenceContextBP=dependenceContextBP_,
         dependenceSpanIntervals=dependenceSpanIntervals_,
         samplingBlockSizeBP=samplingBlockSizeBP_,
         muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
@@ -2482,8 +2898,9 @@ def main():
         # Negative bounds are data-based and must be resolved independently
         # for each chromosome; do not let an auto floor from a previous
         # chromosome seed the MUNC fit for the next chromosome.
-        if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
+        if observationArgs.minR < 0.0:
             minR_ = 0.0
+        if observationArgs.maxR < 0.0:
             maxR_ = 1e4
         if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
             minQ_ = 0.0
@@ -2507,6 +2924,16 @@ def main():
                 "Transformed matrix cache shape mismatch for "
                 f"{chromosome}: expected {(numSamples, numIntervals)}, got {chromMat.shape}"
             )
+        muncResidualBackground = _loadMuncResidualizationBackground(
+            chromosome,
+            int(numIntervals),
+        )
+        residMat = _residualizeMuncInput(
+            chromosome,
+            chromMat,
+            muncResidualBackground,
+            logDiagnostics=False,
+        )
         muncMat: np.ndarray = np.empty_like(chromMat, dtype=np.float32)
         logger.info(
             "loaded transformed matrix cache %s samples=%d intervals=%d",
@@ -2582,7 +3009,7 @@ def main():
             muncTrack, _ = core.getMuncTrack(
                 chromosome,
                 intervals,
-                chromMat[j, :],
+                residMat[j, :],
                 intervalSizeBP,
                 samplingIters=samplingIters_,
                 samplingBlockSizeBP=samplingBlockSizeBP_,
@@ -2641,6 +3068,7 @@ def main():
             chromMat.shape[1],
             sharedArrays=(
                 chromMat,
+                residMat,
                 muncMat,
                 muncIntervalsArr,
                 muncExcludeMask,
@@ -2689,20 +3117,144 @@ def main():
             time.perf_counter() - muncStart,
         )
 
-        if observationArgs.minR < 0.0 or observationArgs.maxR < 0.0:
+        blockLenIntervals_ = _resolveRuntimeBackgroundBlockLen(
+            dependenceSpanIntervals_,
+            int(backgroundBlockSizeBP_),
+            intervalSizeBP,
+            fitArgs.ECM_backgroundLengthScaleMultiplier,
+        )
+
+        if observationArgs.minR < 0.0:
             finiteMask = np.isfinite(muncMat)
             if blacklistedIntervals and blacklistedIntervals < numIntervals:
                 finiteMask[:, np.asarray(muncExcludeMask, dtype=bool)] = False
             finiteMunc = muncMat[finiteMask]
-            minR_ = np.float32(
-                max(
-                    (np.float32(np.quantile(muncMat, 0.05) + 1.0e-3)),
-                    1.0e-4,
-                )
+            fallbackMinR = (
+                max(float(np.quantile(finiteMunc, 0.05)) + 1.0e-3, 1.0e-4)
+                if finiteMunc.size
+                else 1.0e-4
+            )
+            muncMat = np.nan_to_num(
+                muncMat.astype(np.float32, copy=False),
+                nan=np.float32(0.0),
+                posinf=np.float32(maxR_),
+                neginf=np.float32(0.0),
+            )
+            np.clip(
+                muncMat,
+                np.float32(0.0),
+                np.float32(maxR_),
+                out=muncMat,
             )
             logger.info(
-                "observationParams.minR < 0 or observationParams.maxR < 0 --> applying minimal numerically stable bounds for conditioning",
+                "observationParams.minR < 0 --> estimating empirical observation-variance floor from held-out innovations",
             )
+            pilotMinQ = processArgs.minQ
+            pilotMaxQ = processArgs.maxQ
+            if processArgs.minQ < 0.0 or processArgs.maxQ < 0.0:
+                pilotAutoMinQ = (1.0e-2 * fallbackMinR) + 1.0e-6
+                pilotMinQ = (
+                    np.float32(pilotAutoMinQ)
+                    if processArgs.minQ < 0.0
+                    else np.float32(processArgs.minQ)
+                )
+                pilotMaxQ = (
+                    np.float32(np.inf)
+                    if processArgs.maxQ < 0.0
+                    else np.float32(max(processArgs.maxQ, pilotMinQ))
+                )
+            try:
+                from consenrich import uncertainty as uncertainty_module
+
+                floorRunKwargs = dict(
+                    deltaF=deltaF_,
+                    minQ=pilotMinQ,
+                    maxQ=pilotMaxQ,
+                    stateInit=stateArgs.stateInit,
+                    stateCovarInit=stateArgs.stateCovarInit,
+                    boundState=stateArgs.boundState,
+                    stateLowerBound=stateArgs.stateLowerBound,
+                    stateUpperBound=stateArgs.stateUpperBound,
+                    blockLenIntervals=blockLenIntervals_,
+                    intervalSizeBP=intervalSizeBP,
+                    returnScales=True,
+                    returnReplicateOffsets=True,
+                    pad=pad_,
+                    ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
+                    ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
+                    ECM_robustTNu=fitArgs.ECM_robustTNu,
+                    ECM_useObsPrecisionReweighting=(
+                        fitArgs.ECM_useObsPrecisionReweighting
+                    ),
+                    ECM_useProcessPrecisionReweighting=(
+                        fitArgs.ECM_useProcessPrecisionReweighting
+                    ),
+                    ECM_useAPN=fitArgs.ECM_useAPN,
+                    fitBackground=fitArgs.fitBackground,
+                    useNonnegativeBackground=fitArgs.useNonnegativeBackground,
+                    backgroundNegativePenaltyMultiplier=(
+                        fitArgs.backgroundNegativePenaltyMultiplier
+                    ),
+                    ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
+                    ECM_outerIters=fitArgs.ECM_outerIters,
+                    ECM_minOuterIters=fitArgs.ECM_minOuterIters,
+                    ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
+                    ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
+                    ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
+                    stateModel=processArgs.stateModel,
+                    regularizationStrength=processArgs.regularizationStrength,
+                    regularizationRatio=processArgs.regularizationRatio,
+                    processNoiseWarmupECMIters=(
+                        processArgs.processNoiseWarmupECMIters
+                    ),
+                    observationPrecisionMultiplierMin=(
+                        observationArgs.precisionMultiplierMin
+                    ),
+                    observationPrecisionMultiplierMax=(
+                        observationArgs.precisionMultiplierMax
+                    ),
+                    processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
+                    processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
+                    initialBackground=(
+                        muncResidualBackground if bool(fitArgs.fitBackground) else None
+                    ),
+                    logIndentLevel=1,
+                    logRunRole="observation-floor pilot",
+                )
+                floorResult = (
+                    uncertainty_module.estimateObservationVarianceFloorFromHeldout(
+                        matrixData=chromMat,
+                        matrixMunc=muncMat,
+                        intervalSizeBP=intervalSizeBP,
+                        params=uncertaintyCalibrationArgs,
+                        runKwargs=floorRunKwargs,
+                        pad=pad_,
+                        maxR=float(maxR_),
+                        fallbackMinR=float(fallbackMinR),
+                        excludeIntervals=np.asarray(muncExcludeMask, dtype=bool),
+                        chromosome=chromosome,
+                    )
+                )
+                minR_ = np.float32(floorResult.minR)
+                logger.info(
+                    "Empirical observation floor applied for %s: minR=%.6g "
+                    "trimmedMean=%.6g heldoutCells=%d fitCells=%d usedLambda=%s",
+                    chromosome,
+                    float(floorResult.minR),
+                    float(floorResult.trimmedMean),
+                    int(floorResult.heldoutCells),
+                    int(floorResult.fitCells),
+                    bool(floorResult.usedLambda),
+                )
+            except Exception as exc:
+                minR_ = np.float32(fallbackMinR)
+                logger.warning(
+                    "Empirical observation floor calibration failed for %s; "
+                    "using fallback minR=%.6g. Error: %s",
+                    chromosome,
+                    float(minR_),
+                    exc,
+                )
         if blacklistedIntervals:
             floors = core.applyBlacklistMuncFloor(
                 muncMat, muncExcludeMask, float(minR_)
@@ -2753,12 +3305,6 @@ def main():
         else:
             maxQ_ = np.float32(max(maxQ_, minQ_))
         logger.info(f"minR={minR_}, maxR={maxR_}, minQ={minQ_}, maxQ={maxQ_}")
-        blockLenIntervals_ = _resolveRuntimeBackgroundBlockLen(
-            dependenceContextBP_,
-            int(backgroundBlockSizeBP_),
-            intervalSizeBP,
-            fitArgs.ECM_backgroundLengthScaleMultiplier,
-        )
         core._logAsciiBlock(
             "chromosome fit",
             (
@@ -2766,14 +3312,17 @@ def main():
                 ("intervals", int(numIntervals)),
                 ("samples", int(numSamples)),
                 (
-                    "dependence context bp",
+                    "dependence derived context bp",
                     (
                         int(dependenceContextBP_)
                         if dependenceContextBP_ is not None
                         else "configured"
                     ),
                 ),
-                ("background base bp", int(backgroundBlockSizeBP_)),
+                (
+                    "background configured bp",
+                    int(backgroundBlockSizeBP_) if int(backgroundBlockSizeBP_) > 0 else "auto",
+                ),
                 ("background window intervals", int(blockLenIntervals_)),
                 ("minR", float(minR_)),
                 ("maxR", float(maxR_)),
@@ -2841,6 +3390,9 @@ def main():
             trackOptimizationPath=outputArgs.plotOptimizationPath,
             returnPrecisionDiagnostics=True,
             returnDiagnostics=True,
+            initialBackground=(
+                muncResidualBackground if bool(fitArgs.fitBackground) else None
+            ),
             logIndentLevel=1,
             logRunRole="primary chromosome",
         )

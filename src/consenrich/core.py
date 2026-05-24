@@ -310,6 +310,8 @@ class observationParams(NamedTuple):
     r"""Parameters related to the observation model of Consenrich
 
     :param minR: Genome-wide lower bound for replicate-specific observation noise levels.
+      If negative, estimate a chromosome-specific empirical floor from held-out
+      innovations before the primary fit.
     :type minR: float | None
     :param maxR: Genome-wide upper bound for the replicate-specific observation noise levels.
     :type maxR: float | None
@@ -1920,6 +1922,263 @@ def _coerceOptionalProcessNoiseMatrix(value: np.ndarray | None) -> np.ndarray | 
     return np.ascontiguousarray(arr, dtype=np.float32)
 
 
+def _coerceMatrixDataMuncPair(
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    matrixDataArr = np.ascontiguousarray(matrixData, dtype=np.float32)
+    matrixMuncArr = np.ascontiguousarray(matrixMunc, dtype=np.float32)
+
+    if matrixDataArr.ndim == 1:
+        matrixDataArr = matrixDataArr[None, :]
+    elif matrixDataArr.ndim != 2:
+        raise ValueError(
+            f"matrixData must be 1D or 2D (got ndim={matrixDataArr.ndim})"
+        )
+
+    if matrixMuncArr.ndim == 1:
+        matrixMuncArr = matrixMuncArr[None, :]
+    elif matrixMuncArr.ndim != 2:
+        raise ValueError(
+            f"matrixMunc must be 1D or 2D (got ndim={matrixMuncArr.ndim})"
+        )
+
+    if matrixDataArr.shape != matrixMuncArr.shape:
+        raise ValueError("matrixData and matrixMunc must have identical shapes")
+    return matrixDataArr, matrixMuncArr
+
+
+def _applyObservationMaskToMunc(
+    matrixMunc: np.ndarray,
+    observationMask: np.ndarray | None,
+) -> np.ndarray:
+    matrixMuncArr = np.ascontiguousarray(matrixMunc, dtype=np.float32)
+    if observationMask is None:
+        return matrixMuncArr
+
+    observationMaskArr = np.asarray(observationMask, dtype=bool)
+    if observationMaskArr.ndim == 1:
+        observationMaskArr = np.broadcast_to(
+            observationMaskArr[None, :],
+            matrixMuncArr.shape,
+        )
+    if observationMaskArr.shape != matrixMuncArr.shape:
+        raise ValueError("observationMask must match matrixData shape")
+
+    matrixMuncArr = matrixMuncArr.copy(order="C")
+    matrixMuncArr[~observationMaskArr] = (
+        UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE
+    )
+    return np.ascontiguousarray(matrixMuncArr, dtype=np.float32)
+
+
+def _backgroundWarmStartSummary(background: np.ndarray) -> dict[str, float]:
+    backgroundArr = np.asarray(background, dtype=np.float64).reshape(-1)
+    if backgroundArr.size == 0:
+        return {
+            "min": 0.0,
+            "p05": 0.0,
+            "median": 0.0,
+            "mean": 0.0,
+            "p95": 0.0,
+            "max": 0.0,
+            "frac_positive": 0.0,
+            "frac_abs_le_1e_3": 0.0,
+        }
+    quantiles = np.quantile(backgroundArr, [0.05, 0.5, 0.95])
+    return {
+        "min": float(np.min(backgroundArr)),
+        "p05": float(quantiles[0]),
+        "median": float(quantiles[1]),
+        "mean": float(np.mean(backgroundArr, dtype=np.float64)),
+        "p95": float(quantiles[2]),
+        "max": float(np.max(backgroundArr)),
+        "frac_positive": float(np.mean(backgroundArr > 0.0)),
+        "frac_abs_le_1e_3": float(np.mean(np.abs(backgroundArr) <= 1.0e-3)),
+    }
+
+
+def _estimateBackgroundWarmStart(
+    *,
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    blockLenIntervals: int,
+    pad: float,
+    initialReplicateBias: np.ndarray | None,
+    observationPrecision: np.ndarray | None,
+    observationPrecisionMultiplierMin: float,
+    observationPrecisionMultiplierMax: float,
+    backgroundSmoothness: float,
+    zeroCenterBackground: bool,
+    useNonnegativeBackground: bool,
+    backgroundNegativePenaltyMultiplier: float | None,
+    phaseLabel: str | None = None,
+    logSummary: bool = False,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    matrixDataArr, matrixMuncArr = _coerceMatrixDataMuncPair(matrixData, matrixMunc)
+    trackCount, intervalCount = matrixDataArr.shape
+    if intervalCount < 1:
+        background = np.zeros(0, dtype=np.float32)
+        diagnostics = {
+            "applied": True,
+            "source": "empty",
+            **_backgroundWarmStartSummary(background),
+        }
+        return background, diagnostics
+
+    blockLenIntervals = max(1, int(blockLenIntervals))
+    replicateBiasArr = _coerceOptionalVector(
+        "initialReplicateBias",
+        initialReplicateBias,
+        trackCount,
+    )
+    if replicateBiasArr is None:
+        replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
+    observationPrecisionArr = _coerceOptionalVector(
+        "observationPrecision",
+        observationPrecision,
+        intervalCount,
+    )
+    warmInvVarMatrix = 1.0 / np.maximum(
+        matrixMuncArr + float(pad),
+        np.float32(1.0e-8),
+    )
+    if observationPrecisionArr is not None:
+        warmObsPrecision = np.clip(
+            np.asarray(observationPrecisionArr, dtype=np.float32).reshape(
+                1,
+                intervalCount,
+            ),
+            float(observationPrecisionMultiplierMin),
+            float(observationPrecisionMultiplierMax),
+        )
+        warmInvVarMatrix *= warmObsPrecision
+
+    warmResidualMatrix = (
+        np.asarray(matrixDataArr, dtype=np.float32)
+        - np.asarray(replicateBiasArr[:, None], dtype=np.float32)
+    )
+    if useNonnegativeBackground:
+        background = _solveZeroCenteredBackground(
+            residualMatrix=warmResidualMatrix,
+            invVarMatrix=warmInvVarMatrix,
+            blockLenIntervals=int(blockLenIntervals),
+            backgroundSmoothness=float(backgroundSmoothness),
+            zeroCenter=bool(zeroCenterBackground),
+            useNonnegative=True,
+            backgroundNegativePenaltyMultiplier=backgroundNegativePenaltyMultiplier,
+        )
+        source = (
+            "asymmetric_irls_zero_centered_weighted_data"
+            if bool(zeroCenterBackground)
+            else "asymmetric_irls_weighted_data"
+        )
+    else:
+        background = _solveZeroCenteredBackground(
+            residualMatrix=warmResidualMatrix,
+            invVarMatrix=warmInvVarMatrix,
+            blockLenIntervals=int(blockLenIntervals),
+            backgroundSmoothness=float(backgroundSmoothness),
+            zeroCenter=bool(zeroCenterBackground),
+            useNonnegative=False,
+        )
+        source = (
+            "zero_centered_banded_weighted_data"
+            if bool(zeroCenterBackground)
+            else "banded_weighted_data"
+        )
+
+    background = np.ascontiguousarray(background, dtype=np.float32)
+    diagnostics = {
+        "applied": True,
+        "source": source,
+        **_backgroundWarmStartSummary(background),
+    }
+    if logSummary:
+        logger.info(
+            "backgroundWarmStart[%s]: source=%s min=%.6g "
+            "p05=%.6g median=%.6g mean=%.6g p95=%.6g max=%.6g "
+            "fracPositive=%.4f fracAbsLe1e-3=%.4f",
+            phaseLabel or "provisional",
+            diagnostics["source"],
+            float(diagnostics["min"]),
+            float(diagnostics["p05"]),
+            float(diagnostics["median"]),
+            float(diagnostics["mean"]),
+            float(diagnostics["p95"]),
+            float(diagnostics["max"]),
+            float(diagnostics["frac_positive"]),
+            float(diagnostics["frac_abs_le_1e_3"]),
+        )
+    return background, diagnostics
+
+
+def estimateProvisionalBackground(
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    *,
+    blockLenIntervals: int,
+    pad: float = 1.0e-4,
+    initialReplicateBias: np.ndarray | None = None,
+    observationPrecision: np.ndarray | None = None,
+    observationMask: np.ndarray | None = None,
+    observationPrecisionMultiplierMin: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN,
+    observationPrecisionMultiplierMax: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX,
+    backgroundSmoothness: float = FIT_DEFAULT_BACKGROUND_SMOOTHNESS,
+    zeroCenterBackground: bool = FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
+    useNonnegativeBackground: bool = FIT_DEFAULT_USE_NONNEGATIVE_BACKGROUND,
+    backgroundNegativePenaltyMultiplier: float | None = (
+        FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
+    ),
+    returnDiagnostics: bool = False,
+) -> np.ndarray | tuple[np.ndarray, dict[str, Any]]:
+    r"""Estimate a provisional shared background from weighted observations.
+
+    This exposes the same weighted background warm-start solve used internally by
+    :func:`runConsenrich`. It is intended for nuisance-background prepasses such
+    as MUNC residualization; the returned track is not a full latent-state fit.
+    """
+
+    matrixDataArr, matrixMuncArr = _coerceMatrixDataMuncPair(matrixData, matrixMunc)
+    matrixMuncArr = _applyObservationMaskToMunc(matrixMuncArr, observationMask)
+    (
+        observationPrecisionMultiplierMin,
+        observationPrecisionMultiplierMax,
+    ) = _checkPrecisionMultiplierBounds(
+        "observation",
+        observationPrecisionMultiplierMin,
+        observationPrecisionMultiplierMax,
+    )
+    if backgroundNegativePenaltyMultiplier is None:
+        backgroundNegativePenaltyMultiplierLocal = None
+    else:
+        backgroundNegativePenaltyMultiplierLocal = float(
+            backgroundNegativePenaltyMultiplier
+        )
+        if not np.isfinite(backgroundNegativePenaltyMultiplierLocal):
+            raise ValueError(
+                "`backgroundNegativePenaltyMultiplier` must be finite or None"
+            )
+
+    background, diagnostics = _estimateBackgroundWarmStart(
+        matrixData=matrixDataArr,
+        matrixMunc=matrixMuncArr,
+        blockLenIntervals=int(blockLenIntervals),
+        pad=float(pad),
+        initialReplicateBias=initialReplicateBias,
+        observationPrecision=observationPrecision,
+        observationPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+        observationPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+        backgroundSmoothness=float(backgroundSmoothness),
+        zeroCenterBackground=bool(zeroCenterBackground),
+        useNonnegativeBackground=bool(useNonnegativeBackground),
+        backgroundNegativePenaltyMultiplier=backgroundNegativePenaltyMultiplierLocal,
+    )
+    if returnDiagnostics:
+        return background, diagnostics
+    return background
+
+
 def _effectiveObservationCount(matrixMunc: np.ndarray) -> int:
     munc = np.asarray(matrixMunc, dtype=np.float64)
     active = np.isfinite(munc) & (
@@ -2892,36 +3151,8 @@ def runConsenrich(
     :seealso: :func:`consenrich.core.getMuncTrack`, :func:`consenrich.cconsenrich.cTransform`, :func:`consenrich.cconsenrich.cforwardPass`, :func:`consenrich.cconsenrich.cbackwardPass`, :func:`consenrich.cconsenrich.cfixedBackgroundECM`
     """
 
-    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
-    matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
-
-    if matrixData.ndim == 1:
-        matrixData = matrixData[None, :]
-    elif matrixData.ndim != 2:
-        raise ValueError(f"matrixData must be 1D or 2D (got ndim={matrixData.ndim})")
-
-    if matrixMunc.ndim == 1:
-        matrixMunc = matrixMunc[None, :]
-    elif matrixMunc.ndim != 2:
-        raise ValueError(f"matrixMunc must be 1D or 2D (got ndim={matrixMunc.ndim})")
-
-    if matrixData.shape != matrixMunc.shape:
-        raise ValueError("matrixData and matrixMunc must have identical shapes")
-
-    if observationMask is not None:
-        observationMaskArr = np.asarray(observationMask, dtype=bool)
-        if observationMaskArr.ndim == 1:
-            observationMaskArr = np.broadcast_to(
-                observationMaskArr[None, :],
-                matrixData.shape,
-            )
-        if observationMaskArr.shape != matrixData.shape:
-            raise ValueError("observationMask must match matrixData shape")
-        matrixMunc = np.asarray(matrixMunc, dtype=np.float32).copy(order="C")
-        matrixMunc[~observationMaskArr] = (
-            UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE
-        )
-        matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
+    matrixData, matrixMunc = _coerceMatrixDataMuncPair(matrixData, matrixMunc)
+    matrixMunc = _applyObservationMaskToMunc(matrixMunc, observationMask)
 
     trackCount, intervalCount = matrixData.shape
     if intervalCount < 2:
@@ -3605,72 +3836,36 @@ def runConsenrich(
         backgroundPrepassApplied = False
         backgroundPrepassSource = ""
         if fitBackgroundLocal and initialBackgroundLocal is None:
-            warmInvVarMatrix = 1.0 / np.maximum(currentMunc + float(pad), 1.0e-8)
-            if lambdaExpLocal is not None:
-                warmObsPrecision = np.clip(
-                    np.asarray(lambdaExpLocal, dtype=np.float32).reshape(1, nLocal),
-                    float(observationPrecisionMultiplierMin),
-                    float(observationPrecisionMultiplierMax),
-                )
-                warmInvVarMatrix *= warmObsPrecision
-            warmResidualMatrix = np.asarray(
-                matrixDataLocal, dtype=np.float32
-            ) - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
-            if useNonnegativeBackground:
-                currentBackground = _solveZeroCenteredBackground(
-                    residualMatrix=warmResidualMatrix,
-                    invVarMatrix=warmInvVarMatrix,
+            currentBackground, backgroundPrepassDiagnostics = (
+                _estimateBackgroundWarmStart(
+                    matrixData=matrixDataLocal,
+                    matrixMunc=currentMunc,
                     blockLenIntervals=int(blockLenIntervals),
+                    pad=float(pad),
+                    initialReplicateBias=replicateBiasLocal,
+                    observationPrecision=lambdaExpLocal,
+                    observationPrecisionMultiplierMin=float(
+                        observationPrecisionMultiplierMin
+                    ),
+                    observationPrecisionMultiplierMax=float(
+                        observationPrecisionMultiplierMax
+                    ),
                     backgroundSmoothness=float(ECM_backgroundSmoothness),
-                    zeroCenter=bool(ECM_zeroCenterBackground),
-                    useNonnegative=True,
+                    zeroCenterBackground=bool(ECM_zeroCenterBackground),
+                    useNonnegativeBackground=bool(useNonnegativeBackground),
                     backgroundNegativePenaltyMultiplier=(
                         backgroundNegativePenaltyMultiplierLocal
                     ),
+                    phaseLabel=phaseLabel,
+                    logSummary=True,
                 )
-                backgroundPrepassSource = (
-                    "asymmetric_irls_zero_centered_weighted_data"
-                    if bool(ECM_zeroCenterBackground)
-                    else "asymmetric_irls_weighted_data"
-                )
-            else:
-                currentBackground = _solveZeroCenteredBackground(
-                    residualMatrix=warmResidualMatrix,
-                    invVarMatrix=warmInvVarMatrix,
-                    blockLenIntervals=int(blockLenIntervals),
-                    backgroundSmoothness=float(ECM_backgroundSmoothness),
-                    zeroCenter=bool(ECM_zeroCenterBackground),
-                    useNonnegative=False,
-                )
-                backgroundPrepassSource = (
-                    "zero_centered_banded_weighted_data"
-                    if bool(ECM_zeroCenterBackground)
-                    else "banded_weighted_data"
-                )
+            )
+            backgroundPrepassSource = str(backgroundPrepassDiagnostics["source"])
             backgroundPrepassApplied = True
-            warmBackgroundSummary = np.asarray(currentBackground, dtype=np.float64)
-            warmQuantiles = np.quantile(
-                warmBackgroundSummary,
-                [0.05, 0.5, 0.95],
-            )
-            logger.info(
-                "backgroundWarmStart[%s]: source=%s min=%.6g "
-                "p05=%.6g median=%.6g mean=%.6g p95=%.6g max=%.6g "
-                "fracPositive=%.4f fracAbsLe1e-3=%.4f",
-                phaseLabel,
-                backgroundPrepassSource,
-                float(np.min(warmBackgroundSummary)),
-                float(warmQuantiles[0]),
-                float(warmQuantiles[1]),
-                float(np.mean(warmBackgroundSummary, dtype=np.float64)),
-                float(warmQuantiles[2]),
-                float(np.max(warmBackgroundSummary)),
-                float(np.mean(warmBackgroundSummary > 0.0)),
-                float(np.mean(np.abs(warmBackgroundSummary) <= 1.0e-3)),
-            )
         warmStartSummaryLocal = {
             "background": bool(initialBackgroundLocal is not None),
             "background_prepass": bool(backgroundPrepassApplied),
+            "background_prepass_source": backgroundPrepassSource,
             "replicate_bias": bool(initialReplicateBiasLocal is not None),
             "observation_precision": bool(lambdaExpLocal is not None),
             "process_precision": bool(processPrecExpLocal is not None),
@@ -4723,6 +4918,9 @@ def runConsenrich(
             minOuterItersLocal=1,
             useProcPrecReweightOverride=False,
             useAPNOverride=False,
+            initialBackgroundLocal=postQInitialBackground,
+            initialReplicateBiasLocal=postQInitialReplicateBias,
+            initialLambdaLocal=postQInitialLambda,
             phaseLabel="process noise warmup",
             phaseIndentLevel=logIndentLevel + 1,
             logAlternatingECMIterations=False,
@@ -6716,7 +6914,6 @@ def _muncVarianceModelCode(model: str | int | None) -> int:
 def _resolveMuncRuntimeSizing(
     *,
     intervalSizeBP: int,
-    dependenceContextBP: int | None,
     dependenceSpanIntervals: int | None = None,
     samplingBlockSizeBP: int | None = None,
     muncTrendBlockSizeBP: int | None = None,
@@ -6733,9 +6930,6 @@ def _resolveMuncRuntimeSizing(
     legacyIntervals = (
         None if legacyBP is None or legacyBP <= 0 else max(1, int(legacyBP / intervalSizeBP_))
     )
-    dependenceBP = None if dependenceContextBP is None else int(dependenceContextBP)
-    if dependenceBP is not None and dependenceBP <= 0:
-        dependenceBP = None
     dependenceIntervals = (
         None
         if dependenceSpanIntervals is None
@@ -6743,11 +6937,6 @@ def _resolveMuncRuntimeSizing(
     )
     if dependenceIntervals is not None and dependenceIntervals <= 0:
         dependenceIntervals = None
-    if dependenceIntervals is None and dependenceBP is not None:
-        dependenceIntervals = max(
-            1,
-            int(round((float(dependenceBP) / float(intervalSizeBP_) - 1.0) / 2.0)),
-        )
 
     defaultTrendIntervals = 11 * 3
     defaultLocalIntervals = max(4, defaultTrendIntervals + 1)
@@ -6795,13 +6984,8 @@ def _resolveMuncRuntimeSizing(
             if trendIntervals is not None:
                 trendSource = "dependence span"
         if trendIntervals is None:
-            if dependenceBP is not None:
-                trendIntervals = max(1, int(dependenceBP / intervalSizeBP_))
-                usedDependenceSpan = True
-                trendSource = "dependence context bp"
-            else:
-                trendIntervals = int(defaultTrendIntervals)
-                trendSource = "fallback default"
+            trendIntervals = int(defaultTrendIntervals)
+            trendSource = "fallback default"
 
     localIntervals = resolveExplicitIntervals(muncLocalWindowSizeBP)
     localSource = "explicit bp"
@@ -6816,13 +7000,8 @@ def _resolveMuncRuntimeSizing(
             if localIntervals is not None:
                 localSource = "dependence span"
         if localIntervals is None:
-            if dependenceBP is not None:
-                localIntervals = max(4, int(dependenceBP / intervalSizeBP_))
-                usedDependenceSpan = True
-                localSource = "dependence context bp"
-            else:
-                localIntervals = int(defaultLocalIntervals)
-                localSource = "fallback default"
+            localIntervals = int(defaultLocalIntervals)
+            localSource = "fallback default"
 
     trendIntervals = max(1, int(trendIntervals))
     localIntervals = max(4, int(localIntervals))
@@ -7158,7 +7337,6 @@ def getMuncTrack(
     muncVarianceModelCode = _muncVarianceModelCode(muncVarianceModelName)
     sizing = _resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        dependenceContextBP=None,
         dependenceSpanIntervals=dependenceSpanIntervals,
         samplingBlockSizeBP=samplingBlockSizeBP,
         muncTrendBlockSizeBP=muncTrendBlockSizeBP,

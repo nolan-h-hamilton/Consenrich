@@ -59,15 +59,14 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     assert fineMinSpan >= coarseMinSpan
     assert fineMaxSpan >= coarseMaxSpan
     assert abs(2 * coarseMaxSpan * 50 - 2 * fineMaxSpan * 25) <= 50
-    contextBP = 3701
     coarseLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
-        dependenceContextBP=contextBP,
+        dependenceSpanIntervals=coarseMaxSpan,
         backgroundBlockSizeBP=-1,
         intervalSizeBP=50,
         lengthScaleMultiplier=16.0,
     )
     fineLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
-        dependenceContextBP=contextBP,
+        dependenceSpanIntervals=fineMaxSpan,
         backgroundBlockSizeBP=-1,
         intervalSizeBP=25,
         lengthScaleMultiplier=16.0,
@@ -75,15 +74,15 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     assert abs(coarseLen * 50 - fineLen * 25) <= 50
 
     blockLen = consenrich_cli._resolveRuntimeBackgroundBlockLen(
-        dependenceContextBP=501,
+        dependenceSpanIntervals=5,
         backgroundBlockSizeBP=550,
         intervalSizeBP=50,
         lengthScaleMultiplier=8.0,
     )
-    assert blockLen == 41
+    assert blockLen == 89
     assert (
         consenrich_cli._resolveRuntimeBackgroundBlockLen(
-            dependenceContextBP=None,
+            dependenceSpanIntervals=None,
             backgroundBlockSizeBP=250,
             intervalSizeBP=50,
             lengthScaleMultiplier=8.0,
@@ -92,16 +91,16 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     )
     assert (
         consenrich_cli._resolveRuntimeBackgroundBlockLen(
-            dependenceContextBP=501,
+            dependenceSpanIntervals=5,
             backgroundBlockSizeBP=550,
             intervalSizeBP=50,
             lengthScaleMultiplier=4.0,
         )
-        == 21
+        == 45
     )
     assert (
         consenrich_cli._resolveRuntimeReplicateDetrendWindow(
-            dependenceContextBP=501,
+            dependenceSpanIntervals=5,
             backgroundBlockSizeBP=550,
             intervalSizeBP=50,
             lengthScaleMultiplier=8.0,
@@ -111,7 +110,7 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
     )
     assert (
         consenrich_cli._resolveRuntimeReplicateDetrendWindow(
-            dependenceContextBP=None,
+            dependenceSpanIntervals=None,
             backgroundBlockSizeBP=250,
             intervalSizeBP=50,
             lengthScaleMultiplier=4.0,

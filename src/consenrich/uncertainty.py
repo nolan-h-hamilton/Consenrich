@@ -34,6 +34,18 @@ class uncertaintyCalibrationResult(NamedTuple):
     model: dict[str, Any]
 
 
+class observationVarianceFloorCalibrationResult(NamedTuple):
+    minR: float
+    trimmedMean: float
+    target: float
+    heldoutCells: int
+    fitCells: int
+    usedLambda: bool
+    hitUpperBound: bool
+    fallbackUsed: bool
+    diagnostics: dict[str, Any]
+
+
 def _progressEnabled(params: core.uncertaintyCalibrationParams) -> bool:
     return bool(params.writeDiagnostics) and bool(getattr(sys.stderr, "isatty", lambda: False)())
 
@@ -502,6 +514,136 @@ def _scoreSamplingCodes(
     )
 
 
+def _scoreSamplingCodesWithoutState(
+    *,
+    foldIndex: np.ndarray,
+    repIndex: np.ndarray,
+    pState: np.ndarray,
+) -> np.ndarray:
+    try:
+        sdDecile = pd.qcut(
+            np.asarray(pState, dtype=np.float64),
+            q=core.UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES,
+            labels=False,
+            duplicates="drop",
+        )
+        sdCode = np.nan_to_num(
+            np.asarray(sdDecile, dtype=np.float64),
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        ).astype(np.int64)
+    except ValueError:
+        sdCode = np.zeros(np.asarray(pState).shape[0], dtype=np.int64)
+    return (
+        np.asarray(foldIndex, dtype=np.int64)
+        * core.UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE
+        + np.asarray(repIndex, dtype=np.int64)
+        * core.UNCERTAINTY_CALIBRATION_SCORE_REPLICATE_CODE_STRIDE
+        + sdCode
+    )
+
+
+def _trimmedMean05To95(values: np.ndarray) -> float:
+    arr = np.asarray(values, dtype=np.float64).reshape(-1)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return float("nan")
+    if arr.size >= 20:
+        lo, hi = np.quantile(arr, [0.05, 0.95])
+        trimmed = arr[(arr >= lo) & (arr <= hi)]
+        if trimmed.size:
+            arr = trimmed
+    return float(np.mean(arr, dtype=np.float64))
+
+
+def _observationFloorCalibrationMean(
+    *,
+    residual: np.ndarray,
+    pState: np.ndarray,
+    muncBase: np.ndarray,
+    lambdaExp: np.ndarray | None,
+    r: float,
+    pad: float,
+) -> float:
+    base = np.maximum(np.asarray(muncBase, dtype=np.float64), float(r))
+    obsVar = base + float(pad)
+    if lambdaExp is not None:
+        lam = np.maximum(
+            np.asarray(lambdaExp, dtype=np.float64),
+            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+        )
+        obsVar = obsVar / lam
+    denom = np.maximum(
+        np.asarray(pState, dtype=np.float64) + obsVar,
+        core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+    )
+    ratio = (np.asarray(residual, dtype=np.float64) ** 2) / denom
+    return _trimmedMean05To95(ratio)
+
+
+def _selectObservationVarianceFloor(
+    *,
+    residual: np.ndarray,
+    pState: np.ndarray,
+    muncBase: np.ndarray,
+    lambdaExp: np.ndarray | None,
+    pad: float,
+    lower: float,
+    upper: float,
+    target: float = 1.0,
+) -> tuple[float, float, bool]:
+    lo = float(max(float(lower), 0.0))
+    hi = float(max(float(upper), lo))
+    target = float(target)
+    loMean = _observationFloorCalibrationMean(
+        residual=residual,
+        pState=pState,
+        muncBase=muncBase,
+        lambdaExp=lambdaExp,
+        r=lo,
+        pad=pad,
+    )
+    if not np.isfinite(loMean):
+        return lo, loMean, False
+    if loMean <= target:
+        return lo, loMean, False
+
+    hiMean = _observationFloorCalibrationMean(
+        residual=residual,
+        pState=pState,
+        muncBase=muncBase,
+        lambdaExp=lambdaExp,
+        r=hi,
+        pad=pad,
+    )
+    if not np.isfinite(hiMean) or hiMean > target:
+        return hi, hiMean, True
+
+    bestR = hi
+    bestMean = hiMean
+    for _ in range(50):
+        mid = 0.5 * (lo + hi)
+        midMean = _observationFloorCalibrationMean(
+            residual=residual,
+            pState=pState,
+            muncBase=muncBase,
+            lambdaExp=lambdaExp,
+            r=mid,
+            pad=pad,
+        )
+        if not np.isfinite(midMean):
+            hi = mid
+            continue
+        if midMean <= target:
+            bestR = mid
+            bestMean = midMean
+            hi = mid
+        else:
+            lo = mid
+    return float(bestR), float(bestMean), False
+
+
 def _signalLevelCoverageStrata(signalAbs: np.ndarray) -> dict[str, np.ndarray]:
     signalAbs = np.asarray(signalAbs, dtype=np.float64).reshape(-1)
     finite = np.isfinite(signalAbs)
@@ -744,6 +886,283 @@ def _writeModelJson(path: str, model: dict[str, Any], chromosome: str | None) ->
                 pass
     with open(pathObj, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
+
+
+def estimateObservationVarianceFloorFromHeldout(
+    *,
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    intervalSizeBP: int,
+    params: core.uncertaintyCalibrationParams,
+    runKwargs: dict[str, Any],
+    pad: float | None = None,
+    maxR: float | None = None,
+    fallbackMinR: float = 1.0e-4,
+    excludeIntervals: np.ndarray | None = None,
+    chromosome: str | None = None,
+) -> observationVarianceFloorCalibrationResult:
+    totalStart = time.perf_counter()
+    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
+    matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
+    m, n = matrixData.shape
+    if m < 1:
+        raise ValueError("observation-floor calibration requires at least one replicate")
+    if matrixMunc.shape != matrixData.shape:
+        raise ValueError("matrixMunc must match matrixData shape")
+
+    padValue = _calibrationPad(params, pad)
+    blockLen = _resolveBlockSizeIntervals(params.blockSizeBP, intervalSizeBP, n)
+    holdoutFraction = _firstSet(
+        params,
+        "holdoutFraction",
+        "heldoutReplicateFraction",
+        default=None,
+    )
+    holdoutCount = _resolveHoldoutCount(m, holdoutFraction)
+    folds = max(int(params.folds), core.UNCERTAINTY_CALIBRATION_MIN_FOLDS)
+    upper = float(maxR) if maxR is not None and np.isfinite(float(maxR)) else float(np.nanmax(matrixMunc))
+    if not np.isfinite(upper) or upper <= 0.0:
+        upper = max(float(fallbackMinR), 1.0)
+    upper = float(max(upper, 0.0))
+    fallback = float(np.clip(float(fallbackMinR), 0.0, upper))
+    logger.info(
+        "observationFloorCalibration.start chrom=%s intervals=%s samples=%s folds=%s blockLen=%s holdoutReps=%s",
+        chromosome,
+        n,
+        m,
+        folds,
+        blockLen,
+        holdoutCount,
+    )
+
+    masks = _makeFoldMasks(
+        m=m,
+        n=n,
+        blockLen=blockLen,
+        folds=folds,
+        holdoutCount=holdoutCount,
+        seed=int(params.seed),
+    )
+    excludeMask = None
+    if excludeIntervals is not None:
+        excludeMask = np.asarray(excludeIntervals, dtype=bool).reshape(-1)
+        if excludeMask.shape[0] != n:
+            raise ValueError("excludeIntervals must match the number of matrixData columns")
+
+    fitKwargs = dict(runKwargs)
+    fitKwargs.setdefault("logRunRole", "observation-floor held-out fold")
+    foldIndentLevel = max(0, int(fitKwargs.get("logIndentLevel", 0) or 0))
+    fitKwargs["logIndentLevel"] = foldIndentLevel + 1
+    fitKwargs["ECM_fixedBackgroundIters"] = max(
+        int(params.calibrationECMIters),
+        core.UNCERTAINTY_CALIBRATION_MIN_CALIBRATION_ECM_ITERS,
+    )
+    fitKwargs["ECM_outerIters"] = 1
+    fitKwargs["ECM_minOuterIters"] = 1
+    fitKwargs["processNoiseWarmupECMIters"] = (
+        core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_NOISE_WARMUP_ECM_ITERS
+    )
+    fitKwargs["returnScales"] = True
+    fitKwargs["returnReplicateOffsets"] = True
+    fitKwargs["returnBackground"] = True
+    fitKwargs["returnPrecisionDiagnostics"] = True
+
+    residualChunks: list[np.ndarray] = []
+    pChunks: list[np.ndarray] = []
+    muncChunks: list[np.ndarray] = []
+    lambdaChunks: list[np.ndarray] = []
+    iChunks: list[np.ndarray] = []
+    jChunks: list[np.ndarray] = []
+    foldChunks: list[np.ndarray] = []
+    usedLambda = False
+    refitSeconds = 0.0
+    extractSeconds = 0.0
+
+    for fold, mask in _progress(
+        list(enumerate(masks)),
+        params=params,
+        desc="Observation-floor folds",
+        unit="fold",
+    ):
+        stageStart = time.perf_counter()
+        out = core.runConsenrich(
+            matrixData,
+            matrixMunc,
+            observationMask=mask,
+            **fitKwargs,
+        )
+        refitSeconds += time.perf_counter() - stageStart
+        (
+            stateMasked,
+            covarMasked,
+            _resid,
+            _track4,
+            biasMasked,
+            _blockMap,
+            backgroundMasked,
+        ) = out[:7]
+        precisionDiagnostics = next(
+            (
+                item
+                for item in out[7:]
+                if isinstance(item, dict) and item.get("precision_track_diagnostics") is True
+            ),
+            {},
+        )
+        lambdaExp = precisionDiagnostics.get("lambdaExp") if precisionDiagnostics else None
+        if lambdaExp is not None:
+            lambdaExp = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
+            if lambdaExp.shape[0] != n:
+                lambdaExp = None
+
+        stageStart = time.perf_counter()
+        residual, pHeld, _rHeld, ii, jj, foldHeld = _cuncertainty.cextractHeldoutScores(
+            matrixData,
+            matrixMunc,
+            np.ascontiguousarray(np.asarray(stateMasked)[:, 0], dtype=np.float32),
+            np.ascontiguousarray(np.asarray(covarMasked)[:, 0, 0], dtype=np.float32),
+            np.ascontiguousarray(biasMasked, dtype=np.float32),
+            np.ascontiguousarray(backgroundMasked, dtype=np.float32),
+            np.ascontiguousarray(mask, dtype=np.uint8),
+            int(fold),
+            float(padValue),
+            float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+        )
+        extractSeconds += time.perf_counter() - stageStart
+        if ii.size == 0:
+            continue
+        valid = np.ones(ii.shape[0], dtype=bool)
+        if excludeMask is not None:
+            valid &= ~excludeMask[ii]
+        if not np.any(valid):
+            continue
+        residual = residual[valid]
+        pHeld = pHeld[valid]
+        ii = ii[valid]
+        jj = jj[valid]
+        foldHeld = foldHeld[valid]
+        muncBase = np.asarray(matrixMunc[jj, ii], dtype=np.float64)
+        if lambdaExp is None:
+            lambdaHeld = np.ones(residual.shape[0], dtype=np.float64)
+        else:
+            lambdaHeld = np.maximum(
+                lambdaExp[ii].astype(np.float64, copy=False),
+                core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+            )
+            usedLambda = True
+        validScores = (
+            np.isfinite(residual)
+            & np.isfinite(pHeld)
+            & np.isfinite(muncBase)
+            & np.isfinite(lambdaHeld)
+            & (pHeld >= 0.0)
+            & (muncBase >= 0.0)
+            & (lambdaHeld > 0.0)
+        )
+        if not np.any(validScores):
+            continue
+        residualChunks.append(residual[validScores])
+        pChunks.append(pHeld[validScores])
+        muncChunks.append(muncBase[validScores])
+        lambdaChunks.append(lambdaHeld[validScores])
+        iChunks.append(ii[validScores].astype(np.int64))
+        jChunks.append(jj[validScores].astype(np.int64))
+        foldChunks.append(foldHeld[validScores].astype(np.int32))
+
+    if not residualChunks:
+        return observationVarianceFloorCalibrationResult(
+            minR=fallback,
+            trimmedMean=float("nan"),
+            target=1.0,
+            heldoutCells=0,
+            fitCells=0,
+            usedLambda=False,
+            hitUpperBound=False,
+            fallbackUsed=True,
+            diagnostics={
+                "reason": "no_heldout_scores",
+                "fallback_min_r": fallback,
+                "elapsed_seconds": time.perf_counter() - totalStart,
+            },
+        )
+
+    residual = np.concatenate(residualChunks)
+    pState = np.concatenate(pChunks)
+    muncBase = np.concatenate(muncChunks)
+    lambdaHeld = np.concatenate(lambdaChunks) if usedLambda else None
+    intervalIndex = np.concatenate(iChunks)
+    repIndex = np.concatenate(jChunks)
+    foldIndex = np.concatenate(foldChunks)
+    totalHeldoutCells = int(residual.size)
+    codes = _scoreSamplingCodesWithoutState(
+        foldIndex=foldIndex,
+        repIndex=repIndex,
+        pState=pState,
+    )
+    fitRows = _samplePositionsByCode(
+        codes,
+        maxRows=_maxScoreRows(params),
+        seed=int(params.seed) + TARGET_CALIBRATION_BLOCK_SPLIT_SEED_OFFSET,
+    )
+    residualFit = residual[fitRows]
+    pStateFit = pState[fitRows]
+    muncFit = muncBase[fitRows]
+    lambdaFit = None if lambdaHeld is None else lambdaHeld[fitRows]
+    selected, score, hitUpper = _selectObservationVarianceFloor(
+        residual=residualFit,
+        pState=pStateFit,
+        muncBase=muncFit,
+        lambdaExp=lambdaFit,
+        pad=padValue,
+        lower=0.0,
+        upper=upper,
+        target=1.0,
+    )
+    if not np.isfinite(score):
+        selected = fallback
+        score = _observationFloorCalibrationMean(
+            residual=residualFit,
+            pState=pStateFit,
+            muncBase=muncFit,
+            lambdaExp=lambdaFit,
+            r=selected,
+            pad=padValue,
+        )
+        fallbackUsed = True
+    else:
+        fallbackUsed = False
+    selected = float(np.clip(float(selected), 0.0, upper))
+    logger.info(
+        "observationFloorCalibration.done chrom=%s minR=%.6g trimmedMean=%.6g heldoutCells=%d fitCells=%d usedLambda=%s hitUpper=%s elapsed=%.3fs",
+        chromosome,
+        selected,
+        float(score),
+        totalHeldoutCells,
+        int(residualFit.size),
+        bool(usedLambda),
+        bool(hitUpper),
+        time.perf_counter() - totalStart,
+    )
+    return observationVarianceFloorCalibrationResult(
+        minR=selected,
+        trimmedMean=float(score),
+        target=1.0,
+        heldoutCells=totalHeldoutCells,
+        fitCells=int(residualFit.size),
+        usedLambda=bool(usedLambda),
+        hitUpperBound=bool(hitUpper),
+        fallbackUsed=bool(fallbackUsed),
+        diagnostics={
+            "block_len_intervals": int(blockLen),
+            "folds": int(folds),
+            "holdout_replicates": int(holdoutCount),
+            "max_r": float(upper),
+            "fallback_min_r": float(fallback),
+            "refit_seconds": float(refitSeconds),
+            "extract_seconds": float(extractSeconds),
+            "elapsed_seconds": time.perf_counter() - totalStart,
+        },
+    )
 
 
 def calibrateChromosomeStateUncertainty(
@@ -1325,4 +1744,9 @@ def calibrateChromosomeStateUncertainty(
     )
 
 
-__all__ = ["calibrateChromosomeStateUncertainty", "uncertaintyCalibrationResult"]
+__all__ = [
+    "calibrateChromosomeStateUncertainty",
+    "estimateObservationVarianceFloorFromHeldout",
+    "observationVarianceFloorCalibrationResult",
+    "uncertaintyCalibrationResult",
+]

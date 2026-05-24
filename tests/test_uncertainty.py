@@ -71,6 +71,62 @@ def _caseFitFactorModelAllowsInflationAndDeflation():
     assert float(np.exp(betaLarge[0])) > 1.0
 
 
+def _caseObservationVarianceFloorSelectorSolvesTrimmedTarget():
+    n = 64
+    pState = np.full(n, 0.2, dtype=np.float64)
+    muncBase = np.zeros(n, dtype=np.float64)
+    targetR = 0.4
+    pad = 0.01
+    residual = np.sqrt(pState + targetR + pad)
+
+    selected, score, hitUpper = uncertainty._selectObservationVarianceFloor(
+        residual=residual,
+        pState=pState,
+        muncBase=muncBase,
+        lambdaExp=None,
+        pad=pad,
+        lower=0.0,
+        upper=2.0,
+    )
+
+    assert abs(selected - targetR) < 1.0e-6
+    assert abs(score - 1.0) < 1.0e-6
+    assert not hitUpper
+
+    lambdaExp = np.full(n, 2.0, dtype=np.float64)
+    residualWithLambda = np.sqrt(pState + (targetR + pad) / lambdaExp)
+    selectedWithLambda, scoreWithLambda, hitUpperWithLambda = (
+        uncertainty._selectObservationVarianceFloor(
+            residual=residualWithLambda,
+            pState=pState,
+            muncBase=muncBase,
+            lambdaExp=lambdaExp,
+            pad=pad,
+            lower=0.0,
+            upper=2.0,
+        )
+    )
+
+    assert abs(selectedWithLambda - targetR) < 1.0e-6
+    assert abs(scoreWithLambda - 1.0) < 1.0e-6
+    assert not hitUpperWithLambda
+
+    selectedAlreadyCalibrated, scoreAlreadyCalibrated, _ = (
+        uncertainty._selectObservationVarianceFloor(
+            residual=0.5 * np.sqrt(pState + pad),
+            pState=pState,
+            muncBase=muncBase,
+            lambdaExp=None,
+            pad=pad,
+            lower=0.0,
+            upper=2.0,
+        )
+    )
+
+    assert selectedAlreadyCalibrated == 0.0
+    assert scoreAlreadyCalibrated < 1.0
+
+
 def _casePacOrderIndexExamples():
     assert uncertainty._pacOrderIndex(59, 0.95, 0.05) == 59
     assert uncertainty._pacOrderIndex(100, 0.95, 0.05) == 99
@@ -457,6 +513,71 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path):
     assert not (tmp_path / "cal.scores.tsv.gz").exists()
 
 
+def _caseObservationVarianceFloorHeldoutSmoke(monkeypatch):
+    m, n = 2, 16
+    pad = 0.01
+    targetR = 0.4
+    pState = np.full(n, 0.2, dtype=np.float32)
+    lambdaExp = np.full(n, 2.0, dtype=np.float32)
+    background = np.linspace(-0.1, 0.1, n, dtype=np.float32)
+    residual = np.sqrt(pState + (targetR + pad) / lambdaExp).astype(np.float32)
+    matrixData = np.tile(background + residual, (m, 1)).astype(np.float32)
+    matrixMunc = np.zeros((m, n), dtype=np.float32)
+    calls = []
+
+    def fakeRunConsenrich(matrixDataArg, matrixMuncArg, observationMask=None, **kwargs):
+        calls.append((observationMask, kwargs))
+        state = np.zeros((n, 2), dtype=np.float32)
+        covar = np.zeros((n, 2, 2), dtype=np.float32)
+        covar[:, 0, 0] = pState
+        postFitResiduals = np.zeros((n, m), dtype=np.float32)
+        nis = np.zeros(n, dtype=np.float32)
+        bias = np.zeros(m, dtype=np.float32)
+        blockMap = np.arange(n, dtype=np.int32)
+        precisionDiagnostics = {
+            "precision_track_diagnostics": True,
+            "lambdaExp": lambdaExp,
+        }
+        return (
+            state,
+            covar,
+            postFitResiduals,
+            nis,
+            bias,
+            blockMap,
+            background,
+            precisionDiagnostics,
+        )
+
+    monkeypatch.setattr(uncertainty.core, "runConsenrich", fakeRunConsenrich)
+    params = core.uncertaintyCalibrationParams(
+        folds=2,
+        blockSizeBP=8,
+        calibrationECMIters=1,
+        maxScores=10_000,
+        writeDiagnostics=False,
+        seed=17,
+    )
+
+    result = uncertainty.estimateObservationVarianceFloorFromHeldout(
+        matrixData=matrixData,
+        matrixMunc=matrixMunc,
+        intervalSizeBP=1,
+        params=params,
+        runKwargs=_smallRunKwargs(),
+        pad=pad,
+        maxR=2.0,
+        fallbackMinR=1.0e-4,
+        chromosome="chrTest",
+    )
+
+    assert calls
+    assert abs(result.minR - targetR) < 1.0e-5
+    assert abs(result.trimmedMean - 1.0) < 1.0e-5
+    assert result.usedLambda
+    assert result.heldoutCells > 0
+
+
 def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
     n = 32
     m = 3
@@ -583,6 +704,10 @@ def test_uncertainty_factor_model_contract(contract_case):
         "factor model allows inflation and deflation",
         _caseFitFactorModelAllowsInflationAndDeflation,
     )
+    contract_case(
+        "observation variance floor selector solves trimmed target",
+        _caseObservationVarianceFloorSelectorSolvesTrimmedTarget,
+    )
     contract_case("PAC order index examples", _casePacOrderIndexExamples)
 
 
@@ -598,6 +723,11 @@ def test_uncertainty_cython_contracts(contract_case):
 
 def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, contract_case):
     contract_case("calibration smoke", _caseCalibrateChromosomeStateUncertaintySmoke, tmp_path)
+    contract_case(
+        "held-out observation variance floor smoke",
+        _caseObservationVarianceFloorHeldoutSmoke,
+        monkeypatch,
+    )
     contract_case(
         "cheap Q warmup policy for calibration refits",
         _caseCalibrationRefitsUseCheapProcessNoiseWarmup,
