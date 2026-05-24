@@ -132,6 +132,9 @@ def _caseInitialConfigurationSummaryStaysCompact(
     inputParams.bamFiles: [sampleA.bam, sampleB.bam, sampleC.bam]
     genomeParams.name: testGenome
     genomeParams.chromosomes: [chrTest]
+    processParams.processNoiseMAPRoughnessPenalty: 1.75
+    processParams.processNoiseWarmupECMIters: 11
+    processParams.processNoiseWarmupOuterPasses: 3
     """
     configPath = writeConfigFile(tmp_path, "config_summary.yaml", configYaml)
     parsed = readConfig(str(configPath))
@@ -143,6 +146,9 @@ def _caseInitialConfigurationSummaryStaysCompact(
     assert "treatment inputs" in caplog.text
     assert "| treatment inputs" in caplog.text
     assert "| 3" in caplog.text
+    assert "MAP roughness penalty" in caplog.text
+    assert "| 1.75" in caplog.text
+    assert "3 outer passes x 11 ECM iters" in caplog.text
     assert "inputSource(" not in caplog.text
     assert "'countingArgs':" not in caplog.text
 
@@ -356,6 +362,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
       regularizationStrength: 0.25
       regularizationRatio: 0.005
       processNoiseWarmupECMIters: 7
+      processNoiseWarmupOuterPasses: 5
       processQWarmupECMIters: 3
       precisionMultiplierMin: 0.5
       precisionMultiplierMax: 2.0
@@ -371,8 +378,10 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
 
     assert processArgs.stateModel == constants.STATE_MODEL_LEVEL
     assert processArgs.regularizationStrength == pytest.approx(0.25)
+    assert processArgs.processNoiseMapRoughnessPenalty == pytest.approx(0.25)
     assert processArgs.regularizationRatio == pytest.approx(0.005)
     assert processArgs.processNoiseWarmupECMIters == 7
+    assert processArgs.processNoiseWarmupOuterPasses == 5
     assert not hasattr(processArgs, "processQWarmupECMIters")
     assert processArgs.precisionMultiplierMin == pytest.approx(0.5)
     assert processArgs.precisionMultiplierMax == pytest.approx(2.0)
@@ -420,8 +429,15 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         parsed["processArgs"].processNoiseWarmupECMIters
         == constants.PROCESS_NOISE_DEFAULT_WARMUP_ECM_ITERS
     )
+    assert (
+        parsed["processArgs"].processNoiseWarmupOuterPasses
+        == constants.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES
+    )
     assert parsed["processArgs"].regularizationStrength == pytest.approx(
         constants.PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH
+    )
+    assert parsed["processArgs"].processNoiseMapRoughnessPenalty == pytest.approx(
+        constants.PROCESS_NOISE_DEFAULT_MAP_ROUGHNESS_PENALTY
     )
     assert parsed["processArgs"].regularizationRatio == pytest.approx(
         constants.PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO
@@ -472,11 +488,17 @@ def _case_runtime_defaults_are_centralized(
     assert parsed["processArgs"].regularizationStrength == profile[
         "processParams.regularizationStrength"
     ]
+    assert parsed["processArgs"].processNoiseMapRoughnessPenalty == profile[
+        "processParams.processNoiseMapRoughnessPenalty"
+    ]
     assert parsed["processArgs"].regularizationRatio == profile[
         "processParams.regularizationRatio"
     ]
     assert parsed["processArgs"].processNoiseWarmupECMIters == profile[
         "processParams.processNoiseWarmupECMIters"
+    ]
+    assert parsed["processArgs"].processNoiseWarmupOuterPasses == profile[
+        "processParams.processNoiseWarmupOuterPasses"
     ]
     assert parsed["fitArgs"].ECM_outerIters == profile["fitParams.ECM_outerIters"]
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == profile[
@@ -506,6 +528,9 @@ def _case_runtime_defaults_are_centralized(
     assert parsed["observationArgs"].restrictLocalVarianceToSparseBed == profile[
         "observationParams.restrictLocalVarianceToSparseBed"
     ]
+    assert parsed["observationArgs"].noDMVar == profile[
+        "observationParams.noDMVar"
+    ]
     assert consenrich_core.observationParams(
         minR=parsed["observationArgs"].minR,
         maxR=parsed["observationArgs"].maxR,
@@ -526,6 +551,7 @@ def _case_runtime_defaults_are_centralized(
         sparseSupportPrior=parsed["observationArgs"].sparseSupportPrior,
         restrictLocalAR1ToSparseBed=parsed["observationArgs"].restrictLocalAR1ToSparseBed,
         pad=parsed["observationArgs"].pad,
+        noDMVar=parsed["observationArgs"].noDMVar,
     ).muncVarianceModel == constants.OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
     assert parsed["countingArgs"].subtractGlobalMedian == profile[
         "countingParams.subtractGlobalMedian"
@@ -614,8 +640,10 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     countingParams.replicateMedianDetrendWindowMultiplier: 3.0
     countingParams.gentleDetrendQuantile: 0.75
     countingParams.subtractGlobalMedian: false
-    processParams.regularizationStrength: 2.5
+    processParams.regularizationStrength: 1.5
+    processParams.processNoiseMapRoughnessPenalty: 2.5
     processParams.regularizationRatio: 0.002
+    processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
     outputParams.saveBackgroundTracks: false
@@ -634,12 +662,87 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     )
     assert parsed["countingArgs"].gentleDetrendQuantile == pytest.approx(0.75)
     assert parsed["countingArgs"].subtractGlobalMedian is False
-    assert parsed["processArgs"].regularizationStrength == pytest.approx(2.5)
+    assert parsed["processArgs"].regularizationStrength == pytest.approx(1.5)
+    assert parsed["processArgs"].processNoiseMapRoughnessPenalty == pytest.approx(2.5)
     assert parsed["processArgs"].regularizationRatio == pytest.approx(0.002)
+    assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
+
+
+def _case_processNoiseMAPRoughnessPenaltyRejectsConflictingAlias(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    processParams.regularizationStrength: 1.0
+    processParams.processNoiseMapRoughnessPenalty: 1.5
+    processParams.processNoiseMAPRoughnessPenalty: 2.0
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_process_noise_alias_conflict.yaml", configYaml)
+    with pytest.raises(ValueError, match="processNoise.*RoughnessPenalty"):
+        readConfig(str(configPath))
+
+
+def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    processParams:
+      processNoiseMAPRoughnessPenalty: 3.5
+      regularizationRatio: 0.125
+      processNoiseWarmupECMIters: 9
+      processNoiseWarmupOuterPasses: 4
+      precisionMultiplierMin: 0.25
+      precisionMultiplierMax: 9.0
+    """
+
+    configPath = writeConfigFile(tmp_path, "config_process_noise_passthrough.yaml", configYaml)
+    processArgs = readConfig(str(configPath))["processArgs"]
+    kwargs = consenrich_cli._processNoiseRunKwargs(processArgs)
+
+    assert kwargs["regularizationStrength"] == pytest.approx(
+        constants.PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH
+    )
+    if consenrich_cli._coreRunConsenrichSupports("processNoiseMapRoughnessPenalty"):
+        assert kwargs["processNoiseMapRoughnessPenalty"] == pytest.approx(3.5)
+    assert kwargs["regularizationRatio"] == pytest.approx(0.125)
+    assert kwargs["processNoiseWarmupECMIters"] == 9
+    assert kwargs["processPrecisionMultiplierMin"] == pytest.approx(0.25)
+    assert kwargs["processPrecisionMultiplierMax"] == pytest.approx(9.0)
+    assert (
+        "processNoiseWarmupOuterPasses" in kwargs
+    ) is consenrich_cli._coreRunConsenrichSupports("processNoiseWarmupOuterPasses")
+    if consenrich_cli._coreRunConsenrichSupports("processNoiseWarmupOuterPasses"):
+        assert kwargs["processNoiseWarmupOuterPasses"] == 4
+
+    monkeypatch.setattr(
+        consenrich_core,
+        "PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES",
+        constants.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES,
+        raising=False,
+    )
+    assert consenrich_cli._configureCoreProcessNoiseWarmupDefaults(processArgs) == 4
+    expectedDefault = (
+        constants.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES
+        if consenrich_cli._coreRunConsenrichSupports("processNoiseWarmupOuterPasses")
+        else 4
+    )
+    assert consenrich_core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES == expectedDefault
 
 
 def _case_readConfigRejectsUnknownDefaultConfiguration(
@@ -1559,6 +1662,14 @@ def test_config_parser_defaults_and_override_contracts(
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
         ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
         ("generic overrides", _case_readConfigGenericDefaultsStillAllowExplicitOverrides),
+        (
+            "process noise roughness alias conflict",
+            _case_processNoiseMAPRoughnessPenaltyRejectsConflictingAlias,
+        ),
+        (
+            "process noise warmup pass-through",
+            _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
+        ),
         ("unknown default profile rejected", _case_readConfigRejectsUnknownDefaultConfiguration),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)

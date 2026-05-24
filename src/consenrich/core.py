@@ -28,7 +28,7 @@ import numpy.typing as npt
 from scipy import ndimage, signal, stats, optimize, special, sparse, interpolate
 from scipy.sparse import linalg as sparse_linalg
 from tqdm import tqdm
-from itrigamma import itrigamma
+from itrigamma import itrigamma, trigamma
 from . import cconsenrich
 from . import ccounts
 from .constants import (
@@ -71,6 +71,7 @@ from .constants import (
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
+    OBSERVATION_DEFAULT_NO_DM_VAR,
     OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
     OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
@@ -285,6 +286,14 @@ class processParams(NamedTuple):
     :param processNoiseWarmupECMIters: Maximum fixed-background ECM iterations
         used by process-noise warm-up calibration.
     :type processNoiseWarmupECMIters: int
+    :param processNoiseWarmupOuterPasses: Number of outer warm-up passes used
+        before estimating the EB-MAP process-noise matrix.
+    :type processNoiseWarmupOuterPasses: int
+    :param processNoiseMapRoughnessPenalty: Optional q-level MAP roughness prior
+        strength. If omitted, the q-level prior uses ``regularizationStrength``
+        for backward compatibility; set to 0 to use the warm-up evidence without
+        the quiet-block roughness prior.
+    :type processNoiseMapRoughnessPenalty: float | None
     :param precisionMultiplierMin: Lower clamp for process precision multipliers
         :math:`\kappa_{[i]}` during robust ECM reweighting.
     :type precisionMultiplierMin: float
@@ -301,9 +310,11 @@ class processParams(NamedTuple):
     regularizationStrength: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH
     regularizationRatio: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO
     processNoiseWarmupECMIters: int = PROCESS_NOISE_DEFAULT_WARMUP_ECM_ITERS
+    processNoiseWarmupOuterPasses: int = PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES
     precisionMultiplierMin: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN
     precisionMultiplierMax: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX
     stateModel: str = PROCESS_DEFAULT_STATE_MODEL
+    processNoiseMapRoughnessPenalty: float | None = None
 
 
 class observationParams(NamedTuple):
@@ -340,6 +351,8 @@ class observationParams(NamedTuple):
     :type EB_setNu0: int | None
     :param EB_setNuL: If provided, manually set local model df, :math:`\nu_L`, to this value.
     :type EB_setNuL: int | None
+    :param noDMVar: If True, disable the AR(1) delta-method log-variance correction and use nominal local/block variance degrees of freedom.
+    :type noDMVar: bool | None
     :param trendNumBasis: Upper bound on P-spline basis functions for the global log-variance trend.
     :type trendNumBasis: int | None
     :param trendMinObsPerBasis: Minimum effective trend observations per fitted spline basis function.
@@ -412,6 +425,7 @@ class observationParams(NamedTuple):
     restrictLocalVarianceToSparseBed: bool | None = (
         OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
     )
+    noDMVar: bool | None = OBSERVATION_DEFAULT_NO_DM_VAR
 
 
 class stateParams(NamedTuple):
@@ -2678,7 +2692,9 @@ def _estimateInitialProcessNoiseFromData(
         out=np.full(data.shape[1], np.nan, dtype=np.float64),
         where=weightSum > 0.0,
     )
-    d = np.diff(pooledMean[np.isfinite(pooledMean)])
+    finitePooled = np.isfinite(pooledMean)
+    d = pooledMean[1:] - pooledMean[:-1]
+    d = d[finitePooled[1:] & finitePooled[:-1]]
     d = d[np.isfinite(d)]
     qInit = float("nan")
     if d.size > 0:
@@ -2736,10 +2752,15 @@ def _estimateEBMAPProcessNoise(
     regularizationStrength: float,
     regularizationRatio: float,
     blockLenIntervals: int,
+    mapRoughnessPenalty: float | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     stateModelMode = _normalizeStateModel(stateModel)
     qFloor = float(PROCESS_NOISE_NUMERICAL_FLOOR)
     qCap = _resolveProcessNoiseCap(maxQ)
+    roughnessPenalty = _checkFiniteNonnegative(
+        "mapRoughnessPenalty",
+        regularizationStrength if mapRoughnessPenalty is None else mapRoughnessPenalty,
+    )
     levelArrays = _computeTransitionResidualArrays(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
@@ -2831,9 +2852,9 @@ def _estimateEBMAPProcessNoise(
         q0Level = qFloor
     q0Level = _clampProcessNoise(q0Level, qCap)
     typicalBlockEffN = _positiveMedian(blockEvidence["n_eff_level"])
-    rawNu0Level = float(regularizationStrength) * typicalBlockEffN
+    rawNu0Level = float(roughnessPenalty) * typicalBlockEffN
     nu0Level = min(rawNu0Level, 0.25 * n_eff_level) if n_eff_level > 0.0 else 0.0
-    qLevelPriorUsed = bool(float(regularizationStrength) > 0.0 and nu0Level > 2.0)
+    qLevelPriorUsed = bool(float(roughnessPenalty) > 0.0 and nu0Level > 2.0)
     if qLevelPriorUsed:
         qLevelPreClamp = (
             S_eff_level + (nu0Level * q0Level)
@@ -2918,6 +2939,8 @@ def _estimateEBMAPProcessNoise(
         "qLevelDataDf": float(n_eff_level),
         "qLevelDataEstimate": float(qDataLevel),
         "regularizationRatio": float(regularizationRatio),
+        "regularizationStrength": float(regularizationStrength),
+        "mapRoughnessPenalty": float(roughnessPenalty),
         "ratioPriorCenter": float(regularizationRatio),
         "ratioPriorDfRaw": float(rawNu0Ratio),
         "ratioPriorDfUsed": float(nu0Ratio),
@@ -2964,10 +2987,13 @@ def _estimateWarmupProcessNoiseCalibration(
     maxQ: float,
     regularizationStrength: float,
     regularizationRatio: float,
+    mapRoughnessPenalty: float | None = None,
     blockLenIntervals: int = 1,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     _checkFiniteNonnegative("regularizationStrength", regularizationStrength)
     _checkFinitePositive("regularizationRatio", regularizationRatio)
+    if mapRoughnessPenalty is not None:
+        _checkFiniteNonnegative("mapRoughnessPenalty", mapRoughnessPenalty)
     return _estimateEBMAPProcessNoise(
         stateSmoothed=stateSmoothed,
         stateCovarSmoothed=stateCovarSmoothed,
@@ -2978,6 +3004,7 @@ def _estimateWarmupProcessNoiseCalibration(
         regularizationStrength=regularizationStrength,
         regularizationRatio=regularizationRatio,
         blockLenIntervals=blockLenIntervals,
+        mapRoughnessPenalty=mapRoughnessPenalty,
     )
 
 
@@ -3090,6 +3117,8 @@ def runConsenrich(
     regularizationStrength: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH,
     regularizationRatio: float = PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO,
     processNoiseWarmupECMIters: int = PROCESS_NOISE_DEFAULT_WARMUP_ECM_ITERS,
+    processNoiseWarmupOuterPasses: int = PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES,
+    processNoiseMapRoughnessPenalty: float | None = None,
     observationPrecisionMultiplierMin: float = 0.25,
     observationPrecisionMultiplierMax: float = 4.0,
     processPrecisionMultiplierMin: float = 0.25,
@@ -3236,7 +3265,21 @@ def runConsenrich(
         "regularizationRatio",
         regularizationRatio,
     )
+    processNoiseMapRoughnessPenaltyLocal = (
+        None
+        if processNoiseMapRoughnessPenalty is None
+        else _checkFiniteNonnegative(
+            "processNoiseMapRoughnessPenalty",
+            processNoiseMapRoughnessPenalty,
+        )
+    )
+    processNoiseMapRoughnessPenaltyEffective = (
+        regularizationStrength
+        if processNoiseMapRoughnessPenaltyLocal is None
+        else processNoiseMapRoughnessPenaltyLocal
+    )
     processNoiseWarmupECMIters = max(1, int(processNoiseWarmupECMIters))
+    processNoiseWarmupOuterPasses = max(1, int(processNoiseWarmupOuterPasses))
     ECM_outerIters = max(1, int(ECM_outerIters))
     ECM_minOuterIters = (
         3 if ECM_minOuterIters is None else max(1, int(ECM_minOuterIters))
@@ -3300,6 +3343,10 @@ def runConsenrich(
             ("process noise calibration", processNoiseCalibrationPolicy),
             ("regularization strength", float(regularizationStrength)),
             ("regularization ratio", float(regularizationRatio)),
+            (
+                "process noise MAP roughness penalty",
+                float(processNoiseMapRoughnessPenaltyEffective),
+            ),
             ("background model fit", bool(fitBackground)),
             ("nonnegative background", bool(useNonnegativeBackground)),
             (
@@ -4867,6 +4914,7 @@ def runConsenrich(
             "resolvedMinQ": float(minQ),
             "resolvedMaxQ": float(maxQForAPN),
             "transitionCount": float(max(intervalCount - 1, 0)),
+            "mapRoughnessPenalty": float(processNoiseMapRoughnessPenaltyEffective),
             "warmStartProcessNoise": 1.0,
             "warmupECMIters": 0.0,
             "warmupOuterPasses": 0.0,
@@ -4878,7 +4926,7 @@ def runConsenrich(
         )
     else:
         warmupIters = int(processNoiseWarmupECMIters)
-        warmupOuterIters = int(PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES)
+        warmupOuterIters = int(processNoiseWarmupOuterPasses)
         stageStart = time.perf_counter()
         _logAsciiBlock(
             "process noise warmup",
@@ -4939,6 +4987,7 @@ def runConsenrich(
             maxQ=float(maxQ),
             regularizationStrength=float(regularizationStrength),
             regularizationRatio=float(regularizationRatio),
+            mapRoughnessPenalty=processNoiseMapRoughnessPenaltyLocal,
             blockLenIntervals=int(blockLenIntervals),
         )
         processNoiseCalibrationInfo["warmupECMIters"] = float(warmupIters)
@@ -5893,6 +5942,7 @@ def _fitReplicateMuncVariancePriorFromArrays(
     sample: int,
     blockMeans: np.ndarray,
     blockVariances: np.ndarray,
+    localLogVarianceNoise: np.ndarray | None,
     weights: np.ndarray | None,
     chromosomeIndex: np.ndarray | None,
     blockStarts: np.ndarray | None,
@@ -5912,6 +5962,12 @@ def _fitReplicateMuncVariancePriorFromArrays(
 ) -> ReplicateMuncVariancePrior:
     means = np.asarray(blockMeans, dtype=np.float64).ravel()
     variances = np.asarray(blockVariances, dtype=np.float64).ravel()
+    if localLogVarianceNoise is None:
+        noiseArr = None
+    else:
+        noiseArr = np.asarray(localLogVarianceNoise, dtype=np.float64).ravel()
+        if noiseArr.shape != means.shape:
+            raise ValueError("localLogVarianceNoise must align with blockMeans")
     if weights is None:
         weightsArr = np.ones_like(means, dtype=np.float64)
     else:
@@ -5929,6 +5985,7 @@ def _fitReplicateMuncVariancePriorFromArrays(
     meansFit = means[mask]
     variancesFit = variances[mask]
     weightsFit = weightsArr[mask]
+    noiseFit = None if noiseArr is None else noiseArr[mask]
 
     trend = fitPSplineLogVarianceTrend(
         meansFit,
@@ -5980,6 +6037,7 @@ def _fitReplicateMuncVariancePriorFromArrays(
             chromosomeIndex=chromFit,
             blockStarts=startsFit,
             thinBinSize=thinBinSize,
+            localLogVarianceNoise=noiseFit,
         )
         nu0Source = "replicate_moment_match"
 
@@ -5989,17 +6047,36 @@ def _fitReplicateMuncVariancePriorFromArrays(
     if Nu_0 > Nu0Cap:
         Nu_0 = float(Nu0Cap)
 
+    diagnostics = {
+        "sample": int(sample),
+        "replicate_pairs": int(meansFit.size),
+        "Nu_0_source": str(nu0Source),
+        "predictor": "signed_log1p",
+        "worker": "serial",
+    }
+    if noiseFit is not None:
+        finiteNoise = np.asarray(
+            noiseFit[np.isfinite(noiseFit) & (noiseFit > 0.0)],
+            dtype=np.float64,
+        )
+        if finiteNoise.size:
+            blockNuEff = 2.0 * itrigamma(finiteNoise)
+            blockNuEff = blockNuEff[np.isfinite(blockNuEff)]
+            diagnostics.update(
+                {
+                    "Nu_L_source": "delta_method_ar1_blocks",
+                    "block_logvar_noise_median": float(np.median(finiteNoise)),
+                    "block_Nu_L_effective_median": (
+                        float(np.median(blockNuEff)) if blockNuEff.size else float("nan")
+                    ),
+                }
+            )
+
     return ReplicateMuncVariancePrior(
         trend=trend,
         Nu_0=float(Nu_0),
         Nu_L=float(Nu_L),
-        diagnostics={
-            "sample": int(sample),
-            "replicate_pairs": int(meansFit.size),
-            "Nu_0_source": str(nu0Source),
-            "predictor": "signed_log1p",
-            "worker": "serial",
-        },
+        diagnostics=diagnostics,
     )
 
 
@@ -6016,6 +6093,11 @@ def _fitReplicateMuncVariancePriorWorker(
         int(sample),
         np.load(paths["blockMeans"], mmap_mode="r")[sampleMask],
         np.load(paths["blockVariances"], mmap_mode="r")[sampleMask],
+        (
+            None
+            if paths.get("localLogVarianceNoise") is None
+            else np.load(paths["localLogVarianceNoise"], mmap_mode="r")[sampleMask]
+        ),
         (
             None
             if weightsPath is None
@@ -6037,6 +6119,7 @@ def fitReplicateMuncVariancePriors(
     chromosomeIndex: np.ndarray | None = None,
     blockStarts: np.ndarray | None = None,
     weights: np.ndarray | None = None,
+    localLogVarianceNoise: np.ndarray | None = None,
     sampleCount: int | None = None,
     eps: float = 1.0e-2,
     maxVariance: float | None = None,
@@ -6061,6 +6144,12 @@ def fitReplicateMuncVariancePriors(
     samples = np.asarray(sampleIndex, dtype=np.int64).ravel()
     if means.shape != variances.shape or means.shape != samples.shape:
         raise ValueError("blockMeans, blockVariances, and sampleIndex must align")
+    if localLogVarianceNoise is None:
+        noiseArr = None
+    else:
+        noiseArr = np.asarray(localLogVarianceNoise, dtype=np.float64).ravel()
+        if noiseArr.shape != means.shape:
+            raise ValueError("localLogVarianceNoise must align with blockMeans")
     if weights is None:
         weightsArr = np.ones_like(means, dtype=np.float64)
     else:
@@ -6102,6 +6191,7 @@ def fitReplicateMuncVariancePriors(
             int(sample),
             means[sampleMask],
             variances[sampleMask],
+            None if noiseArr is None else noiseArr[sampleMask],
             weightsArr[sampleMask],
             (
                 None
@@ -6141,6 +6231,12 @@ def fitReplicateMuncVariancePriors(
         np.save(paths["blockVariances"], variances, allow_pickle=False)
         np.save(paths["sampleIndex"], samples, allow_pickle=False)
         np.save(paths["weights"], weightsArr, allow_pickle=False)
+        if noiseArr is not None:
+            paths["localLogVarianceNoise"] = os.path.join(
+                workDir,
+                "replicate_munc_local_log_variance_noise.npy",
+            )
+            np.save(paths["localLogVarianceNoise"], noiseArr, allow_pickle=False)
         if chromosomeIndex is not None:
             paths["chromosomeIndex"] = os.path.join(
                 workDir,
@@ -7256,6 +7352,96 @@ def _coerceEBPriorStrength(value: float | int | None) -> float | None:
     return nu0
 
 
+def _computeDeltaMethodAR1LogVarianceNoise(
+    betaTrack: np.ndarray,
+    blockLengths: np.ndarray | int,
+    maxBeta: float = 0.95,
+) -> np.ndarray:
+    betaArr = np.asarray(betaTrack, dtype=np.float64).ravel()
+    if np.ndim(blockLengths) == 0:
+        blockLengthArr = np.full(betaArr.shape, int(blockLengths), dtype=np.float64)
+    else:
+        blockLengthArr = np.asarray(blockLengths, dtype=np.float64).ravel()
+        if blockLengthArr.shape != betaArr.shape:
+            raise ValueError("blockLengths must be scalar or align with betaTrack")
+
+    logVarianceNoise = np.full(betaArr.shape, np.nan, dtype=np.float64)
+    valid = np.isfinite(betaArr) & (betaArr >= 0.0) & (blockLengthArr >= 4.0)
+    if not np.any(valid):
+        return logVarianceNoise
+
+    maxBeta_ = float(maxBeta)
+    if not np.isfinite(maxBeta_) or maxBeta_ <= 0.0:
+        maxBeta_ = 0.95
+    maxBeta_ = min(max(maxBeta_, 1.0e-6), 0.999)
+
+    betaValid = np.clip(betaArr[valid], 0.0, maxBeta_)
+    dfRSS = np.maximum(blockLengthArr[valid] - 3.0, 1.0e-8)
+    nPairs = np.maximum(blockLengthArr[valid] - 1.0, 1.0)
+    oneMinusBetaSq = np.maximum(1.0 - betaValid * betaValid, 1.0e-8)
+    varBetaHat = oneMinusBetaSq / nPairs
+    grad = (2.0 * betaValid) / oneMinusBetaSq
+    logVarianceNoise[valid] = np.asarray(trigamma(dfRSS / 2.0), dtype=np.float64) + (
+        grad * grad * varBetaHat
+    )
+    return logVarianceNoise
+
+
+def _computeDeltaMethodAR1NuL(
+    betaTrack: np.ndarray,
+    localWindowIntervals: int,
+    maxBeta: float = 0.95,
+) -> tuple[float, dict[str, float]]:
+    nominalNuL = float(max(4, int(localWindowIntervals) - 3))
+    betaArr = np.asarray(betaTrack, dtype=np.float64).ravel()
+    betaArr = betaArr[np.isfinite(betaArr) & (betaArr >= 0.0)]
+    if betaArr.size == 0 or nominalNuL <= 4.0:
+        return nominalNuL, {
+            "nominal": nominalNuL,
+            "effective": nominalNuL,
+            "beta_median": float("nan"),
+            "beta_q95": float("nan"),
+            "beta_clipped_fraction": float("nan"),
+        }
+
+    maxBeta_ = float(maxBeta)
+    if not np.isfinite(maxBeta_) or maxBeta_ <= 0.0:
+        maxBeta_ = 0.95
+    maxBeta_ = min(max(maxBeta_, 1.0e-6), 0.999)
+    betaArr = np.clip(betaArr, 0.0, maxBeta_)
+
+    varLogVariance = _computeDeltaMethodAR1LogVarianceNoise(
+        betaArr,
+        int(localWindowIntervals),
+        maxBeta=maxBeta_,
+    )
+    varLogVariance = varLogVariance[np.isfinite(varLogVariance)]
+    rawNuEffTrack = 2.0 * itrigamma(varLogVariance)
+    rawNuEffTrack = rawNuEffTrack[np.isfinite(rawNuEffTrack)]
+    if rawNuEffTrack.size == 0:
+        nuEff = nominalNuL
+        nuEffTrack = rawNuEffTrack
+        floorFraction = float("nan")
+        ceilingFraction = float("nan")
+    else:
+        nuEffTrack = np.clip(rawNuEffTrack, 4.0, nominalNuL)
+        nuEff = float(np.median(nuEffTrack))
+        floorFraction = float(np.mean(rawNuEffTrack <= (4.0 + 1.0e-7)))
+        ceilingFraction = float(np.mean(rawNuEffTrack >= (nominalNuL - 1.0e-7)))
+    clippedFraction = float(np.mean(betaArr >= (maxBeta_ - 1.0e-7)))
+    return nuEff, {
+        "nominal": nominalNuL,
+        "effective": nuEff,
+        "beta_median": float(np.median(betaArr)),
+        "beta_q95": float(np.quantile(betaArr, 0.95)),
+        "beta_clipped_fraction": clippedFraction,
+        "nu_eff_q05": float(np.quantile(nuEffTrack, 0.05)) if nuEffTrack.size else nuEff,
+        "nu_eff_q95": float(np.quantile(nuEffTrack, 0.95)) if nuEffTrack.size else nuEff,
+        "nu_eff_floor_fraction": floorFraction,
+        "nu_eff_ceiling_fraction": ceilingFraction,
+    }
+
+
 def getMuncTrack(
     chromosome: str,
     intervals: np.ndarray,
@@ -7280,6 +7466,7 @@ def getMuncTrack(
     EB_use: bool = True,
     EB_setNu0: int | None = None,
     EB_setNuL: int | None = None,
+    noDMVar: bool | None = OBSERVATION_DEFAULT_NO_DM_VAR,
     trendNumBasis: int = 60,
     trendMinObsPerBasis: float = 25.0,
     trendMinEdf: float = 3.0,
@@ -7408,6 +7595,10 @@ def getMuncTrack(
                 ),
             ),
             ("MUNC variance EB", "enabled" if EB_use else "disabled"),
+            (
+                "MUNC delta-method variance",
+                "disabled" if bool(noDMVar) else "enabled",
+            ),
             (
                 "MUNC trend source",
                 (
@@ -7771,11 +7962,45 @@ def getMuncTrack(
             )
 
     # df / effective sample size for local variance
+    nuLDiagnostics: dict[str, float] | None = None
     if EB_setNuL is not None and EB_setNuL > 3:
         Nu_L = float(EB_setNuL)
         logger.info(f"Using fixed/specified Nu_L={Nu_L:.2f}")
     else:
-        Nu_L = float(max(4, localWindowIntervals - 3))
+        nominalNuL = float(max(4, localWindowIntervals - 3))
+        Nu_L = nominalNuL
+        if bool(noDMVar):
+            logger.info(
+                "MUNC delta-method variance disabled; using nominal Nu_L=%.2f",
+                float(Nu_L),
+            )
+        elif int(muncVarianceModelCode) == int(MUNC_VARIANCE_MODEL_CODE_AR1):
+            betaTrack = cconsenrich.crollingMuncAR1Beta(
+                valuesArr,
+                localWindowIntervals,
+                localObsExcludeMaskArr,
+            )
+            betaTrack = np.asarray(betaTrack, dtype=np.float32)
+            betaTrack[betaTrack < 0.0] = np.nan
+            Nu_L, nuLDiagnostics = _computeDeltaMethodAR1NuL(
+                betaTrack,
+                localWindowIntervals,
+            )
+            logger.info(
+                "MUNC effective Nu_L delta-method: nominal=%.2f effective=%.2f "
+                "beta_median=%.4g beta_q95=%.4g beta_clipped_fraction=%.4f "
+                "nu_eff_q05=%.2f nu_eff_q95=%.2f "
+                "nu_eff_floor_fraction=%.4f nu_eff_ceiling_fraction=%.4f",
+                float(nominalNuL),
+                float(Nu_L),
+                float(nuLDiagnostics.get("beta_median", np.nan)),
+                float(nuLDiagnostics.get("beta_q95", np.nan)),
+                float(nuLDiagnostics.get("beta_clipped_fraction", np.nan)),
+                float(nuLDiagnostics.get("nu_eff_q05", np.nan)),
+                float(nuLDiagnostics.get("nu_eff_q95", np.nan)),
+                float(nuLDiagnostics.get("nu_eff_floor_fraction", np.nan)),
+                float(nuLDiagnostics.get("nu_eff_ceiling_fraction", np.nan)),
+            )
 
     # --- Determine prior strength ---
     minScale_prior: float | None = None
@@ -7842,6 +8067,14 @@ def getMuncTrack(
             ("chromosome", chromosome),
             ("Nu_0", float(Nu_0)),
             ("Nu_L", float(Nu_L)),
+            (
+                "Nu_L nominal",
+                (
+                    float(nuLDiagnostics["nominal"])
+                    if nuLDiagnostics is not None
+                    else float(Nu_L)
+                ),
+            ),
             ("posterior sample size", float(Nu_L + Nu_0)),
             ("support fraction", float(supportFraction)),
             ("local quantile", float(EB_localQuantile)),
@@ -7926,11 +8159,23 @@ def _computePriorStrengthFromCandidateIdx(
     globalModelVariancesArr: np.ndarray,
     Nu_local: float,
     candidateIdx: np.ndarray,
+    localLogVarianceNoiseArr: np.ndarray | None = None,
 ) -> float:
-    varRatioArr = (
-        localModelVariancesArr[candidateIdx] / globalModelVariancesArr[candidateIdx]
+    localSelected = localModelVariancesArr[candidateIdx]
+    globalSelected = globalModelVariancesArr[candidateIdx]
+    valid = (
+        np.isfinite(localSelected)
+        & np.isfinite(globalSelected)
+        & (localSelected > 0.0)
+        & (globalSelected > 0.0)
     )
-    varRatioArr = varRatioArr[np.isfinite(varRatioArr) & (varRatioArr > 0.0)]
+    if localLogVarianceNoiseArr is not None:
+        noiseSelected = localLogVarianceNoiseArr[candidateIdx]
+        valid &= np.isfinite(noiseSelected) & (noiseSelected > 0.0)
+    else:
+        noiseSelected = None
+
+    varRatioArr = localSelected[valid] / globalSelected[valid]
     if varRatioArr.size < 4:
         logger.warning(
             f"After masking, insufficient prior/local variance pairs...setting Nu_0 = 1.0e6",
@@ -7944,9 +8189,12 @@ def _computePriorStrengthFromCandidateIdx(
         np.clip(logVarRatioArr, clipSmall, clipBig, out=logVarRatioArr)
 
     varLogVarRatio = float(np.var(logVarRatioArr, ddof=1))
-    trigammaLocal = float(special.polygamma(1, float(Nu_local) / 2.0))
+    if noiseSelected is None:
+        localLogVarianceNoise = float(special.polygamma(1, float(Nu_local) / 2.0))
+    else:
+        localLogVarianceNoise = float(np.mean(noiseSelected[valid]))
     # inverse trigamma --> inf near 0
-    gap = max(varLogVarRatio - trigammaLocal, 1.0e-6)
+    gap = max(varLogVarRatio - localLogVarianceNoise, 1.0e-6)
     Nu_0 = 2.0 * itrigamma(gap)
     if Nu_0 < 4.0:
         Nu_0 = 4.0
@@ -7959,6 +8207,7 @@ def EB_computePriorStrength(
     globalModelVariances: np.ndarray,
     Nu_local: float,
     thinStride: int = 1,
+    localLogVarianceNoise: np.ndarray | None = None,
 ) -> float:
     r"""Compute :math:`\nu_0` to determine 'prior strength'
 
@@ -7984,6 +8233,15 @@ def EB_computePriorStrength(
         raise ValueError(
             "localModelVariances and globalModelVariances must have the same shape"
         )
+    if localLogVarianceNoise is None:
+        localLogVarianceNoiseArr = None
+    else:
+        localLogVarianceNoiseArr = np.asarray(
+            localLogVarianceNoise,
+            dtype=np.float64,
+        ).ravel()
+        if localLogVarianceNoiseArr.shape != localModelVariancesArr.shape:
+            raise ValueError("localLogVarianceNoise must align with localModelVariances")
 
     ratioMask = (
         np.isfinite(localModelVariancesArr)
@@ -7991,6 +8249,10 @@ def EB_computePriorStrength(
         & (localModelVariancesArr > 0.0)
         & (globalModelVariancesArr > 0.0)
     )
+    if localLogVarianceNoiseArr is not None:
+        ratioMask &= np.isfinite(localLogVarianceNoiseArr) & (
+            localLogVarianceNoiseArr > 0.0
+        )
     candidateIdx = np.flatnonzero(ratioMask)
     if candidateIdx.size < max(4, int(np.ceil((0.10) * localModelVariancesArr.size))):
         logger.warning(
@@ -8016,6 +8278,7 @@ def EB_computePriorStrength(
         globalModelVariancesArr,
         Nu_local,
         candidateIdx,
+        localLogVarianceNoiseArr,
     )
 
 
@@ -8027,6 +8290,7 @@ def EB_computePooledPriorStrength(
     chromosomeIndex: np.ndarray | None = None,
     blockStarts: np.ndarray | None = None,
     thinBinSize: int = 1,
+    localLogVarianceNoise: np.ndarray | None = None,
 ) -> float:
     r"""Compute pooled :math:`\nu_0` using deterministic sample/chromosome/bin thinning."""
 
@@ -8034,12 +8298,25 @@ def EB_computePooledPriorStrength(
     globalArr = np.asarray(globalModelVariances, dtype=np.float64).ravel()
     if localArr.shape != globalArr.shape:
         raise ValueError("localModelVariances and globalModelVariances must align")
+    if localLogVarianceNoise is None:
+        localLogVarianceNoiseArr = None
+    else:
+        localLogVarianceNoiseArr = np.asarray(
+            localLogVarianceNoise,
+            dtype=np.float64,
+        ).ravel()
+        if localLogVarianceNoiseArr.shape != localArr.shape:
+            raise ValueError("localLogVarianceNoise must align with localModelVariances")
     ratioMask = (
         np.isfinite(localArr)
         & np.isfinite(globalArr)
         & (localArr > 0.0)
         & (globalArr > 0.0)
     )
+    if localLogVarianceNoiseArr is not None:
+        ratioMask &= np.isfinite(localLogVarianceNoiseArr) & (
+            localLogVarianceNoiseArr > 0.0
+        )
     candidateIdx = np.flatnonzero(ratioMask)
     if candidateIdx.size < max(4, int(np.ceil(0.10 * localArr.size))):
         logger.warning(
@@ -8087,6 +8364,7 @@ def EB_computePooledPriorStrength(
         globalArr,
         Nu_local,
         candidateIdx,
+        localLogVarianceNoiseArr,
     )
 
 

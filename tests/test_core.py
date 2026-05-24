@@ -1485,6 +1485,7 @@ def _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel():
         maxQ=10.0,
         regularizationStrength=99.0,
         regularizationRatio=0.9,
+        mapRoughnessPenalty=1.0,
         blockLenIntervals=2,
     )
 
@@ -1500,8 +1501,52 @@ def _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel():
     assert blockInfo["qTrend"] != pytest.approx(changedKnobInfo["qTrend"])
     assert blockInfo["effectiveTrendLevelRatio"] > 0.0
     assert changedKnobInfo["effectiveTrendLevelRatio"] > blockInfo["effectiveTrendLevelRatio"]
+    assert blockInfo["regularizationRatio"] == pytest.approx(0.001)
+    assert blockInfo["ratioPriorCenter"] == pytest.approx(0.001)
+    assert blockInfo["mapRoughnessPenalty"] == pytest.approx(1.0)
+    assert changedKnobInfo["regularizationRatio"] == pytest.approx(0.9)
+    assert changedKnobInfo["ratioPriorCenter"] == pytest.approx(0.9)
+    assert changedKnobInfo["mapRoughnessPenalty"] == pytest.approx(1.0)
     assert "q_level" not in blockInfo
     assert blockInfo["qFloor"] == pytest.approx(core.PROCESS_NOISE_NUMERICAL_FLOOR)
+
+    roughLevelState = np.asarray(
+        [[0.0], [0.1], [0.2], [8.0], [16.0], [24.0], [24.1], [24.2], [24.3], [24.4]],
+        dtype=np.float32,
+    )
+    roughLevelCovar = np.zeros((roughLevelState.shape[0], 1, 1), dtype=np.float32)
+    roughLevelLag = np.zeros((roughLevelState.shape[0] - 1, 1, 1), dtype=np.float32)
+    _, noRoughPenaltyInfo = core._estimateWarmupProcessNoiseCalibration(
+        stateSmoothed=roughLevelState,
+        stateCovarSmoothed=roughLevelCovar,
+        lagCovSmoothed=roughLevelLag,
+        matrixF=matrixF,
+        stateModel=core.STATE_MODEL_LEVEL,
+        minQ=1.0e-4,
+        maxQ=100.0,
+        regularizationStrength=1.0,
+        regularizationRatio=0.5,
+        mapRoughnessPenalty=0.0,
+        blockLenIntervals=3,
+    )
+    _, highRoughPenaltyInfo = core._estimateWarmupProcessNoiseCalibration(
+        stateSmoothed=roughLevelState,
+        stateCovarSmoothed=roughLevelCovar,
+        lagCovSmoothed=roughLevelLag,
+        matrixF=matrixF,
+        stateModel=core.STATE_MODEL_LEVEL,
+        minQ=1.0e-4,
+        maxQ=100.0,
+        regularizationStrength=1.0,
+        regularizationRatio=0.5,
+        mapRoughnessPenalty=50.0,
+        blockLenIntervals=3,
+    )
+    assert noRoughPenaltyInfo["mapRoughnessPenalty"] == pytest.approx(0.0)
+    assert noRoughPenaltyInfo["qLevelPriorUsed"] is False
+    assert highRoughPenaltyInfo["mapRoughnessPenalty"] == pytest.approx(50.0)
+    assert highRoughPenaltyInfo["qLevelPriorUsed"] is True
+    assert highRoughPenaltyInfo["qLevel"] < noRoughPenaltyInfo["qLevel"]
 
     levelState = np.asarray([[0.0], [0.2], [0.5], [0.9]], dtype=np.float32)
     levelCovar = np.zeros((levelState.shape[0], 1, 1), dtype=np.float32)
@@ -1986,6 +2031,12 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     assert "outer_objective_change_per_cell" in diagnostics["post_process_noise_fit"]
     assert diagnostics["post_process_noise_fit"]["outer_patience_target"] == 2
     assert diagnostics["process_noise_calibration"]["processNoisePolicy"] == "EB_MAP"
+    assert diagnostics["process_noise_calibration"]["warmupECMIters"] == pytest.approx(
+        1.0
+    )
+    assert diagnostics["process_noise_calibration"][
+        "warmupOuterPasses"
+    ] == pytest.approx(float(core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES))
     assert diagnostics["process_noise_calibration"]["qLevel"] >= (
         core.PROCESS_NOISE_NUMERICAL_FLOOR
     )
@@ -2402,6 +2453,7 @@ def _caseReplicateMuncPriorsDifferAndProcessMatchesSerial(tmp_path):
         EB_setNuL=8,
         localWindowIntervals=11,
         thinBinSize=7,
+        localLogVarianceNoise=np.full_like(means, 0.05, dtype=np.float64),
     )
     serial = core.fitReplicateMuncVariancePriors(
         means,
@@ -2430,6 +2482,10 @@ def _caseReplicateMuncPriorsDifferAndProcessMatchesSerial(tmp_path):
     np.testing.assert_allclose(processPred0, serialPred0, rtol=0.0, atol=0.0)
     np.testing.assert_allclose(processPred1, serialPred1, rtol=0.0, atol=0.0)
     assert all(np.isfinite(prior.Nu_0) and prior.Nu_0 >= 4.0 for prior in serial)
+    assert all(
+        prior.diagnostics.get("Nu_L_source") == "delta_method_ar1_blocks"
+        for prior in process
+    )
 
 
 @pytest.mark.correctness
@@ -2935,6 +2991,70 @@ def _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
     assert np.allclose(muncTrack, expected.astype(np.float32))
 
 
+def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPatch):
+    intervals = np.arange(0, 500, 25, dtype=np.uint32)
+    values = np.linspace(0.1, 1.5, intervals.size, dtype=np.float32)
+    localVarTrack = np.full(intervals.size, 2.0, dtype=np.float32)
+    priorVarTrack = np.full(intervals.size, 10.0, dtype=np.float32)
+    fakeBlockMeans = np.linspace(0.1, 1.0, 8, dtype=np.float32)
+    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
+    seen: dict[str, float] = {}
+
+    def _fakeMeanVarPairs(*args, **kwargs):
+        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
+        ends = starts + 1
+        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
+
+    def _failRollingBeta(*args, **kwargs):
+        pytest.fail("noDMVar=True should skip rolling AR(1) beta for Nu_L")
+
+    def _fakePriorStrength(local, prior, Nu_local, *args, **kwargs):
+        seen["Nu_L"] = float(Nu_local)
+        return 4.0
+
+    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
+    monkeypatch.setattr(
+        cconsenrich,
+        "crollingMuncVariance",
+        lambda *args, **kwargs: localVarTrack.copy(),
+    )
+    monkeypatch.setattr(cconsenrich, "crollingMuncAR1Beta", _failRollingBeta)
+    monkeypatch.setattr(
+        core,
+        "fitPSplineLogVarianceTrend",
+        lambda *args, **kwargs: {"flat": True},
+    )
+    monkeypatch.setattr(
+        core,
+        "evalPSplineLogVarianceTrend",
+        lambda *args, **kwargs: priorVarTrack.copy(),
+    )
+    monkeypatch.setattr(core, "EB_computePriorStrength", _fakePriorStrength)
+
+    muncTrack, _ = core.getMuncTrack(
+        chromosome="chrTest",
+        intervals=intervals,
+        values=values,
+        intervalSizeBP=25,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=250,
+        samplingIters=64,
+        EB_localQuantile=-1.0,
+        EB_use=True,
+        noDMVar=True,
+        varianceFloor=0.0,
+        varianceCap=20.0,
+    )
+
+    expectedNuL = 7.0
+    expected = (expectedNuL * localVarTrack + 4.0 * priorVarTrack) / (
+        expectedNuL + 4.0
+    )
+
+    assert seen["Nu_L"] == pytest.approx(expectedNuL)
+    assert np.allclose(muncTrack, expected.astype(np.float32))
+
+
 @pytest.mark.correctness
 def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
     monkeypatch: pytest.MonkeyPatch,
@@ -3112,6 +3232,82 @@ def test_core_rolling_ar1_uses_canonical_block_variance_functional():
         cappedMarginal[centeredOutputIdx]
         <= (maxInflation * rollingInnovation[centeredOutputIdx]) + 1.0e-5
     )
+
+
+@pytest.mark.correctness
+def test_core_delta_method_nu_l_uses_rolling_ar1_beta_uncertainty():
+    rng = np.random.default_rng(48)
+    n = 4096
+    windowLength = 201
+    excludeMask = np.zeros(n, dtype=np.uint8)
+
+    def _simulateAR1(phi: float) -> np.ndarray:
+        values = np.zeros(n, dtype=np.float64)
+        innovationScale = math.sqrt(max(1.0 - phi * phi, 1.0e-6))
+        innovations = rng.normal(scale=innovationScale, size=n)
+        values[0] = rng.normal()
+        for i in range(1, n):
+            values[i] = phi * values[i - 1] + innovations[i]
+        return values.astype(np.float32)
+
+    whiteNoiseBeta = cconsenrich.crollingMuncAR1Beta(
+        _simulateAR1(0.0),
+        windowLength,
+        excludeMask,
+    )
+    correlatedValues = _simulateAR1(0.82)
+    correlatedBeta = cconsenrich.crollingMuncAR1Beta(
+        correlatedValues,
+        windowLength,
+        excludeMask,
+    )
+    blockStarts = np.arange(0, 800, 100, dtype=np.intp)
+    blockSizes = np.full(blockStarts.shape, windowLength, dtype=np.intp)
+    blockBeta = cconsenrich.cblockAR1Beta(correlatedValues, blockStarts, blockSizes)
+    blockNoise = core._computeDeltaMethodAR1LogVarianceNoise(blockBeta, blockSizes)
+
+    assert float(np.median(whiteNoiseBeta)) < 0.10
+    assert float(np.median(correlatedBeta)) > 0.65
+    assert float(np.median(blockBeta)) > 0.65
+    assert np.all(np.isfinite(blockNoise))
+
+    nominalNuL = float(windowLength - 3)
+    zeroNuL, zeroDiag = core._computeDeltaMethodAR1NuL(
+        np.zeros(200, dtype=np.float32),
+        windowLength,
+    )
+    highNuL, highDiag = core._computeDeltaMethodAR1NuL(
+        np.full(200, 0.85, dtype=np.float32),
+        windowLength,
+    )
+
+    assert zeroNuL == pytest.approx(nominalNuL)
+    assert zeroDiag["beta_median"] == pytest.approx(0.0)
+    assert 4.0 <= highNuL < zeroNuL
+    assert highDiag["beta_median"] == pytest.approx(0.85, rel=1.0e-6)
+    assert highDiag["nu_eff_q95"] < nominalNuL
+
+
+@pytest.mark.correctness
+def test_core_pooled_prior_strength_uses_block_log_variance_noise():
+    n = 100
+    logRatio = np.linspace(-1.0, 1.0, n, dtype=np.float64)
+    localVariances = np.exp(logRatio)
+    globalVariances = np.ones(n, dtype=np.float64)
+
+    nominalNu0 = core.EB_computePooledPriorStrength(
+        localVariances,
+        globalVariances,
+        Nu_local=100.0,
+    )
+    noiseAwareNu0 = core.EB_computePooledPriorStrength(
+        localVariances,
+        globalVariances,
+        Nu_local=100.0,
+        localLogVarianceNoise=np.full(n, 0.25, dtype=np.float64),
+    )
+
+    assert noiseAwareNu0 > nominalNu0
 
 
 @pytest.mark.correctness

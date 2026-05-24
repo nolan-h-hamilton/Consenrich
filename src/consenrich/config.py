@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import namedtuple
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -23,6 +24,8 @@ GENERIC_DEFAULT_CONFIGURATION = constants.GENERIC_DEFAULT_CONFIGURATION
 SUPPORTED_DEFAULT_CONFIGURATIONS = constants.SUPPORTED_DEFAULT_CONFIGURATIONS
 DEFAULT_CONFIGURATION_KEYS = constants.DEFAULT_CONFIGURATION_KEYS
 DEFAULT_CONFIGURATION_VALUES = constants.DEFAULT_CONFIGURATION_VALUES
+
+_PROCESS_ARGS_TYPE_CACHE: dict[tuple[str, ...], type] = {}
 
 
 def loadConfig(
@@ -108,6 +111,46 @@ def _getDefaultConfigurationName(configMap: Mapping[str, Any]) -> str:
 def _cfgDefault(configMap: Mapping[str, Any], dottedKey: str) -> Any:
     configurationName = _getDefaultConfigurationName(configMap)
     return DEFAULT_CONFIGURATION_VALUES[configurationName][dottedKey]
+
+
+def _runtimeProcessParamsType(fields: tuple[str, ...]) -> type:
+    processArgsType = _PROCESS_ARGS_TYPE_CACHE.get(fields)
+    if processArgsType is None:
+        processArgsType = namedtuple("processParams", fields)
+        _PROCESS_ARGS_TYPE_CACHE[fields] = processArgsType
+    return processArgsType
+
+
+def _buildProcessArgs(
+    baseValues: Mapping[str, Any],
+    extraValues: Mapping[str, Any],
+) -> Any:
+    coreFields = tuple(getattr(core.processParams, "_fields", ()))
+    coreValues = {key: baseValues[key] for key in coreFields if key in baseValues}
+    coreExtras = {
+        key: value for key, value in extraValues.items() if key in coreFields
+    }
+    if len(coreExtras) == len(extraValues):
+        return core.processParams(**coreValues, **coreExtras)
+
+    baseArgs = core.processParams(**coreValues, **coreExtras)
+    extraFields = tuple(key for key in extraValues if key not in coreFields)
+    fields = coreFields + extraFields
+    processArgsType = _runtimeProcessParamsType(fields)
+    return processArgsType(
+        *(getattr(baseArgs, key) for key in coreFields),
+        *(extraValues[key] for key in extraFields),
+    )
+
+
+def _cfgFloatConflict(
+    configMap: Mapping[str, Any],
+    leftKey: str,
+    rightKey: str,
+) -> bool:
+    leftVal = float(_cfgGet(configMap, leftKey))
+    rightVal = float(_cfgGet(configMap, rightKey))
+    return not np.isclose(leftVal, rightVal, rtol=0.0, atol=0.0)
 
 
 def getInputArgs(config_path: str) -> core.inputParams:
@@ -774,57 +817,126 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "experimentName",
         constants.EXPERIMENT_DEFAULT_NAME,
     )
-    regularizationRatioConfigured = (
-        _cfgGet(configData, "processParams.regularizationRatio", None) is not None
+    regularizationStrengthKey = "processParams.regularizationStrength"
+    mapRoughnessPenaltyKey = "processParams.processNoiseMapRoughnessPenalty"
+    legacyMapRoughnessPenaltyKey = "processParams.processNoiseMAPRoughnessPenalty"
+    regularizationStrengthConfigured = _cfgHas(configData, regularizationStrengthKey)
+    mapRoughnessPenaltyConfigured = _cfgHas(configData, mapRoughnessPenaltyKey)
+    legacyMapRoughnessPenaltyConfigured = _cfgHas(
+        configData,
+        legacyMapRoughnessPenaltyKey,
     )
-    processArgs = core.processParams(
-        deltaF=_cfgGet(
+    if (
+        mapRoughnessPenaltyConfigured
+        and legacyMapRoughnessPenaltyConfigured
+        and _cfgFloatConflict(
             configData,
-            "processParams.deltaF",
-            constants.PROCESS_DEFAULT_DELTA_F,
-        ),
-        stateModel=_cfgGet(
+            mapRoughnessPenaltyKey,
+            legacyMapRoughnessPenaltyKey,
+        )
+    ):
+        raise ValueError(
+            "`processParams.processNoiseMapRoughnessPenalty` and "
+            "`processParams.processNoiseMAPRoughnessPenalty` were both provided "
+            "with different values."
+        )
+    mapRoughnessPenaltyRaw = None
+    if mapRoughnessPenaltyConfigured:
+        mapRoughnessPenaltyRaw = _cfgGet(configData, mapRoughnessPenaltyKey, None)
+    elif legacyMapRoughnessPenaltyConfigured:
+        mapRoughnessPenaltyRaw = _cfgGet(
             configData,
-            "processParams.stateModel",
-            _cfgDefault(configData, "processParams.stateModel"),
-        ),
-        minQ=_cfgGet(configData, "processParams.minQ", constants.PROCESS_DEFAULT_MIN_Q),
-        maxQ=_cfgGet(configData, "processParams.maxQ", constants.PROCESS_DEFAULT_MAX_Q),
-        regularizationStrength=float(
-            _cfgGet(
+            legacyMapRoughnessPenaltyKey,
+            None,
+        )
+    regularizationStrength = float(
+        _cfgGet(
+            configData,
+            regularizationStrengthKey,
+            _cfgDefault(configData, regularizationStrengthKey),
+        )
+    )
+    mapRoughnessPenalty = (
+        regularizationStrength
+        if mapRoughnessPenaltyRaw is None
+        else float(mapRoughnessPenaltyRaw)
+    )
+    processNoiseWarmupECMIters = int(
+        _cfgGet(
+            configData,
+            "processParams.processNoiseWarmupECMIters",
+            _cfgDefault(configData, "processParams.processNoiseWarmupECMIters"),
+        )
+    )
+    processNoiseWarmupOuterPasses = int(
+        _cfgGet(
+            configData,
+            "processParams.processNoiseWarmupOuterPasses",
+            _cfgDefault(configData, "processParams.processNoiseWarmupOuterPasses"),
+        )
+    )
+    if processNoiseWarmupECMIters < 1:
+        raise ValueError(
+            "`processParams.processNoiseWarmupECMIters` must be a positive integer."
+        )
+    if processNoiseWarmupOuterPasses < 1:
+        raise ValueError(
+            "`processParams.processNoiseWarmupOuterPasses` must be a positive integer."
+        )
+    regularizationRatioConfigured = _cfgHas(
+        configData,
+        "processParams.regularizationRatio",
+    )
+    processArgs = _buildProcessArgs(
+        {
+            "deltaF": _cfgGet(
                 configData,
-                "processParams.regularizationStrength",
-                _cfgDefault(configData, "processParams.regularizationStrength"),
-            )
-        ),
-        regularizationRatio=float(
-            _cfgGet(
+                "processParams.deltaF",
+                constants.PROCESS_DEFAULT_DELTA_F,
+            ),
+            "stateModel": _cfgGet(
                 configData,
-                "processParams.regularizationRatio",
-                _cfgDefault(configData, "processParams.regularizationRatio"),
-            )
-        ),
-        processNoiseWarmupECMIters=int(
-            _cfgGet(
+                "processParams.stateModel",
+                _cfgDefault(configData, "processParams.stateModel"),
+            ),
+            "minQ": _cfgGet(
                 configData,
-                "processParams.processNoiseWarmupECMIters",
-                _cfgDefault(configData, "processParams.processNoiseWarmupECMIters"),
-            )
-        ),
-        precisionMultiplierMin=float(
-            _cfgGet(
+                "processParams.minQ",
+                constants.PROCESS_DEFAULT_MIN_Q,
+            ),
+            "maxQ": _cfgGet(
                 configData,
-                "processParams.precisionMultiplierMin",
-                _cfgDefault(configData, "processParams.precisionMultiplierMin"),
-            )
-        ),
-        precisionMultiplierMax=float(
-            _cfgGet(
-                configData,
-                "processParams.precisionMultiplierMax",
-                _cfgDefault(configData, "processParams.precisionMultiplierMax"),
-            )
-        ),
+                "processParams.maxQ",
+                constants.PROCESS_DEFAULT_MAX_Q,
+            ),
+            "regularizationStrength": regularizationStrength,
+            "regularizationRatio": float(
+                _cfgGet(
+                    configData,
+                    "processParams.regularizationRatio",
+                    _cfgDefault(configData, "processParams.regularizationRatio"),
+                )
+            ),
+            "processNoiseWarmupECMIters": processNoiseWarmupECMIters,
+            "precisionMultiplierMin": float(
+                _cfgGet(
+                    configData,
+                    "processParams.precisionMultiplierMin",
+                    _cfgDefault(configData, "processParams.precisionMultiplierMin"),
+                )
+            ),
+            "precisionMultiplierMax": float(
+                _cfgGet(
+                    configData,
+                    "processParams.precisionMultiplierMax",
+                    _cfgDefault(configData, "processParams.precisionMultiplierMax"),
+                )
+            ),
+        },
+        {
+            "processNoiseMapRoughnessPenalty": mapRoughnessPenalty,
+            "processNoiseWarmupOuterPasses": processNoiseWarmupOuterPasses,
+        },
     )
     if (
         regularizationRatioConfigured
@@ -972,6 +1084,13 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "observationParams.EB_setNuL",
             constants.OBSERVATION_DEFAULT_EB_SET_NUL,
+        ),
+        noDMVar=bool(
+            _cfgGet(
+                configData,
+                "observationParams.noDMVar",
+                constants.OBSERVATION_DEFAULT_NO_DM_VAR,
+            )
         ),
         trendNumBasis=int(
             _cfgGet(

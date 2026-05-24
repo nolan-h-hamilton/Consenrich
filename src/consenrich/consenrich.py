@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import inspect
 import logging
 import math
 from multiprocessing.pool import ThreadPool
@@ -618,6 +619,64 @@ def _formatReplicateGainFrame(
     return "\n".join(lines)
 
 
+def _getProcessNoiseMAPRoughnessPenalty(processArgs: Any) -> float:
+    value = getattr(processArgs, "processNoiseMapRoughnessPenalty", None)
+    if value is None:
+        value = getattr(processArgs, "processNoiseMAPRoughnessPenalty", None)
+    if value is None:
+        value = getattr(processArgs, "regularizationStrength")
+    return float(value)
+
+
+def _getProcessNoiseWarmupOuterPasses(processArgs: Any) -> int:
+    return max(
+        1,
+        int(
+            getattr(
+                processArgs,
+                "processNoiseWarmupOuterPasses",
+                constants.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES,
+            )
+        ),
+    )
+
+
+def _coreRunConsenrichSupports(parameterName: str) -> bool:
+    try:
+        return parameterName in inspect.signature(core.runConsenrich).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _configureCoreProcessNoiseWarmupDefaults(processArgs: Any) -> int:
+    warmupOuterPasses = _getProcessNoiseWarmupOuterPasses(processArgs)
+    if (
+        not _coreRunConsenrichSupports("processNoiseWarmupOuterPasses")
+        and hasattr(core, "PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES")
+    ):
+        core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES = warmupOuterPasses
+    return warmupOuterPasses
+
+
+def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
+    warmupOuterPasses = _getProcessNoiseWarmupOuterPasses(processArgs)
+    kwargs: Dict[str, Any] = {
+        "stateModel": processArgs.stateModel,
+        "regularizationStrength": processArgs.regularizationStrength,
+        "regularizationRatio": processArgs.regularizationRatio,
+        "processNoiseWarmupECMIters": processArgs.processNoiseWarmupECMIters,
+        "processPrecisionMultiplierMin": processArgs.precisionMultiplierMin,
+        "processPrecisionMultiplierMax": processArgs.precisionMultiplierMax,
+    }
+    if _coreRunConsenrichSupports("processNoiseMapRoughnessPenalty"):
+        kwargs["processNoiseMapRoughnessPenalty"] = (
+            _getProcessNoiseMAPRoughnessPenalty(processArgs)
+        )
+    if _coreRunConsenrichSupports("processNoiseWarmupOuterPasses"):
+        kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
+    return kwargs
+
+
 def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
     inputArgs = config["inputArgs"]
     outputArgs = config["outputArgs"]
@@ -665,11 +724,14 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("background model", yn(fitArgs.fitBackground)),
         ("nonnegative background", yn(fitArgs.useNonnegativeBackground)),
         ("state model", processArgs.stateModel),
-        ("process noise reg", float(processArgs.regularizationStrength)),
+        (
+            "MAP roughness penalty",
+            _getProcessNoiseMAPRoughnessPenalty(processArgs),
+        ),
         ("trend/level ratio", float(processArgs.regularizationRatio)),
         (
             "process noise warmup",
-            f"{int(core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES)} outer passes x "
+            f"{_getProcessNoiseWarmupOuterPasses(processArgs)} outer passes x "
             f"{int(processArgs.processNoiseWarmupECMIters)} ECM iters",
         ),
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
@@ -881,6 +943,14 @@ def _logMuncEstimationParameters(
                 "MUNC variance EB",
                 "enabled" if bool(observationArgs.EB_use) else "disabled",
             ),
+            (
+                "MUNC delta-method variance",
+                (
+                    "disabled"
+                    if bool(getattr(observationArgs, "noDMVar", False))
+                    else "enabled"
+                ),
+            ),
             ("EB Nu0 override", _formatOptionalLogValue(observationArgs.EB_setNu0)),
             ("EB NuL override", _formatOptionalLogValue(observationArgs.EB_setNuL)),
             ("sparse nearest regions", int(observationArgs.numNearest or 0)),
@@ -1090,6 +1160,7 @@ def main():
     samArgs = config["samArgs"]
     matchingArgs = config["matchingArgs"]
     fitArgs = config["fitArgs"]
+    _configureCoreProcessNoiseWarmupDefaults(processArgs)
     treatmentSources = _listOrEmpty(getattr(inputArgs, "treatmentSources", None))
     controlSources = _listOrEmpty(getattr(inputArgs, "controlSources", None))
     if not treatmentSources:
@@ -1710,11 +1781,13 @@ def main():
     muncResidualBackgroundCachePaths: Dict[str, str] = {}
     pooledBlockMeansParts: list[np.ndarray] = []
     pooledBlockVarsParts: list[np.ndarray] = []
+    pooledBlockLogVarianceNoiseParts: list[np.ndarray] = []
     pooledSampleIndexParts: list[np.ndarray] = []
     pooledChromIndexParts: list[np.ndarray] = []
     pooledBlockStartsParts: list[np.ndarray] = []
     pooledWeightsParts: list[np.ndarray] = []
     useReplicateTrends = bool(getattr(observationArgs, "useReplicateTrends", False))
+    noDMVar = bool(getattr(observationArgs, "noDMVar", False))
 
     def _getChromBlacklistMask(chromosome: str, intervals: np.ndarray) -> np.ndarray:
         if not genomeArgs.blacklistFile or len(intervals) < 2:
@@ -2518,6 +2591,22 @@ def main():
             endsArr = np.asarray(ends)
             if startsArr.size != blockMeansArr.size:
                 continue
+            blockLengthsArr = endsArr - startsArr
+            if (
+                not noDMVar
+                and int(muncVarianceModelCode_) == int(core.MUNC_VARIANCE_MODEL_CODE_AR1)
+            ):
+                blockBetas = cconsenrich.cblockAR1Beta(
+                    np.ascontiguousarray(chromMat[j, :], dtype=np.float32),
+                    np.ascontiguousarray(startsArr, dtype=np.intp),
+                    np.ascontiguousarray(blockLengthsArr, dtype=np.intp),
+                )
+                blockLogVarianceNoise = core._computeDeltaMethodAR1LogVarianceNoise(
+                    blockBetas,
+                    blockLengthsArr,
+                )
+            else:
+                blockLogVarianceNoise = None
             valid = (
                 np.isfinite(blockMeansArr)
                 & np.isfinite(blockVarsArr)
@@ -2546,6 +2635,10 @@ def main():
             pooledBlockVarsParts.append(
                 np.asarray(blockVarsArr[valid], dtype=np.float64)
             )
+            if blockLogVarianceNoise is not None:
+                pooledBlockLogVarianceNoiseParts.append(
+                    np.asarray(blockLogVarianceNoise[valid], dtype=np.float64)
+                )
             pooledSampleIndexParts.append(np.full(count, int(j), dtype=np.int64))
             pooledChromIndexParts.append(np.full(count, int(c_), dtype=np.int64))
             pooledBlockStartsParts.append(np.asarray(startsArr[valid], dtype=np.int64))
@@ -2644,6 +2737,10 @@ def main():
     if pooledBlockMeansParts:
         pooledBlockMeans = np.concatenate(pooledBlockMeansParts)
         pooledBlockVars = np.concatenate(pooledBlockVarsParts)
+        if pooledBlockLogVarianceNoiseParts:
+            pooledBlockLogVarianceNoise = np.concatenate(pooledBlockLogVarianceNoiseParts)
+        else:
+            pooledBlockLogVarianceNoise = None
         pooledSampleIndex = np.concatenate(pooledSampleIndexParts)
         pooledChromIndex = np.concatenate(pooledChromIndexParts)
         pooledBlockStarts = np.concatenate(pooledBlockStartsParts)
@@ -2651,6 +2748,7 @@ def main():
     else:
         pooledBlockMeans = np.empty(0, dtype=np.float64)
         pooledBlockVars = np.empty(0, dtype=np.float64)
+        pooledBlockLogVarianceNoise = None
         pooledSampleIndex = np.empty(0, dtype=np.int64)
         pooledChromIndex = np.empty(0, dtype=np.int64)
         pooledBlockStarts = np.empty(0, dtype=np.int64)
@@ -2665,6 +2763,20 @@ def main():
         muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier_,
         muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier_,
     )
+    if pooledBlockLogVarianceNoise is not None:
+        finiteBlockNoise = pooledBlockLogVarianceNoise[
+            np.isfinite(pooledBlockLogVarianceNoise)
+            & (pooledBlockLogVarianceNoise > 0.0)
+        ]
+        if finiteBlockNoise.size:
+            blockEffNu = 2.0 * core.itrigamma(finiteBlockNoise)
+            blockEffNu = blockEffNu[np.isfinite(blockEffNu)]
+            logger.info(
+                "pooled MUNC block delta-method noise: pairs=%d logvar_noise_median=%.4g block_Nu_L_effective_median=%.2f",
+                int(finiteBlockNoise.size),
+                float(np.median(finiteBlockNoise)),
+                float(np.median(blockEffNu)) if blockEffNu.size else float("nan"),
+            )
     pooledBlockSizeIntervals = int(pooledMuncSizing.trendBlockIntervals)
     pooledLocalWindowIntervals = int(pooledMuncSizing.localWindowIntervals)
     if observationArgs.EB_setNuL is not None and observationArgs.EB_setNuL > 3:
@@ -2723,6 +2835,7 @@ def main():
             chromosomeIndex=pooledChromIndex,
             blockStarts=pooledBlockStarts,
             weights=pooledWeights,
+            localLogVarianceNoise=pooledBlockLogVarianceNoise,
             sampleCount=numSamples,
             eps=varianceFloorForTrend,
             maxVariance=varianceCapForTrend,
@@ -2810,6 +2923,7 @@ def main():
                 chromosomeIndex=pooledChromIndex,
                 blockStarts=pooledBlockStarts,
                 thinBinSize=pooledLocalWindowIntervals,
+                localLogVarianceNoise=pooledBlockLogVarianceNoise,
             )
         if not np.isfinite(pooledMuncNu0) or pooledMuncNu0 < 4.0:
             pooledMuncNu0 = pooledNu0Cap
@@ -2835,6 +2949,11 @@ def main():
                 chromosomeIndex=pooledChromIndex[repMask],
                 blockStarts=pooledBlockStarts[repMask],
                 thinBinSize=pooledLocalWindowIntervals,
+                localLogVarianceNoise=(
+                    None
+                    if pooledBlockLogVarianceNoise is None
+                    else pooledBlockLogVarianceNoise[repMask]
+                ),
             )
             if np.isfinite(repNu0):
                 repNu0 = min(float(repNu0), pooledNu0Cap)
@@ -3027,6 +3146,7 @@ def main():
                 EB_use=observationArgs.EB_use,
                 EB_setNu0=observationArgs.EB_setNu0,
                 EB_setNuL=observationArgs.EB_setNuL,
+                noDMVar=noDMVar,
                 trendNumBasis=trendNumBasis_,
                 trendMinObsPerBasis=trendMinObsPerBasis_,
                 trendMinEdf=trendMinEdf_,
@@ -3201,20 +3321,13 @@ def main():
                     ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
                     ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
                     ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-                    stateModel=processArgs.stateModel,
-                    regularizationStrength=processArgs.regularizationStrength,
-                    regularizationRatio=processArgs.regularizationRatio,
-                    processNoiseWarmupECMIters=(
-                        processArgs.processNoiseWarmupECMIters
-                    ),
+                    **_processNoiseRunKwargs(processArgs),
                     observationPrecisionMultiplierMin=(
                         observationArgs.precisionMultiplierMin
                     ),
                     observationPrecisionMultiplierMax=(
                         observationArgs.precisionMultiplierMax
                     ),
-                    processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
-                    processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
                     initialBackground=(
                         muncResidualBackground if bool(fitArgs.fitBackground) else None
                     ),
@@ -3379,14 +3492,9 @@ def main():
             ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
             ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
             ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-            stateModel=processArgs.stateModel,
-            regularizationStrength=processArgs.regularizationStrength,
-            regularizationRatio=processArgs.regularizationRatio,
-            processNoiseWarmupECMIters=processArgs.processNoiseWarmupECMIters,
+            **_processNoiseRunKwargs(processArgs),
             observationPrecisionMultiplierMin=observationArgs.precisionMultiplierMin,
             observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
-            processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
-            processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
             trackOptimizationPath=outputArgs.plotOptimizationPath,
             returnPrecisionDiagnostics=True,
             returnDiagnostics=True,
@@ -3652,14 +3760,9 @@ def main():
                 ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
                 ECM_outerNLLRtol=fitArgs.ECM_outerNLLRtol,
                 ECM_backgroundSmoothness=fitArgs.ECM_backgroundSmoothness,
-                stateModel=processArgs.stateModel,
-                regularizationStrength=processArgs.regularizationStrength,
-                regularizationRatio=processArgs.regularizationRatio,
-                processNoiseWarmupECMIters=processArgs.processNoiseWarmupECMIters,
+                **_processNoiseRunKwargs(processArgs),
                 observationPrecisionMultiplierMin=observationArgs.precisionMultiplierMin,
                 observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
-                processPrecisionMultiplierMin=processArgs.precisionMultiplierMin,
-                processPrecisionMultiplierMax=processArgs.precisionMultiplierMax,
                 initialBackground=backgroundWarmStart,
                 initialReplicateBias=replicateBias,
                 initialProcessQ=initialProcessQWarmStart,
