@@ -162,6 +162,7 @@ cpdef tuple cextractHeldoutScores(
     real_t[::1] state,
     real_t[::1] stateVar,
     real_t[::1] replicateBias,
+    real_t[::1] background,
     cnp.uint8_t[:, ::1] mask,
     int fold,
     double pad,
@@ -171,7 +172,12 @@ cpdef tuple cextractHeldoutScores(
     cdef Py_ssize_t n = matrixData.shape[1]
     if matrixMunc.shape[0] != m or matrixMunc.shape[1] != n or mask.shape[0] != m or mask.shape[1] != n:
         raise ValueError("held-out score inputs have inconsistent dimensions")
-    if state.shape[0] != n or stateVar.shape[0] != n or replicateBias.shape[0] != m:
+    if (
+        state.shape[0] != n
+        or stateVar.shape[0] != n
+        or replicateBias.shape[0] != m
+        or background.shape[0] != n
+    ):
         raise ValueError("held-out score state inputs have inconsistent dimensions")
 
     cdef Py_ssize_t j, i, count = 0, k
@@ -203,6 +209,7 @@ cpdef tuple cextractHeldoutScores(
                 if mask[j, i] == 0:
                     residualView[k] = (
                         <double>matrixData[j, i]
+                        - <double>background[i]
                         - <double>state[i]
                         - <double>replicateBias[j]
                     )

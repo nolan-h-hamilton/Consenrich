@@ -134,11 +134,12 @@ def _resolveBlockSizeIntervals(
     intervalSizeBP: int,
     n: int,
 ) -> int:
-    return diagnostics.resolveUncertaintyBlockSizeIntervals(
+    blockLen = diagnostics.resolveUncertaintyBlockSizeIntervals(
         blockSizeBP,
         intervalSizeBP,
         n,
     )
+    return int(min(blockLen, max(int(n), 1)))
 
 
 def _resolveHoldoutCount(m: int, fraction: float | None) -> int:
@@ -858,6 +859,7 @@ def calibrateChromosomeStateUncertainty(
     )
     fitKwargs["returnScales"] = True
     fitKwargs["returnReplicateOffsets"] = True
+    fitKwargs["returnBackground"] = True
 
     refitSeconds = 0.0
     extractSeconds = 0.0
@@ -911,7 +913,15 @@ def calibrateChromosomeStateUncertainty(
             **fitKwargs,
         )
         refitSeconds += time.perf_counter() - stageStart
-        stateMasked, covarMasked, _resid, _track4, biasMasked, _blockMap = out
+        (
+            stateMasked,
+            covarMasked,
+            _resid,
+            _track4,
+            biasMasked,
+            _blockMap,
+            backgroundMasked,
+        ) = out[:7]
         stageStart = time.perf_counter()
         residual, pHeld, rHeld, ii, jj, foldHeld = _cuncertainty.cextractHeldoutScores(
             matrixData,
@@ -919,6 +929,7 @@ def calibrateChromosomeStateUncertainty(
             np.ascontiguousarray(np.asarray(stateMasked)[:, 0], dtype=np.float32),
             np.ascontiguousarray(np.asarray(covarMasked)[:, 0, 0], dtype=np.float32),
             np.ascontiguousarray(biasMasked, dtype=np.float32),
+            np.ascontiguousarray(backgroundMasked, dtype=np.float32),
             np.ascontiguousarray(mask, dtype=np.uint8),
             int(fold),
             float(padValue),

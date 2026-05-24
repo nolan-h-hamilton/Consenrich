@@ -160,6 +160,7 @@ def _caseCythonHeldoutExtractionAndFactorEvaluation():
     state = np.array([0.5, 1.0, 1.5, 2.0], dtype=np.float32)
     pState = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
     bias = np.array([0.0, 0.1, -0.2], dtype=np.float32)
+    background = np.array([0.0, 0.2, -0.1, 0.3], dtype=np.float32)
     mask = np.ones((3, 4), dtype=np.uint8)
     mask[0, 1] = 0
     mask[2, 3] = 0
@@ -170,6 +171,7 @@ def _caseCythonHeldoutExtractionAndFactorEvaluation():
         state,
         pState,
         bias,
+        background,
         mask,
         2,
         1.0e-4,
@@ -179,7 +181,13 @@ def _caseCythonHeldoutExtractionAndFactorEvaluation():
     assert ii.tolist() == [1, 3]
     assert jj.tolist() == [0, 2]
     assert fold.tolist() == [2, 2]
-    assert np.allclose(residual, [matrixData[0, 1] - state[1], matrixData[2, 3] - state[3] - bias[2]])
+    assert np.allclose(
+        residual,
+        [
+            matrixData[0, 1] - background[1] - state[1],
+            matrixData[2, 3] - background[3] - state[3] - bias[2],
+        ],
+    )
     assert np.allclose(pHeld, [pState[1], pState[3]])
     assert np.allclose(rHeld, [0.2001, 0.2001])
 
@@ -481,6 +489,7 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
             np.zeros(n, dtype=np.float32),
             replicateBias,
             np.zeros(n, dtype=np.int32),
+            np.zeros(n, dtype=np.float32),
         )
 
     monkeypatch.setattr(core, "runConsenrich", _fakeRunConsenrich)
