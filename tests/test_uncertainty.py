@@ -78,7 +78,7 @@ def _caseObservationVarianceFloorSelectorSolvesTrimmedTarget():
     pState = np.full(n, 0.2, dtype=np.float64)
     muncBase = np.zeros(n, dtype=np.float64)
     targetR = 0.4
-    pad = 0.01
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     residual = np.sqrt(pState + targetR + pad)
 
     selected, score, hitUpper = uncertainty._selectObservationVarianceFloor(
@@ -451,7 +451,6 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
         intervalSizeBP=25,
         params=params,
         runKwargs=_smallRunKwargs(),
-        pad=1.0e-4,
         outPrefix=str(tmp_path / "cal"),
     )
 
@@ -525,7 +524,7 @@ def _caseObservationVarianceFloorHeldoutSmoke(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger=uncertainty.logger.name)
     caplog.clear()
     m, n = 4, 16
-    pad = 0.01
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     targetR = 0.4
     pState = np.full(n, 0.2, dtype=np.float32)
     lambdaExp = np.full(n, 2.0, dtype=np.float32)
@@ -579,7 +578,6 @@ def _caseObservationVarianceFloorHeldoutSmoke(monkeypatch, caplog):
         intervalSizeBP=1,
         params=params,
         runKwargs=runKwargs,
-        pad=pad,
         maxR=2.0,
         fallbackMinR=1.0e-4,
         chromosome="chrTest",
@@ -624,7 +622,7 @@ def _caseObservationVarianceFloorHeldoutSmoke(monkeypatch, caplog):
 
 def _caseObservationVarianceFloorMissingBackgroundModes(monkeypatch):
     m, n = 2, 12
-    pad = 0.01
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     targetR = 0.3
     pState = np.full(n, 0.15, dtype=np.float32)
     residual = np.sqrt(pState + targetR + pad).astype(np.float32)
@@ -665,7 +663,6 @@ def _caseObservationVarianceFloorMissingBackgroundModes(monkeypatch):
             intervalSizeBP=1,
             params=params,
             runKwargs=runKwargs,
-            pad=pad,
             maxR=2.0,
             fallbackMinR=1.0e-4,
             chromosome="chrMissing",
@@ -682,7 +679,6 @@ def _caseObservationVarianceFloorMissingBackgroundModes(monkeypatch):
         intervalSizeBP=1,
         params=params,
         runKwargs=zeroRunKwargs,
-        pad=pad,
         maxR=2.0,
         fallbackMinR=1.0e-4,
         chromosome="chrZero",
@@ -703,7 +699,7 @@ def _caseObservationVarianceFloorMissingBackgroundModes(monkeypatch):
 
 def _caseObservationVarianceFloorSafetyCushion(monkeypatch):
     m, n = 2, 12
-    pad = 0.01
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     pState = np.full(n, 0.2, dtype=np.float32)
     residual = np.sqrt(pState + pad).astype(np.float32)
     matrixData = np.tile(residual, (m, 1)).astype(np.float32)
@@ -740,7 +736,6 @@ def _caseObservationVarianceFloorSafetyCushion(monkeypatch):
         intervalSizeBP=1,
         params=params,
         runKwargs=runKwargs,
-        pad=pad,
         maxR=1.0,
         fallbackMinR=0.0,
         chromosome="chrCushion",
@@ -757,7 +752,7 @@ def _caseObservationVarianceFloorSafetyCushion(monkeypatch):
 
 def _caseObservationVarianceFloorFallbackGuard(monkeypatch):
     m, n = 2, 12
-    pad = 0.01
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     fallbackMinR = 0.05
     pState = np.full(n, 0.2, dtype=np.float32)
     residual = np.sqrt(pState + pad).astype(np.float32)
@@ -795,7 +790,6 @@ def _caseObservationVarianceFloorFallbackGuard(monkeypatch):
         intervalSizeBP=1,
         params=params,
         runKwargs=runKwargs,
-        pad=pad,
         maxR=1.0,
         fallbackMinR=fallbackMinR,
         chromosome="chrFallbackGuard",
@@ -813,7 +807,7 @@ def _caseObservationVarianceFloorFallbackGuard(monkeypatch):
 
 def _caseObservationVarianceFloorResidualVarianceBeatsMuncPad(monkeypatch):
     m, n = 3, 15
-    pad = 0.02
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     fallbackMinR = 1.0e-4
     targetR = 0.35
     pState = np.full(n, 0.11, dtype=np.float32)
@@ -857,7 +851,6 @@ def _caseObservationVarianceFloorResidualVarianceBeatsMuncPad(monkeypatch):
         intervalSizeBP=1,
         params=params,
         runKwargs=runKwargs,
-        pad=pad,
         maxR=2.0,
         fallbackMinR=fallbackMinR,
         chromosome="chrMuncPad",
@@ -877,7 +870,7 @@ def _caseObservationVarianceFloorResidualVarianceBeatsMuncPad(monkeypatch):
 
 def _caseObservationVarianceFloorSparseHeldoutIntervals(monkeypatch):
     m, n = 4, 18
-    pad = 0.015
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     targetR = 0.28
     pState = np.full(n, 0.07, dtype=np.float32)
     matrixMunc = np.tile(np.linspace(0.03, 0.12, n, dtype=np.float32), (m, 1))
@@ -924,7 +917,6 @@ def _caseObservationVarianceFloorSparseHeldoutIntervals(monkeypatch):
         intervalSizeBP=1,
         params=params,
         runKwargs=runKwargs,
-        pad=pad,
         maxR=2.0,
         fallbackMinR=1.0e-4,
         excludeIntervals=excludeIntervals,
@@ -942,7 +934,7 @@ def _caseObservationVarianceFloorSparseHeldoutIntervals(monkeypatch):
 
 def _caseObservationVarianceFloorLambdaFreeGuard(monkeypatch):
     m, n = 2, 14
-    pad = 0.01
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     targetR = 0.3
     pState = np.full(n, 0.1, dtype=np.float32)
     lambdaExp = np.full(n, 0.1, dtype=np.float32)
@@ -986,7 +978,6 @@ def _caseObservationVarianceFloorLambdaFreeGuard(monkeypatch):
         intervalSizeBP=1,
         params=params,
         runKwargs=runKwargs,
-        pad=pad,
         maxR=1.0,
         fallbackMinR=1.0e-4,
         chromosome="chrLambdaGuard",
@@ -1006,7 +997,7 @@ def _caseObservationVarianceFloorLambdaFreeGuard(monkeypatch):
 
 def _caseObservationVarianceFloorReplicateContrastGuard(monkeypatch):
     m, n = 4, 10
-    pad = 0.01
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     targetR = 0.24
     amplitude = np.float32(np.sqrt(0.5 * (targetR + pad)))
     pState = np.full(n, 1.5, dtype=np.float32)
@@ -1058,7 +1049,6 @@ def _caseObservationVarianceFloorReplicateContrastGuard(monkeypatch):
             intervalSizeBP=1,
             params=params,
             runKwargs=runKwargs,
-            pad=pad,
             maxR=1.0,
             fallbackMinR=1.0e-4,
             chromosome="chrContrastGuard",
@@ -1081,7 +1071,7 @@ def _caseObservationVarianceFloorNoHeldoutScoresFallbackDiagnostics(monkeypatch,
     caplog.set_level(logging.INFO, logger=uncertainty.logger.name)
     caplog.clear()
     m, n = 2, 10
-    pad = 0.01
+    pad = core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     fallbackMinR = 3.0e-4
     pState = np.full(n, 0.1, dtype=np.float32)
     matrixData = np.zeros((m, n), dtype=np.float32)
@@ -1119,7 +1109,6 @@ def _caseObservationVarianceFloorNoHeldoutScoresFallbackDiagnostics(monkeypatch,
         intervalSizeBP=1,
         params=params,
         runKwargs=runKwargs,
-        pad=pad,
         maxR=1.0,
         fallbackMinR=fallbackMinR,
         excludeIntervals=np.ones(n, dtype=bool),
@@ -1209,7 +1198,6 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
         intervalSizeBP=25,
         params=params,
         runKwargs=runKwargs,
-        pad=1.0e-4,
     )
 
     assert len(capturedKwargs) == params.folds
@@ -1270,7 +1258,6 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
         intervalSizeBP=25,
         params=params,
         runKwargs=runKwargs,
-        pad=1.0e-4,
         outPrefix=str(tmp_path / "single"),
     )
 

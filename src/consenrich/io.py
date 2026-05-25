@@ -230,6 +230,26 @@ def _listOrEmpty(list_):
     return list_
 
 
+def _normalizeScaleFactorList(
+    scaleFactors: Optional[Sequence[float]],
+    expectedCount: int,
+    paramName: str,
+) -> Optional[List[float]]:
+    if scaleFactors is None:
+        return None
+    if expectedCount < 1:
+        raise ValueError(f"`{paramName}` was provided but no matching inputs exist.")
+    normalized = [float(scaleFactor) for scaleFactor in scaleFactors]
+    if len(normalized) == expectedCount:
+        return normalized
+    if len(normalized) == 1:
+        return normalized * expectedCount
+    raise ValueError(
+        f"`{paramName}` must contain 1 value or {expectedCount} values; "
+        f"got {len(normalized)}."
+    )
+
+
 def _expandWildCards(pathList: List[str]) -> List[str]:
     expandedList: List[str] = []
     for pathEntry in pathList:

@@ -29,7 +29,7 @@ import consenrich.peaks as peaks
 TESTS_DIR = Path(__file__).resolve().parent
 TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
-_LEGACY_ALGO_PREFIX = "E" + "M" + "_"
+_REMOVED_EM_PREFIX = "E" + "M" + "_"
 
 
 def _emaReference(x: np.ndarray, alpha: float) -> np.ndarray:
@@ -1248,14 +1248,14 @@ def _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight():
 @pytest.mark.correctness
 def _caseFitParamsDropsProcBlockScaleOptions():
     removedFields = {
-        _LEGACY_ALGO_PREFIX + "scaleToMedian",
-        _LEGACY_ALGO_PREFIX + "alphaEMA",
-        _LEGACY_ALGO_PREFIX + "scaleLOW",
-        _LEGACY_ALGO_PREFIX + "scaleHIGH",
-        _LEGACY_ALGO_PREFIX + "useProcBlockScale",
-        _LEGACY_ALGO_PREFIX + "useReplicateScale",
-        _LEGACY_ALGO_PREFIX + "repScaleLOW",
-        _LEGACY_ALGO_PREFIX + "repScaleHIGH",
+        _REMOVED_EM_PREFIX + "scaleToMedian",
+        _REMOVED_EM_PREFIX + "alphaEMA",
+        _REMOVED_EM_PREFIX + "scaleLOW",
+        _REMOVED_EM_PREFIX + "scaleHIGH",
+        _REMOVED_EM_PREFIX + "useProcBlockScale",
+        _REMOVED_EM_PREFIX + "useReplicateScale",
+        _REMOVED_EM_PREFIX + "repScaleLOW",
+        _REMOVED_EM_PREFIX + "repScaleHIGH",
     }
     assert removedFields.isdisjoint(core.fitParams._fields)
 
@@ -1330,9 +1330,9 @@ def _caseNormalizeStateModelAcceptsCanonicalValuesOnly():
     assert core._normalizeStateModel(None) == core.STATE_MODEL_LEVEL_TREND
     assert core._normalizeStateModel("levelTrend") == core.STATE_MODEL_LEVEL_TREND
     assert core._normalizeStateModel("level") == core.STATE_MODEL_LEVEL
-    for alias in ("level-trend", "two_state", "one-state", "scalar", "levelSlope"):
+    for badMode in ("level-trend", "two_state", "one-state", "scalar", "levelSlope"):
         with pytest.raises(ValueError, match="stateModel"):
-            core._normalizeStateModel(alias)
+            core._normalizeStateModel(badMode)
 
 
 @pytest.mark.correctness
@@ -2831,7 +2831,8 @@ def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
         intervals=intervals,
         values=values,
         intervalSizeBP=25,
-        samplingBlockSizeBP=125,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
         samplingIters=64,
         sparseIntervalIndices=sparseIntervalIndices,
         numNearest=3,
@@ -2919,7 +2920,8 @@ def _caseGetMuncTrackClipsHugePriorBeforeShrinkage(
         intervals=intervals,
         values=values,
         intervalSizeBP=25,
-        samplingBlockSizeBP=125,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
         samplingIters=64,
         EB_localQuantile=-1.0,
         EB_use=True,
@@ -2975,13 +2977,15 @@ def _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
         intervals=intervals,
         values=values,
         intervalSizeBP=25,
-        samplingBlockSizeBP=125,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
         samplingIters=64,
         EB_localQuantile=-1.0,
         EB_setNuL=10,
         EB_use=True,
         varianceFloor=0.0,
         varianceCap=10.0,
+        additiveHighFreq=False,
     )
 
     expected = (10.0 * localVarTrack + 500.0 * priorVarTrack) / 510.0
@@ -3042,6 +3046,7 @@ def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPat
         noDMVar=True,
         varianceFloor=0.0,
         varianceCap=20.0,
+        additiveHighFreq=False,
     )
 
     expectedNuL = 7.0
@@ -3051,6 +3056,98 @@ def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPat
 
     assert seen["Nu_L"] == pytest.approx(expectedNuL)
     assert np.allclose(muncTrack, expected.astype(np.float32))
+
+
+def test_core_munc_additive_high_freq_adds_only_excess_d1_post_fit(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    intervals = np.arange(0, 300, 25, dtype=np.uint32)
+    values = np.linspace(-0.5, 0.7, intervals.size, dtype=np.float32)
+    baseTrack = np.linspace(0.4, 0.8, intervals.size, dtype=np.float32)
+    highFreqTrack = np.linspace(0.05, 0.35, intervals.size, dtype=np.float32)
+    betaTrack = np.linspace(0.2, 0.9, intervals.size, dtype=np.float32)
+    fakeBlockMeans = np.linspace(-0.5, 0.5, 8, dtype=np.float32)
+    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
+    seen: dict[str, np.ndarray] = {}
+
+    def _fakeMeanVarPairs(*args, **kwargs):
+        seen["fit_model_code"] = np.asarray([kwargs.get("modelCode")], dtype=np.int64)
+        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
+        ends = starts + 1
+        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
+
+    def _fakeRolling(valuesArg, _blockLengthArg, _excludeMaskArg, *args, **kwargs):
+        seen["add_model_code"] = np.asarray([kwargs.get("modelCode")], dtype=np.int64)
+        seen["add_values"] = np.asarray(valuesArg).copy()
+        return highFreqTrack.copy()
+
+    def _fakeRollingBeta(valuesArg, _blockLengthArg, _excludeMaskArg, *args, **kwargs):
+        seen["beta_values"] = np.asarray(valuesArg).copy()
+        return betaTrack.copy()
+
+    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
+    monkeypatch.setattr(cconsenrich, "crollingMuncVariance", _fakeRolling)
+    monkeypatch.setattr(cconsenrich, "crollingMuncAR1Beta", _fakeRollingBeta)
+    monkeypatch.setattr(
+        core,
+        "fitPSplineLogVarianceTrend",
+        lambda *args, **kwargs: {"flat": True},
+    )
+    monkeypatch.setattr(
+        core,
+        "evalPSplineLogVarianceTrend",
+        lambda *args, **kwargs: baseTrack.copy(),
+    )
+
+    muncTrack, support = core.getMuncTrack(
+        chromosome="chrTest",
+        intervals=intervals,
+        values=values,
+        intervalSizeBP=25,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
+        samplingIters=64,
+        EB_use=False,
+        varianceFloor=0.0,
+        varianceCap=10.0,
+        additiveHighFreq=True,
+    )
+
+    assert int(seen["fit_model_code"][0]) == core.MUNC_VARIANCE_MODEL_CODE_AR1
+    assert int(seen["add_model_code"][0]) == core.MUNC_VARIANCE_MODEL_CODE_SVAR_D1
+    assert np.array_equal(seen["add_values"], values)
+    assert np.array_equal(seen["beta_values"], values)
+    assert support > 0.0
+    expectedD1 = baseTrack * (1.0 - betaTrack)
+    expectedExcess = np.maximum(0.0, highFreqTrack - expectedD1)
+    assert np.any(expectedExcess == 0.0)
+    assert np.any(expectedExcess > 0.0)
+    np.testing.assert_allclose(
+        muncTrack,
+        (baseTrack + expectedExcess).astype(np.float32),
+        rtol=1.0e-6,
+    )
+
+
+def test_core_munc_additive_high_freq_requires_ar1_model():
+    intervals = np.arange(0, 300, 25, dtype=np.uint32)
+    values = np.linspace(-0.5, 0.7, intervals.size, dtype=np.float32)
+
+    with pytest.raises(
+        ValueError,
+        match=r"additiveHighFreq.*muncVarianceModel='ar1'",
+    ):
+        core.getMuncTrack(
+            chromosome="chrTest",
+            intervals=intervals,
+            values=values,
+            intervalSizeBP=25,
+            muncTrendBlockSizeBP=125,
+            muncLocalWindowSizeBP=150,
+            muncVarianceModel=core.MUNC_VARIANCE_MODEL_SVAR,
+            EB_use=False,
+            additiveHighFreq=True,
+        )
 
 
 @pytest.mark.correctness
@@ -3099,7 +3196,8 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
         intervals=intervals,
         values=values,
         intervalSizeBP=25,
-        samplingBlockSizeBP=125,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
         samplingIters=64,
         EB_localQuantile=-1.0,
         EB_setNuL=10,
@@ -3109,6 +3207,7 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
         EB_pooledNu0=4.0,
         varianceFloor=0.0,
         varianceCap=20.0,
+        additiveHighFreq=False,
     )
 
     expected = (10.0 * localVarTrack + 4.0 * np.float32(6.0)) / 14.0
@@ -3311,29 +3410,25 @@ def test_core_pooled_prior_strength_uses_block_log_variance_noise():
 @pytest.mark.correctness
 def _caseMuncSizingAndCythonVarianceModels():
     intervalSizeBP = 25
-    legacySizing = core._resolveMuncRuntimeSizing(
+    fallbackSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        samplingBlockSizeBP=125,
         muncTrendBlockSizeBP=None,
         muncLocalWindowSizeBP=None,
     )
-    assert legacySizing.usedLegacySamplingBlockSize is True
-    assert legacySizing.localWindowIntervals == legacySizing.trendBlockIntervals + 1
+    assert fallbackSizing.trendBlockSource == "fallback default"
+    assert fallbackSizing.localWindowSource == "fallback default"
 
     explicitSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
-        samplingBlockSizeBP=125,
         muncTrendBlockSizeBP=250,
         muncLocalWindowSizeBP=500,
     )
-    assert explicitSizing.usedLegacySamplingBlockSize is False
     assert explicitSizing.trendBlockSizeBP == 250
     assert explicitSizing.localWindowSizeBP == 500
 
     dependenceSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
         dependenceSpanIntervals=17,
-        samplingBlockSizeBP=None,
         muncTrendBlockSizeBP=None,
         muncLocalWindowSizeBP=None,
         muncTrendBlockDependenceMultiplier=1.5,
@@ -3579,7 +3674,8 @@ def _caseGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
         intervals=intervals,
         values=values,
         intervalSizeBP=25,
-        samplingBlockSizeBP=125,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
         samplingIters=64,
         sparseIntervalIndices=sparseIntervalIndices,
         numNearest=3,
@@ -3674,11 +3770,12 @@ def _caseGetMuncTrackRestrictsRollingAR1ToSparseBed(
         intervals=intervals,
         values=values,
         intervalSizeBP=25,
-        samplingBlockSizeBP=125,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
         samplingIters=64,
         excludeMask=excludeMask,
         sparseRegionMask=sparseRegionMask,
-        restrictLocalAR1ToSparseBed=True,
+        restrictLocalVarianceToSparseBed=True,
         EB_use=True,
     )
 
@@ -4139,10 +4236,10 @@ def _caseBedGraphChromRangeAndReadLength(tmp_path):
 
 
 @pytest.mark.correctness
-def _caseNormalizeCountModeRejectsLegacyAliases():
-    for alias in ["cov", "cut", "cutsites", "5p", "five_prime", "centre", "midpoint"]:
+def _caseNormalizeCountModeRejectsNoncanonicalModes():
+    for badMode in ["cov", "cut", "cutsites", "5p", "five_prime", "centre", "midpoint"]:
         with pytest.raises(ValueError, match="Unsupported countMode"):
-            core._normalizeCountMode(alias, "coverage")
+            core._normalizeCountMode(badMode, "coverage")
 
 
 @pytest.mark.correctness
@@ -4271,7 +4368,7 @@ def _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions(tmp_path):
 def _caseReadBamSegmentsCountEndsOnlyUsesFivePrimePositions(tmp_path):
     bamPath = _writeSyntheticBam(
         tmp_path,
-        "legacy-ends.synthetic.bam",
+        "ends.synthetic.bam",
         [
             {"name": "forward", "start": 100, "flag": 0},
             {"name": "reverse", "start": 160, "flag": 16},
@@ -4434,6 +4531,50 @@ def _casePairScaleFactorsFixControlKeepsControlFullDepth(monkeypatch):
     )
 
     assert scaleTreatment == pytest.approx(1.0)
+    assert scaleControl == pytest.approx(1.0)
+
+
+@pytest.mark.correctness
+def _casePairScaleFactorsCpmUsesPerMillionForFragments(monkeypatch):
+    depths = {"treatment.fragments.tsv.gz": 12.0, "control.fragments.tsv.gz": 3.0}
+    calls = []
+
+    def fakeScaleFactorPerMillion(
+        bamFile,
+        excludeChroms,
+        intervalSizeBP,
+        **kwargs,
+    ):
+        calls.append((bamFile, kwargs.get("sourceKind")))
+        return 1.0 / depths[bamFile]
+
+    def failScaleFactor1x(*args, **kwargs):
+        raise AssertionError("CPM paired normalization should not use EGS/RPGC")
+
+    monkeypatch.setattr(detrorm, "getScaleFactorPerMillion", fakeScaleFactorPerMillion)
+    monkeypatch.setattr(detrorm, "getScaleFactor1x", failScaleFactor1x)
+
+    scaleTreatment, scaleControl = detrorm.getPairScaleFactors(
+        "treatment.fragments.tsv.gz",
+        "control.fragments.tsv.gz",
+        1000,
+        1000,
+        1,
+        1,
+        [],
+        "chrom.sizes",
+        1,
+        25,
+        normMethod="CPM",
+        sourceKindA="FRAGMENTS",
+        sourceKindB="FRAGMENTS",
+    )
+
+    assert calls == [
+        ("treatment.fragments.tsv.gz", "FRAGMENTS"),
+        ("control.fragments.tsv.gz", "FRAGMENTS"),
+    ]
+    assert scaleTreatment == pytest.approx(0.25)
     assert scaleControl == pytest.approx(1.0)
 
 
@@ -4653,7 +4794,7 @@ def test_core_bedgraph_counting_contracts(tmp_path, contract_case):
 
 
 def test_core_bam_counting_contracts(tmp_path, contract_case):
-    contract_case("count mode legacy aliases rejected", _caseNormalizeCountModeRejectsLegacyAliases)
+    contract_case("count mode noncanonical modes rejected", _caseNormalizeCountModeRejectsNoncanonicalModes)
     for label, func in (
         ("paired BAM template span", _caseReadSegmentsBamPairedEndUsesTemplateSpan),
         ("paired BAM read1 single-end mode", _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode),
@@ -4668,5 +4809,6 @@ def test_core_pair_scale_factor_contracts(monkeypatch, contract_case):
         ("MACS treatment downscale", _casePairScaleFactorsDownscaleDeeperSampleMacs),
         ("control downscale by default", _casePairScaleFactorsCanDownscaleControlByDefault),
         ("fixed control keeps full depth", _casePairScaleFactorsFixControlKeepsControlFullDepth),
+        ("CPM fragments use per-million scaling", _casePairScaleFactorsCpmUsesPerMillionForFragments),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func)

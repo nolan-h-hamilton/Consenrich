@@ -477,7 +477,7 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 bint useSampleVar,
                                 int modelCode,
                                 double maxBeta=<double>0.99,
-                                double pairsRegLambda=<double>0.1) noexcept nogil:
+                                double pairsRegLambda=<double>1.0) noexcept nogil:
     # CALLERS: cmeanVarPairs
 
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
@@ -4039,7 +4039,6 @@ cpdef tuple cfixedBackgroundECMLevel(
     object lambdaExpInit=None,
     object processPrecExpInit=None,
     object replicateBiasInit=None,
-    bint zeroCenterReplicateBias=True,
     bint trackOptimizationPath=False,
     object progressBar=None,
     bint logIterations=True,
@@ -4355,28 +4354,26 @@ cpdef tuple cfixedBackgroundECMLevel(
                 if repBiasDenView[j] > 0.0:
                     tmpVal = repBiasNumView[j] / repBiasDenView[j]
                     replicateBiasView[j] = <cnp.float32_t>tmpVal
-                    if zeroCenterReplicateBias:
-                        repBiasCenterWeightJ = repBiasCenterWeightView[j]
-                        repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
-                        repBiasProjectionDen += (
-                            repBiasCenterWeightJ * repBiasCenterWeightJ
-                        ) / repBiasDenView[j]
+                    repBiasCenterWeightJ = repBiasCenterWeightView[j]
+                    repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
+                    repBiasProjectionDen += (
+                        repBiasCenterWeightJ * repBiasCenterWeightJ
+                    ) / repBiasDenView[j]
                 else:
                     replicateBiasView[j] = <cnp.float32_t>0.0
 
-            if zeroCenterReplicateBias:
-                if repBiasProjectionDen > 0.0:
-                    repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
-                else:
-                    repBiasAlpha = 0.0
-                for j in range(trackCount):
-                    tmpVal = <double>replicateBiasView[j]
-                    if repBiasDenView[j] > 0.0:
-                        tmpVal = (
-                            tmpVal
-                            - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
-                        )
-                    replicateBiasView[j] = <cnp.float32_t>tmpVal
+            if repBiasProjectionDen > 0.0:
+                repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
+            else:
+                repBiasAlpha = 0.0
+            for j in range(trackCount):
+                tmpVal = <double>replicateBiasView[j]
+                if repBiasDenView[j] > 0.0:
+                    tmpVal = (
+                        tmpVal
+                        - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
+                    )
+                replicateBiasView[j] = <cnp.float32_t>tmpVal
 
         currentNLL = (<double>cforwardPassLevel(
             matrixData=matrixData,
@@ -4556,7 +4553,6 @@ cpdef tuple cfixedBackgroundECM(
     object lambdaExpInit=None,
     object processPrecExpInit=None,
     object replicateBiasInit=None,
-    bint zeroCenterReplicateBias=True,
     bint trackOptimizationPath=False,
     object progressBar=None,
     bint logIterations=True,
@@ -4734,9 +4730,6 @@ cpdef tuple cfixedBackgroundECM(
     :type processPrecExpInit: numpy.ndarray | None
     :param replicateBiasInit: Optional warm-start replicate offsets.
     :type replicateBiasInit: numpy.ndarray | None
-    :param zeroCenterReplicateBias: If True, project replicate offsets to a
-        weighted zero center after each bias update.
-    :type zeroCenterReplicateBias: bool
 
     :returns: A tuple ``(itersDone, finalNLL)``. If
             ``returnIntermediates=True``, additionally returns
@@ -5156,29 +5149,27 @@ cpdef tuple cfixedBackgroundECM(
                 if repBiasDenView[j] > 0.0:
                     tmpVal = repBiasNumView[j] / repBiasDenView[j]
                     replicateBiasView[j] = <cnp.float32_t>tmpVal
-                    if zeroCenterReplicateBias:
-                        repBiasCenterWeightJ = repBiasCenterWeightView[j]
-                        repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
-                        repBiasProjectionDen += (
-                            repBiasCenterWeightJ * repBiasCenterWeightJ
-                        ) / repBiasDenView[j]
+                    repBiasCenterWeightJ = repBiasCenterWeightView[j]
+                    repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
+                    repBiasProjectionDen += (
+                        repBiasCenterWeightJ * repBiasCenterWeightJ
+                    ) / repBiasDenView[j]
                 else:
                     replicateBiasView[j] = <cnp.float32_t>0.0
 
-            if zeroCenterReplicateBias:
-                if repBiasProjectionDen > 0.0:
-                    repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
-                else:
-                    repBiasAlpha = 0.0
+            if repBiasProjectionDen > 0.0:
+                repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
+            else:
+                repBiasAlpha = 0.0
 
-                for j in range(trackCount):
-                    tmpVal = <double>replicateBiasView[j]
-                    if repBiasDenView[j] > 0.0:
-                        tmpVal = (
-                            tmpVal
-                            - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
-                        )
-                    replicateBiasView[j] = <cnp.float32_t>tmpVal
+            for j in range(trackCount):
+                tmpVal = <double>replicateBiasView[j]
+                if repBiasDenView[j] > 0.0:
+                    tmpVal = (
+                        tmpVal
+                        - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
+                    )
+                replicateBiasView[j] = <cnp.float32_t>tmpVal
 
         currentNLL = (<double>cforwardPass(
             matrixData=matrixData,
@@ -5341,7 +5332,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     int modelCode = 0,
     double maxBeta=0.99,
-    double pairsRegLambda = 0.1,
+    double pairsRegLambda = 1.0,
     bint useInnovationVar = <bint>True,
 ):
     r"""Estimate a rolling MUNC variance track for a 1D array of values
@@ -5564,7 +5555,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncAR1Beta(
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     double maxBeta=0.99,
-    double pairsRegLambda = 0.1,
+    double pairsRegLambda = 1.0,
 ):
     r"""Estimate the clipped AR(1) beta used by rolling MUNC windows."""
 
@@ -5675,7 +5666,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
     double maxBeta=0.99,
-    double pairsRegLambda = 0.1,
+    double pairsRegLambda = 1.0,
     bint useInnovationVar = <bint>True,
 ):
     r"""Compatibility wrapper for the AR(1) rolling MUNC variance model."""

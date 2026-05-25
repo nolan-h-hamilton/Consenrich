@@ -55,7 +55,6 @@ from .constants import (
     FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING,
     FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING,
     FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
-    FIT_DEFAULT_ZERO_CENTER_REPLICATE_BIAS,
     INPUT_DEFAULT_ROLE,
     MUNC_SUPPORTED_VARIANCE_MODELS,
     MUNC_VARIANCE_MODEL_AR1,
@@ -66,6 +65,7 @@ from .constants import (
     MUNC_VARIANCE_MODEL_SVAR,
     MUNC_VARIANCE_MODEL_SVAR_D1,
     MUNC_VARIANCE_MODEL_SVAR_D2,
+    OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER,
     OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP,
     OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER,
@@ -324,21 +324,19 @@ class observationParams(NamedTuple):
     :type maxR: float | None
     :param samplingIters: Number of blocks (within-contig) to sample while building the empirical signed-mean variance trend in :func:`consenrich.core.fitPSplineLogVarianceTrend`.
     :type samplingIters: int | None
-    :param samplingBlockSizeBP: Expected size (in bp) of contiguous blocks that are sampled when fitting AR1 parameters to estimate signed :math:`(\mu_b, \sigma^2_b)` pairs.
-      Note, during sampling, each block's size (unit: genomic intervals) is drawn from truncated :math:`\textsf{Geometric}(p=1/\textsf{samplingBlockSize})` to reduce artifacts from fixed-size blocks.
-      If `None` or ` < 1`, then this value is inferred from sampled autosomal dependence blocks.
-    :type samplingBlockSizeBP: int | None
     :param muncVarianceModel: Local MUNC variance estimator. Supported values
         are ``"ar1"``, ``"svar"``, ``"svarD1"``, and ``"svarD2"``.
     :type muncVarianceModel: str | None
-    :param muncTrendBlockSizeBP: Expected sampled block size for fitting the MUNC signed mean-variance trend. If unset, legacy ``samplingBlockSizeBP`` is used when explicitly positive; otherwise it is inferred at runtime.
+    :param muncTrendBlockSizeBP: Expected sampled block size for fitting the MUNC signed mean-variance trend. If unset, it is inferred at runtime.
     :type muncTrendBlockSizeBP: int | None
-    :param muncLocalWindowSizeBP: Sliding-window size for local MUNC variance tracks. If unset, legacy ``samplingBlockSizeBP`` uses the old ``block + 1 interval`` local window; otherwise it is inferred at runtime.
+    :param muncLocalWindowSizeBP: Sliding-window size for local MUNC variance tracks. If unset, it is inferred at runtime.
     :type muncLocalWindowSizeBP: int | None
     :param muncTrendBlockDependenceMultiplier: Multiplier applied to the inferred dependence span when auto-sizing MUNC trend sampling blocks.
     :type muncTrendBlockDependenceMultiplier: float | None
     :param muncLocalWindowDependenceMultiplier: Multiplier applied to the inferred dependence span when auto-sizing local MUNC variance windows.
     :type muncLocalWindowDependenceMultiplier: float | None
+    :param additiveHighFreq: If True, add excess cell-wise first-difference variance beyond the AR(1)-implied component after the MUNC prior/local EB fit is complete.
+    :type additiveHighFreq: bool | None
     :param EB_use: If True, shrink 'local' noise estimates to a prior trend dependent on amplitude. See  :func:`consenrich.core.getMuncTrack`.
     :type EB_use: bool | None
     :param useReplicateTrends: If True, fit the empirical Bayes MUNC mean/variance prior separately for each replicate instead of using one pooled trend with replicate scale factors.
@@ -370,10 +368,7 @@ class observationParams(NamedTuple):
     :type sparseSupportScaleBP: float | None
     :param sparseSupportPrior: Positive pseudo-count :math:`k` in ``n_eff / (n_eff + k)``. Smaller values make sparse evidence dominate more aggressively; values ``<= 0`` disable soft blending where sparse support exists.
     :type sparseSupportPrior: float | None
-    :param restrictLocalAR1ToSparseBed: If True, and a sparse BED mask is supplied to :func:`consenrich.core.getMuncTrack`, restrict the default rolling AR(1) local observation noise level estimates to windows fully contained in sparse BED regions.
-      This only affects the local rolling AR(1) model, the global prior fit and sparse-nearest mode are unchanged.
-    :type restrictLocalAR1ToSparseBed: bool | None
-    :param restrictLocalVarianceToSparseBed: Generic alias for restricting local MUNC variance windows to sparse BED regions.
+    :param restrictLocalVarianceToSparseBed: If True, and a sparse BED mask is supplied to :func:`consenrich.core.getMuncTrack`, restrict local MUNC variance windows to sparse BED regions.
     :type restrictLocalVarianceToSparseBed: bool | None
     :param pad: A small constant added to the observation noise variance estimates for conditioning
     :type pad: float | None
@@ -390,7 +385,6 @@ class observationParams(NamedTuple):
     minR: float | None
     maxR: float | None
     samplingIters: int | None
-    samplingBlockSizeBP: int | None
     EB_use: bool | None
     EB_setNu0: int | None
     EB_setNuL: int | None
@@ -404,7 +398,6 @@ class observationParams(NamedTuple):
     numNearest: int | None
     sparseSupportScaleBP: float | None
     sparseSupportPrior: float | None
-    restrictLocalAR1ToSparseBed: bool | None
     pad: float | None
     precisionMultiplierMin: float | None = 0.25
     precisionMultiplierMax: float | None = 4.0
@@ -421,6 +414,7 @@ class observationParams(NamedTuple):
     restrictLocalVarianceToSparseBed: bool | None = (
         OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
     )
+    additiveHighFreq: bool | None = OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ
     noDMVar: bool | None = OBSERVATION_DEFAULT_NO_DM_VAR
 
 
@@ -479,7 +473,6 @@ class uncertaintyCalibrationParams(NamedTuple):
         UNCERTAINTY_CALIBRATION_DEFAULT_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION
     )
     seed: int = UNCERTAINTY_CALIBRATION_DEFAULT_SEED
-    pad: float | None = UNCERTAINTY_CALIBRATION_DEFAULT_PAD
     writeDiagnostics: bool = UNCERTAINTY_CALIBRATION_DEFAULT_WRITE_DIAGNOSTICS
 
 
@@ -931,7 +924,7 @@ class fitParams(NamedTuple):
        optionally constrained to have mean zero
 
     Replicate-level bias calibration and robust precision reweighting are fixed
-    parts of the ECM path; replicate-bias centering is enabled by default.
+    parts of the ECM path; replicate-bias centering is always enabled.
 
 
     :param ECM_fixedBackgroundIters: Maximum fixed-background ECM iterations.
@@ -964,9 +957,6 @@ class fitParams(NamedTuple):
     :param ECM_zeroCenterBackground: If True, enforce the identifiability
       constraint that the shared background has mean zero.
     :type ECM_zeroCenterBackground: bool
-    :param ECM_zeroCenterReplicateBias: If True, enforce the identifiability
-      constraint that replicate-level biases have weighted zero center.
-    :type ECM_zeroCenterReplicateBias: bool
     :param ECM_outerIters: Number of alternations between the fixed-background ECM fit and shared background update.
     :type ECM_outerIters: int
     :param ECM_minOuterIters: Optional lower bound on the number
@@ -1001,7 +991,6 @@ class fitParams(NamedTuple):
     )
     ECM_useAPN: bool | None = FIT_DEFAULT_USE_APN
     ECM_zeroCenterBackground: bool | None = FIT_DEFAULT_ZERO_CENTER_BACKGROUND
-    ECM_zeroCenterReplicateBias: bool | None = FIT_DEFAULT_ZERO_CENTER_REPLICATE_BIAS
     ECM_outerIters: int | None = FIT_DEFAULT_OUTER_ITERS
     ECM_minOuterIters: int | None = FIT_DEFAULT_MIN_OUTER_ITERS
     ECM_backgroundShiftRtol: float | None = FIT_DEFAULT_BACKGROUND_SHIFT_RTOL
@@ -3091,7 +3080,6 @@ def runConsenrich(
     ECM_useProcessPrecisionReweighting: bool = True,
     ECM_useAPN: bool = False,
     ECM_zeroCenterBackground: bool = False,
-    ECM_zeroCenterReplicateBias: bool = True,
     ECM_outerIters: int = 3,
     ECM_minOuterIters: int | None = None,
     ECM_backgroundShiftRtol: float = 1.0e-3,
@@ -4137,7 +4125,6 @@ def runConsenrich(
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
                 ECM_useAPN=bool(useAPNLocal),
-                zeroCenterReplicateBias=bool(ECM_zeroCenterReplicateBias),
                 obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
                 obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
@@ -4635,7 +4622,6 @@ def runConsenrich(
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
                 ECM_useAPN=bool(useAPNLocal),
-                zeroCenterReplicateBias=bool(ECM_zeroCenterReplicateBias),
                 obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
                 obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
                 procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
@@ -6983,7 +6969,6 @@ class _MuncRuntimeSizing(NamedTuple):
     localWindowSizeBP: int
     localWindowIntervals: int
     localWindowSource: str
-    usedLegacySamplingBlockSize: bool
     usedDependenceSpan: bool
     dependenceSpanIntervals: int | None
 
@@ -7047,7 +7032,6 @@ def _resolveMuncRuntimeSizing(
     *,
     intervalSizeBP: int,
     dependenceSpanIntervals: int | None = None,
-    samplingBlockSizeBP: int | None = None,
     muncTrendBlockSizeBP: int | None = None,
     muncLocalWindowSizeBP: int | None = None,
     muncTrendBlockDependenceMultiplier: float | None = (
@@ -7058,10 +7042,6 @@ def _resolveMuncRuntimeSizing(
     ),
 ) -> _MuncRuntimeSizing:
     intervalSizeBP_ = max(1, int(intervalSizeBP))
-    legacyBP = None if samplingBlockSizeBP is None else int(samplingBlockSizeBP)
-    legacyIntervals = (
-        None if legacyBP is None or legacyBP <= 0 else max(1, int(legacyBP / intervalSizeBP_))
-    )
     dependenceIntervals = (
         None
         if dependenceSpanIntervals is None
@@ -7102,19 +7082,13 @@ def _resolveMuncRuntimeSizing(
         return max(1, int(valueBP / intervalSizeBP_))
 
     trendIntervals = resolveExplicitIntervals(muncTrendBlockSizeBP)
-    usedLegacySamplingBlockSize = False
     usedDependenceSpan = False
     trendSource = "explicit bp"
     if trendIntervals is None:
-        if legacyIntervals is not None:
-            trendIntervals = int(legacyIntervals)
-            usedLegacySamplingBlockSize = True
-            trendSource = "legacy samplingBlockSizeBP"
-        else:
-            trendIntervals = resolveDependenceIntervals(trendMultiplier, 1)
-            usedDependenceSpan = trendIntervals is not None
-            if trendIntervals is not None:
-                trendSource = "dependence span"
+        trendIntervals = resolveDependenceIntervals(trendMultiplier, 1)
+        usedDependenceSpan = trendIntervals is not None
+        if trendIntervals is not None:
+            trendSource = "dependence span"
         if trendIntervals is None:
             trendIntervals = int(defaultTrendIntervals)
             trendSource = "fallback default"
@@ -7122,15 +7096,10 @@ def _resolveMuncRuntimeSizing(
     localIntervals = resolveExplicitIntervals(muncLocalWindowSizeBP)
     localSource = "explicit bp"
     if localIntervals is None:
-        if legacyIntervals is not None:
-            localIntervals = max(4, int(legacyIntervals) + 1)
-            usedLegacySamplingBlockSize = True
-            localSource = "legacy samplingBlockSizeBP + 1"
-        else:
-            localIntervals = resolveDependenceIntervals(localMultiplier, 4)
-            usedDependenceSpan = usedDependenceSpan or localIntervals is not None
-            if localIntervals is not None:
-                localSource = "dependence span"
+        localIntervals = resolveDependenceIntervals(localMultiplier, 4)
+        usedDependenceSpan = usedDependenceSpan or localIntervals is not None
+        if localIntervals is not None:
+            localSource = "dependence span"
         if localIntervals is None:
             localIntervals = int(defaultLocalIntervals)
             localSource = "fallback default"
@@ -7144,7 +7113,6 @@ def _resolveMuncRuntimeSizing(
         localWindowSizeBP=int(localIntervals * intervalSizeBP_),
         localWindowIntervals=int(localIntervals),
         localWindowSource=localSource,
-        usedLegacySamplingBlockSize=bool(usedLegacySamplingBlockSize),
         usedDependenceSpan=bool(usedDependenceSpan),
         dependenceSpanIntervals=dependenceIntervals,
     )
@@ -7152,17 +7120,17 @@ def _resolveMuncRuntimeSizing(
 
 def _muncSizingNeedsDependence(
     *,
-    samplingBlockSizeBP: int | None,
     muncTrendBlockSizeBP: int | None,
     muncLocalWindowSizeBP: int | None,
 ) -> bool:
-    legacyPositive = samplingBlockSizeBP is not None and int(samplingBlockSizeBP) > 0
     trendNeedsAuto = (
-        muncTrendBlockSizeBP is None and not legacyPositive
-    ) or (muncTrendBlockSizeBP is not None and int(muncTrendBlockSizeBP) <= 0)
+        muncTrendBlockSizeBP is None
+        or int(muncTrendBlockSizeBP) <= 0
+    )
     localNeedsAuto = (
-        muncLocalWindowSizeBP is None and not legacyPositive
-    ) or (muncLocalWindowSizeBP is not None and int(muncLocalWindowSizeBP) <= 0)
+        muncLocalWindowSizeBP is None
+        or int(muncLocalWindowSizeBP) <= 0
+    )
     return bool(trendNeedsAuto or localNeedsAuto)
 
 
@@ -7483,7 +7451,6 @@ def getMuncTrack(
     intervals: np.ndarray,
     values: np.ndarray,
     intervalSizeBP: int,
-    samplingBlockSizeBP: int | None = None,
     muncTrendBlockSizeBP: int | None = None,
     muncLocalWindowSizeBP: int | None = None,
     dependenceSpanIntervals: int | None = None,
@@ -7515,8 +7482,10 @@ def getMuncTrack(
     numNearest: int = 0,
     sparseSupportScaleBP: Optional[float] = None,
     sparseSupportPrior: float = 1.0,
-    restrictLocalAR1ToSparseBed: bool = False,
-    restrictLocalVarianceToSparseBed: bool | None = None,
+    restrictLocalVarianceToSparseBed: bool = (
+        OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
+    ),
+    additiveHighFreq: bool | None = OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
     EB_localQuantile: float = 0.0,
     verbose: bool = False,
     eps: float = 1.0e-2,
@@ -7561,7 +7530,6 @@ def getMuncTrack(
     sizing = _resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
         dependenceSpanIntervals=dependenceSpanIntervals,
-        samplingBlockSizeBP=samplingBlockSizeBP,
         muncTrendBlockSizeBP=muncTrendBlockSizeBP,
         muncLocalWindowSizeBP=muncLocalWindowSizeBP,
         muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier,
@@ -7569,11 +7537,13 @@ def getMuncTrack(
     )
     blockSizeIntervals = int(sizing.trendBlockIntervals)
     localWindowIntervals = int(sizing.localWindowIntervals)
-    restrictLocalVariance = (
-        bool(restrictLocalAR1ToSparseBed)
-        if restrictLocalVarianceToSparseBed is None
-        else bool(restrictLocalVarianceToSparseBed)
-    )
+    restrictLocalVariance = bool(restrictLocalVarianceToSparseBed)
+    addHighFreq = bool(additiveHighFreq)
+    if addHighFreq and int(muncVarianceModelCode) != int(MUNC_VARIANCE_MODEL_CODE_AR1):
+        raise ValueError(
+            "observationParams.additiveHighFreq requires "
+            "observationParams.muncVarianceModel='ar1'"
+        )
     if intervalsArr is None:
         intervalsArr = np.ascontiguousarray(intervals, dtype=np.uint32).reshape(-1)
     else:
@@ -7634,6 +7604,10 @@ def getMuncTrack(
             (
                 "MUNC delta-method variance",
                 "disabled" if bool(noDMVar) else "enabled",
+            ),
+            (
+                "MUNC additive high freq",
+                "enabled" if addHighFreq else "disabled",
             ),
             (
                 "MUNC trend source",
@@ -7789,6 +7763,69 @@ def getMuncTrack(
                 float(np.max(sparseSupportWeightTrack)),
             )
 
+    def _addCellwiseHighFreqVariance(
+        fittedVarianceTrack: np.ndarray,
+    ) -> npt.NDArray[np.float32]:
+        fittedTrack = _clipVarianceTrack(
+            np.asarray(fittedVarianceTrack, dtype=np.float64),
+            floor=varianceFloor_,
+            cap=varianceCap_,
+        ).astype(np.float64, copy=False)
+        if not addHighFreq:
+            return fittedTrack.astype(np.float32, copy=False)
+
+        highFreqTrack = np.asarray(
+            cconsenrich.crollingMuncVariance(
+                valuesArr,
+                localWindowIntervals,
+                localObsExcludeMaskArr,
+                modelCode=int(MUNC_VARIANCE_MODEL_CODE_SVAR_D1),
+                useInnovationVar=False,
+            ),
+            dtype=np.float64,
+        )
+        highFreqTrack[(~np.isfinite(highFreqTrack)) | (highFreqTrack < 0.0)] = 0.0
+        betaTrack = np.asarray(
+            cconsenrich.crollingMuncAR1Beta(
+                valuesArr,
+                localWindowIntervals,
+                localObsExcludeMaskArr,
+            ),
+            dtype=np.float64,
+        )
+        betaTrack[(~np.isfinite(betaTrack)) | (betaTrack < 0.0)] = 0.0
+        np.clip(betaTrack, 0.0, 1.0, out=betaTrack)
+
+        expectedD1Track = fittedTrack * (1.0 - betaTrack)
+        excessHighFreqTrack = highFreqTrack - expectedD1Track
+        excessHighFreqTrack[
+            (~np.isfinite(excessHighFreqTrack)) | (excessHighFreqTrack < 0.0)
+        ] = 0.0
+
+        finiteHighFreq = highFreqTrack[np.isfinite(highFreqTrack)]
+        if finiteHighFreq.size:
+            highFreqSd = np.sqrt(finiteHighFreq)
+            excessSd = np.sqrt(excessHighFreqTrack[np.isfinite(excessHighFreqTrack)])
+            activeFraction = float(np.count_nonzero(excessHighFreqTrack > 0.0)) / float(
+                excessHighFreqTrack.size
+            )
+            logger.info(
+                "MUNC additive high-frequency excess variance: intervals=%d "
+                "active_fraction=%.4f raw_sd_median=%.4g raw_sd_q95=%.4g "
+                "excess_sd_median=%.4g excess_sd_q95=%.4g",
+                int(finiteHighFreq.size),
+                activeFraction,
+                float(np.median(highFreqSd)),
+                float(np.quantile(highFreqSd, 0.95)),
+                float(np.median(excessSd)) if excessSd.size else 0.0,
+                float(np.quantile(excessSd, 0.95)) if excessSd.size else 0.0,
+            )
+        return _clipVarianceTrack(
+            fittedTrack + excessHighFreqTrack,
+            floor=varianceFloor_,
+            cap=varianceCap_,
+        )
+
     supportFraction = 1.0
     if pooledTrend is None:
         _logAsciiBlock(
@@ -7889,7 +7926,7 @@ def getMuncTrack(
                 ("support fraction", float(supportFraction)),
             ),
         )
-        return priorTrack.astype(np.float32, copy=False), float(supportFraction)
+        return _addCellwiseHighFreqVariance(priorTrack), float(supportFraction)
 
     # Local:
     # ... default: rolling AR(1) marginal variance over a sliding window
@@ -8172,6 +8209,7 @@ def getMuncTrack(
         floor=varianceFloor_,
         cap=varianceCap_,
     )
+    posteriorVarTrack = _addCellwiseHighFreqVariance(posteriorVarTrack)
 
     logger.info(
         _formatMuncVarianceDiagnostics(

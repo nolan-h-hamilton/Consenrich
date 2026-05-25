@@ -133,13 +133,8 @@ def _wisWeight(params: core.uncertaintyCalibrationParams) -> float:
     )
 
 
-def _calibrationPad(
-    params: core.uncertaintyCalibrationParams,
-    pad: float | None,
-) -> float:
-    if pad is not None:
-        return float(pad)
-    return float(_firstSet(params, "pad", default=0.0) or 0.0)
+def _calibrationPad() -> float:
+    return float(core.UNCERTAINTY_CALIBRATION_DEFAULT_PAD)
 
 
 def _resolveBlockSizeIntervals(
@@ -1118,7 +1113,6 @@ def estimateObservationVarianceFloorFromHeldout(
     intervalSizeBP: int,
     params: core.uncertaintyCalibrationParams,
     runKwargs: dict[str, Any],
-    pad: float | None = None,
     maxR: float | None = None,
     fallbackMinR: float = 1.0e-4,
     excludeIntervals: np.ndarray | None = None,
@@ -1133,7 +1127,7 @@ def estimateObservationVarianceFloorFromHeldout(
     if matrixMunc.shape != matrixData.shape:
         raise ValueError("matrixMunc must match matrixData shape")
 
-    padValue = _calibrationPad(params, pad)
+    padValue = _calibrationPad()
     blockLen = _resolveBlockSizeIntervals(params.blockSizeBP, intervalSizeBP, n)
     holdoutCount = _resolveObservationFloorHoldoutCount(m)
     folds = max(int(params.folds), core.UNCERTAINTY_CALIBRATION_MIN_FOLDS)
@@ -1809,7 +1803,6 @@ def calibrateChromosomeStateUncertainty(
     intervalSizeBP: int,
     params: core.uncertaintyCalibrationParams,
     runKwargs: dict[str, Any],
-    pad: float | None = None,
     outPrefix: str | None = None,
     chromosome: str | None = None,
 ) -> uncertaintyCalibrationResult:
@@ -1829,7 +1822,7 @@ def calibrateChromosomeStateUncertainty(
     )
     if intervalsArr.shape[0] != n:
         raise ValueError("intervals must match the number of matrixData columns")
-    padValue = _calibrationPad(params, pad)
+    padValue = _calibrationPad()
     blockLen = _resolveBlockSizeIntervals(params.blockSizeBP, intervalSizeBP, n)
     holdoutFraction = _firstSet(
         params,

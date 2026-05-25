@@ -180,7 +180,7 @@ def getPairScaleFactors(
     :param samThreads: See :class:`consenrich.core.samParams`.
     :type samThreads: int
     :param intervalSizeBP: Step size for coverage calculation.
-    :param: normMethod: Normalization method to use ("EGS" or "RPKM").
+    :param: normMethod: Normalization method to use ("EGS", "RPGC", "RPKM", or "CPM").
     :type normMethod: str
     This follows standard treatment/control normalization: the deeper sample is
     scaled down to the shallower sample, and the shallower sample is left at
@@ -191,7 +191,8 @@ def getPairScaleFactors(
     :rtype: Tuple[float, float]
     """
 
-    if normMethod.upper() == "RPKM":
+    normMethodUpper = str(normMethod).upper()
+    if normMethodUpper in ("RPKM", "CPM"):
         scaleFactorA = getScaleFactorPerMillion(
             bamFileA,
             excludeChroms,

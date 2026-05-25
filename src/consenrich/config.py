@@ -614,11 +614,6 @@ def getUncertaintyCalibrationArgs(
     configData = loadConfig(config_path)
     enabledDefault = _cfgDefault(configData, "uncertaintyCalibrationParams.enabled")
     blockDefault = constants.UNCERTAINTY_CALIBRATION_DEFAULT_BLOCK_SIZE_BP
-    padDefault = _cfgGet(
-        configData,
-        "observationParams.pad",
-        constants.UNCERTAINTY_CALIBRATION_DEFAULT_PAD,
-    )
     maxScores = _cfgGet(
         configData,
         "uncertaintyCalibrationParams.maxScores",
@@ -762,11 +757,6 @@ def getUncertaintyCalibrationArgs(
                 constants.UNCERTAINTY_CALIBRATION_DEFAULT_SEED,
             )
         ),
-        pad=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.pad",
-            padDefault,
-        ),
         writeDiagnostics=bool(
             _cfgGet(
                 configData,
@@ -791,6 +781,22 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     genomeParams = getGenomeArgs(config_path)
     stateParams = getStateArgs(config_path)
     countingParams = getCountingArgs(config_path)
+    scaleFactors = io_helpers._normalizeScaleFactorList(
+        countingParams.scaleFactors,
+        len(inputParams.bamFiles),
+        "countingParams.scaleFactors",
+    )
+    scaleFactorsControl = countingParams.scaleFactorsControl
+    if len(inputParams.bamFilesControl) > 0:
+        scaleFactorsControl = io_helpers._normalizeScaleFactorList(
+            countingParams.scaleFactorsControl,
+            len(inputParams.bamFilesControl),
+            "countingParams.scaleFactorsControl",
+        )
+    countingParams = countingParams._replace(
+        scaleFactors=scaleFactors,
+        scaleFactorsControl=scaleFactorsControl,
+    )
     scArgs = getScArgs(config_path)
     uncertaintyCalibrationArgs = getUncertaintyCalibrationArgs(config_path)
     experimentName = _cfgGet(
@@ -1013,11 +1019,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "observationParams.samplingIters",
             constants.OBSERVATION_DEFAULT_SAMPLING_ITERS,
         ),
-        samplingBlockSizeBP=_cfgGet(
-            configData,
-            "observationParams.samplingBlockSizeBP",
-            constants.OBSERVATION_DEFAULT_SAMPLING_BLOCK_SIZE_BP,
-        ),
         EB_use=_cfgGet(
             configData,
             "observationParams.EB_use",
@@ -1096,7 +1097,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR,
             )
         ),
-        restrictLocalAR1ToSparseBed=restrictLocalVarianceResolved,
         pad=_cfgGet(configData, "observationParams.pad", constants.OBSERVATION_DEFAULT_PAD),
         precisionMultiplierMin=float(
             _cfgGet(
@@ -1117,6 +1117,13 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 configData,
                 "observationParams.useReplicateTrends",
                 constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS,
+            )
+        ),
+        additiveHighFreq=bool(
+            _cfgGet(
+                configData,
+                "observationParams.additiveHighFreq",
+                _cfgDefault(configData, "observationParams.additiveHighFreq"),
             )
         ),
         muncVarianceModel=muncVarianceModel,
@@ -1182,11 +1189,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "fitParams.ECM_zeroCenterBackground",
             constants.FIT_DEFAULT_ZERO_CENTER_BACKGROUND,
         ),
-        ECM_zeroCenterReplicateBias=_cfgGet(
-            configData,
-            "fitParams.ECM_zeroCenterReplicateBias",
-            constants.FIT_DEFAULT_ZERO_CENTER_REPLICATE_BIAS,
-        ),
         ECM_outerIters=_cfgGet(
             configData,
             "fitParams.ECM_outerIters",
@@ -1215,13 +1217,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ECM_backgroundLengthScaleMultiplier=_cfgGet(
             configData,
             "fitParams.ECM_backgroundLengthScaleMultiplier",
-            _cfgGet(
+            _cfgDefault(
                 configData,
-                "fitParams.EM_backgroundSpanMultiplier",
-                _cfgDefault(
-                    configData,
-                    "fitParams.ECM_backgroundLengthScaleMultiplier",
-                ),
+                "fitParams.ECM_backgroundLengthScaleMultiplier",
             ),
         ),
     )

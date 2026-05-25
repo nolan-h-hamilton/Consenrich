@@ -246,6 +246,25 @@ def _case_ensureInput():
         assert False, "Expected ValueError not raised given empty `consenrich_core.inputParams`"
 
 
+def _caseScaleFactorNormalizationBroadcastsSingletons():
+    assert consenrich_io._normalizeScaleFactorList(
+        [0.25],
+        3,
+        "countingParams.scaleFactorsControl",
+    ) == [0.25, 0.25, 0.25]
+    assert consenrich_io._normalizeScaleFactorList(
+        [1.0, 2.0, 3.0],
+        3,
+        "countingParams.scaleFactors",
+    ) == [1.0, 2.0, 3.0]
+    with pytest.raises(ValueError, match="must contain 1 value or 3 values"):
+        consenrich_io._normalizeScaleFactorList(
+            [1.0, 2.0],
+            3,
+            "countingParams.scaleFactorsControl",
+        )
+
+
 def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
@@ -348,6 +367,28 @@ def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monk
     assert matchingDotted.thresholdZ == matchingNested.thresholdZ
     assert matchingDotted.nestedRoccoIters == matchingNested.nestedRoccoIters
     assert matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
+
+
+def _case_readConfigBroadcastsSharedControlScaleFactor(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [treatA.bam, treatB.bam]
+    inputParams.bamFilesControl: [control.bam]
+    genomeParams.name: testGenome
+    countingParams.scaleFactorsControl: [0.25]
+    """
+    configPath = writeConfigFile(tmp_path, "shared_control_scale.yaml", configYaml)
+
+    parsed = readConfig(str(configPath))
+
+    assert parsed["inputArgs"].bamFilesControl == ["control.bam", "control.bam"]
+    assert parsed["countingArgs"].scaleFactors is None
+    assert parsed["countingArgs"].scaleFactorsControl == [0.25, 0.25]
 
 
 def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatch):
@@ -530,11 +571,13 @@ def _case_runtime_defaults_are_centralized(
     assert parsed["observationArgs"].noDMVar == profile[
         "observationParams.noDMVar"
     ]
+    assert parsed["observationArgs"].additiveHighFreq == profile[
+        "observationParams.additiveHighFreq"
+    ]
     assert consenrich_core.observationParams(
         minR=parsed["observationArgs"].minR,
         maxR=parsed["observationArgs"].maxR,
         samplingIters=parsed["observationArgs"].samplingIters,
-        samplingBlockSizeBP=parsed["observationArgs"].samplingBlockSizeBP,
         EB_use=parsed["observationArgs"].EB_use,
         EB_setNu0=parsed["observationArgs"].EB_setNu0,
         EB_setNuL=parsed["observationArgs"].EB_setNuL,
@@ -548,7 +591,6 @@ def _case_runtime_defaults_are_centralized(
         numNearest=parsed["observationArgs"].numNearest,
         sparseSupportScaleBP=parsed["observationArgs"].sparseSupportScaleBP,
         sparseSupportPrior=parsed["observationArgs"].sparseSupportPrior,
-        restrictLocalAR1ToSparseBed=parsed["observationArgs"].restrictLocalAR1ToSparseBed,
         pad=parsed["observationArgs"].pad,
         noDMVar=parsed["observationArgs"].noDMVar,
     ).muncVarianceModel == constants.OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL
@@ -668,27 +710,6 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
     assert parsed["outputArgs"].saveBackgroundTracks is False
-    assert parsed["uncertaintyCalibrationArgs"].enabled is False
-
-
-def _case_readConfigPreservesDemoUsedAliases(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    setupGenomeFiles(tmp_path, monkeypatch)
-    setupBamHelpers(monkeypatch)
-
-    configYaml = """
-    experimentName: testExperiment
-    inputParams.bamFiles: [smallTest.bam]
-    genomeParams.name: testGenome
-    fitParams.EM_backgroundSpanMultiplier: 3.0
-    uncertaintyCalibration.enabled: false
-    """
-
-    configPath = writeConfigFile(tmp_path, "config_demo_used_aliases.yaml", configYaml)
-    parsed = readConfig(str(configPath))
-
-    assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(3.0)
     assert parsed["uncertaintyCalibrationArgs"].enabled is False
 
 
@@ -853,7 +874,6 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     fitParams.ECM_zeroCenterBackground: false
-    fitParams.ECM_zeroCenterReplicateBias: false
     fitParams.useNonnegativeBackground: false
     fitParams.backgroundNegativePenaltyMultiplier: null
     fitParams.ECM_backgroundLengthScaleMultiplier: 6
@@ -868,7 +888,7 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
         )
     )
     assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
-    assert parsedOverride["fitArgs"].ECM_zeroCenterReplicateBias is False
+    assert not hasattr(parsedOverride["fitArgs"], "ECM_zeroCenterReplicateBias")
     assert parsedOverride["fitArgs"].useNonnegativeBackground is False
     assert parsedOverride["fitArgs"].backgroundNegativePenaltyMultiplier is None
     assert parsedOverride["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(
@@ -1051,6 +1071,7 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     observationParams.muncLocalWindowSizeBP: 500
     observationParams.muncTrendBlockDependenceMultiplier: 1.5
     observationParams.muncLocalWindowDependenceMultiplier: 2.5
+    observationParams.additiveHighFreq: false
     """
     configExplicitSparsePath = writeConfigFile(
         tmp_path,
@@ -1065,6 +1086,7 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     assert explicitObservationArgs.muncLocalWindowSizeBP == 500
     assert explicitObservationArgs.muncTrendBlockDependenceMultiplier == 1.5
     assert explicitObservationArgs.muncLocalWindowDependenceMultiplier == 2.5
+    assert explicitObservationArgs.additiveHighFreq is False
 
     configFirstDifferenceModel = """
     experimentName: testExperiment
@@ -1646,6 +1668,10 @@ def test_config_worker_and_input_helper_contracts(monkeypatch, contract_case):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func)
     contract_case("input presence validation", _case_ensureInput)
     contract_case(
+        "scale factor singleton broadcasting",
+        _caseScaleFactorNormalizationBroadcastsSingletons,
+    )
+    contract_case(
         "5p extension treatment/control compatibility",
         _case_resolveExtendFrom5pBPPairsUsesTreatmentValuesForControls,
     )
@@ -1656,11 +1682,14 @@ def test_config_parser_defaults_and_override_contracts(
 ):
     for label, func in (
         ("dotted and nested config equivalence", _case_readConfigDottedAndNestedEquivalent),
+        (
+            "shared control scale factor broadcasting",
+            _case_readConfigBroadcastsSharedControlScaleFactor,
+        ),
         ("process noise options", _case_readConfigProcessNoiseOptions),
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
         ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
         ("generic overrides", _case_readConfigGenericDefaultsStillAllowExplicitOverrides),
-        ("demo-used aliases", _case_readConfigPreservesDemoUsedAliases),
         (
             "process noise warmup pass-through",
             _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
@@ -1759,6 +1788,9 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
     fakePyplot = types.ModuleType("matplotlib.pyplot")
 
     class FakeFigure:
+        def suptitle(self, *args, **kwargs):
+            return None
+
         def savefig(self, path, dpi=None):
             saveCalls.append((path, dpi))
 
@@ -1792,6 +1824,12 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
         def text(self, *args, **kwargs):
             return None
 
+        def fill_between(self, *args, **kwargs):
+            return None
+
+        def get_legend_handles_labels(self, *args, **kwargs):
+            return (["handle"], ["label"])
+
         def axhline(self, *args, **kwargs):
             return None
 
@@ -1817,9 +1855,41 @@ def test_optimization_path_output_helpers(tmp_path, monkeypatch):
             is True
         )
     assert saveCalls == [(str(tmp_path / "optimization.png"), 400)]
+    genomeRows = rows + [
+        {
+            **row,
+            "chromosome": "chrOther",
+            "record_order": row["record_order"] + len(rows),
+            "objective_value": (
+                row["objective_value"] + 5.0
+                if row["objective_value"] is not None
+                else None
+            ),
+        }
+        for row in rows
+    ]
+    with monkeypatch.context() as mp:
+        fakePyplot.subplots = lambda *args, **kwargs: (
+            FakeFigure(),
+            [FakeAxis(), FakeAxis()],
+        )
+        mp.setitem(sys.modules, "matplotlib", fakeMatplotlib)
+        mp.setitem(sys.modules, "matplotlib.pyplot", fakePyplot)
+        assert (
+            consenrich_cli._plotGenomeOptimizationPathLog(
+                genomeRows,
+                str(tmp_path / "genome_optimization.png"),
+            )
+            is True
+        )
+    assert saveCalls[-1] == (str(tmp_path / "genome_optimization.png"), 400)
     assert (
         consenrich_cli._optimizationPathPrefix("exp name", "chr1/random")
         == f"consenrichOutput_exp_name_chr1_random_optimizationPath.v{consenrich_cli.__version__}"
+    )
+    assert (
+        consenrich_cli._genomeOptimizationPathPrefix("exp name")
+        == f"consenrichOutput_exp_name_genome_optimizationPath.v{consenrich_cli.__version__}"
     )
 
 

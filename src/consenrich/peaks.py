@@ -3148,8 +3148,20 @@ def _solutionToChromNarrowPeakRows(
 ):
     rowsRaw: List[Dict[str, float | int | str]] = []
     rowsMeta: List[Dict[str, Any]] = []
-    state_ = np.asarray(state, dtype=np.float64)
-    scores_ = np.asarray(scores, dtype=np.float64)
+    intervals = np.asarray(intervals, dtype=np.int64).ravel()
+    ends = np.asarray(ends, dtype=np.int64).ravel()
+    state_ = np.asarray(state, dtype=np.float64).ravel()
+    scores_ = np.asarray(scores, dtype=np.float64).ravel()
+    solution_ = np.asarray(solution, dtype=np.uint8).ravel()
+    if (
+        intervals.size != state_.size
+        or ends.size != state_.size
+        or scores_.size != state_.size
+        or solution_.size != state_.size
+    ):
+        raise ValueError(
+            "`intervals`, `ends`, `state`, `scores`, and `solution` must match length"
+        )
     uncertainty_: np.ndarray | None = None
     if uncertainty is not None:
         uncertainty_ = np.asarray(uncertainty, dtype=np.float64).ravel()
@@ -3158,7 +3170,6 @@ def _solutionToChromNarrowPeakRows(
     exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
         exportFilterUncertaintyMultiplier
     )
-    n = int(solution.size)
     exportDetails: Dict[str, Any] = {
         "num_candidate_segments": 0,
         "num_segments_dropped_median_signal_local_p": 0,
@@ -3180,16 +3191,28 @@ def _solutionToChromNarrowPeakRows(
         "num_massive_subpeak_splits": 0,
         "num_massive_subpeak_segments_added": 0,
         "num_massive_subpeak_evaluated": 0,
+        "num_coordinate_gap_splits": 0,
     }
+    n = int(solution_.size)
     i = 0
     while i < n:
-        if int(solution[i]) <= 0:
+        if int(solution_[i]) <= 0:
             i += 1
             continue
         startIdx = i
-        while i + 1 < n and int(solution[i + 1]) > 0:
+        while (
+            i + 1 < n
+            and int(solution_[i + 1]) > 0
+            and int(ends[i]) == int(intervals[i + 1])
+        ):
             i += 1
         endIdx = i
+        if (
+            endIdx + 1 < n
+            and int(solution_[endIdx + 1]) > 0
+            and int(ends[endIdx]) != int(intervals[endIdx + 1])
+        ):
+            exportDetails["num_coordinate_gap_splits"] += 1
 
         segState = np.asarray(state_[startIdx : endIdx + 1], dtype=np.float64)
         if splitSubpeaks:

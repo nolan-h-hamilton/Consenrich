@@ -185,7 +185,7 @@ def _caseGetBudgetForROCCOAppliesSmallPositiveBudgetFloor():
 
 
 @pytest.mark.correctness
-def _caseLegacyAutosomalNullFloorHelperStillRuns():
+def _caseAutosomalNullFloorHelperStillRuns():
     chr1State, chr1Unc = _toyChromState(seed=7, n=512)
     chr1State[::19] -= 3.0
     chrYState = np.zeros(384, dtype=np.float64)
@@ -606,6 +606,36 @@ def _caseSolutionToChromNarrowPeakRowsSplitsSubpeaks():
     assert all(meta["split_from_parent"] for meta in rowMeta)
     assert all(meta["num_subpeaks"] == 2 for meta in rowMeta)
     assert rowMeta[0]["summit"] < rowMeta[1]["summit"]
+
+
+@pytest.mark.correctness
+def _caseSolutionToChromNarrowPeakRowsSplitsSelectedCoordinateGaps():
+    intervals = np.asarray([0, 25, 1000, 1025], dtype=np.int64)
+    ends = np.asarray([25, 50, 1025, 1050], dtype=np.int64)
+    state = np.asarray([3.0, 3.0, 4.0, 4.0], dtype=np.float64)
+    scores = state.copy()
+    solution = np.ones(state.size, dtype=np.uint8)
+
+    rows, rowMeta, exportDetails = peaks._solutionToChromNarrowPeakRows(
+        "chr1",
+        intervals,
+        ends,
+        state,
+        scores,
+        solution,
+        prefix="gapSplitTest",
+        nullScale=0.25,
+        splitSubpeaks=False,
+        trimScoreFloor=0.0,
+        returnExportDetails=True,
+    )
+
+    assert len(rows) == 2
+    assert len(rowMeta) == 2
+    assert [int(rows[0][1]), int(rows[0][2])] == [0, 50]
+    assert [int(rows[1][1]), int(rows[1][2])] == [1000, 1050]
+    assert all(int(row[2]) - int(row[1]) == 50 for row in rows)
+    assert exportDetails["num_coordinate_gap_splits"] == 1
 
 
 @pytest.mark.correctness
@@ -1276,7 +1306,7 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case)
         ),
         ("direct state budget", _caseGetBudgetForROCCOUsesDirectConsenrichState, ()),
         ("small positive budget floor", _caseGetBudgetForROCCOAppliesSmallPositiveBudgetFloor, ()),
-        ("legacy autosomal null floor", _caseLegacyAutosomalNullFloorHelperStillRuns, ()),
+        ("autosomal null floor helper", _caseAutosomalNullFloorHelperStillRuns, ()),
         ("ROCCO null fallback and EB shrinkage", _caseROCCONullFallbackAndEBShrinkage, ()),
         ("integrated budget tail grid", _caseIntegratedBudgetUsesExcessTailGrid, ()),
         ("stationary DWB shared panel", _casePreparedStationaryNullDWBUsesSharedPanelAndMonotoneThresholds, ()),
@@ -1303,6 +1333,10 @@ def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
 def test_rocco_subpeak_policy_contracts(contract_case):
     for label, func in (
         ("subpeak splitting", _caseSolutionToChromNarrowPeakRowsSplitsSubpeaks),
+        (
+            "selected coordinate gaps split",
+            _caseSolutionToChromNarrowPeakRowsSplitsSelectedCoordinateGaps,
+        ),
         (
             "wide-context splitting",
             _caseSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide,

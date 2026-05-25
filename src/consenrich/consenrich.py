@@ -267,6 +267,45 @@ def _optimizationPathPrefix(experimentName: str, chromosome: str) -> str:
     )
 
 
+def _genomeOptimizationPathPrefix(experimentName: str) -> str:
+    experimentToken = _safeOutputToken(experimentName, fallback="experiment")
+    return f"consenrichOutput_{experimentToken}_genome_optimizationPath.v{__version__}"
+
+
+def _coerceOptimizationPathFrame(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
+    frame = pd.DataFrame(list(rows), columns=OPTIMIZATION_PATH_COLUMNS)
+    if frame.empty:
+        return frame
+    for numericColumn in (
+        "objective_value",
+        "record_order",
+        "outer_pass",
+        "inner_iter",
+        "objective_per_cell",
+        "change",
+        "threshold",
+        "background_shift",
+        "background_shift_threshold",
+    ):
+        frame[numericColumn] = pd.to_numeric(frame[numericColumn], errors="coerce")
+    for boolColumn in (
+        "objective_stable",
+        "background_shift_stable",
+        "outer_inner_ecm_converged",
+        "reset_iteration",
+        "converged",
+        "final_solution",
+    ):
+        frame[boolColumn] = frame[boolColumn].map(
+            lambda value: str(value).strip().lower() in {"true", "1", "yes"}
+        )
+    frame.loc[
+        (frame["path_level"] == "inner") & (frame["inner_iter"] <= 1),
+        "reset_iteration",
+    ] = True
+    return frame.dropna(subset=["record_order", "objective_value"])
+
+
 def _plotOptimizationPathLog(
     rows: Sequence[Mapping[str, Any]],
     path: str,
@@ -285,52 +324,10 @@ def _plotOptimizationPathLog(
         )
         return False
 
-    frame = pd.DataFrame(list(rows), columns=OPTIMIZATION_PATH_COLUMNS)
+    frame = _coerceOptimizationPathFrame(rows)
     if frame.empty:
         logger.warning(
             "optimizationPath.plot skipped because no trace rows were recorded."
-        )
-        return False
-    frame["objective_value"] = pd.to_numeric(
-        frame["objective_value"],
-        errors="coerce",
-    )
-    frame["record_order"] = pd.to_numeric(frame["record_order"], errors="coerce")
-    frame["outer_pass"] = pd.to_numeric(frame["outer_pass"], errors="coerce")
-    frame["inner_iter"] = pd.to_numeric(frame["inner_iter"], errors="coerce")
-    frame["objective_per_cell"] = pd.to_numeric(
-        frame["objective_per_cell"],
-        errors="coerce",
-    )
-    frame["change"] = pd.to_numeric(frame["change"], errors="coerce")
-    frame["threshold"] = pd.to_numeric(frame["threshold"], errors="coerce")
-    frame["background_shift"] = pd.to_numeric(
-        frame["background_shift"],
-        errors="coerce",
-    )
-    frame["background_shift_threshold"] = pd.to_numeric(
-        frame["background_shift_threshold"],
-        errors="coerce",
-    )
-    for boolColumn in (
-        "objective_stable",
-        "background_shift_stable",
-        "outer_inner_ecm_converged",
-        "reset_iteration",
-        "converged",
-        "final_solution",
-    ):
-        frame[boolColumn] = frame[boolColumn].map(
-            lambda value: str(value).strip().lower() in {"true", "1", "yes"}
-        )
-    frame.loc[
-        (frame["path_level"] == "inner") & (frame["inner_iter"] <= 1),
-        "reset_iteration",
-    ] = True
-    frame = frame.dropna(subset=["record_order", "objective_value"])
-    if frame.empty:
-        logger.warning(
-            "optimizationPath.plot skipped because all objective values were NA."
         )
         return False
     plt.rcParams.update(
@@ -438,6 +435,194 @@ def _plotOptimizationPathLog(
     fig.savefig(path, dpi=int(dpi))
     plt.close(fig)
     logger.info("optimizationPath.output wrote %s dpi=%d", path, int(dpi))
+    return True
+
+
+def _plotGenomeOptimizationPathLog(
+    rows: Sequence[Mapping[str, Any]],
+    path: str,
+    *,
+    dpi: int = 400,
+) -> bool:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning(
+            "outputParams.plotOptimizationPath=True but matplotlib is not installed; "
+            "wrote the genome-wide optimization .log only."
+        )
+        return False
+
+    frame = _coerceOptimizationPathFrame(rows)
+    if frame.empty:
+        logger.warning(
+            "genomeOptimizationPath.plot skipped because no trace rows were recorded."
+        )
+        return False
+    plt.rcParams.update(
+        {
+            "font.family": "STIXGeneral",
+            "mathtext.fontset": "stix",
+            "axes.unicode_minus": False,
+        }
+    )
+    innerFrame = frame[
+        (frame["path_level"] == "inner") & (frame["phase"] == "post_process_noise_fit")
+    ].copy()
+    if innerFrame.empty:
+        logger.warning(
+            "genomeOptimizationPath.plot skipped because no final-stage inner trace "
+            "rows were recorded."
+        )
+        return False
+
+    navyBlue = "#003B73"
+    burntOrange = "#C65A1E"
+    darkBlack = "#050505"
+    gridColor = "#D8D8D8"
+    bandColor = "#F2B078"
+    chromosomes = [str(value) for value in innerFrame["chromosome"].dropna().unique()]
+    if len(chromosomes) < 2:
+        logger.info(
+            "genomeOptimizationPath.plot skipped because only one chromosome was recorded."
+        )
+        return False
+
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(11.5, 4.8),
+        constrained_layout=True,
+    )
+    rawAx, normAx = axes
+    interpolationGrid = np.linspace(0.0, 1.0, 101)
+    normalizedCurves: List[np.ndarray] = []
+
+    firstTrace = True
+    firstFinal = True
+    for chromosome in chromosomes:
+        chromFrame = (
+            innerFrame[innerFrame["chromosome"].astype(str) == chromosome]
+            .sort_values("record_order")
+            .reset_index(drop=True)
+        )
+        if chromFrame.empty:
+            continue
+        plotOrder = np.arange(1, len(chromFrame) + 1, dtype=np.float64)
+        objective = chromFrame["objective_value"].to_numpy(dtype=np.float64)
+        improvement = objective[0] - objective
+        if len(plotOrder) == 1:
+            normalizedX = np.array([0.0], dtype=np.float64)
+        else:
+            normalizedX = (plotOrder - 1.0) / float(len(plotOrder) - 1)
+        finalImprovement = float(improvement[-1])
+        denominator = finalImprovement if abs(finalImprovement) > 1.0e-12 else 1.0
+        normalizedImprovement = improvement / denominator
+        if len(normalizedX) == 1:
+            interpolated = np.full_like(
+                interpolationGrid,
+                float(normalizedImprovement[0]),
+                dtype=np.float64,
+            )
+        else:
+            interpolated = np.interp(
+                interpolationGrid,
+                normalizedX,
+                normalizedImprovement,
+            )
+        normalizedCurves.append(interpolated)
+
+        label = "chromosome traces" if firstTrace else None
+        rawAx.plot(
+            plotOrder,
+            improvement,
+            color=navyBlue,
+            alpha=0.24,
+            linewidth=1.0,
+            label=label,
+        )
+        normAx.plot(
+            normalizedX,
+            normalizedImprovement,
+            color=navyBlue,
+            alpha=0.24,
+            linewidth=1.0,
+            label=label,
+        )
+        finalLabel = "final solution" if firstFinal else None
+        rawAx.scatter(
+            [plotOrder[-1]],
+            [improvement[-1]],
+            s=18,
+            marker="o",
+            linewidths=0.6,
+            edgecolors=darkBlack,
+            c=burntOrange,
+            alpha=0.84,
+            zorder=4,
+            label=finalLabel,
+        )
+        normAx.scatter(
+            [normalizedX[-1]],
+            [normalizedImprovement[-1]],
+            s=18,
+            marker="o",
+            linewidths=0.6,
+            edgecolors=darkBlack,
+            c=burntOrange,
+            alpha=0.84,
+            zorder=4,
+            label=finalLabel,
+        )
+        firstTrace = False
+        firstFinal = False
+
+    if normalizedCurves:
+        curveMat = np.vstack(normalizedCurves)
+        q25 = np.nanquantile(curveMat, 0.25, axis=0)
+        median = np.nanmedian(curveMat, axis=0)
+        q75 = np.nanquantile(curveMat, 0.75, axis=0)
+        normAx.fill_between(
+            interpolationGrid,
+            q25,
+            q75,
+            color=bandColor,
+            alpha=0.22,
+            linewidth=0,
+            label="IQR",
+        )
+        normAx.plot(
+            interpolationGrid,
+            median,
+            color=burntOrange,
+            alpha=0.98,
+            linewidth=2.2,
+            label="median",
+            zorder=5,
+        )
+
+    fig.suptitle(
+        f"Consenrich ECM Genome-wide Objective Path ({len(chromosomes)} chromosomes)",
+        color=darkBlack,
+    )
+    rawAx.set_title("Raw iteration scale", color=darkBlack)
+    rawAx.set_xlabel("Inner iterations", color=darkBlack)
+    rawAx.set_ylabel("NLL improvement", color=darkBlack)
+    normAx.set_title("Normalized chromosome scale", color=darkBlack)
+    normAx.set_xlabel("Fraction of chromosome iterations", color=darkBlack)
+    normAx.set_ylabel("Fraction of final NLL improvement", color=darkBlack)
+    for axis in (rawAx, normAx):
+        axis.grid(True, color=gridColor, linewidth=0.7, alpha=0.75)
+        handles, _labels = axis.get_legend_handles_labels()
+        if handles:
+            axis.legend(loc="best", fontsize=8, frameon=False)
+
+    fig.savefig(path, dpi=int(dpi))
+    plt.close(fig)
+    logger.info("genomeOptimizationPath.output wrote %s dpi=%d", path, int(dpi))
     return True
 
 
@@ -649,9 +834,8 @@ def _coreRunConsenrichSupports(parameterName: str) -> bool:
 
 def _configureCoreProcessNoiseWarmupDefaults(processArgs: Any) -> int:
     warmupOuterPasses = _getProcessNoiseWarmupOuterPasses(processArgs)
-    if (
-        not _coreRunConsenrichSupports("processNoiseWarmupOuterPasses")
-        and hasattr(core, "PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES")
+    if not _coreRunConsenrichSupports("processNoiseWarmupOuterPasses") and hasattr(
+        core, "PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES"
     ):
         core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES = warmupOuterPasses
     return warmupOuterPasses
@@ -668,8 +852,8 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
         "processPrecisionMultiplierMax": processArgs.precisionMultiplierMax,
     }
     if _coreRunConsenrichSupports("processNoiseMapRoughnessPenalty"):
-        kwargs["processNoiseMapRoughnessPenalty"] = (
-            _getProcessNoiseMapRoughnessPenalty(processArgs)
+        kwargs["processNoiseMapRoughnessPenalty"] = _getProcessNoiseMapRoughnessPenalty(
+            processArgs
         )
     if _coreRunConsenrichSupports("processNoiseWarmupOuterPasses"):
         kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
@@ -716,6 +900,16 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ),
         ("replicate detrend", replicateDetrendLabel),
         ("MUNC variance model", observationArgs.muncVarianceModel),
+        (
+            "MUNC additive high freq",
+            yn(
+                getattr(
+                    observationArgs,
+                    "additiveHighFreq",
+                    constants.OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
+                )
+            ),
+        ),
         ("MUNC variance EB", yn(observationArgs.EB_use)),
         ("MUNC sampling iters", int(observationArgs.samplingIters)),
         ("ECM max iters", int(fitArgs.ECM_fixedBackgroundIters)),
@@ -881,7 +1075,6 @@ def _logMuncEstimationParameters(
     sizing: core._MuncRuntimeSizing,
     muncVarianceModel: str,
     samplingIters: int,
-    samplingBlockSizeBP: int | None,
     dependenceContextBP: int | None,
     dependenceSpanIntervals: int | None,
     trendMultiplier: float,
@@ -902,11 +1095,7 @@ def _logMuncEstimationParameters(
     logger_: logging.Logger = logger,
 ) -> None:
     restrictLocalVariance = bool(
-        getattr(
-            observationArgs,
-            "restrictLocalVarianceToSparseBed",
-            getattr(observationArgs, "restrictLocalAR1ToSparseBed", False),
-        )
+        getattr(observationArgs, "restrictLocalVarianceToSparseBed", False)
     )
     core._logAsciiBlock(
         "MUNC estimation parameters",
@@ -932,7 +1121,6 @@ def _logMuncEstimationParameters(
             ),
             ("trend span multiplier", float(trendMultiplier)),
             ("local span multiplier", float(localMultiplier)),
-            ("legacy sampling block bp", _formatOptionalLogValue(samplingBlockSizeBP)),
             (
                 "MUNC trend mode",
                 "replicate-specific" if bool(useReplicateTrends) else "pooled",
@@ -941,6 +1129,20 @@ def _logMuncEstimationParameters(
             (
                 "MUNC variance EB",
                 "enabled" if bool(observationArgs.EB_use) else "disabled",
+            ),
+            (
+                "MUNC additive high freq",
+                (
+                    "enabled"
+                    if bool(
+                        getattr(
+                            observationArgs,
+                            "additiveHighFreq",
+                            constants.OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
+                        )
+                    )
+                    else "disabled"
+                ),
             ),
             (
                 "MUNC delta-method variance",
@@ -1048,9 +1250,7 @@ def _defaultConfigLogPath(configPath: str) -> Path:
 
 def _defaultMatchLogPath(stateBedGraphPath: str) -> Path:
     statePath = Path(stateBedGraphPath)
-    return statePath.with_name(
-        f"{statePath.stem}_consenrich_run.v{__version__}.log"
-    )
+    return statePath.with_name(f"{statePath.stem}_consenrich_run.v{__version__}.log")
 
 
 def _configureCliLogging(
@@ -1329,7 +1529,6 @@ def main():
     maxR_ = observationArgs.maxR
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
-    samplingBlockSizeBP_ = observationArgs.samplingBlockSizeBP
     muncTrendBlockSizeBP_ = getattr(
         observationArgs,
         "muncTrendBlockSizeBP",
@@ -1508,8 +1707,18 @@ def main():
     peakCallingEnabled = checkMatchingEnabled(matchingArgs)
     if args.verbose:
         logger.info(f"peakCallingEnabled: {peakCallingEnabled}")
-    scaleFactors = countingArgs.scaleFactors
+    scaleFactors = io_helpers._normalizeScaleFactorList(
+        countingArgs.scaleFactors,
+        len(treatmentSources),
+        "countingParams.scaleFactors",
+    )
     scaleFactorsControl = countingArgs.scaleFactorsControl
+    if controlsPresent:
+        scaleFactorsControl = io_helpers._normalizeScaleFactorList(
+            countingArgs.scaleFactorsControl,
+            len(controlSources),
+            "countingParams.scaleFactorsControl",
+        )
     characteristicFragmentLengthsTreatment: List[int] = []
     characteristicFragmentLengthsControl: List[int] = []
     countExtendFrom5pBPTreatment: List[int] = []
@@ -1942,6 +2151,13 @@ def main():
     pooledWeightsParts: list[np.ndarray] = []
     useReplicateTrends = bool(getattr(observationArgs, "useReplicateTrends", False))
     noDMVar = bool(getattr(observationArgs, "noDMVar", False))
+    additiveHighFreq = bool(
+        getattr(
+            observationArgs,
+            "additiveHighFreq",
+            constants.OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
+        )
+    )
 
     def _getChromBlacklistMask(chromosome: str, intervals: np.ndarray) -> np.ndarray:
         if not genomeArgs.blacklistFile or len(intervals) < 2:
@@ -2427,7 +2643,9 @@ def main():
             if isinstance(result, tuple) and len(result) == 2:
                 background, helperDiagnostics = result
                 helperSource = str(
-                    dict(helperDiagnostics).get("source", "estimateProvisionalBackground")
+                    dict(helperDiagnostics).get(
+                        "source", "estimateProvisionalBackground"
+                    )
                 )
             else:
                 background = result
@@ -2528,7 +2746,9 @@ def main():
             _fmtDiagnosticFloat(backgroundStats["max"]),
             _fmtDiagnosticFloat(backgroundStats["frac_positive"]),
             _fmtDiagnosticFloat(
-                float(np.mean(np.abs(backgroundArr[np.isfinite(backgroundArr)]) <= 1.0e-3))
+                float(
+                    np.mean(np.abs(backgroundArr[np.isfinite(backgroundArr)]) <= 1.0e-3)
+                )
                 if int(backgroundStats["count"]) > 0
                 else float("nan")
             ),
@@ -2664,7 +2884,9 @@ def main():
             )
         )
         dependenceSpanIntervals_ = int(depPoint)
-        dependenceContextBP_ = int(2 * int(dependenceSpanIntervals_) * int(intervalSizeBP) + 1)
+        dependenceContextBP_ = int(
+            2 * int(dependenceSpanIntervals_) * int(intervalSizeBP) + 1
+        )
 
         excluded = [
             str(value) for value in depDiagnostics.get("chromosomes_excluded", [])
@@ -2715,7 +2937,6 @@ def main():
         muncSizing = core._resolveMuncRuntimeSizing(
             intervalSizeBP=intervalSizeBP,
             dependenceSpanIntervals=dependenceSpanIntervals_,
-            samplingBlockSizeBP=samplingBlockSizeBP_,
             muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
             muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
             muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier_,
@@ -2746,9 +2967,8 @@ def main():
             if startsArr.size != blockMeansArr.size:
                 continue
             blockLengthsArr = endsArr - startsArr
-            if (
-                not noDMVar
-                and int(muncVarianceModelCode_) == int(core.MUNC_VARIANCE_MODEL_CODE_AR1)
+            if not noDMVar and int(muncVarianceModelCode_) == int(
+                core.MUNC_VARIANCE_MODEL_CODE_AR1
             ):
                 blockBetas = cconsenrich.cblockAR1Beta(
                     np.ascontiguousarray(chromMat[j, :], dtype=np.float32),
@@ -2833,7 +3053,6 @@ def main():
         cachedIntervalsByChromosome[chromosome] = np.asarray(intervals, dtype=np.uint32)
 
     muncSizingNeedsDependence = core._muncSizingNeedsDependence(
-        samplingBlockSizeBP=samplingBlockSizeBP_,
         muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
         muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
     )
@@ -2892,7 +3111,9 @@ def main():
         pooledBlockMeans = np.concatenate(pooledBlockMeansParts)
         pooledBlockVars = np.concatenate(pooledBlockVarsParts)
         if pooledBlockLogVarianceNoiseParts:
-            pooledBlockLogVarianceNoise = np.concatenate(pooledBlockLogVarianceNoiseParts)
+            pooledBlockLogVarianceNoise = np.concatenate(
+                pooledBlockLogVarianceNoiseParts
+            )
         else:
             pooledBlockLogVarianceNoise = None
         pooledSampleIndex = np.concatenate(pooledSampleIndexParts)
@@ -2911,7 +3132,6 @@ def main():
     pooledMuncSizing = core._resolveMuncRuntimeSizing(
         intervalSizeBP=intervalSizeBP,
         dependenceSpanIntervals=dependenceSpanIntervals_,
-        samplingBlockSizeBP=samplingBlockSizeBP_,
         muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
         muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
         muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier_,
@@ -2948,7 +3168,6 @@ def main():
         sizing=pooledMuncSizing,
         muncVarianceModel=muncVarianceModel_,
         samplingIters=samplingIters_,
-        samplingBlockSizeBP=samplingBlockSizeBP_,
         dependenceContextBP=dependenceContextBP_,
         dependenceSpanIntervals=dependenceSpanIntervals_,
         trendMultiplier=muncTrendBlockDependenceMultiplier_,
@@ -3150,6 +3369,7 @@ def main():
         bedGraphTracks.append(("background", "background"))
     suffixes = [suffix for _column, suffix in bedGraphTracks]
     bedGraphChromOrder = [str(chromPlan["chromosome"]) for chromPlan in chromosomePlans]
+    genomeOptimizationPathRows: List[Mapping[str, Any]] = []
 
     for c_, chromPlan in enumerate(
         _progress(
@@ -3228,11 +3448,7 @@ def main():
             and genomeArgs.sparseBedFile
         )
         useSparseRestrictedLocalAR1 = bool(
-            getattr(
-                observationArgs,
-                "restrictLocalVarianceToSparseBed",
-                getattr(observationArgs, "restrictLocalAR1ToSparseBed", False),
-            )
+            getattr(observationArgs, "restrictLocalVarianceToSparseBed", False)
             and genomeArgs.sparseBedFile
         )
 
@@ -3292,7 +3508,6 @@ def main():
                 residMat[j, :],
                 intervalSizeBP,
                 samplingIters=samplingIters_,
-                samplingBlockSizeBP=samplingBlockSizeBP_,
                 muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
                 muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
                 dependenceSpanIntervals=dependenceSpanIntervals_,
@@ -3321,12 +3536,9 @@ def main():
                 sparseSupportScaleBP=observationArgs.sparseSupportScaleBP,
                 sparseSupportPrior=float(observationArgs.sparseSupportPrior or 0.0),
                 restrictLocalVarianceToSparseBed=bool(
-                    getattr(
-                        observationArgs,
-                        "restrictLocalVarianceToSparseBed",
-                        getattr(observationArgs, "restrictLocalAR1ToSparseBed", False),
-                    )
+                    getattr(observationArgs, "restrictLocalVarianceToSparseBed", False)
                 ),
+                additiveHighFreq=additiveHighFreq,
                 verbose=args.verbose2,
                 varianceFloor=varianceFloorForTrend,
                 varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
@@ -3502,7 +3714,6 @@ def main():
                         intervalSizeBP=intervalSizeBP,
                         params=uncertaintyCalibrationArgs,
                         runKwargs=floorRunKwargs,
-                        pad=pad_,
                         maxR=float(maxR_),
                         fallbackMinR=float(fallbackMinR),
                         excludeIntervals=np.asarray(muncExcludeMask, dtype=bool),
@@ -3595,7 +3806,11 @@ def main():
                 ),
                 (
                     "background configured bp",
-                    int(backgroundBlockSizeBP_) if int(backgroundBlockSizeBP_) > 0 else "auto",
+                    (
+                        int(backgroundBlockSizeBP_)
+                        if int(backgroundBlockSizeBP_) > 0
+                        else "auto"
+                    ),
                 ),
                 ("background window intervals", int(blockLenIntervals_)),
                 ("minR", float(minR_)),
@@ -3647,7 +3862,6 @@ def main():
                 fitArgs.backgroundNegativePenaltyMultiplier
             ),
             ECM_zeroCenterBackground=fitArgs.ECM_zeroCenterBackground,
-            ECM_zeroCenterReplicateBias=fitArgs.ECM_zeroCenterReplicateBias,
             ECM_outerIters=fitArgs.ECM_outerIters,
             ECM_minOuterIters=fitArgs.ECM_minOuterIters,
             ECM_backgroundShiftRtol=fitArgs.ECM_backgroundShiftRtol,
@@ -3703,10 +3917,14 @@ def main():
                 optimizationPathRows,
                 f"{optimizationPathPrefix}.log",
             )
-            _plotOptimizationPathLog(
-                optimizationPathRows,
-                f"{optimizationPathPrefix}.png",
-                dpi=400,
+            genomeRecordOffset = len(genomeOptimizationPathRows)
+            genomeOptimizationPathRows.extend(
+                {
+                    **row,
+                    "record_order": int(row.get("record_order") or 0)
+                    + genomeRecordOffset,
+                }
+                for row in optimizationPathRows
             )
         if precisionDiagnostics:
             precisionPath = (
@@ -3944,7 +4162,6 @@ def main():
                 intervalSizeBP=intervalSizeBP,
                 params=uncertaintyCalibrationArgs,
                 runKwargs=calibrationRunKwargs,
-                pad=pad_,
                 outPrefix=calibrationPrefix,
                 chromosome=chromosome,
             )
@@ -4025,6 +4242,18 @@ def main():
             chromosome,
             chromosomeElapsed,
             int(len(bedGraphTracks)),
+        )
+
+    if outputArgs.plotOptimizationPath and genomeOptimizationPathRows:
+        genomeOptimizationPathPrefix = _genomeOptimizationPathPrefix(str(experimentName))
+        _writeOptimizationPathLog(
+            genomeOptimizationPathRows,
+            f"{genomeOptimizationPathPrefix}.log",
+        )
+        _plotGenomeOptimizationPathLog(
+            genomeOptimizationPathRows,
+            f"{genomeOptimizationPathPrefix}.png",
+            dpi=400,
         )
 
     logger.info("Finished: output in human-readable format")
