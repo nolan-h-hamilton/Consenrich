@@ -76,6 +76,9 @@ _MASSIVE_SUBPEAK_SPLIT_Z = MASSIVE_SUBPEAK_SPLIT_Z
 _MASSIVE_SUBPEAK_MAX_DEPTH = MASSIVE_SUBPEAK_MAX_DEPTH
 _MASSIVE_SUBPEAK_MIN_CHILD_BP = MASSIVE_SUBPEAK_MIN_CHILD_BP
 _MASSIVE_SUBPEAK_MIN_CHILD_FRACTION = MASSIVE_SUBPEAK_MIN_CHILD_FRACTION
+_DWB_PEAK_SCORING_MAX_REPLAYS = 32
+_DWB_PEAK_SCORING_MAX_SEGMENTS = 10000
+_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW = 500
 
 
 def _asFloatVector(name: str, values) -> np.ndarray:
@@ -438,16 +441,12 @@ def _calibrateStationaryNullDWB(
     }
 
     for b in range(numBootstrap_):
-        multipliers = _generateDWBMultipliers(
-            template_.size,
+        draw = _generateStationaryNullDWBDraw(
+            template_,
             dependenceSpan_,
             rng,
             kernel=kernel_,
         )
-        draw = np.asarray(template_, dtype=np.float64) * np.asarray(
-            multipliers, dtype=np.float64
-        )
-        draw -= float(np.mean(draw))
         for z in zGrid:
             tailAlpha = float(stats.norm.sf(float(max(z, 0.0))))
             tailQuantile = 1.0 - tailAlpha if float(z) > 0.0 else 0.5
@@ -579,16 +578,12 @@ def _calibrateStationaryNullDWB(
 
     rng = np.random.default_rng(int(randomSeed))
     for b in range(numBootstrap_):
-        multipliers = _generateDWBMultipliers(
-            template_.size,
+        draw = _generateStationaryNullDWBDraw(
+            template_,
             dependenceSpan_,
             rng,
             kernel=kernel_,
         )
-        draw = np.asarray(template_, dtype=np.float64) * np.asarray(
-            multipliers, dtype=np.float64
-        )
-        draw -= float(np.mean(draw))
         for z in zGrid:
             key = _thresholdZKey(z)
             view = thresholdViews[key]
@@ -1123,6 +1118,24 @@ def _generateDWBMultipliers(
     if not np.isfinite(sd) or sd <= _TINY:
         return np.ones(n, dtype=np.float64)
     return multipliers / sd
+
+
+def _generateStationaryNullDWBDraw(
+    template: np.ndarray,
+    bandwidth: int,
+    rng: np.random.Generator,
+    kernel: str = "bartlett",
+) -> np.ndarray:
+    template_ = np.asarray(template, dtype=np.float64)
+    multipliers = _generateDWBMultipliers(
+        int(template_.size),
+        int(bandwidth),
+        rng,
+        kernel=kernel,
+    )
+    draw = template_ * np.asarray(multipliers, dtype=np.float64)
+    draw -= float(np.mean(draw))
+    return np.asarray(draw, dtype=np.float64)
 
 
 def _estimateEffectiveSampleSize(
@@ -1950,6 +1963,948 @@ def _bhQValues(pValues: npt.ArrayLike) -> np.ndarray:
         previous = min(previous, value)
         out[idx] = min(previous, 1.0)
     return out
+
+
+def _negativeLog10Probability(value: Any, cap: float = 1000.0) -> float | str:
+    try:
+        pValue = float(value)
+    except (TypeError, ValueError):
+        return "."
+    if not np.isfinite(pValue):
+        return "."
+    cap_ = float(max(float(cap), 0.0))
+    if pValue <= 0.0:
+        return cap_
+    return float(min(max(-math.log10(float(min(pValue, 1.0))), 0.0), cap_))
+
+
+def _empiricalReplaySegmentPValues(
+    observedStats: npt.ArrayLike,
+    nullStatsByDraw: Iterable[npt.ArrayLike],
+) -> np.ndarray:
+    observed = np.asarray(observedStats, dtype=np.float64).ravel()
+    nullParts: List[np.ndarray] = []
+    for draw in nullStatsByDraw:
+        draw_ = np.asarray(draw, dtype=np.float64).ravel()
+        if draw_.size > 0:
+            nullParts.append(draw_)
+    if observed.size == 0:
+        return np.asarray([], dtype=np.float64)
+    if len(nullParts) == 0:
+        return np.ones(observed.size, dtype=np.float64)
+    nullStats = np.concatenate(nullParts)
+    nullStats = nullStats[np.isfinite(nullStats)]
+    if nullStats.size == 0:
+        return np.ones(observed.size, dtype=np.float64)
+    nullStats.sort()
+    out = np.ones(observed.size, dtype=np.float64)
+    denominator = float(nullStats.size + 1)
+    finite = np.isfinite(observed)
+    if np.any(finite):
+        tailStarts = np.searchsorted(nullStats, observed[finite], side="left")
+        out[finite] = (
+            1.0 + (nullStats.size - tailStarts).astype(np.float64)
+        ) / denominator
+    return np.clip(out, 0.0, 1.0)
+
+
+def _replayFDRQValues(
+    observedStats: npt.ArrayLike,
+    nullStatsByDraw: Iterable[npt.ArrayLike],
+) -> np.ndarray:
+    observed = np.asarray(observedStats, dtype=np.float64).ravel()
+    if observed.size == 0:
+        return np.asarray([], dtype=np.float64)
+    nullDraws = [
+        np.asarray(draw, dtype=np.float64).ravel()
+        for draw in nullStatsByDraw
+    ]
+    nullDraws = [draw[np.isfinite(draw)] for draw in nullDraws]
+    for draw in nullDraws:
+        draw.sort()
+    observedFinite = np.asarray(
+        observed[np.isfinite(observed)],
+        dtype=np.float64,
+    )
+    observedFinite.sort()
+    order = np.argsort(
+        -np.where(np.isfinite(observed), observed, -np.inf),
+        kind="mergesort",
+    )
+    rawFdr = np.ones(observed.size, dtype=np.float64)
+    replayPseudocount = 1.0 / float(len(nullDraws) + 1) if len(nullDraws) > 0 else 1.0
+    for rank, idx in enumerate(order):
+        threshold = float(observed[idx])
+        if not np.isfinite(threshold):
+            rawFdr[rank] = 1.0
+            continue
+        observedAtThreshold = int(
+            observedFinite.size
+            - np.searchsorted(observedFinite, threshold, side="left")
+        )
+        expectedNull = float(
+            np.mean(
+                [
+                    draw.size - np.searchsorted(draw, threshold, side="left")
+                    for draw in nullDraws
+                ]
+            )
+            if len(nullDraws) > 0
+            else 0.0
+        )
+        rawFdr[rank] = float(
+            np.clip(
+                (expectedNull + replayPseudocount)
+                / float(max(observedAtThreshold, 1)),
+                0.0,
+                1.0,
+            )
+        )
+
+    qValues = np.ones(observed.size, dtype=np.float64)
+    running = 1.0
+    for rank in range(observed.size - 1, -1, -1):
+        running = min(running, float(rawFdr[rank]))
+        qValues[int(order[rank])] = float(running)
+    return np.clip(qValues, 0.0, 1.0)
+
+
+def _movingAverageSame(values: np.ndarray, window: int) -> np.ndarray:
+    values_ = np.asarray(values, dtype=np.float64)
+    window_ = int(max(int(window), 1))
+    if window_ <= 1 or values_.size <= 1:
+        return values_.astype(np.float64, copy=True)
+    window_ = int(min(window_, values_.size))
+    if window_ <= 256:
+        kernel = np.full(window_, 1.0 / float(window_), dtype=np.float64)
+        return np.convolve(values_, kernel, mode="same").astype(np.float64, copy=False)
+    leftPad = int((window_ - 1) // 2)
+    rightPad = int(window_ - 1 - leftPad)
+    padded = np.pad(values_, (leftPad, rightPad), mode="constant", constant_values=0.0)
+    cumsum = np.concatenate(([0.0], np.cumsum(padded, dtype=np.float64)))
+    return ((cumsum[window_:] - cumsum[:-window_]) / float(window_)).astype(
+        np.float64,
+        copy=False,
+    )
+
+
+def _booleanRunBounds(
+    above: np.ndarray,
+    maxGapBins: int = 0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    above_ = np.asarray(above, dtype=bool).ravel()
+    if above_.size == 0:
+        empty = np.asarray([], dtype=np.int64)
+        return empty, empty
+    if int(maxGapBins) <= 0:
+        padded = np.concatenate(([False], above_, [False]))
+        changes = np.flatnonzero(padded[1:] != padded[:-1])
+        starts = changes[0::2].astype(np.int64, copy=False)
+        ends = (changes[1::2] - 1).astype(np.int64, copy=False)
+        return starts, ends
+    trueIdx = np.flatnonzero(above_)
+    if trueIdx.size == 0:
+        empty = np.asarray([], dtype=np.int64)
+        return empty, empty
+    breaks = np.flatnonzero(np.diff(trueIdx) > int(maxGapBins) + 1) + 1
+    groupStarts = np.concatenate(([0], breaks))
+    groupEnds = np.concatenate((breaks - 1, [trueIdx.size - 1]))
+    return trueIdx[groupStarts].astype(np.int64), trueIdx[groupEnds].astype(np.int64)
+
+
+def _resolveMultiscaleCandidateBins(
+    n: int,
+    dependenceSpan: int | None = None,
+    lowerSpan: int | None = None,
+    upperSpan: int | None = None,
+    explicitScales: Iterable[int] | None = None,
+) -> List[int]:
+    n_ = int(max(int(n), 1))
+    raw: List[int] = []
+    if explicitScales is not None:
+        raw.extend(int(scale) for scale in explicitScales)
+    else:
+        span = 0 if dependenceSpan is None else int(dependenceSpan)
+        lower = span if lowerSpan is None else int(lowerSpan)
+        upper = span if upperSpan is None else int(upperSpan)
+        raw.extend(
+            [
+                1,
+                max(2, int(round(max(lower, 1) / 2.0))),
+                max(2, lower),
+                max(2, span),
+                max(2, upper),
+            ]
+        )
+    out: List[int] = []
+    seen: set[int] = set()
+    for scale in raw:
+        scale_ = int(min(max(int(scale), 1), n_))
+        if scale_ not in seen:
+            seen.add(scale_)
+            out.append(scale_)
+    out.sort()
+    return out
+
+
+def _segmentScoreAgainstThresholdView(
+    scores: np.ndarray,
+    start: int,
+    end: int,
+    view: Mapping[str, Any],
+) -> Dict[str, float]:
+    scores_ = np.asarray(scores, dtype=np.float64)
+    start_ = int(max(int(start), 0))
+    end_ = int(min(int(end), int(scores_.size) - 1))
+    if end_ < start_:
+        return {
+            "score": 0.0,
+            "integrated_excess": 0.0,
+            "mean_excess": 0.0,
+            "max_excess": 0.0,
+        }
+    threshold = float(view.get("threshold", 0.0))
+    nullScale = float(max(float(view.get("null_scale", 1.0)), _TINY))
+    excess = np.clip((scores_[start_ : end_ + 1] - threshold) / nullScale, 0.0, None)
+    integrated = float(np.sum(excess))
+    length = int(max(end_ - start_ + 1, 1))
+    score = float(integrated / math.sqrt(float(length)))
+    return {
+        "score": float(score),
+        "integrated_excess": float(integrated),
+        "mean_excess": float(np.mean(excess)) if excess.size else 0.0,
+        "max_excess": float(np.max(excess)) if excess.size else 0.0,
+    }
+
+
+def _bestSegmentScoreAcrossThresholdViews(
+    scores: np.ndarray,
+    start: int,
+    end: int,
+    thresholdViews: Mapping[str, Any],
+) -> Dict[str, Any]:
+    best: Dict[str, Any] | None = None
+    for key, viewAny in thresholdViews.items():
+        if not isinstance(viewAny, Mapping):
+            continue
+        stats_ = _segmentScoreAgainstThresholdView(scores, start, end, viewAny)
+        candidate = {
+            **stats_,
+            "threshold_key": str(key),
+            "threshold_z": float(viewAny.get("threshold_z", 0.0)),
+            "threshold": float(viewAny.get("threshold", 0.0)),
+            "null_scale": float(viewAny.get("null_scale", 1.0)),
+        }
+        if best is None or float(candidate["score"]) > float(best["score"]):
+            best = candidate
+    if best is None:
+        best = {
+            "score": 0.0,
+            "integrated_excess": 0.0,
+            "mean_excess": 0.0,
+            "max_excess": 0.0,
+            "threshold_key": "",
+            "threshold_z": 0.0,
+            "threshold": 0.0,
+            "null_scale": 1.0,
+        }
+    return best
+
+
+def _multiscaleCandidateSegments(
+    scores: npt.ArrayLike,
+    thresholdViews: Mapping[str, Any],
+    scaleBins: Iterable[int] | None = None,
+    minRunBins: int = 1,
+    maxGapBins: int = 0,
+    maxSegments: int | None = _DWB_PEAK_SCORING_MAX_SEGMENTS,
+    maxSegmentsPerView: int | None = _DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW,
+) -> List[Dict[str, Any]]:
+    scores_ = _asFloatVector("scores", scores)
+    scales = _resolveMultiscaleCandidateBins(
+        int(scores_.size),
+        explicitScales=scaleBins,
+    )
+    minRunBins_ = int(max(int(minRunBins), 1))
+    maxGapBins_ = int(max(int(maxGapBins), 0))
+    maxSegments_ = (
+        None
+        if maxSegments is None or int(maxSegments) <= 0
+        else int(max(int(maxSegments), 1))
+    )
+    maxSegmentsPerView_ = (
+        None
+        if maxSegmentsPerView is None or int(maxSegmentsPerView) <= 0
+        else int(max(int(maxSegmentsPerView), 1))
+    )
+    candidates: List[Dict[str, Any]] = []
+    seen: set[Tuple[int, int, int, str]] = set()
+
+    for scale in scales:
+        smoothed = _movingAverageSame(scores_, int(scale))
+        for key, viewAny in thresholdViews.items():
+            if not isinstance(viewAny, Mapping):
+                continue
+            threshold = float(viewAny.get("threshold", 0.0))
+            above = np.asarray(smoothed > threshold, dtype=bool)
+            starts, ends = _booleanRunBounds(above, maxGapBins=maxGapBins_)
+            if starts.size == 0:
+                continue
+            lengths = ends - starts + 1
+            keep = lengths >= minRunBins_
+            if not np.any(keep):
+                continue
+            starts = starts[keep]
+            ends = ends[keep]
+            lengths = lengths[keep].astype(np.float64, copy=False)
+            nullScale = float(max(float(viewAny.get("null_scale", 1.0)), _TINY))
+            excess = np.clip((scores_ - threshold) / nullScale, 0.0, None)
+            prefix = np.concatenate(([0.0], np.cumsum(excess, dtype=np.float64)))
+            integrated = prefix[ends + 1] - prefix[starts]
+            runScores = integrated / np.sqrt(np.maximum(lengths, 1.0))
+            selected = np.arange(starts.size, dtype=np.int64)
+            if (
+                maxSegmentsPerView_ is not None
+                and selected.size > maxSegmentsPerView_
+            ):
+                selected = np.argpartition(
+                    -runScores,
+                    maxSegmentsPerView_ - 1,
+                )[:maxSegmentsPerView_]
+            selected = selected[np.argsort(starts[selected], kind="mergesort")]
+            for runIdx_ in selected:
+                runIdx = int(runIdx_)
+                start = int(starts[runIdx])
+                end = int(ends[runIdx])
+                dedupeKey = (start, end, int(scale), str(key))
+                if dedupeKey in seen:
+                    continue
+                seen.add(dedupeKey)
+                runExcess = excess[start : end + 1]
+                runLength = int(max(end - start + 1, 1))
+                integratedValue = float(integrated[runIdx])
+                candidates.append(
+                    {
+                        "start_idx": int(start),
+                        "end_idx": int(end),
+                        "scale_bins": int(scale),
+                        "threshold_key": str(key),
+                        "threshold_z": float(viewAny.get("threshold_z", 0.0)),
+                        "threshold": float(threshold),
+                        "null_scale": float(nullScale),
+                        "score": float(runScores[runIdx]),
+                        "integrated_excess": integratedValue,
+                        "mean_excess": float(integratedValue / float(runLength)),
+                        "max_excess": (
+                            float(np.max(runExcess)) if runExcess.size else 0.0
+                        ),
+                    }
+                )
+    if maxSegments_ is not None and len(candidates) > maxSegments_:
+        candidates = sorted(
+            candidates,
+            key=lambda candidate: float(candidate.get("score", 0.0)),
+            reverse=True,
+        )[:maxSegments_]
+        candidates.sort(
+            key=lambda candidate: (
+                int(candidate["start_idx"]),
+                int(candidate["end_idx"]),
+                int(candidate["scale_bins"]),
+                str(candidate["threshold_key"]),
+            )
+        )
+    return candidates
+
+
+def _summarizeMultiscaleCandidates(
+    candidates: Iterable[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    candidates_ = [dict(candidate) for candidate in candidates]
+    byScale: Dict[str, int] = {}
+    byThreshold: Dict[str, int] = {}
+    scores: List[float] = []
+    for candidate in candidates_:
+        scaleKey = str(int(candidate.get("scale_bins", 1)))
+        thresholdKey = str(candidate.get("threshold_key", ""))
+        byScale[scaleKey] = int(byScale.get(scaleKey, 0) + 1)
+        byThreshold[thresholdKey] = int(byThreshold.get(thresholdKey, 0) + 1)
+        score = float(candidate.get("score", 0.0))
+        if np.isfinite(score):
+            scores.append(score)
+    scoreArr = np.asarray(scores, dtype=np.float64)
+    return {
+        "num_candidates": int(len(candidates_)),
+        "by_scale_bins": byScale,
+        "by_threshold": byThreshold,
+        "max_score": float(np.max(scoreArr)) if scoreArr.size else 0.0,
+        "median_score": float(np.median(scoreArr)) if scoreArr.size else 0.0,
+    }
+
+
+def _generateROCCOMultiscaleCandidateSegments(
+    scores: npt.ArrayLike,
+    intervals: npt.ArrayLike | None = None,
+    ends: npt.ArrayLike | None = None,
+    threshold: float = 0.0,
+    scales: Iterable[int] | None = None,
+    minRunBins: int = 1,
+    returnDetails: bool = False,
+) -> List[Dict[str, Any]] | Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    r"""Generate threshold-run ROCCO candidates over multiple smoothing scales."""
+    scores_ = _asFloatVector("scores", scores)
+    intervals_: np.ndarray | None = None
+    ends_: np.ndarray | None = None
+    if intervals is not None or ends is not None:
+        if intervals is None or ends is None:
+            raise ValueError("`intervals` and `ends` must be supplied together")
+        intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
+        ends_ = np.asarray(ends, dtype=np.int64).ravel()
+        if intervals_.size != scores_.size or ends_.size != scores_.size:
+            raise ValueError("`intervals` and `ends` must match `scores` length")
+    scaleBins = _resolveMultiscaleCandidateBins(
+        int(scores_.size),
+        explicitScales=(scales if scales is not None else (1,)),
+    )
+    thresholdViews = {
+        "primary": {
+            "threshold_z": 0.0,
+            "threshold": float(threshold),
+            "null_scale": 1.0,
+        }
+    }
+    rawCandidates = _multiscaleCandidateSegments(
+        scores_,
+        thresholdViews,
+        scaleBins=scaleBins,
+        minRunBins=int(max(int(minRunBins), 1)),
+    )
+    candidates: List[Dict[str, Any]] = []
+    for candidate in rawCandidates:
+        startIdx = int(candidate["start_idx"])
+        endIdx = int(candidate["end_idx"])
+        start = int(intervals_[startIdx]) if intervals_ is not None else int(startIdx)
+        end = int(ends_[endIdx]) if ends_ is not None else int(endIdx + 1)
+        candidates.append(
+            {
+                **dict(candidate),
+                "start": int(start),
+                "end": int(end),
+                "score_statistic": float(candidate.get("score", 0.0)),
+            }
+        )
+    details = {
+        "method": "multiscale_rocco_candidates",
+        "threshold": float(threshold),
+        "scales": [int(scale) for scale in scaleBins],
+        "min_run_bins": int(max(int(minRunBins), 1)),
+        "num_candidates": int(len(candidates)),
+        "candidate_scales": sorted(
+            {int(candidate["scale_bins"]) for candidate in candidates}
+            | {int(scale) for scale in scaleBins}
+        ),
+    }
+    if returnDetails:
+        return candidates, details
+    return candidates
+
+
+def _thresholdViewsForNullReplay(
+    thresholdViews: Mapping[str, Any],
+) -> Dict[str, Dict[str, Any]]:
+    replayViews: Dict[str, Dict[str, Any]] = {}
+    for key, viewAny in thresholdViews.items():
+        if not isinstance(viewAny, Mapping):
+            continue
+        nullCenter = float(viewAny.get("null_center", 0.0))
+        threshold = float(viewAny.get("threshold", 0.0))
+        replayViews[str(key)] = {
+            "threshold_z": float(viewAny.get("threshold_z", 0.0)),
+            "threshold": float(threshold - nullCenter),
+            "null_scale": float(viewAny.get("null_scale", 1.0)),
+        }
+    return replayViews
+
+
+def _addDWBPeakScoringToPeakMeta(
+    peakMeta: List[Dict[str, Any]],
+    scores: npt.ArrayLike,
+    prepared: Mapping[str, Any],
+    exportDetails: Dict[str, Any] | None = None,
+    minRunBins: int = 1,
+    intervals: npt.ArrayLike | None = None,
+    ends: npt.ArrayLike | None = None,
+) -> Dict[str, Any]:
+    r"""Annotate exported peak metadata with DWB null-replay empirical p/q values."""
+    details = {} if exportDetails is None else exportDetails
+    if len(peakMeta) == 0:
+        summary = {
+            "enabled": False,
+            "reason": "no_peaks",
+            "num_peaks": 0,
+        }
+        details["dwb_peak_scoring"] = summary
+        return summary
+
+    scores_ = _asFloatVector("scores", scores)
+    intervals_: np.ndarray | None = None
+    ends_: np.ndarray | None = None
+    if intervals is not None or ends is not None:
+        if intervals is None or ends is None:
+            raise ValueError("`intervals` and `ends` must be supplied together")
+        intervals_ = np.asarray(intervals, dtype=np.int64).ravel()
+        ends_ = np.asarray(ends, dtype=np.int64).ravel()
+        if intervals_.size != scores_.size or ends_.size != scores_.size:
+            raise ValueError("`intervals` and `ends` must match `scores` length")
+    thresholdViews = prepared.get("threshold_views", {})
+    calibration = prepared.get("dwb_calibration", {})
+    template = prepared.get("template")
+    if (
+        not isinstance(thresholdViews, Mapping)
+        or not isinstance(calibration, Mapping)
+        or template is None
+    ):
+        summary = {
+            "enabled": False,
+            "reason": "missing_dwb_calibration",
+            "num_peaks": int(len(peakMeta)),
+        }
+        details["dwb_peak_scoring"] = summary
+        return summary
+
+    template_ = np.asarray(template, dtype=np.float64).ravel()
+    if template_.size != scores_.size:
+        summary = {
+            "enabled": False,
+            "reason": "template_length_mismatch",
+            "num_peaks": int(len(peakMeta)),
+        }
+        details["dwb_peak_scoring"] = summary
+        return summary
+
+    dependenceSpan = int(calibration.get("dependence_span", 2))
+    lowerSpan = int(calibration.get("dependence_span_lower", dependenceSpan))
+    upperSpan = int(calibration.get("dependence_span_upper", dependenceSpan))
+    kernel = str(calibration.get("kernel", "bartlett"))
+    numBootstrap = int(max(int(calibration.get("num_bootstrap", 0)), 0))
+    numReplay = int(min(numBootstrap, _DWB_PEAK_SCORING_MAX_REPLAYS))
+    randomSeed = int(calibration.get("random_seed", 0))
+    panelId = str(calibration.get("dwb_panel_id", ""))
+    if numBootstrap <= 0:
+        summary = {
+            "enabled": False,
+            "reason": "no_bootstrap_draws",
+            "num_peaks": int(len(peakMeta)),
+        }
+        details["dwb_peak_scoring"] = summary
+        return summary
+
+    scaleBins = _resolveMultiscaleCandidateBins(
+        int(scores_.size),
+        dependenceSpan=dependenceSpan,
+        lowerSpan=lowerSpan,
+        upperSpan=upperSpan,
+    )
+    minRunBins_ = int(max(int(minRunBins), 1))
+    observedCandidates = _multiscaleCandidateSegments(
+        scores_,
+        thresholdViews,
+        scaleBins=scaleBins,
+        minRunBins=minRunBins_,
+        maxSegments=_DWB_PEAK_SCORING_MAX_SEGMENTS,
+        maxSegmentsPerView=_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW,
+    )
+    candidateBySpan: Dict[Tuple[int, int], Dict[str, Any]] = {}
+
+    def _candidateCoordinates(startIdx: int, endIdx: int) -> Tuple[int, int]:
+        if intervals_ is not None and ends_ is not None:
+            return int(intervals_[startIdx]), int(ends_[endIdx])
+        return int(startIdx), int(endIdx + 1)
+
+    def _mergeCandidateRegion(
+        startIdx: int,
+        endIdx: int,
+        scoreDetail: Mapping[str, Any],
+        source: str,
+        scaleBinsValue: int | None = None,
+        overlapCount: int | None = None,
+    ) -> None:
+        startIdx_ = int(max(int(startIdx), 0))
+        endIdx_ = int(min(max(int(endIdx), startIdx_), int(scores_.size) - 1))
+        key = (startIdx_, endIdx_)
+        chromStart, chromEnd = _candidateCoordinates(startIdx_, endIdx_)
+        existing = candidateBySpan.get(key)
+        if existing is None:
+            existing = {
+                "candidate_id": "",
+                "start_idx": int(startIdx_),
+                "end_idx": int(endIdx_),
+                "start": int(chromStart),
+                "end": int(chromEnd),
+                "exported": False,
+                "candidate_sources": [],
+                "candidate_scale_bins": [],
+                "candidate_threshold_keys": [],
+                "score": 0.0,
+                "integrated_excess": 0.0,
+                "mean_excess": 0.0,
+                "max_excess": 0.0,
+                "threshold_key": "",
+                "threshold_z": 0.0,
+                "threshold": 0.0,
+                "null_scale": 1.0,
+            }
+            candidateBySpan[key] = existing
+        sources = list(existing.get("candidate_sources", []))
+        if source not in sources:
+            sources.append(str(source))
+        existing["candidate_sources"] = sources
+        if scaleBinsValue is not None:
+            scaleValues = list(existing.get("candidate_scale_bins", []))
+            scaleValue = int(scaleBinsValue)
+            if scaleValue not in scaleValues:
+                scaleValues.append(scaleValue)
+            existing["candidate_scale_bins"] = sorted(scaleValues)
+        thresholdKeys = list(existing.get("candidate_threshold_keys", []))
+        thresholdKey = str(scoreDetail.get("threshold_key", ""))
+        if thresholdKey and thresholdKey not in thresholdKeys:
+            thresholdKeys.append(thresholdKey)
+        existing["candidate_threshold_keys"] = thresholdKeys
+        if overlapCount is not None:
+            existing["overlapping_multiscale_candidate_count"] = max(
+                int(existing.get("overlapping_multiscale_candidate_count", 0)),
+                int(overlapCount),
+            )
+        if float(scoreDetail.get("score", 0.0)) >= float(existing.get("score", 0.0)):
+            existing.update(
+                {
+                    "score": float(scoreDetail.get("score", 0.0)),
+                    "integrated_excess": float(
+                        scoreDetail.get("integrated_excess", 0.0)
+                    ),
+                    "mean_excess": float(scoreDetail.get("mean_excess", 0.0)),
+                    "max_excess": float(scoreDetail.get("max_excess", 0.0)),
+                    "threshold_key": thresholdKey,
+                    "threshold_z": float(scoreDetail.get("threshold_z", 0.0)),
+                    "threshold": float(scoreDetail.get("threshold", 0.0)),
+                    "null_scale": float(scoreDetail.get("null_scale", 1.0)),
+                }
+            )
+
+    for candidate in observedCandidates:
+        _mergeCandidateRegion(
+            int(candidate["start_idx"]),
+            int(candidate["end_idx"]),
+            candidate,
+            source="multiscale_threshold_run",
+            scaleBinsValue=int(candidate.get("scale_bins", 1)),
+        )
+    observedStarts = np.asarray(
+        [int(candidate["start_idx"]) for candidate in observedCandidates],
+        dtype=np.int64,
+    )
+    observedEnds = np.asarray(
+        [int(candidate["end_idx"]) for candidate in observedCandidates],
+        dtype=np.int64,
+    )
+    observedScales = np.asarray(
+        [int(candidate.get("scale_bins", 1)) for candidate in observedCandidates],
+        dtype=np.int64,
+    )
+    for meta in peakMeta:
+        startIdx = int(meta.get("start_idx", meta.get("child_start_idx", 0)))
+        endIdx = int(meta.get("end_idx", meta.get("child_end_idx", startIdx)))
+        scoreDetail = _bestSegmentScoreAcrossThresholdViews(
+            scores_,
+            startIdx,
+            endIdx,
+            thresholdViews,
+        )
+        _mergeCandidateRegion(
+            startIdx,
+            endIdx,
+            scoreDetail,
+            source="exported_peak",
+        )
+        if observedStarts.size > 0:
+            overlapMask = (observedEnds >= int(startIdx)) & (
+                observedStarts <= int(endIdx)
+            )
+            overlapCount = int(np.sum(overlapMask))
+            if overlapCount > 0:
+                for scaleValue in np.unique(observedScales[overlapMask]):
+                    _mergeCandidateRegion(
+                        startIdx,
+                        endIdx,
+                        scoreDetail,
+                        source="multiscale_threshold_overlap",
+                        scaleBinsValue=int(scaleValue),
+                        overlapCount=overlapCount,
+                    )
+        candidateBySpan[(int(startIdx), int(endIdx))]["exported"] = True
+    candidateDetails = sorted(
+        (dict(candidate) for candidate in candidateBySpan.values()),
+        key=lambda item: (int(item["start_idx"]), int(item["end_idx"])),
+    )
+    for idx, candidate in enumerate(candidateDetails, start=1):
+        candidate["candidate_id"] = f"dwb_candidate_{idx}"
+    details["multiscale_candidate_generation"] = {
+        "method": "threshold_grid_moving_average_runs",
+        "scale_bins": [int(scale) for scale in scaleBins],
+        "min_run_bins": int(minRunBins_),
+        "max_segments": int(_DWB_PEAK_SCORING_MAX_SEGMENTS),
+        "max_segments_per_scale_threshold": int(
+            _DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW
+        ),
+        **_summarizeMultiscaleCandidates(observedCandidates),
+        "deduplicated_candidate_regions": int(len(candidateDetails)),
+        "exported_peak_regions": int(len(peakMeta)),
+    }
+
+    replayViews = _thresholdViewsForNullReplay(thresholdViews)
+    rng = np.random.default_rng(randomSeed)
+    nullCandidateCounts = np.zeros(numReplay, dtype=np.int64)
+    metricKeys = {
+        "summit_excess": "max_excess",
+        "integrated_excess": "integrated_excess",
+        "width_adjusted_mass": "score",
+    }
+    observedMetricStats: Dict[str, np.ndarray] = {
+        metric: np.asarray(
+            [float(candidate[sourceKey]) for candidate in candidateDetails],
+            dtype=np.float64,
+        )
+        for metric, sourceKey in metricKeys.items()
+    }
+    nullMetricStatsByDraw: Dict[str, List[np.ndarray]] = {
+        metric: [] for metric in metricKeys
+    }
+    for drawIdx in range(numReplay):
+        draw = _generateStationaryNullDWBDraw(
+            template_,
+            dependenceSpan,
+            rng,
+            kernel=kernel,
+        )
+        nullCandidates = _multiscaleCandidateSegments(
+            draw,
+            replayViews,
+            scaleBins=scaleBins,
+            minRunBins=minRunBins_,
+            maxSegments=_DWB_PEAK_SCORING_MAX_SEGMENTS,
+            maxSegmentsPerView=_DWB_PEAK_SCORING_MAX_SEGMENTS_PER_VIEW,
+        )
+        nullCandidateCounts[drawIdx] = int(len(nullCandidates))
+        for metric, sourceKey in metricKeys.items():
+            nullMetricStatsByDraw[metric].append(
+                np.asarray(
+                    [
+                        float(candidate.get(sourceKey, 0.0))
+                        for candidate in nullCandidates
+                    ],
+                    dtype=np.float64,
+                )
+            )
+
+    pValuesByMetric = {
+        metric: _empiricalReplaySegmentPValues(
+            observedMetricStats[metric],
+            nullMetricStatsByDraw[metric],
+        )
+        for metric in metricKeys
+    }
+    qValuesByMetric = {
+        metric: np.maximum(
+            _replayFDRQValues(
+                observedMetricStats[metric],
+                nullMetricStatsByDraw[metric],
+            ),
+            pValuesByMetric[metric],
+        )
+        for metric in metricKeys
+    }
+    observedArr = observedMetricStats["width_adjusted_mass"]
+    pValues = pValuesByMetric["width_adjusted_mass"]
+    qValues = qValuesByMetric["width_adjusted_mass"]
+    nullPrimaryMaxScores = np.asarray(
+        [
+            float(np.max(draw)) if draw.size else 0.0
+            for draw in nullMetricStatsByDraw["width_adjusted_mass"]
+        ],
+        dtype=np.float64,
+    )
+    nullMaxQ95 = (
+        float(np.quantile(nullPrimaryMaxScores, 0.95, method="interpolated_inverted_cdf"))
+        if nullPrimaryMaxScores.size
+        else 0.0
+    )
+    nullMaxMean = (
+        float(np.mean(nullPrimaryMaxScores)) if nullPrimaryMaxScores.size else 0.0
+    )
+    nullCandidateMean = (
+        float(np.mean(nullCandidateCounts)) if nullCandidateCounts.size else 0.0
+    )
+    nullCandidateQ95 = (
+        float(np.quantile(nullCandidateCounts, 0.95, method="interpolated_inverted_cdf"))
+        if nullCandidateCounts.size
+        else 0.0
+    )
+    nullCandidateQ95 = float(max(nullCandidateQ95, nullCandidateMean))
+    falseSegmentDiagnostics = {
+        "method": "stationary_null_dwb_null_replay",
+        "num_replays": int(numReplay),
+        "budget_num_bootstrap": int(numBootstrap),
+        "observed_segment_count": int(len(peakMeta)),
+        "observed_candidate_count": int(len(candidateDetails)),
+        "false_segment_count_mean": float(nullCandidateMean),
+        "false_segment_count_q95": float(nullCandidateQ95),
+        "false_segment_fdr_estimate": float(
+            np.clip(nullCandidateMean / float(max(len(peakMeta), 1)), 0.0, 1.0)
+        ),
+        "candidate_fdr_estimate": float(
+            np.clip(nullCandidateMean / float(max(len(candidateDetails), 1)), 0.0, 1.0)
+        ),
+        "dwb_panel_id": str(panelId),
+        "kernel": str(kernel),
+        "dependence_span": int(dependenceSpan),
+        "scale_bins": [int(scale) for scale in scaleBins],
+    }
+    details["null_replay_false_segment_diagnostics"] = falseSegmentDiagnostics
+    primaryNullStats = (
+        np.concatenate(nullMetricStatsByDraw["width_adjusted_mass"])
+        if any(draw.size for draw in nullMetricStatsByDraw["width_adjusted_mass"])
+        else np.asarray([], dtype=np.float64)
+    )
+
+    for idx, candidate in enumerate(candidateDetails):
+        pValue = float(pValues[idx])
+        qValue = float(qValues[idx])
+        statistic = float(observedArr[idx])
+        candidate["dwb_peak_score"] = float(observedArr[idx])
+        candidate["dwb_peak_score_method"] = (
+            "max_threshold_sqrt_normalized_integrated_excess"
+        )
+        candidate["dwb_peak_empirical_p"] = pValue
+        candidate["dwb_peak_empirical_q"] = qValue
+        candidate["dwb_empirical_method"] = "stationary_null_dwb_peak_replay"
+        candidate["dwb_empirical_panel_id"] = str(panelId)
+        candidate["dwb_empirical_null_replays"] = int(numReplay)
+        candidate["dwb_empirical_p"] = pValue
+        candidate["dwb_empirical_q"] = qValue
+        candidate["dwb_empirical_statistic"] = statistic
+        candidate["dwb_empirical_q_method"] = "dwb_replay_fdr_candidate_segments"
+        for metric in metricKeys:
+            metricStat = float(observedMetricStats[metric][idx])
+            metricP = float(pValuesByMetric[metric][idx])
+            metricQ = float(qValuesByMetric[metric][idx])
+            candidate[metric] = metricStat
+            candidate[f"{metric}_p"] = metricP
+            candidate[f"{metric}_q"] = metricQ
+        candidate["dwb_peak_null_exceedances"] = int(
+            np.sum(primaryNullStats >= float(observedArr[idx]))
+            if primaryNullStats.size
+            else 0
+        )
+        candidate["dwb_peak_scoring_threshold_key"] = str(
+            candidate["threshold_key"]
+        )
+        candidate["dwb_peak_scoring_threshold_z"] = float(candidate["threshold_z"])
+        candidate["dwb_peak_integrated_excess"] = float(candidate["integrated_excess"])
+        candidate["dwb_peak_mean_excess"] = float(candidate["mean_excess"])
+        candidate["dwb_peak_max_excess"] = float(candidate["max_excess"])
+        candidate["dwb_null_replay_num_draws"] = int(numReplay)
+        candidate["dwb_null_replay_max_score_mean"] = float(nullMaxMean)
+        candidate["dwb_null_replay_max_score_q95"] = float(nullMaxQ95)
+        candidate["dwb_null_replay_candidate_count_mean"] = float(nullCandidateMean)
+        candidate["dwb_null_replay_candidate_count_q95"] = float(nullCandidateQ95)
+
+    scoredCandidatesBySpan = {
+        (int(candidate["start_idx"]), int(candidate["end_idx"])): candidate
+        for candidate in candidateDetails
+    }
+    for meta in peakMeta:
+        startIdx = int(meta.get("start_idx", meta.get("child_start_idx", 0)))
+        endIdx = int(meta.get("end_idx", meta.get("child_end_idx", startIdx)))
+        candidate = scoredCandidatesBySpan[(startIdx, endIdx)]
+        for key in (
+            "candidate_id",
+            "candidate_sources",
+            "candidate_scale_bins",
+            "candidate_threshold_keys",
+            "overlapping_multiscale_candidate_count",
+            "dwb_peak_score",
+            "dwb_peak_score_method",
+            "dwb_peak_empirical_p",
+            "dwb_peak_empirical_q",
+            "dwb_empirical_method",
+            "dwb_empirical_panel_id",
+            "dwb_empirical_null_replays",
+            "dwb_empirical_p",
+            "dwb_empirical_q",
+            "dwb_empirical_statistic",
+            "dwb_empirical_q_method",
+            "dwb_peak_null_exceedances",
+            "dwb_peak_scoring_threshold_key",
+            "dwb_peak_scoring_threshold_z",
+            "dwb_peak_integrated_excess",
+            "dwb_peak_mean_excess",
+            "dwb_peak_max_excess",
+            "dwb_null_replay_num_draws",
+            "dwb_null_replay_max_score_mean",
+            "dwb_null_replay_max_score_q95",
+            "dwb_null_replay_candidate_count_mean",
+            "dwb_null_replay_candidate_count_q95",
+        ):
+            meta[key] = candidate.get(
+                key,
+                0 if key == "overlapping_multiscale_candidate_count" else None,
+            )
+        for metric in metricKeys:
+            meta[metric] = candidate[metric]
+            meta[f"{metric}_p"] = candidate[f"{metric}_p"]
+            meta[f"{metric}_q"] = candidate[f"{metric}_q"]
+    details["candidate_details"] = candidateDetails
+    details["candidate_significance"] = {
+        "method": "stationary_dwb_null_replay_multiscale_segments",
+        "p_value": "empirical_replay_segment_tail",
+        "q_value": "dwb_replay_fdr_candidate_segments",
+        "primary_metric": "width_adjusted_mass",
+        "num_candidates": int(len(candidateDetails)),
+        "num_exported_candidates": int(
+            sum(1 for candidate in candidateDetails if bool(candidate.get("exported")))
+        ),
+        "dwb_panel_id": str(panelId),
+    }
+
+    summary = {
+        "enabled": True,
+        "method": "stationary_dwb_null_replay_multiscale_segments",
+        "p_value": "empirical_replay_segment_tail",
+        "q_value": "dwb_replay_fdr_candidate_segments",
+        "primary_metric": "width_adjusted_mass",
+        "metrics": sorted(metricKeys),
+        "num_peaks": int(len(peakMeta)),
+        "num_candidate_regions": int(len(candidateDetails)),
+        "num_bootstrap": int(numReplay),
+        "budget_num_bootstrap": int(numBootstrap),
+        "random_seed": int(randomSeed),
+        "kernel": str(kernel),
+        "dwb_panel_id": str(panelId),
+        "dependence_span": int(dependenceSpan),
+        "scale_bins": [int(scale) for scale in scaleBins],
+        "min_run_bins": int(minRunBins_),
+        "observed_candidate_count": int(len(candidateDetails)),
+        "raw_multiscale_candidate_count": int(len(observedCandidates)),
+        "null_replay_candidate_count_mean": float(nullCandidateMean),
+        "null_replay_candidate_count_q95": float(nullCandidateQ95),
+        "null_replay_max_score_mean": float(nullMaxMean),
+        "null_replay_max_score_q95": float(nullMaxQ95),
+        "min_p": float(np.min(pValues)) if pValues.size else None,
+        "min_q": float(np.min(qValues)) if qValues.size else None,
+        "false_segment_diagnostics": falseSegmentDiagnostics,
+    }
+    details["dwb_peak_scoring"] = summary
+    return summary
 
 
 def _massiveSubpeakWidthScores(
@@ -3352,6 +4307,11 @@ def _solutionToChromNarrowPeakRows(
                     "start": int(chromStart),
                     "end": int(chromEnd),
                     "summit": int(summitAbs),
+                    "start_idx": int(childStartIdx),
+                    "end_idx": int(childEndIdx),
+                    "summit_idx": int(summitIdx),
+                    "untrimmed_start_idx": int(untrimmedStartIdx),
+                    "untrimmed_end_idx": int(untrimmedEndIdx),
                     "segment_length_bins": int(child["segment_length_bins"]),
                     "median_state": float(medianState),
                     "local_median_p": (
@@ -3544,6 +4504,14 @@ def _buildRoccoSummary(
                 "dropped_median_signal_local_p": int(
                     chromMetaAny.get("num_segments_dropped_median_signal_local_p", 0)
                 ),
+                "dwb_peak_scoring": dict(
+                    chromMetaAny.get("export_details", {}).get(
+                        "dwb_peak_scoring",
+                        {},
+                    )
+                    if isinstance(chromMetaAny.get("export_details", {}), Mapping)
+                    else {}
+                ),
                 "nested_rocco": nestedSummary,
             }
     blacklist = meta.get("blacklist_filter", {})
@@ -3694,6 +4662,7 @@ def solveRocco(
             "blacklist_filter_policy": "drop_any_overlap",
             "budget_method": "dwb_tail_occupancy",
             "null_calibration_method": "stationary_null_dwb",
+            "peak_scoring_method": "stationary_dwb_null_replay_multiscale_segments",
             "num_bootstrap": int(numBootstrap),
             "threshold_z": float(thresholdZ),
             "null_quantile": float(_ROCCO_NULL_QUANTILE),
@@ -3803,6 +4772,7 @@ def solveRocco(
             "gamma": float(gamma_),
             "gamma_details": dict(gammaDetails),
             "interval_bp": int(np.median(ends - intervals)),
+            "prepared": prepared,
         }
 
     chromResults: Dict[str, Dict[str, Any]] = {}
@@ -3967,6 +4937,52 @@ def solveRocco(
             blacklistByChrom,
         )
         blacklistDroppedTotal += int(blacklistDropped)
+        _addDWBPeakScoringToPeakMeta(
+            peakMeta,
+            scoreTrack,
+            work.get("prepared", {}),
+            exportDetails=exportDetails,
+            minRunBins=int(_NESTED_ROCCO_MIN_CHILD_STEPS),
+            intervals=intervals,
+            ends=ends,
+        )
+        for row, peak in zip(rows, peakMeta):
+            row[7] = _negativeLog10Probability(peak.get("dwb_empirical_p"))
+            row[8] = _negativeLog10Probability(peak.get("dwb_empirical_q"))
+        nullReplayDiagnostics = dict(
+            exportDetails.get("null_replay_false_segment_diagnostics", {})
+        )
+        if (
+            bool(verbose)
+            and nullReplayDiagnostics
+            and int(max(int(nestedRoccoIters), 0)) == 0
+        ):
+            logger.info(
+                "null replay false-segment diagnostics %s replays=%d observed=%d false_mean=%.6g false_q95=%.6g fdr=%.6g",
+                str(chromosome),
+                int(nullReplayDiagnostics.get("num_replays", 0)),
+                int(nullReplayDiagnostics.get("observed_segment_count", 0)),
+                float(nullReplayDiagnostics.get("false_segment_count_mean", 0.0)),
+                float(nullReplayDiagnostics.get("false_segment_count_q95", 0.0)),
+                float(nullReplayDiagnostics.get("false_segment_fdr_estimate", 0.0)),
+            )
+            if nestedRoccoSubproblemDetailsPath is not None:
+                with open(
+                    nestedRoccoSubproblemDetailsPath,
+                    "a",
+                    encoding="utf-8",
+                ) as detailHandle:
+                    detailHandle.write(
+                        json.dumps(
+                            {
+                                "event": "null_replay_false_segments",
+                                "chromosome": str(chromosome),
+                                **nullReplayDiagnostics,
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
         exportDetails["blacklist_filter"] = {
             "blacklist_bed": None if blacklistBedFile is None else str(blacklistBedFile),
             "policy": "drop_any_overlap",
@@ -4010,8 +5026,13 @@ def solveRocco(
             "gamma_details": dict(work["gamma_details"]),
             "solve_details": solveDetails,
             "nested_rocco_details": result["nested_details"],
+            "null_replay_false_segment_diagnostics": nullReplayDiagnostics,
             "export_trim_score_floor": float(exportTrimScoreFloor),
             "export_details": exportDetails,
+            "candidate_details": list(exportDetails.get("candidate_details", [])),
+            "candidate_significance": dict(
+                exportDetails.get("candidate_significance", {})
+            ),
             "peak_details": peakMeta,
         }
 

@@ -7,7 +7,7 @@ import os
 from collections import namedtuple
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -16,6 +16,10 @@ import yaml
 import consenrich.constants as constants
 import consenrich.core as core
 import consenrich.misc_util as misc_util
+from consenrich.genome_covariates import (
+    resolve_genome_covariate_feature_config,
+    validate_genome_covariate_cache,
+)
 from . import io as io_helpers
 
 logger = logging.getLogger(__name__)
@@ -111,6 +115,90 @@ def _getDefaultConfigurationName(configMap: Mapping[str, Any]) -> str:
 def _cfgDefault(configMap: Mapping[str, Any], dottedKey: str) -> Any:
     configurationName = _getDefaultConfigurationName(configMap)
     return DEFAULT_CONFIGURATION_VALUES[configurationName][dottedKey]
+
+
+def _normalizeOutputDiagnosticTracks(value: Any) -> tuple[str, ...]:
+    aliasByKey = {
+        "slope": "slope",
+        "trend": "slope",
+        "qlevel": "qLevel",
+        "qtrend": "qTrend",
+        "munctrace": "muncTrace",
+        "rtrace": "muncTrace",
+        "sumgain0": "sumGain0",
+        "sumgain1": "sumGain1",
+    }
+    allTracks = tuple(constants.OUTPUT_DIAGNOSTIC_TRACK_NAMES)
+    if value is None or value is False:
+        rawItems: list[Any] = []
+    elif value is True:
+        rawItems = ["all"]
+    elif isinstance(value, str):
+        text = value.strip()
+        rawItems = [] if not text else [item.strip() for item in text.split(",")]
+    elif isinstance(value, (list, tuple, set)):
+        rawItems = list(value)
+    else:
+        raise ValueError(
+            "`outputParams.diagnosticTracks` must be a list, comma-separated string, "
+            "boolean, or null."
+        )
+
+    tracks: list[str] = []
+    seen: set[str] = set()
+    for item in rawItems:
+        name = str(item).strip()
+        if not name:
+            continue
+        key = name.replace("_", "").replace("-", "").lower()
+        if key in {"none", "false", "off"}:
+            continue
+        if key == "all":
+            for track in allTracks:
+                if track not in seen:
+                    tracks.append(track)
+                    seen.add(track)
+            continue
+        canonical = aliasByKey.get(key)
+        if canonical is None:
+            supported = ", ".join(allTracks)
+            raise ValueError(
+                f"Unsupported output diagnostic track {name!r}. "
+                f"Supported tracks: {supported}, or 'all'."
+            )
+        if canonical not in seen:
+            tracks.append(canonical)
+            seen.add(canonical)
+    return tuple(tracks)
+
+
+def _normalizeMuncCovariatesMode(value: Any) -> str:
+    raw = constants.OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE if value is None else value
+    key = str(raw).strip().replace("-", "").replace("_", "").lower()
+    canonicalByKey = {
+        mode.replace("-", "").replace("_", "").lower(): mode
+        for mode in constants.MUNC_SUPPORTED_COVARIATE_MODES
+    }
+    if key not in canonicalByKey:
+        supported = ", ".join(constants.MUNC_SUPPORTED_COVARIATE_MODES)
+        raise ValueError(
+            f"Unsupported observationParams.muncCovariates.mode {raw!r}. "
+            f"Supported modes: {supported}."
+        )
+    return canonicalByKey[key]
+
+
+def _normalizeMuncCovariateFeatures(
+    value: Any,
+    *,
+    availableFeatures: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    return resolve_genome_covariate_feature_config(
+        value,
+        default_features=constants.OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES,
+        available_features=availableFeatures,
+        config_name="observationParams.muncCovariates.features",
+    )
 
 
 def _runtimeProcessParamsType(fields: tuple[str, ...]) -> type:
@@ -284,12 +372,23 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.plotOptimizationPath",
         constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     )
+    diagnosticTracksRaw = _cfgGet(configData, "outputParams.diagnosticTracks", None)
+    if diagnosticTracksRaw is None:
+        diagnosticTracksRaw = _cfgGet(configData, "outputParams.tracks", None)
+    if diagnosticTracksRaw is None:
+        diagnosticTracksRaw = _cfgGet(
+            configData,
+            "outputParams.writeDiagnosticTracks",
+            constants.OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
+        )
+    diagnosticTracks_ = _normalizeOutputDiagnosticTracks(diagnosticTracksRaw)
     return core.outputParams(
         convertToBigWig=convertToBigWig_,
         roundDigits=roundDigits_,
         writeUncertainty=writeUncertainty_,
         saveBackgroundTracks=saveBackgroundTracks_,
         plotOptimizationPath=plotOptimizationPath_,
+        diagnosticTracks=diagnosticTracks_,
     )
 
 
@@ -302,6 +401,7 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
     chromSizesFile: Optional[str] = None
     blacklistFile: Optional[str] = None
     sparseBedFile: Optional[str] = None
+    genomeCovariateCacheDir: Optional[str] = None
     chromosomesList: Optional[List[str]] = None
 
     excludeChromsList: List[str] = (
@@ -349,6 +449,14 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
     )
     if sparseOverride:
         sparseBedFile = sparseOverride
+
+    genomeCovariateCacheDir = _cfgGet(
+        configData,
+        "genomeParams.genomeCovariateCacheDir",
+        _cfgDefault(configData, "genomeParams.genomeCovariateCacheDir"),
+    )
+    if genomeCovariateCacheDir is not None:
+        genomeCovariateCacheDir = str(genomeCovariateCacheDir)
 
     if not chromSizesFile or not os.path.exists(chromSizesFile):
         raise FileNotFoundError(
@@ -398,6 +506,7 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
         chromSizesFile=chromSizesFile,
         blacklistFile=blacklistFile,
         sparseBedFile=sparseBedFile,
+        genomeCovariateCacheDir=genomeCovariateCacheDir,
         chromosomes=chromosomesList,
         excludeChroms=excludeChromsList,
         excludeForNorm=excludeForNormList,
@@ -1011,6 +1120,50 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         raise ValueError(
             "`observationParams.muncLocalWindowDependenceMultiplier` must be positive."
         )
+    muncCovariatesEnabled = bool(
+        _cfgGet(
+            configData,
+            "observationParams.muncCovariates.enabled",
+            _cfgDefault(configData, "observationParams.muncCovariates.enabled"),
+        )
+    )
+    muncCovariatesMode = _normalizeMuncCovariatesMode(
+        _cfgGet(
+            configData,
+            "observationParams.muncCovariates.mode",
+            _cfgDefault(configData, "observationParams.muncCovariates.mode"),
+        )
+    )
+    muncCovariatesFeaturesRaw = _cfgGet(
+        configData,
+        "observationParams.muncCovariates.features",
+        _cfgDefault(configData, "observationParams.muncCovariates.features"),
+    )
+    genomeCovariateValidation = None
+    if muncCovariatesEnabled:
+        if not genomeParams.genomeCovariateCacheDir:
+            raise ValueError(
+                "`genomeParams.genomeCovariateCacheDir` is required when "
+                "`observationParams.muncCovariates.enabled` is true."
+            )
+        genomeCovariateValidation = validate_genome_covariate_cache(
+            genomeParams.genomeCovariateCacheDir,
+            interval_size_bp=countingParams.intervalSizeBP,
+        )
+    muncCovariatesFeatures = _normalizeMuncCovariateFeatures(
+        muncCovariatesFeaturesRaw,
+        availableFeatures=(
+            genomeCovariateValidation.features
+            if genomeCovariateValidation is not None
+            else None
+        ),
+    )
+    if muncCovariatesEnabled and genomeCovariateValidation is not None:
+        genomeCovariateValidation.validate_request(
+            required_features=muncCovariatesFeatures,
+            interval_size_bp=countingParams.intervalSizeBP,
+            required_features_label="requested MUNC features",
+        )
     observationArgs = core.observationParams(
         minR=_cfgGet(configData, "observationParams.minR", constants.OBSERVATION_DEFAULT_MIN_R),
         maxR=_cfgGet(configData, "observationParams.maxR", constants.OBSERVATION_DEFAULT_MAX_R),
@@ -1132,6 +1285,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier,
         muncLocalWindowDependenceMultiplier=muncLocalWindowDependenceMultiplier,
         restrictLocalVarianceToSparseBed=restrictLocalVarianceResolved,
+        muncCovariatesEnabled=muncCovariatesEnabled,
+        muncCovariatesMode=muncCovariatesMode,
+        muncCovariatesFeatures=muncCovariatesFeatures,
     )
 
     ECM_useAPN_ = bool(

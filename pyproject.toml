@@ -62,6 +62,7 @@ consenrich = ["native/*"]
 
 [project.scripts]
 consenrich = "consenrich.consenrich:main"
+consenrich-cache = "consenrich.cache_cli:main"
 
 [tool.pytest.ini_options]
 markers = [

@@ -7,7 +7,7 @@ from typing import Final, TypeAlias
 
 from numpy import float32 as _float32
 
-ConfigurationDefaultValue: TypeAlias = bool | int | float | str | None
+ConfigurationDefaultValue: TypeAlias = bool | int | float | str | tuple[str, ...] | None
 ConfigurationProfileMap: TypeAlias = dict[str, dict[str, ConfigurationDefaultValue]]
 GenomeEffectiveSizeMap: TypeAlias = dict[str, dict[int, int]]
 StrTuple: TypeAlias = tuple[str, ...]
@@ -98,11 +98,11 @@ UNCERTAINTY_CALIBRATION_DEFAULT_SEED: Final[int] = 1729
 UNCERTAINTY_CALIBRATION_DIAGNOSTIC_SEED_OFFSET: Final[int] = 10_000
 UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE: Final[_float32] = _float32(1.0e30)
 
-PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH: Final[float] = 10.0  ###
+PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH: Final[float] = 1.0  ###
 PROCESS_NOISE_DEFAULT_MAP_ROUGHNESS_PENALTY: Final[float] = (
     PROCESS_NOISE_DEFAULT_REGULARIZATION_STRENGTH
 )
-PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO: Final[float] = 1.0e-2
+PROCESS_NOISE_DEFAULT_REGULARIZATION_RATIO: Final[float] = 1.0e-3
 PROCESS_NOISE_DEFAULT_WARMUP_ECM_ITERS: Final[int] = 50
 PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES: Final[int] = 10
 PROCESS_NOISE_NUMERICAL_FLOOR: Final[float] = 1.0e-10
@@ -128,11 +128,21 @@ OUTPUT_DEFAULT_ROUND_DIGITS: Final[int] = 3
 OUTPUT_DEFAULT_WRITE_UNCERTAINTY: Final[bool] = True
 OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS: Final[bool] = True
 OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH: Final[bool] = True
+OUTPUT_DIAGNOSTIC_TRACK_NAMES: Final[StrTuple] = (
+    "slope",
+    "qLevel",
+    "qTrend",
+    "muncTrace",
+    "sumGain0",
+    "sumGain1",
+)
+OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS: Final[StrTuple] = ()
 
 GENOME_DEFAULT_NAME: Final[str | None] = None
 GENOME_DEFAULT_CHROM_SIZES_FILE: Final[str | None] = None
 GENOME_DEFAULT_BLACKLIST_FILE: Final[str | None] = None
 GENOME_DEFAULT_SPARSE_BED_FILE: Final[str | None] = None
+GENOME_DEFAULT_COVARIATE_CACHE_DIR: Final[str | None] = None
 GENOME_DEFAULT_CHROMOSOMES: Final[StrTuple | None] = None
 GENOME_DEFAULT_EXCLUDE_CHROMS: Final[StrTuple] = ()
 GENOME_DEFAULT_EXCLUDE_FOR_NORM: Final[StrTuple] = ()
@@ -154,7 +164,7 @@ STATE_DEFAULT_BOUND_STATE: Final[bool] = False
 STATE_DEFAULT_LOWER_BOUND: Final[float] = 0.0
 STATE_DEFAULT_UPPER_BOUND: Final[float] = 10000.0
 
-COUNTING_DEFAULT_INTERVAL_SIZE_BP: Final[int] = 50
+COUNTING_DEFAULT_INTERVAL_SIZE_BP: Final[int] = 25
 COUNTING_DEFAULT_BACKGROUND_BLOCK_SIZE_BP: Final[int] = -1
 COUNTING_DEFAULT_SCALE_FACTORS: Final[tuple[float, ...] | None] = None
 COUNTING_DEFAULT_SCALE_FACTORS_CONTROL: Final[tuple[float, ...] | None] = None
@@ -177,13 +187,13 @@ SC_DEFAULT_FRAGMENT_POSITION_MODE: Final[str] = "insertionEndpoints"
 SC_SUPPORTED_COUNT_MODES: Final[StrTuple] = SUPPORTED_COUNT_MODES + ("midpoint",)
 
 PROCESS_DEFAULT_DELTA_F: Final[float] = 1.0
-PROCESS_DEFAULT_MIN_Q: Final[float] = 1.0e-6  ###
+PROCESS_DEFAULT_MIN_Q: Final[float] = 1.0e-2  ###
 PROCESS_DEFAULT_MAX_Q: Final[float] = 1000.0
 PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN: Final[float] = 0.8  ### *
 PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX: Final[float] = 1.2  ### *
 PROCESS_DEFAULT_STATE_MODEL: Final[str] = STATE_MODEL_LEVEL_TREND  ###
 
-OBSERVATION_DEFAULT_MIN_R: Final[float] = -1.0
+OBSERVATION_DEFAULT_MIN_R: Final[float] = 0.01
 OBSERVATION_DEFAULT_MAX_R: Final[float] = 1000.0
 OBSERVATION_DEFAULT_SAMPLING_ITERS: Final[int] = 10_000
 MUNC_VARIANCE_MODEL_AR1: Final[str] = "ar1"
@@ -207,7 +217,7 @@ OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_SIZE_BP: Final[int | None] = None
 OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_SIZE_BP: Final[int | None] = None
 OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER: Final[float] = 2.0  ###
 OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER: Final[float] = 2.0  ###
-OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ: Final[bool] = True
+OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ: Final[bool] = False
 OBSERVATION_DEFAULT_EB_USE: Final[bool] = True
 OBSERVATION_DEFAULT_EB_SET_NU0: Final[float | None] = None
 OBSERVATION_DEFAULT_EB_SET_NUL: Final[float | None] = None
@@ -223,14 +233,28 @@ OBSERVATION_DEFAULT_NUM_NEAREST: Final[int] = 0
 OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED: Final[bool] = False
 OBSERVATION_DEFAULT_SPARSE_SUPPORT_SCALE_BP: Final[float] = -1.0
 OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR: Final[float] = 1.0
-OBSERVATION_DEFAULT_PAD: Final[float] = 1.0e-4  ###
+OBSERVATION_DEFAULT_PAD: Final[float] = 1.0e-2  ###
 OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN: Final[float] = 1.0  ###
 OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MAX: Final[float] = 1.0  ###
-OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS: Final[bool] = True  ###
+OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS: Final[bool] = False  ###
+MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE: Final[str] = "perReplicateAdditive"
+MUNC_SUPPORTED_COVARIATE_MODES: Final[StrTuple] = (
+    MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE,
+)
+MUNC_COVARIATE_FEATURES: Final[StrTuple] = (
+    "gc",
+    "low_mappability_frac",
+    "repeat_frac",
+)
+OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED: Final[bool] = False
+OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE: Final[str] = (
+    MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE
+)
+OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES: Final[StrTuple] = MUNC_COVARIATE_FEATURES
 
 FIT_DEFAULT_FIXED_BACKGROUND_ITERS: Final[int] = 50
 FIT_DEFAULT_FIXED_BACKGROUND_RTOL: Final[float] = 1.0e-6  ###
-FIT_DEFAULT_ROBUST_T_NU: Final[float] = 10.0
+FIT_DEFAULT_ROBUST_T_NU: Final[float] = 8.0
 FIT_DEFAULT_USE_OBS_PRECISION_REWEIGHTING: Final[bool] = False  ###
 FIT_DEFAULT_USE_PROCESS_PRECISION_REWEIGHTING: Final[bool] = True  ###
 FIT_DEFAULT_USE_APN: Final[bool] = False
@@ -357,6 +381,7 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
         "processParams.precisionMultiplierMax": (
             PROCESS_DEFAULT_PRECISION_MULTIPLIER_MAX
         ),
+        "genomeParams.genomeCovariateCacheDir": GENOME_DEFAULT_COVARIATE_CACHE_DIR,
         "observationParams.precisionMultiplierMin": (
             OBSERVATION_DEFAULT_PRECISION_MULTIPLIER_MIN
         ),
@@ -380,6 +405,15 @@ DEFAULT_CONFIGURATION_VALUES: Final[ConfigurationProfileMap] = {
         ),
         "observationParams.additiveHighFreq": OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
         "observationParams.noDMVar": OBSERVATION_DEFAULT_NO_DM_VAR,
+        "observationParams.muncCovariates.enabled": (
+            OBSERVATION_DEFAULT_MUNC_COVARIATES_ENABLED
+        ),
+        "observationParams.muncCovariates.mode": (
+            OBSERVATION_DEFAULT_MUNC_COVARIATES_MODE
+        ),
+        "observationParams.muncCovariates.features": (
+            OBSERVATION_DEFAULT_MUNC_COVARIATE_FEATURES
+        ),
         "observationParams.restrictLocalVarianceToSparseBed": (
             OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED
         ),

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from pathlib import Path
 
 import numpy as np
@@ -46,6 +47,49 @@ def _writeToyBedGraphs(tmp_path: Path):
     pd.DataFrame(stateRows).to_csv(statePath, sep="\t", header=False, index=False)
     pd.DataFrame(uncRows).to_csv(uncPath, sep="\t", header=False, index=False)
     return statePath, uncPath
+
+
+def _writeSingleChromBedGraphs(
+    tmp_path: Path,
+    state: np.ndarray,
+    uncertainty: np.ndarray | None = None,
+    *,
+    chrom: str = "chr1",
+    step: int = 25,
+    stem: str = "single",
+):
+    starts = np.arange(0, int(state.size) * int(step), int(step), dtype=np.int64)
+    ends = starts + int(step)
+    statePath = tmp_path / f"{stem}_state.bedGraph"
+    pd.DataFrame(
+        [
+            (str(chrom), int(start), int(end), float(x))
+            for start, end, x in zip(starts, ends, state)
+        ]
+    ).to_csv(statePath, sep="\t", header=False, index=False)
+    if uncertainty is None:
+        return statePath, None
+
+    uncPath = tmp_path / f"{stem}_uncertainty.bedGraph"
+    pd.DataFrame(
+        [
+            (str(chrom), int(start), int(end), float(x))
+            for start, end, x in zip(starts, ends, uncertainty)
+        ]
+    ).to_csv(uncPath, sep="\t", header=False, index=False)
+    return statePath, uncPath
+
+
+def _assertNoBoundaryGammaMetadata(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            keyLower = str(key).lower()
+            assert "boundary_gamma" not in keyLower
+            assert "per_boundary_gamma" not in keyLower
+            _assertNoBoundaryGammaMetadata(child)
+    elif isinstance(value, list):
+        for child in value:
+            _assertNoBoundaryGammaMetadata(child)
 
 
 @pytest.mark.correctness
@@ -526,6 +570,231 @@ def _casePreparedStationaryNullDWBUsesSharedPanelAndMonotoneThresholds():
 
 
 @pytest.mark.correctness
+def _caseSolveRoccoAnnotatesPeakLevelDwbEmpiricalPQ(tmp_path):
+    n = 96
+    state = np.zeros(n, dtype=np.float64)
+    state[18:26] = 6.0
+    state[58:68] = 4.5
+    uncertainty = np.ones(n, dtype=np.float64)
+    statePath, uncPath = _writeSingleChromBedGraphs(
+        tmp_path,
+        state,
+        uncertainty,
+        stem="peak_pq",
+    )
+    outPath = tmp_path / "peak_pq_rocco.narrowPeak"
+    metaPath = tmp_path / "peak_pq_rocco.narrowPeak.json"
+
+    peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        numBootstrap=16,
+        dependenceSpan=6,
+        randSeed=19,
+        gamma=0.0,
+        nestedRoccoIters=0,
+        massiveSubpeakCleanup=False,
+        outPath=str(outPath),
+        metaPath=str(metaPath),
+    )
+
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    chromMeta = meta["chromosomes"]["chr1"]
+    peakDetails = chromMeta["peak_details"]
+    assert peakDetails
+    assert chromMeta["budget_details"]["null_calibration_method"] == "stationary_null_dwb"
+    scoring = chromMeta["export_details"]["dwb_peak_scoring"]
+    assert scoring["p_value"] == "empirical_replay_segment_tail"
+    assert scoring["q_value"] == "dwb_replay_fdr_candidate_segments"
+    assert scoring["primary_metric"] == "width_adjusted_mass"
+    candidateDetails = chromMeta["candidate_details"]
+    assert len(candidateDetails) >= len(peakDetails)
+    assert chromMeta["candidate_significance"]["num_candidates"] == len(candidateDetails)
+    assert all("exported_peak" in peak["candidate_sources"] for peak in peakDetails)
+    assert all(peak["candidate_scale_bins"] for peak in peakDetails)
+    for peak in peakDetails:
+        assert peak["dwb_empirical_method"] == "stationary_null_dwb_peak_replay"
+        assert peak["dwb_empirical_panel_id"] == chromMeta["budget_details"]["dwb_panel_id"]
+        assert peak["dwb_empirical_null_replays"] >= 8
+        assert 0.0 <= float(peak["dwb_empirical_p"]) <= 1.0
+        assert 0.0 <= float(peak["dwb_empirical_q"]) <= 1.0
+        assert float(peak["dwb_empirical_q"]) >= float(peak["dwb_empirical_p"])
+        assert np.isfinite(float(peak["dwb_empirical_statistic"]))
+        for metric in ("summit_excess", "integrated_excess", "width_adjusted_mass"):
+            assert np.isfinite(float(peak[metric]))
+            assert 0.0 <= float(peak[f"{metric}_p"]) <= 1.0
+            assert 0.0 <= float(peak[f"{metric}_q"]) <= 1.0
+            assert float(peak[f"{metric}_q"]) >= float(peak[f"{metric}_p"])
+
+    sortedByStatistic = sorted(
+        (
+            float(peak["dwb_empirical_statistic"]),
+            float(peak["dwb_empirical_q"]),
+        )
+        for peak in peakDetails
+    )[::-1]
+    qByStatistic = [q for _statistic, q in sortedByStatistic]
+    assert all(
+        left <= right + 1.0e-12
+        for left, right in zip(qByStatistic, qByStatistic[1:])
+    )
+    narrowRows = [
+        line.split("\t")
+        for line in outPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(narrowRows) == len(peakDetails)
+    for row, peak in zip(narrowRows, peakDetails):
+        expectedP = min(-np.log10(max(float(peak["dwb_empirical_p"]), 1.0e-300)), 1000.0)
+        expectedQ = (
+            1000.0
+            if float(peak["dwb_empirical_q"]) <= 0.0
+            else min(-np.log10(float(peak["dwb_empirical_q"])), 1000.0)
+        )
+        assert float(row[7]) == pytest.approx(expectedP)
+        assert float(row[8]) == pytest.approx(expectedQ)
+        assert float(row[8]) <= float(row[7]) + 1.0e-12
+    _assertNoBoundaryGammaMetadata(peakDetails)
+
+
+@pytest.mark.correctness
+def _caseReplayFDRModeratePanelsStaySubquadratic():
+    empiricalP = getattr(peaks, "_empiricalReplaySegmentPValues", None)
+    replayQ = getattr(peaks, "_replayFDRQValues", None)
+    assert empiricalP is not None
+    assert replayQ is not None
+
+    rng = np.random.default_rng(271)
+    observed = rng.gamma(shape=2.5, scale=1.0, size=6000)
+    nullDraws = [
+        rng.gamma(shape=2.2, scale=1.0, size=3000)
+        for _ in range(32)
+    ]
+
+    started = time.perf_counter()
+    pValues = empiricalP(observed, nullDraws)
+    qValues = np.maximum(replayQ(observed, nullDraws), pValues)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 3.0
+    assert pValues.shape == observed.shape
+    assert qValues.shape == observed.shape
+    assert np.all(np.isfinite(pValues))
+    assert np.all(np.isfinite(qValues))
+    assert np.all((0.0 <= pValues) & (pValues <= 1.0))
+    assert np.all((0.0 <= qValues) & (qValues <= 1.0))
+    assert np.all(qValues + 1.0e-12 >= pValues)
+    assert np.any(qValues > pValues + 1.0e-6)
+
+    order = np.argsort(-observed, kind="mergesort")
+    pByStatistic = pValues[order]
+    qByStatistic = qValues[order]
+    assert np.all(pByStatistic[:-1] <= pByStatistic[1:] + 1.0e-12)
+    assert np.all(qByStatistic[:-1] <= qByStatistic[1:] + 1.0e-12)
+
+
+@pytest.mark.correctness
+def _caseDWBPeakScoringModerateReplayStaysBoundedAndSane():
+    addScoring = getattr(peaks, "_addDWBPeakScoringToPeakMeta", None)
+    assert addScoring is not None
+
+    rng = np.random.default_rng(503)
+    n = 3500
+    scores = rng.normal(size=n)
+    peakStarts = list(range(100, 3400, 300))
+    for start in peakStarts:
+        width = 25
+        scores[start : start + width] += np.hanning(width) * 4.0
+
+    thresholdViews = {
+        f"z{z}": {
+            "threshold_z": float(z),
+            "threshold": float(z),
+            "null_scale": 1.0,
+            "null_center": 0.0,
+        }
+        for z in (-0.25, 0.0, 0.25, 0.5)
+    }
+    prepared = {
+        "threshold_views": thresholdViews,
+        "template": rng.normal(size=n),
+        "dwb_calibration": {
+            "dependence_span": 16,
+            "dependence_span_lower": 8,
+            "dependence_span_upper": 24,
+            "kernel": "bartlett",
+            "num_bootstrap": 12,
+            "random_seed": 127,
+            "dwb_panel_id": "synthetic-performance-regression",
+        },
+    }
+    peakMeta = []
+    for idx, start in enumerate(peakStarts, start=1):
+        end = start + 24
+        peakMeta.append(
+            {
+                "name": f"synthetic_peak_{idx}",
+                "start_idx": int(start),
+                "end_idx": int(end),
+                "start": int(start * 25),
+                "end": int((end + 1) * 25),
+                "summit_idx": int(start + np.argmax(scores[start : end + 1])),
+            }
+        )
+    intervals = np.arange(n, dtype=np.int64) * 25
+    ends = intervals + 25
+    exportDetails = {}
+
+    started = time.perf_counter()
+    summary = addScoring(
+        peakMeta,
+        scores,
+        prepared,
+        exportDetails=exportDetails,
+        minRunBins=1,
+        intervals=intervals,
+        ends=ends,
+    )
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 4.0
+    assert summary["enabled"] is True
+    assert summary["num_bootstrap"] == 12
+    assert summary["num_candidate_regions"] >= len(peakMeta)
+    assert summary["num_candidate_regions"] <= 10000 + len(peakMeta)
+    assert summary["null_replay_candidate_count_q95"] >= summary[
+        "null_replay_candidate_count_mean"
+    ]
+    assert exportDetails["candidate_significance"]["num_candidates"] == summary[
+        "num_candidate_regions"
+    ]
+    diagnostics = exportDetails["null_replay_false_segment_diagnostics"]
+    assert diagnostics["num_replays"] == 12
+    assert diagnostics["observed_segment_count"] == len(peakMeta)
+    assert diagnostics["observed_candidate_count"] == summary["num_candidate_regions"]
+
+    qByStatistic = []
+    for peak in peakMeta:
+        assert 0.0 <= float(peak["dwb_empirical_p"]) <= 1.0
+        assert 0.0 <= float(peak["dwb_empirical_q"]) <= 1.0
+        assert float(peak["dwb_empirical_q"]) >= float(peak["dwb_empirical_p"])
+        assert peak["candidate_scale_bins"]
+        qByStatistic.append(
+            (
+                float(peak["dwb_empirical_statistic"]),
+                float(peak["dwb_empirical_q"]),
+            )
+        )
+    qByStatistic.sort(reverse=True)
+    qValues = [q for _stat, q in qByStatistic]
+    assert any(
+        float(peak["dwb_empirical_q"]) > float(peak["dwb_empirical_p"]) + 1.0e-6
+        for peak in peakMeta
+    )
+    assert all(left <= right + 1.0e-12 for left, right in zip(qValues, qValues[1:]))
+
+
+@pytest.mark.correctness
 def _caseGetBudgetForROCCOIsStableUnderFixedSeed():
     state, uncertainty = _toyChromState(seed=13, n=384)
     budget1, details1 = peaks.getROCCOBudget(
@@ -636,6 +905,46 @@ def _caseSolutionToChromNarrowPeakRowsSplitsSelectedCoordinateGaps():
     assert [int(rows[1][1]), int(rows[1][2])] == [1000, 1050]
     assert all(int(row[2]) - int(row[1]) == 50 for row in rows)
     assert exportDetails["num_coordinate_gap_splits"] == 1
+
+
+@pytest.mark.correctness
+def _caseMultiscaleCandidateGenerationUsesMultipleScales():
+    scores = np.zeros(64, dtype=np.float64)
+    scores[8:12] = 3.0
+    scores[24:42] = 1.15
+    scores[29:34] = 3.5
+    intervals = np.arange(0, scores.size * 25, 25, dtype=np.int64)
+    ends = intervals + 25
+
+    generate = getattr(peaks, "_generateROCCOMultiscaleCandidateSegments", None)
+    assert generate is not None
+    candidates, details = generate(
+        scores,
+        intervals=intervals,
+        ends=ends,
+        threshold=1.0,
+        scales=(1, 3, 9),
+        minRunBins=2,
+        returnDetails=True,
+    )
+
+    assert details["method"] == "multiscale_rocco_candidates"
+    assert details["scales"] == [1, 3, 9]
+    assert details["num_candidates"] == len(candidates)
+    assert details["num_candidates"] >= 2
+    assert set(details["candidate_scales"]).issuperset({1, 3, 9})
+    candidateScales = {int(candidate["scale_bins"]) for candidate in candidates}
+    assert 1 in candidateScales
+    assert any(scale > 1 for scale in candidateScales)
+    for candidate in candidates:
+        startIdx = int(candidate["start_idx"])
+        endIdx = int(candidate["end_idx"])
+        assert 0 <= startIdx <= endIdx < scores.size
+        assert int(candidate["start"]) == int(intervals[startIdx])
+        assert int(candidate["end"]) == int(ends[endIdx])
+        assert np.isfinite(float(candidate["score_statistic"]))
+        assert "boundary_gamma" not in candidate
+        assert "per_boundary_gamma" not in candidate
 
 
 @pytest.mark.correctness
@@ -1178,6 +1487,61 @@ def _caseNestedROCCORefinementWritesSubproblemDiagnostics(caplog, tmp_path):
     assert detailRows[0]["anchor_selected"] is True
 
 
+def _caseSolveRoccoVerboseWritesNullReplayFalseSegmentDiagnostics(tmp_path, caplog):
+    n = 96
+    state = np.zeros(n, dtype=np.float64)
+    state[30:38] = 5.5
+    uncertainty = np.ones(n, dtype=np.float64)
+    statePath, uncPath = _writeSingleChromBedGraphs(
+        tmp_path,
+        state,
+        uncertainty,
+        stem="null_replay",
+    )
+    outPath = tmp_path / "null_replay_rocco.narrowPeak"
+    metaPath = tmp_path / "null_replay_rocco.narrowPeak.json"
+    detailPath = Path(f"{outPath}.nested_rocco_subproblems.jsonl")
+
+    with caplog.at_level(logging.INFO, logger="consenrich.peaks"):
+        peaks.solveRocco(
+            str(statePath),
+            uncertaintyBedGraphFile=str(uncPath),
+            numBootstrap=16,
+            dependenceSpan=6,
+            randSeed=23,
+            gamma=0.0,
+            nestedRoccoIters=0,
+            massiveSubpeakCleanup=False,
+            outPath=str(outPath),
+            metaPath=str(metaPath),
+            verbose=True,
+        )
+
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    chromMeta = meta["chromosomes"]["chr1"]
+    diagnostics = chromMeta["null_replay_false_segment_diagnostics"]
+    assert diagnostics["method"] == "stationary_null_dwb_null_replay"
+    assert diagnostics["num_replays"] >= 8
+    assert diagnostics["observed_segment_count"] == chromMeta["num_segments"]
+    assert diagnostics["false_segment_count_mean"] >= 0.0
+    assert diagnostics["false_segment_count_q95"] >= diagnostics["false_segment_count_mean"]
+    assert 0.0 <= diagnostics["false_segment_fdr_estimate"] <= 1.0
+    _assertNoBoundaryGammaMetadata(diagnostics)
+
+    detailRows = [
+        json.loads(line)
+        for line in detailPath.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    replayRows = [
+        row for row in detailRows if row.get("event") == "null_replay_false_segments"
+    ]
+    assert replayRows
+    assert replayRows[0]["chromosome"] == "chr1"
+    assert replayRows[0]["num_replays"] == diagnostics["num_replays"]
+    assert "null replay false-segment diagnostics chr1" in caplog.text
+
+
 @pytest.mark.correctness
 def _caseNestedROCCORefinementSkipsShortParentRegions():
     scores = np.zeros(20, dtype=np.float64)
@@ -1278,6 +1642,109 @@ def _caseNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion():
     assert details["stop_reason"] == "mask_equal"
 
 
+def _assertNestedPolicyMetadataIsUseful(details):
+    assert details["subproblem_mode"]
+    assert details["anchor_policy"]
+    assert details["min_child_bins"] >= 1
+    assert details["initial_selected_count"] >= details["final_selected_count"]
+    assert details["history"]
+    for step in details["history"]:
+        assert step["selected_count_after"] <= step["selected_count_before"]
+        assert step["num_coverage_expansion_violations"] == 0
+        assert step["num_parent_erasure_violations"] == 0
+        assert step["num_anchor_survival_violations"] == 0
+        assert np.isfinite(step["objective"])
+        assert np.isfinite(step["objective_delta"])
+        assert 0.0 <= step["jaccard"] <= 1.0
+
+
+@pytest.mark.correctness
+def _caseNestedROCCOAdaptivePolicyRetainsBroadCoherentPlateau():
+    scores = np.zeros(140, dtype=np.float64)
+    scores[25:105] = 4.0
+    firstPass = np.zeros(140, dtype=np.uint8)
+    firstPass[25:105] = 1
+
+    refined, details = peaks._refineNestedROCCOSolution(
+        scores,
+        firstPass,
+        gamma=0.4,
+        selectionPenalty=1.0,
+        nestedRoccoIters=3,
+        nestedRoccoBudgetScale=0.5,
+        minRegionBins=5,
+    )
+
+    runs = peaks._selectedRunBounds(refined)
+    assert np.all(refined <= firstPass)
+    assert len(runs) == 1
+    assert int(np.sum(refined[25:105])) >= 0.9 * int(np.sum(firstPass[25:105]))
+    assert details["history"][0]["num_parent_peaks_after"] == 1
+    assert details["history"][0]["selected_count_delta"] >= -8
+    assert details["history"][0]["local_penalty_extra_mean"] == pytest.approx(0.0)
+    _assertNestedPolicyMetadataIsUseful(details)
+
+
+@pytest.mark.correctness
+def _caseNestedROCCOAdaptivePolicySplitsOnlyAcrossRealValleys():
+    scores = np.zeros(140, dtype=np.float64)
+    scores[25:50] = 4.0
+    scores[50:60] = -0.2
+    scores[60:95] = 3.8
+    firstPass = np.zeros(140, dtype=np.uint8)
+    firstPass[25:95] = 1
+
+    refined, details = peaks._refineNestedROCCOSolution(
+        scores,
+        firstPass,
+        gamma=0.4,
+        selectionPenalty=1.0,
+        nestedRoccoIters=3,
+        nestedRoccoBudgetScale=1.0,
+        minRegionBins=5,
+    )
+
+    runs = peaks._selectedRunBounds(refined)
+    assert np.all(refined <= firstPass)
+    assert len(runs) == 2
+    assert np.all(refined[25:50] == 1)
+    assert np.all(refined[60:95] == 1)
+    assert int(np.sum(refined[50:60])) == 0
+    assert details["history"][0]["num_parent_peaks_after"] > details["history"][0][
+        "num_parent_peaks"
+    ]
+    assert details["history"][0]["selected_count_delta"] <= -10
+    _assertNestedPolicyMetadataIsUseful(details)
+
+
+@pytest.mark.correctness
+def _caseNestedROCCOAdaptivePolicySuppressesDiffuseShoulders():
+    scores = np.zeros(150, dtype=np.float64)
+    scores[30:50] = 3.8
+    scores[50:105] = 0.45
+    firstPass = np.zeros(150, dtype=np.uint8)
+    firstPass[30:105] = 1
+
+    refined, details = peaks._refineNestedROCCOSolution(
+        scores,
+        firstPass,
+        gamma=0.4,
+        selectionPenalty=1.0,
+        nestedRoccoIters=3,
+        nestedRoccoBudgetScale=0.5,
+        minRegionBins=5,
+    )
+
+    runs = peaks._selectedRunBounds(refined)
+    assert np.all(refined <= firstPass)
+    assert len(runs) == 1
+    assert np.all(refined[30:50] == 1)
+    assert int(np.sum(refined[50:105])) <= 5
+    assert details["history"][0]["selected_count_delta"] <= -50
+    assert details["history"][0]["local_penalty_extra_mean"] > 0.0
+    _assertNestedPolicyMetadataIsUseful(details)
+
+
 @pytest.mark.correctness
 def _caseCheckMatchingEnabledHonorsEnabledFlag():
     matchingArgs = type(
@@ -1296,7 +1763,7 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
         return func(*args, mp)
 
 
-def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case):
+def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, tmp_path, contract_case):
     for label, func, args in (
         ("empirical mirrored null", _caseEmpiricalMirroredNullStrengthensThreshold, ()),
         (
@@ -1310,6 +1777,9 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, contract_case)
         ("ROCCO null fallback and EB shrinkage", _caseROCCONullFallbackAndEBShrinkage, ()),
         ("integrated budget tail grid", _caseIntegratedBudgetUsesExcessTailGrid, ()),
         ("stationary DWB shared panel", _casePreparedStationaryNullDWBUsesSharedPanelAndMonotoneThresholds, ()),
+        ("peak-level DWB empirical p/q", _caseSolveRoccoAnnotatesPeakLevelDwbEmpiricalPQ, (tmp_path,)),
+        ("replay FDR moderate panel performance", _caseReplayFDRModeratePanelsStaySubquadratic, ()),
+        ("DWB peak scoring moderate replay performance", _caseDWBPeakScoringModerateReplayStaysBoundedAndSane, ()),
         ("budget fixed-seed stability", _caseGetBudgetForROCCOIsStableUnderFixedSeed, ()),
         ("centered excess gamma", _caseEstimateGammaForROCCOUsesCenteredExcessWhenAvailable, ()),
     ):
@@ -1337,6 +1807,7 @@ def test_rocco_subpeak_policy_contracts(contract_case):
             "selected coordinate gaps split",
             _caseSolutionToChromNarrowPeakRowsSplitsSelectedCoordinateGaps,
         ),
+        ("multiscale candidate generation", _caseMultiscaleCandidateGenerationUsesMultipleScales),
         (
             "wide-context splitting",
             _caseSolutionToChromNarrowPeakRowsSplitsObviousSubpeaksWhenContextIsWide,
@@ -1375,6 +1846,18 @@ def test_rocco_nested_refinement_contracts(contract_case):
         ("short parent skipped", _caseNestedROCCORefinementSkipsShortParentRegions),
         ("all-negative parent emits child", _caseNestedROCCOAllNegativeParentStillEmitsAnchoredChild),
         ("coherent parent retained", _caseNestedROCCOWithoutLocalBudgetDoesNotEraseCoherentParentRegion),
+        (
+            "adaptive plateau retained",
+            _caseNestedROCCOAdaptivePolicyRetainsBroadCoherentPlateau,
+        ),
+        (
+            "adaptive real valley split",
+            _caseNestedROCCOAdaptivePolicySplitsOnlyAcrossRealValleys,
+        ),
+        (
+            "adaptive diffuse shoulder suppressed",
+            _caseNestedROCCOAdaptivePolicySuppressesDiffuseShoulders,
+        ),
     ):
         contract_case(label, func)
 
@@ -1402,6 +1885,13 @@ def test_rocco_diagnostics_contracts(tmp_path, caplog, contract_case):
     contract_case(
         "verbose solve diagnostics",
         _caseSolveRoccoVerboseWritesSubproblemDiagnostics,
+        tmp_path,
+        caplog,
+    )
+    caplog.clear()
+    contract_case(
+        "null replay false-segment diagnostics",
+        _caseSolveRoccoVerboseWritesNullReplayFalseSegmentDiagnostics,
         tmp_path,
         caplog,
     )

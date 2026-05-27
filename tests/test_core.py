@@ -930,6 +930,55 @@ def _caseFinalForwardGainSummaryUsesReplicateContigRows():
 
 
 @pytest.mark.correctness
+def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
+    stateCovarForward = np.zeros((3, 2, 2), dtype=np.float32)
+    stateCovarForward[:, 0, 0] = [0.4, 0.5, 0.6]
+    stateCovarForward[:, 0, 1] = [0.03, 0.04, 0.05]
+    stateCovarForward[:, 1, 0] = stateCovarForward[:, 0, 1]
+    stateCovarForward[:, 1, 1] = [0.2, 0.25, 0.3]
+    matrixMunc = np.asarray(
+        [[0.9, 1.9, 0.4], [1.1, 0.1, 0.6]],
+        dtype=np.float32,
+    )
+    matrixQ0 = np.asarray([[0.2, 0.0], [0.0, 0.05]], dtype=np.float32)
+    matrixF = np.asarray([[1.0, 0.1], [0.0, 1.0]], dtype=np.float32)
+    lambdaExp = np.asarray([1.0, 2.0, 0.5], dtype=np.float32)
+    processPrecExp = np.asarray([1.0, 2.0, 4.0], dtype=np.float32)
+
+    tracks = core._perIntervalOutputDiagnosticTracks(
+        stateCovarForward=stateCovarForward,
+        matrixMunc=matrixMunc,
+        matrixQ0=matrixQ0,
+        matrixF=matrixF,
+        stateCovarInit=1.0,
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        lambdaExp=lambdaExp,
+        processPrecExp=processPrecExp,
+        pNoiseForward=None,
+        pad=0.1,
+        obsPrecisionMultiplierMin=0.25,
+        obsPrecisionMultiplierMax=4.0,
+        procPrecisionMultiplierMin=0.25,
+        procPrecisionMultiplierMax=4.0,
+    )
+
+    np.testing.assert_allclose(tracks["qLevel"], [0.2, 0.1, 0.05])
+    np.testing.assert_allclose(tracks["qTrend"], [0.05, 0.025, 0.0125])
+    expectedTrace = np.sum(
+        (matrixMunc.astype(np.float64) + 0.1) / lambdaExp[None, :],
+        axis=0,
+    )
+    np.testing.assert_allclose(tracks["muncTrace"], expectedTrace)
+
+    sumInvR0 = (1.0 / 1.0) + (1.0 / 1.2)
+    pred00 = 1.21
+    pred10 = 0.1
+    denom = 1.0 + pred00 * sumInvR0
+    assert tracks["sumGain0"][0] == pytest.approx(pred00 * sumInvR0 / denom)
+    assert tracks["sumGain1"][0] == pytest.approx(pred10 * sumInvR0 / denom)
+
+
+@pytest.mark.correctness
 def _caseBackgroundPenaltyWeightsScaleByDifferenceOrder():
     lamFirst, lamSecond = core._backgroundPenaltyWeightsFromSpan(
         blockLenIntervals=12,
@@ -1446,144 +1495,92 @@ def _caseLevelForwardBackwardMatchesPythonReference():
     np.testing.assert_allclose(residuals, refResiduals, rtol=2.0e-6, atol=2.0e-6)
 
 
+
 @pytest.mark.correctness
-def _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel():
-    matrixF = core.constructMatrixF(1.0).astype(np.float32, copy=False)
-    stateSmoothed = np.asarray(
-        [
-            [0.0, 0.0],
-            [1.0, 0.5],
-            [2.5, 0.7],
-            [4.2, 1.1],
-            [6.3, 1.4],
-        ],
-        dtype=np.float32,
-    )
-    stateCovarSmoothed = np.zeros((stateSmoothed.shape[0], 2, 2), dtype=np.float32)
-    lagCovSmoothed = np.zeros((stateSmoothed.shape[0] - 1, 2, 2), dtype=np.float32)
+def _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood():
+    initialQ = np.diag([1.0e-3, 1.0e-5]).astype(np.float32)
 
-    matrixQ, blockInfo = core._estimateWarmupProcessNoiseCalibration(
-        stateSmoothed=stateSmoothed,
-        stateCovarSmoothed=stateCovarSmoothed,
-        lagCovSmoothed=lagCovSmoothed,
-        matrixF=matrixF,
-        stateModel=core.STATE_MODEL_LEVEL_TREND,
-        minQ=1.0e-4,
-        maxQ=10.0,
-        regularizationStrength=1.0,
-        regularizationRatio=0.001,
-        blockLenIntervals=2,
-    )
-    _, changedKnobInfo = core._estimateWarmupProcessNoiseCalibration(
-        stateSmoothed=stateSmoothed,
-        stateCovarSmoothed=stateCovarSmoothed,
-        lagCovSmoothed=lagCovSmoothed,
-        matrixF=matrixF,
-        stateModel=core.STATE_MODEL_LEVEL_TREND,
-        minQ=1.0e-4,
-        maxQ=10.0,
-        regularizationStrength=99.0,
-        regularizationRatio=0.9,
-        mapRoughnessPenalty=1.0,
-        blockLenIntervals=2,
-    )
+    def _level_score(matrix_q):
+        q_level = float(matrix_q[0, 0])
+        return 3.0 + 50.0 * (np.log(q_level) - np.log(4.0e-2)) ** 2
 
-    assert matrixQ[0, 1] == pytest.approx(0.0)
-    assert matrixQ[1, 0] == pytest.approx(0.0)
-    assert blockInfo["processNoisePolicy"] == "EB_MAP"
-    assert blockInfo["blockMode"] == "non_overlapping"
-    assert blockInfo["validBlockCount"] > 0
-    assert blockInfo["validRatioBlockCount"] > 0
-    assert "repeatCount" not in blockInfo
-    assert "logQLevelMean" not in blockInfo
-    assert blockInfo["qLevel"] == pytest.approx(changedKnobInfo["qLevel"])
-    assert blockInfo["qTrend"] != pytest.approx(changedKnobInfo["qTrend"])
-    assert blockInfo["effectiveTrendLevelRatio"] > 0.0
-    assert changedKnobInfo["effectiveTrendLevelRatio"] > blockInfo["effectiveTrendLevelRatio"]
-    assert blockInfo["regularizationRatio"] == pytest.approx(0.001)
-    assert blockInfo["ratioPriorCenter"] == pytest.approx(0.001)
-    assert blockInfo["mapRoughnessPenalty"] == pytest.approx(1.0)
-    assert changedKnobInfo["regularizationRatio"] == pytest.approx(0.9)
-    assert changedKnobInfo["ratioPriorCenter"] == pytest.approx(0.9)
-    assert changedKnobInfo["mapRoughnessPenalty"] == pytest.approx(1.0)
-    assert "q_level" not in blockInfo
-    assert blockInfo["qFloor"] == pytest.approx(core.PROCESS_NOISE_NUMERICAL_FLOOR)
-
-    roughLevelState = np.asarray(
-        [[0.0], [0.1], [0.2], [8.0], [16.0], [24.0], [24.1], [24.2], [24.3], [24.4]],
-        dtype=np.float32,
-    )
-    roughLevelCovar = np.zeros((roughLevelState.shape[0], 1, 1), dtype=np.float32)
-    roughLevelLag = np.zeros((roughLevelState.shape[0] - 1, 1, 1), dtype=np.float32)
-    _, noRoughPenaltyInfo = core._estimateWarmupProcessNoiseCalibration(
-        stateSmoothed=roughLevelState,
-        stateCovarSmoothed=roughLevelCovar,
-        lagCovSmoothed=roughLevelLag,
-        matrixF=matrixF,
+    matrixQ, info = core._estimateMarginalMAPProcessNoise(
+        scoreForwardNLL=_level_score,
+        initialMatrixQ=initialQ,
         stateModel=core.STATE_MODEL_LEVEL,
-        minQ=1.0e-4,
-        maxQ=100.0,
-        regularizationStrength=1.0,
-        regularizationRatio=0.5,
-        mapRoughnessPenalty=0.0,
-        blockLenIntervals=3,
-    )
-    _, highRoughPenaltyInfo = core._estimateWarmupProcessNoiseCalibration(
-        stateSmoothed=roughLevelState,
-        stateCovarSmoothed=roughLevelCovar,
-        lagCovSmoothed=roughLevelLag,
-        matrixF=matrixF,
-        stateModel=core.STATE_MODEL_LEVEL,
-        minQ=1.0e-4,
-        maxQ=100.0,
-        regularizationStrength=1.0,
-        regularizationRatio=0.5,
-        mapRoughnessPenalty=50.0,
-        blockLenIntervals=3,
-    )
-    assert noRoughPenaltyInfo["mapRoughnessPenalty"] == pytest.approx(0.0)
-    assert noRoughPenaltyInfo["qLevelPriorUsed"] is False
-    assert highRoughPenaltyInfo["mapRoughnessPenalty"] == pytest.approx(50.0)
-    assert highRoughPenaltyInfo["qLevelPriorUsed"] is True
-    assert highRoughPenaltyInfo["qLevel"] < noRoughPenaltyInfo["qLevel"]
-
-    levelState = np.asarray([[0.0], [0.2], [0.5], [0.9]], dtype=np.float32)
-    levelCovar = np.zeros((levelState.shape[0], 1, 1), dtype=np.float32)
-    levelLag = np.zeros((levelState.shape[0] - 1, 1, 1), dtype=np.float32)
-    matrixQLevel, levelInfo = core._estimateWarmupProcessNoiseCalibration(
-        stateSmoothed=levelState,
-        stateCovarSmoothed=levelCovar,
-        lagCovSmoothed=levelLag,
-        matrixF=matrixF,
-        stateModel=core.STATE_MODEL_LEVEL,
-        minQ=1.0e-4,
         maxQ=1.0,
-        regularizationStrength=1.0,
-        regularizationRatio=0.5,
-        blockLenIntervals=2,
+        regularizationStrength=0.0,
+        regularizationRatio=0.1,
+        mapRoughnessPenalty=0.0,
     )
-    assert matrixQLevel[0, 0] > 0.0
-    assert levelInfo["qTrend"] == pytest.approx(0.0)
-    assert levelInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
-    assert levelInfo["ratioPriorDfUsed"] == pytest.approx(0.0)
-    assert levelInfo["q11PaddingOnly"] is True
-    assert levelInfo["processNoisePolicy"] == "EB_MAP"
+    assert info["processNoisePolicy"] == "marginal_likelihood_map"
+    assert matrixQ[0, 0] == pytest.approx(4.0e-2, rel=5.0e-4)
+    assert info["qLevel"] == pytest.approx(float(matrixQ[0, 0]))
+    assert info["qTrend"] == pytest.approx(0.0)
+    assert info["optimizerParameterCount"] == 1
+    assert info["marginalForwardNLL"] == pytest.approx(3.0, abs=1.0e-6)
+    for removed_key in (
+        "".join(("block", "Mode")),
+        "".join(("ess", "Method")),
+        "".join(("qLevel", "DataDf")),
+        "".join(("qLevel", "DataEstimate")),
+        "".join(("qTrend", "DataEstimate")),
+        "".join(("valid", "BlockCount")),
+    ):
+        assert removed_key not in info
 
-    matrixQClamped, clampedInfo = core._estimateWarmupProcessNoiseCalibration(
-        stateSmoothed=stateSmoothed * 10.0,
-        stateCovarSmoothed=stateCovarSmoothed,
-        lagCovSmoothed=lagCovSmoothed,
-        matrixF=matrixF,
+    def _trend_score(matrix_q):
+        q_level = float(matrix_q[0, 0])
+        q_trend = float(matrix_q[1, 1])
+        return (
+            7.0
+            + 35.0 * (np.log(q_level) - np.log(8.0e-2)) ** 2
+            + 35.0 * (np.log(q_trend) - np.log(2.0e-2)) ** 2
+        )
+
+    noPriorQ, noPriorInfo = core._estimateMarginalMAPProcessNoise(
+        scoreForwardNLL=_trend_score,
+        initialMatrixQ=initialQ,
         stateModel=core.STATE_MODEL_LEVEL_TREND,
-        minQ=1.0e-4,
-        maxQ=0.05,
-        regularizationStrength=1.0,
-        regularizationRatio=0.001,
-        blockLenIntervals=2,
+        maxQ=1.0,
+        regularizationStrength=0.0,
+        regularizationRatio=0.1,
+        mapRoughnessPenalty=0.0,
     )
-    assert matrixQClamped[0, 0] == pytest.approx(0.05)
-    assert clampedInfo["qLevel"] == pytest.approx(0.05)
-    assert clampedInfo["hitQLevelCap"] is True
+    priorQ, priorInfo = core._estimateMarginalMAPProcessNoise(
+        scoreForwardNLL=_trend_score,
+        initialMatrixQ=initialQ,
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        maxQ=1.0,
+        regularizationStrength=40.0,
+        regularizationRatio=0.1,
+        mapRoughnessPenalty=0.0,
+    )
+    noPriorRatio = float(noPriorQ[1, 1] / noPriorQ[0, 0])
+    priorRatio = float(priorQ[1, 1] / priorQ[0, 0])
+    assert noPriorQ[0, 0] == pytest.approx(8.0e-2, rel=1.0e-3)
+    assert noPriorQ[1, 1] == pytest.approx(2.0e-2, rel=1.0e-3)
+    assert priorRatio < noPriorRatio
+    assert abs(np.log(priorRatio) - np.log(0.1)) < abs(
+        np.log(noPriorRatio) - np.log(0.1)
+    )
+    assert priorInfo["mapPriorPenalty"] > 0.0
+    assert priorInfo["trendLogRatioPriorStrength"] == pytest.approx(40.0)
+    assert priorInfo["optimizerParameterCount"] == 2
+
+    cappedQ, cappedInfo = core._estimateMarginalMAPProcessNoise(
+        scoreForwardNLL=_trend_score,
+        initialMatrixQ=np.diag([0.2, 0.2]).astype(np.float32),
+        stateModel=core.STATE_MODEL_LEVEL_TREND,
+        maxQ=1.0e-2,
+        regularizationStrength=0.0,
+        regularizationRatio=0.1,
+        mapRoughnessPenalty=0.0,
+    )
+    assert cappedQ[0, 0] == pytest.approx(1.0e-2)
+    assert cappedQ[1, 1] == pytest.approx(1.0e-2)
+    assert cappedInfo["hitQLevelCap"] is True
+    assert cappedInfo["hitQTrendCap"] is True
 
 
 @pytest.mark.correctness
@@ -1629,6 +1626,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         ECM_outerIters=2,
         processNoiseWarmupECMIters=1,
         trackOptimizationPath=True,
+        returnPrecisionDiagnostics=True,
         returnDiagnostics=True,
     )
 
@@ -1638,13 +1636,25 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         postFitResiduals,
         NIS,
         *_rest,
+        precisionDiagnostics,
         diagnostics,
     ) = out
-    assert len(out) == 6
+    assert len(out) == 7
     assert stateSmoothed.shape == (n, 2)
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert postFitResiduals.shape == (n, m)
     assert NIS.shape == (n,)
+    assert precisionDiagnostics["precision_track_diagnostics"] is True
+    outputTracks = precisionDiagnostics["outputTracks"]
+    assert tuple(sorted(outputTracks)) == (
+        "muncTrace",
+        "qLevel",
+        "qTrend",
+        "sumGain0",
+        "sumGain1",
+    )
+    for track in outputTracks.values():
+        assert np.asarray(track).shape == (n,)
     assert diagnostics["final_forward_nis"] == pytest.approx(float(np.mean(NIS)))
     gainSummary = diagnostics["final_forward_gain_contig_summary"]
     assert len(gainSummary["mean"]) == m
@@ -1664,10 +1674,14 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert "backgroundObjectivePerCell=" in caplog.text
     assert "backgroundObjectiveChangePerCell=" in caplog.text
     assert "backgroundObjectiveThresholdPerCell=" in caplog.text
-    assert "qLevelPriorMode=" in caplog.text
-    assert "qLevelDataEstimate=" in caplog.text
-    assert "qLevelPriorDf=" in caplog.text
-    assert "ratioPriorDf=" in caplog.text
+    assert "processNoiseCalibration=marginal_likelihood_map" in caplog.text
+    assert "forwardNLL=" in caplog.text
+    assert "mapObjective=" in caplog.text
+    assert "levelLogPriorCenter=" in caplog.text
+    assert "trendLogRatioPriorStrength=" in caplog.text
+    assert "optimizerEvaluations=" in caplog.text
+    assert "".join(("qLevel", "DataRaw=")) not in caplog.text
+    assert "".join(("qTrend", "DataRaw=")) not in caplog.text
     assert "lambdaMean=" in caplog.text
     assert "lambdaMedian=" in caplog.text
     assert "signChangePerKB=" in caplog.text
@@ -1750,9 +1764,9 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert all(np.isfinite(float(row["objective_value"])) for row in traceRows)
     assert all(row["objective_name"] == "nll" for row in traceRows)
     qInfo = diagnostics["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "EB_MAP"
-    assert qInfo["blockMode"] == "non_overlapping"
-    assert diagnostics["process_q_calibration"] == qInfo
+    assert qInfo["processNoisePolicy"] == "marginal_likelihood_map"
+    assert "".join(("block", "Mode")) not in qInfo
+    assert "_".join(("process", "q", "calibration")) not in diagnostics
     assert qInfo["qLevel"] > 0.0
     assert qInfo["qTrend"] > 0.0
 
@@ -1776,7 +1790,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         returnDiagnostics=True,
     )
     changedInfo = outChangedKnobs[-1]["process_noise_calibration"]
-    assert changedInfo["processNoisePolicy"] == "EB_MAP"
+    assert changedInfo["processNoisePolicy"] == "marginal_likelihood_map"
     assert changedInfo["qTrend"] > 0.0
 
 
@@ -1808,7 +1822,7 @@ def _caseRunConsenrichFlatWarmupInitializerDoesNotUseMinQ():
     )
 
     qInfo = out[-1]["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "EB_MAP"
+    assert qInfo["processNoisePolicy"] == "marginal_likelihood_map"
     assert qInfo["qLevel"] >= core.PROCESS_NOISE_NUMERICAL_FLOOR
     assert qInfo["qLevel"] < 5.0e-2
     assert qInfo["matrixQ0Final"][0][0] == pytest.approx(qInfo["qLevel"])
@@ -1935,12 +1949,12 @@ def _caseRunConsenrichLevelStateModelSmoke():
     )
     qInfo = runDiagnostics["process_noise_calibration"]
     assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
-    assert qInfo["processNoisePolicy"] == "EB_MAP"
+    assert qInfo["processNoisePolicy"] == "marginal_likelihood_map"
     assert qInfo["qLevel"] > 0.0
     assert qInfo["qTrend"] == pytest.approx(0.0)
     assert qInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
-    assert qInfo["ratioPriorDfUsed"] == pytest.approx(0.0)
-    assert qInfo["q11PaddingOnly"] is True
+    assert qInfo["optimizerParameterCount"] == 1
+    assert qInfo["trendLogRatioPriorStrength"] == pytest.approx(0.0)
 
 
 @pytest.mark.correctness
@@ -2028,7 +2042,10 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     assert "outer_nll_change" in diagnostics["post_process_noise_fit"]
     assert "outer_objective_change_per_cell" in diagnostics["post_process_noise_fit"]
     assert diagnostics["post_process_noise_fit"]["outer_patience_target"] == 2
-    assert diagnostics["process_noise_calibration"]["processNoisePolicy"] == "EB_MAP"
+    assert (
+        diagnostics["process_noise_calibration"]["processNoisePolicy"]
+        == "marginal_likelihood_map"
+    )
     assert diagnostics["process_noise_calibration"]["warmupECMIters"] == pytest.approx(
         1.0
     )
@@ -2424,6 +2441,117 @@ def _casePooledMuncTrendRecoversReplicateVarianceFactors():
     assert logMae < 0.08
     assert pooled.diagnostics["predictor"] == "signed_log1p"
     assert pooled.diagnostics["iterations"] <= 3
+
+
+@pytest.mark.correctness
+def _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback():
+    means0 = np.linspace(-3.0, 3.0, 80, dtype=np.float64)
+    means1 = np.linspace(-3.0, 3.0, 80, dtype=np.float64)
+    means2 = np.linspace(-1.0, 1.0, 6, dtype=np.float64)
+    means = np.concatenate([means0, means1, means2])
+    sampleIndex = np.concatenate(
+        [
+            np.zeros(means0.size, dtype=np.int64),
+            np.ones(means1.size, dtype=np.int64),
+            np.full(means2.size, 2, dtype=np.int64),
+        ]
+    )
+    baseline = 2.0 + 0.05 * np.abs(means)
+    excess = np.where(sampleIndex == 0, 0.5, np.where(sampleIndex == 1, 3.0, 7.0))
+    covariates = np.ones((means.size, 1), dtype=np.float32)
+
+    model = core.fitMuncAdditiveCovariateModel(
+        means,
+        baseline + excess,
+        baseline,
+        covariates,
+        sampleIndex,
+        featureNames=("repeat_frac",),
+        sampleCount=3,
+        basisCount=1,
+        ridge=1.0e-8,
+        minBlocksPerReplicate=20,
+    )
+
+    probeMeans = np.zeros(4, dtype=np.float64)
+    probeCovariates = np.ones((probeMeans.size, 1), dtype=np.float32)
+    add0 = core.evalMuncAdditiveCovariateModel(model, probeMeans, probeCovariates, 0)
+    add1 = core.evalMuncAdditiveCovariateModel(model, probeMeans, probeCovariates, 1)
+    add2 = core.evalMuncAdditiveCovariateModel(model, probeMeans, probeCovariates, 2)
+
+    assert model.featureNames == ("repeat_frac",)
+    assert model.replicateUsesPooled.tolist() == [False, False, True]
+    assert float(np.median(add0)) == pytest.approx(0.5, abs=0.05)
+    assert float(np.median(add1)) == pytest.approx(3.0, abs=0.05)
+    assert float(np.median(add2)) > float(np.median(add0))
+    assert float(np.median(add2)) < 3.0
+
+
+@pytest.mark.correctness
+def _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage():
+    values = np.zeros(40, dtype=np.float32)
+    intervals = np.arange(values.size, dtype=np.uint32) * np.uint32(25)
+    trend = core.PSplineLogVarianceTrend(
+        knots=np.empty(0, dtype=np.float64),
+        degree=-1,
+        beta=np.array([np.log(2.0)], dtype=np.float64),
+        xMin=0.0,
+        xMax=0.0,
+        lambdaHat=0.0,
+        edf=1.0,
+        gcv=0.0,
+        lambdaAtBoundary=False,
+        finiteCount=1,
+        diagnostics={"fallback": "test_constant"},
+    )
+    model = core.MuncAdditiveCovariateModel(
+        featureNames=("gc_dev",),
+        basisEdges=np.array([-np.inf, np.inf], dtype=np.float64),
+        basisMetadata={"type": "quantile_indicator", "predictor": "signed_log1p"},
+        pooledCoefficients=np.array([[3.0]], dtype=np.float64),
+        perReplicateCoefficients=np.array(
+            [
+                [[1.0]],
+                [[4.0]],
+            ],
+            dtype=np.float64,
+        ),
+        replicateUsesPooled=np.array([False, False], dtype=bool),
+        diagnostics={},
+    )
+    covariates = np.ones((values.size, 1), dtype=np.float32)
+
+    track0, _ = core.getMuncTrack(
+        "chrTest",
+        intervals,
+        values,
+        25,
+        muncTrendBlockSizeBP=100,
+        muncLocalWindowSizeBP=100,
+        EB_use=False,
+        pooledTrend=trend,
+        covariateTrack=covariates,
+        additiveCovariateModel=model,
+        replicateIndex=0,
+        varianceFloor=1.0e-6,
+    )
+    track1, _ = core.getMuncTrack(
+        "chrTest",
+        intervals,
+        values,
+        25,
+        muncTrendBlockSizeBP=100,
+        muncLocalWindowSizeBP=100,
+        EB_use=False,
+        pooledTrend=trend,
+        covariateTrack=covariates,
+        additiveCovariateModel=model,
+        replicateIndex=1,
+        varianceFloor=1.0e-6,
+    )
+
+    np.testing.assert_allclose(track0, np.full(values.size, 3.0), rtol=1.0e-6)
+    np.testing.assert_allclose(track1, np.full(values.size, 6.0), rtol=1.0e-6)
 
 
 @pytest.mark.correctness
@@ -4679,6 +4807,10 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
             "final forward gain summary",
             _caseFinalForwardGainSummaryUsesReplicateContigRows,
         ),
+        (
+            "per-interval output diagnostics",
+            _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents,
+        ),
         ("state roughness summary", _caseSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata),
         ("precision boundary summary", _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight),
         ("removed process block scale options", _caseFitParamsDropsProcBlockScaleOptions),
@@ -4687,8 +4819,8 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         ("transition residual reference", _caseExpectedTransitionResidualSumsMatchesPythonReference),
         ("level transition residual reference", _caseExpectedLevelTransitionResidualSumsMatchesPythonReference),
         (
-            "block EB process noise",
-            _caseWarmupProcessNoiseCalibrationReliabilityAndLevelModel,
+            "marginal MAP process noise",
+            _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood,
         ),
         ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
         ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),
@@ -4744,6 +4876,14 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
         ("P-spline Cython eval", _casePSplineCythonEvaluationMatchesDenseDesign),
         ("P-spline basis support limit", _casePSplineLimitsBasisCountByWeightedSupport),
         ("pooled MUNC trend factors", _casePooledMuncTrendRecoversReplicateVarianceFactors),
+        (
+            "MUNC additive covariate model",
+            _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback,
+        ),
+        (
+            "MUNC additive covariates before EB",
+            _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage,
+        ),
         ("P-spline guarded GCV", _casePSplineGuardedGCVAppliesEdfCap),
         ("P-spline quantile knots", _casePSplineUsesQuantileKnotsFromSupport),
         ("P-spline float32 clipping", _casePSplinePredictionClipsBeforeFloat32Overflow),

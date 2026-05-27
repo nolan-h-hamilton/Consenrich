@@ -1,6 +1,7 @@
 import textwrap
 import logging
 import io
+import json
 import sys
 import types
 from pathlib import Path
@@ -52,6 +53,38 @@ def setupBamHelpers(monkeypatch: pytest.MonkeyPatch) -> None:
         "alignmentFilesArePairedEnd",
         fakeAlignmentFilesArePairedEnd,
     )
+
+
+def writeGenomeCovariateCache(
+    tmpPath,
+    *,
+    features=("gc", "repeat_frac"),
+    chrom="chrTest",
+    binSize=50,
+):
+    cacheLabel = "_".join(str(feature) for feature in features)
+    cacheDir = tmpPath / f"genome_covariates_{cacheLabel}"
+    arraysDir = cacheDir / "arrays"
+    arraysDir.mkdir(parents=True)
+    arr = np.zeros((4, len(features)), dtype=np.float32)
+    for featureIndex in range(len(features)):
+        arr[:, featureIndex] = np.linspace(0.1, 0.4, arr.shape[0])
+    np.save(arraysDir / f"{chrom}.npy", arr, allow_pickle=False)
+    manifest = {
+        "schema": "consenrich-genome-covariates-v1",
+        "bin_size_bp": int(binSize),
+        "features": list(features),
+        "chromosomes": [
+            {
+                "name": chrom,
+                "length": int(arr.shape[0] * binSize),
+                "bins": int(arr.shape[0]),
+                "array": f"arrays/{chrom}.npy",
+            }
+        ],
+    }
+    (cacheDir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return cacheDir
 
 
 def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
@@ -369,6 +402,35 @@ def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monk
     assert matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
 
 
+def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configPath = writeConfigFile(
+        tmp_path,
+        "config_output_diagnostic_tracks.yaml",
+        """
+        experimentName: testExperiment
+        inputParams.bamFiles: [smallTest.bam]
+        genomeParams.name: testGenome
+        outputParams.diagnosticTracks: [slope, q_level, munc-trace, trend]
+        """,
+    )
+
+    parsed = readConfig(str(configPath))
+
+    assert parsed["outputArgs"].diagnosticTracks == (
+        "slope",
+        "qLevel",
+        "muncTrace",
+    )
+    assert consenrich_config._normalizeOutputDiagnosticTracks("all") == tuple(
+        constants.OUTPUT_DIAGNOSTIC_TRACK_NAMES
+    )
+    with pytest.raises(ValueError, match="Unsupported output diagnostic track"):
+        consenrich_config._normalizeOutputDiagnosticTracks(["notATrack"])
+
+
 def _case_readConfigBroadcastsSharedControlScaleFactor(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -445,6 +507,122 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
             stateUpperBound=0.0,
             blockLenIntervals=1,
         )
+
+
+def _case_readConfigMuncCovariates(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    cacheDir = writeGenomeCovariateCache(tmp_path)
+
+    configYaml = f"""
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    genomeParams.genomeCovariateCacheDir: {cacheDir}
+    countingParams.intervalSizeBP: 50
+    observationParams:
+      muncCovariates:
+        enabled: true
+        mode: per-replicate-additive
+        features: [gc_dev, repeat_frac]
+    """
+    configPath = writeConfigFile(tmp_path, "config_munc_covariates.yaml", configYaml)
+
+    parsed = readConfig(str(configPath))
+
+    assert parsed["genomeArgs"].genomeCovariateCacheDir == str(cacheDir)
+    assert parsed["observationArgs"].muncCovariatesEnabled is True
+    assert (
+        parsed["observationArgs"].muncCovariatesMode
+        == constants.MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE
+    )
+    assert parsed["observationArgs"].muncCovariatesFeatures == ("gc", "repeat_frac")
+
+
+def _case_readConfigMuncCovariatesAcceptsManifestFeatureNames(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    cacheDir = writeGenomeCovariateCache(
+        tmp_path,
+        features=("gc", "custom_signal_z", "repeat_frac"),
+    )
+
+    configYaml = f"""
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    genomeParams.genomeCovariateCacheDir: {cacheDir}
+    countingParams.intervalSizeBP: 50
+    observationParams:
+      muncCovariates:
+        enabled: true
+        features: [gc_dev, custom_signal_z]
+    """
+    configPath = writeConfigFile(
+        tmp_path,
+        "config_munc_covariates_custom_feature.yaml",
+        configYaml,
+    )
+
+    parsed = readConfig(str(configPath))
+
+    assert parsed["observationArgs"].muncCovariatesFeatures == (
+        "gc",
+        "custom_signal_z",
+    )
+
+
+def _case_readConfigMuncCovariatesRequireCache(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+
+    configYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    observationParams.muncCovariates.enabled: true
+    """
+    configPath = writeConfigFile(
+        tmp_path,
+        "config_munc_covariates_missing_cache.yaml",
+        configYaml,
+    )
+
+    with pytest.raises(ValueError, match="genomeCovariateCacheDir"):
+        readConfig(str(configPath))
+
+
+def _case_readConfigMuncCovariatesRejectMissingFeature(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    cacheDir = writeGenomeCovariateCache(tmp_path, features=("gc",))
+
+    configYaml = f"""
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    genomeParams.genomeCovariateCacheDir: {cacheDir}
+    countingParams.intervalSizeBP: 50
+    observationParams.muncCovariates.enabled: true
+    observationParams.muncCovariates.features: repeat_frac
+    """
+    configPath = writeConfigFile(
+        tmp_path,
+        "config_munc_covariates_missing_feature.yaml",
+        configYaml,
+    )
+
+    with pytest.raises(ValueError, match="missing requested MUNC features"):
+        readConfig(str(configPath))
 
 
 def _case_readConfigUsesGenericDefaultConfiguration(
@@ -573,6 +751,15 @@ def _case_runtime_defaults_are_centralized(
     ]
     assert parsed["observationArgs"].additiveHighFreq == profile[
         "observationParams.additiveHighFreq"
+    ]
+    assert parsed["observationArgs"].muncCovariatesEnabled == profile[
+        "observationParams.muncCovariates.enabled"
+    ]
+    assert parsed["observationArgs"].muncCovariatesMode == profile[
+        "observationParams.muncCovariates.mode"
+    ]
+    assert parsed["observationArgs"].muncCovariatesFeatures == profile[
+        "observationParams.muncCovariates.features"
     ]
     assert consenrich_core.observationParams(
         minR=parsed["observationArgs"].minR,
@@ -1682,11 +1869,25 @@ def test_config_parser_defaults_and_override_contracts(
 ):
     for label, func in (
         ("dotted and nested config equivalence", _case_readConfigDottedAndNestedEquivalent),
+        ("output diagnostic tracks", _case_readConfigOutputDiagnosticTracks),
         (
             "shared control scale factor broadcasting",
             _case_readConfigBroadcastsSharedControlScaleFactor,
         ),
         ("process noise options", _case_readConfigProcessNoiseOptions),
+        ("MUNC covariates", _case_readConfigMuncCovariates),
+        (
+            "MUNC covariates accept manifest feature names",
+            _case_readConfigMuncCovariatesAcceptsManifestFeatureNames,
+        ),
+        (
+            "MUNC covariates require cache",
+            _case_readConfigMuncCovariatesRequireCache,
+        ),
+        (
+            "MUNC covariates reject missing feature",
+            _case_readConfigMuncCovariatesRejectMissingFeature,
+        ),
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
         ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
         ("generic overrides", _case_readConfigGenericDefaultsStillAllowExplicitOverrides),
