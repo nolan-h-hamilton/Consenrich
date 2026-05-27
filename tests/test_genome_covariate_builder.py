@@ -1,8 +1,10 @@
 import contextlib
 import importlib
 import io
+import os
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -128,6 +130,36 @@ def _build_repeat_frac_cache(tmp_path):
     )
     assert result.returncode == 0, result.stderr or result.stdout
     return cache_dir
+
+
+def test_consenrich_cache_cli_import_does_not_load_core_runtime(tmp_path):
+    src_dir = Path(__file__).resolve().parents[1] / "src"
+    env = dict(os.environ)
+    env["PYTHONPATH"] = (
+        str(src_dir)
+        if not env.get("PYTHONPATH")
+        else str(src_dir) + os.pathsep + env["PYTHONPATH"]
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "import consenrich; "
+                "assert 'consenrich.core' not in sys.modules; "
+                "import consenrich.cache_cli; "
+                "assert 'consenrich.core' not in sys.modules"
+            ),
+        ],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_repeat_frac_builder_v1_unions_rmsk_and_bed_intervals(tmp_path):
