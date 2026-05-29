@@ -17,6 +17,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#define CCOUNTS_MAPPED_COUNT_EXACT_SCAN_MAX 100000ULL
+#define CCOUNTS_MAPPED_COUNT_SAMPLE_TARGET 100000ULL
+#define CCOUNTS_MAPPED_COUNT_SAMPLE_WINDOW_BP 50000
+#define CCOUNTS_MAPPED_COUNT_SAMPLE_STRIDE_BP 2000000
+
 /**
  * @brief native handle for one open source
  *
@@ -147,7 +152,8 @@ static int ccounts_isValidCountMode(uint8_t countMode)
     return countMode == (uint8_t)ccounts_countModeCoverage ||
            countMode == (uint8_t)ccounts_countModeCutSite ||
            countMode == (uint8_t)ccounts_countModeFivePrime ||
-           countMode == (uint8_t)ccounts_countModeCenter;
+           countMode == (uint8_t)ccounts_countModeCenter ||
+           countMode == (uint8_t)ccounts_countModeFFP;
 }
 
 static int ccounts_compareUint32(const void *left, const void *right)
@@ -1144,6 +1150,8 @@ ccounts_result ccounts_getChromRange(
     hts_itr_t *iteratorHandle = NULL;
     int32_t tid = -1;
     uint64_t tailStart = 0;
+    int seenAlignment = 0;
+    int seenTailAlignment = 0;
 
     if (startOut != NULL)
     {
@@ -1415,6 +1423,11 @@ ccounts_result ccounts_getChromRange(
             {
                 *startOut = (uint64_t)record->core.pos;
             }
+            if (endOut != NULL)
+            {
+                *endOut = (uint64_t)bam_endpos(record);
+            }
+            seenAlignment = 1;
             break;
         }
         hts_itr_destroy(iteratorHandle);
@@ -1438,8 +1451,34 @@ ccounts_result ccounts_getChromRange(
             {
                 *endOut = (uint64_t)bam_endpos(record);
             }
+            seenTailAlignment = 1;
         }
         hts_itr_destroy(iteratorHandle);
+    }
+
+    if (seenAlignment && !seenTailAlignment)
+    {
+        hts_pos_t scanStart = startOut != NULL ? (hts_pos_t)(*startOut) : 0;
+        iteratorHandle = sam_itr_queryi(
+            sourceHandle->indexHandle,
+            tid,
+            scanStart,
+            (hts_pos_t)chromLength);
+        if (iteratorHandle != NULL)
+        {
+            while (sam_itr_next((htsFile *)sourceHandle->fileHandle, iteratorHandle, record) >= 0)
+            {
+                if ((record->core.flag & flagExclude) != 0)
+                {
+                    continue;
+                }
+                if (endOut != NULL)
+                {
+                    *endOut = (uint64_t)bam_endpos(record);
+                }
+            }
+            hts_itr_destroy(iteratorHandle);
+        }
     }
 
     bam_destroy1(record);
@@ -1452,10 +1491,10 @@ ccounts_result ccounts_getMappedReadCount(
     int threadCount,
     const char *const *excludeChromosomes,
     int excludeChromosomeCount,
-    uint8_t countMode,
-    uint8_t oneReadPerBin,
+    const ccounts_countOptions *countOptions,
     uint64_t *mappedReadCountOut,
-    uint64_t *unmappedReadCountOut)
+    uint64_t *unmappedReadCountOut,
+    uint64_t *mappedSpanBPOut)
 {
     ccounts_sourceHandle *sourceHandle = NULL;
     ccounts_result result;
@@ -1465,7 +1504,23 @@ ccounts_result ccounts_getMappedReadCount(
     uint64_t unmappedCount = 0;
     uint64_t mappedLocal = 0;
     uint64_t unmappedLocal = 0;
+    uint64_t indexMappedCount = 0;
+    uint64_t indexUnmappedCount = 0;
     const char *targetName = NULL;
+    uint8_t countMode = countOptions != NULL ? countOptions->countMode : (uint8_t)ccounts_countModeCoverage;
+    uint8_t oneReadPerBin = countOptions != NULL ? countOptions->oneReadPerBin : 0U;
+    uint16_t flagExclude = countOptions != NULL ? countOptions->flagExclude : 0U;
+    int64_t minMappingQuality = countOptions != NULL ? countOptions->minMappingQuality : 0;
+    int64_t minTemplateLength = countOptions != NULL && countOptions->minTemplateLength >= 0
+                                    ? countOptions->minTemplateLength
+                                    : (countOptions != NULL ? countOptions->readLength : 0);
+    int64_t maxInsertSize = countOptions != NULL ? countOptions->maxInsertSize : 0;
+    int64_t pairedEndMode = countOptions != NULL ? countOptions->pairedEndMode : 0;
+    int64_t extendBP = countOptions != NULL ? countOptions->extendBP : 0;
+    int64_t readLength = countOptions != NULL ? countOptions->readLength : 0;
+    int needSpanBP = mappedSpanBPOut != NULL;
+    int needsBamScan = 1;
+    int haveIndexTotals = 0;
 
     if (mappedReadCountOut != NULL)
     {
@@ -1474,6 +1529,10 @@ ccounts_result ccounts_getMappedReadCount(
     if (unmappedReadCountOut != NULL)
     {
         *unmappedReadCountOut = 0;
+    }
+    if (mappedSpanBPOut != NULL)
+    {
+        *mappedSpanBPOut = 0;
     }
 
     if (!ccounts_isValidCountMode(countMode))
@@ -1579,13 +1638,21 @@ ccounts_result ccounts_getMappedReadCount(
         uint64_t mappedCount = 0;
         int64_t fragmentCount = 1;
         uint64_t emittedCount = 0;
+        uint64_t emittedSpanBP = 0;
         const char *cursor = NULL;
         const char *fieldStart = NULL;
         const char *fieldEnd = NULL;
         size_t fieldLength = 0U;
         int fieldIndex = 0;
+        int64_t fragStart = 0;
+        int64_t fragEnd = 0;
         const char *barcodeStart = NULL;
         size_t barcodeLength = 0U;
+        if ((ccounts_countMode)countMode == ccounts_countModeFFP)
+        {
+            ccounts_closeSource(sourceHandle);
+            return ccounts_makeResult(-1, "ffp count mode requires BAM input");
+        }
         if (sourceHandle->fragmentsHandle == NULL)
         {
             ccounts_closeSource(sourceHandle);
@@ -1598,6 +1665,8 @@ ccounts_result ccounts_getMappedReadCount(
             barcodeStart = NULL;
             barcodeLength = 0U;
             fragmentCount = 1;
+            fragStart = 0;
+            fragEnd = 0;
             while (fieldIndex < 5 && cursor != NULL)
             {
                 fieldStart = cursor;
@@ -1610,6 +1679,22 @@ ccounts_result ccounts_getMappedReadCount(
                 if (fieldIndex == 0)
                 {
                     if (ccounts_stringFieldInList(fieldStart, fieldLength, excludeChromosomes, excludeChromosomeCount))
+                    {
+                        fieldLength = 0U;
+                        break;
+                    }
+                }
+                else if (fieldIndex == 1)
+                {
+                    if (!ccounts_parseInt64Field(fieldStart, fieldLength, &fragStart))
+                    {
+                        fieldLength = 0U;
+                        break;
+                    }
+                }
+                else if (fieldIndex == 2)
+                {
+                    if (!ccounts_parseInt64Field(fieldStart, fieldLength, &fragEnd))
                     {
                         fieldLength = 0U;
                         break;
@@ -1649,6 +1734,9 @@ ccounts_result ccounts_getMappedReadCount(
             // if the fragment count is missing or malformed, assume it's a single read
             // if its present, use it to scale the read count
             emittedCount = (uint64_t)(fragmentCount > 0 ? fragmentCount : 1);
+            emittedSpanBP = fragEnd > fragStart
+                                ? (uint64_t)((fragEnd - fragStart) * (int64_t)emittedCount)
+                                : 0U;
             if (!oneReadPerBin &&
                 ((ccounts_countMode)countMode == ccounts_countModeCutSite ||
                  (ccounts_countMode)countMode == ccounts_countModeFivePrime))
@@ -1656,6 +1744,10 @@ ccounts_result ccounts_getMappedReadCount(
                 emittedCount *= 2U;
             }
             mappedCount += emittedCount;
+            if (mappedSpanBPOut != NULL)
+            {
+                *mappedSpanBPOut += emittedSpanBP;
+            }
         }
         if (mappedReadCountOut != NULL)
         {
@@ -1668,35 +1760,328 @@ ccounts_result ccounts_getMappedReadCount(
         ccounts_closeSource(sourceHandle);
         return ccounts_makeOk();
     }
-    if (sourceHandle->indexHandle == NULL)
-    {
-        ccounts_closeSource(sourceHandle);
-        return ccounts_makeResult(-1, "alignment index is required for mapped read counts");
-    }
-
     if (threadCount > 1)
     {
         hts_set_threads((htsFile *)sourceHandle->fileHandle, threadCount);
     }
 
-    targetCount = sam_hdr_nref(sourceHandle->header);
-    for (targetIndex = 0; targetIndex < targetCount; ++targetIndex)
+    if (sourceHandle->indexHandle != NULL)
     {
-        mappedLocal = 0;
-        unmappedLocal = 0;
-        if (hts_idx_get_stat(sourceHandle->indexHandle, targetIndex, &mappedLocal, &unmappedLocal) != 0)
+        targetCount = sam_hdr_nref(sourceHandle->header);
+        for (targetIndex = 0; targetIndex < targetCount; ++targetIndex)
         {
-            continue;
+            mappedLocal = 0;
+            unmappedLocal = 0;
+            if (hts_idx_get_stat(sourceHandle->indexHandle, targetIndex, &mappedLocal, &unmappedLocal) != 0)
+            {
+                continue;
+            }
+            targetName = sam_hdr_tid2name(sourceHandle->header, targetIndex);
+            if (ccounts_stringInList(targetName, excludeChromosomes, excludeChromosomeCount))
+            {
+                continue;
+            }
+            indexMappedCount += mappedLocal;
+            indexUnmappedCount += unmappedLocal;
         }
-        targetName = sam_hdr_tid2name(sourceHandle->header, targetIndex);
-        if (ccounts_stringInList(targetName, excludeChromosomes, excludeChromosomeCount))
-        {
-            continue;
-        }
-        mappedCount += mappedLocal;
-        unmappedCount += unmappedLocal;
+        indexUnmappedCount += hts_idx_get_n_no_coor(sourceHandle->indexHandle);
+        haveIndexTotals = 1;
     }
-    unmappedCount += hts_idx_get_n_no_coor(sourceHandle->indexHandle);
+
+    /*
+     * Prefer exact BAM index statistics when they answer the requested
+     * denominator. For large filtered CPM/RPKM or RPGC/EGS denominators,
+     * estimate retained units/span from deterministic genomic windows instead
+     * of scanning the whole BAM. Small BAMs still use the exact path below.
+     */
+    needsBamScan =
+        pairedEndMode > 0 ||
+        flagExclude != 0U ||
+        minMappingQuality > 0 ||
+        (needSpanBP && extendBP <= 0);
+
+    if (!needsBamScan && haveIndexTotals)
+    {
+        mappedCount = indexMappedCount;
+        unmappedCount = indexUnmappedCount;
+        if (mappedSpanBPOut != NULL)
+        {
+            *mappedSpanBPOut = mappedCount * (uint64_t)extendBP;
+        }
+    }
+    else
+    {
+        int usedSampleEstimate = 0;
+        int attemptedSampleEstimate = 0;
+
+        if (haveIndexTotals && indexMappedCount > CCOUNTS_MAPPED_COUNT_EXACT_SCAN_MAX)
+        {
+            bam1_t *record = NULL;
+            hts_itr_t *iteratorHandle = NULL;
+            uint64_t sampledRecords = 0;
+            double sampledUnits = 0.0;
+            double sampledSpanBP = 0.0;
+            int offsetPass = 0;
+            int64_t targetLength = 0;
+            int64_t queryStart = 0;
+            int64_t queryEnd = 0;
+            int64_t readStart = 0;
+            int64_t readEnd = 0;
+            int64_t spanBP = 0;
+            int64_t templateLength = 0;
+            int64_t absoluteTemplateLength = 0;
+            uint64_t emittedCount = 0;
+
+            attemptedSampleEstimate = 1;
+            record = bam_init1();
+            if (record == NULL)
+            {
+                ccounts_closeSource(sourceHandle);
+                return ccounts_makeResult(-1, "failed to allocate bam record");
+            }
+
+            targetCount = sam_hdr_nref(sourceHandle->header);
+            for (offsetPass = 0;
+                 sampledRecords < CCOUNTS_MAPPED_COUNT_SAMPLE_TARGET &&
+                 offsetPass * CCOUNTS_MAPPED_COUNT_SAMPLE_WINDOW_BP < CCOUNTS_MAPPED_COUNT_SAMPLE_STRIDE_BP;
+                 ++offsetPass)
+            {
+                for (targetIndex = 0;
+                     targetIndex < targetCount && sampledRecords < CCOUNTS_MAPPED_COUNT_SAMPLE_TARGET;
+                     ++targetIndex)
+                {
+                    targetName = sam_hdr_tid2name(sourceHandle->header, targetIndex);
+                    if (ccounts_stringInList(targetName, excludeChromosomes, excludeChromosomeCount))
+                    {
+                        continue;
+                    }
+                    targetLength = (int64_t)sam_hdr_tid2len(sourceHandle->header, targetIndex);
+                    for (queryStart = (int64_t)offsetPass * CCOUNTS_MAPPED_COUNT_SAMPLE_WINDOW_BP;
+                         queryStart < targetLength && sampledRecords < CCOUNTS_MAPPED_COUNT_SAMPLE_TARGET;
+                         queryStart += CCOUNTS_MAPPED_COUNT_SAMPLE_STRIDE_BP)
+                    {
+                        queryEnd = queryStart + CCOUNTS_MAPPED_COUNT_SAMPLE_WINDOW_BP;
+                        if (queryEnd > targetLength)
+                        {
+                            queryEnd = targetLength;
+                        }
+                        iteratorHandle = sam_itr_queryi(
+                            sourceHandle->indexHandle,
+                            targetIndex,
+                            (hts_pos_t)queryStart,
+                            (hts_pos_t)queryEnd);
+                        if (iteratorHandle == NULL)
+                        {
+                            continue;
+                        }
+                        while (sampledRecords < CCOUNTS_MAPPED_COUNT_SAMPLE_TARGET &&
+                               sam_itr_next((htsFile *)sourceHandle->fileHandle, iteratorHandle, record) >= 0)
+                        {
+                            if ((record->core.flag & BAM_FUNMAP) != 0 || record->core.tid < 0)
+                            {
+                                continue;
+                            }
+                            ++sampledRecords;
+                            if ((record->core.flag & flagExclude) != 0)
+                            {
+                                continue;
+                            }
+                            if (record->core.qual < minMappingQuality)
+                            {
+                                continue;
+                            }
+                            readStart = (int64_t)record->core.pos;
+                            readEnd = (int64_t)bam_endpos(record);
+
+                            if (pairedEndMode > 0)
+                            {
+                                if ((record->core.flag & BAM_FPROPER_PAIR) == 0)
+                                {
+                                    continue;
+                                }
+                                if ((record->core.flag & BAM_FREAD2) != 0)
+                                {
+                                    continue;
+                                }
+                                if ((record->core.flag & BAM_FMUNMAP) != 0 || record->core.mtid != record->core.tid)
+                                {
+                                    continue;
+                                }
+                                templateLength = (int64_t)record->core.isize;
+                                absoluteTemplateLength = templateLength >= 0 ? templateLength : -templateLength;
+                                if (absoluteTemplateLength == 0 || absoluteTemplateLength < minTemplateLength)
+                                {
+                                    continue;
+                                }
+                                if (maxInsertSize > 0 && absoluteTemplateLength > maxInsertSize)
+                                {
+                                    continue;
+                                }
+                                emittedCount = 1U;
+                                if (!oneReadPerBin &&
+                                    ((ccounts_countMode)countMode == ccounts_countModeCutSite ||
+                                     (ccounts_countMode)countMode == ccounts_countModeFivePrime))
+                                {
+                                    emittedCount = 2U;
+                                }
+                                sampledUnits += (double)emittedCount;
+                                if (mappedSpanBPOut != NULL)
+                                {
+                                    sampledSpanBP += (double)absoluteTemplateLength;
+                                }
+                            }
+                            else
+                            {
+                                sampledUnits += 1.0;
+                                if (mappedSpanBPOut != NULL)
+                                {
+                                    spanBP = extendBP > 0 ? extendBP : readEnd - readStart;
+                                    if (spanBP <= 0 && readLength > 0)
+                                    {
+                                        spanBP = readLength;
+                                    }
+                                    if (spanBP > 0)
+                                    {
+                                        sampledSpanBP += (double)spanBP;
+                                    }
+                                }
+                            }
+                        }
+                        hts_itr_destroy(iteratorHandle);
+                        iteratorHandle = NULL;
+                    }
+                }
+            }
+
+            if (sampledRecords > 0)
+            {
+                mappedCount = (uint64_t)(((double)indexMappedCount * sampledUnits / (double)sampledRecords) + 0.5);
+                unmappedCount = indexUnmappedCount;
+                if (mappedSpanBPOut != NULL)
+                {
+                    *mappedSpanBPOut = (uint64_t)(((double)indexMappedCount * sampledSpanBP / (double)sampledRecords) + 0.5);
+                }
+                usedSampleEstimate = 1;
+            }
+            bam_destroy1(record);
+        }
+
+        if (!usedSampleEstimate)
+        {
+            bam1_t *record = NULL;
+            int readStatus = 0;
+            int64_t readStart = 0;
+            int64_t readEnd = 0;
+            int64_t spanBP = 0;
+            int64_t templateLength = 0;
+            int64_t absoluteTemplateLength = 0;
+            uint64_t emittedCount = 0;
+
+            if (attemptedSampleEstimate)
+            {
+                ccounts_closeSource(sourceHandle);
+                sourceHandle = NULL;
+                result = ccounts_openSource(sourceConfig, &sourceHandle);
+                if (result.errorCode != 0)
+                {
+                    return result;
+                }
+                if (threadCount > 1)
+                {
+                    hts_set_threads((htsFile *)sourceHandle->fileHandle, threadCount);
+                }
+            }
+
+            record = bam_init1();
+            if (record == NULL)
+            {
+                ccounts_closeSource(sourceHandle);
+                return ccounts_makeResult(-1, "failed to allocate bam record");
+            }
+
+            while ((readStatus = sam_read1((htsFile *)sourceHandle->fileHandle, sourceHandle->header, record)) >= 0)
+            {
+                if ((record->core.flag & BAM_FUNMAP) != 0 || record->core.tid < 0)
+                {
+                    ++unmappedCount;
+                    continue;
+                }
+                targetName = sam_hdr_tid2name(sourceHandle->header, record->core.tid);
+                if (ccounts_stringInList(targetName, excludeChromosomes, excludeChromosomeCount))
+                {
+                    continue;
+                }
+                if ((record->core.flag & flagExclude) != 0)
+                {
+                    continue;
+                }
+                if (record->core.qual < minMappingQuality)
+                {
+                    continue;
+                }
+
+                readStart = (int64_t)record->core.pos;
+                readEnd = (int64_t)bam_endpos(record);
+
+                if (pairedEndMode > 0)
+                {
+                    if ((record->core.flag & BAM_FPROPER_PAIR) == 0)
+                    {
+                        continue;
+                    }
+                    if ((record->core.flag & BAM_FREAD2) != 0)
+                    {
+                        continue;
+                    }
+                    if ((record->core.flag & BAM_FMUNMAP) != 0 || record->core.mtid != record->core.tid)
+                    {
+                        continue;
+                    }
+
+                    templateLength = (int64_t)record->core.isize;
+                    absoluteTemplateLength = templateLength >= 0 ? templateLength : -templateLength;
+                    if (absoluteTemplateLength == 0 || absoluteTemplateLength < minTemplateLength)
+                    {
+                        continue;
+                    }
+                    if (maxInsertSize > 0 && absoluteTemplateLength > maxInsertSize)
+                    {
+                        continue;
+                    }
+
+                    emittedCount = 1U;
+                    if (!oneReadPerBin &&
+                        ((ccounts_countMode)countMode == ccounts_countModeCutSite ||
+                         (ccounts_countMode)countMode == ccounts_countModeFivePrime))
+                    {
+                        emittedCount = 2U;
+                    }
+                    mappedCount += emittedCount;
+                    if (mappedSpanBPOut != NULL)
+                    {
+                        *mappedSpanBPOut += (uint64_t)absoluteTemplateLength;
+                    }
+                    continue;
+                }
+
+                ++mappedCount;
+                if (mappedSpanBPOut != NULL)
+                {
+                    spanBP = extendBP > 0 ? extendBP : readEnd - readStart;
+                    if (spanBP <= 0 && readLength > 0)
+                    {
+                        spanBP = readLength;
+                    }
+                    if (spanBP > 0)
+                    {
+                        *mappedSpanBPOut += (uint64_t)spanBP;
+                    }
+                }
+            }
+
+            bam_destroy1(record);
+        }
+    }
 
     if (mappedReadCountOut != NULL)
     {
@@ -1983,6 +2368,13 @@ ccounts_result ccounts_countRegion(
     int64_t absoluteTemplateLength = 0;
     int64_t midPoint = 0;
     int64_t cutPosition = 0;
+    int64_t queryPadding = 0;
+    int64_t shiftPadding = 0;
+    int64_t queryStart = 0;
+    int64_t queryEnd = 0;
+    int64_t targetLength = 0;
+    int64_t absShiftForward = 0;
+    int64_t absShiftReverse = 0;
     size_t index0 = 0;
     size_t index1 = 0;
     int needsSpanCoverage = 0;
@@ -2216,6 +2608,11 @@ ccounts_result ccounts_countRegion(
         int64_t cutPosition = 0;
         float incrementValue = 1.0f;
 
+        if ((ccounts_countMode)countOptions->countMode == ccounts_countModeFFP)
+        {
+            return ccounts_makeResult(-1, "ffp count mode requires BAM input");
+        }
+
         if (sourceHandle->tbxHandle == NULL || sourceHandle->fragmentsHandle == NULL)
         {
             return ccounts_makeResult(-1, "fragments source handle is not initialized");
@@ -2432,6 +2829,52 @@ ccounts_result ccounts_countRegion(
         return ccounts_makeResult(-1, "chromosome not found in alignment header");
     }
 
+    start64 = (int64_t)region->start;
+    end64 = (int64_t)region->end;
+    step64 = (int64_t)region->intervalSizeBP;
+    targetLength = (int64_t)sam_hdr_tid2len(sourceHandle->header, tid);
+
+    absShiftForward = countOptions->shiftForwardStrand53 < 0
+                          ? -countOptions->shiftForwardStrand53
+                          : countOptions->shiftForwardStrand53;
+    absShiftReverse = countOptions->shiftReverseStrand53 < 0
+                          ? -countOptions->shiftReverseStrand53
+                          : countOptions->shiftReverseStrand53;
+    shiftPadding = absShiftForward > absShiftReverse ? absShiftForward : absShiftReverse;
+    queryPadding = shiftPadding;
+    if (countOptions->pairedEndMode > 0)
+    {
+        if (countOptions->maxInsertSize > 0)
+        {
+            queryPadding = countOptions->maxInsertSize > queryPadding
+                               ? countOptions->maxInsertSize
+                               : queryPadding;
+        }
+        else if (targetLength > queryPadding)
+        {
+            queryPadding = targetLength;
+        }
+    }
+    else if (countOptions->extendBP > 0)
+    {
+        queryPadding += countOptions->extendBP;
+    }
+
+    queryStart = start64 - queryPadding;
+    if (queryStart < 0)
+    {
+        queryStart = 0;
+    }
+    queryEnd = end64 + queryPadding;
+    if (targetLength > 0 && queryEnd > targetLength)
+    {
+        queryEnd = targetLength;
+    }
+    if (targetLength > 0 && queryStart > targetLength)
+    {
+        queryStart = targetLength;
+    }
+
     record = bam_init1();
     if (record == NULL)
     {
@@ -2441,17 +2884,14 @@ ccounts_result ccounts_countRegion(
     iteratorHandle = sam_itr_queryi(
         sourceHandle->indexHandle,
         tid,
-        (hts_pos_t)region->start,
-        (hts_pos_t)region->end);
+        (hts_pos_t)queryStart,
+        (hts_pos_t)queryEnd);
     if (iteratorHandle == NULL)
     {
         bam_destroy1(record);
         return ccounts_makeResult(-1, "failed to open region iterator");
     }
 
-    start64 = (int64_t)region->start;
-    end64 = (int64_t)region->end;
-    step64 = (int64_t)region->intervalSizeBP;
     // single-end paths fall back to readLength when minTemplateLength is unset
     minTemplateLength = countOptions->minTemplateLength >= 0
                             ? countOptions->minTemplateLength
@@ -2505,6 +2945,27 @@ ccounts_result ccounts_countRegion(
             }
             if (countOptions->maxInsertSize > 0 && absoluteTemplateLength > countOptions->maxInsertSize)
             {
+                continue;
+            }
+
+            if ((ccounts_countMode)countOptions->countMode == ccounts_countModeFFP)
+            {
+                if ((record->core.flag & BAM_FREVERSE) == 0)
+                {
+                    fivePrime = readStart + countOptions->shiftForwardStrand53;
+                }
+                else
+                {
+                    fivePrime = (readEnd - 1) - countOptions->shiftReverseStrand53;
+                }
+                if (fivePrime >= start64 && fivePrime < end64)
+                {
+                    intervalIndex = (size_t)((fivePrime - start64) / step64);
+                    if (intervalIndex < countBufferLength)
+                    {
+                        countBuffer[intervalIndex] += 1.0f;
+                    }
+                }
                 continue;
             }
 
@@ -2565,6 +3026,19 @@ ccounts_result ccounts_countRegion(
 
         if (adjEnd <= start64 || adjStart >= end64)
         {
+            continue;
+        }
+
+        if ((ccounts_countMode)countOptions->countMode == ccounts_countModeFFP)
+        {
+            if (fivePrime >= start64 && fivePrime < end64)
+            {
+                intervalIndex = (size_t)((fivePrime - start64) / step64);
+                if (intervalIndex < countBufferLength)
+                {
+                    countBuffer[intervalIndex] += 1.0f;
+                }
+            }
             continue;
         }
 

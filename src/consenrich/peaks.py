@@ -30,6 +30,9 @@ from .constants import (
     MASSIVE_SUBPEAK_SPLIT_Z,
     MASSIVE_SUBPEAK_WIDTH_ALPHA,
     MASSIVE_SUBPEAK_WIDTH_BULK_QUANTILE,
+    MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
+    MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
     NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
     NESTED_ROCCO_ITERS_DEFAULT,
     NESTED_ROCCO_JACCARD_DEFAULT,
@@ -55,12 +58,15 @@ _ROCCO_THRESHOLD_Z_DEFAULT = ROCCO_THRESHOLD_Z_DEFAULT
 _ROCCO_NUM_BOOTSTRAP_DEFAULT = ROCCO_NUM_BOOTSTRAP_DEFAULT
 _ROCCO_BUDGET_Z_GRID = ROCCO_BUDGET_Z_GRID
 _ROCCO_MAX_ITER_DEFAULT = ROCCO_MAX_ITER_DEFAULT
+_MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE = MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE
+_MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z = MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
 _NESTED_ROCCO_ITERS_DEFAULT = NESTED_ROCCO_ITERS_DEFAULT
 _NESTED_ROCCO_JACCARD_DEFAULT = NESTED_ROCCO_JACCARD_DEFAULT
 _NESTED_ROCCO_MIN_PARENT_STEPS = NESTED_ROCCO_MIN_PARENT_STEPS
 _NESTED_ROCCO_MIN_CHILD_STEPS = NESTED_ROCCO_MIN_CHILD_STEPS
 _NESTED_ROCCO_BUDGET_SCALE_DEFAULT = NESTED_ROCCO_BUDGET_SCALE_DEFAULT
 _NESTED_ROCCO_SUBTASK_MAX_ITER = NESTED_ROCCO_SUBTASK_MAX_ITER
+_NESTED_ROCCO_BUDGET_POLICY = "soft_selection_penalty"
 _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER = (
     EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
 )
@@ -98,6 +104,27 @@ def _validateExportFilterUncertaintyMultiplier(value: float) -> float:
         raise ValueError(
             "`exportFilterUncertaintyMultiplier` must be finite and non-negative"
         )
+    return value_
+
+
+def _normalizeUncertaintyScoreMode(value: str | None) -> str:
+    raw = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE if value is None else str(value)
+    mode = raw.strip().lower().replace("-", "_")
+    if mode == "consenrich_state":
+        mode = "state"
+    if mode not in MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES:
+        supported = ", ".join(MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES)
+        raise ValueError(
+            f"Unsupported uncertaintyScoreMode {value!r}. "
+            f"Supported modes: {supported}."
+        )
+    return mode
+
+
+def _validateUncertaintyScoreZ(value: float) -> float:
+    value_ = float(value)
+    if not np.isfinite(value_) or value_ < 0.0:
+        raise ValueError("`uncertaintyScoreZ` must be finite and non-negative")
     return value_
 
 
@@ -231,33 +258,77 @@ def _halfSampleMode(sortedValues: np.ndarray) -> float:
 def consenrichStateScoreTrack(
     state: npt.ArrayLike,
     uncertainty: npt.ArrayLike | None = None,
+    uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     returnDetails: bool = False,
-) -> np.ndarray | Tuple[np.ndarray, Dict[str, float | str | bool]]:
-    r"""Use the fitted Consenrich state directly as the ROCCO score track."""
+) -> np.ndarray | Tuple[np.ndarray, Dict[str, Any]]:
+    r"""Build the Consenrich-derived ROCCO score track."""
     state_ = _asFloatVector("state", state)
+    mode = _normalizeUncertaintyScoreMode(uncertaintyScoreMode)
+    z_ = _validateUncertaintyScoreZ(uncertaintyScoreZ)
+    scoreTrack = state_
     seMode = "none"
     uncertaintyAvailable = False
+    uncertaintyUsed = False
+    uncertaintyMin = None
+    uncertaintyMedian = None
+    uncertaintyMax = None
+    lowerConfidenceScoreFloor = None
+    lowerConfidenceScoreFloorHits = 0
     if uncertainty is not None:
         uncertainty_ = _asFloatVector("uncertainty", uncertainty)
         if uncertainty_.size != state_.size:
             raise ValueError("`uncertainty` must match `state` length")
         seMode = "ignored"
         uncertaintyAvailable = True
+        uncertaintyMin = float(np.min(uncertainty_))
+        uncertaintyMedian = float(np.median(uncertainty_))
+        uncertaintyMax = float(np.max(uncertainty_))
+    elif mode == "lower_confidence":
+        raise ValueError(
+            "`lower_confidence` uncertaintyScoreMode requires `uncertainty`"
+        )
+
+    if mode == "lower_confidence":
+        if np.any(uncertainty_ < 0.0):
+            raise ValueError("`uncertainty` must be non-negative for lower_confidence")
+        rawScore = state_ - z_ * uncertainty_
+        maxState = float(np.max(state_))
+        if np.isfinite(maxState) and maxState > 0.0:
+            lowerConfidenceScoreFloor = float(-2.0 * maxState)
+            scoreTrack = np.maximum(rawScore, lowerConfidenceScoreFloor)
+            lowerConfidenceScoreFloorHits = int(
+                np.sum(rawScore < lowerConfidenceScoreFloor)
+            )
+        else:
+            scoreTrack = rawScore
+        seMode = "used"
+        uncertaintyUsed = True
 
     if not returnDetails:
-        return state_
+        return scoreTrack
 
-    details: Dict[str, float | str | bool] = {
-        "score_mode": "consenrich_state",
+    details: Dict[str, Any] = {
+        "score_mode": "consenrich_state" if mode == "state" else "lower_confidence",
+        "uncertainty_score_mode": str(mode),
+        "uncertainty_score_z": float(z_),
         "se_mode": str(seMode),
         "uncertainty_available": bool(uncertaintyAvailable),
-        "uncertainty_used": False,
+        "uncertainty_used": bool(uncertaintyUsed),
         "state_median": float(np.median(state_)),
         "state_abs_median": float(np.median(np.abs(state_))),
         "state_min": float(np.min(state_)),
         "state_max": float(np.max(state_)),
+        "score_median": float(np.median(scoreTrack)),
+        "score_min": float(np.min(scoreTrack)),
+        "score_max": float(np.max(scoreTrack)),
+        "uncertainty_min": uncertaintyMin,
+        "uncertainty_median": uncertaintyMedian,
+        "uncertainty_max": uncertaintyMax,
+        "lower_confidence_score_floor": lowerConfidenceScoreFloor,
+        "lower_confidence_score_floor_hits": int(lowerConfidenceScoreFloorHits),
     }
-    return state_, details
+    return scoreTrack, details
 
 
 def _selectRobustNullSupport(
@@ -724,6 +795,8 @@ def _prepareROCCOBaseScore(
     state: npt.ArrayLike,
     uncertainty: npt.ArrayLike | None = None,
     bulkQuantile: float = 0.60,
+    uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
 ) -> Dict[str, Any]:
     state_ = _asFloatVector("state", state)
     stateNullCenter, stateNullScale, stateNullMeta = estimateROCCONull(
@@ -733,6 +806,8 @@ def _prepareROCCOBaseScore(
     scoreTrack, scoreMeta = consenrichStateScoreTrack(
         state_,
         uncertainty=uncertainty,
+        uncertaintyScoreMode=uncertaintyScoreMode,
+        uncertaintyScoreZ=uncertaintyScoreZ,
         returnDetails=True,
     )
     return {
@@ -969,12 +1044,16 @@ def _prepareROCCOScoreAndNull(
     nullQuantile: float = _ROCCO_NULL_QUANTILE,
     pooledNullFloor: Dict[str, Any] | None = None,
     thresholdZGrid: Iterable[float] | None = None,
+    uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
 ) -> Dict[str, Any]:
     r"""Prepare the direct Consenrich score track and robust null for ROCCO budgeting."""
     prepared = _prepareROCCOBaseScore(
         state,
         uncertainty=uncertainty,
         bulkQuantile=bulkQuantile,
+        uncertaintyScoreMode=uncertaintyScoreMode,
+        uncertaintyScoreZ=uncertaintyScoreZ,
     )
     scoreTrack = np.asarray(prepared["score_track"], dtype=np.float64)
     zGrid = _resolveThresholdZGrid(
@@ -1465,6 +1544,8 @@ def getROCCOBudget(
     randomSeed: int = 0,
     nullQuantile: float = _ROCCO_NULL_QUANTILE,
     pooledNullFloor: Dict[str, Any] | None = None,
+    uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     returnDetails: bool = False,
 ) -> float | Tuple[float, Dict[str, Any]]:
     r"""Estimate a chromosome 'budget' from the fitted Consenrich state."""
@@ -1479,6 +1560,8 @@ def getROCCOBudget(
         randomSeed=randomSeed,
         nullQuantile=nullQuantile,
         pooledNullFloor=pooledNullFloor,
+        uncertaintyScoreMode=uncertaintyScoreMode,
+        uncertaintyScoreZ=uncertaintyScoreZ,
     )
     result = _estimateBudgetForPreparedROCCOScore(
         prepared,
@@ -1858,7 +1941,7 @@ def _minimumChildBinsForRegion(
     return int(min(regionBins, max(minBins, 1)))
 
 
-def _nestedBudgetTargetCount(
+def _nestedSoftBudgetTargetCount(
     regionBins: int,
     budgetScale: float,
     minChildBins: int,
@@ -3428,6 +3511,7 @@ def _refineNestedROCCOSolution(
         "local_gamma": float(localGamma),
         "selection_penalty": float(selectionPenalty_),
         "budget_scale": float(budgetScale),
+        "budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
         "score_shift": float(selectionPenalty_),
         "subproblem_mode": "parent_conditioned_min_run_dp",
         "subproblem_max_iter": int(subproblemMaxIter),
@@ -3466,7 +3550,7 @@ def _refineNestedROCCOSolution(
         expandedShortChildBins = 0
         emptyLocalSolutions = 0
         budgetFallbackWindows = 0
-        budgetConstrainedRegions = 0
+        softBudgetPenaltyRegions = 0
         localPenaltyExtraTotal = 0.0
         localPenaltyExtraMax = 0.0
         anchorFallbackWindows = 0
@@ -3500,6 +3584,7 @@ def _refineNestedROCCOSolution(
                             "region": int(regionIdx),
                             "bins": int(end - start + 1),
                             "bp": int(regionLengthBP),
+                            "budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
                         }
                     )
                 continue
@@ -3512,7 +3597,7 @@ def _refineNestedROCCOSolution(
                 minRegionBP_,
                 minRegionBins_,
             )
-            localBudgetTarget = _nestedBudgetTargetCount(
+            localSoftBudgetTarget = _nestedSoftBudgetTargetCount(
                 end - start + 1,
                 iterBudgetScale,
                 localMinChildBins,
@@ -3546,7 +3631,7 @@ def _refineNestedROCCOSolution(
                     )
                 )
                 localMode = "parent_conditioned_min_run_soft_budget"
-                budgetConstrainedRegions += 1
+                softBudgetPenaltyRegions += 1
             else:
                 localSelectionPenalty, localPenaltyDetails = (
                     _nestedSoftSelectionPenalty(
@@ -3608,7 +3693,9 @@ def _refineNestedROCCOSolution(
                         "selected_possible": int(end - start + 1),
                         "nonpos_selected": int(selectedNonPositive),
                         "min_child_bins": int(localMinChildBins),
-                        "budget_target": int(localBudgetTarget),
+                        "budget_target": int(localSoftBudgetTarget),
+                        "soft_budget_target": int(localSoftBudgetTarget),
+                        "budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
                         "anchor_local": int(anchorLocal),
                         "anchor_selected": bool(localMask[anchorLocal]),
                         "empty_solution": bool(localEmptySolution),
@@ -3650,7 +3737,8 @@ def _refineNestedROCCOSolution(
                 "num_parent_peaks_after": int(len(runsAfter)),
                 "num_input_regions": int(len(runs)),
                 "num_skipped_short_regions": int(skippedShort),
-                "num_budget_constrained_regions": int(budgetConstrainedRegions),
+                "num_budget_constrained_regions": int(softBudgetPenaltyRegions),
+                "num_soft_budget_penalty_regions": int(softBudgetPenaltyRegions),
                 "num_empty_local_solutions": int(emptyLocalSolutions),
                 "num_budget_fallback_windows": int(budgetFallbackWindows),
                 "num_anchor_fallback_windows": int(anchorFallbackWindows),
@@ -3667,6 +3755,7 @@ def _refineNestedROCCOSolution(
                 ),
                 "local_penalty_extra_max": float(localPenaltyExtraMax),
                 "budget_scale": float(iterBudgetScale),
+                "budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
                 "selected_count_before": int(selectedBefore),
                 "selected_count_after": int(selectedAfter),
                 "selected_count_delta": int(selectedAfter - selectedBefore),
@@ -3686,7 +3775,7 @@ def _refineNestedROCCOSolution(
                 int(len(runs)),
                 int(len(runsAfter)),
                 int(skippedShort),
-                int(budgetConstrainedRegions),
+                int(softBudgetPenaltyRegions),
                 int(emptyLocalSolutions),
                 int(anchorFallbackWindows),
                 int(parentErasureViolations),
@@ -4546,6 +4635,9 @@ def _buildRoccoSummary(
         "nested_rocco": {
             "requested_iters": int(settings.get("nested_rocco_iters", 0)),
             "budget_scale": float(settings.get("nested_rocco_budget_scale", 0.0)),
+            "budget_policy": str(
+                settings.get("nested_rocco_budget_policy", "")
+            ),
             "diagnostics": bool(settings.get("nested_rocco_diagnostics", False)),
             "subproblem_details": nestedRoccoSubproblemDetailsPath,
             "stops": nestedStops,
@@ -4613,6 +4705,8 @@ def solveRocco(
     exportFilterUncertaintyMultiplier: float = (
         _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
     ),
+    uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
     randSeed: int = 42,
     outPath: str | None = None,
     metaPath: str | None = None,
@@ -4625,6 +4719,12 @@ def solveRocco(
     exportFilterUncertaintyMultiplier_ = _validateExportFilterUncertaintyMultiplier(
         exportFilterUncertaintyMultiplier
     )
+    uncertaintyScoreMode_ = _normalizeUncertaintyScoreMode(uncertaintyScoreMode)
+    uncertaintyScoreZ_ = _validateUncertaintyScoreZ(uncertaintyScoreZ)
+    if uncertaintyScoreMode_ == "lower_confidence" and uncertaintyBedGraphFile is None:
+        raise ValueError(
+            "`lower_confidence` uncertaintyScoreMode requires an uncertainty bedGraph"
+        )
     blacklistByChrom = _readBlacklistIntervalsByChrom(blacklistBedFile)
     chromData = _readAlignedConsenrichBedGraphs(
         stateBedGraphFile,
@@ -4675,6 +4775,7 @@ def solveRocco(
             "nested_rocco_min_parent_steps": int(_NESTED_ROCCO_MIN_PARENT_STEPS),
             "nested_rocco_min_child_steps": int(_NESTED_ROCCO_MIN_CHILD_STEPS),
             "nested_rocco_subproblem_policy": "parent_conditioned_min_run_dp",
+            "nested_rocco_budget_policy": _NESTED_ROCCO_BUDGET_POLICY,
             "nested_rocco_diagnostics": bool(verbose),
             "nested_rocco_subproblem_details": nestedRoccoSubproblemDetailsPath,
             "massive_subpeak_cleanup": bool(massiveSubpeakCleanup),
@@ -4699,6 +4800,9 @@ def solveRocco(
                 exportFilterUncertaintyMultiplier_
             ),
             "export_filter_uses_uncertainty_bedgraph": True,
+            "uncertainty_score_mode": str(uncertaintyScoreMode_),
+            "uncertainty_score_z": float(uncertaintyScoreZ_),
+            "dwb_null_enabled": True,
             "rand_seed": int(randSeed),
         },
         "pooled_null_floor": None,
@@ -4735,6 +4839,8 @@ def solveRocco(
             randomSeed=int(randSeed) + chromIndex,
             nullQuantile=_ROCCO_NULL_QUANTILE,
             thresholdZGrid=_ROCCO_BUDGET_Z_GRID,
+            uncertaintyScoreMode=uncertaintyScoreMode_,
+            uncertaintyScoreZ=uncertaintyScoreZ_,
         )
         scoreTrack = np.asarray(prepared["score_track"], dtype=np.float64)
         budgetRaw, budgetDetails = _estimateBudgetForPreparedROCCOScore(
@@ -4835,6 +4941,7 @@ def solveRocco(
         solveDetails["nested_rocco_budget_scale"] = float(
             np.clip(float(nestedRoccoBudgetScale), 0.0, 1.0)
         )
+        solveDetails["nested_rocco_budget_policy"] = _NESTED_ROCCO_BUDGET_POLICY
         solveDetails["nested_rocco_stop_reason"] = str(nestedDetails["stop_reason"])
         exportTrimScoreFloor = 0.0
         rows, peakMeta, exportDetails = _solutionToChromNarrowPeakRows(

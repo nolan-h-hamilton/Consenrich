@@ -21,7 +21,8 @@ extern "C"
         ccounts_countModeCoverage = 0,
         ccounts_countModeCutSite = 1,
         ccounts_countModeFivePrime = 2,
-        ccounts_countModeCenter = 3
+        ccounts_countModeCenter = 3,
+        ccounts_countModeFFP = 4
     } ccounts_countMode;
 
     /**
@@ -55,7 +56,8 @@ extern "C"
      * @brief counting and filtering options for one region query
      *
      * controls read filtering, fragment interpretation, shifting,
-     * extension, and how signal is distributed across bins (e.g. coverage vs cut site)
+     * extension, and how signal is distributed across bins (e.g. coverage vs cut site).
+     * ffp (first five prime) is BAM-only because fragments sources do not retain read1 identity.
      */
     typedef struct ccounts_countOptions
     {
@@ -121,10 +123,10 @@ extern "C"
         int threadCount,
         const char *const *excludeChromosomes,
         int excludeChromosomeCount,
-        uint8_t countMode,
-        uint8_t oneReadPerBin,
+        const ccounts_countOptions *countOptions,
         uint64_t *mappedReadCountOut,
-        uint64_t *unmappedReadCountOut);
+        uint64_t *unmappedReadCountOut,
+        uint64_t *mappedSpanBPOut);
 
     ccounts_result ccounts_getCellCount(
         const ccounts_sourceConfig *sourceConfig,

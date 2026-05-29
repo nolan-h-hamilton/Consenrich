@@ -880,7 +880,7 @@ def calibrateChromosomeStateUncertainty(
         "initialProcessQ"
         if fitKwargs.get("initialProcessQ") is not None
         else (
-            f"{int(core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES)}x"
+            f"{int(core.PROCESS_DEFAULT_WARMUP_OUTER_PASSES)}x"
             f"{int(fitKwargs['processNoiseWarmupECMIters'])}"
         )
     )

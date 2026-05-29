@@ -89,6 +89,17 @@ def _cfgHas(configMap: Mapping[str, Any], dottedKey: str) -> bool:
     return True
 
 
+def _cfgGetFirst(
+    configMap: Mapping[str, Any],
+    dottedKeys: Sequence[str],
+    defaultVal: Any = None,
+) -> Any:
+    for dottedKey in dottedKeys:
+        if _cfgHas(configMap, dottedKey):
+            return _cfgGet(configMap, dottedKey)
+    return defaultVal
+
+
 def _normalizeDefaultConfigurationName(value: Any) -> str:
     if value is None:
         return GENERIC_DEFAULT_CONFIGURATION
@@ -170,6 +181,94 @@ def _normalizeOutputDiagnosticTracks(value: Any) -> tuple[str, ...]:
             tracks.append(canonical)
             seen.add(canonical)
     return tuple(tracks)
+
+
+def _normalizeMatchingUncertaintyScoreMode(value: Any) -> str:
+    text = (
+        str(constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE)
+        if value is None
+        else str(value)
+    )
+    mode = text.strip().lower().replace("-", "_")
+    if mode not in constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES:
+        supported = ", ".join(constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES)
+        raise ValueError(
+            f"Unsupported matchingParams.uncertaintyScoreMode {value!r}. "
+            f"Supported modes: {supported}."
+        )
+    return mode
+
+
+def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
+    z = float(value)
+    if not np.isfinite(z) or z < 0.0:
+        raise ValueError(
+            "`matchingParams.uncertaintyScoreZ` must be finite and non-negative."
+        )
+    return z
+
+
+def _normalizeCountingTransformMethod(value: Any) -> str:
+    raw = constants.COUNTING_DEFAULT_TRANSFORM_METHOD if value is None else value
+    key = (
+        str(raw)
+        .strip()
+        .replace("-", "")
+        .replace("_", "")
+        .replace(" ", "")
+        .replace(".", "")
+        .replace("(", "")
+        .replace(")", "")
+        .lower()
+    )
+    canonicalByKey = {
+        "log": "log",
+        "ln": "log",
+        "naturallog": "log",
+        "sqrt": "sqrt",
+        "squareroot": "sqrt",
+        "anscombe": "anscombe",
+        "anscombetransform": "anscombe",
+        "asinh": "asinh",
+        "arcsinh": "asinh",
+        "asinhx": "asinh",
+        "arcsinhx": "asinh",
+        "asinhsqrt": "asinhSqrt",
+        "arcsinhsqrt": "asinhSqrt",
+        "sqrtasinh": "asinhSqrt",
+        "generalizedlog": "generalizedLog",
+        "generalisedlog": "generalizedLog",
+        "glog": "generalizedLog",
+        "softlog": "generalizedLog",
+        "identity": "identity",
+        "linear": "identity",
+        "raw": "identity",
+        "none": "identity",
+    }
+    if key not in canonicalByKey:
+        supported = ", ".join(constants.COUNTING_SUPPORTED_TRANSFORM_METHODS)
+        raise ValueError(
+            f"Unsupported countingParams.transformMethod {raw!r}. "
+            f"Supported methods: {supported}."
+        )
+    return canonicalByKey[key]
+
+
+def _coerceTransformFloat(
+    value: Any,
+    *,
+    name: str,
+    default: float | None = None,
+    positive: bool = False,
+) -> float | None:
+    if value is None:
+        return default
+    out = float(value)
+    if not np.isfinite(out):
+        raise ValueError(f"{name} must be finite.")
+    if positive and out <= 0.0:
+        raise ValueError(f"{name} must be positive.")
+    return out
 
 
 def _normalizeMuncCovariatesMode(value: Any) -> str:
@@ -630,33 +729,123 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         "countingParams.logMult",
         constants.COUNTING_DEFAULT_LOG_MULT,
     )
+    transformMethodRaw = _cfgGetFirst(
+        configData,
+        (
+            "countingParams.transformMethod",
+            "countingParams.transform.method",
+            "countingParams.countTransform",
+        ),
+        None,
+    )
+    if transformMethodRaw is None and _cfgHas(configData, "countingParams.transform"):
+        transformConfig = _cfgGet(configData, "countingParams.transform")
+        if not isinstance(transformConfig, Mapping):
+            transformMethodRaw = transformConfig
+    transformMethod_ = _normalizeCountingTransformMethod(
+        constants.COUNTING_DEFAULT_TRANSFORM_METHOD
+        if transformMethodRaw is None
+        else transformMethodRaw
+    )
+    explicitLogOffset = _cfgHas(configData, "countingParams.logOffset")
+    explicitLogMult = _cfgHas(configData, "countingParams.logMult")
+
+    transformInputOffsetRaw = _cfgGetFirst(
+        configData,
+        (
+            "countingParams.transformInputOffset",
+            "countingParams.transform.inputOffset",
+            "countingParams.transform.offset",
+            "countingParams.transformOffset",
+        ),
+        None,
+    )
+    if transformInputOffsetRaw is None:
+        if transformMethod_ == "log" or explicitLogOffset:
+            transformInputOffsetRaw = logOffset_
+        elif transformMethod_ == "anscombe":
+            transformInputOffsetRaw = constants.COUNTING_ANSCOMBE_INPUT_OFFSET
+        else:
+            transformInputOffsetRaw = constants.COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET
+
+    transformInputScaleRaw = _cfgGetFirst(
+        configData,
+        (
+            "countingParams.transformInputScale",
+            "countingParams.transform.inputScale",
+            "countingParams.transform.scale",
+            "countingParams.transformScale",
+        ),
+        constants.COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
+    )
+
+    transformOutputScaleRaw = _cfgGetFirst(
+        configData,
+        (
+            "countingParams.transformOutputScale",
+            "countingParams.transform.outputScale",
+            "countingParams.transform.multiplier",
+            "countingParams.transformMultiplier",
+            "countingParams.transform.outputMultiplier",
+        ),
+        None,
+    )
+    if transformOutputScaleRaw is None:
+        if transformMethod_ == "log" or explicitLogMult:
+            transformOutputScaleRaw = logMult_
+        elif transformMethod_ == "anscombe":
+            transformOutputScaleRaw = constants.COUNTING_ANSCOMBE_OUTPUT_SCALE
+        else:
+            transformOutputScaleRaw = constants.COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE
+
+    transformOutputOffsetRaw = _cfgGetFirst(
+        configData,
+        (
+            "countingParams.transformOutputOffset",
+            "countingParams.transform.outputOffset",
+        ),
+        constants.COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET,
+    )
+    transformShapeRaw = _cfgGetFirst(
+        configData,
+        (
+            "countingParams.transformShape",
+            "countingParams.transform.shape",
+        ),
+        constants.COUNTING_DEFAULT_TRANSFORM_SHAPE,
+    )
+    transformInputOffset_ = _coerceTransformFloat(
+        transformInputOffsetRaw,
+        name="countingParams.transformInputOffset",
+        default=constants.COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
+    )
+    transformInputScale_ = _coerceTransformFloat(
+        transformInputScaleRaw,
+        name="countingParams.transformInputScale",
+        default=constants.COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
+        positive=True,
+    )
+    transformOutputScale_ = _coerceTransformFloat(
+        transformOutputScaleRaw,
+        name="countingParams.transformOutputScale",
+        default=constants.COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
+    )
+    transformOutputOffset_ = _coerceTransformFloat(
+        transformOutputOffsetRaw,
+        name="countingParams.transformOutputOffset",
+        default=constants.COUNTING_DEFAULT_TRANSFORM_OUTPUT_OFFSET,
+    )
+    transformShape_ = _coerceTransformFloat(
+        transformShapeRaw,
+        name="countingParams.transformShape",
+        default=constants.COUNTING_DEFAULT_TRANSFORM_SHAPE,
+        positive=True,
+    )
     subtractGlobalMedian_ = _cfgGet(
         configData,
         "countingParams.subtractGlobalMedian",
         _cfgDefault(configData, "countingParams.subtractGlobalMedian"),
     )
-    replicateMedianDetrend_ = _cfgGet(
-        configData,
-        "countingParams.replicateMedianDetrend",
-        constants.COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND,
-    )
-    replicateMedianDetrendWindowMultiplier_ = _cfgGet(
-        configData,
-        "countingParams.replicateMedianDetrendWindowMultiplier",
-        constants.COUNTING_DEFAULT_REPLICATE_MEDIAN_DETREND_WINDOW_MULTIPLIER,
-    )
-    gentleDetrendQuantile_ = _cfgGet(
-        configData,
-        "countingParams.gentleDetrendQuantile",
-        constants.COUNTING_DEFAULT_GENTLE_DETREND_QUANTILE,
-    )
-    gentleDetrendQuantile_ = float(gentleDetrendQuantile_)
-    if (
-        not np.isfinite(gentleDetrendQuantile_)
-        or gentleDetrendQuantile_ < 0.0
-        or gentleDetrendQuantile_ > 1.0
-    ):
-        raise ValueError("countingParams.gentleDetrendQuantile must be between 0 and 1")
     return core.countingParams(
         intervalSizeBP=intervalSizeBP,
         backgroundBlockSizeBP=backgroundBlockSizeBP_,
@@ -667,12 +856,13 @@ def getCountingArgs(config_path: str) -> core.countingParams:
         fixControl=fixControl_,
         logOffset=logOffset_,
         logMult=logMult_,
+        transformMethod=transformMethod_,
+        transformInputOffset=transformInputOffset_,
+        transformInputScale=transformInputScale_,
+        transformOutputScale=transformOutputScale_,
+        transformOutputOffset=transformOutputOffset_,
+        transformShape=transformShape_,
         subtractGlobalMedian=bool(subtractGlobalMedian_),
-        replicateMedianDetrend=bool(replicateMedianDetrend_),
-        replicateMedianDetrendWindowMultiplier=float(
-            replicateMedianDetrendWindowMultiplier_
-        ),
-        gentleDetrendQuantile=gentleDetrendQuantile_,
     )
 
 
@@ -913,20 +1103,25 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "experimentName",
         constants.EXPERIMENT_DEFAULT_NAME,
     )
-    regularizationStrengthKey = "processParams.regularizationStrength"
-    mapRoughnessPenaltyKey = "processParams.processNoiseMapRoughnessPenalty"
-    mapRoughnessPenaltyRaw = _cfgGet(configData, mapRoughnessPenaltyKey, None)
-    regularizationStrength = float(
-        _cfgGet(
+    trendRatioPriorStrengthKey = "processParams.processQTrendRatioLogPriorStrength"
+    qTrendRatioPriorStrengthKey = "processParams.qTrendRatioPriorStrength"
+    qLevelPriorStrengthKey = "processParams.processQLevelLogPriorStrength"
+    mapRoughnessPenaltyKey = "processParams.qLevelPriorStrength"
+    trendLevelRatioPriorKey = "processParams.processQTrendLevelRatioPrior"
+    qTrendLevelRatioPriorKey = "processParams.qTrendLevelRatioPrior"
+    qTrendRatioPriorStrength = float(
+        _cfgGetFirst(
             configData,
-            regularizationStrengthKey,
-            _cfgDefault(configData, regularizationStrengthKey),
+            (trendRatioPriorStrengthKey, qTrendRatioPriorStrengthKey),
+            _cfgDefault(configData, qTrendRatioPriorStrengthKey),
         )
     )
-    mapRoughnessPenalty = (
-        regularizationStrength
-        if mapRoughnessPenaltyRaw is None
-        else float(mapRoughnessPenaltyRaw)
+    mapRoughnessPenalty = float(
+        _cfgGetFirst(
+            configData,
+            (qLevelPriorStrengthKey, mapRoughnessPenaltyKey),
+            _cfgDefault(configData, mapRoughnessPenaltyKey),
+        )
     )
     processNoiseWarmupECMIters = int(
         _cfgGet(
@@ -942,6 +1137,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgDefault(configData, "processParams.processNoiseWarmupOuterPasses"),
         )
     )
+    processNoiseWarmupQAlternatingPasses = int(
+        _cfgGet(
+            configData,
+            "processParams.processNoiseWarmupQAlternatingPasses",
+            _cfgDefault(
+                configData,
+                "processParams.processNoiseWarmupQAlternatingPasses",
+            ),
+        )
+    )
     if processNoiseWarmupECMIters < 1:
         raise ValueError(
             "`processParams.processNoiseWarmupECMIters` must be a positive integer."
@@ -950,16 +1155,23 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         raise ValueError(
             "`processParams.processNoiseWarmupOuterPasses` must be a positive integer."
         )
-    regularizationRatioConfigured = _cfgHas(
+    if processNoiseWarmupQAlternatingPasses < 1:
+        raise ValueError(
+            "`processParams.processNoiseWarmupQAlternatingPasses` must be a positive integer."
+        )
+    qTrendLevelRatioPriorConfigured = _cfgHas(
         configData,
-        "processParams.regularizationRatio",
+        trendLevelRatioPriorKey,
+    ) or _cfgHas(
+        configData,
+        qTrendLevelRatioPriorKey,
     )
     processArgs = _buildProcessArgs(
         {
             "deltaF": _cfgGet(
                 configData,
                 "processParams.deltaF",
-                constants.PROCESS_DEFAULT_DELTA_F,
+                _cfgDefault(configData, "processParams.deltaF"),
             ),
             "stateModel": _cfgGet(
                 configData,
@@ -969,22 +1181,25 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "minQ": _cfgGet(
                 configData,
                 "processParams.minQ",
-                constants.PROCESS_DEFAULT_MIN_Q,
+                _cfgDefault(configData, "processParams.minQ"),
             ),
             "maxQ": _cfgGet(
                 configData,
                 "processParams.maxQ",
-                constants.PROCESS_DEFAULT_MAX_Q,
+                _cfgDefault(configData, "processParams.maxQ"),
             ),
-            "regularizationStrength": regularizationStrength,
-            "regularizationRatio": float(
-                _cfgGet(
+            "qTrendRatioPriorStrength": qTrendRatioPriorStrength,
+            "qTrendLevelRatioPrior": float(
+                _cfgGetFirst(
                     configData,
-                    "processParams.regularizationRatio",
-                    _cfgDefault(configData, "processParams.regularizationRatio"),
+                    (trendLevelRatioPriorKey, qTrendLevelRatioPriorKey),
+                    _cfgDefault(configData, qTrendLevelRatioPriorKey),
                 )
             ),
             "processNoiseWarmupECMIters": processNoiseWarmupECMIters,
+            "processNoiseWarmupQAlternatingPasses": (
+                processNoiseWarmupQAlternatingPasses
+            ),
             "precisionMultiplierMin": float(
                 _cfgGet(
                     configData,
@@ -1001,16 +1216,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             ),
         },
         {
-            "processNoiseMapRoughnessPenalty": mapRoughnessPenalty,
+            "qLevelPriorStrength": mapRoughnessPenalty,
             "processNoiseWarmupOuterPasses": processNoiseWarmupOuterPasses,
         },
     )
     if (
-        regularizationRatioConfigured
+        qTrendLevelRatioPriorConfigured
         and core._normalizeStateModel(processArgs.stateModel) == core.STATE_MODEL_LEVEL
     ):
         logger.info(
-            "processParams.regularizationRatio was provided but ignored because stateModel='level' has no trend state."
+            "process-Q trend/level ratio prior was provided but ignored because stateModel='level' has no trend state."
         )
 
     explicitSparseBedFile = _cfgGet(
@@ -1060,6 +1275,16 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             configData,
             "observationParams.muncVarianceModel",
             _cfgDefault(configData, "observationParams.muncVarianceModel"),
+        )
+    )
+    muncAR1VarianceFunctional = core._normalizeMuncAR1VarianceFunctional(
+        _cfgGetFirst(
+            configData,
+            (
+                "observationParams.muncAR1VarianceFunctional",
+                "observationParams.muncAR1ObservationVarianceFunctional",
+            ),
+            _cfgDefault(configData, "observationParams.muncAR1VarianceFunctional"),
         )
     )
     muncTrendBlockSizeBP = (
@@ -1272,14 +1497,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 constants.OBSERVATION_DEFAULT_USE_REPLICATE_TRENDS,
             )
         ),
-        additiveHighFreq=bool(
-            _cfgGet(
-                configData,
-                "observationParams.additiveHighFreq",
-                _cfgDefault(configData, "observationParams.additiveHighFreq"),
-            )
-        ),
         muncVarianceModel=muncVarianceModel,
+        muncAR1VarianceFunctional=muncAR1VarianceFunctional,
         muncTrendBlockSizeBP=muncTrendBlockSizeBP,
         muncLocalWindowSizeBP=muncLocalWindowSizeBP,
         muncTrendBlockDependenceMultiplier=muncTrendBlockDependenceMultiplier,
@@ -1519,6 +1738,20 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 configData,
                 "matchingParams.exportFilterUncertaintyMultiplier",
                 constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER,
+            )
+        ),
+        uncertaintyScoreMode=_normalizeMatchingUncertaintyScoreMode(
+            _cfgGet(
+                configData,
+                "matchingParams.uncertaintyScoreMode",
+                constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+            )
+        ),
+        uncertaintyScoreZ=_validateMatchingUncertaintyScoreZ(
+            _cfgGet(
+                configData,
+                "matchingParams.uncertaintyScoreZ",
+                constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
             )
         ),
     )

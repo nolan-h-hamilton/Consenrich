@@ -105,6 +105,58 @@ def _logRatioReference(
     return out
 
 
+def _countTransformReference(
+    x: np.ndarray,
+    *,
+    mode: str,
+    inputOffset: float = 0.0,
+    inputScale: float = 1.0,
+    outputScale: float = 1.0,
+    outputOffset: float = 0.0,
+    shape: float = 1.0,
+) -> np.ndarray:
+    z = x.astype(np.float64) + float(inputOffset)
+    inputScale_ = float(inputScale)
+    outputScale_ = float(outputScale)
+    outputOffset_ = float(outputOffset)
+    shape_ = float(shape)
+    key = mode.replace("-", "").replace("_", "").lower()
+    if key == "log":
+        z = np.where(z <= 0.0, float(inputOffset), z)
+        u = z / inputScale_
+        u = np.where(u <= 0.0, 1.0, u)
+        core_ = np.log(u)
+    elif key == "sqrt":
+        core_ = np.sqrt(np.maximum(z / inputScale_, 0.0))
+    elif key == "anscombe":
+        core_ = np.sqrt(np.maximum(z / inputScale_, 0.0))
+    elif key == "asinh":
+        core_ = np.arcsinh(z / inputScale_)
+    elif key == "asinhsqrt":
+        core_ = np.arcsinh(np.sqrt(np.maximum(z, 0.0)) / inputScale_)
+    elif key == "generalizedlog":
+        u = z / inputScale_
+        core_ = np.log((u + np.sqrt((u * u) + (shape_ * shape_))) / shape_)
+    elif key == "identity":
+        core_ = z / inputScale_
+    else:
+        raise AssertionError(f"unexpected reference mode {mode!r}")
+    return (outputOffset_ + outputScale_ * core_).astype(x.dtype)
+
+
+def _countTransformDiffReference(
+    treatment: np.ndarray,
+    control: np.ndarray,
+    **kwargs,
+) -> np.ndarray:
+    noOutputOffset = dict(kwargs)
+    noOutputOffset["outputOffset"] = 0.0
+    return (
+        _countTransformReference(treatment, **noOutputOffset)
+        - _countTransformReference(control, **noOutputOffset)
+    ).astype(treatment.dtype)
+
+
 def _levelKalmanReference(
     matrixData: np.ndarray,
     matrixMunc: np.ndarray,
@@ -311,6 +363,182 @@ def _caseTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64(dtype):
 
 
 @pytest.mark.correctness
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def _caseGenericTransformModesMatchReference(dtype):
+    x = np.array([-1.0, 0.0, 1.0, 4.0, 16.0], dtype=dtype)
+    modeCases = (
+        (
+            "sqrt",
+            dict(
+                inputOffset=0.25,
+                inputScale=2.0,
+                outputScale=1.7,
+                outputOffset=-0.2,
+            ),
+        ),
+        (
+            "anscombe",
+            dict(
+                inputOffset=0.375,
+                inputScale=1.0,
+                outputScale=2.0,
+                outputOffset=0.0,
+            ),
+        ),
+        (
+            "asinh",
+            dict(
+                inputOffset=-0.5,
+                inputScale=2.0,
+                outputScale=0.75,
+                outputOffset=0.1,
+            ),
+        ),
+        (
+            "asinh_sqrt",
+            dict(
+                inputOffset=0.0,
+                inputScale=2.0,
+                outputScale=2.0,
+                outputOffset=0.0,
+            ),
+        ),
+        (
+            "generalized_log",
+            dict(
+                inputOffset=0.0,
+                inputScale=2.0,
+                outputScale=1.2,
+                outputOffset=-0.1,
+                shape=0.75,
+            ),
+        ),
+        (
+            "identity",
+            dict(
+                inputOffset=-1.0,
+                inputScale=2.0,
+                outputScale=3.0,
+                outputOffset=0.5,
+            ),
+        ),
+    )
+
+    for mode, kwargs in modeCases:
+        inPlace = x.copy()
+        returned = cconsenrich.cTransformInPlace(inPlace, mode=mode, **kwargs)
+        allocated = cconsenrich.cTransform(x, mode=mode, **kwargs)
+        expected = _countTransformReference(x, mode=mode, **kwargs)
+
+        assert returned is inPlace
+        assert inPlace.dtype == dtype
+        assert allocated.dtype == dtype
+        if dtype == np.float32:
+            np.testing.assert_allclose(inPlace, expected, rtol=1.0e-6, atol=1.0e-6)
+            np.testing.assert_allclose(allocated, expected, rtol=1.0e-6, atol=1.0e-6)
+        else:
+            np.testing.assert_allclose(inPlace, expected, rtol=1.0e-12, atol=1.0e-12)
+            np.testing.assert_allclose(allocated, expected, rtol=1.0e-12, atol=1.0e-12)
+
+
+@pytest.mark.correctness
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def _caseGenericTransformWithInputUsesTransformDifferences(dtype):
+    treatment = np.array([0.0, 4.0, 16.0, 25.0], dtype=dtype)
+    control = np.array([0.0, 1.0, 4.0, 36.0], dtype=dtype)
+    modeCases = (
+        ("sqrt", dict(inputOffset=0.25, inputScale=2.0, outputScale=1.5)),
+        ("anscombe", dict(inputOffset=0.375, outputScale=2.0)),
+        ("asinh", dict(inputOffset=-0.5, inputScale=2.0, outputScale=0.8)),
+        ("asinh_sqrt", dict(inputOffset=0.0, inputScale=2.0, outputScale=2.0)),
+        (
+            "generalized_log",
+            dict(inputOffset=0.0, inputScale=2.0, outputScale=1.1, shape=0.75),
+        ),
+        ("identity", dict(inputOffset=0.0, inputScale=2.0, outputScale=3.0)),
+    )
+
+    for mode, kwargs in modeCases:
+        out = np.empty_like(treatment)
+        returned = cconsenrich.cTransformWithInputInto(
+            treatment,
+            control,
+            out,
+            mode=mode,
+            outputOffset=99.0,
+            **kwargs,
+        )
+        allocated = cconsenrich.cTransformWithInput(
+            treatment,
+            control,
+            mode=mode,
+            outputOffset=99.0,
+            **kwargs,
+        )
+        expected = _countTransformDiffReference(
+            treatment,
+            control,
+            mode=mode,
+            outputOffset=99.0,
+            **kwargs,
+        )
+
+        assert returned is out
+        assert out.dtype == dtype
+        assert allocated.dtype == dtype
+        if dtype == np.float32:
+            np.testing.assert_allclose(out, expected, rtol=1.0e-6, atol=1.0e-6)
+            np.testing.assert_allclose(allocated, expected, rtol=1.0e-6, atol=1.0e-6)
+        else:
+            np.testing.assert_allclose(out, expected, rtol=1.0e-12, atol=1.0e-12)
+            np.testing.assert_allclose(allocated, expected, rtol=1.0e-12, atol=1.0e-12)
+        assert out[1] > 0.0
+        assert out[-1] < 0.0
+
+
+@pytest.mark.correctness
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def _caseAnscombePresetUsesCanonicalDefaults(dtype):
+    x = np.array([0.0, 1.0, 4.0, 16.0], dtype=dtype)
+    treatment = np.array([0.0, 4.0, 16.0], dtype=dtype)
+    control = np.array([1.0, 1.0, 4.0], dtype=dtype)
+
+    transformed = cconsenrich.cTransform(x, mode="anscombe")
+    expected = _countTransformReference(
+        x,
+        mode="anscombe",
+        inputOffset=0.375,
+        outputScale=2.0,
+    )
+    diff = cconsenrich.cTransformWithInput(treatment, control, mode="anscombe")
+    expectedDiff = _countTransformDiffReference(
+        treatment,
+        control,
+        mode="anscombe",
+        inputOffset=0.375,
+        outputScale=2.0,
+    )
+
+    if dtype == np.float32:
+        np.testing.assert_allclose(transformed, expected, rtol=1.0e-6, atol=1.0e-6)
+        np.testing.assert_allclose(diff, expectedDiff, rtol=1.0e-6, atol=1.0e-6)
+    else:
+        np.testing.assert_allclose(transformed, expected, rtol=1.0e-12, atol=1.0e-12)
+        np.testing.assert_allclose(diff, expectedDiff, rtol=1.0e-12, atol=1.0e-12)
+
+
+@pytest.mark.correctness
+def _caseGenericTransformInvalidOptionsFailGracefully():
+    x = np.array([0.0, 1.0], dtype=np.float64)
+    with pytest.raises(ValueError, match="mode"):
+        cconsenrich.cTransform(x, mode="banana")
+    with pytest.raises(ValueError, match="inputScale"):
+        cconsenrich.cTransform(x, mode="asinh", inputScale=0.0)
+    with pytest.raises(ValueError, match="shape"):
+        cconsenrich.cTransform(x, mode="generalized_log", shape=0.0)
+
+
+@pytest.mark.correctness
 def _caseCSFMedianSelectionHandlesOddLengthDuplicates():
     base = (20.0 + (np.arange(601, dtype=np.float32) % 17)).astype(np.float32)
     factors = np.array([0.75, 1.0, 1.0], dtype=np.float32)
@@ -460,46 +688,6 @@ def _caseSubtractGlobalMedianCentersEachTrackInPlace():
         atol=1.0e-7,
     )
     assert not np.allclose(tracks, original)
-
-
-@pytest.mark.correctness
-def _caseQuantileFilterSubtractsUncenteredTrendInPlace():
-    x = np.linspace(8.0, 10.0, 101, dtype=np.float32)
-    x[50] += 4.0
-    original = x.copy()
-    expectedTrend = core.ndimage.median_filter(original, size=21, mode="nearest")
-    expected = original - expectedTrend
-
-    stats_ = core.quantileFilterDetrendInPlace(x, 20, quantile=0.5)
-
-    assert stats_["applied"] is True
-    assert stats_["window_intervals"] == 21
-    assert stats_["detrend_quantile"] == pytest.approx(0.5)
-    np.testing.assert_allclose(x, expected, rtol=1.0e-6, atol=1.0e-6)
-    anchored = original - (expectedTrend - np.median(expectedTrend))
-    assert np.max(np.abs(x - anchored)) > 8.0
-    assert x[50] > 3.5
-
-
-@pytest.mark.correctness
-def _caseQuantileFilterDetrendUsesRequestedQuantile():
-    x = np.linspace(8.0, 10.0, 101, dtype=np.float32)
-    x[45:56] += np.linspace(0.0, 5.0, 11, dtype=np.float32)
-    original = x.copy()
-    expectedTrend = core.ndimage.percentile_filter(
-        original,
-        percentile=75.0,
-        size=21,
-        mode="nearest",
-    )
-    expected = original - expectedTrend
-
-    stats_ = core.quantileFilterDetrendInPlace(x, 20, quantile=0.75)
-
-    assert stats_["applied"] is True
-    assert stats_["window_intervals"] == 21
-    assert stats_["detrend_quantile"] == pytest.approx(0.75)
-    np.testing.assert_allclose(x, expected, rtol=1.0e-6, atol=1.0e-6)
 
 
 def _writeSyntheticBam(tmp_path: Path, fileName: str, records: list[dict]) -> Path:
@@ -1031,6 +1219,142 @@ def _caseReplicateBiasIsAlwaysZeroCentered():
 
 
 @pytest.mark.correctness
+def _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback():
+    n = 5
+    m = 2
+    matrixData = np.vstack(
+        [
+            np.linspace(0.2, 1.0, n, dtype=np.float32),
+            np.linspace(0.35, 1.15, n, dtype=np.float32),
+        ]
+    )
+    matrixMunc = np.full((m, n), 0.08, dtype=np.float32)
+    matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
+    matrixQ0 = core.constructMatrixQ(minDiagQ=1.0e-5).astype(np.float32, copy=False)
+    intervalToBlockMap = np.zeros(n, dtype=np.int32)
+
+    out = cconsenrich.cfixedBackgroundECM(
+        matrixData=matrixData,
+        matrixPluginMuncInit=matrixMunc,
+        matrixF=matrixF,
+        matrixQ0=matrixQ0,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=1,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        ECM_fixedBackgroundIters=3,
+        ECM_fixedBackgroundRtol=0.0,
+        pad=1.0e-4,
+        ECM_robustTNu=8.0,
+        ECM_useObsPrecisionReweighting=True,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_useAPN=False,
+        returnIntermediates=True,
+        returnDiagnostics=True,
+        t_innerIters=5,
+        logIterations=False,
+    )
+
+    (
+        itersDone,
+        finalNLL,
+        stateSmoothed,
+        stateCovarSmoothed,
+        lagCovSmoothed,
+        postFitResiduals,
+        lambdaExp,
+        processPrecExp,
+        replicateBias,
+        ecmDiagnostics,
+    ) = out
+
+    assert itersDone == 0
+    assert np.isfinite(finalNLL)
+    assert ecmDiagnostics["skipped"] is True
+    assert ecmDiagnostics["skip_reason"] == "too_few_intervals"
+    assert ecmDiagnostics["fallback"] == "filter_smoother_only"
+    assert ecmDiagnostics["final_nll"] == pytest.approx(finalNLL)
+    assert stateSmoothed.shape == (n, 2)
+    assert stateCovarSmoothed.shape == (n, 2, 2)
+    assert lagCovSmoothed.shape[0] >= n - 1
+    assert postFitResiduals.shape == (n, m)
+    assert np.all(np.isfinite(stateSmoothed))
+    assert np.all(np.isfinite(stateCovarSmoothed))
+    assert np.all(np.isfinite(lagCovSmoothed[: n - 1]))
+    assert np.all(np.isfinite(postFitResiduals))
+    assert np.all(np.isfinite(lambdaExp))
+    assert np.all(np.isfinite(processPrecExp))
+    assert np.all(np.isfinite(replicateBias))
+
+
+@pytest.mark.correctness
+def _caseCFixedBackgroundECMLevelTinyTrackUsesFiniteFallback():
+    n = 5
+    m = 2
+    matrixData = np.vstack(
+        [
+            np.linspace(-0.1, 0.3, n, dtype=np.float32),
+            np.linspace(0.0, 0.4, n, dtype=np.float32),
+        ]
+    )
+    matrixMunc = np.full((m, n), 0.05, dtype=np.float32)
+    matrixQ0 = np.asarray([[1.0e-4]], dtype=np.float32)
+    intervalToBlockMap = np.zeros(n, dtype=np.int32)
+
+    out = cconsenrich.cfixedBackgroundECMLevel(
+        matrixData=matrixData,
+        matrixPluginMuncInit=matrixMunc,
+        matrixQ0=matrixQ0,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=1,
+        stateInit=0.0,
+        stateCovarInit=1.0,
+        ECM_fixedBackgroundIters=3,
+        ECM_fixedBackgroundRtol=0.0,
+        pad=1.0e-4,
+        ECM_robustTNu=8.0,
+        ECM_useObsPrecisionReweighting=True,
+        ECM_useProcessPrecisionReweighting=True,
+        ECM_useAPN=False,
+        returnIntermediates=True,
+        returnDiagnostics=True,
+        t_innerIters=5,
+        logIterations=False,
+    )
+
+    (
+        itersDone,
+        finalNLL,
+        stateSmoothed,
+        stateCovarSmoothed,
+        lagCovSmoothed,
+        postFitResiduals,
+        lambdaExp,
+        processPrecExp,
+        replicateBias,
+        ecmDiagnostics,
+    ) = out
+
+    assert itersDone == 0
+    assert np.isfinite(finalNLL)
+    assert ecmDiagnostics["skipped"] is True
+    assert ecmDiagnostics["skip_reason"] == "too_few_intervals"
+    assert ecmDiagnostics["fallback"] == "filter_smoother_only"
+    assert ecmDiagnostics["final_nll"] == pytest.approx(finalNLL)
+    assert stateSmoothed.shape == (n, 1)
+    assert stateCovarSmoothed.shape == (n, 1, 1)
+    assert lagCovSmoothed.shape[0] >= n - 1
+    assert postFitResiduals.shape == (n, m)
+    assert np.all(np.isfinite(stateSmoothed))
+    assert np.all(np.isfinite(stateCovarSmoothed))
+    assert np.all(np.isfinite(lagCovSmoothed[: n - 1]))
+    assert np.all(np.isfinite(postFitResiduals))
+    assert np.all(np.isfinite(lambdaExp))
+    assert np.all(np.isfinite(processPrecExp))
+    assert np.all(np.isfinite(replicateBias))
+
+
+@pytest.mark.correctness
 def _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
     n = 48
     offsets = np.array([1.25, -0.75, 0.35], dtype=np.float32)
@@ -1509,8 +1833,8 @@ def _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood():
         initialMatrixQ=initialQ,
         stateModel=core.STATE_MODEL_LEVEL,
         maxQ=1.0,
-        regularizationStrength=0.0,
-        regularizationRatio=0.1,
+        qTrendRatioPriorStrength=0.0,
+        qTrendLevelRatioPrior=0.1,
         mapRoughnessPenalty=0.0,
     )
     assert info["processNoisePolicy"] == "marginal_likelihood_map"
@@ -1543,8 +1867,8 @@ def _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood():
         initialMatrixQ=initialQ,
         stateModel=core.STATE_MODEL_LEVEL_TREND,
         maxQ=1.0,
-        regularizationStrength=0.0,
-        regularizationRatio=0.1,
+        qTrendRatioPriorStrength=0.0,
+        qTrendLevelRatioPrior=0.1,
         mapRoughnessPenalty=0.0,
     )
     priorQ, priorInfo = core._estimateMarginalMAPProcessNoise(
@@ -1552,8 +1876,8 @@ def _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood():
         initialMatrixQ=initialQ,
         stateModel=core.STATE_MODEL_LEVEL_TREND,
         maxQ=1.0,
-        regularizationStrength=40.0,
-        regularizationRatio=0.1,
+        qTrendRatioPriorStrength=40.0,
+        qTrendLevelRatioPrior=0.1,
         mapRoughnessPenalty=0.0,
     )
     noPriorRatio = float(noPriorQ[1, 1] / noPriorQ[0, 0])
@@ -1573,8 +1897,8 @@ def _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood():
         initialMatrixQ=np.diag([0.2, 0.2]).astype(np.float32),
         stateModel=core.STATE_MODEL_LEVEL_TREND,
         maxQ=1.0e-2,
-        regularizationStrength=0.0,
-        regularizationRatio=0.1,
+        qTrendRatioPriorStrength=0.0,
+        qTrendLevelRatioPrior=0.1,
         mapRoughnessPenalty=0.0,
     )
     assert cappedQ[0, 0] == pytest.approx(1.0e-2)
@@ -1599,13 +1923,35 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         ]
     ).astype(np.float32)
     matrixMunc = np.full((m, n), 0.2, dtype=np.float32)
-    assert core._stateSignChangePerKB(
+    assert core._signChangePerKB(
         np.asarray([1.0, -0.005, 1.0], dtype=np.float32),
         intervalSizeBP=1000,
     ) == pytest.approx(0.0)
-    assert core._stateSignChangePerKB(
+    assert core._signChangePerKB(
         np.asarray([1.0, -0.02, 1.0], dtype=np.float32),
         intervalSizeBP=1000,
+    ) == pytest.approx(2.0 / 3.0)
+    assert core._relativeSignChangePerKB(
+        np.asarray([2.0, 2.0, 2.0], dtype=np.float32),
+        np.asarray([[1.0, 3.0, 1.0], [3.0, 1.0, 3.0]], dtype=np.float32),
+        np.asarray([[0.1, 0.1, 0.1], [10.0, 10.0, 10.0]], dtype=np.float32),
+        intervalSizeBP=1000,
+        pad=0.0,
+    ) == pytest.approx(2.0 / 3.0)
+    relativeData = np.asarray(
+        [[1.0, 3.0, 1.0], [3.0, 1.0, 3.0]],
+        dtype=np.float32,
+    )
+    relativeBackground = np.asarray([0.1, -0.2, 0.3], dtype=np.float32)
+    relativeBias = np.asarray([0.4, -0.1], dtype=np.float32)
+    assert core._relativeSignChangePerKB(
+        np.asarray([2.0, 2.0, 2.0], dtype=np.float32),
+        relativeData + relativeBackground[None, :] + relativeBias[:, None],
+        np.asarray([[0.1, 0.1, 0.1], [10.0, 10.0, 10.0]], dtype=np.float32),
+        intervalSizeBP=1000,
+        background=relativeBackground,
+        replicateBias=relativeBias,
+        pad=0.0,
     ) == pytest.approx(2.0 / 3.0)
 
     caplog.set_level(logging.INFO, logger=core.logger.name)
@@ -1647,6 +1993,10 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert precisionDiagnostics["precision_track_diagnostics"] is True
     outputTracks = precisionDiagnostics["outputTracks"]
     assert tuple(sorted(outputTracks)) == (
+        "baseQLevel",
+        "baseQTrend",
+        "effectiveQLevel",
+        "effectiveQTrend",
         "muncTrace",
         "qLevel",
         "qTrend",
@@ -1684,7 +2034,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert "".join(("qTrend", "DataRaw=")) not in caplog.text
     assert "lambdaMean=" in caplog.text
     assert "lambdaMedian=" in caplog.text
-    assert "signChangePerKB=" in caplog.text
+    assert "relativeSignChangePerKB=" in caplog.text
     assert "lambdaLowerBoundHits=" in caplog.text
     assert "lambdaUpperBoundHits=" in caplog.text
     assert "kappaLowerBoundHits=" in caplog.text
@@ -1722,13 +2072,13 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert (
         0.0 <= backgroundPassDiagnostics[-1]["process_kappa_upper_bound_hits"] <= 1.0
     )
-    assert backgroundPassDiagnostics[-1]["sign_change_per_kb"] >= 0.0
+    assert backgroundPassDiagnostics[-1]["relative_sign_change_per_kb"] >= 0.0
     finalFixedDiagnostics = fitDiagnostics[-1]
     assert finalFixedDiagnostics["final_fixed_background_ecm"] is True
     assert "final_abs_rel_change" in finalFixedDiagnostics
     assert "stable_iters" in finalFixedDiagnostics
     assert "patience_target" in finalFixedDiagnostics
-    assert finalFixedDiagnostics["sign_change_per_kb"] >= 0.0
+    assert finalFixedDiagnostics["relative_sign_change_per_kb"] >= 0.0
     assert "background_objective_per_cell" not in finalFixedDiagnostics
     assert "outer_objective_per_cell" not in finalFixedDiagnostics
     traceRows = finalFixedDiagnostics["optimization_path"]
@@ -1784,8 +2134,8 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         blockLenIntervals=8,
         ECM_fixedBackgroundIters=3,
         ECM_outerIters=2,
-        regularizationStrength=0.0,
-        regularizationRatio=0.9,
+        qTrendRatioPriorStrength=0.0,
+        qTrendLevelRatioPrior=0.9,
         processNoiseWarmupECMIters=1,
         returnDiagnostics=True,
     )
@@ -1795,7 +2145,7 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
 
 
 @pytest.mark.correctness
-def _caseRunConsenrichFlatWarmupInitializerDoesNotUseMinQ():
+def _caseRunConsenrichFlatWarmupInitializerUsesMinQ():
     n = 24
     m = 3
     matrixData = np.full((m, n), 0.25, dtype=np.float32)
@@ -1823,8 +2173,9 @@ def _caseRunConsenrichFlatWarmupInitializerDoesNotUseMinQ():
 
     qInfo = out[-1]["process_noise_calibration"]
     assert qInfo["processNoisePolicy"] == "marginal_likelihood_map"
-    assert qInfo["qLevel"] >= core.PROCESS_NOISE_NUMERICAL_FLOOR
-    assert qInfo["qLevel"] < 5.0e-2
+    assert qInfo["qLevel"] == pytest.approx(5.0e-2)
+    assert qInfo["qFloor"] == pytest.approx(5.0e-2)
+    assert qInfo["hitQLevelFloor"] is True
     assert qInfo["matrixQ0Final"][0][0] == pytest.approx(qInfo["qLevel"])
 
 
@@ -1926,7 +2277,7 @@ def _caseRunConsenrichLevelStateModelSmoke():
         ECM_minOuterIters=1,
         ECM_useProcessPrecisionReweighting=True,
         ECM_useAPN=False,
-        regularizationRatio=0.5,
+        qTrendLevelRatioPrior=0.5,
         processNoiseWarmupECMIters=1,
         returnDiagnostics=True,
     )
@@ -2015,7 +2366,7 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     )
     assert (
         len(ecmModes[:firstPostQIndex])
-        >= core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES
+        >= core.PROCESS_DEFAULT_WARMUP_Q_NUISANCE_PASSES
     )
     assert all(mode == (False, False) for mode in ecmModes[:firstPostQIndex])
     assert all(mode == (True, False) for mode in ecmModes[firstPostQIndex:])
@@ -2026,10 +2377,7 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert np.all(np.isfinite(stateSmoothed))
     assert np.all(np.isfinite(stateCovarSmoothed))
-    assert (
-        diagnostics["process_noise_warmup_fit"]["actual_outer_passes"]
-        == core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES
-    )
+    assert diagnostics["process_noise_warmup_fit"]["actual_outer_passes"] >= 1
     assert diagnostics["post_process_noise_fit"]["actual_outer_passes"] >= 1
     assert diagnostics["post_process_noise_fit"]["outer_stop_reason"] in {
         "background_shift_and_nll",
@@ -2051,9 +2399,18 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     )
     assert diagnostics["process_noise_calibration"][
         "warmupOuterPasses"
-    ] == pytest.approx(float(core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES))
+    ] == pytest.approx(float(core.PROCESS_DEFAULT_WARMUP_OUTER_PASSES))
+    assert diagnostics["process_noise_calibration"][
+        "warmupOuterPassesUsed"
+    ] >= 1.0
+    assert diagnostics["process_noise_calibration"][
+        "warmupOuterPassesUsed"
+    ] <= float(core.PROCESS_DEFAULT_WARMUP_OUTER_PASSES)
+    assert diagnostics["process_noise_calibration"][
+        "warmupQAlternatingPassesPlanned"
+    ] == core.PROCESS_DEFAULT_WARMUP_Q_NUISANCE_PASSES
     assert diagnostics["process_noise_calibration"]["qLevel"] >= (
-        core.PROCESS_NOISE_NUMERICAL_FLOOR
+        1.0e-3
     )
 
 
@@ -2488,6 +2845,40 @@ def _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback():
 
 
 @pytest.mark.correctness
+def _caseMuncAdditiveCovariateModelTreatsMissingCovariatesAsMissing():
+    means = np.zeros(6, dtype=np.float64)
+    baseline = np.full(means.size, 2.0, dtype=np.float64)
+    variances = np.asarray([5.0, 100.0, 5.0, 100.0, 5.0, 100.0], dtype=np.float64)
+    covariates = np.asarray([[1.0], [np.nan], [1.0], [np.nan], [1.0], [np.nan]])
+    sampleIndex = np.zeros(means.size, dtype=np.int64)
+
+    model = core.fitMuncAdditiveCovariateModel(
+        means,
+        variances,
+        baseline,
+        covariates,
+        sampleIndex,
+        featureNames=("repeat_frac",),
+        sampleCount=1,
+        basisCount=1,
+        ridge=1.0e-8,
+        minBlocksPerReplicate=1,
+    )
+
+    probeMeans = np.zeros(3, dtype=np.float64)
+    probeCovariates = np.asarray([[1.0], [np.nan], [2.0]], dtype=np.float32)
+    additional = core.evalMuncAdditiveCovariateModel(
+        model,
+        probeMeans,
+        probeCovariates,
+        0,
+    )
+
+    assert model.diagnostics["valid_pairs"] == 3
+    np.testing.assert_allclose(additional, np.asarray([3.0, 0.0, 6.0]), atol=1.0e-5)
+
+
+@pytest.mark.correctness
 def _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage():
     values = np.zeros(40, dtype=np.float32)
     intervals = np.arange(values.size, dtype=np.uint32) * np.uint32(25)
@@ -2880,6 +3271,44 @@ def _caseApplyBlacklistMuncFloorUsesNonBlacklistQuantile():
 
 
 @pytest.mark.correctness
+def _caseResolveMuncMinRFloorUsesMuncQuantileWhenNegative():
+    munc = np.asarray(
+        [
+            [0.2, 1.0, np.nan, -2.0],
+            [0.0, 0.5, 2.0, np.inf],
+        ],
+        dtype=np.float32,
+    )
+
+    resolved = core.resolveMuncMinRFloor(munc, minR=-1.0)
+
+    expected = np.quantile([0.2, 1.0, 0.0, 0.5, 2.0], 0.05)
+    assert resolved == pytest.approx(expected)
+    assert core.resolveMuncMinRFloor(munc, minR=0.125) == pytest.approx(0.125)
+
+
+@pytest.mark.correctness
+def _caseApplyBlacklistMuncFloorUsesAutoFloorWhenMinRNegative():
+    munc = np.asarray(
+        [
+            [0.2, 1.0, 0.01, 4.0, np.nan],
+            [0.0, 0.5, 0.02, 2.0, np.inf],
+        ],
+        dtype=np.float32,
+    )
+    blacklistMask = np.asarray([False, False, True, False, True])
+    baseFloor = core.resolveMuncMinRFloor(munc, minR=-1.0)
+
+    floors = core.applyBlacklistMuncFloor(munc, blacklistMask, minR=-1.0)
+
+    assert np.all(floors >= baseFloor)
+    assert munc[0, 2] >= floors[0]
+    assert munc[0, 4] >= floors[0]
+    assert munc[1, 2] >= floors[1]
+    assert munc[1, 4] >= floors[1]
+
+
+@pytest.mark.correctness
 def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
     intervals = np.arange(0, 400, 25, dtype=np.uint32)
     values = np.linspace(0.1, 1.6, intervals.size, dtype=np.float32)
@@ -3113,7 +3542,6 @@ def _caseGetMuncTrackCapsPriorStrengthAtFiftyTimesLocalDf(
         EB_use=True,
         varianceFloor=0.0,
         varianceCap=10.0,
-        additiveHighFreq=False,
     )
 
     expected = (10.0 * localVarTrack + 500.0 * priorVarTrack) / 510.0
@@ -3174,7 +3602,6 @@ def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPat
         noDMVar=True,
         varianceFloor=0.0,
         varianceCap=20.0,
-        additiveHighFreq=False,
     )
 
     expectedNuL = 7.0
@@ -3184,98 +3611,6 @@ def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPat
 
     assert seen["Nu_L"] == pytest.approx(expectedNuL)
     assert np.allclose(muncTrack, expected.astype(np.float32))
-
-
-def test_core_munc_additive_high_freq_adds_only_excess_d1_post_fit(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    intervals = np.arange(0, 300, 25, dtype=np.uint32)
-    values = np.linspace(-0.5, 0.7, intervals.size, dtype=np.float32)
-    baseTrack = np.linspace(0.4, 0.8, intervals.size, dtype=np.float32)
-    highFreqTrack = np.linspace(0.05, 0.35, intervals.size, dtype=np.float32)
-    betaTrack = np.linspace(0.2, 0.9, intervals.size, dtype=np.float32)
-    fakeBlockMeans = np.linspace(-0.5, 0.5, 8, dtype=np.float32)
-    fakeBlockVars = np.linspace(0.2, 0.6, 8, dtype=np.float32)
-    seen: dict[str, np.ndarray] = {}
-
-    def _fakeMeanVarPairs(*args, **kwargs):
-        seen["fit_model_code"] = np.asarray([kwargs.get("modelCode")], dtype=np.int64)
-        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
-        ends = starts + 1
-        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
-
-    def _fakeRolling(valuesArg, _blockLengthArg, _excludeMaskArg, *args, **kwargs):
-        seen["add_model_code"] = np.asarray([kwargs.get("modelCode")], dtype=np.int64)
-        seen["add_values"] = np.asarray(valuesArg).copy()
-        return highFreqTrack.copy()
-
-    def _fakeRollingBeta(valuesArg, _blockLengthArg, _excludeMaskArg, *args, **kwargs):
-        seen["beta_values"] = np.asarray(valuesArg).copy()
-        return betaTrack.copy()
-
-    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
-    monkeypatch.setattr(cconsenrich, "crollingMuncVariance", _fakeRolling)
-    monkeypatch.setattr(cconsenrich, "crollingMuncAR1Beta", _fakeRollingBeta)
-    monkeypatch.setattr(
-        core,
-        "fitPSplineLogVarianceTrend",
-        lambda *args, **kwargs: {"flat": True},
-    )
-    monkeypatch.setattr(
-        core,
-        "evalPSplineLogVarianceTrend",
-        lambda *args, **kwargs: baseTrack.copy(),
-    )
-
-    muncTrack, support = core.getMuncTrack(
-        chromosome="chrTest",
-        intervals=intervals,
-        values=values,
-        intervalSizeBP=25,
-        muncTrendBlockSizeBP=125,
-        muncLocalWindowSizeBP=150,
-        samplingIters=64,
-        EB_use=False,
-        varianceFloor=0.0,
-        varianceCap=10.0,
-        additiveHighFreq=True,
-    )
-
-    assert int(seen["fit_model_code"][0]) == core.MUNC_VARIANCE_MODEL_CODE_AR1
-    assert int(seen["add_model_code"][0]) == core.MUNC_VARIANCE_MODEL_CODE_SVAR_D1
-    assert np.array_equal(seen["add_values"], values)
-    assert np.array_equal(seen["beta_values"], values)
-    assert support > 0.0
-    expectedD1 = baseTrack * (1.0 - betaTrack)
-    expectedExcess = np.maximum(0.0, highFreqTrack - expectedD1)
-    assert np.any(expectedExcess == 0.0)
-    assert np.any(expectedExcess > 0.0)
-    np.testing.assert_allclose(
-        muncTrack,
-        (baseTrack + expectedExcess).astype(np.float32),
-        rtol=1.0e-6,
-    )
-
-
-def test_core_munc_additive_high_freq_requires_ar1_model():
-    intervals = np.arange(0, 300, 25, dtype=np.uint32)
-    values = np.linspace(-0.5, 0.7, intervals.size, dtype=np.float32)
-
-    with pytest.raises(
-        ValueError,
-        match=r"additiveHighFreq.*muncVarianceModel='ar1'",
-    ):
-        core.getMuncTrack(
-            chromosome="chrTest",
-            intervals=intervals,
-            values=values,
-            intervalSizeBP=25,
-            muncTrendBlockSizeBP=125,
-            muncLocalWindowSizeBP=150,
-            muncVarianceModel=core.MUNC_VARIANCE_MODEL_SVAR,
-            EB_use=False,
-            additiveHighFreq=True,
-        )
 
 
 @pytest.mark.correctness
@@ -3335,7 +3670,6 @@ def _caseGetMuncTrackUsesSuppliedPooledTrendFactorAndBoundaryNu0(
         EB_pooledNu0=4.0,
         varianceFloor=0.0,
         varianceCap=20.0,
-        additiveHighFreq=False,
     )
 
     expected = (10.0 * localVarTrack + 4.0 * np.float32(6.0)) / 14.0
@@ -3410,7 +3744,6 @@ def test_core_rolling_ar1_uses_canonical_block_variance_functional():
         values,
         windowLength,
         excludeMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
         useInnovationVar=False,
         maxBeta=0.95,
     )
@@ -3423,7 +3756,6 @@ def test_core_rolling_ar1_uses_canonical_block_variance_functional():
         blockSizes,
         1,
         useInnovationVar=False,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
         aggregateMeanAbs=False,
         maxBeta=0.95,
     )
@@ -3440,7 +3772,6 @@ def test_core_rolling_ar1_uses_canonical_block_variance_functional():
         values,
         windowLength,
         excludeMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
         useInnovationVar=True,
         maxBeta=0.80,
     )
@@ -3448,7 +3779,6 @@ def test_core_rolling_ar1_uses_canonical_block_variance_functional():
         values,
         windowLength,
         excludeMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
         useInnovationVar=False,
         maxBeta=0.80,
     )
@@ -3490,11 +3820,18 @@ def test_core_delta_method_nu_l_uses_rolling_ar1_beta_uncertainty():
     blockSizes = np.full(blockStarts.shape, windowLength, dtype=np.intp)
     blockBeta = cconsenrich.cblockAR1Beta(correlatedValues, blockStarts, blockSizes)
     blockNoise = core._computeDeltaMethodAR1LogVarianceNoise(blockBeta, blockSizes)
+    blockInnovationNoise = core._computeDeltaMethodAR1LogVarianceNoise(
+        blockBeta,
+        blockSizes,
+        muncAR1VarianceFunctional="innovation",
+    )
 
     assert float(np.median(whiteNoiseBeta)) < 0.10
     assert float(np.median(correlatedBeta)) > 0.65
     assert float(np.median(blockBeta)) > 0.65
     assert np.all(np.isfinite(blockNoise))
+    assert np.all(np.isfinite(blockInnovationNoise))
+    assert float(np.median(blockNoise)) > float(np.median(blockInnovationNoise))
 
     nominalNuL = float(windowLength - 3)
     zeroNuL, zeroDiag = core._computeDeltaMethodAR1NuL(
@@ -3567,165 +3904,8 @@ def _caseMuncSizingAndCythonVarianceModels():
     assert dependenceSizing.trendBlockIntervals == 26
     assert dependenceSizing.localWindowIntervals == 43
 
-    rng = np.random.default_rng(123)
-    n = 2048
-    trend = np.linspace(-4.0, 4.0, n, dtype=np.float64)
-    values = (trend + rng.normal(scale=0.1, size=n)).astype(np.float32)
-    excludeMask = np.zeros(n, dtype=np.uint8)
-    svarTrack = cconsenrich.crollingMuncVariance(
-        values,
-        101,
-        excludeMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR,
-    )
-    ar1Track = cconsenrich.crollingMuncVariance(
-        values,
-        101,
-        excludeMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_AR1,
-        useInnovationVar=False,
-    )
-    firstDifferenceTrack = cconsenrich.crollingMuncVariance(
-        values,
-        101,
-        excludeMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D1,
-    )
-    secondDifferenceTrack = cconsenrich.crollingMuncVariance(
-        values,
-        101,
-        excludeMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
-    )
-
-    assert np.all(np.isfinite(svarTrack))
-    assert np.all(np.isfinite(ar1Track))
-    assert np.all(np.isfinite(firstDifferenceTrack))
-    assert np.all(np.isfinite(secondDifferenceTrack))
-    assert float(np.median(firstDifferenceTrack)) < float(np.median(svarTrack))
-    assert float(np.median(secondDifferenceTrack)) < float(np.median(svarTrack))
-
-    referenceValues = (
-        np.linspace(-0.5, 0.7, 96, dtype=np.float64)
-        + rng.normal(scale=0.03, size=96)
-    ).astype(np.float32)
-    referenceMask = np.zeros(referenceValues.size, dtype=np.uint8)
-    windowLength = 17
-    fastFirstDifferenceTrack = cconsenrich.crollingMuncVariance(
-        referenceValues,
-        windowLength,
-        referenceMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D1,
-    )
-    fastSecondDifferenceTrack = cconsenrich.crollingMuncVariance(
-        referenceValues,
-        windowLength,
-        referenceMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
-    )
-    starts = np.clip(
-        np.arange(referenceValues.size) - (windowLength // 2),
-        0,
-        referenceValues.size - windowLength,
-    )
-
-    referenceFirstDifferenceTrack = np.empty(referenceValues.size, dtype=np.float64)
-    for outIndex, start in enumerate(starts):
-        window = referenceValues[start : start + windowLength].astype(np.float64)
-        windowDiff = np.diff(window)
-        referenceFirstDifferenceTrack[outIndex] = np.sum(windowDiff * windowDiff) / (
-            2.0 * windowDiff.size
-        )
-    np.testing.assert_allclose(
-        fastFirstDifferenceTrack,
-        referenceFirstDifferenceTrack,
-        rtol=1.0e-6,
-        atol=1.0e-7,
-    )
-
-    referenceSecondDifferenceTrack = np.empty(referenceValues.size, dtype=np.float64)
-    for outIndex, start in enumerate(starts):
-        window = referenceValues[start : start + windowLength].astype(np.float64)
-        windowDiff = np.diff(window, n=2)
-        referenceSecondDifferenceTrack[outIndex] = np.sum(windowDiff * windowDiff) / (
-            6.0 * windowDiff.size
-        )
-    np.testing.assert_allclose(
-        fastSecondDifferenceTrack,
-        referenceSecondDifferenceTrack,
-        rtol=1.0e-6,
-        atol=1.0e-7,
-    )
-
-    maskedReferenceMask = referenceMask.copy()
-    maskedReferenceMask[20] = 1
-    fastMaskedSecondDifferenceTrack = cconsenrich.crollingMuncVariance(
-        referenceValues,
-        windowLength,
-        maskedReferenceMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
-    )
-    referenceMaskedSecondDifferenceTrack = np.empty(referenceValues.size, dtype=np.float64)
-    for outIndex, start in enumerate(starts):
-        window = referenceValues[start : start + windowLength].astype(np.float64)
-        windowMask = maskedReferenceMask[start : start + windowLength].astype(bool)
-        validDiff = ~(windowMask[:-2] | windowMask[1:-1] | windowMask[2:])
-        windowDiff = np.diff(window, n=2)[validDiff]
-        referenceMaskedSecondDifferenceTrack[outIndex] = (
-            np.sum(windowDiff * windowDiff) / (6.0 * windowDiff.size)
-            if windowDiff.size
-            else 0.0
-        )
-    np.testing.assert_allclose(
-        fastMaskedSecondDifferenceTrack,
-        referenceMaskedSecondDifferenceTrack,
-        rtol=1.0e-6,
-        atol=1.0e-7,
-    )
-
-    blockMeans, blockVars, blockStarts, blockEnds = cconsenrich.cmeanVarPairs(
-        np.arange(referenceValues.size, dtype=np.uint32),
-        referenceValues,
-        windowLength,
-        16,
-        123,
-        referenceMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D1,
-    )
-    assert np.all(np.isfinite(blockMeans))
-    assert np.all(np.isfinite(blockVars))
-    for blockVar, blockStart, blockEnd in zip(blockVars, blockStarts, blockEnds):
-        block = referenceValues[blockStart:blockEnd].astype(np.float64)
-        blockDiff = np.diff(block)
-        referenceBlockVar = np.sum(blockDiff * blockDiff) / (2.0 * blockDiff.size)
-        assert float(blockVar) == pytest.approx(float(referenceBlockVar), rel=1.0e-6)
-
-    blockMeans, blockVars, blockStarts, blockEnds = cconsenrich.cmeanVarPairs(
-        np.arange(referenceValues.size, dtype=np.uint32),
-        referenceValues,
-        windowLength,
-        16,
-        123,
-        referenceMask,
-        modelCode=core.MUNC_VARIANCE_MODEL_CODE_SVAR_D2,
-    )
-    assert np.all(np.isfinite(blockMeans))
-    assert np.all(np.isfinite(blockVars))
-    for blockMean, blockVar, blockStart, blockEnd in zip(
-        blockMeans,
-        blockVars,
-        blockStarts,
-        blockEnds,
-    ):
-        block = referenceValues[blockStart:blockEnd].astype(np.float64)
-        blockDiff = np.diff(block, n=2)
-        referenceBlockVar = np.sum(blockDiff * blockDiff) / (6.0 * blockDiff.size)
-        assert float(blockMean) == pytest.approx(float(np.mean(block)), rel=1.0e-6)
-        assert float(blockVar) == pytest.approx(float(referenceBlockVar), rel=1.0e-6)
-
-
 @pytest.mark.correctness
-def _caseGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
+def _caseGetMuncTrackSparseNearestResidualizesPriorBySignedLocalIntercept(
     monkeypatch: pytest.MonkeyPatch,
 ):
     intervals = np.arange(0, 400, 25, dtype=np.uint32)
@@ -3828,6 +4008,89 @@ def _caseGetMuncTrackSparseNearestDetrendsPriorBySignedLocalIntercept(
     assert bool(seen["sparse_use_innovation_var"][0]) is False
     assert bool(seen["rolling_use_innovation_var"][0]) is False
     assert bool(seen["block_use_innovation_var"][0]) is False
+    assert muncTrack.shape == values.shape
+    assert np.isfinite(muncTrack).all()
+    assert support > 0.0
+
+
+@pytest.mark.correctness
+def test_core_get_munc_track_can_use_innovation_variance_functional(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    intervals = np.arange(0, 400, 25, dtype=np.uint32)
+    values = np.linspace(-0.2, 1.3, intervals.size, dtype=np.float32)
+    sparseIntervalIndices = np.array([2, 3, 4, 5, 9, 10, 11, 12], dtype=np.intp)
+    fakeTrack = np.linspace(0.2, 0.6, intervals.size, dtype=np.float32)
+    fakeBlockMeans = np.linspace(0.1, 0.9, 8, dtype=np.float32)
+    fakeBlockVars = np.linspace(0.2, 0.5, 8, dtype=np.float32)
+    seen: dict[str, np.ndarray] = {}
+
+    def _fakeSparseNearest(*args, **kwargs):
+        seen["sparse_use_innovation_var"] = np.asarray(
+            [bool(kwargs.get("useInnovationVar", False))],
+            dtype=bool,
+        )
+        return fakeTrack.copy(), fakeTrack.copy()
+
+    def _fakeRolling(*args, **kwargs):
+        seen["rolling_use_innovation_var"] = np.asarray(
+            [bool(kwargs.get("useInnovationVar", False))],
+            dtype=bool,
+        )
+        return fakeTrack.copy()
+
+    def _fakeMeanVarPairs(*args, **kwargs):
+        seen["block_use_innovation_var"] = np.asarray(
+            [bool(kwargs.get("useInnovationVar", False))],
+            dtype=bool,
+        )
+        starts = np.arange(fakeBlockMeans.size, dtype=np.intp)
+        ends = starts + 1
+        return fakeBlockMeans.copy(), fakeBlockVars.copy(), starts, ends
+
+    def _fakeFitPSplineLogVarianceTrend(*args, **kwargs):
+        return {"slope": 1.0}
+
+    def _fakeEvalPSplineLogVarianceTrend(opt, meanTrack, *args, **kwargs):
+        return np.full_like(np.asarray(meanTrack, dtype=np.float32), 0.3)
+
+    monkeypatch.setattr(
+        cconsenrich,
+        "cSparseNearestMeanVarTrack",
+        _fakeSparseNearest,
+    )
+    monkeypatch.setattr(cconsenrich, "crollingMuncVariance", _fakeRolling)
+    monkeypatch.setattr(cconsenrich, "cmeanVarPairs", _fakeMeanVarPairs)
+    monkeypatch.setattr(
+        core,
+        "fitPSplineLogVarianceTrend",
+        _fakeFitPSplineLogVarianceTrend,
+    )
+    monkeypatch.setattr(
+        core,
+        "evalPSplineLogVarianceTrend",
+        _fakeEvalPSplineLogVarianceTrend,
+    )
+
+    muncTrack, support = core.getMuncTrack(
+        chromosome="chrTest",
+        intervals=intervals,
+        values=values,
+        intervalSizeBP=25,
+        muncTrendBlockSizeBP=125,
+        muncLocalWindowSizeBP=150,
+        samplingIters=64,
+        sparseIntervalIndices=sparseIntervalIndices,
+        numNearest=3,
+        EB_localQuantile=-1.0,
+        EB_use=True,
+        noDMVar=True,
+        muncAR1VarianceFunctional="innovation",
+    )
+
+    assert bool(seen["sparse_use_innovation_var"][0]) is True
+    assert bool(seen["rolling_use_innovation_var"][0]) is True
+    assert bool(seen["block_use_innovation_var"][0]) is True
     assert muncTrack.shape == values.shape
     assert np.isfinite(muncTrack).all()
     assert support > 0.0
@@ -4215,6 +4478,7 @@ def _caseReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
         "coverage": np.array([2.0, 5.0, 4.0, 3.0], dtype=np.float32),
         "cutsite": np.array([2.0, 6.0, 4.0, 4.0], dtype=np.float32),
         "center": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
+        "midpoint": np.array([0.0, 3.0, 4.0, 1.0], dtype=np.float32),
     }
 
     for countMode, expected in expectedByMode.items():
@@ -4239,6 +4503,61 @@ def _caseReadSegmentsFragmentsRespectModeAndMultiplicity(tmp_path):
         )
 
         assert np.allclose(counts[0], expected), countMode
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsFragmentsUseDefaultFragmentCountMode(tmp_path):
+    gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
+    allowListPath = tmp_path / "allow_AB.txt"
+    allowListPath.write_text("BC_A\nBC_B\n", encoding="ascii")
+
+    counts = core.readSegments(
+        sources=[
+            core.inputSource(
+                path=str(gzPath),
+                sourceKind="FRAGMENTS",
+                barcodeAllowListFile=str(allowListPath),
+            )
+        ],
+        chromosome="chr1",
+        start=0,
+        end=40,
+        intervalSizeBP=10,
+        readLengths=[1],
+        scaleFactors=[1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=0,
+        defaultFragmentCountMode="cutsite",
+    )
+
+    assert np.allclose(counts[0], np.array([2.0, 6.0, 4.0, 4.0], dtype=np.float32))
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsFragmentsRejectFFP():
+    gzPath = FRAGMENTS_DIR / "small.fragments.tsv.gz"
+
+    for countMode in ("ffp", "ffp-center"):
+        with pytest.raises(ValueError, match="ffp.*BAM"):
+            core.readSegments(
+                sources=[
+                    core.inputSource(
+                        path=str(gzPath),
+                        sourceKind="FRAGMENTS",
+                        countMode=countMode,
+                    )
+                ],
+                chromosome="chr1",
+                start=0,
+                end=40,
+                intervalSizeBP=10,
+                readLengths=[1],
+                scaleFactors=[1.0],
+                oneReadPerBin=0,
+                samThreads=1,
+                samFlagExclude=0,
+            )
 
 
 @pytest.mark.correctness
@@ -4364,10 +4683,41 @@ def _caseBedGraphChromRangeAndReadLength(tmp_path):
 
 
 @pytest.mark.correctness
+def _caseSparseNativeChromRangeFallsBackToWholeChromosome(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def _fakeChromRange(*args, **kwargs):
+        return 1250, 0
+
+    monkeypatch.setattr(
+        core.ccounts,
+        "ccounts_getAlignmentChromRange",
+        _fakeChromRange,
+    )
+
+    assert core.getChromRanges(
+        "sparse.bam",
+        "chrSparse",
+        chromLength=5000,
+        samThreads=1,
+        samFlagExclude=0,
+        sourceKind="BAM",
+    ) == (0, 5000)
+
+
+@pytest.mark.correctness
 def _caseNormalizeCountModeRejectsNoncanonicalModes():
-    for badMode in ["cov", "cut", "cutsites", "5p", "five_prime", "centre", "midpoint"]:
+    for badMode in ["cov", "cut", "cutsites", "5p", "five_prime", "centre"]:
         with pytest.raises(ValueError, match="Unsupported countMode"):
             core._normalizeCountMode(badMode, "coverage")
+
+
+@pytest.mark.correctness
+def _caseNormalizeCountModeAcceptsFFP():
+    assert core._normalizeCountMode("ffp", "coverage") == "ffp"
+    assert core._normalizeCountMode("ffp-center", "coverage") == "ffp-center"
+    assert core._nativeCountModeForPreset("ffp-center") == "center"
+    assert core._normalizeCountMode("midpoint", "coverage") == "center"
 
 
 @pytest.mark.correctness
@@ -4461,6 +4811,284 @@ def _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode(tmp_path):
 
 
 @pytest.mark.correctness
+def _caseReadSegmentsBamPairedEndFFPCountsOnce(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "paired-read1-fiveprime.synthetic.bam",
+        [
+            {
+                "name": "pair-forward-read1",
+                "start": 100,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 160,
+                "template_length": 80,
+            },
+            {
+                "name": "pair-forward-read1",
+                "start": 160,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 100,
+                "template_length": -80,
+            },
+            {
+                "name": "pair-reverse-read1",
+                "start": 300,
+                "flag": 163,
+                "next_reference_id": 0,
+                "next_start": 360,
+                "template_length": 80,
+            },
+            {
+                "name": "pair-reverse-read1",
+                "start": 360,
+                "flag": 83,
+                "next_reference_id": 0,
+                "next_start": 300,
+                "template_length": -80,
+            },
+        ],
+    )
+
+    counts = core.readSegments(
+        sources=[
+            core.inputSource(
+                path=str(bamPath),
+                sourceKind="BAM",
+                countMode="ffp",
+            )
+        ],
+        chromosome="chr1",
+        start=0,
+        end=500,
+        intervalSizeBP=10,
+        readLengths=[20],
+        scaleFactors=[1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=3844,
+        bamInputMode="fragments",
+        inferFragmentLength=0,
+    )
+
+    expected = np.zeros(50, dtype=np.float32)
+    expected[10] = 1.0
+    expected[37] = 1.0
+    assert np.allclose(counts[0], expected)
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsBamFFPCenterPresetUsesRead1EstimatedMidpoint(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "paired-ffp-center.synthetic.bam",
+        [
+            {
+                "name": "pair-forward-read1",
+                "start": 100,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 160,
+                "template_length": 80,
+            },
+            {
+                "name": "pair-forward-read1",
+                "start": 160,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 100,
+                "template_length": -80,
+            },
+            {
+                "name": "pair-reverse-read1",
+                "start": 300,
+                "flag": 163,
+                "next_reference_id": 0,
+                "next_start": 360,
+                "template_length": 80,
+            },
+            {
+                "name": "pair-reverse-read1",
+                "start": 360,
+                "flag": 83,
+                "next_reference_id": 0,
+                "next_start": 300,
+                "template_length": -80,
+            },
+        ],
+    )
+
+    fragmentLengthCalls = []
+
+    def fakeFragmentLength(path, *, samThreads, samFlagExclude, maxInsertSize):
+        fragmentLengthCalls.append(
+            {
+                "path": path,
+                "samThreads": samThreads,
+                "samFlagExclude": samFlagExclude,
+                "maxInsertSize": maxInsertSize,
+            }
+        )
+        return 80
+
+    mp = pytest.MonkeyPatch()
+    try:
+        mp.setattr(core.cconsenrich, "cgetFragmentLength", fakeFragmentLength)
+        counts = core.readSegments(
+            sources=[
+                core.inputSource(
+                    path=str(bamPath),
+                    sourceKind="BAM",
+                    countMode="ffp-center",
+                )
+            ],
+            chromosome="chr1",
+            start=0,
+            end=500,
+            intervalSizeBP=10,
+            readLengths=[20],
+            scaleFactors=[1.0],
+            oneReadPerBin=0,
+            samThreads=1,
+            samFlagExclude=3844,
+            bamInputMode="auto",
+            inferFragmentLength=0,
+        )
+    finally:
+        mp.undo()
+
+    expected = np.zeros(50, dtype=np.float32)
+    expected[14] = 1.0
+    expected[34] = 1.0
+    assert np.allclose(counts[0], expected)
+    assert fragmentLengthCalls
+    assert fragmentLengthCalls[0]["samFlagExclude"] & 128
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsBamFFPCenterRejectsConflictingBamInputMode(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "paired-ffp-center-conflict.synthetic.bam",
+        [
+            {
+                "name": "pair1",
+                "start": 100,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 160,
+                "template_length": 80,
+            },
+            {
+                "name": "pair1",
+                "start": 160,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 100,
+                "template_length": -80,
+            },
+        ],
+    )
+
+    with pytest.raises(ValueError, match="ffp-center.*bamInputMode.*auto.*read1"):
+        core.readSegments(
+            sources=[
+                core.inputSource(
+                    path=str(bamPath),
+                    sourceKind="BAM",
+                    countMode="ffp-center",
+                )
+            ],
+            chromosome="chr1",
+            start=0,
+            end=300,
+            intervalSizeBP=10,
+            readLengths=[20],
+            scaleFactors=[1.0],
+            oneReadPerBin=0,
+            samThreads=1,
+            samFlagExclude=3844,
+            bamInputMode="fragments",
+            inferFragmentLength=0,
+        )
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsBamExtensionFetchesReadsOutsideRegion(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "extension-edge.synthetic.bam",
+        [
+            {"name": "forward-left-edge", "start": 80, "flag": 0},
+            {"name": "reverse-right-edge", "start": 120, "flag": 16},
+        ],
+    )
+
+    counts = core.readSegments(
+        sources=[core.inputSource(path=str(bamPath), sourceKind="BAM")],
+        chromosome="chr1",
+        start=100,
+        end=120,
+        intervalSizeBP=10,
+        readLengths=[20],
+        scaleFactors=[1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=3844,
+        bamInputMode="reads",
+        extendFrom5pBP=40,
+        inferFragmentLength=0,
+    )
+
+    assert np.allclose(counts[0], np.array([2.0, 2.0], dtype=np.float32))
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsBamPairedFragmentFetchesRead1OutsideRegion(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "paired-edge.synthetic.bam",
+        [
+            {
+                "name": "pair-edge",
+                "start": 80,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 120,
+                "template_length": 60,
+            },
+            {
+                "name": "pair-edge",
+                "start": 120,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 80,
+                "template_length": -60,
+            },
+        ],
+    )
+
+    counts = core.readSegments(
+        sources=[core.inputSource(path=str(bamPath), sourceKind="BAM")],
+        chromosome="chr1",
+        start=100,
+        end=120,
+        intervalSizeBP=10,
+        readLengths=[20],
+        scaleFactors=[1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=3844,
+        bamInputMode="fragments",
+        maxInsertSize=1000,
+        inferFragmentLength=0,
+    )
+
+    assert np.allclose(counts[0], np.array([1.0, 1.0], dtype=np.float32))
+
+
+@pytest.mark.correctness
 def _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions(tmp_path):
     bamPath = _writeSyntheticBam(
         tmp_path,
@@ -4483,6 +5111,44 @@ def _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions(tmp_path):
         samThreads=1,
         samFlagExclude=3844,
         defaultCountMode="cutsite",
+        inferFragmentLength=0,
+    )
+
+    expected = np.zeros(30, dtype=np.float32)
+    expected[10] = 1.0
+    expected[17] = 1.0
+    assert np.allclose(counts[0], expected)
+
+
+@pytest.mark.correctness
+def _caseReadSegmentsBamFFPMatchesSingleEndFivePrime(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "read1-fiveprime-single-end.synthetic.bam",
+        [
+            {"name": "forward", "start": 100, "flag": 0},
+            {"name": "reverse", "start": 160, "flag": 16},
+        ],
+    )
+
+    counts = core.readSegments(
+        sources=[
+            core.inputSource(
+                path=str(bamPath),
+                sourceKind="BAM",
+                countMode="ffp",
+            )
+        ],
+        chromosome="chr1",
+        start=0,
+        end=300,
+        intervalSizeBP=10,
+        readLengths=[20],
+        scaleFactors=[1.0],
+        oneReadPerBin=0,
+        samThreads=1,
+        samFlagExclude=3844,
+        bamInputMode="reads",
         inferFragmentLength=0,
     )
 
@@ -4546,6 +5212,7 @@ def _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
         sourceKind="FRAGMENTS",
         barcodeAllowListFile=str(allowListPath),
         countMode="cutsite",
+        normMethod="RPKM",
         groupCellCount=cellCount,
         fragmentsGroupNorm="CELLS",
     )
@@ -4553,6 +5220,260 @@ def _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells():
     assert mappedCount == 12
     assert cellCount == 1
     assert scaleFactor == pytest.approx((1_000_000 / 12.0) * 100.0)
+
+
+def _pairedNormalizationRecords() -> list[dict]:
+    return [
+        {
+            "name": "pair1",
+            "start": 100,
+            "flag": 99,
+            "next_reference_id": 0,
+            "next_start": 160,
+            "template_length": 80,
+        },
+        {
+            "name": "pair1",
+            "start": 160,
+            "flag": 147,
+            "next_reference_id": 0,
+            "next_start": 100,
+            "template_length": -80,
+        },
+        {
+            "name": "pair2",
+            "start": 300,
+            "flag": 99,
+            "next_reference_id": 0,
+            "next_start": 360,
+            "template_length": 80,
+        },
+        {
+            "name": "pair2",
+            "start": 360,
+            "flag": 147,
+            "next_reference_id": 0,
+            "next_start": 300,
+            "template_length": -80,
+        },
+    ]
+
+
+@pytest.mark.correctness
+def _caseNormalizationCpmAndRpkmUseDistinctBinLengthScaling(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "single-normalization.synthetic.bam",
+        [
+            {"name": "r1", "start": 100, "flag": 0},
+            {"name": "r2", "start": 200, "flag": 0},
+            {"name": "r3", "start": 300, "flag": 0},
+            {"name": "r4", "start": 400, "flag": 0},
+        ],
+    )
+
+    cpmScale = detrorm.getScaleFactorPerMillion(
+        str(bamPath),
+        [],
+        50,
+        normMethod="CPM",
+        sourceKind="BAM",
+        bamInputMode="reads",
+    )
+    rpkmScale = detrorm.getScaleFactorPerMillion(
+        str(bamPath),
+        [],
+        50,
+        normMethod="RPKM",
+        sourceKind="BAM",
+        bamInputMode="reads",
+    )
+
+    assert cpmScale == pytest.approx(250_000.0)
+    assert rpkmScale == pytest.approx(5_000_000.0)
+
+
+@pytest.mark.correctness
+def _caseNormalizationEgsPairedBamUsesFragmentSpanDenominator(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "egs-paired-normalization.synthetic.bam",
+        _pairedNormalizationRecords(),
+    )
+    chromSizes = tmp_path / "chrom.sizes"
+    chromSizes.write_text("chr1\t1000\n", encoding="ascii")
+
+    scaleFactor = detrorm.getScaleFactor1x(
+        str(bamPath),
+        1000,
+        80,
+        [],
+        str(chromSizes),
+        1,
+        sourceKind="BAM",
+        bamInputMode="fragments",
+        samFlagExclude=3844,
+        countReadLength=20,
+    )
+
+    assert scaleFactor == pytest.approx(6.25)
+
+
+@pytest.mark.correctness
+def _caseNormalizationCpmPairedBamUsesFragmentDenominator(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "cpm-paired-normalization.synthetic.bam",
+        _pairedNormalizationRecords(),
+    )
+
+    scaleFactor = detrorm.getScaleFactorPerMillion(
+        str(bamPath),
+        [],
+        50,
+        normMethod="CPM",
+        sourceKind="BAM",
+        bamInputMode="fragments",
+        samFlagExclude=3844,
+        readLength=20,
+    )
+
+    assert scaleFactor == pytest.approx(500_000.0)
+
+
+@pytest.mark.correctness
+def _caseNormalizationCpmPairedRead1UsesRead1Denominator(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "cpm-read1-normalization.synthetic.bam",
+        _pairedNormalizationRecords(),
+    )
+
+    scaleFactor = detrorm.getScaleFactorPerMillion(
+        str(bamPath),
+        [],
+        50,
+        normMethod="CPM",
+        sourceKind="BAM",
+        bamInputMode="read1",
+        samFlagExclude=3844,
+    )
+
+    assert scaleFactor == pytest.approx(500_000.0)
+
+
+@pytest.mark.correctness
+def _caseNormalizationCpmPairedFFPUsesOneEventPerPair(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "cpm-paired-read1-fiveprime.synthetic.bam",
+        _pairedNormalizationRecords(),
+    )
+
+    scaleFactor = detrorm.getScaleFactorPerMillion(
+        str(bamPath),
+        [],
+        50,
+        normMethod="CPM",
+        sourceKind="BAM",
+        bamInputMode="fragments",
+        samFlagExclude=3844,
+        readLength=20,
+        countMode="ffp",
+    )
+
+    assert scaleFactor == pytest.approx(500_000.0)
+
+
+@pytest.mark.correctness
+def _caseNormalizationDenominatorMatchesBamFilters(tmp_path):
+    bamPath = _writeSyntheticBam(
+        tmp_path,
+        "filtered-normalization.synthetic.bam",
+        [
+            {
+                "name": "good",
+                "start": 100,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 160,
+                "template_length": 80,
+            },
+            {
+                "name": "good",
+                "start": 160,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 100,
+                "template_length": -80,
+            },
+            {
+                "name": "low-mapq",
+                "start": 250,
+                "flag": 99,
+                "mapq": 5,
+                "next_reference_id": 0,
+                "next_start": 310,
+                "template_length": 80,
+            },
+            {
+                "name": "low-mapq",
+                "start": 310,
+                "flag": 147,
+                "mapq": 5,
+                "next_reference_id": 0,
+                "next_start": 250,
+                "template_length": -80,
+            },
+            {
+                "name": "dup",
+                "start": 400,
+                "flag": 1123,
+                "next_reference_id": 0,
+                "next_start": 460,
+                "template_length": 80,
+            },
+            {
+                "name": "dup",
+                "start": 460,
+                "flag": 1171,
+                "next_reference_id": 0,
+                "next_start": 400,
+                "template_length": -80,
+            },
+            {
+                "name": "short",
+                "start": 600,
+                "flag": 99,
+                "next_reference_id": 0,
+                "next_start": 620,
+                "template_length": 40,
+            },
+            {
+                "name": "short",
+                "start": 620,
+                "flag": 147,
+                "next_reference_id": 0,
+                "next_start": 600,
+                "template_length": -40,
+            },
+        ],
+    )
+
+    scaleFactor = detrorm.getScaleFactorPerMillion(
+        str(bamPath),
+        [],
+        50,
+        normMethod="CPM",
+        sourceKind="BAM",
+        bamInputMode="fragments",
+        samFlagExclude=3844,
+        minMappingQuality=10,
+        minTemplateLength=50,
+        readLength=20,
+    )
+
+    assert scaleFactor == pytest.approx(1_000_000.0)
 
 
 @pytest.mark.correctness
@@ -4727,9 +5648,25 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
             _caseTransformPureLogPathMatchesMonoReferenceForFloat32AndFloat64,
             dtype,
         )
+        contract_case(
+            f"generic transform modes {dtype}",
+            _caseGenericTransformModesMatchReference,
+            dtype,
+        )
+        contract_case(
+            f"generic transform differences {dtype}",
+            _caseGenericTransformWithInputUsesTransformDifferences,
+            dtype,
+        )
+        contract_case(
+            f"Anscombe transform preset {dtype}",
+            _caseAnscombePresetUsesCanonicalDefaults,
+            dtype,
+        )
     for label, func in (
         ("CSF odd median", _caseCSFMedianSelectionHandlesOddLengthDuplicates),
         ("CSF even median", _caseCSFMedianSelectionHandlesEvenLengthDuplicates),
+        ("generic transform invalid options", _caseGenericTransformInvalidOptionsFailGracefully),
         ("transform input float32", _caseCTransformWithInputReturnsFloat32LogRatio),
         ("transform input float64", _caseCTransformWithInputReturnsFloat64LogRatio),
         ("transform into output", _caseCTransformWithInputIntoWritesOutputInPlace),
@@ -4741,14 +5678,6 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
         (
             "global median center",
             _caseSubtractGlobalMedianCentersEachTrackInPlace,
-        ),
-        (
-            "quantile detrend uncentered",
-            _caseQuantileFilterSubtractsUncenteredTrendInPlace,
-        ),
-        (
-            "quantile detrend requested q",
-            _caseQuantileFilterDetrendUsesRequestedQuantile,
         ),
         ("level forward-backward kernel", _caseLevelForwardBackwardMatchesPythonReference),
     ):
@@ -4785,6 +5714,16 @@ def test_core_background_bias_contracts(monkeypatch, contract_case):
             (),
         ),
         ("replicate bias is always centered", _caseReplicateBiasIsAlwaysZeroCentered, ()),
+        (
+            "tiny fixed-background ECM fallback",
+            _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback,
+            (),
+        ),
+        (
+            "tiny level fixed-background ECM fallback",
+            _caseCFixedBackgroundECMLevelTinyTrackUsesFiniteFallback,
+            (),
+        ),
         ("replicate-bias minimizer", _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer, ()),
         (
             "replicate-bias robust center",
@@ -4838,7 +5777,7 @@ def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
     )
     contract_case(
         "flat process-noise initializer",
-        _caseRunConsenrichFlatWarmupInitializerDoesNotUseMinQ,
+        _caseRunConsenrichFlatWarmupInitializerUsesMinQ,
     )
     caplog.clear()
     contract_case(
@@ -4881,6 +5820,10 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
             _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback,
         ),
         (
+            "MUNC missing additive covariates",
+            _caseMuncAdditiveCovariateModelTreatsMissingCovariatesAsMissing,
+        ),
+        (
             "MUNC additive covariates before EB",
             _caseGetMuncTrackAppliesAdditiveCovariatesBeforeEBShrinkage,
         ),
@@ -4889,6 +5832,15 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
         ("P-spline float32 clipping", _casePSplinePredictionClipsBeforeFloat32Overflow),
         ("P-spline trend logging", _casePSplineTrendSummaryLogsRelationship),
         ("MUNC variance diagnostics", _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport),
+        ("MUNC blacklist floor", _caseApplyBlacklistMuncFloorUsesNonBlacklistQuantile),
+        (
+            "MUNC auto minR quantile",
+            _caseResolveMuncMinRFloorUsesMuncQuantileWhenNegative,
+        ),
+        (
+            "MUNC blacklist auto minR floor",
+            _caseApplyBlacklistMuncFloorUsesAutoFloorWhenMinRNegative,
+        ),
     ):
         contract_case(label, func)
     contract_case(
@@ -4918,6 +5870,8 @@ def test_core_fragments_io_contracts(tmp_path, contract_case):
         ("fragments grouped", _caseReadSegmentsFragmentsGrouped, ()),
         ("fragments default coverage", _caseReadSegmentsFragmentsDefaultToCoverage, ()),
         ("fragments mode and multiplicity", _caseReadSegmentsFragmentsRespectModeAndMultiplicity, (tmp_path,)),
+        ("fragments default count mode", _caseReadSegmentsFragmentsUseDefaultFragmentCountMode, (tmp_path,)),
+        ("fragments reject ffp", _caseReadSegmentsFragmentsRejectFFP, ()),
         ("fragments mapped count", _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells, ()),
     ):
         contract_case(label, func, *args)
@@ -4933,13 +5887,38 @@ def test_core_bedgraph_counting_contracts(tmp_path, contract_case):
         contract_case(label, func, tmp_path)
 
 
-def test_core_bam_counting_contracts(tmp_path, contract_case):
+def test_core_bam_counting_contracts(tmp_path, monkeypatch, contract_case):
+    contract_case(
+        "sparse native chromosome range fallback",
+        _run_with_monkeypatch,
+        monkeypatch,
+        _caseSparseNativeChromRangeFallsBackToWholeChromosome,
+    )
     contract_case("count mode noncanonical modes rejected", _caseNormalizeCountModeRejectsNoncanonicalModes)
+    contract_case("ffp count mode accepted", _caseNormalizeCountModeAcceptsFFP)
     for label, func in (
         ("paired BAM template span", _caseReadSegmentsBamPairedEndUsesTemplateSpan),
         ("paired BAM read1 single-end mode", _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode),
+        ("paired BAM ffp count mode", _caseReadSegmentsBamPairedEndFFPCountsOnce),
+        ("paired BAM ffp-center preset", _caseReadSegmentsBamFFPCenterPresetUsesRead1EstimatedMidpoint),
+        ("paired BAM ffp-center bamInputMode conflict", _caseReadSegmentsBamFFPCenterRejectsConflictingBamInputMode),
+        ("BAM extension fetches reads outside region", _caseReadSegmentsBamExtensionFetchesReadsOutsideRegion),
+        ("paired BAM fragment fetches read1 outside region", _caseReadSegmentsBamPairedFragmentFetchesRead1OutsideRegion),
         ("BAM count-ends 5-prime positions", _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions),
+        ("BAM ffp single-end parity", _caseReadSegmentsBamFFPMatchesSingleEndFivePrime),
         ("direct BAM count-ends 5-prime positions", _caseReadBamSegmentsCountEndsOnlyUsesFivePrimePositions),
+    ):
+        contract_case(label, func, tmp_path)
+
+
+def test_core_normalization_scale_factor_contracts(tmp_path, contract_case):
+    for label, func in (
+        ("CPM and RPKM bin-length scaling", _caseNormalizationCpmAndRpkmUseDistinctBinLengthScaling),
+        ("EGS paired BAM fragment span denominator", _caseNormalizationEgsPairedBamUsesFragmentSpanDenominator),
+        ("CPM paired BAM fragment denominator", _caseNormalizationCpmPairedBamUsesFragmentDenominator),
+        ("CPM paired BAM read1 denominator", _caseNormalizationCpmPairedRead1UsesRead1Denominator),
+        ("CPM paired BAM ffp denominator", _caseNormalizationCpmPairedFFPUsesOneEventPerPair),
+        ("normalization denominator BAM filters", _caseNormalizationDenominatorMatchesBamFilters),
     ):
         contract_case(label, func, tmp_path)
 

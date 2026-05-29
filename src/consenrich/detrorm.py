@@ -17,6 +17,26 @@ from .cconsenrich import cgetFragmentLength, cEMA
 from . import ccounts
 
 
+def _normalizeBamInputMode(bamInputMode: str | None) -> str:
+    normalizedMode = str(bamInputMode or "reads").strip().lower()
+    if normalizedMode == "auto":
+        return "reads"
+    if normalizedMode not in {"reads", "read1", "fragments"}:
+        raise ValueError(f"Unsupported bamInputMode `{bamInputMode}`")
+    return normalizedMode
+
+
+def _bamPairedEndMode(bamInputMode: str | None) -> int:
+    return 1 if _normalizeBamInputMode(bamInputMode) == "fragments" else 0
+
+
+def _resolveBamFlagExclude(samFlagExclude: int, bamInputMode: str | None) -> int:
+    resolvedFlagExclude = int(samFlagExclude or 0)
+    if _normalizeBamInputMode(bamInputMode) == "read1":
+        resolvedFlagExclude |= 8 | 128
+    return resolvedFlagExclude
+
+
 def getScaleFactor1x(
     bamFile: str,
     effectiveGenomeSize: int,
@@ -30,6 +50,13 @@ def getScaleFactor1x(
     oneReadPerBin: int = 0,
     groupCellCount: int | None = None,
     fragmentsGroupNorm: str | None = None,
+    bamInputMode: str | None = "reads",
+    samFlagExclude: int = 0,
+    minMappingQuality: int | None = 0,
+    minTemplateLength: int | None = -1,
+    maxInsertSize: int | None = 1000,
+    extendBP: int | None = 0,
+    countReadLength: int | None = None,
 ) -> float:
     r"""Generic normalization factor based on effective genome size and number of mapped reads in non-excluded chromosomes.
 
@@ -67,8 +94,11 @@ def getScaleFactor1x(
         raise ValueError(
             "EGS/RPGC normalization is not supported for fragments sources use CPM/RPKM instead"
         )
+    if str(countMode or "coverage").strip().lower() != "coverage" or int(oneReadPerBin) != 0:
+        raise ValueError("EGS/RPGC normalization requires coverage count mode")
 
-    totalMappedReads, _ = ccounts.ccounts_getAlignmentMappedReadCount(
+    countReadLength = int(countReadLength if countReadLength is not None else readLength)
+    totalMappedReads, _, totalMappedSpanBP = ccounts.ccounts_getAlignmentMappedReadCount(
         bamFile,
         excludeChromosomes=excludeChroms,
         threadCount=samThreads,
@@ -76,25 +106,42 @@ def getScaleFactor1x(
         barcodeAllowListFile=barcodeAllowListFile or "",
         countMode=countMode or "coverage",
         oneReadPerBin=oneReadPerBin,
+        flagExclude=_resolveBamFlagExclude(samFlagExclude, bamInputMode),
+        minMappingQuality=int(minMappingQuality or 0),
+        minTemplateLength=int(minTemplateLength if minTemplateLength is not None else -1),
+        maxInsertSize=int(maxInsertSize or 0),
+        pairedEndMode=_bamPairedEndMode(bamInputMode),
+        readLength=countReadLength,
+        extendBP=int(extendBP or 0),
+        returnSpanBP=1,
     )
-    if totalMappedReads <= 0 or effectiveGenomeSize <= 0:
+    if totalMappedReads <= 0 or totalMappedSpanBP <= 0 or effectiveGenomeSize <= 0:
         raise ValueError(
-            f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}."
+            f"Negative EGS after removing excluded chromosomes or no mapped reads: EGS={effectiveGenomeSize}, totalMappedReads={totalMappedReads}, totalMappedSpanBP={totalMappedSpanBP}."
         )
 
-    return round(effectiveGenomeSize / (totalMappedReads * readLength), 5)
+    return round(effectiveGenomeSize / totalMappedSpanBP, 5)
 
 
 def getScaleFactorPerMillion(
     bamFile: str,
     excludeChroms: List[str],
     intervalSizeBP: int,
+    normMethod: str = "RPKM",
     sourceKind: str | None = None,
     barcodeAllowListFile: str | None = None,
     countMode: str | None = None,
     oneReadPerBin: int = 0,
+    samThreads: int = 0,
     groupCellCount: int | None = None,
     fragmentsGroupNorm: str | None = None,
+    bamInputMode: str | None = "reads",
+    samFlagExclude: int = 0,
+    minMappingQuality: int | None = 0,
+    minTemplateLength: int | None = -1,
+    maxInsertSize: int | None = 1000,
+    readLength: int | None = 0,
+    extendBP: int | None = 0,
 ) -> float:
     r"""Generic normalization factor based on number of mapped reads in non-excluded chromosomes.
 
@@ -107,24 +154,49 @@ def getScaleFactorPerMillion(
     """
     if not os.path.exists(bamFile):
         raise FileNotFoundError(f"BAM file {bamFile} does not exist.")
+    normMethodUpper = str(normMethod or "RPKM").strip().upper()
+    if sourceKind is None and normMethodUpper in {"BAM", "FRAGMENTS", "BEDGRAPH"}:
+        # Backward compatibility for callers that passed sourceKind as the
+        # fourth positional argument before normMethod was added.
+        sourceKind = normMethodUpper
+        normMethodUpper = "RPKM"
     if sourceKind is None:
         if str(bamFile).lower().endswith(".cram"):
             raise ValueError("CRAM inputs are no longer supported.")
         sourceKind = "BAM"
     sourceKind = str(sourceKind).upper()
+    if normMethodUpper not in {"CPM", "RPKM"}:
+        raise ValueError(f"Unsupported per-million normalization method `{normMethod}`")
     totalMappedReads, _ = ccounts.ccounts_getAlignmentMappedReadCount(
         bamFile,
         excludeChromosomes=excludeChroms,
+        threadCount=samThreads,
         sourceKind=sourceKind,
         barcodeAllowListFile=barcodeAllowListFile or "",
         countMode=countMode or "coverage",
         oneReadPerBin=oneReadPerBin,
+        flagExclude=(
+            _resolveBamFlagExclude(samFlagExclude, bamInputMode)
+            if sourceKind == "BAM"
+            else 0
+        ),
+        minMappingQuality=int(minMappingQuality or 0),
+        minTemplateLength=int(minTemplateLength if minTemplateLength is not None else -1),
+        maxInsertSize=int(maxInsertSize or 0),
+        pairedEndMode=_bamPairedEndMode(bamInputMode) if sourceKind == "BAM" else 0,
+        readLength=int(readLength or 0),
+        extendBP=int(extendBP or 0),
     )
     if totalMappedReads <= 0:
         raise ValueError(
             f"After removing reads mapping to excluded chroms, totalMappedReads is {totalMappedReads}."
         )
-    scalePM = round((1_000_000 / totalMappedReads) * (1000 / intervalSizeBP), 5)
+    scalePM = 1_000_000 / totalMappedReads
+    if normMethodUpper == "RPKM":
+        if intervalSizeBP <= 0:
+            raise ValueError("RPKM normalization requires a positive intervalSizeBP")
+        scalePM *= 1000 / intervalSizeBP
+    scalePM = round(scalePM, 5)
     fragmentsGroupNorm = str(fragmentsGroupNorm or "NONE").strip().upper()
     if sourceKind == "FRAGMENTS" and fragmentsGroupNorm == "CELLS":
         if groupCellCount is None or groupCellCount <= 0:
@@ -158,6 +230,16 @@ def getPairScaleFactors(
     groupCellCountA: int | None = None,
     groupCellCountB: int | None = None,
     fragmentsGroupNorm: str | None = None,
+    bamInputModeA: str | None = "reads",
+    bamInputModeB: str | None = "reads",
+    samFlagExclude: int = 0,
+    minMappingQuality: int | None = 0,
+    minTemplateLength: int | None = -1,
+    maxInsertSize: int | None = 1000,
+    extendBPA: int | None = 0,
+    extendBPB: int | None = 0,
+    countReadLengthA: int | None = None,
+    countReadLengthB: int | None = None,
 ) -> Tuple[float, float]:
     r"""Scale treatment:control data to a common sequencing depth.
 
@@ -197,25 +279,43 @@ def getPairScaleFactors(
             bamFileA,
             excludeChroms,
             intervalSizeBP,
+            normMethod=normMethodUpper,
             sourceKind=sourceKindA,
             barcodeAllowListFile=barcodeAllowListFileA,
             countMode=countModeA,
             oneReadPerBin=oneReadPerBin,
+            samThreads=samThreads,
             groupCellCount=groupCellCountA,
             fragmentsGroupNorm=fragmentsGroupNorm,
+            bamInputMode=bamInputModeA,
+            samFlagExclude=samFlagExclude,
+            minMappingQuality=minMappingQuality,
+            minTemplateLength=minTemplateLength,
+            maxInsertSize=maxInsertSize,
+            readLength=countReadLengthA if countReadLengthA is not None else readLengthA,
+            extendBP=extendBPA,
         )
         scaleFactorB = getScaleFactorPerMillion(
             bamFileB,
             excludeChroms,
             intervalSizeBP,
+            normMethod=normMethodUpper,
             sourceKind=sourceKindB,
             barcodeAllowListFile=barcodeAllowListFileB,
             countMode=countModeB,
             oneReadPerBin=oneReadPerBin,
+            samThreads=samThreads,
             groupCellCount=groupCellCountB,
             fragmentsGroupNorm=fragmentsGroupNorm,
+            bamInputMode=bamInputModeB,
+            samFlagExclude=samFlagExclude,
+            minMappingQuality=minMappingQuality,
+            minTemplateLength=minTemplateLength,
+            maxInsertSize=maxInsertSize,
+            readLength=countReadLengthB if countReadLengthB is not None else readLengthB,
+            extendBP=extendBPB,
         )
-    else:
+    elif normMethodUpper in ("EGS", "RPGC"):
         scaleFactorA = getScaleFactor1x(
             bamFileA,
             effectiveGenomeSizeA,
@@ -229,6 +329,13 @@ def getPairScaleFactors(
             oneReadPerBin=oneReadPerBin,
             groupCellCount=groupCellCountA,
             fragmentsGroupNorm=fragmentsGroupNorm,
+            bamInputMode=bamInputModeA,
+            samFlagExclude=samFlagExclude,
+            minMappingQuality=minMappingQuality,
+            minTemplateLength=minTemplateLength,
+            maxInsertSize=maxInsertSize,
+            extendBP=extendBPA,
+            countReadLength=countReadLengthA,
         )
         scaleFactorB = getScaleFactor1x(
             bamFileB,
@@ -243,7 +350,16 @@ def getPairScaleFactors(
             oneReadPerBin=oneReadPerBin,
             groupCellCount=groupCellCountB,
             fragmentsGroupNorm=fragmentsGroupNorm,
+            bamInputMode=bamInputModeB,
+            samFlagExclude=samFlagExclude,
+            minMappingQuality=minMappingQuality,
+            minTemplateLength=minTemplateLength,
+            maxInsertSize=maxInsertSize,
+            extendBP=extendBPB,
+            countReadLength=countReadLengthB,
         )
+    else:
+        raise ValueError(f"Unsupported normalization method `{normMethod}`")
 
     depthA = 1.0 / scaleFactorA if scaleFactorA > 0.0 else 0.0
     depthB = 1.0 / scaleFactorB if scaleFactorB > 0.0 else 0.0

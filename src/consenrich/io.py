@@ -478,6 +478,8 @@ def _getSourceCountMode(
         ),
     )
     if str(source.sourceKind).upper() == core.FRAGMENTS_SOURCE_KIND:
+        if countMode in {"ffp", "ffp-center"}:
+            raise ValueError(f"countMode `{countMode}` requires BAM input")
         core._normalizeFragmentPositionMode(source.fragmentPositionMode)
     return countMode
 

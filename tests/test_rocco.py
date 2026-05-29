@@ -175,8 +175,23 @@ def _caseGetBudgetForROCCOUsesDirectConsenrichState():
         randomSeed=11,
         returnDetails=True,
     )
+    budgetExplicitState, explicitDetails = peaks.getROCCOBudget(
+        state,
+        uncertainty=uncertaintyHi,
+        uncertaintyScoreMode="state",
+        numBootstrap=48,
+        dependenceSpan=8,
+        thresholdZ=2.0,
+        nullQuantile=0.80,
+        randomSeed=11,
+        returnDetails=True,
+    )
 
     assert details["score_mode"] == "consenrich_state"
+    assert details["uncertainty_score_mode"] == "state"
+    assert details["uncertainty_score_z"] == pytest.approx(
+        constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z
+    )
     assert details["budget_model"] == "dwb_tail_occupancy"
     assert details["method"] == "stationary_null_dwb"
     assert details["null_calibration_method"] == "stationary_null_dwb"
@@ -185,8 +200,10 @@ def _caseGetBudgetForROCCOUsesDirectConsenrichState():
     assert details["se_mode"] == "ignored"
     assert details["uncertainty_available"] is True
     assert details["uncertainty_used"] is False
+    assert explicitDetails["uncertainty_score_mode"] == "state"
     assert budgetNoUnc == pytest.approx(budgetBase)
     assert budgetHiUnc == pytest.approx(budgetBase)
+    assert budgetExplicitState == pytest.approx(budgetBase)
     expectedRawBudget = max(
         0.0,
         float(details["observed_tail_occupancy"])
@@ -194,6 +211,63 @@ def _caseGetBudgetForROCCOUsesDirectConsenrichState():
     )
     assert details["budget_raw"] == pytest.approx(expectedRawBudget)
     assert details["budget_occupancy_raw"] == pytest.approx(expectedRawBudget)
+
+
+@pytest.mark.correctness
+def _caseLowerConfidenceROCCOScoreUsesUncertainty():
+    state = np.zeros(128, dtype=np.float64)
+    state[20:30] = 5.0
+    state[80:90] = 5.0
+    uncertainty = np.full(128, 0.1, dtype=np.float64)
+    uncertainty[80:90] = 4.0
+
+    defaultPrepared = peaks._prepareROCCOBaseScore(state, uncertainty=uncertainty)
+    lowerPrepared = peaks._prepareROCCOBaseScore(
+        state,
+        uncertainty=uncertainty,
+        uncertaintyScoreMode="lower_confidence",
+        uncertaintyScoreZ=1.0,
+    )
+
+    expected = state - uncertainty
+    assert np.allclose(lowerPrepared["score_track"], expected)
+    assert np.allclose(defaultPrepared["score_track"], state)
+
+    scoreMeta = lowerPrepared["score_meta"]
+    assert scoreMeta["score_mode"] == "lower_confidence"
+    assert scoreMeta["uncertainty_score_mode"] == "lower_confidence"
+    assert scoreMeta["uncertainty_score_z"] == pytest.approx(1.0)
+    assert scoreMeta["uncertainty_used"] is True
+    assert scoreMeta["se_mode"] == "used"
+    assert scoreMeta["lower_confidence_score_floor_hits"] == 0
+    assert (
+        lowerPrepared["score_track"][20:30].max()
+        > lowerPrepared["score_track"][80:90].max()
+    )
+
+    _budget, details = peaks.getROCCOBudget(
+        state,
+        uncertainty=uncertainty,
+        uncertaintyScoreMode="lower_confidence",
+        uncertaintyScoreZ=1.0,
+        numBootstrap=24,
+        dependenceSpan=8,
+        randomSeed=11,
+        returnDetails=True,
+    )
+    assert details["score_mode"] == "lower_confidence"
+    assert details["uncertainty_used"] is True
+
+
+@pytest.mark.correctness
+def _caseLowerConfidenceROCCORequiresUncertainty():
+    state = np.zeros(64, dtype=np.float64)
+    with pytest.raises(ValueError, match="lower_confidence.*uncertainty"):
+        peaks.getROCCOBudget(
+            state,
+            uncertainty=None,
+            uncertaintyScoreMode="lower_confidence",
+        )
 
 
 @pytest.mark.correctness
@@ -333,6 +407,35 @@ def _caseRunROCCOAlgorithmFromBedGraphs(tmp_path):
     lines = outPath.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) >= 1
     assert lines[0].startswith("chr")
+
+
+def _caseRunROCCOLowerConfidenceRecordsMetadata(tmp_path):
+    statePath, uncPath = _writeToyBedGraphs(tmp_path)
+    outPath = tmp_path / "toy_lcb_rocco.narrowPeak"
+    metaPath = tmp_path / "toy_lcb_rocco.narrowPeak.json"
+
+    resultPath = peaks.solveRocco(
+        str(statePath),
+        uncertaintyBedGraphFile=str(uncPath),
+        uncertaintyScoreMode="lower_confidence",
+        uncertaintyScoreZ=1.0,
+        numBootstrap=24,
+        dependenceSpan=8,
+        nestedRoccoIters=0,
+        massiveSubpeakCleanup=False,
+        randSeed=11,
+        outPath=str(outPath),
+        metaPath=str(metaPath),
+    )
+
+    assert resultPath == str(outPath)
+    meta = json.loads(metaPath.read_text(encoding="utf-8"))
+    assert meta["settings"]["uncertainty_score_mode"] == "lower_confidence"
+    assert meta["settings"]["uncertainty_score_z"] == pytest.approx(1.0)
+    assert meta["settings"]["dwb_null_enabled"] is True
+    chromDetails = next(iter(meta["chromosomes"].values()))
+    assert chromDetails["budget_details"]["score_mode"] == "lower_confidence"
+    assert chromDetails["budget_details"]["uncertainty_used"] is True
 
 
 def _caseSolveRoccoReturnsSummaryInventoryAndLogs(tmp_path, caplog):
@@ -1321,8 +1424,11 @@ def _caseNestedROCCORefinementCanApplyBudgetScale():
     assert int(np.sum(refined)) <= 50
     assert int(np.sum(refined)) < int(np.sum(firstPass))
     assert details["budget_scale"] == pytest.approx(0.5)
+    assert details["budget_policy"] == "soft_selection_penalty"
     assert details["history"][0]["budget_scale"] == pytest.approx(0.5)
     assert details["history"][0]["num_budget_constrained_regions"] == 1
+    assert details["history"][0]["num_soft_budget_penalty_regions"] == 1
+    assert details["history"][0]["budget_policy"] == "soft_selection_penalty"
 
 
 @pytest.mark.correctness
@@ -1482,6 +1588,8 @@ def _caseNestedROCCORefinementWritesSubproblemDiagnostics(caplog, tmp_path):
     assert detailRows[0]["event"] == "subproblem"
     assert detailRows[0]["status"] == "solved"
     assert detailRows[0]["mode"] == "parent_conditioned_min_run_soft_budget"
+    assert detailRows[0]["budget_policy"] == "soft_selection_penalty"
+    assert detailRows[0]["soft_budget_target"] == detailRows[0]["budget_target"]
     assert detailRows[0]["nonpos_selected"] >= 0
     assert detailRows[0]["min_child_bins"] == 5
     assert detailRows[0]["anchor_selected"] is True
@@ -1772,6 +1880,16 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, tmp_path, cont
             (monkeypatch, _caseEstimateGammaForROCCOUsesLowerContextBound),
         ),
         ("direct state budget", _caseGetBudgetForROCCOUsesDirectConsenrichState, ()),
+        (
+            "lower-confidence score uses uncertainty",
+            _caseLowerConfidenceROCCOScoreUsesUncertainty,
+            (),
+        ),
+        (
+            "lower-confidence score requires uncertainty",
+            _caseLowerConfidenceROCCORequiresUncertainty,
+            (),
+        ),
         ("small positive budget floor", _caseGetBudgetForROCCOAppliesSmallPositiveBudgetFloor, ()),
         ("autosomal null floor helper", _caseAutosomalNullFloorHelperStillRuns, ()),
         ("ROCCO null fallback and EB shrinkage", _caseROCCONullFallbackAndEBShrinkage, ()),
@@ -1788,6 +1906,11 @@ def test_rocco_score_null_gamma_and_budget_contracts(monkeypatch, tmp_path, cont
 
 def test_rocco_bedgraph_solver_contracts(tmp_path, contract_case):
     contract_case("ROCCO bedGraph algorithm", _caseRunROCCOAlgorithmFromBedGraphs, tmp_path)
+    contract_case(
+        "ROCCO lower-confidence metadata",
+        _caseRunROCCOLowerConfidenceRecordsMetadata,
+        tmp_path,
+    )
     contract_case(
         "short flat enrichment retained",
         _caseRunROCCOAlgorithmKeepsShortFlatEnrichment,

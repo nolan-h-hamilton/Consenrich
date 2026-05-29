@@ -36,6 +36,7 @@ from .io import (
     _buildPathInputSources,
     _checkSF,
     _getSourceCountMode,
+    _inferMatchingUncertaintyBedGraph,
     _listOrEmpty,
     _prepareFragmentsNormalizationMetadata,
     _resolveExtendFrom5pBPPairs,
@@ -89,6 +90,15 @@ PRECISION_DIAGNOSTIC_COLUMNS = [
     "kappa",
     "Q00",
     "Q11",
+    "baseQ00",
+    "baseQ11",
+    "effectiveQ00",
+    "effectiveQ11",
+    "process_q_policy",
+    "apn_enabled",
+    "process_precision_reweighting_requested",
+    "process_precision_reweighting_effective",
+    "process_precision_reweighting_disabled_by_apn",
     "median_diag_R",
     "median_effective_diag_R",
 ]
@@ -643,6 +653,9 @@ def _writePrecisionDiagnostics(
     lambdaExp = precisionDiagnostics.get("lambdaExp")
     processPrecExp = precisionDiagnostics.get("processPrecExp")
     matrixQ0 = precisionDiagnostics.get("matrixQ0")
+    outputTracks = precisionDiagnostics.get("outputTracks", {})
+    if not isinstance(outputTracks, Mapping):
+        outputTracks = {}
     n = int(len(intervals))
     if n <= 0:
         logger.warning(
@@ -676,8 +689,90 @@ def _writePrecisionDiagnostics(
         raise RuntimeError(
             f"matrixQ0 shape mismatch for {chromosome}: expected (2, 2), got {q.shape}"
         )
-    q00 = float(q[0, 0]) / kappaArr
-    q11 = float(q[1, 1]) / kappaArr
+
+    def _coerceOutputTrack(trackName: str) -> np.ndarray | None:
+        if trackName not in outputTracks:
+            return None
+        arr = np.asarray(outputTracks[trackName], dtype=np.float64).reshape(-1)
+        if arr.size != n:
+            raise RuntimeError(
+                f"diagnostic output track {trackName!r} length mismatch for "
+                f"{chromosome}: expected {n}, got {arr.size}"
+            )
+        return arr
+
+    processQPolicy = str(precisionDiagnostics.get("process_q_policy") or "")
+    apnEnabled = bool(
+        precisionDiagnostics.get(
+            "ECM_useAPN",
+            processQPolicy == "adaptive_process_noise",
+        )
+    )
+    processPrecisionRequested = bool(
+        precisionDiagnostics.get(
+            "process_precision_reweighting_requested",
+            processPrecExp is not None,
+        )
+    )
+    processPrecisionEffective = bool(
+        precisionDiagnostics.get(
+            "process_precision_reweighting_effective",
+            processPrecExp is not None,
+        )
+    )
+    processPrecisionDisabledByAPN = bool(
+        precisionDiagnostics.get(
+            "process_precision_reweighting_disabled_by_apn",
+            processPrecisionRequested and apnEnabled and not processPrecisionEffective,
+        )
+    )
+    if not processQPolicy:
+        if apnEnabled:
+            processQPolicy = "adaptive_process_noise"
+        elif processPrecisionEffective and processPrecExp is not None:
+            processQPolicy = "student_t_kappa"
+        else:
+            processQPolicy = "base"
+
+    stateModel = str(precisionDiagnostics.get("state_model") or "").strip().lower()
+    baseQ00 = _coerceOutputTrack("baseQLevel")
+    if baseQ00 is None:
+        baseQ00 = np.full(n, float(q[0, 0]), dtype=np.float64)
+    baseQ11 = _coerceOutputTrack("baseQTrend")
+    if baseQ11 is None:
+        baseQ11 = np.full(
+            n,
+            0.0 if stateModel == "level" else float(q[1, 1]),
+            dtype=np.float64,
+        )
+
+    effectiveQ00 = _coerceOutputTrack("effectiveQLevel")
+    if effectiveQ00 is None:
+        effectiveQ00 = _coerceOutputTrack("qLevel")
+    effectiveQ11 = _coerceOutputTrack("effectiveQTrend")
+    if effectiveQ11 is None:
+        effectiveQ11 = _coerceOutputTrack("qTrend")
+    usedEffectiveQFallback = effectiveQ00 is None or effectiveQ11 is None
+    if effectiveQ00 is None:
+        effectiveQ00 = (
+            baseQ00 / kappaArr
+            if processPrecisionEffective and processPrecExp is not None
+            else baseQ00.copy()
+        )
+    if effectiveQ11 is None:
+        effectiveQ11 = (
+            baseQ11 / kappaArr
+            if processPrecisionEffective and processPrecExp is not None
+            else baseQ11.copy()
+        )
+    if apnEnabled and usedEffectiveQFallback:
+        logger.warning(
+            "precisionDiagnostics.output %s has APN enabled but no effective process-Q "
+            "tracks; falling back to base Q for missing precision TSV columns.",
+            chromosome,
+        )
+    q00 = effectiveQ00
+    q11 = effectiveQ11
 
     munc = np.asarray(matrixMunc, dtype=np.float64)
     if munc.ndim != 2 or munc.shape[1] != n:
@@ -698,6 +793,17 @@ def _writePrecisionDiagnostics(
             "kappa": kappaArr,
             "Q00": q00,
             "Q11": q11,
+            "baseQ00": baseQ00,
+            "baseQ11": baseQ11,
+            "effectiveQ00": effectiveQ00,
+            "effectiveQ11": effectiveQ11,
+            "process_q_policy": processQPolicy,
+            "apn_enabled": apnEnabled,
+            "process_precision_reweighting_requested": processPrecisionRequested,
+            "process_precision_reweighting_effective": processPrecisionEffective,
+            "process_precision_reweighting_disabled_by_apn": (
+                processPrecisionDisabledByAPN
+            ),
             "median_diag_R": medianDiagR,
             "median_effective_diag_R": medianEffectiveDiagR,
         }
@@ -712,11 +818,17 @@ def _writePrecisionDiagnostics(
         compression="gzip" if str(path).endswith(".gz") else None,
     )
     logger.info(
-        "precisionDiagnostics.output wrote %s rows=%d lambdaMedian=%.6g kappaMedian=%.6g",
+        "precisionDiagnostics.output wrote %s rows=%d policy=%s APN=%s "
+        "lambdaMedian=%.6g kappaMedian=%.6g effectiveQ00Median=%.6g "
+        "effectiveQ11Median=%.6g",
         path,
         int(len(frame)),
+        processQPolicy,
+        str(apnEnabled).lower(),
         float(np.median(lambdaArr)),
         float(np.median(kappaArr)),
+        float(np.median(effectiveQ00)),
+        float(np.median(effectiveQ11)),
     )
     return True
 
@@ -810,9 +922,9 @@ def _formatReplicateGainFrame(
 
 
 def _getProcessNoiseMapRoughnessPenalty(processArgs: Any) -> float:
-    value = getattr(processArgs, "processNoiseMapRoughnessPenalty", None)
+    value = getattr(processArgs, "qLevelPriorStrength", None)
     if value is None:
-        value = getattr(processArgs, "regularizationStrength")
+        value = constants.PROCESS_DEFAULT_Q_LEVEL_PRIOR_STRENGTH
     return float(value)
 
 
@@ -823,7 +935,20 @@ def _getProcessNoiseWarmupOuterPasses(processArgs: Any) -> int:
             getattr(
                 processArgs,
                 "processNoiseWarmupOuterPasses",
-                constants.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES,
+                constants.PROCESS_DEFAULT_WARMUP_OUTER_PASSES,
+            )
+        ),
+    )
+
+
+def _getProcessNoiseWarmupQAlternatingPasses(processArgs: Any) -> int:
+    return max(
+        1,
+        int(
+            getattr(
+                processArgs,
+                "processNoiseWarmupQAlternatingPasses",
+                constants.PROCESS_DEFAULT_WARMUP_Q_NUISANCE_PASSES,
             )
         ),
     )
@@ -839,28 +964,31 @@ def _coreRunConsenrichSupports(parameterName: str) -> bool:
 def _configureCoreProcessNoiseWarmupDefaults(processArgs: Any) -> int:
     warmupOuterPasses = _getProcessNoiseWarmupOuterPasses(processArgs)
     if not _coreRunConsenrichSupports("processNoiseWarmupOuterPasses") and hasattr(
-        core, "PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES"
+        core, "PROCESS_DEFAULT_WARMUP_OUTER_PASSES"
     ):
-        core.PROCESS_NOISE_DEFAULT_WARMUP_OUTER_PASSES = warmupOuterPasses
+        core.PROCESS_DEFAULT_WARMUP_OUTER_PASSES = warmupOuterPasses
     return warmupOuterPasses
 
 
 def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
     warmupOuterPasses = _getProcessNoiseWarmupOuterPasses(processArgs)
+    qAlternatingPasses = _getProcessNoiseWarmupQAlternatingPasses(processArgs)
     kwargs: Dict[str, Any] = {
         "stateModel": processArgs.stateModel,
-        "regularizationStrength": processArgs.regularizationStrength,
-        "regularizationRatio": processArgs.regularizationRatio,
+        "qTrendRatioPriorStrength": processArgs.qTrendRatioPriorStrength,
+        "qTrendLevelRatioPrior": processArgs.qTrendLevelRatioPrior,
         "processNoiseWarmupECMIters": processArgs.processNoiseWarmupECMIters,
         "processPrecisionMultiplierMin": processArgs.precisionMultiplierMin,
         "processPrecisionMultiplierMax": processArgs.precisionMultiplierMax,
     }
-    if _coreRunConsenrichSupports("processNoiseMapRoughnessPenalty"):
-        kwargs["processNoiseMapRoughnessPenalty"] = _getProcessNoiseMapRoughnessPenalty(
+    if _coreRunConsenrichSupports("qLevelPriorStrength"):
+        kwargs["qLevelPriorStrength"] = _getProcessNoiseMapRoughnessPenalty(
             processArgs
         )
     if _coreRunConsenrichSupports("processNoiseWarmupOuterPasses"):
         kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
+    if _coreRunConsenrichSupports("processNoiseWarmupQAlternatingPasses"):
+        kwargs["processNoiseWarmupQAlternatingPasses"] = qAlternatingPasses
     return kwargs
 
 
@@ -880,10 +1008,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
 
     controlInputCount = len(getattr(inputArgs, "controlSources", []) or [])
     controlsPresent = checkControlsPresent(inputArgs)
-    replicateDetrendEnabled, replicateDetrendLabel = _resolveReplicateDetrendStatus(
-        countingArgs,
-        controlsPresent=controlsPresent,
-    )
 
     rows = (
         ("version", __version__),
@@ -902,17 +1026,22 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
                 controlsPresent=controlsPresent,
             )[1],
         ),
-        ("replicate detrend", replicateDetrendLabel),
         ("MUNC variance model", observationArgs.muncVarianceModel),
         (
-            "MUNC additive high freq",
-            yn(
-                getattr(
-                    observationArgs,
-                    "additiveHighFreq",
-                    constants.OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
-                )
+            "MUNC AR1 variance functional",
+            getattr(
+                observationArgs,
+                "muncAR1VarianceFunctional",
+                constants.OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL,
             ),
+        ),
+        (
+            "MUNC AR1 max beta",
+            constants.MUNC_AR1_MAX_BETA_DEFAULT,
+        ),
+        (
+            "MUNC AR1 pairs reg lambda",
+            constants.MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
         ),
         ("MUNC variance EB", yn(observationArgs.EB_use)),
         ("MUNC sampling iters", int(observationArgs.samplingIters)),
@@ -921,15 +1050,28 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("background model", yn(fitArgs.fitBackground)),
         ("nonnegative background", yn(fitArgs.useNonnegativeBackground)),
         ("state model", processArgs.stateModel),
+        ("deltaF", float(processArgs.deltaF)),
         (
-            "MAP roughness penalty",
+            "process Q bounds",
+            f"[{float(processArgs.minQ):.6g}, {float(processArgs.maxQ):.6g}]",
+        ),
+        (
+            "q-level prior strength",
             _getProcessNoiseMapRoughnessPenalty(processArgs),
         ),
-        ("trend/level ratio", float(processArgs.regularizationRatio)),
+        ("trend/level ratio prior", float(processArgs.qTrendLevelRatioPrior)),
+        (
+            "process kappa bounds",
+            (
+                f"[{float(processArgs.precisionMultiplierMin):.6g}, "
+                f"{float(processArgs.precisionMultiplierMax):.6g}]"
+            ),
+        ),
         (
             "process noise warmup",
             f"{_getProcessNoiseWarmupOuterPasses(processArgs)} outer passes x "
-            f"{int(processArgs.processNoiseWarmupECMIters)} ECM iters",
+            f"{int(processArgs.processNoiseWarmupECMIters)} ECM iters; "
+            f"{_getProcessNoiseWarmupQAlternatingPasses(processArgs)} Q/nuisance passes",
         ),
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
@@ -939,11 +1081,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         core._formatAsciiLogBlock("initial configuration", rows),
         stacklevel=2,
     )
-    if bool(countingArgs.replicateMedianDetrend) and not replicateDetrendEnabled:
-        logger.info(
-            "replicate quantile detrend disabled because control inputs are present; "
-            "treatment/control tracks are already log-ratios."
-        )
     if bool(countingArgs.subtractGlobalMedian) and controlsPresent:
         logger.info(
             "global median center disabled because control inputs are present; "
@@ -960,22 +1097,6 @@ def _resolveGlobalMedianCenterStatus(
     if bool(controlsPresent):
         return False, "no (control log-ratio)"
     return True, "yes"
-
-
-def _resolveReplicateDetrendStatus(
-    countingArgs: core.countingParams,
-    controlsPresent: bool,
-) -> tuple[bool, str]:
-    if not bool(countingArgs.replicateMedianDetrend):
-        return False, "no"
-    if bool(controlsPresent):
-        return False, "no (control log-ratio)"
-    return (
-        True,
-        "quantile="
-        f"{float(countingArgs.gentleDetrendQuantile):.3g} x"
-        f"{float(countingArgs.replicateMedianDetrendWindowMultiplier):.3g}",
-    )
 
 
 _DEPENDENCE_MIN_CONTEXT_BP = 500
@@ -1030,39 +1151,6 @@ def _resolveRuntimeBackgroundBlockLen(
     return _oddIntervalsFromBP(windowBP, intervalSizeBP, minIntervals=1)
 
 
-def _resolveRuntimeReplicateDetrendWindow(
-    dependenceSpanIntervals: Optional[int],
-    backgroundBlockSizeBP: int,
-    intervalSizeBP: int,
-    lengthScaleMultiplier: float,
-    windowMultiplier: float,
-) -> int:
-    multiplier = float(lengthScaleMultiplier)
-    if not np.isfinite(multiplier) or multiplier <= 0.0:
-        raise ValueError(
-            "fitParams.ECM_backgroundLengthScaleMultiplier must be positive"
-        )
-    windowMultiplier_ = float(windowMultiplier)
-    if not np.isfinite(windowMultiplier_) or windowMultiplier_ <= 0.0:
-        raise ValueError(
-            "countingParams.replicateMedianDetrendWindowMultiplier must be positive"
-        )
-    if dependenceSpanIntervals is not None and int(dependenceSpanIntervals) > 0:
-        windowBP = (
-            windowMultiplier_
-            * multiplier
-            * float(dependenceSpanIntervals)
-            * float(intervalSizeBP)
-        )
-    else:
-        windowBP = (
-            windowMultiplier_
-            * multiplier
-            * max(float(backgroundBlockSizeBP), float(intervalSizeBP))
-        )
-    return _oddIntervalsFromBP(windowBP, intervalSizeBP, minIntervals=3)
-
-
 def _formatOptionalLogValue(value: Any) -> Any:
     if value is None:
         return "NA"
@@ -1105,6 +1193,22 @@ def _logMuncEstimationParameters(
         "MUNC estimation parameters",
         (
             ("MUNC variance model", muncVarianceModel),
+            (
+                "MUNC AR1 variance functional",
+                getattr(
+                    observationArgs,
+                    "muncAR1VarianceFunctional",
+                    constants.OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL,
+                ),
+            ),
+            (
+                "MUNC AR1 max beta",
+                float(constants.MUNC_AR1_MAX_BETA_DEFAULT),
+            ),
+            (
+                "MUNC AR1 pairs reg lambda",
+                float(constants.MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT),
+            ),
             ("chromosomes", int(chromosomeCount)),
             ("samples", int(sampleCount)),
             ("interval bp", int(intervalSizeBP)),
@@ -1133,20 +1237,6 @@ def _logMuncEstimationParameters(
             (
                 "MUNC variance EB",
                 "enabled" if bool(observationArgs.EB_use) else "disabled",
-            ),
-            (
-                "MUNC additive high freq",
-                (
-                    "enabled"
-                    if bool(
-                        getattr(
-                            observationArgs,
-                            "additiveHighFreq",
-                            constants.OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
-                        )
-                    )
-                    else "disabled"
-                ),
             ),
             (
                 "MUNC genomic covariates",
@@ -1376,7 +1466,10 @@ def _buildArgParser() -> argparse.ArgumentParser:
         type=float,
         default=constants.MATCHING_DEFAULT_NESTED_ROCCO_BUDGET_SCALE,
         dest="matchNestedRoccoBudgetScale",
-        help="Optional fraction of each eligible first-pass peak region available to nested ROCCO refinement.",
+        help=(
+            "Soft budget scale for nested ROCCO refinement; values below 1 "
+            "increase the local selection penalty but do not impose a hard quota."
+        ),
     )
     parser.add_argument(
         "--match-export-filter-c",
@@ -1389,6 +1482,25 @@ def _buildArgParser() -> argparse.ArgumentParser:
             f"Default: {constants.MATCHING_DEFAULT_EXPORT_FILTER_UNCERTAINTY_MULTIPLIER:g}. "
             "Setting c=0 requires exported peaks to have positive median signal."
         ),
+    )
+    parser.add_argument(
+        "--match-uncertainty-score-mode",
+        type=str,
+        choices=constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES,
+        default=constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+        dest="matchUncertaintyScoreMode",
+        help=(
+            "ROCCO score construction mode. `state` uses the fitted state directly; "
+            "`lower_confidence` uses state - z * uncertainty and requires an "
+            "uncertainty bedGraph."
+        ),
+    )
+    parser.add_argument(
+        "--match-uncertainty-score-z",
+        type=float,
+        default=constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
+        dest="matchUncertaintyScoreZ",
+        help="Multiplier z used by --match-uncertainty-score-mode lower_confidence.",
     )
     parser.add_argument(
         "--match-seed",
@@ -1466,6 +1578,8 @@ def main():
             exportFilterUncertaintyMultiplier=(
                 args.matchExportFilterUncertaintyMultiplier
             ),
+            uncertaintyScoreMode=args.matchUncertaintyScoreMode,
+            uncertaintyScoreZ=args.matchUncertaintyScoreZ,
             blacklistBedFile=args.matchBlacklistBed,
             randSeed=args.matchRandSeed,
             verbose=bool(args.verbose or args.verbose2),
@@ -1547,8 +1661,8 @@ def main():
     maxR_ = observationArgs.maxR
     minQ_ = processArgs.minQ
     maxQ_ = processArgs.maxQ
-    if minR_ is None or not np.isfinite(float(minR_)) or float(minR_) < 0.0:
-        raise ValueError("observationParams.minR must be a nonnegative finite value")
+    if minR_ is None or not np.isfinite(float(minR_)):
+        raise ValueError("observationParams.minR must be a finite value")
     muncTrendBlockSizeBP_ = getattr(
         observationArgs,
         "muncTrendBlockSizeBP",
@@ -1580,7 +1694,17 @@ def main():
             constants.OBSERVATION_DEFAULT_MUNC_VARIANCE_MODEL,
         )
     )
-    muncVarianceModelCode_ = core._muncVarianceModelCode(muncVarianceModel_)
+    muncAR1VarianceFunctional_ = core._normalizeMuncAR1VarianceFunctional(
+        getattr(
+            observationArgs,
+            "muncAR1VarianceFunctional",
+            constants.OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL,
+        )
+    )
+    muncAR1UseInnovationVariance_ = (
+        muncAR1VarianceFunctional_
+        == constants.MUNC_AR1_VARIANCE_FUNCTIONAL_INNOVATION
+    )
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
     dependenceContextBP_: Optional[int] = None
     dependenceSpanIntervals_: Optional[int] = None
@@ -1688,19 +1812,6 @@ def main():
         )
         for source in controlSources
     ]
-    autoInferFragmentLength = (
-        samArgs.inferFragmentLength is None
-        and core._normalizeBamInputMode(samArgs.bamInputMode) == "auto"
-    )
-    inferFragmentLengthRequested = int(samArgs.inferFragmentLength or 0) > 0
-    if autoInferFragmentLength and any(
-        sourceBamInputMode in ("reads", "read1")
-        for sourceBamInputMode in treatmentBamInputModes + controlBamInputModes
-    ):
-        logger.info(
-            "samParams.bamInputMode=auto and samParams.inferFragmentLength omitted: "
-            "single-end BAM sources will be extended by inferred fragment length."
-        )
     treatmentCountModes = [
         _getSourceCountMode(
             source,
@@ -1717,6 +1828,57 @@ def main():
         )
         for source in controlSources
     ]
+    treatmentBamInputModes = [
+        (
+            core._resolveSourceBamInputModeForCountMode(
+                source,
+                str(samArgs.bamInputMode or "auto"),
+                countMode,
+            )
+            if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS
+            else sourceBamInputMode
+        )
+        for source, sourceBamInputMode, countMode in zip(
+            treatmentSources,
+            treatmentBamInputModes,
+            treatmentCountModes,
+        )
+    ]
+    controlBamInputModes = [
+        (
+            core._resolveSourceBamInputModeForCountMode(
+                source,
+                str(samArgs.bamInputMode or "auto"),
+                countMode,
+            )
+            if str(source.sourceKind).upper() in core.ALIGNMENT_SOURCE_KINDS
+            else sourceBamInputMode
+        )
+        for source, sourceBamInputMode, countMode in zip(
+            controlSources,
+            controlBamInputModes,
+            controlCountModes,
+        )
+    ]
+    treatmentNativeCountModes = [
+        core._nativeCountModeForPreset(countMode) for countMode in treatmentCountModes
+    ]
+    controlNativeCountModes = [
+        core._nativeCountModeForPreset(countMode) for countMode in controlCountModes
+    ]
+    autoInferFragmentLength = (
+        samArgs.inferFragmentLength is None
+        and core._normalizeBamInputMode(samArgs.bamInputMode) == "auto"
+    )
+    inferFragmentLengthRequested = int(samArgs.inferFragmentLength or 0) > 0
+    if autoInferFragmentLength and any(
+        sourceBamInputMode in ("reads", "read1")
+        for sourceBamInputMode in treatmentBamInputModes + controlBamInputModes
+    ):
+        logger.info(
+            "samParams.bamInputMode=auto and samParams.inferFragmentLength omitted: "
+            "single-end BAM sources will be extended by inferred fragment length."
+        )
     treatmentAllowLists, treatmentSelectedCellCounts, treatmentNormTempPaths = (
         _prepareFragmentsNormalizationMetadata(treatmentSources)
     )
@@ -1822,6 +1984,7 @@ def main():
     def _resolveCountExtendFrom5pBP(
         source: core.inputSource,
         sourceBamInputMode: str,
+        countMode: str,
         configuredExtendBP: int,
         characteristicFragmentLength: int,
     ) -> int:
@@ -1831,6 +1994,8 @@ def main():
             return 0
         if int(configuredExtendBP) > 0:
             return int(configuredExtendBP)
+        if countMode == "ffp-center":
+            return int(characteristicFragmentLength)
         if inferFragmentLengthRequested or (
             autoInferFragmentLength and sourceBamInputMode in ("reads", "read1")
         ):
@@ -1841,12 +2006,20 @@ def main():
         _resolveCountExtendFrom5pBP(
             source,
             sourceBamInputMode,
+            countMode,
             configuredExtendBP,
             characteristicFragmentLength,
         )
-        for source, sourceBamInputMode, configuredExtendBP, characteristicFragmentLength in zip(
+        for (
+            source,
+            sourceBamInputMode,
+            countMode,
+            configuredExtendBP,
+            characteristicFragmentLength,
+        ) in zip(
             treatmentSources,
             treatmentBamInputModes,
+            treatmentCountModes,
             configuredExtendFrom5pBPTreatment,
             characteristicFragmentLengthsTreatment,
         )
@@ -1856,12 +2029,20 @@ def main():
             _resolveCountExtendFrom5pBP(
                 source,
                 sourceBamInputMode,
+                countMode,
                 configuredExtendBP,
                 characteristicFragmentLength,
             )
-            for source, sourceBamInputMode, configuredExtendBP, characteristicFragmentLength in zip(
+            for (
+                source,
+                sourceBamInputMode,
+                countMode,
+                configuredExtendBP,
+                characteristicFragmentLength,
+            ) in zip(
                 controlSources,
                 controlBamInputModes,
+                controlCountModes,
                 configuredExtendFrom5pBPControl,
                 characteristicFragmentLengthsControl,
             )
@@ -1913,6 +2094,12 @@ def main():
                         countModeB,
                         groupCellCountA,
                         groupCellCountB,
+                        bamInputModeA,
+                        bamInputModeB,
+                        extendBPA,
+                        extendBPB,
+                        countReadLengthA,
+                        countReadLengthB,
                     ) = task
                     return detrorm.getPairScaleFactors(
                         sourceA.path,
@@ -1937,6 +2124,16 @@ def main():
                         groupCellCountA=groupCellCountA,
                         groupCellCountB=groupCellCountB,
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
+                        bamInputModeA=bamInputModeA,
+                        bamInputModeB=bamInputModeB,
+                        samFlagExclude=samArgs.samFlagExclude,
+                        minMappingQuality=samArgs.minMappingQuality,
+                        minTemplateLength=samArgs.minTemplateLength,
+                        maxInsertSize=samArgs.maxInsertSize,
+                        extendBPA=extendBPA,
+                        extendBPB=extendBPB,
+                        countReadLengthA=countReadLengthA,
+                        countReadLengthB=countReadLengthB,
                     )
 
                 pairScalingFactors = io_helpers._threadMap(
@@ -1949,10 +2146,16 @@ def main():
                         characteristicFragmentLengthsControl,
                         treatmentAllowLists,
                         controlAllowLists,
-                        treatmentCountModes,
-                        controlCountModes,
+                        treatmentNativeCountModes,
+                        controlNativeCountModes,
                         treatmentSelectedCellCounts,
                         controlSelectedCellCounts,
+                        treatmentBamInputModes,
+                        controlBamInputModes,
+                        countExtendFrom5pBPTreatment,
+                        countExtendFrom5pBPControl,
+                        readLengthsBamFiles,
+                        readLengthsControlBamFiles,
                     ),
                     _getPairScaleFactors,
                     "pair scale factors",
@@ -1974,25 +2177,45 @@ def main():
             elif normMethod_ in ["RPKM", "CPM"]:
 
                 def _getScaleFactorPerMillion(task) -> float:
-                    source, barcodeAllowListPath, countMode, groupCellCount = task
+                    (
+                        source,
+                        barcodeAllowListPath,
+                        countMode,
+                        groupCellCount,
+                        bamInputMode,
+                        extendBP,
+                        readLength,
+                    ) = task
                     return detrorm.getScaleFactorPerMillion(
                         source.path,
                         excludeForNorm,
                         intervalSizeBP,
+                        normMethod=normMethod_,
                         sourceKind=str(source.sourceKind).upper(),
                         barcodeAllowListFile=barcodeAllowListPath,
                         countMode=countMode,
                         oneReadPerBin=samArgs.oneReadPerBin,
+                        samThreads=samArgs.samThreads,
                         groupCellCount=groupCellCount,
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
+                        bamInputMode=bamInputMode,
+                        samFlagExclude=samArgs.samFlagExclude,
+                        minMappingQuality=samArgs.minMappingQuality,
+                        minTemplateLength=samArgs.minTemplateLength,
+                        maxInsertSize=samArgs.maxInsertSize,
+                        readLength=readLength,
+                        extendBP=extendBP,
                     )
 
                 scaleFactors = io_helpers._threadMap(
                     zip(
                         treatmentSources,
                         treatmentAllowLists,
-                        treatmentCountModes,
+                        treatmentNativeCountModes,
                         treatmentSelectedCellCounts,
+                        treatmentBamInputModes,
+                        countExtendFrom5pBPTreatment,
+                        readLengthsBamFiles,
                     ),
                     _getScaleFactorPerMillion,
                     "scale factors",
@@ -2008,6 +2231,9 @@ def main():
                         barcodeAllowListPath,
                         countMode,
                         groupCellCount,
+                        bamInputMode,
+                        extendBP,
+                        countReadLength,
                     ) = task
                     return detrorm.getScaleFactor1x(
                         source.path,
@@ -2022,6 +2248,13 @@ def main():
                         oneReadPerBin=samArgs.oneReadPerBin,
                         groupCellCount=groupCellCount,
                         fragmentsGroupNorm=scArgs.fragmentsGroupNorm,
+                        bamInputMode=bamInputMode,
+                        samFlagExclude=samArgs.samFlagExclude,
+                        minMappingQuality=samArgs.minMappingQuality,
+                        minTemplateLength=samArgs.minTemplateLength,
+                        maxInsertSize=samArgs.maxInsertSize,
+                        extendBP=extendBP,
+                        countReadLength=countReadLength,
                     )
 
                 scaleFactors = io_helpers._threadMap(
@@ -2030,8 +2263,11 @@ def main():
                         effectiveGenomeSizes,
                         characteristicFragmentLengthsTreatment,
                         treatmentAllowLists,
-                        treatmentCountModes,
+                        treatmentNativeCountModes,
                         treatmentSelectedCellCounts,
+                        treatmentBamInputModes,
+                        countExtendFrom5pBPTreatment,
+                        readLengthsBamFiles,
                     ),
                     _getScaleFactor1x,
                     "scale factors",
@@ -2170,13 +2406,6 @@ def main():
     pooledWeightsParts: list[np.ndarray] = []
     useReplicateTrends = bool(getattr(observationArgs, "useReplicateTrends", False))
     noDMVar = bool(getattr(observationArgs, "noDMVar", False))
-    additiveHighFreq = bool(
-        getattr(
-            observationArgs,
-            "additiveHighFreq",
-            constants.OBSERVATION_DEFAULT_ADDITIVE_HIGH_FREQ,
-        )
-    )
     muncCovariatesEnabled = bool(
         getattr(
             observationArgs,
@@ -2228,6 +2457,9 @@ def main():
         genomeCovariateCache = ConsenrichGenomeCovariateCache(
             genomeArgs.genomeCovariateCacheDir,
             interval_size_bp=int(intervalSizeBP),
+            requested_chromosomes=tuple(
+                str(chromPlan["chromosome"]) for chromPlan in chromosomePlans
+            ),
         )
         muncCovariateRawFeatures = resolve_genome_covariate_feature_config(
             muncCovariateFeatureConfig,
@@ -2269,7 +2501,6 @@ def main():
                 col = np.abs(col - medianGc)
             else:
                 col = np.maximum(col, 0.0)
-            col[~np.isfinite(col)] = 0.0
             prepared[:, featureIndex] = col.astype(np.float32, copy=False)
         return prepared
 
@@ -2289,18 +2520,23 @@ def main():
                 feature_names=muncCovariateRawFeatures,
                 interval_size_bp=int(intervalSizeBP),
             )
-        except KeyError:
-            logger.warning(
-                "MUNC genomic covariates: chromosome %s is missing from the cache; "
-                "using zero additive covariates for this chromosome.",
-                chromosome,
-            )
-            return np.zeros(
-                (int(numIntervals), len(muncCovariateRawFeatures)),
-                dtype=np.float32,
-            )
+        except KeyError as exc:
+            raise ValueError(
+                f"MUNC genomic covariates: chromosome {chromosome} is missing from "
+                "the cache; "
+                "disable observationParams.muncCovariates or rebuild the cache with "
+                "all requested chromosomes."
+            ) from exc
         raw = np.asarray(raw, dtype=np.float32)
         if raw.shape[0] < int(numIntervals):
+            logger.warning(
+                "MUNC genomic covariates: cache for %s covers %d/%d requested "
+                "intervals; missing intervals will be excluded from additive "
+                "covariate fitting and will use the baseline MUNC trend.",
+                chromosome,
+                int(raw.shape[0]),
+                int(numIntervals),
+            )
             padded = np.full(
                 (int(numIntervals), raw.shape[1]),
                 np.nan,
@@ -2344,8 +2580,8 @@ def main():
         counts = cumCounts[endsClip, :] - cumCounts[startsClip, :]
         out = np.full((nBlocks, nFeatures), np.nan, dtype=np.float64)
         np.divide(sums, counts, out=out, where=(counts > 0.0) & validSpan[:, None])
-        out[~np.isfinite(out)] = 0.0
-        out[out < 0.0] = 0.0
+        finiteOut = np.isfinite(out)
+        out[finiteOut & (out < 0.0)] = 0.0
         return out.astype(np.float32, copy=False)
 
     def _getChromBlacklistMask(chromosome: str, intervals: np.ndarray) -> np.ndarray:
@@ -2405,6 +2641,7 @@ def main():
                     samArgs.samFlagExclude,
                     bamInputMode=samArgs.bamInputMode,
                     defaultCountMode=samArgs.defaultCountMode,
+                    defaultFragmentCountMode=scArgs.defaultCountMode,
                     shiftForward5p=samArgs.shiftForward5p,
                     shiftReverse5p=samArgs.shiftReverse5p,
                     extendFrom5pBP=[
@@ -2422,6 +2659,12 @@ def main():
                     chromMat[j_, :],
                     logOffset=countingArgs.logOffset,
                     logMult=countingArgs.logMult,
+                    mode=countingArgs.transformMethod,
+                    inputOffset=countingArgs.transformInputOffset,
+                    inputScale=countingArgs.transformInputScale,
+                    outputScale=countingArgs.transformOutputScale,
+                    outputOffset=countingArgs.transformOutputOffset,
+                    shape=countingArgs.transformShape,
                 )
                 logger.info(
                     "counting.done %s sample=%d/%d elapsed=%.3fs",
@@ -2452,6 +2695,7 @@ def main():
                 samArgs.samFlagExclude,
                 bamInputMode=samArgs.bamInputMode,
                 defaultCountMode=samArgs.defaultCountMode,
+                defaultFragmentCountMode=scArgs.defaultCountMode,
                 shiftForward5p=samArgs.shiftForward5p,
                 shiftReverse5p=samArgs.shiftReverse5p,
                 extendFrom5pBP=countExtendFrom5pBPTreatment,
@@ -2483,6 +2727,12 @@ def main():
                 verbose=args.verbose2,
                 logOffset=countingArgs.logOffset,
                 logMult=countingArgs.logMult,
+                mode=countingArgs.transformMethod,
+                inputOffset=countingArgs.transformInputOffset,
+                inputScale=countingArgs.transformInputScale,
+                outputScale=countingArgs.transformOutputScale,
+                outputOffset=countingArgs.transformOutputOffset,
+                shape=countingArgs.transformShape,
             )
             return j
 
@@ -2566,108 +2816,6 @@ def main():
             )
 
         return intervals, np.ascontiguousarray(chromMat, dtype=np.float32)
-
-    def _applyReplicateMedianDetrend(
-        chromosome: str,
-        chromMat: np.ndarray,
-    ) -> np.ndarray:
-        replicateDetrendEnabled, _ = _resolveReplicateDetrendStatus(
-            countingArgs,
-            controlsPresent=controlsPresent,
-        )
-        if not replicateDetrendEnabled:
-            if bool(countingArgs.replicateMedianDetrend) and controlsPresent:
-                logger.info(
-                    "replicate quantile detrend.skip %s samples=%d reason=control-log-ratio",
-                    chromosome,
-                    int(numSamples),
-                )
-            return np.ascontiguousarray(chromMat, dtype=np.float32)
-
-        detrendWindowIntervals = _resolveRuntimeReplicateDetrendWindow(
-            dependenceSpanIntervals_,
-            int(backgroundBlockSizeBP_),
-            intervalSizeBP,
-            fitArgs.ECM_backgroundLengthScaleMultiplier,
-            countingArgs.replicateMedianDetrendWindowMultiplier,
-        )
-
-        def _detrendTrack(j: int) -> dict[str, Any]:
-            stats_ = core.quantileFilterDetrendInPlace(
-                chromMat[j, :],
-                detrendWindowIntervals,
-                countingArgs.gentleDetrendQuantile,
-            )
-            stats_["sample_index"] = int(j)
-            return stats_
-
-        detrendStart = time.perf_counter()
-        detrendWorkers = io_helpers._getSmallWorkerCount(
-            numSamples,
-            maxWorkers=4,
-        )
-        useParallelDetrend = (
-            numSamples >= 4 and chromMat.shape[1] >= 5000 and detrendWorkers > 1
-        )
-        detrendStats: list[dict[str, Any]] = []
-        if useParallelDetrend:
-            logger.info(
-                "replicate quantile detrend: using ThreadPool with %d workers "
-                "(numSamples=%d, numIntervals=%d, quantile=%.3g, window=%d).",
-                int(detrendWorkers),
-                int(numSamples),
-                int(chromMat.shape[1]),
-                float(countingArgs.gentleDetrendQuantile),
-                int(detrendWindowIntervals),
-            )
-            with ThreadPool(processes=int(detrendWorkers)) as pool:
-                for stats_ in _progress(
-                    pool.imap(_detrendTrack, range(numSamples)),
-                    total=numSamples,
-                    desc="Quantile-detrending replicates",
-                    unit="sample",
-                ):
-                    detrendStats.append(stats_)
-        else:
-            for j in _progress(
-                range(numSamples),
-                desc="Quantile-detrending replicates",
-                unit="sample",
-            ):
-                detrendStats.append(_detrendTrack(j))
-
-        appliedStats = [s for s in detrendStats if bool(s.get("applied", False))]
-        trendMedians = np.asarray(
-            [float(s.get("trend_median", 0.0)) for s in appliedStats],
-            dtype=np.float64,
-        )
-        trendMads = np.asarray(
-            [float(s.get("trend_mad", 0.0)) for s in appliedStats],
-            dtype=np.float64,
-        )
-        medianRange = (
-            "NA"
-            if trendMedians.size == 0
-            else (
-                f"[{float(np.min(trendMedians)):.4g}, "
-                f"{float(np.max(trendMedians)):.4g}]"
-            )
-        )
-        madMedian = float("nan") if trendMads.size == 0 else float(np.median(trendMads))
-        logger.info(
-            "replicate quantile detrend.done %s samples=%d applied=%d "
-            "quantile=%.3g window=%d trendMedianRange=%s "
-            "trendMADMedian=%.4g elapsed=%.3fs",
-            chromosome,
-            int(numSamples),
-            int(len(appliedStats)),
-            float(countingArgs.gentleDetrendQuantile),
-            int(detrendWindowIntervals),
-            medianRange,
-            madMedian,
-            time.perf_counter() - detrendStart,
-        )
-        return np.ascontiguousarray(chromMat, dtype=np.float32)
 
     def _summarizeFiniteArray(values: np.ndarray) -> dict[str, float | int]:
         arr = np.asarray(values)
@@ -3147,8 +3295,9 @@ def main():
                 samplingIters_,
                 42 + j,
                 blacklistExcludeMask,
-                useInnovationVar=False,
-                modelCode=int(muncVarianceModelCode_),
+                useInnovationVar=muncAR1UseInnovationVariance_,
+                maxBeta=constants.MUNC_AR1_MAX_BETA_DEFAULT,
+                pairsRegLambda=constants.MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
             )
             blockMeansArr = np.asarray(blockMeans)
             blockVarsArr = np.asarray(blockVars)
@@ -3157,17 +3306,19 @@ def main():
             if startsArr.size != blockMeansArr.size:
                 continue
             blockLengthsArr = endsArr - startsArr
-            if not noDMVar and int(muncVarianceModelCode_) == int(
-                core.MUNC_VARIANCE_MODEL_CODE_AR1
-            ):
+            if not noDMVar:
                 blockBetas = cconsenrich.cblockAR1Beta(
                     np.ascontiguousarray(chromMat[j, :], dtype=np.float32),
                     np.ascontiguousarray(startsArr, dtype=np.intp),
                     np.ascontiguousarray(blockLengthsArr, dtype=np.intp),
+                    maxBeta=constants.MUNC_AR1_MAX_BETA_DEFAULT,
+                    pairsRegLambda=constants.MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT,
                 )
                 blockLogVarianceNoise = core._computeDeltaMethodAR1LogVarianceNoise(
                     blockBetas,
                     blockLengthsArr,
+                    maxBeta=constants.MUNC_AR1_MAX_BETA_DEFAULT,
+                    muncAR1VarianceFunctional=muncAR1VarianceFunctional_,
                 )
             else:
                 blockLogVarianceNoise = None
@@ -3255,15 +3406,7 @@ def main():
         muncTrendBlockSizeBP=muncTrendBlockSizeBP_,
         muncLocalWindowSizeBP=muncLocalWindowSizeBP_,
     )
-    replicateDetrendEnabled, _ = _resolveReplicateDetrendStatus(
-        countingArgs,
-        controlsPresent=controlsPresent,
-    )
-    if (
-        backgroundBlockSizeBP_ < 0
-        or muncSizingNeedsDependence
-        or replicateDetrendEnabled
-    ):
+    if backgroundBlockSizeBP_ < 0 or muncSizingNeedsDependence:
         _ensureSampledDependenceSpan(transformedMatrixCachePaths)
 
     for c_, chromPlan in enumerate(
@@ -3277,7 +3420,6 @@ def main():
         chromosome = str(chromPlan["chromosome"])
         cachePath = transformedMatrixCachePaths[chromosome]
         chromMat = np.ascontiguousarray(np.load(cachePath), dtype=np.float32)
-        chromMat = _applyReplicateMedianDetrend(chromosome, chromMat)
         np.save(cachePath, chromMat, allow_pickle=False)
         intervals = cachedIntervalsByChromosome[chromosome]
         muncResidualBackground, muncResidualSource, muncResidualBlockLen = (
@@ -3366,10 +3508,16 @@ def main():
             blockEffNu = 2.0 * core.itrigamma(finiteBlockNoise)
             blockEffNu = blockEffNu[np.isfinite(blockEffNu)]
             logger.info(
-                "pooled MUNC block delta-method noise: pairs=%d logvar_noise_median=%.4g block_Nu_L_effective_median=%.2f",
+                "pooled MUNC block delta-method noise: pairs=%d "
+                "logvar_noise_median=%.4g block_Nu_L_effective_median=%.2f "
+                "ar1_variance_functional=%s ar1_max_beta=%.4g "
+                "ar1_pairs_reg_lambda=%.4g",
                 int(finiteBlockNoise.size),
                 float(np.median(finiteBlockNoise)),
                 float(np.median(blockEffNu)) if blockEffNu.size else float("nan"),
+                muncAR1VarianceFunctional_,
+                float(constants.MUNC_AR1_MAX_BETA_DEFAULT),
+                float(constants.MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT),
             )
     pooledBlockSizeIntervals = int(pooledMuncSizing.trendBlockIntervals)
     pooledLocalWindowIntervals = int(pooledMuncSizing.localWindowIntervals)
@@ -3445,6 +3593,7 @@ def main():
             thinBinSize=pooledLocalWindowIntervals,
             workers=replicateTrendWorkers,
             memmapDir=pooledMuncCache.name,
+            muncAR1VarianceFunctional=muncAR1VarianceFunctional_,
         )
         logger.info(
             "replicate MUNC signed trends: pairs=%d samples=%d workers=%d Nu_0=%s diagnostics=%s",
@@ -3823,6 +3972,7 @@ def main():
                     muncLocalWindowDependenceMultiplier_
                 ),
                 muncVarianceModel=muncVarianceModel_,
+                muncAR1VarianceFunctional=muncAR1VarianceFunctional_,
                 randomSeed=42 + j,
                 EB_use=observationArgs.EB_use,
                 EB_setNu0=observationArgs.EB_setNu0,
@@ -3843,7 +3993,6 @@ def main():
                 restrictLocalVarianceToSparseBed=bool(
                     getattr(observationArgs, "restrictLocalVarianceToSparseBed", False)
                 ),
-                additiveHighFreq=additiveHighFreq,
                 verbose=args.verbose2,
                 varianceFloor=varianceFloorForTrend,
                 varianceCap=maxR_ if maxR_ is not None and maxR_ > 0.0 else None,
@@ -3925,6 +4074,16 @@ def main():
             intervalSizeBP,
             fitArgs.ECM_backgroundLengthScaleMultiplier,
         )
+
+        requestedMinR_ = float(minR_)
+        minR_ = core.resolveMuncMinRFloor(muncMat, requestedMinR_)
+        if requestedMinR_ < 0.0:
+            logger.info(
+                "observationParams.minR < 0 --> using MUNC matrix %.2f quantile floor for %s: %.4g",
+                0.05,
+                chromosome,
+                float(minR_),
+            )
 
         if blacklistedIntervals:
             floors = core.applyBlacklistMuncFloor(
@@ -4507,6 +4666,11 @@ def main():
                 f"consenrichOutput_{experimentName}_uncertainty.v{__version__}.bedGraph"
             )
             if not os.path.exists(uncertaintyBedGraphPath):
+                if matchingArgs.uncertaintyScoreMode == "lower_confidence":
+                    raise FileNotFoundError(
+                        "matchingParams.uncertaintyScoreMode='lower_confidence' "
+                        f"requires uncertainty bedGraph {uncertaintyBedGraphPath}."
+                    )
                 logger.warning(
                     "Uncertainty bedGraph %s was not found; proceeding without model-based uncertainty.",
                     uncertaintyBedGraphPath,
@@ -4526,6 +4690,8 @@ def main():
                 exportFilterUncertaintyMultiplier=float(
                     matchingArgs.exportFilterUncertaintyMultiplier
                 ),
+                uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
+                uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
                 blacklistBedFile=genomeArgs.blacklistFile,
                 randSeed=matchingArgs.randSeed,
                 verbose=bool(args.verbose),

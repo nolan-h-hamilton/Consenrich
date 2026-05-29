@@ -21,6 +21,7 @@ cdef extern from "native/ccounts_backend.h":
         ccounts_countModeCutSite  # strand-aware cut indices, e.g. true cleavage/insertion sites
         ccounts_countModeFivePrime # count only the strand-aware 5' end of each read or fragment
         ccounts_countModeCenter # count only the midpoint of the read or inferred/observed fragment span
+        ccounts_countModeFFP # BAM-only: count the strand-aware first-read 5' end once
 
     ctypedef struct ccounts_sourceConfig:
         const char* path
@@ -101,10 +102,10 @@ cdef extern from "native/ccounts_backend.h":
         int threadCount,
         const char* const* excludeChromosomes,
         int excludeChromosomeCount,
-        uint8_t countMode,
-        uint8_t oneReadPerBin,
+        const ccounts_countOptions* countOptions,
         uint64_t* mappedReadCountOut,
-        uint64_t* unmappedReadCountOut
+        uint64_t* unmappedReadCountOut,
+        uint64_t* mappedSpanBPOut
     ) nogil
 
     ccounts_result ccounts_getCellCount(
@@ -170,8 +171,10 @@ cdef uint8_t _getCountModeCode(str countMode):
         return <uint8_t>ccounts_countModeCutSite
     if normalizedMode in ["fiveprime", "2"]:
         return <uint8_t>ccounts_countModeFivePrime
-    if normalizedMode in ["center", "3"]:
+    if normalizedMode in ["center", "midpoint", "3"]:
         return <uint8_t>ccounts_countModeCenter
+    if normalizedMode in ["ffp", "4"]:
+        return <uint8_t>ccounts_countModeFFP
     raise ValueError(f"Unsupported countMode `{countMode}`")
 
 
@@ -324,6 +327,14 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
     str barcodeAllowListFile="",
     str countMode="coverage",
     int oneReadPerBin=0,
+    int flagExclude=0,
+    int minMappingQuality=0,
+    int minTemplateLength=-1,
+    int maxInsertSize=1000,
+    int pairedEndMode=0,
+    int readLength=0,
+    int extendBP=0,
+    int returnSpanBP=0,
 ):
     cdef bytes pathBytes = alignmentPath.encode("utf-8")
     cdef bytes barcodeAllowListBytes = barcodeAllowListFile.encode("utf-8")
@@ -333,13 +344,31 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
         barcodeAllowListBytes,
     )
     cdef ccounts_result result
+    cdef ccounts_countOptions countOptions
     cdef uint64_t mappedReadCount = 0
     cdef uint64_t unmappedReadCount = 0
+    cdef uint64_t mappedSpanBP = 0
+    cdef uint64_t* mappedSpanBPPointer = NULL
     cdef const char** excludePointers = NULL
     cdef int excludeCount = 0
     cdef int index
-    cdef uint8_t countModeCode = _getCountModeCode(countMode)
     cdef list excludeBytes = []
+
+    countOptions.threadCount = threadCount
+    countOptions.flagExclude = flagExclude
+    countOptions.countMode = _getCountModeCode(countMode)
+    countOptions.oneReadPerBin = oneReadPerBin
+    countOptions.shiftForwardStrand53 = 0
+    countOptions.shiftReverseStrand53 = 0
+    countOptions.readLength = readLength
+    countOptions.extendBP = extendBP
+    countOptions.minMappingQuality = minMappingQuality
+    countOptions.minTemplateLength = minTemplateLength
+    countOptions.maxInsertSize = maxInsertSize
+    countOptions.pairedEndMode = pairedEndMode
+    countOptions.inferFragmentLength = 0
+    if returnSpanBP:
+        mappedSpanBPPointer = &mappedSpanBP
 
     if excludeChromosomes is not None:
         excludeCount = len(excludeChromosomes)
@@ -359,16 +388,18 @@ cpdef tuple ccounts_getAlignmentMappedReadCount(
                 threadCount,
                 excludePointers,
                 excludeCount,
-                countModeCode,
-                oneReadPerBin,
+                &countOptions,
                 &mappedReadCount,
                 &unmappedReadCount,
+                mappedSpanBPPointer,
             )
         _raiseIfError(result)
     finally:
         if excludePointers != NULL:
             free(<void*>excludePointers)
 
+    if returnSpanBP:
+        return int(mappedReadCount), int(unmappedReadCount), int(mappedSpanBP)
     return int(mappedReadCount), int(unmappedReadCount)
 
 

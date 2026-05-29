@@ -77,10 +77,13 @@ cnp.import_array()
 cdef const float __INV_LN2_FLOAT = <float>1.44269504
 cdef const double __INV_LN2_DOUBLE = <double>1.44269504088896340
 cdef const double __PI_DOUBLE = <double>3.14159265358979323846264338327950288
-cdef const int __MUNC_VARIANCE_MODEL_AR1 = 0
-cdef const int __MUNC_VARIANCE_MODEL_SVAR = 2
-cdef const int __MUNC_VARIANCE_MODEL_SVAR_D1 = 4
-cdef const int __MUNC_VARIANCE_MODEL_SVAR_D2 = 5
+cdef const int __TRANSFORM_MODE_LOG = 0
+cdef const int __TRANSFORM_MODE_SQRT = 1
+cdef const int __TRANSFORM_MODE_ASINH = 2
+cdef const int __TRANSFORM_MODE_ASINH_SQRT = 3
+cdef const int __TRANSFORM_MODE_GENERALIZED_LOG = 4
+cdef const int __TRANSFORM_MODE_IDENTITY = 5
+cdef const int __TRANSFORM_MODE_ANSCOMBE = 6
 ctypedef fused real_t:
     float
     double
@@ -106,6 +109,111 @@ cdef inline void _validateMultiplierBounds(
         if isObservation:
             raise ValueError("observation precision multiplier bounds must satisfy 0 < min <= max")
         raise ValueError("process precision multiplier bounds must satisfy 0 < min <= max")
+
+
+cdef int _parseTransformMode(object mode) except -1:
+    cdef str modeStr
+
+    if mode is None:
+        return __TRANSFORM_MODE_LOG
+
+    modeStr = (
+        str(mode)
+        .strip()
+        .lower()
+        .replace("-", "")
+        .replace("_", "")
+        .replace(" ", "")
+        .replace(".", "")
+        .replace("(", "")
+        .replace(")", "")
+    )
+    if modeStr == "" or modeStr == "log":
+        return __TRANSFORM_MODE_LOG
+    if modeStr == "ln" or modeStr == "naturallog":
+        return __TRANSFORM_MODE_LOG
+    if modeStr == "sqrt" or modeStr == "squareroot":
+        return __TRANSFORM_MODE_SQRT
+    if modeStr == "anscombe" or modeStr == "anscombetransform":
+        return __TRANSFORM_MODE_ANSCOMBE
+    if modeStr == "asinh" or modeStr == "arcsinh":
+        return __TRANSFORM_MODE_ASINH
+    if modeStr == "asinhx" or modeStr == "arcsinhx":
+        return __TRANSFORM_MODE_ASINH
+    if modeStr == "asinhsqrt" or modeStr == "arcsinhsqrt":
+        return __TRANSFORM_MODE_ASINH_SQRT
+    if modeStr == "sqrtasinh":
+        return __TRANSFORM_MODE_ASINH_SQRT
+    if modeStr == "generalizedlog" or modeStr == "generalisedlog":
+        return __TRANSFORM_MODE_GENERALIZED_LOG
+    if modeStr == "glog" or modeStr == "softlog":
+        return __TRANSFORM_MODE_GENERALIZED_LOG
+    if modeStr == "identity" or modeStr == "linear" or modeStr == "raw" or modeStr == "none":
+        return __TRANSFORM_MODE_IDENTITY
+    raise ValueError(
+        "mode must be one of 'log', 'sqrt', 'asinh', "
+        "'anscombe', 'asinh_sqrt', 'generalized_log', or 'identity'"
+    )
+
+
+cdef double _coerceTransformDouble(object value, double defaultValue, str name) except *:
+    cdef double out
+    if value is None:
+        return defaultValue
+    out = float(value)
+    if not isfinite(out):
+        raise ValueError(f"{name} must be finite")
+    return out
+
+
+cdef tuple _resolveTransformParameters(
+    int modeCode,
+    double logOffset,
+    double logMult,
+    object offset,
+    object scale,
+    object inputOffset,
+    object inputScale,
+    object outputScale,
+    object outputOffset,
+    object shape,
+):
+    cdef double defaultInputOffset = 1.0 if modeCode == __TRANSFORM_MODE_LOG else 0.0
+    cdef double inputOffset_
+    cdef double inputScale_
+    cdef double outputScale_
+    cdef double outputOffset_
+    cdef double shape_
+
+    if modeCode == __TRANSFORM_MODE_ANSCOMBE:
+        defaultInputOffset = 0.375
+
+    if inputOffset is None and offset is not None:
+        inputOffset = offset
+    if inputOffset is None and modeCode == __TRANSFORM_MODE_LOG:
+        inputOffset = logOffset
+
+    if outputScale is None and scale is not None:
+        outputScale = scale
+    if outputScale is None and modeCode == __TRANSFORM_MODE_LOG:
+        outputScale = logMult
+    if outputScale is None and modeCode == __TRANSFORM_MODE_ANSCOMBE:
+        outputScale = 2.0
+
+    inputOffset_ = _coerceTransformDouble(inputOffset, defaultInputOffset, "inputOffset")
+    if modeCode == __TRANSFORM_MODE_LOG and inputOffset_ <= 0.0:
+        inputOffset_ = 1.0
+
+    inputScale_ = _coerceTransformDouble(inputScale, 1.0, "inputScale")
+    if inputScale_ <= 0.0:
+        raise ValueError("inputScale must be positive")
+
+    outputScale_ = _coerceTransformDouble(outputScale, 1.0, "outputScale")
+    outputOffset_ = _coerceTransformDouble(outputOffset, 0.0, "outputOffset")
+    shape_ = _coerceTransformDouble(shape, 1.0, "shape")
+    if shape_ <= 0.0:
+        raise ValueError("shape must be positive")
+    return (inputOffset_, inputScale_, outputScale_, outputOffset_, shape_)
 
 
 cdef inline void _accumulateObservationValue(
@@ -329,57 +437,6 @@ cdef inline int _maskMembership(const uint32_t* pos, Py_ssize_t numIntervals, co
     return 0
 
 
-cdef inline double _sampleVarianceBlock(double* blockPtr, Py_ssize_t blockLength) noexcept nogil:
-    cdef Py_ssize_t elementIndex
-    cdef double blockLengthDouble
-    cdef double sumY = 0.0
-    cdef double sumSq = 0.0
-    cdef double value
-    cdef double centeredSS
-
-    if blockLength < 2:
-        return 0.0
-    blockLengthDouble = <double>blockLength
-    for elementIndex in range(blockLength):
-        value = blockPtr[elementIndex]
-        sumY += value
-        sumSq += value * value
-    centeredSS = sumSq - ((sumY * sumY) / blockLengthDouble)
-    if centeredSS < 0.0:
-        centeredSS = 0.0
-    return centeredSS / (blockLengthDouble - 1.0)
-
-
-cdef inline double _firstDifferenceVarianceBlock(double* blockPtr, Py_ssize_t blockLength) noexcept nogil:
-    cdef Py_ssize_t elementIndex
-    cdef double diffValue
-    cdef double sumDiffSq = 0.0
-
-    if blockLength < 2:
-        return 0.0
-    for elementIndex in range(blockLength - 1):
-        diffValue = blockPtr[elementIndex + 1] - blockPtr[elementIndex]
-        sumDiffSq += diffValue * diffValue
-    return sumDiffSq / (2.0 * <double>(blockLength - 1))
-
-
-cdef inline double _secondDifferenceVarianceBlock(double* blockPtr, Py_ssize_t blockLength) noexcept nogil:
-    cdef Py_ssize_t elementIndex
-    cdef double diffValue
-    cdef double sumDiffSq = 0.0
-
-    if blockLength < 3:
-        return 0.0
-    for elementIndex in range(blockLength - 2):
-        diffValue = (
-            blockPtr[elementIndex + 2]
-            - (2.0 * blockPtr[elementIndex + 1])
-            + blockPtr[elementIndex]
-        )
-        sumDiffSq += diffValue * diffValue
-    return sumDiffSq / (<double>(blockLength - 2))
-
-
 cdef inline double _canonicalAR1BetaFromPairStats(double sumSqXSeq,
                                                   double sumSqYSeq,
                                                   double sumXYc,
@@ -474,16 +531,12 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
                                 double zeroPenalty,
                                 double zeroThresh,
                                 bint useInnovationVar,
-                                bint useSampleVar,
-                                int modelCode,
-                                double maxBeta=<double>0.99,
+                                double maxBeta=<double>0.95,
                                 double pairsRegLambda=<double>1.0) noexcept nogil:
     # CALLERS: cmeanVarPairs
 
     cdef Py_ssize_t regionIndex, elementIndex, startIndex, blockLength
-    cdef double value
     cdef double sumY
-    cdef double sumSqX
     cdef double blockLengthDouble
     cdef double mom1
     cdef double* blockPtr
@@ -513,28 +566,6 @@ cdef inline void _regionMeanVar(double[::1] valuesView,
             sumY += blockPtr[elementIndex]
         mom1 = sumY / blockLengthDouble
         meanOutView[regionIndex] = <float>mom1
-        if useSampleVar or modelCode == __MUNC_VARIANCE_MODEL_SVAR:
-            # sample variance over full block around mom1
-            sumSqX = 0.0
-            for elementIndex in range(blockLength):
-                value = blockPtr[elementIndex] - mom1
-                sumSqX += value*value
-            varOutView[regionIndex] = <float>(sumSqX / (blockLengthDouble - 1.0))
-            continue
-
-        if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D1:
-            varOutView[regionIndex] = <float>_firstDifferenceVarianceBlock(
-                blockPtr,
-                blockLength,
-            )
-            continue
-
-        if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2:
-            varOutView[regionIndex] = <float>_secondDifferenceVarianceBlock(
-                blockPtr,
-                blockLength,
-            )
-            continue
 
         # df = n-3
         if blockLength < 4:
@@ -2241,10 +2272,8 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
                           double zeroPenalty=0.0,
                           double zeroThresh=0.0,
                           bint useInnovationVar = <bint>True,
-                          bint useSampleVar = <bint>False,
-                          int modelCode = 0,
-                          double maxBeta = 0.99,
-                          double pairsRegLambda = <double>0.1):
+                          double maxBeta = 0.95,
+                          double pairsRegLambda = <double>1.0):
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -2268,15 +2297,6 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
 
 
     rng = default_rng(randSeed)
-    if useSampleVar:
-        modelCode = __MUNC_VARIANCE_MODEL_SVAR
-    if (
-        modelCode != __MUNC_VARIANCE_MODEL_AR1
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D1
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D2
-    ):
-        raise ValueError("unsupported MUNC variance model code")
     valuesArray = np.ascontiguousarray(values, dtype=np.float64)
     valuesView = valuesArray
     outMeans = np.empty(iters, dtype=np.float32)
@@ -2330,8 +2350,6 @@ cpdef tuple cmeanVarPairs(cnp.ndarray[cnp.uint32_t, ndim=1] intervals,
         zeroPenalty,
         zeroThresh,
         useInnovationVar,
-        useSampleVar,
-        modelCode,
         maxBeta,
         pairsRegLambda,
     )
@@ -2343,7 +2361,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] cblockAR1Beta(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     cnp.ndarray[cnp.intp_t, ndim=1] blockStarts,
     cnp.ndarray[cnp.intp_t, ndim=1] blockSizes,
-    double maxBeta=0.99,
+    double maxBeta=0.95,
     double pairsRegLambda=1.0,
 ):
     r"""Estimate the clipped AR(1) beta for each explicit block."""
@@ -2439,11 +2457,9 @@ cpdef tuple cSparseNearestMeanVarTrack(
     double zeroPenalty=0.0,
     double zeroThresh=0.0,
     bint useInnovationVar=True,
-    bint useSampleVar=False,
-    int modelCode=0,
     bint aggregateMeanAbs=True,
-    double maxBeta=0.99,
-    double pairsRegLambda=0.1,
+    double maxBeta=0.95,
+    double pairsRegLambda=1.0,
 ):
     cdef cnp.ndarray[cnp.float64_t, ndim=1] valuesArray
     cdef double[::1] valuesView
@@ -2470,15 +2486,6 @@ cpdef tuple cSparseNearestMeanVarTrack(
     sparseCount = <Py_ssize_t>sparseCenters.shape[0]
     outMeans = np.empty(intervalCount, dtype=np.float32)
     outVars = np.empty(intervalCount, dtype=np.float32)
-    if useSampleVar:
-        modelCode = __MUNC_VARIANCE_MODEL_SVAR
-    if (
-        modelCode != __MUNC_VARIANCE_MODEL_AR1
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D1
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D2
-    ):
-        raise ValueError("unsupported MUNC variance model code")
 
     if intervalCount <= 0:
         return outMeans, outVars
@@ -2509,8 +2516,6 @@ cpdef tuple cSparseNearestMeanVarTrack(
         zeroPenalty,
         zeroThresh,
         useInnovationVar,
-        useSampleVar,
-        modelCode,
         maxBeta,
         pairsRegLambda,
     )
@@ -2750,43 +2755,132 @@ cpdef cEMA(cnp.ndarray x, double alpha):
     return out_F64
 
 
-cdef void _monoLog(
+cdef inline real_t _transformValue(
+    real_t xval,
+    int mode,
+    real_t inputOffset,
+    real_t inputScale,
+    real_t outputScale,
+    real_t outputOffset,
+    real_t shape,
+) noexcept nogil:
+    cdef real_t u
+    cdef double ud
+    cdef double shapeD
+
+    if mode == __TRANSFORM_MODE_LOG:
+        u = xval + inputOffset
+        if u <= <real_t>0.0:
+            u = inputOffset
+        u = u / inputScale
+        if u <= <real_t>0.0:
+            u = <real_t>1.0
+        return outputOffset + outputScale * <real_t>log(<double>u)
+
+    if mode == __TRANSFORM_MODE_SQRT or mode == __TRANSFORM_MODE_ANSCOMBE:
+        u = (xval + inputOffset) / inputScale
+        if u < <real_t>0.0:
+            u = <real_t>0.0
+        return outputOffset + outputScale * <real_t>sqrt(<double>u)
+
+    if mode == __TRANSFORM_MODE_ASINH:
+        u = (xval + inputOffset) / inputScale
+        return outputOffset + outputScale * <real_t>asinh(<double>u)
+
+    if mode == __TRANSFORM_MODE_ASINH_SQRT:
+        u = xval + inputOffset
+        if u < <real_t>0.0:
+            u = <real_t>0.0
+        return outputOffset + outputScale * <real_t>asinh(
+            sqrt(<double>u) / <double>inputScale
+        )
+
+    if mode == __TRANSFORM_MODE_GENERALIZED_LOG:
+        ud = <double>((xval + inputOffset) / inputScale)
+        shapeD = <double>shape
+        return outputOffset + outputScale * <real_t>(
+            log((ud + sqrt((ud * ud) + (shapeD * shapeD))) / shapeD)
+        )
+
+    return outputOffset + outputScale * (
+        (xval + inputOffset) / inputScale
+    )
+
+
+cdef void _monoTransform(
     const real_t* arrPtr,
     real_t* outPtr,
     Py_ssize_t n,
-    real_t offset,
-    real_t scale,
+    real_t inputOffset,
+    real_t inputScale,
+    real_t outputScale,
+    real_t outputOffset,
+    real_t shape,
+    int mode,
 ) noexcept nogil:
     cdef Py_ssize_t i
-    cdef real_t xval, u
 
     for i in range(n):
-        xval = arrPtr[i]
-        u = xval + offset
-        if u <= <real_t>0.0:
-            u = offset
-        outPtr[i] = scale * <real_t>log(<double>u)
+        outPtr[i] = _transformValue(
+            arrPtr[i],
+            mode,
+            inputOffset,
+            inputScale,
+            outputScale,
+            outputOffset,
+            shape,
+        )
 
 
-cdef void _logRatio(
+cdef void _transformDiff(
     const real_t* treatmentPtr,
     const real_t* controlPtr,
     real_t* outPtr,
     Py_ssize_t n,
-    real_t offset,
-    real_t scale,
+    real_t inputOffset,
+    real_t inputScale,
+    real_t outputScale,
+    real_t shape,
+    int mode,
 ) noexcept nogil:
     cdef Py_ssize_t i
-    cdef real_t t, c
+    cdef real_t t
+    cdef real_t c
+
+    if mode == __TRANSFORM_MODE_LOG:
+        for i in range(n):
+            t = treatmentPtr[i] + inputOffset
+            c = controlPtr[i] + inputOffset
+            if t <= <real_t>0.0:
+                t = inputOffset
+            if c <= <real_t>0.0:
+                c = inputOffset
+            outPtr[i] = outputScale * <real_t>(
+                log(<double>t) - log(<double>c)
+            )
+        return
 
     for i in range(n):
-        t = treatmentPtr[i] + offset
-        c = controlPtr[i] + offset
-        if t <= <real_t>0.0:
-            t = offset
-        if c <= <real_t>0.0:
-            c = offset
-        outPtr[i] = scale * <real_t>(log(<double>t) - log(<double>c))
+        outPtr[i] = (
+            _transformValue(
+                treatmentPtr[i],
+                mode,
+                inputOffset,
+                inputScale,
+                outputScale,
+                <real_t>0.0,
+                shape,
+            )
+            - _transformValue(
+                controlPtr[i],
+                mode,
+                inputOffset,
+                inputScale,
+                outputScale,
+                <real_t>0.0,
+                shape,
+            )
+        )
 
 
 cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double>(1.0)):
@@ -2806,12 +2900,16 @@ cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double
         n = arr_F32.shape[0]
         out_F32 = np.empty(n, dtype=np.float32)
         with nogil:
-            _monoLog(
+            _monoTransform(
                 <const float*>arr_F32.data,
                 <float*>out_F32.data,
                 n,
                 <float>offset_,
+                <float>1.0,
                 <float>scale_,
+                <float>0.0,
+                <float>1.0,
+                __TRANSFORM_MODE_LOG,
             )
         return (out_F32, -1.0)
 
@@ -2819,12 +2917,16 @@ cpdef tuple monoFunc(object x, double offset=<double>(1.0), double scale=<double
     n = arr_F64.shape[0]
     out_F64 = np.empty(n, dtype=np.float64)
     with nogil:
-        _monoLog(
+        _monoTransform(
             <const double*>arr_F64.data,
             <double*>out_F64.data,
             n,
             offset_,
+            1.0,
             scale_,
+            0.0,
+            1.0,
+            __TRANSFORM_MODE_LOG,
         )
 
     return (out_F64, -1.0)
@@ -2835,12 +2937,21 @@ cpdef object cTransformWithInput(
     object control,
     double logOffset=<double>(1.0),
     double logMult=<double>(1.0),
+    object mode=None,
+    object offset=None,
+    object scale=None,
+    object inputOffset=None,
+    object inputScale=None,
+    object outputScale=None,
+    object outputOffset=None,
+    object shape=None,
 ):
-    r"""Return the log-ratio transform for treatment/control tracks.
+    r"""Return the treatment/control transform difference.
 
-    The transform is ``logMult * (log(treatment + logOffset) -
-    log(control + logOffset))``. Negative values are retained as depletion
-    relative to control.
+    The default is the historical log-ratio transform
+    ``logMult * (log(treatment + logOffset) - log(control + logOffset))``.
+    Non-log modes return ``f(treatment) - f(control)`` so depletion remains
+    signed relative to control.
     """
     cdef Py_ssize_t n
     cdef cnp.ndarray[cnp.float32_t, ndim=1] treat_F32
@@ -2868,6 +2979,14 @@ cpdef object cTransformWithInput(
             out_F32,
             logOffset=logOffset,
             logMult=logMult,
+            mode=mode,
+            offset=offset,
+            scale=scale,
+            inputOffset=inputOffset,
+            inputScale=inputScale,
+            outputScale=outputScale,
+            outputOffset=outputOffset,
+            shape=shape,
         )
 
     treat_F64 = np.ascontiguousarray(treatment, dtype=np.float64).reshape(-1)
@@ -2882,6 +3001,14 @@ cpdef object cTransformWithInput(
         out_F64,
         logOffset=logOffset,
         logMult=logMult,
+        mode=mode,
+        offset=offset,
+        scale=scale,
+        inputOffset=inputOffset,
+        inputScale=inputScale,
+        outputScale=outputScale,
+        outputOffset=outputOffset,
+        shape=shape,
     )
 
 
@@ -2891,11 +3018,34 @@ cpdef object cTransformWithInputInto(
     object out,
     double logOffset=<double>(1.0),
     double logMult=<double>(1.0),
+    object mode=None,
+    object offset=None,
+    object scale=None,
+    object inputOffset=None,
+    object inputScale=None,
+    object outputScale=None,
+    object outputOffset=None,
+    object shape=None,
 ):
-    r"""Write the treatment/control log-ratio transform into ``out``."""
+    r"""Write a treatment/control transform difference into ``out``."""
     cdef Py_ssize_t n
-    cdef double offset_ = logOffset
-    cdef double scale_ = logMult
+    cdef int modeCode = _parseTransformMode(mode)
+    cdef tuple transformParams = _resolveTransformParameters(
+        modeCode,
+        logOffset,
+        logMult,
+        offset,
+        scale,
+        inputOffset,
+        inputScale,
+        outputScale,
+        outputOffset,
+        shape,
+    )
+    cdef double inputOffset_ = <double>transformParams[0]
+    cdef double inputScale_ = <double>transformParams[1]
+    cdef double outputScale_ = <double>transformParams[2]
+    cdef double shape_ = <double>transformParams[4]
     cdef object outObj = out
     cdef cnp.ndarray[cnp.float32_t, ndim=1] treat_F32
     cdef cnp.ndarray[cnp.float32_t, ndim=1] control_F32
@@ -2903,9 +3053,6 @@ cpdef object cTransformWithInputInto(
     cdef cnp.ndarray[cnp.float64_t, ndim=1] treat_F64
     cdef cnp.ndarray[cnp.float64_t, ndim=1] control_F64
     cdef cnp.ndarray[cnp.float64_t, ndim=1] out_F64
-
-    if offset_ <= 0.0:
-        offset_ = 1.0
 
     if not isinstance(outObj, np.ndarray):
         raise TypeError("out must be a NumPy ndarray")
@@ -2924,13 +3071,16 @@ cpdef object cTransformWithInputInto(
             raise ValueError("out must have the same length as treatment and control")
         n = treat_F32.shape[0]
         with nogil:
-            _logRatio(
+            _transformDiff(
                 <const float*>treat_F32.data,
                 <const float*>control_F32.data,
                 <float*>out_F32.data,
                 n,
-                <float>offset_,
-                <float>scale_,
+                <float>inputOffset_,
+                <float>inputScale_,
+                <float>outputScale_,
+                <float>shape_,
+                modeCode,
             )
         return out
 
@@ -2944,13 +3094,16 @@ cpdef object cTransformWithInputInto(
             raise ValueError("out must have the same length as treatment and control")
         n = treat_F64.shape[0]
         with nogil:
-            _logRatio(
+            _transformDiff(
                 <const double*>treat_F64.data,
                 <const double*>control_F64.data,
                 <double*>out_F64.data,
                 n,
-                offset_,
-                scale_,
+                inputOffset_,
+                inputScale_,
+                outputScale_,
+                shape_,
+                modeCode,
             )
         return out
 
@@ -2962,17 +3115,38 @@ cpdef object cTransformInPlace(
     bint verbose=<bint>False,
     double logOffset=<double>(1.0),
     double logMult=<double>(1.0),
+    object mode=None,
+    object offset=None,
+    object scale=None,
+    object inputOffset=None,
+    object inputScale=None,
+    object outputScale=None,
+    object outputOffset=None,
+    object shape=None,
 ):
-    r"""Log-transform a contiguous coverage track in-place."""
+    r"""Transform a contiguous coverage track in-place."""
     cdef Py_ssize_t n
-    cdef double offset_ = logOffset
-    cdef double scale_ = logMult
+    cdef int modeCode = _parseTransformMode(mode)
+    cdef tuple transformParams = _resolveTransformParameters(
+        modeCode,
+        logOffset,
+        logMult,
+        offset,
+        scale,
+        inputOffset,
+        inputScale,
+        outputScale,
+        outputOffset,
+        shape,
+    )
+    cdef double inputOffset_ = <double>transformParams[0]
+    cdef double inputScale_ = <double>transformParams[1]
+    cdef double outputScale_ = <double>transformParams[2]
+    cdef double outputOffset_ = <double>transformParams[3]
+    cdef double shape_ = <double>transformParams[4]
     cdef object arrObj = x
     cdef cnp.ndarray zArr_F32
     cdef cnp.ndarray zArr_F64
-
-    if offset_ <= 0.0:
-        offset_ = 1.0
 
     if not isinstance(arrObj, np.ndarray):
         raise TypeError("x must be a NumPy ndarray")
@@ -2985,12 +3159,16 @@ cpdef object cTransformInPlace(
         zArr_F32 = arrObj
         n = zArr_F32.shape[0]
         with nogil:
-            _monoLog(
+            _monoTransform(
                 <const float*>zArr_F32.data,
                 <float*>zArr_F32.data,
                 n,
-                <float>offset_,
-                <float>scale_,
+                <float>inputOffset_,
+                <float>inputScale_,
+                <float>outputScale_,
+                <float>outputOffset_,
+                <float>shape_,
+                modeCode,
             )
         return x
 
@@ -2999,12 +3177,16 @@ cpdef object cTransformInPlace(
     zArr_F64 = arrObj
     n = zArr_F64.shape[0]
     with nogil:
-        _monoLog(
+        _monoTransform(
             <const double*>zArr_F64.data,
             <double*>zArr_F64.data,
             n,
-            offset_,
-            scale_,
+            inputOffset_,
+            inputScale_,
+            outputScale_,
+            outputOffset_,
+            shape_,
+            modeCode,
         )
 
     return x
@@ -3015,8 +3197,16 @@ cpdef object cTransform(
     bint verbose=<bint>False,
     double logOffset=<double>(1.0),
     double logMult=<double>(1.0),
+    object mode=None,
+    object offset=None,
+    object scale=None,
+    object inputOffset=None,
+    object inputScale=None,
+    object outputScale=None,
+    object outputOffset=None,
+    object shape=None,
 ):
-    r"""Log-transform a coverage track."""
+    r"""Transform a coverage track."""
     cdef object outArr
 
     if isinstance(x, np.ndarray) and (<cnp.ndarray>x).dtype == np.float32:
@@ -3029,6 +3219,14 @@ cpdef object cTransform(
         verbose=verbose,
         logOffset=logOffset,
         logMult=logMult,
+        mode=mode,
+        offset=offset,
+        scale=scale,
+        inputOffset=inputOffset,
+        inputScale=inputScale,
+        outputScale=outputScale,
+        outputOffset=outputOffset,
+        shape=shape,
     )
 
 
@@ -4033,7 +4231,7 @@ cpdef tuple cfixedBackgroundECMLevel(
     float APN_dStatThresh=5.0,
     float APN_dStatScale=10.0,
     float APN_dStatPC=2.0,
-    Py_ssize_t t_innerIters=3,
+    Py_ssize_t t_innerIters=5,
     bint returnIntermediates=False,
     bint returnDiagnostics=False,
     object lambdaExpInit=None,
@@ -4161,13 +4359,113 @@ cpdef tuple cfixedBackgroundECMLevel(
         processPrecExpView = processPrecExpArr
 
     if intervalCount <= 5:
+        if intervalCount <= 0 or trackCount <= 0:
+            currentNLL = 0.0
+        else:
+            if blockCount <= 0:
+                raise ValueError("blockCount must be positive")
+            if matrixPluginMuncInit.shape[0] != trackCount or matrixPluginMuncInit.shape[1] != intervalCount:
+                raise ValueError("matrixPluginMuncInit shape must match matrixData shape")
+            if q0 <= 0.0:
+                raise ValueError("matrixQ0[0, 0] must be positive")
+            _validateMultiplierBounds(wMin, wMax, True)
+            _validateMultiplierBounds(kappaMin_, kappaMax_, False)
+            if intervalToBlockMap.shape[0] < intervalCount:
+                raise ValueError("intervalToBlockMap length must match intervalCount")
+
+            cforwardPassLevel(
+                matrixData=matrixData,
+                matrixPluginMuncInit=matrixPluginMuncInit,
+                matrixQ0=matrixQ0,
+                intervalToBlockMap=intervalToBlockMap,
+                blockCount=blockCount,
+                stateInit=stateInit,
+                stateCovarInit=stateCovarInit,
+                pad=pad,
+                chunkSize=0,
+                stateForward=stateForward,
+                stateCovarForward=stateCovarForward,
+                pNoiseForward=pNoiseForward,
+                vectorD=None,
+                progressBar=None,
+                progressIter=0,
+                returnNLL=False,
+                storeNLLInD=False,
+                lambdaExp=lambdaExp,
+                processPrecExp=processPrecExp,
+                replicateBias=replicateBiasArr,
+                ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
+                ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
+                ECM_useAPN=ECM_useAPN,
+                obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
+                obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
+                procPrecisionMultiplierMin=procPrecisionMultiplierMin,
+                procPrecisionMultiplierMax=procPrecisionMultiplierMax,
+                APN_minQ=APN_minQ,
+                APN_maxQ=APN_maxQ,
+                APN_dStatThresh=APN_dStatThresh,
+                APN_dStatScale=APN_dStatScale,
+                APN_dStatPC=APN_dStatPC,
+            )
+            stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPassLevel(
+                matrixData=matrixData,
+                stateForward=stateForward,
+                stateCovarForward=stateCovarForward,
+                pNoiseForward=pNoiseForward,
+                chunkSize=0,
+                stateSmoothed=stateSmoothed,
+                stateCovarSmoothed=stateCovarSmoothed,
+                lagCovSmoothed=lagCovSmoothed,
+                postFitResiduals=postFitResiduals,
+                replicateBias=replicateBiasArr,
+                progressBar=None,
+                progressIter=0,
+            )
+            currentNLL = (<double>cforwardPassLevel(
+                matrixData=matrixData,
+                matrixPluginMuncInit=matrixPluginMuncInit,
+                matrixQ0=matrixQ0,
+                intervalToBlockMap=intervalToBlockMap,
+                blockCount=blockCount,
+                stateInit=stateInit,
+                stateCovarInit=stateCovarInit,
+                pad=pad,
+                chunkSize=0,
+                stateForward=None,
+                stateCovarForward=None,
+                pNoiseForward=None,
+                vectorD=None,
+                progressBar=None,
+                progressIter=0,
+                returnNLL=True,
+                storeNLLInD=False,
+                lambdaExp=lambdaExp,
+                processPrecExp=processPrecExp,
+                replicateBias=replicateBiasArr,
+                ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
+                ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
+                ECM_useAPN=ECM_useAPN,
+                obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
+                obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
+                procPrecisionMultiplierMin=procPrecisionMultiplierMin,
+                procPrecisionMultiplierMax=procPrecisionMultiplierMax,
+                APN_minQ=APN_minQ,
+                APN_maxQ=APN_maxQ,
+                APN_dStatThresh=APN_dStatThresh,
+                APN_dStatScale=APN_dStatScale,
+                APN_dStatPC=APN_dStatPC,
+            )[3])
+        previousNLL = currentNLL
         diagnostics = {
             "iters_done": int(0),
             "max_iters": int(ECM_fixedBackgroundIters),
             "converged": False,
+            "skipped": True,
+            "skip_reason": "too_few_intervals" if intervalCount > 0 else "empty_input",
+            "fallback": "filter_smoother_only",
             "stable_iters": int(0),
             "patience_target": int(patienceTarget),
-            "initial_nll": None,
+            "initial_nll": float(previousNLL),
             "final_nll": float(previousNLL),
             "final_abs_rel_change": None,
             "final_rel_improvement": None,
@@ -4494,6 +4792,9 @@ cpdef tuple cfixedBackgroundECMLevel(
         "iters_done": int(itersDone),
         "max_iters": int(ECM_fixedBackgroundIters),
         "converged": bool(converged),
+        "skipped": False,
+        "skip_reason": None,
+        "fallback": None,
         "stable_iters": int(stableIters),
         "patience_target": int(patienceTarget),
         "initial_nll": float(initialNLL) if hasInitialNLL else None,
@@ -4547,7 +4848,7 @@ cpdef tuple cfixedBackgroundECM(
     float APN_dStatThresh=5.0,
     float APN_dStatScale=10.0,
     float APN_dStatPC=2.0,
-    Py_ssize_t t_innerIters=3,
+    Py_ssize_t t_innerIters=5,
     bint returnIntermediates=False,
     bint returnDiagnostics=False,
     object lambdaExpInit=None,
@@ -4891,13 +5192,122 @@ cpdef tuple cfixedBackgroundECM(
         optimizationPath = []
 
     if intervalCount <= 5:
+        if intervalCount <= 0 or trackCount <= 0:
+            currentNLL = 0.0
+        else:
+            if blockCount <= 0:
+                raise ValueError("blockCount must be positive")
+            _validateMultiplierBounds(wMin, wMax, True)
+            _validateMultiplierBounds(kappaMin_, kappaMax_, False)
+            if intervalToBlockMap.shape[0] < intervalCount:
+                raise ValueError("intervalToBlockMap length must match intervalCount")
+            if matrixPluginMuncInit.shape[0] != trackCount or matrixPluginMuncInit.shape[1] != intervalCount:
+                raise ValueError("matrixPluginMuncInit shape must match matrixData shape")
+            if detQ0 == 0.0:
+                raise ValueError("matrixQ0 is singular")
+
+            cforwardPass(
+                matrixData=matrixData,
+                matrixPluginMuncInit=matrixPluginMuncInit,
+                matrixF=matrixF,
+                matrixQ0=matrixQ0,
+                intervalToBlockMap=intervalToBlockMap,
+                blockCount=blockCount,
+                stateInit=stateInit,
+                stateCovarInit=stateCovarInit,
+                pad=pad,
+                projectStateDuringFiltering=False,
+                stateLowerBound=0.0,
+                stateUpperBound=0.0,
+                chunkSize=0,
+                stateForward=stateForward,
+                stateCovarForward=stateCovarForward,
+                pNoiseForward=pNoiseForward,
+                vectorD=None,
+                progressBar=None,
+                progressIter=0,
+                returnNLL=False,
+                storeNLLInD=False,
+                lambdaExp=lambdaExp,
+                processPrecExp=processPrecExp,
+                replicateBias=replicateBiasArr,
+                ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
+                ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
+                ECM_useAPN=ECM_useAPN,
+                obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
+                obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
+                procPrecisionMultiplierMin=procPrecisionMultiplierMin,
+                procPrecisionMultiplierMax=procPrecisionMultiplierMax,
+                APN_minQ=APN_minQ,
+                APN_maxQ=APN_maxQ,
+                APN_dStatThresh=APN_dStatThresh,
+                APN_dStatScale=APN_dStatScale,
+                APN_dStatPC=APN_dStatPC,
+            )
+            stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals = cbackwardPass(
+                matrixData=matrixData,
+                matrixF=matrixF,
+                stateForward=stateForward,
+                stateCovarForward=stateCovarForward,
+                pNoiseForward=pNoiseForward,
+                chunkSize=0,
+                stateSmoothed=stateSmoothed,
+                stateCovarSmoothed=stateCovarSmoothed,
+                lagCovSmoothed=lagCovSmoothed,
+                postFitResiduals=postFitResiduals,
+                replicateBias=replicateBiasArr,
+                progressBar=None,
+                progressIter=0,
+            )
+            currentNLL = (<double>cforwardPass(
+                matrixData=matrixData,
+                matrixPluginMuncInit=matrixPluginMuncInit,
+                matrixF=matrixF,
+                matrixQ0=matrixQ0,
+                intervalToBlockMap=intervalToBlockMap,
+                blockCount=blockCount,
+                stateInit=stateInit,
+                stateCovarInit=stateCovarInit,
+                pad=pad,
+                projectStateDuringFiltering=False,
+                stateLowerBound=0.0,
+                stateUpperBound=0.0,
+                chunkSize=0,
+                stateForward=None,
+                stateCovarForward=None,
+                pNoiseForward=None,
+                vectorD=None,
+                progressBar=None,
+                progressIter=0,
+                returnNLL=True,
+                storeNLLInD=False,
+                lambdaExp=lambdaExp,
+                processPrecExp=processPrecExp,
+                replicateBias=replicateBiasArr,
+                ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
+                ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
+                ECM_useAPN=ECM_useAPN,
+                obsPrecisionMultiplierMin=obsPrecisionMultiplierMin,
+                obsPrecisionMultiplierMax=obsPrecisionMultiplierMax,
+                procPrecisionMultiplierMin=procPrecisionMultiplierMin,
+                procPrecisionMultiplierMax=procPrecisionMultiplierMax,
+                APN_minQ=APN_minQ,
+                APN_maxQ=APN_maxQ,
+                APN_dStatThresh=APN_dStatThresh,
+                APN_dStatScale=APN_dStatScale,
+                APN_dStatPC=APN_dStatPC,
+            )[3])
+        previousNLL = currentNLL
         diagnostics = {
             "iters_done": int(0),
             "max_iters": int(ECM_fixedBackgroundIters),
             "converged": False,
+            "skipped": True,
+            "skip_reason": "too_few_intervals" if intervalCount > 0 else "empty_input",
+            "fallback": "filter_smoother_only",
             "stable_iters": int(0),
             "patience_target": int(patienceTarget),
-            "initial_nll": None,
+            "initial_nll": float(previousNLL),
             "final_nll": float(previousNLL),
             "final_abs_rel_change": None,
             "final_rel_improvement": None,
@@ -5297,6 +5707,9 @@ cpdef tuple cfixedBackgroundECM(
         "iters_done": int(itersDone),
         "max_iters": int(ECM_fixedBackgroundIters),
         "converged": bool(converged),
+        "skipped": False,
+        "skip_reason": None,
+        "fallback": None,
         "stable_iters": int(stableIters),
         "patience_target": int(patienceTarget),
         "initial_nll": float(initialNLL) if hasInitialNLL else None,
@@ -5330,16 +5743,11 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    int modelCode = 0,
-    double maxBeta=0.99,
+    double maxBeta=0.95,
     double pairsRegLambda = 1.0,
     bint useInnovationVar = <bint>True,
 ):
-    r"""Estimate a rolling MUNC variance track for a 1D array of values
-
-    ``modelCode`` dispatches between AR(1) marginal/innovation variance,
-    sample variance, and first/second-difference variance.
-    """
+    r"""Estimate a rolling AR(1) MUNC variance track for a 1D array of values."""
 
     cdef Py_ssize_t numIntervals=values.shape[0]
     cdef Py_ssize_t regionIndex, elementIndex, startIndex,  maxStartIndex
@@ -5353,9 +5761,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     cdef double sumY
     cdef double sumSqY
     cdef double sumLagProd
-    cdef double sumDiffSq
-    cdef double sumDiff2Sq
-    cdef int diff2Count
     cdef double nPairsDouble
     cdef double sumXSeq
     cdef double sumYSeq
@@ -5364,22 +5769,8 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     cdef double sumXYc
     cdef double previousValue
     cdef double currentValue
-    cdef double gamma0_num
     cdef double leavingValue
     cdef double enteringValue
-    cdef double leavingDiffValue
-    cdef double enteringDiffValue
-    cdef double diff2Value
-    cdef double leavingDiff2Value
-    cdef double enteringDiff2Value
-
-    if (
-        modelCode != __MUNC_VARIANCE_MODEL_AR1
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D1
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D2
-    ):
-        raise ValueError("unsupported MUNC variance model code")
 
     varOut = np.empty(numIntervals,dtype=np.float32)
 
@@ -5390,15 +5781,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
         varOut[:] = 0.0
         return varOut
 
-    if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2 and blockLength < 3:
-        varOut[:] = 0.0
-        return varOut
-
-    if (
-        blockLength < 4
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D1
-        and modelCode != __MUNC_VARIANCE_MODEL_SVAR_D2
-    ):
+    if blockLength < 4:
         varOut[:] = 0.0
         return varOut
 
@@ -5411,10 +5794,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
     sumY=0.0
     sumSqY=0.0
     sumLagProd=0.0
-    sumDiffSq=0.0
-    sumDiff2Sq=0.0
     maskSum=0
-    diff2Count=0
 
     with nogil:
         # initialize first
@@ -5425,46 +5805,11 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
             maskSum += <int>maskView[elementIndex]
             if elementIndex < (blockLength - 1):
                 sumLagProd += (currentValue*valuesView[(elementIndex + 1)])
-                if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D1:
-                    enteringDiffValue = valuesView[(elementIndex + 1)] - currentValue
-                    sumDiffSq += enteringDiffValue * enteringDiffValue
-            if (
-                modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2
-                and elementIndex < (blockLength - 2)
-                and maskView[elementIndex] == 0
-                and maskView[elementIndex + 1] == 0
-                and maskView[elementIndex + 2] == 0
-            ):
-                diff2Value = (
-                    valuesView[elementIndex + 2]
-                    - (2.0 * valuesView[elementIndex + 1])
-                    + currentValue
-                )
-                sumDiff2Sq += diff2Value * diff2Value
-                diff2Count += 1
 
         # sliding window until last block's start
         for startIndex in range(maxStartIndex + 1):
-            if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2:
-                if sumDiff2Sq < 0.0:
-                    sumDiff2Sq = 0.0
-                if diff2Count > 0:
-                    varAtView[startIndex]=<cnp.float32_t>(
-                        sumDiff2Sq / ((<double>diff2Count))
-                    )
-                else:
-                    varAtView[startIndex]=<cnp.float32_t>0.0
-            elif maskSum != 0:
+            if maskSum != 0:
                 varAtView[startIndex]=<cnp.float32_t>-1.0
-            elif modelCode == __MUNC_VARIANCE_MODEL_SVAR:
-                gamma0_num = sumSqY - ((sumY * sumY) / (<double>blockLength))
-                if gamma0_num < 0.0:
-                    gamma0_num = 0.0
-                varAtView[startIndex]=<cnp.float32_t>(gamma0_num / (<double>(blockLength - 1)))
-            elif modelCode == __MUNC_VARIANCE_MODEL_SVAR_D1:
-                varAtView[startIndex]=<cnp.float32_t>(
-                    sumDiffSq / (2.0 * (<double>(blockLength - 1)))
-                )
             else:
                 nPairsDouble = <double>(blockLength - 1)
                 previousValue = valuesView[startIndex]
@@ -5500,39 +5845,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncVariance(
                 # slide window forward --> (previousSum - leavingValue) + enteringValue
                 leavingValue = valuesView[startIndex]
                 enteringValue = valuesView[(startIndex + blockLength)]
-                if modelCode == __MUNC_VARIANCE_MODEL_SVAR_D1:
-                    leavingDiffValue = valuesView[(startIndex + 1)] - leavingValue
-                    enteringDiffValue = enteringValue - valuesView[(startIndex + blockLength - 1)]
-                    sumDiffSq = (
-                        sumDiffSq
-                        - (leavingDiffValue * leavingDiffValue)
-                        + (enteringDiffValue * enteringDiffValue)
-                    )
-                elif modelCode == __MUNC_VARIANCE_MODEL_SVAR_D2:
-                    if (
-                        maskView[startIndex] == 0
-                        and maskView[startIndex + 1] == 0
-                        and maskView[startIndex + 2] == 0
-                    ):
-                        leavingDiff2Value = (
-                            valuesView[startIndex + 2]
-                            - (2.0 * valuesView[startIndex + 1])
-                            + leavingValue
-                        )
-                        sumDiff2Sq -= leavingDiff2Value * leavingDiff2Value
-                        diff2Count -= 1
-                    if (
-                        maskView[startIndex + blockLength - 2] == 0
-                        and maskView[startIndex + blockLength - 1] == 0
-                        and maskView[startIndex + blockLength] == 0
-                    ):
-                        enteringDiff2Value = (
-                            enteringValue
-                            - (2.0 * valuesView[startIndex + blockLength - 1])
-                            + valuesView[startIndex + blockLength - 2]
-                        )
-                        sumDiff2Sq += enteringDiff2Value * enteringDiff2Value
-                        diff2Count += 1
                 sumY = (sumY-leavingValue) + enteringValue
                 sumSqY = sumSqY + (-(leavingValue*leavingValue) + (enteringValue*enteringValue))
                 sumLagProd = sumLagProd + (-(valuesView[startIndex]*valuesView[(startIndex + 1)]) + (valuesView[(startIndex + blockLength - 1)]*valuesView[(startIndex + blockLength)]))
@@ -5554,7 +5866,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crollingMuncAR1Beta(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.99,
+    double maxBeta=0.95,
     double pairsRegLambda = 1.0,
 ):
     r"""Estimate the clipped AR(1) beta used by rolling MUNC windows."""
@@ -5665,7 +5977,7 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
     cnp.ndarray[cnp.float32_t, ndim=1] values,
     int blockLength,
     cnp.ndarray[cnp.uint8_t, ndim=1] excludeMask,
-    double maxBeta=0.99,
+    double maxBeta=0.95,
     double pairsRegLambda = 1.0,
     bint useInnovationVar = <bint>True,
 ):
@@ -5674,7 +5986,6 @@ cpdef cnp.ndarray[cnp.float32_t, ndim=1] crolling_AR1_IVar(
         values,
         blockLength,
         excludeMask,
-        modelCode=__MUNC_VARIANCE_MODEL_AR1,
         maxBeta=maxBeta,
         pairsRegLambda=pairsRegLambda,
         useInnovationVar=useInnovationVar,

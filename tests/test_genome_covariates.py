@@ -176,6 +176,11 @@ def test_genome_covariate_cache_reports_missing_chromosome_and_feature(tmp_path)
     _write_cache(tmp_path, features=("gc",))
     cache = ConsenrichGenomeCovariateCache(tmp_path)
 
+    with pytest.raises(ValueError, match="missing requested chromosomes"):
+        ConsenrichGenomeCovariateCache(
+            tmp_path,
+            requested_chromosomes=("chrTest", "chrMissing"),
+        )
     with pytest.raises(KeyError, match="chromosome"):
         cache.fetch("chrMissing", start=0, end=50, interval_size_bp=50)
     with pytest.raises(KeyError, match="features"):
