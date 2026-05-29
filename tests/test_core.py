@@ -28,6 +28,45 @@ import consenrich.peaks as peaks
 TESTS_DIR = Path(__file__).resolve().parent
 TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
+
+
+def test_transform_count_variance_floor_is_transform_dependent_and_applied():
+    counts = np.array([0.0, 1.0, 4.0], dtype=np.float32)
+    log1Floor = core.transformCountVarianceFloor(
+        counts,
+        [1.0],
+        transformMethod="log",
+        logOffset=1.0,
+        logMult=1.0,
+        transformInputOffset=1.0,
+        transformInputScale=1.0,
+        transformOutputScale=1.0,
+        transformShape=1.0,
+    )
+    log2Floor = core.transformCountVarianceFloor(
+        counts,
+        [1.0],
+        transformMethod="log",
+        logOffset=2.0,
+        logMult=1.0,
+        transformInputOffset=2.0,
+        transformInputScale=1.0,
+        transformOutputScale=1.0,
+        transformShape=1.0,
+    )
+
+    assert np.all(np.isfinite(log1Floor))
+    assert log1Floor[0] > 0.0
+    assert log2Floor[0] < log1Floor[0]
+
+    munc = np.full_like(log1Floor, 0.01, dtype=np.float32)
+    floored = core.applyMuncCountModelVarianceFloor(
+        munc,
+        log1Floor,
+        varianceFloor=1.0e-6,
+    )
+    assert np.all(floored >= log1Floor)
+    assert floored[0] == pytest.approx(log1Floor[0])
 _REMOVED_EM_PREFIX = "E" + "M" + "_"
 
 
@@ -1185,43 +1224,6 @@ def _caseBackgroundPenaltyWeightsScaleByDifferenceOrder():
 
 
 @pytest.mark.correctness
-def _caseReplicateBiasIsAlwaysZeroCentered():
-    n = 24
-    m = 3
-    matrixData = np.full((m, n), 2.0, dtype=np.float32)
-    matrixMunc = np.full((m, n), 10.0, dtype=np.float32)
-    matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
-    matrixQ0 = core.constructMatrixQ(
-        minDiagQ=1.0e-6,
-    ).astype(np.float32, copy=False)
-    intervalToBlockMap = np.zeros(n, dtype=np.int32)
-
-    commonKwargs = dict(
-        matrixData=matrixData,
-        matrixPluginMuncInit=matrixMunc,
-        matrixF=matrixF,
-        matrixQ0=matrixQ0,
-        intervalToBlockMap=intervalToBlockMap,
-        blockCount=1,
-        stateInit=0.0,
-        stateCovarInit=1.0e-8,
-        ECM_fixedBackgroundIters=1,
-        ECM_fixedBackgroundRtol=0.0,
-        pad=1.0e-4,
-        ECM_robustTNu=8.0,
-        ECM_useObsPrecisionReweighting=False,
-        ECM_useProcessPrecisionReweighting=False,
-        ECM_useAPN=False,
-        returnIntermediates=True,
-        t_innerIters=1,
-    )
-
-    centeredBias = cconsenrich.cfixedBackgroundECM(**commonKwargs)[-1]
-
-    assert abs(float(np.mean(centeredBias))) < 1.0e-5
-
-
-@pytest.mark.correctness
 def _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback():
     n = 5
     m = 2
@@ -1267,7 +1269,6 @@ def _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback():
         postFitResiduals,
         lambdaExp,
         processPrecExp,
-        replicateBias,
         ecmDiagnostics,
     ) = out
 
@@ -1287,7 +1288,6 @@ def _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback():
     assert np.all(np.isfinite(postFitResiduals))
     assert np.all(np.isfinite(lambdaExp))
     assert np.all(np.isfinite(processPrecExp))
-    assert np.all(np.isfinite(replicateBias))
 
 
 @pytest.mark.correctness
@@ -1334,7 +1334,6 @@ def _caseCFixedBackgroundECMLevelTinyTrackUsesFiniteFallback():
         postFitResiduals,
         lambdaExp,
         processPrecExp,
-        replicateBias,
         ecmDiagnostics,
     ) = out
 
@@ -1354,148 +1353,6 @@ def _caseCFixedBackgroundECMLevelTinyTrackUsesFiniteFallback():
     assert np.all(np.isfinite(postFitResiduals))
     assert np.all(np.isfinite(lambdaExp))
     assert np.all(np.isfinite(processPrecExp))
-    assert np.all(np.isfinite(replicateBias))
-
-
-@pytest.mark.correctness
-def _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer():
-    n = 48
-    offsets = np.array([1.25, -0.75, 0.35], dtype=np.float32)
-    trend = np.linspace(-0.1, 0.1, n, dtype=np.float32)
-    matrixData = offsets[:, None] + np.vstack(
-        [
-            0.05 * trend,
-            -0.02 * trend,
-            0.01 * np.sin(np.linspace(0.0, np.pi, n, dtype=np.float32)),
-        ]
-    )
-    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
-    matrixMunc = np.vstack(
-        [
-            np.linspace(0.2, 0.6, n, dtype=np.float32),
-            np.linspace(1.5, 0.4, n, dtype=np.float32),
-            np.full(n, 0.85, dtype=np.float32),
-        ]
-    ).astype(np.float32)
-    matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
-    matrixQ0 = core.constructMatrixQ(
-        minDiagQ=1.0e-12,
-    ).astype(np.float32, copy=False)
-    intervalToBlockMap = np.zeros(n, dtype=np.int32)
-    pad = 1.0e-4
-
-    out = cconsenrich.cfixedBackgroundECM(
-        matrixData=matrixData,
-        matrixPluginMuncInit=matrixMunc,
-        matrixF=matrixF,
-        matrixQ0=matrixQ0,
-        intervalToBlockMap=intervalToBlockMap,
-        blockCount=1,
-        stateInit=0.0,
-        stateCovarInit=1.0e-10,
-        ECM_fixedBackgroundIters=1,
-        ECM_fixedBackgroundRtol=0.0,
-        pad=pad,
-        ECM_robustTNu=8.0,
-        ECM_useObsPrecisionReweighting=False,
-        ECM_useProcessPrecisionReweighting=False,
-        ECM_useAPN=False,
-        returnIntermediates=True,
-        t_innerIters=1,
-    )
-    stateSmoothed = np.asarray(out[2], dtype=np.float64)[:, 0]
-    replicateBias = np.asarray(out[-1], dtype=np.float64)
-
-    invVar = 1.0 / np.maximum(matrixMunc.astype(np.float64) + pad, 1.0e-12)
-    den = np.sum(invVar, axis=1)
-    raw = (
-        np.sum(
-            invVar * (matrixData.astype(np.float64) - stateSmoothed[None, :]),
-            axis=1,
-        )
-        / den
-    )
-    expected = raw - (np.sum(den * raw) / np.sum(den))
-
-    assert np.allclose(replicateBias, expected, atol=1.0e-5)
-    assert abs(float(np.sum(den * replicateBias))) < 1.0e-4
-
-
-@pytest.mark.correctness
-def _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeights():
-    n = 56
-    offsets = np.array([1.4, -0.6, 0.15], dtype=np.float32)
-    grid = np.linspace(0.0, 2.0 * np.pi, n, dtype=np.float32)
-    base = 0.2 * np.sin(grid)
-    matrixData = offsets[:, None] + np.vstack(
-        [
-            base,
-            base + 0.05 * np.cos(grid),
-            base - 0.03 * np.sin(2.0 * grid),
-        ]
-    )
-    matrixData[0, 7] += 4.0
-    matrixData[1, 31] -= 3.5
-    matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
-    matrixMunc = np.vstack(
-        [
-            np.linspace(0.12, 1.4, n, dtype=np.float32),
-            np.linspace(1.2, 0.2, n, dtype=np.float32),
-            np.full(n, 0.55, dtype=np.float32),
-        ]
-    ).astype(np.float32)
-    matrixF = core.constructMatrixF(0.1).astype(np.float32, copy=False)
-    matrixQ0 = core.constructMatrixQ(
-        minDiagQ=1.0e-10,
-    ).astype(np.float32, copy=False)
-    intervalToBlockMap = np.zeros(n, dtype=np.int32)
-    pad = 1.0e-4
-
-    out = cconsenrich.cfixedBackgroundECM(
-        matrixData=matrixData,
-        matrixPluginMuncInit=matrixMunc,
-        matrixF=matrixF,
-        matrixQ0=matrixQ0,
-        intervalToBlockMap=intervalToBlockMap,
-        blockCount=1,
-        stateInit=0.0,
-        stateCovarInit=1.0e-8,
-        ECM_fixedBackgroundIters=1,
-        ECM_fixedBackgroundRtol=0.0,
-        pad=pad,
-        ECM_robustTNu=2.5,
-        ECM_useObsPrecisionReweighting=True,
-        ECM_useProcessPrecisionReweighting=False,
-        ECM_useAPN=False,
-        obsPrecisionMultiplierMin=0.25,
-        obsPrecisionMultiplierMax=4.0,
-        returnIntermediates=True,
-        t_innerIters=1,
-    )
-    stateSmoothed = np.asarray(out[2], dtype=np.float64)[:, 0]
-    lambdaExp = np.asarray(out[6], dtype=np.float64)
-    replicateBias = np.asarray(out[-1], dtype=np.float64)
-
-    assert lambdaExp.shape == (n,)
-    baseInvVar = 1.0 / np.maximum(matrixMunc.astype(np.float64) + pad, 1.0e-12)
-    centerWeight = np.sum(baseInvVar, axis=1)
-    currentInvVar = lambdaExp * baseInvVar
-    den = np.sum(currentInvVar, axis=1)
-    raw = (
-        np.sum(
-            currentInvVar * (matrixData.astype(np.float64) - stateSmoothed[None, :]),
-            axis=1,
-        )
-        / den
-    )
-    alpha = np.sum(centerWeight * raw) / np.sum((centerWeight * centerWeight) / den)
-    expected = raw - alpha * centerWeight / den
-
-    movingCentered = raw - (np.sum(den * raw) / np.sum(den))
-    assert np.max(np.abs(lambdaExp - 1.0)) > 1.0e-3
-    assert not np.allclose(expected, movingCentered, atol=1.0e-4)
-    assert np.allclose(replicateBias, expected, atol=1.0e-5)
-    assert abs(float(np.sum(centerWeight * replicateBias))) < 1.0e-4
 
 
 @pytest.mark.correctness
@@ -1828,7 +1685,7 @@ def _caseLevelForwardBackwardMatchesPythonReference():
 
 @pytest.mark.correctness
 def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
-    intervalCount = 8
+    intervalCount = 16
     seedQLevel = 1.0e-2
     desiredEvidence = 100.0
     stateStep = float(np.sqrt(seedQLevel * desiredEvidence))
@@ -1857,7 +1714,6 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
         maxQ=2.0e-2,
         blockLenIntervals=3,
         processCovariates=None,
-        tuncPriorDf=0.0,
         tuncLocalWindowMultiplier=1.0,
         tuncDependenceMultiplier=1.0,
         tuncMinScale=0.1,
@@ -1872,6 +1728,10 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
     assert info["priorDesignColumnCount"] == 2
     assert info["priorDesignColumns"] == ("intercept", "stateLevelMidpoint")
     assert info["processCovariateCount"] == 0
+    assert info["tuncPriorDfSource"] == "method_of_moments"
+    assert np.isfinite(info["tuncPriorDf"])
+    assert info["tuncPriorDf"] >= 4.0
+    assert info["tuncPriorDfMomentWindowCount"] > 0
     assert "processQScale" not in info
     assert matrixQ[0, 0] == pytest.approx(2.0e-2)
     assert processQScale[0] == pytest.approx(1.0)
@@ -1881,6 +1741,53 @@ def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
     assert info["qScaleDecompositionMaxLogError"] == pytest.approx(0.0, abs=1.0e-6)
     assert info["preKappaQLevel"] == pytest.approx(float(matrixQ[0, 0]))
     assert info["preKappaQTrend"] == pytest.approx(0.0)
+
+
+@pytest.mark.correctness
+def _caseTuncPriorDfMethodOfMomentsRecoversKnownFDispersion():
+    n = 1000
+    nuLocal = 20.0
+    priorDfTrue = 12.0
+    priorScaleTrue = 1.5
+    probs = (np.arange(n, dtype=np.float64) + 0.5) / n
+    localEvidence = priorScaleTrue * stats.f.ppf(probs, nuLocal, priorDfTrue)
+    localPrior = np.ones(n, dtype=np.float64)
+    nu = np.full(n, nuLocal, dtype=np.float64)
+    weights = np.ones(n, dtype=np.float64)
+
+    priorDf, priorScale, diagnostics = core._estimateTuncPriorDfMethodOfMoments(
+        localEvidence,
+        localPrior,
+        nu,
+        weights,
+        winsorTail=0.0,
+        minScale=0.1,
+        maxScale=10.0,
+    )
+
+    assert diagnostics["tuncPriorDfMomentReason"] == "ok"
+    assert priorDf == pytest.approx(priorDfTrue, rel=0.02)
+    assert priorScale == pytest.approx(priorScaleTrue, rel=0.02)
+
+
+@pytest.mark.correctness
+def _caseTuncPriorDfMethodOfMomentsHandlesDegenerateInputs():
+    localEvidence = np.asarray([np.nan, 1.0, 1.0, np.inf, 0.0, 1.0], dtype=np.float64)
+    localPrior = np.ones_like(localEvidence)
+    nu = np.full_like(localEvidence, 8.0)
+    weights = np.ones_like(localEvidence)
+
+    priorDf, priorScale, diagnostics = core._estimateTuncPriorDfMethodOfMoments(
+        localEvidence,
+        localPrior,
+        nu,
+        weights,
+        minWindows=2,
+    )
+
+    assert priorDf == pytest.approx(1.0e6)
+    assert np.isfinite(priorScale)
+    assert diagnostics["tuncPriorDfMomentReason"] == "no_excess_dispersion"
 
 
 @pytest.mark.correctness
@@ -1919,14 +1826,12 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         dtype=np.float32,
     )
     relativeBackground = np.asarray([0.1, -0.2, 0.3], dtype=np.float32)
-    relativeBias = np.asarray([0.4, -0.1], dtype=np.float32)
     assert core._relativeSignChangePerKB(
         np.asarray([2.0, 2.0, 2.0], dtype=np.float32),
-        relativeData + relativeBackground[None, :] + relativeBias[:, None],
+        relativeData + relativeBackground[None, :],
         np.asarray([[0.1, 0.1, 0.1], [10.0, 10.0, 10.0]], dtype=np.float32),
         intervalSizeBP=1000,
         background=relativeBackground,
-        replicateBias=relativeBias,
         pad=0.0,
     ) == pytest.approx(2.0 / 3.0)
 
@@ -2423,16 +2328,14 @@ def _caseRunConsenrichInitialProcessQSkipsWarmup(monkeypatch):
 @pytest.mark.correctness
 def test_core_estimate_provisional_background_helper():
     n = 40
-    replicateBias = np.asarray([-0.12, 0.0, 0.08], dtype=np.float32)
     background = np.full(n, 1.75, dtype=np.float32)
-    matrixData = background[None, :] + replicateBias[:, None]
+    matrixData = np.broadcast_to(background[None, :], (3, n)).astype(np.float32)
     matrixMunc = np.full_like(matrixData, 0.05, dtype=np.float32)
 
     estimated, diagnostics = core.estimateProvisionalBackground(
         matrixData,
         matrixMunc,
         blockLenIntervals=8,
-        initialReplicateBias=replicateBias,
         useNonnegativeBackground=False,
         zeroCenterBackground=False,
         returnDiagnostics=True,
@@ -2451,12 +2354,10 @@ def test_core_run_consenrich_initial_background_reaches_process_noise_warmup():
     n = 24
     m = 2
     initialBackground = np.linspace(0.20, 0.35, n, dtype=np.float32)
-    initialReplicateBias = np.asarray([-0.02, 0.02], dtype=np.float32)
     latent = np.linspace(0.0, 0.1, n, dtype=np.float32)
     matrixData = (
         initialBackground[None, :]
         + latent[None, :]
-        + initialReplicateBias[:, None]
         + 0.005 * rng.normal(size=(m, n))
     ).astype(np.float32)
     matrixMunc = np.full((m, n), 0.08, dtype=np.float32)
@@ -2477,7 +2378,6 @@ def test_core_run_consenrich_initial_background_reaches_process_noise_warmup():
         ECM_outerIters=1,
         processNoiseWarmupECMIters=1,
         initialBackground=initialBackground,
-        initialReplicateBias=initialReplicateBias,
         returnDiagnostics=True,
     )
 
@@ -2485,7 +2385,6 @@ def test_core_run_consenrich_initial_background_reaches_process_noise_warmup():
     warmStart = diagnostics["process_noise_warmup_fit"]["warm_start"]
     assert warmStart["background"] is True
     assert warmStart["background_prepass"] is False
-    assert warmStart["replicate_bias"] is True
     assert diagnostics["post_process_noise_fit"]["warm_start"]["background"] is True
 
 
@@ -5685,11 +5584,6 @@ def test_core_background_bias_contracts(monkeypatch, contract_case):
             (),
         ),
         (
-            "replicate bias is always centered",
-            _caseReplicateBiasIsAlwaysZeroCentered,
-            (),
-        ),
-        (
             "tiny fixed-background ECM fallback",
             _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback,
             (),
@@ -5697,16 +5591,6 @@ def test_core_background_bias_contracts(monkeypatch, contract_case):
         (
             "tiny level fixed-background ECM fallback",
             _caseCFixedBackgroundECMLevelTinyTrackUsesFiniteFallback,
-            (),
-        ),
-        (
-            "replicate-bias minimizer",
-            _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer,
-            (),
-        ),
-        (
-            "replicate-bias robust center",
-            _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeights,
             (),
         ),
         (
@@ -5760,6 +5644,14 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
         (
             "TUNC process noise clamp decomposition",
             _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ,
+        ),
+        (
+            "TUNC prior df MoM recovers F dispersion",
+            _caseTuncPriorDfMethodOfMomentsRecoversKnownFDispersion,
+        ),
+        (
+            "TUNC prior df MoM degenerate inputs",
+            _caseTuncPriorDfMethodOfMomentsHandlesDegenerateInputs,
         ),
         (
             "state uncertainty coverage",

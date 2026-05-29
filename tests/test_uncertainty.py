@@ -31,7 +31,6 @@ def _smallRunKwargs():
         ECM_outerIters=1,
         ECM_backgroundShiftRtol=0.0,
         returnScales=True,
-        returnReplicateOffsets=True,
     )
 
 
@@ -370,7 +369,7 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     ).astype(np.float32)
     matrixMunc = np.full_like(matrixData, 0.08, dtype=np.float32)
     full = core.runConsenrich(matrixData, matrixMunc, **_smallRunKwargs())
-    fullState, fullCovar, _resid, _track4, replicateBias, _blockMap = full
+    fullState, fullCovar, _resid, _track4, _blockMap = full
 
     params = core.uncertaintyCalibrationParams(
         enabled=True,
@@ -390,7 +389,6 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
         matrixMunc=matrixMunc,
         fullState=fullState,
         fullCovar=fullCovar,
-        fullReplicateBias=replicateBias,
         intervals=np.arange(n, dtype=np.int64) * 25,
         intervalSizeBP=25,
         params=params,
@@ -513,7 +511,6 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
     fullCovar = np.zeros((n, 2, 2), dtype=np.float32)
     fullCovar[:, 0, 0] = 0.05
     fullCovar[:, 1, 1] = 0.01
-    replicateBias = np.zeros(m, dtype=np.float32)
     capturedKwargs = []
     capturedMasks = []
 
@@ -526,7 +523,6 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
             fullCovar,
             residual.T,
             np.zeros(n, dtype=np.float32),
-            replicateBias,
             np.zeros(n, dtype=np.int32),
             np.zeros(n, dtype=np.float32),
         )
@@ -552,7 +548,6 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
         matrixMunc=matrixMunc,
         fullState=fullState,
         fullCovar=fullCovar,
-        fullReplicateBias=replicateBias,
         intervals=np.arange(n, dtype=np.int64) * 25,
         intervalSizeBP=25,
         params=params,
@@ -642,7 +637,7 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
     matrixMunc = np.full_like(matrixData, 0.08, dtype=np.float32)
     runKwargs = _smallRunKwargs()
     full = core.runConsenrich(matrixData, matrixMunc, **runKwargs)
-    fullState, fullCovar, _resid, _track4, replicateBias, _blockMap = full
+    fullState, fullCovar, _resid, _track4, _blockMap = full
 
     params = core.uncertaintyCalibrationParams(
         enabled=True,
@@ -660,7 +655,6 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
         matrixMunc=matrixMunc,
         fullState=fullState,
         fullCovar=fullCovar,
-        fullReplicateBias=replicateBias,
         intervals=np.arange(n, dtype=np.int64) * 25,
         intervalSizeBP=25,
         params=params,

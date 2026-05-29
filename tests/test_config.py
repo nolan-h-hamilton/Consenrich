@@ -376,6 +376,115 @@ def _case_readConfigGenericCountTransform(
         readConfig(str(invalidPath))
 
 
+def _case_countModelVarianceFloorFollowsTransformDeltaMethod(tmp_path, monkeypatch):
+    setupGenomeFiles(tmp_path, monkeypatch)
+    setupBamHelpers(monkeypatch)
+    counts = np.asarray([0.5, 2.0, 8.0], dtype=np.float64)
+    scaleFactor = 0.25
+    inputOffset = 0.5
+    inputScale = 2.0
+    outputScale = 1.5
+    shape = 0.75
+    baseArgs = consenrich_core.countingParams(
+        intervalSizeBP=25,
+        backgroundBlockSizeBP=1000,
+        scaleFactors=None,
+        scaleFactorsControl=None,
+        normMethod="CPM",
+        fragmentsGroupNorm="NONE",
+        fixControl=False,
+        logOffset=1.0,
+        logMult=1.0,
+        transformInputOffset=inputOffset,
+        transformInputScale=inputScale,
+        transformOutputScale=outputScale,
+        transformOutputOffset=0.0,
+        transformShape=shape,
+        subtractGlobalMedian=True,
+    )
+
+    momentCounts = counts + 0.5 * scaleFactor
+    normalizedVariance = (scaleFactor * counts) + (0.5 * scaleFactor * scaleFactor)
+    z = momentCounts + inputOffset
+    u = z / inputScale
+    derivativeByMethod = {
+        "log": (outputScale * outputScale) / (z * z),
+        "sqrt": (outputScale * outputScale) / (4.0 * inputScale * z),
+        "anscombe": (outputScale * outputScale) / (4.0 * inputScale * z),
+        "asinh": (outputScale * outputScale)
+        / ((inputScale * inputScale) * (1.0 + (u * u))),
+        "asinhSqrt": (outputScale * outputScale)
+        / (
+            4.0
+            * inputScale
+            * inputScale
+            * z
+            * (1.0 + z / (inputScale * inputScale))
+        ),
+        "generalizedLog": (outputScale * outputScale)
+        / ((inputScale * inputScale) * ((u * u) + (shape * shape))),
+        "identity": np.full_like(
+            counts,
+            (outputScale * outputScale) / (inputScale * inputScale),
+        ),
+    }
+
+    for method, derivativeSquared in derivativeByMethod.items():
+        countingArgs = baseArgs._replace(transformMethod=method)
+        floor = consenrich_cli._countModelVarianceFloorForScaledCounts(
+            counts,
+            scaleFactor,
+            countingArgs,
+        )
+        expected = derivativeSquared * normalizedVariance
+        np.testing.assert_allclose(floor, expected, rtol=1.0e-6, atol=1.0e-6)
+
+    logArgs = baseArgs._replace(
+        transformMethod="log",
+        transformInputOffset=1.0,
+        transformInputScale=1.0,
+        transformOutputScale=1.0,
+    )
+    treatmentFloor = consenrich_cli._countModelVarianceFloorForScaledCounts(
+        np.asarray([4.0, 9.0], dtype=np.float64),
+        0.5,
+        logArgs,
+    )
+    controlFloor = consenrich_cli._countModelVarianceFloorForScaledCounts(
+        np.asarray([1.0, 16.0], dtype=np.float64),
+        0.25,
+        logArgs,
+    )
+    combined = consenrich_cli._combineCountModelVarianceFloors(
+        treatmentFloor,
+        controlFloor,
+    )
+    np.testing.assert_allclose(combined, treatmentFloor + controlFloor)
+
+    bamSource = consenrich_core.inputSource("sample.bam", sourceKind="BAM")
+    bedGraphSource = consenrich_core.inputSource(
+        "sample.bedGraph",
+        sourceKind="BEDGRAPH",
+    )
+    matrixFloor = consenrich_cli._countModelFloorMatrixForScaledCounts(
+        np.vstack([counts, counts]),
+        [scaleFactor, scaleFactor],
+        [bamSource, bedGraphSource],
+        baseArgs._replace(transformMethod="identity"),
+    )
+    np.testing.assert_allclose(
+        matrixFloor[0, :],
+        derivativeByMethod["identity"] * normalizedVariance,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+    assert np.all(np.isnan(matrixFloor[1, :]))
+
+
+def test_count_model_variance_floor_transform_delta_method(tmp_path, monkeypatch):
+    _case_countModelVarianceFloorFollowsTransformDeltaMethod(tmp_path, monkeypatch)
+
+
 def _case_readConfigDottedAndNestedEquivalent(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -390,6 +499,7 @@ def _case_readConfigDottedAndNestedEquivalent(
     countingParams.intervalSizeBP: 50
     samParams.defaultCountMode: ffp-center
     outputParams.plotOptimizationPath: false
+    outputParams.cutoffReport: true
     matchingParams.uncertaintyScoreMode: lower_confidence
     matchingParams.uncertaintyScoreZ: 1.25
     """
@@ -410,6 +520,7 @@ def _case_readConfigDottedAndNestedEquivalent(
       defaultCountMode: ffp-center
     outputParams:
       plotOptimizationPath: false
+      cutoffReport: true
     matchingParams:
       uncertaintyScoreMode: lower-confidence
       uncertaintyScoreZ: 1.25
@@ -470,6 +581,8 @@ def _case_readConfigDottedAndNestedEquivalent(
     outputNested = configNested["outputArgs"]
     assert outputDotted.plotOptimizationPath is False
     assert outputNested.plotOptimizationPath is False
+    assert outputDotted.cutoffReport is True
+    assert outputNested.cutoffReport is True
     assert outputDotted == outputNested
 
     samDotted = configDotted["samArgs"]
@@ -560,7 +673,6 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     processParams:
       stateModel: level
       processNoiseCalibration: tunc
-      tuncPriorDf: 6.0
       tuncLocalWindowMultiplier: 3.0
       tuncDependenceMultiplier: 1.5
       tuncMinScale: 0.5
@@ -585,7 +697,7 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert (
         processArgs.processNoiseCalibration == constants.PROCESS_NOISE_CALIBRATION_TUNC
     )
-    assert processArgs.tuncPriorDf == pytest.approx(6.0)
+    assert not hasattr(processArgs, "tuncPriorDf")
     assert processArgs.tuncLocalWindowMultiplier == pytest.approx(3.0)
     assert processArgs.tuncDependenceMultiplier == pytest.approx(1.5)
     assert processArgs.tuncMinScale == pytest.approx(0.5)
@@ -770,9 +882,6 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         parsed["processArgs"].processNoiseCalibration
         == constants.PROCESS_NOISE_CALIBRATION_TUNC
     )
-    assert parsed["processArgs"].tuncPriorDf == pytest.approx(
-        constants.PROCESS_DEFAULT_TUNC_PRIOR_DF
-    )
     assert parsed["processArgs"].tuncMinScale == pytest.approx(
         constants.PROCESS_DEFAULT_TUNC_MIN_SCALE
     )
@@ -851,14 +960,15 @@ def _case_runtime_defaults_are_centralized(
         consenrich_config.DEFAULT_CONFIGURATION_KEYS
         is constants.DEFAULT_CONFIGURATION_KEYS
     )
+    assert not hasattr(constants, "PROCESS_DEFAULT_TUNC_PRIOR_DF")
 
     assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
+    assert "processParams.tuncPriorDf" not in profile
     assert parsed["processArgs"].stateModel == profile["processParams.stateModel"]
     assert (
         parsed["processArgs"].processNoiseCalibration
         == profile["processParams.processNoiseCalibration"]
     )
-    assert parsed["processArgs"].tuncPriorDf == profile["processParams.tuncPriorDf"]
     assert parsed["processArgs"].tuncMinScale == profile["processParams.tuncMinScale"]
     assert parsed["processArgs"].tuncMaxScale == profile["processParams.tuncMaxScale"]
     assert (
@@ -955,6 +1065,11 @@ def _case_runtime_defaults_are_centralized(
     )
     assert parsed["outputArgs"].saveGains == profile["outputParams.saveGains"]
     assert (
+        parsed["outputArgs"].cutoffReport
+        == profile["outputParams.cutoffReport"]
+    )
+    assert parsed["outputArgs"].cutoffReport is constants.OUTPUT_DEFAULT_CUTOFF_REPORT
+    assert (
         parsed["outputArgs"].plotOptimizationPath
         is constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     )
@@ -973,6 +1088,14 @@ def _case_runtime_defaults_are_centralized(
             writeUncertainty=parsed["outputArgs"].writeUncertainty,
         ).saveGains
         == constants.OUTPUT_DEFAULT_SAVE_GAINS
+    )
+    assert (
+        consenrich_core.outputParams(
+            convertToBigWig=parsed["outputArgs"].convertToBigWig,
+            roundDigits=parsed["outputArgs"].roundDigits,
+            writeUncertainty=parsed["outputArgs"].writeUncertainty,
+        ).cutoffReport
+        == constants.OUTPUT_DEFAULT_CUTOFF_REPORT
     )
     assert (
         consenrich_core.fitParams().useNonnegativeBackground
@@ -1046,7 +1169,6 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
     countingParams.subtractGlobalMedian: false
     processParams.processNoiseCalibration: seed
-    processParams.tuncPriorDf: 12
     processParams.tuncMinScale: 0.75
     processParams.tuncMaxScale: 2.5
     processParams.processNoiseWarmupOuterPasses: 6
@@ -1067,7 +1189,6 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
     assert parsed["countingArgs"].subtractGlobalMedian is False
     assert parsed["processArgs"].processNoiseCalibration == "seed"
-    assert parsed["processArgs"].tuncPriorDf == pytest.approx(12.0)
     assert parsed["processArgs"].tuncMinScale == pytest.approx(0.75)
     assert parsed["processArgs"].tuncMaxScale == pytest.approx(2.5)
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
@@ -1092,7 +1213,6 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     genomeParams.name: testGenome
     processParams:
       processNoiseCalibration: fixed
-      tuncPriorDf: 5.0
       tuncLocalWindowMultiplier: 2.5
       tuncDependenceMultiplier: 3.0
       tuncMinScale: 0.5
@@ -1112,7 +1232,6 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     supportedProcessKwargs = {
         "processNoiseWarmupOuterPasses",
         "processNoiseCalibration",
-        "tuncPriorDf",
         "tuncLocalWindowMultiplier",
         "tuncDependenceMultiplier",
         "tuncMinScale",
@@ -1128,7 +1247,7 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     kwargs = consenrich_cli._processNoiseRunKwargs(processArgs)
 
     assert kwargs["processNoiseCalibration"] == "fixed"
-    assert kwargs["tuncPriorDf"] == pytest.approx(5.0)
+    assert "tuncPriorDf" not in kwargs
     assert kwargs["tuncLocalWindowMultiplier"] == pytest.approx(2.5)
     assert kwargs["tuncDependenceMultiplier"] == pytest.approx(3.0)
     assert kwargs["tuncMinScale"] == pytest.approx(0.5)
@@ -1275,7 +1394,6 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
         )
     )
     assert parsedOverride["fitArgs"].ECM_zeroCenterBackground is False
-    assert not hasattr(parsedOverride["fitArgs"], "ECM_zeroCenterReplicateBias")
     assert parsedOverride["fitArgs"].useNonnegativeBackground is False
     assert parsedOverride["fitArgs"].backgroundNegativePenaltyMultiplier is None
     assert parsedOverride[
@@ -1965,7 +2083,7 @@ def _case_resolveFixedDeltaFRequiresPositiveFinite():
             consenrich_core._resolveFixedDeltaF(badDeltaF)
 
 
-def _caseGlobalMedianCenterAutoDisabledForControlLogRatios():
+def _caseGlobalMedianCenterRespectsUserFlagWithControlInputs():
     countingArgs = consenrich_core.countingParams(
         intervalSizeBP=25,
         backgroundBlockSizeBP=1000,
@@ -1990,8 +2108,8 @@ def _caseGlobalMedianCenterAutoDisabledForControlLogRatios():
         countingArgs,
         controlsPresent=True,
     )
-    assert enabled is False
-    assert label == "no (control log-ratio)"
+    assert enabled is True
+    assert label == "yes"
 
     disabledArgs = countingArgs._replace(subtractGlobalMedian=False)
     enabled, label = consenrich_cli._resolveGlobalMedianCenterStatus(
@@ -2029,8 +2147,8 @@ def test_config_runtime_logging_and_validation_contracts(
         tmp_path,
     )
     contract_case(
-        "control log-ratio disables global median centering",
-        _caseGlobalMedianCenterAutoDisabledForControlLogRatios,
+        "global median centering honors user request with controls",
+        _caseGlobalMedianCenterRespectsUserFlagWithControlInputs,
     )
     contract_case(
         "fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite

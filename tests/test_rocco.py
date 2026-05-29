@@ -482,6 +482,73 @@ def _caseSolveRoccoReturnsSummaryInventoryAndLogs(tmp_path, caplog):
     assert "output.inventory" in caplog.text
 
 
+def _caseSolveRoccoCutoffReportWritesSweeps(tmp_path, monkeypatch):
+    statePath, uncPath = _writeToyBedGraphs(tmp_path)
+    monkeypatch.setattr(
+        peaks,
+        "_ROCCO_CUTOFF_REPORT_SWEEPS",
+        (
+            (
+                "thresholdZ",
+                "matchingParams.thresholdZ",
+                "thresholdZ",
+                (1.5,),
+                {},
+                False,
+            ),
+            (
+                "uncertaintyScoreZ",
+                "matchingParams.uncertaintyScoreZ",
+                "uncertaintyScoreZ",
+                (0.5,),
+                {"uncertaintyScoreMode": "lower_confidence"},
+                True,
+            ),
+            (
+                "nestedRoccoBudgetScale",
+                "matchingParams.nestedRoccoBudgetScale",
+                "nestedRoccoBudgetScale",
+                (0.5,),
+                {},
+                False,
+            ),
+        ),
+    )
+
+    reportDir = Path(
+        peaks.solveRoccoCutoffReport(
+            str(statePath),
+            uncertaintyBedGraphFile=str(uncPath),
+            numBootstrap=12,
+            dependenceSpan=8,
+            randSeed=13,
+        )
+    )
+    assert reportDir.name.endswith("_rocco_cutoff_analysis")
+    assert ("m" + "acs") not in reportDir.name.lower()
+
+    summaryPath = reportDir / "cutoff_summary.tsv"
+    assert summaryPath.exists()
+    summary = pd.read_csv(summaryPath, sep="\t").fillna("")
+    assert list(summary["sweep"]) == [
+        "baseline",
+        "thresholdZ",
+        "uncertaintyScoreZ",
+        "nestedRoccoBudgetScale",
+    ]
+    assert set(summary["parameter"]) == {
+        "",
+        "matchingParams.thresholdZ",
+        "matchingParams.uncertaintyScoreZ",
+        "matchingParams.nestedRoccoBudgetScale",
+    }
+    assert set(summary["uncertaintyScoreMode"]) == {"state", "lower_confidence"}
+    for pathText in summary["narrowPeak_path"]:
+        assert Path(pathText).exists()
+    assert "metadata_json_path" not in summary.columns
+    assert list(reportDir.glob("*.narrowPeak.json")) == []
+
+
 @pytest.mark.correctness
 def _caseRunROCCOAlgorithmKeepsShortFlatEnrichment(tmp_path):
     n = 80
@@ -2024,6 +2091,15 @@ def test_rocco_diagnostics_contracts(tmp_path, caplog, contract_case):
         _caseSolveRoccoReturnsSummaryInventoryAndLogs,
         tmp_path,
         caplog,
+    )
+
+
+def test_rocco_cutoff_report_contract(tmp_path, monkeypatch, contract_case):
+    contract_case(
+        "ROCCO cutoff report",
+        _caseSolveRoccoCutoffReportWritesSweeps,
+        tmp_path,
+        monkeypatch,
     )
 
 

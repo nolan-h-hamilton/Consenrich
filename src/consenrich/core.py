@@ -26,7 +26,7 @@ from typing import (
 
 import numpy as np
 import numpy.typing as npt
-from scipy import ndimage, signal, stats, optimize, sparse, interpolate
+from scipy import ndimage, signal, stats, optimize, sparse, interpolate, special
 from scipy.sparse import linalg as sparse_linalg
 from tqdm import tqdm
 from itrigamma import itrigamma, trigamma
@@ -35,6 +35,10 @@ from . import ccounts
 from .constants import (
     ALIGNMENT_SOURCE_KINDS,
     BEDGRAPH_SOURCE_KIND,
+    COUNTING_ANSCOMBE_INPUT_OFFSET,
+    COUNTING_ANSCOMBE_OUTPUT_SCALE,
+    COUNTING_DEFAULT_LOG_MULT,
+    COUNTING_DEFAULT_LOG_OFFSET,
     COUNTING_DEFAULT_SUBTRACT_GLOBAL_MEDIAN,
     COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
     COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
@@ -83,6 +87,7 @@ from .constants import (
     OBSERVATION_DEFAULT_NO_DM_VAR,
     OBSERVATION_DEFAULT_RESTRICT_LOCAL_VARIANCE_TO_SPARSE_BED,
     OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS,
+    OUTPUT_DEFAULT_CUTOFF_REPORT,
     OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     OUTPUT_DEFAULT_SAVE_BACKGROUND_TRACKS,
     OUTPUT_DEFAULT_SAVE_GAINS,
@@ -93,7 +98,6 @@ from .constants import (
     PROCESS_DEFAULT_TUNC_MAX_SCALE,
     PROCESS_DEFAULT_TUNC_MIN_SCALE,
     PROCESS_DEFAULT_TUNC_MIN_WINDOW_WEIGHT,
-    PROCESS_DEFAULT_TUNC_PRIOR_DF,
     PROCESS_DEFAULT_TUNC_PRIOR_RIDGE,
     PROCESS_DEFAULT_TUNC_TREND_SEED_RATIO,
     PROCESS_DEFAULT_WARMUP_ECM_ITERS,
@@ -340,8 +344,6 @@ class processParams(NamedTuple):
     :param processNoiseCalibration: Process-noise calibration mode:
         ``"tunc"``, ``"seed"``, or ``"fixed"``.
     :type processNoiseCalibration: str
-    :param tuncPriorDf: Degrees-of-freedom strength for TUNC shrinkage.
-    :type tuncPriorDf: float
     :param tuncLocalWindowMultiplier: Multiplier converting ``blockLenIntervals``
         into TUNC transition-window length.
     :type tuncLocalWindowMultiplier: float
@@ -379,7 +381,6 @@ class processParams(NamedTuple):
     minQ: float = PROCESS_DEFAULT_MIN_Q
     maxQ: float = PROCESS_DEFAULT_MAX_Q
     processNoiseCalibration: str = PROCESS_DEFAULT_NOISE_CALIBRATION
-    tuncPriorDf: float = PROCESS_DEFAULT_TUNC_PRIOR_DF
     tuncLocalWindowMultiplier: float = PROCESS_DEFAULT_TUNC_LOCAL_WINDOW_MULTIPLIER
     tuncDependenceMultiplier: float = PROCESS_DEFAULT_TUNC_DEPENDENCE_MULTIPLIER
     tuncMinScale: float = PROCESS_DEFAULT_TUNC_MIN_SCALE
@@ -1072,6 +1073,7 @@ class outputParams(NamedTuple):
     plotOptimizationPath: bool = OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH
     diagnosticTracks: Tuple[str, ...] = OUTPUT_DEFAULT_DIAGNOSTIC_TRACKS
     saveGains: bool = OUTPUT_DEFAULT_SAVE_GAINS
+    cutoffReport: bool = OUTPUT_DEFAULT_CUTOFF_REPORT
 
 
 class fitParams(NamedTuple):
@@ -1085,17 +1087,12 @@ class fitParams(NamedTuple):
 
     1. Filter-smoother state estimation *given* current noise scales
     2. Interval-level Student-t precision reweighting at: \(\lambda_{[i]}\) and \(\kappa_{[i]}\)
-    3. Replicate-level observation offset updates: \(b_j\)
 
     Outer alternation:
 
     1. run the fixed-background ECM path against the current shared background
     2. optionally update a shared low-frequency background track \(g_{[i]}\),
        optionally constrained to have mean zero
-
-    Replicate-level bias calibration and robust precision reweighting are fixed
-    parts of the ECM path; replicate-bias centering is always enabled.
-
 
     :param ECM_fixedBackgroundIters: Maximum fixed-background ECM iterations.
     :type ECM_fixedBackgroundIters: int
@@ -1622,6 +1619,276 @@ def _resolveExtendFrom5pBP(
     return resolvedValues
 
 
+def _normalizeCountingTransformMethodForMoments(value: str | None) -> str:
+    raw = COUNTING_DEFAULT_TRANSFORM_METHOD if value is None else str(value)
+    key = (
+        raw.strip()
+        .replace("-", "")
+        .replace("_", "")
+        .replace(" ", "")
+        .replace(".", "")
+        .replace("(", "")
+        .replace(")", "")
+        .lower()
+    )
+    canonicalByKey = {
+        "log": "log",
+        "ln": "log",
+        "naturallog": "log",
+        "sqrt": "sqrt",
+        "squareroot": "sqrt",
+        "anscombe": "anscombe",
+        "anscombetransform": "anscombe",
+        "asinh": "asinh",
+        "arcsinh": "asinh",
+        "asinhx": "asinh",
+        "arcsinhx": "asinh",
+        "asinhsqrt": "asinhSqrt",
+        "arcsinhsqrt": "asinhSqrt",
+        "sqrtasinh": "asinhSqrt",
+        "generalizedlog": "generalizedLog",
+        "generalisedlog": "generalizedLog",
+        "glog": "generalizedLog",
+        "softlog": "generalizedLog",
+        "identity": "identity",
+        "linear": "identity",
+        "raw": "identity",
+        "none": "identity",
+    }
+    if key not in canonicalByKey:
+        raise ValueError(f"Unsupported transform method for count variance: {raw!r}")
+    return canonicalByKey[key]
+
+
+def _resolvedTransformMomentParameters(
+    *,
+    transformMethod: str | None,
+    logOffset: float | None,
+    logMult: float | None,
+    transformInputOffset: float | None,
+    transformInputScale: float | None,
+    transformOutputScale: float | None,
+    transformShape: float | None,
+) -> tuple[str, float, float, float, float]:
+    method = _normalizeCountingTransformMethodForMoments(transformMethod)
+    if transformInputOffset is None:
+        if method == "log":
+            inputOffset = (
+                COUNTING_DEFAULT_LOG_OFFSET if logOffset is None else logOffset
+            )
+        elif method == "anscombe":
+            inputOffset = COUNTING_ANSCOMBE_INPUT_OFFSET
+        else:
+            inputOffset = (
+                0.0
+                if COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET is None
+                else COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET
+            )
+    else:
+        inputOffset = transformInputOffset
+    inputScale = (
+        COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE
+        if transformInputScale is None
+        else transformInputScale
+    )
+    if transformOutputScale is None:
+        if method == "log":
+            outputScale = COUNTING_DEFAULT_LOG_MULT if logMult is None else logMult
+        elif method == "anscombe":
+            outputScale = COUNTING_ANSCOMBE_OUTPUT_SCALE
+        else:
+            outputScale = (
+                1.0
+                if COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE is None
+                else COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE
+            )
+    else:
+        outputScale = transformOutputScale
+    shape = (
+        COUNTING_DEFAULT_TRANSFORM_SHAPE if transformShape is None else transformShape
+    )
+    if method == "log" and float(inputOffset) <= 0.0:
+        inputOffset = 1.0
+    inputScale = _checkFinitePositive("transformInputScale", inputScale)
+    shape = _checkFinitePositive("transformShape", shape)
+    return (
+        method,
+        float(inputOffset),
+        float(inputScale),
+        float(outputScale),
+        float(shape),
+    )
+
+
+def _transformDerivativeAtCountMean(
+    normalizedMean: np.ndarray,
+    *,
+    transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD,
+    logOffset: float | None = COUNTING_DEFAULT_LOG_OFFSET,
+    logMult: float | None = COUNTING_DEFAULT_LOG_MULT,
+    transformInputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
+    transformInputScale: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
+    transformOutputScale: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
+    transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE,
+) -> np.ndarray:
+    method, inputOffset, inputScale, outputScale, shape = (
+        _resolvedTransformMomentParameters(
+            transformMethod=transformMethod,
+            logOffset=logOffset,
+            logMult=logMult,
+            transformInputOffset=transformInputOffset,
+            transformInputScale=transformInputScale,
+            transformOutputScale=transformOutputScale,
+            transformShape=transformShape,
+        )
+    )
+    x = np.asarray(normalizedMean, dtype=np.float64)
+    tiny = float(np.finfo(np.float64).tiny)
+    shifted = np.maximum(x + inputOffset, tiny)
+    if method == "log":
+        return np.full_like(x, float(outputScale), dtype=np.float64) / shifted
+    if method in {"sqrt", "anscombe"}:
+        return float(outputScale) / (
+            2.0 * float(inputScale) * np.sqrt(np.maximum(shifted / inputScale, tiny))
+        )
+    if method == "asinh":
+        u = shifted / float(inputScale)
+        return float(outputScale) / (float(inputScale) * np.sqrt(1.0 + np.square(u)))
+    if method == "asinhSqrt":
+        sqrtShifted = np.sqrt(shifted)
+        u = sqrtShifted / float(inputScale)
+        return float(outputScale) / (
+            2.0 * float(inputScale) * sqrtShifted * np.sqrt(1.0 + np.square(u))
+        )
+    if method == "generalizedLog":
+        u = shifted / float(inputScale)
+        return float(outputScale) / (
+            float(inputScale) * np.sqrt(np.square(u) + float(shape) * float(shape))
+        )
+    return np.full_like(x, float(outputScale) / float(inputScale), dtype=np.float64)
+
+
+def transformCountVarianceFloor(
+    normalizedCounts: np.ndarray,
+    scaleFactors: npt.ArrayLike,
+    *,
+    transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD,
+    logOffset: float | None = COUNTING_DEFAULT_LOG_OFFSET,
+    logMult: float | None = COUNTING_DEFAULT_LOG_MULT,
+    transformInputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
+    transformInputScale: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
+    transformOutputScale: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
+    transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE,
+) -> np.ndarray:
+    r"""Approximate transformation-induced count variance for MUNC.
+
+    The floor is the delta-method variance of the active count transform under
+    a Poisson sampling model for the unscaled count, evaluated at the Jeffreys
+    posterior mean ``raw_count + 1/2``.  This keeps zero-count intervals from
+    being treated as variance-free without adding a user-tuned pseudo-count.
+    """
+
+    counts = np.asarray(normalizedCounts, dtype=np.float64)
+    if counts.ndim == 1:
+        counts2 = counts.reshape(1, -1)
+        squeeze = True
+    elif counts.ndim == 2:
+        counts2 = counts
+        squeeze = False
+    else:
+        raise ValueError("normalizedCounts must be a 1D or 2D array")
+    scales = np.asarray(scaleFactors, dtype=np.float64).reshape(-1)
+    if scales.size == 1 and counts2.shape[0] != 1:
+        scales = np.full(counts2.shape[0], float(scales[0]), dtype=np.float64)
+    if scales.shape != (counts2.shape[0],):
+        raise ValueError("scaleFactors must contain one value per count track")
+    if not np.all(np.isfinite(scales) & (scales > 0.0)):
+        raise ValueError("scaleFactors must be finite positive values")
+
+    finiteCounts = np.isfinite(counts2)
+    nonnegativeCounts = np.where(finiteCounts, np.maximum(counts2, 0.0), 0.0)
+    # Use the Jeffreys mean so zero-count intervals still carry count noise.
+    rawPosteriorMean = (nonnegativeCounts / scales[:, None]) + 0.5
+    normalizedMean = rawPosteriorMean * scales[:, None]
+    normalizedVariance = rawPosteriorMean * np.square(scales[:, None])
+    derivative = _transformDerivativeAtCountMean(
+        normalizedMean,
+        transformMethod=transformMethod,
+        logOffset=logOffset,
+        logMult=logMult,
+        transformInputOffset=transformInputOffset,
+        transformInputScale=transformInputScale,
+        transformOutputScale=transformOutputScale,
+        transformShape=transformShape,
+    )
+    floor = np.square(derivative) * normalizedVariance
+    floor = np.where(
+        finiteCounts & np.isfinite(floor) & (floor > 0.0),
+        floor,
+        np.nan,
+    )
+    floor = floor.astype(np.float32, copy=False)
+    return floor.reshape(-1) if squeeze else floor
+
+
+def transformCountDifferenceVarianceFloor(
+    treatmentCounts: np.ndarray,
+    controlCounts: np.ndarray,
+    *,
+    treatmentScaleFactor: float,
+    controlScaleFactor: float,
+    transformMethod: str | None = COUNTING_DEFAULT_TRANSFORM_METHOD,
+    logOffset: float | None = COUNTING_DEFAULT_LOG_OFFSET,
+    logMult: float | None = COUNTING_DEFAULT_LOG_MULT,
+    transformInputOffset: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_OFFSET,
+    transformInputScale: float | None = COUNTING_DEFAULT_TRANSFORM_INPUT_SCALE,
+    transformOutputScale: float | None = COUNTING_DEFAULT_TRANSFORM_OUTPUT_SCALE,
+    transformShape: float | None = COUNTING_DEFAULT_TRANSFORM_SHAPE,
+) -> np.ndarray:
+    r"""Approximate variance floor for independent treatment-control differences."""
+
+    treatmentFloor = transformCountVarianceFloor(
+        treatmentCounts,
+        [float(treatmentScaleFactor)],
+        transformMethod=transformMethod,
+        logOffset=logOffset,
+        logMult=logMult,
+        transformInputOffset=transformInputOffset,
+        transformInputScale=transformInputScale,
+        transformOutputScale=transformOutputScale,
+        transformShape=transformShape,
+    )
+    controlFloor = transformCountVarianceFloor(
+        controlCounts,
+        [float(controlScaleFactor)],
+        transformMethod=transformMethod,
+        logOffset=logOffset,
+        logMult=logMult,
+        transformInputOffset=transformInputOffset,
+        transformInputScale=transformInputScale,
+        transformOutputScale=transformOutputScale,
+        transformShape=transformShape,
+    )
+    treat = np.asarray(treatmentFloor, dtype=np.float64)
+    control = np.asarray(controlFloor, dtype=np.float64)
+    finiteTreat = np.isfinite(treat)
+    finiteControl = np.isfinite(control)
+    out = np.full(
+        np.broadcast_shapes(treat.shape, control.shape), np.nan, dtype=np.float64
+    )
+    treatB = np.broadcast_to(treat, out.shape)
+    controlB = np.broadcast_to(control, out.shape)
+    finiteTreatB = np.broadcast_to(finiteTreat, out.shape)
+    finiteControlB = np.broadcast_to(finiteControl, out.shape)
+    out[finiteTreatB] = treatB[finiteTreatB]
+    out[finiteControlB] = np.where(
+        np.isfinite(out[finiteControlB]),
+        out[finiteControlB] + controlB[finiteControlB],
+        controlB[finiteControlB],
+    )
+    return np.asarray(out, dtype=np.float32)
+
+
 def readSegments(
     sources: List[inputSource],
     chromosome: str,
@@ -1730,7 +1997,9 @@ def readSegments(
                     countMode="coverage",
                 )
             elif sourceKind == FRAGMENTS_SOURCE_KIND:
-                countMode = _normalizeCountMode(source.countMode, defaultFragmentCountMode)
+                countMode = _normalizeCountMode(
+                    source.countMode, defaultFragmentCountMode
+                )
                 if countMode in {"ffp", "ffp-center"}:
                     raise ValueError(f"countMode `{countMode}` requires BAM input")
                 _normalizeFragmentPositionMode(source.fragmentPositionMode)
@@ -2435,7 +2704,6 @@ def _relativeSignChangePerKB(
     *,
     intervalSizeBP: int | None,
     background: np.ndarray | None = None,
-    replicateBias: np.ndarray | None = None,
     pad: float = 0.0,
 ) -> Any:
     if stateValues is None or matrixData is None or matrixMunc is None:
@@ -2454,13 +2722,6 @@ def _relativeSignChangePerKB(
             return None
     else:
         backgroundArr = np.zeros(stateArr.size, dtype=np.float64)
-    if replicateBias is not None:
-        biasArr = np.asarray(replicateBias, dtype=np.float64).reshape(-1)
-        if biasArr.size != dataArr.shape[0]:
-            return None
-    else:
-        biasArr = np.zeros(dataArr.shape[0], dtype=np.float64)
-
     weightedTotal = np.zeros(stateArr.shape, dtype=np.float64)
     weightSum = np.zeros(stateArr.shape, dtype=np.float64)
     stateFinite = np.isfinite(stateArr)
@@ -2477,7 +2738,7 @@ def _relativeSignChangePerKB(
         if not np.any(valid):
             continue
         rowWeights = 1.0 / np.maximum(denomRow[valid], 1.0e-12)
-        adjustedRow = dataRow[valid] - backgroundArr[valid] - float(biasArr[j])
+        adjustedRow = dataRow[valid] - backgroundArr[valid]
         weightedTotal[valid] += adjustedRow * rowWeights
         weightSum[valid] += rowWeights
 
@@ -2603,7 +2864,6 @@ def _estimateBackgroundWarmStart(
     matrixMunc: np.ndarray,
     blockLenIntervals: int,
     pad: float,
-    initialReplicateBias: np.ndarray | None,
     observationPrecision: np.ndarray | None,
     observationPrecisionMultiplierMin: float,
     observationPrecisionMultiplierMax: float,
@@ -2626,13 +2886,6 @@ def _estimateBackgroundWarmStart(
         return background, diagnostics
 
     blockLenIntervals = max(1, int(blockLenIntervals))
-    replicateBiasArr = _coerceOptionalVector(
-        "initialReplicateBias",
-        initialReplicateBias,
-        trackCount,
-    )
-    if replicateBiasArr is None:
-        replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
     observationPrecisionArr = _coerceOptionalVector(
         "observationPrecision",
         observationPrecision,
@@ -2653,9 +2906,7 @@ def _estimateBackgroundWarmStart(
         )
         warmInvVarMatrix *= warmObsPrecision
 
-    warmResidualMatrix = np.asarray(matrixDataArr, dtype=np.float32) - np.asarray(
-        replicateBiasArr[:, None], dtype=np.float32
-    )
+    warmResidualMatrix = np.asarray(matrixDataArr, dtype=np.float32)
     if useNonnegativeBackground:
         background = _solveZeroCenteredBackground(
             residualMatrix=warmResidualMatrix,
@@ -2717,7 +2968,6 @@ def estimateProvisionalBackground(
     *,
     blockLenIntervals: int,
     pad: float = 1.0e-4,
-    initialReplicateBias: np.ndarray | None = None,
     observationPrecision: np.ndarray | None = None,
     observationMask: np.ndarray | None = None,
     observationPrecisionMultiplierMin: float = PROCESS_DEFAULT_PRECISION_MULTIPLIER_MIN,
@@ -2763,7 +3013,6 @@ def estimateProvisionalBackground(
         matrixMunc=matrixMuncArr,
         blockLenIntervals=int(blockLenIntervals),
         pad=float(pad),
-        initialReplicateBias=initialReplicateBias,
         observationPrecision=observationPrecision,
         observationPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
         observationPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
@@ -2813,9 +3062,7 @@ def _processNoiseCalibrationSupport(
     active, obsVariance = _activeProcessNoiseObservationMask(data, munc, pad)
     unmaskedPositiveObsVar = (
         np.isfinite(munc)
-        & (
-            munc < 0.5 * float(UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE)
-        )
+        & (munc < 0.5 * float(UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE))
         & np.isfinite(obsVariance)
         & (obsVariance > 0.0)
     )
@@ -2856,18 +3103,10 @@ def _processNoiseCalibrationSupport(
     }
 
 
-def _hasFiniteTransitionVariation(
-    matrixData: np.ndarray,
-    *,
-    replicateBias: np.ndarray | None = None,
-) -> bool:
+def _hasFiniteTransitionVariation(matrixData: np.ndarray) -> bool:
     data = np.asarray(matrixData, dtype=np.float64)
     if data.ndim != 2 or data.shape[1] <= 1:
         return False
-    if replicateBias is not None:
-        bias = np.asarray(replicateBias, dtype=np.float64).reshape(-1)
-        if bias.shape == (data.shape[0],):
-            data = data - bias[:, None]
     finite = data[np.isfinite(data)]
     if finite.size == 0:
         return False
@@ -2965,9 +3204,7 @@ def _staticProcessNoiseCalibrationDiagnostics(
         "effectiveTrendLevelRatio": float(ratio),
         "logQLevel": float(np.log(max(levelQ, float(boundary["qFloor"])))),
         "logQTrend": (
-            0.0
-            if dim == 1
-            else float(np.log(max(trendQ, float(boundary["qFloor"]))))
+            0.0 if dim == 1 else float(np.log(max(trendQ, float(boundary["qFloor"]))))
         ),
         "usedInitialProcessQFallback": bool(
             status != "estimated" and float(warmStartProcessNoise) <= 0.0
@@ -3251,7 +3488,9 @@ def _expectedTransitionEvidenceForTunc(
     dim = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
     q = np.asarray(seedQ, dtype=np.float64)
     if q.ndim != 2 or q.shape[0] < dim or q.shape[1] < dim:
-        raise ValueError("seed process Q must cover the active state dimension for TUNC")
+        raise ValueError(
+            "seed process Q must cover the active state dimension for TUNC"
+        )
     qDim = np.ascontiguousarray(q[:dim, :dim], dtype=np.float64)
     if hasattr(cconsenrich, "cExpectedTransitionProcessEvidence"):
         evidence, _diagnostics = cconsenrich.cExpectedTransitionProcessEvidence(
@@ -3352,6 +3591,146 @@ def _weightedGeometricMean(
     return float(np.exp(np.sum(w[mask] * np.log(v[mask])) / np.sum(w[mask])))
 
 
+def _weightedSampleVariance(values: np.ndarray, weights: np.ndarray) -> float:
+    x = np.asarray(values, dtype=np.float64).reshape(-1)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    mask = np.isfinite(x) & np.isfinite(w) & (w > 0.0)
+    if np.count_nonzero(mask) < 2:
+        return float("nan")
+    x = x[mask]
+    w = w[mask]
+    sumW = float(np.sum(w))
+    if sumW <= 0.0:
+        return float("nan")
+    mean = float(np.sum(w * x) / sumW)
+    sumW2 = float(np.sum(w * w))
+    denom = sumW - (sumW2 / sumW)
+    if denom <= 0.0:
+        return float("nan")
+    return float(np.sum(w * np.square(x - mean)) / denom)
+
+
+def _estimateTuncPriorDfMethodOfMoments(
+    localEvidence: np.ndarray,
+    localPrior: np.ndarray,
+    nuLocal: np.ndarray,
+    weights: np.ndarray,
+    *,
+    minPriorDf: float = 4.0,
+    maxPriorDf: float = 1.0e6,
+    minWindows: int = 8,
+    winsorTail: float = 0.01,
+    minScale: float = PROCESS_DEFAULT_TUNC_MIN_SCALE,
+    maxScale: float = PROCESS_DEFAULT_TUNC_MAX_SCALE,
+) -> tuple[float, float, dict[str, Any]]:
+    evidence = np.asarray(localEvidence, dtype=np.float64).reshape(-1)
+    prior = np.asarray(localPrior, dtype=np.float64).reshape(-1)
+    nu = np.asarray(nuLocal, dtype=np.float64).reshape(-1)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if not (evidence.shape == prior.shape == nu.shape == w.shape):
+        raise ValueError(
+            "localEvidence, localPrior, nuLocal, and weights must have the same shape"
+        )
+
+    valid = (
+        np.isfinite(evidence)
+        & np.isfinite(prior)
+        & np.isfinite(nu)
+        & np.isfinite(w)
+        & (evidence > 0.0)
+        & (prior > 0.0)
+        & (nu > 0.0)
+        & (w > 0.0)
+    )
+    diagnostics: dict[str, Any] = {
+        "tuncPriorDfMomentWindowCount": int(np.count_nonzero(valid)),
+        "tuncPriorDfMomentEffectiveWindowCount": 0.0,
+        "tuncPriorDfMomentLogRatioVariance": float("nan"),
+        "tuncPriorDfMomentSamplingVariance": float("nan"),
+        "tuncPriorDfMomentExcessVariance": float("nan"),
+        "tuncPriorDfMomentScale": 1.0,
+        "tuncPriorDfMomentWinsorLower": float("nan"),
+        "tuncPriorDfMomentWinsorUpper": float("nan"),
+        "tuncPriorDfMomentReason": "ok",
+    }
+    if np.count_nonzero(valid) < int(minWindows):
+        diagnostics["tuncPriorDfMomentReason"] = "insufficient_windows"
+        return float(maxPriorDf), 1.0, diagnostics
+
+    evidence = evidence[valid]
+    prior = prior[valid]
+    nu = nu[valid]
+    w = w[valid]
+    sumW = float(np.sum(w))
+    sumW2 = float(np.sum(w * w))
+    effectiveWindowCount = (sumW * sumW / sumW2) if sumW > 0.0 and sumW2 > 0.0 else 0.0
+    diagnostics["tuncPriorDfMomentEffectiveWindowCount"] = float(effectiveWindowCount)
+    if effectiveWindowCount < float(minWindows):
+        diagnostics["tuncPriorDfMomentReason"] = "insufficient_effective_windows"
+        return float(maxPriorDf), 1.0, diagnostics
+
+    logRatio = np.log(np.maximum(evidence, np.finfo(np.float64).tiny)) - np.log(
+        np.maximum(prior, np.finfo(np.float64).tiny)
+    )
+    localBias = special.digamma(nu / 2.0) - np.log(nu / 2.0)
+    centeredLogRatio = logRatio - localBias
+
+    tail = float(max(0.0, min(0.25, winsorTail)))
+    if centeredLogRatio.size >= 20 and tail > 0.0:
+        lo, hi = _weightedQuantile(
+            centeredLogRatio,
+            w,
+            np.asarray([tail, 1.0 - tail], dtype=np.float64),
+        )
+        if np.isfinite(lo) and np.isfinite(hi) and lo < hi:
+            np.clip(centeredLogRatio, float(lo), float(hi), out=centeredLogRatio)
+            diagnostics["tuncPriorDfMomentWinsorLower"] = float(lo)
+            diagnostics["tuncPriorDfMomentWinsorUpper"] = float(hi)
+
+    observedVariance = _weightedSampleVariance(centeredLogRatio, w)
+    samplingVarianceArr = np.asarray(trigamma(nu / 2.0), dtype=np.float64)
+    samplingMask = np.isfinite(samplingVarianceArr) & (samplingVarianceArr >= 0.0)
+    if not np.any(samplingMask):
+        diagnostics["tuncPriorDfMomentReason"] = "nonfinite_sampling_variance"
+        return float(maxPriorDf), 1.0, diagnostics
+    samplingVariance = float(
+        np.sum(w[samplingMask] * samplingVarianceArr[samplingMask])
+        / np.sum(w[samplingMask])
+    )
+    excessVariance = float(observedVariance - samplingVariance)
+    diagnostics["tuncPriorDfMomentLogRatioVariance"] = float(observedVariance)
+    diagnostics["tuncPriorDfMomentSamplingVariance"] = float(samplingVariance)
+    diagnostics["tuncPriorDfMomentExcessVariance"] = float(excessVariance)
+
+    if not np.isfinite(observedVariance) or not np.isfinite(excessVariance):
+        diagnostics["tuncPriorDfMomentReason"] = "nonfinite_log_ratio_variance"
+        return float(maxPriorDf), 1.0, diagnostics
+    if excessVariance <= 1.0e-12:
+        priorDf = float(maxPriorDf)
+        priorBias = 0.0
+        diagnostics["tuncPriorDfMomentReason"] = "no_excess_dispersion"
+    else:
+        priorDf = float(2.0 * itrigamma(max(excessVariance, 1.0e-12)))
+        if not np.isfinite(priorDf) or priorDf <= 0.0:
+            priorDf = float(maxPriorDf)
+            priorBias = 0.0
+            diagnostics["tuncPriorDfMomentReason"] = "invalid_inverse_trigamma"
+        else:
+            priorDf = float(np.clip(priorDf, float(minPriorDf), float(maxPriorDf)))
+            priorBias = (
+                0.0
+                if priorDf >= 0.999 * float(maxPriorDf)
+                else float(special.digamma(priorDf / 2.0) - math.log(priorDf / 2.0))
+            )
+
+    logScale = float(np.sum(w * (logRatio - localBias + priorBias)) / sumW)
+    scale = float(
+        np.exp(np.clip(logScale, math.log(float(minScale)), math.log(float(maxScale))))
+    )
+    diagnostics["tuncPriorDfMomentScale"] = float(scale)
+    return float(priorDf), float(scale), diagnostics
+
+
 @lru_cache(maxsize=None)
 def _cythonFunctionSupportsKeyword(functionName: str, keyword: str) -> bool:
     try:
@@ -3361,7 +3740,9 @@ def _cythonFunctionSupportsKeyword(functionName: str, keyword: str) -> bool:
     return str(keyword) in signature.parameters
 
 
-def _cythonOptionalKeyword(functionName: str, keyword: str, value: Any) -> dict[str, Any]:
+def _cythonOptionalKeyword(
+    functionName: str, keyword: str, value: Any
+) -> dict[str, Any]:
     if _cythonFunctionSupportsKeyword(functionName, keyword):
         return {str(keyword): value}
     return {}
@@ -3436,7 +3817,6 @@ def _fitTuncProcessNoise(
     maxQ: float,
     blockLenIntervals: int,
     processCovariates: np.ndarray | None,
-    tuncPriorDf: float,
     tuncLocalWindowMultiplier: float,
     tuncDependenceMultiplier: float,
     tuncMinScale: float,
@@ -3475,7 +3855,9 @@ def _fitTuncProcessNoise(
             "qScaleDecompositionMaxLogError": 0.0,
             "qScaleDecompositionMedianLogError": 0.0,
         }
-        info.update(_processNoiseQBoundaryDiagnostics(seedQClamped, stateModelMode, minQ, maxQ))
+        info.update(
+            _processNoiseQBoundaryDiagnostics(seedQClamped, stateModelMode, minQ, maxQ)
+        )
         info["matrixQ0Final"] = seedQClamped.astype(float).tolist()
         return seedQClamped, processQScale, info
 
@@ -3526,7 +3908,9 @@ def _fitTuncProcessNoise(
             "qScaleDecompositionMaxLogError": 0.0,
             "qScaleDecompositionMedianLogError": 0.0,
         }
-        info.update(_processNoiseQBoundaryDiagnostics(seedQClamped, stateModelMode, minQ, maxQ))
+        info.update(
+            _processNoiseQBoundaryDiagnostics(seedQClamped, stateModelMode, minQ, maxQ)
+        )
         info["matrixQ0Final"] = seedQClamped.astype(float).tolist()
         return seedQClamped, processQScale, info
 
@@ -3608,12 +3992,14 @@ def _fitTuncProcessNoise(
     cumW2 = np.concatenate(([0.0], np.cumsum(w2)))
     diffWeight = np.zeros(transitionCount + 1, dtype=np.float64)
     diffLogScale = np.zeros(transitionCount + 1, dtype=np.float64)
-    windowCount = 0
-    priorDf = float(max(tuncPriorDf, 0.0))
+    priorDf = 1.0e6
+    priorDfScale = 1.0
+    priorDfDiagnostics: dict[str, Any] = {}
     dependence = float(max(tuncDependenceMultiplier, tiny))
     minWindowWeight = float(max(tuncMinWindowWeight, 0.0))
     minScale = float(max(tuncMinScale, tiny))
     maxScale = float(max(tuncMaxScale, minScale))
+    windowStats: list[tuple[int, int, float, float, float, float]] = []
     for center in centers:
         start = max(0, int(center) - halfWindow)
         end = min(transitionCount, int(center) + halfWindow + 1)
@@ -3627,8 +4013,70 @@ def _fitTuncProcessNoise(
         localEvidence = sumWU / sumW
         localPrior = math.exp(float(cumWLogG[end] - cumWLogG[start]) / sumW)
         effN = (sumW * sumW) / sumW2
-        nuLocal = max(0.0, float(1 if stateModelMode == STATE_MODEL_LEVEL else 2) * effN / dependence)
-        scale = (nuLocal * localEvidence + priorDf * localPrior) / max(
+        stateDimForNu = 1 if stateModelMode == STATE_MODEL_LEVEL else 2
+        nuLocal = max(0.0, float(stateDimForNu) * effN / dependence)
+        windowStats.append((start, end, sumW, localEvidence, localPrior, nuLocal))
+
+    if windowStats:
+        priorDf, priorDfScale, priorDfDiagnostics = _estimateTuncPriorDfMethodOfMoments(
+            np.asarray([row[3] for row in windowStats], dtype=np.float64),
+            np.asarray([row[4] for row in windowStats], dtype=np.float64),
+            np.asarray([row[5] for row in windowStats], dtype=np.float64),
+            np.asarray([row[2] for row in windowStats], dtype=np.float64),
+            minScale=minScale,
+            maxScale=maxScale,
+        )
+    else:
+        priorDfDiagnostics = {
+            "tuncPriorDfMomentWindowCount": 0,
+            "tuncPriorDfMomentEffectiveWindowCount": 0.0,
+            "tuncPriorDfMomentLogRatioVariance": float("nan"),
+            "tuncPriorDfMomentSamplingVariance": float("nan"),
+            "tuncPriorDfMomentExcessVariance": float("nan"),
+            "tuncPriorDfMomentScale": 1.0,
+            "tuncPriorDfMomentWinsorLower": float("nan"),
+            "tuncPriorDfMomentWinsorUpper": float("nan"),
+            "tuncPriorDfMomentReason": "insufficient_windows",
+        }
+
+    _logEvent(
+        "process_noise.tunc_prior_df_moments",
+        (
+            ("prior_df", float(priorDf)),
+            ("prior_scale", float(priorDfScale)),
+            ("reason", priorDfDiagnostics.get("tuncPriorDfMomentReason", "ok")),
+            (
+                "windows",
+                int(priorDfDiagnostics.get("tuncPriorDfMomentWindowCount", 0)),
+            ),
+            (
+                "effective_windows",
+                float(
+                    priorDfDiagnostics.get(
+                        "tuncPriorDfMomentEffectiveWindowCount",
+                        0.0,
+                    )
+                ),
+            ),
+            (
+                "log_ratio_var",
+                priorDfDiagnostics.get("tuncPriorDfMomentLogRatioVariance", np.nan),
+            ),
+            (
+                "sampling_var",
+                priorDfDiagnostics.get("tuncPriorDfMomentSamplingVariance", np.nan),
+            ),
+            (
+                "excess_var",
+                priorDfDiagnostics.get("tuncPriorDfMomentExcessVariance", np.nan),
+            ),
+        ),
+    )
+
+    windowCount = 0
+    for start, end, sumW, localEvidence, localPrior, nuLocal in windowStats:
+        targetPrior = float(priorDfScale) * float(localPrior)
+        scale = (nuLocal * localEvidence + priorDf * targetPrior) / max(
             nuLocal + priorDf,
             tiny,
         )
@@ -3648,7 +4096,9 @@ def _fitTuncProcessNoise(
         where=paintWeightByTransition > 0.0,
     )
     rawScale = np.exp(np.clip(painted, math.log(minScale), math.log(maxScale)))
-    globalScale = _weightedGeometricMean(rawScale[valid], transitionWeights[valid], floor=tiny)
+    globalScale = _weightedGeometricMean(
+        rawScale[valid], transitionWeights[valid], floor=tiny
+    )
     globalScale = float(np.clip(globalScale, minScale, maxScale))
     transitionScale = np.clip(rawScale / max(globalScale, tiny), minScale, maxScale)
     unclampedBaseQ0 = np.asarray(seedQClamped, dtype=np.float64) * globalScale
@@ -3683,7 +4133,10 @@ def _fitTuncProcessNoise(
         baseClampMaxRelativeChange = 0.0
     baseQClampChanged = bool(baseClampMaxRelativeChange > 1.0e-6)
     clampFraction = float(
-        np.mean((transitionScale <= minScale * 1.0001) | (transitionScale >= maxScale * 0.9999))
+        np.mean(
+            (transitionScale <= minScale * 1.0001)
+            | (transitionScale >= maxScale * 0.9999)
+        )
     )
     boundary = _processNoiseQBoundaryDiagnostics(
         matrixQ0Tunc,
@@ -3708,7 +4161,9 @@ def _fitTuncProcessNoise(
         "windowCount": int(windowCount),
         "windowLength": int(windowLength),
         "qScaleClampFraction": float(clampFraction),
-        "tuncPriorDf": float(tuncPriorDf),
+        "tuncPriorDf": float(priorDf),
+        "tuncPriorDfSource": "method_of_moments",
+        "tuncPriorScale": float(priorDfScale),
         "tuncDependenceMultiplier": float(tuncDependenceMultiplier),
         "tuncLocalWindowMultiplier": float(tuncLocalWindowMultiplier),
         "processCovariateCount": int(0 if covariates is None else covariates.shape[1]),
@@ -3729,6 +4184,7 @@ def _fitTuncProcessNoise(
         "processQScaleSummary": _metadataTrackSummary(processQScale),
         "matrixQ0Final": matrixQ0Tunc.astype(float).tolist(),
     }
+    diagnostics.update(priorDfDiagnostics)
     diagnostics.update(boundary)
     return matrixQ0Tunc, processQScale, diagnostics
 
@@ -3881,9 +4337,7 @@ def _estimateInitialProcessNoiseFromData(
         fallbackPool = obsVar[finiteMask]
         fallbackPool = fallbackPool[np.isfinite(fallbackPool) & (fallbackPool > 0.0)]
         fallbackVar = (
-            float(np.median(fallbackPool))
-            if fallbackPool.size
-            else float("nan")
+            float(np.median(fallbackPool)) if fallbackPool.size else float("nan")
         )
         qInit = (
             1.0e-4 * fallbackVar
@@ -4023,11 +4477,9 @@ def runConsenrich(
         FIT_DEFAULT_BACKGROUND_NEGATIVE_PENALTY_MULTIPLIER
     ),
     returnScales: bool = True,
-    returnReplicateOffsets: bool = False,
     returnBackground: bool = False,
     stateModel: str | None = STATE_MODEL_LEVEL_TREND,
     processNoiseCalibration: str = PROCESS_DEFAULT_NOISE_CALIBRATION,
-    tuncPriorDf: float = PROCESS_DEFAULT_TUNC_PRIOR_DF,
     tuncLocalWindowMultiplier: float = PROCESS_DEFAULT_TUNC_LOCAL_WINDOW_MULTIPLIER,
     tuncDependenceMultiplier: float = PROCESS_DEFAULT_TUNC_DEPENDENCE_MULTIPLIER,
     tuncMinScale: float = PROCESS_DEFAULT_TUNC_MIN_SCALE,
@@ -4043,7 +4495,6 @@ def runConsenrich(
     processPrecisionMultiplierMax: float = 4.0,
     observationMask: np.ndarray | None = None,
     initialBackground: np.ndarray | None = None,
-    initialReplicateBias: np.ndarray | None = None,
     initialObservationPrecision: np.ndarray | None = None,
     initialProcessPrecision: np.ndarray | None = None,
     initialProcessQ: np.ndarray | None = None,
@@ -4063,17 +4514,15 @@ def runConsenrich(
 
     .. math::
 
-      z_{[j,i]} = g_{[i]} + x_{[i,0]} + b_j + \epsilon_{[j,i]},
+      z_{[j,i]} = g_{[i]} + x_{[i,0]} + \epsilon_{[j,i]},
       \qquad
       \mathrm{Var}(\epsilon_{[j,i]}) =
       \frac{v_{[j,i]} + \mathrm{pad}}{\lambda_{[i]}}.
 
     Here :math:`z_{[j,i]}` is the observed track value, :math:`g_{[i]}` is an
-    optional low-frequency background shared across replicates, :math:`b_j` is
-    a replicate-level bias term, and :math:`v_{[j,i]}` is the plugin
-    observation variance supplied by ``matrixMunc``. Note, by default, replicate offsets
-    are centered to zero for identifiability while the shared background is
-    allowed to carry a nonnegative contig-wide level.
+    optional low-frequency background shared across replicates, and
+    :math:`v_{[j,i]}` is the plugin observation variance supplied by
+    ``matrixMunc``.
 
     By default, the latent state follows the two-state level/trend model
 
@@ -4139,11 +4588,6 @@ def runConsenrich(
         initialBackground,
         intervalCount,
     )
-    initialReplicateBiasArr = _coerceOptionalVector(
-        "initialReplicateBias",
-        initialReplicateBias,
-        trackCount,
-    )
     initialObservationPrecisionArr = _coerceOptionalVector(
         "initialObservationPrecision",
         initialObservationPrecision,
@@ -4182,8 +4626,9 @@ def runConsenrich(
         processNoiseCalibration
     )
     if processNoiseCalibrationMode == PROCESS_NOISE_CALIBRATION_TUNC and ECM_useAPN:
-        raise ValueError("processNoiseCalibration='tunc' is mutually exclusive with ECM_useAPN=True")
-    tuncPriorDf = _checkFiniteNonnegative("tuncPriorDf", tuncPriorDf)
+        raise ValueError(
+            "processNoiseCalibration='tunc' is mutually exclusive with ECM_useAPN=True"
+        )
     tuncLocalWindowMultiplier = _checkFinitePositive(
         "tuncLocalWindowMultiplier",
         tuncLocalWindowMultiplier,
@@ -4287,9 +4732,12 @@ def runConsenrich(
                 int(qCalibrationSupport["activeAdjacentTransitionCount"]),
             ),
             ("process calibration skip reason", processCalibrationSkipReason or "none"),
-            ("TUNC prior df", float(tuncPriorDf)),
+            ("TUNC prior df", "method_of_moments"),
             ("TUNC local window multiplier", float(tuncLocalWindowMultiplier)),
-            ("TUNC process covariates", 0 if processCovariatesArr is None else processCovariatesArr.shape[1]),
+            (
+                "TUNC process covariates",
+                0 if processCovariatesArr is None else processCovariatesArr.shape[1],
+            ),
             ("background model fit", bool(fitBackground)),
             ("nonnegative background", bool(useNonnegativeBackground)),
             (
@@ -4371,7 +4819,6 @@ def runConsenrich(
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
         processQScaleLocal: np.ndarray | None,
-        replicateBias: np.ndarray | None,
         useProcPrecReweightLocal: bool,
         useAPNLocal: bool,
     ):
@@ -4412,7 +4859,6 @@ def runConsenrich(
                     "processQScale",
                     processQScaleLocal,
                 ),
-                replicateBias=replicateBias,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
                 ECM_useAPN=bool(useAPNLocal),
@@ -4434,7 +4880,6 @@ def runConsenrich(
                     stateCovarSmoothed=None,
                     lagCovSmoothed=None,
                     postFitResiduals=None,
-                    replicateBias=replicateBias,
                     progressBar=None,
                     progressIter=0,
                 )
@@ -4469,7 +4914,6 @@ def runConsenrich(
                     "processQScale",
                     processQScaleLocal,
                 ),
-                replicateBias=replicateBias,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
                 ECM_useAPN=bool(useAPNLocal),
@@ -4493,7 +4937,6 @@ def runConsenrich(
                     stateCovarSmoothed=None,
                     lagCovSmoothed=None,
                     postFitResiduals=None,
-                    replicateBias=replicateBias,
                     progressBar=None,
                     progressIter=0,
                 )
@@ -4522,7 +4965,6 @@ def runConsenrich(
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
         processQScaleLocal: np.ndarray | None,
-        replicateBias: np.ndarray | None,
         useProcPrecReweightLocal: bool,
         useAPNLocal: bool,
         storeNLLInD: bool = False,
@@ -4553,7 +4995,6 @@ def runConsenrich(
                     "processQScale",
                     processQScaleLocal,
                 ),
-                replicateBias=replicateBias,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
                 ECM_useAPN=bool(useAPNLocal),
@@ -4594,7 +5035,6 @@ def runConsenrich(
                     "processQScale",
                     processQScaleLocal,
                 ),
-                replicateBias=replicateBias,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
                 ECM_useProcessPrecisionReweighting=bool(useProcPrecReweightLocal),
                 ECM_useAPN=bool(useAPNLocal),
@@ -4619,7 +5059,6 @@ def runConsenrich(
         lambdaExp: np.ndarray | None,
         processPrecExp: np.ndarray | None,
         processQScaleLocal: np.ndarray | None,
-        replicateBias: np.ndarray | None,
         useProcPrecReweightLocal: bool,
         useAPNLocal: bool,
     ) -> dict[str, float]:
@@ -4678,7 +5117,6 @@ def runConsenrich(
                 else None
             ),
             processQScaleLocal=processQScaleLocal,
-            replicateBias=replicateBias,
             useProcPrecReweightLocal=useProcPrecReweightLocal,
             useAPNLocal=useAPNLocal,
         )
@@ -4811,7 +5249,6 @@ def runConsenrich(
         useProcPrecReweightOverride: bool | None = None,
         useAPNOverride: bool | None = None,
         initialBackgroundLocal: np.ndarray | None = None,
-        initialReplicateBiasLocal: np.ndarray | None = None,
         initialLambdaLocal: np.ndarray | None = None,
         initialProcessPrecLocal: np.ndarray | None = None,
         processQScaleLocal: np.ndarray | None = None,
@@ -4861,13 +5298,6 @@ def runConsenrich(
         if processQScaleLocal is not None and nLocal:
             processQScaleLocal = processQScaleLocal.copy()
             processQScaleLocal[0] = 1.0
-        replicateBiasLocal = (
-            np.zeros(mLocal, dtype=np.float32)
-            if initialReplicateBiasLocal is None
-            else np.ascontiguousarray(
-                initialReplicateBiasLocal, dtype=np.float32
-            ).copy()
-        )
         backgroundPrepassApplied = False
         backgroundPrepassSource = ""
         if fitBackgroundLocal and initialBackgroundLocal is None:
@@ -4877,7 +5307,6 @@ def runConsenrich(
                     matrixMunc=currentMunc,
                     blockLenIntervals=int(blockLenIntervals),
                     pad=float(pad),
-                    initialReplicateBias=replicateBiasLocal,
                     observationPrecision=lambdaExpLocal,
                     observationPrecisionMultiplierMin=float(
                         observationPrecisionMultiplierMin
@@ -4901,7 +5330,6 @@ def runConsenrich(
             "background": bool(initialBackgroundLocal is not None),
             "background_prepass": bool(backgroundPrepassApplied),
             "background_prepass_source": backgroundPrepassSource,
-            "replicate_bias": bool(initialReplicateBiasLocal is not None),
             "observation_precision": bool(lambdaExpLocal is not None),
             "process_precision": bool(processPrecExpLocal is not None),
         }
@@ -4993,7 +5421,6 @@ def runConsenrich(
                 lambdaExp=lambdaExpLocal,
                 processPrecExp=processPrecExpLocal,
                 processQScaleLocal=processQScaleLocal,
-                replicateBias=replicateBiasLocal,
                 useProcPrecReweightLocal=useProcPrecLocal,
                 useAPNLocal=useAPNLocal,
             )
@@ -5140,7 +5567,6 @@ def runConsenrich(
                 lambdaExpInit=lambdaExpLocal,
                 processPrecExpInit=processPrecExpLocal,
                 processQScale=processQScaleLocal,
-                replicateBiasInit=replicateBiasLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
             )
             ecmLogIterations = bool(logAlternatingECMIterations)
@@ -5157,7 +5583,9 @@ def runConsenrich(
             if stateModelMode == STATE_MODEL_LEVEL_TREND:
                 ecmFunction = cconsenrich.cfixedBackgroundECM
                 ecmKwargs["matrixF"] = matrixFLocal
-            if not _cythonFunctionSupportsKeyword(ecmFunction.__name__, "processQScale"):
+            if not _cythonFunctionSupportsKeyword(
+                ecmFunction.__name__, "processQScale"
+            ):
                 ecmKwargs.pop("processQScale", None)
             try:
                 ecmOutLocal = ecmFunction(
@@ -5168,7 +5596,7 @@ def runConsenrich(
                 if ecmProgressBar is not None:
                     ecmProgressBar.close()
 
-            if len(ecmOutLocal) == 10 and isinstance(ecmOutLocal[-1], Mapping):
+            if len(ecmOutLocal) == 9 and isinstance(ecmOutLocal[-1], Mapping):
                 ecmDiagnosticsLocal = ecmOutLocal[-1]
                 ecmOutLocal = ecmOutLocal[:-1]
             else:
@@ -5176,9 +5604,9 @@ def runConsenrich(
                     "Expected cfixedBackgroundECM(..., returnDiagnostics=True) "
                     "to return diagnostics as the final value."
                 )
-            if len(ecmOutLocal) != 9:
+            if len(ecmOutLocal) != 8:
                 raise ValueError(
-                    "Expected cfixedBackgroundECM(..., returnIntermediates=True) to return 9 values "
+                    "Expected cfixedBackgroundECM(..., returnIntermediates=True) to return 8 values "
                     f"(got {len(ecmOutLocal)})."
                 )
 
@@ -5191,7 +5619,6 @@ def runConsenrich(
                 postFitResidualsLocal,
                 lambdaExpLocal,
                 processPrecExpLocal,
-                replicateBiasLocal,
             ) = ecmOutLocal
             actualOuterPasses = int(outerPassIndex + 1)
             currentECMNLLLocal = float(nllECMLocal)
@@ -5231,7 +5658,6 @@ def runConsenrich(
                 upper=float(processPrecisionMultiplierMax),
                 skipFirst=True,
             )
-            replicateBiasLocal = np.asarray(replicateBiasLocal, dtype=np.float32)
             stateSmoothedLocal = np.asarray(stateSmoothedLocal, dtype=np.float32)
             lastRelativeSignChangePerKBLocal = _relativeSignChangePerKB(
                 stateSmoothedLocal[:, 0],
@@ -5239,7 +5665,6 @@ def runConsenrich(
                 currentMunc,
                 intervalSizeBP=intervalSizeBPLocal,
                 background=currentBackground,
-                replicateBias=replicateBiasLocal,
                 pad=float(pad),
             )
             stateCovarSmoothedLocal = np.asarray(
@@ -5325,10 +5750,8 @@ def runConsenrich(
                     float(observationPrecisionMultiplierMax),
                 )
                 invVarMatrix *= obsPrecision
-            residualMatrix = (
-                np.asarray(matrixDataLocal, dtype=np.float32)
-                - np.asarray(replicateBiasLocal[:, None], dtype=np.float32)
-                - np.asarray(stateSmoothedLocal[:, 0][None, :], dtype=np.float32)
+            residualMatrix = np.asarray(matrixDataLocal, dtype=np.float32) - np.asarray(
+                stateSmoothedLocal[:, 0][None, :], dtype=np.float32
             )
             backgroundWeightTrack = np.sum(invVarMatrix, axis=0, dtype=np.float64)
             backgroundRhsTrack = np.einsum(
@@ -5646,7 +6069,6 @@ def runConsenrich(
                 lambdaExpInit=lambdaExpLocal,
                 processPrecExpInit=processPrecExpLocal,
                 processQScale=processQScaleLocal,
-                replicateBiasInit=replicateBiasLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
             )
             ecmProgressBar = _makeECMProgressBar(
@@ -5661,7 +6083,9 @@ def runConsenrich(
             if stateModelMode == STATE_MODEL_LEVEL_TREND:
                 ecmFunction = cconsenrich.cfixedBackgroundECM
                 ecmKwargs["matrixF"] = matrixFLocal
-            if not _cythonFunctionSupportsKeyword(ecmFunction.__name__, "processQScale"):
+            if not _cythonFunctionSupportsKeyword(
+                ecmFunction.__name__, "processQScale"
+            ):
                 ecmKwargs.pop("processQScale", None)
             try:
                 ecmOutLocal = ecmFunction(
@@ -5671,7 +6095,7 @@ def runConsenrich(
             finally:
                 if ecmProgressBar is not None:
                     ecmProgressBar.close()
-            if len(ecmOutLocal) == 10 and isinstance(ecmOutLocal[-1], Mapping):
+            if len(ecmOutLocal) == 9 and isinstance(ecmOutLocal[-1], Mapping):
                 ecmDiagnosticsLocal = ecmOutLocal[-1]
                 ecmOutLocal = ecmOutLocal[:-1]
             else:
@@ -5679,9 +6103,9 @@ def runConsenrich(
                     "Expected cfixedBackgroundECM(..., returnDiagnostics=True) "
                     "to return diagnostics as the final value."
                 )
-            if len(ecmOutLocal) != 9:
+            if len(ecmOutLocal) != 8:
                 raise ValueError(
-                    "Expected cfixedBackgroundECM(..., returnIntermediates=True) to return 9 values "
+                    "Expected cfixedBackgroundECM(..., returnIntermediates=True) to return 8 values "
                     f"(got {len(ecmOutLocal)})."
                 )
             (
@@ -5693,7 +6117,6 @@ def runConsenrich(
                 postFitResidualsLocal,
                 lambdaExpLocal,
                 processPrecExpLocal,
-                replicateBiasLocal,
             ) = ecmOutLocal
             currentECMNLLLocal = float(nllECMLocal)
             finalECMDiagnosticsNormalized = _normalizeFixedBackgroundECMDiagnostics(
@@ -5732,7 +6155,6 @@ def runConsenrich(
                 upper=float(processPrecisionMultiplierMax),
                 skipFirst=True,
             )
-            replicateBiasLocal = np.asarray(replicateBiasLocal, dtype=np.float32)
             stateSmoothedLocal = np.asarray(stateSmoothedLocal, dtype=np.float32)
             lastRelativeSignChangePerKBLocal = _relativeSignChangePerKB(
                 stateSmoothedLocal[:, 0],
@@ -5740,7 +6162,6 @@ def runConsenrich(
                 currentMunc,
                 intervalSizeBP=intervalSizeBPLocal,
                 background=currentBackground,
-                replicateBias=replicateBiasLocal,
                 pad=float(pad),
             )
             stateCovarSmoothedLocal = np.asarray(
@@ -5838,7 +6259,6 @@ def runConsenrich(
             lambdaExp=lambdaExpLocal,
             processPrecExp=processPrecExpLocal,
             processQScaleLocal=processQScaleLocal,
-            replicateBias=replicateBiasLocal,
             useProcPrecReweightLocal=useProcPrecLocal,
             useAPNLocal=useAPNLocal,
         )
@@ -5848,7 +6268,6 @@ def runConsenrich(
             "lambdaExp": lambdaExpLocal,
             "processPrecExp": processPrecExpLocal,
             "processQScale": processQScaleLocal,
-            "replicateBias": np.asarray(replicateBiasLocal, dtype=np.float32),
             "stateForward": np.asarray(stateForwardLocal, dtype=np.float32),
             "stateCovarForward": np.asarray(stateCovarForwardLocal, dtype=np.float32),
             "pNoiseForward": np.asarray(pNoiseForwardLocal, dtype=np.float32),
@@ -5926,7 +6345,6 @@ def runConsenrich(
     fitProcessNoiseWarmup: Mapping[str, Any] | None = None
     processNoiseCalibrationInfo: dict[str, Any] | None = None
     postQInitialBackground = initialBackgroundArr
-    postQInitialReplicateBias = initialReplicateBiasArr
     postQInitialLambda = initialObservationPrecisionArr
     postQInitialProcessPrec = initialProcessPrecisionArr
 
@@ -5943,10 +6361,14 @@ def runConsenrich(
             support=qCalibrationSupport,
             warmStartProcessNoise=1.0,
         )
-    elif processNoiseCalibrationMode in {
-        PROCESS_NOISE_CALIBRATION_SEED,
-        PROCESS_NOISE_CALIBRATION_FIXED,
-    } or processCalibrationSkipReason is not None:
+    elif (
+        processNoiseCalibrationMode
+        in {
+            PROCESS_NOISE_CALIBRATION_SEED,
+            PROCESS_NOISE_CALIBRATION_FIXED,
+        }
+        or processCalibrationSkipReason is not None
+    ):
         skipReason = (
             str(processCalibrationSkipReason)
             if processCalibrationSkipReason is not None
@@ -5993,7 +6415,6 @@ def runConsenrich(
             useProcPrecReweightOverride=False,
             useAPNOverride=False,
             initialBackgroundLocal=postQInitialBackground,
-            initialReplicateBiasLocal=postQInitialReplicateBias,
             initialLambdaLocal=postQInitialLambda,
             phaseLabel="process noise TUNC warmup",
             phaseIndentLevel=logIndentLevel + 1,
@@ -6001,10 +6422,6 @@ def runConsenrich(
         )
         postQInitialBackground = np.asarray(
             fitProcessNoiseWarmup["background"],
-            dtype=np.float32,
-        )
-        postQInitialReplicateBias = np.asarray(
-            fitProcessNoiseWarmup["replicateBias"],
             dtype=np.float32,
         )
         postQInitialLambda = (
@@ -6024,7 +6441,6 @@ def runConsenrich(
                 maxQ=float(maxQ),
                 blockLenIntervals=int(blockLenIntervals),
                 processCovariates=processCovariatesArr,
-                tuncPriorDf=float(tuncPriorDf),
                 tuncLocalWindowMultiplier=float(tuncLocalWindowMultiplier),
                 tuncDependenceMultiplier=float(tuncDependenceMultiplier),
                 tuncMinScale=float(tuncMinScale),
@@ -6059,11 +6475,23 @@ def runConsenrich(
             ("pre_kappa_level", processNoiseCalibrationInfo["preKappaQLevel"]),
             ("pre_kappa_trend", processNoiseCalibrationInfo["preKappaQTrend"]),
             ("global_scale", processNoiseCalibrationInfo.get("globalScale", 1.0)),
-            ("valid_transitions", int(processNoiseCalibrationInfo.get("validTransitionCount", 0))),
+            (
+                "valid_transitions",
+                int(processNoiseCalibrationInfo.get("validTransitionCount", 0)),
+            ),
             ("windows", int(processNoiseCalibrationInfo.get("windowCount", 0))),
-            ("qscale_clamp_fraction", processNoiseCalibrationInfo.get("qScaleClampFraction", 0.0)),
-            ("base_q_clamp_changed", bool(processNoiseCalibrationInfo.get("baseQClampChanged", False))),
-            ("qscale_decomp_max_log_error", processNoiseCalibrationInfo.get("qScaleDecompositionMaxLogError", 0.0)),
+            (
+                "qscale_clamp_fraction",
+                processNoiseCalibrationInfo.get("qScaleClampFraction", 0.0),
+            ),
+            (
+                "base_q_clamp_changed",
+                bool(processNoiseCalibrationInfo.get("baseQClampChanged", False)),
+            ),
+            (
+                "qscale_decomp_max_log_error",
+                processNoiseCalibrationInfo.get("qScaleDecompositionMaxLogError", 0.0),
+            ),
         ),
     )
     baseFitPhaseLabel = "post-process-noise fit"
@@ -6104,7 +6532,6 @@ def runConsenrich(
         ecmItersLocal=int(ECM_fixedBackgroundIters),
         ecmRtolLocal=float(ECM_fixedBackgroundRtol),
         initialBackgroundLocal=postQInitialBackground,
-        initialReplicateBiasLocal=postQInitialReplicateBias,
         initialLambdaLocal=postQInitialLambda,
         initialProcessPrecLocal=postQInitialProcessPrec,
         processQScaleLocal=processQScaleFinal,
@@ -6117,7 +6544,6 @@ def runConsenrich(
         fitLogEvent,
         time.perf_counter() - stageStart,
     )
-    replicateBias_final = np.asarray(fitFinal["replicateBias"], dtype=np.float32)
     stateSmoothed = np.asarray(fitFinal["stateSmoothed"], dtype=np.float32)
     stateCovarSmoothed = np.asarray(fitFinal["stateCovarSmoothed"], dtype=np.float32)
     postFitResiduals = np.asarray(fitFinal["postFitResiduals"], dtype=np.float32)
@@ -6156,8 +6582,12 @@ def runConsenrich(
         "effectiveQLevelMedian=%s effectiveQTrendMedian=%s",
         str(processQDiagnostics["policy"]),
         str(bool(processQDiagnostics["apn_enabled"])).lower(),
-        str(bool(processQDiagnostics["process_precision_reweighting_requested"])).lower(),
-        str(bool(processQDiagnostics["process_precision_reweighting_effective"])).lower(),
+        str(
+            bool(processQDiagnostics["process_precision_reweighting_requested"])
+        ).lower(),
+        str(
+            bool(processQDiagnostics["process_precision_reweighting_effective"])
+        ).lower(),
         _formatMaybeFloat(processQDiagnostics.get("baseQLevel")),
         _formatMaybeFloat(processQDiagnostics.get("baseQTrend")),
         _formatMaybeFloat(processQDiagnostics.get("effectiveQLevelMedian")),
@@ -6197,6 +6627,7 @@ def runConsenrich(
         str(fitFinal.get("outerStopReason", "unknown")),
         float(np.max(np.abs(fitFinal["background"]))),
     )
+
     def _processNoiseCalibrationMetadataValue(value: Any) -> Any:
         if isinstance(value, np.ndarray):
             return value.astype(float).tolist()
@@ -6238,10 +6669,7 @@ def runConsenrich(
                 metadataFloat(float(value))
                 for value in finalForwardGainContigSummary["iqr"]
             ],
-            "count": [
-                int(value)
-                for value in finalForwardGainContigSummary["count"]
-            ],
+            "count": [int(value) for value in finalForwardGainContigSummary["count"]],
         },
         "precision_reweighting_boundary_hits": summarizePrecisionBoundaryHits(
             observationPrecision=(
@@ -6394,16 +6822,6 @@ def runConsenrich(
         return result
 
     if returnScales:
-        if returnReplicateOffsets:
-            result = (
-                outStateSmoothed,
-                outStateCovarSmoothed,
-                outPostFitResiduals,
-                outNIS,
-                np.asarray(replicateBias_final, dtype=np.float32),
-                intervalToBlockMap,
-            )
-            return _maybeAddRequestedOutputs(result)
         result = (
             outStateSmoothed,
             outStateCovarSmoothed,
@@ -7537,13 +7955,9 @@ def _fitReplicateMuncVariancePriorFromArrays(
     if noiseFit is not None:
         diagnostics.update(
             {
-                "munc_ar1_variance_functional": (
-                    muncAR1VarianceFunctionalName
-                ),
+                "munc_ar1_variance_functional": (muncAR1VarianceFunctionalName),
                 "munc_ar1_max_beta": float(MUNC_AR1_MAX_BETA_DEFAULT),
-                "munc_ar1_pairs_reg_lambda": float(
-                    MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT
-                ),
+                "munc_ar1_pairs_reg_lambda": float(MUNC_AR1_PAIRS_REG_LAMBDA_DEFAULT),
                 "munc_ar1_nu_l_beta_max_beta": float(MUNC_AR1_MAX_BETA_DEFAULT),
             }
         )
@@ -7894,6 +8308,7 @@ def _formatMuncVarianceDiagnostics(
     globalVarianceTrack: np.ndarray,
     finalVarianceTrack: np.ndarray,
     supportAbsMeans: np.ndarray,
+    countModelVarianceFloorTrack: np.ndarray | None = None,
 ) -> str:
     probs = np.asarray([0.05, 0.25, 0.50, 0.75, 0.95], dtype=np.float64)
     labels = ("p05", "p25", "p50", "p75", "p95")
@@ -7926,11 +8341,16 @@ def _formatMuncVarianceDiagnostics(
             f"tail_support(abs_signed_mean)[n={support.size},{','.join(tailParts)}]"
         )
 
+    floorLine = ""
+    if countModelVarianceFloorTrack is not None:
+        floorLine = f"\n\t{_sdQuantiles('count_floor', countModelVarianceFloorTrack)}"
+
     return (
         "MUNC variance SD diagnostics:\n"
         f"\t{_sdQuantiles('L', localVarianceTrack)}\n"
         f"\t{_sdQuantiles('G', globalVarianceTrack)}\n"
-        f"\t{_sdQuantiles('V0', finalVarianceTrack)}\n"
+        f"\t{_sdQuantiles('V0', finalVarianceTrack)}"
+        f"{floorLine}\n"
         f"\t{tailSummary}"
     )
 
@@ -7959,6 +8379,61 @@ def _clipVarianceTrack(
         finiteMask = np.isfinite(out)
         out[finiteMask] = np.clip(out[finiteMask], floor_, cap_)
     return out.astype(np.float32)
+
+
+def _coerceMuncCountModelVarianceFloor(
+    countModelVarianceFloor: np.ndarray | None,
+    intervalCount: int,
+) -> np.ndarray | None:
+    if countModelVarianceFloor is None:
+        return None
+
+    floorTrack = np.asarray(countModelVarianceFloor, dtype=np.float64).reshape(-1)
+    if floorTrack.size != int(intervalCount):
+        raise ValueError(
+            "countModelVarianceFloor must be a one-dimensional track matching "
+            "the MUNC interval count",
+        )
+    finite = np.isfinite(floorTrack)
+    if np.any(finite & (floorTrack < 0.0)):
+        raise ValueError("countModelVarianceFloor must be nonnegative where finite")
+    if not np.any(finite):
+        return None
+    out = np.full(floorTrack.shape, np.nan, dtype=np.float64)
+    out[finite] = floorTrack[finite]
+    return out
+
+
+def applyMuncCountModelVarianceFloor(
+    muncVarianceTrack: np.ndarray,
+    countModelVarianceFloor: np.ndarray | None,
+    *,
+    varianceFloor: float,
+    varianceCap: float | None = None,
+) -> npt.NDArray[np.float32]:
+    r"""Apply a precomputed transformed-scale count-model variance floor to MUNC.
+
+    ``countModelVarianceFloor`` is intentionally already on the same scale as the
+    transformed observation track. Raw-count Poisson/NB or treatment-control
+    delta-method calculations belong upstream, where the raw counts, scale
+    factors, and transform parameters are still available.
+    """
+
+    out = _clipVarianceTrack(
+        muncVarianceTrack,
+        floor=varianceFloor,
+        cap=varianceCap,
+    ).astype(np.float64, copy=False)
+    floorTrack = _coerceMuncCountModelVarianceFloor(
+        countModelVarianceFloor,
+        out.size,
+    )
+    if floorTrack is None:
+        return out.astype(np.float32, copy=False)
+
+    finite = np.isfinite(floorTrack)
+    out[finite] = np.maximum(out[finite], floorTrack[finite])
+    return _clipVarianceTrack(out, floor=varianceFloor, cap=varianceCap)
 
 
 def _buildSecondDiffPenalty(intervalCount: int) -> sparse.csr_matrix:
@@ -8896,6 +9371,25 @@ def _computeDeltaMethodAR1LogVarianceNoise(
         OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
     ),
 ) -> np.ndarray:
+    r"""
+    Compute the delta method approximation of the log-variance of AR(1) noise. Used to assign observation noise estimates to finite genomic windows.
+
+    Parameters
+    ----------
+    betaTrack : np.ndarray
+        Array of AR(1) coefficients.
+    blockLengths : np.ndarray | int
+        Array of block lengths or a single integer.
+    maxBeta : float, optional
+        Maximum allowed value for beta.
+    muncAR1VarianceFunctional : str | None, optional
+        Functional name for MUNC AR(1) variance.
+
+    Returns
+    -------
+    np.ndarray
+        Array of log-variance noise values.
+    """
     functionalName = _normalizeMuncAR1VarianceFunctional(muncAR1VarianceFunctional)
     betaArr = np.asarray(betaTrack, dtype=np.float64).ravel()
     if np.ndim(blockLengths) == 0:
@@ -8921,6 +9415,7 @@ def _computeDeltaMethodAR1LogVarianceNoise(
     oneMinusBetaSq = np.maximum(1.0 - betaValid * betaValid, 1.0e-8)
     varBetaHat = oneMinusBetaSq / nPairs
     logVarianceNoise[valid] = np.asarray(trigamma(dfRSS / 2.0), dtype=np.float64)
+    # marginal or innovation var
     if functionalName == MUNC_AR1_VARIANCE_FUNCTIONAL_MARGINAL:
         grad = (2.0 * betaValid) / oneMinusBetaSq
         logVarianceNoise[valid] += grad * grad * varBetaHat
@@ -9048,6 +9543,7 @@ def getMuncTrack(
     covariateTrack: Optional[np.ndarray] = None,
     additiveCovariateModel: Optional[MuncAdditiveCovariateModel] = None,
     replicateIndex: int | None = None,
+    countModelVarianceFloor: Optional[np.ndarray] = None,
 ) -> tuple[npt.NDArray[np.float32], float]:
     r"""Approximate initial sample-specific (**M**)easurement (**unc**)ertainty tracks
 
@@ -9055,6 +9551,10 @@ def getMuncTrack(
     These tracks (per-sample) comprise the ``matrixMunc`` input to :func:`runConsenrich`, :math:`\mathbf{R}[:,:] \in \mathbb{R}^{m \times n}`.
 
     Variance is modeled as a function of a signed mean signal predictor. For ``EB_use=True``, local variance estimates are shrunk toward a signal level dependent global variance fit.
+    If ``countModelVarianceFloor`` is supplied, it must be a precomputed
+    per-interval transformed-scale lower bound for this replicate; it is
+    combined with the fitted MUNC track by elementwise maximum after EB
+    shrinkage.
 
     :param chromosome: chromosome/contig name
     :type chromosome: str
@@ -9062,6 +9562,11 @@ def getMuncTrack(
     :type values: np.ndarray
     :param intervals: genomic intervals positions (start positions)
     :type intervals: np.ndarray
+    :param countModelVarianceFloor: Optional transformed-scale observation
+        variance floor for this replicate. Finite entries are combined with
+        the final fitted MUNC track by elementwise maximum; ``NaN`` entries
+        leave the fitted MUNC value unchanged.
+    :type countModelVarianceFloor: np.ndarray | None
 
     See :class:`consenrich.core.observationParams` for other parameters.
 
@@ -9102,6 +9607,10 @@ def getMuncTrack(
     valuesArr = np.ascontiguousarray(values, dtype=np.float32)
     if intervalsArr.shape[0] != valuesArr.size:
         raise ValueError("intervalsArr must match values length")
+    countModelVarianceFloorArr = _coerceMuncCountModelVarianceFloor(
+        countModelVarianceFloor,
+        valuesArr.size,
+    )
 
     if excludeMask is None:
         if excludeMaskArr is None:
@@ -9183,6 +9692,10 @@ def getMuncTrack(
                     if additiveCovariateModel is not None and covariateTrack is not None
                     else "disabled"
                 ),
+            ),
+            (
+                "MUNC count model floor",
+                "enabled" if countModelVarianceFloorArr is not None else "disabled",
             ),
         ),
         level=logging.DEBUG,
@@ -9334,11 +9847,12 @@ def getMuncTrack(
     def _finalizeMuncVarianceTrack(
         fittedVarianceTrack: np.ndarray,
     ) -> npt.NDArray[np.float32]:
-        return _clipVarianceTrack(
+        return applyMuncCountModelVarianceFloor(
             np.asarray(fittedVarianceTrack, dtype=np.float64),
-            floor=varianceFloor_,
-            cap=varianceCap_,
-        ).astype(np.float32, copy=False)
+            countModelVarianceFloorArr,
+            varianceFloor=varianceFloor_,
+            varianceCap=varianceCap_,
+        )
 
     supportFraction = 1.0
     if pooledTrend is None:
@@ -9781,6 +10295,7 @@ def getMuncTrack(
             priorTrack,
             posteriorVarTrack,
             np.abs(means_Sorted),
+            countModelVarianceFloorArr,
         )
     )
 

@@ -254,7 +254,6 @@ cdef tuple _resolveTransformParameters(
 cdef inline void _accumulateObservationValue(
     double observed,
     double stateLevel,
-    double bias,
     double baseVariance,
     double pad,
     double obsPrecision,
@@ -264,7 +263,7 @@ cdef inline void _accumulateObservationValue(
     double* sumInvRInnov2,
     double* sumLogR,
 ) noexcept nogil:
-    cdef double innov = observed - bias - stateLevel
+    cdef double innov = observed - stateLevel
     cdef double measVar = baseVariance + pad
     cdef double invMeasVar
 
@@ -3644,7 +3643,6 @@ cpdef tuple cforwardPass(
     bint storeNLLInD=False,
     object lambdaExp=None,
     object processPrecExp=None,
-    object replicateBias=None,
     bint ECM_useObsPrecisionReweighting=True,
     bint ECM_useProcessPrecisionReweighting=True,
     bint ECM_useAPN=False,
@@ -3701,9 +3699,6 @@ cpdef tuple cforwardPass(
         and (processPrecExp is not None)
         and ((not ECM_useAPN) or useProcessQScale)
     )
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
-    cdef cnp.float32_t[::1] replicateBiasView
-    cdef bint useReplicateBias = (replicateBias is not None)
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] stateVector = np.array([stateInit, 0.0], dtype=np.float32)
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] stateCovar = (np.eye(2, dtype=np.float32) * np.float32(stateCovarInit))
     cdef cnp.float32_t[::1] stateVectorView = stateVector
@@ -3737,7 +3732,6 @@ cpdef tuple cforwardPass(
     cdef double obsPrec
     cdef double procPrecMin = <double>procPrecisionMultiplierMin
     cdef double procPrecMax = <double>procPrecisionMultiplierMax
-    cdef double biasJ
     cdef double qDiagBase
     cdef double apnScale = 1.0
     cdef double qScale
@@ -3762,10 +3756,6 @@ cpdef tuple cforwardPass(
     if useProcessQScale:
         processQScaleArr = _coerceProcessQScale(processQScale, intervalCount)
         processQScaleView = processQScaleArr
-
-    if useReplicateBias:
-        replicateBiasArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> replicateBias
-        replicateBiasView = replicateBiasArr
 
     # Check edge cases here once before loops
     if intervalCount <= 0 or trackCount <= 0:
@@ -3793,10 +3783,6 @@ cpdef tuple cforwardPass(
     if useProcPrec:
         if processPrecExpArr.shape[0] != intervalCount:
             raise ValueError("processPrecExp length must match intervalCount")
-
-    if useReplicateBias:
-        if replicateBiasArr.shape[0] != trackCount:
-            raise ValueError("replicateBias length must match trackCount")
 
     # dStatVector[k]: diagnostic scalar statistic for interval k that can optionally store NLL[k]
     # If storeNLLInD and returnNLL then dStatVector[k] stores NLL[k]
@@ -3897,15 +3883,9 @@ cpdef tuple cforwardPass(
             intervalNLL = 0.0
 
         for j in range(trackCount):
-            if useReplicateBias:
-                biasJ = <double>replicateBiasView[j]
-            else:
-                biasJ = 0.0
-
             _accumulateObservationValue(
                 <double>dataView[j, k],
                 <double>stateVectorView[0],
-                biasJ,
                 <double>muncMatView[j, k],
                 <double>pad,
                 obsPrec,
@@ -4011,7 +3991,6 @@ cpdef tuple cbackwardPass(
     object stateCovarSmoothed=None,
     object lagCovSmoothed=None,
     object postFitResiduals=None,
-    object replicateBias=None,
     object progressBar=None,
     Py_ssize_t progressIter=10000,
 ):
@@ -4051,14 +4030,11 @@ cpdef tuple cbackwardPass(
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarSmoothedArr
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] lagCovSmoothedArr
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResidualsArr
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
 
     cdef cnp.float32_t[:, ::1] stateSmoothedView
     cdef cnp.float32_t[:, :, ::1] stateCovarSmoothedView
     cdef cnp.float32_t[:, :, ::1] lagCovSmoothedView
     cdef cnp.float32_t[:, ::1] postFitResidualsView
-    cdef cnp.float32_t[::1] replicateBiasView
-    cdef bint useReplicateBias = (replicateBias is not None)
     cdef double F00, F01, F10, F11
     cdef double xPred0, xPred1
     cdef double Q00, Q01, Q10, Q11
@@ -4077,7 +4053,6 @@ cpdef tuple cbackwardPass(
     cdef double JD00, JD01, JD10, JD11
 
     cdef double innov
-    cdef double biasJ
 
     if stateSmoothed is not None:
         stateSmoothedArr = <cnp.ndarray[cnp.float32_t, ndim=2, mode="c"]> stateSmoothed
@@ -4104,12 +4079,6 @@ cpdef tuple cbackwardPass(
     lagCovSmoothedView = lagCovSmoothedArr
     postFitResidualsView = postFitResidualsArr
 
-    if useReplicateBias:
-        replicateBiasArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> replicateBias
-        replicateBiasView = replicateBiasArr
-        if replicateBiasArr.shape[0] != trackCount:
-            raise ValueError("replicateBias length must match trackCount")
-
     F00 = <double>fView[0, 0]
     F01 = <double>fView[0, 1]
     F10 = <double>fView[1, 0]
@@ -4131,12 +4100,8 @@ cpdef tuple cbackwardPass(
         stateCovarSmoothedView[intervalCount - 1, 1, 1] = stateCovarForwardView[intervalCount - 1, 1, 1]
 
         for j in range(trackCount):
-            if useReplicateBias:
-                biasJ = <double>replicateBiasView[j]
-            else:
-                biasJ = 0.0
             postFitResidualsView[intervalCount - 1, j] = <cnp.float32_t>(
-                (<double>dataView[j, intervalCount - 1]) - biasJ - (<double>stateSmoothedView[intervalCount - 1, 0])
+                (<double>dataView[j, intervalCount - 1]) - (<double>stateSmoothedView[intervalCount - 1, 0])
             )
 
         #  `k = intervalCount - 2`...`k=0`
@@ -4229,11 +4194,7 @@ cpdef tuple cbackwardPass(
                 lagCovSmoothedView[k, 1, 1] = <cnp.float32_t>C11
 
             for j in range(trackCount):
-                if useReplicateBias:
-                    biasJ = <double>replicateBiasView[j]
-                else:
-                    biasJ = 0.0
-                innov = (<double>dataView[j, k]) - biasJ - (<double>stateSmoothedView[k, 0])
+                innov = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
                 postFitResidualsView[k, j] = <cnp.float32_t>innov
 
     return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
@@ -4259,7 +4220,6 @@ cpdef tuple cforwardPassLevel(
     bint storeNLLInD=False,
     object lambdaExp=None,
     object processPrecExp=None,
-    object replicateBias=None,
     bint ECM_useObsPrecisionReweighting=True,
     bint ECM_useProcessPrecisionReweighting=True,
     bint ECM_useAPN=False,
@@ -4306,9 +4266,6 @@ cpdef tuple cforwardPassLevel(
         and (processPrecExp is not None)
         and ((not ECM_useAPN) or useProcessQScale)
     )
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
-    cdef cnp.float32_t[::1] replicateBiasView
-    cdef bint useReplicateBias = (replicateBias is not None)
     cdef double stateValue = <double>stateInit
     cdef double stateVar = <double>stateCovarInit
     cdef double q0 = <double>q0View[0, 0]
@@ -4334,7 +4291,6 @@ cpdef tuple cforwardPassLevel(
     cdef double wMax = <double>obsPrecisionMultiplierMax
     cdef double procPrecMin = <double>procPrecisionMultiplierMin
     cdef double procPrecMax = <double>procPrecisionMultiplierMax
-    cdef double biasJ
     cdef double phiHat = 1.0
     cdef double apnScale = 1.0
     cdef double qScale
@@ -4382,12 +4338,6 @@ cpdef tuple cforwardPassLevel(
     if useProcessQScale:
         processQScaleArr = _coerceProcessQScale(processQScale, intervalCount)
         processQScaleView = processQScaleArr
-    if useReplicateBias:
-        replicateBiasArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> replicateBias
-        if replicateBiasArr.shape[0] != trackCount:
-            raise ValueError("replicateBias length must match trackCount")
-        replicateBiasView = replicateBiasArr
-
     if vectorD is None:
         dStatVectorArr = np.empty(intervalCount, dtype=np.float32)
     else:
@@ -4435,14 +4385,9 @@ cpdef tuple cforwardPassLevel(
             intervalNLL = 0.0
 
         for j in range(trackCount):
-            if useReplicateBias:
-                biasJ = <double>replicateBiasView[j]
-            else:
-                biasJ = 0.0
             _accumulateObservationValue(
                 <double>dataView[j, k],
                 stateValue,
-                biasJ,
                 <double>muncMatView[j, k],
                 <double>pad,
                 obsPrec,
@@ -4517,7 +4462,6 @@ cpdef tuple cbackwardPassLevel(
     object stateCovarSmoothed=None,
     object lagCovSmoothed=None,
     object postFitResiduals=None,
-    object replicateBias=None,
     object progressBar=None,
     Py_ssize_t progressIter=10000,
 ):
@@ -4534,13 +4478,10 @@ cpdef tuple cbackwardPassLevel(
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] stateCovarSmoothedArr
     cdef cnp.ndarray[cnp.float32_t, ndim=3, mode="c"] lagCovSmoothedArr
     cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] postFitResidualsArr
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
     cdef cnp.float32_t[:, ::1] stateSmoothedView
     cdef cnp.float32_t[:, :, ::1] stateCovarSmoothedView
     cdef cnp.float32_t[:, :, ::1] lagCovSmoothedView
     cdef cnp.float32_t[:, ::1] postFitResidualsView
-    cdef cnp.float32_t[::1] replicateBiasView
-    cdef bint useReplicateBias = (replicateBias is not None)
     cdef double Pf
     cdef double Q
     cdef double PPred
@@ -4550,7 +4491,6 @@ cpdef tuple cbackwardPassLevel(
     cdef double dP
     cdef double Ps
     cdef double C
-    cdef double biasJ
     cdef double innov
 
     if stateSmoothed is not None:
@@ -4575,12 +4515,6 @@ cpdef tuple cbackwardPassLevel(
     lagCovSmoothedView = lagCovSmoothedArr
     postFitResidualsView = postFitResidualsArr
 
-    if useReplicateBias:
-        replicateBiasArr = <cnp.ndarray[cnp.float32_t, ndim=1, mode="c"]> replicateBias
-        if replicateBiasArr.shape[0] != trackCount:
-            raise ValueError("replicateBias length must match trackCount")
-        replicateBiasView = replicateBiasArr
-
     if intervalCount <= 0:
         return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
 
@@ -4589,12 +4523,8 @@ cpdef tuple cbackwardPassLevel(
         stateCovarSmoothedView[intervalCount - 1, 0, 0] = stateCovarForwardView[intervalCount - 1, 0, 0]
 
         for j in range(trackCount):
-            if useReplicateBias:
-                biasJ = <double>replicateBiasView[j]
-            else:
-                biasJ = 0.0
             postFitResidualsView[intervalCount - 1, j] = <cnp.float32_t>(
-                (<double>dataView[j, intervalCount - 1]) - biasJ - (<double>stateSmoothedView[intervalCount - 1, 0])
+                (<double>dataView[j, intervalCount - 1]) - (<double>stateSmoothedView[intervalCount - 1, 0])
             )
 
         for k in range(intervalCount - 2, -1, -1):
@@ -4619,11 +4549,7 @@ cpdef tuple cbackwardPassLevel(
                 lagCovSmoothedView[k, 0, 0] = <cnp.float32_t>C
 
             for j in range(trackCount):
-                if useReplicateBias:
-                    biasJ = <double>replicateBiasView[j]
-                else:
-                    biasJ = 0.0
-                innov = (<double>dataView[j, k]) - biasJ - (<double>stateSmoothedView[k, 0])
+                innov = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
                 postFitResidualsView[k, j] = <cnp.float32_t>innov
 
     return (stateSmoothedArr, stateCovarSmoothedArr, lagCovSmoothedArr, postFitResidualsArr)
@@ -4658,7 +4584,6 @@ cpdef tuple cfixedBackgroundECMLevel(
     bint returnDiagnostics=False,
     object lambdaExpInit=None,
     object processPrecExpInit=None,
-    object replicateBiasInit=None,
     bint trackOptimizationPath=False,
     object progressBar=None,
     bint logIterations=True,
@@ -4674,8 +4599,6 @@ cpdef tuple cfixedBackgroundECMLevel(
     cdef cnp.float32_t[:, ::1] dataView = matrixData
     cdef cnp.float32_t[:, ::1] muncMatView = matrixPluginMuncInit
     cdef cnp.float32_t[:, ::1] q0View = matrixQ0
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
-    cdef cnp.float32_t[::1] replicateBiasView
     cdef object lambdaExp = None
     cdef object processPrecExp = None
     cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] lambdaExpArr
@@ -4726,38 +4649,14 @@ cpdef tuple cfixedBackgroundECMLevel(
     cdef double kappaMin_ = <double>procPrecisionMultiplierMin
     cdef double kappaMax_ = <double>procPrecisionMultiplierMax
     cdef double dState = 1.0
-    cdef double tmpVal
     cdef double procNu = ECM_robustTNu
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasNum = np.zeros(trackCount, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasDen = np.zeros(trackCount, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasCenterWeight = np.zeros(trackCount, dtype=np.float64)
-    cdef double[::1] repBiasNumView = repBiasNum
-    cdef double[::1] repBiasDenView = repBiasDen
-    cdef double[::1] repBiasCenterWeightView = repBiasCenterWeight
     cdef Py_ssize_t stableIters = 0
     cdef Py_ssize_t patienceTarget = 2
-    cdef double repBiasAlpha
-    cdef double repBiasProjectionNum
-    cdef double repBiasProjectionDen
-    cdef double repBiasCenterWeightJ
-    cdef double invVar
-    cdef double denomNoRep
-    cdef double yMinusState
     cdef bint iterationConverged = False
     cdef object optimizationPath = None
 
     if trackOptimizationPath:
         optimizationPath = []
-
-    if replicateBiasInit is None:
-        replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
-    else:
-        replicateBiasArr = np.array(replicateBiasInit, dtype=np.float32, copy=True, order="C").reshape(-1)
-        if replicateBiasArr.shape[0] != trackCount:
-            raise ValueError("replicateBiasInit length must match trackCount")
-        if not np.all(np.isfinite(replicateBiasArr)):
-            raise ValueError("replicateBiasInit must contain only finite values")
-    replicateBiasView = replicateBiasArr
 
     if ECM_useObsPrecisionReweighting:
         if lambdaExpInit is None:
@@ -4825,7 +4724,6 @@ cpdef tuple cfixedBackgroundECMLevel(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                replicateBias=replicateBiasArr,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
                 ECM_useAPN=ECM_useAPN,
@@ -4850,7 +4748,6 @@ cpdef tuple cfixedBackgroundECMLevel(
                 stateCovarSmoothed=stateCovarSmoothed,
                 lagCovSmoothed=lagCovSmoothed,
                 postFitResiduals=postFitResiduals,
-                replicateBias=replicateBiasArr,
                 progressBar=None,
                 progressIter=0,
             )
@@ -4874,7 +4771,6 @@ cpdef tuple cfixedBackgroundECMLevel(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                replicateBias=replicateBiasArr,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
                 ECM_useAPN=ECM_useAPN,
@@ -4912,12 +4808,12 @@ cpdef tuple cfixedBackgroundECMLevel(
                 return (
                     0, float(previousNLL),
                     stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-                    lambdaExp, processPrecExp, replicateBiasArr, diagnostics
+                    lambdaExp, processPrecExp, diagnostics
                 )
             return (
                 0, float(previousNLL),
                 stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-                lambdaExp, processPrecExp, replicateBiasArr
+                lambdaExp, processPrecExp
             )
         if returnDiagnostics:
             return (0, float(previousNLL), diagnostics)
@@ -4935,19 +4831,6 @@ cpdef tuple cfixedBackgroundECMLevel(
         raise ValueError("intervalToBlockMap length must match intervalCount")
 
     q0Inv = 1.0 / q0
-
-    with nogil:
-        for j in range(trackCount):
-            repBiasCenterWeightView[j] = 0.0
-        for k in range(intervalCount):
-            b = <Py_ssize_t>blockMapView[k]
-            if b < 0 or b >= blockCount:
-                continue
-            for j in range(trackCount):
-                muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                if muncPlusPad < 1.0e-12:
-                    muncPlusPad = 1.0e-12
-                repBiasCenterWeightView[j] += 1.0 / muncPlusPad
 
     for i in range(ECM_fixedBackgroundIters):
         itersDone = i + 1
@@ -4975,7 +4858,6 @@ cpdef tuple cfixedBackgroundECMLevel(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                replicateBias=replicateBiasArr,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
                 ECM_useAPN=ECM_useAPN,
@@ -5001,7 +4883,6 @@ cpdef tuple cfixedBackgroundECMLevel(
                 stateCovarSmoothed=stateCovarSmoothed,
                 lagCovSmoothed=lagCovSmoothed,
                 postFitResiduals=postFitResiduals,
-                replicateBias=replicateBiasArr,
                 progressBar=None,
                 progressIter=0,
             )
@@ -5022,7 +4903,7 @@ cpdef tuple cfixedBackgroundECMLevel(
                             if muncPlusPad < 1.0e-12:
                                 muncPlusPad = 1.0e-12
                             Rkj = muncPlusPad
-                            res = (<double>dataView[j, k]) - (<double>replicateBiasView[j]) - (<double>stateSmoothedView[k, 0])
+                            res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
                             obsU2 += (res * res + p00k) / Rkj
                         w = ((<double>ECM_robustTNu) + (<double>trackCount)) / ((<double>ECM_robustTNu) + obsU2)
                         if w < wMin:
@@ -5055,61 +4936,6 @@ cpdef tuple cfixedBackgroundECMLevel(
                         kappa_ = kappaMax_
                     processPrecExpView[k + 1] = <cnp.float32_t>kappa_
 
-        with nogil:
-            for j in range(trackCount):
-                repBiasNumView[j] = 0.0
-                repBiasDenView[j] = 0.0
-            for k in range(intervalCount):
-                b = <Py_ssize_t>blockMapView[k]
-                if b < 0 or b >= blockCount:
-                    continue
-                for j in range(trackCount):
-                    muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                    if muncPlusPad < 1.0e-12:
-                        muncPlusPad = 1.0e-12
-                    denomNoRep = muncPlusPad
-                    if denomNoRep < 1.0e-12:
-                        denomNoRep = 1.0e-12
-                    if ECM_useObsPrecisionReweighting:
-                        w = <double>lambdaExpView[k]
-                        if w < wMin:
-                            w = wMin
-                        elif w > wMax:
-                            w = wMax
-                    else:
-                        w = 1.0
-                    invVar = w / denomNoRep
-                    yMinusState = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
-                    repBiasNumView[j] += invVar * yMinusState
-                    repBiasDenView[j] += invVar
-
-            repBiasProjectionNum = 0.0
-            repBiasProjectionDen = 0.0
-            for j in range(trackCount):
-                if repBiasDenView[j] > 0.0:
-                    tmpVal = repBiasNumView[j] / repBiasDenView[j]
-                    replicateBiasView[j] = <cnp.float32_t>tmpVal
-                    repBiasCenterWeightJ = repBiasCenterWeightView[j]
-                    repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
-                    repBiasProjectionDen += (
-                        repBiasCenterWeightJ * repBiasCenterWeightJ
-                    ) / repBiasDenView[j]
-                else:
-                    replicateBiasView[j] = <cnp.float32_t>0.0
-
-            if repBiasProjectionDen > 0.0:
-                repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
-            else:
-                repBiasAlpha = 0.0
-            for j in range(trackCount):
-                tmpVal = <double>replicateBiasView[j]
-                if repBiasDenView[j] > 0.0:
-                    tmpVal = (
-                        tmpVal
-                        - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
-                    )
-                replicateBiasView[j] = <cnp.float32_t>tmpVal
-
         currentNLL = (<double>cforwardPassLevel(
             matrixData=matrixData,
             matrixPluginMuncInit=matrixPluginMuncInit,
@@ -5130,7 +4956,6 @@ cpdef tuple cfixedBackgroundECMLevel(
             storeNLLInD=False,
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
-            replicateBias=replicateBiasArr,
             ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
             ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
             ECM_useAPN=ECM_useAPN,
@@ -5249,12 +5074,12 @@ cpdef tuple cfixedBackgroundECMLevel(
             return (
                 itersDone, float(previousNLL),
                 stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-                lambdaExp, processPrecExp, replicateBiasArr, diagnostics
+                lambdaExp, processPrecExp, diagnostics
             )
         return (
             itersDone, float(previousNLL),
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-            lambdaExp, processPrecExp, replicateBiasArr
+            lambdaExp, processPrecExp
         )
     if returnDiagnostics:
         return (itersDone, float(previousNLL), diagnostics)
@@ -5291,7 +5116,6 @@ cpdef tuple cfixedBackgroundECM(
     bint returnDiagnostics=False,
     object lambdaExpInit=None,
     object processPrecExpInit=None,
-    object replicateBiasInit=None,
     bint trackOptimizationPath=False,
     object progressBar=None,
     bint logIterations=True,
@@ -5312,14 +5136,7 @@ cpdef tuple cfixedBackgroundECM(
         \qquad
         \widetilde{\mathbf{Q}}_{[i]}=\frac{\mathbf{Q}_0}{\kappa_{[i]}}.
 
-    We also include replicate-level additive offsets in the observation mean:
-
-    .. math::
-
-        z_{[j,i]} = x_{[i,0]} + b_j + \epsilon_{[j,i]}.
-
-    Here :math:`b_j` is a replicate-level offset, and
-    :math:`\lambda_{[i]}` and :math:`\kappa_{[i]}` are Student-t precision multipliers.
+    Here :math:`\lambda_{[i]}` and :math:`\kappa_{[i]}` are Student-t precision multipliers.
 
 
     Estimation loop
@@ -5342,7 +5159,7 @@ cpdef tuple cfixedBackgroundECM(
     .. math::
 
         u^2_{[i]}=\sum_{j=1}^m
-          \frac{(z_{[j,i]}-b_j-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}
+          \frac{(z_{[j,i]}-\widetilde{x}_{[i,0]})^2+\widetilde{P}_{[i,0,0]}}
                {v_{[j,i]}+\mathrm{pad}}
         \quad\Rightarrow\quad
         \lambda_{[i]} \leftarrow \frac{\nu_R+m}{\nu_R+u^2_{[i]}}.
@@ -5365,10 +5182,6 @@ cpdef tuple cfixedBackgroundECM(
 
     where :math:`d=2`.
 
-    3. **Replicate-level updates**: update :math:`b_j` from weighted residual moments at
-    replicate resolution while holding block and interval-level terms fixed.
-
-
     Objective Function
     ----------------------------------
 
@@ -5379,7 +5192,7 @@ cpdef tuple cfixedBackgroundECM(
       :nowrap:
 
         \begin{align}
-        \mathcal{J}(x,\Lambda,\kappa,b)
+        \mathcal{J}(x,\Lambda,\kappa)
         &=
         \frac12\sum_{i=2}^{n}
         \left[
@@ -5394,7 +5207,7 @@ cpdef tuple cfixedBackgroundECM(
         \left[
         \log\!\left(\frac{v_{[j,i]}}{\lambda_{[i]}}\right)
         +
-        (z_{[j,i]}-b_j-x_{[i,0]})^2\,\frac{\lambda_{[i]}}{v_{[j,i]}}
+        (z_{[j,i]}-x_{[i,0]})^2\,\frac{\lambda_{[i]}}{v_{[j,i]}}
         \right] \\
         &\quad+
         \sum_{i=1}^{n}
@@ -5412,8 +5225,8 @@ cpdef tuple cfixedBackgroundECM(
 
 
     So the estimation loop maximizing our objective function may be viewed as a coordinate ascent where the filter-smoother
-    solves the quadratic subproblem *conditional* on the current estimates of :math:`\lambda`, :math:`\kappa`, and :math:`b`,
-    and reweighting plus offset updates optimize over :math:`\lambda`, :math:`\kappa`, and :math:`b`.
+    solves the quadratic subproblem *conditional* on the current estimates of :math:`\lambda` and :math:`\kappa`,
+    and reweighting optimizes over :math:`\lambda` and :math:`\kappa`.
 
     :param matrixData: Replicate observed track values :math:`z_{[j,i]}` (rows:
         replicates, columns: genomic intervals).
@@ -5468,13 +5281,10 @@ cpdef tuple cfixedBackgroundECM(
         If supplied and process reweighting is enabled, length must match the
         number of intervals.
     :type processPrecExpInit: numpy.ndarray | None
-    :param replicateBiasInit: Optional warm-start replicate offsets.
-    :type replicateBiasInit: numpy.ndarray | None
-
     :returns: A tuple ``(itersDone, finalNLL)``. If
             ``returnIntermediates=True``, additionally returns
             ``(stateSmoothed, stateCovarSmoothed, lagCovSmoothed,
-            postFitResiduals, lambdaExp, processPrecExp, replicateBias)``.
+            postFitResiduals, lambdaExp, processPrecExp)``.
             If ``returnDiagnostics=True``, a diagnostics dictionary is appended.
     :rtype: tuple
 
@@ -5503,17 +5313,6 @@ cpdef tuple cfixedBackgroundECM(
     cdef cnp.float32_t[:, ::1] muncMatView = matrixPluginMuncInit
     cdef cnp.float32_t[:, ::1] fView = matrixF
     cdef cnp.float32_t[:, ::1] q0View = matrixQ0
-
-    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] replicateBiasArr
-    if replicateBiasInit is None:
-        replicateBiasArr = np.zeros(trackCount, dtype=np.float32)
-    else:
-        replicateBiasArr = np.array(replicateBiasInit, dtype=np.float32, copy=True, order="C").reshape(-1)
-        if replicateBiasArr.shape[0] != trackCount:
-            raise ValueError("replicateBiasInit length must match trackCount")
-        if not np.all(np.isfinite(replicateBiasArr)):
-            raise ValueError("replicateBiasInit must contain only finite values")
-    cdef cnp.float32_t[::1] replicateBiasView = replicateBiasArr
 
     # Allocate latent precision multipliers only if enabled
     cdef object lambdaExp = None
@@ -5618,21 +5417,8 @@ cpdef tuple cfixedBackgroundECM(
     cdef double dState = 2.0
     cdef double tmpVal
     cdef double procNu = ECM_robustTNu
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasNum = np.zeros(trackCount, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasDen = np.zeros(trackCount, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1] repBiasCenterWeight = np.zeros(trackCount, dtype=np.float64)
-    cdef double[::1] repBiasNumView = repBiasNum
-    cdef double[::1] repBiasDenView = repBiasDen
-    cdef double[::1] repBiasCenterWeightView = repBiasCenterWeight
     cdef Py_ssize_t stableIters = 0
     cdef Py_ssize_t patienceTarget = 2
-    cdef double repBiasAlpha
-    cdef double repBiasProjectionNum
-    cdef double repBiasProjectionDen
-    cdef double repBiasCenterWeightJ
-    cdef double invVar
-    cdef double denomNoRep
-    cdef double yMinusState
     cdef bint iterationConverged = False
     cdef object optimizationPath = None
 
@@ -5678,7 +5464,6 @@ cpdef tuple cfixedBackgroundECM(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                replicateBias=replicateBiasArr,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
                 ECM_useAPN=ECM_useAPN,
@@ -5704,7 +5489,6 @@ cpdef tuple cfixedBackgroundECM(
                 stateCovarSmoothed=stateCovarSmoothed,
                 lagCovSmoothed=lagCovSmoothed,
                 postFitResiduals=postFitResiduals,
-                replicateBias=replicateBiasArr,
                 progressBar=None,
                 progressIter=0,
             )
@@ -5732,7 +5516,6 @@ cpdef tuple cfixedBackgroundECM(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                replicateBias=replicateBiasArr,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
                 ECM_useAPN=ECM_useAPN,
@@ -5770,12 +5553,12 @@ cpdef tuple cfixedBackgroundECM(
                 return (
                     0, float(previousNLL),
                     stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-                    lambdaExp, processPrecExp, replicateBiasArr, diagnostics
+                    lambdaExp, processPrecExp, diagnostics
                 )
             return (
                 0, float(previousNLL),
                 stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-                lambdaExp, processPrecExp, replicateBiasArr
+                lambdaExp, processPrecExp
             )
         if returnDiagnostics:
             return (0, float(previousNLL), diagnostics)
@@ -5800,19 +5583,6 @@ cpdef tuple cfixedBackgroundECM(
     F = MAT2_make(f00, f01, f10, f11)
     Ft = MAT2_transpose(F)
     Q0inv = MAT2_make(q0Inv00, q0Inv01, q0Inv10, q0Inv11)
-
-    with nogil:
-        for j in range(trackCount):
-            repBiasCenterWeightView[j] = 0.0
-        for k in range(intervalCount):
-            b = <Py_ssize_t>blockMapView[k]
-            if b < 0 or b >= blockCount:
-                continue
-            for j in range(trackCount):
-                muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                if muncPlusPad < 1.0e-12:
-                    muncPlusPad = 1.0e-12
-                repBiasCenterWeightView[j] += 1.0 / muncPlusPad
 
     for i in range(ECM_fixedBackgroundIters):
         itersDone = i + 1
@@ -5844,7 +5614,6 @@ cpdef tuple cfixedBackgroundECM(
                 storeNLLInD=False,
                 lambdaExp=lambdaExp,
                 processPrecExp=processPrecExp,
-                replicateBias=replicateBiasArr,
                 ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
                 ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
                 ECM_useAPN=ECM_useAPN,
@@ -5871,7 +5640,6 @@ cpdef tuple cfixedBackgroundECM(
                 stateCovarSmoothed=stateCovarSmoothed,
                 lagCovSmoothed=lagCovSmoothed,
                 postFitResiduals=postFitResiduals,
-                replicateBias=replicateBiasArr,
                 progressBar=None,
                 progressIter=0,
             )
@@ -5898,7 +5666,7 @@ cpdef tuple cfixedBackgroundECM(
                                 muncPlusPad = 1.0e-12
                             Rkj = muncPlusPad
 
-                            res = (<double>dataView[j, k]) - (<double>replicateBiasView[j]) - (<double>stateSmoothedView[k, 0])
+                            res = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
                             tmpVal = (res*res + p00k)
                             obsU2 += tmpVal / Rkj
 
@@ -5969,71 +5737,6 @@ cpdef tuple cfixedBackgroundECM(
                         kappa_ = kappaMax_
                     processPrecExpView[k + 1] = <cnp.float32_t>kappa_
 
-        with nogil:
-            # -----------------------------
-            # sufficient stats for replicate-level bias
-            #   z[j,k] = x[k] + bias[j] + e[j,k]
-            #   Var[e[j,k]] = (munc[j,k] + pad) / lambda[k]
-            # -----------------------------
-            for j in range(trackCount):
-                repBiasNumView[j] = 0.0
-                repBiasDenView[j] = 0.0
-            for k in range(intervalCount):
-                b = <Py_ssize_t>blockMapView[k]
-                if b < 0 or b >= blockCount:
-                    continue
-
-                for j in range(trackCount):
-                    muncPlusPad = (<double>muncMatView[j, k]) + (<double>pad)
-                    if muncPlusPad < 1.0e-12:
-                        muncPlusPad = 1.0e-12
-
-                    denomNoRep = muncPlusPad
-                    if denomNoRep < 1.0e-12:
-                        denomNoRep = 1.0e-12
-
-                    if ECM_useObsPrecisionReweighting:
-                        w = <double>lambdaExpView[k]
-                        if w < wMin:
-                            w = wMin
-                        elif w > wMax:
-                            w = wMax
-                    else:
-                        w = 1.0
-
-                    invVar = w / denomNoRep
-                    yMinusState = (<double>dataView[j, k]) - (<double>stateSmoothedView[k, 0])
-                    repBiasNumView[j] += invVar * yMinusState
-                    repBiasDenView[j] += invVar
-
-            repBiasProjectionNum = 0.0
-            repBiasProjectionDen = 0.0
-            for j in range(trackCount):
-                if repBiasDenView[j] > 0.0:
-                    tmpVal = repBiasNumView[j] / repBiasDenView[j]
-                    replicateBiasView[j] = <cnp.float32_t>tmpVal
-                    repBiasCenterWeightJ = repBiasCenterWeightView[j]
-                    repBiasProjectionNum += repBiasCenterWeightJ * tmpVal
-                    repBiasProjectionDen += (
-                        repBiasCenterWeightJ * repBiasCenterWeightJ
-                    ) / repBiasDenView[j]
-                else:
-                    replicateBiasView[j] = <cnp.float32_t>0.0
-
-            if repBiasProjectionDen > 0.0:
-                repBiasAlpha = repBiasProjectionNum / repBiasProjectionDen
-            else:
-                repBiasAlpha = 0.0
-
-            for j in range(trackCount):
-                tmpVal = <double>replicateBiasView[j]
-                if repBiasDenView[j] > 0.0:
-                    tmpVal = (
-                        tmpVal
-                        - repBiasAlpha * repBiasCenterWeightView[j] / repBiasDenView[j]
-                    )
-                replicateBiasView[j] = <cnp.float32_t>tmpVal
-
         currentNLL = (<double>cforwardPass(
             matrixData=matrixData,
             matrixPluginMuncInit=matrixPluginMuncInit,
@@ -6058,7 +5761,6 @@ cpdef tuple cfixedBackgroundECM(
             storeNLLInD=False,
             lambdaExp=lambdaExp,
             processPrecExp=processPrecExp,
-            replicateBias=replicateBiasArr,
             ECM_useObsPrecisionReweighting=ECM_useObsPrecisionReweighting,
             ECM_useProcessPrecisionReweighting=ECM_useProcessPrecisionReweighting,
             ECM_useAPN=ECM_useAPN,
@@ -6180,12 +5882,12 @@ cpdef tuple cfixedBackgroundECM(
             return (
                 itersDone, float(previousNLL),
                 stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-                lambdaExp, processPrecExp, replicateBiasArr, diagnostics
+                lambdaExp, processPrecExp, diagnostics
             )
         return (
             itersDone, float(previousNLL),
             stateSmoothed, stateCovarSmoothed, lagCovSmoothed, postFitResiduals,
-            lambdaExp, processPrecExp, replicateBiasArr
+            lambdaExp, processPrecExp
         )
 
     if returnDiagnostics:

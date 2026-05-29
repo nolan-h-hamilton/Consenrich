@@ -119,6 +119,119 @@ GAIN_SUMMARY_COLUMNS = [
 ]
 
 
+def _countTransformVarianceFloorKwargs(
+    countingArgs: core.countingParams,
+) -> dict[str, Any]:
+    return {
+        "transformMethod": countingArgs.transformMethod,
+        "logOffset": countingArgs.logOffset,
+        "logMult": countingArgs.logMult,
+        "transformInputOffset": countingArgs.transformInputOffset,
+        "transformInputScale": countingArgs.transformInputScale,
+        "transformOutputScale": countingArgs.transformOutputScale,
+        "transformShape": countingArgs.transformShape,
+    }
+
+
+def _countModelVarianceFloorForScaledCounts(
+    scaledCounts: np.ndarray,
+    scaleFactor: float,
+    countingArgs: core.countingParams,
+    *,
+    countModelSource: bool = True,
+) -> np.ndarray:
+    counts = np.asarray(scaledCounts, dtype=np.float64)
+    floor = np.full(counts.shape, np.nan, dtype=np.float64)
+    if not countModelSource:
+        return floor
+    try:
+        scaleFactor_ = float(scaleFactor)
+    except (TypeError, ValueError):
+        return floor
+    if not np.isfinite(scaleFactor_) or scaleFactor_ <= 0.0:
+        return floor
+    return np.asarray(
+        core.transformCountVarianceFloor(
+            counts,
+            [scaleFactor_],
+            **_countTransformVarianceFloorKwargs(countingArgs),
+        ),
+        dtype=np.float64,
+    )
+
+
+def _combineCountModelVarianceFloors(*floors: np.ndarray) -> np.ndarray:
+    if not floors:
+        return np.empty(0, dtype=np.float64)
+    arrays = [np.asarray(floor, dtype=np.float64) for floor in floors]
+    out = np.full(arrays[0].shape, np.nan, dtype=np.float64)
+    anyFinite = np.zeros(arrays[0].shape, dtype=bool)
+    for arr in arrays:
+        finite = np.isfinite(arr)
+        out[finite & ~anyFinite] = 0.0
+        out[finite] += arr[finite]
+        anyFinite |= finite
+    return out
+
+
+def _sourceUsesCountModelFloor(source: core.inputSource) -> bool:
+    return (
+        str(getattr(source, "sourceKind", "")).upper() != constants.BEDGRAPH_SOURCE_KIND
+    )
+
+
+def _countModelFloorMatrixForScaledCounts(
+    scaledCountMatrix: np.ndarray,
+    scaleFactors: Sequence[float] | np.ndarray | None,
+    sources: Sequence[core.inputSource],
+    countingArgs: core.countingParams,
+) -> np.ndarray:
+    counts = np.asarray(scaledCountMatrix, dtype=np.float64)
+    if counts.ndim != 2:
+        raise ValueError("scaledCountMatrix must be two-dimensional")
+    if scaleFactors is None:
+        scaleArr = np.ones(int(counts.shape[0]), dtype=np.float64)
+    else:
+        scaleArr = np.asarray(scaleFactors, dtype=np.float64).reshape(-1)
+    if scaleArr.size != int(counts.shape[0]):
+        raise ValueError("scaleFactors must match scaledCountMatrix rows")
+    floor = np.full(counts.shape, np.nan, dtype=np.float64)
+    for j in range(int(counts.shape[0])):
+        source = sources[j] if j < len(sources) else None
+        floor[j, :] = _countModelVarianceFloorForScaledCounts(
+            counts[j, :],
+            float(scaleArr[j]),
+            countingArgs,
+            countModelSource=(source is None or _sourceUsesCountModelFloor(source)),
+        )
+    return np.ascontiguousarray(floor.astype(np.float32), dtype=np.float32)
+
+
+def _summarizeCountModelVarianceFloor(
+    floorMatrix: np.ndarray | None,
+) -> dict[str, float | int]:
+    if floorMatrix is None:
+        return {"finite": 0, "positive": 0}
+    arr = np.asarray(floorMatrix, dtype=np.float64)
+    finite = np.isfinite(arr)
+    positive = finite & (arr > 0.0)
+    out: dict[str, float | int] = {
+        "finite": int(np.count_nonzero(finite)),
+        "positive": int(np.count_nonzero(positive)),
+    }
+    if np.any(positive):
+        vals = arr[positive]
+        out.update(
+            {
+                "min": float(np.min(vals)),
+                "median": float(np.median(vals)),
+                "p95": float(np.quantile(vals, 0.95)),
+                "max": float(np.max(vals)),
+            }
+        )
+    return out
+
+
 def _fmtDiagnosticFloat(value: Any) -> str:
     if value is None:
         return "NA"
@@ -1043,7 +1156,6 @@ def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
         kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
     for parameterName in (
         "processNoiseCalibration",
-        "tuncPriorDf",
         "tuncLocalWindowMultiplier",
         "tuncDependenceMultiplier",
         "tuncMinScale",
@@ -1155,11 +1267,6 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         ("ROCCO peaks", yn(matchingArgs.enabled)),
     )
     core._logEvent("config.initial", rows, logger_=logger)
-    if bool(countingArgs.subtractGlobalMedian) and controlsPresent:
-        logger.info(
-            "global median center disabled because control inputs are present; "
-            "treatment/control tracks are already log-ratios."
-        )
 
 
 def _resolveGlobalMedianCenterStatus(
@@ -1168,8 +1275,6 @@ def _resolveGlobalMedianCenterStatus(
 ) -> tuple[bool, str]:
     if not bool(countingArgs.subtractGlobalMedian):
         return False, "no"
-    if bool(controlsPresent):
-        return False, "no (control log-ratio)"
     return True, "yes"
 
 
@@ -2471,6 +2576,7 @@ def main():
         prefix=f"consenrich_{experimentName}_munc_"
     )
     transformedMatrixCachePaths: Dict[str, str] = {}
+    countModelVarianceFloorCachePaths: Dict[str, str] = {}
     muncResidualBackgroundCachePaths: Dict[str, str] = {}
     pooledBlockMeansParts: list[np.ndarray] = []
     pooledBlockVarsParts: list[np.ndarray] = []
@@ -2669,7 +2775,7 @@ def main():
     def _countAndTransformChromosomeMatrix(
         c_: int,
         chromPlan: Mapping[str, Any],
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         nonlocal backgroundBlockSizeBP_
         nonlocal dependenceContextBP_, dependenceSpanIntervals_, sf
 
@@ -2679,6 +2785,11 @@ def main():
         numIntervals = int(chromPlan["numIntervals"])
         intervals = np.arange(chromosomeStart, chromosomeEnd, intervalSizeBP)
         chromMat: np.ndarray = np.empty((numSamples, numIntervals), dtype=np.float32)
+        countModelVarianceFloorMat = np.full(
+            (numSamples, numIntervals),
+            np.nan,
+            dtype=np.float32,
+        )
 
         if controlsPresent:
             for j_, (bamA, bamB) in enumerate(
@@ -2729,6 +2840,23 @@ def main():
                     minMappingQuality=samArgs.minMappingQuality,
                     minTemplateLength=samArgs.minTemplateLength,
                 )
+                # compute the observation noise floor _before_ transforming counts
+                countModelVarianceFloorMat[j_, :] = _combineCountModelVarianceFloors(
+                    _countModelVarianceFloorForScaledCounts(
+                        pairMatrix[0, :],
+                        treatScaleFactors[j_],
+                        countingArgs,
+                        countModelSource=_sourceUsesCountModelFloor(
+                            treatmentSources[j_]
+                        ),
+                    ),
+                    _countModelVarianceFloorForScaledCounts(
+                        pairMatrix[1, :],
+                        controlScaleFactors[j_],
+                        countingArgs,
+                        countModelSource=_sourceUsesCountModelFloor(controlSources[j_]),
+                    ),
+                ).astype(np.float32, copy=False)
                 cconsenrich.cTransformWithInputInto(
                     pairMatrix[0, :],
                     pairMatrix[1, :],
@@ -2796,6 +2924,27 @@ def main():
                 )
                 _checkSF(sf, logger)
             np.multiply(chromMat, sf[:, None], out=chromMat)
+
+        if not controlsPresent:
+            countModelScaleFactors = sf if waitForMatrix else scaleFactors
+            # Treatment-only floors use the scaled count matrix just before transformation.
+            countModelVarianceFloorMat = _countModelFloorMatrixForScaledCounts(
+                chromMat,
+                countModelScaleFactors,
+                treatmentSources,
+                countingArgs,
+            )
+
+        floorSummary = _summarizeCountModelVarianceFloor(countModelVarianceFloorMat)
+        logger.info(
+            "count model variance floor %s finite=%d positive=%d median=%s p95=%s max=%s",
+            chromosome,
+            int(floorSummary.get("finite", 0)),
+            int(floorSummary.get("positive", 0)),
+            _fmtDiagnosticFloat(floorSummary.get("median")),
+            _fmtDiagnosticFloat(floorSummary.get("p95")),
+            _fmtDiagnosticFloat(floorSummary.get("max")),
+        )
 
         def _transformTrack(j: int) -> int:
             cconsenrich.cTransformInPlace(
@@ -2884,14 +3033,12 @@ def main():
                 medianRange,
                 time.perf_counter() - centerStart,
             )
-        elif bool(countingArgs.subtractGlobalMedian) and controlsPresent:
-            logger.info(
-                "global median center.skip %s samples=%d reason=control-log-ratio",
-                chromosome,
-                int(numSamples),
-            )
 
-        return intervals, np.ascontiguousarray(chromMat, dtype=np.float32)
+        return (
+            intervals,
+            np.ascontiguousarray(chromMat, dtype=np.float32),
+            np.ascontiguousarray(countModelVarianceFloorMat, dtype=np.float32),
+        )
 
     def _summarizeFiniteArray(values: np.ndarray) -> dict[str, float | int]:
         arr = np.asarray(values)
@@ -2979,20 +3126,6 @@ def main():
         invVarMatrix[~finiteMask] = np.float32(0.0)
         return np.ascontiguousarray(invVarMatrix, dtype=np.float32)
 
-    def _coarseMuncResidualizationReplicateBias(chromMat: np.ndarray) -> np.ndarray:
-        arr = np.asarray(chromMat, dtype=np.float32)
-        sampleMedians = np.zeros(int(arr.shape[0]), dtype=np.float64)
-        for j in range(int(arr.shape[0])):
-            row = np.asarray(arr[j, np.isfinite(arr[j, :])], dtype=np.float64)
-            sampleMedians[j] = float(np.median(row)) if row.size else 0.0
-        finite = np.isfinite(sampleMedians)
-        if np.any(finite):
-            sampleMedians[~finite] = float(np.mean(sampleMedians[finite]))
-        else:
-            sampleMedians[:] = 0.0
-        sampleMedians -= float(np.mean(sampleMedians, dtype=np.float64))
-        return np.ascontiguousarray(sampleMedians.astype(np.float32), dtype=np.float32)
-
     def _coarseMuncResidualizationMunc(
         chromMat: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -3037,7 +3170,6 @@ def main():
                 matrixMunc,
                 blockLenIntervals=int(blockLenIntervals),
                 pad=float(pad_),
-                initialReplicateBias=_coarseMuncResidualizationReplicateBias(arr),
                 observationMask=observationMask,
                 observationPrecisionMultiplierMin=(
                     observationArgs.precisionMultiplierMin
@@ -3089,10 +3221,9 @@ def main():
 
         arr = np.asarray(chromMat, dtype=np.float32)
         finiteMask = np.isfinite(arr)
-        replicateBias = _coarseMuncResidualizationReplicateBias(arr)
         residualMatrix = np.where(
             finiteMask,
-            arr - replicateBias[:, None],
+            arr,
             0.0,
         ).astype(np.float32, copy=False)
         invVarMatrix = _coarseMuncResidualizationInvVar(arr)
@@ -3202,6 +3333,22 @@ def main():
                 f"{chromosome}: expected {(int(intervalCount),)}, got {backgroundArr.shape}"
             )
         return np.ascontiguousarray(backgroundArr, dtype=np.float32)
+
+    def _loadCountModelVarianceFloor(
+        chromosome: str,
+        intervalCount: int,
+    ) -> np.ndarray:
+        path = countModelVarianceFloorCachePaths.get(chromosome)
+        if path is None:
+            return np.full((numSamples, int(intervalCount)), np.nan, dtype=np.float32)
+        floorArr = np.asarray(np.load(path, allow_pickle=False), dtype=np.float32)
+        if floorArr.shape != (numSamples, int(intervalCount)):
+            raise RuntimeError(
+                "count-model variance floor cache shape mismatch for "
+                f"{chromosome}: expected {(numSamples, int(intervalCount))}, "
+                f"got {floorArr.shape}"
+            )
+        return np.ascontiguousarray(floorArr, dtype=np.float32)
 
     def _rawMeansForSampledBlocks(
         values: np.ndarray,
@@ -3472,10 +3619,18 @@ def main():
         )
     ):
         chromosome = str(chromPlan["chromosome"])
-        intervals, chromMat = _countAndTransformChromosomeMatrix(c_, chromPlan)
+        intervals, chromMat, countModelVarianceFloorMat = (
+            _countAndTransformChromosomeMatrix(c_, chromPlan)
+        )
         cachePath = os.path.join(pooledMuncCache.name, f"chrom_{c_:05d}.npy")
         np.save(cachePath, chromMat, allow_pickle=False)
         transformedMatrixCachePaths[chromosome] = cachePath
+        floorCachePath = os.path.join(
+            pooledMuncCache.name,
+            f"chrom_{c_:05d}_count_model_floor.npy",
+        )
+        np.save(floorCachePath, countModelVarianceFloorMat, allow_pickle=False)
+        countModelVarianceFloorCachePaths[chromosome] = floorCachePath
         cachedIntervalsByChromosome[chromosome] = np.asarray(intervals, dtype=np.uint32)
 
     muncSizingNeedsDependence = core._muncSizingNeedsDependence(
@@ -3954,6 +4109,10 @@ def main():
                 "Transformed matrix cache shape mismatch for "
                 f"{chromosome}: expected {(numSamples, numIntervals)}, got {chromMat.shape}"
             )
+        countModelVarianceFloorMat = _loadCountModelVarianceFloor(
+            chromosome,
+            int(numIntervals),
+        )
         muncResidualBackground = _loadMuncResidualizationBackground(
             chromosome,
             int(numIntervals),
@@ -4086,6 +4245,7 @@ def main():
                 covariateTrack=chromMuncCovariates,
                 additiveCovariateModel=additiveCovariateModel,
                 replicateIndex=j,
+                countModelVarianceFloor=countModelVarianceFloorMat[j, :],
             )
             return j, muncTrack
 
@@ -4105,6 +4265,7 @@ def main():
                 muncIntervalsArr,
                 muncExcludeMask,
                 chromMuncCovariates,
+                countModelVarianceFloorMat,
                 sparseIntervalIndices,
                 sparseRegionMask,
             ),
@@ -4283,7 +4444,6 @@ def main():
             blockLenIntervals=blockLenIntervals_,
             intervalSizeBP=intervalSizeBP,
             returnScales=True,
-            returnReplicateOffsets=True,
             returnBackground=returnBackgroundTrack,
             pad=pad_,
             ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
@@ -4315,10 +4475,8 @@ def main():
             logIndentLevel=1,
             logRunRole="primary chromosome" if args.verbose2 else "main chromosome",
         )
-        x, P, postFitResiduals, _NISVec, replicateBias, intervalToBlockMap = runResult[
-            :6
-        ]
-        runResultIndex = 6
+        x, P, postFitResiduals, _NISVec, intervalToBlockMap = runResult[:5]
+        runResultIndex = 5
         backgroundTrack = None
         if returnBackgroundTrack:
             if len(runResult) <= runResultIndex:
@@ -4381,17 +4539,6 @@ def main():
             chromosome,
             time.perf_counter() - runStart,
         )
-        replicateBias = np.asarray(replicateBias, dtype=np.float32)
-        logger.info(
-            "finalReplicateBias[%s]=%s",
-            chromosome,
-            np.array2string(
-                replicateBias,
-                precision=6,
-                floatmode="fixed",
-                separator=", ",
-            ),
-        )
         finalForwardGainSummary = runDiagnostics.get(
             "final_forward_gain_contig_summary"
         )
@@ -4420,10 +4567,7 @@ def main():
             stateLevelWarmStart = np.asarray(x[:, 0], dtype=np.float32)
             if rawByInterval.shape == residualWarmStart.shape:
                 backgroundWarmStart = np.mean(
-                    rawByInterval
-                    - stateLevelWarmStart[:, None]
-                    - replicateBias[None, :]
-                    - residualWarmStart,
+                    rawByInterval - stateLevelWarmStart[:, None] - residualWarmStart,
                     axis=1,
                     dtype=np.float64,
                 ).astype(np.float32)
@@ -4449,7 +4593,10 @@ def main():
                     Q10=0.0,
                     Q11=max(float(preKappaLevelWarmStart), float(minQ_)),
                 )
-            elif preKappaLevelWarmStart is not None and preKappaTrendWarmStart is not None:
+            elif (
+                preKappaLevelWarmStart is not None
+                and preKappaTrendWarmStart is not None
+            ):
                 initialProcessQWarmStart = core.constructMatrixQ(
                     minDiagQ=float(minQ_),
                     Q00=float(preKappaLevelWarmStart),
@@ -4556,7 +4703,6 @@ def main():
                 blockLenIntervals=blockLenIntervals_,
                 intervalSizeBP=intervalSizeBP,
                 returnScales=True,
-                returnReplicateOffsets=True,
                 pad=pad_,
                 ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
                 ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
@@ -4579,7 +4725,6 @@ def main():
                 observationPrecisionMultiplierMin=observationArgs.precisionMultiplierMin,
                 observationPrecisionMultiplierMax=observationArgs.precisionMultiplierMax,
                 initialBackground=backgroundWarmStart,
-                initialReplicateBias=replicateBias,
                 initialProcessQ=initialProcessQWarmStart,
                 logIndentLevel=2,
                 logRunRole="delete-block state calibration fold",
@@ -4596,7 +4741,6 @@ def main():
                 matrixMunc=muncMat,
                 fullState=x,
                 fullCovar=P,
-                fullReplicateBias=replicateBias,
                 fullBackground=backgroundTrack,
                 fullObservationPrecision=fullObservationPrecision,
                 intervals=intervals,
@@ -4807,7 +4951,7 @@ def main():
                     uncertaintyBedGraphPath,
                 )
                 uncertaintyBedGraphPath = None
-            outName = peaks.solveRocco(
+            outName, roccoSummary = peaks.solveRocco(
                 stateBedGraphPath,
                 uncertaintyBedGraphFile=uncertaintyBedGraphPath,
                 numBootstrap=int(matchingArgs.numBootstrap),
@@ -4827,9 +4971,45 @@ def main():
                 randSeed=matchingArgs.randSeed,
                 verbose=bool(args.verbose),
                 stateDiagnosticsByChromosome=stateDiagnosticsByChromosome,
+                returnSummary=True,
             )
 
             logger.info("Finished ROCCO peak calling. Written to %s", outName)
+            if bool(outputArgs.cutoffReport):
+                try:
+                    cutoffReportDir = peaks.solveRoccoCutoffReport(
+                        stateBedGraphPath,
+                        uncertaintyBedGraphFile=uncertaintyBedGraphPath,
+                        numBootstrap=int(matchingArgs.numBootstrap),
+                        thresholdZ=float(matchingArgs.thresholdZ),
+                        dependenceSpan=matchingArgs.dependenceSpan,
+                        gamma=matchingArgs.gamma,
+                        selectionPenalty=matchingArgs.selectionPenalty,
+                        gammaScale=float(matchingArgs.gammaScale),
+                        nestedRoccoIters=int(matchingArgs.nestedRoccoIters),
+                        nestedRoccoBudgetScale=float(
+                            matchingArgs.nestedRoccoBudgetScale
+                        ),
+                        exportFilterUncertaintyMultiplier=float(
+                            matchingArgs.exportFilterUncertaintyMultiplier
+                        ),
+                        uncertaintyScoreMode=matchingArgs.uncertaintyScoreMode,
+                        uncertaintyScoreZ=float(matchingArgs.uncertaintyScoreZ),
+                        blacklistBedFile=genomeArgs.blacklistFile,
+                        randSeed=matchingArgs.randSeed,
+                        baselineNarrowPeakFile=outName,
+                        baselineSummary=roccoSummary,
+                    )
+                    logger.info(
+                        "Finished ROCCO cutoff report. Written to %s",
+                        cutoffReportDir,
+                    )
+                except Exception as cutoffEx:
+                    logger.warning(
+                        "ROCCO cutoff report raised an exception:\n\n\t%s\n"
+                        "Skipping cutoff-report step...",
+                        cutoffEx,
+                    )
         except Exception as ex_:
             logger.warning(
                 f"ROCCO peak calling raised an exception:\n\n\t{ex_}\n"

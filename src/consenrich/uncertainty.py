@@ -1000,7 +1000,6 @@ def calibrateChromosomeStateUncertainty(
     fullState: np.ndarray,
     fullCovar: np.ndarray | None = None,
     fullP: np.ndarray | None = None,
-    fullReplicateBias: np.ndarray | None = None,
     fullBackground: np.ndarray | None = None,
     fullObservationPrecision: np.ndarray | None = None,
     originalObservationMask: np.ndarray | None = None,
@@ -1013,8 +1012,6 @@ def calibrateChromosomeStateUncertainty(
 ) -> uncertaintyCalibrationResult:
     totalStart = time.perf_counter()
     timings: dict[str, float] = {}
-    # Retained for API compatibility; replicate bias is already reflected in runKwargs.
-    _ = fullReplicateBias
     matrixData = np.ascontiguousarray(matrixData, dtype=np.float32)
     matrixMunc = np.ascontiguousarray(matrixMunc, dtype=np.float32)
     m, n = matrixData.shape
@@ -1162,7 +1159,6 @@ def calibrateChromosomeStateUncertainty(
         core.UNCERTAINTY_CALIBRATION_REFIT_PROCESS_NOISE_WARMUP_ECM_ITERS
     )
     fitKwargs["returnScales"] = True
-    fitKwargs["returnReplicateOffsets"] = True
     fitKwargs["returnBackground"] = True
 
     refitSeconds = 0.0
@@ -1230,11 +1226,11 @@ def calibrateChromosomeStateUncertainty(
         if xMasked.shape[0] != n or pMasked.shape[0] != n:
             raise ValueError("masked fold output does not match interval count")
         if targetSignal == "state_plus_background":
-            if len(out) <= 6:
+            if len(out) <= 5:
                 raise ValueError(
                     "deleteBlockTargetSignal='state_plus_background' requires masked background output"
                 )
-            backgroundMasked = np.asarray(out[6], dtype=np.float64).reshape(-1)
+            backgroundMasked = np.asarray(out[5], dtype=np.float64).reshape(-1)
             if backgroundMasked.shape[0] != n:
                 raise ValueError("masked background output must match interval count")
             signalMasked = xMasked + backgroundMasked
@@ -1677,7 +1673,6 @@ def calibrateChromosomeStateUncertainty(
                 "ECM_outerIters": 1,
                 "ECM_minOuterIters": 1,
                 "returnBackground": True,
-                "returnReplicateOffsets": True,
                 "returnScales": True,
             },
         },

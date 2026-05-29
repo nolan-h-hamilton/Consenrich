@@ -552,6 +552,11 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         "outputParams.plotOptimizationPath",
         constants.OUTPUT_DEFAULT_PLOT_OPTIMIZATION_PATH,
     )
+    cutoffReport_ = _cfgGet(
+        configData,
+        "outputParams.cutoffReport",
+        _cfgDefault(configData, "outputParams.cutoffReport"),
+    )
     diagnosticTracksRaw = _cfgGet(configData, "outputParams.diagnosticTracks", None)
     if diagnosticTracksRaw is None:
         diagnosticTracksRaw = _cfgGet(configData, "outputParams.tracks", None)
@@ -570,6 +575,7 @@ def getOutputArgs(config_path: str) -> core.outputParams:
         saveGains=saveGains_,
         plotOptimizationPath=plotOptimizationPath_,
         diagnosticTracks=diagnosticTracks_,
+        cutoffReport=bool(cutoffReport_),
     )
 
 
@@ -1321,15 +1327,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgDefault(configData, "processParams.processNoiseCalibration"),
         )
     )
-    tuncPriorDf = _coerceTransformFloat(
-        _cfgGet(
-            configData,
-            "processParams.tuncPriorDf",
-            _cfgDefault(configData, "processParams.tuncPriorDf"),
-        ),
-        name="processParams.tuncPriorDf",
-        positive=True,
-    )
     tuncLocalWindowMultiplier = _coerceTransformFloat(
         _cfgGet(
             configData,
@@ -1484,7 +1481,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 _cfgDefault(configData, "processParams.maxQ"),
             ),
             "processNoiseCalibration": processNoiseCalibration,
-            "tuncPriorDf": tuncPriorDf,
             "tuncLocalWindowMultiplier": tuncLocalWindowMultiplier,
             "tuncDependenceMultiplier": tuncDependenceMultiplier,
             "tuncMinScale": tuncMinScale,

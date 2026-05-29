@@ -3,9 +3,11 @@ r"""Peak-calling helpers for ROCCO segmentation from Consenrich tracks."""
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import math
+import shutil
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -4536,7 +4538,7 @@ def _summarizePeakWidthsFromRows(
 def _buildRoccoSummary(
     *,
     outPath: str,
-    metaPath: str,
+    metaPath: str | None,
     nestedRoccoSubproblemDetailsPath: str | None,
     rows: List[List[str | int | float]],
     meta: Mapping[str, Any],
@@ -4622,7 +4624,7 @@ def _buildRoccoSummary(
         )
     summary: Dict[str, Any] = {
         "narrowPeak_path": str(outPath),
-        "metadata_json_path": str(metaPath),
+        "metadata_json_path": None if metaPath is None else str(metaPath),
         "nested_jsonl_path": nestedRoccoSubproblemDetailsPath,
         **widthSummary,
         "blacklist": {
@@ -4713,6 +4715,7 @@ def solveRocco(
     verbose: bool = False,
     stateDiagnosticsByChromosome: Mapping[str, Any] | None = None,
     blacklistBedFile: str | None = None,
+    writeMetadata: bool = True,
     returnSummary: bool = False,
 ) -> str | Tuple[str, Dict[str, Any]]:
     r"""Run Consenrich+ROCCO peak caller directly on bedGraphs."""
@@ -4734,8 +4737,10 @@ def solveRocco(
     stateBase = Path(stateBedGraphFile)
     if outPath is None:
         outPath = str(stateBase.with_name(f"{stateBase.stem}_rocco.narrowPeak"))
-    if metaPath is None:
+    if writeMetadata and metaPath is None:
         metaPath = f"{outPath}.json"
+    if not writeMetadata:
+        metaPath = None
     nestedRoccoSubproblemDetailsPath: str | None = None
     if verbose:
         nestedRoccoSubproblemDetailsPath = f"{outPath}.nested_rocco_subproblems.jsonl"
@@ -5154,8 +5159,9 @@ def solveRocco(
         for row in allRows:
             handle.write("\t".join(map(str, row)) + "\n")
 
-    with open(metaPath, "w", encoding="utf-8") as handle:
-        json.dump(meta, handle, indent=2, sort_keys=True)
+    if metaPath is not None:
+        with open(metaPath, "w", encoding="utf-8") as handle:
+            json.dump(meta, handle, indent=2, sort_keys=True)
     summary = _buildRoccoSummary(
         outPath=str(outPath),
         metaPath=str(metaPath),
@@ -5168,3 +5174,373 @@ def solveRocco(
     if returnSummary:
         return str(outPath), summary
     return str(outPath)
+
+
+_ROCCO_CUTOFF_REPORT_SWEEPS: Tuple[
+    Tuple[str, str, str, Tuple[float, ...], Mapping[str, Any], bool],
+    ...,
+] = (
+    (
+        "thresholdZ",
+        "matchingParams.thresholdZ",
+        "thresholdZ",
+        (1.5, 2.0, 2.5, 3.0, 3.5, 4.0),
+        {},
+        False,
+    ),
+    (
+        "uncertaintyScoreZ",
+        "matchingParams.uncertaintyScoreZ",
+        "uncertaintyScoreZ",
+        (0.25, 0.5, 1.0, 1.5, 2.0),
+        {"uncertaintyScoreMode": "lower_confidence"},
+        True,
+    ),
+    (
+        "nestedRoccoBudgetScale",
+        "matchingParams.nestedRoccoBudgetScale",
+        "nestedRoccoBudgetScale",
+        (0.5, 0.65, 0.75, 0.9, 1.0),
+        {},
+        False,
+    ),
+)
+
+_ROCCO_CUTOFF_REPORT_FIELDS: Tuple[str, ...] = (
+    "sweep",
+    "parameter",
+    "value",
+    "thresholdZ",
+    "gamma",
+    "selectionPenalty",
+    "gammaScale",
+    "nestedRoccoIters",
+    "nestedRoccoBudgetScale",
+    "exportFilterUncertaintyMultiplier",
+    "uncertaintyScoreMode",
+    "uncertaintyScoreZ",
+    "numBootstrap",
+    "dependenceSpan",
+    "peak_count",
+    "total_peak_bp",
+    "min_width_bp",
+    "median_width_bp",
+    "max_width_bp",
+    "blacklist_dropped",
+    "blacklist_kept",
+    "per_chrom_peak_counts",
+    "narrowPeak_path",
+)
+
+
+def _cutoffValueText(value: Any) -> str:
+    if value is None:
+        return "NA"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    try:
+        valueFloat = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if np.isfinite(valueFloat):
+        return f"{valueFloat:.10g}"
+    return str(value)
+
+
+def _cutoffValueKey(value: Any) -> str:
+    text = _cutoffValueText(value).strip().lower()
+    replacements = {
+        ".": "p",
+        "-": "m",
+        "+": "p",
+    }
+    pieces: List[str] = []
+    prevUnderscore = False
+    for char in text:
+        if char.isalnum():
+            pieces.append(char)
+            prevUnderscore = False
+        elif char in replacements:
+            pieces.append(replacements[char])
+            prevUnderscore = False
+        elif not prevUnderscore:
+            pieces.append("_")
+            prevUnderscore = True
+    key = "".join(pieces).strip("_")
+    return key or "value"
+
+
+def _sameCutoffValue(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return left is right
+    try:
+        leftFloat = float(left)
+        rightFloat = float(right)
+    except (TypeError, ValueError):
+        return str(left) == str(right)
+    return bool(np.isclose(leftFloat, rightFloat, rtol=0.0, atol=1.0e-12))
+
+
+def _cutoffPerChromCounts(summary: Mapping[str, Any]) -> str:
+    perChrom = summary.get("per_chrom", {})
+    if not isinstance(perChrom, Mapping):
+        return ""
+    parts: List[str] = []
+    for chrom in sorted(str(key) for key in perChrom.keys()):
+        chromSummary = perChrom.get(chrom, {})
+        if not isinstance(chromSummary, Mapping):
+            continue
+        parts.append(f"{chrom}:{int(chromSummary.get('exported_peak_count', 0))}")
+    return ",".join(parts)
+
+
+def _summarizeNarrowPeakFile(
+    path: Path,
+    templateSummary: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
+    rows: List[List[str | int | float]] = []
+    perChrom: Dict[str, Dict[str, int]] = {}
+    if path.exists():
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 3:
+                    continue
+                chrom = str(parts[0])
+                start = int(parts[1])
+                end = int(parts[2])
+                rows.append([chrom, start, end])
+                chromSummary = perChrom.setdefault(
+                    chrom,
+                    {"exported_peak_count": 0, "total_peak_bp": 0},
+                )
+                chromSummary["exported_peak_count"] += 1
+                chromSummary["total_peak_bp"] += max(end - start, 0)
+
+    widthSummary = _summarizePeakWidthsFromRows(rows)
+    templateBlacklist = (
+        templateSummary.get("blacklist", {})
+        if isinstance(templateSummary, Mapping)
+        else {}
+    )
+    if not isinstance(templateBlacklist, Mapping):
+        templateBlacklist = {}
+    return {
+        "narrowPeak_path": str(path),
+        "metadata_json_path": None,
+        **widthSummary,
+        "blacklist": {
+            "blacklist_bed": templateBlacklist.get("blacklist_bed"),
+            "policy": templateBlacklist.get("policy", "drop_any_overlap"),
+            "dropped": int(templateBlacklist.get("dropped", 0)),
+            "kept": int(templateBlacklist.get("kept", widthSummary["exported_peak_count"])),
+        },
+        "per_chrom": perChrom,
+    }
+
+
+def _cutoffSummaryRow(
+    *,
+    sweep: str,
+    parameter: str,
+    value: Any,
+    settings: Mapping[str, Any],
+    summary: Mapping[str, Any],
+) -> Dict[str, str]:
+    blacklist = summary.get("blacklist", {})
+    if not isinstance(blacklist, Mapping):
+        blacklist = {}
+    row = {
+        "sweep": str(sweep),
+        "parameter": str(parameter),
+        "value": _cutoffValueText(value),
+        "thresholdZ": _cutoffValueText(settings["thresholdZ"]),
+        "gamma": _cutoffValueText(settings["gamma"]),
+        "selectionPenalty": _cutoffValueText(settings["selectionPenalty"]),
+        "gammaScale": _cutoffValueText(settings["gammaScale"]),
+        "nestedRoccoIters": _cutoffValueText(settings["nestedRoccoIters"]),
+        "nestedRoccoBudgetScale": _cutoffValueText(settings["nestedRoccoBudgetScale"]),
+        "exportFilterUncertaintyMultiplier": _cutoffValueText(
+            settings["exportFilterUncertaintyMultiplier"]
+        ),
+        "uncertaintyScoreMode": _cutoffValueText(settings["uncertaintyScoreMode"]),
+        "uncertaintyScoreZ": _cutoffValueText(settings["uncertaintyScoreZ"]),
+        "numBootstrap": _cutoffValueText(settings["numBootstrap"]),
+        "dependenceSpan": _cutoffValueText(settings["dependenceSpan"]),
+        "peak_count": _cutoffValueText(summary.get("exported_peak_count")),
+        "total_peak_bp": _cutoffValueText(summary.get("total_peak_bp")),
+        "min_width_bp": _cutoffValueText(summary.get("min_width_bp")),
+        "median_width_bp": _cutoffValueText(summary.get("median_width_bp")),
+        "max_width_bp": _cutoffValueText(summary.get("max_width_bp")),
+        "blacklist_dropped": _cutoffValueText(blacklist.get("dropped", 0)),
+        "blacklist_kept": _cutoffValueText(blacklist.get("kept", 0)),
+        "per_chrom_peak_counts": _cutoffPerChromCounts(summary),
+        "narrowPeak_path": str(summary.get("narrowPeak_path", "")),
+    }
+    return row
+
+
+def solveRoccoCutoffReport(
+    stateBedGraphFile: str,
+    uncertaintyBedGraphFile: str | None = None,
+    chromosomes: Iterable[str] | None = None,
+    numBootstrap: int = _ROCCO_NUM_BOOTSTRAP_DEFAULT,
+    thresholdZ: float = _ROCCO_THRESHOLD_Z_DEFAULT,
+    dependenceSpan: int | None = None,
+    gamma: float | None = 0.5,
+    selectionPenalty: float | None = None,
+    gammaScale: float = 0.5,
+    nestedRoccoIters: int = _NESTED_ROCCO_ITERS_DEFAULT,
+    nestedRoccoBudgetScale: float = _NESTED_ROCCO_BUDGET_SCALE_DEFAULT,
+    massiveSubpeakCleanup: bool = _MASSIVE_SUBPEAK_CLEANUP_DEFAULT,
+    exportFilterUncertaintyMultiplier: float = (
+        _EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER
+    ),
+    uncertaintyScoreMode: str = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE,
+    uncertaintyScoreZ: float = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_Z,
+    randSeed: int = 42,
+    outDir: str | None = None,
+    blacklistBedFile: str | None = None,
+    baselineNarrowPeakFile: str | None = None,
+    baselineSummary: Mapping[str, Any] | None = None,
+) -> str:
+    stateBase = Path(stateBedGraphFile)
+    chromosomesTuple = None if chromosomes is None else tuple(chromosomes)
+    reportDir = (
+        Path(outDir)
+        if outDir is not None
+        else stateBase.with_name(f"{stateBase.stem}_rocco_cutoff_analysis")
+    )
+    reportDir.mkdir(parents=True, exist_ok=True)
+
+    baselineSettings: Dict[str, Any] = {
+        "numBootstrap": int(numBootstrap),
+        "thresholdZ": float(thresholdZ),
+        "dependenceSpan": dependenceSpan,
+        "gamma": gamma,
+        "selectionPenalty": selectionPenalty,
+        "gammaScale": float(gammaScale),
+        "nestedRoccoIters": int(nestedRoccoIters),
+        "nestedRoccoBudgetScale": float(nestedRoccoBudgetScale),
+        "massiveSubpeakCleanup": bool(massiveSubpeakCleanup),
+        "exportFilterUncertaintyMultiplier": float(exportFilterUncertaintyMultiplier),
+        "uncertaintyScoreMode": str(uncertaintyScoreMode),
+        "uncertaintyScoreZ": float(uncertaintyScoreZ),
+        "randSeed": int(randSeed),
+    }
+
+    rows: List[Dict[str, str]] = []
+
+    def runSweep(
+        *,
+        sweep: str,
+        parameter: str,
+        value: Any,
+        settings: Mapping[str, Any],
+        sourceNarrowPeakFile: str | None = None,
+        sourceSummary: Mapping[str, Any] | None = None,
+    ) -> None:
+        fileStem = f"rocco_{sweep}"
+        if parameter:
+            fileStem = f"{fileStem}_{_cutoffValueKey(value)}"
+        outPath = reportDir / f"{fileStem}.narrowPeak"
+        staleMetaPath = reportDir / f"{fileStem}.narrowPeak.json"
+        if staleMetaPath.exists():
+            staleMetaPath.unlink()
+        if sourceNarrowPeakFile is not None:
+            sourcePath = Path(sourceNarrowPeakFile)
+            if sourcePath.resolve() != outPath.resolve():
+                shutil.copyfile(sourcePath, outPath)
+            summary = _summarizeNarrowPeakFile(outPath, sourceSummary)
+        else:
+            _resultPath, summary = solveRocco(
+                stateBedGraphFile,
+                uncertaintyBedGraphFile=uncertaintyBedGraphFile,
+                chromosomes=chromosomesTuple,
+                numBootstrap=int(settings["numBootstrap"]),
+                thresholdZ=float(settings["thresholdZ"]),
+                dependenceSpan=settings["dependenceSpan"],
+                gamma=settings["gamma"],
+                selectionPenalty=settings["selectionPenalty"],
+                gammaScale=float(settings["gammaScale"]),
+                nestedRoccoIters=int(settings["nestedRoccoIters"]),
+                nestedRoccoBudgetScale=float(settings["nestedRoccoBudgetScale"]),
+                massiveSubpeakCleanup=bool(settings["massiveSubpeakCleanup"]),
+                exportFilterUncertaintyMultiplier=float(
+                    settings["exportFilterUncertaintyMultiplier"]
+                ),
+                uncertaintyScoreMode=str(settings["uncertaintyScoreMode"]),
+                uncertaintyScoreZ=float(settings["uncertaintyScoreZ"]),
+                randSeed=int(settings["randSeed"]),
+                outPath=str(outPath),
+                verbose=False,
+                blacklistBedFile=blacklistBedFile,
+                writeMetadata=False,
+                returnSummary=True,
+            )
+        rows.append(
+            _cutoffSummaryRow(
+                sweep=sweep,
+                parameter=parameter,
+                value=value,
+                settings=settings,
+                summary=summary,
+            )
+        )
+
+    runSweep(
+        sweep="baseline",
+        parameter="",
+        value="baseline",
+        settings=baselineSettings,
+        sourceNarrowPeakFile=baselineNarrowPeakFile,
+        sourceSummary=baselineSummary,
+    )
+    for (
+        settingKey,
+        configName,
+        settingName,
+        values,
+        overrides,
+        requiresUncertainty,
+    ) in _ROCCO_CUTOFF_REPORT_SWEEPS:
+        if requiresUncertainty and uncertaintyBedGraphFile is None:
+            logger.warning(
+                "Skipping ROCCO cutoff sweep %s because no uncertainty bedGraph is available.",
+                settingKey,
+            )
+            continue
+        baselineValue = baselineSettings[settingKey]
+        for value in values:
+            if not overrides and _sameCutoffValue(value, baselineValue):
+                continue
+            settings = dict(baselineSettings)
+            settings[settingName] = value
+            settings.update(dict(overrides))
+            runSweep(
+                sweep=settingKey,
+                parameter=configName,
+                value=value,
+                settings=settings,
+            )
+
+    summaryPath = reportDir / "cutoff_summary.tsv"
+    with summaryPath.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=list(_ROCCO_CUTOFF_REPORT_FIELDS),
+            delimiter="\t",
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+    logger.info(
+        "rocco.cutoff_report rows=%d report_dir=%s summary=%s",
+        len(rows),
+        str(reportDir),
+        str(summaryPath),
+    )
+    return str(reportDir)
