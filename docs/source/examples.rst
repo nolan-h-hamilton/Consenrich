@@ -418,6 +418,15 @@ Want stronger (weaker) shrinkage to the smooth prior process model?
   the data.
 * ``processParams.minQ``: Decrease the level-noise floor to permit smoother
   state estimates. Increase it only when the fitted state is too stiff.
+* ``processParams.processNoiseCalibration``: Default is ``tunc``. Use ``seed``
+  to fit the robust global seed without local process-Q scaling, or ``fixed``
+  to keep the seeded process noise fixed.
+* ``processParams.tuncMinScale`` and ``processParams.tuncMaxScale``: Narrow
+  these bounds when local TUNC process-Q scaling should be more conservative.
+* ``outputParams.diagnosticTracks``: Use ``preKappaQLevel``,
+  ``preKappaQTrend``, ``effectiveQLevel``, ``effectiveQTrend``, and
+  ``tuncQScale`` for process-Q diagnostics. ``tuncQScale[0]`` is fixed to 1;
+  the transition into interval ``i`` uses ``tuncQScale[i]``.
 
 Want broader (narrower) signal resolution?
 
@@ -433,5 +442,5 @@ Want reduced computational expense?
   diagnostics are stable across runs.
 * ``fitParams.ECM_fixedBackgroundIters``: Lower this to reduce per-fit ECM work
   when convergence diagnostics remain acceptable.
-* ``uncertaintyCalibrationParams.enabled``: Disable cross-fit uncertainty
+* ``uncertaintyCalibrationParams.enabled``: Disable delete-block uncertainty
   calibration when calibrated uncertainty tracks are not needed.

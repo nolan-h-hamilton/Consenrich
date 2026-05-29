@@ -11,7 +11,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
-from scipy import optimize, stats
+from scipy import stats
 from tqdm import tqdm
 
 from . import core
@@ -89,33 +89,6 @@ def _maxScoreRows(params: core.uncertaintyCalibrationParams) -> int:
             "maxHeldoutCells",
             "maxScores",
             default=core.UNCERTAINTY_CALIBRATION_DEFAULT_MAX_SCORES,
-        )
-    )
-
-
-def _aObsPenalty(params: core.uncertaintyCalibrationParams) -> float:
-    return float(
-        max(
-            _firstSet(
-                params,
-                "aObsPriorStrength",
-                "aObsPenalty",
-                default=core.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
-            ),
-            0.0,
-        )
-    )
-
-
-def _wisWeight(params: core.uncertaintyCalibrationParams) -> float:
-    return float(
-        max(
-            _firstSet(
-                params,
-                "wisWeight",
-                default=core.UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT,
-            ),
-            0.0,
         )
     )
 
@@ -400,6 +373,63 @@ def _targetCalibrationScaleBound(
     return max(bounds, key=lambda row: float(row.get("target", 0.0)))
 
 
+def _targetCalibrationTrackScale(
+    targetScaleBound: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if targetScaleBound is None:
+        return {
+            "scale": 1.0,
+            "target": None,
+            "target_z": None,
+            "q": None,
+            "q_source": None,
+            "certified": False,
+            "scaled": False,
+            "reason": "no_target_bound",
+        }
+    target = float(targetScaleBound.get("target", np.nan))
+    qValue = targetScaleBound.get("q")
+    targetZ = _normalZ(target) if np.isfinite(target) else np.nan
+    if qValue is None:
+        return {
+            "scale": 1.0,
+            "target": target if np.isfinite(target) else None,
+            "target_z": float(targetZ) if np.isfinite(targetZ) else None,
+            "q": None,
+            "q_source": targetScaleBound.get("q_source"),
+            "certified": bool(targetScaleBound.get("certified", False)),
+            "scaled": False,
+            "reason": "no_finite_target_bound",
+        }
+    qFloat = float(qValue)
+    if not (np.isfinite(qFloat) and qFloat > 0.0 and np.isfinite(targetZ) and targetZ > 0.0):
+        return {
+            "scale": 1.0,
+            "target": target if np.isfinite(target) else None,
+            "target_z": float(targetZ) if np.isfinite(targetZ) else None,
+            "q": qFloat if np.isfinite(qFloat) else None,
+            "q_source": targetScaleBound.get("q_source"),
+            "certified": bool(targetScaleBound.get("certified", False)),
+            "scaled": False,
+            "reason": "nonfinite_target_bound",
+        }
+    certified = bool(targetScaleBound.get("certified", False))
+    return {
+        "scale": float(qFloat / targetZ),
+        "target": target,
+        "target_z": float(targetZ),
+        "q": qFloat,
+        "q_source": targetScaleBound.get("q_source"),
+        "certified": certified,
+        "scaled": True,
+        "reason": (
+            "scaled_by_certified_target_bound_q_over_z"
+            if certified
+            else "scaled_by_uncertified_empirical_max_q_over_z"
+        ),
+    }
+
+
 def _samplePositionsByCode(
     codes: np.ndarray,
     *,
@@ -452,51 +482,6 @@ def _samplePositionsByCode(
     return out
 
 
-def _scoreSamplingCodes(
-    *,
-    foldIndex: np.ndarray,
-    repIndex: np.ndarray,
-    intervalIndex: np.ndarray,
-    pState: np.ndarray,
-    fullState: np.ndarray,
-) -> np.ndarray:
-    try:
-        sdDecile = pd.qcut(
-            np.asarray(pState, dtype=np.float64),
-            q=core.UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES,
-            labels=False,
-            duplicates="drop",
-        )
-        sdCode = np.nan_to_num(
-            np.asarray(sdDecile, dtype=np.float64),
-            nan=0.0,
-            posinf=0.0,
-            neginf=0.0,
-        ).astype(np.int64)
-    except ValueError:
-        sdCode = np.zeros(np.asarray(pState).shape[0], dtype=np.int64)
-    stateAbs = np.abs(np.asarray(fullState, dtype=np.float64)[np.asarray(intervalIndex, dtype=np.int64)])
-    stateCut = (
-        float(
-            np.nanquantile(
-                np.abs(np.asarray(fullState, dtype=np.float64)),
-                core.UNCERTAINTY_CALIBRATION_SCORE_STATE_ABS_QUANTILE,
-            )
-        )
-        if np.asarray(fullState).size
-        else np.inf
-    )
-    highSignal = (stateAbs >= stateCut).astype(np.int64)
-    return (
-        np.asarray(foldIndex, dtype=np.int64)
-        * core.UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE
-        + np.asarray(repIndex, dtype=np.int64)
-        * core.UNCERTAINTY_CALIBRATION_SCORE_REPLICATE_CODE_STRIDE
-        + sdCode * 2
-        + highSignal
-    )
-
-
 def _signalLevelCoverageStrata(signalAbs: np.ndarray) -> dict[str, np.ndarray]:
     signalAbs = np.asarray(signalAbs, dtype=np.float64).reshape(-1)
     finite = np.isfinite(signalAbs)
@@ -518,120 +503,6 @@ def _signalLevelCoverageStrata(signalAbs: np.ndarray) -> dict[str, np.ndarray]:
             f"signal_abs_q{int(quantiles[idx] * 100):02d}_{int(quantiles[idx + 1] * 100):02d}"
         ] = mask
     return strata
-
-
-def _fitFactorModel(
-    *,
-    residual: np.ndarray,
-    pState: np.ndarray,
-    obsVar: np.ndarray,
-    featureByInterval: np.ndarray,
-    intervalIndex: np.ndarray,
-    params: core.uncertaintyCalibrationParams,
-) -> tuple[np.ndarray, dict[str, Any]]:
-    residual = np.asarray(residual, dtype=np.float64)
-    pState = np.maximum(
-        np.asarray(pState, dtype=np.float64),
-        core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
-    )
-    obsVar = np.maximum(
-        np.asarray(obsVar, dtype=np.float64),
-        core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
-    )
-    factorMin, factorMax = _factorBounds(params)
-    raw = (residual * residual - obsVar) / pState
-    raw = raw[np.isfinite(raw) & (raw > 0.0)]
-    initFactor = 1.0 if raw.size == 0 else float(np.nanmedian(raw))
-    initFactor = float(np.clip(initFactor, factorMin, factorMax))
-    theta0 = np.zeros(featureByInterval.shape[1] + 1, dtype=np.float64)
-    theta0[0] = np.log(initFactor)
-    ridge = float(max(params.ridge, 0.0))
-    aObsPenalty = _aObsPenalty(params)
-    targets = tuple(float(t) for t in params.targets)
-    targetArray = np.ascontiguousarray(targets, dtype=np.float64)
-    targetZ = np.ascontiguousarray([_normalZ(target) for target in targets], dtype=np.float64)
-    scaleWIS = max(
-        float(np.nanmedian(np.abs(residual)))
-        * core.UNCERTAINTY_CALIBRATION_WIS_SCALE_MULTIPLIER,
-        core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
-    )
-    cFeature = np.ascontiguousarray(featureByInterval, dtype=np.float64)
-    cInterval = np.ascontiguousarray(intervalIndex, dtype=np.int64)
-    cResidual = np.ascontiguousarray(residual, dtype=np.float64)
-    cPState = np.ascontiguousarray(pState, dtype=np.float64)
-    cObsVar = np.ascontiguousarray(obsVar, dtype=np.float64)
-
-    def objectiveAndGradient(theta: np.ndarray) -> tuple[float, np.ndarray]:
-        theta = np.ascontiguousarray(theta, dtype=np.float64)
-        value, gradient = _cuncertainty.cfactorObjectiveAndGradient(
-            theta,
-            cResidual,
-            cPState,
-            cObsVar,
-            cFeature,
-            cInterval,
-            targetArray,
-            targetZ,
-            factorMin,
-            factorMax,
-            ridge,
-            aObsPenalty,
-            scaleWIS,
-            float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN),
-            float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX),
-            float(core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR),
-            _wisWeight(params),
-            float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
-        )
-        return float(value), np.ascontiguousarray(gradient, dtype=np.float64)
-
-    pbar = tqdm(
-        total=None,
-        desc="Fitting uncertainty factor",
-        unit="iter",
-        disable=not _progressEnabled(params),
-        mininterval=0.5,
-        leave=False,
-        dynamic_ncols=True,
-    )
-
-    def callback(_theta: np.ndarray) -> None:
-        pbar.update(1)
-
-    try:
-        result = optimize.minimize(
-            objectiveAndGradient,
-            theta0,
-            method="L-BFGS-B",
-            jac=True,
-            callback=callback,
-        )
-    finally:
-        pbar.close()
-    theta = np.asarray(result.x if result.success else theta0, dtype=np.float64)
-    beta = theta[:-1]
-    aObs = float(
-        np.exp(
-            np.clip(
-                theta[-1],
-                np.log(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN),
-                np.log(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX),
-            )
-        )
-    )
-    meta = {
-        "success": bool(result.success),
-        "objective": float(
-            result.fun
-            if np.isfinite(result.fun)
-            else objectiveAndGradient(theta)[0]
-        ),
-        "message": str(result.message),
-        "initial_factor": initFactor,
-        "a_obs_factor": aObs,
-        "a_obs_penalty": aObsPenalty,
-    }
-    return beta, meta
 
 
 def _summarizeScores(
@@ -754,6 +625,373 @@ def _writeModelJson(path: str, model: dict[str, Any], chromosome: str | None) ->
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
+def _normalizeUncertaintyCalibrationMode(value: str | None) -> str:
+    if value is None:
+        return core.UNCERTAINTY_CALIBRATION_DEFAULT_MODE
+    normalized = str(value).strip().lower().replace("-", "_")
+    aliases = {
+        "delete_block": core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
+        "state_delete_block": core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
+        "delete_block_state": core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized != core.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE:
+        raise ValueError(
+            "predictive held-out residual uncertainty calibration has been removed; "
+            "use uncertaintyCalibrationParams.mode='delete_block_state'"
+        )
+    return normalized
+
+
+def _normalizeDeleteBlockVarianceMode(value: str | None) -> str:
+    if value is None:
+        return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_VARIANCE_MODE
+    normalized = str(value).strip().lower().replace("-", "_")
+    aliases = {
+        "covdiff": "covariance_difference",
+        "p_diff": "covariance_difference",
+        "info": "heldout_information",
+        "information": "heldout_information",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_VARIANCE_MODES:
+        raise ValueError(f"unsupported delete-block variance mode: {value!r}")
+    return normalized
+
+
+def _normalizeDeleteBlockTargetSignal(value: str | None) -> str:
+    if value is None:
+        return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_TARGET_SIGNAL
+    normalized = str(value).strip().lower().replace("-", "_")
+    aliases = {"signal": "state_plus_background"}
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_TARGET_SIGNALS:
+        raise ValueError(f"unsupported delete-block target signal: {value!r}")
+    return normalized
+
+
+def _normalizeDeleteBlockFactorModel(value: str | None) -> str:
+    if value is None:
+        return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL
+    normalized = str(value).strip().lower().replace("-", "_")
+    if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS:
+        raise ValueError(
+            f"unsupported delete-block factor model: {value!r}; V1 supports 'global'"
+        )
+    return normalized
+
+
+def _normalizeDeleteBlockScoreWeightMode(value: str | None) -> str:
+    if value is None:
+        return core.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE
+    normalized = str(value).strip().lower().replace("-", "_")
+    if normalized not in core.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_SCORE_WEIGHT_MODES:
+        raise ValueError(f"unsupported delete-block score weight mode: {value!r}")
+    return normalized
+
+
+def _activeObservationMask(
+    matrixData: np.ndarray,
+    matrixMunc: np.ndarray,
+    originalObservationMask: np.ndarray | None,
+    pad: float,
+) -> np.ndarray:
+    active = (
+        np.isfinite(matrixData)
+        & np.isfinite(matrixMunc)
+        & (matrixMunc < 0.5 * float(core.UNCERTAINTY_CALIBRATION_MASKED_OBSERVATION_VARIANCE))
+        & np.isfinite(matrixMunc + np.float32(pad))
+        & ((matrixMunc + np.float32(pad)) > 0.0)
+    )
+    if originalObservationMask is not None:
+        original = np.asarray(originalObservationMask)
+        if original.shape != active.shape:
+            raise ValueError("originalObservationMask must match matrixData shape")
+        active &= original.astype(bool)
+    return np.ascontiguousarray(active, dtype=bool)
+
+
+def _observationInformationMatrix(
+    matrixMunc: np.ndarray,
+    *,
+    activeMask: np.ndarray,
+    pad: float,
+    lambdaExp: np.ndarray | None = None,
+    useLambda: bool = False,
+    lambdaMin: float = 1.0,
+    lambdaMax: float = 1.0,
+) -> np.ndarray:
+    baseVar = np.asarray(matrixMunc, dtype=np.float64) + float(pad)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        infoCell = np.where(activeMask, 1.0 / baseVar, 0.0)
+    if useLambda:
+        if lambdaExp is None:
+            raise ValueError(
+                "deleteBlockUseLambdaInInformation=True requires fullObservationPrecision"
+            )
+        lam = np.asarray(lambdaExp, dtype=np.float64).reshape(-1)
+        if lam.shape[0] != matrixMunc.shape[1]:
+            raise ValueError("fullObservationPrecision must match interval count")
+        lam = np.clip(lam, float(lambdaMin), float(lambdaMax))
+        infoCell = infoCell * lam[None, :]
+    infoCell = np.where(np.isfinite(infoCell) & (infoCell > 0.0), infoCell, 0.0)
+    return np.ascontiguousarray(infoCell, dtype=np.float64)
+
+
+def _heldoutInformationByInterval(
+    infoCell: np.ndarray,
+    activeMask: np.ndarray,
+    foldMask: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    del activeMask
+    totalInfo = np.sum(infoCell, axis=0, dtype=np.float64)
+    keptInfo = np.sum(np.where(np.asarray(foldMask, dtype=bool), infoCell, 0.0), axis=0)
+    heldoutInfo = totalInfo - keptInfo
+    with np.errstate(divide="ignore", invalid="ignore"):
+        h = heldoutInfo / totalInfo
+    h = np.where(np.isfinite(h), h, np.nan)
+    return totalInfo, keptInfo, heldoutInfo, h
+
+
+def _chooseDeleteBlockDeltaVariance(
+    P00Full: np.ndarray,
+    P00Masked: np.ndarray,
+    h: np.ndarray,
+    *,
+    mode: str,
+    minDeltaVariance: float,
+    minInformationFraction: float,
+    maxInformationFraction: float,
+    positiveFloor: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    P00Full = np.asarray(P00Full, dtype=np.float64).reshape(-1)
+    P00Masked = np.asarray(P00Masked, dtype=np.float64).reshape(-1)
+    h = np.asarray(h, dtype=np.float64).reshape(-1)
+    minDelta = float(max(minDeltaVariance, positiveFloor))
+    covDelta = P00Masked - P00Full
+    covValid = (
+        np.isfinite(P00Full)
+        & np.isfinite(P00Masked)
+        & (P00Full > 0.0)
+        & (P00Masked > 0.0)
+        & np.isfinite(covDelta)
+        & (covDelta > minDelta)
+    )
+    hValid = (
+        np.isfinite(P00Full)
+        & (P00Full > 0.0)
+        & np.isfinite(h)
+        & (h >= float(minInformationFraction))
+        & (h <= float(maxInformationFraction))
+        & (h < 1.0)
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        infoDelta = P00Full * h / (1.0 - h)
+    infoValid = hValid & np.isfinite(infoDelta) & (infoDelta > minDelta)
+
+    deltaVariance = np.full(P00Full.shape[0], np.nan, dtype=np.float64)
+    source = np.full(P00Full.shape[0], "invalid", dtype=object)
+    valid = np.zeros(P00Full.shape[0], dtype=bool)
+    reason = np.full(P00Full.shape[0], "invalid", dtype=object)
+
+    if mode == "covariance_difference":
+        valid = covValid
+        deltaVariance[valid] = covDelta[valid]
+        source[valid] = "covariance_difference"
+    elif mode == "heldout_information":
+        valid = infoValid
+        deltaVariance[valid] = infoDelta[valid]
+        source[valid] = "heldout_information"
+    elif mode == "hybrid":
+        valid = covValid | infoValid
+        deltaVariance[covValid] = covDelta[covValid]
+        source[covValid] = "covariance_difference"
+        fallback = ~covValid & infoValid
+        deltaVariance[fallback] = infoDelta[fallback]
+        source[fallback] = "heldout_information_fallback"
+    else:
+        raise AssertionError(f"unhandled delete-block variance mode: {mode}")
+
+    reason[valid] = "valid"
+    reason[~np.isfinite(P00Full) | (P00Full <= 0.0)] = "nonfinite_covariance"
+    reason[np.isfinite(P00Full) & (P00Full > 0.0) & ~hValid] = "h_out_of_bounds"
+    reason[
+        np.isfinite(P00Full)
+        & (P00Full > 0.0)
+        & hValid
+        & ~covValid
+        & ~infoValid
+    ] = "information_delta_invalid"
+    reason[
+        np.isfinite(P00Full)
+        & np.isfinite(P00Masked)
+        & (P00Full > 0.0)
+        & (P00Masked > 0.0)
+        & np.isfinite(covDelta)
+        & (covDelta <= minDelta)
+    ] = "covariance_delta_nonpositive"
+    reason[valid] = "valid"
+    return deltaVariance, source, valid, reason
+
+
+def _deleteBlockRowWeights(h: np.ndarray, params: core.uncertaintyCalibrationParams) -> np.ndarray:
+    h = np.asarray(h, dtype=np.float64)
+    clipped = np.clip(
+        h,
+        float(params.deleteBlockMinInformationFraction),
+        float(params.deleteBlockMaxInformationFraction),
+    )
+    mode = _normalizeDeleteBlockScoreWeightMode(params.deleteBlockScoreWeightMode)
+    if mode == "uniform":
+        return np.ones_like(clipped, dtype=np.float64)
+    if mode == "information_fraction":
+        return clipped.astype(np.float64, copy=False)
+    if mode == "sqrt_information_fraction":
+        return np.sqrt(clipped).astype(np.float64, copy=False)
+    raise AssertionError(f"unhandled delete-block weight mode: {mode}")
+
+
+def _deleteBlockScoreSamplingCodes(
+    *,
+    foldIndex: np.ndarray,
+    intervalIndex: np.ndarray,
+    pDelta: np.ndarray,
+    fullState: np.ndarray,
+    source: np.ndarray,
+) -> np.ndarray:
+    try:
+        deltaDecile = pd.qcut(
+            np.asarray(pDelta, dtype=np.float64),
+            q=core.UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES,
+            labels=False,
+            duplicates="drop",
+        )
+        deltaCode = np.nan_to_num(np.asarray(deltaDecile, dtype=np.float64), nan=0.0).astype(np.int64)
+    except ValueError:
+        deltaCode = np.zeros(np.asarray(pDelta).shape[0], dtype=np.int64)
+    fullStateArr = np.asarray(fullState, dtype=np.float64)
+    stateAbs = np.abs(fullStateArr[np.asarray(intervalIndex, dtype=np.int64)])
+    stateCut = (
+        float(np.nanquantile(np.abs(fullStateArr), core.UNCERTAINTY_CALIBRATION_SCORE_STATE_ABS_QUANTILE))
+        if fullStateArr.size
+        else np.inf
+    )
+    highSignal = (stateAbs >= stateCut).astype(np.int64)
+    sourceCodeMap = {
+        "covariance_difference": 0,
+        "heldout_information": 1,
+        "heldout_information_fallback": 2,
+    }
+    sourceCode = np.asarray(
+        [sourceCodeMap.get(str(value), 3) for value in np.asarray(source, dtype=object)],
+        dtype=np.int64,
+    )
+    return (
+        np.asarray(foldIndex, dtype=np.int64)
+        * core.UNCERTAINTY_CALIBRATION_SCORE_FOLD_CODE_STRIDE
+        + sourceCode * 128
+        + deltaCode * 2
+        + highSignal
+    )
+
+
+def _weightedQuantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
+    values = np.asarray(values, dtype=np.float64).reshape(-1)
+    weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+    valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0.0)
+    if not np.any(valid):
+        raise ValueError("weighted quantile requires at least one finite positive-weight value")
+    values = values[valid]
+    weights = weights[valid]
+    order = np.argsort(values, kind="mergesort")
+    values = values[order]
+    weights = weights[order]
+    total = float(np.sum(weights))
+    if not np.isfinite(total) or total <= 0.0:
+        raise ValueError("weighted quantile requires positive total weight")
+    cumulative = np.cumsum(weights) / total
+    idx = int(np.searchsorted(cumulative, float(q), side="left"))
+    idx = int(np.clip(idx, 0, values.size - 1))
+    return float(values[idx])
+
+
+def _fitDeleteBlockGlobalFactor(
+    *,
+    residual: np.ndarray,
+    pDelta: np.ndarray,
+    rowWeight: np.ndarray,
+    params: core.uncertaintyCalibrationParams,
+) -> tuple[float, dict[str, Any]]:
+    residual = np.asarray(residual, dtype=np.float64)
+    pDelta = np.asarray(pDelta, dtype=np.float64)
+    rowWeight = np.asarray(rowWeight, dtype=np.float64)
+    valid = (
+        np.isfinite(residual)
+        & np.isfinite(pDelta)
+        & (pDelta > core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR)
+        & np.isfinite(rowWeight)
+        & (rowWeight > 0.0)
+    )
+    if not np.any(valid):
+        raise ValueError("delete-block state factor fit has no valid score rows")
+    ratio = np.abs(residual[valid]) / np.sqrt(pDelta[valid])
+    weights = rowWeight[valid]
+    target = max(tuple(float(t) for t in params.targets))
+    z = _normalZ(target)
+    sdMultiplier = _weightedQuantile(ratio, weights, target) / z
+    factorMin, factorMax = _factorBounds(params)
+    factor = float(np.clip(sdMultiplier * sdMultiplier, factorMin, factorMax))
+    return factor, {
+        "success": True,
+        "factor_model": "global",
+        "global_factor": factor,
+        "global_sd_multiplier": float(np.sqrt(factor)),
+        "global_factor_target": float(target),
+        "global_factor_target_z": float(z),
+    }
+
+
+def _deleteBlockTargetBlockScores(
+    *,
+    residual: np.ndarray,
+    pDelta: np.ndarray,
+    factorByInterval: np.ndarray,
+    intervalIndex: np.ndarray,
+    blockIndex: np.ndarray,
+    targetBlockMask: np.ndarray,
+    positiveFloor: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    residual = np.asarray(residual, dtype=np.float64)
+    pDelta = np.asarray(pDelta, dtype=np.float64)
+    factorByInterval = np.asarray(factorByInterval, dtype=np.float64)
+    intervalIndex = np.asarray(intervalIndex, dtype=np.int64)
+    blockIndex = np.asarray(blockIndex, dtype=np.int64)
+    targetBlockMask = np.asarray(targetBlockMask, dtype=np.uint8)
+    blockCount = int(targetBlockMask.size)
+    blockScore = np.full(blockCount, -1.0, dtype=np.float64)
+    blockCellCount = np.zeros(blockCount, dtype=np.int64)
+    for k in range(residual.size):
+        block = int(blockIndex[k])
+        if block < 0 or block >= blockCount or targetBlockMask[block] == 0:
+            continue
+        interval = int(intervalIndex[k])
+        if interval < 0 or interval >= factorByInterval.size:
+            continue
+        variance = factorByInterval[interval] * pDelta[k]
+        if not (np.isfinite(residual[k]) and np.isfinite(variance) and variance > positiveFloor):
+            continue
+        score = abs(float(residual[k])) / float(np.sqrt(variance))
+        if np.isfinite(score):
+            blockScore[block] = max(blockScore[block], score)
+            blockCellCount[block] += 1
+    validBlocks = np.flatnonzero((blockCellCount > 0) & (blockScore >= 0.0))
+    return (
+        validBlocks.astype(np.int64, copy=False),
+        blockScore[validBlocks].astype(np.float64, copy=False),
+        blockCellCount[validBlocks].astype(np.int64, copy=False),
+    )
+
+
 
 def calibrateChromosomeStateUncertainty(
     *,
@@ -763,6 +1001,9 @@ def calibrateChromosomeStateUncertainty(
     fullCovar: np.ndarray | None = None,
     fullP: np.ndarray | None = None,
     fullReplicateBias: np.ndarray | None = None,
+    fullBackground: np.ndarray | None = None,
+    fullObservationPrecision: np.ndarray | None = None,
+    originalObservationMask: np.ndarray | None = None,
     intervals: np.ndarray | None = None,
     intervalSizeBP: int,
     params: core.uncertaintyCalibrationParams,
@@ -786,24 +1027,32 @@ def calibrateChromosomeStateUncertainty(
     )
     if intervalsArr.shape[0] != n:
         raise ValueError("intervals must match the number of matrixData columns")
-    padValue = _calibrationPad()
+    calibrationMode = _normalizeUncertaintyCalibrationMode(getattr(params, "mode", None))
+    varianceMode = _normalizeDeleteBlockVarianceMode(params.deleteBlockVarianceMode)
+    targetSignal = _normalizeDeleteBlockTargetSignal(params.deleteBlockTargetSignal)
+    factorModel = _normalizeDeleteBlockFactorModel(params.deleteBlockFactorModel)
+    if factorModel != "global":
+        raise ValueError("delete-block state calibration currently supports only global factors")
+    weightMode = _normalizeDeleteBlockScoreWeightMode(params.deleteBlockScoreWeightMode)
     blockLen = _resolveBlockSizeIntervals(params.blockSizeBP, intervalSizeBP, n)
-    holdoutFraction = _firstSet(
+    holdoutFractionRaw = _firstSet(
         params,
         "holdoutFraction",
         "heldoutReplicateFraction",
         default=None,
     )
-    holdoutCount = _resolveHoldoutCount(m, holdoutFraction)
+    holdoutCount = _resolveHoldoutCount(m, holdoutFractionRaw)
     folds = max(int(params.folds), core.UNCERTAINTY_CALIBRATION_MIN_FOLDS)
     logger.info(
-        "uncertaintyCalibration.start intervals=%s samples=%s folds=%s blockLen=%s holdoutReps=%s cython=%s",
+        "uncertaintyCalibration.start mode=delete_block_state intervals=%s samples=%s folds=%s blockLen=%s holdoutCount=%s varianceMode=%s targetSignal=%s factorModel=%s",
         n,
         m,
         folds,
         blockLen,
         holdoutCount,
-        1,
+        varianceMode,
+        targetSignal,
+        factorModel,
     )
     stageStart = time.perf_counter()
     masks = _makeFoldMasks(
@@ -838,6 +1087,35 @@ def calibrateChromosomeStateUncertainty(
     if fullPArr.shape[0] != n:
         raise ValueError("fullP/fullCovar must match the number of matrixData columns")
     fullPArr = np.maximum(fullPArr, core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR)
+    if targetSignal == "state_plus_background":
+        if fullBackground is None:
+            if bool(runKwargs.get("fitBackground", False)):
+                raise ValueError(
+                    "deleteBlockTargetSignal='state_plus_background' requires fullBackground"
+                )
+            fullBackgroundArr = np.zeros(n, dtype=np.float64)
+        else:
+            fullBackgroundArr = np.asarray(fullBackground, dtype=np.float64).reshape(-1)
+            if fullBackgroundArr.shape[0] != n:
+                raise ValueError("fullBackground must match the interval count")
+    else:
+        fullBackgroundArr = np.zeros(n, dtype=np.float64)
+    padValue = float(runKwargs.get("pad", _calibrationPad()))
+    activeMask = _activeObservationMask(
+        matrixData,
+        matrixMunc,
+        originalObservationMask,
+        padValue,
+    )
+    infoCell = _observationInformationMatrix(
+        matrixMunc,
+        activeMask=activeMask,
+        pad=padValue,
+        lambdaExp=fullObservationPrecision,
+        useLambda=bool(params.deleteBlockUseLambdaInInformation),
+        lambdaMin=float(runKwargs.get("observationPrecisionMultiplierMin", 1.0)),
+        lambdaMax=float(runKwargs.get("observationPrecisionMultiplierMax", 1.0)),
+    )
     stageStart = time.perf_counter()
     featureMatrix, featureNames, featureCenter, featureScale = _featureMatrix(
         state=fullState0,
@@ -846,14 +1124,32 @@ def calibrateChromosomeStateUncertainty(
     )
     timings["feature_matrix_seconds"] = time.perf_counter() - stageStart
     residualChunks: list[np.ndarray] = []
-    pChunks: list[np.ndarray] = []
-    rChunks: list[np.ndarray] = []
+    pDeltaChunks: list[np.ndarray] = []
     iChunks: list[np.ndarray] = []
-    jChunks: list[np.ndarray] = []
     foldChunks: list[np.ndarray] = []
+    hChunks: list[np.ndarray] = []
+    sourceChunks: list[np.ndarray] = []
+    rowWeightChunks: list[np.ndarray] = []
+    stateMaskedChunks: list[np.ndarray] = []
+    pMaskedChunks: list[np.ndarray] = []
+    covDeltaChunks: list[np.ndarray] = []
+    totalInfoChunks: list[np.ndarray] = []
+    keptInfoChunks: list[np.ndarray] = []
+    heldInfoChunks: list[np.ndarray] = []
+    invalidReasonCounts = {
+        "no_deleted_information": 0,
+        "h_out_of_bounds": 0,
+        "covariance_delta_nonpositive": 0,
+        "information_delta_invalid": 0,
+        "nonfinite_state_delta": 0,
+        "nonfinite_covariance": 0,
+        "other": 0,
+    }
+    rowsTotal = 0
+    foldFailures = 0
 
     fitKwargs = dict(runKwargs)
-    fitKwargs.setdefault("logRunRole", "held-out fold")
+    fitKwargs.setdefault("logRunRole", "delete-block state calibration fold")
     foldIndentLevel = max(0, int(fitKwargs.get("logIndentLevel", 0) or 0))
     fitKwargs["logIndentLevel"] = foldIndentLevel + 1
     fitKwargs["ECM_fixedBackgroundIters"] = max(
@@ -899,58 +1195,130 @@ def calibrateChromosomeStateUncertainty(
             warmupDetail,
         )
         stageStart = time.perf_counter()
-        out = core.runConsenrich(
-            matrixData,
-            matrixMunc,
-            observationMask=mask,
-            **fitKwargs,
-        )
+        try:
+            out = core.runConsenrich(
+                matrixData,
+                matrixMunc,
+                observationMask=mask,
+                **fitKwargs,
+            )
+        except Exception as exc:
+            logger.warning(
+                "uncertaintyCalibration.deleteBlock.fold.failed fold=%s/%s error=%s",
+                int(fold + 1),
+                int(len(masks)),
+                str(exc),
+            )
+            foldFailures += 1
+            continue
         foldRefitSeconds = time.perf_counter() - stageStart
         refitSeconds += foldRefitSeconds
-        (
-            stateMasked,
-            covarMasked,
-            _resid,
-            _track4,
-            biasMasked,
-            _blockMap,
-            backgroundMasked,
-        ) = out[:7]
+        stateMasked, covarMasked = out[:2]
         stageStart = time.perf_counter()
-        residual, pHeld, rHeld, ii, jj, foldHeld = _cuncertainty.cextractHeldoutScores(
-            matrixData,
-            matrixMunc,
-            np.ascontiguousarray(np.asarray(stateMasked)[:, 0], dtype=np.float32),
-            np.ascontiguousarray(np.asarray(covarMasked)[:, 0, 0], dtype=np.float32),
-            np.ascontiguousarray(biasMasked, dtype=np.float32),
-            np.ascontiguousarray(backgroundMasked, dtype=np.float32),
-            np.ascontiguousarray(mask, dtype=np.uint8),
-            int(fold),
-            float(padValue),
-            float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+        stateMaskedArr = np.asarray(stateMasked, dtype=np.float64)
+        xMasked = (
+            stateMaskedArr[:, 0]
+            if stateMaskedArr.ndim == 2
+            else stateMaskedArr.reshape(-1)
         )
+        covarMaskedArr = np.asarray(covarMasked, dtype=np.float64)
+        pMasked = (
+            covarMaskedArr[:, 0, 0]
+            if covarMaskedArr.ndim == 3
+            else covarMaskedArr.reshape(-1)
+        )
+        if xMasked.shape[0] != n or pMasked.shape[0] != n:
+            raise ValueError("masked fold output does not match interval count")
+        if targetSignal == "state_plus_background":
+            if len(out) <= 6:
+                raise ValueError(
+                    "deleteBlockTargetSignal='state_plus_background' requires masked background output"
+                )
+            backgroundMasked = np.asarray(out[6], dtype=np.float64).reshape(-1)
+            if backgroundMasked.shape[0] != n:
+                raise ValueError("masked background output must match interval count")
+            signalMasked = xMasked + backgroundMasked
+            signalFull = fullState0 + fullBackgroundArr
+        else:
+            signalMasked = xMasked
+            signalFull = fullState0
+        stateDelta = signalMasked - signalFull
+        totalInfo, keptInfo, heldoutInfo, h = _heldoutInformationByInterval(
+            infoCell,
+            activeMask,
+            mask,
+        )
+        deltaVariance, source, valid, invalidReason = _chooseDeleteBlockDeltaVariance(
+            fullPArr,
+            pMasked,
+            h,
+            mode=varianceMode,
+            minDeltaVariance=float(params.deleteBlockMinDeltaVariance),
+            minInformationFraction=float(params.deleteBlockMinInformationFraction),
+            maxInformationFraction=float(params.deleteBlockMaxInformationFraction),
+            positiveFloor=float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+        )
+        invalidReason = np.asarray(invalidReason, dtype=object)
+        meaningfulDeletion = (
+            np.isfinite(totalInfo)
+            & (totalInfo > 0.0)
+            & np.isfinite(heldoutInfo)
+            & (heldoutInfo > 0.0)
+        )
+        invalidReason[~meaningfulDeletion] = "no_deleted_information"
+        valid &= meaningfulDeletion
+        finiteDelta = np.isfinite(stateDelta)
+        invalidReason[~finiteDelta] = "nonfinite_state_delta"
+        valid &= finiteDelta
+        invalidReason[valid] = "valid"
+        rowsTotal += int(n)
+        for reason in np.asarray(invalidReason[~valid], dtype=object):
+            key = str(reason)
+            invalidReasonCounts[key if key in invalidReasonCounts else "other"] += 1
         foldExtractSeconds = time.perf_counter() - stageStart
         extractSeconds += foldExtractSeconds
-        if ii.size == 0:
+        if not np.any(valid):
             logger.info(
-                "uncertaintyCalibration.fold.done fold=%s/%s heldoutCells=0 refitSeconds=%.3f extractSeconds=%.3f",
+                "uncertaintyCalibration.fold.done fold=%s/%s deleteBlockRows=0 refitSeconds=%.3f extractSeconds=%.3f",
                 int(fold + 1),
                 int(len(masks)),
                 float(foldRefitSeconds),
                 float(foldExtractSeconds),
             )
             continue
-        residualChunks.append(residual)
-        pChunks.append(pHeld)
-        rChunks.append(rHeld)
-        iChunks.append(ii.astype(np.int64))
-        jChunks.append(jj.astype(np.int64))
-        foldChunks.append(foldHeld.astype(np.int32))
+        idx = np.flatnonzero(valid).astype(np.int64, copy=False)
+        foldExtractSeconds = time.perf_counter() - stageStart
+        residualChunks.append(np.ascontiguousarray(stateDelta[idx], dtype=np.float64))
+        pDeltaChunks.append(np.ascontiguousarray(deltaVariance[idx], dtype=np.float64))
+        iChunks.append(idx.astype(np.int64, copy=False))
+        foldChunks.append(
+            np.full(idx.shape[0], int(fold), dtype=np.int32)
+        )
+        hChunks.append(np.ascontiguousarray(h[idx], dtype=np.float64))
+        sourceChunks.append(np.asarray(source[idx], dtype=object))
+        rowWeightChunks.append(_deleteBlockRowWeights(h[idx], params))
+        stateMaskedChunks.append(np.ascontiguousarray(xMasked[idx], dtype=np.float64))
+        pMaskedChunks.append(np.ascontiguousarray(pMasked[idx], dtype=np.float64))
+        covDeltaChunks.append(
+            np.ascontiguousarray(pMasked[idx] - fullPArr[idx], dtype=np.float64)
+        )
+        totalInfoChunks.append(np.ascontiguousarray(totalInfo[idx], dtype=np.float64))
+        keptInfoChunks.append(np.ascontiguousarray(keptInfo[idx], dtype=np.float64))
+        heldInfoChunks.append(np.ascontiguousarray(heldoutInfo[idx], dtype=np.float64))
+        sourceCountsFold = {
+            str(value): int(count)
+            for value, count in zip(*np.unique(source[idx], return_counts=True))
+        }
+        covValidFractionFold = float(
+            sourceCountsFold.get("covariance_difference", 0) / max(int(idx.size), 1)
+        )
         logger.info(
-            "uncertaintyCalibration.fold.done fold=%s/%s heldoutCells=%s refitSeconds=%.3f extractSeconds=%.3f",
+            "uncertaintyCalibration.fold.done fold=%s/%s deleteBlockRows=%s varianceMode=%s covarianceDifferenceFraction=%.3f refitSeconds=%.3f extractSeconds=%.3f",
             int(fold + 1),
             int(len(masks)),
-            int(ii.size),
+            int(idx.size),
+            varianceMode,
+            covValidFractionFold,
             float(foldRefitSeconds),
             float(foldExtractSeconds),
         )
@@ -958,18 +1326,25 @@ def calibrateChromosomeStateUncertainty(
     timings["extract_scores_seconds"] = extractSeconds
 
     if not residualChunks:
-        raise ValueError("uncertainty calibration produced no held-out cells")
+        raise ValueError("delete-block state uncertainty calibration produced no valid deleted-state rows")
     residual = np.concatenate(residualChunks)
-    pState = np.concatenate(pChunks)
-    obsVar = np.concatenate(rChunks)
+    pDelta = np.concatenate(pDeltaChunks)
     intervalIndex = np.concatenate(iChunks)
-    repIndex = np.concatenate(jChunks)
     foldIndex = np.concatenate(foldChunks)
+    hAll = np.concatenate(hChunks)
+    sourceAll = np.concatenate(sourceChunks).astype(object, copy=False)
+    rowWeight = np.concatenate(rowWeightChunks)
+    stateMaskedAll = np.concatenate(stateMaskedChunks)
+    pMaskedAll = np.concatenate(pMaskedChunks)
+    covDeltaAll = np.concatenate(covDeltaChunks)
+    totalInfoAll = np.concatenate(totalInfoChunks)
+    keptInfoAll = np.concatenate(keptInfoChunks)
+    heldInfoAll = np.concatenate(heldInfoChunks)
     blockIndex = (intervalIndex // int(blockLen)).astype(np.int64, copy=False)
-    totalHeldoutCells = int(residual.size)
+    totalDeleteBlockRows = int(residual.size)
     if residual.size < int(params.minHeldoutCells):
         logger.warning(
-            "uncertaintyCalibration.lowHeldoutCells heldoutCells=%s minHeldoutCells=%s; fitting with available cells",
+            "uncertaintyCalibration.lowDeleteBlockRows deleteBlockRows=%s minHeldoutCells=%s; fitting with available rows",
             int(residual.size),
             int(params.minHeldoutCells),
         )
@@ -983,12 +1358,12 @@ def calibrateChromosomeStateUncertainty(
     scaleRows = np.flatnonzero(np.asarray(targetSplit["scale_mask"], dtype=bool))
     if scaleRows.size == 0:
         scaleRows = np.arange(residual.size, dtype=np.int64)
-    sampleCodes = _scoreSamplingCodes(
+    sampleCodes = _deleteBlockScoreSamplingCodes(
         foldIndex=foldIndex,
-        repIndex=repIndex,
         intervalIndex=intervalIndex,
-        pState=pState,
+        pDelta=pDelta,
         fullState=fullState0,
+        source=sourceAll,
     )
     fitRowsLocal = _samplePositionsByCode(
         sampleCodes[scaleRows],
@@ -997,63 +1372,44 @@ def calibrateChromosomeStateUncertainty(
     )
     fitRows = scaleRows[fitRowsLocal]
     residualFit = residual[fitRows]
-    pStateFit = pState[fitRows]
-    obsVarFit = obsVar[fitRows]
+    pDeltaFit = pDelta[fitRows]
     intervalIndexFit = intervalIndex[fitRows]
-    repIndexFit = repIndex[fitRows]
     foldIndexFit = foldIndex[fitRows]
     logger.info(
-        "uncertaintyCalibration.sample heldoutCells=%s fitCells=%s maxHeldoutCells=%s",
-        totalHeldoutCells,
+        "uncertaintyCalibration.sample deleteBlockRows=%s fitRows=%s maxScores=%s",
+        totalDeleteBlockRows,
         int(residualFit.size),
         _maxScoreRows(params),
     )
     stageStart = time.perf_counter()
-    beta, modelMeta = _fitFactorModel(
+    factorGlobal, modelMeta = _fitDeleteBlockGlobalFactor(
         residual=residualFit,
-        pState=pStateFit,
-        obsVar=obsVarFit,
-        featureByInterval=featureMatrix,
-        intervalIndex=intervalIndexFit,
+        pDelta=pDeltaFit,
+        rowWeight=rowWeight[fitRows],
         params=params,
     )
     timings["fit_factor_seconds"] = time.perf_counter() - stageStart
     stageStart = time.perf_counter()
-    factor, calibrated = _cuncertainty.cevaluateFactor(
-        np.ascontiguousarray(featureMatrix, dtype=np.float64),
-        np.ascontiguousarray(beta, dtype=np.float64),
-        np.ascontiguousarray(fullPArr, dtype=np.float64),
-        _factorBounds(params)[0],
-        _factorBounds(params)[1],
-    )
+    factor = np.full(n, float(factorGlobal), dtype=np.float64)
+    calibrated = np.sqrt(
+        np.maximum(
+            factor * fullPArr,
+            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
+        )
+    ).astype(np.float32)
     timings["evaluate_factor_seconds"] = time.perf_counter() - stageStart
     heldFactor = factor[intervalIndexFit].astype(np.float64)
-    sdBefore = np.sqrt(
-        np.maximum(
-            pStateFit + obsVarFit,
-            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
-        )
-    )
-    aObsFactor = float(modelMeta.get("a_obs_factor", 1.0))
-    sdAfter = np.sqrt(
-        np.maximum(
-            heldFactor * pStateFit + aObsFactor * obsVarFit,
-            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
-        )
-    )
-    heldFactorAll = factor[intervalIndex].astype(np.float64)
     sdBeforeAll = np.sqrt(
-        np.maximum(
-            pState + obsVar,
-            core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
-        )
+        np.maximum(pDelta, core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR)
     )
     sdAfterAll = np.sqrt(
         np.maximum(
-            heldFactorAll * pState + aObsFactor * obsVar,
+            factor[intervalIndex].astype(np.float64) * pDelta,
             core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR,
         )
     )
+    sdBefore = sdBeforeAll[fitRows]
+    sdAfter = sdAfterAll[fitRows]
     signalAbsHeldout = np.abs(fullState0[intervalIndex])
     stateCoverage = core.checkStateUncertaintyCoverage(
         residual,
@@ -1076,16 +1432,14 @@ def calibrateChromosomeStateUncertainty(
     targetCalibrationBounds: list[dict[str, Any]] = []
     if targetCalibrationEnabled:
         targetBlockIds, targetBlockScores, targetBlockCellCounts = (
-            _cuncertainty.ctargetBlockScores(
-                np.ascontiguousarray(residual, dtype=np.float64),
-                np.ascontiguousarray(pState, dtype=np.float64),
-                np.ascontiguousarray(obsVar, dtype=np.float64),
-                np.ascontiguousarray(factor, dtype=np.float64),
-                np.ascontiguousarray(intervalIndex, dtype=np.int64),
-                np.ascontiguousarray(blockIndex, dtype=np.int64),
-                np.ascontiguousarray(targetSplit["target_block_mask"], dtype=np.uint8),
-                aObsFactor,
-                float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+            _deleteBlockTargetBlockScores(
+                residual=residual,
+                pDelta=pDelta,
+                factorByInterval=factor,
+                intervalIndex=intervalIndex,
+                blockIndex=blockIndex,
+                targetBlockMask=np.asarray(targetSplit["target_block_mask"], dtype=np.uint8),
+                positiveFloor=float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
             )
         )
         targetCalibrationBounds = _targetCalibrationBounds(
@@ -1093,43 +1447,40 @@ def calibrateChromosomeStateUncertainty(
             targets=tuple(float(t) for t in params.targets),
             delta=float(targetDelta),
         )
+    deleteBlockApplyTarget = getattr(params, "deleteBlockApplyTargetCalibration", None)
     scaleByTargetCalibration = bool(
-        getattr(params, "scaleUncertaintyByTargetCalibration", True)
+        params.scaleUncertaintyByTargetCalibration
+        if deleteBlockApplyTarget is None
+        else deleteBlockApplyTarget
     )
     targetScaleBound = _targetCalibrationScaleBound(targetCalibrationBounds)
+    targetScaleInfo = _targetCalibrationTrackScale(targetScaleBound)
     uncertaintyTrackScale = 1.0
     uncertaintyTrackScaleTarget = None
+    uncertaintyTrackScaleTargetZ = None
+    uncertaintyTrackScaleQ = None
     uncertaintyTrackScaled = False
     uncertaintyTrackScaleCertified = False
     uncertaintyTrackScaleReason = "target_calibration_disabled"
     if targetCalibrationEnabled:
         uncertaintyTrackScaleReason = "scale_disabled_by_config"
         if scaleByTargetCalibration:
-            uncertaintyTrackScaleReason = "no_target_bound"
-            if targetScaleBound is not None:
-                uncertaintyTrackScaleTarget = float(targetScaleBound["target"])
-                qValue = targetScaleBound.get("q")
-                if qValue is not None:
-                    qFloat = float(qValue)
-                    if np.isfinite(qFloat) and qFloat > 0.0:
-                        uncertaintyTrackScale = qFloat
-                        uncertaintyTrackScaled = True
-                        uncertaintyTrackScaleCertified = bool(
-                            targetScaleBound.get("certified", False)
-                        )
-                        uncertaintyTrackScaleReason = (
-                            "scaled_by_certified_target_bound"
-                            if uncertaintyTrackScaleCertified
-                            else "scaled_by_uncertified_empirical_max"
-                        )
-                        calibrated = (
-                            np.asarray(calibrated, dtype=np.float32)
-                            * np.float32(uncertaintyTrackScale)
-                        )
-                    else:
-                        uncertaintyTrackScaleReason = "nonfinite_target_bound"
-                else:
-                    uncertaintyTrackScaleReason = "no_finite_target_bound"
+            uncertaintyTrackScaleReason = str(targetScaleInfo["reason"])
+            uncertaintyTrackScaleTarget = targetScaleInfo["target"]
+            uncertaintyTrackScaleTargetZ = targetScaleInfo["target_z"]
+            uncertaintyTrackScaleQ = targetScaleInfo["q"]
+            uncertaintyTrackScaleCertified = bool(targetScaleInfo["certified"])
+            uncertaintyTrackScaled = bool(targetScaleInfo["scaled"])
+            uncertaintyTrackScale = float(targetScaleInfo["scale"])
+            if uncertaintyTrackScaled:
+                uncertaintyTrackScaleReason = (
+                    "delete_block_state_target_bound_divided_by_normal_z"
+                )
+            if uncertaintyTrackScaled:
+                calibrated = (
+                    np.asarray(calibrated, dtype=np.float32)
+                    * np.float32(uncertaintyTrackScale)
+                )
     targetQ = (
         None
         if targetScaleBound is None or targetScaleBound.get("q") is None
@@ -1146,7 +1497,7 @@ def calibrateChromosomeStateUncertainty(
         else logger.info
     )
     targetLog(
-        "uncertaintyCalibration.target enabled=%s delta=%s blocksTotal=%d blocksScale=%d blocksTarget=%d blocksTargetScored=%d targetBlockCells=%d selectedTarget=%s q=%s qSource=%s certified=%s scaleRequested=%s scaleApplied=%s scale=%.6g reason=%s",
+        "uncertaintyCalibration.target enabled=%s delta=%s blocksTotal=%d blocksScale=%d blocksTarget=%d blocksTargetScored=%d targetBlockCells=%d selectedTarget=%s targetZ=%s q=%s qSource=%s certified=%s scaleRequested=%s scaleApplied=%s scale=%.6g reason=%s",
         bool(targetCalibrationEnabled),
         None if targetDelta is None else float(targetDelta),
         int(targetSplit["blocks_total"]),
@@ -1155,6 +1506,7 @@ def calibrateChromosomeStateUncertainty(
         int(targetBlockScores.size),
         int(np.sum(targetBlockCellCounts)),
         uncertaintyTrackScaleTarget,
+        uncertaintyTrackScaleTargetZ,
         targetQ,
         targetQSource,
         bool(uncertaintyTrackScaleCertified),
@@ -1172,11 +1524,7 @@ def calibrateChromosomeStateUncertainty(
     if coverageOverall:
         coveragePayload = _coverageLogPayload(coverageOverall)
         logger.info(
-            "uncertaintyCalibration.coverage.all %s",
-            coveragePayload,
-        )
-        logger.info(
-            "uncertaintyCalibration.coverage.crossfit_all %s",
+            "uncertaintyCalibration.coverage.delete_block_all %s",
             coveragePayload,
         )
     if coverageFitOverall:
@@ -1185,25 +1533,43 @@ def calibrateChromosomeStateUncertainty(
             _coverageLogPayload(coverageFitOverall),
         )
     stageStart = time.perf_counter()
+    sourceFit = sourceAll[fitRows].astype(object, copy=False)
+    hFit = hAll[fitRows]
+    pMaskedFit = pMaskedAll[fitRows]
+    covDeltaFit = covDeltaAll[fitRows]
+    totalInfoFit = totalInfoAll[fitRows]
+    keptInfoFit = keptInfoAll[fitRows]
+    heldInfoFit = heldInfoAll[fitRows]
+    rowWeightFit = rowWeight[fitRows]
+    pDeltaFit = pDelta[fitRows]
     scores = pd.DataFrame(
         {
             "fold": foldIndexFit,
-            "replicate": repIndexFit,
             "interval_index": intervalIndexFit,
             "block_index": blockIndex[fitRows],
             "chrom_start": intervalsArr[intervalIndexFit],
             "residual": residualFit,
-            "state_variance": pStateFit,
-            "observation_variance": obsVarFit,
+            "deleted_state_delta": residualFit,
+            "state_full": fullState0[intervalIndexFit],
+            "state_masked": stateMaskedAll[fitRows],
+            "P00_full": fullPArr[intervalIndexFit],
+            "P00_masked": pMaskedFit,
+            "covariance_delta": covDeltaFit,
+            "total_information": totalInfoFit,
+            "kept_information": keptInfoFit,
+            "heldout_information": heldInfoFit,
+            "heldout_information_fraction": hFit,
+            "delta_variance": pDeltaFit,
+            "delta_variance_source": sourceFit,
+            "row_weight": rowWeightFit,
             "sd_before": sdBefore,
             "sd_after": sdAfter,
             "a_state": heldFactor,
-            "a_obs": np.full_like(heldFactor, aObsFactor),
         }
     )
     try:
         scores["uncertainty_decile"] = pd.qcut(
-            scores["state_variance"],
+            scores["delta_variance"],
             q=core.UNCERTAINTY_CALIBRATION_SCORE_PSTATE_DECILES,
             labels=False,
             duplicates="drop",
@@ -1226,47 +1592,108 @@ def calibrateChromosomeStateUncertainty(
     )
     summary = _summarizeScores(scores=scores, targets=tuple(float(t) for t in params.targets))
     diagnosticRows = _samplePositionsByCode(
-        _scoreSamplingCodes(
+        _deleteBlockScoreSamplingCodes(
             foldIndex=scores["fold"].to_numpy(dtype=np.int64),
-            repIndex=scores["replicate"].to_numpy(dtype=np.int64),
             intervalIndex=scores["interval_index"].to_numpy(dtype=np.int64),
-            pState=scores["state_variance"].to_numpy(dtype=np.float64),
+            pDelta=scores["delta_variance"].to_numpy(dtype=np.float64),
             fullState=fullState0,
+            source=scores["delta_variance_source"].to_numpy(dtype=object),
         ),
         maxRows=int(params.maxDiagnosticRows),
         seed=int(params.seed) + core.UNCERTAINTY_CALIBRATION_DIAGNOSTIC_SEED_OFFSET,
     )
     scoresDiagnostics = scores.iloc[diagnosticRows, :].reset_index(drop=True)
     timings["summarize_scores_seconds"] = time.perf_counter() - stageStart
+    sourceCounts = {
+        "covariance_difference": int(np.count_nonzero(sourceAll == "covariance_difference")),
+        "heldout_information": int(np.count_nonzero(sourceAll == "heldout_information")),
+        "heldout_information_fallback": int(
+            np.count_nonzero(sourceAll == "heldout_information_fallback")
+        ),
+    }
+    covarianceDifferenceValidFraction = float(
+        sourceCounts["covariance_difference"] / max(totalDeleteBlockRows, 1)
+    )
+    if (
+        varianceMode == "hybrid"
+        and totalDeleteBlockRows > 0
+        and covarianceDifferenceValidFraction
+        < float(params.deleteBlockFallbackMinValidFraction)
+    ):
+        logger.warning(
+            "uncertaintyCalibration.deleteBlock.mostlyInformationFallback covarianceDifferenceFraction=%.3f minValidFraction=%.3f",
+            covarianceDifferenceValidFraction,
+            float(params.deleteBlockFallbackMinValidFraction),
+        )
+    finiteH = hAll[np.isfinite(hAll)]
+    finiteTotalInfo = totalInfoAll[np.isfinite(totalInfoAll) & (totalInfoAll > 0.0)]
+    finiteHeldInfo = heldInfoAll[np.isfinite(heldInfoAll) & (heldInfoAll > 0.0)]
+    factorMin, factorMax = _factorBounds(params)
     model = {
         **modelMeta,
-        "beta": [float(x) for x in beta],
+        "mode": calibrationMode,
+        "score_definition": "deleted_state_delta_over_deleted_state_delta_sd",
+        "target_signal": targetSignal,
+        "variance_mode": varianceMode,
+        "factor_model": factorModel,
+        "calibration_policy": calibrationMode,
         "feature_names": featureNames,
         "feature_center": [float(x) for x in featureCenter],
         "feature_scale": [float(x) for x in featureScale],
-        "block_len_intervals": int(blockLen),
+        "factor_bound_min": float(factorMin),
+        "factor_bound_max": float(factorMax),
+        "rows_total": int(rowsTotal),
+        "rows_valid": int(totalDeleteBlockRows),
+        "rows_fit": int(residualFit.size),
+        "rows_invalid": int(sum(invalidReasonCounts.values())),
+        "invalid_reasons": {key: int(value) for key, value in invalidReasonCounts.items()},
+        "variance_source_counts": sourceCounts,
+        "covariance_difference_valid_fraction": covarianceDifferenceValidFraction,
+        "information": {
+            "use_lambda": bool(params.deleteBlockUseLambdaInInformation),
+            "weight_mode": weightMode,
+            "min_h": None if finiteH.size == 0 else float(np.min(finiteH)),
+            "median_h": None if finiteH.size == 0 else float(np.median(finiteH)),
+            "mean_h": None if finiteH.size == 0 else float(np.mean(finiteH)),
+            "max_h": None if finiteH.size == 0 else float(np.max(finiteH)),
+            "total_information_median": (
+                None if finiteTotalInfo.size == 0 else float(np.median(finiteTotalInfo))
+            ),
+            "heldout_information_median": (
+                None if finiteHeldInfo.size == 0 else float(np.median(finiteHeldInfo))
+            ),
+        },
+        "fold_refits": {
+            "folds": int(folds),
+            "fold_failures": int(foldFailures),
+            "block_len_intervals": int(blockLen),
+            "holdout_count": int(holdoutCount),
+            "holdout_fraction": float(holdoutCount / max(m, 1)),
+            "holdout_fraction_config": (
+                None if holdoutFractionRaw is None else float(holdoutFractionRaw)
+            ),
+            "calibration_ecm_iters": int(params.calibrationECMIters),
+            "refit_policy": {
+                "ECM_outerIters": 1,
+                "ECM_minOuterIters": 1,
+                "returnBackground": True,
+                "returnReplicateOffsets": True,
+                "returnScales": True,
+            },
+        },
         "state_roughness": stateRoughness,
-        "holdout_replicates_per_block": int(holdoutCount),
-        "heldout_cells": totalHeldoutCells,
-        "fit_heldout_cells": int(residualFit.size),
         "diagnostic_score_rows": int(scoresDiagnostics.shape[0]),
         "max_scores": int(_maxScoreRows(params)),
         "max_diagnostic_rows": int(params.maxDiagnosticRows),
         "folds": int(folds),
+        "block_len_intervals": int(blockLen),
         "block_size_bp": (
             None
             if params.blockSizeBP is None
             else str(params.blockSizeBP)
         ),
-        "holdout_fraction": (
-            None if holdoutFraction is None else float(holdoutFraction)
-        ),
         "targets": [float(target) for target in params.targets],
         "ridge": float(max(params.ridge, 0.0)),
-        "wis_weight": float(_wisWeight(params)),
-        "a_obs_penalty": float(_aObsPenalty(params)),
-        "factor_bound_min": float(_factorBounds(params)[0]),
-        "factor_bound_max": float(_factorBounds(params)[1]),
         "state_uncertainty_coverage": stateCoverage,
         "state_uncertainty_coverage_fit": stateCoverageFit,
         "target_calibration": {
@@ -1283,22 +1710,25 @@ def calibrateChromosomeStateUncertainty(
             "uncertainty_track_scaled": bool(uncertaintyTrackScaled),
             "uncertainty_track_scale": float(uncertaintyTrackScale),
             "uncertainty_track_scale_target": uncertaintyTrackScaleTarget,
+            "uncertainty_track_scale_target_z": uncertaintyTrackScaleTargetZ,
+            "uncertainty_track_scale_q": uncertaintyTrackScaleQ,
             "uncertainty_track_scale_certified": bool(uncertaintyTrackScaleCertified),
             "uncertainty_track_scale_reason": uncertaintyTrackScaleReason,
-            "score_definition": "max_abs_residual_over_predictive_sd_by_block",
+            "score_definition": "max_abs_deleted_state_delta_over_deleted_state_delta_sd_by_block",
             "bounds": targetCalibrationBounds,
         },
     }
     timings["total_seconds"] = time.perf_counter() - totalStart
     model["timings_seconds"] = {key: float(value) for key, value in timings.items()}
     logger.info(
-        "uncertaintyCalibration.fit.done heldoutCells=%s objective=%.6g aObs=%.6g elapsed=%.3fs",
-        totalHeldoutCells,
-        float(modelMeta.get("objective", np.nan)),
-        float(modelMeta.get("a_obs_factor", np.nan)),
+        "uncertaintyCalibration.fit.done mode=delete_block_state deleteBlockRows=%s fitRows=%s globalFactor=%.6g elapsed=%.3fs",
+        totalDeleteBlockRows,
+        int(residualFit.size),
+        float(factorGlobal),
         timings["total_seconds"],
     )
     if outPrefix is not None and bool(params.writeDiagnostics):
+        diagnosticsStart = time.perf_counter()
         prefix = Path(outPrefix)
         diagnosticsPath = str(prefix) + ".diagnostics.tsv.gz"
         modelPath = str(prefix) + ".model.json"
@@ -1324,10 +1754,12 @@ def calibrateChromosomeStateUncertainty(
                 compression="gzip",
             )
             logger.info("uncertaintyCalibration.output wrote %s", path)
+        timings["diagnostics_seconds"] = time.perf_counter() - diagnosticsStart
+        model["timings_seconds"] = {key: float(value) for key, value in timings.items()}
         _writeModelJson(modelPath, model, chromosome)
         logger.info("uncertaintyCalibration.output wrote %s", modelPath)
     return uncertaintyCalibrationResult(
-        factor=factor,
+        factor=factor.astype(np.float32),
         calibratedUncertainty=calibrated,
         summary=summary,
         scores=scores,

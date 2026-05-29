@@ -35,42 +35,28 @@ def _smallRunKwargs():
     )
 
 
-def _caseFitFactorModelAllowsInflationAndDeflation():
-    n = 20
-    pState = np.ones(n, dtype=np.float64)
-    obsVar = np.full(n, 0.1, dtype=np.float64)
-    features = np.ones((n, 1), dtype=np.float64)
-    intervalIndex = np.arange(n, dtype=np.int64)
+def _caseDeleteBlockGlobalFactorUsesWeightedQuantile():
+    residual = np.array([0.5, 1.0, 3.0], dtype=np.float64)
+    pDelta = np.ones_like(residual)
+    rowWeight = np.ones_like(residual)
     params = core.uncertaintyCalibrationParams(
-        targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
+        targets=(0.8,),
         factorMin=core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
         factorMax=core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
-        ridge=0.0,
         minHeldoutCells=1,
     )
 
-    smallResidual = np.zeros(n, dtype=np.float64)
-    betaSmall, _ = uncertainty._fitFactorModel(
-        residual=smallResidual,
-        pState=pState,
-        obsVar=obsVar,
-        featureByInterval=features,
-        intervalIndex=intervalIndex,
+    factor, meta = uncertainty._fitDeleteBlockGlobalFactor(
+        residual=residual,
+        pDelta=pDelta,
+        rowWeight=rowWeight,
         params=params,
     )
 
-    largeResidual = np.full(n, 5.0, dtype=np.float64)
-    betaLarge, _ = uncertainty._fitFactorModel(
-        residual=largeResidual,
-        pState=pState,
-        obsVar=obsVar,
-        featureByInterval=features,
-        intervalIndex=intervalIndex,
-        params=params,
-    )
-
-    assert float(np.exp(betaSmall[0])) < 1.0
-    assert float(np.exp(betaLarge[0])) > 1.0
+    expected = (3.0 / uncertainty._normalZ(0.8)) ** 2
+    assert factor == pytest.approx(expected)
+    assert meta["factor_model"] == "global"
+    assert meta["global_factor"] == pytest.approx(factor)
 
 
 
@@ -89,6 +75,123 @@ def _casePacOrderIndexExamples():
     assert bounds[0]["certified"] is False
     assert bounds[0]["q"] == 57.0
     assert bounds[0]["q_source"] == "empirical_max_uncertified"
+
+
+def _caseDeleteBlockInformationApproximation():
+    infoCell = np.array(
+        [
+            [1.0, 2.0, 4.0],
+            [3.0, 2.0, 4.0],
+        ],
+        dtype=np.float64,
+    )
+    activeMask = np.ones_like(infoCell, dtype=bool)
+    foldMask = np.array(
+        [
+            [1, 0, 1],
+            [1, 1, 0],
+        ],
+        dtype=np.uint8,
+    )
+
+    totalInfo, keptInfo, deletedInfo, h = uncertainty._heldoutInformationByInterval(
+        infoCell,
+        activeMask,
+        foldMask,
+    )
+
+    assert np.allclose(totalInfo, [4.0, 4.0, 8.0])
+    assert np.allclose(keptInfo, [4.0, 2.0, 4.0])
+    assert np.allclose(deletedInfo, [0.0, 2.0, 4.0])
+    assert np.allclose(h, [0.0, 0.5, 0.5])
+
+    delta, source, valid, reason = uncertainty._chooseDeleteBlockDeltaVariance(
+        np.array([1.0, 1.0, 2.0], dtype=np.float64),
+        np.array([1.1, 1.1, 2.1], dtype=np.float64),
+        h,
+        mode="heldout_information",
+        minDeltaVariance=1.0e-12,
+        minInformationFraction=0.01,
+        maxInformationFraction=0.95,
+        positiveFloor=1.0e-12,
+    )
+
+    assert valid.tolist() == [False, True, True]
+    assert np.isnan(delta[0])
+    assert np.allclose(delta[1:], [1.0, 2.0])
+    assert source.tolist() == ["invalid", "heldout_information", "heldout_information"]
+    assert reason.tolist() == ["h_out_of_bounds", "valid", "valid"]
+
+
+def _caseDeleteBlockVarianceModeSelection():
+    pFull = np.array([1.0, 1.0, 1.0], dtype=np.float64)
+    pMasked = np.array([1.5, 1.0, 0.8], dtype=np.float64)
+    h = np.array([0.25, 0.5, 0.5], dtype=np.float64)
+
+    delta, source, valid, reason = uncertainty._chooseDeleteBlockDeltaVariance(
+        pFull,
+        pMasked,
+        h,
+        mode="hybrid",
+        minDeltaVariance=1.0e-12,
+        minInformationFraction=0.01,
+        maxInformationFraction=0.95,
+        positiveFloor=1.0e-12,
+    )
+
+    assert valid.tolist() == [True, True, True]
+    assert np.allclose(delta, [0.5, 1.0, 1.0])
+    assert source.tolist() == [
+        "covariance_difference",
+        "heldout_information_fallback",
+        "heldout_information_fallback",
+    ]
+    assert reason.tolist() == ["valid", "valid", "valid"]
+
+    delta, source, valid, reason = uncertainty._chooseDeleteBlockDeltaVariance(
+        pFull,
+        pMasked,
+        h,
+        mode="covariance_difference",
+        minDeltaVariance=1.0e-12,
+        minInformationFraction=0.01,
+        maxInformationFraction=0.95,
+        positiveFloor=1.0e-12,
+    )
+
+    assert valid.tolist() == [True, False, False]
+    assert np.isfinite(delta[0])
+    assert source.tolist() == ["covariance_difference", "invalid", "invalid"]
+    assert reason.tolist() == [
+        "valid",
+        "covariance_delta_nonpositive",
+        "covariance_delta_nonpositive",
+    ]
+
+
+def _caseTargetCalibrationTrackScaleUsesQOverZ():
+    target = 0.95
+    z = uncertainty._normalZ(target)
+    info = uncertainty._targetCalibrationTrackScale(
+        {
+            "target": target,
+            "q": 2.0 * z,
+            "q_source": "pac_order_statistic",
+            "certified": True,
+        }
+    )
+
+    assert info["scaled"] is True
+    assert info["certified"] is True
+    assert info["target_z"] == pytest.approx(z)
+    assert info["scale"] == pytest.approx(2.0)
+    assert info["reason"] == "scaled_by_certified_target_bound_q_over_z"
+
+
+def _caseOldPredictiveHeldoutModeUnsupported():
+    for oldMode in ("predictive_holdout", "predictive-heldout", "heldout_residual"):
+        with pytest.raises(ValueError, match="predictive held-out residual.*removed"):
+            uncertainty._normalizeUncertaintyCalibrationMode(oldMode)
 
 
 def _pythonFeatureMatrix(state, stateVar, matrixMunc):
@@ -157,43 +260,8 @@ def _caseCythonFeatureMatrixMatchesPythonForFloat32AndFloat64():
         assert np.allclose(scale, expectedScale, atol=1.0e-6)
 
 
-def _caseCythonHeldoutExtractionAndFactorEvaluation():
-    matrixData = np.arange(12, dtype=np.float32).reshape(3, 4)
-    matrixMunc = np.full((3, 4), 0.2, dtype=np.float32)
-    state = np.array([0.5, 1.0, 1.5, 2.0], dtype=np.float32)
+def _caseCythonFactorEvaluation():
     pState = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
-    bias = np.array([0.0, 0.1, -0.2], dtype=np.float32)
-    background = np.array([0.0, 0.2, -0.1, 0.3], dtype=np.float32)
-    mask = np.ones((3, 4), dtype=np.uint8)
-    mask[0, 1] = 0
-    mask[2, 3] = 0
-
-    residual, pHeld, rHeld, ii, jj, fold = cuncertainty.cextractHeldoutScores(
-        matrixData,
-        matrixMunc,
-        state,
-        pState,
-        bias,
-        background,
-        mask,
-        2,
-        1.0e-4,
-        float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
-    )
-
-    assert ii.tolist() == [1, 3]
-    assert jj.tolist() == [0, 2]
-    assert fold.tolist() == [2, 2]
-    assert np.allclose(
-        residual,
-        [
-            matrixData[0, 1] - background[1] - state[1],
-            matrixData[2, 3] - background[3] - state[3] - bias[2],
-        ],
-    )
-    assert np.allclose(pHeld, [pState[1], pState[3]])
-    assert np.allclose(rHeld, [0.2001, 0.2001])
-
     features = np.ascontiguousarray(np.column_stack([np.ones(4), np.arange(4)]), dtype=np.float64)
     beta = np.array([np.log(2.0), 0.0], dtype=np.float64)
     factor, calibrated = cuncertainty.cevaluateFactor(
@@ -207,142 +275,74 @@ def _caseCythonHeldoutExtractionAndFactorEvaluation():
     assert np.allclose(calibrated, np.sqrt(2.0 * pState))
 
 
-def _caseCythonTargetBlockScores():
-    residual = np.array([1.0, 4.0, 3.0, 100.0, np.nan, 6.0], dtype=np.float64)
-    pState = np.ones(residual.size, dtype=np.float64)
-    obsVar = np.zeros(residual.size, dtype=np.float64)
-    factorByInterval = np.array([1.0, 4.0, 1.0, 1.0], dtype=np.float64)
-    intervalIndex = np.array([0, 1, 2, 3, 0, 1], dtype=np.int64)
-    blockIndex = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
-    targetMask = np.array([1, 0, 1], dtype=np.uint8)
+def _caseCythonDeletedStateScoresAndDeleteBlockScores():
+    fullState = np.array([10.0, 20.0, 30.0, 40.0], dtype=np.float64)
+    deletedState = np.array([9.0, 22.0, 31.0, 37.0], dtype=np.float64)
+    deletedStateVar = np.array([1.0, 4.0, 0.5, 9.0], dtype=np.float64)
+    activeMask = np.array(
+        [
+            [1, 0, 1, 1],
+            [1, 1, 0, 1],
+        ],
+        dtype=np.uint8,
+    )
+    foldMask = np.array(
+        [
+            [0, 0, 1, 0],
+            [1, 0, 0, 1],
+        ],
+        dtype=np.uint8,
+    )
 
-    blocks, scores, counts = cuncertainty.ctargetBlockScores(
+    residual, pState, ii, fold, heldoutCount, keptCount = (
+        cuncertainty.cextractDeletedStateScores(
+            fullState,
+            deletedState,
+            deletedStateVar,
+            activeMask,
+            foldMask,
+            2,
+            float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
+        )
+    )
+
+    assert ii.tolist() == [0, 1, 3]
+    assert fold.tolist() == [2, 2, 2]
+    assert np.allclose(residual, [1.0, -2.0, 3.0])
+    assert np.allclose(pState, [1.0, 4.0, 9.0])
+    assert heldoutCount.tolist() == [1, 1, 1]
+    assert keptCount.tolist() == [1, 0, 1]
+
+    factorByInterval = np.array([1.0, 4.0, 1.0, 1.0], dtype=np.float64)
+    blockIndex = (ii // 2).astype(np.int64, copy=False)
+    targetMask = np.array([1, 1], dtype=np.uint8)
+
+    blocks, scores, counts = cuncertainty.cdeleteBlockBlockScores(
         residual,
         pState,
-        obsVar,
         factorByInterval,
-        intervalIndex,
+        ii,
         blockIndex,
         targetMask,
-        1.0,
+        heldoutCount,
         float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
     )
 
-    assert blocks.tolist() == [0, 2]
-    assert np.allclose(scores, [2.0, 3.0])
+    assert blocks.tolist() == [0, 1]
+    assert np.allclose(scores, [1.0, 1.0])
     assert counts.tolist() == [2, 1]
 
 
-def _caseCythonObjectiveAndSummaryContracts():
+def _caseCythonSummaryContracts():
     residual = np.array([-1.0, -0.2, 0.1, 1.3], dtype=np.float64)
-    pState = np.full(4, 0.5, dtype=np.float64)
-    obsVar = np.full(4, 0.2, dtype=np.float64)
-    features = np.ones((4, 1), dtype=np.float64)
-    intervalIndex = np.arange(4, dtype=np.int64)
+    pDelta = np.full(4, 0.5, dtype=np.float64)
     targets = np.array(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[:2], dtype=np.float64)
     targetZ = np.array([uncertainty._normalZ(t) for t in targets], dtype=np.float64)
-    theta = np.array([0.0, 0.0], dtype=np.float64)
-
-    value = cuncertainty.cfactorObjective(
-        theta,
-        residual,
-        pState,
-        obsVar,
-        features,
-        intervalIndex,
-        targets,
-        targetZ,
-        core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
-        core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
-        0.0,
-        core.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH,
-        1.0,
-        float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN),
-        float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX),
-        float(core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR),
-        float(core.UNCERTAINTY_CALIBRATION_WIS_WEIGHT),
-        float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
-    )
-    assert np.isfinite(value)
-    valueWithGrad, gradient = cuncertainty.cfactorObjectiveAndGradient(
-        theta,
-        residual,
-        pState,
-        obsVar,
-        features,
-        intervalIndex,
-        targets,
-        targetZ,
-        core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
-        core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
-        0.0,
-        core.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH,
-        1.0,
-        float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN),
-        float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX),
-        float(core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR),
-        float(core.UNCERTAINTY_CALIBRATION_WIS_WEIGHT),
-        float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
-    )
-    assert np.isclose(valueWithGrad, value)
-    assert gradient.shape == theta.shape
-    eps = 1.0e-6
-    for k in range(theta.size):
-        plus = theta.copy()
-        minus = theta.copy()
-        plus[k] += eps
-        minus[k] -= eps
-        valuePlus = cuncertainty.cfactorObjective(
-            plus,
-            residual,
-            pState,
-            obsVar,
-            features,
-            intervalIndex,
-            targets,
-            targetZ,
-            core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
-            core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
-            0.0,
-            core.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH,
-            1.0,
-            float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN),
-            float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX),
-            float(core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR),
-            float(core.UNCERTAINTY_CALIBRATION_WIS_WEIGHT),
-            float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
-        )
-        valueMinus = cuncertainty.cfactorObjective(
-            minus,
-            residual,
-            pState,
-            obsVar,
-            features,
-            intervalIndex,
-            targets,
-            targetZ,
-            core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MIN,
-            core.UNCERTAINTY_CALIBRATION_DEFAULT_FACTOR_MAX,
-            0.0,
-            core.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH,
-            1.0,
-            float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MIN),
-            float(core.UNCERTAINTY_CALIBRATION_A_OBS_FACTOR_MAX),
-            float(core.UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR),
-            float(core.UNCERTAINTY_CALIBRATION_WIS_WEIGHT),
-            float(core.UNCERTAINTY_CALIBRATION_POSITIVE_FLOOR),
-        )
-        assert np.isclose(
-            gradient[k],
-            (valuePlus - valueMinus) / (2.0 * eps),
-            rtol=1.0e-4,
-            atol=1.0e-5,
-        )
 
     summary = cuncertainty.csummarizeCoverageWidths(
         residual,
-        np.sqrt(pState + obsVar),
-        np.sqrt(2.0 * pState + obsVar),
+        np.sqrt(pDelta),
+        np.sqrt(2.0 * pDelta),
         np.array([0, 0, 1, 1], dtype=np.int32),
         targets,
         targetZ,
@@ -376,7 +376,6 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
         enabled=True,
         folds=2,
         blockSizeBP=120,
-        heldoutReplicateFraction=1.0 / m,
         calibrationECMIters=1,
         minHeldoutCells=1,
         maxHeldoutCells=12,
@@ -421,16 +420,28 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert modelPath.exists()
     with open(modelPath, "r", encoding="utf-8") as handle:
         model = json.load(handle)
-    assert "objective" in model
+    assert model["mode"] == "delete_block_state"
+    assert model["score_definition"] == "deleted_state_delta_over_deleted_state_delta_sd"
+    assert model["factor_model"] == "global"
+    assert "global_factor" in model
+    assert "objective" not in model
     assert model["target_calibration"]["enabled"] is True
     assert model["target_calibration"]["delta"] == params.targetCalibrationDelta
     assert model["target_calibration"]["score_definition"] == (
-        "max_abs_residual_over_predictive_sd_by_block"
+        "max_abs_deleted_state_delta_over_deleted_state_delta_sd_by_block"
     )
     assert len(model["target_calibration"]["bounds"]) == len(params.targets)
     assert model["target_calibration"]["scale_uncertainty_by_target_calibration"] is True
-    assert model["target_calibration"]["uncertainty_track_scaled"] is True
+    if model["target_calibration"]["uncertainty_track_scaled"]:
+        assert model["target_calibration"]["uncertainty_track_scale"] == pytest.approx(
+            model["target_calibration"]["uncertainty_track_scale_q"]
+            / model["target_calibration"]["uncertainty_track_scale_target_z"]
+        )
     assert {"factor_min", "factor_median", "factor_max"}.isdisjoint(model)
+    assert {"holdout_replicates_per_block", "heldout_cells", "fit_heldout_cells"}.isdisjoint(
+        model
+    )
+    assert "predictive" not in json.dumps(model).lower()
     assert model["state_roughness"]["block_len_intervals"] == (
         diagnostic_utils.resolveUncertaintyBlockSizeIntervals(
             params.blockSizeBP,
@@ -439,8 +450,10 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
         )
     )
     assert model["state_roughness"]["overall_mean_abs_diff"] is not None
-    assert model["heldout_cells"] >= model["fit_heldout_cells"]
-    assert model["fit_heldout_cells"] <= 12
+    assert model["rows_valid"] >= model["rows_fit"]
+    assert model["rows_fit"] <= 12
+    assert model["fold_refits"]["holdout_count"] >= 1
+    assert sum(model["variance_source_counts"].values()) == model["rows_valid"]
     assert model["diagnostic_score_rows"] <= 5
     coverageRows = model["state_uncertainty_coverage"]
     coverageFitRows = model["state_uncertainty_coverage_fit"]
@@ -450,9 +463,14 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     overallFitRows = [row for row in coverageFitRows if row["stratum"] == "overall"]
     assert {row["target"] for row in overallRows} == set(params.targets)
     assert {row["target"] for row in overallFitRows} == set(params.targets)
-    assert all(row["n"] == model["heldout_cells"] for row in overallRows)
-    assert all(row["n"] == model["fit_heldout_cells"] for row in overallFitRows)
+    assert all(row["n"] == model["rows_valid"] for row in overallRows)
+    assert all(row["n"] == model["rows_fit"] for row in overallFitRows)
     assert all("coverage_before" in row and "coverage_after" in row for row in coverageRows)
+    assert "replicate" not in result.scores.columns
+    assert "observation_variance" not in result.scores.columns
+    assert "deleted_state_delta" in result.scores.columns
+    assert "delta_variance" in result.scores.columns
+    assert "delta_variance_source" in result.scores.columns
     modelKeys = np.atleast_1d(diagnostics["key"])[
         np.atleast_1d(diagnostics["record_type"]) == "model"
     ]
@@ -461,7 +479,9 @@ def _caseCalibrateChromosomeStateUncertaintySmoke(tmp_path, caplog):
     assert not (tmp_path / "cal.scores.tsv.gz").exists()
     assert "uncertaintyCalibration.target enabled=True" in caplog.text
     assert "blocksTargetScored=" in caplog.text
-    assert "uncertaintyCalibration.coverage.crossfit_all" in caplog.text
+    assert "mode=delete_block_state" in caplog.text
+    assert "deleteBlockRows=" in caplog.text
+    assert "uncertaintyCalibration.coverage.delete_block_all" in caplog.text
     assert "uncertaintyCalibration.coverage.fit_sample" in caplog.text
 
 
@@ -520,7 +540,6 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
         enabled=True,
         folds=2,
         blockSizeBP=100,
-        heldoutReplicateFraction=1.0 / m,
         calibrationECMIters=2,
         minHeldoutCells=1,
         maxHeldoutCells=24,
@@ -557,14 +576,62 @@ def _caseCalibrationRefitsUseCheapProcessNoiseWarmup(monkeypatch):
         "processQWarmupOuterIters" not in kwargs
         for kwargs in capturedKwargs
     )
+    holdoutCount = uncertainty._resolveHoldoutCount(m, params.holdoutFraction)
     for mask in capturedMasks:
-        heldoutByInterval = np.sum(mask == 0, axis=0)
-        assert set(np.unique(heldoutByInterval)).issubset({0, 1})
-    combinedHeldoutByInterval = np.sum(
+        deletedByInterval = np.sum(mask == 0, axis=0)
+        assert set(np.unique(deletedByInterval)).issubset({0, holdoutCount})
+    combinedDeletedByInterval = np.sum(
         [np.sum(mask == 0, axis=0) for mask in capturedMasks],
         axis=0,
     )
-    assert np.all(combinedHeldoutByInterval == 1)
+    assert np.all(combinedDeletedByInterval == holdoutCount)
+
+
+def _caseDeleteBlockCalibrationReportsRefitFailures(monkeypatch, caplog):
+    caplog.set_level(logging.WARNING, logger=uncertainty.logger.name)
+    caplog.clear()
+    n = 24
+    m = 2
+    matrixData = np.zeros((m, n), dtype=np.float32)
+    matrixMunc = np.full_like(matrixData, 0.1, dtype=np.float32)
+    fullState = np.zeros((n, 2), dtype=np.float32)
+    fullCovar = np.zeros((n, 2, 2), dtype=np.float32)
+    fullCovar[:, 0, 0] = 0.1
+    fullCovar[:, 1, 1] = 0.01
+
+    def _failingRunConsenrich(*_args, **_kwargs):
+        raise RuntimeError("planned refit failure")
+
+    monkeypatch.setattr(core, "runConsenrich", _failingRunConsenrich)
+
+    params = core.uncertaintyCalibrationParams(
+        enabled=True,
+        folds=2,
+        blockSizeBP=100,
+        calibrationECMIters=1,
+        minHeldoutCells=1,
+        maxHeldoutCells=12,
+        targets=(core.UNCERTAINTY_CALIBRATION_DEFAULT_TARGETS[0],),
+        seed=31,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="delete-block state uncertainty calibration produced no valid deleted-state rows",
+    ):
+        uncertainty.calibrateChromosomeStateUncertainty(
+            matrixData=matrixData,
+            matrixMunc=matrixMunc,
+            fullState=fullState,
+            fullCovar=fullCovar,
+            intervals=np.arange(n, dtype=np.int64) * 25,
+            intervalSizeBP=25,
+            params=params,
+            runKwargs=_smallRunKwargs(),
+        )
+
+    assert "uncertaintyCalibration.deleteBlock.fold.failed" in caplog.text
+    assert "planned refit failure" in caplog.text
 
 
 
@@ -609,18 +676,34 @@ def _caseCalibrateChromosomeStateUncertaintySingleReplicate(tmp_path):
 
 def test_uncertainty_factor_model_contract(contract_case):
     contract_case(
-        "factor model allows inflation and deflation",
-        _caseFitFactorModelAllowsInflationAndDeflation,
+        "delete-block global factor uses weighted quantile",
+        _caseDeleteBlockGlobalFactorUsesWeightedQuantile,
     )
     contract_case("PAC order index examples", _casePacOrderIndexExamples)
+    contract_case(
+        "delete-block information approximation",
+        _caseDeleteBlockInformationApproximation,
+    )
+    contract_case(
+        "delete-block variance mode selection",
+        _caseDeleteBlockVarianceModeSelection,
+    )
+    contract_case(
+        "target calibration q over z scaling",
+        _caseTargetCalibrationTrackScaleUsesQOverZ,
+    )
+    contract_case(
+        "old predictive held-out calibration unsupported",
+        _caseOldPredictiveHeldoutModeUnsupported,
+    )
 
 
 def test_uncertainty_cython_contracts(contract_case):
     for label, func in (
         ("feature matrix matches Python", _caseCythonFeatureMatrixMatchesPythonForFloat32AndFloat64),
-        ("heldout extraction and factor evaluation", _caseCythonHeldoutExtractionAndFactorEvaluation),
-        ("target block scores", _caseCythonTargetBlockScores),
-        ("objective and summary contracts", _caseCythonObjectiveAndSummaryContracts),
+        ("factor evaluation", _caseCythonFactorEvaluation),
+        ("delete-state block scores", _caseCythonDeletedStateScoresAndDeleteBlockScores),
+        ("summary contracts", _caseCythonSummaryContracts),
     ):
         contract_case(label, func)
 
@@ -636,6 +719,12 @@ def test_uncertainty_calibration_smoke_contract(tmp_path, monkeypatch, caplog, c
         "cheap Q warmup policy for calibration refits",
         _caseCalibrationRefitsUseCheapProcessNoiseWarmup,
         monkeypatch,
+    )
+    contract_case(
+        "delete-block refit failure handling",
+        _caseDeleteBlockCalibrationReportsRefitFailures,
+        monkeypatch,
+        caplog,
     )
 
 

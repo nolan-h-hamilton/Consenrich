@@ -25,7 +25,6 @@ import consenrich.detrorm as detrorm
 import consenrich.misc_util as misc_util
 import consenrich.peaks as peaks
 
-
 TESTS_DIR = Path(__file__).resolve().parent
 TEST_DATA_DIR = TESTS_DIR / "data"
 FRAGMENTS_DIR = TEST_DATA_DIR / "fragments"
@@ -88,8 +87,7 @@ def _logRatioReference(
             if c <= np.float32(0.0):
                 c = offset_
             out[i] = np.float32(
-                scale_
-                * np.float32(math.log(float(t)) - math.log(float(c)))
+                scale_ * np.float32(math.log(float(t)) - math.log(float(c)))
             )
     else:
         offset_ = float(offset if offset > 0.0 else 1.0)
@@ -161,7 +159,7 @@ def _levelKalmanReference(
     matrixData: np.ndarray,
     matrixMunc: np.ndarray,
     *,
-    qLevel: float,
+    levelQ: float,
     stateInit: float,
     stateCovarInit: float,
     pad: float,
@@ -184,7 +182,7 @@ def _levelKalmanReference(
     x = float(stateInit)
     p = float(stateCovarInit)
     for k in range(intervalCount):
-        p += float(qLevel)
+        p += float(levelQ)
         sumInvR = 0.0
         sumInvRInnov = 0.0
         for j in range(trackCount):
@@ -198,7 +196,7 @@ def _levelKalmanReference(
         stateForward[k, 0] = x
         covForward[k, 0, 0] = p
         if k > 0:
-            pNoiseForward[k - 1, 0, 0] = float(qLevel)
+            pNoiseForward[k - 1, 0, 0] = float(levelQ)
 
     stateSmoothed = np.empty_like(stateForward)
     covSmoothed = np.empty_like(covForward)
@@ -261,13 +259,20 @@ def _caseEventLogFormattingIsCompactAndAttributed(caplog):
     assert line.startswith("event=munc.track.start")
     assert "chromosome=chr11" in line
     assert "munc_variance_eb=enabled" in line
-    assert 'long_value="this value is too long for the table and should be omitted"' in line
+    assert (
+        'long_value="this value is too long for the table and should be omitted"'
+        in line
+    )
 
     caplog.set_level(logging.INFO, logger=core.logger.name)
     core._logAsciiBlock("MUNC track start", (("MUNC variance EB", "enabled"),))
 
-    assert caplog.records[-1].funcName.endswith("EventLogFormattingIsCompactAndAttributed")
-    assert caplog.records[-1].message == "event=munc.track.start munc_variance_eb=enabled"
+    assert caplog.records[-1].funcName.endswith(
+        "EventLogFormattingIsCompactAndAttributed"
+    )
+    assert (
+        caplog.records[-1].message == "event=munc.track.start munc_variance_eb=enabled"
+    )
 
 
 @pytest.mark.correctness
@@ -1106,7 +1111,9 @@ def _caseFinalForwardGainSummaryUsesReplicateContigRows():
 
     np.testing.assert_allclose(summary["mean"], expectedAverages)
     np.testing.assert_allclose(summary["median"], expectedMedians)
-    np.testing.assert_array_equal(summary["count"], np.full(matrixMunc.shape[0], matrixMunc.shape[1]))
+    np.testing.assert_array_equal(
+        summary["count"], np.full(matrixMunc.shape[0], matrixMunc.shape[1])
+    )
 
 
 @pytest.mark.correctness
@@ -1134,6 +1141,7 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
         stateModel=core.STATE_MODEL_LEVEL_TREND,
         lambdaExp=lambdaExp,
         processPrecExp=processPrecExp,
+        processQScale=np.asarray([9.0, 2.0, 3.0], dtype=np.float32),
         pNoiseForward=None,
         pad=0.1,
         obsPrecisionMultiplierMin=0.25,
@@ -1142,8 +1150,11 @@ def _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents():
         procPrecisionMultiplierMax=4.0,
     )
 
-    np.testing.assert_allclose(tracks["qLevel"], [0.2, 0.1, 0.05])
-    np.testing.assert_allclose(tracks["qTrend"], [0.05, 0.025, 0.0125])
+    np.testing.assert_allclose(tracks["preKappaQLevel"], [0.2, 0.4, 0.6])
+    np.testing.assert_allclose(tracks["preKappaQTrend"], [0.05, 0.1, 0.15])
+    np.testing.assert_allclose(tracks["effectiveQLevel"], [0.2, 0.2, 0.15])
+    np.testing.assert_allclose(tracks["effectiveQTrend"], [0.05, 0.05, 0.0375])
+    np.testing.assert_allclose(tracks["tuncQScale"], [1.0, 2.0, 3.0])
     expectedTrace = np.sum(
         (matrixMunc.astype(np.float64) + 0.1) / lambdaExp[None, :],
         axis=0,
@@ -1672,8 +1683,8 @@ def _caseExpectedTransitionResidualSumsMatchesPythonReference():
         exx1 = stateCovarSmoothed[k + 1] + np.outer(x1, x1)
         ex0x1 = lagCovSmoothed[k] + np.outer(x0, x1)
         ex1x0 = ex0x1.T
-        residualSecondMoment = exx1 - (ex1x0 @ ft) - (matrixF @ ex0x1) + (
-            matrixF @ exx0 @ ft
+        residualSecondMoment = (
+            exx1 - (ex1x0 @ ft) - (matrixF @ ex0x1) + (matrixF @ exx0 @ ft)
         )
         expectedLevel += max(float(residualSecondMoment[0, 0]), 0.0)
         expectedTrend += max(float(residualSecondMoment[1, 1]), 0.0)
@@ -1706,9 +1717,7 @@ def _caseExpectedLevelTransitionResidualSumsMatchesPythonReference():
     stateCovarSmoothed = np.asarray([0.10, 0.20, 0.15, 0.12], dtype=np.float64).reshape(
         -1, 1, 1
     )
-    lagCovSmoothed = np.asarray([0.03, 0.04, 0.02], dtype=np.float64).reshape(
-        -1, 1, 1
-    )
+    lagCovSmoothed = np.asarray([0.03, 0.04, 0.02], dtype=np.float64).reshape(-1, 1, 1)
 
     expected = 0.0
     for k in range(stateSmoothed.shape[0] - 1):
@@ -1725,10 +1734,12 @@ def _caseExpectedLevelTransitionResidualSumsMatchesPythonReference():
             0.0,
         )
 
-    sumLevel, sumTrend, transitionCount = core._computeExpectedLevelTransitionResidualSums(
-        stateSmoothed=stateSmoothed,
-        stateCovarSmoothed=stateCovarSmoothed,
-        lagCovSmoothed=lagCovSmoothed,
+    sumLevel, sumTrend, transitionCount = (
+        core._computeExpectedLevelTransitionResidualSums(
+            stateSmoothed=stateSmoothed,
+            stateCovarSmoothed=stateCovarSmoothed,
+            lagCovSmoothed=lagCovSmoothed,
+        )
     )
 
     assert transitionCount == 3
@@ -1753,12 +1764,12 @@ def _caseLevelForwardBackwardMatchesPythonReference():
         dtype=np.float32,
     )
     n = matrixData.shape[1]
-    qLevel = 0.06
+    levelQ = 0.06
     stateInit = -0.1
     stateCovarInit = 0.8
     pad = 0.02
     intervalToBlockMap = np.zeros(n, dtype=np.int32)
-    matrixQ0 = np.asarray([[qLevel, 0.0], [0.0, 0.5]], dtype=np.float32)
+    matrixQ0 = np.asarray([[levelQ, 0.0], [0.0, 0.5]], dtype=np.float32)
     stateForward = np.empty((n, 1), dtype=np.float32)
     covForward = np.empty((n, 1, 1), dtype=np.float32)
     pNoiseForward = np.empty((n, 1, 1), dtype=np.float32)
@@ -1782,18 +1793,20 @@ def _caseLevelForwardBackwardMatchesPythonReference():
         ECM_useProcessPrecisionReweighting=False,
         ECM_useAPN=False,
     )
-    stateSmoothed, covSmoothed, lagCovSmoothed, residuals = cconsenrich.cbackwardPassLevel(
-        matrixData=matrixData,
-        stateForward=stateForward,
-        stateCovarForward=covForward,
-        pNoiseForward=pNoiseForward,
+    stateSmoothed, covSmoothed, lagCovSmoothed, residuals = (
+        cconsenrich.cbackwardPassLevel(
+            matrixData=matrixData,
+            stateForward=stateForward,
+            stateCovarForward=covForward,
+            pNoiseForward=pNoiseForward,
+        )
     )
 
     refForward, refCovForward, _refPNoise, refState, refCov, refLag, refResiduals = (
         _levelKalmanReference(
             matrixData,
             matrixMunc,
-            qLevel=qLevel,
+            levelQ=levelQ,
             stateInit=stateInit,
             stateCovarInit=stateCovarInit,
             pad=pad,
@@ -1807,243 +1820,67 @@ def _caseLevelForwardBackwardMatchesPythonReference():
     np.testing.assert_allclose(covForward, refCovForward, rtol=2.0e-6, atol=2.0e-6)
     np.testing.assert_allclose(stateSmoothed, refState, rtol=2.0e-6, atol=2.0e-6)
     np.testing.assert_allclose(covSmoothed, refCov, rtol=2.0e-6, atol=2.0e-6)
-    np.testing.assert_allclose(lagCovSmoothed[: n - 1], refLag[: n - 1], rtol=2.0e-6, atol=2.0e-6)
+    np.testing.assert_allclose(
+        lagCovSmoothed[: n - 1], refLag[: n - 1], rtol=2.0e-6, atol=2.0e-6
+    )
     np.testing.assert_allclose(residuals, refResiduals, rtol=2.0e-6, atol=2.0e-6)
 
 
-
 @pytest.mark.correctness
-def _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood():
-    initialQ = np.diag([1.0e-3, 1.0e-5]).astype(np.float32)
+def _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ():
+    intervalCount = 8
+    seedQLevel = 1.0e-2
+    desiredEvidence = 100.0
+    stateStep = float(np.sqrt(seedQLevel * desiredEvidence))
+    state = (np.arange(intervalCount, dtype=np.float64) * stateStep).reshape(-1, 1)
+    warmupFit = {
+        "stateSmoothed": state.astype(np.float32),
+        "stateCovarSmoothed": np.zeros((intervalCount, 1, 1), dtype=np.float32),
+        "lagCovSmoothed": np.zeros((intervalCount, 1, 1), dtype=np.float32),
+        "matrixMunc": np.vstack(
+            [
+                np.linspace(0.05, 0.25, intervalCount),
+                np.linspace(0.25, 0.05, intervalCount),
+            ]
+        ).astype(np.float32),
+        "lambdaExp": np.linspace(0.5, 2.0, intervalCount, dtype=np.float32),
+    }
 
-    def _level_score(matrix_q):
-        q_level = float(matrix_q[0, 0])
-        return 3.0 + 50.0 * (np.log(q_level) - np.log(4.0e-2)) ** 2
-
-    matrixQ, info = core._estimateMarginalMAPProcessNoise(
-        scoreForwardNLL=_level_score,
-        initialMatrixQ=initialQ,
+    matrixQ, processQScale, info = core._fitTuncProcessNoise(
+        warmupFit=warmupFit,
+        matrixMunc=warmupFit["matrixMunc"],
+        matrixF=np.asarray([[1.0]], dtype=np.float32),
+        seedQ=np.diag([seedQLevel, seedQLevel]).astype(np.float32),
         stateModel=core.STATE_MODEL_LEVEL,
-        maxQ=1.0,
-        qTrendRatioPriorStrength=0.0,
-        qTrendLevelRatioPrior=0.1,
-        mapRoughnessPenalty=0.0,
-    )
-    assert info["processNoisePolicy"] == "marginal_likelihood_map"
-    assert matrixQ[0, 0] == pytest.approx(4.0e-2, rel=5.0e-4)
-    assert info["qLevel"] == pytest.approx(float(matrixQ[0, 0]))
-    assert info["qTrend"] == pytest.approx(0.0)
-    assert info["optimizerParameterCount"] == 1
-    assert info["marginalForwardNLL"] == pytest.approx(3.0, abs=1.0e-6)
-    for removed_key in (
-        "".join(("block", "Mode")),
-        "".join(("ess", "Method")),
-        "".join(("qLevel", "DataDf")),
-        "".join(("qLevel", "DataEstimate")),
-        "".join(("qTrend", "DataEstimate")),
-        "".join(("valid", "BlockCount")),
-    ):
-        assert removed_key not in info
-
-    def _trend_score(matrix_q):
-        q_level = float(matrix_q[0, 0])
-        q_trend = float(matrix_q[1, 1])
-        return (
-            7.0
-            + 35.0 * (np.log(q_level) - np.log(8.0e-2)) ** 2
-            + 35.0 * (np.log(q_trend) - np.log(2.0e-2)) ** 2
-        )
-
-    noPriorQ, noPriorInfo = core._estimateMarginalMAPProcessNoise(
-        scoreForwardNLL=_trend_score,
-        initialMatrixQ=initialQ,
-        stateModel=core.STATE_MODEL_LEVEL_TREND,
-        maxQ=1.0,
-        qTrendRatioPriorStrength=0.0,
-        qTrendLevelRatioPrior=0.1,
-        mapRoughnessPenalty=0.0,
-    )
-    priorQ, priorInfo = core._estimateMarginalMAPProcessNoise(
-        scoreForwardNLL=_trend_score,
-        initialMatrixQ=initialQ,
-        stateModel=core.STATE_MODEL_LEVEL_TREND,
-        maxQ=1.0,
-        qTrendRatioPriorStrength=40.0,
-        qTrendLevelRatioPrior=0.1,
-        mapRoughnessPenalty=0.0,
-    )
-    noPriorRatio = float(noPriorQ[1, 1] / noPriorQ[0, 0])
-    priorRatio = float(priorQ[1, 1] / priorQ[0, 0])
-    assert noPriorQ[0, 0] == pytest.approx(8.0e-2, rel=1.0e-3)
-    assert noPriorQ[1, 1] == pytest.approx(2.0e-2, rel=1.0e-3)
-    assert priorRatio < noPriorRatio
-    assert abs(np.log(priorRatio) - np.log(0.1)) < abs(
-        np.log(noPriorRatio) - np.log(0.1)
-    )
-    assert priorInfo["mapPriorPenalty"] > 0.0
-    assert priorInfo["trendLogRatioPriorStrength"] == pytest.approx(40.0)
-    assert priorInfo["optimizerParameterCount"] == 2
-
-    cappedQ, cappedInfo = core._estimateMarginalMAPProcessNoise(
-        scoreForwardNLL=_trend_score,
-        initialMatrixQ=np.diag([0.2, 0.2]).astype(np.float32),
-        stateModel=core.STATE_MODEL_LEVEL_TREND,
-        maxQ=1.0e-2,
-        qTrendRatioPriorStrength=0.0,
-        qTrendLevelRatioPrior=0.1,
-        mapRoughnessPenalty=0.0,
-    )
-    assert cappedQ[0, 0] == pytest.approx(1.0e-2)
-    assert cappedQ[1, 1] == pytest.approx(1.0e-2)
-    assert cappedInfo["hitQLevelCap"] is True
-    assert cappedInfo["hitQTrendCap"] is True
-
-
-def _caseProcessQSeedAndOddWindowLengthUseCythonHelpers():
-    def _seed_reference(*values):
-        mask = (1 << 64) - 1
-        seed = 0x6A09E667F3BCC909
-        for value in values:
-            seed ^= (
-                int(value)
-                + 0x9E3779B97F4A7C15
-                + ((seed << 6) & mask)
-                + (seed >> 2)
-            )
-            seed &= mask
-            seed ^= seed >> 30
-            seed = (seed * 0xBF58476D1CE4E5B9) & mask
-            seed ^= seed >> 27
-            seed = (seed * 0x94D049BB133111EB) & mask
-            seed ^= seed >> 31
-        return int(seed & mask)
-
-    values = (2, 73, 11, 4, 57, 2080, 781, 22, 31, 20, -3)
-    assert cconsenrich.cProcessQStableSeed(np.asarray(values, dtype=np.int64)) == (
-        _seed_reference(*values)
-    )
-
-    def _odd_reference(value, lower, upper):
-        upper_local = max(1, int(upper))
-        lower_local = min(max(1, int(lower)), upper_local)
-        if not np.isfinite(float(value)):
-            length = lower_local
-        else:
-            length = int(round(float(value)))
-        length = min(max(length, lower_local), upper_local)
-        if length % 2 == 0:
-            if length + 1 <= upper_local:
-                length += 1
-            elif length - 1 >= lower_local:
-                length -= 1
-        return int(min(max(length, lower_local), upper_local))
-
-    for value, lower, upper in (
-        (float("nan"), 2, 12),
-        (8.5, 1, 13),
-        (7.5, 1, 13),
-        (2.0, 3, 8),
-        (100.0, 1, 10),
-    ):
-        assert cconsenrich.cProcessQOddWindowLength(value, lower, upper) == (
-            _odd_reference(value, lower, upper)
-        )
-
-
-def _caseBalancedMovingBlockNLLUsesCythonScorer():
-    intervalNLL = np.asarray([1.0, 2.0, np.nan, 4.0, 5.0, 6.0], dtype=np.float64)
-    active = np.asarray([True, True, False, True, True, True])
-    windowGroups = [
-        [(0, 2, 2), (3, 5, 2)],
-        [(1, 6, 4)],
-        [],
-    ]
-
-    def _reference_score(nll, active_intervals, groups):
-        active_nll = np.where(active_intervals, nll, 0.0)
-        prefix = np.concatenate([[0.0], np.cumsum(active_nll, dtype=np.float64)])
-        strata = []
-        for windows in groups:
-            scores = []
-            for start, end, active_inside in windows:
-                if active_inside <= 0 or end <= start:
-                    continue
-                density = float(prefix[end] - prefix[start]) / float(active_inside)
-                if np.isfinite(density):
-                    scores.append(density)
-            if scores:
-                strata.append(float(np.mean(scores, dtype=np.float64)))
-        return float(np.count_nonzero(active_intervals) * np.mean(strata))
-
-    expected = _reference_score(intervalNLL, active, windowGroups)
-    direct_observed = cconsenrich.cScoreProcessQBalancedMovingBlockNLLFlat(
-        intervalNLL,
-        windowGroups,
-        active.astype(np.uint8),
-    )
-    observed = core._scoreProcessQBalancedMovingBlockNLL(
-        intervalNLL,
-        windowGroups=windowGroups,
-        activeIntervals=active,
-    )
-    assert direct_observed == pytest.approx(expected)
-    assert observed == pytest.approx(expected)
-
-    active_nonfinite = active.copy()
-    active_nonfinite[2] = True
-    assert np.isnan(
-        core._scoreProcessQBalancedMovingBlockNLL(
-            intervalNLL,
-            windowGroups=windowGroups,
-            activeIntervals=active_nonfinite,
-        )
-    )
-    assert np.isnan(
-        core._scoreProcessQBalancedMovingBlockNLL(
-            intervalNLL[:-1],
-            windowGroups=windowGroups,
-            activeIntervals=active,
-        )
-    )
-
-
-def _caseProcessQBalancedWindowPlanIsDeterministic():
-    interval_count = 72
-    signal = np.linspace(-2.0, 8.0, interval_count, dtype=np.float64)
-    matrix_data = np.vstack([signal, signal + 0.25]).astype(np.float32)
-    matrix_munc = np.full_like(matrix_data, 0.2, dtype=np.float32)
-    lambda_exp = np.linspace(0.75, 1.25, interval_count, dtype=np.float32)
-    replicate_bias = np.asarray([0.0, 0.25], dtype=np.float32)
-
-    first = core._buildProcessQBalancedMovingBlockPlan(
-        matrixData=matrix_data,
-        matrixMunc=matrix_munc,
         pad=1.0e-4,
-        blockLenIntervals=9,
-        warmupPassIndex=3,
-        lambdaExp=lambda_exp,
-        replicateBias=replicate_bias,
-        useObservationPrecision=True,
-        observationPrecisionMultiplierMin=0.25,
-        observationPrecisionMultiplierMax=4.0,
-    )
-    second = core._buildProcessQBalancedMovingBlockPlan(
-        matrixData=matrix_data,
-        matrixMunc=matrix_munc,
-        pad=1.0e-4,
-        blockLenIntervals=9,
-        warmupPassIndex=3,
-        lambdaExp=lambda_exp,
-        replicateBias=replicate_bias,
-        useObservationPrecision=True,
+        minQ=1.0e-4,
+        maxQ=2.0e-2,
+        blockLenIntervals=3,
+        processCovariates=None,
+        tuncPriorDf=0.0,
+        tuncLocalWindowMultiplier=1.0,
+        tuncDependenceMultiplier=1.0,
+        tuncMinScale=0.1,
+        tuncMaxScale=10.0,
+        tuncMinWindowWeight=0.0,
+        tuncPriorRidge=1.0e-3,
         observationPrecisionMultiplierMin=0.25,
         observationPrecisionMultiplierMax=4.0,
     )
 
-    assert first[2]["enabled"] is True
-    assert first[0] == second[0]
-    np.testing.assert_array_equal(first[1], second[1])
-    assert first[2] == second[2]
+    assert info["processNoisePolicy"] == "tunc"
+    assert info["priorDesignColumnCount"] == 2
+    assert info["priorDesignColumns"] == ("intercept", "stateLevelMidpoint")
+    assert info["processCovariateCount"] == 0
+    assert "processQScale" not in info
+    assert matrixQ[0, 0] == pytest.approx(2.0e-2)
+    assert processQScale[0] == pytest.approx(1.0)
+    np.testing.assert_allclose(processQScale[1:], np.full(intervalCount - 1, 5.0), rtol=5.0e-5)
+    assert info["baseQClampChanged"] is True
+    assert info["baseQClampMaxRelativeChange"] > 0.0
+    assert info["qScaleDecompositionMaxLogError"] == pytest.approx(0.0, abs=1.0e-6)
+    assert info["preKappaQLevel"] == pytest.approx(float(matrixQ[0, 0]))
+    assert info["preKappaQTrend"] == pytest.approx(0.0)
 
 
 @pytest.mark.correctness
@@ -2137,10 +1974,11 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         "effectiveQLevel",
         "effectiveQTrend",
         "muncTrace",
-        "qLevel",
-        "qTrend",
+        "preKappaQLevel",
+        "preKappaQTrend",
         "sumGain0",
         "sumGain1",
+        "tuncQScale",
     )
     for track in outputTracks.values():
         assert np.asarray(track).shape == (n,)
@@ -2165,14 +2003,9 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert "backgroundObjectiveChangePerCell=" in caplog.text
     assert "backgroundObjectiveThresholdPerCell=" in caplog.text
     assert "event=process.noise.calibration" in caplog.text
-    assert "mode=marginal_likelihood_map" in caplog.text
-    assert "forward_nll=" in caplog.text
-    assert "map_objective=" in caplog.text
-    assert "level_log_prior_center=" in caplog.text
-    assert "trend_log_ratio_prior_strength=" in caplog.text
-    assert "optimizer_evaluations=" in caplog.text
-    assert "".join(("qLevel", "DataRaw=")) not in caplog.text
-    assert "".join(("qTrend", "DataRaw=")) not in caplog.text
+    assert "mode=tunc" in caplog.text
+    assert "qscale_clamp_fraction=" in caplog.text
+    assert "processQScale=" not in caplog.text
     assert "lambdaMean=" in caplog.text
     assert "lambdaMedian=" in caplog.text
     assert "relativeSignChangePerKB=" in caplog.text
@@ -2207,12 +2040,8 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
         <= backgroundPassDiagnostics[-1]["observation_lambda_upper_bound_hits"]
         <= 1.0
     )
-    assert (
-        0.0 <= backgroundPassDiagnostics[-1]["process_kappa_lower_bound_hits"] <= 1.0
-    )
-    assert (
-        0.0 <= backgroundPassDiagnostics[-1]["process_kappa_upper_bound_hits"] <= 1.0
-    )
+    assert 0.0 <= backgroundPassDiagnostics[-1]["process_kappa_lower_bound_hits"] <= 1.0
+    assert 0.0 <= backgroundPassDiagnostics[-1]["process_kappa_upper_bound_hits"] <= 1.0
     assert backgroundPassDiagnostics[-1]["relative_sign_change_per_kb"] >= 0.0
     finalFixedDiagnostics = fitDiagnostics[-1]
     assert finalFixedDiagnostics["final_fixed_background_ecm"] is True
@@ -2255,34 +2084,13 @@ def _caseRunConsenrichOuterPassSmoke(caplog):
     assert all(np.isfinite(float(row["objective_value"])) for row in traceRows)
     assert all(row["objective_name"] == "nll" for row in traceRows)
     qInfo = diagnostics["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "marginal_likelihood_map"
+    assert qInfo["processNoisePolicy"] == "tunc"
     assert "".join(("block", "Mode")) not in qInfo
     assert "_".join(("process", "q", "calibration")) not in diagnostics
-    assert qInfo["qLevel"] > 0.0
-    assert qInfo["qTrend"] > 0.0
-
-    outChangedKnobs = core.runConsenrich(
-        matrixData,
-        matrixMunc,
-        deltaF=0.1,
-        minQ=1.0e-3,
-        maxQ=1.0,
-        stateInit=0.0,
-        stateCovarInit=1.0,
-        boundState=False,
-        stateLowerBound=0.0,
-        stateUpperBound=0.0,
-        blockLenIntervals=8,
-        ECM_fixedBackgroundIters=3,
-        ECM_outerIters=2,
-        qTrendRatioPriorStrength=0.0,
-        qTrendLevelRatioPrior=0.9,
-        processNoiseWarmupECMIters=1,
-        returnDiagnostics=True,
-    )
-    changedInfo = outChangedKnobs[-1]["process_noise_calibration"]
-    assert changedInfo["processNoisePolicy"] == "marginal_likelihood_map"
-    assert changedInfo["qTrend"] > 0.0
+    assert qInfo["preKappaQLevel"] > 0.0
+    assert qInfo["preKappaQTrend"] > 0.0
+    assert "processQScaleSummary" in qInfo
+    assert "processQScale" not in qInfo
 
 
 @pytest.mark.correctness
@@ -2313,11 +2121,11 @@ def _caseRunConsenrichFlatWarmupInitializerUsesMinQ():
     )
 
     qInfo = out[-1]["process_noise_calibration"]
-    assert qInfo["processNoisePolicy"] == "marginal_likelihood_map"
-    assert qInfo["qLevel"] == pytest.approx(5.0e-2)
+    assert qInfo["processNoisePolicy"] == "tunc"
+    assert qInfo["preKappaQLevel"] >= 5.0e-2
     assert qInfo["qFloor"] == pytest.approx(5.0e-2)
     assert qInfo["hitQLevelFloor"] is True
-    assert qInfo["matrixQ0Final"][0][0] == pytest.approx(qInfo["qLevel"])
+    assert qInfo["matrixQ0Final"][0][0] == pytest.approx(qInfo["preKappaQLevel"])
 
 
 @pytest.mark.correctness
@@ -2353,7 +2161,10 @@ def _caseRunConsenrichWarnsWhenNonnegativeBackgroundIsZeroCentered(caplog):
     )
     background = out[-2]
 
-    assert "penalizing negative values may pull the shared background toward zero" in caplog.text
+    assert (
+        "penalizing negative values may pull the shared background toward zero"
+        in caplog.text
+    )
     assert "only the zero background feasible" not in caplog.text
     assert np.isfinite(background).all()
     assert abs(float(np.mean(background))) < 1.0e-5
@@ -2381,7 +2192,10 @@ def _caseRunConsenrichWarnsWhenNonnegativeBackgroundIsZeroCentered(caplog):
         initialProcessQ=np.diag([1.0e-3, 1.0e-5]).astype(np.float32),
         returnDiagnostics=True,
     )
-    assert "penalizing negative values may pull the shared background toward zero" not in caplog.text
+    assert (
+        "penalizing negative values may pull the shared background toward zero"
+        not in caplog.text
+    )
 
 
 @pytest.mark.correctness
@@ -2418,12 +2232,18 @@ def _caseRunConsenrichLevelStateModelSmoke():
         ECM_minOuterIters=1,
         ECM_useProcessPrecisionReweighting=True,
         ECM_useAPN=False,
-        qTrendLevelRatioPrior=0.5,
         processNoiseWarmupECMIters=1,
         returnDiagnostics=True,
     )
 
-    stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, _blockMap, runDiagnostics = out
+    (
+        stateSmoothed,
+        stateCovarSmoothed,
+        postFitResiduals,
+        NIS,
+        _blockMap,
+        runDiagnostics,
+    ) = out
     assert stateSmoothed.shape == (n, 2)
     assert stateCovarSmoothed.shape == (n, 2, 2)
     assert postFitResiduals.shape == (n, m)
@@ -2432,21 +2252,26 @@ def _caseRunConsenrichLevelStateModelSmoke():
     assert np.all(np.isfinite(stateCovarSmoothed))
     assert np.all(np.isfinite(NIS))
     np.testing.assert_array_equal(stateSmoothed[:, 1], np.zeros(n, dtype=np.float32))
-    np.testing.assert_array_equal(stateCovarSmoothed[:, 0, 1], np.zeros(n, dtype=np.float32))
-    np.testing.assert_array_equal(stateCovarSmoothed[:, 1, 0], np.zeros(n, dtype=np.float32))
-    np.testing.assert_array_equal(stateCovarSmoothed[:, 1, 1], np.zeros(n, dtype=np.float32))
+    np.testing.assert_array_equal(
+        stateCovarSmoothed[:, 0, 1], np.zeros(n, dtype=np.float32)
+    )
+    np.testing.assert_array_equal(
+        stateCovarSmoothed[:, 1, 0], np.zeros(n, dtype=np.float32)
+    )
+    np.testing.assert_array_equal(
+        stateCovarSmoothed[:, 1, 1], np.zeros(n, dtype=np.float32)
+    )
     np.testing.assert_array_equal(
         core.getPrimaryState(stateSmoothed),
         np.round(stateSmoothed[:, 0].astype(np.float32), decimals=4),
     )
     qInfo = runDiagnostics["process_noise_calibration"]
     assert runDiagnostics["state_model"] == core.STATE_MODEL_LEVEL
-    assert qInfo["processNoisePolicy"] == "marginal_likelihood_map"
-    assert qInfo["qLevel"] > 0.0
-    assert qInfo["qTrend"] == pytest.approx(0.0)
+    assert qInfo["processNoisePolicy"] == "tunc"
+    assert qInfo["preKappaQLevel"] > 0.0
+    assert qInfo["preKappaQTrend"] == pytest.approx(0.0)
     assert qInfo["effectiveTrendLevelRatio"] == pytest.approx(0.0)
-    assert qInfo["optimizerParameterCount"] == 1
-    assert qInfo["trendLogRatioPriorStrength"] == pytest.approx(0.0)
+    assert qInfo["priorDesignColumnCount"] == 2
 
 
 @pytest.mark.correctness
@@ -2505,10 +2330,7 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     firstPostQIndex = next(
         idx for idx, mode in enumerate(ecmModes) if mode == (True, False)
     )
-    assert (
-        len(ecmModes[:firstPostQIndex])
-        >= core.PROCESS_DEFAULT_WARMUP_Q_NUISANCE_PASSES
-    )
+    assert firstPostQIndex >= 1
     assert all(mode == (False, False) for mode in ecmModes[:firstPostQIndex])
     assert all(mode == (True, False) for mode in ecmModes[firstPostQIndex:])
     assert all(flag is False for flag in ecmLogIterations)
@@ -2533,7 +2355,7 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     assert diagnostics["post_process_noise_fit"]["outer_patience_target"] == 2
     assert (
         diagnostics["process_noise_calibration"]["processNoisePolicy"]
-        == "marginal_likelihood_map"
+        == "tunc"
     )
     assert diagnostics["process_noise_calibration"]["warmupECMIters"] == pytest.approx(
         1.0
@@ -2541,18 +2363,7 @@ def _caseRunConsenrichProcessNoiseWarmupRestoresFinalReweighting(monkeypatch):
     assert diagnostics["process_noise_calibration"][
         "warmupOuterPasses"
     ] == pytest.approx(float(core.PROCESS_DEFAULT_WARMUP_OUTER_PASSES))
-    assert diagnostics["process_noise_calibration"][
-        "warmupOuterPassesUsed"
-    ] >= 1.0
-    assert diagnostics["process_noise_calibration"][
-        "warmupOuterPassesUsed"
-    ] <= float(core.PROCESS_DEFAULT_WARMUP_OUTER_PASSES)
-    assert diagnostics["process_noise_calibration"][
-        "warmupQAlternatingPassesPlanned"
-    ] == core.PROCESS_DEFAULT_WARMUP_Q_NUISANCE_PASSES
-    assert diagnostics["process_noise_calibration"]["qLevel"] >= (
-        1.0e-3
-    )
+    assert diagnostics["process_noise_calibration"]["preKappaQLevel"] >= (1.0e-3)
 
 
 @pytest.mark.correctness
@@ -2935,7 +2746,9 @@ def _casePooledMuncTrendRecoversReplicateVarianceFactors():
         eps=1.0e-8,
     )
 
-    logMae = np.mean(np.abs(np.log(pooled.replicateVarianceFactors) - np.log(factorsTrue)))
+    logMae = np.mean(
+        np.abs(np.log(pooled.replicateVarianceFactors) - np.log(factorsTrue))
+    )
     assert logMae < 0.08
     assert pooled.diagnostics["predictor"] == "signed_log1p"
     assert pooled.diagnostics["iterations"] <= 3
@@ -3546,10 +3359,9 @@ def _caseGetMuncTrackSparseNearestPath(monkeypatch: pytest.MonkeyPatch):
         ellIntervals=2.0,
         supportPrior=1.0,
     )
-    expectedLocalVars = (
-        supportWeights * fakeVarTrack.astype(np.float64)
-        + (1.0 - supportWeights) * fakeRollingVarTrack.astype(np.float64)
-    )
+    expectedLocalVars = supportWeights * fakeVarTrack.astype(np.float64) + (
+        1.0 - supportWeights
+    ) * fakeRollingVarTrack.astype(np.float64)
     sparseSet = set(sparseIntervalIndices.tolist())
     for blockStart, blockSize in zip(seen["block_starts"], seen["block_sizes"]):
         blockRange = range(int(blockStart), int(blockStart + blockSize))
@@ -3746,9 +3558,7 @@ def test_core_no_dm_var_disables_munc_delta_method(monkeypatch: pytest.MonkeyPat
     )
 
     expectedNuL = 7.0
-    expected = (expectedNuL * localVarTrack + 4.0 * priorVarTrack) / (
-        expectedNuL + 4.0
-    )
+    expected = (expectedNuL * localVarTrack + 4.0 * priorVarTrack) / (expectedNuL + 4.0)
 
     assert seen["Nu_L"] == pytest.approx(expectedNuL)
     assert np.allclose(muncTrack, expected.astype(np.float32))
@@ -4044,6 +3854,7 @@ def _caseMuncSizingAndCythonVarianceModels():
     assert dependenceSizing.dependenceSpanIntervals == 17
     assert dependenceSizing.trendBlockIntervals == 26
     assert dependenceSizing.localWindowIntervals == 43
+
 
 @pytest.mark.correctness
 def _caseGetMuncTrackSparseNearestResidualizesPriorBySignedLocalIntercept(
@@ -4358,6 +4169,7 @@ def _caseRunConsenrichAPNSmoke():
         ECM_outerIters=1,
         ECM_useProcessPrecisionReweighting=True,
         ECM_useAPN=True,
+        processNoiseCalibration="seed",
     )
 
     stateSmoothed, stateCovarSmoothed, postFitResiduals, NIS, *_ = out
@@ -4414,6 +4226,7 @@ def _caseRunConsenrichAlwaysRunsECMWithAPN(
         blockLenIntervals=8,
         ECM_useAPN=True,
         ECM_useProcessPrecisionReweighting=True,
+        processNoiseCalibration="seed",
     )
 
     assert calls
@@ -4452,6 +4265,7 @@ def _caseChooseFeatureLengthBootstrapWidthVarianceAndContextCompat():
     assert widthLower >= 1
     assert widthUpper >= widthLower
     assert diagnostics["method"] == "feature_peak_width_random_effects"
+
 
 @pytest.mark.correctness
 def _caseChooseDependenceSpanSamplesAutosomesAndReportsDiagnostics():
@@ -4774,9 +4588,7 @@ def _caseCCountsCountIndexedBedGraphRegionWeightedByOverlap(tmp_path):
 def _caseReadSegmentsBedGraphScalesNativeCounts(tmp_path):
     bedGraphPath = tmp_path / "toy.bdg"
     bedGraphPath.write_text(
-        "chr1\t0\t10\t1.5\n"
-        "chr1\t10\t20\t2.5\n"
-        "chr1\t20\t30\t4.0\n",
+        "chr1\t0\t10\t1.5\n" "chr1\t10\t20\t2.5\n" "chr1\t20\t30\t4.0\n",
         encoding="ascii",
     )
 
@@ -4806,9 +4618,7 @@ def _caseReadSegmentsBedGraphScalesNativeCounts(tmp_path):
 def _caseBedGraphChromRangeAndReadLength(tmp_path):
     bedGraphPath = tmp_path / "range.bedGraph"
     bedGraphPath.write_text(
-        "chr2\t0\t10\t9\n"
-        "chr1\t25\t50\t2\n"
-        "chr1\t5\t20\t3\n",
+        "chr2\t0\t10\t9\n" "chr1\t25\t50\t2\n" "chr1\t5\t20\t3\n",
         encoding="ascii",
     )
 
@@ -5775,10 +5585,20 @@ def _run_with_monkeypatch(monkeypatch, func, *args):
 
 def test_core_numeric_kernel_contracts(caplog, contract_case):
     caplog.clear()
-    contract_case("event logging", _caseEventLogFormattingIsCompactAndAttributed, caplog)
+    contract_case(
+        "event logging", _caseEventLogFormattingIsCompactAndAttributed, caplog
+    )
     for dtype in (np.float32, np.float64):
-        contract_case(f"C EMA kernel {dtype}", _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64, dtype)
-        contract_case(f"mono log kernel {dtype}", _caseMonoFuncUsesSameLogKernelForFloat32AndFloat64, dtype)
+        contract_case(
+            f"C EMA kernel {dtype}",
+            _caseCEMAUsesSameBidirectionalKernelForFloat32AndFloat64,
+            dtype,
+        )
+        contract_case(
+            f"mono log kernel {dtype}",
+            _caseMonoFuncUsesSameLogKernelForFloat32AndFloat64,
+            dtype,
+        )
         contract_case(
             f"log-ratio transform kernel {dtype}",
             _caseTransformLogRatioKernelMatchesReferenceForFloat32AndFloat64,
@@ -5807,7 +5627,10 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
     for label, func in (
         ("CSF odd median", _caseCSFMedianSelectionHandlesOddLengthDuplicates),
         ("CSF even median", _caseCSFMedianSelectionHandlesEvenLengthDuplicates),
-        ("generic transform invalid options", _caseGenericTransformInvalidOptionsFailGracefully),
+        (
+            "generic transform invalid options",
+            _caseGenericTransformInvalidOptionsFailGracefully,
+        ),
         ("transform input float32", _caseCTransformWithInputReturnsFloat32LogRatio),
         ("transform input float64", _caseCTransformWithInputReturnsFloat64LogRatio),
         ("transform into output", _caseCTransformWithInputIntoWritesOutputInPlace),
@@ -5820,7 +5643,10 @@ def test_core_numeric_kernel_contracts(caplog, contract_case):
             "global median center",
             _caseSubtractGlobalMedianCentersEachTrackInPlace,
         ),
-        ("level forward-backward kernel", _caseLevelForwardBackwardMatchesPythonReference),
+        (
+            "level forward-backward kernel",
+            _caseLevelForwardBackwardMatchesPythonReference,
+        ),
     ):
         contract_case(label, func)
 
@@ -5837,7 +5663,11 @@ def test_core_existing_peak_contracts(contract_case):
 def test_core_background_bias_contracts(monkeypatch, contract_case):
     for label, func, args in (
         ("zero-centered background", _caseZeroCenteredBackgroundUpdate, ()),
-        ("weighted background", _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights, ()),
+        (
+            "weighted background",
+            _caseZeroCenteredBackgroundUpdateUsesPrecisionWeights,
+            (),
+        ),
         (
             "background sparse reference",
             _caseZeroCenteredBackgroundUpdateMatchesSparseReference,
@@ -5854,7 +5684,11 @@ def test_core_background_bias_contracts(monkeypatch, contract_case):
             _caseBackgroundPenaltyWeightsScaleByDifferenceOrder,
             (),
         ),
-        ("replicate bias is always centered", _caseReplicateBiasIsAlwaysZeroCentered, ()),
+        (
+            "replicate bias is always centered",
+            _caseReplicateBiasIsAlwaysZeroCentered,
+            (),
+        ),
         (
             "tiny fixed-background ECM fallback",
             _caseCFixedBackgroundECMTinyTrackUsesFiniteFallback,
@@ -5865,7 +5699,11 @@ def test_core_background_bias_contracts(monkeypatch, contract_case):
             _caseCFixedBackgroundECMLevelTinyTrackUsesFiniteFallback,
             (),
         ),
-        ("replicate-bias minimizer", _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer, ()),
+        (
+            "replicate-bias minimizer",
+            _caseCFixedBackgroundECMReplicateBiasUpdateMatchesPrecisionWeightedMinimizer,
+            (),
+        ),
         (
             "replicate-bias robust center",
             _caseCFixedBackgroundECMReplicateBiasUsesFixedCenterConstraintWithRobustWeights,
@@ -5891,30 +5729,42 @@ def test_core_state_diagnostics_and_transition_contracts(contract_case):
             "per-interval output diagnostics",
             _casePerIntervalOutputDiagnosticsUseEffectiveNoiseAndGainComponents,
         ),
-        ("state roughness summary", _caseSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata),
-        ("precision boundary summary", _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight),
-        ("removed process block scale options", _caseFitParamsDropsProcBlockScaleOptions),
-        ("state model normalization", _caseNormalizeStateModelAcceptsCanonicalValuesOnly),
-        ("transition residual orientation", _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF),
-        ("transition residual reference", _caseExpectedTransitionResidualSumsMatchesPythonReference),
-        ("level transition residual reference", _caseExpectedLevelTransitionResidualSumsMatchesPythonReference),
         (
-            "marginal MAP process noise",
-            _caseMarginalMAPProcessNoiseCalibrationOptimizesForwardLikelihood,
+            "state roughness summary",
+            _caseSummarizeStateRoughnessUsesHoldoutBlocksAndSignalStrata,
         ),
         (
-            "process-Q seed and window helper cythonization",
-            _caseProcessQSeedAndOddWindowLengthUseCythonHelpers,
+            "precision boundary summary",
+            _caseSummarizePrecisionBoundaryHitsSkipsFirstProcessWeight,
         ),
         (
-            "balanced moving-block NLL Cython scorer",
-            _caseBalancedMovingBlockNLLUsesCythonScorer,
+            "removed process block scale options",
+            _caseFitParamsDropsProcBlockScaleOptions,
         ),
         (
-            "balanced moving-block plan determinism",
-            _caseProcessQBalancedWindowPlanIsDeterministic,
+            "state model normalization",
+            _caseNormalizeStateModelAcceptsCanonicalValuesOnly,
         ),
-        ("state uncertainty coverage", _caseCheckStateUncertaintyCoverageOverallAndStrata),
+        (
+            "transition residual orientation",
+            _caseExpectedTransitionResidualSumsUsesLagOrientationAndDeltaF,
+        ),
+        (
+            "transition residual reference",
+            _caseExpectedTransitionResidualSumsMatchesPythonReference,
+        ),
+        (
+            "level transition residual reference",
+            _caseExpectedLevelTransitionResidualSumsMatchesPythonReference,
+        ),
+        (
+            "TUNC process noise clamp decomposition",
+            _caseTuncProcessNoiseCalibrationRebasesClampedBaseQ,
+        ),
+        (
+            "state uncertainty coverage",
+            _caseCheckStateUncertaintyCoverageOverallAndStrata,
+        ),
         ("linear envelope removed", _caseLinearEnvelopeParameterIsAbsent),
         ("monotone pooling removed", _caseMonotonePoolingSourceSymbolsAbsent),
     ):
@@ -5959,15 +5809,26 @@ def test_core_em_loop_contracts(monkeypatch, caplog, contract_case):
 
 
 def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case):
-    contract_case("BED mask interval overlap", _caseGetBedMaskUsesIntervalSpanOverlap, tmp_path)
+    contract_case(
+        "BED mask interval overlap", _caseGetBedMaskUsesIntervalSpanOverlap, tmp_path
+    )
     for label, func in (
         ("sparse support decay", _caseSparseSupportWeightsUseExponentialDistanceDecay),
-        ("nonmonotone P-spline trend", _casePSplineLogVarianceTrendRecoversNonmonotoneShape),
-        ("signed P-spline predictor", _casePSplineSignedPredictorDistinguishesPositiveAndNegativeMeans),
+        (
+            "nonmonotone P-spline trend",
+            _casePSplineLogVarianceTrendRecoversNonmonotoneShape,
+        ),
+        (
+            "signed P-spline predictor",
+            _casePSplineSignedPredictorDistinguishesPositiveAndNegativeMeans,
+        ),
         ("P-spline boundary clamp", _casePSplinePredictionClampsToTrainingBoundary),
         ("P-spline Cython eval", _casePSplineCythonEvaluationMatchesDenseDesign),
         ("P-spline basis support limit", _casePSplineLimitsBasisCountByWeightedSupport),
-        ("pooled MUNC trend factors", _casePooledMuncTrendRecoversReplicateVarianceFactors),
+        (
+            "pooled MUNC trend factors",
+            _casePooledMuncTrendRecoversReplicateVarianceFactors,
+        ),
         (
             "MUNC additive covariate model",
             _caseMuncAdditiveCovariateModelFitsReplicateSpecificExcessAndFallback,
@@ -5984,7 +5845,10 @@ def test_core_pspline_sparse_support_and_trend_contracts(tmp_path, contract_case
         ("P-spline quantile knots", _casePSplineUsesQuantileKnotsFromSupport),
         ("P-spline float32 clipping", _casePSplinePredictionClipsBeforeFloat32Overflow),
         ("P-spline trend logging", _casePSplineTrendSummaryLogsRelationship),
-        ("MUNC variance diagnostics", _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport),
+        (
+            "MUNC variance diagnostics",
+            _caseMuncVarianceDiagnosticsLogLocalGlobalFinalAndTailSupport,
+        ),
         ("MUNC blacklist floor", _caseApplyBlacklistMuncFloorUsesNonBlacklistQuantile),
         (
             "MUNC auto minR quantile",
@@ -6022,10 +5886,22 @@ def test_core_fragments_io_contracts(tmp_path, contract_case):
     for label, func, args in (
         ("fragments grouped", _caseReadSegmentsFragmentsGrouped, ()),
         ("fragments default coverage", _caseReadSegmentsFragmentsDefaultToCoverage, ()),
-        ("fragments mode and multiplicity", _caseReadSegmentsFragmentsRespectModeAndMultiplicity, (tmp_path,)),
-        ("fragments default count mode", _caseReadSegmentsFragmentsUseDefaultFragmentCountMode, (tmp_path,)),
+        (
+            "fragments mode and multiplicity",
+            _caseReadSegmentsFragmentsRespectModeAndMultiplicity,
+            (tmp_path,),
+        ),
+        (
+            "fragments default count mode",
+            _caseReadSegmentsFragmentsUseDefaultFragmentCountMode,
+            (tmp_path,),
+        ),
         ("fragments reject ffp", _caseReadSegmentsFragmentsRejectFFP, ()),
-        ("fragments mapped count", _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells, ()),
+        (
+            "fragments mapped count",
+            _caseFragmentsMappedCountUsesEmittedInsertionsAndSelectedCells,
+            (),
+        ),
     ):
         contract_case(label, func, *args)
 
@@ -6033,7 +5909,10 @@ def test_core_fragments_io_contracts(tmp_path, contract_case):
 def test_core_bedgraph_counting_contracts(tmp_path, contract_case):
     for label, func in (
         ("bedGraph weighted overlap", _caseCCountsCountBedGraphRegionWeightedByOverlap),
-        ("indexed bedGraph weighted overlap", _caseCCountsCountIndexedBedGraphRegionWeightedByOverlap),
+        (
+            "indexed bedGraph weighted overlap",
+            _caseCCountsCountIndexedBedGraphRegionWeightedByOverlap,
+        ),
         ("bedGraph native scaling", _caseReadSegmentsBedGraphScalesNativeCounts),
         ("bedGraph range and read length", _caseBedGraphChromRangeAndReadLength),
     ):
@@ -6047,31 +5926,73 @@ def test_core_bam_counting_contracts(tmp_path, monkeypatch, contract_case):
         monkeypatch,
         _caseSparseNativeChromRangeFallsBackToWholeChromosome,
     )
-    contract_case("count mode noncanonical modes rejected", _caseNormalizeCountModeRejectsNoncanonicalModes)
+    contract_case(
+        "count mode noncanonical modes rejected",
+        _caseNormalizeCountModeRejectsNoncanonicalModes,
+    )
     contract_case("ffp count mode accepted", _caseNormalizeCountModeAcceptsFFP)
     for label, func in (
         ("paired BAM template span", _caseReadSegmentsBamPairedEndUsesTemplateSpan),
-        ("paired BAM read1 single-end mode", _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode),
+        (
+            "paired BAM read1 single-end mode",
+            _caseReadSegmentsPairedBamCanUseRead1OnlySingleEndMode,
+        ),
         ("paired BAM ffp count mode", _caseReadSegmentsBamPairedEndFFPCountsOnce),
-        ("paired BAM ffp-center preset", _caseReadSegmentsBamFFPCenterPresetUsesRead1EstimatedMidpoint),
-        ("paired BAM ffp-center bamInputMode conflict", _caseReadSegmentsBamFFPCenterRejectsConflictingBamInputMode),
-        ("BAM extension fetches reads outside region", _caseReadSegmentsBamExtensionFetchesReadsOutsideRegion),
-        ("paired BAM fragment fetches read1 outside region", _caseReadSegmentsBamPairedFragmentFetchesRead1OutsideRegion),
-        ("BAM count-ends 5-prime positions", _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions),
+        (
+            "paired BAM ffp-center preset",
+            _caseReadSegmentsBamFFPCenterPresetUsesRead1EstimatedMidpoint,
+        ),
+        (
+            "paired BAM ffp-center bamInputMode conflict",
+            _caseReadSegmentsBamFFPCenterRejectsConflictingBamInputMode,
+        ),
+        (
+            "BAM extension fetches reads outside region",
+            _caseReadSegmentsBamExtensionFetchesReadsOutsideRegion,
+        ),
+        (
+            "paired BAM fragment fetches read1 outside region",
+            _caseReadSegmentsBamPairedFragmentFetchesRead1OutsideRegion,
+        ),
+        (
+            "BAM count-ends 5-prime positions",
+            _caseReadSegmentsBamCountEndsOnlyUsesFivePrimePositions,
+        ),
         ("BAM ffp single-end parity", _caseReadSegmentsBamFFPMatchesSingleEndFivePrime),
-        ("direct BAM count-ends 5-prime positions", _caseReadBamSegmentsCountEndsOnlyUsesFivePrimePositions),
+        (
+            "direct BAM count-ends 5-prime positions",
+            _caseReadBamSegmentsCountEndsOnlyUsesFivePrimePositions,
+        ),
     ):
         contract_case(label, func, tmp_path)
 
 
 def test_core_normalization_scale_factor_contracts(tmp_path, contract_case):
     for label, func in (
-        ("CPM and RPKM bin-length scaling", _caseNormalizationCpmAndRpkmUseDistinctBinLengthScaling),
-        ("EGS paired BAM fragment span denominator", _caseNormalizationEgsPairedBamUsesFragmentSpanDenominator),
-        ("CPM paired BAM fragment denominator", _caseNormalizationCpmPairedBamUsesFragmentDenominator),
-        ("CPM paired BAM read1 denominator", _caseNormalizationCpmPairedRead1UsesRead1Denominator),
-        ("CPM paired BAM ffp denominator", _caseNormalizationCpmPairedFFPUsesOneEventPerPair),
-        ("normalization denominator BAM filters", _caseNormalizationDenominatorMatchesBamFilters),
+        (
+            "CPM and RPKM bin-length scaling",
+            _caseNormalizationCpmAndRpkmUseDistinctBinLengthScaling,
+        ),
+        (
+            "EGS paired BAM fragment span denominator",
+            _caseNormalizationEgsPairedBamUsesFragmentSpanDenominator,
+        ),
+        (
+            "CPM paired BAM fragment denominator",
+            _caseNormalizationCpmPairedBamUsesFragmentDenominator,
+        ),
+        (
+            "CPM paired BAM read1 denominator",
+            _caseNormalizationCpmPairedRead1UsesRead1Denominator,
+        ),
+        (
+            "CPM paired BAM ffp denominator",
+            _caseNormalizationCpmPairedFFPUsesOneEventPerPair,
+        ),
+        (
+            "normalization denominator BAM filters",
+            _caseNormalizationDenominatorMatchesBamFilters,
+        ),
     ):
         contract_case(label, func, tmp_path)
 
@@ -6079,8 +6000,17 @@ def test_core_normalization_scale_factor_contracts(tmp_path, contract_case):
 def test_core_pair_scale_factor_contracts(monkeypatch, contract_case):
     for label, func in (
         ("MACS treatment downscale", _casePairScaleFactorsDownscaleDeeperSampleMacs),
-        ("control downscale by default", _casePairScaleFactorsCanDownscaleControlByDefault),
-        ("fixed control keeps full depth", _casePairScaleFactorsFixControlKeepsControlFullDepth),
-        ("CPM fragments use per-million scaling", _casePairScaleFactorsCpmUsesPerMillionForFragments),
+        (
+            "control downscale by default",
+            _casePairScaleFactorsCanDownscaleControlByDefault,
+        ),
+        (
+            "fixed control keeps full depth",
+            _casePairScaleFactorsFixControlKeepsControlFullDepth,
+        ),
+        (
+            "CPM fragments use per-million scaling",
+            _casePairScaleFactorsCpmUsesPerMillionForFragments,
+        ),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func)

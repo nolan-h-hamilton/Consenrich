@@ -132,8 +132,11 @@ def _normalizeOutputDiagnosticTracks(value: Any) -> tuple[str, ...]:
     aliasByKey = {
         "slope": "slope",
         "trend": "slope",
-        "qlevel": "qLevel",
-        "qtrend": "qTrend",
+        "prekappaqlevel": "preKappaQLevel",
+        "prekappaqtrend": "preKappaQTrend",
+        "effectiveqlevel": "effectiveQLevel",
+        "effectiveqtrend": "effectiveQTrend",
+        "tuncqscale": "tuncQScale",
         "munctrace": "muncTrace",
         "rtrace": "muncTrace",
         "sumgain0": "sumGain0",
@@ -206,6 +209,29 @@ def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
             "`matchingParams.uncertaintyScoreZ` must be finite and non-negative."
         )
     return z
+
+
+def _enumTokenKey(value: Any) -> str:
+    text = str(value).strip().replace("-", "_").replace(" ", "_").lower()
+    return "_".join(part for part in text.split("_") if part)
+
+
+def _normalizeConfigEnum(
+    value: Any,
+    *,
+    default: str,
+    supported: Sequence[str],
+    configName: str,
+) -> str:
+    raw = default if value is None else value
+    canonicalByKey = {_enumTokenKey(item): item for item in supported}
+    key = _enumTokenKey(raw)
+    if key not in canonicalByKey:
+        supportedText = ", ".join(supported)
+        raise ValueError(
+            f"Unsupported {configName} {raw!r}. Supported values: {supportedText}."
+        )
+    return canonicalByKey[key]
 
 
 def _normalizeCountingTransformMethod(value: Any) -> str:
@@ -300,6 +326,51 @@ def _normalizeMuncCovariateFeatures(
     )
 
 
+def _normalizeProcessNoiseCalibration(value: Any) -> str:
+    raw = constants.PROCESS_DEFAULT_NOISE_CALIBRATION if value is None else value
+    key = str(raw).strip().replace("-", "_").lower()
+    canonicalByKey = {
+        mode.replace("-", "_").lower(): mode
+        for mode in constants.PROCESS_NOISE_CALIBRATION_MODES
+    }
+    if key not in canonicalByKey:
+        supported = ", ".join(constants.PROCESS_NOISE_CALIBRATION_MODES)
+        raise ValueError(
+            f"Unsupported processParams.processNoiseCalibration {raw!r}. "
+            f"Supported modes: {supported}."
+        )
+    return canonicalByKey[key]
+
+
+def _normalizeTuncCovariatesMode(value: Any) -> str:
+    raw = constants.PROCESS_DEFAULT_TUNC_COVARIATES_MODE if value is None else value
+    key = str(raw).strip().replace("-", "").replace("_", "").lower()
+    canonicalByKey = {
+        mode.replace("-", "").replace("_", "").lower(): mode
+        for mode in constants.TUNC_SUPPORTED_COVARIATE_MODES
+    }
+    if key not in canonicalByKey:
+        supported = ", ".join(constants.TUNC_SUPPORTED_COVARIATE_MODES)
+        raise ValueError(
+            f"Unsupported processParams.tuncProcessCovariates.mode {raw!r}. "
+            f"Supported modes: {supported}."
+        )
+    return canonicalByKey[key]
+
+
+def _normalizeTuncCovariateFeatures(
+    value: Any,
+    *,
+    availableFeatures: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    return resolve_genome_covariate_feature_config(
+        value,
+        default_features=constants.PROCESS_DEFAULT_TUNC_COVARIATE_FEATURES,
+        available_features=availableFeatures,
+        config_name="processParams.tuncProcessCovariates.features",
+    )
+
+
 def _runtimeProcessParamsType(fields: tuple[str, ...]) -> type:
     processArgsType = _PROCESS_ARGS_TYPE_CACHE.get(fields)
     if processArgsType is None:
@@ -314,19 +385,24 @@ def _buildProcessArgs(
 ) -> Any:
     coreFields = tuple(getattr(core.processParams, "_fields", ()))
     coreValues = {key: baseValues[key] for key in coreFields if key in baseValues}
-    coreExtras = {
-        key: value for key, value in extraValues.items() if key in coreFields
+    coreExtras = {key: value for key, value in extraValues.items() if key in coreFields}
+    publicExtraValues = {
+        key: value
+        for key, value in {**baseValues, **extraValues}.items()
+        if key not in coreFields
     }
-    if len(coreExtras) == len(extraValues):
+    extraFields = tuple(publicExtraValues)
+    if not extraFields and len(coreFields) == len(
+        getattr(core.processParams, "_fields", ())
+    ):
         return core.processParams(**coreValues, **coreExtras)
 
     baseArgs = core.processParams(**coreValues, **coreExtras)
-    extraFields = tuple(key for key in extraValues if key not in coreFields)
     fields = coreFields + extraFields
     processArgsType = _runtimeProcessParamsType(fields)
     return processArgsType(
         *(getattr(baseArgs, key) for key in coreFields),
-        *(extraValues[key] for key in extraFields),
+        *(publicExtraValues[key] for key in extraFields),
     )
 
 
@@ -621,7 +697,9 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
 def getStateArgs(config_path: str) -> core.stateParams:
     configData = loadConfig(config_path)
 
-    stateInit_ = _cfgGet(configData, "stateParams.stateInit", constants.STATE_DEFAULT_INIT)
+    stateInit_ = _cfgGet(
+        configData, "stateParams.stateInit", constants.STATE_DEFAULT_INIT
+    )
     stateCovarInit_ = _cfgGet(
         configData,
         "stateParams.stateCovarInit",
@@ -936,8 +1014,133 @@ def getUncertaintyCalibrationArgs(
         "uncertaintyCalibrationParams.enabled",
         _cfgGet(configData, "uncertaintyCalibration.enabled", enabledDefault),
     )
+    mode = _normalizeConfigEnum(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.mode",
+            _cfgDefault(configData, "uncertaintyCalibrationParams.mode"),
+        ),
+        default=constants.UNCERTAINTY_CALIBRATION_DEFAULT_MODE,
+        supported=constants.UNCERTAINTY_CALIBRATION_MODES,
+        configName="uncertaintyCalibrationParams.mode",
+    )
+    deleteBlockVarianceMode = _normalizeConfigEnum(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockVarianceMode",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockVarianceMode",
+            ),
+        ),
+        default=constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_VARIANCE_MODE,
+        supported=constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_VARIANCE_MODES,
+        configName="uncertaintyCalibrationParams.deleteBlockVarianceMode",
+    )
+    deleteBlockTargetSignal = _normalizeConfigEnum(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockTargetSignal",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockTargetSignal",
+            ),
+        ),
+        default=constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_TARGET_SIGNAL,
+        supported=constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_TARGET_SIGNALS,
+        configName="uncertaintyCalibrationParams.deleteBlockTargetSignal",
+    )
+    deleteBlockFactorModel = _normalizeConfigEnum(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockFactorModel",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockFactorModel",
+            ),
+        ),
+        default=constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_FACTOR_MODEL,
+        supported=constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_FACTOR_MODELS,
+        configName="uncertaintyCalibrationParams.deleteBlockFactorModel",
+    )
+    deleteBlockScoreWeightMode = _normalizeConfigEnum(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockScoreWeightMode",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockScoreWeightMode",
+            ),
+        ),
+        default=constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE,
+        supported=constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_SCORE_WEIGHT_MODES,
+        configName="uncertaintyCalibrationParams.deleteBlockScoreWeightMode",
+    )
+    minInformationFraction = float(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockMinInformationFraction",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockMinInformationFraction",
+            ),
+        )
+    )
+    maxInformationFraction = float(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockMaxInformationFraction",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockMaxInformationFraction",
+            ),
+        )
+    )
+    if not (0.0 < minInformationFraction < maxInformationFraction < 1.0):
+        raise ValueError(
+            "uncertaintyCalibrationParams delete-block information fractions must "
+            "satisfy 0 < min < max < 1"
+        )
+    minDeltaVariance = float(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockMinDeltaVariance",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockMinDeltaVariance",
+            ),
+        )
+    )
+    if not (np.isfinite(minDeltaVariance) and minDeltaVariance > 0.0):
+        raise ValueError(
+            "uncertaintyCalibrationParams.deleteBlockMinDeltaVariance must be positive"
+        )
+    fallbackMinValidFraction = float(
+        _cfgGet(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction",
+            _cfgDefault(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction",
+            ),
+        )
+    )
+    if not (0.0 <= fallbackMinValidFraction <= 1.0):
+        raise ValueError(
+            "uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction "
+            "must be in [0, 1]"
+        )
+    applyTargetRaw = _cfgGet(
+        configData,
+        "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
+        _cfgDefault(
+            configData,
+            "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
+        ),
+    )
     return core.uncertaintyCalibrationParams(
         enabled=bool(enabledConfig),
+        mode=mode,
         folds=int(
             _cfgGet(
                 configData,
@@ -1017,25 +1220,6 @@ def getUncertaintyCalibrationArgs(
                 constants.UNCERTAINTY_CALIBRATION_DEFAULT_RIDGE,
             )
         ),
-        wisWeight=float(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.wisWeight",
-                constants.UNCERTAINTY_CALIBRATION_DEFAULT_WIS_WEIGHT,
-            )
-        ),
-        aObsPenalty=float(
-            _cfgGet(
-                configData,
-                "uncertaintyCalibrationParams.aObsPenalty",
-                constants.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PENALTY,
-            )
-        ),
-        aObsPriorStrength=_cfgGet(
-            configData,
-            "uncertaintyCalibrationParams.aObsPriorStrength",
-            constants.UNCERTAINTY_CALIBRATION_DEFAULT_A_OBS_PRIOR_STRENGTH_OVERRIDE,
-        ),
         calibrationECMIters=int(
             _cfgGet(
                 configData,
@@ -1054,6 +1238,27 @@ def getUncertaintyCalibrationArgs(
                 "uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration",
                 constants.UNCERTAINTY_CALIBRATION_DEFAULT_SCALE_UNCERTAINTY_BY_TARGET_CALIBRATION,
             )
+        ),
+        deleteBlockVarianceMode=deleteBlockVarianceMode,
+        deleteBlockUseLambdaInInformation=bool(
+            _cfgGet(
+                configData,
+                "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
+                _cfgDefault(
+                    configData,
+                    "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
+                ),
+            )
+        ),
+        deleteBlockTargetSignal=deleteBlockTargetSignal,
+        deleteBlockFactorModel=deleteBlockFactorModel,
+        deleteBlockMinInformationFraction=minInformationFraction,
+        deleteBlockMaxInformationFraction=maxInformationFraction,
+        deleteBlockMinDeltaVariance=minDeltaVariance,
+        deleteBlockFallbackMinValidFraction=fallbackMinValidFraction,
+        deleteBlockScoreWeightMode=deleteBlockScoreWeightMode,
+        deleteBlockApplyTargetCalibration=(
+            None if applyTargetRaw is None else bool(applyTargetRaw)
         ),
         seed=int(
             _cfgGet(
@@ -1109,25 +1314,100 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "experimentName",
         constants.EXPERIMENT_DEFAULT_NAME,
     )
-    trendRatioPriorStrengthKey = "processParams.processQTrendRatioLogPriorStrength"
-    qTrendRatioPriorStrengthKey = "processParams.qTrendRatioPriorStrength"
-    qLevelPriorStrengthKey = "processParams.processQLevelLogPriorStrength"
-    mapRoughnessPenaltyKey = "processParams.qLevelPriorStrength"
-    trendLevelRatioPriorKey = "processParams.processQTrendLevelRatioPrior"
-    qTrendLevelRatioPriorKey = "processParams.qTrendLevelRatioPrior"
-    qTrendRatioPriorStrength = float(
-        _cfgGetFirst(
+    processNoiseCalibration = _normalizeProcessNoiseCalibration(
+        _cfgGet(
             configData,
-            (trendRatioPriorStrengthKey, qTrendRatioPriorStrengthKey),
-            _cfgDefault(configData, qTrendRatioPriorStrengthKey),
+            "processParams.processNoiseCalibration",
+            _cfgDefault(configData, "processParams.processNoiseCalibration"),
         )
     )
-    mapRoughnessPenalty = float(
-        _cfgGetFirst(
+    tuncPriorDf = _coerceTransformFloat(
+        _cfgGet(
             configData,
-            (qLevelPriorStrengthKey, mapRoughnessPenaltyKey),
-            _cfgDefault(configData, mapRoughnessPenaltyKey),
+            "processParams.tuncPriorDf",
+            _cfgDefault(configData, "processParams.tuncPriorDf"),
+        ),
+        name="processParams.tuncPriorDf",
+        positive=True,
+    )
+    tuncLocalWindowMultiplier = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.tuncLocalWindowMultiplier",
+            _cfgDefault(configData, "processParams.tuncLocalWindowMultiplier"),
+        ),
+        name="processParams.tuncLocalWindowMultiplier",
+        positive=True,
+    )
+    tuncDependenceMultiplier = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.tuncDependenceMultiplier",
+            _cfgDefault(configData, "processParams.tuncDependenceMultiplier"),
+        ),
+        name="processParams.tuncDependenceMultiplier",
+        positive=True,
+    )
+    tuncMinScale = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.tuncMinScale",
+            _cfgDefault(configData, "processParams.tuncMinScale"),
+        ),
+        name="processParams.tuncMinScale",
+        positive=True,
+    )
+    tuncMaxScale = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.tuncMaxScale",
+            _cfgDefault(configData, "processParams.tuncMaxScale"),
+        ),
+        name="processParams.tuncMaxScale",
+        positive=True,
+    )
+    if float(tuncMaxScale) < float(tuncMinScale):
+        raise ValueError(
+            "`processParams.tuncMaxScale` must be greater than or equal to "
+            "`processParams.tuncMinScale`."
         )
+    tuncMinWindowWeight = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.tuncMinWindowWeight",
+            _cfgDefault(configData, "processParams.tuncMinWindowWeight"),
+        ),
+        name="processParams.tuncMinWindowWeight",
+        positive=True,
+    )
+    tuncPriorRidge = _coerceTransformFloat(
+        _cfgGet(
+            configData,
+            "processParams.tuncPriorRidge",
+            _cfgDefault(configData, "processParams.tuncPriorRidge"),
+        ),
+        name="processParams.tuncPriorRidge",
+    )
+    if float(tuncPriorRidge) < 0.0:
+        raise ValueError("`processParams.tuncPriorRidge` must be non-negative.")
+    tuncProcessCovariatesEnabled = bool(
+        _cfgGet(
+            configData,
+            "processParams.tuncProcessCovariates.enabled",
+            _cfgDefault(configData, "processParams.tuncProcessCovariates.enabled"),
+        )
+    )
+    tuncProcessCovariatesMode = _normalizeTuncCovariatesMode(
+        _cfgGet(
+            configData,
+            "processParams.tuncProcessCovariates.mode",
+            _cfgDefault(configData, "processParams.tuncProcessCovariates.mode"),
+        )
+    )
+    tuncProcessCovariatesFeaturesRaw = _cfgGet(
+        configData,
+        "processParams.tuncProcessCovariates.features",
+        _cfgDefault(configData, "processParams.tuncProcessCovariates.features"),
     )
     processNoiseWarmupECMIters = int(
         _cfgGet(
@@ -1143,16 +1423,6 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             _cfgDefault(configData, "processParams.processNoiseWarmupOuterPasses"),
         )
     )
-    processNoiseWarmupQAlternatingPasses = int(
-        _cfgGet(
-            configData,
-            "processParams.processNoiseWarmupQAlternatingPasses",
-            _cfgDefault(
-                configData,
-                "processParams.processNoiseWarmupQAlternatingPasses",
-            ),
-        )
-    )
     if processNoiseWarmupECMIters < 1:
         raise ValueError(
             "`processParams.processNoiseWarmupECMIters` must be a positive integer."
@@ -1161,17 +1431,36 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         raise ValueError(
             "`processParams.processNoiseWarmupOuterPasses` must be a positive integer."
         )
-    if processNoiseWarmupQAlternatingPasses < 1:
-        raise ValueError(
-            "`processParams.processNoiseWarmupQAlternatingPasses` must be a positive integer."
+    processGenomeCovariateValidation = None
+    if tuncProcessCovariatesEnabled:
+        if not genomeParams.genomeCovariateCacheDir:
+            raise ValueError(
+                "`genomeParams.genomeCovariateCacheDir` is required when "
+                "`processParams.tuncProcessCovariates.enabled` is true."
+            )
+        processGenomeCovariateValidation = validate_genome_covariate_cache(
+            genomeParams.genomeCovariateCacheDir,
+            interval_size_bp=countingParams.intervalSizeBP,
         )
-    qTrendLevelRatioPriorConfigured = _cfgHas(
-        configData,
-        trendLevelRatioPriorKey,
-    ) or _cfgHas(
-        configData,
-        qTrendLevelRatioPriorKey,
+    tuncProcessCovariatesFeatures = _normalizeTuncCovariateFeatures(
+        tuncProcessCovariatesFeaturesRaw,
+        availableFeatures=(
+            processGenomeCovariateValidation.features
+            if processGenomeCovariateValidation is not None
+            else None
+        ),
     )
+    if tuncProcessCovariatesEnabled and not tuncProcessCovariatesFeatures:
+        raise ValueError(
+            "`processParams.tuncProcessCovariates.features` must select at least "
+            "one feature when TUNC process covariates are enabled."
+        )
+    if tuncProcessCovariatesEnabled and processGenomeCovariateValidation is not None:
+        processGenomeCovariateValidation.validate_request(
+            required_features=tuncProcessCovariatesFeatures,
+            interval_size_bp=countingParams.intervalSizeBP,
+            required_features_label="requested TUNC process features",
+        )
     processArgs = _buildProcessArgs(
         {
             "deltaF": _cfgGet(
@@ -1194,18 +1483,19 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 "processParams.maxQ",
                 _cfgDefault(configData, "processParams.maxQ"),
             ),
-            "qTrendRatioPriorStrength": qTrendRatioPriorStrength,
-            "qTrendLevelRatioPrior": float(
-                _cfgGetFirst(
-                    configData,
-                    (trendLevelRatioPriorKey, qTrendLevelRatioPriorKey),
-                    _cfgDefault(configData, qTrendLevelRatioPriorKey),
-                )
-            ),
+            "processNoiseCalibration": processNoiseCalibration,
+            "tuncPriorDf": tuncPriorDf,
+            "tuncLocalWindowMultiplier": tuncLocalWindowMultiplier,
+            "tuncDependenceMultiplier": tuncDependenceMultiplier,
+            "tuncMinScale": tuncMinScale,
+            "tuncMaxScale": tuncMaxScale,
+            "tuncMinWindowWeight": tuncMinWindowWeight,
+            "tuncPriorRidge": tuncPriorRidge,
+            "tuncProcessCovariatesEnabled": tuncProcessCovariatesEnabled,
+            "tuncProcessCovariatesMode": tuncProcessCovariatesMode,
+            "tuncProcessCovariatesFeatures": tuncProcessCovariatesFeatures,
             "processNoiseWarmupECMIters": processNoiseWarmupECMIters,
-            "processNoiseWarmupQAlternatingPasses": (
-                processNoiseWarmupQAlternatingPasses
-            ),
+            "processNoiseWarmupOuterPasses": processNoiseWarmupOuterPasses,
             "precisionMultiplierMin": float(
                 _cfgGet(
                     configData,
@@ -1221,18 +1511,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 )
             ),
         },
-        {
-            "qLevelPriorStrength": mapRoughnessPenalty,
-            "processNoiseWarmupOuterPasses": processNoiseWarmupOuterPasses,
-        },
+        {},
     )
-    if (
-        qTrendLevelRatioPriorConfigured
-        and core._normalizeStateModel(processArgs.stateModel) == core.STATE_MODEL_LEVEL
-    ):
-        logger.info(
-            "process-Q trend/level ratio prior was provided but ignored because stateModel='level' has no trend state."
-        )
 
     explicitSparseBedFile = _cfgGet(
         configData,
@@ -1298,14 +1578,20 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         if _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
         else _cfgDefault(configData, "observationParams.muncTrendBlockSizeBP")
     )
-    if _cfgHas(configData, "observationParams.muncTrendBlockSizeBP") and muncTrendBlockSizeBP is None:
+    if (
+        _cfgHas(configData, "observationParams.muncTrendBlockSizeBP")
+        and muncTrendBlockSizeBP is None
+    ):
         muncTrendBlockSizeBP = -1
     muncLocalWindowSizeBP = (
         _cfgGet(configData, "observationParams.muncLocalWindowSizeBP", None)
         if _cfgHas(configData, "observationParams.muncLocalWindowSizeBP")
         else _cfgDefault(configData, "observationParams.muncLocalWindowSizeBP")
     )
-    if _cfgHas(configData, "observationParams.muncLocalWindowSizeBP") and muncLocalWindowSizeBP is None:
+    if (
+        _cfgHas(configData, "observationParams.muncLocalWindowSizeBP")
+        and muncLocalWindowSizeBP is None
+    ):
         muncLocalWindowSizeBP = -1
     muncTrendBlockDependenceMultiplierRaw = _cfgGet(
         configData,
@@ -1319,9 +1605,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         muncTrendBlockDependenceMultiplierRaw = (
             constants.OBSERVATION_DEFAULT_MUNC_TREND_BLOCK_DEPENDENCE_MULTIPLIER
         )
-    muncTrendBlockDependenceMultiplier = float(
-        muncTrendBlockDependenceMultiplierRaw
-    )
+    muncTrendBlockDependenceMultiplier = float(muncTrendBlockDependenceMultiplierRaw)
     if (
         not np.isfinite(muncTrendBlockDependenceMultiplier)
         or muncTrendBlockDependenceMultiplier <= 0.0
@@ -1341,9 +1625,7 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         muncLocalWindowDependenceMultiplierRaw = (
             constants.OBSERVATION_DEFAULT_MUNC_LOCAL_WINDOW_DEPENDENCE_MULTIPLIER
         )
-    muncLocalWindowDependenceMultiplier = float(
-        muncLocalWindowDependenceMultiplierRaw
-    )
+    muncLocalWindowDependenceMultiplier = float(muncLocalWindowDependenceMultiplierRaw)
     if (
         not np.isfinite(muncLocalWindowDependenceMultiplier)
         or muncLocalWindowDependenceMultiplier <= 0.0
@@ -1396,8 +1678,12 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             required_features_label="requested MUNC features",
         )
     observationArgs = core.observationParams(
-        minR=_cfgGet(configData, "observationParams.minR", constants.OBSERVATION_DEFAULT_MIN_R),
-        maxR=_cfgGet(configData, "observationParams.maxR", constants.OBSERVATION_DEFAULT_MAX_R),
+        minR=_cfgGet(
+            configData, "observationParams.minR", constants.OBSERVATION_DEFAULT_MIN_R
+        ),
+        maxR=_cfgGet(
+            configData, "observationParams.maxR", constants.OBSERVATION_DEFAULT_MAX_R
+        ),
         samplingIters=_cfgGet(
             configData,
             "observationParams.samplingIters",
@@ -1481,7 +1767,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
                 constants.OBSERVATION_DEFAULT_SPARSE_SUPPORT_PRIOR,
             )
         ),
-        pad=_cfgGet(configData, "observationParams.pad", constants.OBSERVATION_DEFAULT_PAD),
+        pad=_cfgGet(
+            configData, "observationParams.pad", constants.OBSERVATION_DEFAULT_PAD
+        ),
         precisionMultiplierMin=float(
             _cfgGet(
                 configData,
@@ -1605,7 +1893,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         ),
     )
 
-    samThreads = _cfgGet(configData, "samParams.samThreads", constants.SAM_DEFAULT_THREADS)
+    samThreads = _cfgGet(
+        configData, "samParams.samThreads", constants.SAM_DEFAULT_THREADS
+    )
     samFlagExclude = _cfgGet(
         configData,
         "samParams.samFlagExclude",
@@ -1621,7 +1911,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         "samParams.oneReadPerBin",
         constants.SAM_DEFAULT_ONE_READ_PER_BIN,
     )
-    chunkSize = _cfgGet(configData, "samParams.chunkSize", constants.SAM_DEFAULT_CHUNK_SIZE)
+    chunkSize = _cfgGet(
+        configData, "samParams.chunkSize", constants.SAM_DEFAULT_CHUNK_SIZE
+    )
     bamInputMode = _cfgGet(
         configData,
         "samParams.bamInputMode",
@@ -1690,7 +1982,9 @@ def readConfig(config_path: str) -> Dict[str, Any]:
 
     matchingArgs = core.matchingParams(
         enabled=bool(
-            _cfgGet(configData, "matchingParams.enabled", constants.MATCHING_DEFAULT_ENABLED)
+            _cfgGet(
+                configData, "matchingParams.enabled", constants.MATCHING_DEFAULT_ENABLED
+            )
         ),
         randSeed=_cfgGet(
             configData,
@@ -1716,14 +2010,20 @@ def readConfig(config_path: str) -> Dict[str, Any]:
             "matchingParams.dependenceSpan",
             constants.MATCHING_DEFAULT_DEPENDENCE_SPAN,
         ),
-        gamma=_cfgGet(configData, "matchingParams.gamma", constants.MATCHING_DEFAULT_GAMMA),
+        gamma=_cfgGet(
+            configData, "matchingParams.gamma", constants.MATCHING_DEFAULT_GAMMA
+        ),
         selectionPenalty=_cfgGet(
             configData,
             "matchingParams.selectionPenalty",
             constants.MATCHING_DEFAULT_SELECTION_PENALTY,
         ),
         gammaScale=float(
-            _cfgGet(configData, "matchingParams.gammaScale", constants.MATCHING_DEFAULT_GAMMA_SCALE)
+            _cfgGet(
+                configData,
+                "matchingParams.gammaScale",
+                constants.MATCHING_DEFAULT_GAMMA_SCALE,
+            )
         ),
         nestedRoccoIters=int(
             _cfgGet(

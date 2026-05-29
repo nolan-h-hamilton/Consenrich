@@ -156,99 +156,248 @@ cpdef tuple cfeatureMatrix(
     return X, center, scale
 
 
-cpdef tuple cextractHeldoutScores(
-    real_t[:, ::1] matrixData,
-    real_t[:, ::1] matrixMunc,
-    real_t[::1] state,
-    real_t[::1] stateVar,
-    real_t[::1] replicateBias,
-    real_t[::1] background,
-    cnp.uint8_t[:, ::1] mask,
+def cextractDeletedStateScores(
+    fullState,
+    deletedState,
+    deletedStateVar,
+    activeMask,
+    foldMask,
     int fold,
-    double pad,
     double varianceFloor,
 ):
-    cdef Py_ssize_t m = matrixData.shape[0]
-    cdef Py_ssize_t n = matrixData.shape[1]
-    if matrixMunc.shape[0] != m or matrixMunc.shape[1] != n or mask.shape[0] != m or mask.shape[1] != n:
-        raise ValueError("held-out score inputs have inconsistent dimensions")
+    """Extract interval-level full-vs-delete-state calibration residuals."""
+    cdef object fullStateObj
+    cdef object deletedStateObj
+    cdef object deletedStateVarObj
+    cdef object activeMaskObj
+    cdef object foldMaskObj
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] fullStateArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] deletedStateArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] deletedStateVarArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"] activeMaskArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=2, mode="c"] foldMaskArr
+    cdef double[::1] fullStateView
+    cdef double[::1] deletedStateView
+    cdef double[::1] deletedStateVarView
+    cdef cnp.uint8_t[:, ::1] activeMaskView
+    cdef cnp.uint8_t[:, ::1] foldMaskView
+    cdef Py_ssize_t m, n, i, j, count, k, heldout, kept
+    cdef double pVal
+
+    fullStateObj = np.ascontiguousarray(fullState, dtype=np.float64)
+    deletedStateObj = np.ascontiguousarray(deletedState, dtype=np.float64)
+    deletedStateVarObj = np.ascontiguousarray(deletedStateVar, dtype=np.float64)
+    activeMaskObj = np.ascontiguousarray(activeMask, dtype=np.uint8)
+    foldMaskObj = np.ascontiguousarray(foldMask, dtype=np.uint8)
+
+    if fullStateObj.ndim != 1 or deletedStateObj.ndim != 1 or deletedStateVarObj.ndim != 1:
+        raise ValueError("deleted-state score state inputs must be one-dimensional")
+    if activeMaskObj.ndim != 2 or foldMaskObj.ndim != 2:
+        raise ValueError("deleted-state score masks must be two-dimensional")
+
+    fullStateArr = fullStateObj
+    deletedStateArr = deletedStateObj
+    deletedStateVarArr = deletedStateVarObj
+    activeMaskArr = activeMaskObj
+    foldMaskArr = foldMaskObj
+
+    n = fullStateArr.shape[0]
+    m = activeMaskArr.shape[0]
     if (
-        state.shape[0] != n
-        or stateVar.shape[0] != n
-        or replicateBias.shape[0] != m
-        or background.shape[0] != n
+        deletedStateArr.shape[0] != n
+        or deletedStateVarArr.shape[0] != n
+        or activeMaskArr.shape[1] != n
+        or foldMaskArr.shape[0] != m
+        or foldMaskArr.shape[1] != n
     ):
-        raise ValueError("held-out score state inputs have inconsistent dimensions")
+        raise ValueError("deleted-state score inputs have inconsistent dimensions")
 
-    cdef Py_ssize_t j, i, count = 0, k
+    fullStateView = fullStateArr
+    deletedStateView = deletedStateArr
+    deletedStateVarView = deletedStateVarArr
+    activeMaskView = activeMaskArr
+    foldMaskView = foldMaskArr
+
+    count = 0
     with nogil:
-        for j in range(m):
-            for i in range(n):
-                if mask[j, i] == 0:
-                    count += 1
+        for i in range(n):
+            heldout = 0
+            for j in range(m):
+                if activeMaskView[j, i] != 0 and foldMaskView[j, i] == 0:
+                    heldout += 1
+            if heldout > 0:
+                count += 1
 
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] residual = np.empty(count, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] pState = np.empty(count, dtype=np.float64)
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] obsVar = np.empty(count, dtype=np.float64)
-    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] intervalIndex = np.empty(count, dtype=np.int64)
-    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] repIndex = np.empty(count, dtype=np.int64)
-    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] foldIndex = np.empty(count, dtype=np.int32)
-
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] residual = np.empty(
+        count, dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] pState = np.empty(
+        count, dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] intervalIndex = np.empty(
+        count, dtype=np.int64
+    )
+    cdef cnp.ndarray[cnp.int32_t, ndim=1, mode="c"] foldIndex = np.empty(
+        count, dtype=np.int32
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] heldoutCount = np.empty(
+        count, dtype=np.int64
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] keptCount = np.empty(
+        count, dtype=np.int64
+    )
     cdef double[::1] residualView = residual
     cdef double[::1] pStateView = pState
-    cdef double[::1] obsVarView = obsVar
     cdef cnp.int64_t[::1] intervalView = intervalIndex
-    cdef cnp.int64_t[::1] repView = repIndex
     cdef cnp.int32_t[::1] foldView = foldIndex
-    cdef double pVal, rVal
+    cdef cnp.int64_t[::1] heldoutCountView = heldoutCount
+    cdef cnp.int64_t[::1] keptCountView = keptCount
 
     k = 0
     with nogil:
-        for j in range(m):
-            for i in range(n):
-                if mask[j, i] == 0:
-                    residualView[k] = (
-                        <double>matrixData[j, i]
-                        - <double>background[i]
-                        - <double>state[i]
-                        - <double>replicateBias[j]
-                    )
-                    pVal = <double>stateVar[i]
-                    if pVal < varianceFloor or pVal != pVal:
-                        pVal = varianceFloor
-                    rVal = <double>matrixMunc[j, i] + pad
-                    if rVal < varianceFloor or rVal != rVal:
-                        rVal = varianceFloor
-                    pStateView[k] = pVal
-                    obsVarView[k] = rVal
-                    intervalView[k] = i
-                    repView[k] = j
-                    foldView[k] = fold
-                    k += 1
+        for i in range(n):
+            heldout = 0
+            kept = 0
+            for j in range(m):
+                if activeMaskView[j, i] != 0:
+                    if foldMaskView[j, i] == 0:
+                        heldout += 1
+                    else:
+                        kept += 1
+            if heldout > 0:
+                residualView[k] = fullStateView[i] - deletedStateView[i]
+                pVal = deletedStateVarView[i]
+                if pVal < varianceFloor or pVal != pVal:
+                    pVal = varianceFloor
+                pStateView[k] = pVal
+                intervalView[k] = i
+                foldView[k] = fold
+                heldoutCountView[k] = heldout
+                keptCountView[k] = kept
+                k += 1
 
-    return residual, pState, obsVar, intervalIndex, repIndex, foldIndex
+    return residual, pState, intervalIndex, foldIndex, heldoutCount, keptCount
 
 
-cpdef tuple ctargetBlockScores(
-    cnp.float64_t[::1] residual,
-    cnp.float64_t[::1] pState,
-    cnp.float64_t[::1] obsVar,
-    cnp.float64_t[::1] factorByInterval,
-    cnp.int64_t[::1] intervalIndex,
-    cnp.int64_t[::1] blockIndex,
-    cnp.uint8_t[::1] targetBlockMask,
-    double aObs,
-    double varianceFloor,
+def cdeleteBlockBlockScores(
+    residual,
+    pState,
+    factorByInterval,
+    intervalIndex,
+    blockIndex,
+    targetBlockMask,
+    *args,
+    **kwargs,
 ):
-    cdef Py_ssize_t n = residual.shape[0]
-    cdef Py_ssize_t blockCount = targetBlockMask.shape[0]
+    """Return max delete-state z-score per selected block."""
+    cdef object residualObj
+    cdef object pStateObj
+    cdef object factorObj
+    cdef object intervalObj
+    cdef object blockObj
+    cdef object targetMaskObj
+    cdef object heldoutObj = None
+    cdef object heldoutCountObj
+    cdef object kwargsDict
+    cdef object varianceFloorObj = None
+    cdef double varianceFloor
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] residualArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] pStateArr
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] factorArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] intervalArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] blockArr
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] targetMaskArr
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] heldoutCountArr
+    cdef double[::1] residualView
+    cdef double[::1] pStateView
+    cdef double[::1] factorView
+    cdef cnp.int64_t[::1] intervalView
+    cdef cnp.int64_t[::1] blockView
+    cdef cnp.uint8_t[::1] targetMaskView
+    cdef cnp.int64_t[::1] heldoutCountView
+    cdef bint useHeldoutCounts = False
+    cdef Py_ssize_t n, blockCount, k, interval, block, outCount, outIndex
+    cdef double var, score, r
+    cdef cnp.int64_t cellCount
+
+    kwargsDict = dict(kwargs)
+    if "heldoutCounts" in kwargsDict and "heldoutCount" not in kwargsDict:
+        kwargsDict["heldoutCount"] = kwargsDict.pop("heldoutCounts")
+    if "heldoutCount" in kwargsDict:
+        heldoutObj = kwargsDict.pop("heldoutCount")
+        useHeldoutCounts = True
+    if "varianceFloor" in kwargsDict:
+        varianceFloorObj = kwargsDict.pop("varianceFloor")
+    if len(kwargsDict) != 0:
+        raise TypeError(
+            "cdeleteBlockBlockScores got unexpected keyword argument(s): "
+            + ", ".join(sorted(kwargsDict))
+        )
+
+    if len(args) == 1:
+        if varianceFloorObj is not None:
+            raise TypeError("cdeleteBlockBlockScores got multiple varianceFloor values")
+        varianceFloorObj = args[0]
+    elif len(args) == 2:
+        if heldoutObj is not None or varianceFloorObj is not None:
+            raise TypeError("cdeleteBlockBlockScores got multiple optional argument values")
+        heldoutObj = args[0]
+        varianceFloorObj = args[1]
+        useHeldoutCounts = True
+    elif len(args) != 0:
+        raise TypeError(
+            "cdeleteBlockBlockScores expects varianceFloor, optionally preceded by heldoutCount"
+        )
+    if varianceFloorObj is None:
+        raise TypeError("cdeleteBlockBlockScores missing required varianceFloor")
+    varianceFloor = float(varianceFloorObj)
+
+    residualObj = np.ascontiguousarray(residual, dtype=np.float64)
+    pStateObj = np.ascontiguousarray(pState, dtype=np.float64)
+    factorObj = np.ascontiguousarray(factorByInterval, dtype=np.float64)
+    intervalObj = np.ascontiguousarray(intervalIndex, dtype=np.int64)
+    blockObj = np.ascontiguousarray(blockIndex, dtype=np.int64)
+    targetMaskObj = np.ascontiguousarray(targetBlockMask, dtype=np.uint8)
+    heldoutCountObj = np.empty(0, dtype=np.int64)
+    if useHeldoutCounts:
+        heldoutCountObj = np.ascontiguousarray(heldoutObj, dtype=np.int64)
+
     if (
-        pState.shape[0] != n
-        or obsVar.shape[0] != n
-        or intervalIndex.shape[0] != n
-        or blockIndex.shape[0] != n
+        residualObj.ndim != 1
+        or pStateObj.ndim != 1
+        or factorObj.ndim != 1
+        or intervalObj.ndim != 1
+        or blockObj.ndim != 1
+        or targetMaskObj.ndim != 1
+        or heldoutCountObj.ndim != 1
     ):
-        raise ValueError("target block score inputs have inconsistent dimensions")
+        raise ValueError("delete-block score inputs must be one-dimensional")
+
+    residualArr = residualObj
+    pStateArr = pStateObj
+    factorArr = factorObj
+    intervalArr = intervalObj
+    blockArr = blockObj
+    targetMaskArr = targetMaskObj
+    heldoutCountArr = heldoutCountObj
+
+    n = residualArr.shape[0]
+    blockCount = targetMaskArr.shape[0]
+    if (
+        pStateArr.shape[0] != n
+        or intervalArr.shape[0] != n
+        or blockArr.shape[0] != n
+        or (useHeldoutCounts and heldoutCountArr.shape[0] != n)
+    ):
+        raise ValueError("delete-block score inputs have inconsistent dimensions")
+
+    residualView = residualArr
+    pStateView = pStateArr
+    factorView = factorArr
+    intervalView = intervalArr
+    blockView = blockArr
+    targetMaskView = targetMaskArr
+    heldoutCountView = heldoutCountArr
 
     cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] blockScore = np.full(
         blockCount, -1.0, dtype=np.float64
@@ -258,23 +407,21 @@ cpdef tuple ctargetBlockScores(
     )
     cdef double[::1] blockScoreView = blockScore
     cdef cnp.int64_t[::1] blockCellCountView = blockCellCount
-    cdef Py_ssize_t k, interval, block, outCount, outIndex
-    cdef double var, score, r
 
     with nogil:
         for k in range(n):
-            block = blockIndex[k]
+            block = blockView[k]
             if block < 0 or block >= blockCount:
                 continue
-            if targetBlockMask[block] == 0:
+            if targetMaskView[block] == 0:
                 continue
-            interval = intervalIndex[k]
-            if interval < 0 or interval >= factorByInterval.shape[0]:
+            interval = intervalView[k]
+            if interval < 0 or interval >= factorView.shape[0]:
                 continue
-            r = residual[k]
+            r = residualView[k]
             if not isfinite(r):
                 continue
-            var = factorByInterval[interval] * pState[k] + aObs * obsVar[k]
+            var = factorView[interval] * pStateView[k]
             if not isfinite(var) or var <= varianceFloor:
                 continue
             score = fabs(r) / sqrt(var)
@@ -282,7 +429,13 @@ cpdef tuple ctargetBlockScores(
                 continue
             if score > blockScoreView[block]:
                 blockScoreView[block] = score
-            blockCellCountView[block] += 1
+            if useHeldoutCounts:
+                cellCount = heldoutCountView[k]
+                if cellCount < 1:
+                    cellCount = 1
+                blockCellCountView[block] += cellCount
+            else:
+                blockCellCountView[block] += 1
 
     outCount = 0
     for block in range(blockCount):
@@ -311,188 +464,6 @@ cpdef tuple ctargetBlockScores(
             outIndex += 1
 
     return blockOut, scoreOut, countOut
-
-
-cpdef double cfactorObjective(
-    real_t[::1] theta,
-    real_t[::1] residual,
-    real_t[::1] pState,
-    real_t[::1] obsVar,
-    real_t[:, ::1] featureByInterval,
-    cnp.int64_t[::1] intervalIndex,
-    real_t[::1] targets,
-    real_t[::1] targetZ,
-    double factorMin,
-    double factorMax,
-    double ridge,
-    double aObsPenalty,
-    double scaleWIS,
-    double aObsMin,
-    double aObsMax,
-    double targetAlphaFloor,
-    double wisWeight,
-    double varianceFloor,
-):
-    cdef Py_ssize_t n = residual.shape[0]
-    cdef Py_ssize_t p = featureByInterval.shape[1]
-    if theta.shape[0] != p + 1:
-        raise ValueError("theta length does not match feature matrix")
-    if pState.shape[0] != n or obsVar.shape[0] != n or intervalIndex.shape[0] != n:
-        raise ValueError("objective inputs have inconsistent dimensions")
-
-    cdef double logFactorMin = log(factorMin)
-    cdef double logFactorMax = log(factorMax)
-    cdef double logAObs = _clip_double(<double>theta[p], log(aObsMin), log(aObsMax))
-    cdef double aObs = exp(logAObs)
-    cdef double nllSum = 0.0
-    cdef double wisSum = 0.0
-    cdef double ridgeSum = 0.0
-    cdef double eta, factor, variance, sd, r, lower, upper, below, above, alpha
-    cdef Py_ssize_t k, col, targetIndex, interval
-
-    with nogil:
-        for k in range(n):
-            interval = intervalIndex[k]
-            eta = 0.0
-            for col in range(p):
-                eta += <double>featureByInterval[interval, col] * <double>theta[col]
-            eta = _clip_double(eta, logFactorMin, logFactorMax)
-            factor = exp(eta)
-            variance = factor * <double>pState[k] + aObs * <double>obsVar[k]
-            if variance < varianceFloor:
-                variance = varianceFloor
-            r = <double>residual[k]
-            nllSum += log(variance) + (r * r) / variance
-            sd = sqrt(variance)
-            for targetIndex in range(targets.shape[0]):
-                alpha = 1.0 - <double>targets[targetIndex]
-                if alpha < targetAlphaFloor:
-                    alpha = targetAlphaFloor
-                lower = -(<double>targetZ[targetIndex]) * sd
-                upper = (<double>targetZ[targetIndex]) * sd
-                below = lower - r
-                if below < 0.0:
-                    below = 0.0
-                above = r - upper
-                if above < 0.0:
-                    above = 0.0
-                wisSum += (upper - lower) + (2.0 / alpha) * below + (2.0 / alpha) * above
-
-        for col in range(1, p):
-            ridgeSum += <double>theta[col] * <double>theta[col]
-
-    if n > 0:
-        nllSum = 0.5 * nllSum / <double>n
-        wisSum = wisSum / (<double>n * <double>max(targets.shape[0], 1))
-    return nllSum + wisWeight * wisSum / scaleWIS + ridge * ridgeSum + aObsPenalty * logAObs * logAObs
-
-
-cpdef tuple cfactorObjectiveAndGradient(
-    real_t[::1] theta,
-    real_t[::1] residual,
-    real_t[::1] pState,
-    real_t[::1] obsVar,
-    real_t[:, ::1] featureByInterval,
-    cnp.int64_t[::1] intervalIndex,
-    real_t[::1] targets,
-    real_t[::1] targetZ,
-    double factorMin,
-    double factorMax,
-    double ridge,
-    double aObsPenalty,
-    double scaleWIS,
-    double aObsMin,
-    double aObsMax,
-    double targetAlphaFloor,
-    double wisWeight,
-    double varianceFloor,
-):
-    cdef Py_ssize_t n = residual.shape[0]
-    cdef Py_ssize_t p = featureByInterval.shape[1]
-    if theta.shape[0] != p + 1:
-        raise ValueError("theta length does not match feature matrix")
-    if pState.shape[0] != n or obsVar.shape[0] != n or intervalIndex.shape[0] != n:
-        raise ValueError("objective inputs have inconsistent dimensions")
-
-    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] grad = np.zeros(p + 1, dtype=np.float64)
-    cdef double[::1] gradView = grad
-    cdef double logFactorMin = log(factorMin)
-    cdef double logFactorMax = log(factorMax)
-    cdef double rawLogAObs = <double>theta[p]
-    cdef double logAObs = _clip_double(rawLogAObs, log(aObsMin), log(aObsMax))
-    cdef double aObs = exp(logAObs)
-    cdef bint aObsActive = rawLogAObs >= log(aObsMin) and rawLogAObs <= log(aObsMax)
-    cdef double nllSum = 0.0
-    cdef double wisSum = 0.0
-    cdef double ridgeSum = 0.0
-    cdef double etaRaw, eta, factor, variance, sd, r, lower, upper, below, above
-    cdef double alpha, dvarCommon, dWisDsd, dWisDvar, coef, dvarEta, dvarObs
-    cdef Py_ssize_t k, col, targetIndex, interval
-    cdef bint etaActive
-
-    with nogil:
-        for k in range(n):
-            interval = intervalIndex[k]
-            etaRaw = 0.0
-            for col in range(p):
-                etaRaw += <double>featureByInterval[interval, col] * <double>theta[col]
-            eta = _clip_double(etaRaw, logFactorMin, logFactorMax)
-            etaActive = etaRaw >= logFactorMin and etaRaw <= logFactorMax
-            factor = exp(eta)
-            variance = factor * <double>pState[k] + aObs * <double>obsVar[k]
-            if variance < varianceFloor:
-                variance = varianceFloor
-            r = <double>residual[k]
-            nllSum += log(variance) + (r * r) / variance
-            dvarCommon = 0.5 * (1.0 / variance - (r * r) / (variance * variance))
-            sd = sqrt(variance)
-            dWisDsd = 0.0
-            for targetIndex in range(targets.shape[0]):
-                alpha = 1.0 - <double>targets[targetIndex]
-                if alpha < targetAlphaFloor:
-                    alpha = targetAlphaFloor
-                lower = -(<double>targetZ[targetIndex]) * sd
-                upper = (<double>targetZ[targetIndex]) * sd
-                below = lower - r
-                if below < 0.0:
-                    below = 0.0
-                above = r - upper
-                if above < 0.0:
-                    above = 0.0
-                wisSum += (upper - lower) + (2.0 / alpha) * below + (2.0 / alpha) * above
-                dWisDsd += 2.0 * <double>targetZ[targetIndex]
-                if below > 0.0:
-                    dWisDsd -= (2.0 / alpha) * <double>targetZ[targetIndex]
-                if above > 0.0:
-                    dWisDsd -= (2.0 / alpha) * <double>targetZ[targetIndex]
-
-            coef = dvarCommon / <double>n
-            if targets.shape[0] > 0:
-                dWisDvar = dWisDsd * 0.5 / sd
-                coef += wisWeight * dWisDvar / (
-                    <double>n * <double>targets.shape[0] * scaleWIS
-                )
-            dvarEta = factor * <double>pState[k]
-            dvarObs = aObs * <double>obsVar[k]
-            if etaActive:
-                for col in range(p):
-                    gradView[col] += coef * dvarEta * <double>featureByInterval[interval, col]
-            if aObsActive:
-                gradView[p] += coef * dvarObs
-
-        for col in range(1, p):
-            ridgeSum += <double>theta[col] * <double>theta[col]
-            gradView[col] += 2.0 * ridge * <double>theta[col]
-        if aObsActive:
-            gradView[p] += 2.0 * aObsPenalty * logAObs
-
-    if n > 0:
-        nllSum = 0.5 * nllSum / <double>n
-        wisSum = wisSum / (<double>n * <double>max(targets.shape[0], 1))
-    return (
-        nllSum + wisWeight * wisSum / scaleWIS + ridge * ridgeSum + aObsPenalty * logAObs * logAObs,
-        grad,
-    )
 
 
 cpdef tuple cevaluateFactor(

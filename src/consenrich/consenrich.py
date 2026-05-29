@@ -102,6 +102,11 @@ PRECISION_DIAGNOSTIC_COLUMNS = [
     "median_effective_diag_R",
 ]
 
+_OUTPUT_TRACK_FALLBACK_NAMES: Dict[str, Tuple[str, ...]] = {
+    "preKappaQLevel": ("baseQLevel",),
+    "preKappaQTrend": ("baseQTrend",),
+}
+
 GAIN_SUMMARY_COLUMNS = [
     "replicate_index",
     "sample_name",
@@ -705,12 +710,18 @@ def _writePrecisionDiagnostics(
         )
 
     def _coerceOutputTrack(trackName: str) -> np.ndarray | None:
-        if trackName not in outputTracks:
-            return None
-        arr = np.asarray(outputTracks[trackName], dtype=np.float64).reshape(-1)
+        sourceName = trackName
+        if sourceName not in outputTracks:
+            for fallbackName in _OUTPUT_TRACK_FALLBACK_NAMES.get(trackName, ()):
+                if fallbackName in outputTracks:
+                    sourceName = fallbackName
+                    break
+            else:
+                return None
+        arr = np.asarray(outputTracks[sourceName], dtype=np.float64).reshape(-1)
         if arr.size != n:
             raise RuntimeError(
-                f"diagnostic output track {trackName!r} length mismatch for "
+                f"diagnostic output track {sourceName!r} length mismatch for "
                 f"{chromosome}: expected {n}, got {arr.size}"
             )
         return arr
@@ -749,10 +760,10 @@ def _writePrecisionDiagnostics(
             processQPolicy = "base"
 
     stateModel = str(precisionDiagnostics.get("state_model") or "").strip().lower()
-    baseQ00 = _coerceOutputTrack("baseQLevel")
+    baseQ00 = _coerceOutputTrack("preKappaQLevel")
     if baseQ00 is None:
         baseQ00 = np.full(n, float(q[0, 0]), dtype=np.float64)
-    baseQ11 = _coerceOutputTrack("baseQTrend")
+    baseQ11 = _coerceOutputTrack("preKappaQTrend")
     if baseQ11 is None:
         baseQ11 = np.full(
             n,
@@ -761,11 +772,7 @@ def _writePrecisionDiagnostics(
         )
 
     effectiveQ00 = _coerceOutputTrack("effectiveQLevel")
-    if effectiveQ00 is None:
-        effectiveQ00 = _coerceOutputTrack("qLevel")
     effectiveQ11 = _coerceOutputTrack("effectiveQTrend")
-    if effectiveQ11 is None:
-        effectiveQ11 = _coerceOutputTrack("qTrend")
     usedEffectiveQFallback = effectiveQ00 is None or effectiveQ11 is None
     if effectiveQ00 is None:
         effectiveQ00 = (
@@ -885,9 +892,15 @@ def _updateReplicateGainAccumulator(
     gainSummary: Mapping[str, Any],
 ) -> int:
     replicateCount = int(accumulator["finite_interval_count"].size)
-    means = _coerceGainSummaryVector(gainSummary.get("mean"), replicateCount, dtype=np.float64)
-    sds = _coerceGainSummaryVector(gainSummary.get("sd"), replicateCount, dtype=np.float64)
-    counts = _coerceGainSummaryVector(gainSummary.get("count"), replicateCount, dtype=np.int64)
+    means = _coerceGainSummaryVector(
+        gainSummary.get("mean"), replicateCount, dtype=np.float64
+    )
+    sds = _coerceGainSummaryVector(
+        gainSummary.get("sd"), replicateCount, dtype=np.float64
+    )
+    counts = _coerceGainSummaryVector(
+        gainSummary.get("count"), replicateCount, dtype=np.int64
+    )
     valid = (counts > 0) & np.isfinite(means) & np.isfinite(sds)
     if not np.any(valid):
         return 0
@@ -895,7 +908,9 @@ def _updateReplicateGainAccumulator(
     accumulator["chromosome_count"][valid] += 1
     accumulator["finite_interval_count"][valid] += counts[valid]
     accumulator["sum"][valid] += means[valid] * validCounts
-    accumulator["sum_sq"][valid] += ((sds[valid] ** 2) + (means[valid] ** 2)) * validCounts
+    accumulator["sum_sq"][valid] += (
+        (sds[valid] ** 2) + (means[valid] ** 2)
+    ) * validCounts
     return int(np.count_nonzero(valid))
 
 
@@ -923,11 +938,7 @@ def _replicateGainSummaryRows(
                 or f"replicate_{i + 1}"
             )
             treatmentPath = str(source.path)
-        controlPath = (
-            str(controlSources_[i].path)
-            if i < len(controlSources_)
-            else None
-        )
+        controlPath = str(controlSources_[i].path) if i < len(controlSources_) else None
         count = int(finiteCounts[i])
         if count > 0:
             avg = float(sums[i] / float(count))
@@ -954,7 +965,11 @@ def _replicateGainSummaryRows(
 def _writeReplicateGainSummary(rows: Sequence[Mapping[str, Any]], path: str) -> bool:
     frame = pd.DataFrame(list(rows), columns=GAIN_SUMMARY_COLUMNS)
     finiteIntervals = (
-        int(pd.to_numeric(frame["finite_interval_count"], errors="coerce").fillna(0).sum())
+        int(
+            pd.to_numeric(frame["finite_interval_count"], errors="coerce")
+            .fillna(0)
+            .sum()
+        )
         if not frame.empty
         else 0
     )
@@ -977,17 +992,14 @@ def _writeReplicateGainSummary(rows: Sequence[Mapping[str, Any]], path: str) -> 
     )
     core._logEvent(
         "artifact.replicate_gains",
-        (("path", path), ("rows", int(len(frame))), ("finite_intervals", finiteIntervals)),
+        (
+            ("path", path),
+            ("rows", int(len(frame))),
+            ("finite_intervals", finiteIntervals),
+        ),
         logger_=logger,
     )
     return True
-
-
-def _getProcessNoiseMapRoughnessPenalty(processArgs: Any) -> float:
-    value = getattr(processArgs, "qLevelPriorStrength", None)
-    if value is None:
-        value = constants.PROCESS_DEFAULT_Q_LEVEL_PRIOR_STRENGTH
-    return float(value)
 
 
 def _getProcessNoiseWarmupOuterPasses(processArgs: Any) -> int:
@@ -998,19 +1010,6 @@ def _getProcessNoiseWarmupOuterPasses(processArgs: Any) -> int:
                 processArgs,
                 "processNoiseWarmupOuterPasses",
                 constants.PROCESS_DEFAULT_WARMUP_OUTER_PASSES,
-            )
-        ),
-    )
-
-
-def _getProcessNoiseWarmupQAlternatingPasses(processArgs: Any) -> int:
-    return max(
-        1,
-        int(
-            getattr(
-                processArgs,
-                "processNoiseWarmupQAlternatingPasses",
-                constants.PROCESS_DEFAULT_WARMUP_Q_NUISANCE_PASSES,
             )
         ),
     )
@@ -1034,23 +1033,31 @@ def _configureCoreProcessNoiseWarmupDefaults(processArgs: Any) -> int:
 
 def _processNoiseRunKwargs(processArgs: Any) -> Dict[str, Any]:
     warmupOuterPasses = _getProcessNoiseWarmupOuterPasses(processArgs)
-    qAlternatingPasses = _getProcessNoiseWarmupQAlternatingPasses(processArgs)
     kwargs: Dict[str, Any] = {
         "stateModel": processArgs.stateModel,
-        "qTrendRatioPriorStrength": processArgs.qTrendRatioPriorStrength,
-        "qTrendLevelRatioPrior": processArgs.qTrendLevelRatioPrior,
         "processNoiseWarmupECMIters": processArgs.processNoiseWarmupECMIters,
         "processPrecisionMultiplierMin": processArgs.precisionMultiplierMin,
         "processPrecisionMultiplierMax": processArgs.precisionMultiplierMax,
     }
-    if _coreRunConsenrichSupports("qLevelPriorStrength"):
-        kwargs["qLevelPriorStrength"] = _getProcessNoiseMapRoughnessPenalty(
-            processArgs
-        )
     if _coreRunConsenrichSupports("processNoiseWarmupOuterPasses"):
         kwargs["processNoiseWarmupOuterPasses"] = warmupOuterPasses
-    if _coreRunConsenrichSupports("processNoiseWarmupQAlternatingPasses"):
-        kwargs["processNoiseWarmupQAlternatingPasses"] = qAlternatingPasses
+    for parameterName in (
+        "processNoiseCalibration",
+        "tuncPriorDf",
+        "tuncLocalWindowMultiplier",
+        "tuncDependenceMultiplier",
+        "tuncMinScale",
+        "tuncMaxScale",
+        "tuncMinWindowWeight",
+        "tuncPriorRidge",
+        "tuncProcessCovariatesEnabled",
+        "tuncProcessCovariatesMode",
+        "tuncProcessCovariatesFeatures",
+    ):
+        if hasattr(processArgs, parameterName) and _coreRunConsenrichSupports(
+            parameterName
+        ):
+            kwargs[parameterName] = getattr(processArgs, parameterName)
     return kwargs
 
 
@@ -1118,10 +1125,20 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
             f"[{float(processArgs.minQ):.6g}, {float(processArgs.maxQ):.6g}]",
         ),
         (
-            "q-level prior strength",
-            _getProcessNoiseMapRoughnessPenalty(processArgs),
+            "process noise calibration",
+            getattr(
+                processArgs,
+                "processNoiseCalibration",
+                constants.PROCESS_DEFAULT_NOISE_CALIBRATION,
+            ),
         ),
-        ("trend/level ratio prior", float(processArgs.qTrendLevelRatioPrior)),
+        (
+            "TUNC scale bounds",
+            (
+                f"[{float(getattr(processArgs, 'tuncMinScale', constants.PROCESS_DEFAULT_TUNC_MIN_SCALE)):.6g}, "
+                f"{float(getattr(processArgs, 'tuncMaxScale', constants.PROCESS_DEFAULT_TUNC_MAX_SCALE)):.6g}]"
+            ),
+        ),
         (
             "process kappa bounds",
             (
@@ -1132,8 +1149,7 @@ def _logInitialConfigurationSummary(config: Mapping[str, Any]) -> None:
         (
             "process noise warmup",
             f"{_getProcessNoiseWarmupOuterPasses(processArgs)} outer passes x "
-            f"{int(processArgs.processNoiseWarmupECMIters)} ECM iters; "
-            f"{_getProcessNoiseWarmupQAlternatingPasses(processArgs)} Q/nuisance passes",
+            f"{int(processArgs.processNoiseWarmupECMIters)} ECM iters",
         ),
         ("uncertainty calib", yn(uncertaintyArgs.enabled)),
         ("ROCCO peaks", yn(matchingArgs.enabled)),
@@ -1774,8 +1790,7 @@ def main():
         )
     )
     muncAR1UseInnovationVariance_ = (
-        muncAR1VarianceFunctional_
-        == constants.MUNC_AR1_VARIANCE_FUNCTIONAL_INNOVATION
+        muncAR1VarianceFunctional_ == constants.MUNC_AR1_VARIANCE_FUNCTIONAL_INNOVATION
     )
     backgroundBlockSizeBP_ = countingArgs.backgroundBlockSizeBP
     dependenceContextBP_: Optional[int] = None
@@ -4240,9 +4255,20 @@ def main():
             int(numSamples),
             int(np.ceil(numIntervals / float(blockLenIntervals_))),
         )
-        useCrossFitUncertainty = bool(
+        useUncertaintyCalibration = bool(
             outputArgs.writeUncertainty and uncertaintyCalibrationArgs.enabled
         )
+        calibrationNeedsBackground = bool(
+            useUncertaintyCalibration
+            and fitArgs.fitBackground
+            and getattr(
+                uncertaintyCalibrationArgs,
+                "deleteBlockTargetSignal",
+                constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_TARGET_SIGNAL,
+            )
+            == constants.UNCERTAINTY_CALIBRATION_DELETE_BLOCK_TARGET_STATE_PLUS_BACKGROUND
+        )
+        returnBackgroundTrack = bool(saveBackgroundTracks or calibrationNeedsBackground)
         runResult = core.runConsenrich(
             chromMat,
             muncMat,
@@ -4258,7 +4284,7 @@ def main():
             intervalSizeBP=intervalSizeBP,
             returnScales=True,
             returnReplicateOffsets=True,
-            returnBackground=saveBackgroundTracks,
+            returnBackground=returnBackgroundTrack,
             pad=pad_,
             ECM_fixedBackgroundIters=fitArgs.ECM_fixedBackgroundIters,
             ECM_fixedBackgroundRtol=fitArgs.ECM_fixedBackgroundRtol,
@@ -4294,7 +4320,7 @@ def main():
         ]
         runResultIndex = 6
         backgroundTrack = None
-        if saveBackgroundTracks:
+        if returnBackgroundTrack:
             if len(runResult) <= runResultIndex:
                 raise RuntimeError("runConsenrich did not return a background track.")
             backgroundTrack = np.asarray(runResult[runResultIndex], dtype=np.float32)
@@ -4409,27 +4435,27 @@ def main():
         initialProcessQWarmStart = None
         processNoiseDiagnostics = runDiagnostics.get("process_noise_calibration")
         if isinstance(processNoiseDiagnostics, Mapping):
-            qLevelWarmStart = processNoiseDiagnostics.get("qLevel")
-            qTrendWarmStart = processNoiseDiagnostics.get("qTrend")
+            preKappaLevelWarmStart = processNoiseDiagnostics.get("preKappaQLevel")
+            preKappaTrendWarmStart = processNoiseDiagnostics.get("preKappaQTrend")
             if (
                 core._normalizeStateModel(processArgs.stateModel)
                 == core.STATE_MODEL_LEVEL
-                and qLevelWarmStart is not None
+                and preKappaLevelWarmStart is not None
             ):
                 initialProcessQWarmStart = core.constructMatrixQ(
                     minDiagQ=float(minQ_),
-                    Q00=float(qLevelWarmStart),
+                    Q00=float(preKappaLevelWarmStart),
                     Q01=0.0,
                     Q10=0.0,
-                    Q11=max(float(qLevelWarmStart), float(minQ_)),
+                    Q11=max(float(preKappaLevelWarmStart), float(minQ_)),
                 )
-            elif qLevelWarmStart is not None and qTrendWarmStart is not None:
+            elif preKappaLevelWarmStart is not None and preKappaTrendWarmStart is not None:
                 initialProcessQWarmStart = core.constructMatrixQ(
                     minDiagQ=float(minQ_),
-                    Q00=float(qLevelWarmStart),
+                    Q00=float(preKappaLevelWarmStart),
                     Q01=0.0,
                     Q10=0.0,
-                    Q11=float(qTrendWarmStart),
+                    Q11=float(preKappaTrendWarmStart),
                 )
 
         x_ = core.getPrimaryState(
@@ -4495,12 +4521,12 @@ def main():
         P00_ = (P[:, 0, 0]).astype(np.float32, copy=False)
         uncertaintyTrack = np.sqrt(P00_).astype(np.float32, copy=False)
 
-        if useCrossFitUncertainty:
+        if useUncertaintyCalibration:
             core._logAsciiBlock(
                 "uncertainty calibration",
                 (
                     ("chromosome", chromosome),
-                    ("mode", "cross-fit"),
+                    ("mode", "delete-block state"),
                     ("intervals", int(len(x_))),
                     ("samples", int(numSamples)),
                     ("block intervals", int(roughnessBlockLen)),
@@ -4512,7 +4538,7 @@ def main():
                 from consenrich import uncertainty as uncertainty_module
             except ImportError as exc:
                 raise RuntimeError(
-                    "Cross-fit uncertainty calibration requires the optional "
+                    "Delete-block state uncertainty calibration requires the optional "
                     "`consenrich.uncertainty` module and `consenrich.cuncertainty` "
                     "extension. Build/install Consenrich with uncertainty support, "
                     "or set `uncertaintyCalibrationParams.enabled: false`."
@@ -4556,8 +4582,11 @@ def main():
                 initialReplicateBias=replicateBias,
                 initialProcessQ=initialProcessQWarmStart,
                 logIndentLevel=2,
-                logRunRole="held-out fold",
+                logRunRole="delete-block state calibration fold",
             )
+            fullObservationPrecision = None
+            if isinstance(precisionDiagnostics, Mapping):
+                fullObservationPrecision = precisionDiagnostics.get("lambdaExp")
             calibrationPrefix = (
                 f"consenrichOutput_{experimentName}_uncertaintyCalibration"
                 f".v{__version__}"
@@ -4568,6 +4597,8 @@ def main():
                 fullState=x,
                 fullCovar=P,
                 fullReplicateBias=replicateBias,
+                fullBackground=backgroundTrack,
+                fullObservationPrecision=fullObservationPrecision,
                 intervals=intervals,
                 intervalSizeBP=intervalSizeBP,
                 params=uncertaintyCalibrationArgs,
@@ -4580,11 +4611,11 @@ def main():
                 dtype=np.float32,
             )
             logger.info(
-                "Cross-fit uncertainty calibration applied for %s: "
-                "aObs=%.6g heldoutCells=%d",
+                "Delete-block state uncertainty calibration applied for %s: "
+                "globalFactor=%.6g rowsValid=%d",
                 chromosome,
-                float(calibrationResult.model.get("a_obs_factor", np.nan)),
-                int(calibrationResult.model.get("heldout_cells", 0)),
+                float(calibrationResult.model.get("global_factor", np.nan)),
+                int(calibrationResult.model.get("rows_valid", 0)),
             )
 
         df = pd.DataFrame(
@@ -4608,15 +4639,35 @@ def main():
                 if trackName == "slope":
                     trackValues = np.asarray(x[:, 1], dtype=np.float32)
                 else:
+                    sourceTrackName = trackName
                     if (
                         not isinstance(outputTracks, Mapping)
-                        or trackName not in outputTracks
+                        or sourceTrackName not in outputTracks
                     ):
+                        for fallbackName in _OUTPUT_TRACK_FALLBACK_NAMES.get(
+                            trackName,
+                            (),
+                        ):
+                            if (
+                                isinstance(outputTracks, Mapping)
+                                and fallbackName in outputTracks
+                            ):
+                                sourceTrackName = fallbackName
+                                break
+                        else:
+                            raise RuntimeError(
+                                f"Requested diagnostic track {trackName!r} was not returned "
+                                f"for {chromosome}."
+                            )
+                    if not isinstance(outputTracks, Mapping):
                         raise RuntimeError(
                             f"Requested diagnostic track {trackName!r} was not returned "
                             f"for {chromosome}."
                         )
-                    trackValues = np.asarray(outputTracks[trackName], dtype=np.float32)
+                    trackValues = np.asarray(
+                        outputTracks[sourceTrackName],
+                        dtype=np.float32,
+                    )
                 if trackValues.shape != (len(intervals),):
                     raise RuntimeError(
                         f"Diagnostic track {trackName!r} shape mismatch for "
@@ -4692,7 +4743,9 @@ def main():
         )
 
     if outputArgs.plotOptimizationPath and genomeOptimizationPathRows:
-        genomeOptimizationPathPrefix = _genomeOptimizationPathPrefix(str(experimentName))
+        genomeOptimizationPathPrefix = _genomeOptimizationPathPrefix(
+            str(experimentName)
+        )
         _writeOptimizationPathLog(
             genomeOptimizationPathRows,
             f"{genomeOptimizationPathPrefix}.log",

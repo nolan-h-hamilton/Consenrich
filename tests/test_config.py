@@ -133,6 +133,7 @@ def _caseRuntimeBackgroundSpanUsesLengthScaleMultiplier():
         == 45
     )
 
+
 def _caseInitialConfigurationSummaryStaysCompact(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -145,7 +146,9 @@ def _caseInitialConfigurationSummaryStaysCompact(
     inputParams.bamFiles: [sampleA.bam, sampleB.bam, sampleC.bam]
     genomeParams.name: testGenome
     genomeParams.chromosomes: [chrTest]
-    processParams.qLevelPriorStrength: 1.75
+    processParams.processNoiseCalibration: tunc
+    processParams.tuncMinScale: 0.5
+    processParams.tuncMaxScale: 2.0
     processParams.processNoiseWarmupECMIters: 11
     processParams.processNoiseWarmupOuterPasses: 3
     """
@@ -157,7 +160,8 @@ def _caseInitialConfigurationSummaryStaysCompact(
 
     assert "event=config.initial" in caplog.text
     assert "treatment_inputs=3" in caplog.text
-    assert "q_level_prior_strength=1.75" in caplog.text
+    assert "process_noise_calibration=tunc" in caplog.text
+    assert 'tunc_scale_bounds="[0.5, 2]"' in caplog.text
     assert "3 outer passes x 11 ECM iters" in caplog.text
     assert "inputSource(" not in caplog.text
     assert "'countingArgs':" not in caplog.text
@@ -205,9 +209,7 @@ def _caseReplicateGainSummaryWritesPooledAverageAndStd(tmp_path):
     )
 
     expectedAvg = ((0.125 * 4.0) + (0.25 * 6.0)) / 10.0
-    expectedSumSq = ((0.0125**2 + 0.125**2) * 4.0) + (
-        (0.025**2 + 0.25**2) * 6.0
-    )
+    expectedSumSq = ((0.0125**2 + 0.125**2) * 4.0) + ((0.025**2 + 0.25**2) * 6.0)
     expectedStd = np.sqrt((expectedSumSq / 10.0) - (expectedAvg**2))
     assert rows[0]["sample_name"] == "sampleA"
     assert rows[0]["control_path"] == "/tmp/controlA.bam"
@@ -275,7 +277,9 @@ def _case_ensureInput():
     except ValueError as e:
         return
     else:
-        assert False, "Expected ValueError not raised given empty `consenrich_core.inputParams`"
+        assert (
+            False
+        ), "Expected ValueError not raised given empty `consenrich_core.inputParams`"
 
 
 def _caseScaleFactorNormalizationBroadcastsSingletons():
@@ -339,9 +343,7 @@ def _case_readConfigGenericCountTransform(
 
     assert legacyCountingArgs.transformMethod == "log"
     assert legacyCountingArgs.transformInputOffset == pytest.approx(4.0)
-    assert legacyCountingArgs.transformOutputScale == pytest.approx(
-        1.4426950408889634
-    )
+    assert legacyCountingArgs.transformOutputScale == pytest.approx(1.4426950408889634)
 
     anscombeYaml = """
     experimentName: anscombeTransform
@@ -367,12 +369,16 @@ def _case_readConfigGenericCountTransform(
     genomeParams.name: testGenome
     countingParams.transformMethod: banana
     """
-    invalidPath = writeConfigFile(tmp_path, "config_invalid_transform.yaml", invalidYaml)
+    invalidPath = writeConfigFile(
+        tmp_path, "config_invalid_transform.yaml", invalidYaml
+    )
     with pytest.raises(ValueError, match="transformMethod"):
         readConfig(str(invalidPath))
 
 
-def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.MonkeyPatch):
+def _case_readConfigDottedAndNestedEquivalent(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
 
@@ -482,7 +488,9 @@ def _case_readConfigDottedAndNestedEquivalent(tmp_path, monkeypatch: pytest.Monk
     assert matchingDotted.enabled == matchingNested.enabled
     assert matchingDotted.thresholdZ == matchingNested.thresholdZ
     assert matchingDotted.nestedRoccoIters == matchingNested.nestedRoccoIters
-    assert matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
+    assert (
+        matchingDotted.nestedRoccoBudgetScale == matchingNested.nestedRoccoBudgetScale
+    )
     assert matchingDotted.uncertaintyScoreMode == "lower_confidence"
     assert matchingNested.uncertaintyScoreMode == "lower_confidence"
     assert matchingDotted.uncertaintyScoreZ == pytest.approx(1.25)
@@ -500,7 +508,7 @@ def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyP
         experimentName: testExperiment
         inputParams.bamFiles: [smallTest.bam]
         genomeParams.name: testGenome
-        outputParams.diagnosticTracks: [slope, q_level, munc-trace, trend]
+        outputParams.diagnosticTracks: [slope, pre-kappa-q-level, effective-q-trend, munc-trace, trend]
         """,
     )
 
@@ -508,7 +516,8 @@ def _case_readConfigOutputDiagnosticTracks(tmp_path, monkeypatch: pytest.MonkeyP
 
     assert parsed["outputArgs"].diagnosticTracks == (
         "slope",
-        "qLevel",
+        "preKappaQLevel",
+        "effectiveQTrend",
         "muncTrace",
     )
     assert consenrich_config._normalizeOutputDiagnosticTracks("all") == tuple(
@@ -550,8 +559,14 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     genomeParams.name: testGenome
     processParams:
       stateModel: level
-      qTrendRatioPriorStrength: 0.25
-      qTrendLevelRatioPrior: 0.005
+      processNoiseCalibration: tunc
+      tuncPriorDf: 6.0
+      tuncLocalWindowMultiplier: 3.0
+      tuncDependenceMultiplier: 1.5
+      tuncMinScale: 0.5
+      tuncMaxScale: 3.0
+      tuncMinWindowWeight: 2.0
+      tuncPriorRidge: 0.002
       processNoiseWarmupECMIters: 7
       processNoiseWarmupOuterPasses: 5
       precisionMultiplierMin: 0.5
@@ -567,11 +582,16 @@ def _case_readConfigProcessNoiseOptions(tmp_path, monkeypatch: pytest.MonkeyPatc
     processArgs = configParsed["processArgs"]
 
     assert processArgs.stateModel == constants.STATE_MODEL_LEVEL
-    assert processArgs.qTrendRatioPriorStrength == pytest.approx(0.25)
-    assert processArgs.qLevelPriorStrength == pytest.approx(
-        constants.PROCESS_DEFAULT_Q_LEVEL_PRIOR_STRENGTH
+    assert (
+        processArgs.processNoiseCalibration == constants.PROCESS_NOISE_CALIBRATION_TUNC
     )
-    assert processArgs.qTrendLevelRatioPrior == pytest.approx(0.005)
+    assert processArgs.tuncPriorDf == pytest.approx(6.0)
+    assert processArgs.tuncLocalWindowMultiplier == pytest.approx(3.0)
+    assert processArgs.tuncDependenceMultiplier == pytest.approx(1.5)
+    assert processArgs.tuncMinScale == pytest.approx(0.5)
+    assert processArgs.tuncMaxScale == pytest.approx(3.0)
+    assert processArgs.tuncMinWindowWeight == pytest.approx(2.0)
+    assert processArgs.tuncPriorRidge == pytest.approx(0.002)
     assert processArgs.processNoiseWarmupECMIters == 7
     assert processArgs.processNoiseWarmupOuterPasses == 5
     assert processArgs.precisionMultiplierMin == pytest.approx(0.5)
@@ -626,6 +646,8 @@ def _case_readConfigMuncCovariates(tmp_path, monkeypatch: pytest.MonkeyPatch):
         == constants.MUNC_COVARIATES_MODE_PER_REPLICATE_ADDITIVE
     )
     assert parsed["observationArgs"].muncCovariatesFeatures == ("gc", "repeat_frac")
+    assert parsed["processArgs"].tuncProcessCovariatesEnabled is False
+    assert parsed["processArgs"].tuncProcessCovariatesFeatures == ()
 
 
 def _case_readConfigMuncCovariatesAcceptsManifestFeatureNames(
@@ -740,14 +762,22 @@ def _case_readConfigUsesGenericDefaultConfiguration(
         parsed["processArgs"].processNoiseWarmupOuterPasses
         == constants.PROCESS_DEFAULT_WARMUP_OUTER_PASSES
     )
-    assert parsed["processArgs"].qTrendRatioPriorStrength == pytest.approx(
-        constants.PROCESS_DEFAULT_Q_TREND_RATIO_PRIOR_STRENGTH
+    assert (
+        parsed["processArgs"].processNoiseCalibration
+        == constants.PROCESS_DEFAULT_NOISE_CALIBRATION
     )
-    assert parsed["processArgs"].qLevelPriorStrength == pytest.approx(
-        constants.PROCESS_DEFAULT_Q_LEVEL_PRIOR_STRENGTH
+    assert (
+        parsed["processArgs"].processNoiseCalibration
+        == constants.PROCESS_NOISE_CALIBRATION_TUNC
     )
-    assert parsed["processArgs"].qTrendLevelRatioPrior == pytest.approx(
-        constants.PROCESS_DEFAULT_Q_TREND_LEVEL_RATIO_PRIOR
+    assert parsed["processArgs"].tuncPriorDf == pytest.approx(
+        constants.PROCESS_DEFAULT_TUNC_PRIOR_DF
+    )
+    assert parsed["processArgs"].tuncMinScale == pytest.approx(
+        constants.PROCESS_DEFAULT_TUNC_MIN_SCALE
+    )
+    assert parsed["processArgs"].tuncMaxScale == pytest.approx(
+        constants.PROCESS_DEFAULT_TUNC_MAX_SCALE
     )
     assert (
         parsed["observationArgs"].useReplicateTrends
@@ -761,6 +791,27 @@ def _caseGenericDefaultConfigurationUsesCanonicalUncertaintyKeys():
     ]
 
     assert "uncertaintyCalibrationParams.enabled" in defaults
+    assert (
+        defaults["uncertaintyCalibrationParams.mode"]
+        == constants.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE
+    )
+    for key in (
+        "uncertaintyCalibrationParams.deleteBlockVarianceMode",
+        "uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation",
+        "uncertaintyCalibrationParams.deleteBlockTargetSignal",
+        "uncertaintyCalibrationParams.deleteBlockFactorModel",
+        "uncertaintyCalibrationParams.deleteBlockMinInformationFraction",
+        "uncertaintyCalibrationParams.deleteBlockMaxInformationFraction",
+        "uncertaintyCalibrationParams.deleteBlockMinDeltaVariance",
+        "uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction",
+        "uncertaintyCalibrationParams.deleteBlockScoreWeightMode",
+        "uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration",
+    ):
+        assert key in defaults
+    assert constants.UNCERTAINTY_CALIBRATION_MODES == (
+        constants.UNCERTAINTY_CALIBRATION_MODE_DELETE_BLOCK_STATE,
+    )
+    assert "predictive_holdout" not in constants.UNCERTAINTY_CALIBRATION_MODES
     assert not any(key.startswith("uncertaintyCalibration.") for key in defaults)
 
 
@@ -776,80 +827,102 @@ def _case_runtime_defaults_are_centralized(
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     """
-    configPath = writeConfigFile(tmp_path, "config_centralized_defaults.yaml", configYaml)
+    configPath = writeConfigFile(
+        tmp_path, "config_centralized_defaults.yaml", configYaml
+    )
     parsed = readConfig(str(configPath))
     profile = constants.DEFAULT_CONFIGURATION_VALUES[
         constants.GENERIC_DEFAULT_CONFIGURATION
     ]
 
-    assert consenrich_config.DEFAULT_CONFIGURATION_VALUES is constants.DEFAULT_CONFIGURATION_VALUES
-    assert consenrich_config.GENERIC_DEFAULT_CONFIGURATION is constants.GENERIC_DEFAULT_CONFIGURATION
+    assert (
+        consenrich_config.DEFAULT_CONFIGURATION_VALUES
+        is constants.DEFAULT_CONFIGURATION_VALUES
+    )
+    assert (
+        consenrich_config.GENERIC_DEFAULT_CONFIGURATION
+        is constants.GENERIC_DEFAULT_CONFIGURATION
+    )
     assert (
         consenrich_config.SUPPORTED_DEFAULT_CONFIGURATIONS
         is constants.SUPPORTED_DEFAULT_CONFIGURATIONS
     )
-    assert consenrich_config.DEFAULT_CONFIGURATION_KEYS is constants.DEFAULT_CONFIGURATION_KEYS
+    assert (
+        consenrich_config.DEFAULT_CONFIGURATION_KEYS
+        is constants.DEFAULT_CONFIGURATION_KEYS
+    )
 
     assert parsed["defaultConfiguration"] == constants.GENERIC_DEFAULT_CONFIGURATION
     assert parsed["processArgs"].stateModel == profile["processParams.stateModel"]
-    assert parsed["processArgs"].qTrendRatioPriorStrength == profile[
-        "processParams.qTrendRatioPriorStrength"
-    ]
-    assert parsed["processArgs"].qLevelPriorStrength == profile[
-        "processParams.qLevelPriorStrength"
-    ]
-    assert parsed["processArgs"].qTrendLevelRatioPrior == profile[
-        "processParams.qTrendLevelRatioPrior"
-    ]
-    assert parsed["processArgs"].processNoiseWarmupECMIters == profile[
-        "processParams.processNoiseWarmupECMIters"
-    ]
-    assert parsed["processArgs"].processNoiseWarmupOuterPasses == profile[
-        "processParams.processNoiseWarmupOuterPasses"
-    ]
+    assert (
+        parsed["processArgs"].processNoiseCalibration
+        == profile["processParams.processNoiseCalibration"]
+    )
+    assert parsed["processArgs"].tuncPriorDf == profile["processParams.tuncPriorDf"]
+    assert parsed["processArgs"].tuncMinScale == profile["processParams.tuncMinScale"]
+    assert parsed["processArgs"].tuncMaxScale == profile["processParams.tuncMaxScale"]
+    assert (
+        parsed["processArgs"].processNoiseWarmupECMIters
+        == profile["processParams.processNoiseWarmupECMIters"]
+    )
+    assert (
+        parsed["processArgs"].processNoiseWarmupOuterPasses
+        == profile["processParams.processNoiseWarmupOuterPasses"]
+    )
     assert parsed["fitArgs"].ECM_outerIters == profile["fitParams.ECM_outerIters"]
-    assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == profile[
-        "fitParams.ECM_backgroundLengthScaleMultiplier"
-    ]
-    assert parsed["fitArgs"].useNonnegativeBackground == profile[
-        "fitParams.useNonnegativeBackground"
-    ]
-    assert parsed["fitArgs"].backgroundNegativePenaltyMultiplier == profile[
-        "fitParams.backgroundNegativePenaltyMultiplier"
-    ]
-    assert parsed["observationArgs"].muncVarianceModel == profile[
-        "observationParams.muncVarianceModel"
-    ]
-    assert parsed["observationArgs"].muncAR1VarianceFunctional == profile[
-        "observationParams.muncAR1VarianceFunctional"
-    ]
-    assert parsed["observationArgs"].muncTrendBlockSizeBP == profile[
-        "observationParams.muncTrendBlockSizeBP"
-    ]
-    assert parsed["observationArgs"].muncLocalWindowSizeBP == profile[
-        "observationParams.muncLocalWindowSizeBP"
-    ]
-    assert parsed["observationArgs"].muncTrendBlockDependenceMultiplier == profile[
-        "observationParams.muncTrendBlockDependenceMultiplier"
-    ]
-    assert parsed["observationArgs"].muncLocalWindowDependenceMultiplier == profile[
-        "observationParams.muncLocalWindowDependenceMultiplier"
-    ]
-    assert parsed["observationArgs"].restrictLocalVarianceToSparseBed == profile[
-        "observationParams.restrictLocalVarianceToSparseBed"
-    ]
-    assert parsed["observationArgs"].noDMVar == profile[
-        "observationParams.noDMVar"
-    ]
-    assert parsed["observationArgs"].muncCovariatesEnabled == profile[
-        "observationParams.muncCovariates.enabled"
-    ]
-    assert parsed["observationArgs"].muncCovariatesMode == profile[
-        "observationParams.muncCovariates.mode"
-    ]
-    assert parsed["observationArgs"].muncCovariatesFeatures == profile[
-        "observationParams.muncCovariates.features"
-    ]
+    assert (
+        parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier
+        == profile["fitParams.ECM_backgroundLengthScaleMultiplier"]
+    )
+    assert (
+        parsed["fitArgs"].useNonnegativeBackground
+        == profile["fitParams.useNonnegativeBackground"]
+    )
+    assert (
+        parsed["fitArgs"].backgroundNegativePenaltyMultiplier
+        == profile["fitParams.backgroundNegativePenaltyMultiplier"]
+    )
+    assert (
+        parsed["observationArgs"].muncVarianceModel
+        == profile["observationParams.muncVarianceModel"]
+    )
+    assert (
+        parsed["observationArgs"].muncAR1VarianceFunctional
+        == profile["observationParams.muncAR1VarianceFunctional"]
+    )
+    assert (
+        parsed["observationArgs"].muncTrendBlockSizeBP
+        == profile["observationParams.muncTrendBlockSizeBP"]
+    )
+    assert (
+        parsed["observationArgs"].muncLocalWindowSizeBP
+        == profile["observationParams.muncLocalWindowSizeBP"]
+    )
+    assert (
+        parsed["observationArgs"].muncTrendBlockDependenceMultiplier
+        == profile["observationParams.muncTrendBlockDependenceMultiplier"]
+    )
+    assert (
+        parsed["observationArgs"].muncLocalWindowDependenceMultiplier
+        == profile["observationParams.muncLocalWindowDependenceMultiplier"]
+    )
+    assert (
+        parsed["observationArgs"].restrictLocalVarianceToSparseBed
+        == profile["observationParams.restrictLocalVarianceToSparseBed"]
+    )
+    assert parsed["observationArgs"].noDMVar == profile["observationParams.noDMVar"]
+    assert (
+        parsed["observationArgs"].muncCovariatesEnabled
+        == profile["observationParams.muncCovariates.enabled"]
+    )
+    assert (
+        parsed["observationArgs"].muncCovariatesMode
+        == profile["observationParams.muncCovariates.mode"]
+    )
+    assert (
+        parsed["observationArgs"].muncCovariatesFeatures
+        == profile["observationParams.muncCovariates.features"]
+    )
     assert consenrich_core.observationParams(
         minR=parsed["observationArgs"].minR,
         maxR=parsed["observationArgs"].maxR,
@@ -872,12 +945,14 @@ def _case_runtime_defaults_are_centralized(
     ).muncAR1VarianceFunctional == (
         constants.OBSERVATION_DEFAULT_MUNC_AR1_VARIANCE_FUNCTIONAL
     )
-    assert parsed["countingArgs"].subtractGlobalMedian == profile[
-        "countingParams.subtractGlobalMedian"
-    ]
-    assert parsed["outputArgs"].saveBackgroundTracks == profile[
-        "outputParams.saveBackgroundTracks"
-    ]
+    assert (
+        parsed["countingArgs"].subtractGlobalMedian
+        == profile["countingParams.subtractGlobalMedian"]
+    )
+    assert (
+        parsed["outputArgs"].saveBackgroundTracks
+        == profile["outputParams.saveBackgroundTracks"]
+    )
     assert parsed["outputArgs"].saveGains == profile["outputParams.saveGains"]
     assert (
         parsed["outputArgs"].plotOptimizationPath
@@ -921,6 +996,16 @@ def _case_runtime_defaults_are_centralized(
         consenrich_core.uncertaintyCalibrationParams().enabled
         == constants.UNCERTAINTY_CALIBRATION_DEFAULT_ENABLED
     )
+    assert parsed["uncertaintyCalibrationArgs"].mode == (
+        profile["uncertaintyCalibrationParams.mode"]
+    )
+    assert consenrich_core.uncertaintyCalibrationParams().mode == (
+        constants.UNCERTAINTY_CALIBRATION_DEFAULT_MODE
+    )
+    assert (
+        consenrich_core.uncertaintyCalibrationParams().deleteBlockVarianceMode
+        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_VARIANCE_MODE
+    )
 
     cliDefaults = consenrich_cli._buildArgParser().parse_args([])
     assert cliDefaults.matchNumBootstrap == constants.MATCHING_DEFAULT_NUM_BOOTSTRAP
@@ -960,9 +1045,10 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     fitParams.ECM_outerIters: 16
     fitParams.ECM_backgroundLengthScaleMultiplier: 2.0
     countingParams.subtractGlobalMedian: false
-    processParams.qTrendRatioPriorStrength: 1.5
-    processParams.qLevelPriorStrength: 2.5
-    processParams.qTrendLevelRatioPrior: 0.002
+    processParams.processNoiseCalibration: seed
+    processParams.tuncPriorDf: 12
+    processParams.tuncMinScale: 0.75
+    processParams.tuncMaxScale: 2.5
     processParams.processNoiseWarmupOuterPasses: 6
     processParams.precisionMultiplierMin: 0.5
     observationParams.precisionMultiplierMax: 4.0
@@ -980,9 +1066,10 @@ def _case_readConfigGenericDefaultsStillAllowExplicitOverrides(
     assert parsed["fitArgs"].ECM_outerIters == 16
     assert parsed["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(2.0)
     assert parsed["countingArgs"].subtractGlobalMedian is False
-    assert parsed["processArgs"].qTrendRatioPriorStrength == pytest.approx(1.5)
-    assert parsed["processArgs"].qLevelPriorStrength == pytest.approx(2.5)
-    assert parsed["processArgs"].qTrendLevelRatioPrior == pytest.approx(0.002)
+    assert parsed["processArgs"].processNoiseCalibration == "seed"
+    assert parsed["processArgs"].tuncPriorDf == pytest.approx(12.0)
+    assert parsed["processArgs"].tuncMinScale == pytest.approx(0.75)
+    assert parsed["processArgs"].tuncMaxScale == pytest.approx(2.5)
     assert parsed["processArgs"].processNoiseWarmupOuterPasses == 6
     assert parsed["processArgs"].precisionMultiplierMin == pytest.approx(0.5)
     assert parsed["observationArgs"].precisionMultiplierMax == pytest.approx(4.0)
@@ -1004,32 +1091,54 @@ def _case_processNoiseWarmupPassThroughUsesConfiguredKnobs(
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     processParams:
-      qLevelPriorStrength: 3.5
-      qTrendLevelRatioPrior: 0.125
+      processNoiseCalibration: fixed
+      tuncPriorDf: 5.0
+      tuncLocalWindowMultiplier: 2.5
+      tuncDependenceMultiplier: 3.0
+      tuncMinScale: 0.5
+      tuncMaxScale: 2.5
+      tuncMinWindowWeight: 4.0
+      tuncPriorRidge: 0.02
       processNoiseWarmupECMIters: 9
       processNoiseWarmupOuterPasses: 4
       precisionMultiplierMin: 0.25
       precisionMultiplierMax: 9.0
     """
 
-    configPath = writeConfigFile(tmp_path, "config_process_noise_passthrough.yaml", configYaml)
+    configPath = writeConfigFile(
+        tmp_path, "config_process_noise_passthrough.yaml", configYaml
+    )
     processArgs = readConfig(str(configPath))["processArgs"]
+    supportedProcessKwargs = {
+        "processNoiseWarmupOuterPasses",
+        "processNoiseCalibration",
+        "tuncPriorDf",
+        "tuncLocalWindowMultiplier",
+        "tuncDependenceMultiplier",
+        "tuncMinScale",
+        "tuncMaxScale",
+        "tuncMinWindowWeight",
+        "tuncPriorRidge",
+    }
+    monkeypatch.setattr(
+        consenrich_cli,
+        "_coreRunConsenrichSupports",
+        lambda name: name in supportedProcessKwargs,
+    )
     kwargs = consenrich_cli._processNoiseRunKwargs(processArgs)
 
-    assert kwargs["qTrendRatioPriorStrength"] == pytest.approx(
-        constants.PROCESS_DEFAULT_Q_TREND_RATIO_PRIOR_STRENGTH
-    )
-    if consenrich_cli._coreRunConsenrichSupports("qLevelPriorStrength"):
-        assert kwargs["qLevelPriorStrength"] == pytest.approx(3.5)
-    assert kwargs["qTrendLevelRatioPrior"] == pytest.approx(0.125)
+    assert kwargs["processNoiseCalibration"] == "fixed"
+    assert kwargs["tuncPriorDf"] == pytest.approx(5.0)
+    assert kwargs["tuncLocalWindowMultiplier"] == pytest.approx(2.5)
+    assert kwargs["tuncDependenceMultiplier"] == pytest.approx(3.0)
+    assert kwargs["tuncMinScale"] == pytest.approx(0.5)
+    assert kwargs["tuncMaxScale"] == pytest.approx(2.5)
+    assert kwargs["tuncMinWindowWeight"] == pytest.approx(4.0)
+    assert kwargs["tuncPriorRidge"] == pytest.approx(0.02)
     assert kwargs["processNoiseWarmupECMIters"] == 9
     assert kwargs["processPrecisionMultiplierMin"] == pytest.approx(0.25)
     assert kwargs["processPrecisionMultiplierMax"] == pytest.approx(9.0)
-    assert (
-        "processNoiseWarmupOuterPasses" in kwargs
-    ) is consenrich_cli._coreRunConsenrichSupports("processNoiseWarmupOuterPasses")
-    if consenrich_cli._coreRunConsenrichSupports("processNoiseWarmupOuterPasses"):
-        assert kwargs["processNoiseWarmupOuterPasses"] == 4
+    assert kwargs["processNoiseWarmupOuterPasses"] == 4
 
     monkeypatch.setattr(
         consenrich_core,
@@ -1084,9 +1193,7 @@ def _case_readConfigObservationTrendRemovesLinearEnvelope(
     assert removed not in observationArgs._fields
 
 
-def _case_readConfigDeduplicatesChromosomes(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
+def _case_readConfigDeduplicatesChromosomes(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
 
@@ -1171,14 +1278,12 @@ def _case_readConfigUsesZeroCenterIdentifiabilityFields(
     assert not hasattr(parsedOverride["fitArgs"], "ECM_zeroCenterReplicateBias")
     assert parsedOverride["fitArgs"].useNonnegativeBackground is False
     assert parsedOverride["fitArgs"].backgroundNegativePenaltyMultiplier is None
-    assert parsedOverride["fitArgs"].ECM_backgroundLengthScaleMultiplier == pytest.approx(
-        6.0
-    )
+    assert parsedOverride[
+        "fitArgs"
+    ].ECM_backgroundLengthScaleMultiplier == pytest.approx(6.0)
 
 
-def _case_readConfigAllowsEMTNuOverride(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
+def _case_readConfigAllowsEMTNuOverride(tmp_path, monkeypatch: pytest.MonkeyPatch):
     setupGenomeFiles(tmp_path, monkeypatch)
     setupBamHelpers(monkeypatch)
 
@@ -1189,7 +1294,9 @@ def _case_readConfigAllowsEMTNuOverride(
     fitParams.ECM_robustTNu: 4.0
     """
     parsedOverride = readConfig(
-        str(writeConfigFile(tmp_path, "config_em_tnu_override.yaml", configOverrideYaml))
+        str(
+            writeConfigFile(tmp_path, "config_em_tnu_override.yaml", configOverrideYaml)
+        )
     )
     assert parsedOverride["fitArgs"].ECM_robustTNu == pytest.approx(4.0)
 
@@ -1247,19 +1354,40 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     )
     for removedField in removedStateFields:
         assert not hasattr(parsedDefault["stateArgs"], removedField)
+    defaultArgs = parsedDefault["uncertaintyCalibrationArgs"]
+    assert defaultArgs.mode == constants.UNCERTAINTY_CALIBRATION_DEFAULT_MODE
+    assert (
+        defaultArgs.deleteBlockVarianceMode
+        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_VARIANCE_MODE
+    )
+    assert (
+        defaultArgs.deleteBlockScoreWeightMode
+        == constants.UNCERTAINTY_CALIBRATION_DEFAULT_DELETE_BLOCK_SCORE_WEIGHT_MODE
+    )
+    assert defaultArgs.deleteBlockApplyTargetCalibration is None
 
     configExplicitYaml = """
     experimentName: testExperiment
     inputParams.bamFiles: [smallTest.bam]
     genomeParams.name: testGenome
     uncertaintyCalibrationParams.enabled: false
+    uncertaintyCalibrationParams.mode: delete-block-state
     uncertaintyCalibrationParams.blockSizeBP: 25000
     uncertaintyCalibrationParams.folds: 3
-    uncertaintyCalibrationParams.holdoutFraction: 0.2
     uncertaintyCalibrationParams.maxScores: 1234
     uncertaintyCalibrationParams.targets: [0.5, 0.9]
     uncertaintyCalibrationParams.targetCalibrationDelta: 0.025
     uncertaintyCalibrationParams.scaleUncertaintyByTargetCalibration: false
+    uncertaintyCalibrationParams.deleteBlockVarianceMode: covariance-difference
+    uncertaintyCalibrationParams.deleteBlockUseLambdaInInformation: true
+    uncertaintyCalibrationParams.deleteBlockTargetSignal: state-plus-background
+    uncertaintyCalibrationParams.deleteBlockFactorModel: global
+    uncertaintyCalibrationParams.deleteBlockMinInformationFraction: 0.01
+    uncertaintyCalibrationParams.deleteBlockMaxInformationFraction: 0.8
+    uncertaintyCalibrationParams.deleteBlockMinDeltaVariance: 1.0e-7
+    uncertaintyCalibrationParams.deleteBlockFallbackMinValidFraction: 0.5
+    uncertaintyCalibrationParams.deleteBlockScoreWeightMode: sqrt-information-fraction
+    uncertaintyCalibrationParams.deleteBlockApplyTargetCalibration: true
     """
     parsedExplicit = readConfig(
         str(
@@ -1272,13 +1400,38 @@ def _case_readConfigUsesUncertaintyCalibrationFields(
     )
     explicitArgs = parsedExplicit["uncertaintyCalibrationArgs"]
     assert explicitArgs.enabled is False
+    assert explicitArgs.mode == "delete_block_state"
     assert explicitArgs.blockSizeBP == 25_000
     assert explicitArgs.folds == 3
-    assert explicitArgs.holdoutFraction == pytest.approx(0.2)
     assert explicitArgs.maxScores == 1234
     assert explicitArgs.targets == (0.5, 0.9)
     assert explicitArgs.targetCalibrationDelta == pytest.approx(0.025)
     assert explicitArgs.scaleUncertaintyByTargetCalibration is False
+    assert explicitArgs.deleteBlockVarianceMode == "covariance_difference"
+    assert explicitArgs.deleteBlockUseLambdaInInformation is True
+    assert explicitArgs.deleteBlockTargetSignal == "state_plus_background"
+    assert explicitArgs.deleteBlockFactorModel == "global"
+    assert explicitArgs.deleteBlockMinInformationFraction == pytest.approx(0.01)
+    assert explicitArgs.deleteBlockMaxInformationFraction == pytest.approx(0.8)
+    assert explicitArgs.deleteBlockMinDeltaVariance == pytest.approx(1.0e-7)
+    assert explicitArgs.deleteBlockFallbackMinValidFraction == pytest.approx(0.5)
+    assert explicitArgs.deleteBlockScoreWeightMode == "sqrt_information_fraction"
+    assert explicitArgs.deleteBlockApplyTargetCalibration is True
+
+    configPredictiveYaml = """
+    experimentName: testExperiment
+    inputParams.bamFiles: [smallTest.bam]
+    genomeParams.name: testGenome
+    uncertaintyCalibrationParams.mode: predictive_holdout
+    """
+    configPredictivePath = writeConfigFile(
+        tmp_path,
+        "config_uncertainty_calibration_predictive_mode.yaml",
+        configPredictiveYaml,
+    )
+    with pytest.raises(ValueError, match="uncertaintyCalibrationParams.mode"):
+        readConfig(str(configPredictivePath))
+
 
 def _case_readConfigNumNearestRequiresExplicitSparseBed(
     tmp_path, monkeypatch: pytest.MonkeyPatch
@@ -1361,7 +1514,9 @@ def _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed(
     parsedExplicitSparse = readConfig(str(configExplicitSparsePath))
     explicitObservationArgs = parsedExplicitSparse["observationArgs"]
     assert explicitObservationArgs.restrictLocalVarianceToSparseBed is True
-    assert explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_AR1
+    assert (
+        explicitObservationArgs.muncVarianceModel == constants.MUNC_VARIANCE_MODEL_AR1
+    )
     assert (
         explicitObservationArgs.muncAR1VarianceFunctional
         == constants.MUNC_AR1_VARIANCE_FUNCTIONAL_INNOVATION
@@ -1649,15 +1804,15 @@ def _case_convertBedGraphToBigWigPyBigWigWritesExpectedTrack(tmp_path):
     pyBigWigPath = tmp_path / "pybigwig.bw"
     bedGraphPath.write_text(
         "\n".join(
-                [
-                    "track type=bedGraph name=toy",
-                    "browser position chr1:1-20",
-                    "chr1 0 10 0.5",
-                    "chr1\t10\t20\t2.25",
-                    "chr2\t0\t8\t2.0",
-                    "chr10 0 5 10.0",
-                ]
-            )
+            [
+                "track type=bedGraph name=toy",
+                "browser position chr1:1-20",
+                "chr1 0 10 0.5",
+                "chr1\t10\t20\t2.25",
+                "chr2\t0\t8\t2.0",
+                "chr10 0 5 10.0",
+            ]
+        )
         + "\n",
         encoding="ascii",
     )
@@ -1729,8 +1884,6 @@ def _case_convertBedGraphToBigWigPyBigWigRejectsEmptyBedGraph(tmp_path):
     assert not bigWigPath.exists()
 
 
-
-
 def _case_sortBedGraphInPlace(tmp_path):
     bedGraphPath = tmp_path / "toy.bedGraph"
     bedGraphPath.write_text(
@@ -1768,7 +1921,9 @@ def _case_bedGraphValidationAcceptsGenomeOrderAndSortsFallback(tmp_path):
         encoding="utf-8",
     )
 
-    consenrich_io._validateBedGraphSorted(str(bedGraphPath), chromOrder=["chr2", "chr1"])
+    consenrich_io._validateBedGraphSorted(
+        str(bedGraphPath), chromOrder=["chr2", "chr1"]
+    )
     with pytest.raises(ValueError, match="chromosome order"):
         consenrich_io._validateBedGraphSorted(
             str(bedGraphPath),
@@ -1877,14 +2032,25 @@ def test_config_runtime_logging_and_validation_contracts(
         "control log-ratio disables global median centering",
         _caseGlobalMedianCenterAutoDisabledForControlLogRatios,
     )
-    contract_case("fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite)
+    contract_case(
+        "fixed deltaF validation", _case_resolveFixedDeltaFRequiresPositiveFinite
+    )
 
 
 def test_config_worker_and_input_helper_contracts(monkeypatch, contract_case):
     for label, func in (
-        ("unknown memory worker cap", _case_munc_worker_count_unknown_memory_uses_cpu_cap),
-        ("low memory keeps one worker", _case_munc_worker_count_low_memory_keeps_one_worker),
-        ("moderate memory caps workers", _case_munc_worker_count_moderate_memory_caps_below_cpu),
+        (
+            "unknown memory worker cap",
+            _case_munc_worker_count_unknown_memory_uses_cpu_cap,
+        ),
+        (
+            "low memory keeps one worker",
+            _case_munc_worker_count_low_memory_keeps_one_worker,
+        ),
+        (
+            "moderate memory caps workers",
+            _case_munc_worker_count_moderate_memory_caps_below_cpu,
+        ),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func)
     contract_case("input presence validation", _case_ensureInput)
@@ -1902,7 +2068,10 @@ def test_config_parser_defaults_and_override_contracts(
     tmp_path, monkeypatch, contract_case
 ):
     for label, func in (
-        ("dotted and nested config equivalence", _case_readConfigDottedAndNestedEquivalent),
+        (
+            "dotted and nested config equivalence",
+            _case_readConfigDottedAndNestedEquivalent,
+        ),
         ("output diagnostic tracks", _case_readConfigOutputDiagnosticTracks),
         ("generic count transform", _case_readConfigGenericCountTransform),
         (
@@ -1925,12 +2094,18 @@ def test_config_parser_defaults_and_override_contracts(
         ),
         ("generic profile", _case_readConfigUsesGenericDefaultConfiguration),
         ("centralized runtime defaults", _case_runtime_defaults_are_centralized),
-        ("generic overrides", _case_readConfigGenericDefaultsStillAllowExplicitOverrides),
+        (
+            "generic overrides",
+            _case_readConfigGenericDefaultsStillAllowExplicitOverrides,
+        ),
         (
             "process noise warmup pass-through",
             _case_processNoiseWarmupPassThroughUsesConfiguredKnobs,
         ),
-        ("unknown default profile rejected", _case_readConfigRejectsUnknownDefaultConfiguration),
+        (
+            "unknown default profile rejected",
+            _case_readConfigRejectsUnknownDefaultConfiguration,
+        ),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
     contract_case(
@@ -1941,13 +2116,28 @@ def test_config_parser_defaults_and_override_contracts(
 
 def test_config_model_parameter_field_contracts(tmp_path, monkeypatch, contract_case):
     for label, func in (
-        ("observation trend fields", _case_readConfigObservationTrendRemovesLinearEnvelope),
+        (
+            "observation trend fields",
+            _case_readConfigObservationTrendRemovesLinearEnvelope,
+        ),
         ("chromosome deduplication", _case_readConfigDeduplicatesChromosomes),
-        ("APN disables process precision reweighting", _case_readConfigAPNDisablesProcPrecReweight),
-        ("zero-center identifiability fields", _case_readConfigUsesZeroCenterIdentifiabilityFields),
+        (
+            "APN disables process precision reweighting",
+            _case_readConfigAPNDisablesProcPrecReweight,
+        ),
+        (
+            "zero-center identifiability fields",
+            _case_readConfigUsesZeroCenterIdentifiabilityFields,
+        ),
         ("ECM t-nu override", _case_readConfigAllowsEMTNuOverride),
-        ("ECM outer-pass tolerance fields", _case_readConfigUsesECMAndOuterPassToleranceFields),
-        ("uncertainty calibration fields", _case_readConfigUsesUncertaintyCalibrationFields),
+        (
+            "ECM outer-pass tolerance fields",
+            _case_readConfigUsesECMAndOuterPassToleranceFields,
+        ),
+        (
+            "uncertainty calibration fields",
+            _case_readConfigUsesUncertaintyCalibrationFields,
+        ),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
 
@@ -2190,17 +2380,25 @@ def test_config_sparse_sample_source_and_matching_contracts(
     tmp_path, monkeypatch, caplog, contract_case
 ):
     for label, func in (
-        ("numNearest sparse-bed requirement", _case_readConfigNumNearestRequiresExplicitSparseBed),
+        (
+            "numNearest sparse-bed requirement",
+            _case_readConfigNumNearestRequiresExplicitSparseBed,
+        ),
         (
             "restrict local variance sparse-bed requirement",
             _case_readConfigRestrictLocalVarianceToSparseBedRequiresAvailableSparseBed,
         ),
         ("structured sample sources", _case_readConfigSampleSources),
-        ("single-cell fragments defaults", _case_readConfigScParamsProvideFragmentsDefaults),
+        (
+            "single-cell fragments defaults",
+            _case_readConfigScParamsProvideFragmentsDefaults,
+        ),
         ("CRAM sources rejected", _case_readConfigRejectsCRAMSources),
     ):
         contract_case(label, _run_with_monkeypatch, monkeypatch, func, tmp_path)
-    contract_case("sparse interval loading", _case_loadSparseIntervalIndicesUsesBedSpan, tmp_path)
+    contract_case(
+        "sparse interval loading", _case_loadSparseIntervalIndicesUsesBedSpan, tmp_path
+    )
     for label, func in (
         ("bedGraph sample source", _case_readConfigSamplesSupportBedGraph),
         (
@@ -2220,7 +2418,10 @@ def test_config_bedgraph_bigwig_io_contracts(tmp_path, contract_case):
             "pyBigWig out-of-bounds rejection",
             _case_convertBedGraphToBigWigPyBigWigRejectsOutOfBounds,
         ),
-        ("pyBigWig empty rejection", _case_convertBedGraphToBigWigPyBigWigRejectsEmptyBedGraph),
+        (
+            "pyBigWig empty rejection",
+            _case_convertBedGraphToBigWigPyBigWigRejectsEmptyBedGraph,
+        ),
         ("bedGraph sort", _case_sortBedGraphInPlace),
         (
             "bedGraph genome-order validation",
