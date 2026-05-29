@@ -620,3 +620,78 @@ cpdef dict csummarizeCoverageWidths(
         "q90_width_before": q90Before,
         "q90_width_after": q90After,
     }
+
+# Dense delete-block target-block scoring moved from Python loops.
+cpdef tuple cdeleteBlockTargetBlockScores(
+    object residual,
+    object pDelta,
+    object factorByInterval,
+    object intervalIndex,
+    object blockIndex,
+    object targetBlockMask,
+    double positiveFloor,
+):
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] residualArr = np.ascontiguousarray(
+        np.asarray(residual, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] pDeltaArr = np.ascontiguousarray(
+        np.asarray(pDelta, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] factorArr = np.ascontiguousarray(
+        np.asarray(factorByInterval, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] intervalArr = np.ascontiguousarray(
+        np.asarray(intervalIndex, dtype=np.int64).reshape(-1), dtype=np.int64
+    )
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] blockArr = np.ascontiguousarray(
+        np.asarray(blockIndex, dtype=np.int64).reshape(-1), dtype=np.int64
+    )
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] targetMaskArr = np.ascontiguousarray(
+        np.asarray(targetBlockMask, dtype=np.uint8).reshape(-1), dtype=np.uint8
+    )
+    cdef Py_ssize_t n = residualArr.shape[0]
+    if pDeltaArr.shape[0] != n or intervalArr.shape[0] != n or blockArr.shape[0] != n:
+        raise ValueError("residual, pDelta, intervalIndex, and blockIndex must have the same length")
+    cdef Py_ssize_t blockCount = targetMaskArr.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] blockScoreArr = np.full(blockCount, -1.0, dtype=np.float64)
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] blockCellCountArr = np.zeros(blockCount, dtype=np.int64)
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] validBlocksArr = np.empty(blockCount, dtype=np.int64)
+    cdef double[::1] residualView = residualArr
+    cdef double[::1] pDeltaView = pDeltaArr
+    cdef double[::1] factorView = factorArr
+    cdef cnp.int64_t[::1] intervalView = intervalArr
+    cdef cnp.int64_t[::1] blockView = blockArr
+    cdef cnp.uint8_t[::1] targetMaskView = targetMaskArr
+    cdef double[::1] blockScore = blockScoreArr
+    cdef cnp.int64_t[::1] blockCellCount = blockCellCountArr
+    cdef cnp.int64_t[::1] validBlocks = validBlocksArr
+    cdef Py_ssize_t k, validCount
+    cdef cnp.int64_t block, interval
+    cdef double variance, score
+
+    with nogil:
+        for k in range(n):
+            block = blockView[k]
+            if block < 0 or block >= blockCount or targetMaskView[block] == 0:
+                continue
+            interval = intervalView[k]
+            if interval < 0 or interval >= factorArr.shape[0]:
+                continue
+            variance = factorView[interval] * pDeltaView[k]
+            if not (isfinite(residualView[k]) and isfinite(variance) and variance > positiveFloor):
+                continue
+            score = fabs(residualView[k]) / sqrt(variance)
+            if isfinite(score):
+                if score > blockScore[block]:
+                    blockScore[block] = score
+                blockCellCount[block] += 1
+        validCount = 0
+        for block in range(blockCount):
+            if blockCellCount[block] > 0 and blockScore[block] >= 0.0:
+                validBlocks[validCount] = block
+                validCount += 1
+    return (
+        validBlocksArr[:validCount].copy(),
+        blockScoreArr[validBlocksArr[:validCount]].copy(),
+        blockCellCountArr[validBlocksArr[:validCount]].copy(),
+    )

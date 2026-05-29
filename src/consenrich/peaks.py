@@ -18,6 +18,11 @@ from scipy import stats
 
 from . import cconsenrich
 from . import core
+from ._normalization import (
+    normalize_matching_uncertainty_score_mode as _sharedNormalizeUncertaintyScoreMode,
+    validate_uncertainty_score_z as _sharedValidateUncertaintyScoreZ,
+)
+
 from .constants import (
     EXPORT_MEDIAN_SIGNAL_LOCAL_UNCERTAINTY_MULTIPLIER,
     MASSIVE_SUBPEAK_CLEANUP_DEFAULT,
@@ -110,24 +115,18 @@ def _validateExportFilterUncertaintyMultiplier(value: float) -> float:
 
 
 def _normalizeUncertaintyScoreMode(value: str | None) -> str:
-    raw = _MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE if value is None else str(value)
-    mode = raw.strip().lower().replace("-", "_")
-    if mode == "consenrich_state":
-        mode = "state"
-    if mode not in MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES:
-        supported = ", ".join(MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES)
-        raise ValueError(
-            f"Unsupported uncertaintyScoreMode {value!r}. "
-            f"Supported modes: {supported}."
-        )
-    return mode
+    return _sharedNormalizeUncertaintyScoreMode(
+        value,
+        config_name="uncertaintyScoreMode",
+        allow_consenrich_state_alias=True,
+    )
 
 
 def _validateUncertaintyScoreZ(value: float) -> float:
-    value_ = float(value)
-    if not np.isfinite(value_) or value_ < 0.0:
-        raise ValueError("`uncertaintyScoreZ` must be finite and non-negative")
-    return value_
+    return _sharedValidateUncertaintyScoreZ(
+        value,
+        config_name="uncertaintyScoreZ",
+    )
 
 
 def _readBlacklistIntervalsByChrom(blacklistBedFile: str | None) -> Dict[str, np.ndarray]:
@@ -1186,12 +1185,21 @@ def _generateDWBMultipliers(
         if kernelName not in {"qs", "quadratic_spectral", "quadraticspectral"}
         else max(8 * bandwidth_, 32)
     )
+    noise = rng.standard_normal(int(n + 2 * maxLag))
+    if hasattr(cconsenrich, "cGenerateDWBMultipliersFromNoise"):
+        return np.asarray(
+            cconsenrich.cGenerateDWBMultipliersFromNoise(
+                noise,
+                int(bandwidth_),
+                kernel,
+            ),
+            dtype=np.float64,
+        )
+
     lags = np.arange(-maxLag, maxLag + 1, dtype=np.int64)
     weights = _kernelValues(kernel, lags, bandwidth_)
     weights = np.asarray(weights, dtype=np.float64)
     weights /= math.sqrt(max(float(np.sum(weights * weights)), _TINY))
-
-    noise = rng.standard_normal(int(n + 2 * maxLag))
     multipliers = np.convolve(noise, weights, mode="valid")[:n]
     multipliers = np.asarray(multipliers, dtype=np.float64)
     multipliers -= float(np.mean(multipliers))
@@ -1199,7 +1207,6 @@ def _generateDWBMultipliers(
     if not np.isfinite(sd) or sd <= _TINY:
         return np.ones(n, dtype=np.float64)
     return multipliers / sd
-
 
 def _generateStationaryNullDWBDraw(
     template: np.ndarray,
@@ -1214,15 +1221,26 @@ def _generateStationaryNullDWBDraw(
         rng,
         kernel=kernel,
     )
+    if hasattr(cconsenrich, "cApplyStationaryNullDWB"):
+        return np.asarray(
+            cconsenrich.cApplyStationaryNullDWB(template_, multipliers),
+            dtype=np.float64,
+        )
     draw = template_ * np.asarray(multipliers, dtype=np.float64)
     draw -= float(np.mean(draw))
     return np.asarray(draw, dtype=np.float64)
-
 
 def _estimateEffectiveSampleSize(
     values: np.ndarray,
     maxLag: int,
 ) -> Tuple[float, float, int]:
+    if hasattr(cconsenrich, "cEstimateEffectiveSampleSize"):
+        n_eff, tau, lags_used = cconsenrich.cEstimateEffectiveSampleSize(
+            values,
+            int(maxLag),
+        )
+        return float(n_eff), float(tau), int(lags_used)
+
     x = np.asarray(values, dtype=np.float64)
     n = int(x.size)
     if n < 2:
@@ -1246,7 +1264,6 @@ def _estimateEffectiveSampleSize(
 
     tau = float(max(tau, 1.0))
     return float(n / tau), tau, lagsUsed
-
 
 def _preparedStationaryNullDWBMatches(
     prepared: Dict[str, Any],
@@ -2155,6 +2172,9 @@ def _replayFDRQValues(
 
 
 def _movingAverageSame(values: np.ndarray, window: int) -> np.ndarray:
+    if hasattr(cconsenrich, "cMovingAverageSame"):
+        return np.asarray(cconsenrich.cMovingAverageSame(values, int(window)), dtype=np.float64)
+
     values_ = np.asarray(values, dtype=np.float64)
     window_ = int(max(int(window), 1))
     if window_ <= 1 or values_.size <= 1:
@@ -2172,11 +2192,14 @@ def _movingAverageSame(values: np.ndarray, window: int) -> np.ndarray:
         copy=False,
     )
 
-
 def _booleanRunBounds(
     above: np.ndarray,
     maxGapBins: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    if hasattr(cconsenrich, "cBooleanRunBounds"):
+        starts, ends = cconsenrich.cBooleanRunBounds(above, int(maxGapBins))
+        return np.asarray(starts, dtype=np.int64), np.asarray(ends, dtype=np.int64)
+
     above_ = np.asarray(above, dtype=bool).ravel()
     if above_.size == 0:
         empty = np.asarray([], dtype=np.int64)
@@ -2195,7 +2218,6 @@ def _booleanRunBounds(
     groupStarts = np.concatenate(([0], breaks))
     groupEnds = np.concatenate((breaks - 1, [trueIdx.size - 1]))
     return trueIdx[groupStarts].astype(np.int64), trueIdx[groupEnds].astype(np.int64)
-
 
 def _resolveMultiscaleCandidateBins(
     n: int,

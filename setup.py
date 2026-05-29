@@ -1,11 +1,13 @@
 import sys
 import os
 import glob
+import shutil
 import subprocess
 import sysconfig
 import textwrap
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
+from setuptools.command.build_py import build_py
 from Cython.Build import cythonize
 import numpy
 
@@ -242,6 +244,14 @@ class buildConsenrichExt(build_ext):
         super().run()
 
 
+class buildConsenrichPy(build_py):
+    def run(self):
+        packageBuildDir = os.path.join(self.build_lib, "consenrich")
+        if os.path.isdir(packageBuildDir):
+            shutil.rmtree(packageBuildDir)
+        super().run()
+
+
 extensions = [
     Extension(
         "consenrich.cconsenrich",
@@ -280,6 +290,9 @@ setup(
         language_level="3",
         compile_time_env={"USE_OPENMP": False},
     ),
-    cmdclass={"build_ext": buildConsenrichExt},
+    cmdclass={
+        "build_ext": buildConsenrichExt,
+        "build_py": buildConsenrichPy,
+    },
     zip_safe=False,
 )

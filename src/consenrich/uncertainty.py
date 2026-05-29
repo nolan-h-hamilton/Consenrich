@@ -17,6 +17,8 @@ from tqdm import tqdm
 from . import core
 from . import diagnostics
 from . import cuncertainty as _cuncertainty
+from . import _logging as _logging_utils
+from ._normalization import weighted_quantile
 
 
 logger = logging.getLogger(__name__)
@@ -35,7 +37,7 @@ class uncertaintyCalibrationResult(NamedTuple):
 
 
 def _progressEnabled(params: core.uncertaintyCalibrationParams) -> bool:
-    return bool(params.writeDiagnostics) and bool(getattr(sys.stderr, "isatty", lambda: False)())
+    return bool(params.writeDiagnostics) and _logging_utils.progress_enabled()
 
 
 def _progress(iterable, *, params: core.uncertaintyCalibrationParams, **kwargs):
@@ -163,48 +165,24 @@ def _featureMatrix(
     matrixMunc: np.ndarray,
 ) -> tuple[np.ndarray, list[str], np.ndarray, np.ndarray]:
     featureNames = list(core.UNCERTAINTY_CALIBRATION_FEATURE_NAMES)
-    state = np.asarray(state, dtype=np.float64).reshape(-1)
-    stateVar = np.maximum(
-        np.asarray(stateVar, dtype=np.float64).reshape(-1),
-        core.UNCERTAINTY_CALIBRATION_FEATURE_POSITIVE_FLOOR,
+    X, center, scale = _cuncertainty.cfeatureMatrix(
+        np.ascontiguousarray(np.asarray(state, dtype=np.float64).reshape(-1)),
+        np.ascontiguousarray(np.maximum(
+            np.asarray(stateVar, dtype=np.float64).reshape(-1),
+            core.UNCERTAINTY_CALIBRATION_FEATURE_POSITIVE_FLOOR,
+        )),
+        np.ascontiguousarray(matrixMunc, dtype=np.float64),
+        float(core.UNCERTAINTY_CALIBRATION_FEATURE_HIGH_SIGNAL_QUANTILE),
+        float(core.UNCERTAINTY_CALIBRATION_FEATURE_POSITIVE_FLOOR),
+        float(core.UNCERTAINTY_CALIBRATION_FEATURE_MAD_NORMAL_SCALE),
+        float(core.UNCERTAINTY_CALIBRATION_FEATURE_SCALE_FLOOR),
     )
-    matrixMunc = np.asarray(matrixMunc, dtype=np.float64)
-    finiteMunc = np.where(np.isfinite(matrixMunc), matrixMunc, np.nan)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        meanMunc = np.nanmean(finiteMunc, axis=0)
-    meanMunc = np.maximum(meanMunc, core.UNCERTAINTY_CALIBRATION_FEATURE_POSITIVE_FLOOR)
-    stateDelta = np.zeros_like(state)
-    if state.size > 1:
-        stateDelta[1:] = np.diff(state)
-    absState = np.abs(state)
-    highSignalCut = (
-        float(np.nanquantile(absState, core.UNCERTAINTY_CALIBRATION_FEATURE_HIGH_SIGNAL_QUANTILE))
-        if absState.size
-        else np.inf
+    return (
+        np.asarray(X, dtype=np.float64),
+        featureNames,
+        np.asarray(center, dtype=np.float64),
+        np.asarray(scale, dtype=np.float64),
     )
-    raw = np.column_stack(
-        [
-            np.log(stateVar),
-            np.log(meanMunc),
-            absState,
-            np.abs(stateDelta),
-            (absState > highSignalCut).astype(np.float64),
-        ]
-    )
-    center = np.nanmedian(raw, axis=0)
-    center = np.where(np.isfinite(center), center, 0.0)
-    mad = np.nanmedian(np.abs(raw - center[None, :]), axis=0)
-    scale = mad * core.UNCERTAINTY_CALIBRATION_FEATURE_MAD_NORMAL_SCALE
-    scale = np.where(
-        np.isfinite(scale) & (scale > core.UNCERTAINTY_CALIBRATION_FEATURE_SCALE_FLOOR),
-        scale,
-        1.0,
-    )
-    standardized = (raw - center[None, :]) / scale[None, :]
-    standardized = np.nan_to_num(standardized, nan=0.0, posinf=0.0, neginf=0.0)
-    X = np.column_stack([np.ones(state.size, dtype=np.float64), standardized])
-    return X, featureNames, center, scale
-
 
 def _normalZ(target: float) -> float:
     target = float(
@@ -623,6 +601,13 @@ def _writeModelJson(path: str, model: dict[str, Any], chromosome: str | None) ->
                 pass
     with open(pathObj, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
+    _logging_utils.log_file_written(
+        logger,
+        event="uncertainty.model_json_written",
+        path=str(pathObj),
+        fields=(("chromosome", chromosome),),
+        level=logging.INFO,
+    )
 
 
 def _normalizeUncertaintyCalibrationMode(value: str | None) -> str:
@@ -896,23 +881,7 @@ def _deleteBlockScoreSamplingCodes(
 
 
 def _weightedQuantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
-    values = np.asarray(values, dtype=np.float64).reshape(-1)
-    weights = np.asarray(weights, dtype=np.float64).reshape(-1)
-    valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0.0)
-    if not np.any(valid):
-        raise ValueError("weighted quantile requires at least one finite positive-weight value")
-    values = values[valid]
-    weights = weights[valid]
-    order = np.argsort(values, kind="mergesort")
-    values = values[order]
-    weights = weights[order]
-    total = float(np.sum(weights))
-    if not np.isfinite(total) or total <= 0.0:
-        raise ValueError("weighted quantile requires positive total weight")
-    cumulative = np.cumsum(weights) / total
-    idx = int(np.searchsorted(cumulative, float(q), side="left"))
-    idx = int(np.clip(idx, 0, values.size - 1))
-    return float(values[idx])
+    return float(weighted_quantile(values, weights, float(q)))
 
 
 def _fitDeleteBlockGlobalFactor(
@@ -961,37 +930,20 @@ def _deleteBlockTargetBlockScores(
     targetBlockMask: np.ndarray,
     positiveFloor: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    residual = np.asarray(residual, dtype=np.float64)
-    pDelta = np.asarray(pDelta, dtype=np.float64)
-    factorByInterval = np.asarray(factorByInterval, dtype=np.float64)
-    intervalIndex = np.asarray(intervalIndex, dtype=np.int64)
-    blockIndex = np.asarray(blockIndex, dtype=np.int64)
-    targetBlockMask = np.asarray(targetBlockMask, dtype=np.uint8)
-    blockCount = int(targetBlockMask.size)
-    blockScore = np.full(blockCount, -1.0, dtype=np.float64)
-    blockCellCount = np.zeros(blockCount, dtype=np.int64)
-    for k in range(residual.size):
-        block = int(blockIndex[k])
-        if block < 0 or block >= blockCount or targetBlockMask[block] == 0:
-            continue
-        interval = int(intervalIndex[k])
-        if interval < 0 or interval >= factorByInterval.size:
-            continue
-        variance = factorByInterval[interval] * pDelta[k]
-        if not (np.isfinite(residual[k]) and np.isfinite(variance) and variance > positiveFloor):
-            continue
-        score = abs(float(residual[k])) / float(np.sqrt(variance))
-        if np.isfinite(score):
-            blockScore[block] = max(blockScore[block], score)
-            blockCellCount[block] += 1
-    validBlocks = np.flatnonzero((blockCellCount > 0) & (blockScore >= 0.0))
-    return (
-        validBlocks.astype(np.int64, copy=False),
-        blockScore[validBlocks].astype(np.float64, copy=False),
-        blockCellCount[validBlocks].astype(np.int64, copy=False),
+    validBlocks, blockScore, blockCellCount = _cuncertainty.cdeleteBlockBlockScores(
+        residual,
+        pDelta,
+        factorByInterval,
+        intervalIndex,
+        blockIndex,
+        targetBlockMask,
+        varianceFloor=float(positiveFloor),
     )
-
-
+    return (
+        np.asarray(validBlocks, dtype=np.int64),
+        np.asarray(blockScore, dtype=np.float64),
+        np.asarray(blockCellCount, dtype=np.int64),
+    )
 
 def calibrateChromosomeStateUncertainty(
     *,

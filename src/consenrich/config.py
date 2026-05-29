@@ -21,6 +21,14 @@ from consenrich.genome_covariates import (
     validate_genome_covariate_cache,
 )
 from . import io as io_helpers
+from ._normalization import (
+    enum_token_key as _sharedEnumTokenKey,
+    normalize_config_enum as _sharedNormalizeConfigEnum,
+    normalize_count_transform_method as _sharedNormalizeCountingTransformMethod,
+    normalize_matching_uncertainty_score_mode as _sharedNormalizeMatchingUncertaintyScoreMode,
+    normalize_process_noise_calibration as _sharedNormalizeProcessNoiseCalibration,
+    validate_uncertainty_score_z as _sharedValidateMatchingUncertaintyScoreZ,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +45,7 @@ def loadConfig(
 ) -> Dict[str, Any]:
     r"""Load a YAML config from a path or accept an already-parsed mapping.
 
-    If given a mapping object, just return it. If given a path, try to load as YAML --> dict
-    If given a path, try to load as YAML --> dict
+    If given a mapping object, just return it. If given a path, load it as YAML.
 
     """
     if isinstance(configSource, Mapping):
@@ -187,33 +194,15 @@ def _normalizeOutputDiagnosticTracks(value: Any) -> tuple[str, ...]:
 
 
 def _normalizeMatchingUncertaintyScoreMode(value: Any) -> str:
-    text = (
-        str(constants.MATCHING_DEFAULT_UNCERTAINTY_SCORE_MODE)
-        if value is None
-        else str(value)
-    )
-    mode = text.strip().lower().replace("-", "_")
-    if mode not in constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES:
-        supported = ", ".join(constants.MATCHING_SUPPORTED_UNCERTAINTY_SCORE_MODES)
-        raise ValueError(
-            f"Unsupported matchingParams.uncertaintyScoreMode {value!r}. "
-            f"Supported modes: {supported}."
-        )
-    return mode
+    return _sharedNormalizeMatchingUncertaintyScoreMode(value)
 
 
 def _validateMatchingUncertaintyScoreZ(value: Any) -> float:
-    z = float(value)
-    if not np.isfinite(z) or z < 0.0:
-        raise ValueError(
-            "`matchingParams.uncertaintyScoreZ` must be finite and non-negative."
-        )
-    return z
+    return _sharedValidateMatchingUncertaintyScoreZ(value)
 
 
 def _enumTokenKey(value: Any) -> str:
-    text = str(value).strip().replace("-", "_").replace(" ", "_").lower()
-    return "_".join(part for part in text.split("_") if part)
+    return _sharedEnumTokenKey(value)
 
 
 def _normalizeConfigEnum(
@@ -223,61 +212,16 @@ def _normalizeConfigEnum(
     supported: Sequence[str],
     configName: str,
 ) -> str:
-    raw = default if value is None else value
-    canonicalByKey = {_enumTokenKey(item): item for item in supported}
-    key = _enumTokenKey(raw)
-    if key not in canonicalByKey:
-        supportedText = ", ".join(supported)
-        raise ValueError(
-            f"Unsupported {configName} {raw!r}. Supported values: {supportedText}."
-        )
-    return canonicalByKey[key]
+    return _sharedNormalizeConfigEnum(
+        value,
+        default=default,
+        supported=supported,
+        config_name=configName,
+    )
 
 
 def _normalizeCountingTransformMethod(value: Any) -> str:
-    raw = constants.COUNTING_DEFAULT_TRANSFORM_METHOD if value is None else value
-    key = (
-        str(raw)
-        .strip()
-        .replace("-", "")
-        .replace("_", "")
-        .replace(" ", "")
-        .replace(".", "")
-        .replace("(", "")
-        .replace(")", "")
-        .lower()
-    )
-    canonicalByKey = {
-        "log": "log",
-        "ln": "log",
-        "naturallog": "log",
-        "sqrt": "sqrt",
-        "squareroot": "sqrt",
-        "anscombe": "anscombe",
-        "anscombetransform": "anscombe",
-        "asinh": "asinh",
-        "arcsinh": "asinh",
-        "asinhx": "asinh",
-        "arcsinhx": "asinh",
-        "asinhsqrt": "asinhSqrt",
-        "arcsinhsqrt": "asinhSqrt",
-        "sqrtasinh": "asinhSqrt",
-        "generalizedlog": "generalizedLog",
-        "generalisedlog": "generalizedLog",
-        "glog": "generalizedLog",
-        "softlog": "generalizedLog",
-        "identity": "identity",
-        "linear": "identity",
-        "raw": "identity",
-        "none": "identity",
-    }
-    if key not in canonicalByKey:
-        supported = ", ".join(constants.COUNTING_SUPPORTED_TRANSFORM_METHODS)
-        raise ValueError(
-            f"Unsupported countingParams.transformMethod {raw!r}. "
-            f"Supported methods: {supported}."
-        )
-    return canonicalByKey[key]
+    return _sharedNormalizeCountingTransformMethod(value)
 
 
 def _coerceTransformFloat(
@@ -327,19 +271,7 @@ def _normalizeMuncCovariateFeatures(
 
 
 def _normalizeProcessNoiseCalibration(value: Any) -> str:
-    raw = constants.PROCESS_DEFAULT_NOISE_CALIBRATION if value is None else value
-    key = str(raw).strip().replace("-", "_").lower()
-    canonicalByKey = {
-        mode.replace("-", "_").lower(): mode
-        for mode in constants.PROCESS_NOISE_CALIBRATION_MODES
-    }
-    if key not in canonicalByKey:
-        supported = ", ".join(constants.PROCESS_NOISE_CALIBRATION_MODES)
-        raise ValueError(
-            f"Unsupported processParams.processNoiseCalibration {raw!r}. "
-            f"Supported modes: {supported}."
-        )
-    return canonicalByKey[key]
+    return _sharedNormalizeProcessNoiseCalibration(value)
 
 
 def _normalizeTuncCovariatesMode(value: Any) -> str:
@@ -406,7 +338,7 @@ def _buildProcessArgs(
     )
 
 
-def getInputArgs(config_path: str) -> core.inputParams:
+def getInputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.inputParams:
     configData = loadConfig(config_path)
     defaultBarcodeTag = _cfgGet(
         configData,
@@ -518,7 +450,7 @@ def getInputArgs(config_path: str) -> core.inputParams:
     )
 
 
-def getOutputArgs(config_path: str) -> core.outputParams:
+def getOutputArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.outputParams:
     configData = loadConfig(config_path)
 
     convertToBigWig_ = _cfgGet(
@@ -579,7 +511,7 @@ def getOutputArgs(config_path: str) -> core.outputParams:
     )
 
 
-def getGenomeArgs(config_path: str) -> core.genomeParams:
+def getGenomeArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.genomeParams:
     configData = loadConfig(config_path)
 
     genomeName = _cfgGet(configData, "genomeParams.name", constants.GENOME_DEFAULT_NAME)
@@ -700,7 +632,7 @@ def getGenomeArgs(config_path: str) -> core.genomeParams:
     )
 
 
-def getStateArgs(config_path: str) -> core.stateParams:
+def getStateArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.stateParams:
     configData = loadConfig(config_path)
 
     stateInit_ = _cfgGet(
@@ -738,7 +670,7 @@ def getStateArgs(config_path: str) -> core.stateParams:
     )
 
 
-def getCountingArgs(config_path: str) -> core.countingParams:
+def getCountingArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.countingParams:
     configData = loadConfig(config_path)
 
     intervalSizeBP = _cfgGet(
@@ -956,7 +888,7 @@ def getCountingArgs(config_path: str) -> core.countingParams:
     )
 
 
-def getScArgs(config_path: str) -> core.scParams:
+def getScArgs(config_path: Union[str, Path, Mapping[str, Any]]) -> core.scParams:
     configData = loadConfig(config_path)
 
     barcodeTag_ = _cfgGet(
@@ -998,7 +930,7 @@ def getScArgs(config_path: str) -> core.scParams:
 
 
 def getUncertaintyCalibrationArgs(
-    config_path: str,
+    config_path: Union[str, Path, Mapping[str, Any]],
 ) -> core.uncertaintyCalibrationParams:
     configData = loadConfig(config_path)
     enabledDefault = _cfgDefault(configData, "uncertaintyCalibrationParams.enabled")
@@ -1283,7 +1215,7 @@ def getUncertaintyCalibrationArgs(
     )
 
 
-def readConfig(config_path: str) -> Dict[str, Any]:
+def readConfig(config_path: Union[str, Path, Mapping[str, Any]]) -> Dict[str, Any]:
     r"""Read and parse the configuration file for Consenrich.
 
     :param config_path: Path to the YAML configuration file.
@@ -1292,11 +1224,11 @@ def readConfig(config_path: str) -> Dict[str, Any]:
     configData = loadConfig(config_path)
     defaultConfiguration = _getDefaultConfigurationName(configData)
 
-    inputParams = getInputArgs(config_path)
-    outputParams = getOutputArgs(config_path)
-    genomeParams = getGenomeArgs(config_path)
-    stateParams = getStateArgs(config_path)
-    countingParams = getCountingArgs(config_path)
+    inputParams = getInputArgs(configData)
+    outputParams = getOutputArgs(configData)
+    genomeParams = getGenomeArgs(configData)
+    stateParams = getStateArgs(configData)
+    countingParams = getCountingArgs(configData)
     scaleFactors = io_helpers._normalizeScaleFactorList(
         countingParams.scaleFactors,
         len(inputParams.bamFiles),
@@ -1313,8 +1245,8 @@ def readConfig(config_path: str) -> Dict[str, Any]:
         scaleFactors=scaleFactors,
         scaleFactorsControl=scaleFactorsControl,
     )
-    scArgs = getScArgs(config_path)
-    uncertaintyCalibrationArgs = getUncertaintyCalibrationArgs(config_path)
+    scArgs = getScArgs(configData)
+    uncertaintyCalibrationArgs = getUncertaintyCalibrationArgs(configData)
     experimentName = _cfgGet(
         configData,
         "experimentName",

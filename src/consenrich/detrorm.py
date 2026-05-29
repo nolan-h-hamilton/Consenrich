@@ -15,15 +15,11 @@ from .misc_util import getChromSizesDict
 from .constants import EFFECTIVE_GENOME_SIZES
 from .cconsenrich import cgetFragmentLength, cEMA
 from . import ccounts
+from ._normalization import normalize_bam_input_mode as _sharedNormalizeBamInputMode
 
 
 def _normalizeBamInputMode(bamInputMode: str | None) -> str:
-    normalizedMode = str(bamInputMode or "reads").strip().lower()
-    if normalizedMode == "auto":
-        return "reads"
-    if normalizedMode not in {"reads", "read1", "fragments"}:
-        raise ValueError(f"Unsupported bamInputMode `{bamInputMode}`")
-    return normalizedMode
+    return _sharedNormalizeBamInputMode(bamInputMode, default="reads", auto_as_reads=True)
 
 
 def _bamPairedEndMode(bamInputMode: str | None) -> int:

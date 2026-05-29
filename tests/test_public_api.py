@@ -22,6 +22,15 @@ def _case_public_api_exports_curated_entrypoints():
 def _case_private_helpers_are_not_package_wildcard_exports():
     assert "_formatDiagValue" not in consenrich.__all__
     assert "_convertSingleBedGraphToBigWig" not in consenrich.__all__
+    assert "_logging" not in consenrich.__all__
+    assert "_normalization" not in consenrich.__all__
+    assert "_runtime" not in consenrich.__all__
+
+
+def _case_private_helper_modules_are_lazily_available():
+    assert consenrich._logging.__name__ == "consenrich._logging"
+    assert consenrich._normalization.__name__ == "consenrich._normalization"
+    assert consenrich._runtime.__name__ == "consenrich._runtime"
 
 
 def test_public_api_contract(contract_case):
@@ -29,4 +38,8 @@ def test_public_api_contract(contract_case):
     contract_case(
         "private helper wildcard exports",
         _case_private_helpers_are_not_package_wildcard_exports,
+    )
+    contract_case(
+        "private helper modules",
+        _case_private_helper_modules_are_lazily_available,
     )

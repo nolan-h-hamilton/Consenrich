@@ -17,6 +17,8 @@ _LAZY_EXPORTS = {
     "solveRocco": (".peaks", "solveRocco"),
 }
 
+_PRIVATE_MODULES = frozenset({"_logging", "_normalization", "_runtime"})
+
 __all__ = [
     "__version__",
     "calibrateChromosomeStateUncertainty",
@@ -28,6 +30,10 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name in _PRIVATE_MODULES:
+        module = import_module(f".{name}", __name__)
+        globals()[name] = module
+        return module
     try:
         module_name, attr_name = _LAZY_EXPORTS[name]
     except KeyError as exc:
@@ -39,4 +45,4 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    return sorted({*globals(), *__all__})
+    return sorted({*globals(), *__all__, *_PRIVATE_MODULES})

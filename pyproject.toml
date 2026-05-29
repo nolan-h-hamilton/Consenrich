@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools>=74.1",
+    "setuptools>=77",
     "wheel",
     "cython>=3.0",
     "numpy>=2.1.0",
@@ -13,7 +13,13 @@ version = "0.11.0a0"
 description = "Genome-wide estimation of signals hidden in noisy multi-sample HTS datasets"
 authors = [{ name="Nolan H. Hamilton", email="nolan.hamilton@unc.edu" }]
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = [
+    "LICENSE",
+    "THIRD_PARTY_LICENSES.md",
+    "HTSLIB_LICENSE.txt",
+    "HTSCODECS_LICENSE.md",
+]
 requires-python = ">=3.11"
 
 dependencies = [
@@ -44,12 +50,6 @@ docs = [
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true
-license-files = [
-    "LICENSE",
-    "THIRD_PARTY_LICENSES.md",
-    "HTSLIB_LICENSE.txt",
-    "HTSCODECS_LICENSE.md",
-]
 
 [tool.setuptools.packages.find]
 where = ["src"]

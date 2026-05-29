@@ -194,14 +194,28 @@ from .constants import (
     UNCERTAINTY_CALIBRATION_TARGET_ALPHA_FLOOR,
 )
 from .diagnostics import metadataFloat, summarizePrecisionBoundaryHits
+from ._logging import (
+    format_log_event as _formatLogEvent,
+    format_log_value as _formatLogValue,
+    log_event as _sharedLogEvent,
+    log_event_name as _logEventName,
+    log_field_name as _logFieldName,
+    progress_enabled as _ecmProgressEnabled,
+    quote_log_string as _quoteLogString,
+)
+from ._normalization import (
+    native_count_mode_for_preset as _sharedNativeCountModeForPreset,
+    normalize_bam_input_mode as _sharedNormalizeBamInputMode,
+    normalize_count_mode as _sharedNormalizeCountMode,
+    normalize_count_transform_method as _sharedNormalizeCountTransformMethod,
+    normalize_fragment_position_mode as _sharedNormalizeFragmentPositionMode,
+    normalize_process_noise_calibration as _sharedNormalizeProcessNoiseCalibration,
+    weighted_quantile_interpolated as _sharedWeightedQuantileInterpolated,
+)
 
 logger = logging.getLogger(__name__)
 
 _PROCESS_NOISE_WARMUP_Q_LOG_CHANGE_RTOL = 1.0e-2
-
-
-def _ecmProgressEnabled() -> bool:
-    return bool(getattr(sys.stderr, "isatty", lambda: False)())
 
 
 def _makeECMProgressBar(
@@ -226,82 +240,6 @@ def _makeECMProgressBar(
     )
 
 
-def _logFieldName(value: Any) -> str:
-    text = str(value).strip().lower()
-    chars: list[str] = []
-    lastUnderscore = False
-    for char in text:
-        if char.isalnum():
-            chars.append(char)
-            lastUnderscore = False
-        elif not lastUnderscore:
-            chars.append("_")
-            lastUnderscore = True
-    return "".join(chars).strip("_") or "value"
-
-
-def _logEventName(value: Any) -> str:
-    text = str(value).strip().lower()
-    parts: list[str] = []
-    token: list[str] = []
-    for char in text:
-        if char.isalnum():
-            token.append(char)
-        elif token:
-            parts.append("".join(token))
-            token = []
-    if token:
-        parts.append("".join(token))
-    return ".".join(parts) or "event"
-
-
-def _quoteLogString(value: str) -> str:
-    if value == "":
-        return '""'
-    if all(char.isalnum() or char in "._:/@%+-" for char in value):
-        return value
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def _formatLogValue(value: Any) -> str:
-    if isinstance(value, np.generic):
-        value = value.item()
-    if value is None:
-        return "NA"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, np.integer)):
-        return str(int(value))
-    if isinstance(value, (float, np.floating)):
-        return f"{float(value):.6g}" if np.isfinite(float(value)) else "NA"
-    if isinstance(value, np.ndarray):
-        flat = value.reshape(-1)
-        if flat.size > 12:
-            shape = "x".join(str(int(dim)) for dim in value.shape)
-            return f"array[{shape}]"
-        return _quoteLogString(",".join(_formatLogValue(item) for item in flat))
-    if isinstance(value, (list, tuple)):
-        if len(value) > 12:
-            return f"list[{len(value)}]"
-        return _quoteLogString(",".join(_formatLogValue(item) for item in value))
-    if isinstance(value, Mapping):
-        return f"mapping[{len(value)}]"
-    text = str(value)
-    if "\n" in text:
-        text = " ".join(text.split())
-    return _quoteLogString(text)
-
-
-def _formatLogEvent(
-    event: str,
-    fields: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] = (),
-) -> str:
-    parts = [f"event={_logEventName(event)}"]
-    for key, value in fields:
-        parts.append(f"{_logFieldName(key)}={_formatLogValue(value)}")
-    return " ".join(parts)
-
-
 def _logEvent(
     event: str,
     fields: list[tuple[str, Any]] | tuple[tuple[str, Any], ...] = (),
@@ -310,7 +248,7 @@ def _logEvent(
     level: int = logging.INFO,
     stacklevel: int = 2,
 ) -> None:
-    logger_.log(level, _formatLogEvent(event, fields), stacklevel=stacklevel)
+    _sharedLogEvent(logger_, event, fields, level=level, stacklevel=stacklevel)
 
 
 def _logAsciiBlock(
@@ -321,6 +259,7 @@ def _logAsciiBlock(
     level: int = logging.INFO,
     indentLevel: int = 0,
 ) -> None:
+    del indentLevel
     _logEvent(title, rows, logger_=logger_, level=level, stacklevel=3)
 
 
@@ -1479,28 +1418,11 @@ def _normalizeCountMode(
     countMode: str | None,
     defaultMode: str,
 ) -> str:
-    normalizedMode = str(countMode or defaultMode).strip().lower()
-    if normalizedMode not in SUPPORTED_COUNT_MODES:
-        raise ValueError(f"Unsupported countMode `{countMode}`")
-    if normalizedMode == "coverage":
-        return "coverage"
-    if normalizedMode == "cutsite":
-        return "cutsite"
-    if normalizedMode == "fiveprime":
-        return "fiveprime"
-    if normalizedMode == "ffp":
-        return "ffp"
-    if normalizedMode == "ffp-center":
-        return "ffp-center"
-    if normalizedMode == "midpoint":
-        return "center"
-    return "center"
+    return _sharedNormalizeCountMode(countMode, defaultMode)
 
 
 def _nativeCountModeForPreset(countMode: str) -> str:
-    if countMode == "ffp-center":
-        return "center"
-    return countMode
+    return _sharedNativeCountModeForPreset(countMode)
 
 
 def _resolveSourceBamInputModeForCountMode(
@@ -1521,23 +1443,11 @@ def _resolveSourceBamInputModeForCountMode(
 
 
 def _normalizeBamInputMode(bamInputMode: str | None) -> str:
-    normalizedMode = str(bamInputMode or "auto").strip().lower()
-    if normalizedMode not in SUPPORTED_BAM_INPUT_MODES:
-        raise ValueError(f"Unsupported bamInputMode `{bamInputMode}`")
-    return normalizedMode
+    return _sharedNormalizeBamInputMode(bamInputMode, default="auto")
 
 
 def _normalizeFragmentPositionMode(fragmentPositionMode: str | None) -> str:
-    normalizedMode = (
-        str(fragmentPositionMode or "insertionEndpoints")
-        .strip()
-        .replace("_", "")
-        .replace("-", "")
-        .lower()
-    )
-    if normalizedMode not in SUPPORTED_FRAGMENT_POSITION_MODES:
-        raise ValueError(f"Unsupported fragmentPositionMode `{fragmentPositionMode}`")
-    return normalizedMode
+    return _sharedNormalizeFragmentPositionMode(fragmentPositionMode)
 
 
 @lru_cache(maxsize=None)
@@ -1620,44 +1530,10 @@ def _resolveExtendFrom5pBP(
 
 
 def _normalizeCountingTransformMethodForMoments(value: str | None) -> str:
-    raw = COUNTING_DEFAULT_TRANSFORM_METHOD if value is None else str(value)
-    key = (
-        raw.strip()
-        .replace("-", "")
-        .replace("_", "")
-        .replace(" ", "")
-        .replace(".", "")
-        .replace("(", "")
-        .replace(")", "")
-        .lower()
+    return _sharedNormalizeCountTransformMethod(
+        value,
+        config_name="transform method for count variance",
     )
-    canonicalByKey = {
-        "log": "log",
-        "ln": "log",
-        "naturallog": "log",
-        "sqrt": "sqrt",
-        "squareroot": "sqrt",
-        "anscombe": "anscombe",
-        "anscombetransform": "anscombe",
-        "asinh": "asinh",
-        "arcsinh": "asinh",
-        "asinhx": "asinh",
-        "arcsinhx": "asinh",
-        "asinhsqrt": "asinhSqrt",
-        "arcsinhsqrt": "asinhSqrt",
-        "sqrtasinh": "asinhSqrt",
-        "generalizedlog": "generalizedLog",
-        "generalisedlog": "generalizedLog",
-        "glog": "generalizedLog",
-        "softlog": "generalizedLog",
-        "identity": "identity",
-        "linear": "identity",
-        "raw": "identity",
-        "none": "identity",
-    }
-    if key not in canonicalByKey:
-        raise ValueError(f"Unsupported transform method for count variance: {raw!r}")
-    return canonicalByKey[key]
 
 
 def _resolvedTransformMomentParameters(
@@ -1787,6 +1663,19 @@ def transformCountVarianceFloor(
     posterior mean ``raw_count + 1/2``.  This keeps zero-count intervals from
     being treated as variance-free without adding a user-tuned pseudo-count.
     """
+
+    if hasattr(cconsenrich, "cTransformCountVarianceFloor"):
+        return cconsenrich.cTransformCountVarianceFloor(
+            normalizedCounts,
+            scaleFactors,
+            mode=transformMethod,
+            logOffset=logOffset,
+            logMult=logMult,
+            inputOffset=transformInputOffset,
+            inputScale=transformInputScale,
+            outputScale=transformOutputScale,
+            shape=transformShape,
+        )
 
     counts = np.asarray(normalizedCounts, dtype=np.float64)
     if counts.ndim == 1:
@@ -3267,6 +3156,150 @@ def _backgroundObjectivePenalty(
     return firstPenalty + secondPenalty, firstPenalty, secondPenalty
 
 
+
+class _FixedBackgroundECMResult(NamedTuple):
+    iters_done: int
+    nll: float
+    state_smoothed: np.ndarray
+    state_covar_smoothed: np.ndarray
+    lag_covar_smoothed: np.ndarray
+    post_fit_residuals: np.ndarray
+    lambda_exp: np.ndarray | None
+    process_prec_exp: np.ndarray | None
+    diagnostics: Mapping[str, Any]
+
+
+def _runFixedBackgroundECMPhase(
+    *,
+    matrixDataLocal: np.ndarray,
+    currentBackground: np.ndarray,
+    currentMunc: np.ndarray,
+    matrixQ0Local: np.ndarray,
+    intervalToBlockMap: np.ndarray,
+    blockCount: int,
+    stateInit: float,
+    stateCovarInit: float,
+    ecmItersLocal: int,
+    ecmRtolLocal: float,
+    pad: float,
+    ECM_robustTNu: float,
+    ECM_useObsPrecisionReweighting: bool,
+    useProcPrecLocal: bool,
+    useAPNLocal: bool,
+    observationPrecisionMultiplierMin: float,
+    observationPrecisionMultiplierMax: float,
+    processPrecisionMultiplierMin: float,
+    processPrecisionMultiplierMax: float,
+    minQ: float,
+    maxQForAPN: float,
+    lambdaExpLocal: np.ndarray | None,
+    processPrecExpLocal: np.ndarray | None,
+    processQScaleLocal: np.ndarray | None,
+    trackOptimizationPath: bool,
+    phaseLabel: str,
+    passLabel: str,
+    showProgress: bool,
+    logIterations: bool,
+    stateModelMode: str,
+    matrixFLocal: np.ndarray | None,
+) -> _FixedBackgroundECMResult:
+    """Run the Cython fixed-background ECM kernel and normalize its return shape."""
+
+    dataAdjusted = np.ascontiguousarray(
+        matrixDataLocal - currentBackground[None, :],
+        dtype=np.float32,
+    )
+    ecmKwargs = dict(
+        matrixData=dataAdjusted,
+        matrixPluginMuncInit=currentMunc,
+        matrixQ0=matrixQ0Local,
+        intervalToBlockMap=intervalToBlockMap,
+        blockCount=int(blockCount),
+        stateInit=float(stateInit),
+        stateCovarInit=float(stateCovarInit),
+        ECM_fixedBackgroundIters=int(ecmItersLocal),
+        ECM_fixedBackgroundRtol=float(ecmRtolLocal),
+        pad=float(pad),
+        ECM_robustTNu=float(ECM_robustTNu),
+        returnIntermediates=True,
+        ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
+        ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
+        ECM_useAPN=bool(useAPNLocal),
+        obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+        obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+        procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
+        procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
+        APN_minQ=float(minQ),
+        APN_maxQ=float(maxQForAPN),
+        lambdaExpInit=lambdaExpLocal,
+        processPrecExpInit=processPrecExpLocal,
+        processQScale=processQScaleLocal,
+        trackOptimizationPath=bool(trackOptimizationPath),
+        logIterations=bool(logIterations),
+    )
+    ecmProgressBar = _makeECMProgressBar(
+        phaseLabel=phaseLabel,
+        passLabel=passLabel,
+        total=int(ecmItersLocal),
+        enabled=bool(showProgress),
+    )
+    ecmKwargs["progressBar"] = ecmProgressBar
+    ecmFunction = cconsenrich.cfixedBackgroundECMLevel
+    if stateModelMode == STATE_MODEL_LEVEL_TREND:
+        ecmFunction = cconsenrich.cfixedBackgroundECM
+        ecmKwargs["matrixF"] = matrixFLocal
+    if not _cythonFunctionSupportsKeyword(ecmFunction.__name__, "processQScale"):
+        ecmKwargs.pop("processQScale", None)
+    try:
+        ecmOutLocal = ecmFunction(**ecmKwargs, returnDiagnostics=True)
+    finally:
+        if ecmProgressBar is not None:
+            ecmProgressBar.close()
+
+    if len(ecmOutLocal) == 9 and isinstance(ecmOutLocal[-1], Mapping):
+        ecmDiagnosticsLocal = ecmOutLocal[-1]
+        ecmOutLocal = ecmOutLocal[:-1]
+    else:
+        raise ValueError(
+            "Expected cfixedBackgroundECM(..., returnDiagnostics=True) "
+            "to return diagnostics as the final value."
+        )
+    if len(ecmOutLocal) != 8:
+        raise ValueError(
+            "Expected cfixedBackgroundECM(..., returnIntermediates=True) to return 8 values "
+            f"(got {len(ecmOutLocal)})."
+        )
+    (
+        ecmItersDoneLocal,
+        nllECMLocal,
+        stateSmoothedLocal,
+        stateCovarSmoothedLocal,
+        lagCovSmoothedLocal,
+        postFitResidualsLocal,
+        lambdaExpLocalOut,
+        processPrecExpLocalOut,
+    ) = ecmOutLocal
+    return _FixedBackgroundECMResult(
+        iters_done=int(ecmItersDoneLocal),
+        nll=float(nllECMLocal),
+        state_smoothed=np.asarray(stateSmoothedLocal, dtype=np.float32),
+        state_covar_smoothed=np.asarray(stateCovarSmoothedLocal, dtype=np.float32),
+        lag_covar_smoothed=np.asarray(lagCovSmoothedLocal, dtype=np.float32),
+        post_fit_residuals=np.asarray(postFitResidualsLocal, dtype=np.float32),
+        lambda_exp=(
+            None
+            if lambdaExpLocalOut is None
+            else np.asarray(lambdaExpLocalOut, dtype=np.float32)
+        ),
+        process_prec_exp=(
+            None
+            if processPrecExpLocalOut is None
+            else np.asarray(processPrecExpLocalOut, dtype=np.float32)
+        ),
+        diagnostics=ecmDiagnosticsLocal,
+    )
+
+
 def _normalizeFixedBackgroundECMDiagnostics(
     diagnostics: Mapping[str, Any],
     *,
@@ -3424,26 +3457,7 @@ def _computeExpectedLevelTransitionResidualSums(
 
 
 def _normalizeProcessNoiseCalibrationMode(value: str | None) -> str:
-    mode = (
-        PROCESS_DEFAULT_NOISE_CALIBRATION
-        if value is None
-        else str(value).strip().replace("-", "_").lower()
-    )
-    aliases = {
-        "tunc": PROCESS_NOISE_CALIBRATION_TUNC,
-        "seed": PROCESS_NOISE_CALIBRATION_SEED,
-        "fixed": PROCESS_NOISE_CALIBRATION_FIXED,
-        "none": PROCESS_NOISE_CALIBRATION_SEED,
-        "warm_start": PROCESS_NOISE_CALIBRATION_FIXED,
-    }
-    normalized = aliases.get(mode, mode)
-    if normalized not in PROCESS_NOISE_CALIBRATION_MODES:
-        supported = ", ".join(PROCESS_NOISE_CALIBRATION_MODES)
-        raise ValueError(
-            f"Unsupported processNoiseCalibration {value!r}. "
-            f"Supported modes: {supported}."
-        )
-    return str(normalized)
+    return _sharedNormalizeProcessNoiseCalibration(value)
 
 
 def _coerceOptionalProcessCovariates(
@@ -3557,6 +3571,23 @@ def _tuncObservationInformation(
     observationPrecisionMultiplierMin: float,
     observationPrecisionMultiplierMax: float,
 ) -> np.ndarray:
+    tuncInfoFunction = getattr(
+        cconsenrich,
+        "cTuncObservationInformation",
+        getattr(cconsenrich, "ctuncObservationInformation", None),
+    )
+    if tuncInfoFunction is not None:
+        return np.asarray(
+            tuncInfoFunction(
+                matrixMunc,
+                float(pad),
+                lambdaExp,
+                float(observationPrecisionMultiplierMin),
+                float(observationPrecisionMultiplierMax),
+            ),
+            dtype=np.float64,
+        )
+
     munc = np.asarray(matrixMunc, dtype=np.float64)
     obsVar = np.maximum(munc + float(pad), 1.0e-12)
     finite = np.isfinite(munc) & np.isfinite(obsVar) & (obsVar > 0.0)
@@ -3766,6 +3797,15 @@ def _rebaseTuncIntervalScales(
     rawScale: np.ndarray,
     stateModel: str,
 ) -> tuple[np.ndarray, float, float]:
+    if hasattr(cconsenrich, "crebaseTuncIntervalScales"):
+        scale, maxErr, medErr = cconsenrich.crebaseTuncIntervalScales(
+            seedQ,
+            baseQ,
+            rawScale,
+            _normalizeStateModel(stateModel),
+        )
+        return np.asarray(scale, dtype=np.float32), float(maxErr), float(medErr)
+
     raw = np.maximum(np.asarray(rawScale, dtype=np.float64).reshape(-1), 1.0e-12)
     if raw.size == 0:
         return raw.astype(np.float32), 0.0, 0.0
@@ -5538,88 +5578,49 @@ def runConsenrich(
                 indentLevel=phaseIndentLevel + 1,
                 level=logging.DEBUG,
             )
-            dataAdjusted = np.ascontiguousarray(
-                matrixDataLocal - currentBackground[None, :],
-                dtype=np.float32,
-            )
-            ecmKwargs = dict(
-                matrixData=dataAdjusted,
-                matrixPluginMuncInit=currentMunc,
-                matrixQ0=matrixQ0Local,
+            ecmLogIterations = bool(logAlternatingECMIterations)
+            ecmResultLocal = _runFixedBackgroundECMPhase(
+                matrixDataLocal=matrixDataLocal,
+                currentBackground=currentBackground,
+                currentMunc=currentMunc,
+                matrixQ0Local=matrixQ0Local,
                 intervalToBlockMap=intervalToBlockMap,
                 blockCount=int(blockCount),
                 stateInit=float(stateInit),
                 stateCovarInit=float(stateCovarInit),
-                ECM_fixedBackgroundIters=int(ecmItersLocal),
-                ECM_fixedBackgroundRtol=float(ecmRtolLocal),
+                ecmItersLocal=int(ecmItersLocal),
+                ecmRtolLocal=float(ecmRtolLocal),
                 pad=float(pad),
                 ECM_robustTNu=float(ECM_robustTNu),
-                returnIntermediates=True,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
-                ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
-                ECM_useAPN=bool(useAPNLocal),
-                obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
-                obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
-                procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
-                procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-                APN_minQ=float(minQ),
-                APN_maxQ=float(maxQForAPN),
-                lambdaExpInit=lambdaExpLocal,
-                processPrecExpInit=processPrecExpLocal,
-                processQScale=processQScaleLocal,
+                useProcPrecLocal=bool(useProcPrecLocal),
+                useAPNLocal=bool(useAPNLocal),
+                observationPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+                observationPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+                processPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
+                processPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
+                minQ=float(minQ),
+                maxQForAPN=float(maxQForAPN),
+                lambdaExpLocal=lambdaExpLocal,
+                processPrecExpLocal=processPrecExpLocal,
+                processQScaleLocal=processQScaleLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
-            )
-            ecmLogIterations = bool(logAlternatingECMIterations)
-            ecmProgressBar = _makeECMProgressBar(
                 phaseLabel=phaseLabel,
                 passLabel=f"pass {int(outerPassIndex + 1)}/{int(outerPassCount)}",
-                total=int(ecmItersLocal),
-                enabled=bool(showNonAlternatingECMProgress)
-                and not bool(ecmLogIterations),
+                showProgress=bool(showNonAlternatingECMProgress) and not bool(ecmLogIterations),
+                logIterations=ecmLogIterations,
+                stateModelMode=stateModelMode,
+                matrixFLocal=matrixFLocal,
             )
-            ecmKwargs["logIterations"] = ecmLogIterations
-            ecmKwargs["progressBar"] = ecmProgressBar
-            ecmFunction = cconsenrich.cfixedBackgroundECMLevel
-            if stateModelMode == STATE_MODEL_LEVEL_TREND:
-                ecmFunction = cconsenrich.cfixedBackgroundECM
-                ecmKwargs["matrixF"] = matrixFLocal
-            if not _cythonFunctionSupportsKeyword(
-                ecmFunction.__name__, "processQScale"
-            ):
-                ecmKwargs.pop("processQScale", None)
-            try:
-                ecmOutLocal = ecmFunction(
-                    **ecmKwargs,
-                    returnDiagnostics=True,
-                )
-            finally:
-                if ecmProgressBar is not None:
-                    ecmProgressBar.close()
-
-            if len(ecmOutLocal) == 9 and isinstance(ecmOutLocal[-1], Mapping):
-                ecmDiagnosticsLocal = ecmOutLocal[-1]
-                ecmOutLocal = ecmOutLocal[:-1]
-            else:
-                raise ValueError(
-                    "Expected cfixedBackgroundECM(..., returnDiagnostics=True) "
-                    "to return diagnostics as the final value."
-                )
-            if len(ecmOutLocal) != 8:
-                raise ValueError(
-                    "Expected cfixedBackgroundECM(..., returnIntermediates=True) to return 8 values "
-                    f"(got {len(ecmOutLocal)})."
-                )
-
-            (
-                ecmItersDoneLocal,
-                nllECMLocal,
-                stateSmoothedLocal,
-                stateCovarSmoothedLocal,
-                lagCovSmoothedLocal,
-                postFitResidualsLocal,
-                lambdaExpLocal,
-                processPrecExpLocal,
-            ) = ecmOutLocal
+            ecmDiagnosticsLocal = ecmResultLocal.diagnostics
+            ecmItersDoneLocal = ecmResultLocal.iters_done
+            nllECMLocal = ecmResultLocal.nll
+            stateSmoothedLocal = ecmResultLocal.state_smoothed
+            stateCovarSmoothedLocal = ecmResultLocal.state_covar_smoothed
+            lagCovSmoothedLocal = ecmResultLocal.lag_covar_smoothed
+            postFitResidualsLocal = ecmResultLocal.post_fit_residuals
+            lambdaExpLocal = ecmResultLocal.lambda_exp
+            processPrecExpLocal = ecmResultLocal.process_prec_exp
             actualOuterPasses = int(outerPassIndex + 1)
             currentECMNLLLocal = float(nllECMLocal)
             ecmDiagnosticsNormalized = _normalizeFixedBackgroundECMDiagnostics(
@@ -6040,84 +6041,48 @@ def runConsenrich(
                 indentLevel=phaseIndentLevel + 1,
                 level=logging.DEBUG,
             )
-            dataAdjusted = np.ascontiguousarray(
-                matrixDataLocal - currentBackground[None, :],
-                dtype=np.float32,
-            )
-            ecmKwargs = dict(
-                matrixData=dataAdjusted,
-                matrixPluginMuncInit=currentMunc,
-                matrixQ0=matrixQ0Local,
+            ecmResultLocal = _runFixedBackgroundECMPhase(
+                matrixDataLocal=matrixDataLocal,
+                currentBackground=currentBackground,
+                currentMunc=currentMunc,
+                matrixQ0Local=matrixQ0Local,
                 intervalToBlockMap=intervalToBlockMap,
                 blockCount=int(blockCount),
                 stateInit=float(stateInit),
                 stateCovarInit=float(stateCovarInit),
-                ECM_fixedBackgroundIters=int(ecmItersLocal),
-                ECM_fixedBackgroundRtol=float(ecmRtolLocal),
+                ecmItersLocal=int(ecmItersLocal),
+                ecmRtolLocal=float(ecmRtolLocal),
                 pad=float(pad),
                 ECM_robustTNu=float(ECM_robustTNu),
-                returnIntermediates=True,
                 ECM_useObsPrecisionReweighting=bool(ECM_useObsPrecisionReweighting),
-                ECM_useProcessPrecisionReweighting=bool(useProcPrecLocal),
-                ECM_useAPN=bool(useAPNLocal),
-                obsPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
-                obsPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
-                procPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
-                procPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
-                APN_minQ=float(minQ),
-                APN_maxQ=float(maxQForAPN),
-                lambdaExpInit=lambdaExpLocal,
-                processPrecExpInit=processPrecExpLocal,
-                processQScale=processQScaleLocal,
+                useProcPrecLocal=bool(useProcPrecLocal),
+                useAPNLocal=bool(useAPNLocal),
+                observationPrecisionMultiplierMin=float(observationPrecisionMultiplierMin),
+                observationPrecisionMultiplierMax=float(observationPrecisionMultiplierMax),
+                processPrecisionMultiplierMin=float(processPrecisionMultiplierMin),
+                processPrecisionMultiplierMax=float(processPrecisionMultiplierMax),
+                minQ=float(minQ),
+                maxQForAPN=float(maxQForAPN),
+                lambdaExpLocal=lambdaExpLocal,
+                processPrecExpLocal=processPrecExpLocal,
+                processQScaleLocal=processQScaleLocal,
                 trackOptimizationPath=bool(trackOptimizationPath),
-            )
-            ecmProgressBar = _makeECMProgressBar(
                 phaseLabel=phaseLabel,
                 passLabel="final fixed-background",
-                total=int(ecmItersLocal),
-                enabled=bool(showNonAlternatingECMProgress),
+                showProgress=bool(showNonAlternatingECMProgress),
+                logIterations=False,
+                stateModelMode=stateModelMode,
+                matrixFLocal=matrixFLocal,
             )
-            ecmKwargs["logIterations"] = False
-            ecmKwargs["progressBar"] = ecmProgressBar
-            ecmFunction = cconsenrich.cfixedBackgroundECMLevel
-            if stateModelMode == STATE_MODEL_LEVEL_TREND:
-                ecmFunction = cconsenrich.cfixedBackgroundECM
-                ecmKwargs["matrixF"] = matrixFLocal
-            if not _cythonFunctionSupportsKeyword(
-                ecmFunction.__name__, "processQScale"
-            ):
-                ecmKwargs.pop("processQScale", None)
-            try:
-                ecmOutLocal = ecmFunction(
-                    **ecmKwargs,
-                    returnDiagnostics=True,
-                )
-            finally:
-                if ecmProgressBar is not None:
-                    ecmProgressBar.close()
-            if len(ecmOutLocal) == 9 and isinstance(ecmOutLocal[-1], Mapping):
-                ecmDiagnosticsLocal = ecmOutLocal[-1]
-                ecmOutLocal = ecmOutLocal[:-1]
-            else:
-                raise ValueError(
-                    "Expected cfixedBackgroundECM(..., returnDiagnostics=True) "
-                    "to return diagnostics as the final value."
-                )
-            if len(ecmOutLocal) != 8:
-                raise ValueError(
-                    "Expected cfixedBackgroundECM(..., returnIntermediates=True) to return 8 values "
-                    f"(got {len(ecmOutLocal)})."
-                )
-            (
-                ecmItersDoneLocal,
-                nllECMLocal,
-                stateSmoothedLocal,
-                stateCovarSmoothedLocal,
-                lagCovSmoothedLocal,
-                postFitResidualsLocal,
-                lambdaExpLocal,
-                processPrecExpLocal,
-            ) = ecmOutLocal
+            ecmDiagnosticsLocal = ecmResultLocal.diagnostics
+            ecmItersDoneLocal = ecmResultLocal.iters_done
+            nllECMLocal = ecmResultLocal.nll
+            stateSmoothedLocal = ecmResultLocal.state_smoothed
+            stateCovarSmoothedLocal = ecmResultLocal.state_covar_smoothed
+            lagCovSmoothedLocal = ecmResultLocal.lag_covar_smoothed
+            postFitResidualsLocal = ecmResultLocal.post_fit_residuals
+            lambdaExpLocal = ecmResultLocal.lambda_exp
+            processPrecExpLocal = ecmResultLocal.process_prec_exp
             currentECMNLLLocal = float(nllECMLocal)
             finalECMDiagnosticsNormalized = _normalizeFixedBackgroundECMDiagnostics(
                 ecmDiagnosticsLocal,
@@ -7025,23 +6990,11 @@ def _muncTrendPredictor(values: np.ndarray) -> np.ndarray:
 def _weightedQuantile(
     values: np.ndarray,
     weights: np.ndarray,
-    probs: np.ndarray,
+    quantiles: np.ndarray,
 ) -> np.ndarray:
-    valuesArr = np.asarray(values, dtype=np.float64).ravel()
-    weightsArr = np.asarray(weights, dtype=np.float64).ravel()
-    probsArr = np.asarray(probs, dtype=np.float64).ravel()
-    order = np.argsort(valuesArr)
-    valuesArr = valuesArr[order]
-    weightsArr = weightsArr[order]
-    weightsArr = np.maximum(weightsArr, 0.0)
-    totalWeight = float(np.sum(weightsArr))
-    if totalWeight <= 0.0 or valuesArr.size == 0:
-        return np.full(probsArr.shape, np.nan, dtype=np.float64)
-    cdf = np.cumsum(weightsArr)
-    return np.interp(
-        np.clip(probsArr, 0.0, 1.0) * totalWeight,
-        cdf,
-        valuesArr,
+    return np.asarray(
+        _sharedWeightedQuantileInterpolated(values, weights, quantiles),
+        dtype=np.float64,
     )
 
 
@@ -9163,13 +9116,19 @@ def _solveZeroCenteredBackground(
     if intervalCount < 1:
         return np.zeros(0, dtype=np.float32)
 
-    weightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
-    rhsTrack = np.einsum(
-        "ij,ij->j",
-        invVarArr,
-        residualArr,
-        dtype=np.float64,
-    )
+    if hasattr(cconsenrich, "cbackgroundWeightedStats"):
+        weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
+            residualArr,
+            invVarArr,
+        )
+    else:
+        weightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
+        rhsTrack = np.einsum(
+            "ij,ij->j",
+            invVarArr,
+            residualArr,
+            dtype=np.float64,
+        )
     if not np.any(weightTrack > 0.0):
         return np.zeros(intervalCount, dtype=np.float32)
 
@@ -9227,13 +9186,19 @@ def _solveClippedBackgroundHeuristic(
     if intervalCount < 1:
         return np.zeros(0, dtype=np.float32)
 
-    weightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
-    rhsTrack = np.einsum(
-        "ij,ij->j",
-        invVarArr,
-        residualArr,
-        dtype=np.float64,
-    )
+    if hasattr(cconsenrich, "cbackgroundWeightedStats"):
+        weightTrack, rhsTrack = cconsenrich.cbackgroundWeightedStats(
+            residualArr,
+            invVarArr,
+        )
+    else:
+        weightTrack = np.sum(invVarArr, axis=0, dtype=np.float64)
+        rhsTrack = np.einsum(
+            "ij,ij->j",
+            invVarArr,
+            residualArr,
+            dtype=np.float64,
+        )
     if not np.any(weightTrack > 0.0):
         return np.zeros(intervalCount, dtype=np.float32)
 

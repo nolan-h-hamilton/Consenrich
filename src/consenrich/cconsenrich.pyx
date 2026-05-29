@@ -6672,3 +6672,560 @@ cpdef tuple csolveChromROCCOExact(
         int(selectedCount),
         float(selectionPenalty_),
     )
+
+
+# ---------------------------------------------------------------------------
+# Optional fast helper kernels used by Python compatibility wrappers.
+# ---------------------------------------------------------------------------
+
+cdef inline double _transformDerivativeAtMean_F64(
+    double x,
+    int mode,
+    double inputOffset,
+    double inputScale,
+    double outputScale,
+    double shape,
+) noexcept nogil:
+    cdef double tiny = 2.2250738585072014e-308
+    cdef double shifted = x + inputOffset
+    cdef double u
+    cdef double root
+    if shifted < tiny:
+        shifted = tiny
+    if mode == __TRANSFORM_MODE_LOG:
+        return outputScale / shifted
+    if mode == __TRANSFORM_MODE_SQRT or mode == __TRANSFORM_MODE_ANSCOMBE:
+        return outputScale / (2.0 * inputScale * sqrt(fmax(shifted / inputScale, tiny)))
+    if mode == __TRANSFORM_MODE_ASINH:
+        u = shifted / inputScale
+        return outputScale / (inputScale * sqrt(1.0 + u * u))
+    if mode == __TRANSFORM_MODE_ASINH_SQRT:
+        root = sqrt(shifted)
+        u = root / inputScale
+        return outputScale / (2.0 * inputScale * root * sqrt(1.0 + u * u))
+    if mode == __TRANSFORM_MODE_GENERALIZED_LOG:
+        u = shifted / inputScale
+        return outputScale / (inputScale * sqrt(u * u + shape * shape))
+    return outputScale / inputScale
+
+
+def cTransformCountVarianceFloor(
+    object normalizedCounts,
+    object scaleFactors,
+    object mode=None,
+    object transformMethod=None,
+    object logOffset=1.0,
+    object logMult=1.0,
+    object inputOffset=None,
+    object inputScale=None,
+    object outputScale=None,
+    object shape=None,
+    object transformInputOffset=None,
+    object transformInputScale=None,
+    object transformOutputScale=None,
+    object transformShape=None,
+):
+    r"""Delta-method count-transform variance floor with a nogil inner loop."""
+    cdef object countsObj = np.asarray(normalizedCounts, dtype=np.float64)
+    cdef bint squeeze = False
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] counts2
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] scales
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] out
+    cdef object selectedMode = mode if mode is not None else transformMethod
+    cdef object selectedInputOffset = inputOffset if inputOffset is not None else transformInputOffset
+    cdef object selectedInputScale = inputScale if inputScale is not None else transformInputScale
+    cdef object selectedOutputScale = outputScale if outputScale is not None else transformOutputScale
+    cdef object selectedShape = shape if shape is not None else transformShape
+    cdef int modeCode = _parseTransformMode(selectedMode)
+    cdef tuple params = _resolveTransformParameters(
+        modeCode,
+        float(logOffset),
+        float(logMult),
+        None,
+        None,
+        selectedInputOffset,
+        selectedInputScale,
+        selectedOutputScale,
+        None,
+        selectedShape,
+    )
+    cdef double inputOffset_ = <double>params[0]
+    cdef double inputScale_ = <double>params[1]
+    cdef double outputScale_ = <double>params[2]
+    cdef double shape_ = <double>params[4]
+    cdef Py_ssize_t m, n, i, j
+    cdef double count, sf, rawMean, normalizedMean, normalizedVariance, deriv, floorValue
+
+    if countsObj.ndim == 1:
+        squeeze = True
+        counts2 = np.ascontiguousarray(np.asarray(countsObj, dtype=np.float64).reshape(1, -1), dtype=np.float64)
+    elif countsObj.ndim == 2:
+        counts2 = np.ascontiguousarray(countsObj, dtype=np.float64)
+    else:
+        raise ValueError("normalizedCounts must be a 1D or 2D array")
+
+    m = counts2.shape[0]
+    n = counts2.shape[1]
+    scales = np.ascontiguousarray(np.asarray(scaleFactors, dtype=np.float64).reshape(-1), dtype=np.float64)
+    if scales.shape[0] == 1 and m != 1:
+        scales = np.ascontiguousarray(np.full(m, float(scales[0]), dtype=np.float64), dtype=np.float64)
+    if scales.shape[0] != m:
+        raise ValueError("scaleFactors must contain one value per count track")
+    if not np.all(np.isfinite(scales) & (scales > 0.0)):
+        raise ValueError("scaleFactors must be finite positive values")
+
+    out = np.empty((m, n), dtype=np.float32)
+    with nogil:
+        for i in range(m):
+            sf = <double>scales[i]
+            for j in range(n):
+                count = <double>counts2[i, j]
+                if not isfinite(count):
+                    out[i, j] = <float>NAN
+                    continue
+                if count < 0.0:
+                    count = 0.0
+                rawMean = (count / sf) + 0.5
+                normalizedMean = rawMean * sf
+                normalizedVariance = rawMean * sf * sf
+                deriv = _transformDerivativeAtMean_F64(
+                    normalizedMean,
+                    modeCode,
+                    inputOffset_,
+                    inputScale_,
+                    outputScale_,
+                    shape_,
+                )
+                floorValue = deriv * deriv * normalizedVariance
+                if isfinite(floorValue) and floorValue > 0.0:
+                    out[i, j] = <float>floorValue
+                else:
+                    out[i, j] = <float>NAN
+    if squeeze:
+        return np.asarray(out[0, :], dtype=np.float32)
+    return out
+
+
+def cTuncObservationInformation(
+    object matrixMunc,
+    double pad,
+    object lambdaExp=None,
+    double observationPrecisionMultiplierMin=1.0,
+    double observationPrecisionMultiplierMax=1.0,
+):
+    r"""Interval information reduction for TUNC with a nogil inner loop."""
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] munc = np.ascontiguousarray(matrixMunc, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] lam
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] info
+    cdef Py_ssize_t m, n, i, j
+    cdef double v, sumInfo, lamj
+    if munc.ndim != 2:
+        raise ValueError("matrixMunc must be a 2D array")
+    m = munc.shape[0]
+    n = munc.shape[1]
+    if lambdaExp is None:
+        lam = np.ascontiguousarray(np.ones(n, dtype=np.float64), dtype=np.float64)
+    else:
+        lam = np.ascontiguousarray(np.asarray(lambdaExp, dtype=np.float64).reshape(-1), dtype=np.float64)
+        if lam.shape[0] != n:
+            raise ValueError("lambdaExp length must match interval count")
+        lam = np.ascontiguousarray(np.nan_to_num(lam, nan=1.0, posinf=1.0, neginf=1.0), dtype=np.float64)
+        lam = np.ascontiguousarray(np.clip(lam, observationPrecisionMultiplierMin, observationPrecisionMultiplierMax), dtype=np.float64)
+    info = np.zeros(n, dtype=np.float64)
+    with nogil:
+        for j in range(n):
+            lamj = <double>lam[j]
+            sumInfo = 0.0
+            for i in range(m):
+                v = <double>munc[i, j]
+                if isfinite(v):
+                    v = v + pad
+                    if isfinite(v) and v > 0.0:
+                        if v < 1.0e-12:
+                            v = 1.0e-12
+                        sumInfo += lamj / v
+            if sumInfo > 0.0 and isfinite(sumInfo):
+                info[j] = sumInfo
+            else:
+                info[j] = 0.0
+    return info
+
+
+def cMovingAverageSame(object values, int window):
+    r"""Same-length moving average using cumulative sums."""
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(np.asarray(values, dtype=np.float64).reshape(-1), dtype=np.float64)
+    cdef Py_ssize_t n = x.shape[0]
+    cdef Py_ssize_t w = max(int(window), 1)
+    cdef Py_ssize_t leftPad, rightPad, paddedN, i
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] padded
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] csum
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out
+    if w <= 1 or n <= 1:
+        return np.asarray(x, dtype=np.float64).copy()
+    if w > n:
+        w = n
+    leftPad = (w - 1) // 2
+    rightPad = w - 1 - leftPad
+    paddedN = n + leftPad + rightPad
+    padded = np.zeros(paddedN, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        padded[leftPad + i] = x[i]
+    csum = np.empty(paddedN + 1, dtype=np.float64)
+    csum[0] = 0.0
+    with nogil:
+        for i in range(paddedN):
+            csum[i + 1] = csum[i] + padded[i]
+        for i in range(n):
+            out[i] = (csum[i + w] - csum[i]) / <double>w
+    return out
+
+
+def cEstimateEffectiveSampleSize(object values, int maxLag):
+    r"""Positive-autocorrelation effective sample size scan."""
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(np.asarray(values, dtype=np.float64).reshape(-1), dtype=np.float64)
+    cdef Py_ssize_t n = x.shape[0]
+    cdef Py_ssize_t i, lag, maxLag_, lagsUsed = 0
+    cdef double mean = 0.0
+    cdef double var = 0.0
+    cdef double cov, rho, tau = 1.0
+    if n < 2:
+        return float(n), 1.0, 0
+    for i in range(n):
+        mean += x[i]
+    mean /= <double>n
+    with nogil:
+        for i in range(n):
+            x[i] = x[i] - mean
+            var += x[i] * x[i]
+    var /= <double>max(n, 1)
+    if (not isfinite(var)) or var <= 2.2250738585072014e-308:
+        return float(n), 1.0, 0
+    maxLag_ = max(1, min(int(maxLag), n - 1))
+    with nogil:
+        for lag in range(1, maxLag_ + 1):
+            cov = 0.0
+            for i in range(n - lag):
+                cov += x[i] * x[i + lag]
+            cov /= <double>max(n - lag, 1)
+            rho = cov / var
+            if (not isfinite(rho)) or rho <= 0.0:
+                break
+            tau += 2.0 * rho
+            lagsUsed = lag
+    if tau < 1.0:
+        tau = 1.0
+    return float(n / tau), float(tau), int(lagsUsed)
+
+# Additional ROCCO/DWB helper kernels added during the runtime cleanup pass.
+
+cdef int _dwbKernelCodeRefactor(object kernel) except -1:
+    cdef str name = str(kernel).strip().lower().replace("-", "_")
+    if name == "bartlett" or name == "triangle" or name == "triangular":
+        return 0
+    if name == "parzen":
+        return 1
+    if name == "qs" or name == "quadratic_spectral" or name == "quadraticspectral":
+        return 2
+    raise ValueError(f"Unknown DWB kernel: {kernel}")
+
+
+cdef inline int _dwbMaxLagRefactor(int bandwidth, int kernelCode) noexcept nogil:
+    cdef int bw = bandwidth if bandwidth >= 2 else 2
+    cdef int lag
+    if kernelCode == 2:
+        lag = 8 * bw
+        if lag < 32:
+            lag = 32
+        return lag
+    return bw
+
+
+cdef inline double _dwbKernelValueRefactor(int kernelCode, long lag, int bandwidth) noexcept nogil:
+    cdef double bw = <double>(bandwidth if bandwidth >= 1 else 1)
+    cdef double ax = fabs(<double>lag) / bw
+    cdef double y
+    if kernelCode == 0:
+        if ax <= 1.0:
+            return 1.0 - ax
+        return 0.0
+    if kernelCode == 1:
+        if ax <= 0.5:
+            return 1.0 - 6.0 * ax * ax + 6.0 * ax * ax * ax
+        if ax <= 1.0:
+            return 2.0 * (1.0 - ax) * (1.0 - ax) * (1.0 - ax)
+        return 0.0
+    if ax < 1.0e-12:
+        return 1.0
+    y = (6.0 * __PI_DOUBLE * ax) / 5.0
+    return (25.0 / (12.0 * __PI_DOUBLE * __PI_DOUBLE * ax * ax)) * ((sin(y) / fmax(y, 1.0e-12)) - cos(y))
+
+
+cpdef object cGenerateDWBMultipliersFromNoise(object noise, int bandwidth, object kernel="bartlett"):
+    """Generate standardized dependent wild-bootstrap multipliers from supplied Gaussian noise."""
+    cdef int bw = bandwidth if bandwidth >= 2 else 2
+    cdef int kernelCode = _dwbKernelCodeRefactor(kernel)
+    cdef int maxLag = _dwbMaxLagRefactor(bw, kernelCode)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] noiseArr = np.ascontiguousarray(
+        np.asarray(noise, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef Py_ssize_t n = noiseArr.shape[0] - 2 * maxLag
+    cdef Py_ssize_t weightCount = 2 * maxLag + 1
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] weights
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out
+    cdef double[::1] noiseView
+    cdef double[::1] weightView
+    cdef double[::1] outView
+    cdef Py_ssize_t i, j
+    cdef long lag
+    cdef double normSq = 0.0
+    cdef double norm, value, meanValue = 0.0, varSum = 0.0, sd
+    if n <= 0:
+        raise ValueError("noise length is too short for the requested DWB bandwidth")
+    weights = np.empty(weightCount, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)
+    noiseView = noiseArr
+    weightView = weights
+    outView = out
+    with nogil:
+        for j in range(weightCount):
+            lag = <long>j - <long>maxLag
+            value = _dwbKernelValueRefactor(kernelCode, lag, bw)
+            weightView[j] = value
+            normSq += value * value
+        norm = sqrt(fmax(normSq, 2.2250738585072014e-308))
+        for j in range(weightCount):
+            weightView[j] = weightView[j] / norm
+        for i in range(n):
+            value = 0.0
+            for j in range(weightCount):
+                value += noiseView[i + j] * weightView[j]
+            outView[i] = value
+            meanValue += value
+        meanValue = meanValue / <double>n
+        if n >= 2:
+            for i in range(n):
+                value = outView[i] - meanValue
+                varSum += value * value
+            sd = sqrt(varSum / <double>(n - 1))
+        else:
+            sd = 0.0
+        if (not isfinite(sd)) or sd <= 2.2250738585072014e-308:
+            for i in range(n):
+                outView[i] = 1.0
+        else:
+            for i in range(n):
+                outView[i] = (outView[i] - meanValue) / sd
+    return out
+
+
+cpdef object cApplyStationaryNullDWB(object template, object multipliers):
+    """Apply DWB multipliers to a template and subtract the draw mean."""
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] templateArr = np.ascontiguousarray(
+        np.asarray(template, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] multArr = np.ascontiguousarray(
+        np.asarray(multipliers, dtype=np.float64).reshape(-1), dtype=np.float64
+    )
+    cdef Py_ssize_t n = templateArr.shape[0]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] out
+    cdef double[::1] templateView
+    cdef double[::1] multView
+    cdef double[::1] outView
+    cdef Py_ssize_t i
+    cdef double meanValue = 0.0
+    if multArr.shape[0] != n:
+        raise ValueError("template and multipliers must have the same length")
+    out = np.empty(n, dtype=np.float64)
+    templateView = templateArr
+    multView = multArr
+    outView = out
+    with nogil:
+        for i in range(n):
+            outView[i] = templateView[i] * multView[i]
+            meanValue += outView[i]
+        if n > 0:
+            meanValue = meanValue / <double>n
+            for i in range(n):
+                outView[i] = outView[i] - meanValue
+    return out
+
+
+cpdef tuple cBooleanRunBounds(object above, int maxGapBins=0):
+    """Return start/end arrays for true-runs, optionally bridging small false gaps."""
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] arr = np.ascontiguousarray(
+        np.asarray(above, dtype=np.uint8).reshape(-1), dtype=np.uint8
+    )
+    cdef Py_ssize_t n = arr.shape[0]
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] starts = np.empty(n, dtype=np.int64)
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] ends = np.empty(n, dtype=np.int64)
+    cdef uint8_t[::1] arrView = arr
+    cdef int64_t[::1] startsView = starts
+    cdef int64_t[::1] endsView = ends
+    cdef Py_ssize_t i, outCount = 0
+    cdef Py_ssize_t runStart = -1
+    cdef Py_ssize_t lastTrue = -1
+    cdef int maxGap = maxGapBins if maxGapBins > 0 else 0
+    with nogil:
+        for i in range(n):
+            if arrView[i] != 0:
+                if runStart < 0:
+                    runStart = i
+                elif i - lastTrue > maxGap + 1:
+                    startsView[outCount] = runStart
+                    endsView[outCount] = lastTrue
+                    outCount += 1
+                    runStart = i
+                lastTrue = i
+        if runStart >= 0:
+            startsView[outCount] = runStart
+            endsView[outCount] = lastTrue
+            outCount += 1
+    return starts[:outCount].copy(), ends[:outCount].copy()
+
+# ---------------------------------------------------------------------------
+# Additional lowercase compatibility kernels for Python runtime fast paths.
+# ---------------------------------------------------------------------------
+
+def cbackgroundWeightedStats(object residualMatrix, object invVarMatrix):
+    r"""Column-wise background sufficient statistics with a nogil inner loop."""
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] residualArr = np.ascontiguousarray(residualMatrix, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float32_t, ndim=2, mode="c"] invArr = np.ascontiguousarray(invVarMatrix, dtype=np.float32)
+    if residualArr.ndim != 2 or invArr.shape[0] != residualArr.shape[0] or invArr.shape[1] != residualArr.shape[1]:
+        raise ValueError("residualMatrix and invVarMatrix must have identical 2D shapes")
+    cdef Py_ssize_t m = residualArr.shape[0]
+    cdef Py_ssize_t n = residualArr.shape[1]
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] weightArr = np.empty(n, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] rhsArr = np.empty(n, dtype=np.float64)
+    cdef Py_ssize_t i, j
+    cdef double wsum, rsum, w
+    with nogil:
+        for i in range(n):
+            wsum = 0.0
+            rsum = 0.0
+            for j in range(m):
+                w = <double>invArr[j, i]
+                wsum += w
+                rsum += w * <double>residualArr[j, i]
+            weightArr[i] = wsum
+            rhsArr[i] = rsum
+    return weightArr, rhsArr
+
+
+def ctuncObservationInformation(
+    object matrixMunc,
+    double pad,
+    object lambdaExp=None,
+    double observationPrecisionMultiplierMin=1.0,
+    double observationPrecisionMultiplierMax=1.0,
+):
+    return cTuncObservationInformation(
+        matrixMunc,
+        pad,
+        lambdaExp=lambdaExp,
+        observationPrecisionMultiplierMin=observationPrecisionMultiplierMin,
+        observationPrecisionMultiplierMax=observationPrecisionMultiplierMax,
+    )
+
+
+def crebaseTuncIntervalScales(object seedQ, object baseQ, object rawScale, object stateModel):
+    r"""Rebase transition scalar Q scales from seed-Q units to final base-Q units."""
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] seedArr = np.ascontiguousarray(seedQ, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=2, mode="c"] baseArr = np.ascontiguousarray(baseQ, dtype=np.float64)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] rawArr = np.ascontiguousarray(np.asarray(rawScale, dtype=np.float64).reshape(-1), dtype=np.float64)
+    cdef int dim = 1 if str(stateModel) == "level" else 2
+    if seedArr.shape[0] < dim or seedArr.shape[1] < dim or baseArr.shape[0] < dim or baseArr.shape[1] < dim:
+        raise ValueError("seedQ/baseQ must cover the active state dimension")
+    cdef Py_ssize_t n = rawArr.shape[0]
+    cdef cnp.ndarray[cnp.float32_t, ndim=1, mode="c"] scaleArr = np.ones(n, dtype=np.float32)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] errArr = np.empty(max(n * dim, 1), dtype=np.float64)
+    cdef Py_ssize_t i, errCount = 0
+    cdef int d, validCount
+    cdef double scalar, targetDiag, baseDiag, ratio, logSum, localScale, recomposed, absErr, maxErr = 0.0
+    with nogil:
+        for i in range(n):
+            scalar = rawArr[i]
+            if (not isfinite(scalar)) or scalar < 1.0e-12:
+                scalar = 1.0e-12
+            logSum = 0.0
+            validCount = 0
+            for d in range(dim):
+                targetDiag = seedArr[d, d] * scalar
+                baseDiag = baseArr[d, d]
+                if isfinite(targetDiag) and isfinite(baseDiag) and targetDiag > 0.0 and baseDiag > 0.0:
+                    ratio = targetDiag / baseDiag
+                    if ratio < 1.0e-300:
+                        ratio = 1.0e-300
+                    logSum += log(ratio)
+                    validCount += 1
+            localScale = 1.0 if validCount <= 0 else exp(logSum / <double>validCount)
+            scaleArr[i] = <float>localScale
+            for d in range(dim):
+                targetDiag = seedArr[d, d] * scalar
+                baseDiag = baseArr[d, d]
+                if isfinite(targetDiag) and isfinite(baseDiag) and targetDiag > 0.0 and baseDiag > 0.0:
+                    recomposed = baseDiag * localScale
+                    if recomposed < 1.0e-300:
+                        recomposed = 1.0e-300
+                    if targetDiag < 1.0e-300:
+                        targetDiag = 1.0e-300
+                    absErr = fabs(log(recomposed / targetDiag))
+                    errArr[errCount] = absErr
+                    errCount += 1
+                    if absErr > maxErr:
+                        maxErr = absErr
+    if errCount == 0:
+        return scaleArr, 0.0, 0.0
+    return scaleArr, float(maxErr), float(np.median(np.asarray(errArr[:errCount], dtype=np.float64)))
+
+
+def cmovingAverageSame(object values, int window):
+    # Preserve the original NumPy centering for small windows, and use the Cython
+    # cumulative-sum kernel for large windows where Python overhead dominated.
+    cdef int window_ = max(int(window), 1)
+    cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] x = np.ascontiguousarray(np.asarray(values, dtype=np.float64).reshape(-1), dtype=np.float64)
+    if window_ <= 1 or x.shape[0] <= 1:
+        return np.asarray(x, dtype=np.float64).copy()
+    if window_ > x.shape[0]:
+        window_ = <int>x.shape[0]
+    if window_ <= 256:
+        return np.ascontiguousarray(np.convolve(x, np.full(window_, 1.0 / float(window_), dtype=np.float64), mode="same"), dtype=np.float64)
+    return cMovingAverageSame(x, window_)
+
+
+def cbooleanRunBounds(object above, int maxGapBins=0):
+    r"""Run bounds for boolean threshold tracks, optionally bridging short gaps."""
+    cdef cnp.ndarray[cnp.uint8_t, ndim=1, mode="c"] flagsArr = np.ascontiguousarray(np.asarray(above, dtype=np.uint8).reshape(-1), dtype=np.uint8)
+    cdef Py_ssize_t n = flagsArr.shape[0]
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] startsArr = np.empty(n, dtype=np.int64)
+    cdef cnp.ndarray[cnp.int64_t, ndim=1, mode="c"] endsArr = np.empty(n, dtype=np.int64)
+    cdef Py_ssize_t i = 0
+    cdef Py_ssize_t count = 0
+    cdef Py_ssize_t start
+    cdef Py_ssize_t lastTrue
+    cdef int gap = max(int(maxGapBins), 0)
+    if n == 0:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    with nogil:
+        while i < n:
+            while i < n and flagsArr[i] == 0:
+                i += 1
+            if i >= n:
+                break
+            start = i
+            lastTrue = i
+            i += 1
+            while i < n:
+                if flagsArr[i] != 0:
+                    if i - lastTrue > gap + 1:
+                        break
+                    lastTrue = i
+                elif gap == 0:
+                    break
+                i += 1
+            startsArr[count] = start
+            endsArr[count] = lastTrue
+            count += 1
+            if i <= lastTrue:
+                i = lastTrue + 1
+    return startsArr[:count].copy(), endsArr[:count].copy()
